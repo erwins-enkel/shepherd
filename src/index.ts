@@ -452,6 +452,8 @@ if (savedDe !== null) {
   const v = normalizeDefaultEffortSetting(savedDe);
   if (v !== null) config.defaultEffort = v;
 }
+const savedDee = normalizeDefaultEffortSetting(store.getSetting("defaultExecutionEffort"));
+if (savedDee !== null) config.defaultExecutionEffort = savedDee;
 for (const [key, provider] of [
   ["defaultClaudeEffort", "claude"],
   ["defaultCodexEffort", "codex"],

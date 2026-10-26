@@ -1284,6 +1284,12 @@ export const putDefaultCodexModel = (model: string): Promise<{ defaultCodexModel
 export const putDefaultEffort = (effort: string): Promise<{ defaultEffort: string }> =>
   patchSettings<{ defaultEffort: string }>({ defaultEffort: effort });
 
+// Global default execution effort for plan-gated sessions ("default" = same as planning, #3434).
+export const putDefaultExecutionEffort = (
+  effort: string,
+): Promise<{ defaultExecutionEffort: string }> =>
+  patchSettings<{ defaultExecutionEffort: string }>({ defaultExecutionEffort: effort });
+
 // Per-engine default effort ("inherit" follows the global default effort).
 export type EngineEffortKey = "defaultClaudeEffort" | "defaultCodexEffort";
 export const putEngineEffort = (
@@ -2825,10 +2831,25 @@ export async function regenerateRecap(id: string): Promise<{ status: string }> {
   return r.json();
 }
 
-/** Release an approved plan gate so the agent executes. Returns false on 409 (not approved). */
-export async function releasePlanGate(id: string): Promise<boolean> {
-  const r = await fetch(`/api/sessions/${id}/go`, JSON_POST());
-  return r.ok;
+/** Outcome of a Go: released, or refused. `code` names a withheld Go (#3434) — the agent was busy
+ *  or the execution-effort switch was not confirmed; null for any other refusal (not approved). */
+export type PlanGoResult = { ok: true } | { ok: false; code: "busy" | "unconfirmed" | null };
+
+/** Release an approved plan gate so the agent executes. Never throws on a non-2xx (rejects only on a
+ *  network error). `skipEffortSwitch` = "Go at planning effort": the server clears the session's
+ *  execution effort, then runs a normal Go. */
+export async function releasePlanGate(
+  id: string,
+  opts?: { skipEffortSwitch?: boolean },
+): Promise<PlanGoResult> {
+  const r = await fetch(
+    `/api/sessions/${id}/go`,
+    JSON_POST(opts?.skipEffortSwitch ? { skipEffortSwitch: true } : undefined),
+  );
+  if (r.ok) return { ok: true };
+  const body = (await r.json().catch(() => null)) as { code?: unknown } | null;
+  const code = body?.code === "busy" || body?.code === "unconfirmed" ? body.code : null;
+  return { ok: false, code };
 }
 
 /** Outcome of an on-demand plan review trigger: a reviewer spawned, the request was a silent

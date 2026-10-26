@@ -7,6 +7,7 @@ import {
   modelForManualProviderChange,
   modelSettingFor,
   effortSettingFor,
+  executionEffortSettingFor,
   type ReseedInput,
   type NormalizeInput,
 } from "./run-config";
@@ -206,5 +207,14 @@ describe("effortSettingFor", () => {
   });
   it("falls back to 'default' when nothing is configured", () => {
     expect(effortSettingFor("claude", "inherit", {})).toBe("default");
+  });
+});
+
+describe("executionEffortSettingFor", () => {
+  it("prefers the repo override, then the global default, then 'default' (same as planning)", () => {
+    expect(executionEffortSettingFor("low", "high")).toBe("low");
+    expect(executionEffortSettingFor("default", "high")).toBe("default");
+    expect(executionEffortSettingFor("inherit", "high")).toBe("high");
+    expect(executionEffortSettingFor("inherit", undefined)).toBe("default");
   });
 });

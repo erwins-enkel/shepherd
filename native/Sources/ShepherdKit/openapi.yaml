@@ -222,6 +222,13 @@ components:
         - sandbox:trusted
         - sandbox:standard
         - sandbox:autonomous
+    ReleasePlanGateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        skipEffortSwitch:
+          type: boolean
+          description: "Go at planning effort (#3434): clear the session's execution effort, then Go without a switch."
     Error:
       type: object
       additionalProperties: true
@@ -776,6 +783,16 @@ components:
           type:
             - string
             - "null"
+        executionEffort:
+          type:
+            - string
+            - "null"
+          description: Plan-gated execution effort (#3434); null = inherit (no switch at Go). `effort` stays the planning selection.
+        activeEffort:
+          type:
+            - string
+            - "null"
+          description: The tier Shepherd last put in force — the spawn flag or a CONFIRMED mid-session switch (#3434). null = provider default.
         runtimeModel:
           type:
             - string
@@ -1031,6 +1048,9 @@ components:
             - string
             - "null"
         effort:
+          $ref: "#/components/schemas/Effort"
+        executionEffort:
+          description: "Plan-gated execution effort (#3434): switched to at Go; null/absent = inherit (no switch)."
           $ref: "#/components/schemas/Effort"
         images:
           type: array
@@ -3567,6 +3587,9 @@ components:
             - "null"
         effort:
           $ref: "#/components/schemas/Effort"
+        executionEffort:
+          description: "Plan-gated execution effort (#3434): switched to at Go; null/absent = inherit (no switch)."
+          $ref: "#/components/schemas/Effort"
         images:
           type: array
           items:
@@ -4878,6 +4901,16 @@ components:
           type:
             - string
             - "null"
+        effortSwitchError:
+          description: Why the last mid-session effort switch (#3434) did not happen. busy/unconfirmed withheld Go; restore_* = a re-gate kept the execution effort.
+          anyOf:
+            - type: string
+              enum:
+                - busy
+                - unconfirmed
+                - restore_skipped
+                - restore_unconfirmed
+            - type: string
         blocks:
           type: array
           items:
@@ -5742,6 +5775,9 @@ components:
             - string
             - "null"
         effort:
+          $ref: "#/components/schemas/Effort"
+        executionEffort:
+          description: "Plan-gated execution effort (#3434): switched to at Go; null/absent = inherit (no switch)."
           $ref: "#/components/schemas/Effort"
         images:
           type: array
@@ -7819,6 +7855,8 @@ components:
           type: string
         defaultEffort:
           type: string
+        defaultExecutionEffort:
+          type: string
         defaultAgentProvider:
           type: string
         authMode:
@@ -7924,6 +7962,8 @@ components:
         defaultCodexModel:
           type: string
         defaultEffort:
+          type: string
+        defaultExecutionEffort:
           type: string
         defaultAgentProvider:
           type: string
@@ -8268,6 +8308,8 @@ components:
           type: string
         defaultEffort:
           type: string
+        defaultExecutionEffort:
+          type: string
         egressExtraHosts:
           type: array
           items:
@@ -8360,6 +8402,8 @@ components:
         defaultModel:
           type: string
         defaultEffort:
+          type: string
+        defaultExecutionEffort:
           type: string
         egressExtraHosts:
           type: array
@@ -11914,7 +11958,13 @@ paths:
           type: string
     post:
       operationId: releasePlanGate
-      description: "Release an approved plan gate and start execution. Succeeds only when the session is in the planning phase, its gate is approved, and the steer reaches the live pane. There is NO 404: an unknown id answers the same 409 as a gate that is not releasable."
+      description: "Release an approved plan gate and start execution. Succeeds only when the session is in the planning phase, its gate is approved, and the steer reaches the live pane. There is NO 404: an unknown id answers the same 409 as a gate that is not releasable. When the session has an execution effort (#3434) Shepherd first switches the running agent to it for this session only; an unconfirmed switch withholds Go (409 with `code`)."
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReleasePlanGateRequest"
       responses:
         "200":
           description: Execution started.
@@ -11925,7 +11975,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
-          description: error is "plan not approved or not in planning phase". Also the answer for an unknown id.
+          description: error is "plan not approved or not in planning phase" (also the answer for an unknown id), or — with `code` busy | unconfirmed — the execution-effort switch was not confirmed and Go was withheld (#3434).
           content:
             application/json:
               schema:

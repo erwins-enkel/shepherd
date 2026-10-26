@@ -1045,6 +1045,10 @@ export const config = {
   // New Task preselect, drain/autopilot and the capacity-failover substitute.
   defaultClaudeEffort: "inherit",
   defaultCodexEffort: "inherit",
+  // Global default EXECUTION effort for plan-gated sessions (#3434): "default" = no mid-session
+  // switch at Go (the session keeps its planning effort); a tier = switch to it. Persisted +
+  // UI-configurable; a repo override ("inherit" | "default" | <tier>) wins over it.
+  defaultExecutionEffort: "default",
   // Default interactive agent provider for newly spawned task sessions. Persisted +
   // UI-configurable; env seeds a fresh DB.
   defaultAgentProvider:

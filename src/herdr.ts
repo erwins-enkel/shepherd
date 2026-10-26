@@ -773,6 +773,33 @@ export function createSerializer(): <T>(fn: () => Promise<T>) => Promise<T> {
 }
 
 /**
+ * {@link createSerializer} per key: calls sharing a key run strictly FIFO, calls on different keys
+ * run concurrently. A key's entry is dropped once its chain drains, so the map holds only keys
+ * with work in flight.
+ */
+export function createKeyedSerializer(): KeyedSerializer {
+  const tails = new Map<string, Promise<unknown>>();
+  const serialize = <T>(key: string, fn: () => Promise<T>): Promise<T> => {
+    const run = (tails.get(key) ?? Promise.resolve()).then(fn, fn);
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    tails.set(key, tail);
+    void tail.then(() => {
+      if (tails.get(key) === tail) tails.delete(key);
+    });
+    return run;
+  };
+  return Object.assign(serialize, { inFlightKeys: () => tails.size });
+}
+
+export type KeyedSerializer = (<T>(key: string, fn: () => Promise<T>) => Promise<T>) & {
+  /** Keys with work in flight (test probe for entry cleanup). */
+  inFlightKeys(): number;
+};
+
+/**
  * Whether `tabId` is the only tab left in its workspace — the close both drivers must DECLINE
  * (#2039).
  *

@@ -134,7 +134,7 @@ beforeEach(() => {
   repoConfig.loaded = {};
   repoConfig.settled = {};
   toasts.items = [];
-  vi.mocked(releasePlanGate).mockReset().mockResolvedValue(true);
+  vi.mocked(releasePlanGate).mockReset().mockResolvedValue({ ok: true });
   vi.mocked(reviewPlan).mockReset().mockResolvedValue("started");
   vi.mocked(resumeQuota).mockReset().mockResolvedValue({ status: "resumed" });
   vi.mocked(retryCi).mockReset().mockResolvedValue({ ok: true });
@@ -1324,7 +1324,7 @@ describe("UnitRow plan-gate hold CTA", () => {
 
   it("no optimistic hide on a false release: Go CTA stays, persistent toast raised", async () => {
     const id = "hc3";
-    vi.mocked(releasePlanGate).mockResolvedValue(false);
+    vi.mocked(releasePlanGate).mockResolvedValue({ ok: false, code: null });
     planGates.map = {
       [id]: {
         ...baseGate,
@@ -1354,6 +1354,102 @@ describe("UnitRow plan-gate hold CTA", () => {
     );
     const t = toasts.items.find((x) => x.text === m.hold_cta_go_failed())!;
     expect(t.durationMs).toBe(12000); // 12s failure — auto-dismisses
+  });
+
+  it("withheld Go (#3434): warning line with Retry Go and Go at planning effort", async () => {
+    const id = "hc-es";
+    planGates.map = {
+      [id]: {
+        ...baseGate,
+        sessionId: id,
+        decision: "approved",
+        approved: true,
+        round: 0,
+        cap: 3,
+        dismissed: false,
+        blocks: [],
+        effortSwitchError: "busy",
+      },
+    };
+    render(UnitRow, {
+      session: session({ id, status: "idle", planPhase: "planning", executionEffort: "low" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect
+      .element(page.getByText(m.effort_switch_withheld_busy({ effort: "Low" })))
+      .toBeInTheDocument();
+    // Both release the gate, so each arms first — one click never starts execution.
+    vi.mocked(releasePlanGate).mockClear();
+    await page.getByRole("button", { name: m.effort_switch_retry_go() }).click();
+    expect(releasePlanGate).not.toHaveBeenCalled();
+    await page.getByRole("button", { name: m.effort_switch_retry_go_arm() }).click();
+    await vi.waitFor(() => expect(releasePlanGate).toHaveBeenLastCalledWith(id));
+    await page.getByRole("button", { name: m.effort_switch_go_planning() }).click();
+    expect(releasePlanGate).toHaveBeenCalledTimes(1);
+    await page.getByRole("button", { name: m.effort_switch_go_planning_arm() }).click();
+    await vi.waitFor(() =>
+      expect(releasePlanGate).toHaveBeenLastCalledWith(id, { skipEffortSwitch: true }),
+    );
+  });
+
+  it("a not-restored notice never masks a hold line with its own CTA (#3434)", async () => {
+    const id = "hc-es3";
+    planGates.map = {
+      [id]: {
+        ...baseGate,
+        sessionId: id,
+        decision: "approved",
+        approved: true,
+        round: 0,
+        cap: 3,
+        dismissed: false,
+        blocks: [],
+        effortSwitchError: "restore_skipped",
+      },
+    };
+    render(UnitRow, {
+      session: session({ id, status: "idle", planPhase: "executing", repoPath: "/repo/z" }),
+      hold: { code: "ci-red", params: { pr: 42 } },
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect
+      .element(page.getByRole("button", { name: m.hold_cta_retry_ci() }))
+      .toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(m.effort_switch_not_restored_title());
+  });
+
+  it("a Go refused with 409 unconfirmed names the cause in the toast (#3434)", async () => {
+    const id = "hc-es2";
+    vi.mocked(releasePlanGate).mockResolvedValue({ ok: false, code: "unconfirmed" });
+    planGates.map = {
+      [id]: {
+        ...baseGate,
+        sessionId: id,
+        decision: "approved",
+        approved: true,
+        round: 0,
+        cap: 3,
+        dismissed: false,
+        blocks: [],
+      },
+    };
+    render(UnitRow, {
+      session: session({ id, status: "idle", planPhase: "planning" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await page.getByRole("button", { name: m.hold_cta_go() }).click();
+    await page.getByRole("button", { name: m.hold_cta_go_arm() }).click();
+    await vi.waitFor(() =>
+      expect(toasts.items.some((t) => t.text === m.effort_switch_go_unconfirmed_toast())).toBe(
+        true,
+      ),
+    );
   });
 
   it("ci-red hold: Retry CI arms then reruns via retryCi(repoPath, pr) (#1629)", async () => {
@@ -1464,9 +1560,9 @@ describe("UnitRow plan-gate hold CTA", () => {
 
   it("busy: disables the CTA until the pending release settles", async () => {
     const id = "hc4";
-    let resolve!: (v: boolean) => void;
+    let resolve!: (v: { ok: true }) => void;
     vi.mocked(releasePlanGate).mockReturnValue(
-      new Promise<boolean>((r) => {
+      new Promise<{ ok: true }>((r) => {
         resolve = r;
       }),
     );
@@ -1492,7 +1588,7 @@ describe("UnitRow plan-gate hold CTA", () => {
     await page.getByRole("button", { name: m.hold_cta_go_arm() }).click(); // fire (disarms sync)
     const btn = page.getByRole("button", { name: m.hold_cta_go() });
     await expect.element(btn).toBeDisabled();
-    resolve(true);
+    resolve({ ok: true });
     await expect.element(btn).not.toBeDisabled();
   });
 });

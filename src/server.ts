@@ -2892,6 +2892,16 @@ function parseRepoDefaultEffort(v: unknown): string | { error: string } {
   return r;
 }
 
+// defaultExecutionEffort (#3434): same per-repo space as defaultEffort; "default" = no switch at Go.
+function parseRepoDefaultExecutionEffort(v: unknown): string | { error: string } {
+  const r = normalizeRepoDefaultEffortSetting(v);
+  if (r === null)
+    return {
+      error: `defaultExecutionEffort must be one of: inherit, default, ${EFFORTS.join(", ")}`,
+    };
+  return r;
+}
+
 function parsePreviewOpenMode(v: unknown): "ask" | "inline" | "tab" | { error: string } {
   if (v === "ask" || v === "inline" || v === "tab") return v;
   return { error: "previewOpenMode must be one of: ask, inline, tab" };
@@ -2942,6 +2952,7 @@ type RepoCfgBody = {
   sandboxProfile?: unknown;
   defaultModel?: unknown;
   defaultEffort?: unknown;
+  defaultExecutionEffort?: unknown;
   egressExtraHosts?: unknown;
   browserAllowedHosts?: unknown;
   maxAuto?: unknown;
@@ -2972,6 +2983,7 @@ type RepoCfgScalars = {
   sandboxProfile?: RepoSandboxSetting;
   defaultModel?: string;
   defaultEffort?: string;
+  defaultExecutionEffort?: string;
   egressExtraHosts?: string[];
   browserAllowedHosts?: string[];
   repoMode?: "forge" | "lightweight";
@@ -3010,6 +3022,7 @@ const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => u
   ["sandboxProfile", parseSandboxProfile],
   ["defaultModel", parseRepoDefaultModel],
   ["defaultEffort", parseRepoDefaultEffort],
+  ["defaultExecutionEffort", parseRepoDefaultExecutionEffort],
   ["egressExtraHosts", parseRepoEgressExtraHosts],
   ["browserAllowedHosts", parseRepoBrowserAllowedHosts],
   ["repoMode", parseRepoMode],
@@ -3056,6 +3069,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       sandboxProfile?: RepoSandboxSetting;
       defaultModel?: string;
       defaultEffort?: string;
+      defaultExecutionEffort?: string;
       egressExtraHosts?: string[];
       browserAllowedHosts?: string[];
       maxAuto?: number;
@@ -3093,6 +3107,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     sandboxProfile,
     defaultModel,
     defaultEffort,
+    defaultExecutionEffort,
     egressExtraHosts,
     browserAllowedHosts,
     repoMode,
@@ -3108,7 +3123,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, browserAllowedHosts, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, browserAllowedHosts, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
       },
       400,
     );
@@ -3136,6 +3151,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     sandboxProfile,
     defaultModel,
     defaultEffort,
+    defaultExecutionEffort,
     egressExtraHosts,
     browserAllowedHosts,
     maxAuto,
@@ -5355,12 +5371,18 @@ async function handleSessionRecommend({ req, parts, deps }: Ctx): Promise<Respon
 }
 
 // POST /api/sessions/:id/go — release an APPROVED planning session into execution.
-// 200 when the plan-gate transition fires (planning + approved); 409 otherwise.
+// 200 when the plan-gate transition fires (planning + approved); 409 otherwise. Optional body
+// `{skipEffortSwitch: true}` (#3434) = "Go at planning effort". A withheld Go because the effort
+// switch was busy/unconfirmed answers 409 with that `code`.
 async function handleSessionGo({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "go")) return null;
-  return (await deps.service.releasePlanGate(parts[2]))
-    ? json({ ok: true })
-    : json({ error: "plan not approved or not in planning phase" }, 409);
+  const body = (await req.json().catch(() => null)) as { skipEffortSwitch?: unknown } | null;
+  const skipEffortSwitch = body?.skipEffortSwitch === true;
+  if (await deps.service.releasePlanGate(parts[2], { skipEffortSwitch })) return json({ ok: true });
+  const code = deps.store.getPlanGate(parts[2])?.effortSwitchError;
+  if (code === "busy" || code === "unconfirmed")
+    return json({ error: "effort switch not confirmed; Go withheld", code }, 409);
+  return json({ error: "plan not approved or not in planning phase" }, 409);
 }
 
 // POST /api/sessions/:id/answer-ask {toolUseId, answers: RawAnswer[]} — type the operator's
@@ -8673,6 +8695,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // per-engine default effort ("inherit" follows defaultEffort).
       defaultClaudeEffort: config.defaultClaudeEffort,
       defaultCodexEffort: config.defaultCodexEffort,
+      // plan-gated execution effort (#3434): "default" = no switch at Go.
+      defaultExecutionEffort: config.defaultExecutionEffort,
       // per-role ENVIRONMENT SETTINGs, a pair per role: `<role>Cli` ("inherit" | "claude" | "codex";
       // "inherit" follows defaultAgentProvider + defaultModel) and `<role>Model` ("default" | <alias>
       // for that CLI). The UI shows each role's effective resolved CLI · model alongside the pickers.
@@ -8779,6 +8803,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["defaultModel", putDefaultModel],
   ["defaultCodexModel", putDefaultCodexModel],
   ["defaultEffort", putDefaultEffort],
+  ["defaultExecutionEffort", putDefaultExecutionEffort],
   ["defaultClaudeEffort", makeEngineEffortPatch("claude")],
   ["defaultCodexEffort", makeEngineEffortPatch("codex")],
   ["criticCli", makeRoleCliPatch("critic")],
@@ -8969,6 +8994,14 @@ function putDefaultEffort(value: unknown, deps: Ctx["deps"]): Response {
   config.defaultEffort = v; // live: next drain spawn picks it up
   deps.store.setSetting("defaultEffort", v); // persist across restarts
   return json({ defaultEffort: config.defaultEffort });
+}
+
+function putDefaultExecutionEffort(value: unknown, deps: Ctx["deps"]): Response {
+  const v = normalizeDefaultEffortSetting(value);
+  if (v === null) return json({ error: "unknown effort" }, 400);
+  config.defaultExecutionEffort = v; // live: next drain spawn picks it up
+  deps.store.setSetting("defaultExecutionEffort", v);
+  return json({ defaultExecutionEffort: config.defaultExecutionEffort });
 }
 
 // Per-engine default effort: "inherit" (follow defaultEffort) | "default" | a tier the engine offers.

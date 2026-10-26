@@ -87,6 +87,17 @@ test("remote mode confines repoPath without requiring it to exist here", () => {
   });
 });
 
+test("executionEffort (#3434): a tier passes, default/absent → null, junk is refused", () => {
+  const base = { repoPath: validRepo, baseBranch: "main", prompt: "go", images: [] };
+  const ok = validateCreate({ ...base, executionEffort: "medium" }, root);
+  expect(ok.ok && "executionEffort" in ok.value && ok.value.executionEffort).toBe("medium");
+  const dflt = validateCreate({ ...base, executionEffort: "default" }, root);
+  expect(dflt.ok && "executionEffort" in dflt.value && dflt.value.executionEffort).toBeNull();
+  expect(validateCreate({ ...base, executionEffort: "huge" }, root).ok).toBe(false);
+  const relaunch = validateRelaunchOverrides({ executionEffort: "low" }, root);
+  expect(relaunch.ok && relaunch.value.executionEffort).toBe("low");
+});
+
 test("remote mode refuses the clean terminal, and still checks the rest", () => {
   const base = { repoPath: validRepo, baseBranch: "main", prompt: "go" };
   expect(validateCreate({ ...base, images: [] }, root, { remote: true }).ok).toBe(true);

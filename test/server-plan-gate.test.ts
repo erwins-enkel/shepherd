@@ -110,6 +110,44 @@ test("POST /api/sessions/:id/go → 409 when releasePlanGate returns false", asy
   expect((await res.json()).error).toContain("not approved");
 });
 
+// #3434: a withheld Go (effort switch busy/unconfirmed) answers 409 with the code; the
+// skipEffortSwitch body is forwarded.
+test("POST /api/sessions/:id/go → 409 {code} when the effort switch withheld Go", async () => {
+  const seen: unknown[] = [];
+  const { app, store } = harness({
+    service: {
+      releasePlanGate: (_id: string, opts: unknown) => {
+        seen.push(opts);
+        return false;
+      },
+    } as any,
+  });
+  store.putPlanGate({
+    sessionId: "sess-1",
+    planHash: "h",
+    decision: "approved",
+    summary: "",
+    body: "",
+    findings: [],
+    round: 0,
+    cap: 3,
+    approved: true,
+    plan: "p",
+    updatedAt: 1,
+  });
+  store.setPlanGateEffortSwitchError("sess-1", "unconfirmed");
+  const res = await app.fetch(
+    new Request("http://x/api/sessions/sess-1/go", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ skipEffortSwitch: true }),
+    }),
+  );
+  expect(res.status).toBe(409);
+  expect((await res.json()).code).toBe("unconfirmed");
+  expect(seen).toEqual([{ skipEffortSwitch: true }]);
+});
+
 // ── POST /api/sessions/:id/review-plan ──────────────────────────────────────
 
 test("POST /api/sessions/:id/review-plan → 202, calls consider, relays status:started", async () => {

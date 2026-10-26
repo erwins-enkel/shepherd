@@ -351,6 +351,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     sandboxProfile: "inherit",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     manualStepsIssueEnabled: false,
@@ -385,6 +386,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     manualStepsIssueEnabled: false,
@@ -419,6 +421,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     manualStepsIssueEnabled: false,
@@ -453,6 +456,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     manualStepsIssueEnabled: false,
@@ -487,6 +491,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     manualStepsIssueEnabled: false,
@@ -719,6 +724,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     sandboxProfile: "inherit",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
   });
   store.setRepoConfig("/repo/d", {
     criticEnabled: true,
@@ -739,6 +745,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     egressExtraHosts: [],
     repoMode: "forge",
     manualStepsIssueEnabled: false,
@@ -2820,6 +2827,60 @@ test("a sessions row predating the migration reads the new columns back as null"
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// #3434: execution effort + tier in force. A pre-#3434 row's agent runs at its spawn effort.
+test("a sessions row predating #3434 backfills activeEffort from effort", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shep-store-effort-"));
+  const path = join(dir, "s.db");
+  try {
+    const first = new SessionStore(path);
+    const row = first.create({ ...base, effort: "high" });
+    const raw = new Database(path);
+    for (const col of ["executionEffort", "activeEffort"])
+      raw.run(`ALTER TABLE sessions DROP COLUMN ${col}`);
+    raw.close();
+    const migrated = new SessionStore(path).get(row.id)!;
+    expect(migrated.executionEffort).toBeNull();
+    expect(migrated.activeEffort).toBe("high");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("executionEffort/activeEffort persist through create + update", () => {
+  const s = mk();
+  const a = s.create({ ...base, effort: "xhigh", executionEffort: "medium" });
+  expect(s.get(a.id)).toMatchObject({
+    effort: "xhigh",
+    executionEffort: "medium",
+    activeEffort: "xhigh",
+  });
+  s.update(a.id, { activeEffort: "medium" });
+  expect(s.get(a.id)).toMatchObject({ effort: "xhigh", activeEffort: "medium" });
+});
+
+test("plan gate effortSwitchError round-trips and clears", () => {
+  const s = mk();
+  const a = s.create(base);
+  s.putPlanGate({
+    sessionId: a.id,
+    planHash: "h",
+    decision: "approve",
+    summary: "",
+    body: "",
+    findings: [],
+    round: 0,
+    cap: 3,
+    approved: true,
+    plan: "p",
+    updatedAt: 1,
+  } as any);
+  expect(s.getPlanGate(a.id)?.effortSwitchError).toBeNull();
+  s.setPlanGateEffortSwitchError(a.id, "unconfirmed");
+  expect(s.getPlanGate(a.id)?.effortSwitchError).toBe("unconfirmed");
+  s.setPlanGateEffortSwitchError(a.id, null);
+  expect(s.getPlanGate(a.id)?.effortSwitchError).toBeNull();
 });
 
 // ── settled clock (#1156) ─────────────────────────────────────────────────────

@@ -789,6 +789,8 @@
   // Seed effort for the composer, mirroring composeModel. On relaunch/edit-held it carries the
   // original's effort so the picker shows it (and the submit forwards it); null = provider default.
   let composeEffort = $state<string | null>(null);
+  // Same for the plan-gated execution effort (#3434); "default" = same as planning.
+  let composeExecutionEffort = $state<string | null>(null);
   // Relaunch-elsewhere: when set, the New Task dialog runs in relaunch mode and its
   // submit routes to relaunchSession(originalId, …) instead of createSession.
   let relaunchOriginalId = $state<string | null>(null);
@@ -2479,6 +2481,7 @@
     composePrompt = null;
     composeModel = null;
     composeEffort = null;
+    composeExecutionEffort = null;
     composeBaseBranch = null;
     relaunchOriginalId = null;
     relaunchIssueNumber = null;
@@ -2584,6 +2587,7 @@
       prompt: string;
       model: string | null;
       effort: string | null;
+      executionEffort?: string | null;
       images: string[];
       attachmentNames?: string[];
       launchUiState?: {
@@ -2628,6 +2632,7 @@
       agentProvider?: AgentProvider;
       model: string | null;
       effort: string | null;
+      executionEffort?: string | null;
       images: string[];
       attachmentNames?: string[];
       issueRef?: IssueRef;
@@ -2655,6 +2660,7 @@
     agentProvider?: AgentProvider;
     model: string | null;
     effort: string | null;
+    executionEffort?: string | null;
     images: string[];
     attachmentNames?: string[];
     issueRef?: IssueRef;
@@ -2816,6 +2822,7 @@
     // Mirror the null-model handling: null effort → literal "default" so the picker shows Default
     // and submits it, preserving the original's effort exactly (server keeps it via pickOverride).
     composeEffort = s.effort ?? "default";
+    composeExecutionEffort = s.executionEffort ?? "default";
     composeIssue = null;
     relaunchIssueNumber = s.issueNumber;
     relaunchOriginalId = id;
@@ -2836,6 +2843,7 @@
     // Mirror relaunch's null-model handling: null = "claude default" → literal "default".
     composeModel = input.model ?? "default";
     composeEffort = input.effort ?? "default";
+    composeExecutionEffort = input.executionEffort ?? "default";
     composeImages = (input.images ?? []).map((p, i) => ({
       path: p,
       name: input.attachmentNames?.[i] ?? p.split("/").at(-1) ?? p,
@@ -4115,6 +4123,7 @@
   {composePrompt}
   {composeModel}
   {composeEffort}
+  {composeExecutionEffort}
   {composeAgentProvider}
   {composePlanGate}
   {composeAutopilot}

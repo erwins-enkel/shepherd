@@ -142,6 +142,7 @@ test("repo config autopilotEnabled defaults off and round-trips", () => {
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",

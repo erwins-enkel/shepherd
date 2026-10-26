@@ -180,6 +180,13 @@ components:
         - sandbox:standard
         - sandbox:autonomous
       x-shepherd-open-enum: true
+    ReleasePlanGateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        skipEffortSwitch:
+          type: boolean
+          description: "Go at planning effort (#3434): clear the session's execution effort, then Go without a switch."
     Error:
       type: object
       additionalProperties: true
@@ -577,6 +584,12 @@ components:
           $ref: "#/components/schemas/AgentProvider"
         model: { type: [string, "null"] }
         effort: { type: [string, "null"] }
+        executionEffort:
+          type: [string, "null"]
+          description: "Plan-gated execution effort (#3434); null = inherit (no switch at Go). `effort` stays the planning selection."
+        activeEffort:
+          type: [string, "null"]
+          description: "The tier Shepherd last put in force — the spawn flag or a CONFIRMED mid-session switch (#3434). null = provider default."
         runtimeModel: { type: [string, "null"] }
         runtimeEffort: { type: [string, "null"] }
         contextTokens: { type: [integer, "null"] }
@@ -794,6 +807,11 @@ components:
           $ref: "#/components/schemas/AgentProvider"
         model: { type: [string, "null"] }
         effort:
+          oneOf:
+            - $ref: "#/components/schemas/Effort"
+            - type: "null"
+        executionEffort:
+          description: "Plan-gated execution effort (#3434): switched to at Go; null/absent = inherit (no switch)."
           oneOf:
             - $ref: "#/components/schemas/Effort"
             - type: "null"
@@ -2597,6 +2615,11 @@ components:
           oneOf:
             - $ref: "#/components/schemas/Effort"
             - type: "null"
+        executionEffort:
+          description: "Plan-gated execution effort (#3434): switched to at Go; null/absent = inherit (no switch)."
+          oneOf:
+            - $ref: "#/components/schemas/Effort"
+            - type: "null"
         images:
           type: array
           items: { type: string }
@@ -3473,6 +3496,11 @@ components:
             - type: "null"
         reviewerModel: { type: [string, "null"] }
         reviewerEffort: { type: [string, "null"] }
+        effortSwitchError:
+          type: [string, "null"]
+          enum: [busy, unconfirmed, restore_skipped, restore_unconfirmed, null]
+          x-shepherd-open-enum: true
+          description: "Why the last mid-session effort switch (#3434) did not happen. busy/unconfirmed withheld Go; restore_* = a re-gate kept the execution effort."
         blocks:
           type: array
           items: { $ref: "#/components/schemas/VisualBlock" }
@@ -4276,6 +4304,11 @@ components:
         agentProvider: { "$ref": "#/components/schemas/AgentProvider" }
         model: { "type": ["string", "null"] }
         effort: { "oneOf": [{ "$ref": "#/components/schemas/Effort" }, { "type": "null" }] }
+        executionEffort:
+          description: "Plan-gated execution effort (#3434): switched to at Go; null/absent = inherit (no switch)."
+          oneOf:
+            - $ref: "#/components/schemas/Effort"
+            - type: "null"
         images: { "type": "array", "items": { "type": "string" } }
         planGateEnabled: { "type": ["boolean", "null"] }
         autopilotEnabled: { "type": ["boolean", "null"] }
@@ -5575,6 +5608,8 @@ components:
           type: string
         defaultEffort:
           type: string
+        defaultExecutionEffort:
+          type: string
         defaultAgentProvider:
           type: string
         authMode:
@@ -5680,6 +5715,8 @@ components:
         defaultCodexModel:
           type: string
         defaultEffort:
+          type: string
+        defaultExecutionEffort:
           type: string
         defaultAgentProvider:
           type: string
@@ -5975,6 +6012,8 @@ components:
           type: string
         defaultEffort:
           type: string
+        defaultExecutionEffort:
+          type: string
         egressExtraHosts:
           type: array
           items:
@@ -6072,6 +6111,8 @@ components:
         defaultModel:
           type: string
         defaultEffort:
+          type: string
+        defaultExecutionEffort:
           type: string
         egressExtraHosts:
           type: array
@@ -9249,7 +9290,14 @@ paths:
       description: >-
         Release an approved plan gate and start execution. Succeeds only when the session is in the
         planning phase, its gate is approved, and the steer reaches the live pane. There is NO 404:
-        an unknown id answers the same 409 as a gate that is not releasable.
+        an unknown id answers the same 409 as a gate that is not releasable. When the session has an
+        execution effort (#3434) Shepherd first switches the running agent to it for this session
+        only; an unconfirmed switch withholds Go (409 with `code`).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReleasePlanGateRequest" }
       responses:
         "200":
           description: Execution started.
@@ -9258,7 +9306,10 @@ paths:
               schema: { $ref: "#/components/schemas/Ok" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "409":
-          description: 'error is "plan not approved or not in planning phase". Also the answer for an unknown id.'
+          description: >-
+            error is "plan not approved or not in planning phase" (also the answer for an unknown
+            id), or — with `code` busy | unconfirmed — the execution-effort switch was not confirmed
+            and Go was withheld (#3434).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

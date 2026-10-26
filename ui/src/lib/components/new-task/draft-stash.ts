@@ -16,6 +16,9 @@ export type NewTaskDraft = {
   modelTouched: boolean;
   effort: string;
   effortTouched: boolean;
+  /** Plan-gated execution effort (#3434); optional so older drafts/fixtures stay valid. */
+  executionEffort?: string;
+  executionEffortTouched?: boolean;
   planGate: boolean;
   planGateTouched: boolean;
   autopilot: boolean;

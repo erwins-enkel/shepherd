@@ -2641,6 +2641,21 @@ test("PUT /api/repo-config omitting sandboxProfile preserves existing value", as
   expect(deps.store.getRepoConfig(validRepo).sandboxProfile).toBe("autonomous");
 });
 
+// ── defaultExecutionEffort repo-config override (#3434) ────────────────────────
+
+test("PUT /api/repo-config accepts defaultExecutionEffort and rejects junk", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  expect(deps.store.getRepoConfig(validRepo).defaultExecutionEffort).toBe("inherit");
+  for (const v of ["medium", "default", "inherit"]) {
+    expect((await putRepoConfig(app, validRepo, { defaultExecutionEffort: v })).status).toBe(200);
+    expect(deps.store.getRepoConfig(validRepo).defaultExecutionEffort).toBe(v);
+  }
+  const bad = await putRepoConfig(app, validRepo, { defaultExecutionEffort: "auto" });
+  expect(bad.status).toBe(400);
+  expect((await bad.json()).error).toContain("defaultExecutionEffort");
+});
+
 // ── defaultModel repo-config override ──────────────────────────────────────────
 
 test("PUT /api/repo-config accepts defaultModel override → 200 and GET reflects it", async () => {

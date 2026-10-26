@@ -481,6 +481,19 @@ export function sandboxOverrideExplanation(): TooltipExplanation {
   };
 }
 
+/** Plan-gated execution effort (#3434): what the switch at Go does and what it costs. */
+export function executionEffortExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_execution_effort_title(),
+    summary: m.tooltip_execution_effort_summary(),
+    sections: [
+      { label: m.tooltip_execution_effort_when(), text: m.tooltip_execution_effort_when_body() },
+      { label: m.tooltip_execution_effort_same(), text: m.tooltip_execution_effort_same_body() },
+      { label: m.tooltip_execution_effort_fail(), text: m.tooltip_execution_effort_fail_body() },
+    ],
+  };
+}
+
 /** Operator Assistant (#1446): the Assist toggle and the panel's mode chip. With `permissions`,
  *  "What it may do" lists each Settings → Assistant row with its level; `settingsLink` adds the
  *  footer saying a click opens that section (the chip). */

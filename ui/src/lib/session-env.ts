@@ -18,6 +18,8 @@ export interface SessionEnvironment {
   modelKnown: boolean;
   /** Effort segment, or null when it is not worth its own segment (see {@link segments}). */
   effort: string | null;
+  /** The raw tier behind `effort` (observed → in force → configured), null when unknown. */
+  effortTier: string | null;
   /** True when `effort` is observed rather than configured. Always false for Claude sessions, whose
    *  transcripts record no effort at all. */
   effortObserved: boolean;
@@ -48,7 +50,10 @@ function modelSegment(observed: string | null, configured: string | null): strin
  *   1. `activity.runtime*` — the live SSE signal, freshest while a session runs.
  *   2. `session.runtime*` — the same thing persisted, so it survives idle + restart (#1823).
  *   3. `session.model` / `session.effort` — what the operator CONFIGURED. Null whenever the pickers
- *      were left on default, in which case no flag is passed and the CLI chooses for itself.
+ *      were left on default, in which case no flag is passed and the CLI chooses for itself. For
+ *      effort, `session.activeEffort` (#3434) takes this slot whenever the key is present: the tier
+ *      Shepherd last put in force (spawn flag or a confirmed mid-session switch), which differs from
+ *      the planning selection once a plan-gated session switched at Go.
  *   4. The localized "default", which honestly means "we never learned what ran".
  *
  * Observed values are labeled with `runtimeModelLabel` (concrete provider ids like `gpt-6-astra`)
@@ -66,13 +71,14 @@ function modelSegment(observed: string | null, configured: string | null): strin
  * collapses to a single entry standing for the whole environment.
  */
 export function sessionEnvironment(
-  session: Pick<Session, "model" | "effort" | "runtimeModel" | "runtimeEffort">,
+  session: Pick<Session, "model" | "effort" | "runtimeModel" | "runtimeEffort" | "activeEffort">,
   activity?: SessionActivity,
 ): SessionEnvironment {
   const observedModel = activity?.runtimeModel ?? session.runtimeModel ?? null;
   const observedEffort = activity?.runtimeEffort ?? session.runtimeEffort ?? null;
   const configuredModel = session.model ?? null;
-  const configuredEffort = session.effort ?? null;
+  const configuredEffort =
+    (session.activeEffort !== undefined ? session.activeEffort : session.effort) ?? null;
 
   const model = modelSegment(observedModel, configuredModel);
   const knownEffort = observedEffort ?? configuredEffort;
@@ -103,6 +109,7 @@ export function sessionEnvironment(
     modelObserved,
     modelKnown: !!(observedModel ?? configuredModel),
     effort: effortKnown ? effort : null,
+    effortTier: knownEffort,
     effortObserved,
     // The model segment always stands, so the operator can always see which model a task ran on;
     // the effort segment joins it only when there is something concrete to say. Dropping an unknown

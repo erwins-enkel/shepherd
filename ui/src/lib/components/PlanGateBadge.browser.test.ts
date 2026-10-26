@@ -11,7 +11,7 @@ import { toasts } from "#lib/toasts.svelte.js";
 const api = vi.hoisted(() => ({
   replySession: vi.fn(async () => {}),
   reviewPlan: vi.fn(async (): Promise<import("#lib/api.js").PlanReviewTrigger> => "skipped"),
-  releasePlanGate: vi.fn(async () => true),
+  releasePlanGate: vi.fn(async () => ({ ok: true })),
 }));
 
 vi.mock("#lib/api.js", async (importOriginal) => {

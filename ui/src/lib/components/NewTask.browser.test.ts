@@ -1240,6 +1240,62 @@ describe("NewTask plan-gate inheritance", () => {
   });
 });
 
+describe("NewTask execution effort (#3434)", () => {
+  const execSelect = () => document.querySelector<HTMLSelectElement>("#nt-execution-effort");
+  const submitBtn = () => document.querySelector<HTMLButtonElement>("button.run")!;
+
+  async function fillAndSubmit() {
+    const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptField.value = "do the thing";
+    promptField.dispatchEvent(new Event("input", { bubbles: true }));
+    await expect.poll(() => submitBtn().disabled).toBe(false);
+    submitBtn().click();
+  }
+
+  it("is visible only with Plan Gate on, and submits null without it", async () => {
+    mockGetRepoConfig.mockResolvedValue(repoConfig(false));
+    const onsubmit = vi.fn();
+    render(NewTask, {
+      props: { onsubmit, initialRepoPath: "/repo/exec-off", defaultExecutionEffort: "low" },
+    });
+    await expect.poll(() => planGateSwitch()?.disabled).toBe(false);
+    expect(execSelect()).toBeNull();
+
+    planGateSwitch().click();
+    await expect.poll(() => execSelect()).not.toBeNull();
+    planGateSwitch().click();
+    await expect.poll(() => execSelect()).toBeNull();
+
+    await fillAndSubmit();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ executionEffort: null });
+  });
+
+  it("preselects the repo override over the global default and submits it", async () => {
+    mockGetRepoConfig.mockResolvedValue({ ...repoConfig(true), defaultExecutionEffort: "low" });
+    const onsubmit = vi.fn();
+    render(NewTask, {
+      props: { onsubmit, initialRepoPath: "/repo/exec-repo", defaultExecutionEffort: "high" },
+    });
+    await expect.poll(() => execSelect()?.value).toBe("low");
+    await fillAndSubmit();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ executionEffort: "low" });
+  });
+
+  it("submits null for Same as planning and a picked tier once touched", async () => {
+    mockGetRepoConfig.mockResolvedValue(repoConfig(true));
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: "/repo/exec-pick" } });
+    await expect.poll(() => execSelect()?.value).toBe("default");
+    execSelect()!.value = "medium";
+    execSelect()!.dispatchEvent(new Event("change", { bubbles: true }));
+    await fillAndSubmit();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ executionEffort: "medium" });
+  });
+});
+
 describe("NewTask autopilot override", () => {
   const autopilotBox = autopilotSwitch;
   const submitBtn = () => document.querySelector<HTMLButtonElement>("button.run")!;

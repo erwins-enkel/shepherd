@@ -105,7 +105,9 @@
     modelForManualProviderChange,
     modelSettingFor as resolveModelSetting,
     effortSettingFor as resolveEffortSetting,
+    executionEffortSettingFor,
   } from "./new-task/run-config";
+  import { effortAvailableForProvider } from "#lib/effort-guidance.js";
   import { IssueData } from "./new-task/issue-data.svelte";
   import VideoBriefNotice from "./new-task/VideoBriefNotice.svelte";
   import { hasVideoAttachment, VideoSkillInventory } from "./new-task/video-skill.svelte";
@@ -147,12 +149,14 @@
     initialIssue,
     initialModel,
     initialEffort,
+    initialExecutionEffort,
     defaultAgentProvider = "claude",
     defaultModel,
     defaultCodexModel,
     defaultEffort,
     defaultClaudeEffort,
     defaultCodexEffort,
+    defaultExecutionEffort,
     relaunch = false,
     editHeld = false,
     initialBaseBranch,
@@ -181,6 +185,8 @@
       agentProvider?: AgentProvider;
       model: string | null;
       effort: string | null;
+      /** Plan-gated execution effort (#3434); null = same as planning, or no plan gate. */
+      executionEffort: string | null;
       images: string[];
       attachmentNames?: string[];
       issueRef?: IssueRef;
@@ -217,6 +223,8 @@
     initialIssue?: Issue;
     initialModel?: string;
     initialEffort?: string;
+    /** Seed the execution-effort picker (relaunch / edit-held); "default" = same as planning. */
+    initialExecutionEffort?: string;
     defaultAgentProvider?: AgentProvider;
     defaultModel?: string;
     defaultCodexModel?: string;
@@ -224,6 +232,8 @@
     /** Per-engine default effort ("inherit" follows `defaultEffort`). */
     defaultClaudeEffort?: string;
     defaultCodexEffort?: string;
+    /** Global plan-gated execution effort ("default" = same as planning). */
+    defaultExecutionEffort?: string;
     relaunch?: boolean;
     editHeld?: boolean;
     initialBaseBranch?: string;
@@ -331,6 +341,16 @@
     draft?.effort ?? preselectEffort(initialEffort ?? effortSettingFor(agentProvider, "inherit")),
   );
   let effortTouched = $state(draft?.effortTouched ?? false);
+  // Plan-gated execution effort (#3434): "default" = same as planning (no switch at Go). Seeded
+  // and reseeded like `effort` (repo override → global) until touched; shown only with Plan Gate on.
+  // svelte-ignore state_referenced_locally
+  let executionEffort = $state(
+    draft?.executionEffort ??
+      preselectEffort(
+        initialExecutionEffort ?? executionEffortSettingFor("inherit", defaultExecutionEffort),
+      ),
+  );
+  let executionEffortTouched = $state(draft?.executionEffortTouched ?? false);
   // Relaunch + edit-held reuse this composer with a distinct title.
   const heading = $derived(
     editHeld
@@ -402,6 +422,8 @@
         modelTouched,
         effort,
         effortTouched,
+        executionEffort,
+        executionEffortTouched,
         planGate,
         planGateTouched,
         autopilot,
@@ -1114,6 +1136,8 @@
   // Bootstrap is a code task, but attended: its own P1 questions replace the plan gate and
   // autopilot, so it locks them like the non-code modes.
   const modeLocked = $derived(research || epicAuthoring || plain || bootstrap);
+  // The execution-effort picker only means something for a plan-gated code task.
+  const executionEffortShown = $derived(planGate && !modeLocked);
   // Research, epic authoring and bootstrap need open web egress (bootstrap resolves package
   // registries), so they also lock the autonomous sandbox; a plain task has no such need.
   const sandboxLocked = $derived(research || epicAuthoring || bootstrap);
@@ -1245,11 +1269,29 @@
     if (norm.effort !== effort) effort = norm.effort;
   });
 
+  // Execution effort: the same untouched-reseed + validity correction as `effort` above.
+  const effectiveExecutionEffortSetting = $derived(
+    executionEffortSettingFor(
+      repoPath ? repoConfig.defaultExecutionEffortFor(repoPath) : "inherit",
+      defaultExecutionEffort,
+    ),
+  );
+  $effect(() => {
+    if (initialExecutionEffort != null || executionEffortTouched) return;
+    const seeded = preselectEffort(effectiveExecutionEffortSetting);
+    if (seeded !== executionEffort) executionEffort = seeded;
+  });
+  $effect(() => {
+    if (!effortAvailableForProvider(agentProvider, executionEffort, model))
+      executionEffort = "default";
+  });
+
   /** Manual CLI-select change: model and effort reset to the new provider's defaults
    *  unconditionally (touched or not) — each engine has its own default effort. */
   function providerChanged(p: AgentProvider) {
     agentProvider = p;
     effort = preselectEffort(effortSettingFor(p, repoEffortOverride));
+    executionEffort = preselectEffort(effectiveExecutionEffortSetting);
     model = modelForManualProviderChange(p, modelSettingFor(p), fableAvailable);
   }
 
@@ -2014,6 +2056,8 @@
       agentProvider,
       model: model !== "default" ? model : null,
       effort: effort !== "default" ? effort : null,
+      executionEffort:
+        executionEffortShown && executionEffort !== "default" ? executionEffort : null,
       images: images.map((i) => i.path),
       attachmentNames: images.map((i) => i.name),
       issueRef: activeIssue
@@ -3267,6 +3311,7 @@
     {agentProvider}
     {model}
     {effort}
+    {executionEffort}
     {sandboxProfile}
     {planGate}
     {autopilot}
@@ -3292,6 +3337,10 @@
     onEffortChange={(v) => {
       effort = v;
       effortTouched = true;
+    }}
+    onExecutionEffortChange={(v) => {
+      executionEffort = v;
+      executionEffortTouched = true;
     }}
     onSandboxChange={(v) => (sandboxProfile = v)}
     onPlanGateChange={(v) => {

@@ -6,6 +6,7 @@
     putRoleCli,
     putUpnextSkipCliPicker,
     putDefaultEffort,
+    putDefaultExecutionEffort,
     putEngineEffort,
     putOperatorLanguage,
     putAuthMode,
@@ -109,6 +110,10 @@
   let defaultEffort = $state("default");
   let defaultEffortSaved = "default";
   let defaultEffortBusy = $state(false);
+  // Plan-gated execution effort (#3434): "default" = same as planning, no switch at Go.
+  let defaultExecutionEffort = $state("default");
+  let defaultExecutionEffortSaved = "default";
+  let defaultExecutionEffortBusy = $state(false);
   // Per-engine default effort: "inherit" follows the global defaultEffort above.
   const ENGINE_EFFORT_KEY = {
     claude: "defaultClaudeEffort",
@@ -176,6 +181,8 @@
     untrack(() => {
       defaultEffort = s.defaultEffort ?? "default";
       defaultEffortSaved = defaultEffort;
+      defaultExecutionEffort = s.defaultExecutionEffort ?? "default";
+      defaultExecutionEffortSaved = defaultExecutionEffort;
       engineEffort = {
         claude: s.defaultClaudeEffort ?? "inherit",
         codex: s.defaultCodexEffort ?? "inherit",
@@ -391,6 +398,24 @@
     }
   }
 
+  async function saveDefaultExecutionEffort() {
+    if (defaultExecutionEffortBusy) return;
+    defaultExecutionEffortBusy = true;
+    try {
+      const r = await putDefaultExecutionEffort(defaultExecutionEffort);
+      defaultExecutionEffort = r.defaultExecutionEffort;
+      defaultExecutionEffortSaved = r.defaultExecutionEffort;
+    } catch {
+      defaultExecutionEffort = defaultExecutionEffortSaved;
+      toasts.info(m.settings_execution_effort_save_failed(), {
+        key: "default-execution-effort",
+        alert: true,
+      });
+    } finally {
+      defaultExecutionEffortBusy = false;
+    }
+  }
+
   async function saveEngineEffort(provider: AgentProvider) {
     if (engineEffortBusy[provider]) return;
     engineEffortBusy[provider] = true;
@@ -578,6 +603,29 @@
         onchange={saveDefaultEffort}
       >
         <option value="default">{m.settings_default_effort_default()}</option>
+        {#each EFFORTS as tier (tier)}
+          <option value={tier}>{effortLabel(tier)}</option>
+        {/each}
+      </select>
+      <span class="set-chev" aria-hidden="true">▾</span>
+    </span>
+  {/snippet}
+</SettingRow>
+
+<SettingRow
+  title={m.settings_execution_effort_title()}
+  description={m.settings_execution_effort_hint()}
+  {query}
+>
+  {#snippet control()}
+    <span class="set-select">
+      <select
+        bind:value={defaultExecutionEffort}
+        disabled={defaultExecutionEffortBusy}
+        aria-label={m.settings_execution_effort_title()}
+        onchange={saveDefaultExecutionEffort}
+      >
+        <option value="default">{m.execution_effort_same_as_planning()}</option>
         {#each EFFORTS as tier (tier)}
           <option value={tier}>{effortLabel(tier)}</option>
         {/each}

@@ -830,6 +830,28 @@ test("PUT /api/settings rejects a tier the engine lacks and junk", async () => {
   }
 });
 
+// ── plan-gated execution effort (#3434) ──
+test("GET/PUT /api/settings defaultExecutionEffort round-trips and rejects junk", async () => {
+  const saved = config.defaultExecutionEffort;
+  try {
+    config.defaultExecutionEffort = "default";
+    const { app, store } = harness();
+    const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+    expect(got.defaultExecutionEffort).toBe("default");
+    const ok = await put(app, { defaultExecutionEffort: "medium" });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).defaultExecutionEffort).toBe("medium");
+    expect(config.defaultExecutionEffort).toBe("medium");
+    expect(store.getSetting("defaultExecutionEffort")).toBe("medium");
+    for (const bad of ["inherit", "auto", 3]) {
+      expect((await put(app, { defaultExecutionEffort: bad })).status).toBe(400);
+    }
+    expect(config.defaultExecutionEffort).toBe("medium");
+  } finally {
+    config.defaultExecutionEffort = saved;
+  }
+});
+
 // ── per-role environment settings (cli + model + effort) ──
 test("GET /api/settings includes every per-role cli + model + effort setting (raw, unresolved)", async () => {
   config.criticCli = "codex";

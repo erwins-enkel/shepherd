@@ -55,6 +55,7 @@ import type {
   SessionLaunchMetadata,
   PromptBudgetDelivery,
   PromptBudgetRecord,
+  EffortSwitchError,
 } from "./types";
 import type { VisualBlock } from "./visual-blocks";
 import type { ManualStep } from "./manual-steps";
@@ -597,6 +598,9 @@ export interface RepoConfig {
   defaultModel: string;
   /** Per-repo default-effort override; "inherit" (default) defers to the global default setting. */
   defaultEffort: string;
+  /** Per-repo default EXECUTION effort for plan-gated sessions (#3434): "inherit" (default) defers
+   *  to the global setting; "default" = no switch; a tier = switch to it at Go. */
+  defaultExecutionEffort: string;
   /** Per-repo extra allowlisted hosts appended to the autonomous egress allowlist. */
   egressExtraHosts: string[];
   /** Repo mode: 'forge' (GitHub-backed, default) or 'lightweight' (local-only, no GitHub). */
@@ -786,7 +790,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
   spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson, archiveReason, codexLaunchId,
   plain, operatorAssistant, baseCommit, assistantRepo, incrementalEpicParent,
-  homeIssueRepoPath, homeIssueNumber, misroutedTarget`;
+  homeIssueRepoPath, homeIssueNumber, misroutedTarget, executionEffort, activeEffort`;
 
 /**
  * The SELECT column list: everything {@link COLS} inserts, plus the OBSERVED runtime identity
@@ -824,6 +828,8 @@ type SessionRow = {
   agentProvider: string | null;
   model: string | null;
   effort: string | null;
+  executionEffort: string | null;
+  activeEffort: string | null;
   runtimeModel: string | null;
   runtimeEffort: string | null;
   contextTokens: number | null;
@@ -922,6 +928,17 @@ function orNull<T>(v: T | null | undefined): T | null {
   return v ?? null;
 }
 
+const EFFORT_SWITCH_ERRORS: readonly EffortSwitchError[] = [
+  "busy",
+  "unconfirmed",
+  "restore_skipped",
+  "restore_unconfirmed",
+];
+
+function coerceEffortSwitchError(v: string | null): EffortSwitchError | null {
+  return EFFORT_SWITCH_ERRORS.find((c) => c === v) ?? null;
+}
+
 /** SQLite row shape for the plan_gates table. */
 type PlanGateRow = {
   sessionId: string;
@@ -945,6 +962,7 @@ type PlanGateRow = {
   dismissed: number | null;
   livePlanHash: string | null;
   approvedAt: number | null;
+  effortSwitchError: string | null;
 };
 
 /** SQLite row shape for the recaps table. */
@@ -1003,6 +1021,7 @@ type RepoCfgRow = {
   sandboxProfile: string;
   defaultModel: string;
   defaultEffort: string;
+  defaultExecutionEffort: string;
   egressExtraHosts: string | null;
   repoMode: string;
   manualStepsIssueEnabled: number;
@@ -1200,6 +1219,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       sandboxProfile: "inherit",
       defaultModel: "inherit",
       defaultEffort: "inherit",
+      defaultExecutionEffort: "inherit",
       egressExtraHosts: [],
       repoMode: "forge",
       manualStepsIssueEnabled: false,
@@ -1235,6 +1255,8 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     sandboxProfile: isRepoSandboxSetting(r.sandboxProfile) ? r.sandboxProfile : "trusted",
     defaultModel: normalizeRepoDefaultModelSetting(r.defaultModel) ?? "inherit",
     defaultEffort: normalizeRepoDefaultEffortSetting(r.defaultEffort) ?? "inherit",
+    defaultExecutionEffort:
+      normalizeRepoDefaultEffortSetting(r.defaultExecutionEffort) ?? "inherit",
     egressExtraHosts: parseStringListJson(r.egressExtraHosts),
     repoMode: r.repoMode === "lightweight" ? "lightweight" : "forge",
     manualStepsIssueEnabled: !!r.manualStepsIssueEnabled,
@@ -1273,6 +1295,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     cfg.sandboxProfile,
     cfg.defaultModel,
     cfg.defaultEffort,
+    cfg.defaultExecutionEffort ?? "inherit",
     JSON.stringify(cfg.egressExtraHosts ?? []),
     cfg.repoMode,
     Number(Boolean(cfg.manualStepsIssueEnabled)),
@@ -2394,7 +2417,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .query(
         `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-                maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
+                maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, repoMode,
                 manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode
          FROM repo_config WHERE repoPath = ?`,
       )
@@ -2407,9 +2430,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       `INSERT INTO repo_config
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-          maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
+          maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, repoMode,
           manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -2428,6 +2451,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          sandboxProfile = excluded.sandboxProfile,
          defaultModel = excluded.defaultModel,
          defaultEffort = excluded.defaultEffort,
+         defaultExecutionEffort = excluded.defaultExecutionEffort,
          egressExtraHosts = excluded.egressExtraHosts,
          repoMode = excluded.repoMode,
          manualStepsIssueEnabled = excluded.manualStepsIssueEnabled,
@@ -3766,6 +3790,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       ...input,
       model: input.model ?? null,
       effort: input.effort ?? null,
+      executionEffort: orNull(input.executionEffort),
+      // A fresh spawn runs at its spawn flag (#3434) — the planning effort.
+      activeEffort: orNull(input.effort),
       // Nothing has been observed yet — matches what reading the freshly inserted row gives back.
       // These are NOT part of the INSERT (see COLS): the columns default to NULL on their own.
       runtimeModel: null,
@@ -3845,7 +3872,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -3917,6 +3944,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           strOrNull(s.homeIssueRepoPath), // #3245: routed session's issue tracker repo; null otherwise
           numOrNull(s.homeIssueNumber),
           strOrNull(s.misroutedTarget), // #3245: issue targets another repo but session runs here
+          strOrNull(s.executionEffort), // #3434: execution-phase effort; null = inherit (no switch)
+          strOrNull(s.activeEffort), // #3434: the tier in force — the spawn effort at create
         ],
       );
       this.setBootstrap(s.id, input);
@@ -4165,6 +4194,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         | "agentProvider"
         | "model"
         | "effort"
+        | "executionEffort"
+        | "activeEffort"
         | "readyToMerge"
         | "mergingSince"
         | "mergingTrainId"
@@ -4189,7 +4220,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         ? (cur.settledAt ?? null)
         : next.updatedAt;
     this.db.run(
-      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, claudeSessionId=?, providerSessionId=?, codexLaunchId=?, agentProvider=?, model=?, effort=?, readyToMerge=?, mergingSince=?, mergingTrainId=?, mergingPrNumber=?, planGateEnabled=?, planPhase=?, settledAt=?, updatedAt=? WHERE id=?`,
+      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, claudeSessionId=?, providerSessionId=?, codexLaunchId=?, agentProvider=?, model=?, effort=?, executionEffort=?, activeEffort=?, readyToMerge=?, mergingSince=?, mergingTrainId=?, mergingPrNumber=?, planGateEnabled=?, planPhase=?, settledAt=?, updatedAt=? WHERE id=?`,
       [
         next.name,
         next.status,
@@ -4202,6 +4233,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         next.agentProvider ?? "claude",
         next.model,
         next.effort,
+        next.executionEffort ?? null,
+        next.activeEffort ?? null,
         next.readyToMerge ? 1 : 0,
         next.mergingSince,
         next.mergingTrainId,
@@ -4850,13 +4883,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       dismissed: !!r.dismissed,
       livePlanHash: r.livePlanHash,
       approvedAt: r.approvedAt,
+      effortSwitchError: coerceEffortSwitchError(r.effortSwitchError),
     } as PlanGate;
   }
 
   getPlanGate(sessionId: string): PlanGate | null {
     const r = this.db
       .query(
-        `SELECT sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed, livePlanHash, approvedAt
+        `SELECT sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed, livePlanHash, approvedAt, effortSwitchError
               FROM plan_gates WHERE sessionId = ?`,
       )
       .get(sessionId) as PlanGateRow | null;
@@ -4865,8 +4899,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   putPlanGate(g: PlanGate): void {
     this.db.run(
-      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed, livePlanHash, approvedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed, livePlanHash, approvedAt, effortSwitchError)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET planHash=excluded.planHash, decision=excluded.decision,
          summary=excluded.summary, summaryCode=excluded.summaryCode, body=excluded.body, findings=excluded.findings,
          round=excluded.round, cap=excluded.cap, approved=excluded.approved,
@@ -4875,7 +4909,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          reviewerProvider=excluded.reviewerProvider, reviewerModel=excluded.reviewerModel,
          reviewerEffort=excluded.reviewerEffort,
          finalRoundPending=excluded.finalRoundPending, dismissed=excluded.dismissed,
-         livePlanHash=excluded.livePlanHash, approvedAt=excluded.approvedAt`,
+         livePlanHash=excluded.livePlanHash, approvedAt=excluded.approvedAt,
+         effortSwitchError=excluded.effortSwitchError`,
       [
         g.sessionId,
         g.planHash ?? "",
@@ -4898,8 +4933,18 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         g.dismissed ? 1 : 0,
         orNull(g.livePlanHash),
         orNull(g.approvedAt),
+        orNull(g.effortSwitchError),
       ],
     );
+  }
+
+  /** Record (or clear, with null) why the last mid-session effort switch did not happen (#3434).
+   *  A direct UPDATE so it never races a verdict write's other columns; no row → no-op. */
+  setPlanGateEffortSwitchError(sessionId: string, code: EffortSwitchError | null): void {
+    this.db.run(`UPDATE plan_gates SET effortSwitchError = ? WHERE sessionId = ?`, [
+      code,
+      sessionId,
+    ]);
   }
 
   dropPlanGate(sessionId: string): void {
@@ -5190,7 +5235,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   snapshotPlanGates(): Record<string, PlanGate> {
     const rows = this.db
       .query(
-        `SELECT sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed, livePlanHash, approvedAt FROM plan_gates`,
+        `SELECT sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed, livePlanHash, approvedAt, effortSwitchError FROM plan_gates`,
       )
       .all() as PlanGateRow[];
     const out: Record<string, PlanGate> = {};
@@ -6481,6 +6526,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // — nothing is known at insert time.
     add("runtimeModel", `runtimeModel TEXT`);
     add("runtimeEffort", `runtimeEffort TEXT`);
+    // Execution-phase effort selection + the tier in force (#3434). A pre-existing row's agent
+    // runs at its spawn effort, so `activeEffort` backfills from `effort` once.
+    add("executionEffort", `executionEffort TEXT`);
+    if (!cols.some((c) => c.name === "activeEffort")) {
+      this.db.run(`ALTER TABLE sessions ADD COLUMN activeEffort TEXT`);
+      this.db.run(`UPDATE sessions SET activeEffort = effort`);
+    }
     // Cold-resume reading (#2042) — what the NEXT turn into this session will cost, measured by the
     // poller at the moment the session parks and cleared the moment it resumes. Like the runtime
     // identity above, nullable with no default and absent from `COLS`/`create()`: nothing is known
@@ -6732,6 +6784,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("sandboxProfile", `sandboxProfile TEXT NOT NULL DEFAULT 'trusted'`);
     add("defaultModel", `defaultModel TEXT NOT NULL DEFAULT 'inherit'`);
     add("defaultEffort", `defaultEffort TEXT NOT NULL DEFAULT 'inherit'`);
+    add("defaultExecutionEffort", `defaultExecutionEffort TEXT NOT NULL DEFAULT 'inherit'`);
     // per-repo egress extra-hosts: JSON-encoded string array (nullable, default []).
     add("egressExtraHosts", `egressExtraHosts TEXT`);
     // per-repo mode: 'forge' (GitHub-backed, default) or 'lightweight' (local-only).
@@ -7042,6 +7095,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // approved", which is exactly how an unmigrated gate should read: not edited, not re-gated.
     add("livePlanHash", `livePlanHash TEXT`);
     add("approvedAt", `approvedAt INTEGER`);
+    // effortSwitchError (#3434): why the last mid-session effort switch didn't happen; NULL = none.
+    add("effortSwitchError", `effortSwitchError TEXT`);
     // Migrate legacy `error` rows that baked the English summary in: flip the exact known prose to the
     // sentinel code + clear the summary so the UI localizes it. Idempotent (after the flip the WHERE
     // no longer matches) and no-clobber (only the exact prose string, only `error` rows).

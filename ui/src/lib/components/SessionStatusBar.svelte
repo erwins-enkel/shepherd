@@ -45,6 +45,7 @@
           session.effort === undefined ? (launch?.resolvedLaunch.effort ?? null) : session.effort,
         runtimeModel: session.runtimeModel,
         runtimeEffort: session.runtimeEffort,
+        activeEffort: session.activeEffort,
       },
       activity,
     ),

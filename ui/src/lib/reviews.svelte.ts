@@ -415,6 +415,7 @@ class RepoConfigStore {
   sandboxDefault = $state<Record<string, SandboxProfile>>({}); // global default "inherit" resolves to (server-derived)
   defaultModel = $state<Record<string, string>>({}); // per-repo default-model override (default "inherit")
   defaultEffort = $state<Record<string, string>>({}); // per-repo default-effort override (default "inherit")
+  defaultExecutionEffort = $state<Record<string, string>>({}); // per-repo plan-gated execution effort (default "inherit")
   previewOpenMode = $state<Record<string, RepoConfig["previewOpenMode"]>>({}); // Preview chip action (default ask)
   maxAuto = $state<Record<string, number>>({}); // max concurrent auto sessions (default 1)
   autoLabel = $state<Record<string, string>>({}); // label used to pick drain issues (default "shepherd:auto")
@@ -468,6 +469,11 @@ class RepoConfigStore {
       this.sandboxDefault = { ...this.sandboxDefault, [repoPath]: c.sandboxDefaultProfile };
     this.defaultModel = { ...this.defaultModel, [repoPath]: c.defaultModel };
     this.defaultEffort = { ...this.defaultEffort, [repoPath]: c.defaultEffort };
+    if (c.defaultExecutionEffort !== undefined)
+      this.defaultExecutionEffort = {
+        ...this.defaultExecutionEffort,
+        [repoPath]: c.defaultExecutionEffort,
+      };
     this.previewOpenMode = { ...this.previewOpenMode, [repoPath]: c.previewOpenMode };
     this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
     this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
@@ -561,6 +567,7 @@ class RepoConfigStore {
         | "sandboxProfile"
         | "defaultModel"
         | "defaultEffort"
+        | "defaultExecutionEffort"
         | "previewOpenMode"
         | "maxAuto"
         | "autoLabel"
@@ -771,6 +778,14 @@ class RepoConfigStore {
     this.defaultEffort = { ...this.defaultEffort, [repoPath]: value }; // optimistic
     await this.apply(repoPath, { defaultEffort: value }, () => {
       this.defaultEffort = { ...this.defaultEffort, [repoPath]: prev };
+    });
+  }
+
+  async setDefaultExecutionEffort(repoPath: string, value: string) {
+    const prev = this.defaultExecutionEffort[repoPath];
+    this.defaultExecutionEffort = { ...this.defaultExecutionEffort, [repoPath]: value }; // optimistic
+    await this.apply(repoPath, { defaultExecutionEffort: value }, () => {
+      this.defaultExecutionEffort = { ...this.defaultExecutionEffort, [repoPath]: prev };
     });
   }
 
@@ -992,6 +1007,11 @@ class RepoConfigStore {
   /** The repo's default-effort override SETTING ("inherit" | "default" | <tier>). */
   defaultEffortFor(repoPath: string): string {
     return this.defaultEffort[repoPath] ?? "inherit";
+  }
+
+  /** The repo's execution-effort override SETTING ("inherit" | "default" | <tier>). */
+  defaultExecutionEffortFor(repoPath: string): string {
+    return this.defaultExecutionEffort[repoPath] ?? "inherit";
   }
 
   previewOpenModeFor(repoPath: string): RepoConfig["previewOpenMode"] {

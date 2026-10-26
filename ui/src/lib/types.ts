@@ -1856,6 +1856,10 @@ export interface Session {
   sandboxDegraded: boolean;
   /** Research task kind: web research → report PR or issue; never code-PR-steered. */
   research: boolean;
+  /** The operator schedule (#3469) whose firing spawned this session; null/absent otherwise. */
+  scheduleId?: string | null;
+  /** That schedule's current name; null when deleted or not scheduled. */
+  scheduleName?: string | null;
   /** Clean-terminal kind: a bare operator shell in the repo's MAIN checkout (pane-direct, no
    *  agent, no worktree). Optional like the server mirror — absent and false are equivalent. */
   terminal?: boolean;
@@ -3294,6 +3298,7 @@ export type WsEvent =
   | { event: "plugin-update:status"; data: PluginUpdatesStatus }
   | { event: "project-icons:update"; data: ProjectIcons }
   | { event: "repo-bootstrap:update"; data: { repoPath: string } }
+  | { event: "schedules:changed"; data: { repoPath: string } }
   | { event: "session:recap"; data: { id: string; recap: Recap | null } }
   | { event: "session:amendments"; data: { id: string; amendments: TaskAmendment[] } }
   | { event: "upnext:changed"; data: { version: string; computedAt: number } }
@@ -3436,7 +3441,8 @@ export interface LaunchAttachmentMetadata {
 }
 
 export interface SessionLaunchMetadata {
-  sourceKind: "user" | "generated";
+  /** `scheduled` = spawned by an operator schedule firing (#3469). */
+  sourceKind: "user" | "generated" | "scheduled";
   prompt: string;
   issue: { number: number; title: string; url: string } | null;
   attachments: LaunchAttachmentMetadata[];
@@ -3716,3 +3722,57 @@ export type HouseStackResolution =
       rustToolchain: string | null;
     }
   | { ok: false; errors: { ecosystem: "npm" | "crates" | "rust"; name: string; reason: string }[] };
+
+// ── Operator schedules (#3469) — mirrors src/schedules-core.ts ──
+
+/** New Task launch options a schedule carries; null = default / inherit at fire time. */
+export interface ScheduleLaunch {
+  agentProvider: AgentProvider | null;
+  model: string | null;
+  effort: string | null;
+  autopilotEnabled: boolean | null;
+  planGateEnabled: boolean | null;
+  research: boolean;
+  sandboxProfile: SandboxProfile | null;
+  baseBranch: string | null;
+}
+
+export type ScheduleOutcome =
+  "claimed" | "spawned" | "held" | "skipped:overlap" | "skipped:stale" | "error";
+
+export interface ScheduleRun {
+  id: number;
+  scheduleId: string;
+  slotKey: string;
+  outcome: ScheduleOutcome;
+  sessionId: string | null;
+  reason: string | null;
+  at: number;
+}
+
+/** A schedule as GET /api/schedules returns it. `days`: bit 0 = Monday … bit 6 = Sunday. */
+export interface Schedule {
+  id: string;
+  repoPath: string;
+  name: string;
+  prompt: string;
+  days: number;
+  times: string[];
+  enabled: boolean;
+  launch: ScheduleLaunch;
+  createdAt: number;
+  updatedAt: number;
+  lastRun: ScheduleRun | null;
+  nextAt: number | null;
+}
+
+/** The editable fields sent on create (all) or PATCH (any subset, never repoPath). */
+export interface ScheduleInput {
+  repoPath: string;
+  name: string;
+  prompt: string;
+  days: number;
+  times: string[];
+  enabled?: boolean;
+  launch?: Partial<ScheduleLaunch>;
+}

@@ -865,7 +865,10 @@
   function checkboxDisplay(value: boolean | undefined): string {
     if (value === true) return m.tasktip_checked();
     if (value === false) return m.tasktip_unchecked();
-    return launchSource === "generated" ? m.tasktip_generated() : m.tasktip_not_recorded();
+    // A scheduled run (#3469) has no New Task form state either: its launch came from the schedule.
+    return launchSource === "generated" || launchSource === "scheduled"
+      ? m.tasktip_generated()
+      : m.tasktip_not_recorded();
   }
   const researchCheckboxDisplay = $derived(checkboxDisplay(launch?.uiState?.researchChecked));
   const planGateCheckboxDisplay = $derived(checkboxDisplay(launch?.uiState?.planGateChecked));

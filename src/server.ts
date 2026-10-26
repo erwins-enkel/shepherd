@@ -99,6 +99,7 @@ import {
   originAllowed,
   classifyOrigin,
   safeRepoDir,
+  expandHome,
   parseTermDims,
   validateSteers,
   validateBroadcast,
@@ -231,6 +232,7 @@ import {
   type GithubAccessRunners,
 } from "./github-access";
 import { resolveDefaultBranch, fastForwardDefaultBranch } from "./pull";
+import { nextSlot, validateScheduleInput, type Schedule } from "./schedules-core";
 import { analyzeReadiness } from "./readiness";
 import { applyForgeCheck, ForgeCheckNotApplicableError, forgeReadiness } from "./readiness-forge";
 import type { GreenfieldService } from "./greenfield";
@@ -425,7 +427,7 @@ import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./ba
 import { invalidateIssuePeek, peekIssue } from "./issue-peek";
 import { createIssueWithLabels, issueForgeGap } from "./issue-create";
 import { SNAPSHOT_TTL_MS, type OpenPrSnapshotService } from "./open-pr-snapshot";
-import { dirname, join, normalize, basename } from "node:path";
+import { dirname, join, normalize, basename, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import type { BunFile, Server, ServerWebSocket } from "bun";
@@ -932,6 +934,11 @@ export interface AppDeps {
       readings: import("./types").BandReading[];
       recentRuns: import("./types").MaintainRun[];
     };
+  };
+  /** Operator schedules (#3469): run-now for `POST /api/schedules/:id/run`. Absent → that route
+   *  503s; CRUD works off the store alone. Wired to ScheduleService in index.ts. */
+  schedules?: {
+    runNow: (id: string) => Promise<import("./schedules-core").ScheduleRun | null>;
   };
   /** Open a PR adding Shepherd's managed `.shepherd-*` ignore block to a repo's `.gitignore`. */
   gitignoreAdopter?: {
@@ -3284,6 +3291,113 @@ function applyRepoBootstrapPut(
   return null;
 }
 
+// ── /api/schedules — operator schedules (#3469) ──────────────────────────────
+//
+// GET ?repo= (list) · POST (create) · PATCH/DELETE /:id · POST /:id/run (run now, still
+// overlap-skipped) · GET /:id/runs. Full-scope only (not in token-scopes' allowlists); a
+// repo-scoped token is refused by `repositoryRequestError` (no route policy), and agents never
+// reach it (not on the agent-ingress allowlist).
+const SCHEDULE_RUNS_LIMIT = 50;
+
+function scheduleDto(s: Schedule, deps: AppDeps, now = Date.now()) {
+  return {
+    ...s,
+    lastRun: deps.store.listScheduleRuns(s.id, 1)[0] ?? null,
+    nextAt: s.enabled ? (nextSlot(s.days, s.times, now)?.at ?? null) : null,
+  };
+}
+
+async function handleSchedules({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "schedules" || parts.length > 4) return null;
+  const id = parts[2] ?? "";
+  const route = `${req.method} ${id ? ":id" : ""}${parts[3] ? `/${parts[3]}` : ""}`;
+  switch (route) {
+    case "GET ":
+      return listSchedules(url, deps);
+    case "POST ":
+      return createSchedule(req, deps);
+    case "GET :id/runs":
+      return scheduleRuns(id, deps);
+    case "POST :id/run":
+      return runScheduleNow(id, deps);
+    case "PATCH :id":
+      return patchSchedule(req, deps.store.getSchedule(id), deps);
+    case "DELETE :id":
+      return removeSchedule(id, deps);
+    default:
+      return null;
+  }
+}
+
+function scheduleRuns(id: string, deps: AppDeps): Response {
+  if (!deps.store.getSchedule(id)) return json({ error: "not found" }, 404);
+  return json({ runs: deps.store.listScheduleRuns(id, SCHEDULE_RUNS_LIMIT) });
+}
+
+function removeSchedule(id: string, deps: AppDeps): Response {
+  const s = deps.store.getSchedule(id);
+  if (!s || !deps.store.deleteSchedule(id)) return json({ error: "not found" }, 404);
+  deps.events.emit("schedules:changed", { repoPath: s.repoPath });
+  return json({ ok: true });
+}
+
+function listSchedules(url: URL, deps: AppDeps): Response {
+  const repo = url.searchParams.get("repo");
+  const repoPath = repo ? resolve(expandHome(repo)) : undefined;
+  return json({ schedules: deps.store.listSchedules(repoPath).map((s) => scheduleDto(s, deps)) });
+}
+
+async function createSchedule(req: Request, deps: AppDeps): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const parsed = validateScheduleInput(await req.json().catch(() => null), config.repoRoot);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  const s = deps.store.insertSchedule(parsed.value, Date.now());
+  deps.events.emit("schedules:changed", { repoPath: s.repoPath });
+  return json(scheduleDto(s, deps), 201);
+}
+
+/** PATCH merges over the stored schedule; `repoPath` cannot move. Enabling or changing the cadence
+ *  re-baselines, so slots already past never fire. */
+async function patchSchedule(req: Request, s: Schedule | null, deps: AppDeps): Promise<Response> {
+  if (!s) return json({ error: "not found" }, 404);
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body: unknown = await req.json().catch(() => null);
+  if (!isRecord(body)) return json({ error: "body must be a non-null object" }, 400);
+  if ("repoPath" in body) return json({ error: "repoPath cannot change" }, 400);
+  const current = {
+    repoPath: s.repoPath,
+    name: s.name,
+    prompt: s.prompt,
+    days: s.days,
+    times: s.times,
+    enabled: s.enabled,
+  };
+  const launch = isRecord(body.launch) ? { ...s.launch, ...body.launch } : body.launch;
+  const merged = {
+    ...current,
+    launch: s.launch,
+    ...body,
+    ...(body.launch !== undefined && { launch }),
+  };
+  const parsed = validateScheduleInput(merged, config.repoRoot);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  const v = parsed.value;
+  const rebaseline =
+    (v.enabled && !s.enabled) || v.days !== s.days || v.times.join() !== s.times.join();
+  const now = Date.now();
+  deps.store.updateSchedule(s.id, v, now, rebaseline);
+  deps.events.emit("schedules:changed", { repoPath: s.repoPath });
+  return json(scheduleDto(deps.store.getSchedule(s.id)!, deps, now));
+}
+
+async function runScheduleNow(id: string, deps: AppDeps): Promise<Response> {
+  if (!deps.schedules) return json({ error: "schedules unavailable" }, 503);
+  const run = await deps.schedules.runNow(id);
+  return run ? json(run) : json({ error: "not found" }, 404);
+}
+
 async function handleRepoBootstrap({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "repo-bootstrap")) return null;
   const leaf = parts[2] ?? "";
@@ -4044,9 +4158,23 @@ function bindHeldCodexAccount(deps: AppDeps, id: string, input: StandardCreateIn
   if (account) deps.store.setSetting(`codexHeldAccount:${id}`, account);
 }
 
-/** Check hold gate; if triggered, persist the held task and return the 200 response.
- *  Returns null when the task should proceed to normal creation. */
+interface HeldTaskRef {
+  id: string;
+  count: number;
+  reason: HeldReason;
+}
+
+function heldResponse(h: HeldTaskRef): Response {
+  return json({ held: true, ...h }, 200);
+}
+
+/** Persist a held task and return the 200 response. */
 function persistHeldTask(value: StandardCreateInput, deps: AppDeps, reason: HeldReason): Response {
+  return heldResponse(holdTask(value, deps, reason));
+}
+
+/** Park `value` in held_tasks under `reason`. */
+function holdTask(value: StandardCreateInput, deps: AppDeps, reason: HeldReason): HeldTaskRef {
   const id = randomUUID();
   const createdAt = Date.now();
   deps.store.addHeldTask({
@@ -4057,26 +4185,23 @@ function persistHeldTask(value: StandardCreateInput, deps: AppDeps, reason: Held
     reason,
   });
   bindHeldCodexAccount(deps, id, value);
-  deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
-  return json({ held: true, id, count: deps.store.countHeldTasks(), reason }, 200);
+  const count = deps.store.countHeldTasks();
+  deps.events.emit("held:changed", { count });
+  return { id, count, reason };
 }
 
+/** Usage/capacity hold gate: parks the task and returns its ref, or null to proceed. */
 async function tryHoldNewTask(
-  body: unknown,
+  force: boolean,
   value: StandardCreateInput,
   deps: AppDeps,
-): Promise<Response | null> {
+): Promise<HeldTaskRef | null> {
   const provider = normalizeAgentProvider(value.agentProvider ?? config.defaultAgentProvider);
   if (provider === "codex")
     return deps.codexCapacity && !(await deps.codexCapacity())
-      ? persistHeldTask(value, deps, "capacity")
+      ? holdTask(value, deps, "capacity")
       : null;
 
-  const force = !!(
-    body &&
-    typeof body === "object" &&
-    (body as Record<string, unknown>).force === true
-  );
   const lim = deps.usageLimits.limits(Date.now());
   const s5h = lim.session5h?.pct ?? 0;
   const week = lim.week?.pct ?? 0;
@@ -4090,7 +4215,46 @@ async function tryHoldNewTask(
     })
   )
     return null;
-  return persistHeldTask(value, deps, "usage");
+  return holdTask(value, deps, "usage");
+}
+
+/** How {@link launchTask} ended: a session, a held task, or a create failure (`error`). */
+export type LaunchOutcome =
+  | { kind: "spawned"; session: Session }
+  | { kind: "held"; held: HeldTaskRef }
+  | { kind: "error"; error: unknown };
+
+/**
+ * The New Task launch tail shared by `POST /api/sessions` and the scheduler (#3469): the
+ * usage-aware hold gate, the spawn, and plugin-refusal parking — so a scheduled run is held or
+ * parked exactly like a manual one. Emits `session:new` on a spawn. Request-only concerns (auth,
+ * issue routing, `--after`, the issue claim) stay with the caller.
+ */
+export async function launchTask(
+  value: StandardCreateInput,
+  deps: AppDeps,
+  opts: { force?: boolean; tracker?: () => SpawnPhaseTracker } = {},
+): Promise<LaunchOutcome> {
+  const held = await tryHoldNewTask(opts.force === true, value, deps);
+  if (held) return { kind: "held", held };
+  // Built only now, so the spawn's measured phases start after the hold gate.
+  const tracker = opts.tracker?.();
+  if (tracker) registerSpawn(tracker);
+  let session: Session;
+  try {
+    session = await deps.service.create(value, tracker);
+  } catch (e) {
+    // Plugin-refused create: park in held_tasks as a capacity hold for retry.
+    if (e instanceof SandboxAutoRefused && e.cause instanceof PluginSpawnAborted) {
+      return { kind: "held", held: holdTask(value, deps, "capacity") };
+    }
+    return { kind: "error", error: e };
+  } finally {
+    if (tracker) releaseSpawn(tracker.spawnId);
+  }
+  deps.events.emit("session:new", session);
+  tracker?.complete(session.id);
+  return { kind: "spawned", session };
 }
 
 /**
@@ -4689,28 +4853,17 @@ async function createValidatedSession(
   if (after instanceof Response) return after;
   value = after;
 
-  // ── usage-aware hold gate ──────────────────────────────────────────────────
-  const held = await tryHoldNewTask(body, value, deps);
-  if (held) return held;
-
-  const tracker = spawnTrackerFor(req, deps);
-  registerSpawn(tracker);
-  let s;
-  try {
-    s = await deps.service.create(value, tracker);
-  } catch (e) {
-    // Plugin-refused create: park in held_tasks as a capacity hold for retry.
-    if (e instanceof SandboxAutoRefused && e.cause instanceof PluginSpawnAborted) {
-      return persistHeldTask(value, deps, "capacity");
-    }
-    // create shells out to herdr (and git); surface the real reason instead of a
-    // bare 500 so the New Task dialog can show it.
-    return createErrorResponse(e);
-  } finally {
-    releaseSpawn(tracker.spawnId);
-  }
-  deps.events.emit("session:new", s);
-  tracker.complete(s.id);
+  // ── usage-aware hold gate → spawn (shared with the scheduler, #3469) ────────
+  const force = isRecord(body) && body.force === true;
+  const launched = await launchTask(value, deps, {
+    force,
+    tracker: () => spawnTrackerFor(req, deps),
+  });
+  if (launched.kind === "held") return heldResponse(launched.held);
+  // create shells out to herdr (and git); surface the real reason instead of a
+  // bare 500 so the New Task dialog can show it.
+  if (launched.kind === "error") return createErrorResponse(launched.error);
+  const s = launched.session;
   // A human linked an issue: stamp the drain claim so the board reflects it's being
   // worked and the drain won't double-spawn it. Deferred (macrotask) + best-effort:
   // addIssueLabel shells out synchronously via execFileSync, so merely not awaiting
@@ -12391,6 +12544,7 @@ const ROUTE_HANDLERS = [
   handleEpicQueueReorder,
   handleRepoConfig,
   handleRepoBootstrap,
+  handleSchedules,
   handleRepoBrowserOpen,
   handleRepoRoles,
   handleRepoRolesAutoMerge,

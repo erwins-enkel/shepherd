@@ -96,6 +96,13 @@ import type { LandingManualStep } from "./epic-landing";
 import { epicParentFromBranch } from "./epic-branch";
 import { BOOTSTRAP_OFF, type BootstrapSessionPhase, type RepoBootstrap } from "./bootstrap";
 import type { GitState, WorkflowJob } from "./forge/types";
+import type {
+  Schedule,
+  ScheduleInput,
+  ScheduleLaunch,
+  ScheduleOutcome,
+  ScheduleRun,
+} from "./schedules-core";
 
 /** One cached Up Next readiness score (#2535). `hash` is `readinessHash(model, item)`. */
 export interface ReadinessRow {
@@ -800,7 +807,9 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
  * `COLS` also keeps that constant aligned with `create()`'s placeholder list.
  */
 const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits, settledAt,
-  claudeAiConnectors, ingressStamp, (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
+  claudeAiConnectors, ingressStamp, scheduleId,
+  (SELECT name FROM schedules WHERE schedules.id = sessions.scheduleId) AS scheduleName,
+  (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
 
 /** A bootstrap spawn: P1+P2 carries its resolved stack, P3 (#3110) only its phase. */
 function isBootstrapInput(input: Pick<NewSession, "bootstrapStack" | "bootstrapPhase">): boolean {
@@ -810,8 +819,25 @@ function isBootstrapInput(input: Pick<NewSession, "bootstrapStack" | "bootstrapP
 // ── SQLite row shapes ──────────────────────────────────────────────────────────
 
 /** SQLite row shape for the sessions table (INTEGER booleans, JSON strings). */
+/** SQLite row shape for the schedules table (#3469). */
+type ScheduleRow = {
+  id: string;
+  repoPath: string;
+  name: string;
+  prompt: string;
+  days: number;
+  timesJson: string;
+  enabled: number;
+  launchJson: string;
+  baselineAt: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
 type SessionRow = {
   id: string;
+  scheduleId: string | null;
+  scheduleName: string | null;
   desig: string;
   name: string;
   prompt: string;
@@ -1057,7 +1083,7 @@ function parseLaunchMetadataJson(raw: string | null | undefined): SessionLaunchM
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     const m = parsed as Partial<SessionLaunchMetadata>;
-    if (m.sourceKind !== "user" && m.sourceKind !== "generated") return null;
+    if (!["user", "generated", "scheduled"].includes(m.sourceKind as string)) return null;
     if (typeof m.prompt !== "string") return null;
     if (!Array.isArray(m.attachments)) return null;
     return m as SessionLaunchMetadata;
@@ -1529,6 +1555,32 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       reason TEXT NOT NULL DEFAULT 'usage'
     )`);
     this.migrateHeldTaskColumns();
+    // Operator schedules (#3469) + their append-only run log. UNIQUE(scheduleId, slotKey) is the
+    // claim-before-spawn gate: a slot's row is written BEFORE the launch, so a crash or restart
+    // mid-spawn can never fire it twice.
+    this.db.run(`CREATE TABLE IF NOT EXISTS schedules (
+      id TEXT PRIMARY KEY,
+      repoPath TEXT NOT NULL,
+      name TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      days INTEGER NOT NULL,
+      timesJson TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      launchJson TEXT NOT NULL,
+      baselineAt INTEGER NOT NULL,
+      createdAt INTEGER NOT NULL,
+      updatedAt INTEGER NOT NULL
+    )`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS schedule_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scheduleId TEXT NOT NULL,
+      slotKey TEXT NOT NULL,
+      outcome TEXT NOT NULL,
+      sessionId TEXT,
+      reason TEXT,
+      at INTEGER NOT NULL,
+      UNIQUE (scheduleId, slotKey)
+    )`);
     // Base-moved notice state (#2589): the base tip a session was last told about (or already
     // contains) and when it was last steered. No row = anchor at the session's baseCommit.
     this.db.run(`CREATE TABLE IF NOT EXISTS base_notices (
@@ -3949,7 +4001,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         ],
       );
       this.setBootstrap(s.id, input);
-      return s;
+      return this.setSchedule(s);
     })();
   }
 
@@ -6567,6 +6619,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("epicParent", `epicParent INTEGER`);
     // Incremental-landing epic parent (#3191): NOT an epic-child identity (see Session). Nullable.
     add("incrementalEpicParent", `incrementalEpicParent INTEGER`);
+    // #3469: the operator schedule whose firing spawned this session. Nullable, no default.
+    add("scheduleId", `scheduleId TEXT`);
     // #3245: a session routed to the repo its ticket targets keeps issueNumber NULL and links its
     // issue here; misroutedTarget flags a session running outside its ticket's target repo.
     add("homeIssueRepoPath", `homeIssueRepoPath TEXT`);
@@ -7686,6 +7740,164 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          notifiedAt = COALESCE(excluded.notifiedAt, base_notices.notifiedAt)`,
       [sessionId, sha, notifiedAt],
     );
+  }
+
+  // ── operator schedules (#3469) ─────────────────────────────────────────────
+
+  private hydrateSchedule(r: ScheduleRow): Schedule {
+    return {
+      id: r.id,
+      repoPath: r.repoPath,
+      name: r.name,
+      prompt: r.prompt,
+      days: r.days,
+      times: JSON.parse(r.timesJson) as string[],
+      enabled: !!r.enabled,
+      launch: JSON.parse(r.launchJson) as ScheduleLaunch,
+      baselineAt: r.baselineAt,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    };
+  }
+
+  /** All schedules, or one repo's, oldest first. */
+  listSchedules(repoPath?: string): Schedule[] {
+    const rows = (
+      repoPath === undefined
+        ? this.db.query(`SELECT * FROM schedules ORDER BY createdAt`).all()
+        : this.db
+            .query(`SELECT * FROM schedules WHERE repoPath = ? ORDER BY createdAt`)
+            .all(repoPath)
+    ) as ScheduleRow[];
+    return rows.map((r) => this.hydrateSchedule(r));
+  }
+
+  getSchedule(id: string): Schedule | null {
+    const r = this.db.query(`SELECT * FROM schedules WHERE id = ?`).get(id) as ScheduleRow | null;
+    return r ? this.hydrateSchedule(r) : null;
+  }
+
+  /** Insert a schedule. `baselineAt` = now, so slots already past today never fire. */
+  insertSchedule(input: ScheduleInput, now: number): Schedule {
+    const id = randomUUID();
+    this.db.run(
+      `INSERT INTO schedules (id, repoPath, name, prompt, days, timesJson, enabled, launchJson,
+         baselineAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        input.repoPath,
+        input.name,
+        input.prompt,
+        input.days,
+        JSON.stringify(input.times),
+        input.enabled ? 1 : 0,
+        JSON.stringify(input.launch),
+        now,
+        now,
+        now,
+      ],
+    );
+    return this.getSchedule(id)!;
+  }
+
+  /** Replace a schedule's editable fields (repoPath stays). `rebaseline` re-stamps `baselineAt`
+   *  — the caller passes it on enable and on a cadence change. */
+  updateSchedule(id: string, input: ScheduleInput, now: number, rebaseline: boolean): void {
+    this.db.run(
+      `UPDATE schedules SET name = ?, prompt = ?, days = ?, timesJson = ?, enabled = ?,
+         launchJson = ?, baselineAt = CASE WHEN ? THEN ? ELSE baselineAt END, updatedAt = ?
+       WHERE id = ?`,
+      [
+        input.name,
+        input.prompt,
+        input.days,
+        JSON.stringify(input.times),
+        input.enabled ? 1 : 0,
+        JSON.stringify(input.launch),
+        rebaseline ? 1 : 0,
+        now,
+        now,
+        id,
+      ],
+    );
+  }
+
+  /** Delete a schedule and its run log. Sessions keep their (now dangling) `scheduleId`. */
+  deleteSchedule(id: string): boolean {
+    return this.db.transaction(() => {
+      this.db.run(`DELETE FROM schedule_runs WHERE scheduleId = ?`, [id]);
+      return this.db.run(`DELETE FROM schedules WHERE id = ?`, [id]).changes === 1;
+    })();
+  }
+
+  /** #3469: link a fresh session to its schedule. Written after the INSERT (like the bootstrap
+   *  stack) so COLS' hand-counted placeholder list stays untouched. */
+  private setSchedule(s: Session): Session {
+    if (!s.scheduleId) return { ...s, scheduleId: null, scheduleName: null };
+    this.db.run(`UPDATE sessions SET scheduleId = ? WHERE id = ?`, [s.scheduleId, s.id]);
+    const r = this.db.query(`SELECT name FROM schedules WHERE id = ?`).get(s.scheduleId) as {
+      name: string;
+    } | null;
+    return { ...s, scheduleName: r?.name ?? null };
+  }
+
+  /** Claim a slot (`claimed` row). True only for the ONE caller whose insert landed. */
+  claimScheduleRun(scheduleId: string, slotKey: string, now: number): boolean {
+    return (
+      this.db.run(
+        `INSERT INTO schedule_runs (scheduleId, slotKey, outcome, at) VALUES (?, ?, 'claimed', ?)
+         ON CONFLICT(scheduleId, slotKey) DO NOTHING`,
+        [scheduleId, slotKey, now],
+      ).changes === 1
+    );
+  }
+
+  hasScheduleRun(scheduleId: string, slotKey: string): boolean {
+    return !!this.db
+      .query(`SELECT 1 FROM schedule_runs WHERE scheduleId = ? AND slotKey = ?`)
+      .get(scheduleId, slotKey);
+  }
+
+  /** Record how a claimed slot ended. */
+  settleScheduleRun(
+    scheduleId: string,
+    slotKey: string,
+    outcome: ScheduleOutcome,
+    extra: { sessionId?: string | null; reason?: string | null } = {},
+  ): void {
+    this.db.run(
+      `UPDATE schedule_runs SET outcome = ?, sessionId = ?, reason = ?
+       WHERE scheduleId = ? AND slotKey = ?`,
+      [outcome, extra.sessionId ?? null, extra.reason ?? null, scheduleId, slotKey],
+    );
+  }
+
+  getScheduleRun(scheduleId: string, slotKey: string): ScheduleRun | null {
+    return (
+      (this.db
+        .query(`SELECT * FROM schedule_runs WHERE scheduleId = ? AND slotKey = ?`)
+        .get(scheduleId, slotKey) as ScheduleRun | null) ?? null
+    );
+  }
+
+  /** A schedule's runs, newest first. */
+  listScheduleRuns(scheduleId: string, limit: number): ScheduleRun[] {
+    return this.db
+      .query(`SELECT * FROM schedule_runs WHERE scheduleId = ? ORDER BY at DESC, id DESC LIMIT ?`)
+      .all(scheduleId, limit) as ScheduleRun[];
+  }
+
+  /** True while a session this schedule spawned is still open (not archived). */
+  hasOpenScheduledSession(scheduleId: string): boolean {
+    return !!this.db
+      .query(`SELECT 1 FROM sessions WHERE scheduleId = ? AND status != 'archived' LIMIT 1`)
+      .get(scheduleId);
+  }
+
+  /** Drop run rows older than `before`. Safe: a slot that old is past the stale cap, so it can
+   *  never be re-considered for firing. */
+  pruneScheduleRuns(before: number): void {
+    this.db.run(`DELETE FROM schedule_runs WHERE at < ?`, [before]);
   }
 
   countHeldTasks(): number {

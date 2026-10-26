@@ -43,6 +43,7 @@ import type {
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
 import { repoBootstrap } from "./repo-bootstrap.svelte";
+import { schedules } from "./schedules.svelte";
 import { reviews, planGates, spawnNotices } from "./reviews.svelte";
 import { recaps } from "./recaps.svelte";
 import { amendments } from "./amendments.svelte";
@@ -1111,6 +1112,9 @@ export class HerdStore {
         break;
       case "repo-bootstrap:update":
         repoBootstrap.refresh(ev.data.repoPath);
+        break;
+      case "schedules:changed":
+        schedules.refresh(ev.data.repoPath);
         break;
       case "backlog:update":
         this.backlog = ev.data;

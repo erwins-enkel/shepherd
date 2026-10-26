@@ -184,6 +184,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
       "an iphone app, the operator assistant, tasks on your other machines, a shared logged-in browser, and two rounds of security hardening — the highlights of shepherd 2.1 to 2.5. shepherd for iphone the operator assistant run tasks on another machine shared browser epics and projects more from the cli security hardening also new upgrading",
   },
   {
+    title: "Scheduled prompts",
+    path: "/scheduled-prompts/",
+    keywords:
+      "run a prompt or /skill in a repo on fixed weekdays and times. each run starts a fresh, normal shepherd session. setting one up when a schedule runs attended by default api",
+  },
+  {
     title: "Shared browser",
     path: "/shared-browser/",
     keywords:

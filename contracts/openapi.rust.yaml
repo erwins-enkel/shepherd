@@ -787,6 +787,14 @@ components:
         epicParent:
           type: integer
           nullable: true
+        scheduleId:
+          type: string
+          nullable: true
+          description: The operator schedule (#3469) whose firing spawned this session; null otherwise. Absent from servers before schedules.
+        scheduleName:
+          type: string
+          nullable: true
+          description: That schedule's current name; null when the schedule was deleted or the session was not scheduled.
         sandboxApplied:
           allOf:
             - $ref: "#/components/schemas/SandboxProfile"

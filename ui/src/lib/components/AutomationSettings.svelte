@@ -17,6 +17,7 @@
   import AutomationDrainFields from "./automation-settings/AutomationDrainFields.svelte";
   import BrowserAllowedHosts from "./automation-settings/BrowserAllowedHosts.svelte";
   import AutomationBootstrap from "./automation-settings/AutomationBootstrap.svelte";
+  import AutomationSchedules from "./automation-settings/AutomationSchedules.svelte";
   import "./automation-settings/automation-fields.css";
   import { onMount } from "svelte";
   import type { Session, SandboxProfile, RepoSandboxSetting, DrainStatus } from "#lib/types.js";
@@ -507,6 +508,7 @@
 <AutomationDrainFields {repoPath} active={drainRailsActive} {epicActive} />
 <!-- Project bootstrap (#3105): holds the drain above until the foundation is in place. -->
 <AutomationBootstrap {repoPath} />
+<AutomationSchedules {repoPath} />
 <div class={["auto-row", { disabled: lightweight }]}>
   <div class="auto-meta">
     <div class="auto-name">☑ {m.automation_prewarm_epic_ci_name()}</div>

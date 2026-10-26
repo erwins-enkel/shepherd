@@ -623,6 +623,12 @@ components:
         auto: { type: boolean }
         issueNumber: { type: [integer, "null"] }
         epicParent: { type: [integer, "null"] }
+        scheduleId:
+          type: [string, "null"]
+          description: The operator schedule (#3469) whose firing spawned this session; null otherwise. Absent from servers before schedules.
+        scheduleName:
+          type: [string, "null"]
+          description: That schedule's current name; null when the schedule was deleted or the session was not scheduled.
         sandboxApplied:
           oneOf:
             - $ref: "#/components/schemas/SandboxProfile"

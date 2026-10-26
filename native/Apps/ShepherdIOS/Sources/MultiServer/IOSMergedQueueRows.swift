@@ -79,6 +79,7 @@ enum IOSMergedQueuePresentation {
 struct IOSMergedNextRows: View {
     let hub: IOSServerHub
     let repos: Set<String>
+    let select: (IOSSessionIdentity) -> Void
     @State private var sort: UpNextSort = .newest
     @State private var expanded: Set<String> = []
     @State private var filterOpen = false
@@ -89,10 +90,11 @@ struct IOSMergedNextRows: View {
             app.activeProfile.map { .init(profile: $0, snapshot: app.extension(QueuesModel.self)?.upNext) }
         }
         let groups = IOSMergedQueuePresentation.groups(sources, sort: sort, repos: repos)
-        IOSUpNextFilterHeader(filter: filter, repos: repos, open: $filterOpen)
-        Picker(L.t("upnext_sort_aria"), selection: $sort) {
-            ForEach(UpNextSort.allCases, id: \.self) { Text(verbatim: $0.label).tag($0) }
-        }.sessionFont().listRowBackground(SessionListStyle.panel)
+        let prRows = IOSUpNextPrRow.rows(hub.connected, named: hub.connected.count > 1)
+        IOSUpNextFilterHeader(filter: filter, repos: repos, sort: $sort, open: $filterOpen)
+        IOSUpNextPrSection(rows: prRows, sort: sort, repos: repos, select: { app, id in
+            if let profileID = app.activeProfile?.id { select(.init(profileID: profileID, sessionID: id)) }
+        })
         if groups.isEmpty {
             if hub.connected.contains(where: { $0.extension(QueuesModel.self)?.upNextLoadFailed == true || (($0.extension(QueuesModel.self)?.upNext?.failedRepoCount ?? 0) > 0 && $0.extension(QueuesModel.self)?.upNext?.sections.isEmpty == true) }) {
                 Text(L.t("common_issues_load_failed"))
@@ -101,6 +103,9 @@ struct IOSMergedNextRows: View {
             } else if case let .filtered(hidden, reasons) = IOSUpNextEmpty.choose(filter, repos: repos) {
                 IOSUpNextFilteredEmpty(hidden: hidden, reasons: reasons) { filterOpen = true }
             } else { Text(L.t("upnext_empty")) }
+        } else {
+            IOSUpNextSectionLabel(title: L.t("native_ios_upnext_pr_issue_section"),
+                                  count: groups.reduce(0) { $0 + $1.totalCount }, identifier: "queues-upnext-issue-section")
         }
         ForEach(groups) { group in
             Text(verbatim: group.title).sessionFont(weight: .semibold)

@@ -12166,6 +12166,58 @@
         }
       }
     },
+    "mergetrain_confirm_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge-Train starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start merge train"
+          }
+        }
+      }
+    },
+    "mergetrain_confirm_other_repos": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ bereite PR(s) in anderen Repos sind nicht enthalten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ready PR(s) in other repos are not included."
+          }
+        }
+      }
+    },
+    "mergetrain_confirm_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge-Train starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start merge train"
+          }
+        }
+      }
+    },
     "model_configured_fable_latest": {
       "extractionState": "manual",
       "localizations": {
@@ -19282,6 +19334,1147 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mixed"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_action_approve": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf GitHub freigeben ↗"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approve on GitHub ↗"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_action_fix": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix-Session starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start fix session"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_action_merge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mergen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_action_rebase": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dependabot-Rebase"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dependabot rebase"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_action_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review-Session starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start review session"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_badge_aria": {
+      "comment": "%1$@ = lens, %2$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@ PRs merge-bereit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@ PRs ready to merge"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_band_blocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blockiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_band_dependabot": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dependabot"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dependabot"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_band_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereit zum Mergen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready to merge"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_band_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review fällig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review due"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_ci_all_green": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "alle CI grün"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "all CI green"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_ci_green": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI grün"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI green"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_ci_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keine CI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no CI"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_ci_red": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI rot"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI red"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_ci_running": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI läuft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI running"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_ci_some_green": {
+      "comment": "%1$@ = green, %2$@ = total",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ von %2$@ CI grün"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ of %2$@ CI green"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_description": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beschreibung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Description"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_description_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Server hat keine Beschreibung geliefert. Öffne den Pull Request auf GitHub, um sie zu lesen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server sent no description. Open the pull request on GitHub to read it."
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_done": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_fact_ci": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_fact_closes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closes"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_fact_mergeable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mergebarkeit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mergeability"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_fact_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_fact_target": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ziel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Target"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_fix_prompt": {
+      "comment": "%1$@ = number, %2$@ = title, %3$@ = url, %4$@ = reason, %5$@ = base",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bringe Pull Request #%1$@ \"%2$@\" (%3$@) in einen mergebaren Zustand: %4$@.\n\nChecke seinen Branch aus, rebase ihn auf %5$@ (niemals %5$@ in den Branch mergen), löse, was ihn blockiert, lass die Checks des Projekts laufen, bis sie grün sind, pushe und berichte, was du geändert hast. Merge den Pull Request nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix pull request #%1$@ \"%2$@\" (%3$@) so it can merge: %4$@.\n\nCheck out its branch, rebase it onto %5$@ (never merge %5$@ into the branch), resolve what blocks it, run the project's checks until they pass, push, and report what you changed. Do not merge the pull request."
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_fix_reason_approval": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ein Workflow wartet auf Freigabe, seine Checks sind daher nicht gelaufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a workflow is awaiting approval, so its checks have not run"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_fix_reason_behind": {
+      "comment": "%1$@ = base",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "er liegt hinter %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "it is behind %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_fix_reason_ci": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seine CI schlägt fehl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "its CI is failing"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_fix_reason_conflict": {
+      "comment": "%1$@ = base",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "er hat Merge-Konflikte mit %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "it has merge conflicts with %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_fix_reason_generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "er ist noch nicht mergebar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "it is not mergeable yet"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_held": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgabe bis zum Nutzungs-Reset eingereiht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task queued until the usage reset."
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_issue_section": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_kind": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull Request"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull request"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_lock_approval": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesperrt: Ein Workflow wartet auf Freigabe auf GitHub."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locked: a workflow is awaiting approval on GitHub."
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_lock_behind": {
+      "comment": "%1$@ = base",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesperrt: hinter %1$@. Der Fix rebased."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locked: behind %1$@. The fix rebases."
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_lock_ci": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesperrt: CI ist rot. Der Fix repariert sie."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locked: CI is red. The fix repairs it."
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_lock_conflict": {
+      "comment": "%1$@ = base",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesperrt: Konflikte mit %1$@. Der Fix rebased und löst sie."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locked: conflicts with %1$@. The fix rebases and resolves them."
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_lock_running": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesperrt: CI läuft noch."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locked: CI is still running."
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_merge_confirm_repo": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_mergeable_yes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mergebar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mergeable"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_merging": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge #%1$@…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merging #%1$@…"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_next": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächster PR"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next pull request"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_open_forge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf GitHub öffnen ↗"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open on GitHub ↗"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_prev": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorheriger PR"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous pull request"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_rebase_requested": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebase bei Dependabot für #%1$@ angefordert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebase requested from Dependabot for #%1$@."
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_review_approved": {
+      "comment": "%1$@ = who",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "freigegeben von %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "approved by %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_review_changes": {
+      "comment": "%1$@ = who",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Änderungen gewünscht von %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "changes requested by %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_review_comment": {
+      "comment": "%1$@ = who",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommentar von %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comment by %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_review_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "noch keins"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "none yet"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_review_prompt": {
+      "comment": "%1$@ = number, %2$@ = title, %3$@ = url",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewe Pull Request #%1$@ \"%2$@\" (%3$@) auf Korrektheit, Tests und Produkt-Fit.\n\nLies den Diff mit gh, prüfe CI und die bestehenden Review-Kommentare und poste deine Befunde als Pull-Request-Review. Merge ihn nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review pull request #%1$@ \"%2$@\" (%3$@) for correctness, tests and product fit.\n\nRead the diff with gh, check CI and the existing review comments, and post your findings as a pull request review. Do not merge it."
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_row_aria": {
+      "comment": "%1$@ = number, %2$@ = title, %3$@ = status, %4$@ = repo",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull Request #%1$@ %2$@, %3$@, %4$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull request #%1$@ %2$@, %3$@, %4$@"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_section": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull Requests"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull requests"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_sheet_title": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR #%1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR #%1$@"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_started": {
+      "comment": "%1$@ = desig",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session %1$@ gestartet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session %1$@ started"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_status_approval": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FREIGABE NÖTIG"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "APPROVAL NEEDED"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_status_behind": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VERALTET"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "BEHIND"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_status_conflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KONFLIKTE"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CONFLICTS"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_swipe_merge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_toolbar_filter": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter · %1$@ Regeln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter · %1$@ rules"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_toolbar_filter_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_toolbar_filter_one": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter · 1 Regel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter · 1 rule"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_train_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge-Train für die merge-fähigen Dependabot-Pull-Requests starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start a merge train for the mergeable Dependabot pull requests"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_train_button": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge-Train ›"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge train ›"
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_train_confirm_body": {
+      "comment": "%1$@ = count, %2$@ = repo",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge-Train für %1$@ Dependabot-PR(s) in %2$@ starten? Der Agent schlägt eine Reihenfolge vor und wartet vor dem Mergen auf deine Freigabe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run a merge train for %1$@ Dependabot PR(s) in %2$@? The agent proposes a merge order and waits for your approval before merging anything."
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_train_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Dependabot-PR ist merge-bereit: alle sind blockiert oder ihre CI ist nicht grün."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Dependabot PR is ready to merge: all are blocked or their CI is not green."
+          }
+        }
+      }
+    },
+    "native_ios_upnext_pr_updates": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ Updates"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ updates"
           }
         }
       }
@@ -31880,6 +33073,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Request review"
+          }
+        }
+      }
+    },
+    "prspanel_merge_train_prompt": {
+      "comment": "%1$@ = prs",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Führe einen Merge-Train für die Pull Requests aus, die ich ausgewählt habe. Prüfe jeden auf Korrektheit und Produkt-Fit, schlage eine sichere Merge-Reihenfolge vor und halte vor jedem Merge für meine Freigabe an; prüfe danach nach jedem Merge die Warteschlange erneut, denn main bewegt sich unter dir.\n\nAusgewählte PRs:\n%1$@\n\nWenn dieses Repo einen /merge-train-Befehl oder -Skill bereitstellt, nutze ihn. Andernfalls arbeite den Train selbst ab:\n1. Erfasse für jeden PR den Status mit gh (CI-Rollup, Mergebarkeit/Konflikte, wie weit hinter main, und welche Dateien sich mit anderen PRs dieser Liste überschneiden).\n2. Verschiebe jeden PR, der CI-rot, konfliktbehaftet, gate-fehlerhaft oder nicht erwünscht ist, mit einer einzeiligen Begründung auf eine separate Halteliste; merge niemals an einem roten Gate vorbei.\n3. Ordne den Rest: am kleinsten und unabhängigsten zuerst; überschneiden sich zwei, sequenziere sie so, dass der riskantere auf den anderen rebased; release-please-PRs zuletzt.\n4. Präsentiere die nummerierte Merge-Reihenfolge plus die Halteliste und WARTE auf meine Freigabe.\n5. Nach Freigabe merge in Reihenfolge: erst auf das aktuelle main rebasen (niemals main in den Branch mergen), grüne Gates bestätigen, dann gh pr merge --squash --delete-branch, und vor dem nächsten die verbleibenden PRs erneut gegen main prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run a merge train for the pull requests I've selected. Review each for correctness and product-fit, propose a safe merge order, and stop for my approval before merging anything; then re-check the queue after every merge, because main moves under you.\n\nSelected PRs:\n%1$@\n\nIf this repo provides a /merge-train command or skill, use it. Otherwise work the train yourself:\n1. For each PR, gather status with gh (CI rollup, mergeability/conflicts, how far behind main, and which files overlap other PRs in this list).\n2. Move any PR that is CI-red, conflicting, gate-failing, or that we don't actually want into a separate hold list with a one-line reason; never merge past a red gate.\n3. Order the rest: smallest and most independent first; when two overlap, sequence them so the riskier one rebases onto the other; release-please PRs last.\n4. Present the numbered merge order plus the hold list and WAIT for my approval.\n5. On approval, merge in order: rebase onto latest main first (never merge main into the branch), confirm gates are green, then gh pr merge --squash --delete-branch, and re-check the remaining PRs against main before the next one."
           }
         }
       }

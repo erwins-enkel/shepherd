@@ -2,25 +2,26 @@ import SwiftUI
 import ShepherdAppCore
 import ShepherdKit
 
-/// Panel lenses retain their web meaning; iOS offers metadata, not session mutations.
+/// Up Next: the server's PR block first, then its issue groups. Issues stay metadata; PRs act
+/// through the PR sheet (#3022 filter bar on top).
 struct IOSUpNextRows: View {
     let model: QueuesModel?
     let repos: Set<String>
     let filter: IOSUpNextFilter
+    let select: (String) -> Void
+    @Environment(AppModel.self) private var app
     @State private var sort: UpNextSort = .newest
     @State private var expanded: Set<String> = []
     @State private var filterOpen = false
     var body: some View {
         let groups = UpNextPresentation.groups(model?.upNext, sort: sort, repos: repos)
-        IOSUpNextFilterHeader(filter: filter, repos: repos, open: $filterOpen)
-        Picker(L.t("upnext_sort_aria"), selection: $sort) {
-            ForEach(UpNextSort.allCases, id: \.self) { Text(verbatim: $0.label).tag($0) }
-        }
-        .sessionFont().listRowBackground(SessionListStyle.panel)
+        let prRows = IOSUpNextPrRow.rows([app], named: false)
+        IOSUpNextFilterHeader(filter: filter, repos: repos, sort: $sort, open: $filterOpen)
         if model?.upNext == nil {
             Text(L.t("native_ios_next_waiting")).sessionFont().foregroundStyle(SessionListStyle.muted)
                 .listRowBackground(SessionListStyle.background)
         } else {
+            IOSUpNextPrSection(rows: prRows, sort: sort, repos: repos, select: { _, id in select(id) })
             switch UpNextPresentation.phase(model?.upNext, failed: model?.upNextLoadFailed ?? false, groups: groups) {
             case .failed: Text(L.t("common_issues_load_failed"))
             case .empty:
@@ -31,7 +32,9 @@ struct IOSUpNextRows: View {
                         : L.t("upnext_repo_filter_empty", repos.sorted().map(DonePresentation.repoBasename).joined(separator: ", ")))
                 }
             case .computing: ProgressView(L.t("common_loading"))
-            case .ready: EmptyView()
+            case .ready:
+                IOSUpNextSectionLabel(title: L.t("native_ios_upnext_pr_issue_section"),
+                                      count: groups.reduce(0) { $0 + $1.totalCount }, identifier: "queues-upnext-issue-section")
             }
             ForEach(groups) { group in
                 Text(verbatim: group.title).sessionFont(weight: .semibold)

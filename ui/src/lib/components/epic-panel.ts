@@ -215,7 +215,7 @@ const HALT_REASONS = new Set([
 
 /** #3452 spawn gates the #3453 auto-fix model covers: the repo's sandbox, the epic's CLI or this
  *  host keeps the next child from starting unattended. The run reads "halted · sandbox". */
-export const SANDBOX_HALT_REASONS: ReadonlySet<string> = new Set([
+const SANDBOX_HALT_REASONS: ReadonlySet<string> = new Set([
   "sandbox_interactive",
   "sandbox_provider_unconfined",
   "sandbox_backend_unavailable",
@@ -244,12 +244,20 @@ export function epicRunState(
   if (reason === "cap") return { ...base, kind: "waiting_slot", tone: "run" };
   if (reason === "awaiting_approval") return { ...base, kind: "awaiting_approval", tone: "run" };
   if (reason != null && HALT_REASONS.has(reason)) {
-    const kind = SANDBOX_HALT_REASONS.has(reason) ? "halted_sandbox" : "halted";
-    return { ...base, kind, tone: "halt", note: epicHoldLine(own, true, epic.children) };
+    return {
+      ...base,
+      kind: haltKind(reason),
+      tone: "halt",
+      note: epicHoldLine(own, true, epic.children),
+    };
   }
   const inFlight = epic.children.some((c) => c.state === "running" || c.state === "in-review");
   if (reason === "empty" && !inFlight) return { ...base, kind: "nothing", tone: "quiet" };
   return { ...base, kind: "running", tone: "run" };
+}
+
+function haltKind(reason: string): "halted" | "halted_sandbox" {
+  return SANDBOX_HALT_REASONS.has(reason) ? "halted_sandbox" : "halted";
 }
 
 // ── repo overview run state (#2639) ────────────────────────────────────────────────────────

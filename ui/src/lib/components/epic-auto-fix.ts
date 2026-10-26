@@ -109,73 +109,87 @@ export function optionView(
   blockers: EpicAutoBlockers,
   repoName: string,
 ): OptionView {
-  const { sandboxProfile, agentProvider } = option.changes;
   // The CLI that runs unconfined today (Codex) — what Trusted keeps and the switch replaces.
   const unconfined = blockers.causes.find((c) => c.code === "sandbox_provider_unconfined");
   const cli = unconfined ? cliName(unconfined.detail) : null;
-  const trusted = sandboxProfile === "trusted";
   const onlyWay = option.enabled && blockers.options.filter((o) => o.enabled).length === 1;
+  const { agentProvider } = option.changes;
+  const trusted = option.changes.sandboxProfile === "trusted";
+  const enabled = option.enabled;
+  return {
+    id: option.id,
+    enabled,
+    title: optionTitle(option),
+    where: optionWhere(option.changes, repoName),
+    body: enabled ? optionBody(option.changes, cli, onlyWay) : null,
+    change:
+      enabled && agentProvider && cli
+        ? m.epic_autofix_change_cli({ from: cli, to: cliName(agentProvider) })
+        : null,
+    risk: enabled && trusted ? m.epic_autofix_risk_trusted({ repo: repoName }) : null,
+    checks: optionChecks(option),
+    ...disabledReason(option, cli),
+  };
+}
 
+function optionTitle(option: EpicAutoFixOption): string {
+  const { sandboxProfile, agentProvider } = option.changes;
+  if (option.why === "cli" && !agentProvider) return m.epic_autofix_title_autonomous_only();
   const parts = [
     sandboxProfile ? m.epic_autofix_title_sandbox({ profile: profileName(sandboxProfile) }) : "",
     agentProvider ? m.epic_autofix_cli({ cli: cliName(agentProvider) }) : "",
   ].filter(Boolean);
-  const title =
-    option.why === "cli" && !agentProvider
-      ? m.epic_autofix_title_autonomous_only()
-      : parts.join(" + ") || option.id;
-  const where =
-    sandboxProfile && agentProvider
-      ? m.epic_autofix_where_both()
-      : agentProvider
-        ? m.epic_autofix_where_epic()
-        : m.epic_autofix_where_repo({ repo: repoName });
+  return parts.join(" + ") || option.id;
+}
 
-  let body: string | null = null;
-  if (option.enabled && trusted) {
-    body = onlyWay
-      ? m.epic_autofix_body_only_way()
-      : cli
-        ? m.epic_autofix_body_keeps_cli({ cli })
-        : null;
-  } else if (option.enabled) {
-    body = agentProvider
-      ? m.epic_autofix_body_confined()
-      : `${m.epic_autofix_body_confined()} ${m.epic_autofix_body_nothing_else()}`;
+function optionWhere(changes: EpicAutoFixOption["changes"], repoName: string): string {
+  if (!changes.agentProvider) return m.epic_autofix_where_repo({ repo: repoName });
+  return changes.sandboxProfile ? m.epic_autofix_where_both() : m.epic_autofix_where_epic();
+}
+
+/** What an enabled option does. `cli` is the unconfined CLI a cause names, if any. */
+function optionBody(
+  changes: EpicAutoFixOption["changes"],
+  cli: string | null,
+  onlyWay: boolean,
+): string | null {
+  if (changes.sandboxProfile === "trusted") {
+    if (onlyWay) return m.epic_autofix_body_only_way();
+    return cli ? m.epic_autofix_body_keeps_cli({ cli }) : null;
   }
+  if (changes.agentProvider) return m.epic_autofix_body_confined();
+  return `${m.epic_autofix_body_confined()} ${m.epic_autofix_body_nothing_else()}`;
+}
 
-  // The CLI check never shows as a tick: its failure is the disabled reason itself.
-  const listed = option.why === "cli" ? [] : option.checks.filter((c) => CHECK_TEXT[c.id]);
-  const checks = listed
-    .filter((c) => option.enabled || !c.ok)
+/** Passing checks of an enabled option, failing ones of a disabled one. The CLI check never shows
+ *  as a tick: its failure is the disabled reason itself. */
+function optionChecks(option: EpicAutoFixOption): OptionView["checks"] {
+  if (option.why === "cli") return [];
+  return option.checks
+    .filter((c) => CHECK_TEXT[c.id] && (option.enabled || !c.ok))
     .map((c) => ({ ok: c.ok, text: CHECK_TEXT[c.id]!(c.ok) }));
+}
 
-  let disabledWhy: string | null = null;
-  let disabledHint: string | null = null;
-  if (!option.enabled) {
-    if (option.why === "cli")
-      disabledWhy = m.epic_autofix_disabled_cli({ cli: cli ?? m.agent_provider_codex() });
-    else if (option.why === "bwrap" || option.why === "egress")
-      disabledHint = m.epic_autofix_disabled_host();
-    else if (option.why === "remote_https") disabledHint = m.epic_autofix_disabled_remote();
-    else disabledWhy = m.epic_autofix_disabled_other();
+function disabledReason(
+  option: EpicAutoFixOption,
+  cli: string | null,
+): Pick<OptionView, "disabledWhy" | "disabledHint"> {
+  const none = { disabledWhy: null, disabledHint: null };
+  if (option.enabled) return none;
+  switch (option.why) {
+    case "cli":
+      return {
+        ...none,
+        disabledWhy: m.epic_autofix_disabled_cli({ cli: cli ?? m.agent_provider_codex() }),
+      };
+    case "bwrap":
+    case "egress":
+      return { ...none, disabledHint: m.epic_autofix_disabled_host() };
+    case "remote_https":
+      return { ...none, disabledHint: m.epic_autofix_disabled_remote() };
+    default:
+      return { ...none, disabledWhy: m.epic_autofix_disabled_other() };
   }
-
-  return {
-    id: option.id,
-    enabled: option.enabled,
-    title,
-    where,
-    body,
-    change:
-      option.enabled && agentProvider && cli
-        ? m.epic_autofix_change_cli({ from: cli, to: cliName(agentProvider) })
-        : null,
-    risk: option.enabled && trusted ? m.epic_autofix_risk_trusted({ repo: repoName }) : null,
-    checks,
-    disabledWhy,
-    disabledHint,
-  };
 }
 
 /** The epic's ready children in drain order, and those a fix starts at once — as many as the

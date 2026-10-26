@@ -29,6 +29,12 @@ final class IOSComposeUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["compose.sheet"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.textViews["compose.prompt"].exists)
     }
+    func testQuickActionNewTaskOpensComposerOnLaunch() {
+        app.launchArguments += ["-ShepherdSessionListFixture", "1", "-ShepherdQuickAction", "run.shepherd.quick-action.new-task"]
+        app.launch()
+        XCTAssertTrue(app.descendants(matching: .any)["compose.sheet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["compose.voice.mic.idle"].waitForExistence(timeout: 5))
+    }
     func testReadOnlySessionListHidesNewTask() {
         app.launchArguments += ["-ShepherdSessionListFixture", "1", "-ShepherdReadOnlyFixture", "1"]
         app.launch()

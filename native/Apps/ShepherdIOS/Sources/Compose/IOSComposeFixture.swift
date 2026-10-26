@@ -13,6 +13,12 @@ import ShepherdKit
     static var sessionListEnabled: Bool {
         enabled && ProcessInfo.processInfo.arguments.contains("-ShepherdSessionListFixture")
     }
+    /// `-ShepherdQuickAction <type>` replays a Home Screen quick action once the isolated launch has started.
+    static var quickActionType: String? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "-ShepherdQuickAction"), index + 1 < arguments.count else { return nil }
+        return arguments[index + 1]
+    }
     static func startSessionList(app: AppModel, credentials: any CredentialStore) async throws {
         // Exercise the real profile/store activation and RootView sheet routing.
         // Registration intercepts only the reserved fixture host, including clients

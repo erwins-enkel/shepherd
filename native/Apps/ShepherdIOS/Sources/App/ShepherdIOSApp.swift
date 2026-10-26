@@ -40,6 +40,11 @@ struct ShepherdIOSApp: App {
                 .task {
                     IOSPushRegistration.shared.attach(hub, enabled: !launch.configuration.isIsolated)
                     await hub.start(launch: launch)
+                    #if DEBUG
+                    if launch.configuration.isIsolated, let type = IOSComposeFixture.quickActionType {
+                        IOSQuickActions.shared.receive(type: type)
+                    }
+                    #endif
                 }
         }
     }

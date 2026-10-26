@@ -717,6 +717,61 @@ final class IOSServerHubTests: XCTestCase {
         XCTAssertEqual(owner.sheet, .newSession)
     }
 
+    func testQuickActionWithoutServersOpensNothing() throws {
+        let (_, hub, _, _) = try fixture()
+        let actions = IOSQuickActions()
+        actions.receive(type: IOSQuickAction.dictateTask.rawValue)
+        actions.route(hub)
+        XCTAssertNil(actions.pending)
+        XCTAssertFalse(actions.dictationRequested)
+        XCTAssertNotEqual(hub.routedSheet?.sheet, .newSession)
+    }
+
+    func testDictateQuickActionWaitsForAStoreThenOpensComposerAndRequestsDictationOnce() async throws {
+        let (_, hub, a, b) = try fixture()
+        defer { stop(hub) }
+        let actions = IOSQuickActions()
+        await hub.connect(a, login: true)
+        hub.dismissSheet()
+        actions.receive(type: IOSQuickAction.dictateTask.rawValue)
+        actions.route(hub)
+        XCTAssertEqual(actions.pending, .dictateTask, "No server has a store yet")
+        XCTAssertNotEqual(hub.routedSheet?.sheet, .newSession)
+        await hub.connect(b)
+        await settle { hub.models[b.id]?.store?.connection == .live }
+        actions.route(hub)
+        let owner = try XCTUnwrap(hub.models[b.id])
+        XCTAssertEqual(owner.sheet, .newSession)
+        XCTAssertTrue(hub.routedSheet?.model === owner)
+        XCTAssertNil(actions.pending)
+        XCTAssertFalse(actions.consumeDictation(eligible: false))
+        XCTAssertTrue(actions.dictationRequested, "An ineligible composer leaves the request waiting")
+        XCTAssertTrue(actions.consumeDictation(eligible: true))
+        XCTAssertFalse(actions.consumeDictation(eligible: true))
+    }
+
+    func testNewTaskQuickActionOpensComposerAndDictationReusesIt() async throws {
+        let (_, hub, a, _) = try fixture()
+        defer { stop(hub) }
+        let actions = IOSQuickActions()
+        await hub.connect(a)
+        await settle { hub.models[a.id]?.store?.connection == .live }
+        let owner = try XCTUnwrap(hub.models[a.id])
+        actions.receive(type: IOSQuickAction.newTask.rawValue)
+        actions.route(hub)
+        XCTAssertEqual(owner.sheet, .newSession)
+        XCTAssertNil(actions.pending)
+        XCTAssertFalse(actions.dictationRequested)
+        actions.receive(type: IOSQuickAction.dictateTask.rawValue)
+        actions.route(hub)
+        XCTAssertTrue(hub.routedSheet?.model === owner)
+        XCTAssertEqual(owner.sheet, .newSession)
+        XCTAssertNil(actions.pending)
+        XCTAssertTrue(actions.dictationRequested)
+        actions.reset()
+        XCTAssertFalse(actions.dictationRequested)
+    }
+
     func testDisconnectParksLateLoginTokenWithoutReactivatingRetiredModel() async throws {
         let (launch, hub, a, _) = try fixture()
         await hub.connect(a, login: true)

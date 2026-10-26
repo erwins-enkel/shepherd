@@ -104,6 +104,10 @@ in-flight work running and resumes on its own — and only a few are **terminal*
 - **A plan the adversarial reviewer can't get approved** within 5 rounds.
 - **A critic error** — Shepherd won't advance on an uncertain review.
 - **The credit ceiling** — Shepherd never keeps spending pay-as-you-go credit unattended.
+- **A setting that forbids unattended starts** — the repo's sandbox is **Standard** (interactive
+  only), the epic runs **Codex** under anything but **Trusted**, **Autonomous** lacks bubblewrap
+  or its egress backend on this host, or a ticket's target repo has Auto-Drain off. The run shows
+  **Halted** with the cause; change the setting (or install the backend) and the next child starts.
 - **Epic branch conflicts with `main`** — the rebase above hits a real conflict. No new child starts;
   an agent rebases the branch and resolves it — even with Auto-Drain off — and a second one retries
   if the first leaves it conflicting. If that doesn't clear it you get a notification:

@@ -146,7 +146,7 @@ function variant(id: string, experimentId: string, issueNumber: number | null = 
 }
 
 test("railOrder flattens the partition in the rail's render order", () => {
-  // input order interleaves stages; the rail renders active → ciRunning →
+  // input order interleaves stages; the rail renders active → reviewing → ciRunning →
   // ready → merging → merged (among others), preserving input order within each
   // group — ready precedes merging precedes merged in the flattened output.
   const merging1 = { ...session("merging1"), mergingSince: Date.now(), mergingTrainId: "t" };
@@ -279,11 +279,13 @@ test("railOrder mirrors the template across ≥2 groups + rest over ≥2 stages"
   expect(order).toEqual(["a-active", "a-ready", "b-member", "rest-ci", "rest-merged"]);
 });
 
-test("railOrder places reworkRunning after reviewerRunning and before waiting groups", () => {
+test("railOrder places reviewing → rework above CI running → CI failed, before waiting groups", () => {
   const list = [
     session("wait", false, "idle"),
     session("branch", false, "idle"),
     session("needs", false, "idle"),
+    session("fail", false, "idle"),
+    session("ci"),
     session("rework"),
     session("review"),
     session("active"),
@@ -291,6 +293,8 @@ test("railOrder places reworkRunning after reviewerRunning and before waiting gr
   const order = railOrder(
     list,
     {
+      ci: git("open", "pending"),
+      fail: git("open", "failure"),
       wait: { ...git("open", "success"), handoff: "reviewer", handoffWho: "scoop" },
       needs: {
         ...git("open", "success"),
@@ -308,7 +312,7 @@ test("railOrder places reworkRunning after reviewerRunning and before waiting gr
     (s) => s.id === "rework",
   );
 
-  expect(order).toEqual(["active", "review", "rework", "needs", "branch", "wait"]);
+  expect(order).toEqual(["active", "review", "rework", "ci", "fail", "needs", "branch", "wait"]);
 });
 
 test("cycleId steps down and up through the order", () => {

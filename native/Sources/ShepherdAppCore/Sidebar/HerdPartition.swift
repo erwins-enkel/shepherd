@@ -51,7 +51,7 @@ public enum HerdLens: String, CaseIterable, Sendable {
 /// stay empty. `merging` (`isMerging`), `ready` (`session.readyToMerge`) and the default `active`
 /// floor take no git input at all.
 public enum HerdStage: String, CaseIterable, Sendable {
-    case active, ciRunning, ciFailed, reviewerRunning, reworkRunning, needsRework
+    case active, reviewerRunning, reworkRunning, ciRunning, ciFailed, needsRework
     case branchProtectionBlocked, waitingOnReviewer, waitingOnMerger, draftAwaitingSignoff
     case awaitingMerge, ready, merging, merged
 

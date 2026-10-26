@@ -1038,7 +1038,7 @@ describe("Herd rework-running group", () => {
     );
 
     expect(rendered).toEqual(ordered);
-    expect(rendered).toEqual(["active", "ci", "review", "rework", "wait"]);
+    expect(rendered).toEqual(["active", "review", "rework", "ci", "wait"]);
   });
 });
 

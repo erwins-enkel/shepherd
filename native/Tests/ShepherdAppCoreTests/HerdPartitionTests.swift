@@ -242,6 +242,19 @@ struct HerdPartitionTests {
         #expect(groups.allSatisfy { !$0.sessions.isEmpty })
     }
 
+    /// The critic runs in parallel with CI and usually finishes first, so the review block
+    /// (reviewing → rework) renders above the CI block (running → failed), as on the web.
+    @Test func reviewBlockRendersAboveCiBlock() {
+        let stages: [String: HerdStage] = [
+            "ci": .ciRunning, "fail": .ciFailed, "rework": .reworkRunning,
+        ]
+        let groups = HerdPartition.groups(
+            ["fail", "ci", "rework", "review", "active"].map { session($0) },
+            now: now, gitStage: { stages[$0.id] }, inReview: { $0.id == "review" })
+        #expect(
+            groups.map(\.stage) == [.active, .reviewerRunning, .reworkRunning, .ciRunning, .ciFailed])
+    }
+
     /// `HerdStage.allCases` is `STAGE_ORDER` (`herd-partition.ts:190-205`), all fourteen of it, and
     /// the web renders the active bucket without a group heading.
     @Test func everyStageHasAHeadingExceptActive() {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { cadenceSummary, weekdayNames, WORKDAYS, ALL_DAYS } from "./schedules.svelte";
 
 describe("cadenceSummary (#3469)", () => {
@@ -13,5 +13,20 @@ describe("cadenceSummary (#3469)", () => {
   it("weekdays are Monday-first and localized", () => {
     expect(weekdayNames("en")[0]).toBe("Mon");
     expect(weekdayNames("de")[6]).toBe("So");
+  });
+  it("labels never shift with the browser's time zone", () => {
+    const fmt = Intl.DateTimeFormat;
+    // Simulate a UTC+13 browser: default the zone unless one is passed explicitly.
+    const spy = vi.spyOn(Intl, "DateTimeFormat").mockImplementation(function (
+      loc?: string | string[],
+      opts?: Intl.DateTimeFormatOptions,
+    ) {
+      return new fmt(loc, { timeZone: "Pacific/Auckland", ...opts });
+    } as unknown as typeof Intl.DateTimeFormat);
+    try {
+      expect(weekdayNames("en")).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

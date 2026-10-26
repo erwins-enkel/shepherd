@@ -95,7 +95,9 @@ export function outcomeLabel(outcome: ScheduleOutcome): string {
 
 /** Monday-first weekday short names in the active locale (bit 0 = Monday). */
 export function weekdayNames(locale?: string): string[] {
-  const fmt = new Intl.DateTimeFormat(locale, { weekday: "short" });
+  // Formatted in UTC: the instants are UTC noons, so a browser at UTC+13 must not roll them
+  // into the next day (which would put "Mon" on the Sunday bit).
+  const fmt = new Intl.DateTimeFormat(locale, { weekday: "short", timeZone: "UTC" });
   // 2024-01-01 was a Monday (UTC epoch ms; formatted, never mutated).
   return Array.from({ length: 7 }, (_, i) => fmt.format(Date.UTC(2024, 0, 1 + i, 12)));
 }

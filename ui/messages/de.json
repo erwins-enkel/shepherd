@@ -7272,5 +7272,21 @@
   "conn_back_online": "Wieder verbunden.",
   "topbar_conn_offline": "Offline",
   "feat_offline_notice_title": "Unübersehbar, wenn Shepherd nicht erreichbar ist",
-  "feat_offline_notice_body": "Verliert die Oberfläche ihre Verbindung – Tailscale aus, Handy offline, WLAN weg –, zeigt die Kopfleiste OFFLINE, die Herde wird gedimmt und pulsiert nicht mehr, und ein Hinweis nennt den letzten Live-Stand samt „Jetzt erneut versuchen“. Ist das Netz zurück, verbindet Shepherd sofort neu."
+  "feat_offline_notice_body": "Verliert die Oberfläche ihre Verbindung – Tailscale aus, Handy offline, WLAN weg –, zeigt die Kopfleiste OFFLINE, die Herde wird gedimmt und pulsiert nicht mehr, und ein Hinweis nennt den letzten Live-Stand samt „Jetzt erneut versuchen“. Ist das Netz zurück, verbindet Shepherd sofort neu.",
+  "viewport_chat_tab": "Chat",
+  "session_chat_log": "Unterhaltung mit dem Agenten",
+  "session_chat_empty": "Noch keine Nachrichten. Schreib dem Agenten unten.",
+  "session_chat_blocked": "Der Agent wartet im Terminal auf dich.",
+  "session_chat_input_label": "Nachricht an den Agenten",
+  "session_chat_placeholder": "Nachricht an den Agenten…",
+  "session_chat_send_failed": "Nicht gesendet: Das Terminal der Session ist nicht verbunden.",
+  "chat_block_aria": "Die Frage des Agenten",
+  "chat_block_quota": "Automatik für diese Session pausiert – sie braucht dich.",
+  "chat_block_keys_failed": "Nicht gesendet: Das Terminal ist nicht verbunden. Antworte dort.",
+  "chat_tools_one": "1 Tool-Aufruf",
+  "chat_tools_many": "{count} Tool-Aufrufe",
+  "chat_tools_failed": "{count} fehlgeschlagen",
+  "chat_tool_error": "fehlgeschlagen",
+  "feat_session_chat_title": "Mit jeder Session chatten",
+  "feat_session_chat_body": "Jede Session hat einen Chat-Tab. Er zeigt die Unterhaltung mit eingeklappten Tool-Aufrufen, beantwortet Rückfragen per Knopf und schickt deine Nachricht ans Terminal. Auf dem Handy öffnet er zuerst."
 }

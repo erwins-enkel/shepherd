@@ -1508,8 +1508,13 @@ export async function getActivity(id: string): Promise<ActivityEntry[]> {
 }
 
 /** The session's newest `limit` transcript text messages, the operator's own included. */
-export async function getSessionMessages(id: string, limit: number): Promise<SessionMessages> {
-  const r = await fetch(`/api/sessions/${id}/messages?limit=${limit}&includeUser=1`);
+export async function getSessionMessages(
+  id: string,
+  limit: number,
+  opts: { tools?: boolean } = {},
+): Promise<SessionMessages> {
+  const tools = opts.tools ? "&includeTools=1" : "";
+  const r = await fetch(`/api/sessions/${id}/messages?limit=${limit}&includeUser=1${tools}`);
   if (!r.ok) throw await failed(r, "messages");
   return r.json();
 }

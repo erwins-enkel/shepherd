@@ -97,7 +97,17 @@ async function mount(provider: "codex" | "claude" = "codex") {
   document.body.append(target);
   const result = await render(Viewport, { target, props });
   await vi.waitFor(() => expect(clients.length).toBe(1));
+  await openTerminal();
   return { view: result, props };
+}
+
+// A phone opens on the Chat tab; these drive the live terminal. A programmatic click: the shared
+// browser cursor may hover the title's meta popover over the tab bar.
+async function openTerminal() {
+  const terminal = page.getByRole("tab", { name: /^(Terminal)$/ });
+  await expect.element(terminal).toBeInTheDocument();
+  (terminal.element() as HTMLElement).click();
+  await expect.element(terminal).toHaveAttribute("aria-selected", "true");
 }
 
 describe("Codex question hint in the live terminal", () => {
@@ -179,6 +189,7 @@ describe("Codex question hint in the live terminal", () => {
     });
     await expect.element(questionButton()).not.toBeInTheDocument();
     await vi.waitFor(() => expect(clients.length).toBe(2));
+    await openTerminal();
     clients[1].receive(repaint(hint));
     await expect.element(questionButton()).toBeVisible();
   });

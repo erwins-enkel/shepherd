@@ -7272,5 +7272,21 @@
   "conn_back_online": "Back online.",
   "topbar_conn_offline": "Offline",
   "feat_offline_notice_title": "Unmistakable when Shepherd is unreachable",
-  "feat_offline_notice_body": "If the UI loses its connection — Tailscale down, phone offline, Wi-Fi gone — the top bar shows OFFLINE, the herd dims and stops pulsing, and a notice says when the data was last live, with Retry now. Coming back online reconnects at once."
+  "feat_offline_notice_body": "If the UI loses its connection — Tailscale down, phone offline, Wi-Fi gone — the top bar shows OFFLINE, the herd dims and stops pulsing, and a notice says when the data was last live, with Retry now. Coming back online reconnects at once.",
+  "viewport_chat_tab": "Chat",
+  "session_chat_log": "Conversation with the agent",
+  "session_chat_empty": "No messages yet. Write to the agent below.",
+  "session_chat_blocked": "The agent is waiting for you in the terminal.",
+  "session_chat_input_label": "Message to the agent",
+  "session_chat_placeholder": "Message the agent…",
+  "session_chat_send_failed": "Not sent: the session's terminal isn't connected.",
+  "chat_block_aria": "The agent's question",
+  "chat_block_quota": "Automation paused for this session — it needs you.",
+  "chat_block_keys_failed": "Not sent: the terminal isn't connected. Answer it there.",
+  "chat_tools_one": "1 tool call",
+  "chat_tools_many": "{count} tool calls",
+  "chat_tools_failed": "{count} failed",
+  "chat_tool_error": "failed",
+  "feat_session_chat_title": "Chat with any session",
+  "feat_session_chat_body": "Every session has a Chat tab. It shows the conversation with its tool calls folded in, answers prompts with buttons, and sends what you type to the terminal. On a phone it opens first."
 }

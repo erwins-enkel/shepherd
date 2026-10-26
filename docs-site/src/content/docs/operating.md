@@ -495,6 +495,33 @@ the PR's latest commit has no checks for 10 minutes and GitHub reports it mergea
 says CI apparently doesn't run for this PR and offers **Merge without CI**. Pushing a commit that
 triggers CI clears it.
 
+## Session chat
+
+Every session has a **Chat** tab, first in its tab bar. It shows the session's transcript as a
+conversation: the agent's replies as text, your messages on the right, and the tool calls between
+two messages folded into one row (_7 tool calls · edited server.ts_). Open a row to see each call
+and whether it failed. The fold the agent is still adding to shows its latest call, so a long
+turn doesn't look stalled. The transcript is written per message, not per token: a reply appears
+once the agent finishes it.
+
+On desktop a session opens on its **Terminal**; on a phone or touch screen it opens on the Chat.
+Either way the other is one tap away.
+
+- **Write** in the field at the bottom: Enter sends, Shift+Enter breaks the line, Esc or **Stop**
+  interrupts a turn (on touch, the Send button sends). Your message is typed into the session's
+  terminal, or goes through the reply route when no terminal is connected. A Codex session's
+  message always takes the reply route: Codex exits after each turn, and the route resumes it
+  first. A sent message shows as _sent_ until the transcript logs it.
+- **Answer a prompt** with the buttons the Chat shows when the agent waits on you: a permission
+  menu's options, a (y/n) question, a plan approval (with **Show plan**), or an AskUserQuestion
+  form. A button types the option's key into the terminal.
+- **Everything else** stays in the terminal: slash-command pickers, trust and upsell dialogs,
+  rewind and compaction output. When the agent waits on one of those, the Chat says so and
+  **Open terminal** switches to it.
+
+The Chat reads the transcript only while it is on screen: every 2 s while the agent works, every
+8 s at rest. A herd card never reads it.
+
 ## Operator Assistant
 
 The **Operator Assistant** is a Claude session that Shepherd runs for you and grounds
@@ -523,9 +550,10 @@ until you ask.
 The panel shows the conversation on its own warm card, so it never reads as one more
 session terminal: your messages on the right, its replies as text, background notices as
 quiet one-liners. Write in the field at the bottom — Enter sends, Shift+Enter breaks the
-line, Esc or **Stop** interrupts a turn. **Terminal** in the panel header switches to its
-raw terminal, for a confirmation it waits on there (the conversation points you to it) or
-anything the conversation leaves out; the choice is remembered per device. The header also
+line, Esc or **Stop** interrupts a turn. A permission menu, a (y/n) question or a plan approval it waits on gets answer buttons
+in the conversation, as in a [session's Chat](#session-chat). **Terminal** in the panel header
+switches to its raw terminal, for anything the conversation leaves out (it points you there);
+the choice is remembered per device. The header also
 names what it sees right now, such as _sees TASK-31 · Diff_.
 
 An Ask types the question but never sends it: read it, edit it, press Enter. Whether the

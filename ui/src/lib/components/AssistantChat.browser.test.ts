@@ -796,3 +796,22 @@ describe("AssistantChat attachments", () => {
     expect(mockUpload.mock.calls[1]![0].name).toBe("picked.png");
   });
 });
+
+describe("AssistantChat block answers", () => {
+  it("answers the assistant's permission menu in the conversation", async () => {
+    mockMessages.mockResolvedValue(reply([]));
+    const onkeys = vi.fn(() => true);
+    const block = {
+      shape: "menu" as const,
+      options: [
+        { label: "Yes", send: "1" },
+        { label: "No", send: "2" },
+      ],
+      tail: ["Do you want to proceed?", "❯ 1. Yes", "  2. No"],
+    };
+    render(AssistantChat, props({ status: "blocked", block, onkeys }));
+    await page.getByRole("button", { name: "Yes", exact: true }).click();
+    expect(onkeys).toHaveBeenCalledWith("1");
+    expect(page.getByText(m.assistant_chat_blocked()).query()).toBeNull();
+  });
+});

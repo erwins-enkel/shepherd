@@ -6,7 +6,9 @@ import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
 import { buildSnapshot, type UpNextSnapshot, type UpNextSection } from "../src/up-next-core";
-import type { Issue } from "../src/forge/types";
+import type { Issue, PrReviewMeta } from "../src/forge/types";
+import type { UpNextPr } from "../src/up-next-prs";
+import { WorktreeMissingBaseError } from "../src/worktree";
 import { repositoryRoutePolicy } from "../src/token-repositories";
 import { scopeAllows } from "../src/token-scopes";
 import type { StandardCreateInput, Session } from "../src/types";
@@ -67,6 +69,7 @@ function harness(
     limits?: () => { session5h?: { pct: number }; week?: { pct: number } };
     /** #3245: forge slug per repo dir (target-repo routing). */
     slugOf?: (repoPath: string) => string | null;
+    prReviewMeta?: (number: number) => Promise<PrReviewMeta | null>;
   } = {},
 ) {
   const store = new SessionStore(":memory:");
@@ -83,6 +86,7 @@ function harness(
   const labelCalls: number[] = [];
   const recomputeCalls: Array<Array<{ repoPath: string; issueNumber: number }>> = [];
   let refreshCalls = 0;
+  let refilterCalls = 0;
   const staleRefreshCalls: number[] = [];
   let n = 0;
   const deps: AppDeps = {
@@ -111,6 +115,7 @@ function harness(
         ? null
         : ({
             getIssue: opts.getIssue,
+            prReviewMeta: opts.prReviewMeta,
             slug: opts.slugOf?.(repoPath) ?? null,
             defaultBranch: opts.defaultBranch ?? (async () => "main"),
             addIssueLabel: async (num: number) => {
@@ -130,7 +135,9 @@ function harness(
         recomputeCalls.push(started.map((s) => ({ ...s })));
       },
       hiddenRepoPathsRaw: opts.hiddenRepoPathsRaw ?? (() => new Set<string>()),
-      refilter: () => {},
+      refilter: () => {
+        refilterCalls++;
+      },
     },
   };
   return {
@@ -139,6 +146,7 @@ function harness(
     createCalls,
     labelCalls,
     refreshCalls: () => refreshCalls,
+    refilterCalls: () => refilterCalls,
     staleRefreshCalls,
     recomputeCalls,
   };
@@ -684,4 +692,154 @@ test("up-next start preserves an explicitly supplied empty body without a forge 
   expect(res.status).toBe(201);
   expect(inputs[0]?.issueRef?.body).toBe("");
   expect(reads).toBe(0);
+});
+
+// ── PRs in Up Next: fix sessions and PR bodies ──────────────────────────────
+
+function waitingPr(over: Partial<UpNextPr> = {}): UpNextPr {
+  return {
+    repoPath: repoDir,
+    repoSlug: "o/r",
+    repoLabel: "r",
+    number: 42,
+    title: "Add the thing",
+    url: "https://x/pull/42",
+    author: "me",
+    kind: "regular",
+    createdAt: 1,
+    checks: "success",
+    mergeable: false,
+    mergeStateStatus: "dirty",
+    baseRefName: "main",
+    band: "blocked",
+    action: "fix",
+    blockReason: "conflict",
+    headRefName: "feat/thing",
+    jobs: [],
+    ...over,
+  };
+}
+const prSnap = (...prs: UpNextPr[]): UpNextSnapshot => ({ ...SNAP, pullRequests: prs });
+const fixReq = (body: unknown) =>
+  new Request("http://x/api/up-next/pr-fix", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+test("POST /api/up-next/pr-fix starts a push-only repair session on the PR's head branch", async () => {
+  const inputs: StandardCreateInput[] = [];
+  const h = harness({
+    snapshot: prSnap(waitingPr()),
+    create: async (input) => {
+      inputs.push(input);
+      return { id: "fix1" } as Session;
+    },
+  });
+  const res = await h.app.fetch(fixReq({ repo: repoDir, number: 42, steer: "Keep it small." }));
+  expect(res.status).toBe(201);
+  expect(await res.json()).toEqual({ session: { id: "fix1" } });
+  expect(inputs).toHaveLength(1);
+  const input = inputs[0]!;
+  expect(input.baseBranch).toBe("feat/thing");
+  expect(input.landingRepair).toBe(true);
+  expect(input.auto).toBe(false);
+  expect(input.issueRef).toBeUndefined();
+  expect(input.prompt.startsWith("Operator instruction:\nKeep it small.")).toBe(true);
+  expect(input.prompt).toContain("git push --force-with-lease origin HEAD:feat/thing");
+  expect(h.refilterCalls()).toBe(1);
+});
+
+test("POST /api/up-next/pr-fix refuses what is not a fixable waiting PR", async () => {
+  const h = harness({ snapshot: prSnap(waitingPr(), waitingPr({ number: 43, action: "merge" })) });
+  for (const body of [{}, { repo: repoDir }, { repo: repoDir, number: 0 }, { number: 42 }]) {
+    expect((await h.app.fetch(fixReq(body))).status).toBe(400);
+  }
+  expect((await h.app.fetch(fixReq({ repo: "/outside", number: 42 }))).status).toBe(400);
+  expect((await h.app.fetch(fixReq({ repo: repoDir, number: 42, steer: 7 }))).status).toBe(400);
+  expect((await h.app.fetch(fixReq({ repo: repoDir, number: 43 }))).status).toBe(404);
+  expect((await h.app.fetch(fixReq({ repo: repoDir, number: 44 }))).status).toBe(404);
+  expect((await harness().app.fetch(fixReq({ repo: repoDir, number: 42 }))).status).toBe(404);
+});
+
+test("POST /api/up-next/pr-fix refuses a PR a live session already works on", async () => {
+  const h = harness({ snapshot: prSnap(waitingPr()) });
+  h.store.create({
+    name: "fix",
+    prompt: "p",
+    repoPath: repoDir,
+    baseBranch: "main",
+    branch: "feat/thing",
+    worktreePath: repoDir,
+    isolated: false,
+    herdrSession: "s",
+    herdrAgentId: "a",
+    claudeSessionId: "c",
+    model: null,
+  });
+  const res = await h.app.fetch(fixReq({ repo: repoDir, number: 42 }));
+  expect(res.status).toBe(409);
+  expect(((await res.json()) as { code: string }).code).toBe("pr_in_flight");
+});
+
+test("POST /api/up-next/pr-fix names a head branch the repo does not have", async () => {
+  const h = harness({
+    snapshot: prSnap(waitingPr()),
+    create: async () => {
+      throw new WorktreeMissingBaseError("feat/thing");
+    },
+  });
+  const res = await h.app.fetch(fixReq({ repo: repoDir, number: 42 }));
+  expect(res.status).toBe(422);
+  expect(((await res.json()) as { code: string }).code).toBe("head_not_in_repo");
+  const failing = harness({
+    snapshot: prSnap(waitingPr()),
+    create: async () => {
+      throw new Error("spawn failed");
+    },
+  });
+  expect((await failing.app.fetch(fixReq({ repo: repoDir, number: 42 }))).status).toBe(502);
+  expect(failing.refilterCalls()).toBe(0);
+});
+
+test("POST /api/up-next/pr-fix is full-scope only and repository default-deny", () => {
+  for (const scope of ["read", "submit", "full"] as const) {
+    expect(scopeAllows(scope, "POST", "/api/up-next/pr-fix")).toBe(scope === "full");
+  }
+  expect(repositoryRoutePolicy("POST", new URL("http://x/api/up-next/pr-fix"))).toBeNull();
+});
+
+const prBodyReq = (repo = repoDir, number = "42") =>
+  new Request(
+    `http://x/api/up-next/pr-body?repo=${encodeURIComponent(repo)}&number=${encodeURIComponent(number)}`,
+  );
+const prMeta = (body: string): PrReviewMeta => ({
+  body,
+  baseRefName: "main",
+  isCrossRepository: false,
+  state: "open",
+});
+
+test("GET /api/up-next/pr-body returns the PR description and its failure statuses", async () => {
+  const ok = harness({ prReviewMeta: async () => prMeta("## Summary\n- one") });
+  const res = await ok.app.fetch(prBodyReq());
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ body: "## Summary\n- one" });
+  expect(ok.refreshCalls()).toBe(0);
+  for (const number of ["", "0", "1.5", "1000000000"]) {
+    expect((await ok.app.fetch(prBodyReq(repoDir, number))).status).toBe(400);
+  }
+  expect((await ok.app.fetch(prBodyReq("/outside/root"))).status).toBe(400);
+  expect((await harness({ noForge: true }).app.fetch(prBodyReq())).status).toBe(503);
+  expect((await harness().app.fetch(prBodyReq())).status).toBe(503);
+  expect((await harness({ prReviewMeta: async () => null }).app.fetch(prBodyReq())).status).toBe(
+    404,
+  );
+  const throwing = harness({
+    prReviewMeta: async () => {
+      throw new Error("transport failed");
+    },
+  });
+  expect((await throwing.app.fetch(prBodyReq())).status).toBe(502);
+  expect(scopeAllows("read", "GET", "/api/up-next/pr-body")).toBe(false);
 });

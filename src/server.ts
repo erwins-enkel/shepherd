@@ -475,6 +475,7 @@ import { parseTargetRepo, resolveTargetRepo, sessionIssue } from "./target-repo"
 import { issueSpawnPrompt } from "./issue-spawn-prompt";
 import { excludeHiddenSections } from "./up-next-core";
 import type { UpNextSnapshot } from "./up-next-core";
+import { prFixPrompt, prsHeldBySessions } from "./up-next-prs";
 import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting, writeApiKeyHelper, clearApiKeyHelper } from "./auth-mode";
 import { normalizeOperatorLanguage } from "./operator-language";
@@ -2358,6 +2359,95 @@ async function handleUpNextBody(url: URL, deps: AppDeps): Promise<Response> {
   return "error" in result ? json({ error: result.error }, result.status) : json(result);
 }
 
+/** GET /api/up-next/pr-body — a waiting PR's full description for the PR preview. */
+async function handleUpNextPrBody(url: URL, deps: AppDeps): Promise<Response> {
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const number = url.searchParams.get("number") ?? "";
+  if (!/^[1-9][0-9]{0,8}$/.test(number)) return json({ error: "invalid pull request number" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge?.prReviewMeta) return json({ error: "pull request reads unavailable for repo" }, 503);
+  try {
+    const meta = await forge.prReviewMeta(Number(number));
+    return meta
+      ? json({ body: meta.body })
+      : json({ error: "pull request not found or unreadable" }, 404);
+  } catch {
+    return json({ error: "pull request read failed" }, 502);
+  }
+}
+
+/** The steer text a fix may lead with — a Settings › Steers prompt, so bounded like one. */
+const MAX_FIX_STEER_CHARS = 20_000;
+
+/** POST /api/up-next/pr-fix — start a push-only repair session for a waiting PR whose next action
+ *  is `fix`: a scratch branch cut from the PR's head that publishes by pushing back to it and opens
+ *  no PR of its own (the `landingRepair` kind, src/service.ts). The PR must be in the current Up
+ *  Next snapshot, so the server — not the client — decides that it needs a fix and what it is. */
+async function handleUpNextPrFix(req: Request, deps: AppDeps): Promise<Response> {
+  const blocked = firstRunBlock();
+  if (blocked) return blocked;
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
+  const dir = typeof body.repo === "string" ? safeRepoDir(body.repo, config.repoRoot) : null;
+  const number = body.number;
+  const steer = body.steer;
+  if (!dir || !Number.isSafeInteger(number) || (number as number) <= 0)
+    return json({ error: "repo and a positive pull request number are required" }, 400);
+  if (steer !== undefined && (typeof steer !== "string" || steer.length > MAX_FIX_STEER_CHARS))
+    return json({ error: "steer must be a string" }, 400);
+  const pr = (deps.upNext?.snapshot()?.pullRequests ?? []).find(
+    (p) => p.number === number && safeRepoDir(p.repoPath, config.repoRoot) === dir,
+  );
+  if (!pr || pr.action !== "fix" || !pr.headRefName)
+    return json({ error: "this pull request is not waiting on a fix", code: "not_fixable" }, 404);
+  // A session started since the snapshot was built may already hold it.
+  const held = prsHeldBySessions(deps.store.list({ activeOnly: true })).get(dir);
+  if (held && (held.heads.has(pr.headRefName) || held.numbers.has(pr.number)))
+    return json(
+      { error: "a session already works on this pull request", code: "pr_in_flight" },
+      409,
+    );
+  const rc = deps.store.getRepoConfig(dir);
+  const provider = config.defaultAgentProvider;
+  try {
+    const base = pr.baseRefName ?? (await deps.resolveForge?.(dir)?.defaultBranch());
+    if (!base) return json({ error: "the pull request's base branch is unknown" }, 502);
+    const session = await deps.service.create({
+      repoPath: dir,
+      baseBranch: pr.headRefName,
+      prompt: prFixPrompt(pr, base, steer as string | undefined),
+      model: drainSpawnModel(
+        resolveProviderDefaultModelSetting(
+          rc.defaultModel,
+          provider,
+          config.defaultModel,
+          config.defaultCodexModel,
+        ),
+      ),
+      effort: drainSpawnEffort(
+        resolveDefaultEffortSetting(rc.defaultEffort, engineDefaultEffortSetting(provider, config)),
+      ),
+      images: [],
+      auto: false,
+      landingRepair: true,
+    });
+    deps.events.emit("session:new", session);
+    deps.upNext?.refilter(); // the new session holds the PR: drop its row without a forge read
+    return json({ session }, 201);
+  } catch (e) {
+    if (e instanceof WorktreeMissingBaseError)
+      return json(
+        {
+          error: `branch "${pr.headRefName}" is not in this repository (a fork's pull request?)`,
+          code: "head_not_in_repo",
+        },
+        422,
+      );
+    return json({ error: e instanceof Error ? e.message : "create failed" }, 502);
+  }
+}
+
 async function handleUpNext(ctx: Ctx): Promise<Response | null> {
   const { req, parts, url, deps } = ctx;
   if (!(parts[0] === "api" && parts[1] === "up-next")) return null;
@@ -2365,6 +2455,12 @@ async function handleUpNext(ctx: Ctx): Promise<Response | null> {
   if (req.method === "GET" && !parts[2]) return handleUpNextGet(req, url, deps);
 
   if (req.method === "GET" && parts[2] === "body" && !parts[3]) return handleUpNextBody(url, deps);
+
+  if (req.method === "GET" && parts[2] === "pr-body" && !parts[3])
+    return handleUpNextPrBody(url, deps);
+
+  if (req.method === "POST" && parts[2] === "pr-fix" && !parts[3])
+    return handleUpNextPrFix(req, deps);
 
   if (req.method === "POST" && parts[2] === "refresh") {
     if (!deps.upNext) return json({ error: "up-next unavailable" }, 503);

@@ -8,6 +8,7 @@ import { classifyBlocked, type BlockReason } from "../src/blocked";
 import type { HerdrAgent } from "../src/herdr";
 import type { PendingAsk } from "../src/ask-user-question";
 import type { PendingPlan } from "../src/plan-approval";
+import type { HerdrState } from "../src/types";
 import { config } from "../src/config";
 
 const MENU = "Pick a color?\n❯ 1. Red\n  2. Blue\nEnter to select · Esc to cancel";
@@ -41,7 +42,7 @@ function rig(screen = MENU) {
   });
   const blocks: (BlockReason | null)[] = [];
   let buffer = screen;
-  let status: "blocked" | "working" = "blocked";
+  let status: HerdrState = "blocked";
   let clock = 100_000;
   const list = (): HerdrAgent[] => [
     {
@@ -75,7 +76,7 @@ function rig(screen = MENU) {
     blocks,
     id: s.id,
     setScreen: (text: string) => (buffer = text),
-    setStatus: (v: "blocked" | "working") => (status = v),
+    setStatus: (v: HerdrState) => (status = v),
     tick: async () => {
       clock += 5000;
       await poller.tick();
@@ -301,4 +302,65 @@ test("closing a dialog leaves a Notification-armed marker alone", () =>
     r.poller.ingestDialogClosed(r.id); // no hooked dialog was open → no-op
     await r.tick();
     expect(r.blocks.at(-1)?.shape).toBe("menu");
+  }));
+
+// ── herdr reads an open dialog as resting (done/idle) ────────────────────────
+
+test("a resting herdr status keeps the hooked dialog's block and its ask while the menu shows", () =>
+  withHookSignals(async () => {
+    const r = rig();
+    r.setStatus("done"); // herdr flickers to done with the dialog on screen
+    r.poller.ingestDialogOpen(r.id);
+    r.poller.ingestAsk(r.id, ASK);
+    await r.tick(); // the hook edge announces the menu with its ask
+    expect(r.blocks.at(-1)?.ask).toEqual(ASK);
+    await r.tick(); // marker spent → the resting branch, which used to clear it
+    expect(r.blocks).not.toContain(null);
+    expect(r.poller.currentAsk(r.id)).toEqual(ASK);
+    expect(r.poller.askStillOpen(r.id, "toolu_1")).toBe(true);
+    expect(r.poller.blockSnapshot()[r.id]?.ask).toEqual(ASK);
+  }));
+
+test("a resting herdr status still clears the dialog's block once its menu is gone", () =>
+  withHookSignals(async () => {
+    const r = rig();
+    r.setStatus("done");
+    r.poller.ingestDialogOpen(r.id);
+    r.poller.ingestAsk(r.id, ASK);
+    await r.tick();
+    r.setScreen("Interrupted · What should Claude do instead?"); // Esc: no PostToolUse, no Stop
+    await r.tick();
+    expect(r.blocks.at(-1)).toBeNull();
+    expect(r.poller.askStillOpen(r.id, "toolu_1")).toBe(false);
+    r.setScreen(MENU); // a later, unrelated menu
+    r.setStatus("blocked");
+    await r.tick();
+    expect(r.blocks.at(-1)?.shape).toBe("menu");
+    expect(r.blocks.at(-1)?.ask).toBeUndefined();
+  }));
+
+test("a resting herdr status keeps the plan approval's block and its plan", () =>
+  withHookSignals(async () => {
+    const r = rig(PLAN_MENU);
+    r.setStatus("idle");
+    r.poller.ingestDialogOpen(r.id);
+    r.poller.ingestPlan(r.id, PLAN);
+    await r.tick();
+    expect(r.blocks.at(-1)?.plan).toEqual(PLAN);
+    await r.tick();
+    expect(r.blocks).not.toContain(null);
+    expect(r.poller.blockSnapshot()[r.id]?.plan).toEqual(PLAN);
+  }));
+
+test("a held dialog moving to its next question re-emits the menu with the ask", () =>
+  withHookSignals(async () => {
+    const r = rig();
+    r.setStatus("done");
+    r.poller.ingestDialogOpen(r.id);
+    r.poller.ingestAsk(r.id, ASK);
+    await r.tick();
+    r.setScreen("Pick a size?\n❯ 1. Small\n  2. Large\nEnter to select · Esc to cancel");
+    await r.tick();
+    expect(r.blocks.at(-1)?.options.map((o) => o.label)).toEqual(["Small", "Large"]);
+    expect(r.blocks.at(-1)?.ask).toEqual(ASK);
   }));

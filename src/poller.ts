@@ -1315,7 +1315,7 @@ export class StatusPoller {
 
     if (status === "blocked") await this.maybeClassify(s, s.herdrAgentId);
     else if (status === "running") this.maybeProbe(s);
-    else this.maybeQuota(s, status);
+    else if (!(await this.holdHookedDialog(s))) this.maybeQuota(s, status);
     // #1891: catch the working→idle timeout (a pure absence of activity — no emission sink fires for
     // it) and seed the state after a fresh match. Block/working EDGES already pushed via
     // emitBlock/emitActivity. Skipped on the tryHookAwaitingBlock early-return above — that path is a
@@ -1503,6 +1503,37 @@ export class StatusPoller {
     const at = this.hookDialogAt.get(id);
     if (at === undefined || this.now() - at >= DIALOG_PAINT_GRACE_MS) return false;
     return this.lastBlockReason.get(id)?.shape !== "menu";
+  }
+
+  /**
+   * A resting tick (herdr done/idle) over an announced block that carries a hooked dialog's
+   * `ask`/`plan`: herdr can read the open dialog as resting, and `maybeQuota`'s clear would drop the
+   * ask for good — the re-announced menu then has none to answer with. Keep the block while the pane
+   * still reads as a menu (re-emitting a repaint, e.g. the next question); any other read, or a
+   * failed one, returns false so the caller clears it as before. Not for `running`: a working agent
+   * has left the dialog.
+   */
+  private async holdHookedDialog(s: Session): Promise<boolean> {
+    const id = s.id;
+    const announced = this.lastBlockReason.get(id);
+    if (!announced?.ask && !announced?.plan) return false;
+    const t = this.now();
+    if (t - (this.lastReadAt.get(id) ?? 0) < this.reclassifyMs) return true;
+    this.lastReadAt.set(id, t);
+    let reason: BlockReason;
+    try {
+      reason = this.classifyPane(id, await this.herdr.readAsync(s.herdrAgentId, "visible"));
+    } catch (err) {
+      console.warn(`[poller] classify failed for ${id}:`, err);
+      return false;
+    }
+    if (reason.shape !== "menu") return false;
+    const sig = JSON.stringify(reason);
+    if (sig !== this.lastSig.get(id)) {
+      this.lastSig.set(id, sig);
+      this.emitBlock(id, reason);
+    }
+    return true;
   }
 
   /** `classify`, plus #2779: a hooked dialog is the chrome a mid-paint menu is still missing. */

@@ -9,7 +9,7 @@
  */
 import { effortsForProvider } from "./default-effort";
 import { modelCompatibleWithProvider } from "./default-model";
-import type { AutoHoldCode, SandboxProfile } from "./sandbox";
+import type { AutoHoldCode, RepoSandboxSetting, SandboxProfile } from "./sandbox";
 import type { AgentProvider } from "./types";
 
 /** A spawn-gate hold code (#3452) an epic's unattended start can hit. */
@@ -25,7 +25,8 @@ export interface AutoBlockerCause {
   detail: string;
 }
 
-export type AutoFixOptionId = "autonomous" | "autonomous_claude" | "trusted";
+export const AUTO_FIX_OPTION_IDS = ["autonomous", "autonomous_claude", "trusted"] as const;
+export type AutoFixOptionId = (typeof AUTO_FIX_OPTION_IDS)[number];
 
 /** `cli`: the epic's CLI can run confined (Codex never does). `remote_https`: a sandboxed session
  *  can push to `origin` (an SSH remote can't). */
@@ -53,6 +54,15 @@ export interface AutoBlockers {
   options: AutoFixOption[];
   /** The confined way when one is enabled, else `trusted`; null without options. */
   preselect: AutoFixOptionId | null;
+}
+
+/** The settings a fix writes, or what they held before — the `previous` that Undo writes back:
+ *  the repo's stored sandbox setting and/or the epic's CLI settings. Only the fields in play. */
+export interface EpicAutoFixState {
+  sandboxProfile?: RepoSandboxSetting;
+  agentProvider?: AgentProvider | null;
+  model?: string | null;
+  effort?: string | null;
 }
 
 /**

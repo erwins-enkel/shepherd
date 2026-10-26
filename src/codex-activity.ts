@@ -228,10 +228,18 @@ function statusFor(out: OutputInfo | undefined): ActivityEntry["status"] {
  * entries (oldest→newest); `-1` = all. Malformed lines are skipped; never throws.
  */
 export function parseCodexActivity(text: string, limit = DEFAULT_LIMIT): ActivityEntry[] {
+  return parseCodexActivityObjects(eachJsonlObject(text), limit);
+}
+
+/** {@link parseCodexActivity} over already-parsed rollout objects. */
+export function parseCodexActivityObjects(
+  objs: Iterable<unknown>,
+  limit = DEFAULT_LIMIT,
+): ActivityEntry[] {
   const outputs = new Map<string, OutputInfo>();
   const calls: ParsedCall[] = [];
 
-  for (const o of eachJsonlObject(text)) {
+  for (const o of objs) {
     const r = classifyRecord(o);
     if (!r) continue;
     if ("call" in r) calls.push(r.call);

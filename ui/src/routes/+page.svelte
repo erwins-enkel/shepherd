@@ -888,6 +888,8 @@
   const selectedAuthUrl = $derived(
     selected ? (store.blocks[selected.id]?.reason.authUrl ?? null) : null,
   );
+  // The selected session's block reason: its Chat tab answers a menu or (y/n) prompt.
+  const selectedBlock = $derived(selected ? (store.blocks[selected.id]?.reason ?? null) : null);
   // The selected session's open AskUserQuestion dialog (#3165), answered natively in the Viewport.
   const selectedAsk = $derived(selected ? (store.blocks[selected.id]?.reason.ask ?? null) : null);
   // The selected session's plan waiting for approval (#2779), shown above its terminal.
@@ -1669,6 +1671,9 @@
   const assistantDockEntries = $derived(
     assistantEntries(store.assistants, requestedRepoAssistants),
   );
+  function assistantBlock(session: Session | null) {
+    return session ? (store.blocks[session.id]?.reason ?? null) : null;
+  }
   function assistantAsk(session: Session | null) {
     return session ? (store.blocks[session.id]?.reason.ask ?? null) : null;
   }
@@ -3500,6 +3505,7 @@
         stacked
         {switcher}
         session={entry.session}
+        block={assistantBlock(entry.session)}
         ask={assistantAsk(entry.session)}
         actionRequest={assistantActionRequest(entry.session)}
         available={store.assistantAvailable}
@@ -3810,6 +3816,7 @@
             workingBlocked={store.workingBlocked}
             backgroundBusy={store.backgroundBusy}
             authUrl={selectedAuthUrl}
+            block={selectedBlock}
             ask={selectedAsk}
             plan={selectedPlan}
             {pendingAsks}
@@ -4033,6 +4040,7 @@
               workingBlocked={store.workingBlocked}
               backgroundBusy={store.backgroundBusy}
               authUrl={selectedAuthUrl}
+              block={selectedBlock}
               ask={selectedAsk}
               plan={selectedPlan}
               {pendingAsks}

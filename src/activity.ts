@@ -82,10 +82,10 @@ interface ParsedRecord {
   blocks: Block[];
 }
 
-/** Parse JSONL lines, keeping only records whose message content is a block array. */
-function parseRecords(text: string): ParsedRecord[] {
+/** Keep only the records whose message content is a block array. */
+function parseRecords(objs: Iterable<unknown>): ParsedRecord[] {
   const records: ParsedRecord[] = [];
-  for (const o of eachJsonlObject(text)) {
+  for (const o of objs) {
     const rec = o as { message?: { content?: unknown } } | undefined;
     const blocks = rec?.message?.content;
     if (Array.isArray(blocks)) records.push({ o, blocks });
@@ -203,7 +203,15 @@ export async function readTranscriptTailAsync(
  * `limit` entries (oldest→newest). Malformed lines are skipped.
  */
 export function parseActivity(text: string, limit = DEFAULT_LIMIT): ActivityEntry[] {
-  const records = parseRecords(text);
+  return parseActivityObjects(eachJsonlObject(text), limit);
+}
+
+/** {@link parseActivity} over already-parsed JSONL objects, for a caller that reads them once. */
+export function parseActivityObjects(
+  objs: Iterable<unknown>,
+  limit = DEFAULT_LIMIT,
+): ActivityEntry[] {
+  const records = parseRecords(objs);
   const errored = collectErrors(records);
   const entries = collectEntries(records, errored);
   return limit >= 0 ? entries.slice(-limit) : entries;

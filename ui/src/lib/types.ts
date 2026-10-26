@@ -2110,6 +2110,8 @@ export interface SessionMessages {
   awaitingInput: boolean;
   pendingQuestion: string | null;
   unavailable: "no-transcript" | "file-missing" | null;
+  /** With `includeTools`: the window's tool calls, oldest first. */
+  tools?: ActivityEntry[];
 }
 
 /**

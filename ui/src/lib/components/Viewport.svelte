@@ -49,6 +49,7 @@
     getCommands,
     getVoiceStatus,
     scratchpadDownloadUrl,
+    replySession,
   } from "#lib/api.js";
   import { imageFilesFromItems } from "#lib/clipboard.js";
   import { bufferText, trimTrailingWhitespace } from "#lib/terminalSelection.js";
@@ -68,6 +69,7 @@
   import { onPageReturn, pollWhileVisible } from "#lib/visibility.js";
   import TodoPanel from "#lib/components/TodoPanel.svelte";
   import ActivityFeed from "#lib/components/ActivityFeed.svelte";
+  import ChatView from "#lib/components/chat/ChatView.svelte";
   import SubagentFanout from "#lib/components/SubagentFanout.svelte";
   import DiffPanel from "#lib/components/DiffPanel.svelte";
   import FilesPanel from "./viewport/FilesPanel.svelte";
@@ -112,7 +114,13 @@
   import ClipboardPill from "./viewport/ClipboardPill.svelte";
   import TerminalSelectSheet from "./viewport/TerminalSelectSheet.svelte";
   import { handleOsc52 } from "#lib/osc52.js";
-  import type { BuildQueue, LoginRequest, PendingAsk, PendingPlan } from "#lib/types.js";
+  import type {
+    BlockReason,
+    BuildQueue,
+    LoginRequest,
+    PendingAsk,
+    PendingPlan,
+  } from "#lib/types.js";
   import type { AskEntry } from "#lib/ask-center.js";
   import type { AssistantViewReport, ViewTab } from "#lib/operator-assistant-view.js";
   import AttachmentChip from "./new-task/AttachmentChip.svelte";
@@ -159,6 +167,7 @@
     workingBlocked = {},
     backgroundBusy = {},
     authUrl = null,
+    block = null,
     ask = null,
     plan = null,
     pendingAsks = [],
@@ -243,6 +252,8 @@
      *  the block reason). Drives the "open in browser" banner above the terminal; null
      *  when the agent isn't waiting on an auth URL. */
     authUrl?: string | null;
+    /** This session's block reason (store.blocks): the Chat tab answers its menu or (y/n) prompt. */
+    block?: BlockReason | null;
     /** The open AskUserQuestion dialog on this session's block (#3165): auto-opens the native
      *  answer dialog once per tool_use id, and a top strip reopens it. */
     ask?: PendingAsk | null;
@@ -329,7 +340,14 @@
   let swiping = $state(false);
   // the drag has cleared the commit threshold: releasing now navigates (reveal turns amber)
   let swipeArmed = $state(false);
-  let tab = $state<"term" | "todo" | "activity" | "diff" | "files" | "preview" | "browser">("term");
+  // A phone or touch screen opens on the Chat; desktop on the terminal. The assistant has no tabs.
+  const defaultTab = (): ViewTab => (!assistant && (mobile || touch) ? "chat" : "term");
+  let tab = $state<ViewTab>(defaultTab());
+  // The Chat mounts on its first open and then stays, hidden, keeping its draft and echoes.
+  let chatOpened = $state(false);
+  $effect(() => {
+    if (tab === "chat") chatOpened = true;
+  });
   // desktop only: reveals the git rail (PR / merge / critic / ready / verdict) as a
   // second header row, so the primary strip stays uncrowded until the operator asks
   let gitOpen = $state(false);
@@ -577,6 +595,23 @@
     sendComposed(text);
     return true;
   }
+  /** Type raw keys at the agent (a blocked prompt's answer from the Chat), no bracketed paste. */
+  export function sendKeys(seq: string): boolean {
+    if (!ptyLive || !conn) return false;
+    bumpOperatorInput();
+    conn.send(seq);
+    return true;
+  }
+  /** The Chat's composer: the terminal socket while it is live, else the reply route. Codex always
+   *  takes the reply route: Codex exits after each turn, leaving a shell that must not get the
+   *  message, and the route resumes the pane first. */
+  function chatSend(text: string): boolean | Promise<boolean> {
+    if (effectiveAgentProvider !== "codex" && sendLine(text)) return true;
+    return replySession(session.id, text).then(
+      () => true,
+      () => false,
+    );
+  }
   /** Interrupt the agent's turn: the lone Escape the touch Esc sends. */
   export function sendInterrupt(): boolean {
     if (!ptyLive || !conn) return false;
@@ -697,8 +732,9 @@
     headerCollapsed = !headerCollapsed;
     // folding hides the tab switcher, so a non-terminal tab would be stranded with no
     // way back except unfolding — and its panel would keep filling the body, reclaiming
-    // nothing. Land on the terminal (the view this fold exists to enlarge).
-    if (headerCollapsed) tab = "term";
+    // nothing. Land on the terminal (the view this fold exists to enlarge). The Chat stays: it
+    // is the phone's default view, and the fold enlarges it as well.
+    if (headerCollapsed && tab !== "chat") tab = "term";
   }
 
   // phone merged header: the repo + session that used to live in the top bar
@@ -1106,7 +1142,7 @@
     armed = false;
     leftovers = [];
     decomTarget = null; // drop any captured decommission target from the prior unit
-    tab = "term";
+    tab = untrack(defaultTab);
     ended = false;
     resumeFailed = false;
     resumeFailure = "";
@@ -3473,6 +3509,29 @@
         bind:owned={autoMergeOwned}
       />
     {/if}
+    {#if chatOpened && !assistant}
+      <div class="panel-wrap chat-wrap" style:display={tab === "chat" ? undefined : "none"}>
+        {#key session.id}
+          <ChatView
+            sessionId={session.id}
+            status={session.status}
+            variant="session"
+            {block}
+            tools
+            active={tab === "chat"}
+            {herd}
+            {onnavigate}
+            {ask}
+            {mobile}
+            {touch}
+            onsend={chatSend}
+            onkeys={sendKeys}
+            oninterrupt={sendInterrupt}
+            onterminal={() => (tab = "term")}
+          />
+        {/key}
+      </div>
+    {/if}
     {#if tab === "todo"}
       <div class="panel-wrap">
         <TodoPanel repoPath={session.repoPath} />
@@ -4644,6 +4703,11 @@
     position: absolute;
     inset: 0;
     overflow: hidden;
+  }
+  .chat-wrap {
+    display: flex;
+    flex-direction: column;
+    background: var(--color-bg);
   }
   /* Activity tab stacks the sub-agent fan-out (sized to content, self-capped) above
      the scrolling activity feed, which fills the remaining height. */

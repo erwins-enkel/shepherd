@@ -273,3 +273,64 @@ describe("sessionMessages", () => {
   });
   test("cleanup", () => rmSync(dir, { recursive: true, force: true }));
 });
+
+describe("sessionMessages includeTools", () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-messages-tools-"));
+  const at = (sec: number) => ({
+    timestamp: `2026-09-29T10:00:${String(sec).padStart(2, "0")}.000Z`,
+  });
+  const tool = (sec: number, id: string, command: string) => ({
+    ...assistantToolUse("Bash", { command }, id),
+    ...at(sec),
+  });
+  const path = join(dir, "t.jsonl");
+  writeFileSync(
+    path,
+    jsonl(
+      tool(1, "tu_a", "echo early"),
+      userText("go", at(2)),
+      tool(3, "tu_b", "ls"),
+      { ...toolResult("tu_b"), ...at(4) },
+      assistantText("done", "m5", at(5)),
+      tool(6, "tu_c", "git push"),
+    ),
+  );
+  const s = { status: "running" as const, agentProvider: "claude" as const };
+
+  test("no tools field without the flag", async () => {
+    const r = await sessionMessages(s, path, { limit: 5, includeUser: true });
+    expect("tools" in r).toBe(false);
+  });
+  test("all tools when no message was cut, with their status", async () => {
+    const r = await sessionMessages(s, path, { limit: 5, includeUser: true, includeTools: true });
+    expect(r.tools?.map((t) => [t.summary, t.status])).toEqual([
+      ["$ echo early", "pending"],
+      ["$ ls", "ok"],
+      ["$ git push", "pending"],
+    ]);
+  });
+  test("cut messages → tools no older than the oldest kept message", async () => {
+    const r = await sessionMessages(s, path, { limit: 1, includeUser: true, includeTools: true });
+    expect(r.messages.map((m) => m.text)).toEqual(["done"]);
+    expect(r.tools?.map((t) => t.summary)).toEqual(["$ git push"]);
+  });
+  test("codex rollouts list their tool calls", async () => {
+    const p = join(dir, "rollout.jsonl");
+    writeFileSync(
+      p,
+      jsonl(codexMessage("assistant", "On it."), {
+        timestamp: TS,
+        type: "response_item",
+        payload: { type: "custom_tool_call", name: "apply_patch", input: "", call_id: "c1" },
+      }),
+    );
+    const r = await sessionMessages({ status: "running", agentProvider: "codex" }, p, {
+      limit: 5,
+      includeUser: true,
+      includeTools: true,
+    });
+    expect(r.tools).toHaveLength(1);
+    expect(r.tools?.[0]?.tool).toBe("apply_patch");
+  });
+  test("cleanup", () => rmSync(dir, { recursive: true, force: true }));
+});

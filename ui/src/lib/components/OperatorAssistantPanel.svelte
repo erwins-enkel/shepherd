@@ -2,6 +2,7 @@
   import type {
     ActionRequest,
     AssistantPermissions,
+    BlockReason,
     PendingAsk,
     OperatorAssistantUnavailableReason,
     Session,
@@ -39,6 +40,7 @@
     switcher,
     onend,
     session,
+    block = null,
     ask = null,
     actionRequest = null,
     available,
@@ -76,6 +78,8 @@
     onend?: () => void;
     /** The assistant's live row (store.assistant); null until one is spawned. */
     session: Session | null;
+    /** The assistant's block reason (store.blocks): a menu or (y/n) prompt gets answer buttons. */
+    block?: BlockReason | null;
     ask?: PendingAsk | null;
     /** The assistant's open Action Request (store.actionRequests): an `ask` action awaiting you. */
     actionRequest?: ActionRequest | null;
@@ -216,6 +220,7 @@
 
   // What the assistant would be told the operator is looking at, were they to send now.
   const TAB_LABEL: Record<ViewTab, () => string> = {
+    chat: m.viewport_chat_tab,
     term: m.viewport_terminal_tab,
     todo: m.viewport_todo_tab,
     activity: m.viewport_activity_tab,
@@ -389,6 +394,7 @@
           status={session.status}
           herd={chatHerd}
           {onnavigate}
+          {block}
           {ask}
           {actionRequest}
           {mobile}
@@ -397,6 +403,7 @@
           onprefilled={ontyped}
           consumeAutoFocus={shown === "chat" ? consumeAutoFocusTerm : undefined}
           onsend={(text) => viewport?.sendLine(text) ?? false}
+          onkeys={(seq) => viewport?.sendKeys(seq) ?? false}
           oninterrupt={() => viewport?.sendInterrupt()}
           onterminal={() => show("term")}
         />

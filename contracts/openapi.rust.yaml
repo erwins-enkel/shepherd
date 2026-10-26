@@ -2442,6 +2442,11 @@ components:
           type: string
           nullable: true
           description: Why no transcript could be read; null when it was.
+        tools:
+          type: array
+          description: Only with `includeTools`. Oldest first.
+          items:
+            $ref: "#/components/schemas/ActivityEntry"
     SessionActivitySignal:
       type: object
       additionalProperties: true
@@ -9751,6 +9756,12 @@ paths:
           in: query
           required: false
           description: Also return the user's and the operator's steering messages.
+          schema:
+            type: boolean
+        - name: includeTools
+          in: query
+          required: false
+          description: "Also return `tools`: the transcript's tool calls no older than the oldest returned message (all of them when none was cut), newest 200."
           schema:
             type: boolean
       responses:

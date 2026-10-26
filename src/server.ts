@@ -4769,8 +4769,9 @@ async function sessionMessagesRead(id: string, url: URL, deps: AppDeps): Promise
   const limit = Number.isNaN(raw)
     ? MESSAGES_DEFAULT_LIMIT
     : Math.min(Math.max(raw, 0), MESSAGES_MAX_LIMIT);
-  const includeUser = ["1", "true"].includes(url.searchParams.get("includeUser") ?? "");
-  return json(await sessionMessages(s, path, { limit, includeUser }));
+  const flag = (name: string) => ["1", "true"].includes(url.searchParams.get(name) ?? "");
+  const q = { limit, includeUser: flag("includeUser"), includeTools: flag("includeTools") };
+  return json(await sessionMessages(s, path, q));
 }
 
 async function sessionDiffRead(id: string, url: URL, deps: AppDeps): Promise<Response> {

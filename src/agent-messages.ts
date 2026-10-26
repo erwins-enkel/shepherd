@@ -10,7 +10,8 @@
  * paragraphs ask something ({@link looksLikeQuestion}). The transcript text is untrusted agent
  * output; it is only ever returned verbatim, never interpreted.
  */
-import { readTranscriptTail, readTranscriptTailAsync } from "./activity";
+import { parseActivityObjects, readTranscriptTailAsync, type ActivityEntry } from "./activity";
+import { parseCodexActivityObjects } from "./codex-activity";
 import { eachJsonlObject } from "./jsonl";
 import type { AgentProvider, SessionStatus } from "./types";
 
@@ -32,6 +33,8 @@ export interface SessionMessages {
   awaitingInput: boolean;
   pendingQuestion: string | null;
   unavailable: MessagesUnavailable | null;
+  /** With `includeTools`: the tool calls in the same window, oldest first (the session Chat). */
+  tools?: ActivityEntry[];
 }
 
 export interface ParsedMessages {
@@ -161,13 +164,17 @@ function scanUser(scan: ClaudeScan, rec: ClaudeRecord): void {
 }
 
 export function parseClaudeMessages(text: string): ParsedMessages {
+  return parseClaudeMessageObjects(eachJsonlObject(text));
+}
+
+function parseClaudeMessageObjects(objs: Iterable<unknown>): ParsedMessages {
   const scan: ClaudeScan = {
     messages: [],
     lastAssistantId: undefined,
     endsOnText: false,
     pendingAsks: new Map(),
   };
-  for (const o of eachJsonlObject(text)) {
+  for (const o of objs) {
     const rec = o as ClaudeRecord | null;
     if (!rec || rec.isSidechain === true) continue;
     if (rec.type === "assistant" && rec.isApiErrorMessage !== true) {
@@ -229,9 +236,13 @@ function classifyCodexRecord(
 }
 
 export function parseCodexMessages(text: string): ParsedMessages {
+  return parseCodexMessageObjects(eachJsonlObject(text));
+}
+
+function parseCodexMessageObjects(objs: Iterable<unknown>): ParsedMessages {
   const messages: AgentMessage[] = [];
   let lastTurnEvent: unknown = null;
-  for (const o of eachJsonlObject(text)) {
+  for (const o of objs) {
     const r = classifyCodexRecord(o);
     if (!r) continue;
     if ("message" in r) messages.push(r.message);
@@ -252,10 +263,30 @@ export interface MessagesQuery {
   limit: number;
   /** Keep the user's / steering messages alongside the agent's. */
   includeUser: boolean;
+  /** Also return the window's tool calls (`tools`). */
+  includeTools?: boolean;
 }
 
+/** The newest tool calls `includeTools` returns. */
+const TOOLS_MAX = 200;
+
+const isCodex = (provider?: AgentProvider | null) => (provider ?? "claude") === "codex";
+
 function parseTranscript(text: string, provider?: AgentProvider | null): ParsedMessages {
-  return (provider ?? "claude") === "codex" ? parseCodexMessages(text) : parseClaudeMessages(text);
+  return isCodex(provider) ? parseCodexMessages(text) : parseClaudeMessages(text);
+}
+
+/** The tool calls no older than the oldest kept message (all of them when no message was cut),
+ *  newest {@link TOOLS_MAX}. */
+function windowTools(
+  objs: unknown[],
+  provider: AgentProvider | null | undefined,
+  oldest: number | null,
+): ActivityEntry[] {
+  const all = isCodex(provider)
+    ? parseCodexActivityObjects(objs, -1)
+    : parseActivityObjects(objs, -1);
+  return (oldest === null ? all : all.filter((t) => t.ts >= oldest)).slice(-TOOLS_MAX);
 }
 
 /** Whether the session waits on a question — {@link sessionMessages}' `awaitingInput`, read off
@@ -292,19 +323,29 @@ export async function sessionMessages(
   if (!path) return unavailable("no-transcript");
   let text: string;
   try {
-    text = readTranscriptTail(path, TAIL_BYTES);
+    text = await readTranscriptTailAsync(path, TAIL_BYTES);
   } catch {
     return unavailable("file-missing");
   }
-  const parsed = parseTranscript(text, s.agentProvider);
+  // One JSON pass serves both the messages and, with includeTools, the tool calls.
+  const objs = [...eachJsonlObject(text)];
+  const parsed = isCodex(s.agentProvider)
+    ? parseCodexMessageObjects(objs)
+    : parseClaudeMessageObjects(objs);
   const question = AT_REST.has(s.status) ? parsed.question : null;
   const kept = q.includeUser
     ? parsed.messages
     : parsed.messages.filter((m) => m.role === "assistant");
-  return {
-    messages: q.limit > 0 ? kept.slice(-q.limit) : [],
+  const messages = q.limit > 0 ? kept.slice(-q.limit) : [];
+  const result: SessionMessages = {
+    messages,
     awaitingInput: question !== null,
     pendingQuestion: question,
     unavailable: null,
   };
+  if (q.includeTools) {
+    const oldest = messages.length < kept.length ? (messages[0]?.ts ?? Infinity) : null;
+    result.tools = windowTools(objs, s.agentProvider, oldest);
+  }
+  return result;
 }

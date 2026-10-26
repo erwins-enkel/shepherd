@@ -2,9 +2,10 @@
   import { m } from "#lib/paraglide/messages.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import type { Session } from "#lib/types.js";
+  import type { ViewTab } from "#lib/operator-assistant-view.js";
   import ViewportPreviewStart, { clearPreviewPending } from "./ViewportPreviewStart.svelte";
 
-  type Tab = "term" | "todo" | "activity" | "diff" | "files" | "preview" | "browser";
+  type Tab = ViewTab;
 
   let {
     tab = $bindable(),
@@ -54,6 +55,16 @@
     aria-label={m.viewport_tablist_aria()}
     aria-owns={hasPreview ? tabId("preview") : undefined}
   >
+    <button
+      class="tab-btn"
+      class:active={tab === "chat"}
+      role="tab"
+      id={tabId("chat")}
+      aria-selected={tab === "chat"}
+      aria-controls={vpBodyId}
+      use:coachTarget={"chat-tab"}
+      onclick={() => (tab = "chat")}>{m.viewport_chat_tab()}</button
+    >
     <button
       class="tab-btn"
       class:active={tab === "term"}

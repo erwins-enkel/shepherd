@@ -7403,5 +7403,7 @@
   "upnext_pr_review_none": "none yet",
   "upnext_pr_session_none": "none active",
   "upnext_pr_description": "Description",
-  "upnext_pr_body_unavailable": "This pull request's description couldn't be loaded."
+  "upnext_pr_body_unavailable": "This pull request's description couldn't be loaded.",
+  "feat_upnext_prs_title": "Up Next: pull requests that wait on you",
+  "feat_upnext_prs_body": "Up Next now leads with your open pull requests, sorted into Ready to merge, Review due, Blocked and Dependabot. Every row offers one next step — merge, review, start a fix session that rebases or fixes red CI, ask Dependabot to rebase, or approve a workflow run on GitHub. Pick several PRs for a merge train; the lens badge counts the ones ready to merge."
 }

@@ -7403,5 +7403,7 @@
   "upnext_pr_review_none": "noch keins",
   "upnext_pr_session_none": "keine aktive",
   "upnext_pr_description": "Beschreibung",
-  "upnext_pr_body_unavailable": "Die Beschreibung dieses PRs konnte nicht geladen werden."
+  "upnext_pr_body_unavailable": "Die Beschreibung dieses PRs konnte nicht geladen werden.",
+  "feat_upnext_prs_title": "Als Nächstes: Pull Requests, die auf dich warten",
+  "feat_upnext_prs_body": "„Als Nächstes“ beginnt jetzt mit deinen offenen Pull Requests, sortiert nach „Bereit zum Mergen“, „Review fällig“, „Blockiert“ und „Dependabot“. Jede Zeile bietet genau einen nächsten Schritt — mergen, reviewen, eine Fix-Session starten, die rebased oder rote CI behebt, Dependabot um einen Rebase bitten oder einen Workflow-Lauf auf GitHub freigeben. Wähle mehrere PRs für einen Merge-Train; das Badge am Tab zählt die merge-bereiten."
 }

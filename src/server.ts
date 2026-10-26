@@ -106,6 +106,7 @@ import {
   validateRetry,
   validateIconPatch,
   validateEpicRunPatch,
+  validateEpicAutoFixRequest,
   parseEpicLanding,
   type EpicRunPatch,
   validateEgressExtraHosts,
@@ -379,6 +380,12 @@ import {
   type IssueDrainOperation,
 } from "./issue-drain";
 import type { Epic, EpicLanding, EpicRun, EpicSource } from "./epic-core";
+import {
+  providerSwitchSettings,
+  type AutoBlockers,
+  type AutoFixOptionId,
+  type EpicAutoFixState,
+} from "./auto-blockers";
 import {
   computeEpicOthersFlags,
   effectiveEpicLanding,
@@ -969,6 +976,9 @@ export interface AppDeps {
     issueListingFailed?(repoPath: string): boolean;
     /** On-demand structural diagnosis for one epic parent (GET /api/epic/diagnose). */
     diagnoseEpic(repoPath: string, run: EpicRun): Promise<EpicDiagnosis | null>;
+    /** #3453: what keeps an epic's children from starting unattended and the fixes that start
+     *  them (GET|POST /api/epic/auto-fix). Optional — absent in tests that don't need it. */
+    autoBlockers?(repoPath: string, run: EpicRun): AutoBlockers;
     /** Operator approves the next epic-attended spawn for the given repo. */
     approveEpicNext(repoPath: string): void;
     /** #2973: start the repo's epic-queue head with its stored settings (the operator stopped the
@@ -11896,6 +11906,147 @@ function isEpicQueueRequest(req: Request, parts: string[]): boolean {
   );
 }
 
+// ── #3453: what blocks an epic's unattended start, and the fix in one step ─────────────────────────
+
+type AutoBlockersDrain = NonNullable<AppDeps["drain"]> & {
+  autoBlockers(repoPath: string, run: EpicRun): AutoBlockers;
+};
+
+/** /api/epic/auto-fix's query: the repo dir, the parent and a drain that answers the model — or
+ *  the 400/503 to send. */
+function epicAutoFixTarget(
+  url: URL,
+  deps: AppDeps,
+): { dir: string; parent: number; drain: AutoBlockersDrain } | Response {
+  const target = epicRepoParent(url);
+  if (target instanceof Response) return target;
+  if (!deps.drain?.autoBlockers) return json({ error: "drain unavailable" }, 503);
+  return { ...target, drain: deps.drain as AutoBlockersDrain };
+}
+
+/** The settings fix `id` writes while the model offers it enabled, else null. Switching the CLI
+ *  drops a model/effort the new one doesn't offer, as the epic's CLI picker does. */
+function autoFixOptionState(
+  blockers: AutoBlockers,
+  base: EpicRun,
+  id: AutoFixOptionId,
+): EpicAutoFixState | null {
+  const option = blockers.options.find((o) => o.id === id && o.enabled);
+  if (!option) return null;
+  const { sandboxProfile, agentProvider } = option.changes;
+  return {
+    ...(sandboxProfile ? { sandboxProfile } : {}),
+    ...(agentProvider ? providerSwitchSettings(base, agentProvider) : {}),
+  };
+}
+
+/** The epic's CLI fields of `state` as a PUT /api/epic patch; null when it sets none. */
+function epicCliPatch(state: EpicAutoFixState): EpicRunPatch | null {
+  const patch: EpicRunPatch = {
+    ...(state.agentProvider !== undefined ? { agentProvider: state.agentProvider } : {}),
+    ...(state.model !== undefined ? { model: state.model } : {}),
+    ...(state.effort !== undefined ? { effort: state.effort } : {}),
+  };
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
+/** What the fields `state` writes hold now — the `previous` Undo writes back. The epic's CLI
+ *  settings travel together, since a CLI change resets model and effort. */
+function currentAutoFixState(
+  store: AppDeps["store"],
+  base: EpicRun,
+  state: EpicAutoFixState,
+): EpicAutoFixState {
+  return {
+    ...(state.sandboxProfile !== undefined
+      ? { sandboxProfile: store.getRepoConfig(base.repoPath).sandboxProfile }
+      : {}),
+    ...(epicCliPatch(state)
+      ? {
+          agentProvider: base.agentProvider ?? null,
+          model: base.model ?? null,
+          effort: base.effort ?? null,
+        }
+      : {}),
+  };
+}
+
+/** Save an epic's settings where they live (see EpicSettings) without touching its status — no
+ *  supersession, no queue promotion. */
+function saveEpicSettingsInPlace(
+  store: AppDeps["store"],
+  merged: EpicRun,
+  place: EpicSettingsPlace,
+  via: string | null,
+): void {
+  if (place === "run") store.setEpicRun(merged, { via });
+  else if (place === "queue") store.updateEpicQueueSettings(merged);
+  else store.setEpicSettings(merged);
+}
+
+/** Write `state` in one step — every refusal is decided before the first write, so it changes
+ *  nothing — then kick the drain. Answers what the written fields held before. */
+async function applyEpicAutoFixState(
+  deps: AppDeps,
+  drain: AutoBlockersDrain,
+  base: EpicRun,
+  state: EpicAutoFixState,
+  via: string | null,
+): Promise<EpicAutoFixState | Response> {
+  const dir = base.repoPath;
+  const cliPatch = epicCliPatch(state);
+  const merged = cliPatch
+    ? (refusedEpicRunPatch(deps, base, cliPatch) ?? patchedEpicRun(base, cliPatch))
+    : null;
+  if (merged instanceof Response) return merged;
+  const previous = currentAutoFixState(deps.store, base, state);
+  if (state.sandboxProfile !== undefined) {
+    const r = repoConfigSvc(deps).patch(dir, { sandboxProfile: state.sandboxProfile });
+    if (!r.ok) return json({ error: r.error }, 400);
+  }
+  if (merged) {
+    const place = epicSettingsPlace(deps.store, dir, base.parentIssueNumber);
+    saveEpicSettingsInPlace(deps.store, merged, place, via);
+  }
+  kickDrain(drain, "auto-fix");
+  if (merged) {
+    const epic = await drain.buildEpic(dir, merged);
+    if (epic) deps.events?.emit("epic:update", epic);
+  }
+  return previous;
+}
+
+// GET /api/epic/auto-fix?repo=&parent= — what keeps the epic's children from starting unattended
+// and the fixes that would start them (#3453), alike for a leading, queued or not-started epic.
+// POST {option} applies a fix the model offers enabled, in one step; POST {restore} writes back the
+// `previous` a fix answered (Undo). Both kick the drain and answer {previous, blockers}.
+async function handleEpicAutoFix({ req, parts, url, deps, token }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "epic" && parts[2] === "auto-fix" && !parts[3]))
+    return null;
+  if (req.method !== "GET" && req.method !== "POST") return null;
+  const target = epicAutoFixTarget(url, deps);
+  if (target instanceof Response) return target;
+  const { dir, parent, drain } = target;
+  if (req.method === "GET")
+    return json(drain.autoBlockers(dir, runForParent(deps.store, dir, parent)));
+  const body = validateEpicAutoFixRequest(await req.json().catch(() => null));
+  if (!body) return json({ error: "invalid auto-fix request" }, 400);
+  // Read after the body's await, so the write builds on the settings as they are now.
+  const base = runForParent(deps.store, dir, parent);
+  const state =
+    "restore" in body
+      ? body.restore
+      : autoFixOptionState(drain.autoBlockers(dir, base), base, body.option);
+  if (!state) return json({ error: "option unavailable" }, 409);
+  const via = requestTokenName(deps.store, token);
+  const previous = await applyEpicAutoFixState(deps, drain, base, state, via);
+  if (previous instanceof Response) return previous;
+  return json({
+    previous,
+    blockers: drain.autoBlockers(dir, runForParent(deps.store, dir, parent)),
+  });
+}
+
 // POST|DELETE /api/epic/queue?repo=&parent= — queue an epic behind the leading one (#2624), or
 // take it out of the queue. The queue head starts on its own once the leader completes.
 async function handleEpicQueue({ req, parts, url, deps }: Ctx): Promise<Response | null> {
@@ -11978,6 +12129,11 @@ function epicBaseActionTarget(
 ): { dir: string; parent: number } | Response | null {
   if (!(req.method === "POST" && parts[0] === "api" && parts[1] === "epic" && parts[2] === action))
     return null;
+  return epicRepoParent(url);
+}
+
+/** An epic route's `?repo=&parent=`: the validated repo dir and parent, or the 400 to send. */
+function epicRepoParent(url: URL): { dir: string; parent: number } | Response {
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   const parent = parseInt(url.searchParams.get("parent") ?? "", 10);
@@ -12542,6 +12698,7 @@ const ROUTE_HANDLERS = [
   handleEpicGet,
   handleEpicDiagnose,
   handleEpicPut,
+  handleEpicAutoFix,
   handleEpicQueue,
   handleEpicQueueReorder,
   handleRepoConfig,

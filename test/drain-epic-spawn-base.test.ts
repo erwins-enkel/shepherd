@@ -1043,6 +1043,13 @@ describe("#3245 routed child: Target repo marker", () => {
     expect(h.creates).toHaveLength(0);
     expect(h.forgeRec.added).toHaveLength(0);
     expect(bRec.added).toHaveLength(0);
+    // #3452: named on the epic's status, not just logged.
+    expect(h.statuses.at(-1)).toMatchObject({
+      paused: true,
+      reason: "target_repo_drain_off",
+      detail: "org/B",
+      epicParent: PARENT,
+    });
   });
 
   test("an unregistered target repo is refused: no spawn, no claim, reported once", async () => {

@@ -7444,5 +7444,16 @@
   "feat_epic_next_prompt_body": "In New Task's Epic mode, click Next epic to fill in a prompt that drafts the next epic from the repo's PRD and folds in the gaps earlier epics left behind. Edit it before you start, or ignore it.",
   "model_guidance_codex_61_terra": "Fast, lower-cost option for focused tasks, visual understanding and computer use. Choose GPT-6.1 Sol for complex coding; Astra for the most demanding work.",
   "feat_codex_61_terra_title": "GPT-6.1 Terra available",
-  "feat_codex_61_terra_body": "Choose GPT-6.1 Terra in the Codex model picker for fast, focused tasks and visual work at a lower cost than Sol. Use GPT-6.1 Sol for complex coding and Astra for the most demanding tasks."
+  "feat_codex_61_terra_body": "Choose GPT-6.1 Terra in the Codex model picker for fast, focused tasks and visual work at a lower cost than Sol. Use GPT-6.1 Sol for complex coding and Astra for the most demanding tasks.",
+  "drain_paused_sandbox_interactive": "Paused: sandbox Standard is interactive-only",
+  "drain_paused_sandbox_provider": "Paused: {cli} starts unattended only under Trusted",
+  "drain_paused_sandbox_backend": "Paused: Autonomous needs bubblewrap, missing on this host",
+  "drain_paused_sandbox_egress": "Paused: Autonomous needs an egress backend, missing on this host",
+  "drain_paused_target_repo_drain_off": "Paused: auto-drain is off in target repo {repo}",
+  "epic_hold_sandbox_interactive": "Held: the sandbox profile Standard runs interactive sessions only. Unattended starts need Autonomous or Trusted — change it in the repo's automation settings.",
+  "epic_hold_sandbox_provider_unconfined": "Held: {cli} runs without a sandbox, so it starts unattended only under the Trusted profile. Switch the repo to Trusted, or run this epic with Claude Code.",
+  "epic_hold_sandbox_backend_unavailable": "Held: the Autonomous sandbox needs bubblewrap, which is not available on this host. Install it, or choose Trusted for this repo.",
+  "epic_hold_sandbox_egress_unavailable": "Held: the Autonomous sandbox needs its network-egress backend (slirp4netns, dnsmasq, nft), which is not available on this host. Install it, or choose Trusted for this repo.",
+  "epic_hold_target_repo_drain_off": "Held: the next task runs in {repo}, where auto-drain is off. Turn it on there to let it start.",
+  "epic_run_next_halted": "starts once the hold is cleared"
 }

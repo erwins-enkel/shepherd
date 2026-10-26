@@ -96,6 +96,24 @@ describe("epicHoldLine", () => {
     ).toBe(m.epic_hold_bootstrap_incomplete({ missing: "P1, P2" }));
   });
 
+  it("spawn gates name the profile's consequence, the CLI or the target repo (#3452)", () => {
+    const line = (reason: string, detail: string) =>
+      epicHoldLine(drain({ reason, detail }), true, [...READY]);
+    expect(line("sandbox_interactive", "standard")).toBe(m.epic_hold_sandbox_interactive());
+    expect(line("sandbox_provider_unconfined", "codex")).toBe(
+      m.epic_hold_sandbox_provider_unconfined({ cli: m.agent_provider_codex() }),
+    );
+    expect(line("sandbox_backend_unavailable", "autonomous")).toBe(
+      m.epic_hold_sandbox_backend_unavailable(),
+    );
+    expect(line("sandbox_egress_unavailable", "autonomous")).toBe(
+      m.epic_hold_sandbox_egress_unavailable(),
+    );
+    expect(line("target_repo_drain_off", "org/b")).toBe(
+      m.epic_hold_target_repo_drain_off({ repo: "org/b" }),
+    );
+  });
+
   it("epic_unreadable explains the stall", () => {
     expect(epicHoldLine(drain({ reason: "epic_unreadable" }), true, [...READY])).toBe(
       m.epic_hold_epic_unreadable(),
@@ -302,6 +320,22 @@ describe("epicRunState", () => {
     expect(s.note).toContain("TASK-07");
   });
 
+  it("a spawn gate halts the run with its hold line, never 'running' (#3452)", () => {
+    for (const reason of [
+      "sandbox_interactive",
+      "sandbox_provider_unconfined",
+      "sandbox_backend_unavailable",
+      "sandbox_egress_unavailable",
+      "target_repo_drain_off",
+    ]) {
+      const d = drain({ reason, detail: "x", paused: true, epicParent: B, runSummary: summary() });
+      const s = epicRunState(epicB(), B, d);
+      expect(s).toMatchObject({ kind: "halted", tone: "halt" });
+      expect(s.note).toBeTruthy();
+      expect(s.note).toBe(epicHoldLine(d, true, epicB().children));
+    }
+  });
+
   it("empty with nothing in flight reads 'nothing startable'; with something in flight 'running'", () => {
     expect(epicRunState(epicB(), B, capDrain({ reason: "empty" })).kind).toBe("nothing");
     const busy = { ...epicB(), children: [child(21, "running")] };
@@ -410,6 +444,12 @@ describe("epicRunSteps", () => {
     expect(note("running", { reason: "awaiting_approval", detail: "21" })).toBe("approval");
     const free = summary({ slots: { used: 0, max: 2, holders: [] } });
     expect(note("running", { reason: null, runSummary: free })).toBe("soon");
+    // #3452: a halted run never promises "starts shortly".
+    expect(note("running", { reason: "sandbox_interactive", runSummary: free })).toBe("halted");
+    expect(note("running", { reason: "blocked", detail: "TASK-07" })).toBe("halted");
+    expect(
+      note("running", { reason: "sandbox_interactive", epicParent: 77, runSummary: free }),
+    ).toBe("soon"); // another epic's hold
   });
 
   it("winding: own holders, the unstarted children left behind, and the slot's next owner", () => {

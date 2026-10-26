@@ -5450,6 +5450,7 @@
   "pulse_event_nudge": "Anstoß vom Autopilot",
   "pulse_event_review": "Befunde des Kritikers",
   "pulse_event_queue": "Queue-Abgleich",
+  "pulse_event_api_retry": "Wiederholung nach API-Fehler",
   "pulse_event_operator": "Deine Nachricht",
   "pulse_event_earlier": "… {count} frühere",
   "pulse_section_loop": "Schleifencheck",

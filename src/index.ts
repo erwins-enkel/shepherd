@@ -263,7 +263,8 @@ import { TurnEndBackstopService } from "./turn-end-backstop";
 import { PlanStopTrigger } from "./plan-stop-trigger";
 import { jsonlPathFor } from "./usage";
 import { detectPendingAuthUrl, detectLoginAuthUrl } from "./auth-url";
-import { readTranscriptTail } from "./activity";
+import { readTranscriptTail, readTranscriptTailAsync } from "./activity";
+import { ApiErrorRetry } from "./api-error-retry";
 import { verifyApiKey, VERIFY_KEY_LABEL } from "./verify-key";
 import { releaseHeldTasks } from "./held-release";
 import { BASE_DRIFT_INTERVAL_MS, BaseDriftService } from "./base-drift";
@@ -2632,6 +2633,7 @@ events.subscribe((event, data) => {
     autoMergedRecapEvidence.delete(id);
     buildQueueReminder.forget(id);
     turnEndBackstop.forget(id);
+    apiErrorRetry.forget(id);
     planStopTrigger.forget(id);
     docAgent.onArchived(id);
   }
@@ -2732,6 +2734,32 @@ if (config.blockJudgeMode !== "off") {
       (judgeSettings.hasKey() ? "" : " — inert until a JEV key is set"),
   );
 }
+
+// A Claude turn that died on a transient API error (stream cut / 529 / 5xx) idles with no Stop hook.
+// Re-drive it with a backed-off "continue" steer, every Claude session; exhausted → halted on an
+// error. Routed ahead of autopilot, which stands down while a retry is armed.
+const apiErrorRetry = new ApiErrorRetry({
+  getSession: (id) => store.get(id),
+  readTranscript: (s) =>
+    readTranscriptTailAsync(
+      jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir),
+    ).catch(() => null),
+  steer: (id, text) => service.resumeAndReply(id, text, { automatic: true }),
+  setHalt: (id, haltedAt) => {
+    store.setHaltReason(id, "error", haltedAt);
+    events.emit("session:halt", { id, haltReason: "error", haltedAt });
+  },
+  // autopilot.handle's own Operator Assistant skip, applied here since onDone is called directly.
+  handBack: async (id) => {
+    const s = store.get(id);
+    if (s && !isOperatorAssistant(s)) await autopilot.onDone(id);
+  },
+  schedule: (fn, ms) => {
+    const t = setTimeout(fn, ms);
+    return () => clearTimeout(t);
+  },
+  now: () => Date.now(),
+});
 
 // Autopilot: the pre-PR twin of the critic's auto-address loop. When an autopilot-enabled
 // session (per-repo default + per-session override) stalls on a procedural gate with no PR
@@ -2853,6 +2881,7 @@ const autopilot = new AutopilotService({
   },
   getReview: (id) => store.getReview(id),
   isBackgroundBusy: (id) => poller.isBackgroundBusy(id),
+  apiRetryPending: (id) => apiErrorRetry.pending(id),
   // #3426: a critic reviewing the red head holds the CI-fix steer (its findings steer carries it).
   criticReviewing: (id, headSha): boolean => reviewService.ciSteerHeld(id, headSha),
   refreshPr: (id) => prPoller.pollSession(id),
@@ -3030,6 +3059,7 @@ const sessionRouter = new SessionRouter(
   { getSession: (id) => store.get(id) },
   [
     { name: "drain", handle: (change) => drain.handle(change) },
+    apiErrorRetry,
     { name: "autopilot", handle: (change) => autopilot.handle(change) },
   ] satisfies SessionConsumer[],
   {

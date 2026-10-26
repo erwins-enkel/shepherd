@@ -10,6 +10,7 @@ export type SteerKind =
   | "nudge"
   | "review"
   | "queue"
+  | "api_retry"
   | "operator";
 
 /** One message typed into a session — time and channel only, never the text. */
@@ -35,6 +36,7 @@ const PREFIXES: ReadonlyArray<readonly [string, SteerKind]> = [
   ["The operator answered the open questions", "plan_review"],
   ["The PR critic reviewed your latest push", "review"],
   ["🔄 Your build-queue step statuses", "queue"],
+  ["⟳ Your last response was cut off by a transient API error", "api_retry"],
 ];
 
 export function classifySteer(text: string): SteerKind {

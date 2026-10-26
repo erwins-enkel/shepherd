@@ -40,6 +40,7 @@ export type SteerKind =
   | "nudge"
   | "review"
   | "queue"
+  | "api_retry"
   | "operator";
 
 /** One entry of GET /api/sessions/:id/steer-log — when, and which channel; never the text. */

@@ -1302,3 +1302,64 @@ describe("drainEnabled (#2735)", () => {
     expect(drainEnabled(null, false)).toBe(false);
   });
 });
+
+// ── #3452: spawn gate (sandbox / CLI / host / target repo) ──────────────────────────────────────
+
+describe("computeNext: spawn gate (#3452)", () => {
+  const GATES = [
+    { code: "sandbox_interactive", detail: "standard" },
+    { code: "sandbox_provider_unconfined", detail: "codex" },
+    { code: "sandbox_backend_unavailable", detail: "autonomous" },
+    { code: "sandbox_egress_unavailable", detail: "autonomous" },
+    { code: "target_repo_drain_off", detail: "org/B" },
+  ] as const;
+
+  for (const reason of GATES) {
+    test(`${reason.code} on the next candidate → hold with that reason`, () => {
+      const d = computeNext(state({ candidates: [issue(7)], spawnHold: { issue: 7, reason } }));
+      expect(d).toEqual({ kind: "hold", reason });
+    });
+  }
+
+  const interactive = { code: "sandbox_interactive", detail: "standard" } as const;
+
+  test("a gate naming another issue does not hold the next candidate", () => {
+    const d = computeNext(
+      state({
+        candidates: [issue(7), issue(8)],
+        mappedIssueNumbers: new Set([7]),
+        spawnHold: { issue: 7, reason: interactive },
+      }),
+    );
+    expect(d).toEqual({ kind: "spawn", issue: expect.objectContaining({ number: 8 }) });
+  });
+
+  test("no candidate → empty, not the gate", () => {
+    const d = computeNext(state({ candidates: [], spawnHold: { issue: 7, reason: interactive } }));
+    expect(d).toEqual({ kind: "hold", reason: { code: "empty" } });
+  });
+
+  test("outranks cap, usage and the attended approval", () => {
+    const d = computeNext(
+      state({
+        maxAuto: 1,
+        usagePct: 95,
+        epicAttended: true,
+        autoSessions: [autoSession({ issueNumber: 2 })],
+        candidates: [issue(7)],
+        spawnHold: { issue: 7, reason: interactive },
+      }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: interactive });
+  });
+
+  test("a ready PR still retires first, and trouble still names its session", () => {
+    const gated = { candidates: [issue(7)], spawnHold: { issue: 7, reason: interactive } };
+    expect(
+      computeNext(state({ ...gated, autoSessions: [autoSession({ id: "sX", git: MERGEABLE })] })),
+    ).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7, headSha: "abc" });
+    expect(
+      computeNext(state({ ...gated, autoSessions: [autoSession({ status: "blocked" })] })),
+    ).toEqual({ kind: "hold", reason: { code: "blocked", detail: "TASK-01" } });
+  });
+});

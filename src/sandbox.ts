@@ -916,8 +916,19 @@ export function wrapArgv(
 export const EGRESS_UNAVAILABLE_REASON =
   "Autonomous spawn refused: network-egress backend unavailable (slirp4netns/dnsmasq/nft).";
 
+/** Why {@link autoHoldReason} refuses, as the drain's hold code (#3452). */
+export type AutoHoldCode =
+  "sandbox_interactive" | "sandbox_backend_unavailable" | "sandbox_egress_unavailable";
+
+const AUTO_HOLD_TEXT: Record<AutoHoldCode, string> = {
+  sandbox_interactive:
+    "Autonomous spawn requires the autonomous or trusted profile (standard is interactive-only).",
+  sandbox_backend_unavailable: "Autonomous spawn refused: no sandbox backend available.",
+  sandbox_egress_unavailable: EGRESS_UNAVAILABLE_REASON,
+};
+
 /**
- * Returns a hold reason when an auto=true spawn must be refused, else null.
+ * Returns the cause when an auto=true spawn must be refused, else null.
  *   trusted   -> null  (legacy: caller shows an "unconfined autonomy" banner)
  *   standard  -> ALWAYS refuse
  *   autonomous + backend null    -> refuse (no FS backend)
@@ -928,23 +939,27 @@ export const EGRESS_UNAVAILABLE_REASON =
  * pass only two args get identical behavior to before (undefined = "not considered").
  * Only an explicit `null` triggers the egress refuse path.
  */
+export function autoHoldCode(
+  profile: SandboxProfile,
+  backend: SandboxBackend,
+  egressBackend?: EgressBackend,
+): AutoHoldCode | null {
+  if (profile === "trusted") return null;
+  if (profile === "standard") return "sandbox_interactive";
+  // autonomous
+  if (backend === null) return "sandbox_backend_unavailable";
+  if (egressBackend === null) return "sandbox_egress_unavailable";
+  return null;
+}
+
+/** The refusal text for {@link autoHoldCode}'s cause, else null. */
 export function autoHoldReason(
   profile: SandboxProfile,
   backend: SandboxBackend,
   egressBackend?: EgressBackend,
 ): string | null {
-  if (profile === "trusted") return null;
-  if (profile === "standard") {
-    return "Autonomous spawn requires the autonomous or trusted profile (standard is interactive-only).";
-  }
-  // autonomous
-  if (backend === null) {
-    return "Autonomous spawn refused: no sandbox backend available.";
-  }
-  if (egressBackend === null) {
-    return EGRESS_UNAVAILABLE_REASON;
-  }
-  return null;
+  const code = autoHoldCode(profile, backend, egressBackend);
+  return code ? AUTO_HOLD_TEXT[code] : null;
 }
 
 /**

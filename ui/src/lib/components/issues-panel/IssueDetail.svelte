@@ -14,7 +14,7 @@
   import { importEpic } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { assignedOthers, epicFlagForOthers, type IssueSelection } from "../issues-panel";
-  import { epicRole, queuePosition, stateLabel } from "../epic-panel";
+  import { epicRole, epicRunState, queuePosition, stateLabel } from "../epic-panel";
   import EpicPanel from "../EpicPanel.svelte";
   import EpicRunControl from "./EpicRunControl.svelte";
   import EpicChildRun from "./EpicChildRun.svelte";
@@ -239,6 +239,8 @@
               parent={selection.issue.number}
               {epic}
               runSummary={drain?.runSummary ?? null}
+              sandboxHeld={epicRunState(epic, selection.issue.number, drain).kind ===
+                "halted_sandbox"}
               headActions={false}
               {nowMs}
             />

@@ -279,3 +279,33 @@ describe("EpicPanel merged chip contrast", () => {
     });
   }
 });
+
+describe("EpicPanel ready children under a sandbox halt (#3454)", () => {
+  const e = (): Epic => ({
+    ...epic(),
+    children: [child({ number: 17 }), child({ number: 19, state: "blocked", blockedBy: [17] })],
+  });
+
+  it("says a ready child waits for the sandbox only while the run is held there", async () => {
+    render(EpicPanel, { repoPath: "/repo", parent: 327, epic: e(), sandboxHeld: true });
+    await expect.element(page.getByText(m.epic_child_waits_sandbox())).toBeInTheDocument();
+    expect(page.getByText(m.epic_child_waits_sandbox()).elements()).toHaveLength(1);
+    await expect.element(page.getByText(m.epic_blocked_on({ deps: "#17" }))).toBeInTheDocument();
+  });
+
+  it("stays silent without the halt", async () => {
+    render(EpicPanel, { repoPath: "/repo", parent: 327, epic: e() });
+    await expect.element(page.getByRole("link", { name: "#17" })).toBeInTheDocument();
+    expect(page.getByText(m.epic_child_waits_sandbox()).query()).toBeNull();
+  });
+
+  afterEach(() => document.documentElement.removeAttribute("data-theme"));
+  for (const theme of THEMES) {
+    it(`keeps the line legible: ${theme}`, async () => {
+      document.documentElement.dataset.theme = theme;
+      render(EpicPanel, { repoPath: "/repo", parent: 327, epic: e(), sandboxHeld: true });
+      await expect.element(page.getByText(m.epic_child_waits_sandbox())).toBeInTheDocument();
+      expectQuietLegible(page.getByText(m.epic_child_waits_sandbox()).element() as HTMLElement);
+    });
+  }
+});

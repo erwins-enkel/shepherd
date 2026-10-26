@@ -17,7 +17,38 @@ export function greenfieldGroups(r: GreenfieldReport): {
   };
 }
 
+/** Red items first, each half in its given order — what still holds the gate leads the list. */
+export function redFirst(items: GreenfieldItem[]): GreenfieldItem[] {
+  return [...items.filter((i) => !i.present), ...items.filter((i) => i.present)];
+}
+
+/** Items the operator supplies rather than a bootstrap session: the PRD and design are the
+ *  inputs, and forge settings are applied from the Readiness tab (src/bootstrap-directive.ts). */
+export function greenfieldByOperator(id: GreenfieldItemId): boolean {
+  return id === "forge_settings" || id === "prd" || id === "design_export";
+}
+
 // Explicit switches (not dynamic m[`…${id}`]) keep the keys statically analysable.
+/** A must-have's one-word label under its gate segment; other items fall back to the title. */
+export function greenfieldShort(id: GreenfieldItemId): string {
+  switch (id) {
+    case "stack_pinned":
+      return m.readiness_gf_stack_pinned_short();
+    case "scaffold_builds":
+      return m.readiness_gf_scaffold_builds_short();
+    case "ci_on_main":
+      return m.readiness_gf_ci_on_main_short();
+    case "hooks_pre_push":
+      return m.readiness_gf_hooks_pre_push_short();
+    case "dead_code_audit":
+      return m.readiness_gf_dead_code_audit_short();
+    case "forge_settings":
+      return m.readiness_gf_forge_settings_short();
+    default:
+      return greenfieldTitle(id);
+  }
+}
+
 export function greenfieldTitle(id: GreenfieldItemId): string {
   switch (id) {
     case "stack_pinned":

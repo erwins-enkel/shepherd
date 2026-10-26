@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { GreenfieldReport } from "#lib/types.js";
 import {
   bootstrapMissingLabel,
+  greenfieldByOperator,
   greenfieldGroups,
   greenfieldHint,
+  greenfieldShort,
   greenfieldTitle,
   READINESS_PENDING,
+  redFirst,
 } from "./readiness-greenfield-view";
 import { bootstrapMissingText } from "./queue-strip";
 
@@ -26,6 +29,23 @@ describe("readiness greenfield view", () => {
     const g = greenfieldGroups(report);
     expect(g.must.map((i) => i.id)).toEqual(["stack_pinned", "ci_on_main"]);
     expect(g.nice.map((i) => i.id)).toEqual(["prd"]);
+  });
+
+  it("puts red items first, keeping order within each half", () => {
+    expect(redFirst(report.items).map((i) => i.id)).toEqual(["stack_pinned", "prd", "ci_on_main"]);
+  });
+
+  it("the operator supplies the inputs and the forge settings; a session the rest", () => {
+    expect(greenfieldByOperator("forge_settings")).toBe(true);
+    expect(greenfieldByOperator("prd")).toBe(true);
+    expect(greenfieldByOperator("design_export")).toBe(true);
+    expect(greenfieldByOperator("ci_on_main")).toBe(false);
+    expect(greenfieldByOperator("env_schema")).toBe(false);
+  });
+
+  it("must-haves have a short gate label; others fall back to the title", () => {
+    expect(greenfieldShort("ci_on_main")).not.toBe(greenfieldTitle("ci_on_main"));
+    expect(greenfieldShort("prd")).toBe(greenfieldTitle("prd"));
   });
 
   it("every item id has a title and a hint", () => {

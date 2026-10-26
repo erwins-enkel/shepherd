@@ -5,6 +5,7 @@ import "../../app.css";
 import BootstrapChecklist from "./BootstrapChecklist.svelte";
 import { m } from "#lib/paraglide/messages.js";
 import type { RepoBootstrapView } from "#lib/api.js";
+import { greenfieldTitle } from "./readiness-greenfield-view";
 
 const ACTIVE: RepoBootstrapView = {
   state: "active",
@@ -137,6 +138,58 @@ describe("BootstrapChecklist (#3112)", () => {
       .not.toBeInTheDocument();
     await page.getByRole("button", { name: m.bootstrap_checklist_start_fixci() }).click();
     expect(onbootstrapstep).toHaveBeenCalledWith("/repo-ci-red", "fix-ci", false);
+  });
+
+  it("a held merge marks its stop merged and puts the CI state on the track (#3411)", async () => {
+    await page.viewport(1280, 900);
+    mockApi({ ...ACTIVE, ciHold: "failed" });
+    render(BootstrapChecklist, { repoPath: "/repo-held" });
+    const stop = page
+      .getByRole("listitem")
+      .filter({ hasText: m.bootstrap_checklist_step_scaffold() });
+    await expect.element(stop).toHaveAttribute("aria-current", "step");
+    await expect.element(stop.getByText(m.bootstrap_checklist_badge_merged())).toBeVisible();
+    await expect.element(stop.getByText(m.bootstrap_checklist_chip_ci_failed())).toBeVisible();
+  });
+
+  it("the exit stop names the must-haves still holding the drain", async () => {
+    mockApi({
+      ...ACTIVE,
+      phase: 5,
+      missing: ["forge_settings"],
+      next: { kind: "readiness", phase: 5, sessionId: null },
+    });
+    render(BootstrapChecklist, { repoPath: "/repo-exit" });
+    const exit = page.getByRole("listitem").filter({ hasText: m.bootstrap_checklist_step_exit() });
+    await expect.element(exit).toHaveAttribute("aria-current", "step");
+    await expect
+      .element(
+        exit.getByText(
+          m.bootstrap_checklist_out_exit_open({ missing: greenfieldTitle("forge_settings") }),
+        ),
+      )
+      .toBeVisible();
+    await expect.element(page.getByText(m.bootstrap_checklist_hold())).toBeVisible();
+  });
+
+  it("says the drain runs while the hold is overridden", async () => {
+    mockApi({ ...ACTIVE, overrideAt: 1 });
+    render(BootstrapChecklist, { repoPath: "/repo-override" });
+    await expect.element(page.getByText(m.bootstrap_checklist_hold_override())).toBeVisible();
+    await expect.element(page.getByText(m.bootstrap_checklist_hold())).not.toBeInTheDocument();
+  });
+
+  it("on a phone the track runs down and the buttons are full touch targets", async () => {
+    await page.viewport(390, 844);
+    mockApi(ACTIVE);
+    render(BootstrapChecklist, { repoPath: "/repo-phone" });
+    const start = page.getByRole("button", { name: m.bootstrap_checklist_start_scaffold() });
+    await expect.element(start).toBeVisible();
+    const [first, second] = page.getByRole("listitem").elements();
+    expect(second.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      first.getBoundingClientRect().bottom,
+    );
+    expect(start.element().getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
   });
 
   it("renders nothing for a repo that is not bootstrapping", async () => {

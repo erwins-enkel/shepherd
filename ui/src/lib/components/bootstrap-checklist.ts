@@ -2,7 +2,8 @@ import type { RepoBootstrapView } from "#lib/api.js";
 
 /** One row of the Backlog bootstrap checklist (#3112). P1+P2 run as one session, so one row. */
 export type ChecklistStepId = "scaffold" | "gaps" | "backlog" | "exit";
-export type ChecklistStepState = "done" | "current" | "todo";
+/** `held`: the current step's PR merged, its advance waits on CI (#3411). */
+export type ChecklistStepState = "done" | "current" | "held" | "todo";
 
 /** The repo phase at which each row becomes current; a row is done once the phase passes its end. */
 const STEPS: { id: ChecklistStepId; from: number; until: number }[] = [
@@ -14,11 +15,17 @@ const STEPS: { id: ChecklistStepId; from: number; until: number }[] = [
 
 export function checklistSteps(
   phase: number,
+  held = false,
 ): { id: ChecklistStepId; state: ChecklistStepState }[] {
   return STEPS.map(({ id, from, until }) => ({
     id,
-    state: phase >= until ? "done" : phase >= from ? "current" : "todo",
+    state: phase >= until ? "done" : phase >= from ? (held ? "held" : "current") : "todo",
   }));
+}
+
+/** The red must-haves of a view's `missing` (ids, or the pending placeholder) — phases dropped. */
+export function checklistMustHaves(view: RepoBootstrapView): string[] {
+  return view.missing.filter((token) => !/^P\d+$/.test(token));
 }
 
 /** What the checklist asks the composer to start: a bootstrap session, the P4 epic, or a plain

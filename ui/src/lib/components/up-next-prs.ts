@@ -1,7 +1,7 @@
 import type { UpNextPr, UpNextPrAction, UpNextPrBand, UpNextPrBlockReason } from "#lib/types.js";
 
 /** Band order on screen, and the tone each band is tinted with. */
-export const PR_BANDS: readonly UpNextPrBand[] = ["ready", "review", "blocked", "dependabot"];
+const PR_BANDS: readonly UpNextPrBand[] = ["ready", "review", "blocked", "dependabot"];
 export const PR_BAND_TONE: Record<UpNextPrBand, string> = {
   ready: "var(--color-green)",
   review: "var(--color-data-2)",

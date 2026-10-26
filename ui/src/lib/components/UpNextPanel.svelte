@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { UpNextItem, UpNextSection } from "#lib/types.js";
   import { upNext } from "#lib/up-next.svelte.js";
-  import { isPrKey, upNextKey as keyOf, upNextPrKey, upNextUi } from "#lib/up-next-ui.svelte.js";
+  import { upNextKey as keyOf, upNextPrKey, upNextUi } from "#lib/up-next-ui.svelte.js";
   import { UpNextPrActions } from "#lib/up-next-pr-actions.svelte.js";
   import { UpNextStarter, type UpNextLaunchContext } from "#lib/up-next-start.svelte.js";
   import { refreshUpNext } from "#lib/api.js";
@@ -12,8 +12,10 @@
   import { EMPTY_REPO_FILTER } from "./queue-strip";
   import { onMount } from "svelte";
   import UpNextBand, { type UpNextBandGroup, type UpNextPrBandGroup } from "./UpNextBand.svelte";
-  import UpNextPreview from "./UpNextPreview.svelte";
-  import UpNextPrPreview from "./UpNextPrPreview.svelte";
+  import UpNextBatchBar from "./UpNextBatchBar.svelte";
+  import UpNextKindHeader from "./UpNextKindHeader.svelte";
+  import UpNextPrBlock from "./UpNextPrBlock.svelte";
+  import UpNextReader from "./UpNextReader.svelte";
   import MergeConfirmHost from "./MergeConfirmHost.svelte";
   import { PR_BAND_TONE, prBandGroups, prsInRepos } from "./up-next-prs";
   import { prBandTitle } from "./up-next-pr-copy";
@@ -317,6 +319,11 @@
     return groups;
   });
   const issueCount = $derived(renderGroups.reduce((n, g) => n + g.items.length, 0));
+  // Under a PR block the issues get their own header — or, filtered away, the filter's note.
+  const issueHeader = $derived(prGroups.length > 0 && (renderGroups.length > 0 || hidden > 0));
+  const issuesFilteredAway = $derived(
+    prGroups.length > 0 && renderGroups.length === 0 && hidden > 0,
+  );
   const visibleRepoCount = $derived(
     new Set(sections.flatMap((s) => s.items.map((it) => it.repoPath))).size,
   );
@@ -345,13 +352,6 @@
   const selectedCount = $derived(selectedItems.length);
   const selectedPrs = $derived(prs.filter((pr) => selected.has(upNextPrKey(pr))));
   const selectedPrCount = $derived(selectedPrs.length);
-  const batchLabel = $derived(
-    selectedPrCount === 0
-      ? m.upnext_selected_count({ count: selectedCount })
-      : selectedCount === 0
-        ? m.upnext_pr_selected_count({ count: selectedPrCount })
-        : m.upnext_batch_mixed_count({ issues: selectedCount, prs: selectedPrCount }),
-  );
   // Each batch button consumes only its own kind of selection.
   function launchTrain() {
     if (selectedPrCount < 2) return;
@@ -378,7 +378,6 @@
 
   // On the phone the preview takes the list's place (see `flow`).
   const flowPreview = $derived(flow && upNextUi.previewKey !== null);
-  const prPreview = $derived(isPrKey(upNextUi.previewKey));
 
   let refreshing = $state(false);
   async function refresh() {
@@ -394,10 +393,8 @@
   }
 </script>
 
-{#if flowPreview && prPreview}
-  <UpNextPrPreview {launchContext} onback={() => (upNextUi.previewKey = null)} />
-{:else if flowPreview}
-  <UpNextPreview {launchContext} onback={() => (upNextUi.previewKey = null)} />
+{#if flowPreview}
+  <UpNextReader {launchContext} onback={() => (upNextUi.previewKey = null)} />
 {:else}
   <section class="upnext" class:flow aria-label={m.upnext_title()} bind:this={panelEl}>
     <header class="un-head" bind:this={headEl}>
@@ -488,37 +485,33 @@
           {/if}
         </div>
       {:else}
+        <!-- PRs waiting on the operator lead; the issues follow under their own header. -->
         {#if prGroups.length > 0}
-          <!-- PRs waiting on the operator lead; the issues follow under their own header. -->
-          <div class="un-kind">
-            <b>{m.upnext_pr_kind_title()}</b><span>{m.upnext_pr_kind_sub()}</span>
-            <span class="un-kind-count">{prs.length}</span>
-          </div>
-          {#each prGroups as g (g.id)}
-            <UpNextBand
-              group={g}
-              open={!collapsed.has(g.id)}
-              expanded={expanded.has(g.id)}
-              showRepo={showRepoContext}
-              onfold={() => toggleCollapsed(g)}
-              onexpand={() => toggleExpand(g)}
-              {prActions}
-            />
-          {/each}
-          {#if renderGroups.length > 0 || hidden > 0}
-            <div class="un-kind">
-              <b>{m.upnext_issue_kind_title()}</b><span>{m.upnext_issue_kind_sub()}</span>
-              <span class="un-kind-count">{issueCount}</span>
-            </div>
-          {/if}
-          {#if renderGroups.length === 0 && hidden > 0}
-            <UpNextFilteredEmpty
-              {hidden}
-              {hiddenBy}
-              onadjust={filter ? () => (filterOpen = true) : undefined}
-              {onbacklog}
-            />
-          {/if}
+          <UpNextPrBlock
+            groups={prGroups}
+            count={prs.length}
+            showRepo={showRepoContext}
+            actions={prActions}
+            isOpen={(id) => !collapsed.has(id)}
+            isExpanded={(id) => expanded.has(id)}
+            onfold={(id) => toggleCollapsed({ id })}
+            onexpand={(id) => toggleExpand({ id })}
+          />
+        {/if}
+        {#if issueHeader}
+          <UpNextKindHeader
+            title={m.upnext_issue_kind_title()}
+            sub={m.upnext_issue_kind_sub()}
+            count={issueCount}
+          />
+        {/if}
+        {#if issuesFilteredAway}
+          <UpNextFilteredEmpty
+            {hidden}
+            {hiddenBy}
+            onadjust={filter ? () => (filterOpen = true) : undefined}
+            {onbacklog}
+          />
         {/if}
         {#each renderGroups as g (g.id)}
           <UpNextBand
@@ -536,48 +529,18 @@
     </div>
 
     {#if selectedCount > 0 || selectedPrCount > 0}
-      <div class="un-batch" role="region" aria-label={m.upnext_batch_aria()}>
-        {#if confirmPending}
-          <span class="un-confirm-text">{m.upnext_confirm({ count: selectedCount })}</span>
-          <button
-            type="button"
-            class="un-batch-go un-confirm"
-            disabled={starter.starting}
-            onclick={startSelected}>{m.upnext_confirm_yes()}</button
-          >
-          <button type="button" class="un-batch-cancel" onclick={() => (confirmPending = false)}
-            >{m.common_cancel()}</button
-          >
-        {:else}
-          <span class="un-batch-count">{batchLabel}</span>
-          <button type="button" class="un-batch-cancel" onclick={() => selected.clear()}
-            >{m.upnext_clear_selection()}</button
-          >
-          {#if selectedPrCount > 0}
-            <button
-              type="button"
-              class={selectedCount > 0 ? "un-batch-alt" : "un-batch-go"}
-              disabled={selectedPrCount < 2 || !launchContext?.onlaunchtrain}
-              title={selectedPrCount < 2 ? m.upnext_batch_train_min() : undefined}
-              onclick={launchTrain}
-              >{selectedCount > 0
-                ? m.upnext_batch_train({ count: selectedPrCount })
-                : m.prspanel_launch_train()}</button
-            >
-          {/if}
-          {#if selectedCount > 0}
-            <button
-              type="button"
-              class="un-batch-go"
-              disabled={starter.starting}
-              onclick={startSelected}
-              >{selectedPrCount > 0
-                ? m.upnext_batch_start_issues({ count: selectedCount })
-                : m.upnext_start_selected({ count: selectedCount })}</button
-            >
-          {/if}
-        {/if}
-      </div>
+      <UpNextBatchBar
+        issues={selectedCount}
+        prs={selectedPrCount}
+        {flow}
+        confirming={confirmPending}
+        starting={starter.starting}
+        canTrain={!!launchContext?.onlaunchtrain}
+        onclear={() => selected.clear()}
+        onstart={startSelected}
+        oncancelconfirm={() => (confirmPending = false)}
+        ontrain={launchTrain}
+      />
     {/if}
   </section>
 {/if}
@@ -733,119 +696,10 @@
     cursor: not-allowed;
   }
 
-  /* Starting a batch goes through this bar: tick rows, then start them. Sticky to the
-     bottom of the visible list so it stays reachable however deep the last tick was. */
-  .un-batch {
-    position: sticky;
-    bottom: 0;
-    z-index: 2;
-    margin-top: auto;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 10px 8px 14px;
-    border-top: 1px solid var(--color-line-bright);
-    background: var(--color-inset);
-    flex-wrap: wrap;
-  }
-  .un-batch-count {
-    flex: 1;
-    font-size: var(--fs-meta);
-    color: var(--color-ink);
-  }
-  /* Phone: the page scrolls and the fixed ActionBar covers its bottom edge — stick above it. */
-  .upnext.flow .un-batch {
-    bottom: calc(
-      var(--mobile-actionbar-h) + max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom))
-    );
-  }
   /* Phone: the page scrolls edge-to-edge and the chrome that owned the top safe-area inset
      slides away on scroll-down — pin band headings below the notch, not under it. */
   .upnext.flow :global(.un-section-head) {
     top: env(safe-area-inset-top, 0px);
-  }
-  .un-confirm-text {
-    flex: 1;
-    font-size: var(--fs-meta);
-    color: var(--color-amber);
-  }
-  .un-batch-go {
-    min-height: 32px;
-    background: transparent;
-    border: 1px solid var(--color-amber);
-    border-radius: 2px;
-    color: var(--color-amber);
-    font: inherit;
-    font-size: var(--fs-meta);
-    font-weight: 700;
-    padding: 4px 12px;
-    cursor: pointer;
-    transition:
-      color 0.12s ease,
-      background 0.12s ease;
-  }
-  .un-batch-go:hover:not(:disabled) {
-    background: var(--color-amber);
-    color: var(--color-bg);
-  }
-  .un-batch-go:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-  .un-batch-go:disabled,
-  .un-batch-alt:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-  /* Mixed selection: the merge train is the secondary of the two batch actions. */
-  .un-batch-alt {
-    min-height: 32px;
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    color: var(--color-ink);
-    font: inherit;
-    font-size: var(--fs-meta);
-    font-weight: 700;
-    padding: 4px 12px;
-    cursor: pointer;
-  }
-  .un-batch-alt:hover:not(:disabled) {
-    border-color: var(--color-ink);
-  }
-  .un-batch-alt:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-ink);
-  }
-
-  /* Super-header over each kind of work: "Pull requests · waiting on you · N". */
-  .un-kind {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    padding: 14px 14px 7px;
-    font-size: var(--fs-micro);
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--color-muted);
-  }
-  .un-kind b {
-    color: var(--color-ink-bright);
-  }
-  .un-kind-count {
-    margin-left: auto;
-    letter-spacing: 0;
-  }
-  .un-batch-cancel {
-    background: none;
-    border: 0;
-    color: var(--color-muted);
-    font: inherit;
-    font-size: var(--fs-meta);
-    cursor: pointer;
-  }
-  .un-batch-cancel:hover {
-    color: var(--color-ink);
   }
 
   .un-body {
@@ -857,12 +711,6 @@
     padding: 14px;
   }
 
-  @media (max-width: 768px), (pointer: coarse) {
-    .un-batch-go,
-    .un-batch-alt {
-      min-height: var(--mobile-actionbar-hit);
-    }
-  }
   /* Phone: every header icon is a full touch target. */
   .upnext.flow .un-refresh,
   .upnext.flow .un-sortbtn,

@@ -115,7 +115,7 @@
   import { recaps } from "#lib/recaps.svelte.js";
   import { amendments } from "#lib/amendments.svelte.js";
   import { upNext } from "#lib/up-next.svelte.js";
-  import { isPrKey, upNextPrKey, upNextUi } from "#lib/up-next-ui.svelte.js";
+  import { upNextPrKey, upNextUi } from "#lib/up-next-ui.svelte.js";
   import { issueFilterSettings } from "#lib/issue-filter-settings.svelte.js";
   import { claudeUsageHoldLikely } from "#lib/provider-capacity.js";
   import { doneSessions } from "#lib/done.svelte.js";
@@ -162,8 +162,7 @@
   } from "#lib/operator-assistant-view.js";
   import { detectTerminalClient } from "#lib/terminal-client.js";
   import { summarizeClearMerged } from "#lib/clear-merged-result.js";
-  import UpNextPreview from "#lib/components/UpNextPreview.svelte";
-  import UpNextPrPreview from "#lib/components/UpNextPrPreview.svelte";
+  import UpNextReader from "#lib/components/UpNextReader.svelte";
   import type { KickoffChoice } from "#lib/components/NewProject.svelte";
   import ActionBar from "#lib/components/ActionBar.svelte";
   import QueueStrip from "#lib/components/QueueStrip.svelte";
@@ -3983,12 +3982,9 @@
             backgroundBusy={store.backgroundBusy}
             onunfold={() => assistantLayout.unfold()}
           />
-          {#if herdFilter === "next" && isPrKey(upNextUi.previewKey)}
-            <!-- Up Next lens: a clicked PR title reads here. -->
-            <UpNextPrPreview launchContext={upNextLaunch} />
-          {:else if herdFilter === "next"}
+          {#if herdFilter === "next"}
             <!-- Up Next lens: the rail lists the queue; a clicked title reads here. -->
-            <UpNextPreview launchContext={upNextLaunch} />
+            <UpNextReader launchContext={upNextLaunch} />
           {:else if panelOnlyLens}
             <!-- Owed lens renders its panel inside the rail (left); the main area shows a neutral
                pointer so the right pane never reads as empty. -->

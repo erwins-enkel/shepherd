@@ -3,8 +3,7 @@
   import { lensGlyph } from "#lib/components/herd/lens-glyphs.js";
   import { m } from "#lib/paraglide/messages.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
-  import { upNext } from "#lib/up-next.svelte.js";
-  import { readyPrCount } from "#lib/components/up-next-prs.js";
+  import ReadyPrBadge from "./ReadyPrBadge.svelte";
 
   let {
     filter = $bindable<HerdFilter>(),
@@ -27,8 +26,6 @@
 
   // Bound the badge width so a large count can't perturb the fixed 5-lens single-row grid.
   const owedBadge = $derived(owedCount > 99 ? "99+" : String(owedCount));
-  // PRs that can merge right now (server-classified), on the Up Next lens.
-  const readyCount = $derived(readyPrCount(upNext.snapshot?.pullRequests));
 </script>
 
 <!-- Desktop / touch-wide lens strip: replaces the inline .fbtn filter row that overflowed
@@ -56,11 +53,7 @@
     >
       <span class="ic" aria-hidden="true">{lensGlyph.next}</span>
       <span class="lb">{m.herd_seg_next()}</span>
-      {#if readyCount > 0}
-        <span class="ready-badge" aria-label={m.upnext_pr_ready_badge({ count: readyCount })}
-          >{readyCount > 99 ? "99+" : readyCount}</span
-        >
-      {/if}
+      <ReadyPrBadge />
     </button>
     <button
       type="button"
@@ -261,8 +254,7 @@
   /* Owed count badge (#1257): mirrors UnitRow's .chip-manual-steps recipe (--status-warn border/
      text + color-mix wash). --fs-micro is a deliberate sub-16px exception — same precedent as the
      strip's own label and the UnitRow chip; it's a count overlay, not body text. */
-  .owed-badge,
-  .ready-badge {
+  .owed-badge {
     position: absolute;
     top: 3px;
     right: 3px;
@@ -277,12 +269,6 @@
     border-radius: 7px;
     color: var(--status-warn);
     background: color-mix(in oklab, var(--status-warn) 14%, var(--color-panel));
-  }
-  /* Up Next's count of PRs ready to merge: the owed badge's recipe in green (actionable). */
-  .ready-badge {
-    border-color: var(--color-green);
-    color: var(--color-green);
-    background: color-mix(in oklab, var(--color-green) 14%, var(--color-panel));
   }
   /* Shrink the label when the strip itself is narrow so the longest DE label ("Nächstes")
      stays on one line. Headroom, not load-bearing at the 300px floor: five lenses leave ~60px

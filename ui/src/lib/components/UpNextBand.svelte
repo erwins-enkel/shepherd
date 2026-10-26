@@ -25,15 +25,10 @@
   import { formatAgo } from "#lib/format.js";
   import { clock } from "#lib/now.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { isConflicting } from "#lib/pr-conflict.js";
-  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
-  import type { UpNextPrAction } from "#lib/types.js";
-  import { firstSafeHttpUrl } from "#lib/url.js";
   import type { UpNextPrActions } from "#lib/up-next-pr-actions.svelte.js";
   import { upNextKey, upNextPrKey, upNextUi } from "#lib/up-next-ui.svelte.js";
   import IssueLabelChips from "./IssueLabelChips.svelte";
-  import { actionLabel, actionTip, ciWord } from "./up-next-pr-copy";
-  import { buttonAction, ciShown } from "./up-next-prs";
+  import UpNextPrRowStatus from "./UpNextPrRowStatus.svelte";
 
   // One Up Next band: its fold-toggle heading and its rows. A row's checkbox ticks it for the
   // batch bar; its title opens the issue or PR in the preview (upNextUi.previewKey). A PR row
@@ -74,31 +69,21 @@
   const hidden = $derived(open ? 0 : keys.filter((key) => selected.has(key)).length);
   const repoBase = (p: string | null) => p?.split("/").filter(Boolean).at(-1) ?? "";
   const groupLabel = $derived(group.kind === "pr" ? null : group.label);
-
-  function act(pr: UpNextPr, action: UpNextPrAction) {
-    if (!prActions || pr.action === null || prActions.busy) return;
-    if (action === "merge") prActions.merge(pr);
-    else if (action === "review") prActions.review(pr);
-    else if (action === "fix") void prActions.fix(pr);
-    else if (action === "dependabot_rebase") void prActions.rebase(pr);
-  }
 </script>
+
+{#snippet tickBox(key: string, label: string, onchange: () => void)}
+  <label class="un-check">
+    <input type="checkbox" checked={selected.has(key)} {onchange} aria-label={label} />
+  </label>
+{/snippet}
 
 {#snippet prRow(pr: UpNextPr)}
   {@const key = upNextPrKey(pr)}
   {@const current = upNextUi.previewKey === key}
-  {@const action = buttonAction(pr)}
-  {@const requested = action === "dependabot_rebase" && upNextUi.rebaseRequested.has(key)}
-  {@const locked = pr.action === null || !prActions || !!prActions.busy || requested}
   <li class="un-row" class:un-row-selected={selected.has(key)} class:un-row-current={current}>
-    <label class="un-check">
-      <input
-        type="checkbox"
-        checked={selected.has(key)}
-        onchange={() => upNextUi.toggle(key)}
-        aria-label={m.upnext_pr_select_aria({ number: pr.number, title: pr.title })}
-      />
-    </label>
+    {@render tickBox(key, m.upnext_pr_select_aria({ number: pr.number, title: pr.title }), () =>
+      upNextUi.toggle(key),
+    )}
     <div class="un-main">
       <button
         type="button"
@@ -106,52 +91,7 @@
         aria-current={current ? "true" : undefined}
         onclick={() => (upNextUi.previewKey = key)}>{pr.title}</button
       >
-      <span class="un-sub unpr-sub">
-        {#if isConflicting(pr)}
-          <span class="unpr-flag unpr-conflict">{m.prspanel_conflicts()}</span>
-        {:else if pr.mergeStateStatus === "behind"}
-          <span class="unpr-flag unpr-behind"
-            >{m.upnext_pr_behind({ base: pr.baseRefName ?? "main" })}</span
-          >
-        {/if}
-        {#if pr.awaitingWorkflowApproval}
-          <span class="unpr-flag unpr-approval">{m.prrow_awaiting_approval()}</span>
-        {/if}
-        <span class="unpr-ci unpr-ci-{ciShown(pr)}"
-          ><span class="unpr-dot" aria-hidden="true"></span>{ciWord(pr)}</span
-        >
-        {#if pr.latestReview?.state === "approved"}
-          <span class="unpr-approved">{m.upnext_pr_approved()}</span>
-        {/if}
-        {#if pr.band !== "dependabot"}<span>@{pr.author}</span>{/if}
-        {#if showRepo}<span>{pr.repoLabel || repoBase(pr.repoPath)}</span>{/if}
-        {#if action === "approve_on_forge"}
-          <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
-          <a
-            class="unpr-act"
-            href={firstSafeHttpUrl(pr.url) ?? undefined}
-            target="_blank"
-            rel="noopener noreferrer"
-            use:statusTip={{ text: actionTip(pr), navigates: true }}>{actionLabel(action)}</a
-          >
-          <!-- eslint-enable svelte/no-navigation-without-resolve -->
-        {:else}
-          <!-- aria-disabled, not disabled: a disabled button gets no hover, and its tip says
-               what it waits for. -->
-          <button
-            type="button"
-            class="unpr-act unpr-act-{action}"
-            aria-disabled={locked ? "true" : undefined}
-            use:statusTip={{
-              text: actionTip(pr),
-              stopClickPropagation: false,
-              pinOnClick: false,
-            }}
-            onclick={() => act(pr, action)}
-            >{requested ? m.prspanel_rebase_requested() : actionLabel(action)}</button
-          >
-        {/if}
-      </span>
+      <UpNextPrRowStatus {pr} {showRepo} actions={prActions} />
     </div>
     <span class="un-meta">
       <span class="un-num unpr-num"
@@ -199,14 +139,9 @@
         )}
         {@const current = upNextUi.previewKey === key}
         <li class="un-row" class:un-row-selected={selected.has(key)} class:un-row-current={current}>
-          <label class="un-check">
-            <input
-              type="checkbox"
-              checked={selected.has(key)}
-              onchange={() => ontick?.(it)}
-              aria-label={m.upnext_select_aria({ number: it.number, title: it.title })}
-            />
-          </label>
+          {@render tickBox(key, m.upnext_select_aria({ number: it.number, title: it.title }), () =>
+            ontick?.(it),
+          )}
           <div class="un-main">
             <!-- The title reads the issue in the preview; GitHub is one click further, from there. -->
             <button
@@ -405,91 +340,6 @@
     color: var(--color-faint);
   }
 
-  /* PR rows: status words then one action, pushed to the right edge of the sub line. */
-  .unpr-sub {
-    align-items: center;
-    gap: 4px 10px;
-  }
-  .unpr-flag {
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-  .unpr-conflict {
-    color: var(--color-red);
-  }
-  .unpr-behind,
-  .unpr-approval {
-    color: var(--color-warn);
-  }
-  .unpr-ci {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-  }
-  .unpr-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: currentColor;
-  }
-  .unpr-ci-green,
-  .unpr-approved {
-    color: var(--color-green);
-  }
-  .unpr-ci-red {
-    color: var(--color-red);
-  }
-  .unpr-ci-running {
-    color: var(--color-amber);
-  }
-  .unpr-act {
-    --act: var(--color-ink);
-    margin-left: auto;
-    display: inline-flex;
-    align-items: center;
-    min-height: 28px;
-    padding: 0 10px;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    background: none;
-    color: var(--act);
-    font: inherit;
-    font-size: var(--fs-meta);
-    letter-spacing: 0.06em;
-    text-decoration: none;
-    cursor: pointer;
-    transition:
-      background 0.12s ease,
-      border-color 0.12s ease;
-  }
-  .unpr-act-merge {
-    --act: var(--color-green);
-  }
-  .unpr-act-fix {
-    --act: var(--color-amber);
-  }
-  .unpr-act-review {
-    --act: var(--color-data-2);
-  }
-  .unpr-act-merge,
-  .unpr-act-fix,
-  .unpr-act-review {
-    border-color: color-mix(in srgb, var(--act) 55%, var(--color-panel));
-  }
-  .unpr-act:hover:not([aria-disabled="true"]) {
-    background: color-mix(in srgb, var(--act) 12%, var(--color-panel));
-  }
-  .unpr-act:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--act);
-  }
-  .unpr-act[aria-disabled="true"] {
-    border-style: dashed;
-    border-color: var(--color-line-bright);
-    color: var(--color-muted);
-    cursor: not-allowed;
-  }
   .unpr-num {
     display: inline-flex;
     align-items: center;
@@ -497,9 +347,6 @@
   }
 
   @media (max-width: 768px), (pointer: coarse) {
-    .unpr-act {
-      min-height: var(--mobile-actionbar-hit);
-    }
     .un-check {
       justify-content: center;
       min-width: var(--mobile-actionbar-hit);

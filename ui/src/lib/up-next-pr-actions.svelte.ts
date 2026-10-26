@@ -10,7 +10,7 @@ import { mergeConfirmFromPr } from "./components/merge-confirm";
 import { MergeConfirmFlow } from "./components/merge-confirm-flow.svelte";
 import { m } from "./paraglide/messages";
 import { toasts } from "./toasts.svelte";
-import type { Steer, UpNextPr } from "./types";
+import type { Steer, UpNextPr, UpNextPrAction } from "./types";
 import type { UpNextLaunchContext } from "./up-next-start.svelte";
 import { upNextPrKey, upNextUi } from "./up-next-ui.svelte";
 
@@ -64,6 +64,14 @@ export class UpNextPrActions {
         this.busy = null;
       }
     });
+  }
+
+  /** Run the action a row or preview button shows (approve_on_forge is a link, not run here). */
+  run(pr: UpNextPr, action: UpNextPrAction) {
+    if (action === "merge") this.merge(pr);
+    else if (action === "review") this.review(pr);
+    else if (action === "fix") void this.fix(pr);
+    else if (action === "dependabot_rebase") void this.rebase(pr);
   }
 
   review(pr: UpNextPr) {

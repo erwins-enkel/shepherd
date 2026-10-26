@@ -2,8 +2,7 @@
   import type { HerdFilter } from "#lib/components/herd-partition.js";
   import { m } from "#lib/paraglide/messages.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
-  import { upNext } from "#lib/up-next.svelte.js";
-  import { readyPrCount } from "#lib/components/up-next-prs.js";
+  import ReadyPrBadge from "./ReadyPrBadge.svelte";
 
   let {
     filter = $bindable<HerdFilter>(),
@@ -19,9 +18,6 @@
      *  edge and read as detached — so the marker moves to the top edge there. */
     placement?: "top" | "bottom";
   } = $props();
-
-  // PRs that can merge right now (server-classified), on the Up Next segment.
-  const readyCount = $derived(readyPrCount(upNext.snapshot?.pullRequests));
 </script>
 
 <!-- Mobile-only segmented control. It lives in the BOTTOM navigation bar (ActionBar) on a
@@ -56,12 +52,7 @@
     onclick={() => {
       filter = "next";
       onstatusfilter?.(null);
-    }}
-    >{m.herd_seg_next()}{#if readyCount > 0}<span
-        class="seg-badge"
-        aria-label={m.upnext_pr_ready_badge({ count: readyCount })}
-        >{readyCount > 99 ? "99+" : readyCount}</span
-      >{/if}</button
+    }}>{m.herd_seg_next()}<ReadyPrBadge /></button
   >
   <button
     type="button"
@@ -121,25 +112,6 @@
   .seg-btn:last-child {
     border-right: 0;
   }
-  /* Up Next's count of PRs ready to merge, overlaid on the segment's corner (no width cost). */
-  .seg-btn {
-    position: relative;
-  }
-  .seg-badge {
-    position: absolute;
-    top: 3px;
-    right: 3px;
-    min-width: 14px;
-    box-sizing: border-box;
-    padding: 0 3px;
-    border: 1px solid var(--color-green);
-    border-radius: 7px;
-    color: var(--color-green);
-    background: color-mix(in oklab, var(--color-green) 14%, var(--color-panel));
-    font-size: var(--fs-micro);
-    line-height: 1.2;
-    text-align: center;
-  }
   .seg-btn:hover {
     color: var(--color-ink);
   }
@@ -159,5 +131,9 @@
   .seg-btn:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  /* Anchor for Up Next's ready-PR badge (ReadyPrBadge), overlaid on the segment's corner. */
+  .seg-btn {
+    position: relative;
   }
 </style>

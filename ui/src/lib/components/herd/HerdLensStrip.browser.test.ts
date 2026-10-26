@@ -194,7 +194,7 @@ describe("Up Next ready-PR badge", () => {
   it("shows the same count on the phone's Nächstes segment", async () => {
     seed(PRS);
     render(HerdSegRow, { props: { filter: "all", statusFilter: null } });
-    const badge = document.querySelector<HTMLElement>(".seg-badge")!;
+    const badge = document.querySelector<HTMLElement>(".seg-btn .ready-badge")!;
     expect(badge.textContent).toBe("2");
     expect(badge.getAttribute("aria-label")).toBe(m.upnext_pr_ready_badge({ count: 2 }));
   });

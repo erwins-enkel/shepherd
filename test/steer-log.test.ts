@@ -11,7 +11,7 @@ import { API_RETRY_STEER } from "../src/api-error-retry-core";
 import { RECONCILE_STEER } from "../src/build-queue-reminder";
 import { planAnswerSteerText } from "../src/plan-gate";
 import { amendmentSteerText } from "../src/task-amendments";
-import { classifySteer, steerLog } from "../src/steer-log";
+import { classifySteer, steerLog, transcriptSteer, unwrapPasted } from "../src/steer-log";
 import { SessionStore } from "../src/store";
 
 test("classifySteer reads the channel off Shepherd's own steer texts", () => {
@@ -51,6 +51,33 @@ test("anything else — an operator reply, an amendment — counts as the operat
   expect(classifySteer("please also update the docs")).toBe("operator");
   expect(classifySteer(amendmentSteerText("also cover Gitea"))).toBe("operator");
   expect(classifySteer("")).toBe("operator");
+});
+
+// Copied from a real Claude transcript: the paste wrapper with an id-bearing closer.
+const WRAPPED =
+  '\n\n<pasted_content id="2c65">\nThe PR critic reviewed your latest push. These are the BLOCKING points:\n\n1. fix it\nThen commit & push so CI and the critic re-run.\n</pasted_content id="2c65">\n';
+
+test("unwrapPasted strips the paste wrapper and the newlines next to it", () => {
+  expect(unwrapPasted(WRAPPED)).toBe(
+    "The PR critic reviewed your latest push. These are the BLOCKING points:\n\n1. fix it\nThen commit & push so CI and the critic re-run.",
+  );
+  expect(unwrapPasted('<pasted_content id="a1">\nbody\n</pasted_content>')).toBe("body");
+  expect(
+    unwrapPasted('<pasted_content id="a1">\nbody\n</pasted_content id="a1">\n\nand more'),
+  ).toBe("body\n\nand more");
+});
+
+test("unwrapPasted leaves an unpaired or mismatched marker alone", () => {
+  const mismatched = '<pasted_content id="a1">\nbody\n</pasted_content id="b2">';
+  expect(unwrapPasted(mismatched)).toBe(mismatched);
+  expect(unwrapPasted('<pasted_content id="a1">\nbody')).toBe('<pasted_content id="a1">\nbody');
+  expect(unwrapPasted("mentions </pasted_content> only")).toBe("mentions </pasted_content> only");
+});
+
+test("transcriptSteer names Shepherd's steers, null for the operator's words", () => {
+  expect(transcriptSteer(WRAPPED)).toBe("review");
+  expect(transcriptSteer("Plan approved. Execute `.shepherd-plan.md` now")).toBe("go");
+  expect(transcriptSteer("please also update the docs")).toBeNull();
 });
 
 test("steerLog keeps time and kind only, never the text", () => {

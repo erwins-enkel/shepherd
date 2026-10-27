@@ -7268,6 +7268,7 @@
   "session_chat_input_label": "Message to the agent",
   "session_chat_placeholder": "Message the agent…",
   "session_chat_send_failed": "Not sent: the session's terminal isn't connected.",
+  "session_chat_steer_by": "Shepherd · {kind}",
   "chat_block_aria": "The agent's question",
   "chat_block_quota": "Automation paused for this session — it needs you.",
   "chat_block_keys_failed": "Not sent: the terminal isn't connected. Answer it there.",
@@ -7418,5 +7419,7 @@
   "feat_assistant_schedules_title": "Let the Assistant create schedules",
   "feat_assistant_schedules_body": "Ask the Assistant to set up a recurring prompt or /skill in a repo, such as /triage-feedback every weekday at 09:00. Runs start attended; your Automation permission in Settings → Assistant decides whether it asks first. Edit or delete schedules under Repo automation → Schedules.",
   "feat_upnext_pr_fold_title": "Fold the PRs in Up Next",
-  "feat_upnext_pr_fold_body": "Click the \"Pull requests\" header in Up Next to fold the whole PR block away and focus on issues. Up Next remembers the fold, and the header still counts any ticked PRs it hides."
+  "feat_upnext_pr_fold_body": "Click the \"Pull requests\" header in Up Next to fold the whole PR block away and focus on issues. Up Next remembers the fold, and the header still counts any ticked PRs it hides.",
+  "feat_chat_steers_title": "Steers in the Chat",
+  "feat_chat_steers_body": "The steer bar now sits under a session's Chat too. A fired steer shows up at once, and Shepherd's own steers — CI fixes, rebases, critic findings — fold into one labelled row you can open."
 }

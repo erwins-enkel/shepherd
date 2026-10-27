@@ -7268,6 +7268,7 @@
   "session_chat_input_label": "Nachricht an den Agenten",
   "session_chat_placeholder": "Nachricht an den Agenten…",
   "session_chat_send_failed": "Nicht gesendet: Das Terminal der Session ist nicht verbunden.",
+  "session_chat_steer_by": "Shepherd · {kind}",
   "chat_block_aria": "Die Frage des Agenten",
   "chat_block_quota": "Automatik für diese Session pausiert – sie braucht dich.",
   "chat_block_keys_failed": "Nicht gesendet: Das Terminal ist nicht verbunden. Antworte dort.",
@@ -7418,5 +7419,7 @@
   "feat_assistant_schedules_title": "Zeitpläne vom Assistenten anlegen lassen",
   "feat_assistant_schedules_body": "Bitte den Assistenten, einen wiederkehrenden Prompt oder /skill in einem Repo einzurichten, etwa /triage-feedback werktags um 09:00. Läufe starten betreut; deine Automatik-Berechtigung unter Einstellungen → Assistent entscheidet, ob er vorher fragt. Bearbeiten oder löschen kannst du Zeitpläne unter Repo-Automatik → Zeitpläne.",
   "feat_upnext_pr_fold_title": "PRs in Up Next einklappen",
-  "feat_upnext_pr_fold_body": "Ein Klick auf die Überschrift „Pull Requests“ in Up Next klappt den ganzen PR-Block ein, damit du dich auf Issues konzentrieren kannst. Up Next merkt sich das, und die Überschrift zählt weiterhin ausgewählte PRs, die sie verbirgt."
+  "feat_upnext_pr_fold_body": "Ein Klick auf die Überschrift „Pull Requests“ in Up Next klappt den ganzen PR-Block ein, damit du dich auf Issues konzentrieren kannst. Up Next merkt sich das, und die Überschrift zählt weiterhin ausgewählte PRs, die sie verbirgt.",
+  "feat_chat_steers_title": "Steers im Chat",
+  "feat_chat_steers_body": "Die Steer-Leiste steht jetzt auch unter dem Chat einer Session. Ein gesendeter Steer erscheint sofort, und Shepherds eigene Steers – CI-Fixes, Rebases, Critic-Befunde – klappen zu einer beschrifteten Zeile ein, die du öffnen kannst."
 }

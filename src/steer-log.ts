@@ -47,3 +47,19 @@ export function classifySteer(text: string): SteerKind {
 export function steerLog(rows: readonly { ts: number; payload: string }[]): SteerLogEntry[] {
   return rows.map(({ ts, payload }) => ({ ts, kind: classifySteer(payload) }));
 }
+
+/** Claude Code logs a long or multi-line paste wrapped as
+ *  `\n\n<pasted_content id="X">\nBODY\n</pasted_content id="X">\n` (older records close with a
+ *  bare `</pasted_content>`). Strips each matched pair and the newline next to each marker, then
+ *  trims; text outside a pair stays, an unclosed marker stays. Mirrored in ui/src/lib/assistant-chat.ts. */
+const PASTED_RE = /<pasted_content id="([^"]*)">\n?([\s\S]*?)\n?<\/pasted_content(?: id="\1")?>/g;
+
+export function unwrapPasted(text: string): string {
+  return text.replace(PASTED_RE, (_, _id: string, body: string) => body).trim();
+}
+
+/** The Shepherd steer a transcript user message is, or null for the operator's own words. */
+export function transcriptSteer(text: string): SteerKind | null {
+  const kind = classifySteer(unwrapPasted(text));
+  return kind === "operator" ? null : kind;
+}

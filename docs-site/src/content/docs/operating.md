@@ -515,6 +515,10 @@ Either way the other is one tap away.
 - **Answer a prompt** with the buttons the Chat shows when the agent waits on you: a permission
   menu's options, a (y/n) question, a plan approval (with **Show plan**), or an AskUserQuestion
   form. A button types the option's key into the terminal.
+- **Steer** with the steer bar under the Chat, the same chips as on the Terminal. A fired steer
+  shows as _sent_ at once and, once logged, carries its chip (_You · 🧪 Retest_).
+- **Shepherd's own steers** (a CI fix, a rebase, the critic's findings, a plan go-ahead) fold into
+  one row, _Shepherd · Critic findings_; open it to read the full text.
 - **Everything else** stays in the terminal: slash-command pickers, trust and upsell dialogs,
   rewind and compaction output. When the agent waits on one of those, the Chat says so and
   **Open terminal** switches to it.

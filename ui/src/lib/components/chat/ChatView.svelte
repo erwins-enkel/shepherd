@@ -23,6 +23,7 @@
     type PendingSend,
   } from "#lib/assistant-chat.js";
   import { blockCard, chatTimeline } from "#lib/chat-timeline.js";
+  import { steers } from "#lib/steers.svelte.js";
   import { askToQuestionForm } from "#lib/askForm.js";
   import QuestionFormBlock from "../blocks/QuestionFormBlock.svelte";
   import MarkdownBody from "../MarkdownBody.svelte";
@@ -30,6 +31,7 @@
   import AttachButton from "../assistant-chat/AttachButton.svelte";
   import BlockAnswer from "./BlockAnswer.svelte";
   import ToolRun from "./ToolRun.svelte";
+  import NoteRow from "./NoteRow.svelte";
   import QuickReplies from "./QuickReplies.svelte";
 
   // A session's conversation view, shared by the Operator Assistant and every session's Chat tab:
@@ -185,6 +187,16 @@
     },
   };
   const copy = $derived(COPY[variant]);
+  // A session's message that is one of the operator's saved steers names its chip.
+  const steerByText = $derived(
+    variant === "session"
+      ? new Map(steers.list.filter((s) => s.inSteerBar).map((s) => [s.text.trim(), s]))
+      : null,
+  );
+  function chipOf(text: string): string | null {
+    const s = steerByText?.get(text.trim());
+    return s ? [s.emoji, s.label].filter(Boolean).join(" ") : null;
+  }
   // Key the local choices to the exact question, including session and streamed text changes.
   const questionKey = $derived(
     latest?.kind === "assistant" ? JSON.stringify([sessionId, latest.key, latest.text]) : "",
@@ -293,7 +305,11 @@
   }
 
   function send(text: string, match?: string): boolean {
-    const sent = onsend(text);
+    return track(text, onsend(text), match);
+  }
+
+  /** Show `text` as sent until the transcript logs it; false when it was not sent. */
+  function track(text: string, sent: boolean | Promise<boolean>, match?: string): boolean {
     if (sent === false) {
       sendFailed = true;
       return false;
@@ -384,6 +400,11 @@
     if (consumeAutoFocus?.()) input?.focus();
   });
 
+  /** Echo a message sent elsewhere (a steer chip) as sent, dropped again if `sent` fails. */
+  export function echo(text: string, sent: Promise<boolean>) {
+    track(text, sent);
+  }
+
   /** Hand the keyboard to the composer. */
   export function focus() {
     input?.focus();
@@ -409,24 +430,15 @@
           <div class="ac-msg ac-mine">
             <p class="ac-bubble">{e.text}</p>
             <span class="ac-meta"
-              >{m.assistant_chat_you()}{#if e.ts}&nbsp;· {clock(e.ts)}{/if}</span
+              >{[m.assistant_chat_you(), chipOf(e.text), e.ts ? clock(e.ts) : null]
+                .filter(Boolean)
+                .join(" · ")}</span
             >
           </div>
         {:else if e.kind === "tools"}
           <ToolRun calls={e.calls} live={working && e === lastRow} />
         {:else}
-          <p class="ac-event">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg
-            >
-            <span>{e.text}</span>
-          </p>
+          <NoteRow entry={e} />
         {/if}
       {/each}
       {#each waiting as p (p.at)}
@@ -589,21 +601,6 @@
     color: var(--color-muted);
     font-size: var(--fs-micro);
     letter-spacing: 0.06em;
-  }
-  .ac-event {
-    margin: 0;
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    color: var(--color-muted);
-    font-size: var(--fs-meta);
-    line-height: 1.45;
-  }
-  .ac-event svg {
-    flex: none;
-    width: 11px;
-    height: 11px;
-    align-self: center;
   }
   .ac-working {
     margin: 0;

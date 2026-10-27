@@ -46,6 +46,10 @@ the idea. Shepherd starts an attended shaping session that researches the repo, 
 questions, and drafts the whole epic — parent issue, child issues, acceptance criteria, non-goals and
 the dependency order.
 
+Working through a PRD epic by epic? In Epic mode, **Next epic** in the prompt toolbar fills in an
+editable prompt that drafts the next epic from the repo's PRD (`docs/prd/`, `docs/prd.md` or
+`PRD.md`) and adds the gaps earlier epics left behind as children.
+
 The session **writes nothing to GitHub**. It produces a **reviewable draft** in the session's Epic
 draft panel; you **Approve** to create the issues (and native links), **amend** to ask for changes, or
 **abort** to discard. Only on approval does Shepherd create the parent and children and wire them, and

@@ -6011,3 +6011,67 @@ describe("NewTask autostart (New Project's Create & start)", () => {
     expect(onsubmit).not.toHaveBeenCalled();
   });
 });
+
+// ── Epic mode's optional default prompt: draft the next epic from the PRD ────
+describe("NewTask epic next-epic prompt", () => {
+  const nextBtn = () =>
+    document.querySelector<HTMLButtonElement>(`button[aria-label="${m.newtask_epic_next_aria()}"]`);
+  const promptEl = () => document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+
+  it("is offered only in epic mode", async () => {
+    render(NewTask, { props: base({ initialRepoPath: "/repo/epic-next" }) });
+    await expect.poll(() => segButton(m.newtask_mode_epic())).toBeTruthy();
+    expect(nextBtn()).toBeNull();
+    segButton(m.newtask_mode_epic()).click();
+    await expect.poll(() => nextBtn()).toBeTruthy();
+  });
+
+  it("fills an empty prompt once and submits it as an epic-authoring task", async () => {
+    const onsubmit = vi.fn();
+    render(NewTask, {
+      props: base({ onsubmit, initialRepoPath: "/repo/epic-next", initialEpicAuthoring: true }),
+    });
+    await expect.poll(() => nextBtn()).toBeTruthy();
+    expect(nextBtn()!.disabled).toBe(false);
+    nextBtn()!.click();
+    await expect.poll(() => promptEl().value).toBe(m.newtask_epic_next_prompt());
+    await expect.poll(() => nextBtn()!.disabled).toBe(true);
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(false);
+    pressCmdEnter();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({
+      epicAuthoring: true,
+      prompt: m.newtask_epic_next_prompt(),
+    });
+  });
+
+  it("appends to an existing prompt on a new line", async () => {
+    render(NewTask, {
+      props: base({
+        initialRepoPath: "/repo/epic-next",
+        initialEpicAuthoring: true,
+        initialPrompt: "focus on billing",
+      }),
+    });
+    await expect.poll(() => nextBtn()).toBeTruthy();
+    nextBtn()!.click();
+    await expect
+      .poll(() => promptEl().value)
+      .toBe(`focus on billing\n${m.newtask_epic_next_prompt()}`);
+  });
+
+  it("keeps the German epic-mode toolbar inside a mobile-width sheet", async () => {
+    await page.viewport(390, 800);
+    overwriteGetLocale(() => "de");
+    mockPointer(false);
+    render(NewTask, {
+      props: base({ initialRepoPath: "/repo/attachments", initialEpicAuthoring: true }),
+    });
+    await expect.poll(() => nextBtn()).toBeTruthy();
+    const row = document.querySelector<HTMLElement>(".toolbar")!;
+    expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
+    expect(nextBtn()!.querySelector(".tool-label")).toBeNull();
+  });
+});

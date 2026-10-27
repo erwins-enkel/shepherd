@@ -3089,6 +3089,27 @@ components:
           type: string
         busy:
           type: boolean
+    ProjectIcons:
+      type: object
+      additionalProperties:
+        type: string
+      description: GET/PUT /api/project-icons and the project-icons:update frame. Repo path -> the emoji the operator gave that project. Absent means no emoji.
+    ProjectIconPatch:
+      type: object
+      additionalProperties: false
+      required:
+        - path
+        - emoji
+      description: PUT /api/project-icons. Sets or clears the emoji of one project. The server trims both fields first and answers 400 when the trimmed path is not 1-1024 characters or the trimmed emoji is longer than 8 code points or contains a control character (src/validate.ts validateIconPatch).
+      properties:
+        path:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: The project's repo path, the key in ProjectIcons.
+        emoji:
+          type: string
+          description: The new emoji, at most 8 code points without control characters once trimmed. An empty string removes the entry.
     ResumeRequest:
       type: object
       additionalProperties: false
@@ -10843,6 +10864,43 @@ paths:
                 $ref: "#/components/schemas/UsageLimitsResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/project-icons:
+    get:
+      operationId: listProjectIcons
+      description: The emoji each project carries in front of its sessions.
+      responses:
+        "200":
+          description: Repo path -> emoji.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectIcons"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      operationId: setProjectIcon
+      description: Set or clear (empty emoji) one project's emoji. Answers the whole updated map and broadcasts it as project-icons:update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectIconPatch"
+      responses:
+        "200":
+          description: The whole updated map.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectIcons"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/sessions/{id}/resume:
     parameters:
       - name: id
@@ -15057,6 +15115,10 @@ x-shepherd-events:
     description: A resting session started or stopped running a non-server background shell (or hit the 30-minute cap). The client re-reads GET /api/background-busy.
     schema:
       $ref: "#/components/schemas/SessionBackgroundBusyEvent"
+  project-icons:update:
+    description: A project's emoji was set or cleared. Carries the whole current map, not a delta.
+    schema:
+      $ref: "#/components/schemas/ProjectIcons"
   session:recap:
     description: A session's recap was created, regenerated or changed state. Carries the summary without blocks; open detail views re-read GET /api/sessions/{id}/recap.
     schema:

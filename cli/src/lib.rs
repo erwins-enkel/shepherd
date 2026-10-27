@@ -254,6 +254,7 @@ async fn dispatch(cli: Cli, io: &mut Io) -> Result<Exit> {
         Command::RepoConfig { repo, cmd } => {
             commands::settings::repo_config(&mut ctx, repo, cmd).await
         }
+        Command::Schedule(cmd) => commands::schedule::run(&mut ctx, cmd).await,
         Command::Diagnose { refresh, cmd } => {
             commands::settings::diagnose(&mut ctx, refresh, cmd).await
         }

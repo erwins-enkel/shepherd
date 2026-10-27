@@ -85,20 +85,37 @@ pub fn print_table(out: &mut dyn Write, table: &Table) -> Result<()> {
 
 /// `3m ago` style age of a millisecond epoch timestamp.
 pub fn ago(epoch_ms: i64) -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
-    ago_at(now, epoch_ms)
+    ago_at(now_ms(), epoch_ms)
 }
 
 pub fn ago_at(now_ms: i64, epoch_ms: i64) -> String {
-    let secs = (now_ms - epoch_ms).max(0) / 1000;
+    format!("{} ago", span(now_ms - epoch_ms))
+}
+
+/// `in 3m` style distance to a future millisecond epoch timestamp.
+pub fn until(epoch_ms: i64) -> String {
+    until_at(now_ms(), epoch_ms)
+}
+
+pub fn until_at(now_ms: i64, epoch_ms: i64) -> String {
+    format!("in {}", span(epoch_ms - now_ms))
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// `5s`, `10m`, `2h`, `2d` for a millisecond span (negative clamps to 0).
+fn span(ms: i64) -> String {
+    let secs = ms.max(0) / 1000;
     match secs {
-        0..60 => format!("{secs}s ago"),
-        60..3600 => format!("{}m ago", secs / 60),
-        3600..86400 => format!("{}h ago", secs / 3600),
-        _ => format!("{}d ago", secs / 86400),
+        0..60 => format!("{secs}s"),
+        60..3600 => format!("{}m", secs / 60),
+        3600..86400 => format!("{}h", secs / 3600),
+        _ => format!("{}d", secs / 86400),
     }
 }
 
@@ -133,5 +150,12 @@ mod tests {
         assert_eq!(ago_at(7_200_000, 0), "2h ago");
         assert_eq!(ago_at(172_800_000, 0), "2d ago");
         assert_eq!(ago_at(0, 5_000), "0s ago");
+    }
+
+    #[test]
+    fn untils() {
+        assert_eq!(until_at(5_000, 10_000), "in 5s");
+        assert_eq!(until_at(0, 7_200_000), "in 2h");
+        assert_eq!(until_at(10_000, 5_000), "in 0s");
     }
 }

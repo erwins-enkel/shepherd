@@ -184,6 +184,9 @@ pub enum Command {
         #[command(subcommand)]
         cmd: Option<RepoConfigCmd>,
     },
+    /// Operator schedules: list them, add one, run one now
+    #[command(subcommand)]
+    Schedule(ScheduleCmd),
     /// Environment-readiness checks, and running a check's fix
     Diagnose {
         /// Probe again instead of answering from the cached snapshot
@@ -301,6 +304,66 @@ pub enum RepoConfigCmd {
         /// New value; `""` clears a text field
         value: String,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ScheduleCmd {
+    /// Schedules with their cadence, next firing and last run
+    #[command(visible_alias = "ls")]
+    List {
+        /// Only this repository's schedules (path on the server; default: every repo)
+        #[arg(long, value_name = "PATH")]
+        repo: Option<String>,
+    },
+    /// Add a schedule that runs a prompt or /skill on weekdays × server-local times
+    Add(ScheduleAddArgs),
+    /// Fire a schedule now (even when disabled), unless its previous run is still open
+    Run {
+        /// Schedule id, or its exact name
+        schedule: String,
+        /// Look the name up in this repository only (path on the server)
+        #[arg(long, value_name = "PATH")]
+        repo: Option<String>,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct ScheduleAddArgs {
+    /// Prompt or /skill to run; `-` reads it from stdin
+    pub prompt: String,
+    /// Schedule name (1-80 chars)
+    #[arg(long)]
+    pub name: String,
+    /// Repository path on the server (default: this directory's git toplevel)
+    #[arg(long, value_name = "PATH")]
+    pub repo: Option<String>,
+    /// Server-local time to fire at (repeatable, up to 12)
+    #[arg(long = "at", required = true, value_name = "HH:MM", value_parser = parse_hhmm)]
+    pub times: Vec<String>,
+    /// Weekdays: `mon,wed,fri`, `weekdays`, `weekends` or `daily`
+    #[arg(long, value_name = "DAYS", value_parser = parse_days, default_value = "daily")]
+    pub days: i64,
+    /// Create it disabled
+    #[arg(long)]
+    pub disabled: bool,
+    /// Coding agent (server default when omitted)
+    #[arg(long, value_parser = parse_provider)]
+    pub provider: Option<AgentProvider>,
+    /// Model (provider default when omitted)
+    #[arg(long)]
+    pub model: Option<String>,
+    /// Reasoning effort
+    #[arg(long, value_parser = parse_effort)]
+    pub effort: Option<Effort>,
+    /// Run each firing on autopilot (default: attended)
+    #[arg(long)]
+    pub autopilot: bool,
+    /// Run the plan gate (default: the repo's setting)
+    #[arg(long)]
+    pub plan_gate: bool,
+    /// Base branch (default: the repo's default branch when it fires)
+    #[arg(long, value_name = "BRANCH")]
+    pub base: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -535,6 +598,44 @@ fn parse_provider(s: &str) -> Result<AgentProvider, String> {
         .map_err(|_| "expected one of: claude, codex".to_string())
 }
 
+/// Weekday bits, bit 0 = Monday … bit 6 = Sunday, as the server stores them.
+pub const WEEKDAYS: [&str; 7] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+/// `mon,wed,fri`, `weekdays`, `weekends`, `daily` (combinable) → the server's weekday bitmask.
+fn parse_days(s: &str) -> Result<i64, String> {
+    let invalid = || "expected comma-separated mon..sun, weekdays, weekends or daily".to_string();
+    let mut mask = 0;
+    for token in s.split(',') {
+        let token = token.trim().to_ascii_lowercase();
+        mask |= match token.as_str() {
+            "weekdays" => 0b0011111,
+            "weekends" => 0b1100000,
+            "daily" => 0b1111111,
+            day => {
+                1 << WEEKDAYS
+                    .iter()
+                    .position(|d| *d == day)
+                    .ok_or_else(invalid)?
+            }
+        };
+    }
+    Ok(mask)
+}
+
+/// `HH:MM`, 00:00-23:59, zero-padded like the server requires.
+fn parse_hhmm(s: &str) -> Result<String, String> {
+    let b = s.as_bytes();
+    let digits = |r: std::ops::Range<usize>| b[r].iter().all(u8::is_ascii_digit);
+    let ok = b.len() == 5
+        && b[2] == b':'
+        && digits(0..2)
+        && digits(3..5)
+        && s[..2] < *"24"
+        && s[3..] < *"60";
+    ok.then(|| s.to_string())
+        .ok_or_else(|| "expected HH:MM (00:00-23:59)".to_string())
+}
+
 /// `90`, `90s`, `30m`, `2h`, `1d`: a whole number with an optional unit (seconds when omitted).
 fn parse_timeout(s: &str) -> Result<Duration, String> {
     let invalid = || "expected a whole number with an optional unit: 90s, 30m, 2h, 1d".to_string();
@@ -575,6 +676,29 @@ mod tests {
             "99999999999999999999d",
         ] {
             assert!(parse_timeout(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn days() {
+        assert_eq!(parse_days("daily"), Ok(127));
+        assert_eq!(parse_days("weekdays"), Ok(31));
+        assert_eq!(parse_days("weekends"), Ok(96));
+        assert_eq!(parse_days("mon,wed,fri"), Ok(21));
+        assert_eq!(parse_days("Sun, mon"), Ok(65));
+        assert_eq!(parse_days("weekdays,sat"), Ok(63));
+        for bad in ["", "mon,", "monday", "x"] {
+            assert!(parse_days(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn hhmm() {
+        for good in ["00:00", "09:30", "23:59"] {
+            assert_eq!(parse_hhmm(good), Ok(good.to_string()));
+        }
+        for bad in ["24:00", "9:30", "09:60", "0930", "09:3a", "", "09:30 "] {
+            assert!(parse_hhmm(bad).is_err(), "{bad}");
         }
     }
 }

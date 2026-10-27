@@ -7664,5 +7664,17 @@
   "tooltip_autofix_scope_host": "Host",
   "tooltip_autofix_scope_host_body": "Missing on this machine. No setting fixes it — set the host up, or pick a way that doesn't need it.",
   "feat_epic_halt_fix_title": "Fix an epic halt in place",
-  "feat_epic_halt_fix_body": "When the sandbox, the epic's CLI or this host keeps an epic from starting on its own, its run area names every cause and offers the ways that really start it — apply with one click, undo with another."
+  "feat_epic_halt_fix_body": "When the sandbox, the epic's CLI or this host keeps an epic from starting on its own, its run area names every cause and offers the ways that really start it — apply with one click, undo with another.",
+  "backlog_tab_automation_halt_one": "1 halt",
+  "backlog_tab_automation_halts": "{count} halts",
+  "epic_autofix_short_interactive": "Sandbox Standard is interactive only.",
+  "epic_autofix_short_provider": "{cli} needs Trusted.",
+  "epic_autofix_short_backend": "bubblewrap is missing.",
+  "epic_autofix_short_egress": "The egress backend is missing.",
+  "epic_autofix_short_other": "A setting holds it.",
+  "epic_row_halt_lead": "Nothing starts on its own.",
+  "epic_row_fix": "Fix",
+  "epic_row_fix_title": "So #{parent} runs on its own",
+  "feat_epic_row_halt_title": "Fix an epic halt from the list",
+  "feat_epic_row_halt_body": "An epic that its sandbox, CLI or host keeps from starting says so right in the backlog list. Fix opens the same choice beside the row — a sheet on the phone — and the Automation tab counts repo and host halts."
 }

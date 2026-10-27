@@ -110,7 +110,10 @@ in-flight work running and resumes on its own — and only a few are **terminal*
   **Halted** with the cause; change the setting (or install the backend) and the next child starts.
   For the sandbox, CLI and host causes the epic's run area lists every cause (repo, epic or host)
   and offers only the fixes that really start the ready children — **Apply** changes the repo's
-  sandbox and, if needed, the epic's CLI in one step, and **Undo** puts both back.
+  sandbox and, if needed, the epic's CLI in one step, and **Undo** puts both back. The epic's row in
+  the backlog list shows the same halt with **Fix**, which opens that choice right beside the row
+  (a sheet on the phone), and the **Automation** tab counts the halts in the repo's settings or on
+  this host.
 - **Epic branch conflicts with `main`** — the rebase above hits a real conflict. No new child starts;
   an agent rebases the branch and resolves it — even with Auto-Drain off — and a second one retries
   if the first leaves it conflicting. If that doesn't clear it you get a notification:

@@ -21,6 +21,7 @@
     activeTab,
     selected = null,
     actionsState,
+    automationHalts = 0,
     ffInFlight,
     selectedPath,
     docAgentEnabled = false,
@@ -36,6 +37,9 @@
     activeTab: Tab;
     selected?: BacklogProject | null;
     actionsState: ActionsTabState;
+    /** The selected repo's halts in its settings or on this host (#3455) — counted on the
+     *  Automation tab; 0 hides the count. */
+    automationHalts?: number;
     ffInFlight: boolean;
     selectedPath: string | null;
     docAgentEnabled?: boolean;
@@ -120,8 +124,15 @@
     onclick={() => onselecttab("automation")}
     use:coachMaybe={variant === "desktop" ? "backlog-automation" : undefined}
   >
-    {m.backlog_tab_automation()}{#if noPrCiHold}<span class="tab-hold" aria-hidden="true">⚠</span
-      >{/if}
+    {m.backlog_tab_automation()}
+    {#if automationHalts > 0}
+      <span class="halt-count"
+        >{automationHalts === 1
+          ? m.backlog_tab_automation_halt_one()
+          : m.backlog_tab_automation_halts({ count: automationHalts })}</span
+      >
+    {/if}
+    {#if noPrCiHold}<span class="tab-hold" aria-hidden="true">⚠</span>{/if}
   </button>
   {#if showOverview}
     <button
@@ -213,6 +224,18 @@
   .tab-btn.failing {
     color: var(--color-red);
     border-color: color-mix(in srgb, var(--color-red) 45%, transparent);
+  }
+
+  /* #3455: a halt in the repo's settings or on this host — red like a failing run, as a chip. */
+  .halt-count {
+    margin-left: 6px;
+    padding: 0 5px;
+    background: var(--wash-attention);
+    border: 1px solid color-mix(in srgb, var(--color-red) 45%, var(--color-line));
+    border-radius: 2px;
+    color: color-mix(in srgb, var(--color-red) 80%, var(--color-ink-bright));
+    font-size: var(--fs-micro);
+    letter-spacing: 0.06em;
   }
 
   .tab-btn.failing.active {

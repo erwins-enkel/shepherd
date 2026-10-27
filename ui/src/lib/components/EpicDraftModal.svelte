@@ -496,22 +496,22 @@
     appearance: none;
     border: 0;
     background: var(--color-inset);
-    color: var(--color-accent);
+    color: var(--color-amber);
   }
   .materialize-bar::-webkit-progress-bar {
     background: var(--color-inset);
   }
   .materialize-bar::-webkit-progress-value {
-    background: var(--color-accent);
+    background: var(--color-amber);
   }
   .materialize-bar::-moz-progress-bar {
-    background: var(--color-accent);
+    background: var(--color-amber);
   }
   .note-warn {
     color: var(--color-amber);
   }
   .link {
-    color: var(--color-accent);
+    color: var(--color-blue);
   }
 
   .actions {

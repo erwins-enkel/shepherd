@@ -102,7 +102,7 @@
     font-variant-numeric: tabular-nums;
   }
   .gp-period {
-    color: var(--color-text);
+    color: var(--color-ink);
     font-size: var(--fs-meta);
     text-transform: capitalize;
     white-space: nowrap;

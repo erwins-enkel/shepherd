@@ -55,7 +55,7 @@
     cursor: pointer;
   }
   .un-chips:hover {
-    background: var(--color-surface);
+    background: var(--color-hover);
   }
   .un-chips:focus-visible {
     outline: none;

@@ -9,7 +9,7 @@ paths:
 
 The UI has a **semantic token layer** (`ui/src/app.css` — `--color-*` surfaces/text/accents, the `--fs-*` type scale, `--status-*`/`--wash-*`) and a live reference page that documents it plus the canonical component recipes: **`/design-system`** (`ui/src/routes/design-system/+page.svelte`). It exists to stop **design drift** — every session re-inventing buttons, spacing and colors.
 
-**No automated gate flags off-token colors.** This rule and review are the only enforcement.
+**No automated gate flags off-token colors.** This rule and review are the only enforcement. The one exception: `ui/src/lib/color-tokens.test.ts` fails on any `var(--color-*)` that `app.css` never declares, because an undefined token renders as nothing and raises no error.
 
 1. **Consult `/design-system` first.** It renders the live tokens (swatches read straight off `app.css`, so they can't drift) plus the button / form-field / badge / panel / scrim recipes, each with a when-to-use note and copy-paste markup.
 2. **Use the tokens, never literals.** Every color is `var(--color-*)`; every font size is `var(--fs-*)`. **Never** introduce a raw hex, `rgba()`, or ad-hoc `px` font size — if you reach for one, the token you need already exists (or belongs in `app.css`).

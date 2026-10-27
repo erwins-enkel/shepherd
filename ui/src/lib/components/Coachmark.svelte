@@ -123,7 +123,7 @@
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--color-text);
+    color: var(--color-ink);
   }
 
   .coachmark-body {

@@ -242,7 +242,7 @@
   }
 
   .filter-row:hover {
-    background: var(--color-surface);
+    background: var(--color-hover);
   }
 
   .filter-row input[type="checkbox"] {

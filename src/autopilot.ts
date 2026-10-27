@@ -420,9 +420,11 @@ export class AutopilotService {
    *  DRAIN/auto session with no PR, verify deterministically (no LLM) that something happened — a
    *  committed diff — before marking done; on empty, re-prompt once then route to needs-human.
    *  Attended sessions are exempt: a non-code `complete` (issue creation / one-off answer) is
-   *  legitimate there and must not be false-flagged, so they complete unconditionally. */
+   *  legitimate there and must not be false-flagged, so they complete unconditionally. So do
+   *  landingRepair sessions (as in handleFinished): they push straight to their base (the PR's
+   *  head branch), so diff-vs-base is empty by design and they never open a PR. */
   private async verifyAndComplete(s: Session, summary: string): Promise<void> {
-    if (s.auto && !this.deps.hasPr(s.id)) {
+    if (s.auto && !s.landingRepair && !this.deps.hasPr(s.id)) {
       const empty = !(await this.deps.hasDiff(s.id));
       // hasDiff is async — re-read the session and PR state after the await (it may have been
       // archived / toggled off, or a PR may have appeared during the await).

@@ -3674,6 +3674,7 @@
         diagnosticsOverall={store.diagnosticsOverall}
         ondiagnose={openDiagnose}
         heldCount={store.heldCount}
+        drain={store.drain}
         onedithheld={onEditHeld}
         pluginItems={pluginGearItems}
         onpluginitem={handlePluginGearItem}

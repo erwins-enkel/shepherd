@@ -1,5 +1,7 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import { dialog } from "#lib/a11yDialog.js";
+  import { portal } from "#lib/portal.js";
   import { compactTokens, formatReset, formatResetIn, relativeAge } from "#lib/format.js";
   import { m } from "#lib/paraglide/messages.js";
   import type {
@@ -26,8 +28,13 @@
   import UsageRefreshButton from "./UsageRefreshButton.svelte";
   import UsageWindowRow from "./UsageWindowRow.svelte";
 
+  // The usage panel: the numbers on one side and, through `wait`, everything they currently hold
+  // back on the other. "desktop" is an anchored modal over a dimmed bar, "touch" the same panel
+  // without the focus trap (as before), "sheet" the phone's full-screen dialog.
+  type Variant = "desktop" | "touch" | "sheet";
+
   let {
-    desktop,
+    variant,
     stale,
     gauges,
     perModel,
@@ -50,10 +57,15 @@
     failoverFailed,
     onEngageFailover,
     onReleaseFailover,
+    holdPct,
+    heldCount,
+    pausedCount,
+    wait,
     onClose,
     onOpenUsage,
+    el = $bindable(null),
   }: {
-    desktop: boolean;
+    variant: Variant;
     stale: boolean;
     gauges: Gauge[];
     perModel: ModelWeekWindow[];
@@ -78,12 +90,22 @@
     failoverFailed: boolean;
     onEngageFailover: () => void;
     onReleaseFailover: () => void;
+    /** The hold limit (`usageHoldPct`) drawn on Claude's 5-hour and weekly bars; null = none. */
+    holdPct: number | null;
+    /** What the limit is holding back right now — the hero names it beside the number. */
+    heldCount: number;
+    pausedCount: number;
+    /** The waiting column; called with `true` for the phone sheet's larger layout. */
+    wait: Snippet<[boolean]>;
     onClose: () => void;
     onOpenUsage: () => void;
+    el?: HTMLElement | null;
   } = $props();
 
+  const sheet = $derived(variant === "sheet");
+
   function optionalDialog(node: HTMLElement) {
-    return desktop ? dialog(node, { onclose: onClose }) : {};
+    return variant === "touch" ? {} : dialog(node, { onclose: onClose });
   }
 
   // Claude vs Codex are distinct providers with their own labelled sections. The Claude heading
@@ -104,6 +126,15 @@
       hottest.provider === "claude" &&
       observed !== undefined &&
       hottest.window.resetAt <= nowMs,
+  );
+
+  // Holding compares Claude's 5-hour and weekly windows against the limit, so only a Claude hero
+  // carries the tick; a hotter Codex window is measured by its own capacity check instead.
+  const heroLimit = $derived(holdPct !== null && hottest?.provider === "claude" ? holdPct : null);
+  const heroOver = $derived(heroLimit !== null && !!hottest && hottest.window.usedPct >= heroLimit);
+  // Keep the tick's caption inside the bar near either end.
+  const limitShift = $derived(
+    heroLimit === null ? "-50%" : heroLimit >= 88 ? "-100%" : heroLimit <= 12 ? "0%" : "-50%",
   );
 
   // Claude's per-window provider-confirmation ages. Collapsing them into ONE header stamp is what
@@ -160,13 +191,14 @@
   </div>
 {/snippet}
 
-{#snippet windowRow(label: string, g: Gauge)}
+{#snippet windowRow(label: string, g: Gauge, ceiling: number | null)}
   <div class="gp-window">
     <UsageWindowRow
       {label}
       pct={g.w.pct}
       resetAt={g.w.resetAt}
       pending={windowResetPending(g.w, nowMs)}
+      ceilingPct={ceiling}
       {nowMs}
     />
   </div>
@@ -181,6 +213,7 @@
         resetAt={w.resetAt}
         pending={windowResetPending(w, nowMs)}
         age={agesAgree ? null : relativeAge(w.scrapedAt, nowMs)}
+        ceilingPct={holdPct}
         {nowMs}
       />
     {:else}
@@ -194,15 +227,9 @@
   </div>
 {/snippet}
 
-<div
-  class="gauge-pop"
-  class:gauge-pop-desk={desktop}
-  role="dialog"
-  aria-label={m.topbar_gauge_popover_title()}
-  use:optionalDialog
->
+{#snippet heading()}
   <div class="popover-heading">
-    <span class="heading-text">{m.topbar_gauge_popover_title()}</span>
+    <span id="usage-pop-title" class="heading-text">{m.topbar_gauge_popover_title()}</span>
     {#if claudeAge !== null}
       <span class="freshness">
         <span class="freshness-dot" aria-hidden="true"></span>
@@ -211,8 +238,23 @@
           : m.topbar_usage_observed_age({ age: claudeAge })}
       </span>
     {/if}
+    <button type="button" class="pop-close" aria-label={m.common_close()} onclick={onClose}>
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        aria-hidden="true"
+      >
+        <path d="M18 6 6 18" />
+        <path d="M6 6l12 12" />
+      </svg>
+    </button>
   </div>
+{/snippet}
 
+{#snippet hero()}
   {#if hottest}
     <!-- Hero. Deliberately ALSO left in its own section below: the sections stay complete lists
          while the hero moves between them as load shifts, so a promoted row must not leave a hole. -->
@@ -231,12 +273,66 @@
           >
           <span class="hero-window">{bindingProvider} · {periodLabel(hottest.window.key)}</span>
         </div>
-        <span class="hero-bar"
-          ><span
-            class="hero-fill"
-            style="transform:scaleX({hottest.window.usedPct / 100});background:{bindingColor}"
-          ></span></span
-        >
+        <!-- What the limit is doing right now, named beside the number that causes it. -->
+        {#if pausedCount > 0 || heldCount > 0}
+          <div class="hero-effects">
+            {#if pausedCount > 0}
+              <span class="effect effect-paused">
+                <svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"
+                  ><rect x="2.5" y="2" width="2.5" height="8" /><rect
+                    x="7"
+                    y="2"
+                    width="2.5"
+                    height="8"
+                  /></svg
+                >{m.capacity_effect_paused()}
+              </span>
+            {/if}
+            {#if heldCount > 0}
+              <span class="effect effect-held">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M5 2h14M5 22h14" />
+                  <path d="M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4a2 2 0 0 0 .6-1.4V2" />
+                  <path d="M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4a2 2 0 0 0-.6 1.4V22" />
+                </svg>{m.topbar_held_badge({ count: heldCount })}
+              </span>
+            {/if}
+          </div>
+        {:else if heroLimit !== null}
+          <div class="hero-effects">
+            <span class="effect-quiet"
+              >{heroOver ? m.capacity_over_limit() : m.capacity_below_limit()}</span
+            >
+          </div>
+        {/if}
+        <div class="hero-track" class:limited={heroLimit !== null}>
+          {#if heroLimit !== null}
+            <span class="hero-limit-label" style="left:{heroLimit}%;--shift:{limitShift}"
+              >{m.capacity_limit({ pct: heroLimit })}</span
+            >
+          {/if}
+          <span class="hero-bar"
+            ><span
+              class="hero-fill"
+              style="transform:scaleX({hottest.window.usedPct / 100});background:{bindingColor}"
+            ></span>{#if heroOver && heroLimit !== null}<span
+                class="hero-over"
+                style="left:{heroLimit}%;width:{Math.min(hottest.window.usedPct, 100) - heroLimit}%"
+                aria-hidden="true"
+              ></span>{/if}</span
+          >
+          {#if heroLimit !== null}
+            <span class="hero-tick" style="left:{heroLimit}%" aria-hidden="true"></span>
+          {/if}
+        </div>
         <div class="hero-foot">
           {#if bindingPending}
             <span>{m.topbar_usage_reset_checking()}</span>
@@ -256,91 +352,114 @@
          reach this branch — it needs measured windows on both providers, which implies a hero. -->
     {@render failoverAction()}
   {/if}
+{/snippet}
 
-  <!-- `stale` (Claude limits staleness) dims ONLY this block — the Codex section below carries its
-       own `codexUsage.stale`, so a stale Claude snapshot must not dim fresh Codex. -->
-  {#if hasClaude}
-    <div class="gauge-pop-claude" class:stale>
-      {@render sectionRule(
-        m.agent_provider_claude() + (stale ? m.topbar_gauge_stale_suffix() : ""),
-        null,
-      )}
-      {#if observedEmpty}
-        <div class="usage-empty">{m.topbar_usage_no_observation()}</div>
-      {:else if observed !== undefined}
-        {@render observedRow("5H", observed.session5h)}
-        {@render observedRow("WK", observed.week)}
-      {:else}
-        {#each gauges as g (g.label)}
-          {@render windowRow(shortPeriod(g.label), g)}
-        {/each}
-      {/if}
-      {#each perModel as entry (entry.model)}
-        <!-- Per-model passthroughs render through the SAME row as the main windows, but keep
-             ModelWeekGauge untouched: it is shared with the usage dashboard and the gear menu,
-             where the long "Weekly window (Fable)" label is still the right one. -->
-        <div class="gp-window" class:stale={entry.stale}>
-          <UsageWindowRow
-            label={modelDisplayName(entry.model)}
-            pct={entry.pct}
-            resetAt={entry.resetAt}
-            {nowMs}
-          />
+{#snippet capacity()}
+  {#if hasClaude || codexUsage}
+    <div class="pop-capacity">
+      <!-- `stale` (Claude limits staleness) dims ONLY this block — the Codex section below carries its
+           own `codexUsage.stale`, so a stale Claude snapshot must not dim fresh Codex. -->
+      {#if hasClaude}
+        <div class="gauge-pop-claude" class:stale>
+          {@render sectionRule(
+            m.agent_provider_claude() + (stale ? m.topbar_gauge_stale_suffix() : ""),
+            null,
+          )}
+          {#if observedEmpty}
+            <div class="usage-empty">{m.topbar_usage_no_observation()}</div>
+          {:else if observed !== undefined}
+            {@render observedRow("5H", observed.session5h)}
+            {@render observedRow("WK", observed.week)}
+          {:else}
+            {#each gauges as g (g.label)}
+              {@render windowRow(shortPeriod(g.label), g, holdPct)}
+            {/each}
+          {/if}
+          {#each perModel as entry (entry.model)}
+            <!-- Per-model passthroughs render through the SAME row as the main windows, but keep
+                 ModelWeekGauge untouched: it is shared with the usage dashboard and the gear menu,
+                 where the long "Weekly window (Fable)" label is still the right one. No limit tick:
+                 holding reads only the 5-hour and weekly windows. -->
+            <div class="gp-window" class:stale={entry.stale}>
+              <UsageWindowRow
+                label={modelDisplayName(entry.model)}
+                pct={entry.pct}
+                resetAt={entry.resetAt}
+                {nowMs}
+              />
+            </div>
+          {/each}
+          {#if credits}
+            <div class="gp-window">
+              <CreditDetail {credits} {creditFill} {creditColor} {creditAmount} {nowMs} />
+            </div>
+          {/if}
         </div>
-      {/each}
-      {#if credits}
-        <div class="gp-window">
-          <CreditDetail {credits} {creditFill} {creditColor} {creditAmount} {nowMs} />
+      {/if}
+
+      {#if codexUsage}
+        <div class="token-window" class:stale={codexUsage.stale}>
+          {@render sectionRule(
+            m.agent_provider_codex(),
+            codexAge === null
+              ? null
+              : codexAge === "now"
+                ? m.topbar_codex_tokens_checked_now()
+                : m.topbar_codex_tokens_checked_age({ age: codexAge }),
+          )}
+          <!-- The popover renders its own Codex body rather than reusing CodexTokenDetail: that
+               component is shared with the usage dashboard, where the three labelled token rows and
+               the per-bar reset lines have room. -->
+          {#each codexWindows as g (g.label)}
+            {@render windowRow(shortPeriod(g.label), g, null)}
+          {/each}
+          {#if codexWindows.length === 0}
+            <div class="usage-empty">{m.topbar_codex_limits_unavailable()}</div>
+          {/if}
+          {#if codexLimitAge !== null}
+            <div class="codex-limit-age">
+              {codexLimitAge === "now"
+                ? m.topbar_codex_limits_checked_now()
+                : m.topbar_codex_limits_checked_age({ age: codexLimitAge })}
+            </div>
+          {/if}
+          {#if codexUsage.tokenDataAvailable !== false}
+            <div class="token-line">
+              <span
+                >{m.topbar_tokens_window({ period: "5H" })}
+                <span class="token-value">{compactTokens(codexUsage.session5hTokens)}</span></span
+              >
+              <span
+                >{m.topbar_tokens_window({ period: "WK" })}
+                <span class="token-value">{compactTokens(codexUsage.weekTokens)}</span></span
+              >
+              <span
+                >{m.topbar_tokens_total()}
+                <span class="token-value">{compactTokens(codexUsage.totalTokens)}</span></span
+              >
+            </div>
+          {/if}
+          {#if codexUsage.resetStatus}<CodexResetControls status={codexUsage.resetStatus} />{/if}
         </div>
       {/if}
     </div>
   {/if}
+{/snippet}
 
-  {#if codexUsage}
-    <div class="token-window" class:stale={codexUsage.stale}>
-      {@render sectionRule(
-        m.agent_provider_codex(),
-        codexAge === null
-          ? null
-          : codexAge === "now"
-            ? m.topbar_codex_tokens_checked_now()
-            : m.topbar_codex_tokens_checked_age({ age: codexAge }),
-      )}
-      <!-- The popover renders its own Codex body rather than reusing CodexTokenDetail: that
-           component is shared with the usage dashboard, where the three labelled token rows and
-           the per-bar reset lines have room. -->
-      {#each codexWindows as g (g.label)}
-        {@render windowRow(shortPeriod(g.label), g)}
-      {/each}
-      {#if codexWindows.length === 0}
-        <div class="usage-empty">{m.topbar_codex_limits_unavailable()}</div>
-      {/if}
-      {#if codexLimitAge !== null}
-        <div class="codex-limit-age">
-          {codexLimitAge === "now"
-            ? m.topbar_codex_limits_checked_now()
-            : m.topbar_codex_limits_checked_age({ age: codexLimitAge })}
-        </div>
-      {/if}
-      {#if codexUsage.tokenDataAvailable !== false}
-        <div class="token-line">
-          <span
-            >{m.topbar_tokens_window({ period: "5H" })}
-            <span class="token-value">{compactTokens(codexUsage.session5hTokens)}</span></span
-          >
-          <span
-            >{m.topbar_tokens_window({ period: "WK" })}
-            <span class="token-value">{compactTokens(codexUsage.weekTokens)}</span></span
-          >
-          <span
-            >{m.topbar_tokens_total()}
-            <span class="token-value">{compactTokens(codexUsage.totalTokens)}</span></span
-          >
-        </div>
-      {/if}
-      {#if codexUsage.resetStatus}<CodexResetControls status={codexUsage.resetStatus} />{/if}
-    </div>
-  {/if}
+{#snippet body()}
+  {@render heading()}
+  {@render hero()}
+  <!-- Cause beside effect: the windows, and what they currently hold back. On the phone the
+       effect leads — it is what the operator came to act on. -->
+  <div class="pop-cols">
+    {#if sheet}
+      <div class="pop-wait">{@render wait(true)}</div>
+      {@render capacity()}
+    {:else}
+      {@render capacity()}
+      <div class="pop-wait">{@render wait(false)}</div>
+    {/if}
+  </div>
 
   <footer class="usage-footer">
     <div class="usage-footer-actions">
@@ -354,7 +473,41 @@
       {/if}
     </div>
   </footer>
-</div>
+{/snippet}
+
+{#if sheet}
+  <div class="pop-portal" use:portal>
+    <div class="pop-scrim scrim" aria-hidden="true" onclick={onClose}></div>
+    <div
+      bind:this={el}
+      class="gauge-pop sheet"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="usage-pop-title"
+      tabindex="-1"
+      use:dialog={{ onclose: onClose }}
+    >
+      {@render body()}
+    </div>
+  </div>
+{:else}
+  {#if variant === "desktop"}
+    <!-- Blocking dim+blur backdrop: the panel spans most of the bar and carries actions, so it is an
+         honest modal (aria-modal + use:dialog focus trap/Esc/restore) over a receded app. -->
+    <div class="pop-scrim-anchored scrim" aria-hidden="true" onclick={onClose}></div>
+  {/if}
+  <div
+    bind:this={el}
+    class="gauge-pop"
+    class:gauge-pop-desk={variant === "desktop"}
+    role="dialog"
+    aria-modal={variant === "desktop"}
+    aria-label={m.topbar_gauge_popover_title()}
+    use:optionalDialog
+  >
+    {@render body()}
+  </div>
+{/if}
 
 <style>
   .gauge-pop {
@@ -362,15 +515,42 @@
     top: calc(100% + 8px);
     right: 0;
     z-index: 50;
-    width: 320px;
-    max-width: calc(100vw - 24px);
+    width: min(920px, calc(100vw - 24px));
+    max-height: calc(100dvh - 96px);
+    overflow-y: auto;
+    box-sizing: border-box;
     background: var(--color-panel);
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     box-shadow: var(--shadow-popover);
-    padding: 14px 15px 12px;
+    padding: 14px 16px 12px;
     display: flex;
     flex-direction: column;
+  }
+  /* .scrim (app.css) supplies the fixed inset:0, dim and blur; only the stacking is ours. */
+  .pop-scrim-anchored {
+    z-index: 49;
+  }
+  .pop-portal {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+  }
+  .pop-scrim {
+    z-index: 0;
+  }
+  /* Phone: a full-screen dialog in place of the anchored panel. */
+  .gauge-pop.sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    width: auto;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    padding: calc(4px + env(safe-area-inset-top)) 16px calc(12px + env(safe-area-inset-bottom));
+    -webkit-overflow-scrolling: touch;
   }
   .gauge-pop-claude.stale,
   .token-window.stale,
@@ -380,10 +560,44 @@
   }
   .popover-heading {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
+    align-items: center;
     gap: 12px;
     margin-bottom: 14px;
+  }
+  .pop-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    margin-left: auto;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-ink);
+    cursor: pointer;
+  }
+  .pop-close svg {
+    width: 14px;
+    height: 14px;
+  }
+  .pop-close:hover,
+  .pop-close:focus-visible {
+    background: var(--color-hover);
+    color: var(--color-ink-bright);
+  }
+  .sheet .pop-close {
+    width: 44px;
+    height: 44px;
+    border-color: transparent;
+  }
+  @media (pointer: coarse) {
+    .pop-close {
+      width: 44px;
+      height: 44px;
+    }
   }
   .heading-text {
     color: var(--color-ink-bright);
@@ -475,7 +689,83 @@
     font-size: var(--fs-meta);
     text-align: right;
   }
+  /* The consequence line: what the limit is holding back right now, beside the number. */
+  .hero-effects {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    margin: -3px 0 12px;
+  }
+  .effect {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border: 1px solid;
+    border-radius: var(--radius-chip);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .effect svg {
+    width: 10px;
+    height: 10px;
+    flex-shrink: 0;
+  }
+  /* Subordinate red (text + hairline + tint, no halo): a paused drain, not a blocked agent. */
+  .effect-paused {
+    color: var(--color-red);
+    border-color: color-mix(in srgb, var(--color-red) 50%, var(--color-line));
+    background: color-mix(in srgb, var(--color-red) 10%, transparent);
+  }
+  .effect-held {
+    color: var(--color-amber);
+    border-color: color-mix(in srgb, var(--color-amber) 55%, var(--color-line));
+    background: color-mix(in srgb, var(--color-amber) 8%, transparent);
+  }
+  .effect-quiet {
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+  }
+  .hero-track {
+    position: relative;
+  }
+  /* Room above the bar for the limit's caption. */
+  .hero-track.limited {
+    margin-top: 24px;
+  }
+  .hero-limit-label {
+    position: absolute;
+    bottom: calc(100% + 7px);
+    transform: translateX(var(--shift));
+    color: var(--color-ink-bright);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .hero-tick {
+    position: absolute;
+    top: -5px;
+    bottom: -5px;
+    width: 2px;
+    margin-left: -1px;
+    background: var(--color-ink-bright);
+  }
+  /* The share of the bar past the limit is hatched: the part that is holding work back. */
+  .hero-over {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: repeating-linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-bg) 60%, transparent) 0 2px,
+      transparent 2px 4px
+    );
+  }
   .hero-bar {
+    position: relative;
     display: block;
     height: 11px;
     background: var(--color-line);
@@ -522,8 +812,58 @@
     letter-spacing: 0.04em;
     white-space: nowrap;
   }
-  .token-window {
+  .gauge-pop-claude + .token-window {
     margin-top: 17px;
+  }
+  /* Cause beside effect; stacked when the panel is too narrow for both. */
+  .pop-cols {
+    display: flex;
+    align-items: flex-start;
+  }
+  .pop-capacity {
+    flex: 1 1 300px;
+    min-width: 0;
+    padding-right: 20px;
+  }
+  .pop-wait {
+    flex: 1.5 1 380px;
+    min-width: 0;
+    padding-left: 20px;
+    border-left: 1px solid var(--color-line);
+  }
+  /* Without measured windows the waiting column stands alone. */
+  .pop-wait:only-child {
+    padding-left: 0;
+    border-left: 0;
+  }
+  @media (max-width: 760px) {
+    .pop-cols {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .pop-capacity {
+      padding-right: 0;
+    }
+    .pop-wait {
+      margin-top: 18px;
+      padding: 16px 0 0;
+      border-left: 0;
+      border-top: 1px solid var(--color-line);
+    }
+  }
+  .sheet .pop-cols {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .sheet .pop-wait {
+    margin-top: 0;
+    padding: 0;
+    border: 0;
+  }
+  .sheet .pop-capacity {
+    margin-top: 20px;
+    padding: 16px 0 0;
+    border-top: 1px solid var(--color-line);
   }
   .gp-window + .gp-window {
     margin-top: 10px;

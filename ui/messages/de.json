@@ -7572,5 +7572,19 @@
   "prrow_menu_mark_ready": "Als bereit markieren",
   "prrow_menu_summary": "Zusammenfassung",
   "feat_pr_merge_row_title": "Mergen direkt über den Steuerknöpfen",
-  "feat_pr_merge_row_body": "Solange der PR einer Session offen ist, zeigt eine Zeile über den Steuerknöpfen seinen Stand, die Merge-Voraussetzungen (CI, Kritiker, Base, Konflikte) und einen Merge-Knopf. Merge bleibt gesperrt, bis der PR bereit ist (der Grund steht im Hovertext), und fragt vorher immer nach. „Bereit“, der Issue-Link und die Zusammenfassung liegen im ⋯-Menü; der PR-Streifen oben behält Status und Einstellungen."
+  "feat_pr_merge_row_body": "Solange der PR einer Session offen ist, zeigt eine Zeile über den Steuerknöpfen seinen Stand, die Merge-Voraussetzungen (CI, Kritiker, Base, Konflikte) und einen Merge-Knopf. Merge bleibt gesperrt, bis der PR bereit ist (der Grund steht im Hovertext), und fragt vorher immer nach. „Bereit“, der Issue-Link und die Zusammenfassung liegen im ⋯-Menü; der PR-Streifen oben behält Status und Einstellungen.",
+  "capacity_wait_title": "Wartet auf Kapazität",
+  "capacity_limit": "Grenze {pct} %",
+  "capacity_bar_aria": "{pct} % genutzt, Grenze {limit} %",
+  "capacity_effect_paused": "Auto-Starts pausiert",
+  "capacity_below_limit": "Unter der Grenze · nichts gebremst",
+  "capacity_over_limit": "Über der Grenze · neue Aufgaben werden zurückgehalten",
+  "capacity_drain_title": "Backlog-Abarbeitung",
+  "capacity_held_title": "Zurückgehalten · {count}",
+  "capacity_nothing_waiting": "Nichts wartet.",
+  "capacity_nothing_waiting_body": "Ab {pct} % im 5-Stunden- oder Wochenfenster von Claude Code werden neue Aufgaben hier zurückgehalten – direkt neben den Prozenten, die sie bremsen.",
+  "capacity_hold_off": "Zurückhalten ist aus: Neue Aufgaben starten unabhängig von der Auslastung.",
+  "capacity_cli_option": "{provider} · {pct} %",
+  "feat_capacity_panel_title": "Auslastung und Wartendes auf einem Screen",
+  "feat_capacity_panel_body": "Auslastungsanzeige und das Badge für zurückgehaltene Aufgaben sind in der Top-Bar jetzt ein einziges Element. Es öffnet ein Panel: links die Auslastung, rechts alles, was auf Kapazität wartet – zurückgehaltene Aufgaben und Backlog-Abarbeitungen, die an ihrer Grenze pausieren. Die Grenze ist auf den Balken eingezeichnet, so siehst du, wie nah du dran bist und was sie gerade bremst."
 }

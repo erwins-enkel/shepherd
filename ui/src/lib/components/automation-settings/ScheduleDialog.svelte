@@ -251,6 +251,8 @@
   .sched-dlg {
     width: min(520px, 92vw);
     max-height: 90dvh;
+    /* Tailwind preflight zeroes the UA `margin: auto` that centers a modal dialog. */
+    margin: auto;
     border: 1px solid var(--color-line-bright);
     background: var(--color-panel);
     color: var(--color-ink);

@@ -5,6 +5,7 @@ import {
   isTmpfsPath,
   CI_POLL_CONTEXT,
   CI_WATCH_REASON,
+  DEPLOY_WATCH_CONTEXT,
   RATE_LIMIT_REASON,
   type ToolGuardContext,
   type ToolGuardDenial,
@@ -29,8 +30,15 @@ const bash = (command: string, cwd = "/home/u/repo") => ({
 const AGENT_TMP = "/home/u/.cache/shepherd/tmp/claude-1000/sess/scratchpad";
 /** Host mounts that genuinely are memory-backed — the only thing the rule may deny. */
 const TMPFS = ["/tmp", "/var/tmp", "/dev/shm"];
+/** The run / branch lookups must only happen on a literal-id `gh run watch`: by default they throw. */
+const noLookup = (): never => {
+  throw new Error("unexpected run/branch lookup");
+};
 const DEPS = {
   isTmpfs: (p: string) => TMPFS.some((root) => p === root || p.startsWith(`${root}/`)),
+  runInfo: noLookup,
+  currentBranch: noLookup,
+  defaultBranch: noLookup,
 };
 
 /** A decision, read as a denial (the context-only shapes assert through `ctx` instead). */
@@ -291,15 +299,27 @@ describe("#2860 rate_limit rule (gh api rate_limit misreports on this account)",
 });
 
 describe("#2852 CI polling rule (Shepherd already tracks the PR's checks)", () => {
-  it("denies the CI watchers", () => {
+  /** Deps for a session on `branch` (default `main`) whose `gh run view` reports `run`. */
+  const watchDeps = (
+    run: { event: string; headBranch: string } | null,
+    branch: string | null = "feat",
+    defaultBranch: string | null = "main",
+  ) => ({
+    ...DEPS,
+    runInfo: () => run,
+    currentBranch: () => branch,
+    defaultBranch: () => defaultBranch,
+  });
+
+  it("denies watchers it can't classify, and PR-check watchers", () => {
     for (const cmd of [
       "gh pr checks 2750 --watch",
       "gh pr checks 2750 --watch --interval 30",
       "gh pr checks --watch=true",
-      "gh run watch 123 --interval 45",
       "gh run watch",
+      "gh run watch --interval 30",
+      "gh run watch $RUN_ID",
       "git push && gh pr checks --watch",
-      "until gh run watch 1; do sleep 5; done",
     ]) {
       const d = deny(bash(cmd));
       expect(`${cmd}: ${d?.permissionDecision}`).toBe(`${cmd}: deny`);
@@ -307,6 +327,88 @@ describe("#2852 CI polling rule (Shepherd already tracks the PR's checks)", () =
     }
     expect(CI_WATCH_REASON).toContain("self_status");
     expect(CI_WATCH_REASON).toContain("--log-failed");
+    expect(CI_WATCH_REASON).toContain("numeric run id");
+  });
+
+  it("denies watching the session's own PR CI", () => {
+    const cases: [string, { event: string; headBranch: string }][] = [
+      ["gh run watch 123 --interval 45", { event: "pull_request", headBranch: "feat" }],
+      ["gh run watch 123", { event: "pull_request_target", headBranch: "feat" }],
+      ["gh run watch 123", { event: "merge_group", headBranch: "gh-readonly-queue/main/x" }],
+      ["gh run watch 123", { event: "push", headBranch: "feat" }],
+      ["until gh run watch 1; do sleep 5; done", { event: "pull_request", headBranch: "feat" }],
+    ];
+    for (const [cmd, run] of cases) {
+      const d = decideToolGuard(bash(cmd), watchDeps(run)) as ToolGuardDenial | null;
+      expect(`${cmd} ${run.event}: ${d?.permissionDecisionReason}`).toBe(
+        `${cmd} ${run.event}: ${CI_WATCH_REASON}`,
+      );
+    }
+  });
+
+  it("allows watching runs Shepherd doesn't track, with an interval hint", () => {
+    const cases: [ReturnType<typeof watchDeps>, string][] = [
+      [watchDeps({ event: "push", headBranch: "main" }), "push to main from a feature branch"],
+      [watchDeps({ event: "push", headBranch: "main" }, "main"), "push to main, session on main"],
+      [watchDeps({ event: "workflow_dispatch", headBranch: "feat" }), "dispatch on own branch"],
+      [watchDeps({ event: "release", headBranch: "v1.2.0" }), "release"],
+      [watchDeps({ event: "deployment", headBranch: "main" }), "deployment"],
+      [watchDeps(null), "lookup failed"],
+      [watchDeps({ event: "push", headBranch: "feat" }, null), "session branch unknown"],
+      [watchDeps({ event: "push", headBranch: "feat" }, "feat", null), "default branch unknown"],
+    ];
+    for (const [deps, label] of cases) {
+      const d = decideToolGuard(bash("gh run watch 4711"), deps) as ToolGuardContext | null;
+      expect(`${label}: ${d?.additionalContext}`).toBe(`${label}: ${DEPLOY_WATCH_CONTEXT}`);
+    }
+    expect(DEPLOY_WATCH_CONTEXT).toContain("--interval 30");
+  });
+
+  it("skips the hint when the interval is already slow enough", () => {
+    const deps = watchDeps({ event: "push", headBranch: "main" });
+    for (const cmd of [
+      "gh run watch 4711 --interval 30",
+      "gh run watch 4711 -i 60",
+      "gh run watch --interval=45 4711 --exit-status",
+    ]) {
+      expect(`${cmd}: ${decideToolGuard(bash(cmd), deps)}`).toBe(`${cmd}: null`);
+    }
+    const d = decideToolGuard(bash("gh run watch 4711 -i 10"), deps) as ToolGuardContext | null;
+    expect(d?.additionalContext).toBe(DEPLOY_WATCH_CONTEXT);
+  });
+
+  it("forwards the repo and the effective cwd to the lookups", () => {
+    const seen: unknown[] = [];
+    const deps = {
+      ...DEPS,
+      runInfo: (id: string, repo: string | null, cwd: string | undefined) => {
+        seen.push(["run", id, repo, cwd]);
+        return { event: "push", headBranch: "feat" };
+      },
+      currentBranch: (cwd: string | undefined) => {
+        seen.push(["branch", cwd]);
+        return "feat";
+      },
+      defaultBranch: (cwd: string | undefined) => {
+        seen.push(["default", cwd]);
+        return "main";
+      },
+    };
+    decideToolGuard(bash("cd /x && gh run watch 9 -R o/r"), deps);
+    expect(seen).toEqual([
+      ["run", "9", "o/r", "/x"],
+      ["branch", "/x"],
+      ["default", "/x"],
+    ]);
+    seen.length = 0;
+    decideToolGuard(bash("gh run watch --repo=o/r 9"), deps);
+    expect(seen[0]).toEqual(["run", "9", "o/r", "/home/u/repo"]);
+  });
+
+  it("still denies a later hazard after an allowed watch", () => {
+    const deps = watchDeps({ event: "push", headBranch: "main" });
+    const d = decideToolGuard(bash("gh run watch 4711; git stash"), deps) as ToolGuardDenial | null;
+    expect(d?.permissionDecision).toBe("deny");
   });
 
   it("hints on one-shot CI reads without blocking them", () => {
@@ -332,6 +434,7 @@ describe("#2852 CI polling rule (Shepherd already tracks the PR's checks)", () =
       "gh pr view 12",
       "gh api repos/o/r",
       `git commit -m "gh run watch"`,
+      `git commit -m "gh run watch 1"`,
       `echo "gh pr checks 1 --watch"`,
       "cat <<EOF\ngh pr checks 1 --watch\nEOF",
     ]) {

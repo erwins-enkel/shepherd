@@ -30,6 +30,7 @@ export const INLINE_SHELL_REASON: string;
 export const RATE_LIMIT_REASON: string;
 export const CI_WATCH_REASON: string;
 export const CI_POLL_CONTEXT: string;
+export const DEPLOY_WATCH_CONTEXT: string;
 export const PR_CREATE_CONTEXT: string;
 export const PUSH_CONTEXT: string;
 export const BACKGROUND_CONTEXT: string;
@@ -40,9 +41,21 @@ export function installTmpfsReason(path: string): string;
  *  the path — Shepherd points agents' `TMPDIR` at a DISK-backed dir on purpose (#1875). */
 export function isTmpfsPath(path: string, statfs?: (p: string) => { type: number }): boolean;
 
-/** Injectable environment for the rules. `isTmpfs` defaults to {@link isTmpfsPath}. */
+/** Injectable environment for the rules. `isTmpfs` defaults to {@link isTmpfsPath}; the run and
+ *  branch lookups (consulted only by a literal-id `gh run watch`) default to one `gh` / `git` call
+ *  each and return null on any failure. */
 export interface ToolGuardDeps {
   isTmpfs?: (path: string) => boolean;
+  /** `gh run view <id> --json event,headBranch`, with `-R <repo>` when given. */
+  runInfo?: (
+    id: string,
+    repo: string | null,
+    cwd: string | undefined,
+  ) => { event: string; headBranch: string } | null;
+  /** The session's checked-out branch. */
+  currentBranch?: (cwd: string | undefined) => string | null;
+  /** The repo's default branch (`origin/HEAD`, without `origin/`). */
+  defaultBranch?: (cwd: string | undefined) => string | null;
 }
 
 /** Decide one event: `null` = no opinion (normal permission flow). */

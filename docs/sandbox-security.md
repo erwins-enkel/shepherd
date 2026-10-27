@@ -331,9 +331,12 @@ still stand.
   once with a rewrite. It also denies `gh api rate_limit`, which misreports the
   account's GitHub budget, and points the agent at the `self_status` tool, which
   carries Shepherd's real budget (#2860). It denies the CI watchers
-  `gh pr checks --watch` and `gh run watch` too, and hints on one-shot CI reads:
-  Shepherd already polls each session's PR and steers the agent when its checks
-  finish (#2852). It is a **local `command` hook**, not the fail-open HTTP ingest
+  `gh pr checks --watch` and a `gh run watch` of the session's own PR CI too, and
+  hints on one-shot CI reads: Shepherd already polls each session's PR and steers
+  the agent when its checks finish (#2852). A `gh run watch <run-id>` of a run
+  Shepherd doesn't track — a deploy after merge, `workflow_dispatch`, a release —
+  is allowed, with a hint to poll every 30 s or slower; the guard tells the two
+  apart with one `gh run view <run-id> --json event,headBranch` lookup. It is a **local `command` hook**, not the fail-open HTTP ingest
   transport, precisely so the deny still holds for unattended sessions whose
   `--clearenv` membrane 401s the restricted ingress. Its script is bound RO into
   the membrane (`agentSupportPaths` → `agentSupportFlags`, `src/sandbox.ts`),

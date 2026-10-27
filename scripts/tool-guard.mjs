@@ -20,9 +20,12 @@
 // check cannot resolve, which it flags with a bypass-immune "runs rm" ask (anthropics/claude-code#99630).
 // A fourth redirects a misleading source: `gh api rate_limit` misreports on this account, so the
 // refusal points the agent at `self_status`, which carries Shepherd's real GitHub budget (#2860).
-// A fifth stops agents polling CI Shepherd already tracks (#2852): `gh pr checks --watch` and
-// `gh run watch` are denied, and one-shot CI reads get a hint pointing at `self_status`.
+// A fifth stops agents polling CI Shepherd already tracks (#2852): `gh pr checks --watch` and a
+// `gh run watch` of the session's own PR CI are denied, and one-shot CI reads get a hint pointing at
+// `self_status`. A watched run Shepherd does NOT track (a deploy after merge, `workflow_dispatch`, a
+// release) is allowed — the guard looks the run up once to tell the two apart.
 
+import { spawnSync } from "node:child_process";
 import { realpathSync, statfsSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -140,12 +143,19 @@ export const CI_WATCH_REASON =
   "Blocked by Shepherd: don't watch CI. Shepherd already tracks your PR's checks and steers you " +
   "when they finish — end your turn and wait for that message. For the current state call the " +
   "`self_status` tool (`pr.checks`, `pr.runningChecks`). To read an already failed run, use " +
-  "`gh run view <run-id> --log-failed`.";
+  "`gh run view <run-id> --log-failed`. To watch a run Shepherd doesn't track (e.g. a deploy), " +
+  "pass its numeric run id: `gh run watch <run-id> --interval 30`.";
+
+/** Injected on an allowed `gh run watch` of a run Shepherd doesn't track (a deploy, a release…)
+ *  that polls faster than every 30 s — `gh run watch`'s 3 s default is ~3,600 REST requests/h. */
+export const DEPLOY_WATCH_CONTEXT =
+  "Shepherd doesn't track this run, so watching it is fine. Pass `--interval 30` or more: the 3s " +
+  "default costs ~3,600 GitHub REST requests/h.";
 
 /** Injected (not denied) on a one-shot CI read (#2852): allowed, but a loop of them is the same
  *  polling the watch denial stops. */
 export const CI_POLL_CONTEXT =
-  "Shepherd: don't repeat this to wait for CI. `self_status` has your PR's check state, and " +
+  "Shepherd: don't repeat this to wait for your PR's CI. `self_status` has its check state, and " +
   "Shepherd steers you when the checks finish — end your turn and wait instead of polling.";
 
 /** Shells whose `-c` script Claude Code's inline-shell check parses. */
@@ -356,9 +366,10 @@ function stashTouchesSharedStack(args) {
  * Decide what to do about one `PreToolUse` event. Returns `null` for "no opinion" (the normal
  * permission flow applies), or the `hookSpecificOutput` payload minus its `hookEventName`.
  *
- * `event` is the raw hook body. `deps.isTmpfs` is the ONLY environment this touches — injected so
- * the rules stay pure and testable, and so a test never depends on the host's mount table; it
- * defaults to {@link isTmpfsPath}, which asks the kernel.
+ * `event` is the raw hook body. `deps` is the ONLY environment this touches — injected so the rules
+ * stay pure and testable: `isTmpfs` (default {@link isTmpfsPath}, which asks the kernel), and the
+ * `runInfo` / `currentBranch` / `defaultBranch` lookups (default: one `gh` / `git` call each, null on
+ * any failure) that only a literal-id `gh run watch` consults.
  */
 export function decideToolGuard(event, deps = {}) {
   if (!event || typeof event !== "object") return null;
@@ -368,11 +379,12 @@ export function decideToolGuard(event, deps = {}) {
   const command = typeof input.command === "string" ? input.command : "";
   if (!command.trim()) return null;
 
-  const denial = denyFor(command, event.cwd, deps.isTmpfs ?? isTmpfsPath);
-  if (denial) return denial;
+  const decided = denyFor(command, event.cwd, { ...DEFAULT_DEPS, ...deps });
+  if (decided?.permissionDecision) return decided;
   if (runsUncheckableInlineShell(command)) {
     return { permissionDecision: "deny", permissionDecisionReason: INLINE_SHELL_REASON };
   }
+  if (decided) return decided;
   if (opensPullRequest(command)) return { additionalContext: PR_CREATE_CONTEXT };
   if (pushesBranch(command)) return { additionalContext: PUSH_CONTEXT };
   if (readsCi(command)) return { additionalContext: CI_POLL_CONTEXT };
@@ -447,11 +459,100 @@ function ghSubcommand(w) {
     .join(" ");
 }
 
-/** True when the words run a CI watcher: `gh pr checks --watch` or `gh run watch` (#2852). */
-function watchesCi(w) {
-  const sub = ghSubcommand(w);
-  return sub === "run watch" || (sub === "pr checks" && w.some((a) => /^--watch(=|$)/.test(a)));
+const CI_WATCH_DENIAL = { permissionDecision: "deny", permissionDecisionReason: CI_WATCH_REASON };
+
+/** Workflow events whose runs ARE the PR's checks, which Shepherd already tracks. */
+const PR_CI_EVENTS = new Set(["pull_request", "pull_request_target", "merge_group"]);
+
+/** `gh run watch` flags that consume the following word. */
+const RUN_WATCH_VALUE_FLAGS = new Set(["-i", "--interval", "-R", "--repo"]);
+
+/** The run id, `-R/--repo` and `-i/--interval` of `gh run watch` words (null when absent). */
+function runWatchArgs(w) {
+  const out = { id: null, repo: null, interval: null };
+  const set = (flag, value) => {
+    if (flag === "-R" || flag === "--repo") out.repo = unquote(value ?? "");
+    else out.interval = Number(unquote(value ?? ""));
+  };
+  for (let i = w.indexOf("watch") + 1; i < w.length; i++) {
+    const a = w[i];
+    const eq = /^(--interval|--repo)=(.*)$/.exec(a);
+    if (eq) set(eq[1], eq[2]);
+    else if (RUN_WATCH_VALUE_FLAGS.has(a)) set(a, w[++i]);
+    else if (!a.startsWith("-")) out.id ??= unquote(a);
+  }
+  return out;
 }
+
+/** True when `run` is the session's own PR CI: a PR-event run, or a `push` run on the session's
+ *  branch when that branch is not the default branch (a push to the default branch has no PR). An
+ *  unknown run or branch reads as untracked — fail open. */
+function isPrCiRun(run, cwd, deps) {
+  if (!run) return false;
+  if (PR_CI_EVENTS.has(run.event)) return true;
+  if (run.event !== "push") return false;
+  const branch = deps.currentBranch(cwd);
+  if (!branch || branch !== run.headBranch) return false;
+  const base = deps.defaultBranch(cwd);
+  return base !== null && base !== branch;
+}
+
+/**
+ * The decision for a CI watcher (#2852): deny `gh pr checks --watch`, and deny `gh run watch` of the
+ * session's own PR CI or of a run it can't name (no id, or `$ID`). A run Shepherd doesn't track (a
+ * deploy, a release, `workflow_dispatch`) is allowed, with a hint unless it already polls ≥ 30 s.
+ * Returns `undefined` when `w` is no watcher, `null` for an allowed watch that needs no hint.
+ */
+function ciWatchDecision(w, cwd, deps) {
+  const sub = ghSubcommand(w);
+  if (sub === "pr checks")
+    return w.some((a) => /^--watch(=|$)/.test(a)) ? CI_WATCH_DENIAL : undefined;
+  if (sub !== "run watch") return undefined;
+  const { id, repo, interval } = runWatchArgs(w);
+  if (!id || !/^\d+$/.test(id)) return CI_WATCH_DENIAL;
+  if (isPrCiRun(deps.runInfo(id, repo, cwd), cwd, deps)) return CI_WATCH_DENIAL;
+  return interval >= 30 ? null : { additionalContext: DEPLOY_WATCH_CONTEXT };
+}
+
+/** stdout of `cmd args` in `cwd`, trimmed, or null on any failure (non-zero exit, timeout, spawn). */
+function commandText(cmd, args, cwd, timeout) {
+  try {
+    const r = spawnSync(cmd, args, {
+      cwd,
+      timeout,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return r.status === 0 ? r.stdout.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `gh run view <id> --json event,headBranch` → `{ event, headBranch }`, or null on any failure. A
+ *  repo that isn't a plain `[host/]owner/repo` is never passed to gh (no flag injection). */
+function lookupRun(id, repo, cwd) {
+  if (repo && !/^[\w.-]+(\/[\w.-]+){1,2}$/.test(repo)) return null;
+  const args = ["run", "view", id, "--json", "event,headBranch", ...(repo ? ["-R", repo] : [])];
+  try {
+    const run = JSON.parse(commandText("gh", args, cwd, 5000) ?? "null");
+    return typeof run?.event === "string" ? { event: run.event, headBranch: run.headBranch } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The real lookups behind the injectable deps (the hook's budget is 10 s, src/tool-guard-hook.ts). */
+const DEFAULT_DEPS = {
+  isTmpfs: (path) => isTmpfsPath(path),
+  runInfo: lookupRun,
+  currentBranch: (cwd) => commandText("git", ["rev-parse", "--abbrev-ref", "HEAD"], cwd, 2000),
+  defaultBranch: (cwd) =>
+    commandText("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd, 2000)?.replace(
+      /^origin\//,
+      "",
+    ) ?? null,
+};
 
 /** True when any segment does a one-shot CI read: `gh pr checks`, `gh run view` without its logs,
  *  or a check-runs / check-suites API call (#2852). */
@@ -491,9 +592,12 @@ function isBackgrounded(input, command) {
 }
 
 /** The denial rules — the two hazards this guard exists to stop, plus the misreporting
- *  `gh api rate_limit` (#2860) and CI watchers (#2852). `null` = nothing recognized. */
-function denyFor(command, eventCwd, isTmpfs) {
+ *  `gh api rate_limit` (#2860) and CI watchers (#2852). `null` = nothing recognized; a context-only
+ *  decision = an allowed deploy-run watch that should poll slower, and no later segment denied. */
+function denyFor(command, eventCwd, deps) {
+  const { isTmpfs } = deps;
   let cwd = typeof eventCwd === "string" ? eventCwd : undefined;
+  let watchHint = null;
 
   for (const segment of segments(command)) {
     const w = words(segment);
@@ -516,9 +620,9 @@ function denyFor(command, eventCwd, isTmpfs) {
       return { permissionDecision: "deny", permissionDecisionReason: RATE_LIMIT_REASON };
     }
     const gh = ghWords(segment);
-    if (gh && watchesCi(gh)) {
-      return { permissionDecision: "deny", permissionDecisionReason: CI_WATCH_REASON };
-    }
+    const watch = gh ? ciWatchDecision(gh, cwd, deps) : undefined;
+    if (watch?.permissionDecision) return watch;
+    watchHint ??= watch ?? null;
 
     if (cmd === "git") {
       const sub = gitOperands(args);
@@ -551,7 +655,7 @@ function denyFor(command, eventCwd, isTmpfs) {
       }
     }
   }
-  return null;
+  return watchHint;
 }
 
 /**

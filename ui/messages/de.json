@@ -7416,5 +7416,7 @@
   "feat_schedules_overview_body": "Einstellungen → Zeitpläne zeigt die Zeitpläne aller Repos, der nächste Lauf zuerst, mit letztem Ergebnis, Ein/Aus-Schalter, Jetzt ausführen und Bearbeiten.",
   "settings_schedules_load_failed": "Die Zeitpläne konnten nicht geladen werden.",
   "feat_assistant_schedules_title": "Zeitpläne vom Assistenten anlegen lassen",
-  "feat_assistant_schedules_body": "Bitte den Assistenten, einen wiederkehrenden Prompt oder /skill in einem Repo einzurichten, etwa /triage-feedback werktags um 09:00. Läufe starten betreut; deine Automatik-Berechtigung unter Einstellungen → Assistent entscheidet, ob er vorher fragt. Bearbeiten oder löschen kannst du Zeitpläne unter Repo-Automatik → Zeitpläne."
+  "feat_assistant_schedules_body": "Bitte den Assistenten, einen wiederkehrenden Prompt oder /skill in einem Repo einzurichten, etwa /triage-feedback werktags um 09:00. Läufe starten betreut; deine Automatik-Berechtigung unter Einstellungen → Assistent entscheidet, ob er vorher fragt. Bearbeiten oder löschen kannst du Zeitpläne unter Repo-Automatik → Zeitpläne.",
+  "feat_upnext_pr_fold_title": "PRs in Up Next einklappen",
+  "feat_upnext_pr_fold_body": "Ein Klick auf die Überschrift „Pull Requests“ in Up Next klappt den ganzen PR-Block ein, damit du dich auf Issues konzentrieren kannst. Up Next merkt sich das, und die Überschrift zählt weiterhin ausgewählte PRs, die sie verbirgt."
 }

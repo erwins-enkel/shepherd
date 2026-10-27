@@ -1347,6 +1347,42 @@ describe("UpNextPanel pull requests", () => {
     }
   });
 
+  it("folds the whole PR block from its header, remembers it, and counts hidden ticks", async () => {
+    upNext.snapshot = withPrs();
+    const { unmount } = await render(UpNextPanel, {});
+    await expect.element(page.getByText("#911")).toBeInTheDocument();
+    const kinds = () => Array.from(document.querySelectorAll<HTMLElement>(".un-kind"));
+    const prHead = () => kinds()[0]!;
+    expect(prHead().tagName).toBe("BUTTON");
+    expect(prHead().getAttribute("aria-expanded")).toBe("true");
+    // The issues header stays a plain heading.
+    expect(kinds()[1]!.tagName).not.toBe("BUTTON");
+    expect(kinds()[1]!.hasAttribute("aria-expanded")).toBe(false);
+
+    tick(911);
+    prHead().click();
+    await expect.poll(() => prHead().getAttribute("aria-expanded")).toBe("false");
+    expect(rowNumbers()).not.toContain("#911");
+    expect(document.querySelectorAll(".un-section-title")[0]?.textContent).toBe(
+      m.upnext_priority_section(),
+    );
+    expect(prHead().querySelector(".un-section-hidden")?.textContent).toBe(
+      m.upnext_selected_count({ count: 1 }),
+    );
+    // The batch bar still offers the hidden tick.
+    await expect
+      .element(page.getByText(m.upnext_pr_selected_count({ count: 1 })))
+      .toBeInTheDocument();
+
+    unmount();
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#2")).toBeInTheDocument();
+    expect(prHead().getAttribute("aria-expanded")).toBe("false");
+    expect(rowNumbers()).not.toContain("#911");
+    prHead().click();
+    await expect.poll(() => rowNumbers()).toContain("#911");
+  });
+
   it("looks as before when no PR waits", async () => {
     upNext.snapshot = withPrs([]);
     render(UpNextPanel, {});

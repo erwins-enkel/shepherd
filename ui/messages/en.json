@@ -7416,5 +7416,7 @@
   "feat_schedules_overview_body": "Settings → Schedules lists every repo's schedules, soonest run first, with the last outcome, an on/off switch, Run now and Edit.",
   "settings_schedules_load_failed": "Couldn't load the schedules.",
   "feat_assistant_schedules_title": "Let the Assistant create schedules",
-  "feat_assistant_schedules_body": "Ask the Assistant to set up a recurring prompt or /skill in a repo, such as /triage-feedback every weekday at 09:00. Runs start attended; your Automation permission in Settings → Assistant decides whether it asks first. Edit or delete schedules under Repo automation → Schedules."
+  "feat_assistant_schedules_body": "Ask the Assistant to set up a recurring prompt or /skill in a repo, such as /triage-feedback every weekday at 09:00. Runs start attended; your Automation permission in Settings → Assistant decides whether it asks first. Edit or delete schedules under Repo automation → Schedules.",
+  "feat_upnext_pr_fold_title": "Fold the PRs in Up Next",
+  "feat_upnext_pr_fold_body": "Click the \"Pull requests\" header in Up Next to fold the whole PR block away and focus on issues. Up Next remembers the fold, and the header still counts any ticked PRs it hides."
 }

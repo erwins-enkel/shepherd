@@ -21,8 +21,10 @@ export function readyPrCount(prs: UpNextPr[] | undefined): number {
   return (prs ?? []).filter((pr) => pr.band === "ready" && pr.action === "merge").length;
 }
 
-/** The action a row's single button shows — its band's, disabled, while `action` is null. */
-export function buttonAction(pr: UpNextPr): UpNextPrAction {
+/** The action a row's single button shows — its band's, disabled, while `action` is null. A
+ *  Dependabot PR whose merge just failed (`mergeFailed`) offers a rebase instead. */
+export function buttonAction(pr: UpNextPr, mergeFailed = false): UpNextPrAction {
+  if (mergeFailed && pr.kind === "dependabot" && pr.action === "merge") return "dependabot_rebase";
   if (pr.action) return pr.action;
   if (pr.band === "review") return "review";
   return pr.band === "blocked" ? "fix" : "merge";

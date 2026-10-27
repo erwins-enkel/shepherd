@@ -58,6 +58,10 @@ export class UpNextPrActions {
           upNextUi.markActed(key);
           toasts.info(m.prspanel_merge_in_progress(), { key: "upnext-pr-merge" });
         } else {
+          // Like the Backlog row: a stuck Dependabot PR's next move is asking it to rebase —
+          // once; after that the Merge stays, as Dependabot is never asked twice.
+          if (pr.kind === "dependabot" && pr.headSha && !upNextUi.rebaseRequested.has(key))
+            upNextUi.mergeFailed.set(key, pr.headSha);
           toasts.info(mergeFailure(e), { key: "upnext-pr-merge", alert: true });
         }
       } finally {

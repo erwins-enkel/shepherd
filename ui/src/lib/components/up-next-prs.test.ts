@@ -74,6 +74,16 @@ test("buttonAction shows the band's action, disabled, while CI runs", () => {
   );
 });
 
+test("buttonAction offers a Dependabot rebase once its merge failed", () => {
+  const dep = { band: "dependabot" as const, kind: "dependabot" as const };
+  expect(buttonAction(pr(1, dep), true)).toBe("dependabot_rebase");
+  expect(buttonAction(pr(1, dep), false)).toBe("merge");
+  expect(buttonAction(pr(1), true)).toBe("merge");
+  // Still waiting on CI: the locked merge stays.
+  expect(buttonAction(pr(1, { ...dep, action: null }), true)).toBe("merge");
+  expect(actionTip(pr(1, dep), true).summary).toBe(m.upnext_pr_tip_rebase_summary({ number: 1 }));
+});
+
 describe("mergeBlock", () => {
   test("is null when the next action is the merge", () => {
     expect(mergeBlock(pr(1))).toBeNull();

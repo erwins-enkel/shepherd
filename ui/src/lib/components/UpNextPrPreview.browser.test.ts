@@ -9,7 +9,13 @@ import { upNextPrKey, upNextUi } from "#lib/up-next-ui.svelte.js";
 import type { UpNextLaunchContext } from "#lib/up-next-start.svelte.js";
 import { steers } from "#lib/steers.svelte.js";
 import { expectMinPx } from "#lib/test-support/geometry.js";
-import { getUpNextPrBody, mergeBacklogPr, startUpNextPrFix } from "#lib/api.js";
+import {
+  ApiError,
+  getUpNextPrBody,
+  mergeBacklogPr,
+  requestDependabotRebase,
+  startUpNextPrFix,
+} from "#lib/api.js";
 
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
@@ -207,6 +213,61 @@ describe("UpNextPrPreview", () => {
       911,
       { deleteBranch: true, confirm: { headSha: "sha911" } },
     ]);
+  });
+
+  describe("after a failed merge", () => {
+    const DEP = pr(940, { kind: "dependabot", band: "dependabot", author: "dependabot[bot]" });
+    const failMerge = async (row: UpNextPr) => {
+      vi.mocked(mergeBacklogPr).mockRejectedValueOnce(new ApiError(409, "merge failed"));
+      upNext.snapshot = snapshot([row]);
+      open(row);
+      render(UpNextPrPreview, { launchContext: ctx() });
+      await expect.element(page.getByRole("heading", { name: row.title })).toBeVisible();
+      primary().click();
+      await page.getByRole("button", { name: m.mergeconfirm_confirm() }).click();
+      await expect.poll(() => vi.mocked(mergeBacklogPr).mock.calls.length).toBe(1);
+    };
+
+    it("offers a Dependabot rebase in place of the merge, asked once", async () => {
+      await failMerge(DEP);
+      await expect.poll(() => primary().textContent).toBe(m.prspanel_rebase_button());
+      primary().click();
+      await expect.poll(() => vi.mocked(requestDependabotRebase).mock.calls.length).toBe(1);
+      expect(vi.mocked(requestDependabotRebase).mock.calls[0]).toEqual([REPO, 940]);
+      await expect.poll(() => primary().textContent).toBe(m.prspanel_rebase_requested());
+      expect(primary().getAttribute("aria-disabled")).toBe("true");
+      primary().click();
+      expect(vi.mocked(requestDependabotRebase).mock.calls.length).toBe(1);
+    });
+
+    it("goes back to the merge once Dependabot pushed a new head", async () => {
+      await failMerge(DEP);
+      await expect.poll(() => primary().textContent).toBe(m.prspanel_rebase_button());
+      upNext.snapshot = snapshot([{ ...DEP, headSha: "rebased" }]);
+      await expect.poll(() => primary().textContent).toBe(m.prspanel_merge_button());
+    });
+
+    it("keeps the merge when a later head fails again after the rebase was asked", async () => {
+      await failMerge(DEP);
+      await expect.poll(() => primary().textContent).toBe(m.prspanel_rebase_button());
+      primary().click();
+      await expect.poll(() => primary().textContent).toBe(m.prspanel_rebase_requested());
+      upNext.snapshot = snapshot([{ ...DEP, headSha: "rebased" }]);
+      await expect.poll(() => primary().textContent).toBe(m.prspanel_merge_button());
+      vi.mocked(mergeBacklogPr).mockRejectedValueOnce(new ApiError(409, "merge failed"));
+      primary().click();
+      await page.getByRole("button", { name: m.mergeconfirm_confirm() }).click();
+      await expect.poll(() => vi.mocked(mergeBacklogPr).mock.calls.length).toBe(2);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(primary().textContent).toBe(m.prspanel_merge_button());
+      expect(primary().getAttribute("aria-disabled")).toBeNull();
+    });
+
+    it("keeps the merge for a PR that is not Dependabot's", async () => {
+      await failMerge(PRS[0]!);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(primary().textContent).toBe(m.prspanel_merge_button());
+    });
   });
 
   it("hands + Review to the page's review path and ticks the PR for a merge train", async () => {

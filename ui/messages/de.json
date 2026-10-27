@@ -7512,5 +7512,9 @@
   "epicdetail_basis_blend_steps_one": "Je Teilschritt ~{step}: gemischt aus diesem Epic ({number} brauchte {dur}) und dem Median der Epic-Teilschritte des Repos der letzten 30 Tage ({count} Teilschritte).",
   "epicdetail_basis_blend_steps_other": "Je Teilschritt ~{step}: gemischt aus diesem Epic ({own} Teilschritte gemessen) und dem Median der Epic-Teilschritte des Repos der letzten 30 Tage ({count} Teilschritte).",
   "epicdetail_basis_repo_steps": "Je Teilschritt ~{step}: der Median der Epic-Teilschritte des Repos der letzten 30 Tage über {count} Teilschritte. Ab dem ersten Merge zählen die Teilschritte dieses Epics mit.",
-  "epicdetail_dur_window": "~{start}–{end} · Prognose"
+  "epicdetail_dur_window": "~{start}–{end} · Prognose",
+  "done_recap_archive_noop": "Geplanter Lauf: nichts zu tun",
+  "schedules_outcome_noop": "nichts zu tun",
+  "feat_schedule_noop_title": "Leere geplante Läufe schließen sich selbst",
+  "feat_schedule_noop_body": "Findet ein geplanter Lauf nichts zu tun (keine Änderungen, keine Fragen, keine Folgeaufgaben), schließt der Agent seine Sitzung selbst. Einstellungen → Zeitpläne zeigt den Lauf als „nichts zu tun“ mit der einzeiligen Zusammenfassung des Agenten – der nächste Lauf wird nicht blockiert und du wirst nicht benachrichtigt."
 }

@@ -121,6 +121,7 @@
     if (reason === "drain") return m.done_recap_archive_drain();
     if (reason === "relaunch") return m.done_recap_archive_relaunch();
     if (reason === "stale") return m.done_recap_archive_stale();
+    if (reason === "noop") return m.done_recap_archive_noop();
     return m.done_recap_archive_unknown();
   }
 

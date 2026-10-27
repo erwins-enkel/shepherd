@@ -1056,13 +1056,13 @@ const service = new SessionService({
   // Best-effort pre-teardown recap: generate a durable recap while the worktree still
   // exists (the generator reads it to build its prompt). Bounded + swallowed inside
   // archive() so it can never block teardown / the merge train.
-  beforeArchive: (s) => {
+  beforeArchive: (s, reason) => {
     codexCapacity.forget(s.id);
     capacityRollouts.reset(s.id);
     store.setSetting(`codexCapacityResume:${s.id}`, "");
-    return Promise.all([recapService.considerForArchive(s), snapshotSessionUsage(s, store)]).then(
-      () => {},
-    );
+    // A scheduled no-op run's paper trail is its run-history summary (#3469): no recap spawn.
+    const recap = reason === "noop" ? null : recapService.considerForArchive(s);
+    return Promise.all([recap, snapshotSessionUsage(s, store)]).then(() => {});
   },
   telemetry,
 });

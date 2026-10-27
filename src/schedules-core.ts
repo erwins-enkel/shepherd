@@ -72,7 +72,7 @@ export interface Schedule {
 }
 
 export type ScheduleOutcome =
-  "claimed" | "spawned" | "held" | "skipped:overlap" | "skipped:stale" | "error";
+  "claimed" | "spawned" | "held" | "skipped:overlap" | "skipped:stale" | "error" | "noop";
 
 export interface ScheduleRun {
   id: number;

@@ -16,7 +16,7 @@ export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived"
  *  a daemon-restart strand (e.g. a normal Codex between-turns exit at its own pane). `stranded` = a
  *  herdr-restored husk (the daemon restarted and re-created the pane; the agent needs reviving). */
 export type LivenessState = "alive" | "husk" | "stranded";
-export type SessionArchiveReason = "operator" | "merged" | "drain" | "relaunch" | "stale";
+export type SessionArchiveReason = "operator" | "merged" | "drain" | "relaunch" | "stale" | "noop";
 export const AGENT_PROVIDERS = ["claude", "codex"] as const;
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 

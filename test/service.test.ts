@@ -3114,6 +3114,29 @@ test("archive awaits beforeArchive BEFORE removing the worktree (recap reads it 
   expect(store.get(s.id)?.status).toBe("archived");
 });
 
+test("archive passes its reason to beforeArchive (a no-op archive skips the recap)", async () => {
+  const store = new SessionStore(":memory:");
+  const reasons: string[] = [];
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}),
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      remove: () => {},
+    } as any,
+    herdr: { start: async () => ({}), listAsync: async () => [], stop: async () => {} } as any,
+    beforeArchive: async (_s, reason) => {
+      reasons.push(reason);
+    },
+  });
+  const s = archivableSession(store);
+  await service.archive(s.id, undefined, "noop");
+  expect(reasons).toEqual(["noop"]);
+  expect(store.get(s.id)?.archiveReason).toBe("noop");
+});
+
 test("archive: a rejecting beforeArchive never blocks teardown (worktree still removed)", async () => {
   const store = new SessionStore(":memory:");
   const removed: string[] = [];
@@ -5530,6 +5553,36 @@ test("composeSystemPrompt rides <github-rate-limit-notice> after research-first 
     expect(names).not.toContain("github-rate-limit-notice");
     expect(names).not.toContain("ci-wait-notice");
   }
+});
+
+test("<scheduled-run-notice> rides only scheduled, non-plain Claude spawns (#3469)", () => {
+  const names = (opts: Parameters<typeof composeSystemPromptBlocks>[1]) =>
+    composeSystemPromptBlocks(false, opts).map((b) => b.name);
+  const notice = composeSystemPromptBlocks(false, { scheduled: true }).find(
+    (b) => b.name === "scheduled-run-notice",
+  );
+  expect(notice?.text).toContain("`schedule_noop`");
+  expect(notice?.text).toContain("ToolSearch");
+  for (const opts of [
+    {},
+    { scheduled: false },
+    { scheduled: true, plain: true },
+    { scheduled: true, agentProvider: "codex" as const },
+  ])
+    expect(names(opts)).not.toContain("scheduled-run-notice");
+  // Unscheduled spawns are byte-identical to before.
+  expect(composeSystemPrompt(true, { scheduled: false })).toBe(composeSystemPrompt(true, {}));
+  // Operator language still rides last.
+  const de = names({ scheduled: true, operatorLanguage: "de" });
+  expect(de.at(-1)).toBe("operator-language");
+});
+
+test("resume carries <scheduled-run-notice> only for a scheduled session", async () => {
+  const store = new SessionStore(":memory:");
+  const scheduled = resumable(store, { scheduleId: "sch-1" });
+  const manual = resumable(store);
+  expect(sysPrompt(await resumeArgv(store, scheduled.id))).toContain("<scheduled-run-notice>");
+  expect(sysPrompt(await resumeArgv(store, manual.id))).not.toContain("<scheduled-run-notice>");
 });
 
 test("composeSystemPrompt rides the single-PR invariant on code spawns, never on research", () => {

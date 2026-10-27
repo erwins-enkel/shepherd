@@ -233,6 +233,7 @@ import {
 } from "./github-access";
 import { resolveDefaultBranch, fastForwardDefaultBranch } from "./pull";
 import { nextSlot, validateScheduleInput, type Schedule } from "./schedules-core";
+import { hasLocalWork } from "./schedule-noop";
 import { analyzeReadiness } from "./readiness";
 import { applyForgeCheck, ForgeCheckNotApplicableError, forgeReadiness } from "./readiness-forge";
 import type { GreenfieldService } from "./greenfield";
@@ -311,6 +312,7 @@ import type {
   IssueRef,
   RelaunchOverrides,
   PlanGate,
+  SessionArchiveReason,
 } from "./types";
 import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
@@ -5515,18 +5517,32 @@ async function handleSessionDelete({ req, parts, deps }: Ctx): Promise<Response 
   const reap = Array.isArray(body?.reap)
     ? (body!.reap as unknown[]).filter((x): x is string => typeof x === "string")
     : undefined;
+  await archiveAndAnnounce(deps, parts[2], reap);
+  return json({ ok: true });
+}
+
+/** Archive a session and fan the teardown out: drop its PR-cache entry and emit
+ *  `session:archived`, which the UI and every live-session consumer listen for. Shared by the
+ *  operator's archive route and a scheduled run closing itself as a no-op. Throws (after logging)
+ *  when the archive fails, without the fan-out. */
+async function archiveAndAnnounce(
+  deps: Pick<AppDeps, "service" | "prCache" | "events">,
+  id: string,
+  reap?: string[],
+  reason?: SessionArchiveReason,
+): Promise<void> {
   try {
-    await deps.service.archive(parts[2], reap);
+    // Omit an absent reason so the service applies its own default.
+    await (reason ? deps.service.archive(id, reap, reason) : deps.service.archive(id, reap));
   } catch (err) {
     // The dispatch seam still answers the JSON 500; this line is what survives the toast.
     console.warn(
-      `[archive] session ${parts[2]} failed: ${err instanceof Error ? err.message : String(err)}`,
+      `[archive] session ${id} failed: ${err instanceof Error ? err.message : String(err)}`,
     );
     throw err;
   }
-  deps.prCache?.drop(parts[2]);
-  deps.events.emit("session:archived", { id: parts[2] });
-  return json({ ok: true });
+  deps.prCache?.drop(id);
+  deps.events.emit("session:archived", { id });
 }
 
 // POST /api/sessions/:id/reply — steer a running session.
@@ -6492,6 +6508,8 @@ async function finalizeRelaunch(
   // isolates teardown failures (unlike a bare archive(id)).
   const { cleared } = await deps.service.archiveMany([id], "relaunch");
   const archived = cleared.includes(id);
+  // #3469: the replacement is that schedule's run now, so `schedule_noop` can find its row.
+  if (archived && fresh.scheduleId) deps.store.repointScheduleRun(id, fresh.id);
   if (archived) {
     // Retain the original's claim ONLY when the replacement actually carries the issue
     // (issueRef truthy): then the new session owns ACTIVE_LABEL, so a relaunch isn't a
@@ -7121,6 +7139,10 @@ function mcpDeps(deps: AppDeps): AgentControlDeps {
     operatorDiag: operatorDiagDeps(deps),
     operatorActions: operatorActionDeps(deps),
     sessionPhase: (s) => sessionPhases(deps).phaseOf(s),
+    scheduleNoop: {
+      hasLocalWork,
+      archive: (id) => archiveAndAnnounce(deps, id, undefined, "noop"),
+    },
     ...(browser && {
       openLoginTab: async (repoPath: string, url: string, sessionId: string) => {
         await browser.open(repoPath, url, { sessionId });

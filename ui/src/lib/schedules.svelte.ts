@@ -136,6 +136,8 @@ export function outcomeLabel(outcome: ScheduleOutcome): string {
       return m.schedules_outcome_stale();
     case "error":
       return m.schedules_outcome_error();
+    case "noop":
+      return m.schedules_outcome_noop();
   }
 }
 

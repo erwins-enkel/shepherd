@@ -480,7 +480,8 @@ function parseArchiveReason(raw: string | null | undefined): SessionArchiveReaso
     raw === "merged" ||
     raw === "drain" ||
     raw === "relaunch" ||
-    raw === "stale"
+    raw === "stale" ||
+    raw === "noop"
     ? raw
     : null;
 }
@@ -7906,6 +7907,38 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
        WHERE scheduleId = ? AND slotKey = ?`,
       [outcome, extra.sessionId ?? null, extra.reason ?? null, scheduleId, slotKey],
     );
+  }
+
+  /**
+   * Record that a scheduled session's run turned out to be a no-op, with the agent's summary as
+   * the reason. Targets the run this session owns (`spawned`, or already `noop` on a repeat call).
+   * A run that was held and released later carries no sessionId, so the fallback is the schedule's
+   * LATEST firing (overlap/stale skips aside) — only while that firing is still an unowned `held`
+   * row, never an older one. Returns false when no row matched; the caller must not close then.
+   */
+  markScheduleRunNoop(sessionId: string, scheduleId: string, summary: string): boolean {
+    const bySession = this.db.run(
+      `UPDATE schedule_runs SET outcome = 'noop', reason = ?
+       WHERE scheduleId = ? AND sessionId = ? AND outcome IN ('spawned', 'noop')`,
+      [summary, scheduleId, sessionId],
+    );
+    if (bySession.changes > 0) return true;
+    const held = this.db.run(
+      `UPDATE schedule_runs SET outcome = 'noop', reason = ?, sessionId = ?
+       WHERE id = (SELECT id FROM schedule_runs WHERE scheduleId = ?
+                   AND outcome NOT LIKE 'skipped:%' ORDER BY at DESC, id DESC LIMIT 1)
+         AND outcome = 'held' AND sessionId IS NULL`,
+      [summary, sessionId, scheduleId],
+    );
+    return held.changes > 0;
+  }
+
+  /** A relaunch replaced `fromSessionId` with `toSessionId`: its schedule run follows. */
+  repointScheduleRun(fromSessionId: string, toSessionId: string): void {
+    this.db.run(`UPDATE schedule_runs SET sessionId = ? WHERE sessionId = ?`, [
+      toSessionId,
+      fromSessionId,
+    ]);
   }
 
   getScheduleRun(scheduleId: string, slotKey: string): ScheduleRun | null {

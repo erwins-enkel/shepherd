@@ -104,7 +104,19 @@ export interface AgentControlDeps {
   actionWaitMs?: number;
   /** The session's derived phase (#2586); absent ⇒ the read tools report `phase: null`. */
   sessionPhase?: (s: Session) => Promise<SessionPhase>;
+  /** `schedule_noop`'s side effects; absent ⇒ the tool answers "unavailable". */
+  scheduleNoop?: ScheduleNoopDeps;
 }
+
+/** What closing a no-op scheduled run needs beyond the store: the local-work guard and the full
+ *  archive (with its PR-cache drop and `session:archived` fan-out). */
+export interface ScheduleNoopDeps {
+  hasLocalWork(s: Session): Promise<boolean>;
+  archive(id: string): Promise<void>;
+}
+
+/** Longest `schedule_noop` summary — one line for the run history. */
+const NOOP_SUMMARY_MAX = 300;
 
 /** Transport-neutral outcome of an applier: the REST route renders it as a Response, the MCP
  *  tool renders it as a tool result. `matches` rides only the ambiguous-step-id 409. */
@@ -304,6 +316,49 @@ export function githubBudget(b: GithubBackoff, now: number) {
     restRead: { pausedUntil: isoOrNull(pausedUntil(restRead)) },
     restWrite: { pausedUntil: isoOrNull(pausedUntil(restWrite)) },
   };
+}
+
+/**
+ * `schedule_noop`: a scheduled session declares its run a no-op. Refused (the model reads why)
+ * whenever closing could lose work — a dirty tree, commits beyond the base, or a PR. Otherwise the
+ * summary is written into the schedule's run history (the paper trail) and the session is archived
+ * on the next tick, so this result still reaches the agent before it is stopped.
+ */
+async function applyScheduleNoop(
+  deps: AgentControlDeps,
+  sessionId: string,
+  args: Record<string, unknown>,
+): Promise<ApplyResult<unknown>> {
+  const summary = typeof args.summary === "string" ? args.summary.trim() : "";
+  if (!summary || summary.length > NOOP_SUMMARY_MAX)
+    return { ok: false, status: 400, error: `summary must be 1–${NOOP_SUMMARY_MAX} chars` };
+  const s = deps.store.get(sessionId);
+  if (!s) return { ok: false, status: 404, error: "session not found" };
+  if (!s.scheduleId) return { ok: false, status: 409, error: "not a scheduled session" };
+  const noop = deps.scheduleNoop;
+  if (!noop) return { ok: false, status: 503, error: "unavailable" };
+  const pr = deps.prCache?.get(sessionId);
+  if (pr && pr.state !== "none")
+    return { ok: false, status: 409, error: "this session has a PR — not a no-op" };
+  if (await noop.hasLocalWork(s))
+    return {
+      ok: false,
+      status: 409,
+      error: "uncommitted changes or commits beyond the base branch — not a no-op",
+    };
+  if (!deps.store.markScheduleRunNoop(sessionId, s.scheduleId, summary))
+    return {
+      ok: false,
+      status: 409,
+      error: "no schedule run found for this session — leaving it open for the operator",
+    };
+  deps.events?.emit("schedules:changed", { repoPath: s.repoPath });
+  setTimeout(() => {
+    noop.archive(sessionId).catch((err: unknown) => {
+      console.warn(`[schedules] no-op archive of ${sessionId} failed: ${String(err)}`);
+    });
+  }, 0);
+  return { ok: true, data: { status: "closing" } };
 }
 
 function applySelfStatus(deps: AgentControlDeps, sessionId: string): ApplyResult<unknown> {
@@ -595,6 +650,27 @@ const BROWSER_REQUEST_LOGIN: McpTool = {
   },
 };
 
+const SCHEDULE_NOOP: McpTool = {
+  name: "schedule_noop",
+  description:
+    "Close this scheduled run as a no-op. Call it only when the scheduled work turned up nothing " +
+    "for the operator: no file changes, no PR, issue or comment created, no questions, no " +
+    "follow-ups. Shepherd records `summary` in the schedule's run history and closes this " +
+    "session. Refused when the worktree is dirty, has commits beyond the base, or has a PR.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      summary: {
+        type: "string",
+        maxLength: NOOP_SUMMARY_MAX,
+        description: 'One line: what you checked and found, e.g. "0 open feedback items".',
+      },
+    },
+    required: ["summary"],
+    additionalProperties: false,
+  },
+};
+
 /** What a session is allowed to drive. Kept separate from the session ROW because the spawn path
  *  needs the answer before the row exists (`create` pre-generates the id), while the request path
  *  reads it back off the row. */
@@ -611,6 +687,8 @@ export interface AgentCapabilities {
   /** The Operator Assistant's action tools (steer, session control, approve and merge,
    *  automation) — that session only. No herd agent ever gets an approve or merge tool. */
   operatorActions: boolean;
+  /** `schedule_noop` — a non-plain session a schedule fired (#3469). */
+  scheduleNoop: boolean;
 }
 
 /** An unknown session's capabilities: none. */
@@ -621,6 +699,7 @@ const NO_CAPABILITIES: AgentCapabilities = {
   browserLogin: false,
   operatorDiag: false,
   operatorActions: false,
+  scheduleNoop: false,
 };
 
 /** The Operator Assistant's capabilities: its diagnostic and action tools and nothing else — no
@@ -662,6 +741,7 @@ function toolsFor(caps: AgentCapabilities): McpTool[] {
   if (caps.epicDraft) tools.push(EPIC_DRAFT);
   if (caps.sessionRead) tools.push(SESSIONS_LIST, SESSIONS_SHOW, SELF_STATUS);
   if (caps.browserLogin) tools.push(BROWSER_REQUEST_LOGIN);
+  if (caps.scheduleNoop) tools.push(SCHEDULE_NOOP);
   if (caps.operatorDiag) tools.push(...OPERATOR_DIAG_TOOLS);
   if (caps.operatorActions) tools.push(...OPERATOR_ACTION_TOOLS);
   return tools;
@@ -701,6 +781,7 @@ export function sessionCapabilities(deps: AgentControlDeps, sessionId: string): 
     ),
     operatorDiag: false,
     operatorActions: false,
+    scheduleNoop: Boolean(session.scheduleId) && !session.plain,
   };
 }
 
@@ -789,6 +870,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   self_status: (deps, id) => applySelfStatus(deps, id),
   browser_request_login: (deps, id, args, signal) =>
     applyBrowserRequestLogin(deps, id, args, signal),
+  schedule_noop: (deps, id, args) => applyScheduleNoop(deps, id, args),
   herd_status: (deps, id, args) => applyHerdStatus(deps, args, assistantScope(deps, id)),
   repo_automation: (deps, id, args) => applyRepoAutomation(deps, args, assistantScope(deps, id)),
   system_health: (deps) => applySystemHealth(deps),

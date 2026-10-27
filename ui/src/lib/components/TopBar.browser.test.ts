@@ -3565,10 +3565,11 @@ describe("TopBar — async diagnostics arrival re-measures the fold tier", () =>
   }
 
   it("diagnostics flipping to warning after mount folds like a fresh render", async () => {
-    // Find a width where the pip alone tips the compact bar into the fold tier.
+    // Find a width where the pip alone tips the compact bar into the fold tier. "warning" is
+    // probed first: above the window it never folds, so most widths cost one render, not two.
     let width = 0;
     for (let w = 1100; w >= 780 && !width; w -= 10) {
-      if (!(await foldedAt(w, "ok")) && (await foldedAt(w, "warning"))) width = w;
+      if ((await foldedAt(w, "warning")) && !(await foldedAt(w, "ok"))) width = w;
     }
     expect(width, "found a width where the pip alone triggers the fold").toBeGreaterThan(0);
 
@@ -3586,7 +3587,8 @@ describe("TopBar — async diagnostics arrival re-measures the fold tier", () =>
     );
     assertNoOverflow(hud);
     assertControlsHittable(hud);
-  });
+    // The width search renders the bar dozens of times; give it room on a loaded runner.
+  }, 30_000);
 });
 
 describe("TopBar — Operator Assistant entry points", () => {

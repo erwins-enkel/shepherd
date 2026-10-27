@@ -1676,6 +1676,30 @@ test("landingRepair + finished verdict with empty summary → COMPLETE_MESSAGE f
   expect(ev.summary).toContain("task complete");
 });
 
+test("landingRepair + complete verdict, no diff, no PR → markComplete, no empty-completion steer", async () => {
+  // The repair pushes HEAD to the integration branch (its base), so diff-vs-base is empty by
+  // design — the empty-completion gate must not steer it to open a PR.
+  const h = harness({
+    session: sess({ landingRepair: true, auto: true, status: "done" }),
+    verdict: { kind: "complete", summary: "Conflicts resolved and pushed." },
+    repoEnabled: true,
+    openPr: false,
+    hasDiff: false,
+  });
+  let hasDiffCalled = false;
+  (h.svc as any).deps.hasDiff = async () => {
+    hasDiffCalled = true;
+    return false;
+  };
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.events).toContainEqual({ complete: "s1", summary: "Conflicts resolved and pushed." });
+  expect(h.state().autopilotComplete).toBe(true);
+  expect(h.state().autopilotPaused).toBe(false);
+  expect(h.state().completionRepromptCount).toBe(0);
+  expect(hasDiffCalled).toBe(false);
+});
+
 // Negative control: guard must not bleed into normal (non-repair) sessions
 test("non-landingRepair + finished + PR already open → early-return (no steer, no markComplete)", async () => {
   const h = harness({

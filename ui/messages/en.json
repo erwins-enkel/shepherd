@@ -3856,6 +3856,10 @@
   "newtask_shape_label": "Shape",
   "newtask_shape_aria": "Shape this task with a clarifying round",
   "newtask_shape_hint": "Ask a few clarifying questions first, then start from a structured brief",
+  "newtask_epic_next_label": "Next epic",
+  "newtask_epic_next_aria": "Fill in a prompt to draft the next epic from the PRD",
+  "newtask_epic_next_hint": "Start from a prompt that drafts the next epic from the PRD and closes gaps earlier epics left",
+  "newtask_epic_next_prompt": "Draft the next epic from the PRD. Find the PRD first (`docs/prd/`, `docs/prd.md` or `PRD.md`) and ask me if there is none. Compare it with what already shipped — earlier epics, their child issues and merged PRs, and the code itself — and shape the next PRD scope that isn't built yet into this epic. Also close the gaps earlier epics left behind (acceptance criteria not met, children dropped or deferred, follow-ups noted but never filed) and add them as children of this epic.",
   "shape_heading": "Shaping this task",
   "shape_running": "Reading the repo and drafting questions…",
   "shape_questions_count": "{count} to settle",
@@ -7435,5 +7439,7 @@
   "commandbar_cmd_unshelve": "Unshelve {desig}",
   "commandbar_cmd_shelve_kw": "shelve unshelve park hide stash snooze later quiet mute declutter",
   "feat_shelve_sessions_title": "Shelve sessions",
-  "feat_shelve_sessions_body": "Right-click a session (or use the command bar) and choose Shelve to get it out of the way without decommissioning it. It moves to a folded Shelved group at the bottom of the list and its agent keeps running, but Shepherd stops steering, reviewing, merging and notifying you about it until you unshelve it."
+  "feat_shelve_sessions_body": "Right-click a session (or use the command bar) and choose Shelve to get it out of the way without decommissioning it. It moves to a folded Shelved group at the bottom of the list and its agent keeps running, but Shepherd stops steering, reviewing, merging and notifying you about it until you unshelve it.",
+  "feat_epic_next_prompt_title": "Draft the next epic from your PRD",
+  "feat_epic_next_prompt_body": "In New Task's Epic mode, click Next epic to fill in a prompt that drafts the next epic from the repo's PRD and folds in the gaps earlier epics left behind. Edit it before you start, or ignore it."
 }

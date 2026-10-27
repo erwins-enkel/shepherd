@@ -3856,6 +3856,10 @@
   "newtask_shape_label": "Schärfen",
   "newtask_shape_aria": "Diese Aufgabe mit einer Rückfragerunde schärfen",
   "newtask_shape_hint": "Erst ein paar Rückfragen klären, dann mit einem strukturierten Briefing starten",
+  "newtask_epic_next_label": "Nächstes Epic",
+  "newtask_epic_next_aria": "Prompt einfügen, der das nächste Epic aus dem PRD entwirft",
+  "newtask_epic_next_hint": "Mit einem Prompt starten, der das nächste Epic aus dem PRD entwirft und Lücken früherer Epics schließt",
+  "newtask_epic_next_prompt": "Entwirf das nächste Epic aus dem PRD. Finde zuerst das PRD (`docs/prd/`, `docs/prd.md` oder `PRD.md`) und frag mich, falls es keins gibt. Vergleiche es mit dem, was bereits ausgeliefert ist — frühere Epics, ihre Child-Issues und gemergten PRs sowie der Code selbst — und forme den nächsten noch nicht gebauten Umfang des PRD zu diesem Epic. Schließe außerdem die Lücken, die frühere Epics hinterlassen haben (nicht erfüllte Akzeptanzkriterien, verworfene oder verschobene Children, notierte, aber nie angelegte Follow-ups), und nimm sie als Children in dieses Epic auf.",
   "shape_heading": "Aufgabe schärfen",
   "shape_running": "Repository wird gelesen, Fragen werden entworfen…",
   "shape_questions_count": "{count} zu klären",
@@ -7435,5 +7439,7 @@
   "commandbar_cmd_unshelve": "{desig} wieder aufnehmen",
   "commandbar_cmd_shelve_kw": "zurückstellen wieder aufnehmen parken ausblenden später ruhig stumm aufräumen shelve unshelve",
   "feat_shelve_sessions_title": "Sessions zurückstellen",
-  "feat_shelve_sessions_body": "Rechtsklick auf eine Session (oder die Befehlsleiste) und „Zurückstellen“ wählen, um sie aus dem Weg zu räumen, ohne sie stillzulegen. Sie wandert in eine eingeklappte Gruppe „Zurückgestellt“ am Ende der Liste und ihr Agent läuft weiter – aber Shepherd steuert, reviewt, mergt und benachrichtigt dich dazu nicht mehr, bis du sie wieder aufnimmst."
+  "feat_shelve_sessions_body": "Rechtsklick auf eine Session (oder die Befehlsleiste) und „Zurückstellen“ wählen, um sie aus dem Weg zu räumen, ohne sie stillzulegen. Sie wandert in eine eingeklappte Gruppe „Zurückgestellt“ am Ende der Liste und ihr Agent läuft weiter – aber Shepherd steuert, reviewt, mergt und benachrichtigt dich dazu nicht mehr, bis du sie wieder aufnimmst.",
+  "feat_epic_next_prompt_title": "Das nächste Epic aus deinem PRD entwerfen",
+  "feat_epic_next_prompt_body": "Im Epic-Modus von „Neue Aufgabe“ fügt „Nächstes Epic“ einen Prompt ein, der das nächste Epic aus dem PRD des Repos entwirft und die Lücken früherer Epics mit aufnimmt. Vor dem Start bearbeiten oder ignorieren."
 }

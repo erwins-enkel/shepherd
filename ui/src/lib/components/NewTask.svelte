@@ -1636,7 +1636,15 @@
   }
 
   function appendSteerText(steer: Steer) {
-    const t = steer.text;
+    appendPromptText(steer.text);
+  }
+
+  // Epic mode's optional default prompt: draft the next epic from the PRD, closing gaps earlier
+  // epics left. Inserted as editable text; offered once per prompt (no double insert).
+  const epicNextPrompt = $derived(m.newtask_epic_next_prompt());
+  const epicNextInserted = $derived(prompt.includes(epicNextPrompt));
+
+  function appendPromptText(t: string) {
     prompt = prompt.trim() ? `${prompt}\n${t}` : t;
     queueMicrotask(() => {
       autogrow();
@@ -2718,6 +2726,34 @@
                       </svg>
                     {/if}
                     <span class="tool-label">{m.newtask_shape_label()}</span>
+                  </button>
+                {/if}
+                <!-- Epic mode's optional default prompt. Icon-only on mobile: the toolbar's
+                     375px budget is one labelled control (see Shape above). -->
+                {#if mode === "epic"}
+                  <button
+                    type="button"
+                    class="tool-btn"
+                    use:coachTarget={"nt-epic-next"}
+                    aria-label={m.newtask_epic_next_aria()}
+                    title={m.newtask_epic_next_hint()}
+                    onclick={() => appendPromptText(epicNextPrompt)}
+                    disabled={epicNextInserted}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M5 12h14M13 6l6 6-6 6" />
+                    </svg>
+                    {#if !mobile}
+                      <span class="tool-label">{m.newtask_epic_next_label()}</span>
+                    {/if}
                   </button>
                 {/if}
                 <span class="mic-slot">

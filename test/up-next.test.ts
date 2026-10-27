@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { UpNextService, startSerially, buildUpNextRepos, type UpNextDeps } from "../src/up-next";
 import { listRepos } from "../src/repos";
 import type { Epic, EpicRun } from "../src/epic-core";
-import type { GitForge, Issue, OpenPrSnapshot, PullRequest } from "../src/forge/types";
+import type { GitForge, Issue, OpenPrSnapshot, PrStatus, PullRequest } from "../src/forge/types";
+import { graphRateLimit } from "../src/forge/rate-limit";
+import { OpenPrSnapshotService } from "../src/open-pr-snapshot";
 import { DEFAULT_ISSUE_FILTER, type IssueFilterSettings } from "../src/issue-filter";
 
 function issue(number: number, over: Partial<Issue> = {}): Issue {
@@ -1094,5 +1096,136 @@ describe("UpNextService pull requests", () => {
     s.refilter();
     expect(reads).toBe(1);
     expect(s.snapshot()!.pullRequests!.map((p) => p.number)).toEqual([10]);
+  });
+
+  /** A real snapshot service over a forge whose listing holds #911 with unknown mergeability and
+   *  whose single-PR reads hand out `live` in turn (the last one repeats). */
+  function syncSetup(live: Array<PullRequest | null>) {
+    const snapshots = new OpenPrSnapshotService(
+      () => 0,
+      6,
+      undefined,
+      () => {},
+    );
+    const unknown = openPr(911, {
+      mergeable: null,
+      mergeStateStatus: "unknown",
+      headPushable: true,
+    });
+    let reads = 0;
+    const forge = prForge({
+      slug: "o/a",
+      listOpenPrSnapshot: async () => snapshotOf([unknown]),
+      openPullRequest: async () => {
+        const pr = live[Math.min(reads++, live.length - 1)]!;
+        return (
+          pr && {
+            pr,
+            status: {
+              state: "open",
+              number: pr.number,
+              checks: pr.checks,
+              deployConfigured: false,
+            },
+          }
+        );
+      },
+    });
+    const published: number[] = [];
+    const s = svc({
+      resolveForge: () => forge,
+      openPrSnapshot: snapshots,
+      hasNoCi: () => false,
+      syncRetryDelaysMs: [0, 0],
+      onChange: () => published.push(1),
+    });
+    snapshots.onUpdate((slug) => void s.prsUpdated(slug));
+    return { s, snapshots, forge, reads: () => reads, published };
+  }
+  const conflicting = openPr(911, {
+    mergeable: false,
+    mergeStateStatus: "dirty",
+    headPushable: true,
+  });
+  const liveStatus: PrStatus = {
+    state: "open",
+    number: 911,
+    checks: "success",
+    deployConfigured: false,
+  };
+
+  test("syncPr retries an unsettled read, patches the snapshot and republishes the PR's row", async () => {
+    const { s, snapshots, forge, reads } = syncSetup([
+      openPr(911, { mergeable: null, mergeStateStatus: "unknown", headPushable: true }),
+      conflicting,
+    ]);
+    const before = (await s.refresh()).pullRequests![0]!;
+    expect([before.band, before.action]).toEqual(["ready", null]);
+    expect(await s.syncPr("/r/a", 911)).toBe(true);
+    expect(reads()).toBe(2);
+    expect(snapshots.peek(forge)!.prs[0]!.mergeable).toBe(false);
+    const after = s.snapshot()!.pullRequests![0]!;
+    expect([after.band, after.action, after.blockReason]).toEqual(["blocked", "fix", "conflict"]);
+  });
+
+  test("syncPr drops a PR that is no longer open", async () => {
+    const { s } = syncSetup([null]);
+    await s.refresh();
+    expect(await s.syncPr("/r/a", 911)).toBe(true);
+    expect(s.snapshot()!.pullRequests).toEqual([]);
+  });
+
+  test("syncPr is unavailable without a single-PR read or while GraphQL is limited", async () => {
+    const { s } = syncSetup([conflicting]);
+    await s.refresh();
+    graphRateLimit.noteLimitError(60);
+    try {
+      expect(await s.syncPr("/r/a", 911)).toBe(false);
+    } finally {
+      graphRateLimit.noteSuccess();
+    }
+    const plain = svc({ resolveForge: () => prForge(), openPrSnapshot: { get: async () => null } });
+    expect(await plain.syncPr("/r/a", 911)).toBe(false);
+  });
+
+  test("prsUpdated rebuilds only when the repo's rows changed", async () => {
+    const { s, snapshots, forge, published } = syncSetup([conflicting]);
+    await s.refresh();
+    const count = published.length;
+    await s.prsUpdated("o/a"); // nothing changed
+    await s.prsUpdated("o/other");
+    expect(published.length).toBe(count);
+    snapshots.patchPr(forge, 911, { pr: conflicting, status: liveStatus });
+    await s.prsUpdated("o/a");
+    expect(published.length).toBe(count + 1);
+    expect(s.snapshot()!.pullRequests![0]!.band).toBe("blocked");
+  });
+
+  test("prsUpdated applies after an in-flight compute that read the old rows", async () => {
+    const { snapshots, forge } = syncSetup([conflicting]);
+    let gate = Promise.resolve();
+    const s = svc({
+      resolveForge: () => forge,
+      hasNoCi: () => false,
+      openPrSnapshot: {
+        get: async (f, o) => {
+          const snap = await snapshots.get(f, o);
+          await gate;
+          return snap;
+        },
+        peek: (f) => snapshots.peek(f),
+      },
+    });
+    await s.refresh();
+    let release!: () => void;
+    gate = new Promise((r) => (release = r));
+    const computing = s.refresh(); // reads the unknown row, then stalls
+    await new Promise((r) => setTimeout(r, 0));
+    snapshots.patchPr(forge, 911, { pr: conflicting, status: liveStatus });
+    const update = s.prsUpdated("o/a");
+    release();
+    await computing;
+    await update;
+    expect(s.snapshot()!.pullRequests![0]!.band).toBe("blocked");
   });
 });

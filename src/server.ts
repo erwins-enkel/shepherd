@@ -898,6 +898,9 @@ export interface AppDeps {
     hiddenRepoPathsRaw(): Set<string>;
     /** Re-apply the issue filter to the cached input, without a forge refetch (#3017). */
     refilter(): void;
+    /** Re-read one PR live and republish (the PR preview's sync). False when the repo can't read
+     *  single PRs right now; a failing read rejects. */
+    syncPr?(repoPath: string, number: number): Promise<boolean>;
   };
   /** Verify the configured api-key authenticates end-to-end (the /settings/verify-key route);
    *  absent in environments where it isn't wired. Returns only {ok,reason?,detail?} — no key/path. */
@@ -2486,10 +2489,34 @@ async function handleUpNextPrFix(req: Request, deps: AppDeps): Promise<Response>
   }
 }
 
-/** The Up Next PR routes: the PR preview's body read and the fix action. */
+/** POST /api/up-next/pr-sync — re-read one waiting PR live from the forge as its preview opens,
+ *  so the operator acts on its current state, and answer with its republished row (null: it no
+ *  longer waits on the operator). */
+async function handleUpNextPrSync(req: Request, deps: AppDeps): Promise<Response> {
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
+  const dir = typeof body.repo === "string" ? safeRepoDir(body.repo, config.repoRoot) : null;
+  const { number } = body;
+  if (!dir || !Number.isSafeInteger(number) || (number as number) <= 0)
+    return json({ error: "repo and a positive pull request number are required" }, 400);
+  if (!deps.upNext?.syncPr) return json({ error: "up-next unavailable" }, 503);
+  try {
+    if (!(await deps.upNext.syncPr(dir, number as number)))
+      return json({ error: "pull request reads unavailable for repo" }, 503);
+  } catch {
+    return json({ error: "pull request read failed" }, 502);
+  }
+  const pr = (deps.upNext.snapshot()?.pullRequests ?? []).find(
+    (p) => p.number === number && safeRepoDir(p.repoPath, config.repoRoot) === dir,
+  );
+  return json({ pr: pr ?? null });
+}
+
+/** The Up Next PR routes: the PR preview's body read and live sync, and the fix action. */
 async function handleUpNextPrs({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "up-next" || parts[3]) return null;
   if (req.method === "GET" && parts[2] === "pr-body") return handleUpNextPrBody(url, deps);
+  if (req.method === "POST" && parts[2] === "pr-sync") return handleUpNextPrSync(req, deps);
   if (req.method === "POST" && parts[2] === "pr-fix") return handleUpNextPrFix(req, deps);
   return null;
 }

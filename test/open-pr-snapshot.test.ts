@@ -4,7 +4,7 @@
  * Uses a fake GitForge-shaped object with a controllable clock seam.
  */
 import { test, expect } from "bun:test";
-import { OpenPrSnapshotService, SNAPSHOT_TTL_MS } from "../src/open-pr-snapshot";
+import { OpenPrSnapshotService, SETTLE_DELAYS_MS, SNAPSHOT_TTL_MS } from "../src/open-pr-snapshot";
 import { graphRateLimit } from "../src/forge/rate-limit";
 import { withGhCaller } from "../src/forge/gh-caller";
 import { GithubReadCache } from "../src/github-read-cache";
@@ -624,4 +624,156 @@ test("noteHeadRead: a disagreeing head read marks the snapshot stale until a lat
   now = 20;
   await svc.refresh(forge);
   expect(svc.isStale(forge)).toBe(false);
+});
+
+// ── mergeability settle + patchPr + onUpdate ───────────────────────────────
+
+/** A forge whose listings hand out `mergeable` from `seq` (last value repeats), PR #1 head `h1`. */
+function settleForge(seq: Array<boolean | null>, source?: OpenPrSnapshot["source"]) {
+  const forge = makeForge();
+  let i = 0;
+  (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = async () => {
+    const snap = makeSnapshot(1, source);
+    const mergeable = seq[Math.min(i++, seq.length - 1)]!;
+    return { ...snap, prs: [{ ...snap.prs[0]!, mergeable, headSha: "h1" }] };
+  };
+  return { forge, fetches: () => i };
+}
+
+/** A scheduler that queues timers for the test to fire. */
+function fakeTimers() {
+  const queued: Array<{ fn: () => void; ms: number }> = [];
+  return {
+    schedule: (fn: () => void, ms: number) => void queued.push({ fn, ms }),
+    queued,
+    async fire() {
+      const t = queued.shift()!;
+      t.fn();
+      await new Promise((r) => setTimeout(r, 0));
+      return t.ms;
+    },
+  };
+}
+
+test("settle: a snapshot holding unknown mergeability re-reads after SETTLE_DELAYS_MS", async () => {
+  const timers = fakeTimers();
+  const svc = new OpenPrSnapshotService(() => 0, 6, undefined, timers.schedule);
+  const { forge, fetches } = settleForge([null, false]);
+  await svc.get(forge);
+  expect(timers.queued.map((t) => t.ms)).toEqual([SETTLE_DELAYS_MS[0]!]);
+  await timers.fire();
+  expect(fetches()).toBe(2);
+  expect(svc.peek(forge)!.prs[0]!.mergeable).toBe(false);
+  expect(timers.queued).toHaveLength(0); // settled: nothing more scheduled
+});
+
+test("settle: a settled snapshot schedules nothing", async () => {
+  const timers = fakeTimers();
+  const svc = new OpenPrSnapshotService(() => 0, 6, undefined, timers.schedule);
+  await svc.get(settleForge([true]).forge);
+  expect(timers.queued).toHaveLength(0);
+});
+
+test("settle: at most one attempt per delay for the same PR head", async () => {
+  const timers = fakeTimers();
+  const svc = new OpenPrSnapshotService(() => 0, 6, undefined, timers.schedule);
+  const { forge, fetches } = settleForge([null]);
+  await svc.get(forge);
+  expect(await timers.fire()).toBe(SETTLE_DELAYS_MS[0]!);
+  expect(await timers.fire()).toBe(SETTLE_DELAYS_MS[1]!);
+  expect(timers.queued).toHaveLength(0);
+  expect(fetches()).toBe(1 + SETTLE_DELAYS_MS.length);
+  await svc.refresh(forge); // another reader's fetch doesn't re-arm the spent head
+  expect(timers.queued).toHaveLength(0);
+});
+
+test("settle: a moved prs content key restarts the attempts", async () => {
+  const timers = fakeTimers();
+  let now = 0;
+  const cache = new GithubReadCache(new SessionStore(":memory:"), { now: () => now });
+  const fingerprint = (defaultHeadOid: string) =>
+    cache.put("fingerprint", "org/repo", null, {
+      openIssues: 0,
+      issuesUpdatedAt: "",
+      openPrs: 1,
+      prsUpdatedAt: "t1",
+      ciState: "",
+      defaultHeadOid,
+    });
+  fingerprint("base1");
+  const svc = new OpenPrSnapshotService(() => now, 6, cache, timers.schedule);
+  const { forge } = settleForge([null]);
+  await svc.get(forge);
+  await timers.fire();
+  await timers.fire();
+  expect(timers.queued).toHaveLength(0);
+  fingerprint("base2"); // the base moved: GitHub recomputes every PR's mergeability
+  now = 1;
+  await svc.get(forge);
+  expect(timers.queued.map((t) => t.ms)).toEqual([SETTLE_DELAYS_MS[0]!]);
+});
+
+test("settle: never armed by a REST listing", async () => {
+  const timers = fakeTimers();
+  const svc = new OpenPrSnapshotService(() => 0, 6, undefined, timers.schedule);
+  await svc.get(settleForge([null], "rest").forge);
+  expect(timers.queued).toHaveLength(0);
+});
+
+test("settle: the re-read is skipped while GraphQL is limited or the background reserve is low", async () => {
+  const timers = fakeTimers();
+  let canRefresh = true;
+  const cache = new GithubReadCache(new SessionStore(":memory:"), {
+    now: () => 0,
+    canRefresh: () => canRefresh,
+  });
+  const svc = new OpenPrSnapshotService(() => 0, 6, cache, timers.schedule);
+  const { forge, fetches } = settleForge([null]);
+  await svc.get(forge);
+  blockGraphql();
+  try {
+    await timers.fire();
+  } finally {
+    unblockGraphql();
+  }
+  expect(fetches()).toBe(1);
+  await svc.refresh(forge); // arms the second attempt
+  canRefresh = false;
+  await timers.fire();
+  expect(fetches()).toBe(2);
+});
+
+test("patchPr: replaces the PR's row and status in place, keeps fetch time, notifies", async () => {
+  let now = 0;
+  const cache = new GithubReadCache(new SessionStore(":memory:"), { now: () => now });
+  const svc = new OpenPrSnapshotService(() => now, 6, cache);
+  const forge = makeForge();
+  const updates: string[] = [];
+  svc.onUpdate((slug) => updates.push(slug));
+  await svc.get(forge);
+  expect(updates).toEqual(["org/repo"]); // a fetch notifies too
+  const before = svc.peek(forge)!;
+  now = 5_000;
+  const pr = { ...before.prs[0]!, mergeable: false, mergeStateStatus: "dirty" as const };
+  const status: PrStatus = { ...before.statuses.get("branch-a")!, mergeable: false };
+  svc.patchPr(forge, 1, { pr, status });
+  const after = svc.peek(forge)!;
+  expect(after.prs).toEqual([pr]);
+  expect(after.statuses.get("branch-a")).toEqual(status);
+  expect(cache.get("prs", "org/repo")!.at).toBe(0);
+  expect(updates).toEqual(["org/repo", "org/repo"]);
+  expect(forge.calls).toBe(1);
+});
+
+test("patchPr: a null read drops the PR; no snapshot or another PR is a no-op", async () => {
+  const svc = new OpenPrSnapshotService(() => 0);
+  const forge = makeForge();
+  svc.patchPr(forge, 1, null); // nothing cached yet
+  expect(svc.peek(forge)).toBeNull();
+  await svc.get(forge);
+  svc.patchPr(forge, 99, null);
+  expect(svc.peek(forge)!.prs).toHaveLength(1);
+  svc.patchPr(forge, 1, null);
+  expect(svc.peek(forge)!.prs).toEqual([]);
+  expect(svc.peek(forge)!.statuses.size).toBe(0);
 });

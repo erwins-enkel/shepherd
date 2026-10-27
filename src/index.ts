@@ -4169,6 +4169,8 @@ const upNext = new UpNextService({
     }),
   },
 });
+// A snapshot fetch or a PR preview's sync lands in Up Next's PR rows without a recompute.
+openPrSnapshot.onUpdate((slug) => void upNext.prsUpdated(slug));
 deferredStarts.push(() => {
   labelGhCalls("up-next");
   upNext.start();

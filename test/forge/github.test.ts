@@ -1039,6 +1039,46 @@ test("GithubForge.listPullRequests: nonDefaultBase set only for non-default-targ
   expect(prs.map((p) => p.nonDefaultBase)).toEqual([undefined, "epic/foo"]);
 });
 
+test("GithubForge.openPullRequest: reads one PR by number into both snapshot shapes", async () => {
+  const pr = {
+    number: 911,
+    title: "Sicherheits-Check",
+    url: "https://github.com/o/r/pull/911",
+    state: "OPEN",
+    author: { login: "o" },
+    createdAt: "2026-10-22T00:00:00Z",
+    mergeable: "CONFLICTING",
+    mergeStateStatus: "DIRTY",
+    headRefName: "claude/fix",
+    headRefOid: "abc123",
+    baseRefName: "master",
+    headRepositoryOwner: { login: "o" },
+  };
+  const { run, calls } = fakeRunner({
+    "pr view": JSON.stringify(pr),
+    "repo view": JSON.stringify({ defaultBranchRef: { name: "master" } }),
+  });
+  const read = await new GithubForge("o/r", {}, run).openPullRequest(911);
+  expect(calls[0]!.slice(0, 5)).toEqual(["pr", "view", "911", "--repo", "o/r"]);
+  expect(calls.some((c) => c[0] === "run")).toBe(false); // own-repo head: no approval lookup
+  expect(read?.pr).toMatchObject({
+    number: 911,
+    mergeable: false,
+    mergeStateStatus: "dirty",
+    headRefName: "claude/fix",
+    headSha: "abc123",
+    headPushable: true,
+  });
+  expect(read?.status).toMatchObject({ state: "open", number: 911, mergeable: false });
+});
+
+test("GithubForge.openPullRequest: null when the PR is no longer open", async () => {
+  const { run } = fakeRunner({
+    "pr view": JSON.stringify({ number: 5, title: "t", url: "u", state: "MERGED" }),
+  });
+  expect(await new GithubForge("o/r", {}, run).openPullRequest(5)).toBeNull();
+});
+
 test("GithubForge.listPullRequests: nonDefaultBase undefined when default branch is unresolvable", async () => {
   // No "repo view" mock → defaultBranch() rejects → def === null → no chip even
   // for a non-default-targeting PR (fail-quiet, never a bogus chip).

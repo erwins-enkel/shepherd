@@ -7261,7 +7261,7 @@
   "conn_offline_title": "Can't reach Shepherd. Showing the last state it sent.",
   "conn_offline_reason": "Last live {time} · retrying automatically",
   "conn_offline_retry": "Retry now",
-  "conn_back_online": "Back online.",
+  "conn_back_online": "Back online. 🔌",
   "topbar_conn_offline": "Offline",
   "feat_offline_notice_title": "Unmistakable when Shepherd is unreachable",
   "feat_offline_notice_body": "If the UI loses its connection — Tailscale down, phone offline, Wi-Fi gone — the top bar shows OFFLINE, the herd dims and stops pulsing, and a notice says when the data was last live, with Retry now. Coming back online reconnects at once.",

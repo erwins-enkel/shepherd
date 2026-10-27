@@ -1,6 +1,11 @@
-import { importEpicLinks, type ImportResult } from "./epic-import";
+import {
+  countEpicLinkSteps,
+  importEpicLinks,
+  supportsNativeEpicLinks,
+  type ImportResult,
+} from "./epic-import";
 import type { GitForge } from "./forge/types";
-import type { EpicDraftChild, EpicDraftContent } from "./types";
+import type { EpicDraftChild, EpicDraftContent, EpicDraftProgress } from "./types";
 
 /**
  * Epic-authoring materializer — the server-owned write path behind the approve gate (issue #1507).
@@ -215,6 +220,16 @@ export interface MaterializeOptions {
   onChildCreated?: (key: string, number: number) => void | Promise<void>;
   /** persist the parent's number/url the instant it exists. */
   onParentCreated?: (number: number, url: string) => void | Promise<void>;
+  /** Live progress over every forge step: issues (children + parent), then native links. */
+  onProgress?: (progress: EpicDraftProgress) => void;
+}
+
+/** Native link steps for this draft, sized before the real numbers exist: placeholder numbers
+ *  render the same marker shape. Re-counted from the real body once the parent is known. */
+function estimateLinkSteps(forge: GitForge, content: ValidatedEpicDraft): number {
+  if (!supportsNativeEpicLinks(forge)) return 0;
+  const placeholders = Object.fromEntries(content.children.map((c, i) => [c.key, i + 1]));
+  return countEpicLinkSteps(renderParentBody(content, placeholders));
 }
 
 /**
@@ -233,6 +248,19 @@ export async function materializeEpicDraft(
   if (!forge.createIssue) throw new Error("forge does not support issue creation");
 
   const childNumbers: Record<string, number> = { ...(opts.alreadyCreated ?? {}) };
+  let parentNumber = opts.parentNumber ?? null;
+  let parentUrl = opts.parentUrl ?? null;
+
+  // Resumed work counts as done from the start, so a retry's bar opens part-filled.
+  const issues = content.children.length + 1;
+  let done =
+    content.children.filter((c) => childNumbers[c.key] != null).length +
+    (parentNumber == null ? 0 : 1);
+  let total = issues + estimateLinkSteps(forge, content);
+  const report = (phase: EpicDraftProgress["phase"]) =>
+    opts.onProgress?.({ done: Math.min(done, total), total, phase });
+  report("issues");
+
   for (const child of content.children) {
     if (childNumbers[child.key] != null) continue; // already created in a prior attempt
     const { number } = await forge.createIssue({
@@ -241,11 +269,11 @@ export async function materializeEpicDraft(
     });
     childNumbers[child.key] = number;
     await opts.onChildCreated?.(child.key, number);
+    done++;
+    report("issues");
   }
 
   const parentBody = renderParentBody(content, childNumbers);
-  let parentNumber = opts.parentNumber ?? null;
-  let parentUrl = opts.parentUrl ?? null;
   if (parentNumber == null) {
     const created = await forge.createIssue({
       title: content.parent.title.trim(),
@@ -254,14 +282,20 @@ export async function materializeEpicDraft(
     parentNumber = created.number;
     parentUrl = created.url;
     await opts.onParentCreated?.(parentNumber, parentUrl);
+    done++;
   }
+  if (supportsNativeEpicLinks(forge)) total = issues + countEpicLinkSteps(parentBody);
+  report("links");
 
   // Native links are an enhancement over the body fence (which already makes the epic recognized);
   // a non-native forge (no addSubIssue/addBlockedBy) throws here — caught, markdown fence stands.
   // importEpicLinks itself skips already-present links, so a resume re-run is safe.
   let importResult: ImportResult | null;
   try {
-    importResult = await importEpicLinks(forge, parentNumber, parentBody);
+    importResult = await importEpicLinks(forge, parentNumber, parentBody, () => {
+      done++;
+      report("links");
+    });
   } catch {
     importResult = null;
   }

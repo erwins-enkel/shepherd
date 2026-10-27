@@ -38,7 +38,12 @@
     status === "approved"
       ? m.epicdraft_status_approved()
       : status === "materializing"
-        ? m.epicdraft_status_materializing()
+        ? draft?.progress
+          ? m.epicdraft_status_materializing_progress({
+              done: draft.progress.done,
+              total: draft.progress.total,
+            })
+          : m.epicdraft_status_materializing()
         : awaiting
           ? m.epicdraft_awaiting_chip()
           : "",

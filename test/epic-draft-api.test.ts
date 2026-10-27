@@ -468,3 +468,59 @@ test("slowRequestTimeoutSec budgets the known-slow routes and leaves others on t
   expect(sec("GET", "/api/prs/merge")).toBeNull();
   expect(sec("POST", "/api/sessions/abc-123/merge")).toBeNull(); // the real path carries /git/
 });
+
+// ── live materialize progress ──────────────────────────────────────────────────────────────────
+
+type DraftEvent = { status: string; progress?: { done: number; total: number; phase: string } };
+const draftEvents = (emitted: { event: string; data: unknown }[]) =>
+  emitted.filter((e) => e.event === "session:epic-draft").map((e) => e.data as DraftEvent);
+
+test("approve streams progress: materializing 0/N first, one event per step, terminal has none", async () => {
+  const { app, store, emitted } = harness(fakeForge().forge);
+  const s = makeSession(store);
+  await putDraft(app, s.id);
+  emitted.length = 0;
+  expect((await approve(app, s.id)).status).toBe(200);
+  const events = draftEvents(emitted);
+  // 2 children + parent + (2 sub-issues + 1 dependent child) = 6 steps
+  expect(events[0]).toMatchObject({ status: "materializing", progress: { done: 0, total: 6 } });
+  const live = events.filter((e) => e.progress);
+  expect(live.map((e) => e.progress!.done)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  expect(events.at(-1)?.status).toBe("approved");
+  expect(events.at(-1)?.progress).toBeUndefined();
+  expect(((await getDraft(app, s.id)) as unknown as DraftEvent).progress).toBeUndefined();
+});
+
+test("a failed materialize emits the reverted draft without progress", async () => {
+  const { app, store, emitted } = harness(fakeForge({ failAfter: 1 }).forge);
+  const s = makeSession(store);
+  await putDraft(app, s.id);
+  emitted.length = 0;
+  expect((await approve(app, s.id)).status).toBe(500);
+  const events = draftEvents(emitted);
+  expect(events.some((e) => e.progress?.done === 1)).toBe(true);
+  expect(events.at(-1)).toMatchObject({ status: "draft" });
+  expect(events.at(-1)?.progress).toBeUndefined();
+});
+
+test("GET mid-materialize returns the live progress", async () => {
+  const fk = fakeForge();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const create = fk.forge.createIssue!.bind(fk.forge);
+  fk.forge.createIssue = async (input) => {
+    if (fk.created.length === 1) await gate; // park on the 2nd child
+    return create(input);
+  };
+  const { app, store } = harness(fk.forge);
+  const s = makeSession(store);
+  await putDraft(app, s.id);
+  const pending = approve(app, s.id);
+  while (fk.created.length < 1) await Bun.sleep(1);
+  expect(await getDraft(app, s.id)).toMatchObject({
+    status: "materializing",
+    progress: { done: 1, total: 6, phase: "issues" },
+  });
+  release();
+  expect((await pending).status).toBe(200);
+});

@@ -168,7 +168,12 @@
     status === "approved"
       ? m.epicdraft_status_approved()
       : status === "materializing"
-        ? m.epicdraft_status_materializing()
+        ? draft?.progress
+          ? m.epicdraft_status_materializing_progress({
+              done: draft.progress.done,
+              total: draft.progress.total,
+            })
+          : m.epicdraft_status_materializing()
         : awaiting
           ? m.epicdraft_awaiting_chip()
           : "",
@@ -313,7 +318,31 @@
             </p>
           {/if}
         {:else if status === "materializing"}
-          <p class="note" aria-live="polite">{m.epicdraft_materializing_note()}</p>
+          {#if draft.progress}
+            <div class="materialize" data-epic-materialize-progress>
+              <div class="materialize-row">
+                <span class="note" aria-live="polite"
+                  >{draft.progress.phase === "links"
+                    ? m.epicdraft_progress_links()
+                    : m.epicdraft_materializing_note()}</span
+                >
+                <span class="materialize-count"
+                  >{m.epicdraft_progress_count({
+                    done: draft.progress.done,
+                    total: draft.progress.total,
+                  })}</span
+                >
+              </div>
+              <progress
+                class="materialize-bar"
+                max={draft.progress.total}
+                value={draft.progress.done}
+                aria-label={m.epicdraft_progress_label()}
+              ></progress>
+            </div>
+          {:else}
+            <p class="note" aria-live="polite">{m.epicdraft_materializing_note()}</p>
+          {/if}
         {:else if status === "approved"}
           <p class="note note-done" aria-live="polite">
             {m.epicdraft_created()}
@@ -445,6 +474,38 @@
   }
   .note-done {
     color: var(--color-muted);
+  }
+  .materialize {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .materialize-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .materialize-count {
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    font-variant-numeric: tabular-nums;
+  }
+  .materialize-bar {
+    width: 100%;
+    height: 4px;
+    appearance: none;
+    border: 0;
+    background: var(--color-inset);
+    color: var(--color-accent);
+  }
+  .materialize-bar::-webkit-progress-bar {
+    background: var(--color-inset);
+  }
+  .materialize-bar::-webkit-progress-value {
+    background: var(--color-accent);
+  }
+  .materialize-bar::-moz-progress-bar {
+    background: var(--color-accent);
   }
   .note-warn {
     color: var(--color-amber);

@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { importEpicLinks } from "../src/epic-import";
+import { countEpicLinkSteps, importEpicLinks } from "../src/epic-import";
 
 function fakeForge(
   existingSubs: number[],
@@ -121,5 +121,28 @@ describe("importEpicLinks", () => {
     await expect(importEpicLinks(bare, 1, BODY)).rejects.toThrow(
       "forge does not support native epic links",
     );
+  });
+});
+
+describe("importEpicLinks onStep", () => {
+  const MULTI = "```epic-dag\n#1\n#2\n#3 <- #1\n#3 <- #2\n#4 <- #3\n#4 <- #99\n```";
+
+  test("counts one per member + one per dependent child; non-member blockers ignored", () => {
+    expect(countEpicLinkSteps(BODY)).toBe(4);
+    expect(countEpicLinkSteps(MULTI)).toBe(4 + 2);
+  });
+
+  test("fires exactly countEpicLinkSteps times, fresh and on an idempotent re-run", async () => {
+    for (const f of [
+      fakeForge([], new Map()),
+      fakeForge([320, 326, 322], new Map([[322, [320]]])),
+    ]) {
+      let steps = 0;
+      await importEpicLinks(f.forge, 327, BODY, () => steps++);
+      expect(steps).toBe(countEpicLinkSteps(BODY));
+    }
+    let steps = 0;
+    await importEpicLinks(fakeForge([], new Map(), new Set([2])).forge, 9, MULTI, () => steps++);
+    expect(steps).toBe(countEpicLinkSteps(MULTI));
   });
 });

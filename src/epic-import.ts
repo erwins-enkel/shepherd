@@ -13,9 +13,13 @@ type NativeForge = Required<
 > &
   GitForge;
 
+/** True when the forge can wire native sub-issue + blocked_by links. */
+export function supportsNativeEpicLinks(forge: GitForge): forge is NativeForge {
+  return !!(forge.addSubIssue && forge.addBlockedBy && forge.listSubIssues && forge.listBlockedBy);
+}
+
 function assertNativeForge(forge: GitForge): asserts forge is NativeForge {
-  if (!forge.addSubIssue || !forge.addBlockedBy || !forge.listSubIssues || !forge.listBlockedBy)
-    throw new Error("forge does not support native epic links");
+  if (!supportsNativeEpicLinks(forge)) throw new Error("forge does not support native epic links");
 }
 
 /** Attempt to add one blocked-by edge; mutates result and unresolved in place. */
@@ -43,23 +47,40 @@ async function tryAddBlockedBy(
   }
 }
 
-async function wireDependencies(
-  forge: NativeForge,
+/** Dependent child → its in-epic blockers (self-edges and non-member blockers dropped). */
+function blockersByChild(
   edges: ReturnType<typeof parseEpicBody>["edges"],
   members: Set<number>,
-  result: ImportResult,
-): Promise<void> {
-  const unresolved = new Set(result.unresolved);
+): Map<number, number[]> {
   const byChild = new Map<number, number[]>();
   for (const e of edges) {
     if (e.blocker === e.dependent || !members.has(e.blocker)) continue;
     byChild.set(e.dependent, [...(byChild.get(e.dependent) ?? []), e.blocker]);
   }
-  for (const [child, blockers] of byChild) {
+  return byChild;
+}
+
+/** How many times {@link importEpicLinks} calls `onStep` for this body: one per member sub-issue,
+ *  one per dependent child whose blockers it wires. Lets a caller size a progress bar up front. */
+export function countEpicLinkSteps(body: string): number {
+  const parsed = parseEpicBody(body);
+  return parsed.order.length + blockersByChild(parsed.edges, new Set(parsed.members)).size;
+}
+
+async function wireDependencies(
+  forge: NativeForge,
+  edges: ReturnType<typeof parseEpicBody>["edges"],
+  members: Set<number>,
+  result: ImportResult,
+  onStep?: () => void,
+): Promise<void> {
+  const unresolved = new Set(result.unresolved);
+  for (const [child, blockers] of blockersByChild(edges, members)) {
     const existing = new Set(await forge.listBlockedBy(child));
     for (const b of blockers) {
       await tryAddBlockedBy(forge, child, b, existing, unresolved, result);
     }
+    onStep?.();
   }
 }
 
@@ -67,6 +88,8 @@ export async function importEpicLinks(
   forge: GitForge,
   parentNumber: number,
   body: string,
+  /** Called after each counted step — see {@link countEpicLinkSteps}. */
+  onStep?: () => void,
 ): Promise<ImportResult> {
   assertNativeForge(forge);
   const parsed = parseEpicBody(body);
@@ -82,16 +105,17 @@ export async function importEpicLinks(
   for (const n of parsed.order) {
     if (existingSubs.has(n)) {
       result.skipped++;
-      continue;
+    } else {
+      try {
+        await forge.addSubIssue(parentNumber, n);
+        result.subIssuesAdded++;
+      } catch {
+        if (!result.unresolved.includes(n)) result.unresolved.push(n);
+      }
     }
-    try {
-      await forge.addSubIssue(parentNumber, n);
-      result.subIssuesAdded++;
-    } catch {
-      if (!result.unresolved.includes(n)) result.unresolved.push(n);
-    }
+    onStep?.();
   }
 
-  await wireDependencies(forge, parsed.edges, members, result);
+  await wireDependencies(forge, parsed.edges, members, result, onStep);
   return result;
 }

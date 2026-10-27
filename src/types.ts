@@ -1545,6 +1545,16 @@ export interface EpicDraft extends EpicDraftContent {
   materializedChildren: Record<string, number>;
   parentNumber: number | null;
   parentUrl: string | null;
+  /** Live materialize progress — present only while `materializing` (transient, never persisted). */
+  progress?: EpicDraftProgress;
+}
+
+/** Materialize progress over every forge step: `issues` (children + parent), then `links` (native
+ *  sub-issue + blocked_by wiring). `done` counts resumed work too. */
+export interface EpicDraftProgress {
+  done: number;
+  total: number;
+  phase: "issues" | "links";
 }
 
 // ── live preview state ────────────────────────────────────────────────────────

@@ -93,6 +93,15 @@ export interface EpicDraft {
   materializedChildren: Record<string, number>;
   parentNumber: number | null;
   parentUrl: string | null;
+  /** Live materialize progress — present only while `materializing`. */
+  progress?: EpicDraftProgress;
+}
+
+/** Materialize progress over every forge step: issues (children + parent), then native links. */
+export interface EpicDraftProgress {
+  done: number;
+  total: number;
+  phase: "issues" | "links";
 }
 
 export interface RepoEntry {

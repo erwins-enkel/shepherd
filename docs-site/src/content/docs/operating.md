@@ -250,6 +250,12 @@ two models carry a floor, each with its `[1m]` variant: `claude-opus-5-5` at 2.1
 `claude-sonnet-5-5` at 2.1.284. Sonnet 5.5 is the softer case: an older CLI doesn't reject it but
 runs it as an unrecognized model, with auto-compact capping the context at 200k tokens.
 
+Claude Mythos (`claude-mythos-5-1`) is a different kind of limit: not every Claude account can
+use it. Shepherd reads which models your logged-in account has from Claude Code's own cache of
+that account's model list, and offers Mythos in the model pickers only when it is there. If your
+account doesn't have it, it stays hidden, and a task, a saved default or a role that asks for it
+is refused with `model_unavailable` instead of starting. In API-key mode it is always hidden.
+
 ### Transient API errors
 
 A Claude turn can end on a transient API error instead of a real stop — `API Error: Connection

@@ -533,6 +533,8 @@
   "subagents_live_count": "{count} aktiv",
   "subagent_status_live": "aktiv",
   "subagent_status_done": "fertig",
+  "subagents_collapse_aria": "Sub-Agenten einklappen",
+  "subagents_expand_aria": "Sub-Agenten ausklappen",
   "activity_active": "vor {ago} aktiv",
   "activity_starting": "startet…",
   "activity_stage_planning": "Planung",

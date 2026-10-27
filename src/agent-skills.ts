@@ -27,6 +27,7 @@ export const AGENT_SKILL_NAMES = [
   "shepherd-preview",
   "shared-browser",
   "shepherd-onboarding",
+  "shepherd-cli",
 ] as const;
 
 let availableCache: boolean | null = null;

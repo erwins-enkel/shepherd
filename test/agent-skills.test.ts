@@ -43,6 +43,33 @@ describe("#2002 shipped agent skills", () => {
   });
 });
 
+describe("shepherd-cli skill stays in step with the CLI reference", () => {
+  // docs/cli.md is the maintained command reference; a command or flag the skill teaches that the
+  // reference no longer documents is a renamed/removed one, and agents would run it blind.
+  const reference = readFileSync(join(AGENT_SKILLS_DIR, "..", "docs", "cli.md"), "utf8");
+  const skill = read("shepherd-cli");
+
+  it("teaches only documented commands", () => {
+    const commands = new Set(
+      [...skill.matchAll(/`shepherd ([a-z][a-z-]*(?: (?:list|show))?)/g)].map((m) => m[1]!),
+    );
+    expect(commands.size).toBeGreaterThan(5);
+    for (const command of commands) {
+      expect(`${command}: ${reference.includes(`shepherd ${command}`)}`).toBe(`${command}: true`);
+    }
+  });
+
+  it("teaches only documented flags", () => {
+    // The `--repo` recipe's own `git rev-parse` flags are git's, and `--help` is clap's built-in.
+    const cliText = skill.replace(/git rev-parse [^)]*/g, "").replaceAll("--help", "");
+    const flags = new Set([...cliText.matchAll(/(?<![\w-])--[a-z][a-z-]*/g)].map((m) => m[0]));
+    expect(flags.size).toBeGreaterThan(5);
+    for (const flag of flags) {
+      expect(`${flag}: ${reference.includes(flag)}`).toBe(`${flag}: true`);
+    }
+  });
+});
+
 describe("#2002 spawn wiring", () => {
   it("passes the directory (not the skills subdir) to --add-dir and binds the same path", () => {
     resetAgentSkillsCache();

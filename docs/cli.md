@@ -7,6 +7,11 @@ same HTTP API and `/events` socket as the web UI. The client is generated from
 server is hand-typed. The CLI ships in lockstep with the server and warns on stderr when
 `/api/health` reports a different version.
 
+Claude sessions that Shepherd spawns learn the session commands (`new`, `steer`, `wait` and the
+rest) from the shipped `shepherd-cli` agent skill
+([`agent-skills/.claude/skills/shepherd-cli/SKILL.md`](../agent-skills/.claude/skills/shepherd-cli/SKILL.md)).
+Its commands and flags are tested against this page, so a rename here has to update the skill too.
+
 ## Install
 
 You don't need a Rust toolchain. `deploy/install.sh` installs a prebuilt `shepherd` binary into

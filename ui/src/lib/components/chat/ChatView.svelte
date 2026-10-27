@@ -33,6 +33,7 @@
   import ToolRun from "./ToolRun.svelte";
   import NoteRow from "./NoteRow.svelte";
   import QuickReplies from "./QuickReplies.svelte";
+  import WorkingTrace from "./WorkingTrace.svelte";
 
   // A session's conversation view, shared by the Operator Assistant and every session's Chat tab:
   // the transcript as a chat (with its tool calls, `tools`), and a composer. Prompt text goes
@@ -463,7 +464,7 @@
       {/each}
       {#if working}
         <p class="ac-working" role="status">
-          <span class="ac-dot" aria-hidden="true"></span>{m.assistant_chat_working()}
+          <WorkingTrace />{m.assistant_chat_working()}
         </p>
       {/if}
       {#if ask}
@@ -613,18 +614,6 @@
     gap: 8px;
     color: var(--color-amber);
     font-size: var(--fs-meta);
-  }
-  .ac-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--color-amber);
-    animation: ac-pulse 1.4s ease-in-out infinite;
-  }
-  @keyframes ac-pulse {
-    50% {
-      opacity: 0.3;
-    }
   }
   .ac-question {
     padding: 12px;

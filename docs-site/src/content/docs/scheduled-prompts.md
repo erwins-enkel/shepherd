@@ -62,6 +62,22 @@ next run and last outcome, with the same switch, **Run now**, **Edit** and
 - **Run now** starts a run immediately, even for a disabled schedule. It is still
   skipped while the previous run is open.
 
+## Nothing to do
+
+A scheduled run that finds nothing to do closes itself. When the agent is done
+and there is nothing for you (no file changes, no PR, issue or comment, no
+questions, no follow-ups), it calls Shepherd's `schedule_noop` tool with a
+one-line summary, such as `0 open feedback items`. Shepherd then:
+
+- records the run as **nothing to do**, with that summary under the last-run
+  line in **Settings → Schedules**;
+- archives the session right away, without a recap and without a notification,
+  so the next slot is not skipped for overlap.
+
+Shepherd refuses the call, and the session stays open, if the worktree has
+uncommitted changes, the branch has commits beyond its base, or the session has
+a pull request. Codex sessions and plain sessions don't get the tool.
+
 ## Attended by default
 
 Autopilot is **off** for a new schedule. A skill that asks questions, such as a

@@ -36,6 +36,7 @@ function harness(
     sharedBrowser?: boolean;
     sandboxApplied?: SandboxProfile;
     operatorAssistant?: boolean;
+    scheduleId?: string;
   } = {},
 ): {
   deps: AgentControlDeps;
@@ -69,6 +70,7 @@ function harness(
     plain: opts.plain,
     sandboxApplied: opts.sandboxApplied,
     operatorAssistant: opts.operatorAssistant,
+    scheduleId: opts.scheduleId,
   });
   return {
     deps: { store, events: { emit: (event, data) => emitted.push({ event, data }) } },
@@ -181,6 +183,7 @@ test("an unknown session gets no tools", () => {
     browserLogin: false,
     operatorDiag: false,
     operatorActions: false,
+    scheduleNoop: false,
   });
 });
 
@@ -198,6 +201,7 @@ test("the Operator Assistant gets only its diagnostic and action tools — no qu
     browserLogin: false,
     operatorDiag: true,
     operatorActions: true,
+    scheduleNoop: false,
   });
   expect(hasAgentTools(sessionCapabilities(deps, sessionId))).toBe(true);
   const names = agentTools(deps, sessionId).map((t) => t.name);
@@ -965,4 +969,77 @@ test("browser_request_login without the service wired is an isError result", asy
   const { deps, sessionId } = harness({ sharedBrowser: true });
   const { isError } = toolPayload(await call(deps, sessionId, "browser_request_login", LOGIN_ARGS));
   expect(isError).toBe(true);
+});
+
+// ── schedule_noop (#3469) ────────────────────────────────────────────────────
+
+function noopHarness(opts: { localWork?: boolean; pr?: GitState["state"]; plain?: boolean } = {}) {
+  const h = harness({ scheduleId: "sch-1", plain: opts.plain });
+  h.store.claimScheduleRun("sch-1", "2026-10-27T09:00", 1);
+  h.store.settleScheduleRun("sch-1", "2026-10-27T09:00", "spawned", { sessionId: h.sessionId });
+  const archived: string[] = [];
+  h.deps.scheduleNoop = {
+    hasLocalWork: async () => opts.localWork === true,
+    archive: async (id) => {
+      archived.push(id);
+    },
+  };
+  if (opts.pr) h.deps.prCache = { get: () => ({ state: opts.pr }) as GitState };
+  const run = () => h.store.getScheduleRun("sch-1", "2026-10-27T09:00");
+  return { ...h, archived, run };
+}
+
+const tick = () => new Promise((r) => setTimeout(r, 5));
+
+test("schedule_noop is listed only for scheduled, non-plain sessions", () => {
+  const h = noopHarness();
+  expect(agentTools(h.deps, h.sessionId).map((t) => t.name)).toContain("schedule_noop");
+  const plain = noopHarness({ plain: true });
+  expect(agentTools(plain.deps, plain.sessionId).map((t) => t.name)).not.toContain("schedule_noop");
+  const { deps, sessionId } = harness();
+  expect(agentTools(deps, sessionId).map((t) => t.name)).not.toContain("schedule_noop");
+});
+
+test("an unscheduled session calling schedule_noop is a protocol error", async () => {
+  const { deps, sessionId } = harness();
+  const out = await call(deps, sessionId, "schedule_noop", { summary: "x" });
+  expect((out.body as { error: { code: number } }).error.code).toBe(-32602);
+});
+
+test("schedule_noop marks the run noop with the summary, emits, then archives", async () => {
+  const h = noopHarness();
+  const { isError, payload } = toolPayload(
+    await call(h.deps, h.sessionId, "schedule_noop", { summary: "  0 open feedback items " }),
+  );
+  expect(isError).toBe(false);
+  expect(payload).toEqual({ status: "closing" });
+  expect(h.run()).toMatchObject({ outcome: "noop", reason: "0 open feedback items" });
+  expect(h.emitted.map((e) => e.event)).toContain("schedules:changed");
+  await tick();
+  expect(h.archived).toEqual([h.sessionId]);
+});
+
+for (const [label, opts, args] of [
+  ["empty summary", {}, { summary: "  " }],
+  ["oversized summary", {}, { summary: "x".repeat(301) }],
+  ["local work", { localWork: true }, { summary: "ok" }],
+  ["an open PR", { pr: "open" }, { summary: "ok" }],
+  ["a merged PR", { pr: "merged" }, { summary: "ok" }],
+] as const) {
+  test(`schedule_noop refuses with ${label}: no mark, no archive`, async () => {
+    const h = noopHarness(opts);
+    const { isError } = toolPayload(await call(h.deps, h.sessionId, "schedule_noop", args));
+    expect(isError).toBe(true);
+    await tick();
+    expect(h.run()?.outcome).toBe("spawned");
+    expect(h.archived).toEqual([]);
+  });
+}
+
+test("schedule_noop with no PR (state none) proceeds", async () => {
+  const h = noopHarness({ pr: "none" });
+  const { isError } = toolPayload(
+    await call(h.deps, h.sessionId, "schedule_noop", { summary: "ok" }),
+  );
+  expect(isError).toBe(false);
 });

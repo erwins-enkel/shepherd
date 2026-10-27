@@ -258,4 +258,37 @@ describe("ScheduleService", () => {
     expect((await svc.runNow(s.id))?.outcome).toBe("skipped:overlap");
     expect(await svc.runNow("nope")).toBeNull();
   });
+
+  test("markScheduleRunNoop marks the run that spawned the session; next slot then fires", async () => {
+    const s = makeSchedule(at(10, 26, 8));
+    now = at(10, 26, 9);
+    await svc.tick();
+    const [session] = store.list();
+    expect(store.markScheduleRunNoop(session!.id, s.id, "0 open feedback items")).toBe(true);
+    expect(store.getScheduleRun(s.id, "2026-10-26T09:00")).toMatchObject({
+      outcome: "noop",
+      reason: "0 open feedback items",
+      sessionId: session!.id,
+    });
+    store.archive(session!.id, "noop");
+    expect(store.get(session!.id)!.archiveReason).toBe("noop");
+    now = at(10, 26, 18);
+    await svc.tick();
+    expect(launches.length).toBe(2);
+    expect(store.getScheduleRun(s.id, "2026-10-26T18:00")?.outcome).toBe("spawned");
+  });
+
+  test("markScheduleRunNoop falls back to the latest held run and stamps the session", async () => {
+    const s = makeSchedule(at(10, 26, 8));
+    outcome = () => ({ kind: "held", held: { id: "h", count: 1, reason: "usage" } });
+    now = at(10, 26, 9);
+    await svc.tick();
+    expect(store.markScheduleRunNoop("sess-1", s.id, "nothing")).toBe(true);
+    expect(store.getScheduleRun(s.id, "2026-10-26T09:00")).toMatchObject({
+      outcome: "noop",
+      reason: "nothing",
+      sessionId: "sess-1",
+    });
+    expect(store.markScheduleRunNoop("sess-2", s.id, "nothing")).toBe(false);
+  });
 });

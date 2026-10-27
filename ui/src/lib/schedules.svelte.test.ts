@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cadenceSummary,
+  outcomeLabel,
   schedules,
   upcomingOrder,
   weekdayNames,
@@ -8,6 +9,12 @@ import {
   ALL_DAYS,
 } from "./schedules.svelte";
 import type { Schedule } from "#lib/types.js";
+
+describe("outcomeLabel (#3469)", () => {
+  it("labels a no-op run", () => {
+    expect(outcomeLabel("noop")).toBe("nothing to do");
+  });
+});
 
 describe("cadenceSummary (#3469)", () => {
   it("collapses contiguous days into a range", () => {

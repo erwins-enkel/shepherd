@@ -463,7 +463,7 @@ export interface ServiceDeps {
   netnsDevForward?: Pick<NetnsDevForwarder, "drop">;
   /** Best-effort pre-teardown hook (recap generation) — runs while the worktree still
    *  exists; bounded + swallowed so it can never block teardown. Absent → no hook. */
-  beforeArchive?: (s: Session) => Promise<void>;
+  beforeArchive?: (s: Session, reason: SessionArchiveReason) => Promise<void>;
   /** Hard cap on the beforeArchive hook (ms) so a stuck git can never permanently stall
    *  teardown / the merge train. Defaults to 15_000; tests inject a tiny value. */
   beforeArchiveTimeoutMs?: number;
@@ -1100,6 +1100,18 @@ const CI_WAIT_NOTICE =
   "checks finish — end your turn and wait. Use `gh run view <id> --log-failed` only to read an " +
   "already failed run. Runs Shepherd doesn't track (deploys, releases, `workflow_dispatch`) may be " +
   "watched: `gh run watch <run-id> --interval 30`.";
+
+/**
+ * Rides a schedule-fired session (#3469), Claude family and non-plain only — exactly the sessions
+ * that get the `schedule_noop` tool. Shepherd's MCP tools are deferred in Claude Code, so the
+ * notice names ToolSearch: without it the agent never sees the tool's description.
+ */
+const SCHEDULED_RUN_NOTICE =
+  "A Shepherd schedule started this session. If, once the scheduled work is done, there is " +
+  "nothing for the operator — no file changes, no PR, issue or comment created, no questions, no " +
+  "follow-ups — call the `schedule_noop` tool (shepherd MCP server; load it via ToolSearch if it " +
+  "is deferred) with a one-line summary of what you checked. Shepherd records the summary in the " +
+  "schedule's run history and closes this session. Never call it in any other case.";
 
 /**
  * Injected into the system prompt only for isolated sessions (worktree-backed). Non-isolated
@@ -2113,6 +2125,9 @@ function trailingBlocks(
   if (opts.draftMode) blocks.push(taggedBlock("draft-mode", DRAFT_PR_NOTE));
   // Context-trim notice: only trimmed auto spawns (bundled + personal skills / plugins off).
   if (opts.trimmed) blocks.push(taggedBlock("context-trim-notice", CONTEXT_TRIM_NOTICE));
+  // Scheduled-run notice (#3469): only where `schedule_noop` exists — no Codex MCP, no plain tools.
+  if (opts.scheduled && !opts.plain && opts.agentProvider !== "codex")
+    blocks.push(taggedBlock("scheduled-run-notice", SCHEDULED_RUN_NOTICE));
   // Operator-language directive rides LAST. operatorLanguageBlock returns the already-wrapped
   // <operator-language>...</operator-language> string (unlike the blocks above, do NOT re-wrap it),
   // or null for "en" — omitted entirely then, so existing "en" callers stay byte-identical.
@@ -2219,6 +2234,8 @@ export interface ComposeSystemPromptOptions {
   /** Whether Shepherd's `--add-dir` agent skills are reachable (issue #2002). Defaults to
    *  {@link agentSkillsAvailable}; Codex forces it false — no skill loading there. */
   agentSkills?: boolean;
+  /** A schedule fired this session (#3469); absent/false → no `<scheduled-run-notice>`. */
+  scheduled?: boolean;
 }
 
 /**
@@ -3834,6 +3851,7 @@ export class SessionService {
       | "bootstrap"
       | "bootstrapStack"
       | "bootstrapPhase"
+      | "scheduleId"
     >,
     ctx: {
       sessionId: string;
@@ -3892,6 +3910,7 @@ export class SessionService {
       bootstrap,
       landingRepair: input.landingRepair,
       plain: input.plain,
+      scheduled: Boolean(input.scheduleId),
       planGate,
       buildQueue,
       previewHint: ctx.isolated,
@@ -3971,6 +3990,7 @@ export class SessionService {
       browserLogin: browserLoginAllowed(repoConfig.sharedBrowserEnabled, input.plain, profile),
       operatorDiag: false,
       operatorActions: false,
+      scheduleNoop: Boolean(input.scheduleId) && !input.plain,
     };
     // #3337: `--settings` / `--mcp-config` as 0600 file paths carrying the ingress key.
     argv.push(
@@ -7712,7 +7732,7 @@ export class SessionService {
       const timeoutMs = this.deps.beforeArchiveTimeoutMs ?? 15_000;
       try {
         await Promise.race([
-          this.deps.beforeArchive(s),
+          this.deps.beforeArchive(s, reason),
           new Promise<void>((r) => setTimeout(r, timeoutMs)),
         ]);
       } catch {

@@ -187,7 +187,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Scheduled prompts",
     path: "/scheduled-prompts/",
     keywords:
-      "run a prompt or /skill in a repo on fixed weekdays and times. each run starts a fresh, normal shepherd session. setting one up all schedules when a schedule runs attended by default api",
+      "run a prompt or /skill in a repo on fixed weekdays and times. each run starts a fresh, normal shepherd session. setting one up all schedules when a schedule runs nothing to do attended by default api",
   },
   {
     title: "Shared browser",

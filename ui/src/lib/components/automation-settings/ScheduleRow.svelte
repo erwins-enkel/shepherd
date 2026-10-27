@@ -52,6 +52,10 @@
         >
       {/if}
     </div>
+    {#if s.lastRun?.outcome === "noop" && s.lastRun.reason}
+      <!-- The agent's own one-line summary: data, shown verbatim. -->
+      <div class="sc-desc sc-summary">{s.lastRun.reason}</div>
+    {/if}
     <div class="sc-actions">
       <button type="button" class="sc-link" onclick={() => void schedules.runNow(s)}
         >{m.schedules_run_now()}</button
@@ -114,6 +118,9 @@
   .sc-outcome.skipped-stale,
   .sc-outcome.held {
     color: var(--color-amber);
+  }
+  .sc-summary {
+    overflow-wrap: anywhere;
   }
   .sc-actions {
     display: flex;

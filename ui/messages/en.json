@@ -7508,5 +7508,9 @@
   "epicdetail_basis_blend_steps_one": "Each step ~{step}: blended from this epic ({number} took {dur}) and the median of this repo's epic steps over the last 30 days ({count} steps).",
   "epicdetail_basis_blend_steps_other": "Each step ~{step}: blended from this epic ({own} steps measured) and the median of this repo's epic steps over the last 30 days ({count} steps).",
   "epicdetail_basis_repo_steps": "Each step ~{step}: the median of this repo's epic steps over the last 30 days, across {count} steps. From the first merge on, this epic's own steps count too.",
-  "epicdetail_dur_window": "~{start}–{end} · forecast"
+  "epicdetail_dur_window": "~{start}–{end} · forecast",
+  "done_recap_archive_noop": "Scheduled run: nothing to do",
+  "schedules_outcome_noop": "nothing to do",
+  "feat_schedule_noop_title": "Empty scheduled runs close themselves",
+  "feat_schedule_noop_body": "When a scheduled run finds nothing to do (no changes, no questions, no follow-ups), the agent closes its own session. Settings → Schedules shows the run as “nothing to do” with the agent's one-line summary, so the next run isn't blocked and you aren't pinged."
 }

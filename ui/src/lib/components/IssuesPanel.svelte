@@ -920,6 +920,8 @@
             {epicFor}
             {issueActions}
             runSummary={drain?.runSummary ?? null}
+            {drain}
+            {mobile}
             running={isRunning}
             {oninject}
             onselect={selectFromList}

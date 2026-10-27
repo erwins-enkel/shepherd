@@ -35,6 +35,7 @@
     tabForFilters,
   } from "./backlog-view";
   import { repoConfig } from "#lib/reviews.svelte.js";
+  import { epicAutoFix } from "#lib/epic-auto-fix.svelte.js";
   import { pullMainAndToast } from "#lib/pull-offer.js";
 
   let {
@@ -272,6 +273,13 @@
   // actionsTabLabel helper (its single source of truth), so markup + tests agree.
   let actionsState = $derived(actionsTabState(selected));
 
+  // #3455: the Automation tab counts the selected repo's halts that sit in its settings or on this
+  // host — read from the repo's shared auto-fix state, watched here so it holds on every tab.
+  $effect(() =>
+    selectedPath === null ? undefined : epicAutoFix.watch(selectedPath, drain?.[selectedPath]),
+  );
+  let automationHalts = $derived(selectedPath === null ? 0 : epicAutoFix.repoHalts(selectedPath));
+
   // Exactly one repo filtered on the dashboard opens the dialog in that repo; no filter
   // or several leave nothing selected (desktop shows the repo grid, mobile the list).
   // Applied once per mount — the dialog remounts per open, and a later dashboard-filter
@@ -503,6 +511,7 @@
             {activeTab}
             {selected}
             {actionsState}
+            {automationHalts}
             {ffInFlight}
             {selectedPath}
             {docAgentEnabled}
@@ -561,6 +570,7 @@
         {activeTab}
         {selected}
         {actionsState}
+        {automationHalts}
         {ffInFlight}
         {selectedPath}
         {docAgentEnabled}

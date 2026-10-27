@@ -10,6 +10,7 @@ import {
   causeView,
   confirmText,
   haltedSettings,
+  haltSummary,
   issueList,
   optionView,
   startable,
@@ -307,5 +308,28 @@ describe("haltedSettings", () => {
       sandbox: false,
     });
     expect(haltedSettings(null, null)).toEqual({ cli: false, sandbox: false });
+  });
+});
+
+describe("haltSummary (#3455)", () => {
+  it("names each cause in one short sentence", () => {
+    expect(
+      haltSummary([
+        { code: "sandbox_interactive", detail: "standard" },
+        { code: "sandbox_provider_unconfined", detail: "codex" },
+      ]),
+    ).toBe(
+      `${m.epic_autofix_short_interactive()} ${m.epic_autofix_short_provider({ cli: m.agent_provider_codex() })}`,
+    );
+    expect(haltSummary([{ code: "sandbox_backend_unavailable", detail: "autonomous" }])).toBe(
+      m.epic_autofix_short_backend(),
+    );
+    expect(haltSummary([{ code: "sandbox_egress_unavailable", detail: "autonomous" }])).toBe(
+      m.epic_autofix_short_egress(),
+    );
+  });
+
+  it("falls back to a generic sentence for a cause it doesn't know", () => {
+    expect(haltSummary([{ code: "something_new", detail: "" }])).toBe(m.epic_autofix_short_other());
   });
 });

@@ -7615,5 +7615,17 @@
   "tooltip_autofix_scope_host": "Host",
   "tooltip_autofix_scope_host_body": "Fehlt auf diesem Rechner. Keine Einstellung behebt das – richte den Host ein oder wähle einen Weg, der ihn nicht braucht.",
   "feat_epic_halt_fix_title": "Epic-Halt direkt beheben",
-  "feat_epic_halt_fix_body": "Hält die Sandbox, die CLI des Epics oder dieser Rechner ein Epic an, nennt die Abarbeitung jede Ursache und bietet die Wege an, die es wirklich starten – mit einem Klick übernommen, mit einem rückgängig gemacht."
+  "feat_epic_halt_fix_body": "Hält die Sandbox, die CLI des Epics oder dieser Rechner ein Epic an, nennt die Abarbeitung jede Ursache und bietet die Wege an, die es wirklich starten – mit einem Klick übernommen, mit einem rückgängig gemacht.",
+  "backlog_tab_automation_halt_one": "1 Halt",
+  "backlog_tab_automation_halts": "{count} Halte",
+  "epic_autofix_short_interactive": "Sandbox „Standard“ ist nur interaktiv.",
+  "epic_autofix_short_provider": "{cli} braucht „Vertraut“.",
+  "epic_autofix_short_backend": "bubblewrap fehlt.",
+  "epic_autofix_short_egress": "Das Egress-Backend fehlt.",
+  "epic_autofix_short_other": "Eine Einstellung hält an.",
+  "epic_row_halt_lead": "Startet nichts von selbst.",
+  "epic_row_fix": "Beheben",
+  "epic_row_fix_title": "Damit #{parent} von selbst läuft",
+  "feat_epic_row_halt_title": "Epic-Halt aus der Liste beheben",
+  "feat_epic_row_halt_body": "Hält die Sandbox, die CLI oder der Rechner ein Epic an, steht das schon in der Backlog-Liste. „Beheben“ öffnet dieselbe Auswahl direkt an der Zeile – am Telefon als Blatt – und der Reiter Automatisierung zählt Repo- und Host-Halte."
 }

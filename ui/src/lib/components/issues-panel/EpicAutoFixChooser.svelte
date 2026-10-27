@@ -8,8 +8,9 @@
 
   // #3454: what keeps an epic's children from starting unattended and the ways out (#3453) — the
   // causes with their scope chips, the fixes as one radio group, and the button that applies the
-  // chosen one. The host frames it and runs the apply; the epic's run area uses it today, the epic
-  // row's popover and the repo overview reuse it (#3455, #3456).
+  // chosen one. The host frames it and runs the apply; the epic's run area, the epic row's popover
+  // and phone sheet (#3455) and the repo overview (#3456) use it. Hosts bind `picked` to the
+  // repo's shared state, so a pick reads the same on every surface.
   let {
     blockers,
     repoName,
@@ -17,6 +18,8 @@
     busy = false,
     onapply,
     extra = undefined,
+    picked = $bindable(null),
+    wide = false,
   }: {
     blockers: EpicAutoBlockers;
     /** The repo whose sandbox a fix writes, as the copy names it. */
@@ -27,12 +30,15 @@
     onapply: (option: EpicAutoFixOptionId) => void;
     /** Beside the apply button, e.g. a link to all automation settings. */
     extra?: Snippet;
+    /** The operator's pick; null = the model's preselection. */
+    picked?: EpicAutoFixOptionId | null;
+    /** The apply button spans the width (phone sheet). */
+    wide?: boolean;
   } = $props();
 
   const name = $props.id();
   const causes = $derived(blockers.causes.map(causeView));
   const options = $derived(blockers.options.map((o) => optionView(o, blockers, repoName)));
-  let picked = $state<EpicAutoFixOptionId | null>(null);
   // The operator's pick while it is still on offer, else the model's preselection.
   const selected = $derived(
     options.find((o) => o.id === picked && o.enabled)?.id ?? blockers.preselect,
@@ -97,7 +103,7 @@
     </fieldset>
   {/if}
 
-  <div class="act">
+  <div class={["act", wide && "wide"]}>
     <button
       class="gbtn primary"
       type="button"
@@ -252,6 +258,9 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 8px 12px;
+  }
+  .act.wide .gbtn.primary {
+    flex: 1 1 100%;
   }
 
   /* Canonical .gbtn recipe from /design-system (scoped copy, as in EpicRunControl). */

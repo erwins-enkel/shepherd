@@ -1,6 +1,13 @@
 <script lang="ts">
   import { firstSafeHttpUrl } from "#lib/url.js";
-  import type { DrainRunSummary, Epic, EpicSummary, Issue, Steer } from "#lib/types.js";
+  import type {
+    DrainRunSummary,
+    DrainStatus,
+    Epic,
+    EpicSummary,
+    Issue,
+    Steer,
+  } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { relativeTimeAgo } from "#lib/format.js";
   import { dataSlot } from "#lib/data-slot.js";
@@ -29,6 +36,8 @@
     epicFor,
     issueActions,
     runSummary = null,
+    drain = null,
+    mobile = false,
     running = undefined,
     oninject = undefined,
     onselect,
@@ -41,6 +50,10 @@
     issueActions: Steer[];
     /** The repo's run picture (#2620): epic roles and the child holding a slot. */
     runSummary?: DrainRunSummary | null;
+    /** The repo's drain — an epic row shows a sandbox, CLI or host halt from it (#3455). */
+    drain?: DrainStatus | null;
+    /** Phone layout: a halt's fix opens as a bottom sheet. */
+    mobile?: boolean;
     /** Whether a single issue is being worked (a live session or the claim label). */
     running?: (issue: Issue) => boolean;
     oninject?: (issue: Issue, steer: Steer) => void;
@@ -100,6 +113,8 @@
       epic={epicFor(row.issue.number)}
       role={epicRole(runSummary, row.issue.number)}
       position={queuePosition(runSummary, row.issue.number)}
+      {drain}
+      {mobile}
       expanded={row.expanded}
       selected={row.key === selectedKey}
       optionId={`issue-opt-${row.key}`}

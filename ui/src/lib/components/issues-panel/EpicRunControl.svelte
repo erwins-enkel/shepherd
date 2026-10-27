@@ -3,10 +3,7 @@
     DrainRunSummary,
     DrainStatus,
     Epic,
-    EpicAutoBlockers,
-    EpicAutoFixOption,
     EpicAutoFixOptionId,
-    EpicAutoFixState,
     EpicRunStatus,
     EpicSummary,
     GitState,
@@ -21,13 +18,12 @@
     getDrain,
     overrideEpicBaseHold,
     reworkEpicBase,
-    getEpicAutoFix,
-    applyEpicAutoFix,
     ApiError,
   } from "#lib/api.js";
   import { basename } from "#lib/basename.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { repoConfig } from "#lib/reviews.svelte.js";
+  import { epicAutoFix } from "#lib/epic-auto-fix.svelte.js";
   import { firstSafeHttpUrl } from "#lib/url.js";
   import { awaitingMerge, incrementalStallRisk, repoMergeGate } from "#lib/epic-merge-gate.js";
   import { epicLandingExplanation, epicRunStateExplanation } from "#lib/tooltips/explanations.js";
@@ -107,55 +103,14 @@
   const stateLabel = $derived(epicRunStateLabel(runState.kind, inFlightText, runState.position));
 
   // #3454: the repo's sandbox, the epic's CLI or this host holds the run. The auto-fix model
-  // (#3453) names every cause and the ways out; a fix applies in one step and stays undoable here
-  // until Undo or the next epic.
+  // (#3453) names every cause and the ways out; a fix applies in one step and stays undoable. Its
+  // state is the repo's shared one (#3455), so the epic row's popover reads and writes the same.
   const sandboxHalt = $derived(runState.kind === "halted_sandbox");
   const repoName = $derived(basename(repoPath));
-  let blockers = $state<EpicAutoBlockers | null>(null);
-  let fixBusy = $state(false);
-  let fix = $state<{
-    repoPath: string;
-    parent: number;
-    changes: EpicAutoFixOption["changes"];
-    previous: EpicAutoFixState;
-    starting: number[];
-  } | null>(null);
-  // The host may hand this instance another epic: a fix only belongs to the one it changed.
-  const activeFix = $derived(fix?.repoPath === repoPath && fix.parent === parent ? fix : null);
-  // Bumped by every load and adopt, so an answer that arrives late never overwrites a newer one.
-  let blockersSeq = 0;
-  function adoptBlockers(b: EpicAutoBlockers | null) {
-    blockersSeq++;
-    blockers = b;
-  }
-  // Re-asked whenever the hold or a setting the model reads changes.
-  const haltKey = $derived(
-    sandboxHalt
-      ? [
-          repoPath,
-          parent,
-          drain?.reason,
-          drain?.detail,
-          epic.run.agentProvider ?? "",
-          repoConfig.sandboxProfileFor(repoPath),
-        ].join("|")
-      : null,
-  );
-  $effect(() => {
-    if (haltKey == null) {
-      adoptBlockers(null);
-      return;
-    }
-    const seq = ++blockersSeq;
-    // A failed load drops any earlier answer, so the hold note shows in place of the card.
-    getEpicAutoFix(repoPath, parent)
-      .then((b) => {
-        if (seq === blockersSeq) blockers = b;
-      })
-      .catch(() => {
-        if (seq === blockersSeq) blockers = null;
-      });
-  });
+  $effect(() => epicAutoFix.watch(repoPath, drain));
+  const blockers = $derived(sandboxHalt ? epicAutoFix.blockers(repoPath, parent) : null);
+  const fixBusy = $derived(epicAutoFix.busy(repoPath));
+  const activeFix = $derived(epicAutoFix.applied(repoPath, parent));
   const toStart = $derived(sandboxHalt ? startable(epic, drain?.runSummary) : null);
   const haltHead = $derived.by(() => {
     const ready = toStart?.ready ?? [];
@@ -181,46 +136,12 @@
     );
   });
 
-  function autoFixFailed(msg: string) {
-    toasts.info(msg, { alert: true, key: "epic-autofix-fail" });
+  function applyFix(option: EpicAutoFixOptionId) {
+    void epicAutoFix.apply(repoPath, parent, option, toStart?.starting ?? []);
   }
 
-  async function applyFix(option: EpicAutoFixOptionId) {
-    const chosen = blockers?.options.find((o) => o.id === option);
-    if (!chosen || fixBusy) return;
-    const starting = toStart?.starting ?? [];
-    fixBusy = true;
-    try {
-      const result = await applyEpicAutoFix(repoPath, parent, { option });
-      adoptBlockers(result.blockers);
-      fix = { repoPath, parent, changes: chosen.changes, previous: result.previous, starting };
-      void repoConfig.reload(repoPath);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        // The model moved on (a setting changed meanwhile): show its current ways.
-        autoFixFailed(m.epic_autofix_unavailable());
-        getEpicAutoFix(repoPath, parent)
-          .then(adoptBlockers)
-          .catch(() => {});
-      } else autoFixFailed(m.epic_autofix_failed());
-    } finally {
-      fixBusy = false;
-    }
-  }
-
-  async function undoFix() {
-    if (!activeFix || fixBusy) return;
-    fixBusy = true;
-    try {
-      const result = await applyEpicAutoFix(repoPath, parent, { restore: activeFix.previous });
-      adoptBlockers(result.blockers);
-      fix = null;
-      void repoConfig.reload(repoPath);
-    } catch {
-      autoFixFailed(m.epic_autofix_undo_failed());
-    } finally {
-      fixBusy = false;
-    }
+  function undoFix() {
+    void epicAutoFix.undo(repoPath, parent);
   }
 
   // The repo's leading epic when it is another one — what a winding, superseded or ended epic
@@ -568,7 +489,16 @@
   {#if sandboxHalt && blockers?.causes.length}
     <div class="halt-card" data-epic-halt-card>
       <p class="halt-head">{haltHead}</p>
-      <EpicAutoFixChooser {blockers} {repoName} {applyLabel} busy={fixBusy} onapply={applyFix}>
+      <EpicAutoFixChooser
+        {blockers}
+        {repoName}
+        {applyLabel}
+        busy={fixBusy}
+        onapply={applyFix}
+        bind:picked={
+          () => epicAutoFix.picked(repoPath, parent), (v) => epicAutoFix.pick(repoPath, parent, v)
+        }
+      >
         {#snippet extra()}
           {#if onopenautomation}
             <button class="link" type="button" onclick={onopenautomation}

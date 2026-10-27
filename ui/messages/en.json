@@ -7524,5 +7524,18 @@
   "newtask_model_unavailable": "Your Claude account doesn't have access to this model. Pick another model.",
   "upnext_pr_syncing": "Checking this pull request with GitHub…",
   "feat_upnext_pr_live_sync_title": "Up Next: pull requests checked live on open",
-  "feat_upnext_pr_live_sync_body": "Opening a pull request in Up Next now checks it with GitHub right away. You see the last known state at once; Merge and Fix stay locked until GitHub's current answer is in, so you never act on stale data. A PR whose mergeability GitHub was still computing is re-checked by itself, so a conflicted PR no longer sits under Ready to merge."
+  "feat_upnext_pr_live_sync_body": "Opening a pull request in Up Next now checks it with GitHub right away. You see the last known state at once; Merge and Fix stay locked until GitHub's current answer is in, so you never act on stale data. A PR whose mergeability GitHub was still computing is re-checked by itself, so a conflicted PR no longer sits under Ready to merge.",
+  "mergeconfirm_method_instead": "instead of the default {method}",
+  "mergeconfirm_confirm_method": "Merge with {method}",
+  "mergemethod_more": "Choose merge method",
+  "mergemethod_menu_aria": "Merge methods for #{number}",
+  "mergemethod_menu_head": "Merge method",
+  "mergemethod_default": "Default",
+  "mergemethod_hint_squash": "All commits as one commit",
+  "mergemethod_hint_rebase": "Commits one by one, no merge commit",
+  "mergemethod_hint_merge": "History kept, with a merge commit",
+  "mergemethod_hint_off": "Turned off in the repository's settings",
+  "mergemethod_note": "Applies to this merge only.",
+  "feat_merge_method_menu_title": "Up Next: choose how a pull request merges",
+  "feat_merge_method_menu_body": "Merge in Up Next now has a ▾ beside it whenever the repository allows more than one merge method. Pick squash, rebase or a merge commit for this one pull request — the confirmation names the method, and the next merge starts from the repository's default again. Readiness no longer asks you to turn the other methods off."
 }

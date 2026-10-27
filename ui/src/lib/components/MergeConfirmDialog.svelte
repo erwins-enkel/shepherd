@@ -2,7 +2,12 @@
   import { dialog } from "#lib/a11yDialog.js";
   import { m } from "#lib/paraglide/messages.js";
   import MergeHandoffNotice from "./MergeHandoffNotice.svelte";
-  import { CONFIRM_ARM_MS, isMergeTakeover, type MergeConfirmContext } from "./merge-confirm";
+  import {
+    CONFIRM_ARM_MS,
+    isMergeTakeover,
+    replacedMergeMethod,
+    type MergeConfirmContext,
+  } from "./merge-confirm";
 
   // The single confirmation in front of every manual merge (#2299). Before this, "confirming" a
   // merge was a second click on the same control within a few seconds — which an ordinary
@@ -26,6 +31,7 @@
   } = $props();
 
   const takeover = $derived(isMergeTakeover(ctx));
+  const replaced = $derived(replacedMergeMethod(ctx));
 
   // Focus starts on Cancel: a held Enter then cancels (once) instead of merging, and the a11y
   // action leaves an already-focused in-dialog control alone.
@@ -88,7 +94,11 @@
       <dd class="mono">{ctx.baseBranch ?? m.mergeconfirm_value_unknown()}</dd>
       {#if ctx.mergeMethod}
         <dt>{m.mergeconfirm_field_method()}</dt>
-        <dd class="mono">{ctx.mergeMethod}</dd>
+        <dd class="mono" class:replaced>
+          {ctx.mergeMethod}{#if replaced}<span class="instead"
+              >{m.mergeconfirm_method_instead({ method: replaced })}</span
+            >{/if}
+        </dd>
       {/if}
       <dt>{m.mergeconfirm_field_branch()}</dt>
       <dd>{m.mergeconfirm_value_branch_deleted()}</dd>
@@ -113,7 +123,9 @@
           ? m.mergeconfirm_busy()
           : takeover
             ? m.mergeconfirm_confirm_takeover()
-            : m.mergeconfirm_confirm()}
+            : replaced && ctx.mergeMethod
+              ? m.mergeconfirm_confirm_method({ method: ctx.mergeMethod })
+              : m.mergeconfirm_confirm()}
       </button>
     </div>
   </div>
@@ -170,6 +182,21 @@
   }
   .mono {
     font-family: var(--font-mono, monospace);
+  }
+  /* A method picked from Merge ▾ over the repo's default: amber, like the confirm it changes. */
+  .facts dd.replaced {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    color: var(--color-amber);
+  }
+  .instead {
+    padding: 0 5px;
+    border: 1px solid var(--color-amber);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
   .err {
     margin: 0;

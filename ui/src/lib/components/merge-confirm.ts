@@ -19,6 +19,9 @@ export interface MergeConfirmContext {
   baseBranch: string | null;
   /** The method Shepherd would land it with; null when unknown. */
   mergeMethod: MergeMethod | null;
+  /** The repo's configured method, when the entry point knows it. Differing from `mergeMethod`
+   *  (picked from Merge ▾) makes the dialog name the deviation and the method it confirms. */
+  defaultMergeMethod?: MergeMethod | null;
   /** Head revision the operator is confirming; null when the host did not report it. */
   headSha: string | null;
   handoff: "reviewer" | "merger" | null;
@@ -43,6 +46,15 @@ export interface MergeTrainItem {
   number: number;
   title: string;
   mergeGate?: MergeResponsibility;
+}
+
+/** The configured method this merge departs from (picked from Merge ▾), or null when it lands
+ *  with the configured one or either is unknown. */
+export function replacedMergeMethod(
+  ctx: Pick<MergeConfirmContext, "mergeMethod" | "defaultMergeMethod">,
+): MergeMethod | null {
+  const def = ctx.defaultMergeMethod ?? null;
+  return def && ctx.mergeMethod && ctx.mergeMethod !== def ? def : null;
 }
 
 /** True when confirming means taking over someone else's responsibility — which is what turns the
@@ -84,20 +96,23 @@ export function mergeConfirmFromGit(
 }
 
 /** A backlog PR row → confirmation context. The row's responsibility is server-stamped by the same
- *  function the gate runs (see the PRs route), so no client-side role logic exists. */
+ *  function the gate runs (see the PRs route), so no client-side role logic exists. `method` is
+ *  the one the operator picked from Merge ▾; omitted, the PR's configured method. */
 export function mergeConfirmFromPr(
   pr: Pick<
     PullRequest,
     "number" | "title" | "baseRefName" | "nonDefaultBase" | "mergeMethod" | "headSha" | "mergeGate"
   >,
   repoLabel: string,
+  method?: MergeMethod,
 ): MergeConfirmContext {
   return {
     repoLabel,
     number: pr.number,
     title: pr.title,
     baseBranch: pr.baseRefName ?? pr.nonDefaultBase ?? null,
-    mergeMethod: pr.mergeMethod ?? null,
+    mergeMethod: method ?? pr.mergeMethod ?? null,
+    defaultMergeMethod: pr.mergeMethod ?? null,
     headSha: pr.headSha ?? null,
     ...responsibility(pr.mergeGate),
   };

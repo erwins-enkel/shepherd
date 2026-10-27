@@ -7524,5 +7524,18 @@
   "newtask_model_unavailable": "Dein Claude-Konto hat keinen Zugriff auf dieses Modell. Wähle ein anderes Modell.",
   "upnext_pr_syncing": "Gleiche diesen PR mit GitHub ab …",
   "feat_upnext_pr_live_sync_title": "Als Nächstes: PRs werden beim Öffnen live geprüft",
-  "feat_upnext_pr_live_sync_body": "Öffnest du einen Pull Request in „Als Nächstes“, gleicht Shepherd ihn sofort mit GitHub ab. Du siehst gleich den zuletzt bekannten Stand; Merge und Fix bleiben gesperrt, bis die aktuelle Antwort von GitHub da ist, damit du nie auf veralteten Daten handelst. Ein PR, dessen Mergebarkeit GitHub noch berechnet hat, wird von selbst nachgeprüft, sodass ein PR mit Konflikt nicht mehr unter „Bereit zum Mergen“ steht."
+  "feat_upnext_pr_live_sync_body": "Öffnest du einen Pull Request in „Als Nächstes“, gleicht Shepherd ihn sofort mit GitHub ab. Du siehst gleich den zuletzt bekannten Stand; Merge und Fix bleiben gesperrt, bis die aktuelle Antwort von GitHub da ist, damit du nie auf veralteten Daten handelst. Ein PR, dessen Mergebarkeit GitHub noch berechnet hat, wird von selbst nachgeprüft, sodass ein PR mit Konflikt nicht mehr unter „Bereit zum Mergen“ steht.",
+  "mergeconfirm_method_instead": "statt Standard {method}",
+  "mergeconfirm_confirm_method": "Mit {method} mergen",
+  "mergemethod_more": "Merge-Methode wählen",
+  "mergemethod_menu_aria": "Merge-Methoden für #{number}",
+  "mergemethod_menu_head": "Merge-Methode",
+  "mergemethod_default": "Standard",
+  "mergemethod_hint_squash": "Alle Commits als ein Commit",
+  "mergemethod_hint_rebase": "Commits einzeln, ohne Merge-Commit",
+  "mergemethod_hint_merge": "Verlauf bleibt, mit Merge-Commit",
+  "mergemethod_hint_off": "In den Repository-Einstellungen abgeschaltet",
+  "mergemethod_note": "Gilt nur für diesen Merge.",
+  "feat_merge_method_menu_title": "Als Nächstes: wählen, wie ein Pull Request gemergt wird",
+  "feat_merge_method_menu_body": "Neben „Merge“ in „Als Nächstes“ steht jetzt ein ▾, sobald das Repository mehr als eine Merge-Methode erlaubt. Wähle squash, rebase oder einen Merge-Commit für genau diesen Pull Request — die Bestätigung nennt die Methode, und der nächste Merge beginnt wieder beim Standard des Repositorys. Die Readiness verlangt nicht mehr, die anderen Methoden abzuschalten."
 }

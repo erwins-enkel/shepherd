@@ -70,7 +70,10 @@ extension MacSeamTests {
         let m = ComposeModelTests.composer()
         defer { m.teardown() }
         m.runDefaults.fableAvailable = false
-        #expect(ModelPicker(model: m).options == ["default"] + Array(ComposeRunConfig.claudeModels.dropFirst(2)))
+        // Account-gated Mythos leads the curated list and is hidden by default; both Fable entries follow it.
+        #expect(ModelPicker(model: m).options == ["default"] + Array(ComposeRunConfig.claudeModels.dropFirst(3)))
+        m.runDefaults.mythosAvailable = true
+        #expect(ModelPicker(model: m).options == ["default", "claude-mythos-5-1"] + Array(ComposeRunConfig.claudeModels.dropFirst(3)))
         #expect(EffortPicker(model: m).options == ["default", "low", "medium", "high", "xhigh", "max"])
         m.provider = .codex; m.model = "gpt-6-astra"
         #expect(ModelPicker(model: m).options == ["default"] + ComposeRunConfig.codexModels)

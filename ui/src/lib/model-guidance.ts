@@ -91,6 +91,9 @@ function claudeGuidance(model: string): {
   detail: string;
 } {
   switch (model) {
+    // Account-gated (only offered when the logged-in account has it); priced like Fable 5.1.
+    case "claude-mythos-5-1":
+      return { costTier: "premium", tag: "max", detail: m.model_guidance_claude_mythos_5_1() };
     case "fable":
       return { costTier: "premium", tag: "max", detail: m.model_guidance_claude_fable() };
     // Pinned Fable 5.1 mirrors the tier/fit of the floating alias it pins — same model,

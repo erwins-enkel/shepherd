@@ -7518,5 +7518,8 @@
   "done_recap_archive_noop": "Scheduled run: nothing to do",
   "schedules_outcome_noop": "nothing to do",
   "feat_schedule_noop_title": "Empty scheduled runs close themselves",
-  "feat_schedule_noop_body": "When a scheduled run finds nothing to do (no changes, no questions, no follow-ups), the agent closes its own session. Settings → Schedules shows the run as “nothing to do” with the agent's one-line summary, so the next run isn't blocked and you aren't pinged."
+  "feat_schedule_noop_body": "When a scheduled run finds nothing to do (no changes, no questions, no follow-ups), the agent closes its own session. Settings → Schedules shows the run as “nothing to do” with the agent's one-line summary, so the next run isn't blocked and you aren't pinged.",
+  "model_label_mythos_5_1": "Mythos 5.1",
+  "model_guidance_claude_mythos_5_1": "Offered because your Claude account has access. For the hardest long-running work; highest unattended burn.",
+  "newtask_model_unavailable": "Your Claude account doesn't have access to this model. Pick another model."
 }

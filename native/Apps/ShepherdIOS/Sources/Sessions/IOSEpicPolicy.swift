@@ -64,10 +64,11 @@ struct IOSEpicSettings {
               effort: provider != nil && effort != (original.effort ?? "default") && effort != "default" ? effort : nil,
               ignoreUsageCeiling: ceiling != (original.ignoreUsageCeiling ?? false) ? ceiling : nil)
     }
-    mutating func normalize(fableAvailable: Bool) {
+    mutating func normalize(fableAvailable: Bool, mythosAvailable: Bool) {
         guard let provider else { model = "default"; effort = "default"; return }
         if model != "default", !ComposeRunConfig.providerModels(provider).contains(model)
-            || !ComposeRunConfig.available(model, provider: provider, fableAvailable: fableAvailable) { model = "default" }
+            || !ComposeRunConfig.available(model, provider: provider, fableAvailable: fableAvailable,
+                                           mythosAvailable: mythosAvailable) { model = "default" }
         if effort != "default", !ComposeRunConfig.providerEfforts(provider, model: model).contains(effort) { effort = "default" }
     }
 }

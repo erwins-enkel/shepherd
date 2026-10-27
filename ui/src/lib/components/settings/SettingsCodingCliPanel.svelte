@@ -17,6 +17,7 @@
   import { verifyFailureMessage } from "#lib/verify-key.js";
   import { configuredModelLabel } from "#lib/model-label.js";
   import { modelGuidanceAlias, modelOptionLabel } from "#lib/model-guidance.js";
+  import { pickerModels } from "#lib/provider-models.js";
   import {
     effortLabel,
     effortAvailableForProvider,
@@ -247,7 +248,7 @@
   }
   function roleModelOptions(role: RoleBase): readonly string[] {
     const cli = roleCli[role];
-    return cli === "claude" || cli === "codex" ? MODELS_BY_PROVIDER[cli] : [];
+    return cli === "claude" || cli === "codex" ? pickerModels(cli, roleModelV[role]) : [];
   }
   // Client-side mirror of the server's resolveRoleEnvironment for the effective
   // line and model guidance. inherit → global provider+model; "default"/"auto"
@@ -689,8 +690,8 @@
   </div>
 {/snippet}
 
-{#snippet modelOptions(provider: AgentProvider)}
-  {#each MODELS_BY_PROVIDER[provider] as mdl (mdl)}
+{#snippet modelOptions(provider: AgentProvider, current: string)}
+  {#each pickerModels(provider, current) as mdl (mdl)}
     <option value={mdl}>{modelOptionLabel(provider, mdl)}</option>
   {/each}
 {/snippet}
@@ -754,7 +755,7 @@
         >
           <option value="auto">{m.settings_default_model_auto()}</option>
           <option value="default">{m.newtask_model_default()}</option>
-          {@render modelOptions("claude")}
+          {@render modelOptions("claude", defaultModel)}
         </select>
         <span class="set-chev" aria-hidden="true">▾</span>
       </span>
@@ -852,7 +853,7 @@
           onchange={onCodexModelChange}
         >
           <option value="default">{m.newtask_model_default()}</option>
-          {@render modelOptions("codex")}
+          {@render modelOptions("codex", defaultCodexModel)}
         </select>
         <span class="set-chev" aria-hidden="true">▾</span>
       </span>

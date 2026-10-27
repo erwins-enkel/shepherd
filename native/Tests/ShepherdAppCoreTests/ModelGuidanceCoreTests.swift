@@ -17,6 +17,7 @@ extension CoreSeamTests {
         .init(provider: .claude, model: "auto", cost: "standard", tag: "providerDefault", detail: "auto"),
         .init(provider: .claude, model: "default", cost: "standard", tag: "providerDefault", detail: "default"),
         .init(provider: .codex, model: "inherit", cost: "standard", tag: "providerDefault", detail: "inherit"),
+        .init(provider: .claude, model: "claude-mythos-5-1", cost: "premium", tag: "max", detail: "claude_mythos_5_1"),
         .init(provider: .claude, model: "fable", cost: "premium", tag: "max", detail: "claude_fable"),
         .init(provider: .claude, model: "claude-fable-5-1", cost: "premium", tag: "max", detail: "claude_fable_5_1"),
         .init(provider: .claude, model: "opus", cost: "high", tag: "strong", detail: "claude_opus"),
@@ -59,8 +60,8 @@ extension CoreSeamTests {
     }
 
     @Test func listsAndUnknownFallbackAreExact() {
-        #expect(Self.rows.count == 32)
-        #expect(ComposeRunConfig.claudeModels == ["fable", "claude-fable-5-1", "opus", "opus[1m]",
+        #expect(Self.rows.count == 33)
+        #expect(ComposeRunConfig.claudeModels == ["claude-mythos-5-1", "fable", "claude-fable-5-1", "opus", "opus[1m]",
             "claude-opus-5-5", "claude-opus-5-5[1m]", "claude-opus-5", "claude-opus-5[1m]", "sonnet", "sonnet[1m]",
             "claude-sonnet-5-5", "claude-sonnet-5-5[1m]", "haiku"])
         #expect(ComposeRunConfig.codexModels == ["gpt-6.1-sol", "gpt-6.1-terra", "gpt-5.6-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-terra", "gpt-5.6-luna",
@@ -94,6 +95,7 @@ extension CoreSeamTests {
         #expect(ModelGuidance.configuredModelLabel("sonnet[1m]") == L.t("model_label_sonnet_1m"))
         #expect(ModelGuidance.configuredModelLabel("claude-sonnet-5-5") == L.t("model_label_sonnet_5_5"))
         #expect(ModelGuidance.configuredModelLabel("claude-sonnet-5-5[1m]") == L.t("model_label_sonnet_5_5_1m"))
+        #expect(ModelGuidance.configuredModelLabel("claude-mythos-5-1") == L.t("model_label_mythos_5_1"))
     }
 
     @Test func preselectionPortsThePromoCutoffAndFableAvailability() {
@@ -110,6 +112,18 @@ extension CoreSeamTests {
             #expect(ComposeRunConfig.preselectEffort(effort) == "default")
         }
         #expect(ComposeRunConfig.preselectEffort("high") == "high")
+    }
+
+    @Test func mythosIsOfferedOnlyWhenTheAccountHasIt() {
+        #expect(!ComposeRunConfig.available("claude-mythos-5-1", provider: .claude, fableAvailable: true,
+                                            mythosAvailable: false))
+        #expect(ComposeRunConfig.available("claude-mythos-5-1", provider: .claude, fableAvailable: true,
+                                           mythosAvailable: true))
+        #expect(ComposeRunConfig.available("opus", provider: .claude, fableAvailable: true, mythosAvailable: false))
+        #expect(!ComposeRunConfig.defaults(from: nil).mythosAvailable)
+        let model = seededComposer(.init(claudeModel: "claude-mythos-5-1"))
+        defer { model.teardown() }
+        #expect(model.model == "default")
     }
 
     private func seededComposer(_ defaults: ComposeRunConfig.Defaults, initial: String? = nil) -> ComposeModel {

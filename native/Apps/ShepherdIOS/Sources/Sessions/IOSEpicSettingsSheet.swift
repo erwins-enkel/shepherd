@@ -37,6 +37,7 @@ struct IOSEpicSettingsSheet: View {
                 IOSEpicSettingsContent(values: $values, start: starting,
                     running: epic.run.status.rawValue == "running", busy: control.busy, writable: control.writable,
                     fableAvailable: ComposeRunConfig.defaults(from: control.owner.store?.settings).fableAvailable,
+                    mythosAvailable: ComposeRunConfig.defaults(from: control.owner.store?.settings).mythosAvailable,
                     error: control.error, save: {
                         Task {
                             await control.update(values.patch(start: starting, running: epic.run.status.rawValue == "running"))
@@ -63,6 +64,7 @@ struct IOSEpicSettingsContent: View {
     var busy = false
     var writable = true
     var fableAvailable = true
+    var mythosAvailable = false
     var error: String?
     var save: () -> Void = {}
     var body: some View {
@@ -83,7 +85,8 @@ struct IOSEpicSettingsContent: View {
                 if let provider = values.provider {
                     menu("epic_model_label", value: (values.model == "default" ? L.t("newtask_model_default") : ModelGuidance.optionLabel(provider: provider, model: values.model)).components(separatedBy: " · ")[0], selection: $values.model) {
                         ForEach(["default"] + ComposeRunConfig.providerModels(provider).filter {
-                            ComposeRunConfig.available($0, provider: provider, fableAvailable: fableAvailable)
+                            ComposeRunConfig.available($0, provider: provider, fableAvailable: fableAvailable,
+                                                       mythosAvailable: mythosAvailable)
                         }, id: \.self) { value in
                             Text(verbatim: value == "default" ? L.t("newtask_model_default") : ModelGuidance.optionLabel(provider: provider, model: value)).tag(value)
                         }
@@ -102,8 +105,8 @@ struct IOSEpicSettingsContent: View {
             IOSEpicActionButton(title: L.t(start ? "native_ios_epic_start" : "common_save"), icon: start ? "play" : "checkmark", action: save)
             if busy { ProgressView(L.t("common_loading")) }
         }.padding(16).foregroundStyle(SessionListStyle.ink).disabled(busy || !writable)
-            .onChange(of: values.provider) { _, _ in values.normalize(fableAvailable: fableAvailable) }
-            .onChange(of: values.model) { _, _ in values.normalize(fableAvailable: fableAvailable) }
+            .onChange(of: values.provider) { _, _ in values.normalize(fableAvailable: fableAvailable, mythosAvailable: mythosAvailable) }
+            .onChange(of: values.model) { _, _ in values.normalize(fableAvailable: fableAvailable, mythosAvailable: mythosAvailable) }
     }
     private func menu<Value: Hashable, Content: View>(_ key: StaticString, value: String,
         selection: Binding<Value>, @ViewBuilder content: () -> Content) -> some View {

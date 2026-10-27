@@ -8,8 +8,9 @@
     getRepoCollaborators,
     putRepoRoles,
   } from "#lib/api.js";
-  import { MODELS, EFFORTS } from "#lib/types.js";
+  import { EFFORTS } from "#lib/types.js";
   import { modelGuidanceAlias, modelOptionLabel } from "#lib/model-guidance.js";
+  import { pickerModels } from "#lib/provider-models.js";
   import { effortLabel } from "#lib/effort-guidance.js";
   import ModelGuidance from "#lib/components/ModelGuidance.svelte";
   import type { RepoConfig, RepoMergeSettings, RepoRoles, RepoRolesPending } from "#lib/types.js";
@@ -235,7 +236,7 @@
       <option value="inherit">{m.automation_default_model_inherit()}</option>
       <option value="auto">{m.settings_default_model_auto()}</option>
       <option value="default">{m.newtask_model_default()}</option>
-      {#each MODELS as mdl (mdl)}
+      {#each pickerModels("claude", defaultModel) as mdl (mdl)}
         <option value={mdl}>{modelOptionLabel("claude", mdl)}</option>
       {/each}
     </select>

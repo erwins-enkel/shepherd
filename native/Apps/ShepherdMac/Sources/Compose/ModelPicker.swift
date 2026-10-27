@@ -10,7 +10,8 @@ struct ModelPicker: View {
 
     var options: [String] {
         ["default"] + ComposeRunConfig.providerModels(model.provider).filter {
-            ComposeRunConfig.available($0, provider: model.provider, fableAvailable: model.runDefaults.fableAvailable)
+            ComposeRunConfig.available($0, provider: model.provider, fableAvailable: model.runDefaults.fableAvailable,
+                                       mythosAvailable: model.runDefaults.mythosAvailable)
         }
     }
 

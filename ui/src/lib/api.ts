@@ -127,6 +127,7 @@ import type {
 import type { MergeConfirmPayload } from "#lib/components/merge-confirm.js";
 import { m } from "#lib/paraglide/messages.js";
 import { auth } from "#lib/auth.svelte.js";
+import { accountModels } from "#lib/account-models.svelte.js";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 
@@ -885,7 +886,10 @@ export async function getGithubRepos(): Promise<GithubReposResult> {
 export async function getSettings(): Promise<Settings> {
   const r = await fetch("/api/settings");
   if (!r.ok) throw await failed(r, "settings");
-  return r.json();
+  const settings: Settings = await r.json();
+  // Every settings read refreshes which account-gated models the pickers may offer.
+  accountModels.mythosAvailable = settings.mythosAvailable === true;
+  return settings;
 }
 
 // Standalone settings patch: PUT exactly the given fields to /api/settings, throw the

@@ -104,6 +104,7 @@ import {
   type CodexAuthMode,
 } from "./default-model";
 import { readCodexAuthMode } from "./codex-auth";
+import { assertModelAvailable } from "./claude-account-models";
 import { codexNoDaemonArgs } from "./codex-cli-capabilities";
 import { drainSpawnEffort, effortForSpawn, engineDefaultEffortSetting } from "./default-effort";
 import {
@@ -453,6 +454,9 @@ export interface ServiceDeps {
    *  Codex main sessions bypass pushModelFlag, so they are not downgraded. Wired from src/index.ts
    *  off usageLimits + config; absent in tests → no downgrade. Consumed by pushModelFlag. */
   usageDowngrade?: () => string | null;
+  /** Whether the logged-in Claude account can spawn Claude Mythos (claude-account-models.ts). A
+   *  Mythos spawn without it throws ModelUnavailableError. Absent → unavailable (fail closed). */
+  mythosAvailable?: () => boolean;
   /** Live Codex auth mode. Read per resolution/spawn because login mode can change at runtime. */
   readCodexAuthMode?: () => CodexAuthMode;
   /** On-path Codex help output; tests can substitute an older CLI. */
@@ -3752,6 +3756,7 @@ export class SessionService {
     // disabled → null, configured model stands.
     const downgrade = this.deps.usageDowngrade?.() ?? null;
     const requested = downgrade ?? model;
+    this.assertModelAvailable(requested);
     const spawnModel = spawnModelForAvailability(requested, config.fableAvailable);
     if (downgrade && downgrade !== model) {
       console.info(
@@ -3761,6 +3766,18 @@ export class SessionService {
       console.info(`model: fable unavailable — spawning on ${spawnModel} instead of ${requested}`);
     }
     return spawnModel;
+  }
+
+  /** Refuse a model the logged-in Claude account is not entitled to (Mythos) with a typed error. */
+  private assertModelAvailable(requested: string | null): void {
+    assertModelAvailable(requested, () => this.deps.mythosAvailable?.() ?? false);
+  }
+
+  /** Refuse an account-gated model before any naming/worktree work; pushModelFlag re-checks it at
+   *  spawn. Claude only — a Codex create never runs a Claude model. */
+  private assertCreateModelAvailable(input: StandardCreateInput): void {
+    if ((input.agentProvider ?? config.defaultAgentProvider) === "claude")
+      this.assertModelAvailable(this.deps.usageDowngrade?.() ?? input.model);
   }
 
   private codexAuthMode(): CodexAuthMode {
@@ -4787,6 +4804,7 @@ export class SessionService {
     phases: SpawnPhaseTracker,
   ): Promise<Session> {
     await this.assertIssueAuthorTrusted(input);
+    this.assertCreateModelAvailable(input);
     const repoBasename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
     const herdSlug = repoBasename ? slugifyManual(repoBasename) : undefined;
     // Base first: the namer can take a while, and the live-name snapshot must be fresh when the

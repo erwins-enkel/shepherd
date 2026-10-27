@@ -551,8 +551,13 @@ export interface RelaunchOverrides {
  *  A pinned name is only spawnable on a CLI whose catalog carries it: Claude Code
  *  rejects an unknown one with a hard 400 naming the version it needs. That floor
  *  lives in `claude-model-cli.ts` and surfaces as the `claude_model_cli` DIAGNOSE
- *  row; it is deliberately NOT enforced here, so the list stays a plain value space. */
+ *  row; it is deliberately NOT enforced here, so the list stays a plain value space.
+ *
+ *  `claude-mythos-5-1` is ACCOUNT-GATED: only an account its served catalog grants can spawn it.
+ *  It stays in the value space unconditionally; availability is checked at spawn and on the
+ *  model-setting routes (claude-account-models.ts), and the pickers hide it otherwise. */
 const CLAUDE_MODELS = [
+  "claude-mythos-5-1",
   "fable",
   "claude-fable-5-1",
   "opus",

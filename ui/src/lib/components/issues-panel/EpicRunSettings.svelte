@@ -3,7 +3,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import { updateEpic } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
-  import { providerModels, modelAvailableForProvider } from "#lib/provider-models.js";
+  import { pickerModels, modelAvailableForProvider } from "#lib/provider-models.js";
   import {
     providerEfforts,
     effortLabel,
@@ -80,7 +80,7 @@
       <span class="micro">{m.epic_model_label()}</span>
       <select value={epicModel} onchange={onModelChange}>
         <option value="default">{m.newtask_model_default()}</option>
-        {#each providerModels(epicProvider) as model (model)}
+        {#each pickerModels(epicProvider, epicModel) as model (model)}
           <option value={model}>{modelOptionLabel(epicProvider, model)}</option>
         {/each}
       </select>

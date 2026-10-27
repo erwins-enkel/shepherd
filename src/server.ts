@@ -464,6 +464,7 @@ import {
   type CodexAuthMode,
 } from "./default-model";
 import { readCodexAuthMode } from "./codex-auth";
+import { isMythosModel, ModelUnavailableError } from "./claude-account-models";
 import {
   normalizeDefaultEffortSetting,
   normalizeProviderDefaultEffortSetting,
@@ -579,6 +580,9 @@ export interface AppDeps {
   maxUploadBytes?: number;
   /** Live Codex auth mode; optional for tests and read on demand in production. */
   readCodexAuthMode?: () => CodexAuthMode;
+  /** Whether the logged-in Claude account can spawn Claude Mythos (claude-account-models.ts).
+   *  Absent → unavailable: Mythos is hidden and refused. */
+  mythosAvailable?: () => boolean;
   /** Anonymous product telemetry (Aptabase). `event()` itself no-ops unless consent is
    *  granted (config.telemetryConsent === "granted") and DO_NOT_TRACK isn't set. Optional
    *  so the many test `makeDeps()` builders need no change; wired to the real
@@ -3305,6 +3309,16 @@ async function parseRepoConfigPatch(req: Request): Promise<
   };
 }
 
+/** {@link parseRepoConfigPatch}, plus the account gate on a repo default model (a 422 Response). */
+async function parseGatedRepoConfigPatch(
+  req: Request,
+  deps: Ctx["deps"],
+): ReturnType<typeof parseRepoConfigPatch> {
+  const patch = await parseRepoConfigPatch(req);
+  if (patch instanceof Response || patch.defaultModel === undefined) return patch;
+  return modelSettingUnavailable(patch.defaultModel, deps) ?? patch;
+}
+
 /** Merge a validated patch onto the current repo config, returning the new full config.
  *  Patch fields are only ever undefined (absent) or a valid value, so every defined
  *  field overrides and absent fields keep the current value. */
@@ -3315,7 +3329,7 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   if (req.method === "GET") return json(withNoPrCi(deps, dir, repoConfigSvc(deps).read(dir)));
   if (req.method !== "PUT") return null;
 
-  const patch = await parseRepoConfigPatch(req);
+  const patch = await parseGatedRepoConfigPatch(req, deps);
   if (patch instanceof Response) return patch;
   // Load-bearing destructure: the automationConfirmed metadata is applied separately
   // by the service, never merged into the RepoConfig row.
@@ -4234,6 +4248,30 @@ function terminalErrorResponse(e: unknown): Response | null {
   return null;
 }
 
+/** 422 for a model the logged-in Claude account is not entitled to (Mythos). */
+function modelUnavailableJson(e: ModelUnavailableError): Response {
+  return json({ error: e.message, code: "model_unavailable" }, 422);
+}
+
+/** Whether the logged-in Claude account can spawn Mythos; an unwired dep reads as unavailable. */
+function mythosAvailable(deps: Ctx["deps"]): boolean {
+  return deps.mythosAvailable?.() ?? false;
+}
+
+/** The 422 for saving a model setting the logged-in Claude account cannot spawn, else null.
+ *  Setting values that are not a model ("auto", "default", "inherit") pass. */
+function modelSettingUnavailable(value: string, deps: Ctx["deps"]): Response | null {
+  if (!isMythosModel(value) || mythosAvailable(deps)) return null;
+  return modelUnavailableJson(new ModelUnavailableError(value));
+}
+
+/** The response for a failed relaunch/replace/variant spawn: 422 for a model the account lacks,
+ *  otherwise a 502 carrying the real cause (or `fallback` when the throw had no message). */
+function spawnFailureJson(e: unknown, fallback: string): Response {
+  if (e instanceof ModelUnavailableError) return modelUnavailableJson(e);
+  return json({ error: e instanceof Error ? e.message : fallback }, 502);
+}
+
 function createErrorResponse(e: unknown): Response {
   if (isHerdrProtocolMismatch(e)) {
     console.warn("[herdr] task creation requires a server restart");
@@ -4246,6 +4284,7 @@ function createErrorResponse(e: unknown): Response {
   if (e instanceof SpawnCanceled) return json({ error: e.message, code: "spawn_canceled" }, 409);
   if (e instanceof SandboxAutoRefused) return json({ error: e.holdReason }, 403);
   if (e instanceof WorktreeMissingBaseError) return json({ error: e.message }, 422);
+  if (e instanceof ModelUnavailableError) return modelUnavailableJson(e);
   // Another session is checked out at the path this name resolves to. Name selection normally
   // steps around that, so this is a conflict the operator resolves by retrying (which re-runs
   // selection), not a server fault — hence 409 rather than the 502 below.
@@ -6574,8 +6613,7 @@ async function handleSessionRelaunch({ req, parts, deps, token }: Ctx): Promise<
     try {
       fresh = await deps.service.relaunch(id, issueRef, overrides ?? undefined);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "relaunch failed";
-      return json({ error: msg }, 502);
+      return spawnFailureJson(e, "relaunch failed");
     }
 
     const { archived } = await finalizeRelaunch(original, fresh, issueRef, deps);
@@ -6616,7 +6654,7 @@ async function handleSessionReplace({ req, parts, deps }: Ctx): Promise<Response
         issueRef ? { ...choice.value, issueRef } : choice.value,
       );
     } catch (e) {
-      return json({ error: e instanceof Error ? e.message : "replace failed" }, 502);
+      return spawnFailureJson(e, "replace failed");
     }
     deps.events.emit("session:status", session);
     return json({ session }, 200);
@@ -6694,7 +6732,7 @@ async function handleSessionVariant({ req, parts, deps }: Ctx): Promise<Response
     try {
       result = await deps.service.startVariant(id, choice.value);
     } catch (e) {
-      return json({ error: e instanceof Error ? e.message : "variant failed" }, 502);
+      return spawnFailureJson(e, "variant failed");
     }
     deps.events.emit("session:new", result.variant);
     deps.events.emit("session:experiment", {
@@ -9087,6 +9125,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       usageDowngradeModel: config.usageDowngradeModel,
       // global fable availability flag; false = fable spawns reroute to opus[1m].
       fableAvailable: config.fableAvailable,
+      // read-only: the logged-in Claude account can spawn Claude Mythos (pickers hide it otherwise).
+      mythosAvailable: mythosAvailable(deps),
       // TUI renderer opt-in (research preview) + mouse-capture disable; apply to new/resumed sessions.
       tuiFullscreen: config.tuiFullscreen,
       tuiDisableMouse: config.tuiDisableMouse,
@@ -9310,6 +9350,8 @@ function putPlanReviewCyclesCap(value: unknown, deps: Ctx["deps"]): Response {
 function putDefaultModel(value: unknown, deps: Ctx["deps"]): Response {
   const v = normalizeDefaultModelSetting(value);
   if (v === null) return json({ error: "unknown model" }, 400);
+  const unavailable = modelSettingUnavailable(v, deps);
+  if (unavailable) return unavailable;
   config.defaultModel = v; // live: next drain spawn picks it up
   deps.store.setSetting("defaultModel", v); // persist across restarts
   return json({ defaultModel: config.defaultModel });
@@ -9386,6 +9428,8 @@ function makeRoleModelPatch(role: RoleKey): (value: unknown, deps: Ctx["deps"]) 
   return (value, deps) => {
     const v = normalizeRoleModelToken(value);
     if (v === null) return json({ error: `${key} must be "default" or a known model alias` }, 400);
+    const unavailable = modelSettingUnavailable(v, deps);
+    if (unavailable) return unavailable;
     config[key] = v; // live: next spawn's role-env thunk picks it up
     deps.store.setSetting(key, v); // persist across restarts
     return json({ [key]: config[key] });
@@ -9626,6 +9670,8 @@ function putUsageDowngradePct(value: unknown, deps: Ctx["deps"]): Response {
 function putUsageDowngradeModel(value: unknown, deps: Ctx["deps"]): Response {
   const v = normalizeDefaultModelSetting(value);
   if (v === null) return json({ error: "usageDowngradeModel must be a valid model setting" }, 400);
+  const unavailable = modelSettingUnavailable(v, deps);
+  if (unavailable) return unavailable;
   config.usageDowngradeModel = v; // live: next spawn picks it up
   deps.store.setSetting("usageDowngradeModel", v);
   return json({ usageDowngradeModel: config.usageDowngradeModel });

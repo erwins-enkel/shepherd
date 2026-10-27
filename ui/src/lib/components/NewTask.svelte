@@ -2178,6 +2178,9 @@
     } else if (err instanceof ApiError && err.code === "herdr_restart_required") {
       herdrRepairRequired = true;
       error = m.newtask_herdr_restart();
+    } else if (err instanceof ApiError && err.code === "model_unavailable") {
+      // The account lost (or never had) an account-gated model; retrying cannot help.
+      error = m.newtask_model_unavailable();
     } else if (err instanceof ApiError && err.code === "house_stack_unresolved") {
       // Bootstrap (#3109): no pin is guessed, so the start was refused. The packages are data.
       error = m.newtask_house_stack_unresolved({

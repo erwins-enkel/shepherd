@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import { m } from "#lib/paraglide/messages.js";
   import { getLocale } from "#lib/i18n.js";
-  import { providerModels } from "#lib/provider-models.js";
+  import { pickerModels } from "#lib/provider-models.js";
   import { providerEfforts, effortLabel } from "#lib/effort-guidance.js";
   import { schedules, weekdayNames, WORKDAYS, ALL_DAYS } from "#lib/schedules.svelte.js";
   import type { AgentProvider, SandboxProfile, Schedule, ScheduleInput } from "#lib/types.js";
@@ -207,7 +207,7 @@
         <span>{m.schedules_field_model()}</span>
         <select bind:value={model}>
           <option value="">{m.schedules_default()}</option>
-          {#each providerModels(effectiveProvider) as id (id)}
+          {#each pickerModels(effectiveProvider, model) as id (id)}
             <option value={id}>{id}</option>
           {/each}
         </select>

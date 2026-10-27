@@ -1280,6 +1280,7 @@ function buildSettings(): Settings {
     usageDowngradePct: 80,
     usageDowngradeModel: "auto",
     fableAvailable: true,
+    mythosAvailable: false,
     tuiFullscreen: false,
     tuiDisableMouse: false,
     reducedPushMode: false,

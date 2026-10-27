@@ -93,6 +93,7 @@
     "CoreSeamTests.ModelGuidanceTests/everyGuidanceRowMatchesTheWeb": [
       "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"auto\", cost: \"standard\", tag: \"providerDefault\", detail: \"auto\")",
       "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"claude-fable-5-1\", cost: \"premium\", tag: \"max\", detail: \"claude_fable_5_1\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"claude-mythos-5-1\", cost: \"premium\", tag: \"max\", detail: \"claude_mythos_5_1\")",
       "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"claude-opus-5\", cost: \"high\", tag: \"strong\", detail: \"claude_opus_5\")",
       "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"claude-opus-5-5\", cost: \"high\", tag: \"strong\", detail: \"claude_opus_5_5\")",
       "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"claude-opus-5-5[1m]\", cost: \"premium\", tag: \"longContext\", detail: \"claude_opus_5_5_1m\")",

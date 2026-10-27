@@ -24,6 +24,8 @@ import { m } from "#lib/paraglide/messages.js";
  */
 export function modelLabel(alias: string): string {
   switch (alias) {
+    case "claude-mythos-5-1":
+      return m.model_label_mythos_5_1();
     case "claude-fable-5-1":
       return m.model_label_fable_5_1();
     case "opus[1m]":
@@ -49,7 +51,7 @@ export function modelLabel(alias: string): string {
 
 /** Friendly label for a concrete model id reported by a provider's runtime log. */
 export function runtimeModelLabel(model: string): string {
-  const claude = /^claude-(fable|opus|sonnet|haiku)-(\d+)(?:-(\d+))?$/.exec(
+  const claude = /^claude-(mythos|fable|opus|sonnet|haiku)-(\d+)(?:-(\d+))?$/.exec(
     model.replace(/-\d{8}$/, ""),
   );
   if (claude) {

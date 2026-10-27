@@ -252,3 +252,14 @@ test("coldResumeUnits — the SAME context costs different money per model", () 
   expect(coldResumeUnits(150_000, "claude-haiku-4-5-20251001", "1h")).toBeCloseTo(0.2544, 6);
   expect(coldResumeUnits(150_000, "claude-fable-5-1", "1h")).toBeCloseTo(2.526, 6);
 });
+
+test("Mythos 5.1 prices like Fable 5.1: $10 in / $50 out / $0.25 cache read per Mtok", () => {
+  const one = { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 };
+  for (const id of ["claude-mythos-5-1", "claude-mythos-5-1-20261001"]) {
+    expect(weightedUnits({ ...one, input: 1_000_000 }, id)).toBe(10);
+    expect(weightedUnits({ ...one, output: 1_000_000 }, id)).toBe(50);
+    expect(cacheRead(id)).toBe(0.25);
+    expect(cacheWriteUnits({ cacheWrite5m: 1_000_000, cacheWrite1h: 0 }, id)).toBe(12.5);
+    expect(cacheWriteUnits({ cacheWrite5m: 0, cacheWrite1h: 1_000_000 }, id)).toBe(20);
+  }
+});

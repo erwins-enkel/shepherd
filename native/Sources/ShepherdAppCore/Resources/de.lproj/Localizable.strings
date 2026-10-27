@@ -720,6 +720,7 @@
 "model_guidance_claude_fable" = "Für die härtesten, langlaufenden Aufgaben. Höchste Qualität, höchste unbeaufsichtigte Kosten.";
 "model_guidance_claude_fable_5_1" = "Fixiert genau Fable 5.1, damit ein künftiges Fable-Release dieses Modell nicht still ändert.";
 "model_guidance_claude_haiku" = "Günstig und schnell. Gut für Naming und Klassifizierer, schwach für primäres Coding.";
+"model_guidance_claude_mythos_5_1" = "Angeboten, weil dein Claude-Konto Zugriff hat. Für die härtesten, langlaufenden Aufgaben; höchste unbeaufsichtigte Kosten.";
 "model_guidance_claude_opus" = "Immer das neueste Opus. Für PR-Kritik, Planung oder riskante Refactors, die mehr Urteilsvermögen als Sonnet brauchen.";
 "model_guidance_claude_opus_1m" = "Neuestes Opus mit 1 Mio. Kontext. Nur wählen, wenn Transcript oder Repo-Kontext das wirklich brauchen.";
 "model_guidance_claude_opus_5" = "Fixiert genau Opus 5, damit ein künftiges Opus-Release dieses Modell nicht still ändert.";
@@ -750,6 +751,7 @@
 "model_guidance_inherit" = "Erbt den globalen Standard für dieses Repo oder diese Rolle.";
 "model_guidance_unknown" = "Nur relative Kostenorientierung. Die tatsächlichen Kosten hängen von Auth-Modus, Konto und Token-Volumen ab.";
 "model_label_fable_5_1" = "Fable 5.1";
+"model_label_mythos_5_1" = "Mythos 5.1";
 "model_label_opus_1m" = "Opus (1 Mio. Kontext)";
 "model_label_opus_5" = "Opus 5";
 "model_label_opus_5_1m" = "Opus 5 (1 Mio. Kontext)";

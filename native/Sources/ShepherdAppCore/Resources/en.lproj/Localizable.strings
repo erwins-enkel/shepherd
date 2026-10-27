@@ -720,6 +720,7 @@
 "model_guidance_claude_fable" = "Use for the hardest long-running work. Highest quality, highest unattended burn.";
 "model_guidance_claude_fable_5_1" = "Pins Fable 5.1 exactly, so a future Fable release can't quietly change this model.";
 "model_guidance_claude_haiku" = "Cheap and fast. Best for naming and classifiers, weak for primary coding.";
+"model_guidance_claude_mythos_5_1" = "Offered because your Claude account has access. For the hardest long-running work; highest unattended burn.";
 "model_guidance_claude_opus" = "Always the latest Opus. Use for PR criticism, planning, or risky refactors that need stronger judgment than Sonnet.";
 "model_guidance_claude_opus_1m" = "Latest Opus with 1M context. Use only when the transcript or repo context truly needs it.";
 "model_guidance_claude_opus_5" = "Pins Opus 5 exactly, so a future Opus release can't quietly change this model.";
@@ -750,6 +751,7 @@
 "model_guidance_inherit" = "Inherits the global default for this repo or role.";
 "model_guidance_unknown" = "Relative cost guidance only. Actual spend depends on auth mode, account, and token volume.";
 "model_label_fable_5_1" = "Fable 5.1";
+"model_label_mythos_5_1" = "Mythos 5.1";
 "model_label_opus_1m" = "Opus (1M context)";
 "model_label_opus_5" = "Opus 5";
 "model_label_opus_5_1m" = "Opus 5 (1M context)";

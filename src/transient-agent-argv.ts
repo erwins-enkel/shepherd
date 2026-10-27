@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { apiKeySettingsFragment } from "./spawn-auth";
+import { accountMythosAvailable, assertModelAvailable } from "./claude-account-models";
 import { codexRoleArgv } from "./codex-role-argv";
 import { CODEX_LAST_MESSAGE_FILE, codexLastMessageFile } from "./codex-last-message";
 import { effortForSpawn } from "./default-effort";
@@ -316,6 +317,8 @@ export function buildTransientAgentArgv(
   ];
   if (preset.mcpIsolated) argv.push("--safe-mode");
   argv.push(...toolRuleArgs(preset));
+  // Role agents bypass the session service's spawn check: refuse an account-gated model here too.
+  assertModelAvailable(opts.model, accountMythosAvailable);
   if (opts.model) argv.push("--model", opts.model);
   const effortTier = effortForSpawn(opts.effort ?? null);
   if (effortTier) argv.push("--effort", effortTier);

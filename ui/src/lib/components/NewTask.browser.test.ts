@@ -21,6 +21,7 @@ import {
   sandboxOverrideExplanation,
 } from "#lib/tooltips/explanations.js";
 import { steers } from "#lib/steers.svelte.js";
+import { accountModels } from "#lib/account-models.svelte.js";
 import { viewerCache } from "#lib/viewer-cache.svelte.js";
 import { expectMinPx } from "#lib/test-support/geometry.js";
 import {
@@ -1877,6 +1878,31 @@ describe("NewTask base branch default", () => {
 
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ baseBranch: "dev" });
+  });
+});
+
+describe("NewTask account-gated Mythos", () => {
+  const modelSelect = () => document.querySelector<HTMLSelectElement>("#nt-model")!;
+  const options = () => Array.from(modelSelect().options).map((o) => o.value);
+
+  afterEach(() => {
+    accountModels.mythosAvailable = false;
+  });
+
+  it("hides Mythos when the logged-in account lacks it", async () => {
+    render(NewTask, { props: base() });
+    expect(options()).not.toContain("claude-mythos-5-1");
+  });
+
+  it("offers Mythos when the logged-in account has it", async () => {
+    accountModels.mythosAvailable = true;
+    render(NewTask, { props: base() });
+    expect(options()).toContain("claude-mythos-5-1");
+  });
+
+  it("falls back from a Mythos initialModel to default when the account lacks it", async () => {
+    render(NewTask, { props: base({ initialModel: "claude-mythos-5-1" }) });
+    expect(modelSelect().value).toBe("default");
   });
 });
 

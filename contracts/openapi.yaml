@@ -370,6 +370,9 @@ components:
           type: boolean
         fableAvailable:
           type: boolean
+        mythosAvailable:
+          type: boolean
+          description: Read-only. Whether the logged-in Claude account can spawn claude-mythos-5-1.
         judgeEnabled:
           type: boolean
         issueFilter:

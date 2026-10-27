@@ -16,6 +16,7 @@ import { AssistantViewRegistry } from "../src/operator-assistant-view";
 import { stagingDir } from "../src/uploads";
 import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
+import { ModelUnavailableError } from "../src/claude-account-models";
 import { EventHub } from "../src/events";
 import {
   makeApp,
@@ -870,6 +871,25 @@ test("POST /api/sessions surfaces a herdr failure with its real message (not a b
   expect(res.status).toBe(502); // herdr/git failure
   const body = await res.json();
   expect(body.error).toContain("no active workspace"); // real cause reaches the client
+});
+
+test("POST /api/sessions maps a model the account lacks to 422 model_unavailable", async () => {
+  const deps = makeDeps();
+  deps.service = {
+    create: async () => {
+      throw new ModelUnavailableError("claude-mythos-5-1");
+    },
+  } as any;
+  const res = await postSessions(makeApp(deps), {
+    repoPath: validRepo,
+    baseBranch: "main",
+    prompt: "go",
+    model: "claude-mythos-5-1",
+  });
+  expect(res.status).toBe(422);
+  const body = await res.json();
+  expect(body.code).toBe("model_unavailable");
+  expect(body.error).toContain("claude-mythos-5-1");
 });
 
 test("POST /api/sessions returns 422 when the selected base does not resolve to a commit", async () => {
@@ -2697,6 +2717,26 @@ test("PUT /api/repo-config accepts defaultModel override → 200 and GET reflect
   const res = await putRepoConfig(app, validRepo, { defaultModel: "opus" });
   expect(res.status).toBe(200);
   expect(deps.store.getRepoConfig(validRepo).defaultModel).toBe("opus");
+});
+
+test("PUT /api/repo-config defaultModel=Mythos: 422 without account access, saved with it", async () => {
+  const deps = makeDeps();
+  const refused = await putRepoConfig(
+    makeApp({ ...deps, mythosAvailable: () => false }),
+    validRepo,
+    {
+      defaultModel: "claude-mythos-5-1",
+    },
+  );
+  expect(refused.status).toBe(422);
+  expect((await refused.json()).code).toBe("model_unavailable");
+  expect(deps.store.getRepoConfig(validRepo).defaultModel).toBe("inherit");
+
+  const saved = await putRepoConfig(makeApp({ ...deps, mythosAvailable: () => true }), validRepo, {
+    defaultModel: "claude-mythos-5-1",
+  });
+  expect(saved.status).toBe(200);
+  expect(deps.store.getRepoConfig(validRepo).defaultModel).toBe("claude-mythos-5-1");
 });
 
 test("PUT /api/repo-config rejects unknown defaultModel → 400 with error message", async () => {

@@ -156,6 +156,7 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     usageDowngradePct: 80,
     usageDowngradeModel: "haiku",
     fableAvailable: true,
+    mythosAvailable: false,
     tuiFullscreen: false,
     tuiDisableMouse: false,
     reducedPushMode: false,

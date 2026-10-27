@@ -7,6 +7,10 @@ import {
 } from "../src/transient-agent-argv";
 import { config } from "../src/config";
 import { codexRoleArgv } from "../src/codex-role-argv";
+import {
+  __setAccountMythosAvailableForTest,
+  ModelUnavailableError,
+} from "../src/claude-account-models";
 
 // Temporarily set config auth fields, always restoring them.
 function withAuth(mode: typeof config.authMode, helper: string | null, fn: () => void): void {
@@ -39,6 +43,25 @@ function extractAllowedTools(argv: string[]): string[] {
 }
 
 const ALL_KINDS: TransientAgentKind[] = ["reviewer", "doc", "writer-ro", "writer-only"];
+
+// ── account-gated models: a role agent may only spawn Mythos when the login has it ───────────────
+
+test("Mythos role model: refused when the account lacks it, passed through when it has it", () => {
+  try {
+    __setAccountMythosAvailableForTest(() => false);
+    expect(() =>
+      buildTransientAgentArgv("reviewer", { model: "claude-mythos-5-1", prompt: "P" }),
+    ).toThrow(ModelUnavailableError);
+    __setAccountMythosAvailableForTest(() => true);
+    const { argv } = buildTransientAgentArgv("reviewer", {
+      model: "claude-mythos-5-1",
+      prompt: "P",
+    });
+    expect(argv[argv.indexOf("--model") + 1]).toBe("claude-mythos-5-1");
+  } finally {
+    __setAccountMythosAvailableForTest(null);
+  }
+});
 
 // ── reasoning effort (issue #1417): opt-in per call site ─────────────────────────────────────────
 

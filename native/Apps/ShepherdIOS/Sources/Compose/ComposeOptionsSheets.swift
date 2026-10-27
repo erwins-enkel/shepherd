@@ -48,7 +48,7 @@ struct ComposeEngineSheet: View {
                 }
             }.accessibilityIdentifier("compose.engine")
             Picker(L.t("newtask_model_label"), selection: $model.model) {
-                ForEach(["default"] + ComposeRunConfig.providerModels(model.provider).filter { ComposeRunConfig.available($0, provider: model.provider, fableAvailable: model.runDefaults.fableAvailable) }, id: \.self) { value in
+                ForEach(["default"] + ComposeRunConfig.providerModels(model.provider).filter { ComposeRunConfig.available($0, provider: model.provider, fableAvailable: model.runDefaults.fableAvailable, mythosAvailable: model.runDefaults.mythosAvailable) }, id: \.self) { value in
                     Text(verbatim: ModelGuidance.optionLabel(provider: model.provider, model: value)).tag(value)
                 }
             }.accessibilityIdentifier("compose.model")

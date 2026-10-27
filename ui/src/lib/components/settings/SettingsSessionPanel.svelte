@@ -17,8 +17,9 @@
     putTuiDisableMouse,
     logout,
   } from "#lib/api.js";
-  import { MODELS, type Settings } from "#lib/types.js";
+  import type { Settings } from "#lib/types.js";
   import { modelGuidanceAlias, modelOptionLabel } from "#lib/model-guidance.js";
+  import { pickerModels } from "#lib/provider-models.js";
   import ModelGuidance from "#lib/components/ModelGuidance.svelte";
   import RestartShepherdDialog from "#lib/components/RestartShepherdDialog.svelte";
   import { relativeAge } from "#lib/format.js";
@@ -668,7 +669,7 @@
       >
         <!-- Concrete aliases only: "auto"/"default" resolve to null (no --model)
              via drainSpawnModel, which would make the downgrade a silent no-op. -->
-        {#each MODELS as mdl (mdl)}
+        {#each pickerModels("claude", usageDowngradeModel) as mdl (mdl)}
           <option value={mdl}>{modelOptionLabel("claude", mdl)}</option>
         {/each}
       </select>

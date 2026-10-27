@@ -12971,12 +12971,27 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"heldCloseArchivesAtOnceOnlyWithNothingToReap() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"heldCloseArchiveFailureKeepsTheSessionAndExplains() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"heldCloseOpensNoSheetForASessionTheOperatorLeft() async throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/HerdPartitionTests.swift\",\"CoreSeamTests.HerdPartitionTests\",\"reviewBlockRendersAboveCiBlock()\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/HerdPartitionTests.swift\",\"CoreSeamTests.HerdPartitionTests\",\"reviewBlockRendersAboveCiBlock()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextPrsTests.swift\",\"CoreSeamTests.UpNextPrsTests\",\"parseReadsTheContractFieldAndDropsOnlyAnUnknownBand() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextPrsTests.swift\",\"CoreSeamTests.UpNextPrsTests\",\"groupsKeepBandOrderApplyTheRepoFilterAndSortWithinABand()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextPrsTests.swift\",\"CoreSeamTests.UpNextPrsTests\",\"statusLineNamesTheBlockThenTheCiLight()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextPrsTests.swift\",\"CoreSeamTests.UpNextPrsTests\",\"sheetFactsReadTheServerFields()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextPrsTests.swift\",\"CoreSeamTests.UpNextPrsTests\",\"actionsPutTheRecommendationFirstAndLockMergeWhileBlocked()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextPrsTests.swift\",\"CoreSeamTests.UpNextPrsTests\",\"reviewRequestNamesThePrAndItsBaseAndSkipsThePlanGate()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextPrsTests.swift\",\"CoreSeamTests.UpNextPrsTests\",\"trainTakesUnblockedGreenDependabotPrsOfTheBiggestRepo()\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testChangedSettingsSendOnlyTheChangedField() throws\"]",
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testSwitchingToInheritOmitsUnsupportedNullRatherThanPinningDefaults() throws\"]",
-    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSSessionActionsTests.swift\",\"IOSSessionActionsTests\",\"testRecapDetailFetchesOnlyWhenHosted() async throws\"]"
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSSessionActionsTests.swift\",\"IOSSessionActionsTests\",\"testRecapDetailFetchesOnlyWhenHosted() async throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSUpNextPrTests.swift\",\"IOSUpNextPrTests\",\"testSwipeOffersMergeOnlyForTheMergeActionAndOpensTheConfirmation()\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSUpNextPrTests.swift\",\"IOSUpNextPrTests\",\"testMergeConfirmationArmsAfterTheDelayAndEchoesARefusedGate() async\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSUpNextPrTests.swift\",\"IOSUpNextPrTests\",\"testFixGoesToTheServerEndpointAndNamesItsRefusals() async\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSUpNextPrTests.swift\",\"IOSUpNextPrTests\",\"testReviewSessionsUseThePrBaseOrTheRepoDefaultAndSelectTheSession() async\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSUpNextPrTests.swift\",\"IOSUpNextPrTests\",\"testTrainAndRebaseGoToTheServer() async\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSUpNextPrTests.swift\",\"IOSUpNextPrTests\",\"testBadgeAndToolbarCopy()\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSUpNextPrTests.swift\",\"IOSUpNextPrTests\",\"testRendersListSheetAndConfirmationFixtures() async throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSUpNextPrTests.swift\",\"IOSUpNextPrTests\",\"testTrainPlansPerServerSoSharedRepoPathsNeverMix() throws\"]"
   ]
 }

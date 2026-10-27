@@ -183,6 +183,10 @@ struct SessionListView: View {
         (hub?.connected ?? [app]).allSatisfy { $0.extension(MergeModel.self)?.settled == true && $0.extension(MergeModel.self)?.error == nil } ? String(presentation.owed.count) : "—"
     }
     private var owed: [PostMergeSteps] { presentation.owed.map(\.record) }
+    /// PRs the server put in the "ready to merge" band, over every connected server.
+    private var readyPrCount: Int {
+        (hub?.connected ?? [app]).reduce(0) { $0 + UpNextPrPresentation.readyCount(UpNextPrs.parse($1.extension(QueuesModel.self)?.upNext)) }
+    }
     private var selectionIDs: [String] {
         (hub?.connected ?? [app]).flatMap { owner -> [String] in
             let prefix = "\(ObjectIdentifier(owner))-"
@@ -289,8 +293,8 @@ struct SessionListView: View {
                     } else if sessions.isEmpty { empty(L.t("herd_done_empty")) }
                     ForEach(sessions) { row in card(row, showCli: SessionBadges.showsCli(for: sessions.map(\.session)), now: now) }
                 case .next:
-                    if let hub, hub.connected.count > 1 { IOSMergedNextRows(hub: hub, repos: activeRepos) }
-                    else { IOSUpNextRows(model: queues, repos: activeRepos, filter: .of([app])) }
+                    if let hub, hub.connected.count > 1 { IOSMergedNextRows(hub: hub, repos: activeRepos, select: selectRow) }
+                    else { IOSUpNextRows(model: queues, repos: activeRepos, filter: .of([app]), select: select) }
                 case .owed: IOSMergedOwedRows(rows: presentation.owed, owners: hub?.models ?? [:], fallback: app, showServers: (hub?.connected.count ?? 1) > 1, select: selectRow)
                 }
                 if !band.onTop, lens != .done, lens != .owed { completedEpicsSection(band, now: now) }
@@ -317,7 +321,7 @@ struct SessionListView: View {
 
     private func lensButton(_ lens: HerdLens, bottom: Bool) -> some View {
         SessionLensButton(lens: lens, selected: self.lens == lens, bottom: bottom,
-            owedCount: owedCount, owedAccessibilityValue: owedAccessibilityValue) { setLens(lens) }
+            owedCount: owedCount, owedAccessibilityValue: owedAccessibilityValue, readyPrCount: readyPrCount) { setLens(lens) }
     }
 
     private var lensStrip: some View {

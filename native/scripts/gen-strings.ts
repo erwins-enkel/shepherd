@@ -2522,6 +2522,81 @@ export const KEYS_ISSUE_FILTER: readonly string[] = [
 ];
 
 /**
+ * PRs in Up Next on iOS: the PR groups, the card status line, the PR sheet and the
+ * Dependabot merge train. Keep alphabetical.
+ */
+export const KEYS_IOS_UPNEXT_PRS: readonly string[] = [
+  "mergetrain_confirm_action",
+  "mergetrain_confirm_other_repos",
+  "mergetrain_confirm_title",
+  "native_ios_upnext_pr_action_approve",
+  "native_ios_upnext_pr_action_fix",
+  "native_ios_upnext_pr_action_merge",
+  "native_ios_upnext_pr_action_rebase",
+  "native_ios_upnext_pr_action_review",
+  "native_ios_upnext_pr_badge_aria",
+  "native_ios_upnext_pr_band_blocked",
+  "native_ios_upnext_pr_band_dependabot",
+  "native_ios_upnext_pr_band_ready",
+  "native_ios_upnext_pr_band_review",
+  "native_ios_upnext_pr_ci_all_green",
+  "native_ios_upnext_pr_ci_green",
+  "native_ios_upnext_pr_ci_none",
+  "native_ios_upnext_pr_ci_red",
+  "native_ios_upnext_pr_ci_running",
+  "native_ios_upnext_pr_ci_some_green",
+  "native_ios_upnext_pr_description",
+  "native_ios_upnext_pr_done",
+  "native_ios_upnext_pr_fact_ci",
+  "native_ios_upnext_pr_fact_closes",
+  "native_ios_upnext_pr_fact_mergeable",
+  "native_ios_upnext_pr_fact_review",
+  "native_ios_upnext_pr_fact_target",
+  "native_ios_upnext_pr_held",
+  "native_ios_upnext_pr_issue_section",
+  "native_ios_upnext_pr_kind",
+  "native_ios_upnext_pr_lock_approval",
+  "native_ios_upnext_pr_lock_behind",
+  "native_ios_upnext_pr_lock_ci",
+  "native_ios_upnext_pr_lock_conflict",
+  "native_ios_upnext_pr_lock_running",
+  "native_ios_upnext_pr_merge_confirm_repo",
+  "native_ios_upnext_pr_mergeable_yes",
+  "native_ios_upnext_pr_merging",
+  "native_ios_upnext_pr_next",
+  "native_ios_upnext_pr_open_forge",
+  "native_ios_upnext_pr_prev",
+  "native_ios_upnext_pr_rebase_requested",
+  "native_ios_upnext_pr_review_approved",
+  "native_ios_upnext_pr_review_changes",
+  "native_ios_upnext_pr_review_comment",
+  "native_ios_upnext_pr_review_none",
+  "native_ios_upnext_pr_review_prompt",
+  "native_ios_upnext_pr_row_aria",
+  "native_ios_upnext_pr_section",
+  "native_ios_upnext_pr_sheet_title",
+  "native_ios_upnext_pr_started",
+  "native_ios_upnext_pr_status_approval",
+  "native_ios_upnext_pr_status_behind",
+  "native_ios_upnext_pr_status_conflict",
+  "native_ios_upnext_pr_swipe_merge",
+  "native_ios_upnext_pr_toolbar_filter",
+  "native_ios_upnext_pr_toolbar_filter_none",
+  "native_ios_upnext_pr_toolbar_filter_one",
+  "native_ios_upnext_pr_train_aria",
+  "native_ios_upnext_pr_train_button",
+  "native_ios_upnext_pr_train_confirm_body",
+  "native_ios_upnext_pr_train_none",
+  "native_ios_upnext_pr_updates",
+  "prspanel_merge_train_prompt",
+  "upnext_pr_body_unavailable",
+  "upnext_pr_fix_failed",
+  "upnext_pr_fix_fork",
+  "upnext_pr_fix_in_flight",
+  "upnext_pr_fix_started",
+];
+
+/**
  * The manifest the catalog is generated from. Order here does not reach the
  * output — `build()` sorts before emitting — but is fixed so the concatenation
  * is easy to assert.
@@ -2556,6 +2631,7 @@ export const KEYS: readonly string[] = [
   ...KEYS_SETTINGS,
   ...KEYS_MACHINES,
   ...KEYS_ISSUE_FILTER,
+  ...KEYS_IOS_UPNEXT_PRS,
 ];
 
 /**

@@ -17,6 +17,8 @@ enum SessionListStyle {
     static let slate = color(0x566460)
     /// The web's `--status-warn`: "your turn" on an epic to land.
     static let warn = color(0xe8730c)
+    /// The web's `--data-2` (oklch 0.72 0.1 295): the "review due" PR band.
+    static let violet = color(0xa998dd)
 
     /// Epic blue at 30 % over `line`: the web's `color-mix(in srgb, blue 30%, line)` for the
     /// epic header rule and the rail tying member rows to it.

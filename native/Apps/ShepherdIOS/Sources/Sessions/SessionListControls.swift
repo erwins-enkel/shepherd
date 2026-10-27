@@ -18,12 +18,21 @@ struct SessionLensButton: View {
     let bottom: Bool
     let owedCount: String
     let owedAccessibilityValue: String
+    /// The green counter on the Next glyph: PRs the server calls ready to merge.
+    var readyPrCount = 0
     let action: () -> Void
+
+    private var showsReadyBadge: Bool { lens == .next && readyPrCount > 0 }
 
     var body: some View {
         Button(action: action) {
             VStack(spacing: 4) {
                 Text(verbatim: lens.glyph).accessibilityHidden(true)
+                    .overlay(alignment: .topTrailing) {
+                        if showsReadyBadge {
+                            IOSUpNextLensBadge(count: readyPrCount).offset(x: 14, y: -7)
+                        }
+                    }
                 HStack(spacing: 3) {
                     Text(verbatim: L.t(lens.labelKey))
                         .fixedSize(horizontal: false, vertical: true)
@@ -47,7 +56,8 @@ struct SessionLensButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text(verbatim: L.t(lens.labelKey)))
+        .accessibilityLabel(Text(verbatim: showsReadyBadge
+            ? L.t("native_ios_upnext_pr_badge_aria", L.t(lens.labelKey), String(readyPrCount)) : L.t(lens.labelKey)))
         .accessibilityValue(lens == .owed ? owedAccessibilityValue : "")
         .accessibilityHint(Text(verbatim: L.t(lens.titleKey)))
         .accessibilityAddTraits(selected ? .isSelected : [])

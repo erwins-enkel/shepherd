@@ -126,39 +126,17 @@ enum IOSUpNextEmpty: Equatable {
     }
 }
 
-/// The lens title with its "Filter · N" button, then the active rules and "N hidden".
+/// The compact bar — "Filter · N rules" left, the sort right — then the active rules and "N hidden".
 struct IOSUpNextFilterHeader: View {
     let filter: IOSUpNextFilter
     let repos: Set<String>
+    @Binding var sort: UpNextSort
     @Binding var open: Bool
 
     var body: some View {
-        HStack {
-            Text(verbatim: L.t(HerdLens.next.labelKey).uppercased()).sessionFont(label: true, weight: .semibold)
-                .foregroundStyle(SessionListStyle.amber).accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
-            if filter.isAvailable {
-                Button { open = true } label: {
-                    Text(verbatim: L.t("native_ios_upnext_filter_button", String(filter.count)))
-                        .sessionFont(label: true, weight: .semibold)
-                        .foregroundStyle(filter.isActive ? SessionListStyle.amber : SessionListStyle.ink)
-                        .padding(.horizontal, 10)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 3)
-                                .stroke(filter.isActive ? SessionListStyle.amber : SessionListStyle.line, lineWidth: 1)
-                                .padding(.vertical, 6)
-                        }
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(L.t("upnext_filter_button_aria", String(filter.count)))
-                .accessibilityIdentifier("queues-upnext-filter")
-            }
-        }
-        .listRowBackground(SessionListStyle.background).listRowSeparator(.hidden)
-        // On the one title row: a modifier on the whole header would repeat per List row.
-        .sheet(isPresented: $open) { IOSUpNextFilterSheet(filter: filter) }
+        IOSUpNextToolbar(filter: filter, sort: $sort, filterOpen: $open)
+            // On the one bar row: a modifier on the whole header would repeat per List row.
+            .sheet(isPresented: $open) { IOSUpNextFilterSheet(filter: filter) }
         if filter.isAvailable { chips }
         if let error = filter.error {
             Button { filter.clearErrors() } label: {

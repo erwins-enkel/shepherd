@@ -83,6 +83,7 @@ final class IOSLaunchEnvironment {
         app.register(IssueFilterSettingsModel.self)
         CoreStreamInstallers.installIOSSessionActions(into: app)
         app.register(IOSSessionActions.self)
+        app.register(IOSUpNextPrController.self)
         app.allowsQueueRecomputation = false
         app.allowsTerminalInput = !configuration.isIsolated
         app.liveRequestAudit = configuration.isIsolated ? ReadOnlyRequestAudit() : nil

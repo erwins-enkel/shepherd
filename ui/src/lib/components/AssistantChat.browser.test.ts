@@ -279,6 +279,7 @@ describe("AssistantChat", () => {
   it("invites a first question when the conversation is empty", async () => {
     render(AssistantChat, props());
     await expect.element(page.getByText(m.assistant_chat_empty())).toBeVisible();
+    expect(document.querySelector("svg.wt")).toBeNull();
   });
 
   it("Enter sends the draft through onsend and shows it until the transcript logs it", async () => {
@@ -314,6 +315,7 @@ describe("AssistantChat", () => {
     const p = props({ status: "running" });
     render(AssistantChat, p);
     await expect.element(page.getByText(m.assistant_chat_working())).toBeVisible();
+    expect(document.querySelector(".ac-working svg.wt")).not.toBeNull();
 
     await page.getByRole("button", { name: m.assistant_chat_stop() }).click();
     expect(p.oninterrupt).toHaveBeenCalledTimes(1);

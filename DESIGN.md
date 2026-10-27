@@ -243,6 +243,10 @@ Shadows are permitted in exactly one situation: a summoned overlay. Bottom sheet
 
 - A 9px circle filled with the status color (amber / red / slate). The "working" pip pulses via an expanding, fading halo (`pip-pulse`, 1.5s ease-out — a compositor-only transform/opacity pseudo-element, not an animated box-shadow). A ready-to-ship agent shows a bare green check glyph instead of a filled dot — green is reserved for that actionable-complete state. A WAITING (`done`) agent is parked, not complete, so it shares the idle slate hue but takes a hollow ring instead of idle's solid dot. Status never relies on hue alone: position, the pulse, the check glyph, the hollow-vs-solid ring, and the WORKING / WAITING / IDLE / BLOCKED label all carry meaning.
 
+### Chat Working Trace
+
+- The Chat view's "working…" line leads with a 40×10 amber oscilloscope trace (`chat/WorkingTrace.svelte`): a beam spot sweeps a fixed telemetry waveform every 1.6s, its phosphor tail decaying behind it over a faint `line` midline. Amber stroke only — no glow or halo. Under reduced motion it holds a frozen frame (beam at the right edge); the label still carries the state.
+
 ### Live Terminal (signature)
 
 - A full xterm.js pane on the `bg` ground, fed real PTY bytes. A single amber scanline (a 4%-opacity amber band) sweeps top to bottom over 8s (`scan`), the one piece of ambient motion in the system. It is texture, not noise: low enough opacity to never compete with the terminal text.

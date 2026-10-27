@@ -69,9 +69,7 @@ export function parseCatalog(raw: unknown): { fetchedAt: number; ids: Set<string
 }
 
 /** The logged-in org plus the `additionalModelOptionsCache` ids from a parsed `.claude.json`. */
-export function parseAccountConfig(
-  raw: unknown,
-): { orgUuid: string; additional: Set<string> } | null {
+function parseAccountConfig(raw: unknown): { orgUuid: string; additional: Set<string> } | null {
   if (typeof raw !== "object" || raw === null) return null;
   const cfg = raw as {
     oauthAccount?: { organizationUuid?: unknown };

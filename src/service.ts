@@ -3773,6 +3773,13 @@ export class SessionService {
     assertModelAvailable(requested, () => this.deps.mythosAvailable?.() ?? false);
   }
 
+  /** Refuse an account-gated model before any naming/worktree work; pushModelFlag re-checks it at
+   *  spawn. Claude only — a Codex create never runs a Claude model. */
+  private assertCreateModelAvailable(input: StandardCreateInput): void {
+    if ((input.agentProvider ?? config.defaultAgentProvider) === "claude")
+      this.assertModelAvailable(this.deps.usageDowngrade?.() ?? input.model);
+  }
+
   private codexAuthMode(): CodexAuthMode {
     return this.deps.readCodexAuthMode?.() ?? readCodexAuthMode();
   }
@@ -4797,9 +4804,7 @@ export class SessionService {
     phases: SpawnPhaseTracker,
   ): Promise<Session> {
     await this.assertIssueAuthorTrusted(input);
-    // Refuse an account-gated model before any naming/worktree work; pushModelFlag re-checks it.
-    if ((input.agentProvider ?? config.defaultAgentProvider) === "claude")
-      this.assertModelAvailable(this.deps.usageDowngrade?.() ?? input.model);
+    this.assertCreateModelAvailable(input);
     const repoBasename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
     const herdSlug = repoBasename ? slugifyManual(repoBasename) : undefined;
     // Base first: the namer can take a while, and the live-name snapshot must be fresh when the

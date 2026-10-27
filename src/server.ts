@@ -3309,6 +3309,16 @@ async function parseRepoConfigPatch(req: Request): Promise<
   };
 }
 
+/** {@link parseRepoConfigPatch}, plus the account gate on a repo default model (a 422 Response). */
+async function parseGatedRepoConfigPatch(
+  req: Request,
+  deps: Ctx["deps"],
+): ReturnType<typeof parseRepoConfigPatch> {
+  const patch = await parseRepoConfigPatch(req);
+  if (patch instanceof Response || patch.defaultModel === undefined) return patch;
+  return modelSettingUnavailable(patch.defaultModel, deps) ?? patch;
+}
+
 /** Merge a validated patch onto the current repo config, returning the new full config.
  *  Patch fields are only ever undefined (absent) or a valid value, so every defined
  *  field overrides and absent fields keep the current value. */
@@ -3319,11 +3329,8 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   if (req.method === "GET") return json(withNoPrCi(deps, dir, repoConfigSvc(deps).read(dir)));
   if (req.method !== "PUT") return null;
 
-  const patch = await parseRepoConfigPatch(req);
+  const patch = await parseGatedRepoConfigPatch(req, deps);
   if (patch instanceof Response) return patch;
-  const unavailable =
-    patch.defaultModel === undefined ? null : modelSettingUnavailable(patch.defaultModel, deps);
-  if (unavailable) return unavailable;
   // Load-bearing destructure: the automationConfirmed metadata is applied separately
   // by the service, never merged into the RepoConfig row.
   const { automationConfirmed, ...cfgPatch } = patch;
@@ -4246,11 +4253,23 @@ function modelUnavailableJson(e: ModelUnavailableError): Response {
   return json({ error: e.message, code: "model_unavailable" }, 422);
 }
 
+/** Whether the logged-in Claude account can spawn Mythos; an unwired dep reads as unavailable. */
+function mythosAvailable(deps: Ctx["deps"]): boolean {
+  return deps.mythosAvailable?.() ?? false;
+}
+
 /** The 422 for saving a model setting the logged-in Claude account cannot spawn, else null.
  *  Setting values that are not a model ("auto", "default", "inherit") pass. */
 function modelSettingUnavailable(value: string, deps: Ctx["deps"]): Response | null {
-  if (!isMythosModel(value) || (deps.mythosAvailable?.() ?? false)) return null;
+  if (!isMythosModel(value) || mythosAvailable(deps)) return null;
   return modelUnavailableJson(new ModelUnavailableError(value));
+}
+
+/** The response for a failed relaunch/replace/variant spawn: 422 for a model the account lacks,
+ *  otherwise a 502 carrying the real cause (or `fallback` when the throw had no message). */
+function spawnFailureJson(e: unknown, fallback: string): Response {
+  if (e instanceof ModelUnavailableError) return modelUnavailableJson(e);
+  return json({ error: e instanceof Error ? e.message : fallback }, 502);
 }
 
 function createErrorResponse(e: unknown): Response {
@@ -6594,9 +6613,7 @@ async function handleSessionRelaunch({ req, parts, deps, token }: Ctx): Promise<
     try {
       fresh = await deps.service.relaunch(id, issueRef, overrides ?? undefined);
     } catch (e) {
-      if (e instanceof ModelUnavailableError) return modelUnavailableJson(e);
-      const msg = e instanceof Error ? e.message : "relaunch failed";
-      return json({ error: msg }, 502);
+      return spawnFailureJson(e, "relaunch failed");
     }
 
     const { archived } = await finalizeRelaunch(original, fresh, issueRef, deps);
@@ -6637,8 +6654,7 @@ async function handleSessionReplace({ req, parts, deps }: Ctx): Promise<Response
         issueRef ? { ...choice.value, issueRef } : choice.value,
       );
     } catch (e) {
-      if (e instanceof ModelUnavailableError) return modelUnavailableJson(e);
-      return json({ error: e instanceof Error ? e.message : "replace failed" }, 502);
+      return spawnFailureJson(e, "replace failed");
     }
     deps.events.emit("session:status", session);
     return json({ session }, 200);
@@ -6716,8 +6732,7 @@ async function handleSessionVariant({ req, parts, deps }: Ctx): Promise<Response
     try {
       result = await deps.service.startVariant(id, choice.value);
     } catch (e) {
-      if (e instanceof ModelUnavailableError) return modelUnavailableJson(e);
-      return json({ error: e instanceof Error ? e.message : "variant failed" }, 502);
+      return spawnFailureJson(e, "variant failed");
     }
     deps.events.emit("session:new", result.variant);
     deps.events.emit("session:experiment", {
@@ -9111,7 +9126,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // global fable availability flag; false = fable spawns reroute to opus[1m].
       fableAvailable: config.fableAvailable,
       // read-only: the logged-in Claude account can spawn Claude Mythos (pickers hide it otherwise).
-      mythosAvailable: deps.mythosAvailable?.() ?? false,
+      mythosAvailable: mythosAvailable(deps),
       // TUI renderer opt-in (research preview) + mouse-capture disable; apply to new/resumed sessions.
       tuiFullscreen: config.tuiFullscreen,
       tuiDisableMouse: config.tuiDisableMouse,

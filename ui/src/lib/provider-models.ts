@@ -16,7 +16,7 @@ export function isFableModel(value: string | null | undefined): boolean {
 
 /** Whether a model value selects Claude Mythos — an account-gated model the logged-in Claude
  *  account may or may not be entitled to. Mirrors `isMythosModel` in src/claude-account-models.ts. */
-export function isMythosModel(value: string | null | undefined): boolean {
+function isMythosModel(value: string | null | undefined): boolean {
   return typeof value === "string" && value.startsWith("claude-mythos-");
 }
 

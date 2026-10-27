@@ -188,6 +188,60 @@ describe("epic forecast inputs", () => {
   });
 });
 
+describe("listEpicStepDurations", () => {
+  test("other epics' integrated children in the window, from their earliest session or fact", () => {
+    const s = new SessionStore(":memory:");
+    const fact = (sessionId: string, repoPath: string, issueNumber: number, createdAt: number) =>
+      s.upsertDeliveryFact({
+        sessionId,
+        repoPath,
+        desig: "",
+        issueNumber,
+        createdAt,
+        now: createdAt,
+      });
+    const integrate = (parent: number, child: number, min: number, repoPath = "/repo") => {
+      at(min);
+      s.recordEpicIntegrated(repoPath, parent, child);
+    };
+    // #11: a retried child — its first fact at 0 opens it, integrated at 50.
+    fact("a", "/repo", 11, T0);
+    fact("b", "/repo", 11, T0 + 20 * MIN);
+    integrate(1, 11, 50);
+    // #12: only a live session row, created at 60, integrated at 90.
+    at(60);
+    s.create({
+      name: "t",
+      prompt: "p",
+      repoPath: "/repo",
+      baseBranch: "epic/1",
+      branch: "shepherd/t-12",
+      worktreePath: "/wt",
+      isolated: true,
+      herdrSession: "h",
+      herdrAgentId: "term_1",
+      auto: true,
+      issueNumber: 12,
+    } as never);
+    integrate(1, 12, 90);
+    // Left out: the epic being forecast, a child integrated before the window, another repo, a
+    // child with no known start, and one whose start is not before its stamp.
+    fact("c", "/repo", 21, T0);
+    integrate(2, 21, 40);
+    fact("d", "/repo", 13, T0 - 200 * MIN);
+    integrate(1, 13, -100);
+    fact("e", "/other", 14, T0);
+    integrate(1, 14, 30, "/other");
+    integrate(1, 15, 30);
+    fact("f", "/repo", 16, T0 + 70 * MIN);
+    integrate(1, 16, 70);
+    expect(s.listEpicStepDurations("/repo", T0, 2).sort((a, b) => a - b)).toEqual([
+      30 * MIN,
+      50 * MIN,
+    ]);
+  });
+});
+
 describe("listDeliveryFactsForIssues", () => {
   test("returns one repo's facts for the given issues only", () => {
     const s = new SessionStore(":memory:");

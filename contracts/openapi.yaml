@@ -5304,6 +5304,10 @@ components:
       type: string
       x-shepherd-open-enum: true
       enum: [very-low, low, medium, high]
+    EpicForecastRepoBasis:
+      type: string
+      x-shepherd-open-enum: true
+      enum: [epic-steps, lead-time]
     EpicChildForecast:
       type: object
       additionalProperties: true
@@ -5350,6 +5354,7 @@ components:
           landingMs,
           epicSamples,
           repoSamples,
+          repoBasis,
           firstFinishAt,
           fasterWithSlots,
           children,
@@ -5373,7 +5378,7 @@ components:
         stepMs:
           {
             type: integer,
-            description: The per-child estimate — the epic's measured children blended with the repo's median lead time.,
+            description: The per-child estimate — the epic's measured children blended with the repo's median (see repoBasis).,
           }
         landingMs:
           {
@@ -5382,9 +5387,11 @@ components:
           }
         epicSamples: { type: integer, description: This epic's children with a measured duration. }
         repoSamples:
+          { type: integer, description: Samples behind the repo's median (0 when it has none). }
+        repoBasis:
           {
-            type: integer,
-            description: Tasks behind the repo's median lead time (0 when it has none).,
+            "oneOf": [{ "$ref": "#/components/schemas/EpicForecastRepoBasis" }, { "type": "null" }],
+            description: "What the repo's median is taken over: epic-steps = its past epic steps (first session to integrated); lead-time = every task's lead time, used with fewer than three past epic steps or for an incremental epic; null when it has neither.",
           }
         firstFinishAt:
           {

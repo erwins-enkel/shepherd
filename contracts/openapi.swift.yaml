@@ -7376,6 +7376,15 @@ components:
         - low
         - medium
         - high
+    EpicForecastRepoBasis:
+      anyOf:
+        - $ref: "#/components/schemas/EpicForecastRepoBasisKnown"
+        - type: string
+    EpicForecastRepoBasisKnown:
+      type: string
+      enum:
+        - epic-steps
+        - lead-time
     EpicChildForecast:
       type: object
       additionalProperties: true
@@ -7458,7 +7467,7 @@ components:
           $ref: "#/components/schemas/EpicForecastConfidence"
         stepMs:
           type: integer
-          description: The per-child estimate — the epic's measured children blended with the repo's median lead time.
+          description: The per-child estimate — the epic's measured children blended with the repo's median (see repoBasis).
         landingMs:
           type: integer
           description: The landing estimate — the repo's past epic landings, else 20 min.
@@ -7467,7 +7476,10 @@ components:
           description: This epic's children with a measured duration.
         repoSamples:
           type: integer
-          description: Tasks behind the repo's median lead time (0 when it has none).
+          description: Samples behind the repo's median (0 when it has none).
+        repoBasis:
+          $ref: "#/components/schemas/EpicForecastRepoBasis"
+          description: "What the repo's median is taken over: epic-steps = its past epic steps (first session to integrated); lead-time = every task's lead time, used with fewer than three past epic steps or for an incremental epic; null when it has neither."
         firstFinishAt:
           type:
             - integer

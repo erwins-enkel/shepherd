@@ -218,6 +218,7 @@ export function epic(run: EpicRun): Epic {
       landingMs: 1_200_000,
       epicSamples: 0,
       repoSamples: 12,
+      repoBasis: "epic-steps",
       firstFinishAt: null,
       fasterWithSlots: null,
       children: [

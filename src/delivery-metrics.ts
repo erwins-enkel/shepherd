@@ -254,18 +254,18 @@ function incidents(
   return rows.map((r) => ({ kind: r.kind, occurrences: r.occurrences, sessions: r.sessions }));
 }
 
-/** One repo's `DeliveryStats.leadTimeMs` over the `30d` window — the median the epic forecast
- *  (src/epic-forecast.ts) prices a child at. Folded through `statsFor`, so it is exactly the lens's
- *  number for that repo. */
-export function repoLeadTime(
+/** One repo's lead times over the `30d` window — what the epic forecast (src/epic-forecast.ts)
+ *  prices a child from when the repo has too few past epic steps. The same tasks and measure as
+ *  the lens's `leadTimeMs` for that repo, unreduced. */
+export function repoLeadTimes(
   store: Pick<SessionStore, "listMergedDeliveryFacts">,
   repoPath: string,
   now: number,
-): DeliverySample {
-  const facts = store
+): number[] {
+  return store
     .listMergedDeliveryFacts(rangeCutoff("30d", now))
-    .filter((f) => f.repoPath === repoPath);
-  return statsFor(facts.map((f) => toTaskView(f, EMPTY_ROUNDS))).leadTimeMs;
+    .filter((f) => f.repoPath === repoPath)
+    .flatMap((f) => toTaskView(f, EMPTY_ROUNDS).leadTimeMs ?? []);
 }
 
 /**

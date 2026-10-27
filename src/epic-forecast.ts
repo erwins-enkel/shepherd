@@ -4,14 +4,16 @@ import type {
   EpicChildForecast,
   EpicForecast,
   EpicForecastConfidence,
+  EpicForecastRepoBasis,
 } from "./epic-core";
-import type { DeliverySample } from "./types";
 
 const MIN = 60_000;
 /** The landing estimate when the repo never landed an epic. */
 const DEFAULT_LANDING_MS = 20 * MIN;
 /** How many samples the repo median counts as in the blend. */
 const PRIOR_WEIGHT = 2;
+/** With fewer past epic steps than this, a step is priced from the repo's lead time instead. */
+const MIN_EPIC_STEP_SAMPLES = 3;
 /** An in-flight step is never projected to need less than this share of its estimate. */
 const MIN_REMAINING_SHARE = 0.1;
 /** An in-flight child past this multiple of the estimate is overrunning. */
@@ -26,8 +28,11 @@ const MIN_WHAT_IF_SAVING_MS = 15 * MIN;
 /** What {@link forecastEpic} reads besides the epic — gathered by the drain, so the model does
  *  no I/O and reads no clock. */
 export interface EpicForecastInput {
-  /** The repo's `DeliveryStats.leadTimeMs` over 30 days (`repoLeadTime`). */
-  repoLeadTime: DeliverySample;
+  /** The repo's lead times over 30 days (`repoLeadTimes`): every merged task, created → merged. */
+  leadTimeMs: number[];
+  /** The repo's past epic steps over 30 days, this epic's excluded
+   *  (`SessionStore.listEpicStepDurations`): first session → integrated. */
+  epicStepMs: number[];
   /** The repo's agent slots. */
   maxAuto: number;
   /** The repo's non-archived auto sessions — what the drain's cap counts. */
@@ -56,6 +61,15 @@ interface Span {
   end: number;
 }
 
+/** The repo history a step is priced from, as its quartiles. */
+interface Prior {
+  basis: EpicForecastRepoBasis;
+  n: number;
+  p25: number;
+  p50: number;
+  p75: number;
+}
+
 /** The landing step: its estimate, and how long it has been underway (null before it began). */
 interface Landing {
   ms: number;
@@ -67,20 +81,22 @@ interface Landing {
  * repo median and no measured child) or once it landed.
  *
  * Each child is priced at the mean of the repo median (counted {@link PRIOR_WEIGHT} times) and this
- * epic's measured children, so the epic's own pace takes over as it accumulates. The children
- * still to finish are list-scheduled over `maxAuto` slots in epic order, honoring `blockedBy`, and
- * the landing follows the last one. The range re-runs that schedule at the blend's p25 / p75.
+ * epic's measured children, so the epic's own pace takes over as it accumulates. The median is
+ * over the repo's past epic steps, else its lead times (see {@link repoPrior}). The children still
+ * to finish are list-scheduled over `maxAuto` slots in epic order, honoring `blockedBy`, and the
+ * landing follows the last one. The range re-runs that schedule at a low / high step
+ * (see {@link stepRange}).
  * While the clock is stopped (paused, idle) nothing is absolute: only the time from a resume.
  */
 export function forecastEpic(epic: Epic, input: EpicForecastInput): EpicForecast | null {
   const timing = epic.timing;
   if (timing?.landedAt != null) return null;
   const own = ownSamples(epic.children);
-  const repo = input.repoLeadTime.value;
-  const blend = repo == null ? own : [...Array<number>(PRIOR_WEIGHT).fill(repo), ...own];
+  const prior = repoPrior(epic, input);
+  const blend = prior == null ? own : withPrior(prior.p50, own);
   if (blend.length === 0) return null;
   const stepMs = mean(blend);
-  const [lowMs, highMs] = stepRange(blend, stepMs, own.length);
+  const [lowMs, highMs] = stepRange(blend, stepMs, own, prior);
   const { now } = input;
   const landing: Landing = {
     ms: median(input.landingMs.filter((ms) => ms > 0)) ?? DEFAULT_LANDING_MS,
@@ -103,7 +119,8 @@ export function forecastEpic(epic: Epic, input: EpicForecastInput): EpicForecast
     stepMs: Math.round(stepMs),
     landingMs: Math.round(landing.ms),
     epicSamples: own.length,
-    repoSamples: repo == null ? 0 : input.repoLeadTime.n,
+    repoSamples: prior?.n ?? 0,
+    repoBasis: prior?.basis ?? null,
     firstFinishAt: input.firstFinishAt ?? (anyMerged ? finishAt : null),
     fasterWithSlots:
       finishAt == null ? null : fasterWithSlots(epic, input, steps, stepMs, landing, finishAt),
@@ -122,13 +139,48 @@ function ownSamples(children: EpicChild[]): number[] {
   );
 }
 
-/** The low / high step: the blend's p25 / p75, never past the estimate itself, and with fewer than
- *  {@link MIN_RANGE_SAMPLES} own samples at least ×{@link WIDEN_LOW} / ×{@link WIDEN_HIGH} of it. */
-function stepRange(blend: number[], stepMs: number, own: number): [number, number] {
+/** Past epic steps of the repo when there are enough and the epic integrates its children like they
+ *  did; else its lead times — an incremental child merges into main like any task. Null when the
+ *  chosen history is empty. */
+function repoPrior(epic: Epic, input: EpicForecastInput): Prior | null {
+  const basis: EpicForecastRepoBasis =
+    epic.run.landing !== "incremental" && input.epicStepMs.length >= MIN_EPIC_STEP_SAMPLES
+      ? "epic-steps"
+      : "lead-time";
+  const samples = basis === "epic-steps" ? input.epicStepMs : input.leadTimeMs;
+  if (samples.length === 0) return null;
+  const sorted = [...samples].sort((a, b) => a - b);
+  return {
+    basis,
+    n: sorted.length,
+    p25: quantile(sorted, 0.25),
+    p50: quantile(sorted, 0.5),
+    p75: quantile(sorted, 0.75),
+  };
+}
+
+/** `own` with the repo's value counted {@link PRIOR_WEIGHT} times. */
+function withPrior(repo: number, own: number[]): number[] {
+  return [...Array<number>(PRIOR_WEIGHT).fill(repo), ...own];
+}
+
+/** The low / high step: the blend's p25 / p75, or the blend at the repo's p25 / p75 when further
+ *  out, never past the estimate itself, and with fewer than {@link MIN_RANGE_SAMPLES} own samples
+ *  at least ×{@link WIDEN_LOW} / ×{@link WIDEN_HIGH} of it. */
+function stepRange(
+  blend: number[],
+  stepMs: number,
+  own: number[],
+  prior: Prior | null,
+): [number, number] {
   const sorted = [...blend].sort((a, b) => a - b);
   let low = Math.min(quantile(sorted, 0.25), stepMs);
   let high = Math.max(quantile(sorted, 0.75), stepMs);
-  if (own < MIN_RANGE_SAMPLES) {
+  if (prior) {
+    low = Math.min(low, mean(withPrior(prior.p25, own)));
+    high = Math.max(high, mean(withPrior(prior.p75, own)));
+  }
+  if (own.length < MIN_RANGE_SAMPLES) {
     low = Math.min(low, WIDEN_LOW * stepMs);
     high = Math.max(high, WIDEN_HIGH * stepMs);
   }

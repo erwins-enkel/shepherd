@@ -1207,7 +1207,7 @@ describe("UpNextPanel pull requests", () => {
     );
   });
 
-  it("pulls a PR row's action flush right under #num on mobile, beside it on desktop", async () => {
+  it("pulls every PR row's action flush right under #num on mobile and desktop", async () => {
     const rect = (n: number, selector: string) =>
       prRow(n).querySelector<HTMLElement>(selector)!.getBoundingClientRect();
     upNext.snapshot = withPrs();
@@ -1215,14 +1215,15 @@ describe("UpNextPanel pull requests", () => {
     await page.viewport(390, 800);
     render(UpNextPanel, {});
     await expect.element(page.getByText("#990")).toBeInTheDocument();
-    for (const n of [911, 912, 967, 985, 990]) {
-      expect(Math.abs(rect(n, ".unpr-act").right - rect(n, ".un-meta").right)).toBeLessThan(1);
-      expect(prRow(n).scrollWidth).toBeLessThanOrEqual(prRow(n).clientWidth);
-    }
-
-    await page.viewport(1280, 900);
-    for (const n of [911, 967]) {
-      expect(rect(n, ".unpr-act").right).toBeLessThanOrEqual(rect(n, ".un-meta").left);
+    for (const [width, height] of [
+      [390, 800],
+      [1280, 900],
+    ]) {
+      await page.viewport(width, height);
+      for (const n of [911, 912, 967, 985, 990]) {
+        expect(Math.abs(rect(n, ".unpr-act").right - rect(n, ".un-meta").right)).toBeLessThan(1);
+        expect(prRow(n).scrollWidth).toBeLessThanOrEqual(prRow(n).clientWidth);
+      }
     }
   });
 

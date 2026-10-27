@@ -101,3 +101,26 @@ describe("BacklogTabBar Overview button (#2950)", () => {
     expect(overview().elements()).toHaveLength(0);
   });
 });
+
+describe("BacklogTabBar Automation halt count (#3455)", () => {
+  const automation = () => page.getByRole("button", { name: m.backlog_tab_automation() });
+  const count = () => automation().element().querySelector(".halt-count")?.textContent;
+
+  it("counts the repo's and host's halts on the Automation tab", async () => {
+    mount({ automationHalts: 1 });
+    await expect.element(automation()).toBeVisible();
+    expect(count()).toBe(m.backlog_tab_automation_halt_one());
+  });
+
+  it("names several halts", async () => {
+    mount({ variant: "mobile", automationHalts: 2 });
+    await expect.element(automation()).toBeVisible();
+    expect(count()).toBe(m.backlog_tab_automation_halts({ count: 2 }));
+  });
+
+  it("shows no count without a halt", async () => {
+    mount();
+    await expect.element(automation()).toBeVisible();
+    expect(count()).toBeUndefined();
+  });
+});

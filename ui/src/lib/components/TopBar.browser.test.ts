@@ -3743,3 +3743,98 @@ describe("TopBar — the update badge counts machines once another one is behind
     expect(badge()).toBeNull();
   });
 });
+
+describe("TopBar — herdr entry points require an available update (#3516)", () => {
+  const current: HerdrUpdateStatus = {
+    current: "0.9.5",
+    latest: "0.9.5",
+    updateAvailable: false,
+    sandboxIdleRegressed: true,
+    sandboxDowngradeTarget: "0.7.4",
+    notes: null,
+    checkedAt: 1_700_000_000_000,
+  };
+  const surfaces: { mode: Mode; width: number; menu: boolean }[] = [
+    { mode: "desktop", width: 1436, menu: false },
+    { mode: "touch-desktop", width: 1436, menu: false },
+    { mode: "desktop", width: 600, menu: true },
+    { mode: "touch-desktop", width: 600, menu: true },
+    { mode: "mobile", width: 390, menu: true },
+  ];
+
+  for (const { mode, width, menu } of surfaces) {
+    describe(`${mode} at ${width}px`, () => {
+      const entry = () => page.getByRole("button", { name: m.topbar_herdr_update_badge() });
+      const gear = () => page.getByRole("button", { name: m.topbar_menu_aria() });
+      async function mount(herdrUpdate: HerdrUpdateStatus | null) {
+        await page.viewport(width, 900);
+        document.body.style.width = `${width}px`;
+        const onherdrupdate = vi.fn();
+        const view = await render(TopBar, {
+          nowMs: 1_700_000_000_000,
+          connected: true,
+          ...FLAGS[mode],
+          ...sessionsProp(4),
+          limits: fullLimits,
+          heldCount: 1,
+          update: { behind: 4 } as UpdateStatus,
+          codexUpdate: { updateAvailable: true } as CodexUpdateStatus,
+          whatsNew: true,
+          diagnosticsOverall: "warning",
+          herdrUpdate,
+          onherdrupdate,
+        });
+        await drainFrames(document.querySelector<HTMLElement>(".hud")!);
+        return { ...view, onherdrupdate };
+      }
+
+      it.each([
+        { name: "sandbox advisory without an update", status: current },
+        {
+          name: "current version without an advisory",
+          status: { ...current, sandboxIdleRegressed: false, sandboxDowngradeTarget: null },
+        },
+        { name: "unknown status", status: null },
+      ])("hides the badge and menu row for $name", async ({ status }) => {
+        await mount(status);
+        await expect.element(entry()).not.toBeInTheDocument();
+        await gear().click();
+        await expect.element(page.getByRole("dialog")).toBeVisible();
+        await expect.element(entry()).not.toBeInTheDocument();
+      });
+
+      it.each([false, true])(
+        "opens a real update with sandbox advisory=%s",
+        async (sandboxIdleRegressed) => {
+          const { onherdrupdate } = await mount({
+            ...current,
+            current: "0.9.4",
+            updateAvailable: true,
+            sandboxIdleRegressed,
+            sandboxDowngradeTarget: sandboxIdleRegressed ? "0.7.4" : null,
+          });
+          if (menu) await gear().click();
+          await expect.element(entry()).toBeVisible();
+          await entry().click();
+          expect(onherdrupdate).toHaveBeenCalledOnce();
+        },
+      );
+
+      it("removes the entry when an update completes while the sandbox advisory remains", async () => {
+        const { rerender } = await mount({
+          ...current,
+          current: "0.9.4",
+          updateAvailable: true,
+        });
+        if (menu) await gear().click();
+        await expect.element(entry()).toBeVisible();
+        await rerender({ herdrUpdate: current });
+        await drainFrames(document.querySelector<HTMLElement>(".hud")!);
+        await expect.element(entry()).not.toBeInTheDocument();
+        if (!menu) await gear().click();
+        await expect.element(page.getByRole("dialog")).toBeVisible();
+        await expect.element(entry()).not.toBeInTheDocument();
+      });
+    });
+  }
+});

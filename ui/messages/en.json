@@ -7521,5 +7521,8 @@
   "feat_schedule_noop_body": "When a scheduled run finds nothing to do (no changes, no questions, no follow-ups), the agent closes its own session. Settings → Schedules shows the run as “nothing to do” with the agent's one-line summary, so the next run isn't blocked and you aren't pinged.",
   "model_label_mythos_5_1": "Mythos 5.1",
   "model_guidance_claude_mythos_5_1": "Offered because your Claude account has access. For the hardest long-running work; highest unattended burn.",
-  "newtask_model_unavailable": "Your Claude account doesn't have access to this model. Pick another model."
+  "newtask_model_unavailable": "Your Claude account doesn't have access to this model. Pick another model.",
+  "upnext_pr_syncing": "Checking this pull request with GitHub…",
+  "feat_upnext_pr_live_sync_title": "Up Next: pull requests checked live on open",
+  "feat_upnext_pr_live_sync_body": "Opening a pull request in Up Next now checks it with GitHub right away. You see the last known state at once; Merge and Fix stay locked until GitHub's current answer is in, so you never act on stale data. A PR whose mergeability GitHub was still computing is re-checked by itself, so a conflicted PR no longer sits under Ready to merge."
 }

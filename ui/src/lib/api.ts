@@ -102,6 +102,7 @@ import type {
   AgentProvider,
   UpNextSnapshot,
   UpNextItem,
+  UpNextPr,
   AccessToken,
   InstanceIdentity,
   RemoteDispatch,
@@ -2819,6 +2820,15 @@ export async function getUpNextPrBody(repoPath: string, number: number): Promise
     `/api/up-next/pr-body?repo=${encodeURIComponent(repoPath)}&number=${number}`,
     "up next pr body",
   );
+}
+
+/** Re-read a waiting PR live from the forge and republish Up Next (the PR preview opening it).
+ *  Resolves with its new row, null once it no longer waits on the operator. */
+export async function syncUpNextPr(
+  repoPath: string,
+  number: number,
+): Promise<{ pr: UpNextPr | null }> {
+  return postJson("/api/up-next/pr-sync", { repo: repoPath, number }, "sync pull request");
 }
 
 /** Start a push-only fix session for a waiting PR whose action is `fix`. A refusal throws an

@@ -118,3 +118,10 @@ test("a locked fix's tip says why it is locked", () => {
   expect(tip.title).toBe(m.upnext_pr_action_fix());
   expect(tip.summary).toBe(m.upnext_pr_fix_locked());
 });
+
+test("while the live re-read runs, the tip says what the action waits for", () => {
+  const tip = actionTip(pr(1), false, true);
+  expect(tip.title).toBe(m.prspanel_merge_button());
+  expect(tip.summary).toBe(m.upnext_pr_syncing());
+  expect(tip.sections).toEqual([]);
+});

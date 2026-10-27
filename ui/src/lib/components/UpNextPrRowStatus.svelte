@@ -27,7 +27,8 @@
   const mergeFailed = $derived(upNextUi.mergeFailedAt(pr));
   const action = $derived(buttonAction(pr, mergeFailed));
   const requested = $derived(action === "dependabot_rebase" && upNextUi.rebaseRequested.has(key));
-  const locked = $derived(pr.action === null || !actions || !!actions.busy || requested);
+  const syncing = $derived(upNextUi.syncing.has(key));
+  const locked = $derived(pr.action === null || !actions || !!actions.busy || requested || syncing);
   const repo = $derived(pr.repoLabel || (pr.repoPath.split("/").filter(Boolean).at(-1) ?? ""));
 
   function act(action: UpNextPrAction) {
@@ -72,7 +73,7 @@
       class="unpr-act unpr-act-{action}"
       aria-disabled={locked ? "true" : undefined}
       use:statusTip={{
-        text: actionTip(pr, mergeFailed),
+        text: actionTip(pr, mergeFailed, syncing),
         stopClickPropagation: false,
         pinOnClick: false,
       }}

@@ -12710,6 +12710,23 @@
         }
       }
     },
+    "model_guidance_codex_61_terra": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schnelle, günstigere Option für klar begrenzte Aufgaben, visuelles Verständnis und Computerbedienung. Für komplexes Coding GPT-6.1 Sol wählen; für höchste Anforderungen Astra."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fast, lower-cost option for focused tasks, visual understanding and computer use. Choose GPT-6.1 Sol for complex coding; Astra for the most demanding work."
+          }
+        }
+      }
+    },
     "model_guidance_codex_6_astra": {
       "extractionState": "manual",
       "localizations": {

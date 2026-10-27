@@ -222,6 +222,13 @@ const SANDBOX_HALT_REASONS: ReadonlySet<string> = new Set([
   "sandbox_egress_unavailable",
 ]);
 
+/** #3455: the epic the repo's drain holds at one of those gates, or null. Only the leading epic
+ *  spawns, so a repo has at most one. */
+export function sandboxHaltedEpic(drain: DrainStatus | null | undefined): number | null {
+  if (drain?.epicParent == null || drain.reason == null) return null;
+  return SANDBOX_HALT_REASONS.has(drain.reason) ? drain.epicParent : null;
+}
+
 /** The region's live state. `drain` is the REPO's status; its hold reason only counts while it
  *  belongs to this epic (`drain.epicParent === parent`), as for the former hold line. */
 export function epicRunState(

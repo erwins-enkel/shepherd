@@ -16,6 +16,7 @@ import {
   usageOverride,
   epicBaseActions,
   overviewRunState,
+  sandboxHaltedEpic,
 } from "./epic-panel";
 import { m } from "#lib/paraglide/messages.js";
 import type {
@@ -649,5 +650,25 @@ describe("overviewRunState (#2639)", () => {
     // A winding-down epic with no leader.
     const solo = run({ windingDown: [{ epic: 3, inFlight: [4] }] }, 2, 2);
     expect(overviewRunState(solo, null).kind).toBe("winding");
+  });
+});
+
+describe("sandboxHaltedEpic (#3455)", () => {
+  it("names the epic the drain holds at a sandbox, CLI or host gate", () => {
+    expect(sandboxHaltedEpic(drain({ reason: "sandbox_interactive", epicParent: 35 }))).toBe(35);
+    expect(
+      sandboxHaltedEpic(drain({ reason: "sandbox_provider_unconfined", epicParent: 35 })),
+    ).toBe(35);
+  });
+
+  it("is null for any other hold, no epic or no drain", () => {
+    expect(sandboxHaltedEpic(drain({ reason: "cap", epicParent: 35 }))).toBeNull();
+    expect(
+      sandboxHaltedEpic(drain({ reason: "target_repo_drain_off", epicParent: 35 })),
+    ).toBeNull();
+    expect(
+      sandboxHaltedEpic(drain({ reason: "sandbox_interactive", epicParent: null })),
+    ).toBeNull();
+    expect(sandboxHaltedEpic(null)).toBeNull();
   });
 });

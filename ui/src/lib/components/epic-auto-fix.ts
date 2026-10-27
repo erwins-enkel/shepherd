@@ -103,6 +103,21 @@ export function causeView(cause: EpicAutoBlockerCause): CauseView {
   }
 }
 
+const SHORT_CAUSES: Record<string, (detail: string) => string> = {
+  sandbox_interactive: () => m.epic_autofix_short_interactive(),
+  sandbox_provider_unconfined: (detail) => m.epic_autofix_short_provider({ cli: cliName(detail) }),
+  sandbox_backend_unavailable: () => m.epic_autofix_short_backend(),
+  sandbox_egress_unavailable: () => m.epic_autofix_short_egress(),
+};
+
+/** #3455: the epic row's short reason — one sentence per cause, e.g. "Sandbox Standard is
+ *  interactive only. Codex needs Trusted." */
+export function haltSummary(causes: Pick<EpicAutoBlockerCause, "code" | "detail">[]): string {
+  return causes
+    .map((c) => SHORT_CAUSES[c.code]?.(c.detail) ?? m.epic_autofix_short_other())
+    .join(" ");
+}
+
 /** One way out. `repoName` names the repo whose sandbox it writes. */
 export function optionView(
   option: EpicAutoFixOption,

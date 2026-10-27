@@ -1870,6 +1870,8 @@
   "diagnostics_hint_gh_not_required": "GitHub CLI ist nicht installiert oder nicht authentifiziert, es sind jedoch keine Forge-basierten Repos konfiguriert — gh ist optional, wenn ausschließlich Lightweight-Repos verwendet werden.",
   "diagnostics_label_git_mergetree": "git merge-tree",
   "backlog_tab_automation": "Automatisierung",
+  "backlog_tab_automation_halt_one": "1 Halt",
+  "backlog_tab_automation_halts": "{count} Halte",
   "backlog_overview_button": "Überblick",
   "feat_repo_settings_backlog_title": "Repo-Einstellungen ohne Task",
   "feat_repo_settings_backlog_body": "Die Repo-Automatisierungseinstellungen — Kritiker, Plan-Gate, Autopilot, Backlog-Abarbeitung/Voll-Auto-Merge, Sandbox-Profil, Standardmodell, Abarbeitungs-Regler sowie Reviewer-/Merger-Rollen — sind jetzt als Automatisierungs-Tab in der Repos-Detailansicht verfügbar. Stelle die Vorgaben jedes Repos ein, ohne einen Task zu starten; Änderungen teilen sich eine einzige Quelle der Wahrheit mit dem Task-Panel.",
@@ -7513,6 +7515,14 @@
   "epic_sandbox_aria": "Sandbox des Repos {repo}",
   "epic_sandbox_repo_tag": "Repo",
   "epic_setting_halts": "hält an",
+  "epic_autofix_short_interactive": "Sandbox „Standard“ ist nur interaktiv.",
+  "epic_autofix_short_provider": "{cli} braucht „Vertraut“.",
+  "epic_autofix_short_backend": "bubblewrap fehlt.",
+  "epic_autofix_short_egress": "Das Egress-Backend fehlt.",
+  "epic_autofix_short_other": "Eine Einstellung hält an.",
+  "epic_row_halt_lead": "Startet nichts von selbst.",
+  "epic_row_fix": "Beheben",
+  "epic_row_fix_title": "Damit #{parent} von selbst läuft",
   "tooltip_autofix_scope_title": "Wo eine Ursache liegt",
   "tooltip_autofix_scope_summary": "Jede Ursache sitzt an einer Stelle – dort ändert ihre Behebung etwas.",
   "tooltip_autofix_scope_repo": "Repo",
@@ -7522,5 +7532,7 @@
   "tooltip_autofix_scope_host": "Host",
   "tooltip_autofix_scope_host_body": "Fehlt auf diesem Rechner. Keine Einstellung behebt das – richte den Host ein oder wähle einen Weg, der ihn nicht braucht.",
   "feat_epic_halt_fix_title": "Epic-Halt direkt beheben",
-  "feat_epic_halt_fix_body": "Hält die Sandbox, die CLI des Epics oder dieser Rechner ein Epic an, nennt die Abarbeitung jede Ursache und bietet die Wege an, die es wirklich starten – mit einem Klick übernommen, mit einem rückgängig gemacht."
+  "feat_epic_halt_fix_body": "Hält die Sandbox, die CLI des Epics oder dieser Rechner ein Epic an, nennt die Abarbeitung jede Ursache und bietet die Wege an, die es wirklich starten – mit einem Klick übernommen, mit einem rückgängig gemacht.",
+  "feat_epic_row_halt_title": "Epic-Halt aus der Liste beheben",
+  "feat_epic_row_halt_body": "Hält die Sandbox, die CLI oder der Rechner ein Epic an, steht das schon in der Backlog-Liste. „Beheben“ öffnet dieselbe Auswahl direkt an der Zeile – am Telefon als Blatt – und der Reiter Automatisierung zählt Repo- und Host-Halte."
 }

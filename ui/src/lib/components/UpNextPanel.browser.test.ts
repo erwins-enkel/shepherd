@@ -600,11 +600,12 @@ describe("UpNextPanel provider picker", () => {
       .poll(() =>
         Array.from(model.options)
           .map((o) => o.value)
-          .slice(0, 8),
+          .slice(0, 9),
       )
       .toEqual([
         "default",
         "gpt-6.1-sol",
+        "gpt-6.1-terra",
         "gpt-5.6-sol",
         "gpt-6-astra",
         "gpt-6-sol",

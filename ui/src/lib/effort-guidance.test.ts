@@ -8,6 +8,7 @@ import {
 
 describe("provider effort availability", () => {
   it.each([
+    ["gpt-6.1-terra", ["low", "medium", "high", "xhigh", "max", "ultra"]],
     ["gpt-6.1-sol", ["low", "medium", "high", "xhigh", "max", "ultra"]],
     ["gpt-6-sol", ["low", "medium", "high", "xhigh", "max", "ultra"]],
     ["gpt-6-luna", ["low", "medium", "high", "xhigh", "max"]],

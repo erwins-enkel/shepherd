@@ -7441,5 +7441,8 @@
   "feat_shelve_sessions_title": "Sessions zurückstellen",
   "feat_shelve_sessions_body": "Rechtsklick auf eine Session (oder die Befehlsleiste) und „Zurückstellen“ wählen, um sie aus dem Weg zu räumen, ohne sie stillzulegen. Sie wandert in eine eingeklappte Gruppe „Zurückgestellt“ am Ende der Liste und ihr Agent läuft weiter – aber Shepherd steuert, reviewt, mergt und benachrichtigt dich dazu nicht mehr, bis du sie wieder aufnimmst.",
   "feat_epic_next_prompt_title": "Das nächste Epic aus deinem PRD entwerfen",
-  "feat_epic_next_prompt_body": "Im Epic-Modus von „Neue Aufgabe“ fügt „Nächstes Epic“ einen Prompt ein, der das nächste Epic aus dem PRD des Repos entwirft und die Lücken früherer Epics mit aufnimmt. Vor dem Start bearbeiten oder ignorieren."
+  "feat_epic_next_prompt_body": "Im Epic-Modus von „Neue Aufgabe“ fügt „Nächstes Epic“ einen Prompt ein, der das nächste Epic aus dem PRD des Repos entwirft und die Lücken früherer Epics mit aufnimmt. Vor dem Start bearbeiten oder ignorieren.",
+  "model_guidance_codex_61_terra": "Schnelle, günstigere Option für klar begrenzte Aufgaben, visuelles Verständnis und Computerbedienung. Für komplexes Coding GPT-6.1 Sol wählen; für höchste Anforderungen Astra.",
+  "feat_codex_61_terra_title": "GPT-6.1 Terra verfügbar",
+  "feat_codex_61_terra_body": "Wähle GPT-6.1 Terra in der Codex-Modellauswahl für schnelle, klar begrenzte Aufgaben und visuelle Arbeiten zu niedrigeren Kosten als Sol. Für komplexes Coding eignet sich GPT-6.1 Sol, für höchste Anforderungen Astra."
 }

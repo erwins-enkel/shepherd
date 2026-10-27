@@ -14,6 +14,15 @@ describe("modelGuidance", () => {
     expect(modelOptionLabel("codex", "gpt-6.1-sol")).toBe("gpt-6.1-sol · strong · $$$");
     expect(runtimeModelLabel("gpt-6.1-sol")).toBe("GPT-6.1 Sol");
   });
+  it("offers GPT-6.1 Terra with its own guidance and lower cost tier than Sol", () => {
+    expect(modelAvailableForProvider("codex", "gpt-6.1-terra", false)).toBe(true);
+    const guidance = modelGuidance("codex", "gpt-6.1-terra");
+    expect(guidance.costTier).toBe("standard");
+    expect(guidance.tag).toBe("balanced");
+    expect(guidance.detail).not.toBe(modelGuidance("codex", "unknown").detail);
+    expect(guidance.detail).not.toBe(modelGuidance("codex", "gpt-6.1-sol").detail);
+    expect(runtimeModelLabel("gpt-6.1-terra")).toBe("GPT-6.1 Terra");
+  });
   it("identifies Astra as a premium model for complex work", () => {
     const guidance = modelGuidance("codex", "gpt-6-astra");
     expect(guidance.costTier).toBe("premium");

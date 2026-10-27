@@ -45,3 +45,13 @@ test("an acted-on PR stays hidden until the server catches up, at most ACTED_HID
   upNextUi.reset();
   expect(upNextUi.hidesActed("pr:/r/a#7", 1_000)).toBe(false);
 });
+
+test("a failed merge is remembered only for the head it failed on", () => {
+  const at = (headSha?: string) => ({ ...pr, headSha });
+  upNextUi.mergeFailed.set(upNextPrKey(pr), "abc");
+  expect(upNextUi.mergeFailedAt(at("abc"))).toBe(true);
+  expect(upNextUi.mergeFailedAt(at("def"))).toBe(false);
+  expect(upNextUi.mergeFailedAt(at(undefined))).toBe(false);
+  upNextUi.reset();
+  expect(upNextUi.mergeFailedAt(at("abc"))).toBe(false);
+});

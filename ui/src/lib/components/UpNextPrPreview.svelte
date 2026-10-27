@@ -47,7 +47,8 @@
     getUpNextPrBody,
   );
 
-  const action = $derived(pr ? buttonAction(pr) : null);
+  const mergeFailed = $derived(pr ? upNextUi.mergeFailedAt(pr) : false);
+  const action = $derived(pr ? buttonAction(pr, mergeFailed) : null);
   const requested = $derived(
     action === "dependabot_rebase" && key !== null && upNextUi.rebaseRequested.has(key),
   );
@@ -108,7 +109,8 @@
             href={firstSafeHttpUrl(pr.url) ?? undefined}
             target="_blank"
             rel="noopener noreferrer"
-            use:statusTip={{ text: actionTip(pr), navigates: true }}>{actionLabel(action)}</a
+            use:statusTip={{ text: actionTip(pr, mergeFailed), navigates: true }}
+            >{actionLabel(action)}</a
           >
           <!-- eslint-enable svelte/no-navigation-without-resolve -->
         {:else}
@@ -117,7 +119,11 @@
             class="gbtn primary"
             class:split={fixSteers.length > 0}
             aria-disabled={locked ? "true" : undefined}
-            use:statusTip={{ text: actionTip(pr), stopClickPropagation: false, pinOnClick: false }}
+            use:statusTip={{
+              text: actionTip(pr, mergeFailed),
+              stopClickPropagation: false,
+              pinOnClick: false,
+            }}
             onclick={() => run(pr, action)}
             >{requested ? m.prspanel_rebase_requested() : actionLabel(action)}</button
           >

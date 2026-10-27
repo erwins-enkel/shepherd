@@ -43,6 +43,8 @@ class UpNextUi {
   readonly acted = new SvelteMap<string, number>();
   /** Dependabot PRs already asked to rebase — never asked twice. */
   readonly rebaseRequested = new SvelteSet<string>();
+  /** Dependabot PR key → the head its merge failed at; a new head clears the rebase offer. */
+  readonly mergeFailed = new SvelteMap<string, string>();
 
   toggle(key: string) {
     if (this.selected.has(key)) this.selected.delete(key);
@@ -60,6 +62,11 @@ class UpNextUi {
     return at !== undefined && now - at < ACTED_HIDE_MS;
   }
 
+  /** Whether this PR's merge failed at its current head — its button then offers a rebase. */
+  mergeFailedAt(pr: Pick<UpNextPr, "repoPath" | "number" | "headSha">): boolean {
+    return pr.headSha !== undefined && this.mergeFailed.get(upNextPrKey(pr)) === pr.headSha;
+  }
+
   /** Test seam: module state otherwise leaks between mounts. */
   reset() {
     this.selected.clear();
@@ -68,6 +75,7 @@ class UpNextUi {
     this.prOrder = [];
     this.acted.clear();
     this.rebaseRequested.clear();
+    this.mergeFailed.clear();
   }
 }
 export const upNextUi = new UpNextUi();

@@ -24,7 +24,8 @@
   } = $props();
 
   const key = $derived(upNextPrKey(pr));
-  const action = $derived(buttonAction(pr));
+  const mergeFailed = $derived(upNextUi.mergeFailedAt(pr));
+  const action = $derived(buttonAction(pr, mergeFailed));
   const requested = $derived(action === "dependabot_rebase" && upNextUi.rebaseRequested.has(key));
   const locked = $derived(pr.action === null || !actions || !!actions.busy || requested);
   const repo = $derived(pr.repoLabel || (pr.repoPath.split("/").filter(Boolean).at(-1) ?? ""));
@@ -60,7 +61,7 @@
       href={firstSafeHttpUrl(pr.url) ?? undefined}
       target="_blank"
       rel="noopener noreferrer"
-      use:statusTip={{ text: actionTip(pr), navigates: true }}>{actionLabel(action)}</a
+      use:statusTip={{ text: actionTip(pr, mergeFailed), navigates: true }}>{actionLabel(action)}</a
     >
     <!-- eslint-enable svelte/no-navigation-without-resolve -->
   {:else}
@@ -70,7 +71,11 @@
       type="button"
       class="unpr-act unpr-act-{action}"
       aria-disabled={locked ? "true" : undefined}
-      use:statusTip={{ text: actionTip(pr), stopClickPropagation: false, pinOnClick: false }}
+      use:statusTip={{
+        text: actionTip(pr, mergeFailed),
+        stopClickPropagation: false,
+        pinOnClick: false,
+      }}
       onclick={() => act(action)}
       >{requested ? m.prspanel_rebase_requested() : actionLabel(action)}</button
     >

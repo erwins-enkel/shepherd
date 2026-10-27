@@ -9,7 +9,7 @@ import {
   type PulseState,
   type TimelineKind,
 } from "./session-pulse";
-import type { GitState, Session, SteerLogEntry } from "./types";
+import type { GitState, Session, SteerKind, SteerLogEntry } from "./types";
 
 /** The short, localized name of a progress verdict (card label, panel kicker). */
 export function pulseLabel(state: PulseState): string {
@@ -135,6 +135,12 @@ const EVENT: Record<TimelineKind, { label: () => string; tone: TooltipRow["tone"
   api_retry: { label: m.pulse_event_api_retry, tone: "warn" },
   operator: { label: m.pulse_event_operator, tone: "idle" },
 };
+
+/** A steer kind's short label ("CI red → fix steer", "Critic findings"…); a kind from a newer
+ *  server reads as a generic nudge. */
+export function steerKindLabel(kind: SteerKind): string {
+  return (EVENT[kind] ?? EVENT.nudge).label();
+}
 
 function historySection(
   session: Session,

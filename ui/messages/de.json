@@ -7268,6 +7268,7 @@
   "session_chat_input_label": "Nachricht an den Agenten",
   "session_chat_placeholder": "Nachricht an den Agenten…",
   "session_chat_send_failed": "Nicht gesendet: Das Terminal der Session ist nicht verbunden.",
+  "session_chat_steer_by": "Shepherd · {kind}",
   "chat_block_aria": "Die Frage des Agenten",
   "chat_block_quota": "Automatik für diese Session pausiert – sie braucht dich.",
   "chat_block_keys_failed": "Nicht gesendet: Das Terminal ist nicht verbunden. Antworte dort.",
@@ -7420,5 +7421,7 @@
   "feat_upnext_dep_rebase_title": "Hängende Dependabot-PRs aus Up Next rebasen",
   "feat_upnext_dep_rebase_body": "Schlägt in Up Next der Merge eines Dependabot-PRs fehl, wird sein Button zu einem Dependabot-Rebase per Klick. Sobald Dependabot den neuen Commit pusht, steht dort wieder Merge.",
   "feat_upnext_pr_fold_title": "PRs in Up Next einklappen",
-  "feat_upnext_pr_fold_body": "Ein Klick auf die Überschrift „Pull Requests“ in Up Next klappt den ganzen PR-Block ein, damit du dich auf Issues konzentrieren kannst. Up Next merkt sich das, und die Überschrift zählt weiterhin ausgewählte PRs, die sie verbirgt."
+  "feat_upnext_pr_fold_body": "Ein Klick auf die Überschrift „Pull Requests“ in Up Next klappt den ganzen PR-Block ein, damit du dich auf Issues konzentrieren kannst. Up Next merkt sich das, und die Überschrift zählt weiterhin ausgewählte PRs, die sie verbirgt.",
+  "feat_chat_steers_title": "Steers im Chat",
+  "feat_chat_steers_body": "Die Steer-Leiste steht jetzt auch unter dem Chat einer Session. Ein gesendeter Steer erscheint sofort, und Shepherds eigene Steers – CI-Fixes, Rebases, Critic-Befunde – klappen zu einer beschrifteten Zeile ein, die du öffnen kannst."
 }

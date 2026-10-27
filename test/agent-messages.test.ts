@@ -271,6 +271,34 @@ describe("sessionMessages", () => {
     expect(await awaitingInput(at("done"), null)).toBe(false);
     expect(await awaitingInput(at("done"), join(dir, "gone.jsonl"))).toBe(false);
   });
+  test("a user message Shepherd typed carries its steer kind, text as logged", async () => {
+    const wrapped =
+      '\n\n<pasted_content id="2c65">\nThe PR critic reviewed your latest push. These are the BLOCKING points:\n\n1. fix it\n</pasted_content id="2c65">\n';
+    const p = join(dir, "steers.jsonl");
+    writeFileSync(p, jsonl(userText(wrapped), userText("please also update the docs")));
+    const r = await sessionMessages(at("idle"), p, { limit: 5, includeUser: true });
+    expect(r.messages[0]).toEqual({
+      role: "user",
+      text: wrapped.trim(),
+      ts: Date.parse(TS),
+      steer: "review",
+    });
+    expect("steer" in r.messages[1]!).toBe(false);
+  });
+  test("codex user messages are tagged too", async () => {
+    const p = join(dir, "rollout-steer.jsonl");
+    writeFileSync(
+      p,
+      jsonl(
+        codexEvent("user_message", { message: "Plan approved. Execute `.shepherd-plan.md` now" }),
+      ),
+    );
+    const r = await sessionMessages({ status: "idle", agentProvider: "codex" }, p, {
+      limit: 5,
+      includeUser: true,
+    });
+    expect(r.messages.map((m) => m.steer)).toEqual(["go"]);
+  });
   test("cleanup", () => rmSync(dir, { recursive: true, force: true }));
 });
 

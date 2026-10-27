@@ -1,12 +1,14 @@
 import type { AssistantViewReport, ViewTab } from "./operator-assistant-view";
-import type { AgentMessage, Session } from "./types";
+import type { AgentMessage, Session, SteerKind } from "./types";
 
 /** One row of the Operator Assistant's conversation view. */
 export type ChatEntry =
   | { kind: "assistant"; text: string; ts: number }
   | { kind: "user"; text: string; ts: number }
   /** Harness traffic logged as user input (a background task's notice): not the operator's words. */
-  | { kind: "event"; text: string; ts: number };
+  | { kind: "event"; text: string; ts: number }
+  /** A steer Shepherd typed into the session (CI fix, rebase, critic findings…). */
+  | { kind: "steer"; steer: SteerKind; text: string; ts: number };
 
 /** Tags Claude Code wraps its own user-role records in. Operator text starting with any other
  *  `<tag>` is the operator's and stays a message. */
@@ -27,6 +29,15 @@ const HARNESS_TAGS = new Set([
 
 const LEADING_TAG_RE = /^<([a-z][a-z0-9-]*)>/;
 
+/** Claude Code logs a long or multi-line paste as
+ *  `\n\n<pasted_content id="X">\nBODY\n</pasted_content id="X">\n` (older records close with a
+ *  bare `</pasted_content>`): show the body. Mirrors server `unwrapPasted()` (src/steer-log.ts). */
+const PASTED_RE = /<pasted_content id="([^"]*)">\n?([\s\S]*?)\n?<\/pasted_content(?: id="\1")?>/g;
+
+export function unwrapPasted(text: string): string {
+  return text.replace(PASTED_RE, (_, _id: string, body: string) => body).trim();
+}
+
 function tagText(text: string, tag: string): string | null {
   const m = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text);
   return m ? m[1].trim() : null;
@@ -36,26 +47,29 @@ function tagText(text: string, tag: string): string | null {
  * The transcript's text messages as conversation rows. Claude Code logs harness traffic as user
  * records too: a background task's `<task-notification>` becomes a quiet event row (its summary),
  * a slash command the `/name args` line the operator typed, and any other harness record (command
- * output, caveats) is dropped — the Terminal view still shows all of it verbatim.
+ * output, caveats) is dropped — the Terminal view still shows all of it verbatim. A pasted message
+ * shows its body, and a steer Shepherd typed (server-tagged `steer`) becomes a steer row.
  */
 export function chatEntries(messages: AgentMessage[]): ChatEntry[] {
-  const out: ChatEntry[] = [];
-  for (const { role, text, ts } of messages) {
-    const tag = role === "user" ? LEADING_TAG_RE.exec(text)?.[1] : undefined;
-    if (!tag || !HARNESS_TAGS.has(tag)) {
-      out.push({ kind: role, text, ts });
-      continue;
-    }
-    const command = tagText(text, "command-name");
-    if (command) {
-      const args = tagText(text, "command-args");
-      out.push({ kind: "user", text: args ? `${command} ${args}` : command, ts });
-    } else if (tag === "task-notification") {
-      const summary = tagText(text, "summary");
-      if (summary) out.push({ kind: "event", text: summary, ts });
-    }
+  return messages.flatMap(({ role, text, ts, steer }) => {
+    if (role === "assistant") return [{ kind: role, text, ts }];
+    const body = unwrapPasted(text);
+    if (steer) return [{ kind: "steer", steer, text: body, ts }];
+    return userEntry(body, ts);
+  });
+}
+
+/** A user record as rows: the operator's words, or the harness traffic it carries. */
+function userEntry(text: string, ts: number): ChatEntry[] {
+  const tag = LEADING_TAG_RE.exec(text)?.[1];
+  if (!tag || !HARNESS_TAGS.has(tag)) return [{ kind: "user", text, ts }];
+  const command = tagText(text, "command-name");
+  if (command) {
+    const args = tagText(text, "command-args");
+    return [{ kind: "user", text: args ? `${command} ${args}` : command, ts }];
   }
-  return out;
+  const summary = tag === "task-notification" ? tagText(text, "summary") : null;
+  return summary ? [{ kind: "event", text: summary, ts }] : [];
 }
 
 /** The composer's message: the typed words, then one line per attached image for the assistant to
@@ -79,7 +93,8 @@ export interface PendingSend {
 /** Browser and server clocks may disagree; a logged echo may carry a slightly earlier stamp. */
 const ECHO_SKEW_MS = 60_000;
 
-/** The sends the transcript has not logged yet: no user row with the same text, stamped no
+/** The sends the transcript has not logged yet: no user (or steer — a send can open with Shepherd's
+ *  steer wording, e.g. "Plan approved.") row with the same text, stamped no
  *  earlier than the skew window before the send (an older identical message is not the echo).
  *  Each row settles one send, so a repeated answer ("Yes", then "Yes") waits for its own echo. */
 export function unsettled(pending: PendingSend[], entries: ChatEntry[]): PendingSend[] {
@@ -88,7 +103,7 @@ export function unsettled(pending: PendingSend[], entries: ChatEntry[]): Pending
     const i = entries.findIndex(
       (e, j) =>
         !used.has(j) &&
-        e.kind === "user" &&
+        (e.kind === "user" || e.kind === "steer") &&
         (p.match === undefined
           ? e.text.trim() === p.text.trim()
           : e.text.includes(p.match.trim())) &&

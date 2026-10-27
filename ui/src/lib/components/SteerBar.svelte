@@ -23,6 +23,7 @@
     termSend = () => {},
     micAvailable = false,
     ondictate = () => {},
+    onsent,
   }: {
     focusedId: string;
     repoPath: string;
@@ -36,6 +37,8 @@
     termSend?: (seq: string) => void;
     micAvailable?: boolean;
     ondictate?: () => void;
+    /** A steer's text went out; `sent` settles false when it failed (the Chat's echo). */
+    onsent?: (text: string, sent: Promise<boolean>) => void;
   } = $props();
 
   // Only steer-bar-scoped entries render here; issue-scoped ones live on backlog rows.
@@ -135,7 +138,15 @@
   // collapse into one toast (Retry targets the latest) instead of stacking.
   // Replaces a self-clearing flash easily missed.
   function send(text: string) {
-    replySession(focusedId, text).catch(() => {
+    const reply = replySession(focusedId, text);
+    onsent?.(
+      text,
+      reply.then(
+        () => true,
+        () => false,
+      ),
+    );
+    reply.catch(() => {
       toasts.info(m.steerbar_send_failed(), {
         sticky: true,
         alert: true,

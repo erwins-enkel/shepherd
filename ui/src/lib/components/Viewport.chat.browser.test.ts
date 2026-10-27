@@ -5,6 +5,7 @@ import "../../app.css";
 import type { BlockReason, Session, SessionMessages } from "#lib/types.js";
 import type { connectPty } from "#lib/pty.js";
 import { m } from "#lib/paraglide/messages.js";
+import { steers } from "#lib/steers.svelte.js";
 
 const clients: { receive: Parameters<typeof connectPty>[3] }[] = [];
 const ptySend = vi.fn();
@@ -228,5 +229,30 @@ describe("Viewport Chat tab", () => {
     const calls = mockMessages.mock.calls.length;
     await new Promise((r) => setTimeout(r, 2500));
     expect(mockMessages).toHaveBeenCalledTimes(calls);
+  });
+
+  it("shows the steer bar; a chip goes out by the reply route and echoes as sent", async () => {
+    const previous = steers.list;
+    steers.list = [
+      { id: "t", label: "Retest", text: "Run the tests again", inSteerBar: true, onIssues: false },
+    ];
+    try {
+      await mount();
+      await open(m.viewport_chat_tab());
+      const chip = page.getByRole("button", { name: m.steerbar_send_aria({ label: "Retest" }) });
+      await expect.element(chip).toBeVisible();
+      const el = chip.element() as HTMLElement;
+      const at = { pointerId: 1, button: 0, bubbles: true };
+      el.dispatchEvent(new PointerEvent("pointerdown", at));
+      el.dispatchEvent(new PointerEvent("pointerup", at));
+      await vi.waitFor(() => expect(mockReply).toHaveBeenCalledWith("s1", "Run the tests again"));
+      const log = page.getByRole("log");
+      await expect.element(log.getByText("Run the tests again")).toBeVisible();
+      await expect.element(log.getByText(m.assistant_chat_sent(), { exact: true })).toBeVisible();
+      await open(m.viewport_diff_tab());
+      expect(page.getByRole("toolbar", { name: m.steerbar_toolbar_aria() }).query()).toBeNull();
+    } finally {
+      steers.list = previous;
+    }
   });
 });

@@ -3,6 +3,7 @@ import {
   assistantChatMessage,
   chatEntries,
   unsettled,
+  unwrapPasted,
   viewFocus,
   yesNoQuestions,
 } from "./assistant-chat";
@@ -11,7 +12,36 @@ import type { AssistantViewReport } from "./operator-assistant-view";
 const user = (text: string, ts = 1000) => ({ role: "user" as const, text, ts });
 const agent = (text: string, ts = 1000) => ({ role: "assistant" as const, text, ts });
 
+// Copied from a real Claude transcript: the paste wrapper with an id-bearing closer.
+const WRAPPED =
+  '\n\n<pasted_content id="2c65">\nThe PR critic reviewed your latest push. These are the BLOCKING points:\n\n1. fix it\nThen commit & push so CI and the critic re-run.\n</pasted_content id="2c65">\n';
+const BODY =
+  "The PR critic reviewed your latest push. These are the BLOCKING points:\n\n1. fix it\nThen commit & push so CI and the critic re-run.";
+
+describe("unwrapPasted", () => {
+  it("shows the pasted body without the wrapper or its newlines", () => {
+    expect(unwrapPasted(WRAPPED)).toBe(BODY);
+    expect(unwrapPasted('<pasted_content id="a1">\nbody\n</pasted_content>')).toBe("body");
+    expect(unwrapPasted('<pasted_content id="a1">\nbody\n</pasted_content id="a1">\n\nmore')).toBe(
+      "body\n\nmore",
+    );
+  });
+  it("leaves an unpaired or mismatched marker alone", () => {
+    const mismatched = '<pasted_content id="a1">\nbody\n</pasted_content id="b2">';
+    expect(unwrapPasted(mismatched)).toBe(mismatched);
+    expect(unwrapPasted('<pasted_content id="a1">\nbody')).toBe('<pasted_content id="a1">\nbody');
+  });
+});
+
 describe("chatEntries", () => {
+  it("unwraps a pasted message and turns a Shepherd steer into a steer row", () => {
+    expect(chatEntries([user(WRAPPED)])).toEqual([{ kind: "user", text: BODY, ts: 1000 }]);
+    expect(chatEntries([{ ...user(WRAPPED), steer: "review" }])).toEqual([
+      { kind: "steer", steer: "review", text: BODY, ts: 1000 },
+    ]);
+    expect(JSON.stringify(chatEntries([user(WRAPPED)]))).not.toContain("pasted_content");
+  });
+
   it("keeps the operator's and the assistant's words as they are", () => {
     expect(chatEntries([user("wie ist der status?"), agent("Alles grün.")])).toEqual([
       { kind: "user", text: "wie ist der status?", ts: 1000 },
@@ -59,6 +89,17 @@ describe("chatEntries", () => {
 });
 
 describe("unsettled", () => {
+  it("settles a send the transcript tagged as a Shepherd steer", () => {
+    const sent = { text: "Plan approved. Go ahead", at: 100_000 };
+    const echo = { ...user("Plan approved. Go ahead", 101_000), steer: "go" as const };
+    expect(unsettled([sent], chatEntries([echo]))).toEqual([]);
+  });
+  it("settles a multi-line send against its id-wrapped echo", () => {
+    const sent = { text: "line one\nline two", at: 100_000 };
+    const echo =
+      '\n\n<pasted_content id="9f1e">\nline one\nline two\n</pasted_content id="9f1e">\n';
+    expect(unsettled([sent], chatEntries([user(echo, 101_000)]))).toEqual([]);
+  });
   const sent = { text: "  wie ist der status? ", at: 100_000 };
 
   it("keeps a send the transcript has not logged yet", () => {

@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 import "../../../app.css";
 import type { BlockReason } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
+import { steers } from "#lib/steers.svelte.js";
 
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
@@ -106,5 +107,71 @@ describe("ChatView block answers", () => {
     render(ChatView, props({ active: false }));
     await new Promise((r) => setTimeout(r, 50));
     expect(mockMessages).not.toHaveBeenCalled();
+  });
+});
+
+describe("ChatView steers", () => {
+  const critic =
+    "The PR critic reviewed your latest push. These are the BLOCKING points:\n\n1. fix it";
+  const wrapped = `\n\n<pasted_content id="2c65">\n${critic}\n</pasted_content id="2c65">\n`;
+  let previous: typeof steers.list;
+  beforeEach(() => {
+    previous = steers.list;
+    steers.list = [
+      {
+        id: "t",
+        label: "Retest",
+        emoji: "🧪",
+        text: "Run the tests again",
+        inSteerBar: true,
+        onIssues: false,
+      },
+    ];
+  });
+  afterEach(() => {
+    steers.list = previous;
+  });
+
+  it("a Shepherd steer is a collapsed card that expands to its text", async () => {
+    mockMessages.mockResolvedValue({
+      messages: [{ role: "user", text: wrapped, ts: 1000, steer: "review" }],
+      awaitingInput: false,
+      pendingQuestion: null,
+      unavailable: null,
+    });
+    render(ChatView, props({ status: "idle" }));
+    const summary = page.getByText(m.session_chat_steer_by({ kind: m.pulse_event_review() }));
+    await expect.element(summary).toBeVisible();
+    await expect.element(page.getByText("1. fix it", { exact: false })).not.toBeVisible();
+    await summary.click();
+    await expect.element(page.getByText("1. fix it", { exact: false })).toBeVisible();
+    expect(document.body.textContent).not.toContain("pasted_content");
+    expect(document.querySelector(".ac-mine")).toBeNull();
+  });
+
+  it("a message that is a saved steer names its chip, in a session only", async () => {
+    mockMessages.mockResolvedValue({
+      messages: [{ role: "user", text: "Run the tests again", ts: 0 }],
+      awaitingInput: false,
+      pendingQuestion: null,
+      unavailable: null,
+    });
+    const view = await render(ChatView, props({ status: "idle" }));
+    await expect.element(page.getByText(`${m.assistant_chat_you()} · 🧪 Retest`)).toBeVisible();
+    await view.unmount();
+    render(ChatView, props({ status: "idle", variant: "assistant" }));
+    await expect.element(page.getByText("Run the tests again")).toBeVisible();
+    expect(page.getByText("🧪 Retest", { exact: false }).query()).toBeNull();
+  });
+
+  it("echo shows a steer as sent, and drops it when the send fails", async () => {
+    const view = await render(ChatView, props({ status: "idle" }));
+    let fail!: (ok: boolean) => void;
+    view.component.echo("Run the tests again", new Promise<boolean>((r) => (fail = r)));
+    await expect.element(page.getByText("Run the tests again")).toBeVisible();
+    await expect.element(page.getByText(m.assistant_chat_sent())).toBeVisible();
+    fail(false);
+    await expect.element(page.getByText(m.session_chat_send_failed())).toBeVisible();
+    expect(page.getByText("Run the tests again").query()).toBeNull();
   });
 });

@@ -2725,6 +2725,9 @@ components:
         ts:
           type: integer
           description: Epoch ms of the record; 0 when unknown.
+        steer:
+          type: string
+          description: On a user message Shepherd typed, which steer it is (src/steer-log.ts) — go, plan_review, ci_fix, rebase, open_pr, nudge, review, queue or api_retry. Absent on the operator's own messages. Treat an unknown value as a Shepherd steer.
     SessionMessages:
       type: object
       additionalProperties: true

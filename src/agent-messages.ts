@@ -13,6 +13,7 @@
 import { parseActivityObjects, readTranscriptTailAsync, type ActivityEntry } from "./activity";
 import { parseCodexActivityObjects } from "./codex-activity";
 import { eachJsonlObject } from "./jsonl";
+import { transcriptSteer, type SteerKind } from "./steer-log";
 import type { AgentProvider, SessionStatus } from "./types";
 
 export interface AgentMessage {
@@ -20,6 +21,8 @@ export interface AgentMessage {
   text: string;
   /** ms epoch of the record; 0 when it carries no parseable timestamp. */
   ts: number;
+  /** On a user message Shepherd typed: which steer it is (src/steer-log.ts). Absent otherwise. */
+  steer?: SteerKind;
 }
 
 /** Why no transcript could be read. `no-transcript`: nothing to resolve (no pinned agent session
@@ -306,6 +309,11 @@ export async function awaitingInput(
   }
 }
 
+function withSteer(m: AgentMessage): AgentMessage {
+  const steer = m.role === "user" ? transcriptSteer(m.text) : null;
+  return steer ? { ...m, steer } : m;
+}
+
 function unavailable(reason: MessagesUnavailable): SessionMessages {
   return { messages: [], awaitingInput: false, pendingQuestion: null, unavailable: reason };
 }
@@ -336,7 +344,7 @@ export async function sessionMessages(
   const kept = q.includeUser
     ? parsed.messages
     : parsed.messages.filter((m) => m.role === "assistant");
-  const messages = q.limit > 0 ? kept.slice(-q.limit) : [];
+  const messages = q.limit > 0 ? kept.slice(-q.limit).map(withSteer) : [];
   const result: SessionMessages = {
     messages,
     awaitingInput: question !== null,

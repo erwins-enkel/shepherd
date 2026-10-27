@@ -337,6 +337,7 @@
   let tab = $state<ViewTab>(defaultTab());
   // The Chat mounts on its first open and then stays, hidden, keeping its draft and echoes.
   let chatOpened = $state(false);
+  let chatView: ReturnType<typeof ChatView> | undefined = $state();
   $effect(() => {
     if (tab === "chat") chatOpened = true;
   });
@@ -3509,6 +3510,7 @@
         <SubagentFanout sessionId={session.id} {subagents} />
         {#key session.id}
           <ChatView
+            bind:this={chatView}
             sessionId={session.id}
             status={session.status}
             variant="session"
@@ -3609,7 +3611,7 @@
     <SessionStatusBar {session} {usage} {activity} />
   {/if}
 
-  {#if tab === "term" && !assistant}
+  {#if (tab === "term" || tab === "chat") && !assistant}
     <SteerBar
       focusedId={session.id}
       repoPath={session.repoPath}
@@ -3629,6 +3631,7 @@
         composeDictate = true;
         composeOpen = true;
       }}
+      onsent={(text, sent) => chatView?.echo(text, sent)}
     />
   {/if}
 

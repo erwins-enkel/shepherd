@@ -2105,6 +2105,8 @@ export interface AgentMessage {
   text: string;
   /** ms epoch; 0 when the record carried none. */
   ts: number;
+  /** On a user message Shepherd typed: which steer it is. Absent on the operator's own. */
+  steer?: SteerKind;
 }
 
 /** Mirrors server `SessionMessages` (GET /api/sessions/:id/messages). */

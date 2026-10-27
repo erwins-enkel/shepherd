@@ -247,6 +247,22 @@ describe("UpNextPrPreview", () => {
       await expect.poll(() => primary().textContent).toBe(m.prspanel_merge_button());
     });
 
+    it("keeps the merge when a later head fails again after the rebase was asked", async () => {
+      await failMerge(DEP);
+      await expect.poll(() => primary().textContent).toBe(m.prspanel_rebase_button());
+      primary().click();
+      await expect.poll(() => primary().textContent).toBe(m.prspanel_rebase_requested());
+      upNext.snapshot = snapshot([{ ...DEP, headSha: "rebased" }]);
+      await expect.poll(() => primary().textContent).toBe(m.prspanel_merge_button());
+      vi.mocked(mergeBacklogPr).mockRejectedValueOnce(new ApiError(409, "merge failed"));
+      primary().click();
+      await page.getByRole("button", { name: m.mergeconfirm_confirm() }).click();
+      await expect.poll(() => vi.mocked(mergeBacklogPr).mock.calls.length).toBe(2);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(primary().textContent).toBe(m.prspanel_merge_button());
+      expect(primary().getAttribute("aria-disabled")).toBeNull();
+    });
+
     it("keeps the merge for a PR that is not Dependabot's", async () => {
       await failMerge(PRS[0]!);
       await new Promise((r) => setTimeout(r, 50));

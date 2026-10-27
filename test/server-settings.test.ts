@@ -142,6 +142,7 @@ function harness(
   opts: {
     codexAuthMode?: "chatgpt" | "apikey" | "unknown";
     judgeSettings?: AppDeps["judgeSettings"];
+    mythosAvailable?: boolean;
   } = {},
 ): {
   app: ReturnType<typeof makeApp>;
@@ -154,6 +155,7 @@ function harness(
     service: {} as any,
     usageLimits: { limits: () => ({}) } as any,
     readCodexAuthMode: () => opts.codexAuthMode ?? "unknown",
+    mythosAvailable: () => opts.mythosAvailable ?? false,
     ...(opts.judgeSettings ? { judgeSettings: opts.judgeSettings } : {}),
   };
   return { app: makeApp(deps), store };
@@ -740,6 +742,35 @@ test("PUT /api/settings accepts defaultModel 'auto' and 'default'", async () => 
   expect(r2.status).toBe(200);
   expect((await r2.json()).defaultModel).toBe("default");
 });
+
+test("GET /api/settings exposes the account's Mythos availability", async () => {
+  for (const mythosAvailable of [true, false]) {
+    const { app } = harness({ mythosAvailable });
+    const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
+    expect(body.mythosAvailable).toBe(mythosAvailable);
+  }
+});
+
+test.each([
+  ["defaultModel", () => config.defaultModel],
+  ["usageDowngradeModel", () => config.usageDowngradeModel],
+  ["criticModel", () => config.criticModel],
+] as const)(
+  "PUT /api/settings %s=Mythos: 422 model_unavailable without access, saved with it",
+  async (key, read) => {
+    const before = read();
+    const refused = await put(harness({ mythosAvailable: false }).app, {
+      [key]: "claude-mythos-5-1",
+    });
+    expect(refused.status).toBe(422);
+    expect((await refused.json()).code).toBe("model_unavailable");
+    expect(read()).toBe(before); // unchanged on refusal
+
+    const saved = await put(harness({ mythosAvailable: true }).app, { [key]: "claude-mythos-5-1" });
+    expect(saved.status).toBe(200);
+    expect(read()).toBe("claude-mythos-5-1");
+  },
+);
 
 test("PUT /api/settings rejects an unknown defaultModel value", async () => {
   const { app } = harness();

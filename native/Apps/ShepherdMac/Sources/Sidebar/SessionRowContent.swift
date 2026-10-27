@@ -62,6 +62,7 @@ struct SessionRowContent {
 
     private static func modelLabel(_ model: String) -> String {
         switch model {
+        case "claude-mythos-5-1": L.t("model_label_mythos_5_1")
         case "claude-fable-5-1": L.t("model_label_fable_5_1")
         case "opus[1m]": L.t("model_label_opus_1m")
         case "sonnet[1m]": L.t("model_label_sonnet_1m")
@@ -77,7 +78,7 @@ struct SessionRowContent {
 
     private static func runtimeModelLabel(_ model: String) -> String {
         let concrete = model.replacingOccurrences(of: #"-\d{8}$"#, with: "", options: .regularExpression)
-        if concrete.range(of: #"^claude-(fable|opus|sonnet|haiku)-\d+(?:-\d+)?$"#,
+        if concrete.range(of: #"^claude-(mythos|fable|opus|sonnet|haiku)-\d+(?:-\d+)?$"#,
                           options: .regularExpression) != nil {
             let parts = concrete.split(separator: "-")
             return parts[1].capitalized + " " + parts.dropFirst(2).joined(separator: ".")

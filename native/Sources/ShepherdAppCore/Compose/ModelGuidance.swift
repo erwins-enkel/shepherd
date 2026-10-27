@@ -53,6 +53,7 @@ public struct ModelGuidance {
         }
         if provider == .claude {
             switch model {
+            case "claude-mythos-5-1": return .init(costTier: .premium, tag: .max, detailKey: "model_guidance_claude_mythos_5_1")
             case "fable": return .init(costTier: .premium, tag: .max, detailKey: "model_guidance_claude_fable")
             case "claude-fable-5-1": return .init(costTier: .premium, tag: .max, detailKey: "model_guidance_claude_fable_5_1")
             case "opus": return .init(costTier: .high, tag: .strong, detailKey: "model_guidance_claude_opus")
@@ -98,6 +99,7 @@ public struct ModelGuidance {
         case "fable": L.t("model_configured_fable_latest")
         case "opus": L.t("model_configured_opus_latest")
         case "opus[1m]": L.t("model_configured_opus_1m_latest")
+        case "claude-mythos-5-1": L.t("model_label_mythos_5_1")
         case "claude-fable-5-1": L.t("model_label_fable_5_1")
         case "claude-opus-5-5": L.t("model_label_opus_5_5")
         case "claude-opus-5-5[1m]": L.t("model_label_opus_5_5_1m")

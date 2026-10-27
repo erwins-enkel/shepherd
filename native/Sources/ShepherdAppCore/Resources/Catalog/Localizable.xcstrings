@@ -12405,6 +12405,23 @@
         }
       }
     },
+    "model_guidance_claude_mythos_5_1": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angeboten, weil dein Claude-Konto Zugriff hat. Für die härtesten, langlaufenden Aufgaben; höchste unbeaufsichtigte Kosten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offered because your Claude account has access. For the hardest long-running work; highest unattended burn."
+          }
+        }
+      }
+    },
     "model_guidance_claude_opus": {
       "extractionState": "manual",
       "localizations": {
@@ -12911,6 +12928,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Fable 5.1"
+          }
+        }
+      }
+    },
+    "model_label_mythos_5_1": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mythos 5.1"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mythos 5.1"
           }
         }
       }

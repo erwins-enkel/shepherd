@@ -7518,5 +7518,8 @@
   "done_recap_archive_noop": "Geplanter Lauf: nichts zu tun",
   "schedules_outcome_noop": "nichts zu tun",
   "feat_schedule_noop_title": "Leere geplante Läufe schließen sich selbst",
-  "feat_schedule_noop_body": "Findet ein geplanter Lauf nichts zu tun (keine Änderungen, keine Fragen, keine Folgeaufgaben), schließt der Agent seine Sitzung selbst. Einstellungen → Zeitpläne zeigt den Lauf als „nichts zu tun“ mit der einzeiligen Zusammenfassung des Agenten – der nächste Lauf wird nicht blockiert und du wirst nicht benachrichtigt."
+  "feat_schedule_noop_body": "Findet ein geplanter Lauf nichts zu tun (keine Änderungen, keine Fragen, keine Folgeaufgaben), schließt der Agent seine Sitzung selbst. Einstellungen → Zeitpläne zeigt den Lauf als „nichts zu tun“ mit der einzeiligen Zusammenfassung des Agenten – der nächste Lauf wird nicht blockiert und du wirst nicht benachrichtigt.",
+  "model_label_mythos_5_1": "Mythos 5.1",
+  "model_guidance_claude_mythos_5_1": "Angeboten, weil dein Claude-Konto Zugriff hat. Für die härtesten, langlaufenden Aufgaben; höchste unbeaufsichtigte Kosten.",
+  "newtask_model_unavailable": "Dein Claude-Konto hat keinen Zugriff auf dieses Modell. Wähle ein anderes Modell."
 }

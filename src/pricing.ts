@@ -93,6 +93,14 @@ const TABLE: { match: RegExp; w: ModelWeights }[] = [
     match: /fable/i,
     w: { input: 10, output: 50, cacheRead: 0.25, cacheWrite5m: 12.5, cacheWrite1h: 20 },
   },
+  {
+    // Mythos 5.1 — the account-gated model (claude-account-models.ts), priced like Fable 5.1:
+    // $10/$50 per Mtok, cache read $0.25, writes 1.25× / 2×. Read off the CLI's compiled
+    // `tier_10_50_cache_read_0_25` pricing tier for `claude-mythos-5-1`. Unanchored for the same
+    // wire-id reason as the Opus 5.5 row.
+    match: /mythos/i,
+    w: { input: 10, output: 50, cacheRead: 0.25, cacheWrite5m: 12.5, cacheWrite1h: 20 },
+  },
 ];
 
 const DEFAULT: ModelWeights = SONNET_WEIGHTS;

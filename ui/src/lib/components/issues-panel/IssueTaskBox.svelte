@@ -10,7 +10,7 @@
   } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { repoConfig } from "#lib/reviews.svelte.js";
-  import { providerModels } from "#lib/provider-models.js";
+  import { pickerModels } from "#lib/provider-models.js";
   import {
     providerEfforts,
     effortLabel,
@@ -63,7 +63,7 @@
   const provider = $derived<AgentProvider>(
     run.agentProvider ?? defaults?.agentProvider ?? "claude",
   );
-  const modelOptions = $derived(["default", ...providerModels(provider)]);
+  const modelOptions = $derived(["default", ...pickerModels(provider, run.model)]);
   const model = $derived.by(() => {
     const v =
       run.model ??

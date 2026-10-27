@@ -12978,7 +12978,8 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextPrsTests.swift\",\"CoreSeamTests.UpNextPrsTests\",\"sheetFactsReadTheServerFields()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextPrsTests.swift\",\"CoreSeamTests.UpNextPrsTests\",\"actionsPutTheRecommendationFirstAndLockMergeWhileBlocked()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextPrsTests.swift\",\"CoreSeamTests.UpNextPrsTests\",\"reviewRequestNamesThePrAndItsBaseAndSkipsThePlanGate()\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextPrsTests.swift\",\"CoreSeamTests.UpNextPrsTests\",\"trainTakesUnblockedGreenDependabotPrsOfTheBiggestRepo()\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextPrsTests.swift\",\"CoreSeamTests.UpNextPrsTests\",\"trainTakesUnblockedGreenDependabotPrsOfTheBiggestRepo()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ModelGuidanceCoreTests.swift\",\"CoreSeamTests.ModelGuidanceTests\",\"mythosIsOfferedOnlyWhenTheAccountHasIt()\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

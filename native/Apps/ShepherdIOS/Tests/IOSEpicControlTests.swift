@@ -64,13 +64,13 @@ final class IOSEpicControlTests: XCTestCase {
         XCTAssertNil(settings.patch(start: false, running: true).status)
         XCTAssertNil(settings.patch(start: false, running: false).ignoreUsageCeiling)
         settings.provider = .codex
-        settings.normalize(fableAvailable: false)
+        settings.normalize(fableAvailable: false, mythosAvailable: false)
         XCTAssertEqual(settings.model, "default")
         settings.model = "gpt-6-sol"; settings.effort = "ultra"
-        settings.normalize(fableAvailable: false)
+        settings.normalize(fableAvailable: false, mythosAvailable: false)
         XCTAssertEqual(settings.effort, "ultra")
         settings.model = "gpt-5.5"
-        settings.normalize(fableAvailable: false)
+        settings.normalize(fableAvailable: false, mythosAvailable: false)
         XCTAssertEqual(settings.effort, "default")
     }
     func testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws {
@@ -106,7 +106,7 @@ final class IOSEpicControlTests: XCTestCase {
         let run = try fixture().run
         var provider = IOSEpicSettings(run)
         provider.provider = nil
-        provider.normalize(fableAvailable: true)
+        provider.normalize(fableAvailable: true, mythosAvailable: false)
         XCTAssertNil(provider.provider)
         XCTAssertEqual(provider.model, "default")
         XCTAssertEqual(provider.effort, "default")

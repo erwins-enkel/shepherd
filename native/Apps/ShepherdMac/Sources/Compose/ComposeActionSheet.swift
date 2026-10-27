@@ -108,7 +108,7 @@ struct ComposeActionSheet: View {
             }
             Picker(L.t("newtask_model_label"), selection: $actions.model) {
                 if mode != .recommend { Text(verbatim: L.t("newtask_model_default")).tag("default") }
-                ForEach(ComposeRunConfig.providerModels(actions.provider).filter { ComposeRunConfig.available($0, provider: actions.provider, fableAvailable: (session?.host == nil ? store.settings : ownerSettings)?.additionalProperties.value["fableAvailable"] as? Bool ?? true) }, id: \.self) { model in
+                ForEach(ComposeRunConfig.providerModels(actions.provider).filter { ComposeRunConfig.available($0, provider: actions.provider, fableAvailable: (session?.host == nil ? store.settings : ownerSettings)?.additionalProperties.value["fableAvailable"] as? Bool ?? true, mythosAvailable: (session?.host == nil ? store.settings : ownerSettings)?.mythosAvailable ?? false) }, id: \.self) { model in
                     Text(verbatim: model).tag(model)
                 }
             }

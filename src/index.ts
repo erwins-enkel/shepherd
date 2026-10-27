@@ -242,6 +242,7 @@ import {
   type RoleEnvironment,
 } from "./default-model";
 import { readCodexAuthMode } from "./codex-auth";
+import { accountMythosAvailable } from "./claude-account-models";
 import {
   normalizeDefaultEffortSetting,
   normalizeProviderDefaultEffortSetting,
@@ -1027,6 +1028,7 @@ const service = new SessionService({
   // build their own argv and bypass pushModelFlag, so they are not downgraded. See pushModelFlag in
   // service.ts + roleEnv below.
   usageDowngrade: () => usageDowngradeModel(),
+  mythosAvailable: accountMythosAvailable,
   detectEgressHostLoopback,
   namer: generateName,
   refineName: config.llmNaming
@@ -4209,6 +4211,7 @@ const appDeps: AppDeps = {
     coversRepo: fingerprintCoversRepo,
   },
   readCodexAuthMode,
+  mythosAvailable: accountMythosAvailable,
   telemetry,
   repoConfig: repoConfigSvc,
   accessTokens: accessTokenSvc,

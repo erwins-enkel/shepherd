@@ -45,6 +45,7 @@ import {
   UntrustedIssueAuthorError,
   sanitizeSteerText,
 } from "../src/service";
+import { ModelUnavailableError } from "../src/claude-account-models";
 import { BrowserTokenSigner } from "../src/browser-token";
 import type { SandboxProfile } from "../src/sandbox";
 import { agentMcpConfigArg, agentTools } from "../src/agent-control";
@@ -9579,11 +9580,15 @@ test("browserCdpUrl: switches http→ws and https→wss", () => {
 // a spawn requesting model:"fable" must use --model opus[1m] in argv while keeping the
 // stored session.model === "fable" (intent preserved; cost accounting reads the runtime
 // usage output, not the stored model). Fails against pre-change code (argv shows fable).
-function makeFableGuardService(calls: { argv?: string[] }) {
+function makeFableGuardService(
+  calls: { argv?: string[] },
+  extra: Partial<ConstructorParameters<typeof SessionService>[0]> = {},
+) {
   const store = new SessionStore(":memory:");
   return {
     store,
     service: new SessionService({
+      ...extra,
       store,
       namer: async () => "repo-fable",
       worktree: {
@@ -9668,6 +9673,56 @@ test("createSession: fable available → argv uses fable directly", async () => 
   } finally {
     config.fableAvailable = prev;
   }
+});
+
+// Account-gated Mythos: a spawn the logged-in Claude account cannot run is REFUSED with a typed
+// error before any naming/worktree work — never rerouted the way an unavailable Fable is.
+test("createSession: Mythos unavailable → ModelUnavailableError, nothing spawned", async () => {
+  const calls: { argv?: string[] } = {};
+  const { store, service } = makeFableGuardService(calls, { mythosAvailable: () => false });
+  await expect(
+    service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "hard",
+      model: "claude-mythos-5-1",
+      images: [],
+    }),
+  ).rejects.toBeInstanceOf(ModelUnavailableError);
+  expect(calls.argv).toBeUndefined();
+  expect(store.list()).toHaveLength(0);
+});
+
+test("createSession: Mythos available → argv carries --model claude-mythos-5-1", async () => {
+  const calls: { argv?: string[] } = {};
+  const { service } = makeFableGuardService(calls, { mythosAvailable: () => true });
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "hard",
+    model: "claude-mythos-5-1",
+    images: [],
+  });
+  expect(s.model).toBe("claude-mythos-5-1");
+  const argv: string[] = calls.argv!;
+  expect(argv[argv.indexOf("--model") + 1]).toBe("claude-mythos-5-1");
+});
+
+test("createSession: an active usage downgrade replacing Mythos is not refused", async () => {
+  const calls: { argv?: string[] } = {};
+  const { service } = makeFableGuardService(calls, {
+    mythosAvailable: () => false,
+    usageDowngrade: () => "sonnet",
+  });
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "hard",
+    model: "claude-mythos-5-1",
+    images: [],
+  });
+  const argv: string[] = calls.argv!;
+  expect(argv[argv.indexOf("--model") + 1]).toBe("sonnet");
 });
 
 // ── #1144: runaway-orphan reap at teardown ───────────────────────────────────

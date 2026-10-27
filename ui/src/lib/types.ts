@@ -507,6 +507,8 @@ export interface Settings {
   usageDowngradeModel: string;
   /** Whether Fable is globally available; when false, Fable selections run on Opus (1M context). */
   fableAvailable: boolean;
+  /** Read-only: whether the logged-in Claude account can spawn Claude Mythos. */
+  mythosAvailable: boolean;
   /** Opt the main session into Claude Code's fullscreen renderer (research preview). */
   tuiFullscreen: boolean;
   /** Disable Claude Code mouse capture for the main session. */
@@ -3597,8 +3599,11 @@ export interface HeldResult {
  *  through to --model; each 1M variant sits next to its 200K base.
  *  Floating aliases ("opus") track the latest model of their tier; pinned full
  *  names ("claude-opus-5-5") lock an exact version. Mirrors src/types.ts
- *  CLAUDE_MODELS — keep both lists identical (see the note there). */
+ *  CLAUDE_MODELS — keep both lists identical (see the note there).
+ *  `claude-mythos-5-1` is account-gated: pickers list Claude models through
+ *  `pickerModels` (provider-models.ts), which hides it unless the account has it. */
 const CLAUDE_MODELS = [
+  "claude-mythos-5-1",
   "fable",
   "claude-fable-5-1",
   "opus",
@@ -3655,6 +3660,7 @@ export const MODELS_BY_PROVIDER: Record<AgentProvider, readonly string[]> = {
  *  Every 1M variant is premium: the >200K long-context regime is the unattended-default
  *  cost case the warning exists for, so sonnet[1m] is premium even though plain sonnet is not. */
 export const PREMIUM_MODELS: readonly string[] = [
+  "claude-mythos-5-1",
   "fable",
   "claude-fable-5-1",
   "opus",

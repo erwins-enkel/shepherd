@@ -411,7 +411,21 @@
   }
 </script>
 
-<div class="ac">
+<!-- The whole panel takes a dropped image, thread included, not just the composer. -->
+<div
+  class="ac"
+  class:ac-dragging={dragging}
+  role="presentation"
+  ondragover={(e) => {
+    if (!e.dataTransfer?.types.includes("Files")) return;
+    e.preventDefault();
+    dragging = true;
+  }}
+  ondragleave={(e) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) dragging = false;
+  }}
+  {ondrop}
+>
   <div class="ac-thread" bind:this={thread} {onscroll} role="log" aria-label={copy.log()}>
     <div class="ac-stack" bind:this={stack}>
       {#if rows.length === 0 && waiting.length === 0 && !working && !ask}
@@ -486,21 +500,11 @@
 
   <form
     class="ac-composer"
-    class:ac-dragging={dragging}
     aria-label={m.assistant_chat_composer()}
     onsubmit={(e) => {
       e.preventDefault();
       submit();
     }}
-    ondragover={(e) => {
-      if (!e.dataTransfer?.types.includes("Files")) return;
-      e.preventDefault();
-      dragging = true;
-    }}
-    ondragleave={(e) => {
-      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) dragging = false;
-    }}
-    {ondrop}
   >
     {#if attachments.length > 0}
       <AttachmentChips {attachments} coarse={touch || mobile} onremove={removeAttachment} />

@@ -795,6 +795,38 @@ describe("AssistantChat attachments", () => {
     expect(mockUpload).toHaveBeenCalledTimes(2);
     expect(mockUpload.mock.calls[1]![0].name).toBe("picked.png");
   });
+
+  const dropOnThread = (dt: DataTransfer) => {
+    const thread = document.querySelector<HTMLElement>(".ac-thread")!;
+    const over = new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true });
+    thread.dispatchEvent(over);
+    const drop = new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true });
+    thread.dispatchEvent(drop);
+    return { over, drop };
+  };
+
+  it("takes an image dropped on the thread, not just the composer", async () => {
+    const p = props();
+    render(AssistantChat, p);
+    await expect.element(composer()).toBeVisible();
+    const file = png();
+    const { over, drop } = dropOnThread(transfer(file));
+    expect(over.defaultPrevented).toBe(true);
+    expect(drop.defaultPrevented).toBe(true);
+    expect(mockUpload).toHaveBeenCalledExactlyOnceWith(file, "a1");
+    await expect.element(page.getByRole("button", { name: /shot\.png/ }).first()).toBeVisible();
+    await sendButton().click();
+    expect(p.onsend).toHaveBeenCalledExactlyOnceWith(
+      "Attached image: `/a/.shepherd-uploads/u1.png`",
+    );
+  });
+
+  it("ignores a thread drop while a question locks the composer", async () => {
+    render(AssistantChat, props({ status: "blocked", ask }));
+    await expect.element(page.getByText(ask.questions[0].question)).toBeVisible();
+    expect(dropOnThread(transfer(png())).drop.defaultPrevented).toBe(true);
+    expect(mockUpload).not.toHaveBeenCalled();
+  });
 });
 
 describe("AssistantChat block answers", () => {

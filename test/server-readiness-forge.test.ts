@@ -24,7 +24,7 @@ afterEach(() => rmSync(tmpRoot, { recursive: true, force: true }));
 
 const BAD: RepoForgeSettings = {
   defaultBranch: "main",
-  mergeMethods: { merge: true, squash: true, rebase: true },
+  mergeMethods: { merge: true, squash: false, rebase: false },
   autoMergeAllowed: false,
   deleteBranchOnMerge: false,
   requiredChecks: [],
@@ -126,7 +126,7 @@ test("apply each fix calls the API and returns re-checked state", async () => {
     expect(body.checks.find((c: { id: string }) => c.id === id).state).toBe("ok");
   }
   expect(writes()).toEqual([
-    ["patch", { mergeMethods: { merge: false, squash: true, rebase: false } }],
+    ["patch", { mergeMethods: { merge: true, squash: true, rebase: false } }],
     ["auto"],
     ["patch", { deleteBranchOnMerge: true }],
     ["ruleset", ["lint"]],

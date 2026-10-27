@@ -151,12 +151,14 @@ function autoMergeCheck(s: RepoForgeSettings): ForgeCheck {
   return adminCheck("auto_merge", s.autoMergeAllowed, s.canAdminister);
 }
 
+/** Ok when the configured method is allowed. Other methods may stay on beside it: the operator
+ *  picks them per merge from the Merge ▾ menu, so the fix only turns the configured one on. */
 function mergeMethodsCheck(s: RepoForgeSettings, mergeMethod: MergeMethod): ForgeCheck {
-  const target = [mergeMethod];
-  if (!s.mergeMethods) return { id: "merge_methods", state: "unknown", current: null, target };
+  if (!s.mergeMethods)
+    return { id: "merge_methods", state: "unknown", current: null, target: [mergeMethod] };
   const current = METHODS.filter((m) => s.mergeMethods![m]);
-  if (current.length === 1 && current[0] === mergeMethod)
-    return { id: "merge_methods", state: "ok", current, target };
+  const target = METHODS.filter((m) => m === mergeMethod || s.mergeMethods![m]);
+  if (s.mergeMethods[mergeMethod]) return { id: "merge_methods", state: "ok", current, target };
   return s.canAdminister
     ? { id: "merge_methods", state: "fix", current, target }
     : { id: "merge_methods", state: "hint", current, target, reason: "no_admin" };

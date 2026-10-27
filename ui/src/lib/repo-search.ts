@@ -16,14 +16,27 @@ const TIER: Record<Exclude<FuzzyKind, "empty">, number> = {
   fuzzy: 0,
 };
 
+/** Match kind for one field. A literal hit is checked first: fuzzyScore's greedy
+ *  earliest-occurrence alignment can miss a substring further along ("api" in
+ *  "acme-payments-api") or downgrade it to fuzzy, so it is only the fallback. */
+function matchKind(query: string, text: string): Exclude<FuzzyKind, "empty"> | null {
+  const lower = text.toLowerCase();
+  const at = lower.indexOf(query);
+  if (at === 0) return lower.length === query.length ? "exact" : "prefix";
+  if (at > 0) return "substring";
+  const res = fuzzyScore(query, text);
+  return res === null || res.kind === "empty" ? null : res.kind;
+}
+
 /** Best match across name + aliases as a single comparable number: the match tier,
  *  with a name hit beating an alias hit of the same tier. `null` when nothing matches. */
 function matchRank(query: string, key: RepoSearchKey): number | null {
   let best: number | null = null;
+  const q = query.toLowerCase();
   for (const [i, text] of [key.name, ...key.aliases].entries()) {
-    const res = fuzzyScore(query, text);
-    if (res === null || res.kind === "empty") continue;
-    const rank = TIER[res.kind] * 2 + (i === 0 ? 1 : 0);
+    const kind = matchKind(q, text);
+    if (kind === null) continue;
+    const rank = TIER[kind] * 2 + (i === 0 ? 1 : 0);
     if (best === null || rank > best) best = rank;
   }
   return best;

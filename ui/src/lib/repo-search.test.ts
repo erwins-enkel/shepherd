@@ -51,6 +51,13 @@ describe("searchRepos", () => {
     expect(ids("shep", repos)).toEqual(["shep-c", "shep-a", "shep-b"]);
   });
 
+  it("keeps literal substrings the greedy fuzzy alignment would miss", () => {
+    const repos = [repo("sh-shepherd"), repo("acme-payments-api"), repo("xshepherd")];
+    expect(ids("api", repos)).toEqual(["acme-payments-api"]);
+    // Both are substring hits (not fuzzy) → tied tier, name order.
+    expect(ids("shep", repos)).toEqual(["sh-shepherd", "xshepherd"]);
+  });
+
   it("returns the input order for a blank query", () => {
     const repos = [repo("b"), repo("a")];
     expect(ids("  ", repos)).toEqual(["b", "a"]);

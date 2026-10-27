@@ -33,7 +33,16 @@ EOF
   - `--model <model>`, `--effort <level>`, `--provider <claude|codex>`: override server defaults.
   - `--force`: spawn now even if the usage hold would queue it. Only when the operator asks.
 - The JSON result carries the new session's `desig` (e.g. `TASK-4530`); report it to the operator.
-  `{"held": true, …}` (still exit 0) means the usage hold queued it instead of spawning.
+  `{"held": true, …}` (still exit 0) means the task was queued instead of spawned. Its `reason` says
+  why:
+  - `after`: waiting for the `--after` predecessor's PR to land. This is the expected result of
+    `--after`, not a failure.
+  - `usage`: the usage hold.
+  - `capacity`: no account was available.
+  - `waiting: true` (no `reason`): queued for a machine to pick it up.
+
+  Report the held `id` and the reason to the operator. Never retry with `--force`: it bypasses only
+  the usage hold, and only the operator should decide to.
 
 ## Inspect, steer, wait, archive
 

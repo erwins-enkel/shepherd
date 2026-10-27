@@ -85,7 +85,7 @@
     line-height: 1.45;
   }
   .edp-child-num {
-    color: var(--color-accent);
+    color: var(--color-blue);
     margin-right: 3px;
   }
   .edp-child-body {

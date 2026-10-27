@@ -53,7 +53,7 @@
     gap: 0.5rem;
   }
   .mw-label {
-    color: var(--color-text);
+    color: var(--color-ink);
     font-size: var(--fs-meta);
   }
   .mw-pct {

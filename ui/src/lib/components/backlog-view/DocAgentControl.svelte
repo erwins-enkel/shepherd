@@ -359,7 +359,7 @@
   }
 
   .run-row:hover {
-    background: var(--color-surface);
+    background: var(--color-hover);
   }
 
   .run-time {
@@ -377,7 +377,7 @@
   }
 
   .run-link {
-    color: var(--color-accent);
+    color: var(--color-blue);
     font-family: var(--font-mono);
     font-size: var(--fs-micro);
     text-decoration: none;

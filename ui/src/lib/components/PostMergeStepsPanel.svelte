@@ -390,7 +390,7 @@
   }
   .ow-issue {
     font-size: var(--fs-meta);
-    color: var(--color-accent);
+    color: var(--color-blue);
     text-decoration: none;
   }
   .ow-issue:hover {

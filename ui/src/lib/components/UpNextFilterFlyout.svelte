@@ -308,7 +308,7 @@
     cursor: pointer;
   }
   .unf-row:hover {
-    background: var(--color-surface);
+    background: var(--color-hover);
   }
   .unf-row input {
     margin-top: 3px;

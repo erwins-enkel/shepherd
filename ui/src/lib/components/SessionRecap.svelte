@@ -195,7 +195,7 @@
 
   .recap-generating {
     margin: 0;
-    color: var(--color-text-muted);
+    color: var(--color-muted);
     font-size: var(--fs-sm);
   }
 
@@ -206,7 +206,7 @@
   }
 
   .recap-label {
-    color: var(--color-text-muted);
+    color: var(--color-muted);
     font-size: var(--fs-sm);
     flex: 1;
   }
@@ -220,7 +220,7 @@
     padding: 0;
     cursor: pointer;
     text-align: left;
-    color: var(--color-text);
+    color: var(--color-ink);
     font-size: var(--fs-sm);
     width: 100%;
   }
@@ -258,12 +258,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--color-text);
+    color: var(--color-ink);
   }
 
   .recap-expand-icon {
     font-size: var(--fs-micro);
-    color: var(--color-text-muted);
+    color: var(--color-muted);
     flex-shrink: 0;
   }
 
@@ -276,7 +276,7 @@
 
   .recap-md {
     font-size: var(--fs-sm);
-    color: var(--color-text);
+    color: var(--color-ink);
     line-height: 1.5;
   }
 
@@ -296,14 +296,14 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--color-text-muted);
+    color: var(--color-muted);
   }
 
   .recap-open-items ul {
     margin: 0;
     padding-left: 16px;
     font-size: var(--fs-sm);
-    color: var(--color-text);
+    color: var(--color-ink);
   }
 
   .recap-open-items li {

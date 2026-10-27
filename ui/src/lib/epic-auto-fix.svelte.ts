@@ -19,7 +19,7 @@ import { sandboxHaltedEpic } from "./components/epic-panel";
 // per repo (the leading one), so the repo keys the state and `parent` names the epic it is for.
 
 /** A fix applied here: what it set, what Undo writes back and the children it starts. */
-export interface AppliedFix {
+interface AppliedFix {
   parent: number;
   changes: EpicAutoFixOption["changes"];
   previous: EpicAutoFixState;

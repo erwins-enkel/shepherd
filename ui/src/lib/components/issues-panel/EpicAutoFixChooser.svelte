@@ -103,7 +103,7 @@
     </fieldset>
   {/if}
 
-  <div class="act" class:wide>
+  <div class={["act", wide && "wide"]}>
     <button
       class="gbtn primary"
       type="button"

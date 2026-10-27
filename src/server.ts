@@ -6507,6 +6507,8 @@ async function finalizeRelaunch(
   // isolates teardown failures (unlike a bare archive(id)).
   const { cleared } = await deps.service.archiveMany([id], "relaunch");
   const archived = cleared.includes(id);
+  // #3469: the replacement is that schedule's run now, so `schedule_noop` can find its row.
+  if (archived && fresh.scheduleId) deps.store.repointScheduleRun(id, fresh.id);
   if (archived) {
     // Retain the original's claim ONLY when the replacement actually carries the issue
     // (issueRef truthy): then the new session owns ACTIVE_LABEL, so a relaunch isn't a

@@ -1043,3 +1043,15 @@ test("schedule_noop with no PR (state none) proceeds", async () => {
   );
   expect(isError).toBe(false);
 });
+
+test("schedule_noop with no matching run row refuses and never archives", async () => {
+  const h = noopHarness();
+  h.store.repointScheduleRun(h.sessionId, "someone-else");
+  const { isError } = toolPayload(
+    await call(h.deps, h.sessionId, "schedule_noop", { summary: "ok" }),
+  );
+  expect(isError).toBe(true);
+  await tick();
+  expect(h.archived).toEqual([]);
+  expect(h.emitted.map((e) => e.event)).not.toContain("schedules:changed");
+});

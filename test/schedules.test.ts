@@ -291,4 +291,39 @@ describe("ScheduleService", () => {
     });
     expect(store.markScheduleRunNoop("sess-2", s.id, "nothing")).toBe(false);
   });
+
+  test("held fallback ignores an older held run once a newer firing exists", async () => {
+    const s = makeSchedule(at(10, 26, 8));
+    store.claimScheduleRun(s.id, "2026-10-26T09:00", at(10, 26, 9));
+    store.settleScheduleRun(s.id, "2026-10-26T09:00", "held", { reason: "usage" });
+    store.claimScheduleRun(s.id, "2026-10-26T18:00", at(10, 26, 18));
+    store.settleScheduleRun(s.id, "2026-10-26T18:00", "spawned", { sessionId: "other" });
+    expect(store.markScheduleRunNoop("relaunched", s.id, "nothing")).toBe(false);
+    expect(store.getScheduleRun(s.id, "2026-10-26T09:00")?.outcome).toBe("held");
+  });
+
+  test("held fallback looks past overlap skips to the latest firing", async () => {
+    const s = makeSchedule(at(10, 26, 8));
+    store.claimScheduleRun(s.id, "2026-10-26T09:00", at(10, 26, 9));
+    store.settleScheduleRun(s.id, "2026-10-26T09:00", "held", { reason: "usage" });
+    store.claimScheduleRun(s.id, "2026-10-26T18:00", at(10, 26, 18));
+    store.settleScheduleRun(s.id, "2026-10-26T18:00", "skipped:overlap");
+    expect(store.markScheduleRunNoop("sess", s.id, "nothing")).toBe(true);
+    expect(store.getScheduleRun(s.id, "2026-10-26T09:00")?.outcome).toBe("noop");
+  });
+
+  test("a repeat call re-marks the same run; a relaunch re-points it", async () => {
+    const s = makeSchedule(at(10, 26, 8));
+    store.claimScheduleRun(s.id, "2026-10-26T09:00", at(10, 26, 9));
+    store.settleScheduleRun(s.id, "2026-10-26T09:00", "spawned", { sessionId: "orig" });
+    store.repointScheduleRun("orig", "fresh");
+    expect(store.markScheduleRunNoop("orig", s.id, "x")).toBe(false);
+    expect(store.markScheduleRunNoop("fresh", s.id, "first")).toBe(true);
+    expect(store.markScheduleRunNoop("fresh", s.id, "second")).toBe(true);
+    expect(store.getScheduleRun(s.id, "2026-10-26T09:00")).toMatchObject({
+      outcome: "noop",
+      reason: "second",
+      sessionId: "fresh",
+    });
+  });
 });

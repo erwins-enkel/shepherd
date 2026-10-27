@@ -346,7 +346,12 @@ async function applyScheduleNoop(
       status: 409,
       error: "uncommitted changes or commits beyond the base branch — not a no-op",
     };
-  deps.store.markScheduleRunNoop(sessionId, s.scheduleId, summary);
+  if (!deps.store.markScheduleRunNoop(sessionId, s.scheduleId, summary))
+    return {
+      ok: false,
+      status: 409,
+      error: "no schedule run found for this session — leaving it open for the operator",
+    };
   deps.events?.emit("schedules:changed", { repoPath: s.repoPath });
   setTimeout(() => {
     noop.archive(sessionId).catch((err: unknown) => {

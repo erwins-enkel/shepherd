@@ -88,8 +88,10 @@ function harness(opts: {
   const fresh =
     opts.fresh ?? ({ id: "new", desig: "TASK-02", repoPath: REPO } as unknown as Session);
 
+  const repointed: Array<[string, string]> = [];
   const store = {
     get: (id: string) => (id === "orig" ? originalSession : undefined),
+    repointScheduleRun: (from: string, to: string) => repointed.push([from, to]),
   } as unknown as SessionStore;
 
   const service = {
@@ -165,6 +167,7 @@ function harness(opts: {
     calls,
     drainCalls,
     droppedFromCache,
+    repointed,
     retainSeenArchived: () => retainClaimSeenArchived,
   };
 }
@@ -214,6 +217,19 @@ test("happy path: emits session:new then session:archived, returns {session, arc
   expect(h.calls.relaunch[0]).toEqual({ id: "orig", issueRef: undefined, overrides: undefined });
   expect(h.calls.archiveMany).toEqual([{ ids: ["orig"], reason: "relaunch" }]);
   expect(h.droppedFromCache).toEqual(["orig"]);
+});
+
+test("a scheduled relaunch re-points the schedule run only once the original is archived (#3469)", async () => {
+  const fresh = { id: "new", desig: "TASK-02", repoPath: REPO, scheduleId: "sch" } as never;
+  const ok = harness({ fresh });
+  await ok.app.fetch(relaunchReq());
+  expect(ok.repointed).toEqual([["orig", "new"]]);
+  const failed = harness({ fresh, archiveCleared: [] });
+  await failed.app.fetch(relaunchReq());
+  expect(failed.repointed).toEqual([]);
+  const plain = harness({});
+  await plain.app.fetch(relaunchReq());
+  expect(plain.repointed).toEqual([]);
 });
 
 test("issue-linked relaunch retains the claim before the session:archived emit", async () => {

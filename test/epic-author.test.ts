@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { GitForge } from "../src/forge/types";
-import type { EpicDraftContent } from "../src/types";
+import type { EpicDraftContent, EpicDraftProgress } from "../src/types";
 import {
   findPinnedVersion,
   materializeEpicDraft,
@@ -245,6 +245,40 @@ describe("materializeEpicDraft", () => {
     expect(r.childNumbers.c1).toBe(100); // carried from alreadyCreated, not re-created
     expect(r.childNumbers.c2).toBe(200); // created this attempt
     expect(r.parentNumber).toBe(201);
+  });
+});
+
+describe("materializeEpicDraft onProgress", () => {
+  const v = () => (validateEpicDraft(content()) as { ok: true; value: ValidatedEpicDraft }).value;
+
+  it("reports every forge step: 0/N first, issues then links, ending at done === total", async () => {
+    const seen: EpicDraftProgress[] = [];
+    await materializeEpicDraft(fakeForge().forge, v(), { onProgress: (p) => seen.push(p) });
+    // 2 children + parent = 3 issues; links: 2 sub-issues + 1 dependent child = 3
+    expect(seen[0]).toEqual({ done: 0, total: 6, phase: "issues" });
+    expect(seen.at(-1)).toEqual({ done: 6, total: 6, phase: "links" });
+    expect(seen.map((p) => p.done)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    const firstLink = seen.findIndex((p) => p.phase === "links");
+    expect(seen.slice(firstLink).every((p) => p.phase === "links")).toBe(true);
+  });
+
+  it("starts a resume at the already-created count", async () => {
+    const seen: EpicDraftProgress[] = [];
+    await materializeEpicDraft(fakeForge({ startAt: 200 }).forge, v(), {
+      alreadyCreated: { c1: 100 },
+      onProgress: (p) => seen.push(p),
+    });
+    expect(seen[0]).toEqual({ done: 1, total: 6, phase: "issues" });
+    expect(seen.at(-1)?.done).toBe(6);
+  });
+
+  it("counts no link steps on a forge without native links", async () => {
+    const { forge } = fakeForge();
+    const bare = { kind: "local", createIssue: forge.createIssue } as unknown as GitForge;
+    const seen: EpicDraftProgress[] = [];
+    await materializeEpicDraft(bare, v(), { onProgress: (p) => seen.push(p) });
+    expect(seen[0]?.total).toBe(3);
+    expect(seen.at(-1)).toEqual({ done: 3, total: 3, phase: "links" });
   });
 });
 

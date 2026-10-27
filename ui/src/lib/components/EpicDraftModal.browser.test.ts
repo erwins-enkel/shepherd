@@ -516,4 +516,48 @@ describe("EpicDraftModal — merge gate and overlap", () => {
     );
     unmount();
   });
+
+  // A 10+ issue approve takes a while: the footer shows a live determinate bar, not a frozen note.
+  it("renders live materialize progress as a bar with count and phase", async () => {
+    const sessionId = "epic-draft-modal-progress";
+    const base = longDraft(sessionId);
+    epicDrafts.upsert({
+      ...base,
+      status: "materializing",
+      progress: { done: 4, total: 26, phase: "issues" },
+    });
+
+    const { container, unmount } = await render(EpicDraftModal, {
+      sessionId,
+      repoPath: "/repo/draft",
+      sessionLive: true,
+      onclose: () => {},
+    });
+
+    const bar = container.querySelector<HTMLProgressElement>("progress.materialize-bar");
+    expect(bar, "progress bar renders while materializing").not.toBeNull();
+    expect(bar!.value).toBe(4);
+    expect(bar!.max).toBe(26);
+    expect(bar!.getAttribute("aria-label")).toBeTruthy();
+    const block = container.querySelector("[data-epic-materialize-progress]")!;
+    expect(block.textContent).toContain("4 / 26");
+    expect(block.textContent).toContain("Creating the issues");
+
+    epicDrafts.upsert({
+      ...base,
+      status: "materializing",
+      progress: { done: 20, total: 26, phase: "links" },
+    });
+    await tick();
+    expect(bar!.value).toBe(20);
+    expect(block.textContent).toContain("Linking");
+
+    // No progress (older server / lost event) → the plain note, no bar.
+    epicDrafts.upsert({ ...base, status: "materializing" });
+    await tick();
+    expect(container.querySelector("progress.materialize-bar")).toBeNull();
+    expect(container.querySelector(".note")).not.toBeNull();
+
+    unmount();
+  });
 });

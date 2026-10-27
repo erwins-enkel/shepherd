@@ -39,9 +39,10 @@ class EpicDraftsStore {
    *  Used to reconcile a failed-looking approve: the request's connection can die (a severed socket,
    *  a proxy 502) while the handler runs on to completion, so a "failure" in the client may be a
    *  success on the server. The local store can't answer that — the WS `session:epic-draft` event
-   *  only fires when the handler FINISHES, strictly after the connection died, and the
-   *  draft→materializing transition emits no event at all — so at reconcile time the store still
-   *  holds the stale pre-approve row. Only a fresh GET knows.
+   *  carrying the terminal state only fires when the handler FINISHES, strictly after the
+   *  connection died, and the live `materializing` progress events may themselves have been lost
+   *  with the socket — so at reconcile time the store can still hold a stale row. Only a fresh GET
+   *  knows.
    *
    *  The GET can still LOSE a race, though: if the handler finishes while it is in flight, the WS
    *  event carrying the terminal state (`approved` / reverted `draft`) may be applied first, and

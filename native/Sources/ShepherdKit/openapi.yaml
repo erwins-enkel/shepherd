@@ -2281,6 +2281,27 @@ components:
           type:
             - string
             - "null"
+        progress:
+          type: object
+          description: Live materialize progress over every forge step; present only while materializing.
+          required:
+            - done
+            - total
+            - phase
+          properties:
+            done:
+              type: integer
+              minimum: 0
+            total:
+              type: integer
+              minimum: 0
+            phase:
+              anyOf:
+                - type: string
+                  enum:
+                    - issues
+                    - links
+                - type: string
     SessionExperimentEvent:
       type: object
       additionalProperties: true

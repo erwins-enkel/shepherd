@@ -190,3 +190,21 @@ describe("EpicDraftPanel approved contrast", () => {
     });
   }
 });
+
+describe("EpicDraftPanel chip — materialize progress", () => {
+  it("shows Creating done/total while materializing", async () => {
+    const sessionId = "epic-draft-bar-progress";
+    epicDrafts.upsert({
+      ...longDraft(sessionId),
+      status: "materializing",
+      progress: { done: 3, total: 12, phase: "issues" },
+    });
+    const { container, unmount } = await render(EpicDraftPanel, {
+      sessionId,
+      epicAuthoring: true,
+      onreview: () => {},
+    });
+    expect(container.querySelector(".edp-chip")?.textContent).toContain("Creating 3/12");
+    unmount();
+  });
+});

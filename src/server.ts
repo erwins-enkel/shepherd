@@ -379,6 +379,7 @@ import {
   type IssueDrainOperation,
 } from "./issue-drain";
 import type { Epic, EpicLanding, EpicRun, EpicSource } from "./epic-core";
+import type { EpicDraft, EpicDraftProgress } from "./types";
 import {
   computeEpicOthersFlags,
   effectiveEpicLanding,
@@ -6986,6 +6987,22 @@ function registerApprovedEpic(
   });
 }
 
+/** Live materialize progress per session (transient — a crash reverts the row to `draft` anyway).
+ *  Attached to every `session:epic-draft` emit and GET while the approve runs, so the UI can show
+ *  a bar instead of a frozen button for the ~3 GitHub calls per child. */
+const epicDraftProgress = new Map<string, EpicDraftProgress>();
+
+/** The stored draft plus its live progress, if a materialize is running. */
+function draftWithProgress(store: AppDeps["store"], id: string): EpicDraft | null {
+  const draft = store.getEpicDraft(id);
+  const progress = epicDraftProgress.get(id);
+  return draft && progress ? { ...draft, progress } : draft;
+}
+
+function emitEpicDraft(deps: AppDeps, id: string): void {
+  deps.events?.emit("session:epic-draft", draftWithProgress(deps.store, id));
+}
+
 async function approveEpicDraft(deps: AppDeps, id: string, req: Request): Promise<Response> {
   const parsed = await parseApproveBody(req);
   if (parsed instanceof Response) return parsed;
@@ -7011,6 +7028,10 @@ async function approveEpicDraft(deps: AppDeps, id: string, req: Request): Promis
       parentUrl: draft.parentUrl,
       onChildCreated: (key, number) => deps.store.recordEpicDraftChild(id, key, number),
       onParentCreated: (number, url) => deps.store.recordEpicDraftParent(id, number, url),
+      onProgress: (progress) => {
+        epicDraftProgress.set(id, progress);
+        emitEpicDraft(deps, id);
+      },
     });
     // Recognition: a fence in a fresh parent body is not auto-discovered — register the epic run.
     let epic: Epic | null = null;
@@ -7022,15 +7043,17 @@ async function approveEpicDraft(deps: AppDeps, id: string, req: Request): Promis
       );
       if (epic) deps.events?.emit("epic:update", epic);
     }
+    epicDraftProgress.delete(id);
     deps.store.setEpicDraftApproved(id, result.parentNumber, result.parentUrl);
-    deps.events?.emit("session:epic-draft", deps.store.getEpicDraft(id));
+    emitEpicDraft(deps, id);
     advanceBootstrapAfterEpic(deps, session);
     return json({ ...result, epic });
   } catch (e) {
     // On error revert materializing → draft (retaining the persisted partial map) so an explicit
     // retry re-wins the CAS and resumes. Never leaves the row stuck at materializing.
+    epicDraftProgress.delete(id);
     deps.store.revertEpicDraftToDraft(id);
-    deps.events?.emit("session:epic-draft", deps.store.getEpicDraft(id));
+    emitEpicDraft(deps, id);
     return json({ error: e instanceof Error ? e.message : "epic materialize failed" }, 500);
   }
 }
@@ -7055,7 +7078,7 @@ async function handleEpicDraft({ req, parts, deps }: Ctx): Promise<Response | nu
   if (!id) return null;
   if (!deps.store.get(id)) return json({ error: "session not found" }, 404);
 
-  if (req.method === "GET" && !parts[4]) return json(deps.store.getEpicDraft(id));
+  if (req.method === "GET" && !parts[4]) return json(draftWithProgress(deps.store, id));
   if (req.method === "PUT" && !parts[4]) return putEpicDraft(req, deps, id);
   if (req.method === "POST" && parts[4] === "approve" && !parts[5])
     return approveEpicDraft(deps, id, req);

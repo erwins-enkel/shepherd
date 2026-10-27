@@ -58,7 +58,11 @@ export function buildUpNextRepos(args: {
     if (forge == null || forge.kind === "local") continue;
     // Skip hidden repos — see deliberate full-exclude note above.
     if (hiddenRaw.has(entry.path)) continue;
-    result.push({ repoPath: entry.path, repoSlug: forge.slug, repoLabel: entry.display });
+    result.push({
+      repoPath: entry.path,
+      repoSlug: forge.slug,
+      repoLabel: forge.slug ?? entry.display,
+    });
   }
   return result;
 }

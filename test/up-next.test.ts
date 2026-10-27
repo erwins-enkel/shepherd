@@ -804,8 +804,20 @@ describe("buildUpNextRepos", () => {
     expect(result[0]).toEqual({
       repoPath: "/r/myrepo",
       repoSlug: "acme/myrepo",
-      repoLabel: "~/myrepo",
+      repoLabel: "acme/myrepo",
     });
+  });
+
+  test("(e) repoLabel falls back to the display path when the forge has no slug", () => {
+    const repos = [
+      { name: "myrepo", path: "/r/myrepo", display: "~/myrepo", realPath: "/r/myrepo" },
+    ];
+    const result = buildUpNextRepos({
+      repos,
+      resolveForge: () => fakeForge({ kind: "github", slug: null }),
+      hiddenRealPaths: new Set(),
+    });
+    expect(result[0]?.repoLabel).toBe("~/myrepo");
   });
 });
 

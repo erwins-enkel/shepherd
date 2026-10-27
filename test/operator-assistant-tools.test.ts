@@ -826,3 +826,62 @@ test("repo_automation exposes claim uncertainty and fences issue titles", async 
   expect(text).toContain("UNTRUSTED");
   expect(text).toContain('"ownership":"unknown"');
 });
+
+test("repo_automation lists a repo's schedules: fenced name and prompt, weekday names, next and last run", async () => {
+  const { store, deps } = setup();
+  const launch = {
+    agentProvider: null,
+    model: null,
+    effort: null,
+    autopilotEnabled: false,
+    planGateEnabled: null,
+    research: false,
+    sandboxProfile: null,
+    baseBranch: null,
+  };
+  const s = store.insertSchedule(
+    {
+      repoPath: "/r/alpha",
+      name: "Morning triage",
+      prompt: "/triage-feedback",
+      days: 0b0010001,
+      times: ["09:00"],
+      enabled: true,
+      launch,
+    },
+    Date.now(),
+  );
+  store.claimScheduleRun(s.id, "2026-10-26T09:00", Date.now());
+  store.settleScheduleRun(s.id, "2026-10-26T09:00", "error", { reason: "secret route error" });
+  store.insertSchedule(
+    {
+      repoPath: "/r/alpha",
+      name: "Off",
+      prompt: "x",
+      days: 1,
+      times: ["10:00"],
+      enabled: false,
+      launch,
+    },
+    Date.now(),
+  );
+  const out = data(await applyRepoAutomation(deps, {}));
+  const [alpha, beta] = out.repos;
+  expect(alpha.schedules).toHaveLength(2);
+  const [triage, off] = alpha.schedules;
+  expect(triage).toMatchObject({
+    id: s.id,
+    days: ["mon", "fri"],
+    times: ["09:00"],
+    enabled: true,
+    lastRun: { outcome: "error" },
+  });
+  expect(triage.name).toContain("UNTRUSTED");
+  expect(triage.name).toContain("Morning triage");
+  expect(triage.prompt).toContain("/triage-feedback");
+  expect(typeof triage.nextAt).toBe("string");
+  expect(off.nextAt).toBeNull();
+  expect(JSON.stringify(out)).not.toContain("secret route error");
+  expect(alpha.omittedSchedules).toBe(0);
+  expect(beta.schedules).toEqual([]);
+});

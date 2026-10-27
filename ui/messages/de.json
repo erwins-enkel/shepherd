@@ -6387,7 +6387,7 @@
   "settings_assistant_approve_title": "Freigaben & Merge",
   "settings_assistant_approve_hint": "Freigegebenen Plan starten, Build-Queue freigeben, PR auf ready setzen, PR mergen. Übernimmt nie einen Merge, für den jemand anderes zuständig ist.",
   "settings_assistant_automation_title": "Automatik bearbeiten",
-  "settings_assistant_automation_hint": "Repo-Automatik (Auto-Drain, max. Auto-Sessions, Auto-Merge, Critic), Autopilot und Auto-Merge einer Session, Epic pausieren oder fortsetzen, gehaltene Tasks, Herde anhalten und erneut starten, Issues einreihen oder herausnehmen, priorisieren und verwaiste Claims freigeben.",
+  "settings_assistant_automation_hint": "Repo-Automatik (Auto-Drain, max. Auto-Sessions, Auto-Merge, Critic), Autopilot und Auto-Merge einer Session, Epic pausieren oder fortsetzen, gehaltene Tasks, Herde anhalten und erneut starten, Issues einreihen oder herausnehmen, priorisieren und verwaiste Claims freigeben sowie Repo-Zeitpläne anlegen.",
   "settings_assistant_save_failed": "Die Rechte des Assistenten konnten nicht gespeichert werden.",
   "operator_assistant_mode_asks": "Fragt nach",
   "operator_assistant_mode_acts": "Handelt selbst",
@@ -7414,5 +7414,7 @@
   "settings_schedules_empty": "Noch keine Zeitpläne in einem Repo.",
   "feat_schedules_overview_title": "Alle Zeitpläne an einem Ort",
   "feat_schedules_overview_body": "Einstellungen → Zeitpläne zeigt die Zeitpläne aller Repos, der nächste Lauf zuerst, mit letztem Ergebnis, Ein/Aus-Schalter, Jetzt ausführen und Bearbeiten.",
-  "settings_schedules_load_failed": "Die Zeitpläne konnten nicht geladen werden."
+  "settings_schedules_load_failed": "Die Zeitpläne konnten nicht geladen werden.",
+  "feat_assistant_schedules_title": "Zeitpläne vom Assistenten anlegen lassen",
+  "feat_assistant_schedules_body": "Bitte den Assistenten, einen wiederkehrenden Prompt oder /skill in einem Repo einzurichten, etwa /triage-feedback werktags um 09:00. Läufe starten betreut; deine Automatik-Berechtigung unter Einstellungen → Assistent entscheidet, ob er vorher fragt. Bearbeiten oder löschen kannst du Zeitpläne unter Repo-Automatik → Zeitpläne."
 }

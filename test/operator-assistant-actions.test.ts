@@ -792,3 +792,97 @@ test("an `ask` merge shows the bound revision, and an approval never runs a move
   );
   expect(requests[0]!.body).toEqual({ confirm: { headSha: moved, baseRefName: "main" } });
 });
+
+const SCHEDULE = {
+  repo: "beta",
+  name: "Morning triage",
+  prompt: "/triage-feedback",
+  days: ["mon", "fri", "mon"],
+  times: ["09:00"],
+};
+
+test("schedule_create posts the schedule with the days as a mask, answering its id and nextAt only", async () => {
+  const nextAt = Date.UTC(2026, 9, 30, 8);
+  const { run, requests } = setup({
+    answer: () => ({
+      status: 201,
+      body: { id: "sch-1", prompt: "/triage-feedback", repoPath: "/r/beta", nextAt },
+    }),
+  });
+  const res = await run("schedule_create", { ...SCHEDULE, baseBranch: "trunk", enabled: false });
+  expect(requests).toEqual([
+    {
+      method: "POST",
+      path: "/api/schedules",
+      body: {
+        repoPath: "/r/beta",
+        name: "Morning triage",
+        prompt: "/triage-feedback",
+        days: 0b0010001,
+        times: ["09:00"],
+        enabled: false,
+        launch: { baseBranch: "trunk" },
+      },
+    },
+  ]);
+  expect(res).toEqual({
+    ok: true,
+    data: {
+      ok: true,
+      action: "schedule_create",
+      target: 'beta schedule "Morning triage"',
+      days: ["mon", "fri", "mon"],
+      times: ["09:00"],
+      scheduleId: "sch-1",
+      nextAt: new Date(nextAt).toISOString(),
+    },
+  });
+});
+
+test("schedule_create without baseBranch or enabled leaves the launch to the route's defaults", async () => {
+  const { run, requests } = setup();
+  expect((await run("schedule_create", SCHEDULE)).ok).toBe(true);
+  expect(requests[0]!.body).not.toHaveProperty("launch");
+  expect(requests[0]!.body).not.toHaveProperty("enabled");
+});
+
+test("schedule_create refuses bad arguments before dispatching", async () => {
+  const { run, requests } = setup();
+  for (const bad of [
+    { name: " " },
+    { prompt: "" },
+    { days: [] },
+    { days: ["monday"] },
+    { times: "09:00" },
+    { enabled: "yes" },
+    { baseBranch: "" },
+    { autopilotEnabled: true },
+  ]) {
+    expect(refusal(await run("schedule_create", { ...SCHEDULE, ...bad }))?.status).toBe(400);
+  }
+  expect(requests).toEqual([]);
+});
+
+test("schedule_create relays the route's validation error", async () => {
+  const { run } = setup({
+    answer: () => ({ status: 400, body: { error: "times must be HH:MM" } }),
+  });
+  expect(await run("schedule_create", { ...SCHEDULE, times: ["9am"] })).toMatchObject({
+    ok: false,
+    status: 400,
+    error: "times must be HH:MM",
+  });
+});
+
+test("schedule_create: automation off refuses it; a scoped assistant creates only in its repo", async () => {
+  const off = setup({ permissions: { automation: "off" } });
+  expect(refusal(await off.run("schedule_create", SCHEDULE))?.status).toBe(403);
+  expect(off.requests).toEqual([]);
+  const { runScoped, requests } = setup();
+  expect((await runScoped("/r/beta", "schedule_create", SCHEDULE)).ok).toBe(true);
+  const elsewhere = refusal(
+    await runScoped("/r/beta", "schedule_create", { ...SCHEDULE, repo: "alpha" }),
+  );
+  expect(elsewhere?.status).toBe(403);
+  expect(requests).toHaveLength(1);
+});

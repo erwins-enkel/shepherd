@@ -598,7 +598,7 @@ Through four read-only tools, which never ask:
   its last update, plus the held tasks per repo; for one session also its plan questions,
   recent signals and its PR and CI state;
 - **repo automation** — the drain, auto-merge, critic and usage-ceiling settings, the drain
-  status, and epic runs and queues;
+  status, epic runs and queues, and the repo's schedules;
 - **diagnostics and the host** — the Settings → Diagnose checks, herdr's runtime, load,
   memory and pressure, the Shepherd, herdr and claude versions, and the systemd state of
   Shepherd and herdr;
@@ -624,7 +624,7 @@ far it goes, one row each:
 | Start sessions | Start a new session in a repo, as New Task: its own worktree from the repo's default branch (or one it names), your default model and effort, and the repo's plan gate, autopilot and usage hold | Off · Ask first · Allowed |
 | Control sessions | Interrupt, resume, relaunch or archive a session | Off · Ask first · Allowed |
 | Approvals & merge | Start an approved plan, approve a build queue, mark a PR ready, merge a PR | Off · Ask first · Allowed |
-| Automation | Repo automation (Auto-Drain, max auto sessions, auto-merge, critic, usage ceiling), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd | Off · Ask first · Allowed |
+| Automation | Repo automation (Auto-Drain, max auto sessions, auto-merge, critic, usage ceiling), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd, creating a repo schedule | Off · Ask first · Allowed |
 
 - **The default** lets read-only commands run (grep, cat, git log, ps, systemctl status …)
   and starting a session, and has every other action ask first. It answers with the new

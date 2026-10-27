@@ -20,6 +20,25 @@ export const STALE_MS = 12 * 60 * 60 * 1000;
 
 /** All seven days, bit 0 = Monday … bit 6 = Sunday. */
 export const ALL_DAYS = 0b1111111;
+/** Weekday names in bit order (bit 0 = Monday), for agent-facing tools. */
+export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+
+/** Weekday names → bitmask, or null when the list is empty or names an unknown day. */
+export function daysToMask(names: readonly unknown[]): number | null {
+  let mask = 0;
+  for (const n of names) {
+    const i = WEEKDAYS.indexOf(n as (typeof WEEKDAYS)[number]);
+    if (i < 0) return null;
+    mask |= 1 << i;
+  }
+  return mask || null;
+}
+
+/** Bitmask → weekday names, Monday first. */
+export function maskToDays(mask: number): string[] {
+  return WEEKDAYS.filter((_, i) => mask & (1 << i));
+}
+
 const MAX_TIMES = 12;
 const MAX_NAME = 80;
 

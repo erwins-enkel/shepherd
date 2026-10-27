@@ -6387,7 +6387,7 @@
   "settings_assistant_approve_title": "Approvals & merge",
   "settings_assistant_approve_hint": "Start an approved plan, approve a build queue, mark a PR ready, merge a PR. Never takes over a merge someone else is responsible for.",
   "settings_assistant_automation_title": "Automation",
-  "settings_assistant_automation_hint": "Repo automation (Auto-Drain, max auto sessions, auto-merge, critic), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd, issue queue and priority, and releasing orphaned claims.",
+  "settings_assistant_automation_hint": "Repo automation (Auto-Drain, max auto sessions, auto-merge, critic), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd, issue queue and priority, and releasing orphaned claims, and creating repo schedules.",
   "settings_assistant_save_failed": "Couldn't save what the assistant may do.",
   "operator_assistant_mode_asks": "Asks first",
   "operator_assistant_mode_acts": "Acts itself",
@@ -7414,5 +7414,7 @@
   "settings_schedules_empty": "No schedules in any repo yet.",
   "feat_schedules_overview_title": "All schedules in one place",
   "feat_schedules_overview_body": "Settings → Schedules lists every repo's schedules, soonest run first, with the last outcome, an on/off switch, Run now and Edit.",
-  "settings_schedules_load_failed": "Couldn't load the schedules."
+  "settings_schedules_load_failed": "Couldn't load the schedules.",
+  "feat_assistant_schedules_title": "Let the Assistant create schedules",
+  "feat_assistant_schedules_body": "Ask the Assistant to set up a recurring prompt or /skill in a repo, such as /triage-feedback every weekday at 09:00. Runs start attended; your Automation permission in Settings → Assistant decides whether it asks first. Edit or delete schedules under Repo automation → Schedules."
 }

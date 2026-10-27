@@ -78,6 +78,18 @@ describe("AutomationSchedules (#3469)", () => {
     });
   });
 
+  it("centers the dialog despite Tailwind preflight's margin reset", async () => {
+    await page.viewport(1280, 900);
+    mockApi([]);
+    render(AutomationSchedules, { repoPath: "/repo-a" });
+    await page.getByRole("button", { name: m.schedules_add() }).click();
+    const dlg = document.querySelector("dialog")!;
+    await vi.waitFor(() => expect(dlg.open).toBe(true));
+    const r = dlg.getBoundingClientRect();
+    expect(Math.abs(r.left - (innerWidth - r.right))).toBeLessThanOrEqual(2);
+    expect(Math.abs(r.top - (innerHeight - r.bottom))).toBeLessThanOrEqual(2);
+  });
+
   it("delete needs a second click", async () => {
     const calls = mockApi([TRIAGE]);
     render(AutomationSchedules, { repoPath: "/repo-a" });

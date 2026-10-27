@@ -115,8 +115,10 @@
     }
   }
 
-  // Bands the operator folded away, by group id; remembered like the sort mode.
+  // Bands the operator folded away, by group id; remembered like the sort mode. PR_BLOCK_ID
+  // folds the whole PR block (its super-header).
   const collapsed = new SvelteSet<string>();
+  const PR_BLOCK_ID = "kind:pr";
   function readStoredCollapsed() {
     try {
       const ids: unknown = JSON.parse(localStorage.getItem(COLLAPSED_STORAGE_KEY) ?? "[]");
@@ -492,6 +494,8 @@
             count={prs.length}
             showRepo={showRepoContext}
             actions={prActions}
+            open={!collapsed.has(PR_BLOCK_ID)}
+            onfoldblock={() => toggleCollapsed({ id: PR_BLOCK_ID })}
             isOpen={(id) => !collapsed.has(id)}
             isExpanded={(id) => expanded.has(id)}
             onfold={(id) => toggleCollapsed({ id })}

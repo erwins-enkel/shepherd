@@ -703,6 +703,40 @@ test("per-session override true + repo default false → merges (fullAutoRepos v
   expect(archive.mock.calls.length).toBe(1);
 });
 
+test("a shelved full-auto session is never merged or archived by the train", async () => {
+  const merge = mock(async () => {});
+  const archive = mock(() => 1);
+  // Repo flag OFF, but the session overrides autoMergeEnabled true → full-auto → train runs.
+  const session = baseSession({ autoMergeEnabled: true, shelved: true });
+  const d = deps({
+    store: {
+      get: () => session as any,
+      list: () => [session as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: false, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState: mock(() => {}),
+      setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
+      getEpicRun: () => null,
+      getEpicIntegrationBranch: () => null,
+      recordEpicIntegrated: mock(() => {}),
+    } as any,
+    resolveForge: () =>
+      ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
+    service: {
+      archive,
+      reply: mock(() => true),
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.tick();
+  expect(merge.mock.calls.length).toBe(0);
+  expect(archive.mock.calls.length).toBe(0);
+});
+
 // ── Fix 1: rebase-outstanding guard ──────────────────────────────────────────────
 
 test("rebase outstanding: same head not re-steered / not re-bumped on a second pump", async () => {

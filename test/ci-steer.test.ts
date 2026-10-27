@@ -174,6 +174,7 @@ describe("attachCiSteer", () => {
       [session({ status: "archived" }), git("success")],
       [session({ terminal: true }), git("success")],
       [session({ operatorAssistant: true }), git("success")],
+      [session({ shelved: true }), git("success")],
       [session({ planPhase: "planning" }), git("success")],
       [session({ mergingSince: 1 }), git("success")],
       [session(), git("success", "abc", { state: "closed" })],

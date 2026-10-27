@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { SESSION_AUTO_ARCHIVE_MS, config } from "./config";
 import { maintenance } from "./maintenance";
 import { isOperatorAssistant } from "./operator-assistant-core";
+import { isShelved } from "./shelve";
 import { execGit, resolveWorktreePin } from "./safe-git";
 import type { GitForge } from "./forge/types";
 import type { SessionStore } from "./store";
@@ -146,6 +147,7 @@ export class SessionArchiver {
         (s) =>
           !s.terminal &&
           !isOperatorAssistant(s) &&
+          !isShelved(s) && // shelving promises the session stays until unshelved
           isSettled(s) &&
           s.settledAt != null &&
           s.settledAt <= cutoff,

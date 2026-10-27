@@ -36,6 +36,7 @@
     updateEpic,
     mergePr,
     interruptSession,
+    setShelved,
     MergeRefusedError,
   } from "#lib/api.js";
   import { prMergeAvailable } from "./pr-badge";
@@ -941,6 +942,8 @@
       session.status !== "archived",
   );
   const onAskAssistant = $derived(askable ? askAssistantFromMenu : undefined);
+  // Same cap rationale for Shelve / Unshelve: any live local session.
+  const shelvable = $derived(session.archivedAt == null && session.status !== "archived");
   let hitEl = $state<HTMLButtonElement>();
   let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
@@ -966,7 +969,8 @@
           variantable ||
           replaceable ||
           cleanTerminalAble ||
-          askable,
+          askable ||
+          shelvable,
   );
   // The menu's items, resolved here rather than as ternaries in the <CardMenu> tag (template cap,
   // #855). undefined is what hides an item.
@@ -988,6 +992,8 @@
           onvariant: variantable ? variantFromMenu : undefined,
           onreplace: replaceable ? replaceFromMenu : undefined,
           oncleanTerminal: onCleanTerminal,
+          onshelve: shelvable ? shelveFromMenu : undefined,
+          shelved: !!session.shelved,
           ondecommission: ondecommission ? decommissionFromMenu : undefined,
         },
   );
@@ -1056,6 +1062,21 @@
   // Both outcomes toast, keyed per session so repeated taps collapse into one: a success is
   // otherwise invisible from a card you are not watching, and a 404 (the pane died between render
   // and click) is a NORMAL result, so it surfaces as an alert toast, never an unhandled rejection.
+  async function shelveFromMenu() {
+    menu = null;
+    const next = !session.shelved;
+    try {
+      await setShelved(session.id, next);
+    } catch {
+      toasts.info(
+        next
+          ? m.cardmenu_shelve_failed({ name: session.name })
+          : m.cardmenu_unshelve_failed({ name: session.name }),
+        { alert: true, key: `session-shelve:${session.id}` },
+      );
+    }
+  }
+
   async function stopFromMenu() {
     menu = null;
     try {

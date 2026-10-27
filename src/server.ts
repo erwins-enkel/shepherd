@@ -6244,6 +6244,19 @@ async function handleSessionReady({ req, parts, deps }: Ctx): Promise<Response |
   return json({ ok: true });
 }
 
+// POST /api/sessions/:id/shelve — operator shelve/unshelve toggle.
+async function handleSessionShelve({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "shelve")) return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as { shelved?: unknown } | null;
+  if (!body || typeof body.shelved !== "boolean") {
+    return json({ error: "body must be {shelved: boolean}" }, 400);
+  }
+  if (!deps.service.setShelved(parts[2], body.shelved)) return json({ error: "not found" }, 404);
+  return json({ ok: true });
+}
+
 // POST /api/sessions/:id/dismiss-stall — acknowledge a stall flag.
 function handleSessionDismissStall({ req, parts, deps }: Ctx): Response | null {
   if (!(req.method === "POST" && parts[2] && parts[3] === "dismiss-stall")) return null;
@@ -7404,6 +7417,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionRename,
     handleSessionResume,
     handleSessionReady,
+    handleSessionShelve,
     handleSessionDismissStall,
     handleSessionQuotaResume,
     handleSessionQuotaDismiss,

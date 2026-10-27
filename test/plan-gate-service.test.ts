@@ -791,6 +791,15 @@ test("consider no-ops when session is not in planning phase, before reading an u
   expect(h.started.length).toBe(0);
 });
 
+test("a shelved planning session gets no auto plan review; a forced one still runs", async () => {
+  const h = harness({ readPlan: () => "PLAN TEXT" });
+  expect(await h.svc.consider({ ...planningSession(), shelved: true } as any)).toBe("skipped");
+  expect(h.started.length).toBe(0);
+  expect(
+    await h.svc.consider({ ...planningSession(), shelved: true } as any, { force: true }),
+  ).toBe("started");
+});
+
 test("consider no-ops while an existing plan review is in flight, before reading an unavailable plan", async () => {
   let plan = "PLAN TEXT";
   const h = harness({ readPlan: () => plan });

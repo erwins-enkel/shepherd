@@ -113,7 +113,10 @@ export class ReadyNotifier {
 
       const now = this.now();
       // The Operator Assistant is watched in its panel; it is never "ready for you" (#1446).
-      const sessions = this.deps.listSessions().filter((s) => !isOperatorAssistant(s));
+      // Shelved sessions are out of play until unshelved.
+      const sessions = this.deps
+        .listSessions()
+        .filter((s) => !isOperatorAssistant(s) && s.shelved !== true);
       const flags: DisplayFlags = {
         wb: this.deps.workingBlocked(),
         bg: this.deps.backgroundBusy(),

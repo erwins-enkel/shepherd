@@ -541,7 +541,11 @@ export class AutoMergeService {
     if (reconcile) this.pruneEnqueued(all);
     const sessions: MergeSessionView[] = await Promise.all(
       all
-        .filter((s) => s.repoPath === repoPath && s.status !== "archived" && this.fullAuto(s))
+        // Shelved sessions are left alone: no merge, no rebase steer.
+        .filter(
+          (s) =>
+            s.repoPath === repoPath && s.status !== "archived" && !s.shelved && this.fullAuto(s),
+        )
         .map((s) => this.toView(s, snapshot[s.id] ?? null, cfg.mergeWithoutCi, reconcile)),
     );
     const state: MergeRepoState = {

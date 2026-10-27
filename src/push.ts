@@ -7,13 +7,18 @@ import type { BlockReason } from "./blocked";
 import type { ChecksState, GitState } from "./forge/types";
 import { blockReasonToHoldCode, renderHold } from "./hold";
 import { isOperatorAssistant } from "./operator-assistant-core";
+import { isShelved } from "./shelve";
 import { isDeadToken, parseApnsEndpoint, type ApnsSender } from "./apns";
 import { instanceId } from "./remote-instances/identity";
 import type { Session } from "./types";
 
-/** Sessions parked for the operator's next command or blocked on their reaction. */
-export function awaitingOperatorCount(sessions: readonly Pick<Session, "status">[]): number {
-  return sessions.filter((s) => s.status === "blocked" || s.status === "idle").length;
+/** Sessions parked for the operator's next command or blocked on their reaction. Shelved
+ *  sessions are out of play and never count. */
+export function awaitingOperatorCount(
+  sessions: readonly Pick<Session, "status" | "shelved">[],
+): number {
+  return sessions.filter((s) => !isShelved(s) && (s.status === "blocked" || s.status === "idle"))
+    .length;
 }
 
 export interface PushPayload {
@@ -662,6 +667,8 @@ export class PushService {
     // push under userVisibleOnly:true (Android substitutes its own banner). We
     // don't touch the cooldown clock here: nothing was sent.
     if (this.isActive()) return false;
+    // A shelved session is fully quiet: no per-session banner of any kind.
+    if (input.sessionId && isShelved(this.store.get(input.sessionId))) return false;
     if (config.reducedPushMode && !REDUCED_ALLOWED.has(input.kind)) return false;
     const own = instanceId(this.store);
     const resolved = { ...input, instanceId: input.instanceId ?? own };
@@ -827,7 +834,15 @@ export function attachBadgePush(
   });
   const unsubscribe = events.subscribe((event) => {
     // Create and unarchive both emit session:new; removal emits session:archived.
-    if (["session:status", "session:block", "session:archived", "session:new"].includes(event)) {
+    if (
+      [
+        "session:status",
+        "session:block",
+        "session:archived",
+        "session:new",
+        "session:shelved",
+      ].includes(event)
+    ) {
       schedule();
     }
   });

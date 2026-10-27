@@ -127,6 +127,21 @@ describe("HoldReasonService", () => {
     expect(svc.snapshot()["s1"]).toEqual({ code: "halted-error" });
   });
 
+  it("session:shelved clears an active hold; unshelving restores it", () => {
+    const session = makeSession({ id: "s1", haltReason: "error", haltedAt: 1000 });
+    const { events, store, svc, calls } = makeHarness([session]);
+    const before = calls.length;
+
+    store.put(makeSession({ id: "s1", haltReason: "error", haltedAt: 1000, shelved: true }));
+    events.emit("session:shelved", { id: "s1", shelved: true });
+    expect(calls.slice(before)).toEqual([{ id: "s1", hold: null }]);
+    expect(svc.snapshot()["s1"]).toBeUndefined();
+
+    store.put(makeSession({ id: "s1", haltReason: "error", haltedAt: 1000, shelved: false }));
+    events.emit("session:shelved", { id: "s1", shelved: false });
+    expect(svc.snapshot()["s1"]).toEqual({ code: "halted-error" });
+  });
+
   // 2. emit-on-change dedup: same event twice → onChange fires only once
   it("emitting same trigger twice → onChange fires once for that state", () => {
     const session = makeSession({ id: "s1", haltReason: "error", haltedAt: 1000 });

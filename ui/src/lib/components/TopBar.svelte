@@ -340,11 +340,16 @@
   const compactBadges = $derived(mode !== "mobile" && measuredCompact);
   const foldBadges = $derived(compactBadges && measuredFold);
 
+  // Shelved sessions are out of play: they never count toward the attention tallies.
   const idle = $derived(
-    sessions.filter((s) => displayStatus(s, workingBlocked, backgroundBusy) === "idle").length,
+    sessions.filter(
+      (s) => !s.shelved && displayStatus(s, workingBlocked, backgroundBusy) === "idle",
+    ).length,
   );
   const blocked = $derived(
-    sessions.filter((s) => displayStatus(s, workingBlocked, backgroundBusy) === "blocked").length,
+    sessions.filter(
+      (s) => !s.shelved && displayStatus(s, workingBlocked, backgroundBusy) === "blocked",
+    ).length,
   );
   const live = $derived(connected && !offline);
   const connText = $derived(

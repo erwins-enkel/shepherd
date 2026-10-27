@@ -974,6 +974,14 @@ export const demoState = {
     emit({ event: "session:ready", data: { id, ready } });
   },
 
+  /** Shelve / unshelve a session. */
+  setShelved(id: string, shelved: boolean): void {
+    const s = find(id);
+    if (!s) return;
+    s.shelved = shelved;
+    emit({ event: "session:shelved", data: { id, shelved } });
+  },
+
   /** Approve the epic's next child so it spawns — flips the first eligible child to running. */
   approveEpicNext(repoPath: string, parent: number): Epic | null {
     const epic = world.epics.find((e) => e.repoPath === repoPath && e.parentIssueNumber === parent);

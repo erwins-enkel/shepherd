@@ -2079,6 +2079,16 @@ test("rebase-skip short-circuits before the author-notes fetch", async () => {
   // (the pre-spawn head recheck DOES call the forge first — it runs ahead of rebase-skip)
 });
 
+test("a shelved session gets no auto critic; a forced review still runs", async () => {
+  const { deps: d, started } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  expect(await svc.consider({ ...session(), shelved: true }, OPEN_GREEN)).toBe("skipped");
+  expect(started).toHaveLength(0);
+  expect(await svc.consider({ ...session(), shelved: true }, OPEN_GREEN, { force: true })).toBe(
+    "started",
+  );
+});
+
 // ── stale head: pre-spawn re-validation (#2175) ───────────────────────────────
 
 test("head moved since the poller snapshot: declines the spawn entirely", async () => {

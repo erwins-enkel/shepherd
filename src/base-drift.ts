@@ -65,6 +65,7 @@ function eligible(s: Session): boolean {
   return (
     s.status === "idle" &&
     s.terminal !== true &&
+    s.shelved !== true &&
     s.isolated &&
     !!s.branch &&
     !!s.baseCommit &&

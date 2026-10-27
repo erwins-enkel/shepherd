@@ -13,14 +13,15 @@ export interface BlockedEntry {
   hold?: HoldReason;
 }
 
-/** Blocked sessions that have a classified reason, oldest-blocked first. */
+/** Blocked sessions that have a classified reason, oldest-blocked first. Shelved sessions are
+ *  out of play, so they never enter the needs-you queue. */
 export function sortBlocked(
   sessions: Session[],
   blocks: Record<string, BlockState>,
   holds?: Record<string, HoldReason>,
 ): BlockedEntry[] {
   return sessions
-    .filter((s) => blocks[s.id])
+    .filter((s) => blocks[s.id] && !s.shelved)
     .map((s) => ({
       session: s,
       reason: blocks[s.id]!.reason,

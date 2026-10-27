@@ -1700,6 +1700,38 @@ test("POST /api/sessions/:id/reply types into the agent and 404s unknown ids", a
   expect(wrongType.status).toBe(415);
 });
 
+test("POST /api/sessions/:id/shelve persists, emits session:shelved, validates", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const created = await (
+    await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
+  ).json();
+  expect(deps.store.get(created.id)?.shelved).toBe(false);
+
+  const events: { event: string; data: unknown }[] = [];
+  deps.events.subscribe((event, data) => events.push({ event, data }));
+  const shelve = (id: string, body: unknown, ct = "application/json") =>
+    app.fetch(
+      new Request(`http://localhost:7330/api/sessions/${id}/shelve`, {
+        method: "POST",
+        headers: { "content-type": ct },
+        body: JSON.stringify(body),
+      }),
+    );
+
+  const ok = await shelve(created.id, { shelved: true });
+  expect(ok.status).toBe(200);
+  expect(deps.store.get(created.id)?.shelved).toBe(true);
+  expect(events).toEqual([{ event: "session:shelved", data: { id: created.id, shelved: true } }]);
+
+  expect((await shelve(created.id, { shelved: false })).status).toBe(200);
+  expect(deps.store.get(created.id)?.shelved).toBe(false);
+
+  expect((await shelve("does-not-exist", { shelved: true })).status).toBe(404);
+  expect((await shelve(created.id, { shelved: "yes" })).status).toBe(400);
+  expect((await shelve(created.id, { shelved: true }, "text/plain")).status).toBe(415);
+});
+
 test("POST /api/sessions/:id/ready toggles the flag, emits session:ready, validates", async () => {
   const deps = makeDeps();
   const app = makeApp(deps);

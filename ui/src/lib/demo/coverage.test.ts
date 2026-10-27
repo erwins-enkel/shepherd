@@ -290,6 +290,7 @@ const INVENTORY: readonly Entry[] = [
   post("/api/sessions/:p/git/merge", `/api/sessions/${PROBE}/git/merge`),
   post("/api/sessions/:p/git/close", `/api/sessions/${PROBE}/git/close`),
   post("/api/sessions/:p/ready", `/api/sessions/${PROBE}/ready`, { ready: true }),
+  post("/api/sessions/:p/shelve", `/api/sessions/${PROBE}/shelve`, { shelved: true }),
   post("/api/sessions/:p/ack-manual-steps", `/api/sessions/${PROBE}/ack-manual-steps`),
   { method: "DELETE", path: "/api/sessions/:p", url: `/api/sessions/${PROBE}` },
   post("/api/held/:p/spawn", `/api/held/${PROBE}/spawn`),

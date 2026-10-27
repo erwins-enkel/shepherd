@@ -13,6 +13,8 @@ function ctx(overrides: Partial<CommandCtx> = {}): CommandCtx {
     onOperatorAssistant: vi.fn(),
     onDecommission: vi.fn(),
     decommissionDesig: "TASK-07",
+    onToggleShelve: vi.fn(),
+    selectedShelved: false,
     hasSessions: true,
     retryReady: true,
     otherNeedsYouCount: 1,
@@ -33,12 +35,25 @@ describe("buildCommands — availability", () => {
       "diagnose-epic",
       "operator-assistant",
       "next-needs-you",
+      "shelve",
       "decommission",
     ]);
   });
 
-  it("hides Decommission when no visible session is selected", () => {
+  it("hides Decommission and Shelve when no visible session is selected", () => {
     expect(ids(ctx({ decommissionDesig: null }))).not.toContain("decommission");
+    expect(ids(ctx({ decommissionDesig: null }))).not.toContain("shelve");
+  });
+
+  it("offers Unshelve for a shelved session, labelled with its designation", () => {
+    const onToggleShelve = vi.fn();
+    const cmds = buildCommands(ctx({ selectedShelved: true, onToggleShelve }));
+    expect(cmds.map((c) => c.id)).not.toContain("shelve");
+    const cmd = cmds.find((c) => c.id === "unshelve")!;
+    expect(cmd.label()).toContain("TASK-07");
+    expect(cmd.confirmLabel).toBeUndefined();
+    cmd.run();
+    expect(onToggleShelve).toHaveBeenCalledOnce();
   });
 
   it("hides Broadcast when there are no sessions", () => {

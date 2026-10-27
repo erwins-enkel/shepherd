@@ -55,6 +55,11 @@ export type CommandCtx = {
    *  selection space; the panel-only lenses render no session list at all). A destructive verb
    *  must never name a target the operator can't see. */
   decommissionDesig: string | null;
+  /** Shelve / unshelve the current session (the page closes over the selected id). */
+  onToggleShelve: () => void;
+  /** Whether the session the shelve verb targets is shelved now — picks Shelve vs Unshelve. Same
+   *  target and visibility rule as `decommissionDesig`. */
+  selectedShelved: boolean;
   /** store.sessions.length > 0 — Broadcast needs at least one session. */
   hasSessions: boolean;
   /** haltedCount > 0 && usageBelow — mirrors SteerBar's retry chip visibility. */
@@ -141,6 +146,22 @@ export function buildCommands(ctx: CommandCtx): Command[] {
         keywords: () => m.commandbar_cmd_next_needs_you_kw(),
         run: ctx.onNextNeedsYou,
       },
+    },
+    {
+      available: desig !== null,
+      cmd: ctx.selectedShelved
+        ? {
+            id: "unshelve",
+            label: () => m.commandbar_cmd_unshelve({ desig: desig ?? "" }),
+            keywords: () => m.commandbar_cmd_shelve_kw(),
+            run: ctx.onToggleShelve,
+          }
+        : {
+            id: "shelve",
+            label: () => m.commandbar_cmd_shelve({ desig: desig ?? "" }),
+            keywords: () => m.commandbar_cmd_shelve_kw(),
+            run: ctx.onToggleShelve,
+          },
     },
     {
       // Last: the only destructive verb. `desig` is non-null exactly when this is available, so

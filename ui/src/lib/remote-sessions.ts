@@ -134,7 +134,10 @@ export function machineColorVar(
  */
 export function mirroredNeedsYou(remote: readonly Session[]): string[] {
   return remote
-    .filter((s) => isMirrored(s) && s.connection.state === "connected" && s.status === "blocked")
+    .filter(
+      (s) =>
+        isMirrored(s) && s.connection.state === "connected" && s.status === "blocked" && !s.shelved,
+    )
     .sort((a, b) => a.updatedAt - b.updatedAt)
     .map((s) => s.id);
 }

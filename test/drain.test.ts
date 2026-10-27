@@ -568,6 +568,14 @@ describe("#3245 routed / misrouted retire", () => {
     expect(h.store.get(s.id)?.status).toBe("archived");
   });
 
+  test("a shelved session is never retired", async () => {
+    const h = makeHarness({ maxAuto: 1, issues: [] });
+    const s = seed(h, { homeIssueRepoPath: "/a", homeIssueNumber: 7 });
+    h.store.setShelved(s.id, true);
+    await h.drain.pump(REPO);
+    expect(h.store.get(s.id)?.status).not.toBe("archived");
+  });
+
   test("a misrouted session is never retired and links nothing", async () => {
     const h = makeHarness({ maxAuto: 1, issues: [] });
     const s = seed(h, { issueNumber: 7, misroutedTarget: "org/B" });
@@ -1407,6 +1415,54 @@ test("out-of-band merge: onGit(merged) without prior retire closes issue and arc
   expect(h.store.get(s.id)?.status).toBe("archived");
   expect(h.archived).toEqual([s.id]);
   expect(h.dropped).toEqual([s.id]);
+});
+
+test("out-of-band merge of a shelved session: not archived or torn down", async () => {
+  const h = makeHarness({ maxAuto: 1, issues: [] });
+  const s = h.store.create({
+    name: "auto",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/auto-43",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: true,
+    issueNumber: 43,
+  });
+  h.store.setShelved(s.id, true);
+  await h.drain.onGit(s.id, { ...openGreen(43), state: "merged" });
+  expect(h.store.get(s.id)?.status).not.toBe("archived");
+  expect(h.archived).toEqual([]);
+  expect(h.forgeRec.closedIssues).toEqual([]);
+});
+
+test("shelve → merge → unshelve: the merged session is settled on unshelve", async () => {
+  const h = makeHarness({ maxAuto: 1, issues: [] });
+  const s = h.store.create({
+    name: "auto",
+    prompt: "p",
+    repoPath: REPO,
+    baseBranch: "main",
+    branch: "shepherd/auto-44",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: true,
+    issueNumber: 44,
+  });
+  h.store.setShelved(s.id, true);
+  const merged = { ...openGreen(44), state: "merged" as const };
+  h.prCache[s.id] = merged;
+  await h.drain.onGit(s.id, merged);
+  expect(h.store.get(s.id)?.status).not.toBe("archived");
+  h.store.setShelved(s.id, false);
+  await h.drain.onUnshelved(s.id);
+  expect(h.forgeRec.closedIssues).toEqual([44]);
+  expect(h.store.get(s.id)?.status).toBe("archived");
 });
 
 test("closeIssue not called when session has issueNumber === null (onGit merged path)", async () => {

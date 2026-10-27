@@ -61,6 +61,7 @@ function sessionSeverity(
   gate: PlanGate | undefined,
   backgroundBusy: Record<string, boolean>,
 ): Severity {
+  if (s.shelved) return "none"; // shelved: out of play until unshelved
   if (git?.checks === "failure") return "red";
   if (displayStatus(s, workingBlocked, backgroundBusy) === "blocked") return "amber";
   if (s.planPhase === "planning" && planQuestionsUnanswered(gate)) return "amber";

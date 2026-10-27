@@ -34,6 +34,7 @@ import {
   operatorAssistantBrief,
   operatorAssistantPermissions,
 } from "./operator-assistant-core";
+import { isShelved } from "./shelve";
 import { assistantPermissionRules } from "./operator-assistant-permissions";
 import { claudeConfigPath, ensureRepoRootTrusted } from "./claude-trust";
 import { keyedSingleFlight } from "./single-flight";
@@ -6054,6 +6055,8 @@ export class SessionService {
     const { session, provider } = target;
     if (opts.automatic && this.deps.capacity && !(await this.deps.capacity(session))) return null;
     this.assertNotTerminal(session, "resume");
+    // Shelved: automation leaves it alone (an operator/forced resume still runs).
+    if (opts.automatic && isShelved(session)) return null;
     const agent = await this.liveAgentFor(id);
     if (agent && !opts.force && !needsAccountRedrive(session, agent)) {
       // Already live (idle at the prompt, or restored by a herdr restart under a new terminalId)
@@ -6470,6 +6473,7 @@ export class SessionService {
   async resumeAndReply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s || !this.hasConversation(s)) return false;
+    if (opts.automatic && isShelved(s)) return false; // shelved: no autonomous steers
     if (opts.automatic && this.deps.capacity && !(await this.deps.capacity(s))) return false;
     const target = await this.operatorReplyTarget(id, true);
     if (!target) return false;
@@ -6788,8 +6792,9 @@ export class SessionService {
       // and one terminal in a fleet-wide id set must not abort the broadcast for everyone else.
       // Skipped BEFORE the liveness split and reported additively (delivered + queued + offline
       // + skipped === total); old clients simply ignore the new count (#1630 precedent). The
-      // Operator Assistant is skipped the same way: a herd broadcast is not addressed to it (#1446).
-      if (s?.terminal || isOperatorAssistant(s)) {
+      // Operator Assistant is skipped the same way: a herd broadcast is not addressed to it (#1446),
+      // and so is a shelved session (out of play until unshelved).
+      if (s?.terminal || isOperatorAssistant(s) || isShelved(s)) {
         skipped++;
         continue;
       }
@@ -6990,6 +6995,7 @@ export class SessionService {
   ): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s || !live.has(s.herdrAgentId)) return false; // unknown, or live-in-store / dead-pane
+    if (automatic && isShelved(s)) return false; // shelved: no autonomous steers
     if (automatic && this.deps.capacity && !(await this.deps.capacity(s))) return false;
     // Codex operator-language carrier (#1624): append the block to the delivered PTY text so the
     // directive persists across steers (Codex has no --append-system-prompt on resume). "" for
@@ -7081,6 +7087,16 @@ export class SessionService {
   setReadyToMerge(id: string, ready: boolean): void {
     this.deps.store.update(id, { readyToMerge: ready });
     this.deps.events?.emit("session:ready", { id, ready });
+  }
+
+  /** Shelve / unshelve (operator-only). Visibility + automation quiet; the agent is untouched.
+   *  Returns false for an unknown or archived session. */
+  setShelved(id: string, shelved: boolean): boolean {
+    const s = this.deps.store.get(id);
+    if (!s || s.status === "archived") return false;
+    this.deps.store.setShelved(id, shelved);
+    this.deps.events?.emit("session:shelved", { id, shelved });
+    return true;
   }
 
   /**

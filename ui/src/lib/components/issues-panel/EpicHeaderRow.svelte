@@ -1,20 +1,23 @@
 <script lang="ts">
-  import type { Epic, EpicSummary, Issue } from "#lib/types.js";
+  import type { DrainStatus, Epic, EpicSummary, Issue } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { chipFor, progress, type EpicRole } from "../epic-panel";
+  import { chipFor, progress, sandboxHaltedEpic, type EpicRole } from "../epic-panel";
   import { activate } from "../issues-panel";
   import EpicRoleBadge from "./EpicRoleBadge.svelte";
+  import EpicRowHalt from "./EpicRowHalt.svelte";
 
   // Compact epic header of the backlog list (#2617), two lines: chevron, number and the wrapping
   // title on top; below it the role badge, a segmented progress bar and "m/n". Segments are per
   // child (tinted by state) once the epic's record is loaded; before that they come from the list
-  // summary (merged vs. rest).
+  // summary (merged vs. rest). A third line shows a sandbox, CLI or host halt with its fix (#3455).
   let {
     issue,
     summary = undefined,
     epic = undefined,
     role = null,
     position = null,
+    drain = null,
+    mobile = false,
     expanded,
     selected,
     optionId,
@@ -28,6 +31,10 @@
     role?: EpicRole | null;
     /** 1-based place in the repo's epic queue (#2624), shown on a "queued" badge. */
     position?: number | null;
+    /** The repo's drain — whether it holds this epic at a sandbox, CLI or host gate (#3455). */
+    drain?: DrainStatus | null;
+    /** Phone layout: the halt's fix opens as a bottom sheet instead of a popover. */
+    mobile?: boolean;
     expanded: boolean;
     selected: boolean;
     optionId: string;
@@ -45,6 +52,7 @@
       ? [...epic.children].sort((a, b) => a.order - b.order).map((c) => chipFor(c.state).tone)
       : Array.from({ length: counts.total }, (_, i) => (i < counts.merged ? "done" : "empty")),
   );
+  const halted = $derived(sandboxHaltedEpic(drain) === issue.number);
 </script>
 
 <div
@@ -86,6 +94,9 @@
       >{counts.merged}/{counts.total}</span
     >
   </div>
+  {#if halted && drain}
+    <EpicRowHalt repoPath={drain.repoPath} parent={issue.number} {epic} {drain} {mobile} />
+  {/if}
 </div>
 
 <style>

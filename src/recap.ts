@@ -694,6 +694,7 @@ export class RecapService {
     const t = this.now();
 
     for (const s of sessions) {
+      if (s.shelved === true) continue; // shelved: no auto recap spend
       const settled = s.status === "idle" || s.status === "done";
 
       if (!settled) {

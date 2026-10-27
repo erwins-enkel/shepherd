@@ -261,6 +261,7 @@ import { defaultSandboxProfile } from "./sandbox-default";
 import { detectEgressBackend, type EgressBackend } from "./egress";
 import { epicBaseDirective, epicStackedBaseDirective } from "./autopilot";
 import { parseTargetRepo, resolveTargetRepo, sessionIssue, targetsOtherRepo } from "./target-repo";
+import { isShelved } from "./shelve";
 
 /** #1071: After this many consecutive driver-absent / driver-broken results without a successful
  *  rebase, escalate to the operator (pauseReason='driver'). Keeps a persistently-misconfigured
@@ -1315,6 +1316,7 @@ export class DrainService {
           epicParent: sessionEpicParent(s),
           landingRepair: !!s.landingRepair,
           misrouted: !!s.misroutedTarget,
+          shelved: !!s.shelved,
         };
       });
     const limits = this.deps.usage.limits(this.now());
@@ -5428,6 +5430,9 @@ export class DrainService {
    *  session:archived routes to onArchived, the single advance path. Best-effort:
    *  the merge is done, so a close failure must not block teardown. */
   private async reapMerged(s: Session): Promise<void> {
+    // Shelved: never auto-decommissioned. Its epic integration is already recorded by the
+    // callers; the merged session waits in the Shelved group for Clear merged or an unshelve.
+    if (isShelved(s)) return;
     await settleMergedSession(s, {
       resolveForge: this.deps.resolveForge,
       archive: (sid, reason) => this.deps.service.archive(sid, undefined, reason),
@@ -5439,6 +5444,16 @@ export class DrainService {
         sess.issueNumber != null &&
         this.deps.store.isEpicIntegratedChild(sess.repoPath, sess.issueNumber),
     });
+  }
+
+  /** A session was unshelved. A shelved auto session whose PR merged meanwhile was skipped by
+   *  reapMerged, and the poller never re-reports a merged PR — so settle it now from the cached
+   *  git state, exactly as the merged transition would have. */
+  async onUnshelved(id: string): Promise<void> {
+    const s = this.deps.store.get(id);
+    if (!s?.auto || s.status === "archived" || isShelved(s)) return;
+    if (this.deps.prCache.snapshot()[id]?.state !== "merged") return;
+    await this.reapMerged(s);
   }
 
   /** A session was archived (retired auto session, or a manual archive). The

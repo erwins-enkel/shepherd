@@ -476,6 +476,15 @@ const sessionIdMutationRoutes: ReadonlyArray<{
     },
   },
   {
+    // POST /api/sessions/:id/shelve
+    method: "POST",
+    pattern: /^\/api\/sessions\/[^/]+\/shelve$/,
+    handle: (path, body) => {
+      demoState.setShelved(seg(path, 3), field<boolean>(body, "shelved") ?? true);
+      return json({ ok: true });
+    },
+  },
+  {
     // POST /api/sessions/:id/ack-manual-steps
     method: "POST",
     pattern: /^\/api\/sessions\/[^/]+\/ack-manual-steps$/,

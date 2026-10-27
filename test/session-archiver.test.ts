@@ -236,6 +236,12 @@ test("the Operator Assistant is never auto-archived; a settled task beside it is
   expect(h.archived).toEqual(["s1"]);
 });
 
+test("a shelved session is never auto-archived; a settled task beside it is", async () => {
+  const h = harness([session({ id: "shelved", shelved: true }), session()]);
+  await h.archiver.tick();
+  expect(h.archived).toEqual(["s1"]);
+});
+
 test("a herdr update in progress pauses the sweep", async () => {
   const h = harness([session()]);
   maintenance.begin();

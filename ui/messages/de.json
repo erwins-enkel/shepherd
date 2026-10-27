@@ -7423,5 +7423,17 @@
   "feat_upnext_pr_fold_title": "PRs in Up Next einklappen",
   "feat_upnext_pr_fold_body": "Ein Klick auf die Überschrift „Pull Requests“ in Up Next klappt den ganzen PR-Block ein, damit du dich auf Issues konzentrieren kannst. Up Next merkt sich das, und die Überschrift zählt weiterhin ausgewählte PRs, die sie verbirgt.",
   "feat_chat_steers_title": "Steers im Chat",
-  "feat_chat_steers_body": "Die Steer-Leiste steht jetzt auch unter dem Chat einer Session. Ein gesendeter Steer erscheint sofort, und Shepherds eigene Steers – CI-Fixes, Rebases, Critic-Befunde – klappen zu einer beschrifteten Zeile ein, die du öffnen kannst."
+  "feat_chat_steers_body": "Die Steer-Leiste steht jetzt auch unter dem Chat einer Session. Ein gesendeter Steer erscheint sofort, und Shepherds eigene Steers – CI-Fixes, Rebases, Critic-Befunde – klappen zu einer beschrifteten Zeile ein, die du öffnen kannst.",
+  "herd_shelved_group": "Zurückgestellt ({count})",
+  "herd_stage_name_shelved": "Zurückgestellt",
+  "herd_help_shelved": "Sessions, die du zurückgestellt hast, damit sie nicht im Weg sind. Ihre Agents laufen weiter, Worktrees, Branches und PRs bleiben unverändert – aber Shepherd lässt sie in Ruhe: keine automatischen Steers, Reviews oder Merges, keine Benachrichtigungen, kein Zähler für „braucht dich“ und kein automatisches Archivieren. Über das Kartenmenü oder die Befehlsleiste holst du eine zurück.",
+  "cardmenu_shelve": "Zurückstellen",
+  "cardmenu_unshelve": "Wieder aufnehmen",
+  "cardmenu_shelve_failed": "{name} konnte nicht zurückgestellt werden",
+  "cardmenu_unshelve_failed": "{name} konnte nicht wieder aufgenommen werden",
+  "commandbar_cmd_shelve": "{desig} zurückstellen",
+  "commandbar_cmd_unshelve": "{desig} wieder aufnehmen",
+  "commandbar_cmd_shelve_kw": "zurückstellen wieder aufnehmen parken ausblenden später ruhig stumm aufräumen shelve unshelve",
+  "feat_shelve_sessions_title": "Sessions zurückstellen",
+  "feat_shelve_sessions_body": "Rechtsklick auf eine Session (oder die Befehlsleiste) und „Zurückstellen“ wählen, um sie aus dem Weg zu räumen, ohne sie stillzulegen. Sie wandert in eine eingeklappte Gruppe „Zurückgestellt“ am Ende der Liste und ihr Agent läuft weiter – aber Shepherd steuert, reviewt, mergt und benachrichtigt dich dazu nicht mehr, bis du sie wieder aufnimmst."
 }

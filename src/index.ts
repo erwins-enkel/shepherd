@@ -3036,6 +3036,10 @@ events.subscribe((event, data) => {
   } else if (event === "session:review") {
     const { id } = data as { id: string };
     void drain.onReview(id).catch((err) => console.warn("[drain] onReview:", err));
+  } else if (event === "session:shelved") {
+    const { id, shelved } = data as { id: string; shelved: boolean };
+    if (!shelved)
+      void drain.onUnshelved(id).catch((err) => console.warn("[drain] onUnshelved:", err));
   }
 });
 // An attended bootstrap session's forge merge archives as "operator" (only auto sessions are

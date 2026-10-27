@@ -697,6 +697,7 @@ test("GROUP_KEY_BY_STAGE maps every stage to its exact render group key", () => 
     ready: "ready",
     merging: "merging",
     merged: "merged",
+    shelved: "shelved",
   });
 });
 
@@ -775,4 +776,30 @@ test("the Ready lens filters mirrored sessions like local ones", () => {
   ];
   expect(shownMirrored(list, "ready", notReviewing).map((s) => s.id)).toEqual(["waiting"]);
   expect(shownMirrored(list, "all", notReviewing)).toHaveLength(3);
+});
+
+test("shelved wins over every other stage, renders last, and the Ready lens drops it", () => {
+  const shelved = (id: string, readyToMerge = false, status: SessionStatus = "idle") => ({
+    ...session(id, readyToMerge, status),
+    shelved: true,
+  });
+  const list = [
+    shelved("m"),
+    shelved("r", true),
+    shelved("f"),
+    session("a"),
+    session("b", true, "idle"),
+  ];
+  const g = { m: git("merged"), f: git("open", "failure") };
+  const p = partitionSessions(list, g);
+  expect(p.shelved.map((s) => s.id)).toEqual(["m", "r", "f"]);
+  expect(p.merged).toHaveLength(0);
+  expect(p.ready.map((s) => s.id)).toEqual(["b"]);
+  expect(p.ciFailed).toHaveLength(0);
+  expect(flattenByStage(p).map((s) => s.id)).toEqual(["a", "b", "m", "r", "f"]);
+  expect(flattenByStage(p, new Set([GROUP_KEY_BY_STAGE.shelved])).map((s) => s.id)).toEqual([
+    "a",
+    "b",
+  ]);
+  expect(shownSessions(list, "ready", () => false, {}, g).map((s) => s.id)).toEqual(["b"]);
 });

@@ -31,6 +31,7 @@
 
 import { isSettledIdle } from "./recap-core";
 import { isOperatorAssistant } from "./operator-assistant-core";
+import { isShelved } from "./shelve";
 import type { SessionStore } from "./store";
 import type { Session, SessionStatus } from "./types";
 
@@ -206,7 +207,7 @@ export class TurnEndBackstopService {
     for (const s of this.deps.store.list({ activeOnly: true })) {
       // The Operator Assistant has no turn-end consumer to recover: no plan gate, no autopilot,
       // no finish push (#1446).
-      if (isOperatorAssistant(s)) continue;
+      if (isOperatorAssistant(s) || isShelved(s)) continue; // shelved: fully quiet
       live.add(s.id);
       const p = this.considerSession(s, now);
       if (p) started.push(p);

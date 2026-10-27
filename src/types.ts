@@ -91,6 +91,10 @@ export interface Session {
   coldResumeAt?: number | null;
   resumeCostUnits?: number | null;
   readyToMerge: boolean; // manually-toggled "parked / done" flag; orthogonal to status
+  /** Operator-shelved: hidden in the rail's folded Shelved group and left fully alone by
+   *  automation (no autonomous steers, pushes, holds, auto-archive) until unshelved. The agent
+   *  stays alive. Optional so pre-shelve fixtures need not carry it; hydrate always sets it. */
+  shelved?: boolean;
   /** Epoch ms when a launched merge train marked this PR-session as in-flight;
    *  null when not in a train. Transient: cleared on merge/close, train archive,
    *  or the TTL sweep. */

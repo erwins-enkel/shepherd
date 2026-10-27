@@ -657,6 +657,25 @@ test("the Operator Assistant is never classified, steered or re-engaged — even
   expect(h.events).toEqual([]);
 });
 
+test("a shelved session is never classified, steered or re-engaged — even with autopilot forced on", async () => {
+  const h = harness({
+    session: sess({ shelved: true, autopilotEnabled: true, status: "idle" }),
+    repoEnabled: true,
+    verdict: { kind: "gate", summary: "x" },
+    fullAuto: true,
+  });
+  await h.svc.handle({
+    kind: "status",
+    status: "done",
+    snapshot: { id: "s1", session: sess({ shelved: true, autopilotEnabled: true }) },
+  });
+  await h.svc.onBlock("s1", block());
+  await h.svc.tick();
+  await flush();
+  expect(h.classifyCount()).toBe(0);
+  expect(h.events).toEqual([]);
+});
+
 test("merge-train driver (override off, repo on) is never classified or steered", async () => {
   // A merge-train driver is created with autopilotEnabled:false even though the repo
   // default is on — neither a finished turn nor a steerable block may steer it elsewhere.

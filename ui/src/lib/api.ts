@@ -1845,6 +1845,16 @@ export async function setReadyToMerge(id: string, ready: boolean): Promise<void>
   if (!r.ok) throw await failed(r, "ready");
 }
 
+/** Shelve / unshelve a session. Live state returns via the session:shelved WS event. */
+export async function setShelved(id: string, shelved: boolean): Promise<void> {
+  const r = await fetch(`/api/sessions/${id}/shelve`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ shelved }),
+  });
+  if (!r.ok) throw await failed(r, "shelve");
+}
+
 export async function listIssues(repoPath: string): Promise<{
   slug: string | null;
   webUrl: string | null;

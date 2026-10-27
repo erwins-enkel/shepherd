@@ -17,6 +17,15 @@ describe("sortBlocked", () => {
     expect(out[0]!.reason).toBe(reason);
   });
 
+  it("drops shelved sessions from the needs-you queue", () => {
+    const shelved = { ...sess("b"), shelved: true } as Session;
+    const out = sortBlocked([sess("a"), shelved], {
+      a: { reason, since: 1 },
+      b: { reason, since: 2 },
+    });
+    expect(out.map((e) => e.session.id)).toEqual(["a"]);
+  });
+
   it("returns empty when nothing is blocked", () => {
     expect(sortBlocked([sess("a")], {})).toEqual([]);
   });

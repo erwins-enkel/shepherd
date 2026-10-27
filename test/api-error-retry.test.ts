@@ -193,6 +193,7 @@ describe("ApiErrorRetry", () => {
       { terminal: true },
       { claudeSessionId: "" },
       { operatorAssistant: true },
+      { shelved: true },
     ]) {
       const h = harness(p as Partial<Session>);
       await h.done();

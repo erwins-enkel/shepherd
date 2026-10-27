@@ -1828,6 +1828,9 @@ export interface Session {
   status: SessionStatus;
   /** Operator-set "parked / done" flag, orthogonal to status. Default false. */
   readyToMerge: boolean;
+  /** Operator-shelved: rendered in the folded Shelved group, excluded from needs-you signals,
+   *  and left alone by server automation until unshelved. The agent stays alive. */
+  shelved?: boolean;
   /** Epoch ms when a merge train marked this PR-session in-flight; null when not.
    *  Transient — cleared server-side on merge/close, train archive, or TTL. */
   mergingSince: number | null;
@@ -3267,6 +3270,7 @@ export type WsEvent =
       data: { id: string; status: SessionStatus; hasScratchpadFiles?: boolean } & Partial<Session>;
     }
   | { event: "session:ready"; data: { id: string; ready: boolean } }
+  | { event: "session:shelved"; data: { id: string; shelved: boolean } }
   | {
       event: "session:merging";
       data: { id: string; since: number | null; trainId: string | null };

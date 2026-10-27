@@ -707,6 +707,7 @@ type NewSession = Omit<
   | "settledAt"
   | "claudeAiConnectors"
   | "ingressStamp"
+  | "shelved"
   | "archivedAt"
   | "archiveReason"
   | "model"
@@ -807,7 +808,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
  * `COLS` also keeps that constant aligned with `create()`'s placeholder list.
  */
 const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits, settledAt,
-  claudeAiConnectors, ingressStamp, scheduleId,
+  claudeAiConnectors, ingressStamp, shelved, scheduleId,
   (SELECT name FROM schedules WHERE schedules.id = sessions.scheduleId) AS scheduleName,
   (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
 
@@ -916,6 +917,7 @@ type SessionRow = {
   spawnAccountDir: string | null;
   claudeAiConnectors: number | null;
   ingressStamp: string | null;
+  shelved: number;
   launchMetadataJson: string | null;
   codexLaunchId: string | null;
 };
@@ -5699,6 +5701,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     ]);
   }
 
+  /** Operator shelve toggle. Dedicated setter: written only by SessionService.setShelved. */
+  setShelved(id: string, shelved: boolean): void {
+    this.db.run(`UPDATE sessions SET shelved=?, updatedAt=? WHERE id=?`, [
+      Number(shelved),
+      Date.now(),
+      id,
+    ]);
+  }
+
   /** Record the ingress-key stamp (#3341) a Claude spawn/resume carried. Written by
    *  SessionService's persistSpawnIdentity (and its legacy backfill); ConnectorRestartService reads
    *  it back via SessionService.ingressStale. */
@@ -6683,6 +6694,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // The ingress-key stamp (#3341) the live Claude agent was spawned/resumed with (written only via
     // setIngressStamp). Nullable: null = spawned before the stamp existed.
     add("ingressStamp", `ingressStamp TEXT`);
+    // Operator shelve flag (written only via setShelved).
+    add("shelved", `shelved INTEGER NOT NULL DEFAULT 0`);
     add("launchMetadataJson", `launchMetadataJson TEXT`);
     add("archiveReason", `archiveReason TEXT`);
     // The commit the worktree was actually created from (#2761). Nullable, no default: legacy rows
@@ -7651,6 +7664,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       spawnAccountDir: r.spawnAccountDir ?? null,
       claudeAiConnectors: nullableBool(r.claudeAiConnectors),
       ingressStamp: r.ingressStamp,
+      shelved: !!r.shelved,
     } as Session;
   }
 

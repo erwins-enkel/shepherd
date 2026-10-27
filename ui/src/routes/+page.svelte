@@ -74,6 +74,7 @@
     updateHeld,
     invokePluginRoute,
     mergePr,
+    setShelved,
   } from "#lib/api.js";
   import type {
     AgentProvider,
@@ -143,7 +144,7 @@
   import { normalizeEpicCollapse } from "#lib/components/herd-epic-collapse.js";
   import { isReworkRunning as isReworkRunningSession } from "#lib/components/rework-running.js";
   import { buildCommands } from "#lib/command-registry.js";
-  import type { HerdFilter } from "#lib/components/herd-partition.js";
+  import { GROUP_KEY_BY_STAGE, type HerdFilter } from "#lib/components/herd-partition.js";
   import {
     collectReadyPrs,
     isMerging,
@@ -554,6 +555,8 @@
   // would pop the filter off mid-observation; the filtered empty state + chip in
   // the herd head are the way out instead.
   let statusFilter = $state<"running" | "idle" | "blocked" | null>(null);
+  // The idle/blocked tallies skip shelved sessions (TopBar), so their filters do too.
+  const tallied = (s: Session) => statusFilter === "running" || !s.shelved;
   const herdSessions = $derived.by(() => {
     const byRepo = repoFilter.size
       ? store.sessions.filter((s) => repoFilter.has(s.repoPath))
@@ -562,7 +565,9 @@
     // the "running" filter (the tallies count it there), never under "blocked".
     return statusFilter
       ? byRepo.filter(
-          (s) => displayStatus(s, store.workingBlocked, store.backgroundBusy) === statusFilter,
+          (s) =>
+            tallied(s) &&
+            displayStatus(s, store.workingBlocked, store.backgroundBusy) === statusFilter,
         )
       : byRepo;
   });
@@ -570,7 +575,9 @@
   // it keeps those of the same project by slug.
   const herdRemoteSessions = $derived.by(() => {
     const byRepo = inRepoFilter(store.remoteSessions, repoFilter, repos.entries);
-    return statusFilter ? byRepo.filter((s) => displayStatus(s, {}, {}) === statusFilter) : byRepo;
+    return statusFilter
+      ? byRepo.filter((s) => tallied(s) && displayStatus(s, {}, {}) === statusFilter)
+      : byRepo;
   });
   // Tasks whose start on a machine is unknown (#2774) are no sessions: they show only unfiltered.
   const herdRemoteDispatches = $derived(
@@ -640,12 +647,29 @@
   }
   // Desktop lifecycle-group collapse (GROUP_KEY_BY_STAGE keys). Same page-owned
   // SvelteSet pattern as collapsedEpics — shared with <Herd> (render) and railOrder
-  // (nav). In-memory by design: a reload reopens every group. No normalization
+  // (nav). In-memory by design: a reload reopens every group — except Shelved, which
+  // starts folded and remembers an explicit open (SHELVED_OPEN_KEY). No normalization
   // needed: stage keys are stable (unlike epic keys, which come and go per epic).
-  const collapsedStages = new SvelteSet<string>();
+  const SHELVED_OPEN_KEY = "shepherd:shelved-open";
+  const collapsedStages = new SvelteSet<string>(
+    readShelvedOpen() ? [] : [GROUP_KEY_BY_STAGE.shelved],
+  );
+  function readShelvedOpen(): boolean {
+    try {
+      return localStorage.getItem(SHELVED_OPEN_KEY) === "1";
+    } catch {
+      return false; // storage unavailable (private mode / SSR) → folded
+    }
+  }
   function toggleStageCollapse(key: string) {
     if (collapsedStages.has(key)) collapsedStages.delete(key);
     else collapsedStages.add(key);
+    if (key !== GROUP_KEY_BY_STAGE.shelved) return;
+    try {
+      localStorage.setItem(SHELVED_OPEN_KEY, collapsedStages.has(key) ? "0" : "1");
+    } catch {
+      /* storage unavailable — fold state stays in-memory */
+    }
   }
   // Seed store.epics for any active epic we don't have the full Epic for yet (header
   // needs title + X/Y + backlog link). Reactive on activeEpicKeys, deduped per key.
@@ -2477,6 +2501,10 @@
       // returns [] — the rail shows a panel and the main area a hint), so the selected session is
       // invisible in both panes. Either way the verb would name a target that isn't on screen.
       decommissionDesig: herdFilter === "done" || panelOnlyLens ? null : (selected?.desig ?? null),
+      onToggleShelve: () => {
+        if (selected) commandToggleShelve(selected);
+      },
+      selectedShelved: !!selected?.shelved,
       hasSessions,
       retryReady,
       otherNeedsYouCount: otherNeedsYou.length,
@@ -3015,6 +3043,21 @@
       action,
       ...(ctx ? { mergeConfirm: mergeConfirmPayload(ctx) } : {}),
     });
+  }
+
+  // ⌘K Shelve / Unshelve — same request as the card-menu item; live state returns over WS.
+  async function commandToggleShelve(s: Session) {
+    const next = !s.shelved;
+    try {
+      await setShelved(s.id, next);
+    } catch {
+      toasts.info(
+        next
+          ? m.cardmenu_shelve_failed({ name: s.name })
+          : m.cardmenu_unshelve_failed({ name: s.name }),
+        { alert: true, key: `session-shelve:${s.id}` },
+      );
+    }
   }
 
   // ⌘K Decommission runs the SAME leftover probe as Viewport's decommission button: still-running

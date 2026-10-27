@@ -22,7 +22,8 @@ export function groupSessionsByExperiment(sessions: Session[]): {
   const byId = new Map<string, Session[]>();
   const rest: Session[] = [];
   for (const s of sessions) {
-    if (s.experimentId) {
+    // A shelved variant renders in the Shelved group, never its experiment.
+    if (s.experimentId && !s.shelved) {
       const arr = byId.get(s.experimentId) ?? [];
       arr.push(s);
       byId.set(s.experimentId, arr);

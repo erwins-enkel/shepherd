@@ -10327,6 +10327,39 @@ test("Codex capacity: blocked automatic reply sends no partial paste or Enter", 
   expect(sent).toHaveLength(2);
 });
 
+test("shelved: automatic steers are refused, operator replies still land", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+    agentProvider: "codex",
+  });
+  store.setShelved(s.id, true);
+  const sent: string[] = [];
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {} as any,
+    herdr: {
+      listAsync: async () => [{ terminalId: "term_z" }],
+      send: async (_id: string, text: string) => {
+        sent.push(text);
+      },
+    } as any,
+  });
+  expect(await svc.reply(s.id, "continue", { automatic: true })).toBe(false);
+  expect(sent).toHaveLength(0);
+  expect(await svc.reply(s.id, "continue")).toBe(true);
+  expect(sent.length).toBeGreaterThan(0);
+});
+
 test("Codex capacity review: manual replies bypass automatic protection", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create({

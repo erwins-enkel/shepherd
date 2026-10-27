@@ -215,3 +215,11 @@ test("planQuestionsUnanswered matches the shared parity fixtures (client ↔ ser
     });
   }
 });
+
+test("a shelved session never counts, whatever its state", () => {
+  const s = { ...sess("s1", "blocked", true), shelved: true };
+  expect(deriveTabState([s], { s1: git("failure") }, {})).toMatchObject({
+    count: 0,
+    severity: "none",
+  });
+});

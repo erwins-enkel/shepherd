@@ -55,6 +55,7 @@ import { config } from "./config";
 import { SessionLiveness, type LivenessOutcome, type TranscriptSignals } from "./session-liveness";
 import { CodexTranscriptLocator, readCodexTranscriptSignals } from "./codex-activity";
 import { isOperatorAssistant } from "./operator-assistant-core";
+import { isShelved } from "./shelve";
 import type { NetnsDevForwarder } from "./netns-dev-forward";
 
 const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
@@ -2235,6 +2236,7 @@ export class StatusPoller {
     if (
       this.blockBackstop &&
       !isOperatorAssistant(s) &&
+      !isShelved(s) && // push is muted anyway — don't pay a judge call
       BACKSTOP_GATED_SHAPES.has(reason.shape) &&
       this.blockBackstop.hold(id, reason)
     ) {

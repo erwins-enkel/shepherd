@@ -86,3 +86,13 @@ test("keeps a group with a single variant when a comparison run exists", () => {
   expect(groups).toHaveLength(1);
   expect(rest).toHaveLength(0);
 });
+
+test("a shelved variant leaves its experiment for the rest", () => {
+  const out = groupSessionsByExperiment([
+    session("a", "x", "variant", 1),
+    session("b", "x", "variant", 2),
+    { ...session("c", "x", "variant", 3), shelved: true },
+  ]);
+  expect(out.groups[0]!.variants.map((s) => s.id)).toEqual(["a", "b"]);
+  expect(out.rest.map((s) => s.id)).toEqual(["c"]);
+});

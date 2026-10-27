@@ -1,6 +1,7 @@
 import type { EventHub } from "./events";
 import type { ChecksState, GitState, PrStatus } from "./forge/types";
 import { isOperatorAssistant } from "./operator-assistant-core";
+import { isShelved } from "./shelve";
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
 
@@ -86,6 +87,7 @@ function steerable(s: Session | null | undefined, git: GitState): s is Session {
     s.status !== "archived" &&
     !s.terminal &&
     !isOperatorAssistant(s) &&
+    !isShelved(s) &&
     s.planPhase !== "planning" &&
     s.mergingSince === null &&
     git.state === "open"

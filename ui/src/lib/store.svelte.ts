@@ -805,6 +805,9 @@ export class HerdStore {
    *  the complexity gate. Returns true when `ev` was handled. */
   private applySessionDataEvent(ev: WsEvent): boolean {
     switch (ev.event) {
+      case "session:shelved":
+        this.patchSession(ev.data.id, { shelved: ev.data.shelved });
+        return true;
       case "session:git":
         this.git = setKey(this.git, ev.data.id, ev.data.git);
         return true;

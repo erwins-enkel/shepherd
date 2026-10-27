@@ -5,6 +5,7 @@ import type { BlockReason } from "./blocked";
 import type { EventHub } from "./events";
 import { explainHold } from "./attention-core";
 import { isOperatorAssistant } from "./operator-assistant-core";
+import { isShelved } from "./shelve";
 import type { RepoConfig } from "./store";
 import type { EpicRun } from "./epic-core";
 import { sessionEpicParent } from "./epic-branch";
@@ -76,6 +77,20 @@ function retireView(
 /** Repo-scoped events that can start or stop the drain integrating a repo's epic children. */
 const REPO_EVENTS = new Set(["epic:update", "drain:status"]);
 
+/** Id-bearing session events whose only effect is a recompute of the named session. */
+const RECOMPUTE_EVENTS: ReadonlySet<string> = new Set([
+  "session:git",
+  "session:review",
+  "session:plangate",
+  "session:status",
+  "session:halt",
+  "session:autopilot",
+  "session:merging",
+  "session:ready",
+  "session:shelved",
+  "session:manual-steps",
+]);
+
 // ── service ───────────────────────────────────────────────────────────────────
 
 /**
@@ -133,22 +148,13 @@ export class HoldReasonService {
   private handleEvent(event: string, data: unknown): void {
     const d = data as Record<string, unknown>;
 
-    switch (event) {
-      // ── id-bearing session events — recompute the named session ──────────
-      case "session:git":
-      case "session:review":
-      case "session:plangate":
-      case "session:status":
-      case "session:halt":
-      case "session:autopilot":
-      case "session:merging":
-      case "session:ready":
-      case "session:manual-steps": {
-        const id = d.id as string;
-        this.recompute(id);
-        break;
-      }
+    // ── id-bearing session events — recompute the named session ──────────
+    if (RECOMPUTE_EVENTS.has(event)) {
+      this.recompute(d.id as string);
+      return;
+    }
 
+    switch (event) {
       case "session:block": {
         const id = d.id as string;
         // Update blockCache BEFORE recomputing so the new value feeds explainHold.
@@ -244,9 +250,9 @@ export class HoldReasonService {
 
   private recompute(id: string): void {
     const session = this.deps.store.get(id);
-    if (!session || isOperatorAssistant(session)) {
+    if (!session || isOperatorAssistant(session) || isShelved(session)) {
       // Session absent → treat as cleared. So is the Operator Assistant: it is not herd work, so
-      // it never holds and never asks for attention (#1446).
+      // it never holds and never asks for attention (#1446). A shelved session is out of play.
       const prev = this.lastSig.get(id);
       if (prev !== undefined && prev !== "null") {
         this.holds.delete(id);

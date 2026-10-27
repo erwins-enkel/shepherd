@@ -590,6 +590,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     opts?: { force?: boolean },
   ): Promise<ReviewOutcome> {
     const force = opts?.force === true;
+    if (!force && session.shelved === true) return "skipped"; // shelved: no auto critic
     // Synchronous predicate: the common (no-hold) path must reach the `starting` claim below
     // without yielding, or a concurrent forget() would land before it.
     const hold = holdReason(git, force, () => this.deps.rebasesWhenBehind?.(session) ?? false);

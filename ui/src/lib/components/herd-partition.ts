@@ -33,10 +33,11 @@ import { inMergeQueue, isMerging } from "./merge-train";
  *    whose open PR sits in its base's merge queue (`git.inMergeQueue`)
  *  - ready: operator-parked "ready to merge"
  *  - merged: PR already landed
+ *  - shelved: operator-shelved — out of play until unshelved, whatever its PR/agent state
  *
  *  First-match precedence (terminal states win; reviewing/rework beat the CI/merge stages
  *  as the later in-flight stage):
- *    merged > merging > needsRework > branchProtectionBlocked > ready > reviewerRunning > reworkRunning > ciRunning > ciFailed >
+ *    shelved > merged > merging > needsRework > branchProtectionBlocked > ready > reviewerRunning > reworkRunning > ciRunning > ciFailed >
  *    draftAwaitingSignoff > (waitingOnReviewer | waitingOnMerger | awaitingMerge) > active.
  *  A draft outranks the handed-off groups: a green idle DRAFT is awaiting sign-off
  *  regardless of who the roles file names. An open PR with `none` checks (no CI reported
@@ -45,11 +46,12 @@ import { inMergeQueue, isMerging } from "./merge-train";
  *  `none` is terminal and the PR is handed off like a green one. The groups render top→bottom as
  *  active → reviewerRunning → reworkRunning →
  *  ciRunning → ciFailed → needsRework → branchProtectionBlocked → waitingOnReviewer → waitingOnMerger →
- *  draftAwaitingSignoff → awaitingMerge → ready → merging → merged (Herd.svelte's template
+ *  draftAwaitingSignoff → awaitingMerge → ready → merging → merged → shelved (Herd.svelte's template
  *  order, mirrored by herd-keynav's railOrder via flattenByStage), tracking the session
  *  lifecycle. `isReviewing` is injected so this stays a pure function (the caller wires it to
  *  the reviews store). */
 type Stage =
+  | "shelved"
   | "merged"
   | "merging"
   | "ready"
@@ -78,6 +80,7 @@ export type HerdFilter = "all" | "ready" | "done" | "owed" | "next";
  *  `ciFailed` is NOT hidden — a failed CI run is back in your court. Draft-awaiting-signoff
  *  stays too: it awaits the operator's own sign-off. */
 const NOT_YOUR_TURN: ReadonlySet<Stage> = new Set([
+  "shelved",
   "ciRunning",
   "waitingOnReviewer",
   "waitingOnMerger",
@@ -166,6 +169,7 @@ function terminalStage(
   isReworkRunning: (session: Session) => boolean,
   now: number,
 ): Stage | null {
+  if (s.shelved) return "shelved";
   if (g?.state === "merged") return "merged";
   if (isMerging(s, now) || inMergeQueue(g)) return "merging";
   const idleOpenCleared = isIdleOpenCleared(s, g, isReviewing, isReworkRunning);
@@ -250,6 +254,7 @@ const STAGE_ORDER = [
   "ready",
   "merging",
   "merged",
+  "shelved",
 ] as const satisfies readonly Stage[];
 
 /** The hyphenated group key each lifecycle stage renders under — the `key` of
@@ -272,6 +277,7 @@ export const GROUP_KEY_BY_STAGE = {
   ready: "ready",
   merging: "merging",
   merged: "merged",
+  shelved: "shelved",
 } as const satisfies Record<Stage, string>;
 
 /** Flatten a partitionSessions result into a single list in STAGE_ORDER. Stages whose
@@ -308,6 +314,7 @@ export function partitionSessions(
   merging: Session[];
   ready: Session[];
   merged: Session[];
+  shelved: Session[];
 } {
   const groups: Record<Stage, Session[]> = {
     active: [],
@@ -324,6 +331,7 @@ export function partitionSessions(
     merging: [],
     ready: [],
     merged: [],
+    shelved: [],
   };
   for (const s of sessions) {
     groups[stageOf(s, git[s.id], isReviewing, isReworkRunning, now)].push(s);

@@ -23,6 +23,8 @@
     onvariant,
     onreplace,
     oncleanTerminal,
+    onshelve,
+    shelved = false,
     ondecommission,
     onbringback,
     onclose,
@@ -65,6 +67,10 @@
     // when provided, a "Clean terminal in main repo" item appears — opens (or focuses) the
     // repo's bare-shell session in the MAIN checkout; one-click, the action is cheap+reversible
     oncleanTerminal?: () => void;
+    // when provided, a one-click Shelve / Unshelve item appears (label by `shelved`) — reversible,
+    // visibility + automation quiet only, so no arm step
+    onshelve?: () => void;
+    shelved?: boolean;
     ondecommission?: () => void;
     // when provided, a two-step armed "Bring back" item appears (a Done-lens row restoring its
     // archived session) — armed like the DoneRecapPanel button, since restore is consequential
@@ -289,6 +295,13 @@
   {#if oncleanTerminal}
     <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={oncleanTerminal}>
       <span class="cm-icon" aria-hidden="true">❯</span>{m.cardmenu_clean_terminal()}
+    </button>
+  {/if}
+  {#if onshelve}
+    <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onshelve}>
+      <span class="cm-icon" aria-hidden="true">{shelved ? "⤒" : "⤓"}</span>{shelved
+        ? m.cardmenu_unshelve()
+        : m.cardmenu_shelve()}
     </button>
   {/if}
   {#if ondecommission}

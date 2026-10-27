@@ -29,6 +29,23 @@ const base = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+describe("CardMenu shelve action", () => {
+  it("labels by state and fires onshelve in one click", async () => {
+    const onshelve = vi.fn();
+    const { rerender } = await render(CardMenu, { props: base() });
+    expect(page.getByRole("menuitem", { name: m.cardmenu_shelve() }).query()).toBeNull();
+
+    await rerender(base({ onshelve }));
+    await page.getByRole("menuitem", { name: m.cardmenu_shelve() }).click();
+    expect(onshelve).toHaveBeenCalledOnce();
+
+    await rerender(base({ onshelve, shelved: true }));
+    await expect
+      .element(page.getByRole("menuitem", { name: m.cardmenu_unshelve() }))
+      .toBeInTheDocument();
+  });
+});
+
 describe("CardMenu relaunch action", () => {
   it("renders the Relaunch item only when onrelaunch is provided", async () => {
     const { rerender } = await render(CardMenu, { props: base() });

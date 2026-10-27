@@ -349,3 +349,17 @@ test("rest preserves input order and is not flattened/reordered", () => {
   // rest keeps input order x, y (NOT lifecycle-sorted, which would put y before x)
   expect(rest.map((s) => s.id)).toEqual(["x", "y"]);
 });
+
+test("a shelved epic child stays in rest (renders in the Shelved group)", () => {
+  const s = { ...session("s1", "/r", 11), shelved: true };
+  const out = groupSessionsByEpic(
+    [s],
+    { [key("/r", 10)]: epic("/r", 10, [11]) },
+    new Set([key("/r", 10)]),
+    {},
+    () => false,
+    0,
+  );
+  expect(out.groups).toHaveLength(0);
+  expect(out.rest.map((x) => x.id)).toEqual(["s1"]);
+});

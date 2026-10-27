@@ -497,6 +497,9 @@ export class RemoteSessionMirror {
       case "session:ready":
         patch = { readyToMerge: data.ready };
         break;
+      case "session:shelved":
+        patch = { shelved: data.shelved };
+        break;
       case "session:automerge":
         patch = { autoMergeEnabled: data.enabled };
         break;

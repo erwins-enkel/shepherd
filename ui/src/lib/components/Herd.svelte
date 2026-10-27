@@ -539,6 +539,7 @@
     aboveLabel?: string | null;
     action?: { class: string; title: string; label: string; onclick: () => void } | null;
     withPreview?: boolean;
+    quiet?: boolean;
   };
   // null = auto (open while an epic waits on the operator); an explicit toggle is persisted
   // globally so it survives Herd remounting when a session opens, and page reloads.
@@ -709,6 +710,13 @@
             : null,
         withPreview: true,
       },
+      partition.shelved.length > 0 && {
+        key: GROUP_KEY_BY_STAGE.shelved,
+        sessions: partition.shelved,
+        headClass: "shelved-head",
+        countLabel: m.herd_shelved_group({ count: partition.shelved.length }),
+        quiet: true,
+      },
     ].filter(Boolean) as PartitionGroupEntry[],
   );
 
@@ -767,6 +775,10 @@
     [GROUP_KEY_BY_STAGE.merged]: {
       text: m.herd_help_merged(),
       label: m.newtask_info_aria({ topic: m.herd_stage_name_merged() }),
+    },
+    [GROUP_KEY_BY_STAGE.shelved]: {
+      text: m.herd_help_shelved(),
+      label: m.newtask_info_aria({ topic: m.herd_stage_name_shelved() }),
     },
   });
 </script>

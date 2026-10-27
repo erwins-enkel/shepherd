@@ -41,8 +41,11 @@ export function groupSessionsByEpic(
   const rest: Session[] = [];
 
   for (const s of sessions) {
+    // A shelved child renders in the Shelved group, never its epic.
     const epicKey =
-      s.issueNumber == null ? undefined : childIndex.get(`${s.repoPath}#${s.issueNumber}`);
+      s.shelved || s.issueNumber == null
+        ? undefined
+        : childIndex.get(`${s.repoPath}#${s.issueNumber}`);
     if (epicKey === undefined) {
       rest.push(s);
       continue;

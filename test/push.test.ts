@@ -13,6 +13,7 @@ import {
   buildPayload,
   notifySessionDone,
   USAGE_WARN_PCT,
+  awaitingOperatorCount,
   type NotifyInput,
   type SendFn,
 } from "../src/push";
@@ -256,6 +257,34 @@ test("attachPush never pushes for the Operator Assistant's done or block; a task
     ["done", "task"],
     ["blocked", "task"],
   ]);
+});
+
+test("notify drops every per-session push for a shelved session; badge count skips it", async () => {
+  let count = 0;
+  const { store, push } = svc(async () => {
+    count++;
+    return {};
+  });
+  store.putPushSub(sub("e1"), "");
+  const s = store.create({
+    name: "shelved",
+    prompt: "",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: null,
+    worktreePath: "/r",
+    isolated: false,
+    herdrSession: "default",
+    herdrAgentId: "term_s",
+  });
+  store.setShelved(s.id, true);
+  store.update(s.id, { status: "blocked" });
+  expect(await push.notify({ kind: "done", sessionId: s.id, tag: s.id, name: "T" })).toBe(false);
+  expect(count).toBe(0);
+  expect(awaitingOperatorCount(store.list({ activeOnly: true }))).toBe(0);
+  store.setShelved(s.id, false);
+  expect(awaitingOperatorCount(store.list({ activeOnly: true }))).toBe(1);
+  expect(await push.notify({ kind: "done", sessionId: s.id, tag: s.id, name: "T" })).toBe(true);
 });
 
 test("notify debounces repeats within the cooldown window, fires again after it", async () => {

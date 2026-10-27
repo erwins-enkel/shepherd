@@ -80,6 +80,8 @@
     // coarse-pointer/touch input: keeps the 44px touch-target sizing on the header
     // toggle + its actions. False on fine-pointer desktop, where headers stay compact.
     touchTarget?: boolean;
+    // Shelved group: rows step one ink level down so they recede (contrast stays AA).
+    quiet?: boolean;
     ctx: HerdRowCtx;
   };
 
@@ -95,8 +97,11 @@
     expanded = true,
     ontoggle = undefined,
     touchTarget = false,
+    quiet = false,
     ctx,
   }: HerdGroupProps = $props();
+  // Resolved here, not as a class: directive (keeps the template under its complexity cap).
+  const rowsClass = $derived(quiet ? "rows quiet" : "rows");
 </script>
 
 {#if headClass}
@@ -131,8 +136,9 @@
   </div>
 {/if}
 {#if !collapsible || expanded}
-  {#each sessions as session (session.id)}
-    <!-- jumpFlash is ANDed with the selection on purpose: the flash is the loudest cue in
+  <div class={rowsClass}>
+    {#each sessions as session (session.id)}
+      <!-- jumpFlash is ANDed with the selection on purpose: the flash is the loudest cue in
          the rail, so it may only ever mark the row that is actually selected. The selection
          can move out from under a running flash by several routes — a click or j/k inside
          the ~1.5s window, or the page reassigning selectedId when a session is
@@ -140,62 +146,74 @@
          old row would restate exactly the rail-disagrees-with-the-terminal confusion this
          whole path exists to end. Gating here, rather than clearing the id inside one
          selection function, holds for every one of those routes and for later ones. -->
-    {#if session.host}
-      <!-- A session mirrored from a connected machine (#2762, joined into this group by #3055)
+      {#if session.host}
+        <!-- A session mirrored from a connected machine (#2762, joined into this group by #3055)
            gets only what this server forwards to its machine and the card has an item for
            (#2765): Stop, and Decommission while the link is live. Every other callback here acts
            on a local session and its side maps, so none is passed; `git` is its machine's. -->
-      <UnitRow
-        {session}
-        selected={session.id === ctx.selectedId}
-        jumpFlash={session.id === ctx.jumpFlashId && session.id === ctx.selectedId}
-        nowMs={ctx.nowMs}
-        onselect={ctx.onselect}
-        git={session.git}
-        ondecommission={session.connection?.state === "connected" ? ctx.ondecommission : undefined}
-        showModel={ctx.showModel}
-        showCli={ctx.showCli}
-      />
-    {:else}
-      <UnitRow
-        {session}
-        selected={session.id === ctx.selectedId}
-        jumpFlash={session.id === ctx.jumpFlashId && session.id === ctx.selectedId}
-        nowMs={ctx.nowMs}
-        onselect={ctx.onselect}
-        git={ctx.git[session.id]}
-        activity={ctx.activity[session.id]}
-        previewPort={withPreview ? (ctx.preview[session.id] ?? null) : null}
-        previewServeFailed={withPreview ? ctx.previewServe[session.id] === "failed" : false}
-        onpreview={withPreview ? ctx.onpreview : undefined}
-        onopenbrowser={ctx.onopenbrowser}
-        ondecommission={ctx.ondecommission}
-        onrename={ctx.onrename}
-        onamend={ctx.onamend}
-        onrelaunch={ctx.onrelaunch}
-        onrelaunchElsewhere={ctx.onrelaunchElsewhere}
-        oncleanTerminal={ctx.oncleanTerminal}
-        onaskassistant={ctx.onaskassistant}
-        onvariant={ctx.onvariant}
-        onreplace={ctx.onreplace}
-        repoFilter={ctx.repoFilter}
-        onrepofilter={ctx.onrepofilter}
-        workingBlocked={ctx.workingBlocked}
-        backgroundBusy={ctx.backgroundBusy}
-        liveness={ctx.liveness[session.id]}
-        quotaKind={ctx.quotaKindFor(session.id)}
-        hold={ctx.holdFor(session.id)}
-        epics={ctx.epics}
-        onackmanualsteps={ctx.onackmanualsteps}
-        onshowowed={ctx.onshowowed}
-        showModel={ctx.showModel}
-        showCli={ctx.showCli}
-      />
-    {/if}
-  {/each}
+        <UnitRow
+          {session}
+          selected={session.id === ctx.selectedId}
+          jumpFlash={session.id === ctx.jumpFlashId && session.id === ctx.selectedId}
+          nowMs={ctx.nowMs}
+          onselect={ctx.onselect}
+          git={session.git}
+          ondecommission={session.connection?.state === "connected"
+            ? ctx.ondecommission
+            : undefined}
+          showModel={ctx.showModel}
+          showCli={ctx.showCli}
+        />
+      {:else}
+        <UnitRow
+          {session}
+          selected={session.id === ctx.selectedId}
+          jumpFlash={session.id === ctx.jumpFlashId && session.id === ctx.selectedId}
+          nowMs={ctx.nowMs}
+          onselect={ctx.onselect}
+          git={ctx.git[session.id]}
+          activity={ctx.activity[session.id]}
+          previewPort={withPreview ? (ctx.preview[session.id] ?? null) : null}
+          previewServeFailed={withPreview ? ctx.previewServe[session.id] === "failed" : false}
+          onpreview={withPreview ? ctx.onpreview : undefined}
+          onopenbrowser={ctx.onopenbrowser}
+          ondecommission={ctx.ondecommission}
+          onrename={ctx.onrename}
+          onamend={ctx.onamend}
+          onrelaunch={ctx.onrelaunch}
+          onrelaunchElsewhere={ctx.onrelaunchElsewhere}
+          oncleanTerminal={ctx.oncleanTerminal}
+          onaskassistant={ctx.onaskassistant}
+          onvariant={ctx.onvariant}
+          onreplace={ctx.onreplace}
+          repoFilter={ctx.repoFilter}
+          onrepofilter={ctx.onrepofilter}
+          workingBlocked={ctx.workingBlocked}
+          backgroundBusy={ctx.backgroundBusy}
+          liveness={ctx.liveness[session.id]}
+          quotaKind={ctx.quotaKindFor(session.id)}
+          hold={ctx.holdFor(session.id)}
+          epics={ctx.epics}
+          onackmanualsteps={ctx.onackmanualsteps}
+          onshowowed={ctx.onshowowed}
+          showModel={ctx.showModel}
+          showCli={ctx.showCli}
+        />
+      {/if}
+    {/each}
+  </div>
 {/if}
 
 <style>
+  /* layout-neutral row wrapper: exists only to scope the quiet ink step below */
+  .rows {
+    display: contents;
+  }
+  .rows.quiet {
+    --color-ink-bright: var(--ink);
+    --color-ink: var(--muted);
+  }
+
   .micro {
     font-size: var(--fs-meta);
     letter-spacing: 0.18em;
@@ -313,6 +331,16 @@
     margin-top: 6px;
     color: var(--color-amber);
     border-top: 1px solid color-mix(in srgb, var(--color-amber) 30%, var(--color-line));
+  }
+
+  /* neutral section header for operator-shelved sessions: not a state, so no status hue */
+  .shelved-head {
+    display: flex;
+    align-items: center;
+    padding: 10px 8px 6px;
+    margin-top: 6px;
+    color: var(--color-muted);
+    border-top: 1px solid var(--color-line);
   }
 
   /* blue section header for the landed "merged PR" group */

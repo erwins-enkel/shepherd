@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { AGENT_PROVIDERS, type AgentProvider, type Epic } from "#lib/types.js";
+  import {
+    AGENT_PROVIDERS,
+    type AgentProvider,
+    type Epic,
+    type RepoSandboxSetting,
+    type SandboxProfile,
+  } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { updateEpic } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
@@ -10,11 +16,25 @@
     effortAvailableForProvider,
   } from "#lib/effort-guidance.js";
   import { modelOptionLabel } from "#lib/model-guidance.js";
+  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { basename } from "#lib/basename.js";
 
   // Footer of the epic run area (#2620): the CLI / model / effort the epic's children spawn with.
   // Moved unchanged from EpicPanel's control bar, dependencies included (a provider change drops
-  // a model/effort the new CLI doesn't offer).
-  let { repoPath, parent, epic }: { repoPath: string; parent: number; epic: Epic } = $props();
+  // a model/effort the new CLI doesn't offer). #3454: plus the repo's sandbox, marked as the repo's
+  // setting; the CLI and the sandbox say "halts" while they keep the children from starting.
+  let {
+    repoPath,
+    parent,
+    epic,
+    halts = { cli: false, sandbox: false },
+  }: {
+    repoPath: string;
+    parent: number;
+    epic: Epic;
+    /** Which of these settings currently hold the run (EpicRunControl's halt causes). */
+    halts?: { cli: boolean; sandbox: boolean };
+  } = $props();
 
   const epicProvider = $derived(epic.run.agentProvider ?? null);
   const epicModel = $derived(epic.run.model ?? "default");
@@ -55,6 +75,24 @@
     updateEpic(repoPath, parent, { model, effort }).catch(updateFailed);
   }
 
+  const SANDBOX_NAMES: Record<SandboxProfile, () => string> = {
+    trusted: m.sandbox_profile_trusted,
+    standard: m.sandbox_profile_standard,
+    autonomous: m.sandbox_profile_autonomous,
+  };
+  // The "inherit" option names what it resolves to, as in the repo's automation settings.
+  const sandboxInheritLabel = $derived.by(() => {
+    const d = repoConfig.sandboxDefaultFor(repoPath);
+    return d
+      ? m.sandbox_profile_inherit({ profile: SANDBOX_NAMES[d]() })
+      : m.sandbox_profile_inherit_unresolved();
+  });
+
+  function onSandboxChange(e: Event) {
+    const value = (e.currentTarget as HTMLSelectElement).value as RepoSandboxSetting;
+    void repoConfig.setSandboxProfile(repoPath, value);
+  }
+
   function onEffortChange(e: Event) {
     if (!epicProvider) return;
     const value = (e.currentTarget as HTMLSelectElement).value;
@@ -65,7 +103,7 @@
 </script>
 
 <div class="run-settings" aria-label={m.epic_provider_settings_label()}>
-  <label class="mini-field">
+  <label class="mini-field" class:halts={halts.cli} data-field="cli">
     <span class="micro">{m.epic_provider_label()}</span>
     <select value={epicProvider ?? "inherit"} onchange={onProviderChange}>
       <option value="inherit">{m.epic_provider_inherit()}</option>
@@ -73,6 +111,7 @@
         <option value={provider}>{providerName(provider)}</option>
       {/each}
     </select>
+    {#if halts.cli}<span class="tag halt">{m.epic_setting_halts()}</span>{/if}
   </label>
 
   {#if epicProvider}
@@ -96,6 +135,22 @@
       </select>
     </label>
   {/if}
+
+  <label class="mini-field" class:halts={halts.sandbox} data-field="sandbox">
+    <span class="micro">{m.epic_sandbox_label()}</span>
+    <select
+      value={repoConfig.sandboxProfileFor(repoPath)}
+      aria-label={m.epic_sandbox_aria({ repo: basename(repoPath) })}
+      onchange={onSandboxChange}
+    >
+      <option value="inherit">{sandboxInheritLabel}</option>
+      <option value="trusted">{m.sandbox_profile_trusted()}</option>
+      <option value="standard">{m.sandbox_profile_standard()}</option>
+      <option value="autonomous">{m.sandbox_profile_autonomous()}</option>
+    </select>
+    <span class="tag">{m.epic_sandbox_repo_tag()}</span>
+    {#if halts.sandbox}<span class="tag halt">{m.epic_setting_halts()}</span>{/if}
+  </label>
 </div>
 
 <style>
@@ -135,6 +190,25 @@
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
     padding: 2px 6px;
+  }
+
+  /* A setting that holds the run: red frame and a "halts" tag beside it. */
+  .halts select {
+    border-color: color-mix(in srgb, var(--color-red) 55%, var(--color-line));
+  }
+  .tag {
+    flex: none;
+    padding: 0 4px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+  }
+  .tag.halt {
+    border-color: color-mix(in srgb, var(--color-red) 45%, var(--color-line));
+    color: var(--color-red);
   }
 
   select:focus-visible {

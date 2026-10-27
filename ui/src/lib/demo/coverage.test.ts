@@ -369,6 +369,9 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
   // Backlog / epic / CI actions. Their READS are all in INVENTORY; these are the writes,
   // which would need a real forge behind them to mean anything.
   "backlog, epic + CI actions": [
+    // #3454: read and written only while a run is held by its sandbox, CLI or host — no seeded
+    // drain reports such a hold, so the halt card never asks.
+    "/api/epic/auto-fix",
     "/api/epic/base-override",
     "/api/epic/base-rework",
     "/api/epic/diagnose",

@@ -619,6 +619,13 @@ test("parseTermDims: fractional values floored", () => {
   expect(parseTermDims("180.9", "50.4")).toEqual({ cols: 180, rows: 50 });
 });
 
+test("parseTermDims: a size below the floor falls back as a pair", () => {
+  expect(parseTermDims("13", "6")).toEqual({ cols: 100, rows: 30 });
+  expect(parseTermDims("19", "40")).toEqual({ cols: 100, rows: 30 });
+  expect(parseTermDims("120", "4")).toEqual({ cols: 100, rows: 30 });
+  expect(parseTermDims("20", "5")).toEqual({ cols: 20, rows: 5 });
+});
+
 test("parseTermDims: oversized values clamped to 1000", () => {
   expect(parseTermDims("99999", "99999")).toEqual({ cols: 1000, rows: 1000 });
 });

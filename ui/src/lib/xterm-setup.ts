@@ -7,6 +7,15 @@ import { theme, xtermTheme, xtermMinContrast } from "./theme.svelte";
 import { oscLinkHandler, openTerminalLink } from "./terminalLinks";
 
 /**
+ * Whether `el` has a real size to fit a terminal to. A hidden (display:none) or mid-layout mount
+ * doesn't: FitAddon then clamps to 2 columns, or on iOS WebKit reads the computed `100%` as 100px
+ * (13×6) — and that size reaches the PTY, where the agent reflows its screen and dialogs at it.
+ */
+export function canFit(el: HTMLElement): boolean {
+  return el.offsetParent !== null && el.clientWidth > 0 && el.clientHeight > 0;
+}
+
+/**
  * An agent terminal, opened into `el` and fitted to it: the one xterm setup shared by a local
  * session's Viewport and the terminal of a session on a connected machine (#2764). The caller
  * owns everything after this — the PTY connection, its key handling and `term.dispose()`.
@@ -46,7 +55,8 @@ export function openXterm(
   // window.opener.
   term.loadAddon(new WebLinksAddon((_event, uri) => openTerminalLink(uri)));
   term.open(el);
-  fit.fit();
+  // A hidden mount keeps xterm's 80×24 default; the caller's refit sizes it once it shows.
+  if (canFit(el)) fit.fit();
 
   // WebGL renderer. The default DOM renderer flows text with a per-glyph
   // letter-spacing derived from a fractional cell width; at a non-integer

@@ -590,21 +590,35 @@ export function forecastBasisLines(epic: Epic, slots: number | null): string[] |
   ];
 }
 
-/** How the step estimate is blended: this epic's measured steps, the repo median, or both. */
+/** How the step estimate is blended: this epic's measured steps, the repo median, or both. The
+ *  repo median is named for what it is taken over: past epic steps, or every task. */
 function blendLine(f: EpicForecast, children: readonly EpicChild[]): string {
   const step = approx(f.stepMs);
   const own = measured(children);
   // One measured step is named, with its time; more are counted.
   const one = f.epicSamples === 1 && own.length === 1 ? own[0] : null;
   const sample = one && { number: `#${one.number}`, dur: dur(one.ms) };
-  if (f.epicSamples === 0) return m.epicdetail_basis_repo({ step, count: f.repoSamples });
+  const steps = f.repoBasis === "epic-steps";
+  if (f.epicSamples === 0)
+    return (steps ? m.epicdetail_basis_repo_steps : m.epicdetail_basis_repo)({
+      step,
+      count: f.repoSamples,
+    });
   if (f.repoSamples === 0)
     return sample
       ? m.epicdetail_basis_epic_one({ step, ...sample })
       : m.epicdetail_basis_epic_other({ step, own: f.epicSamples });
-  return sample
-    ? m.epicdetail_basis_blend_one({ step, ...sample, count: f.repoSamples })
-    : m.epicdetail_basis_blend_other({ step, own: f.epicSamples, count: f.repoSamples });
+  if (sample)
+    return (steps ? m.epicdetail_basis_blend_steps_one : m.epicdetail_basis_blend_one)({
+      step,
+      ...sample,
+      count: f.repoSamples,
+    });
+  return (steps ? m.epicdetail_basis_blend_steps_other : m.epicdetail_basis_blend_other)({
+    step,
+    own: f.epicSamples,
+    count: f.repoSamples,
+  });
 }
 
 /** The order over the agent slots, plus the landing. */
@@ -623,8 +637,9 @@ export interface ChildDuration {
   tone: "done" | "run" | "forecast";
 }
 
-/** Merged: how long it took; in flight: its clock and what is left; otherwise the step estimate.
- *  Null when there is nothing to show or the server sends no epic clock. */
+/** Merged: how long it took; in flight: its clock and what is left; otherwise when it is planned
+ *  to run, or — while the epic's clock stands — the step estimate. Null when there is nothing to
+ *  show or the server sends no epic clock. */
 export function childDuration(c: EpicChild, epic: Epic, now: number): ChildDuration | null {
   if (!epic.timing) return null;
   const f = epic.forecast ?? null;
@@ -633,9 +648,18 @@ export function childDuration(c: EpicChild, epic: Epic, now: number): ChildDurat
       ? { text: dur(c.endedAt - c.startedAt), tone: "done" }
       : null;
   if (inFlight(c)) return inFlightDuration(c, f, now);
-  return f
-    ? { text: m.epicdetail_dur_forecast({ dur: approx(f.stepMs) }), tone: "forecast" }
-    : null;
+  if (!f) return null;
+  const cf = f.children.find((x) => x.number === c.number);
+  if (cf?.projectedStart != null && cf.projectedEnd != null)
+    return { text: plannedWindow(cf.projectedStart, cf.projectedEnd, now), tone: "forecast" };
+  return { text: m.epicdetail_dur_forecast({ dur: approx(f.stepMs) }), tone: "forecast" };
+}
+
+/** A waiting step's planned run, to 5 min: its end names only the time when on its start's day. */
+function plannedWindow(start: number, end: number, now: number): string {
+  const s = round5(start);
+  const e = round5(end);
+  return m.epicdetail_dur_window({ start: at(s, now), end: sameDay(s, e) ? clock(e) : at(e, now) });
 }
 
 function inFlightDuration(c: EpicChild, f: EpicForecast | null, now: number): ChildDuration | null {

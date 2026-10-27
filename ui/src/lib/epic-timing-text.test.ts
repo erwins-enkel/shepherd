@@ -67,6 +67,7 @@ const forecast = (p: Partial<EpicForecast> = {}): EpicForecast => ({
   landingMs: 20 * MIN,
   epicSamples: 1,
   repoSamples: 23,
+  repoBasis: "lead-time",
   firstFinishAt: NOW + 435 * MIN,
   fasterWithSlots: null,
   children: [
@@ -194,6 +195,18 @@ describe("epicTimingExplanation — forecast states", () => {
       aside: "very low · repo median only",
     });
     expect(f.note).toMatch(/Median over 23 tasks in this repo\.$/);
+  });
+
+  it("just started, priced from past epic steps: names them", () => {
+    const x = explain(
+      epic({
+        children: children().map((c) =>
+          c.number === 160 ? { ...c, state: "running", endedAt: null } : c,
+        ),
+        forecast: forecast({ epicSamples: 0, repoBasis: "epic-steps", firstFinishAt: null }),
+      }),
+    );
+    expect(section(x, "Forecast").note).toMatch(/Median over 23 epic steps in this repo\.$/);
   });
 
   it("behind plan: a warn mark on the slipped finish and the overrunning step", () => {

@@ -398,7 +398,9 @@ function basis(f: EpicForecast, slots: number | null): string {
           count: f.epicSamples,
         })
       : f.repoSamples > 0
-        ? m.epic_tip_samples_repo({ count: f.repoSamples })
+        ? (f.repoBasis === "epic-steps" ? m.epic_tip_samples_repo_steps : m.epic_tip_samples_repo)({
+            count: f.repoSamples,
+          })
         : null;
   return [pace, samples].filter(Boolean).join(" ");
 }

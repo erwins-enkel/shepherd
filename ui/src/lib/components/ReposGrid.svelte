@@ -59,7 +59,8 @@
       recent: !searching,
     }),
   );
-  const rest = $derived(sortProjects(grouped.rest, sort));
+  // A search keeps filterProjects' relevance order; the sort applies to the browse list.
+  const rest = $derived(searching ? grouped.rest : sortProjects(grouped.rest, sort));
   const maxIssues = $derived(Math.max(0, ...projects.map((p) => p.openIssues ?? 0)));
 
   // The search takes the cursor — "just type" — but only inside the dialog: the inline

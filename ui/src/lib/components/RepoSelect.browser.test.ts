@@ -80,6 +80,30 @@ describe("RepoSelect — keyboard cursor on open", () => {
     await expect.element(firstOption).toMatchTextContent("alpha");
   });
 
+  it("ranks the exact name match first, above alphabetically earlier substring hits", async () => {
+    render(RepoSelect, {
+      repos: [
+        {
+          name: "omarchy-plugin-shepherd",
+          path: "/w/omarchy-plugin-shepherd",
+          display: "~/w/omarchy-plugin-shepherd",
+          realPath: "/w/omarchy-plugin-shepherd",
+        },
+        { name: "shepherd", path: "/w/shepherd", display: "~/w/shepherd", realPath: "/w/shepherd" },
+      ],
+      value: "",
+      onchange: noop,
+      windowDays: 7,
+    });
+
+    document.querySelector<HTMLButtonElement>(".rs-trigger")!.click();
+    await page.getByPlaceholder(m.reposelect_filter_placeholder()).fill("shepherd");
+
+    const firstOption = page.getByRole("option").first();
+    await expect.element(firstOption).toHaveAttribute("aria-selected", "true");
+    await expect.element(firstOption).toMatchTextContent(/^\W*shepherd/);
+  });
+
   it("falls back to the first row when value matches no repo in the list", async () => {
     const repos = makeRepos();
     // value points at a repo that isn't in `shown` at all → findIndex returns -1,

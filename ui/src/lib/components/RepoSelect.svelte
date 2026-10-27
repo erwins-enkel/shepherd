@@ -5,6 +5,7 @@
   import type { RepoEntry } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { recentRepos } from "#lib/recentRepos.js";
+  import { searchRepos } from "#lib/repo-search.js";
   import EmojiPicker from "./EmojiPicker.svelte";
   import { projectIcons } from "#lib/projectIcons.svelte.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
@@ -105,16 +106,20 @@
   // absent from the empty-search list but reappear once a matching term is typed.
   const searching = $derived(filter.trim() !== "");
 
+  // Typed searches are fuzzy-ranked: best match first, usage breaking ties (searchRepos).
   const filtered = $derived(
-    repos
+    searchRepos(
+      filter,
       // Hide flagged repos only while not searching; typing a name reveals them so a
       // hidden repo can still be picked to start a task.
-      .filter((r) => !hideHidden || searching || !r.hidden)
-      .filter((r) =>
-        ((r.remoteSlug ?? "") + " " + r.name + " " + r.display)
-          .toLowerCase()
-          .includes(filter.toLowerCase()),
-      ),
+      repos.filter((r) => !hideHidden || searching || !r.hidden),
+      (r) => ({
+        name: r.name,
+        aliases: [r.remoteSlug ?? "", r.display].filter(Boolean),
+        recentAgentCount: r.recentAgentCount,
+        lastUsedAt: r.lastUsedAt,
+      }),
+    ),
   );
 
   // The top few repos we've run the most agents on lately (desc by count, then by

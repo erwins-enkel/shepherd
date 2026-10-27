@@ -3,6 +3,7 @@
  * unit-testable without a DOM.
  */
 import type { BacklogPayload, BacklogProject, DrainStatus } from "#lib/types.js";
+import { searchRepos } from "#lib/repo-search.js";
 
 /**
  * Format a count for display: number as-is, null as the em-dash placeholder
@@ -224,9 +225,9 @@ export function groupRepos(
  * predicate is AND'd together:
  * - `hasIssues` keeps only repos with open issues.
  * - `hasPRs` keeps only repos with open PRs.
- * - `query` (optional) keeps only repos whose name + display path contains the
- *   query string (case-insensitive substring, same rule as RepoSelect). An
- *   undefined or blank/whitespace-only query is the identity predicate.
+ * - `query` (optional) keeps only repos whose name, slug or display path fuzzy-
+ *   matches it, ranked best match first ({@link searchRepos}, same rule as
+ *   RepoSelect). An undefined or blank/whitespace-only query keeps input order.
  *
  * Counts fail closed: `?? 0` maps an unknown count (`null`, e.g. a non-github
  * forge or a not-yet-fetched repo) to 0, so only a count strictly `> 0`
@@ -236,13 +237,15 @@ export function filterProjects(
   projects: readonly BacklogProject[],
   opts: { hasIssues: boolean; hasPRs: boolean; query?: string },
 ): BacklogProject[] {
-  const q = opts.query?.trim().toLowerCase() ?? "";
-  return projects.filter(
-    (p) =>
-      (!opts.hasIssues || (p.openIssues ?? 0) > 0) &&
-      (!opts.hasPRs || (p.openPRs ?? 0) > 0) &&
-      (q === "" || (projectName(p) + " " + p.display).toLowerCase().includes(q)),
+  const scoped = projects.filter(
+    (p) => (!opts.hasIssues || (p.openIssues ?? 0) > 0) && (!opts.hasPRs || (p.openPRs ?? 0) > 0),
   );
+  return searchRepos(opts.query ?? "", scoped, (p) => ({
+    name: projectName(p),
+    aliases: [p.slug ?? "", p.display].filter(Boolean),
+    recentAgentCount: p.recentAgentCount,
+    lastUsedAt: p.lastUsedAt,
+  }));
 }
 
 /**

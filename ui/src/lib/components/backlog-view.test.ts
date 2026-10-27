@@ -308,6 +308,23 @@ describe("filterProjects — query search", () => {
     ]);
   });
 
+  it("ranks an exact name match above an earlier substring match, then by usage", () => {
+    const plugin = { ...project("/w/omarchy-plugin-shepherd", 0, 0), recentAgentCount: 9 };
+    const shepherd = project("/w/shepherd", 0, 0);
+    const bridge = { ...project("/w/shepherd-buzz-bridge", 0, 0), recentAgentCount: 1 };
+    const repos = [plugin, bridge, shepherd];
+    expect(filterProjects(repos, { hasIssues: false, hasPRs: false, query: "shepherd" })).toEqual([
+      shepherd,
+      bridge,
+      plugin,
+    ]);
+    expect(filterProjects(repos, { hasIssues: false, hasPRs: false, query: "shep" })).toEqual([
+      bridge,
+      shepherd,
+      plugin,
+    ]);
+  });
+
   it("blank query is identity (all projects pass)", () => {
     expect(filterProjects(projects, { hasIssues: false, hasPRs: false, query: "" })).toEqual(
       projects,

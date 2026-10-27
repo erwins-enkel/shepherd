@@ -10,7 +10,9 @@
   // Add/edit one operator schedule (#3469). A native <dialog> opened with showModal(): it lives in
   // the top layer — above the automation popover it is opened from — while staying a DOM
   // descendant of that popover, so the popover's click-outside dismissal never fires on a click
-  // in here. Escape is kept from reaching the window listeners that would close the popover.
+  // in here. Escape and Tab are kept from reaching the window listeners that would close the
+  // popover and the Settings card's a11yDialog (#3475): its Escape would close Settings, and its
+  // Tab trap would move focus to now-inert Settings controls. The modal dialog owns both.
   let {
     repoPath,
     schedule = null,
@@ -82,8 +84,14 @@
     if (ok) onclose();
   }
 
-  function onKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") e.stopPropagation();
+  // A native listener, not `onkeydown`: Svelte delegates that to the root, so its
+  // stopPropagation would run only after an ancestor's native listener had already fired.
+  function keepKeysInside(node: HTMLElement) {
+    const onKeydown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" || e.key === "Tab") e.stopPropagation();
+    };
+    node.addEventListener("keydown", onKeydown);
+    return () => node.removeEventListener("keydown", onKeydown);
   }
 </script>
 
@@ -92,7 +100,7 @@
   class="sched-dlg"
   aria-label={schedule ? m.schedules_edit_title() : m.schedules_add_title()}
   {onclose}
-  onkeydown={onKeydown}
+  {@attach keepKeysInside}
 >
   <form class="sched-form" onsubmit={submit}>
     <h2 class="title">{schedule ? m.schedules_edit_title() : m.schedules_add_title()}</h2>

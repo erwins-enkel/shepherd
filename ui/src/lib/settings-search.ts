@@ -6,6 +6,7 @@ export const SETTINGS_SECTION_IDS = [
   "steers",
   "plugins",
   "session",
+  "schedules",
   "decisionModel",
   "assistant",
   "notifications",
@@ -23,6 +24,8 @@ export const SECTION_GLYPHS: Record<SettingsSectionId, string> = {
   steers: "⇥",
   plugins: "✦",
   session: "⌖",
+  // U+25F7, same Geometric Shapes block as ▦/◫/◈ — a quartered circle reads as a clock face.
+  schedules: "◷",
   // U+25D0, same Geometric Shapes block as ▦/◫/◈ — a half-filled circle for a yes/no judgement.
   // NOT ◇, the issue's pick: the Assistant section already wears it.
   decisionModel: "◐",
@@ -260,6 +263,10 @@ export function sectionSearchRows(ctx: {
     steers: [[m.settings_tab_steers()], [m.steerseditor_title(), m.steerseditor_hint()]],
     plugins: [[m.settings_tab_plugins()], [m.plugins_check_updates()]],
     session: [[m.settings_tab_session()], ...sessionRows(ctx.session ?? {})],
+    schedules: [
+      [m.settings_tab_schedules(), m.settings_schedules_intro()],
+      [m.settings_schedules_filter_label(), m.settings_schedules_filter_all()],
+    ],
     decisionModel: [
       [m.settings_tab_decision_model(), m.settings_dm_provider()],
       ...dm.connection,

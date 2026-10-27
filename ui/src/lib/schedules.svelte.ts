@@ -8,19 +8,47 @@ import {
 } from "#lib/api.js";
 import { SvelteMap } from "svelte/reactivity";
 import { toasts } from "#lib/toasts.svelte.js";
+import { basename } from "#lib/basename.js";
 import type { Schedule, ScheduleInput, ScheduleOutcome } from "#lib/types.js";
 
 /**
  * Per-repo operator schedules (#3469) for the automation settings. Loaded on demand per repo and
  * re-read on `schedules:changed`. Keyed by `SvelteMap`: `repoPath` arrives off the event stream,
  * so it must never become a property name. Every write re-reads the list (the server owns
- * `nextAt` / `lastRun`); a failed write says so in a toast and returns false.
+ * `nextAt` / `lastRun`); a failed write says so in a toast and returns false. The every-repo list
+ * (#3475, Settings → Schedules) is loaded on demand too, and re-read alongside once loaded.
  */
 class SchedulesStore {
   #lists = new SvelteMap<string, Schedule[]>();
+  #all = $state<Schedule[] | null>(null);
+  /** The last every-repo read failed (a list shown before it stays as it was). */
+  #allFailed = $state(false);
 
   listFor(repoPath: string): Schedule[] | null {
     return this.#lists.get(repoPath) ?? null;
+  }
+
+  /** Every repo's schedules; null until `loadAll` has answered. */
+  all(): Schedule[] | null {
+    return this.#all;
+  }
+
+  allFailed(): boolean {
+    return this.#allFailed;
+  }
+
+  async loadAll(): Promise<void> {
+    try {
+      this.#all = await listSchedules();
+      this.#allFailed = false;
+    } catch {
+      this.#allFailed = true;
+    }
+  }
+
+  /** The every-repo list has been asked for (loaded, or failed and still worth retrying). */
+  get #allWanted(): boolean {
+    return this.#all !== null || this.#allFailed;
   }
 
   async load(repoPath: string): Promise<void> {
@@ -34,6 +62,7 @@ class SchedulesStore {
   /** The server says `repoPath`'s schedules changed: re-read when a view shows them. */
   refresh(repoPath: string): void {
     if (this.#lists.has(repoPath)) void this.load(repoPath);
+    if (this.#allWanted) void this.loadAll();
   }
 
   /** Create (no id) or update a schedule. */
@@ -57,7 +86,7 @@ class SchedulesStore {
     } catch {
       toasts.info(m.schedules_failed(), { alert: true });
     }
-    await this.load(s.repoPath);
+    await this.#reload(s.repoPath);
   }
 
   async #write(repoPath: string, op: () => Promise<unknown>): Promise<boolean> {
@@ -68,12 +97,29 @@ class SchedulesStore {
       toasts.info(m.schedules_failed(), { alert: true });
       return false;
     } finally {
-      await this.load(repoPath);
+      await this.#reload(repoPath);
     }
+  }
+
+  async #reload(repoPath: string): Promise<void> {
+    await Promise.all([this.load(repoPath), this.#allWanted && this.loadAll()]);
   }
 }
 
 export const schedules = new SchedulesStore();
+
+/** Soonest next run first; disabled schedules (no next run) last, by repo then name. */
+export function upcomingOrder(list: readonly Schedule[]): Schedule[] {
+  const key = (s: Schedule) => `${basename(s.repoPath)}\u0000${s.name}`;
+  return [...list].sort((a, b) => {
+    if (a.nextAt !== b.nextAt) {
+      if (a.nextAt === null) return 1;
+      if (b.nextAt === null) return -1;
+      return a.nextAt - b.nextAt;
+    }
+    return key(a).localeCompare(key(b));
+  });
+}
 
 /** A run outcome as the operator reads it. */
 export function outcomeLabel(outcome: ScheduleOutcome): string {

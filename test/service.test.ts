@@ -5522,6 +5522,7 @@ test("composeSystemPrompt rides <github-rate-limit-notice> after research-first 
     expect(ci).toContain("`gh pr checks --watch`");
     expect(ci).toContain("`self_status`");
     expect(ci).toContain("Shepherd steers you when the checks finish");
+    expect(ci).toContain("`gh run watch <run-id> --interval 30`");
   }
   // No self_status there: Codex has no MCP wiring, a plain session no read tools.
   for (const opts of [{ agentProvider: "codex" as const }, { plain: true }]) {

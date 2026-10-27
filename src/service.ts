@@ -1089,14 +1089,16 @@ const GITHUB_RATE_LIMIT_NOTICE =
  * Rides next to the rate-limit notice, on the same spawns (those with `self_status`) — issue #2852.
  * Agents looped `gh pr checks` (`--watch`) / `gh run watch` on PRs Shepherd already polls, spending
  * GitHub budget twice for the same state. Shepherd now steers the agent when its checks finish
- * (src/ci-steer.ts) and the tool guard denies the watchers; this tells the agent up front.
+ * (src/ci-steer.ts) and the tool guard denies the watchers; this tells the agent up front. Runs
+ * Shepherd doesn't track (deploys, releases) stay watchable — the guard allows those.
  * Agent-facing prompt text, so fixed English.
  */
 const CI_WAIT_NOTICE =
-  "Never poll CI: no `gh pr checks --watch`, `gh run watch`, or repeated `gh pr checks` / " +
-  "check-runs calls. `self_status` has your PR's CI state, and Shepherd steers you when the " +
+  "Never poll your PR's CI: no `gh pr checks --watch`, `gh run watch`, or repeated `gh pr checks` " +
+  "/ check-runs calls. `self_status` has your PR's CI state, and Shepherd steers you when the " +
   "checks finish — end your turn and wait. Use `gh run view <id> --log-failed` only to read an " +
-  "already failed run.";
+  "already failed run. Runs Shepherd doesn't track (deploys, releases, `workflow_dispatch`) may be " +
+  "watched: `gh run watch <run-id> --interval 30`.";
 
 /**
  * Injected into the system prompt only for isolated sessions (worktree-backed). Non-isolated

@@ -131,12 +131,12 @@ test("#1999 reproduces the epic's measured spawn-payload baseline (chars)", () =
   // Every shape then gained 209 chars / 211 bytes when the research-first notice stopped letting
   // framework majors pass as "well-established" (#3108).
   // Every shape then gained 324 chars / 326 bytes for the CI-wait notice (#2852: agents polled CI
-  // Shepherd already tracks).
+  // Shepherd already tracks), and 134 chars / 134 bytes more when it said deploy runs stay watchable.
   const baseline: [string, number, string][] = [
-    ["attended Claude", 3890, "3936"],
-    ["+ autopilot", 4976, "5026"],
-    ["plan-gate interactive", 9193, "9283"],
-    ["research", 4699, "4749"],
+    ["attended Claude", 4024, "4070"],
+    ["+ autopilot", 5110, "5160"],
+    ["plan-gate interactive", 9327, "9417"],
+    ["research", 4833, "4883"],
   ];
   const payloads = [
     composeSystemPrompt(false),
@@ -182,8 +182,8 @@ test("#1999 kitchen sink: build queue + preview + draft + trim", () => {
   // before #2002 moved the situational blocks behind the guard + skills (3,813); +657 for the
   // steer-provenance notice; +552 for the GitHub rate-limit notice (#2860); +209 for the
   // research-first notice's framework-major clause (#3108); -64 for the retired house-rules block
-  // (#3139); +324 for the CI-wait notice (#2852).
-  expect(measured.totalChars).toBe(5491);
+  // (#3139); +324 for the CI-wait notice (#2852), +134 when it said deploy runs stay watchable.
+  expect(measured.totalChars).toBe(5625);
   expect(measured.totalChars).toBe(
     composeSystemPrompt(false, {
       buildQueue,

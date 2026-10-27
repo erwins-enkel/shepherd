@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Terminal } from "@xterm/xterm";
   import { untrack } from "svelte";
-  import { openXterm, repaintXterm } from "#lib/xterm-setup.js";
+  import { canFit, openXterm, repaintXterm } from "#lib/xterm-setup.js";
   import { connectPty, type PtyConn, type PtyEndReason } from "#lib/pty.js";
   import { terminalFontSize } from "#lib/terminal-font-size.svelte.js";
   import { uiScale } from "#lib/ui-scale.svelte.js";
@@ -69,8 +69,7 @@
 
     // Only a visible mount has a real size: a hidden one would resize the PTY to 2 columns.
     const refit = () => {
-      if (mount.offsetParent === null || mount.clientWidth === 0 || mount.clientHeight === 0)
-        return;
+      if (!canFit(mount)) return;
       fit.fit();
       c.resize(term.cols, term.rows);
     };

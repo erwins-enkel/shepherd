@@ -1098,10 +1098,13 @@ export function isAuthorized(
 
 /**
  * Parse + clamp terminal dimensions from untrusted query params.
- * Garbage / out-of-range falls back to 100×30 (herdr's default attach size).
+ * Garbage / out-of-range falls back to 100×30 (herdr's default attach size). A size below
+ * 20×5 is a client that measured a hidden mount (iOS: 13×6), not a real terminal; attaching at it
+ * would resize the agent's pane to it, so the whole pair falls back.
  */
 export function parseTermDims(cols: unknown, rows: unknown): { cols: number; rows: number } {
-  return { cols: clampDim(cols, 100), rows: clampDim(rows, 30) };
+  const dims = { cols: clampDim(cols, 100), rows: clampDim(rows, 30) };
+  return dims.cols < 20 || dims.rows < 5 ? { cols: 100, rows: 30 } : dims;
 }
 
 function clampDim(v: unknown, fallback: number): number {

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Terminal, IBufferLine, IBufferCell } from "@xterm/xterm";
   import type { FitAddon } from "@xterm/addon-fit";
-  import { openXterm, repaintXterm } from "#lib/xterm-setup.js";
+  import { canFit, openXterm, repaintXterm } from "#lib/xterm-setup.js";
   import type {
     TerminalClientInfo,
     DrainStatus,
@@ -2033,7 +2033,7 @@
     // poisons the scrollback with 2-char-wide wrapping. offsetParent===null
     // catches display:none; the client-size checks catch transient collapses.
     const refit = () => {
-      if (!el || el.offsetParent === null || el.clientWidth === 0 || el.clientHeight === 0) return;
+      if (!el || !canFit(el)) return;
       // Reconcile a font-size change that arrived while the mount was hidden
       // (an iOS Dynamic Type change on another tab — see the live-apply effect,
       // which defers instead of measuring against a hidden mount). Setting the
@@ -2617,7 +2617,7 @@
     const fit = fitRef;
     if (!term || !fit) return;
     if (term.options.fontSize === size) return;
-    if (!el || el.offsetParent === null || el.clientWidth === 0 || el.clientHeight === 0) return;
+    if (!el || !canFit(el)) return;
     term.options.fontSize = size;
     fit.fit();
     conn?.resize(term.cols, term.rows);

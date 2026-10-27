@@ -2,9 +2,8 @@ import Foundation
 import ShepherdKit
 
 /// One open pull request in Up Next (`UpNextSnapshot.pullRequests`). The server classifies it
-/// into a band with one recommended action; clients never recompute that. Until the Swift
-/// contract carries the field it is bridged through the snapshot's extra properties, so a server
-/// without it yields no PRs at all.
+/// into a band with one recommended action; clients never recompute that. A server without the
+/// field yields no PRs at all.
 public struct UpNextPr: Codable, Equatable, Sendable, Identifiable {
     public enum Band: String, Codable, Sendable, CaseIterable { case ready, review, blocked, dependabot }
     public enum Action: String, Codable, Sendable, CaseIterable {
@@ -64,8 +63,6 @@ public struct UpNextPr: Codable, Equatable, Sendable, Identifiable {
     /// nil: CI is still running, nothing to do yet.
     public var action: Action?
     public var blockReason: BlockReason?
-    /// Markdown body when the server includes it; absent from the classification payload.
-    public var body: String?
 
     public var id: String { "\(repoPath)#\(number)" }
 
@@ -73,14 +70,13 @@ public struct UpNextPr: Codable, Equatable, Sendable, Identifiable {
                 author: String? = nil, kind: Kind = .regular, createdAt: Int, checks: Checks = .success,
                 mergeable: Bool? = nil, mergeStateStatus: String? = nil, latestReview: Review? = nil,
                 awaitingWorkflowApproval: Bool? = nil, baseRefName: String? = nil, mergeMethod: String? = nil,
-                closesIssue: ClosesIssue? = nil, band: Band, action: Action?, blockReason: BlockReason? = nil,
-                body: String? = nil) {
+                closesIssue: ClosesIssue? = nil, band: Band, action: Action?, blockReason: BlockReason? = nil) {
         self.repoPath = repoPath; self.repoSlug = repoSlug; self.repoLabel = repoLabel; self.number = number
         self.title = title; self.url = url; self.author = author; self.kind = kind; self.createdAt = createdAt
         self.checks = checks; self.mergeable = mergeable; self.mergeStateStatus = mergeStateStatus
         self.latestReview = latestReview; self.awaitingWorkflowApproval = awaitingWorkflowApproval
         self.baseRefName = baseRefName; self.mergeMethod = mergeMethod; self.closesIssue = closesIssue
-        self.band = band; self.action = action; self.blockReason = blockReason; self.body = body
+        self.band = band; self.action = action; self.blockReason = blockReason
     }
 
     /// Unknown server values degrade instead of dropping the PR: an unknown action reads as
@@ -107,25 +103,19 @@ public struct UpNextPr: Codable, Equatable, Sendable, Identifiable {
         band = try c.decode(Band.self, forKey: .band)
         action = Action(rawValue: try c.decodeIfPresent(String.self, forKey: .action) ?? "")
         blockReason = BlockReason(rawValue: try c.decodeIfPresent(String.self, forKey: .blockReason) ?? "")
-        body = try c.decodeIfPresent(String.self, forKey: .body)
     }
 }
 
-/// Reads the PR block out of a snapshot. Entries that do not decode are skipped one by one.
+/// Reads the PR block out of a snapshot. Each generated entry is re-read through `UpNextPr`'s
+/// lenient decoder, so an open-enum value this client does not know degrades (or, for a band,
+/// drops that one entry) instead of reaching the views.
 public enum UpNextPrs {
-    private struct Envelope: Decodable {
-        struct Lenient: Decodable {
-            let pr: UpNextPr?
-            init(from decoder: any Decoder) { pr = try? UpNextPr(from: decoder) }
-        }
-        let pullRequests: [Lenient]?
-    }
-
     public static func parse(_ snapshot: UpNextSnapshot?) -> [UpNextPr] {
-        guard let extra = snapshot?.additionalProperties, extra.value["pullRequests"] != nil,
-              let data = try? JSONEncoder().encode(extra),
-              let envelope = try? JSONDecoder().decode(Envelope.self, from: data) else { return [] }
-        return (envelope.pullRequests ?? []).compactMap(\.pr)
+        guard let entries = snapshot?.pullRequests else { return [] }
+        let encoder = JSONEncoder(), decoder = JSONDecoder()
+        return entries.compactMap { entry in
+            (try? encoder.encode(entry)).flatMap { try? decoder.decode(UpNextPr.self, from: $0) }
+        }
     }
 }
 
@@ -206,8 +196,8 @@ public enum UpNextPrPresentation {
         }.map(\.element)
     }
 
-    /// The bottom bar's green counter.
-    public static func readyCount(_ prs: [UpNextPr]) -> Int { prs.filter { $0.band == .ready }.count }
+    /// The bottom bar's green counter: PRs that can merge right now (web `readyPrCount`).
+    public static func readyCount(_ prs: [UpNextPr]) -> Int { prs.filter { $0.band == .ready && $0.action == .merge }.count }
 
     // MARK: Status line
 
@@ -298,10 +288,11 @@ public enum UpNextPrPresentation {
         }
     }
 
-    /// Every button the sheet offers, the server's recommendation first. Fix, review and merge are
-    /// always there; a Dependabot rebase only for Dependabot PRs, approval only when a workflow waits.
+    /// Every button the sheet offers, the server's recommendation first. Review and merge are
+    /// always there; fix only when the server offers it (its fix endpoint refuses any other PR), a
+    /// Dependabot rebase only for Dependabot PRs, approval only when a workflow waits.
     public static func actions(_ pr: UpNextPr) -> [UpNextPr.Action] {
-        var offered: [UpNextPr.Action] = [.fix, .review, .merge]
+        var offered: [UpNextPr.Action] = pr.action == .fix ? [.fix, .review, .merge] : [.review, .merge]
         if pr.kind == .dependabot { offered.append(.dependabotRebase) }
         if pr.awaitingWorkflowApproval == true || pr.blockReason == .workflowApproval { offered.append(.approveOnForge) }
         guard let primary = pr.action, offered.contains(primary) else { return offered }
@@ -326,25 +317,6 @@ public enum UpNextPrPresentation {
     }
 
     // MARK: Session requests
-
-    private static func fixReason(_ pr: UpNextPr, base: String) -> String {
-        switch pr.blockReason {
-        case .conflict: L.t("native_ios_upnext_pr_fix_reason_conflict", base)
-        case .behind: L.t("native_ios_upnext_pr_fix_reason_behind", base)
-        case .ciFailed: L.t("native_ios_upnext_pr_fix_reason_ci")
-        case .workflowApproval: L.t("native_ios_upnext_pr_fix_reason_approval")
-        case nil: pr.checks == .failure ? L.t("native_ios_upnext_pr_fix_reason_ci") : L.t("native_ios_upnext_pr_fix_reason_generic")
-        }
-    }
-
-    /// A fix session on the PR's base branch; the agent rebases and repairs what blocks it.
-    public static func fixRequest(_ pr: UpNextPr, baseBranch: String) -> CreateSessionRequest {
-        .init(repoPath: pr.repoPath, baseBranch: baseBranch,
-              // Placeholders are numbered by first appearance: number, title, url, reason, base.
-              prompt: L.t("native_ios_upnext_pr_fix_prompt", String(pr.number), pr.title, pr.url,
-                          fixReason(pr, base: baseBranch), baseBranch),
-              planGateEnabled: false)
-    }
 
     /// A review session that reads the PR and posts findings without merging.
     public static func reviewRequest(_ pr: UpNextPr, baseBranch: String) -> CreateSessionRequest {

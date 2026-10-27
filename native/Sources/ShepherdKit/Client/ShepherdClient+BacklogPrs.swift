@@ -60,32 +60,52 @@ extension ShepherdClient {
   }
 
   /// `POST /api/prs/dependabot-rebase`: posts the opt-in `@dependabot rebase` comment on a stuck
-  /// Dependabot PR. Hand-built like `createTerminalSession` because the route is not in the
-  /// Swift contract yet; GitHub only (other forges answer 400).
+  /// Dependabot PR. GitHub only (other forges answer 400).
   public func requestDependabotRebase(repo: String, number: Int) async throws {
     do {
-      var request = URLRequest(url: profile.baseURL.appendingPathComponent("api/prs/dependabot-rebase"))
-      request.httpMethod = "POST"
-      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-      request.setValue("application/json", forHTTPHeaderField: "Accept")
-      if let token = currentToken() { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-      request.httpBody = try JSONEncoder().encode(DependabotRebaseBody(repo: repo, number: number))
-      let (data, response) = try await longRunningURLSession.data(for: request)
-      guard let http = response as? HTTPURLResponse else {
-        throw ShepherdError.fromUndocumented(statusCode: 0, route: "requestDependabotRebase")
-      }
-      switch http.statusCode {
-      case 200: return
-      case 400: throw ShepherdError.badRequest(try JSONDecoder().decode(Components.Schemas._Error.self, from: data).error)
-      case 401: throw ShepherdError.unauthenticated
-      case 502: throw ShepherdError.fromUpstream(try JSONDecoder().decode(Components.Schemas._Error.self, from: data))
-      default: throw ShepherdError.fromUndocumented(statusCode: http.statusCode, route: "requestDependabotRebase")
+      switch try await generated.requestDependabotRebase(.init(body: .json(.init(repo: repo, number: number)))) {
+      case .ok: return
+      case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .badGateway(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
+      case .undocumented(let status, _):
+        throw ShepherdError.fromUndocumented(statusCode: status, route: "requestDependabotRebase")
       }
     } catch { throw ShepherdError.from(error, route: "requestDependabotRebase") }
   }
-}
 
-private struct DependabotRebaseBody: Encodable {
-  let repo: String
-  let number: Int
+  /// `POST /api/up-next/pr-fix`: start the server's push-only repair session for a waiting PR whose
+  /// action is `fix`. Refusals: `.notFound` (not fixable any more), `.conflict(code: "pr_in_flight")`
+  /// (a session already holds it), `.unprocessable` (the head lives in a fork).
+  public func startUpNextPrFix(repo: String, number: Int, steer: String? = nil) async throws -> Session {
+    do {
+      switch try await generated.startUpNextPrFix(.init(body: .json(.init(repo: repo, number: number, steer: steer)))) {
+      case .created(let created): return try created.body.json.session
+      case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .notFound: throw ShepherdError.notFound
+      case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
+      case .unprocessableContent(let bad): throw ShepherdError.unprocessable(try bad.body.json.error)
+      case .badGateway(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
+      case .undocumented(let status, _):
+        throw ShepherdError.fromUndocumented(statusCode: status, route: "startUpNextPrFix")
+      }
+    } catch { throw ShepherdError.from(error, route: "startUpNextPrFix") }
+  }
+
+  /// `GET /api/up-next/pr-body`: a waiting PR's full description, read on demand.
+  public func upNextPrBody(repo: String, number: Int) async throws -> String {
+    do {
+      switch try await generated.getUpNextPrBody(.init(query: .init(repo: repo, number: number))) {
+      case .ok(let ok): return try ok.body.json.body
+      case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .notFound: throw ShepherdError.notFound
+      case .badGateway(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
+      case .serviceUnavailable(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
+      case .undocumented(let status, _):
+        throw ShepherdError.fromUndocumented(statusCode: status, route: "getUpNextPrBody")
+      }
+    } catch { throw ShepherdError.from(error, route: "getUpNextPrBody") }
+  }
 }

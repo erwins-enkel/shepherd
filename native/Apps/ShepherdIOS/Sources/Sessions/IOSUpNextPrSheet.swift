@@ -191,7 +191,7 @@ struct IOSUpNextPrSheetContent: View {
 
     private var description: some View {
         NavigationLink {
-            IOSUpNextPrDescription(pr: pr)
+            IOSUpNextPrDescription(pr: pr, controller: controller)
         } label: {
             HStack {
                 Text(verbatim: L.t("native_ios_upnext_pr_description"))
@@ -248,18 +248,23 @@ struct IOSUpNextPrActionStyle: ButtonStyle {
     }
 }
 
-/// The PR body when the server sends one, else where to read it.
+/// The PR body, read on demand (`GET /api/up-next/pr-body`); when it cannot be read, where to read it.
 struct IOSUpNextPrDescription: View {
     let pr: UpNextPr
+    let controller: IOSUpNextPrController?
+    @State private var loaded: String??
     @Environment(\.openURL) private var openURL
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                if let body = pr.body, !body.isEmpty {
-                    Text(verbatim: body).textSelection(.enabled)
-                } else {
-                    Text(L.t("native_ios_upnext_pr_description_missing")).foregroundStyle(SessionListStyle.muted)
+                switch loaded {
+                case .none:
+                    ProgressView().frame(maxWidth: .infinity)
+                case .some(.some(let body)):
+                    Text(verbatim: body.isEmpty ? "—" : body).textSelection(.enabled)
+                case .some(.none):
+                    Text(L.t("upnext_pr_body_unavailable")).foregroundStyle(SessionListStyle.muted)
                     if let url = URL(string: pr.url) {
                         Button(L.t("native_ios_upnext_pr_open_forge")) { openURL(url) }
                             .buttonStyle(IOSActionButtonStyle()).accessibilityIdentifier("queues-upnext-pr-description-open")
@@ -270,6 +275,7 @@ struct IOSUpNextPrDescription: View {
         }
         .sessionFont().foregroundStyle(SessionListStyle.ink).background(SessionListStyle.background)
         .navigationTitle(L.t("native_ios_upnext_pr_description")).navigationBarTitleDisplayMode(.inline)
+        .task(id: pr.id) { loaded = .some(await controller?.loadBody(pr)) }
     }
 }
 

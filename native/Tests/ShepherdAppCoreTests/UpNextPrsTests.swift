@@ -23,20 +23,20 @@ struct UpNextPrsTests {
         return try JSONDecoder().decode(UpNextSnapshot.self, from: Data(json.utf8))
     }
 
-    @Test func parseReadsTheBlockFromTheSnapshotExtrasAndSkipsWhatDoesNotDecode() throws {
-        let good = #"{"repoPath":"/r/web","repoSlug":"o/web","repoLabel":"web","number":911,"title":"Security check","url":"https://github.test/o/web/pull/911","author":"kai","kind":"regular","createdAt":5,"checks":"success","mergeable":true,"mergeStateStatus":"clean","latestReview":{"state":"approved","author":"pat","submittedAt":7},"baseRefName":"main","mergeMethod":"squash","closesIssue":972,"band":"ready","action":"merge"}"#
-        let lenient = #"{"repoPath":"/r/web","repoLabel":"web","number":12,"title":"Odd","url":"u","createdAt":1,"checks":"weird","band":"blocked","action":"teleport","blockReason":"solar_flare","closesIssue":{"number":3,"url":"https://github.test/o/web/issues/3"}}"#
-        let bad = #"{"repoPath":"/r/web","number":1,"title":"No band","url":"u","createdAt":1}"#
-        let unknownBand = #"{"repoPath":"/r/web","repoLabel":"web","number":2,"title":"Future band","url":"u","createdAt":1,"band":"someday"}"#
-        let parsed = UpNextPrs.parse(try snapshot(extras: #","pullRequests":[\#(good),\#(lenient),\#(bad),\#(unknownBand)]"#))
+    @Test func parseReadsTheContractFieldAndDropsOnlyAnUnknownBand() throws {
+        let good = #"{"repoPath":"/r/web","repoSlug":"o/web","repoLabel":"web","number":911,"title":"Security check","url":"https://github.test/o/web/pull/911","author":"kai","kind":"regular","createdAt":5,"checks":"success","mergeable":true,"mergeStateStatus":"clean","latestReview":{"state":"approved","author":"pat","submittedAt":7},"baseRefName":"main","mergeMethod":"squash","closesIssue":972,"band":"ready","action":"merge","headSha":"abc","jobs":[{"name":"test","state":"success"}]}"#
+        // Open enums: values this client does not know yet still decode through the contract.
+        let lenient = #"{"repoPath":"/r/web","repoSlug":null,"repoLabel":"web","number":12,"title":"Odd","url":"u","author":"bot","kind":"someday","createdAt":1,"checks":"weird","mergeable":null,"band":"blocked","action":"teleport","blockReason":"solar_flare"}"#
+        let unknownBand = #"{"repoPath":"/r/web","repoSlug":null,"repoLabel":"web","number":2,"title":"Future band","url":"u","author":"kai","kind":"regular","createdAt":1,"checks":"none","mergeable":null,"band":"someday"}"#
+        let parsed = UpNextPrs.parse(try snapshot(extras: #","pullRequests":[\#(good),\#(lenient),\#(unknownBand)]"#))
         #expect(parsed.map(\UpNextPr.number) == [911, 12])
         let first = try #require(parsed.first)
         #expect(first.band == .ready && first.action == .merge && first.closesIssue == .init(number: 972))
         #expect(first.latestReview == .init(state: "approved", author: "pat"))
-        #expect(first.mergeMethod == "squash" && first.repoSlug == "o/web")
+        #expect(first.mergeMethod == "squash" && first.repoSlug == "o/web" && first.mergeable == true)
         let second = parsed[1]
         #expect(second.checks == .none && second.action == nil && second.blockReason == nil && second.kind == .regular)
-        #expect(second.closesIssue == .init(number: 3, url: "https://github.test/o/web/issues/3"))
+        #expect(second.mergeable == nil && second.repoSlug == nil)
         // Older servers, and the key missing or null: no block, no crash.
         #expect(UpNextPrs.parse(try snapshot(extras: "")).isEmpty)
         #expect(UpNextPrs.parse(try snapshot(extras: #","pullRequests":null"#)).isEmpty)
@@ -61,6 +61,8 @@ struct UpNextPrsTests {
         #expect(UpNextPrPresentation.groups(prs, sort: .newest, repos: ["/r/api"]).map(\UpNextPrGroup.band) == [UpNextPr.Band.dependabot])
         #expect(UpNextPrPresentation.groups([], sort: .newest).isEmpty)
         #expect(UpNextPrPresentation.readyCount(prs) == 2)
+        // The counter only counts what can merge right now, like the web badge.
+        #expect(UpNextPrPresentation.readyCount([pr(6, band: .ready, action: nil, checks: .pending)]) == 0)
         #expect(UpNextPrPresentation.bandTitle(.review) == L.t("native_ios_upnext_pr_band_review"))
     }
 
@@ -109,33 +111,26 @@ struct UpNextPrsTests {
         #expect(UpNextPrPresentation.mergeLock(pr(4, band: .review, action: nil, checks: .pending)) == L.t("native_ios_upnext_pr_lock_running"))
         // Review due with green CI: review first, merge offered as a secondary action.
         let review = pr(5, band: .review, action: .review)
-        #expect(UpNextPrPresentation.actions(review) == [UpNextPr.Action.review, .fix, .merge])
+        #expect(UpNextPrPresentation.actions(review) == [UpNextPr.Action.review, .merge])
         #expect(UpNextPrPresentation.mergeLock(review) == nil)
-        #expect(UpNextPrPresentation.actions(pr(6, band: .ready, action: .merge)) == [UpNextPr.Action.merge, .fix, .review])
+        // Fix only where the server offers it: its endpoint refuses every other PR.
+        #expect(UpNextPrPresentation.actions(pr(6, band: .ready, action: .merge)) == [UpNextPr.Action.merge, .review])
         let approval = pr(7, band: .blocked, action: .approveOnForge, block: .workflowApproval, checks: .none, approval: true)
-        #expect(UpNextPrPresentation.actions(approval) == [UpNextPr.Action.approveOnForge, .fix, .review, .merge])
+        #expect(UpNextPrPresentation.actions(approval) == [UpNextPr.Action.approveOnForge, .review, .merge])
         #expect(UpNextPrPresentation.mergeLock(approval) == L.t("native_ios_upnext_pr_lock_approval"))
         let bot = pr(8, band: .dependabot, action: .dependabotRebase, block: .behind, kind: .dependabot)
-        #expect(UpNextPrPresentation.actions(bot) == [UpNextPr.Action.dependabotRebase, .fix, .review, .merge])
+        #expect(UpNextPrPresentation.actions(bot) == [UpNextPr.Action.dependabotRebase, .review, .merge])
         // An action the server recommends but this client does not offer falls back to the fixed order.
         var odd = pr(9, band: .ready, action: .dependabotRebase)
         odd.kind = .regular
-        #expect(UpNextPrPresentation.actions(odd) == [UpNextPr.Action.fix, .review, .merge])
+        #expect(UpNextPrPresentation.actions(odd) == [UpNextPr.Action.review, .merge])
         #expect(UpNextPrPresentation.label(.fix) == L.t("native_ios_upnext_pr_action_fix"))
     }
 
-    @Test func fixAndReviewRequestsNameThePrAndItsBaseAndSkipThePlanGate() {
+    @Test func reviewRequestNamesThePrAndItsBaseAndSkipsThePlanGate() {
         let blocked = pr(985, band: .blocked, action: .fix, block: .conflict, title: "feat(mcp): videos", base: "main")
-        let fix = UpNextPrPresentation.fixRequest(blocked, baseBranch: "main")
-        #expect(fix.repoPath == "/r/web" && fix.baseBranch == "main" && fix.planGateEnabled == false)
-        #expect(fix.prompt.contains("#985") && fix.prompt.contains("feat(mcp): videos") && fix.prompt.contains(blocked.url))
-        #expect(fix.prompt.contains(L.t("native_ios_upnext_pr_fix_reason_conflict", "main")))
-        // Placeholder order: the reason follows the colon, the base follows "onto".
-        #expect(fix.prompt.contains(": " + L.t("native_ios_upnext_pr_fix_reason_conflict", "main") + "."))
-        #expect(fix.prompt.contains("onto main") || fix.prompt.contains("auf main"))
-        let redFix = UpNextPrPresentation.fixRequest(pr(1, band: .blocked, action: .fix, checks: .failure), baseBranch: "main")
-        #expect(redFix.prompt.contains(L.t("native_ios_upnext_pr_fix_reason_ci")))
         let review = UpNextPrPresentation.reviewRequest(blocked, baseBranch: "develop")
+        #expect(review.repoPath == "/r/web" && review.planGateEnabled == false)
         #expect(review.baseBranch == "develop" && review.prompt.contains("#985") && review.mergeTrainPrs == nil)
     }
 

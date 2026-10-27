@@ -8,6 +8,10 @@ import ShepherdKit
 struct IOSUpNextPrCommands {
     var merge: (UpNextPr, MergeMethod?, Bool, MergeConfirmation?) async throws -> Void
     var dependabotRebase: (UpNextPr) async throws -> Void
+    /// The server's push-only fix session (`POST /api/up-next/pr-fix`).
+    var fix: (UpNextPr) async throws -> Session
+    /// The PR description, read on demand for the sheet.
+    var body: (UpNextPr) async throws -> String
     var createSession: (CreateSessionRequest) async throws -> CreateOutcome
     /// The repo's default branch, for a PR the server sent without `baseRefName`.
     var defaultBranch: (String) async throws -> String?
@@ -18,6 +22,10 @@ struct IOSUpNextPrCommands {
                                             deleteBranch: deleteBranch, confirm: confirm)
         }, dependabotRebase: { pr in
             try await client.requestDependabotRebase(repo: pr.repoPath, number: pr.number)
+        }, fix: { pr in
+            try await client.startUpNextPrFix(repo: pr.repoPath, number: pr.number)
+        }, body: { pr in
+            try await client.upNextPrBody(repo: pr.repoPath, number: pr.number)
         }, createSession: { request in
             try await client.createSession(request, spawnID: UUID().uuidString)
         }, defaultBranch: { repo in try await client.branches(repoPath: repo)._default })
@@ -38,7 +46,7 @@ struct IOSUpNextPrMergeDraft: Equatable {
     var confirmTitle: String { L.t(isTakeover ? "mergeconfirm_confirm_takeover" : "mergeconfirm_confirm") }
 }
 
-/// Sessions the PR sheet starts; the prompts live in `UpNextPrPresentation`.
+/// Sessions the PR sheet starts: a fix through the server's endpoint, a review like the composer.
 enum IOSUpNextPrSessionKind: String { case fix, review }
 
 /// One per activation: the merge confirmation and the busy/error gate, so a swipe merge and a sheet merge never overlap.
@@ -168,17 +176,47 @@ final class IOSUpNextPrController: AppExtension {
 
     // MARK: Sessions
 
-    /// Fix and review sessions are created like the composer's: `POST /api/sessions` on the
-    /// PR's base branch, then the new session is selected.
+    /// A fix runs through the server's push-only repair session, as on the web; a review session
+    /// is created like the composer's on the PR's base branch. Either way the new session is selected.
     @discardableResult
     func startSession(_ kind: IOSUpNextPrSessionKind, _ pr: UpNextPr, select: @escaping (String) -> Void) async -> Bool {
-        await create(repo: pr.repoPath, base: pr.baseRefName, select: select) { base in
-            switch kind {
-            case .fix: UpNextPrPresentation.fixRequest(pr, baseBranch: base)
-            case .review: UpNextPrPresentation.reviewRequest(pr, baseBranch: base)
+        switch kind {
+        case .fix: await startFix(pr, select: select)
+        case .review:
+            await create(repo: pr.repoPath, base: pr.baseRefName, select: select) {
+                UpNextPrPresentation.reviewRequest(pr, baseBranch: $0)
             }
         }
     }
+
+    private func startFix(_ pr: UpNextPr, select: @escaping (String) -> Void) async -> Bool {
+        guard allowsWrites, !busy, pr.action == .fix else { return false }
+        clearFeedback()
+        let revision = presentationRevision
+        var session: Session?
+        var failure: (any Error)?
+        let ok = await command.run({
+            do { session = try await commands.fix(pr) } catch { failure = error; throw error }
+        }, failureCopy: { _ in failure.flatMap { Self.fixFailure($0, number: pr.number) } ?? L.t("upnext_pr_fix_failed", String(pr.number)) },
+           isCurrent: { self.allowsWrites && revision == self.presentationRevision })
+        guard ok, let session else { return false }
+        note = .success(L.t("upnext_pr_fix_started", String(pr.number)))
+        select(session.id)
+        await refreshQueue()
+        return true
+    }
+
+    /// The web's `fixFailure`: a fork's head and a PR a session already holds get their own line.
+    static func fixFailure(_ error: any Error, number: Int) -> String? {
+        switch error as? ShepherdError {
+        case .unprocessable: L.t("upnext_pr_fix_fork", String(number))
+        case .conflict(let code, _) where code == "pr_in_flight": L.t("upnext_pr_fix_in_flight", String(number))
+        default: nil
+        }
+    }
+
+    /// The sheet's description; nil when it could not be read.
+    func loadBody(_ pr: UpNextPr) async -> String? { try? await commands.body(pr) }
 
     private func create(repo: String, base: String?, select: @escaping (String) -> Void,
                         request: @escaping (String) -> CreateSessionRequest) async -> Bool {

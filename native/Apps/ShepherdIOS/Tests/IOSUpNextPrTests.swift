@@ -6,7 +6,8 @@ import ShepherdKit
 @testable import ShepherdIOS
 
 /// PRs in Up Next on iOS: the swipe and sheet merge both go through the confirmation, a refused
-/// takeover re-arms it with the gate, fix/review/train start sessions like the composer, and the
+/// takeover re-arms it with the gate, a fix goes to the server's fix endpoint, review/train start
+/// sessions like the composer, and the
 /// list, sheet and confirmation render from fixtures (PNGs land in the scratchpad for review).
 @MainActor
 final class IOSUpNextPrTests: XCTestCase {
@@ -16,6 +17,8 @@ final class IOSUpNextPrTests: XCTestCase {
         var merges: [(pr: UpNextPr, method: MergeMethod?, deleteBranch: Bool, confirm: MergeConfirmation?)] = []
         var mergeFailures: [any Error] = []
         var rebases: [Int] = []
+        var fixes: [Int] = []
+        var fixFailure: (any Error)?
         var creates: [CreateSessionRequest] = []
         var created = PreviewData.session(id: "fix-1", desig: "TASK-09")
         var hold = false
@@ -30,6 +33,11 @@ final class IOSUpNextPrTests: XCTestCase {
                 self.merges.append((pr, method, delete, confirm))
                 if !self.mergeFailures.isEmpty { throw self.mergeFailures.removeFirst() }
             }, dependabotRebase: { self.rebases.append($0.number) },
+               fix: { pr in
+                self.fixes.append(pr.number)
+                if let failure = self.fixFailure { throw failure }
+                return self.created
+            }, body: { _ in "Fixes the check." },
                createSession: { request in
                 self.creates.append(request)
                 return self.hold ? .held(.init(held: true, id: "h1", count: 1)) : .created(self.created)
@@ -116,15 +124,46 @@ final class IOSUpNextPrTests: XCTestCase {
         XCTAssertTrue(controller.canConfirmMerge(now: retry.addingTimeInterval(0.4)))
     }
 
-    func testFixAndReviewSessionsUseThePrBaseOrTheRepoDefaultAndSelectTheSession() async {
+    func testFixGoesToTheServerEndpointAndNamesItsRefusals() async {
         let fake = Fake()
         var selected: [String] = []
         let blocked = pr(985, band: .blocked, action: .fix, block: .conflict, title: "feat(mcp): Werkstattbericht")
         var ok = await fake.controller.startSession(.fix, blocked) { selected.append($0) }
         XCTAssertTrue(ok)
-        XCTAssertEqual(fake.creates.count, 1)
+        XCTAssertEqual(fake.fixes, [985])
+        XCTAssertTrue(fake.creates.isEmpty, "a fix never builds its own session request")
+        XCTAssertEqual(selected, ["fix-1"])
+        XCTAssertEqual(fake.refreshes, 1)
+        XCTAssertEqual(fake.controller.note?.text, L.t("upnext_pr_fix_started", "985"))
+
+        // Only a PR the server offers a fix for is sent.
+        ok = await fake.controller.startSession(.fix, pr(6, band: .ready, action: .merge)) { selected.append($0) }
+        XCTAssertFalse(ok)
+        XCTAssertEqual(fake.fixes, [985])
+
+        fake.fixFailure = ShepherdError.unprocessable("head not in repo")
+        ok = await fake.controller.startSession(.fix, blocked) { selected.append($0) }
+        XCTAssertFalse(ok)
+        XCTAssertEqual(fake.controller.error, L.t("upnext_pr_fix_fork", "985"))
+        fake.fixFailure = ShepherdError.conflict(code: "pr_in_flight", message: "busy")
+        _ = await fake.controller.startSession(.fix, blocked) { selected.append($0) }
+        XCTAssertEqual(fake.controller.error, L.t("upnext_pr_fix_in_flight", "985"))
+        fake.fixFailure = ShepherdError.notFound
+        _ = await fake.controller.startSession(.fix, blocked) { selected.append($0) }
+        XCTAssertEqual(fake.controller.error, L.t("upnext_pr_fix_failed", "985"))
+        XCTAssertEqual(selected, ["fix-1"])
+
+        let body = await fake.controller.loadBody(blocked)
+        XCTAssertEqual(body, "Fixes the check.")
+    }
+
+    func testReviewSessionsUseThePrBaseOrTheRepoDefaultAndSelectTheSession() async {
+        let fake = Fake()
+        var selected: [String] = []
+        var ok = await fake.controller.startSession(.review, pr(4, band: .review, action: .review)) { selected.append($0) }
+        XCTAssertTrue(ok)
         XCTAssertEqual(fake.creates.first?.baseBranch, "main")
-        XCTAssertTrue(fake.creates.first?.prompt.contains("#985") == true)
+        XCTAssertTrue(fake.creates.first?.prompt.contains("#4") == true)
         XCTAssertEqual(fake.creates.first?.planGateEnabled, false)
         XCTAssertTrue(fake.branchReads.isEmpty, "a PR with a base branch needs no lookup")
         XCTAssertEqual(selected, ["fix-1"])
@@ -141,13 +180,14 @@ final class IOSUpNextPrTests: XCTestCase {
 
         // Held behind the usage reset: a warning, nothing selected.
         fake.hold = true
-        ok = await fake.controller.startSession(.fix, blocked) { selected.append($0) }
+        let review = pr(8, band: .review, action: .review)
+        ok = await fake.controller.startSession(.review, review) { selected.append($0) }
         XCTAssertTrue(ok)
         XCTAssertEqual(selected.count, 3)
         XCTAssertEqual(fake.controller.note?.tone, .warning)
 
         fake.writable = false
-        ok = await fake.controller.startSession(.fix, blocked) { selected.append($0) }
+        ok = await fake.controller.startSession(.review, review) { selected.append($0) }
         XCTAssertFalse(ok)
         XCTAssertEqual(fake.creates.count, 4)
 
@@ -156,7 +196,7 @@ final class IOSUpNextPrTests: XCTestCase {
         revoking.hold = false
         var lookups = 0
         let revokingController = IOSUpNextPrController(commands: .init(
-            merge: { _, _, _, _ in }, dependabotRebase: { _ in },
+            merge: { _, _, _, _ in }, dependabotRebase: { _ in }, fix: { _ in revoking.created }, body: { _ in "" },
             createSession: { request in revoking.creates.append(request); return .created(revoking.created) },
             defaultBranch: { _ in lookups += 1; revoking.writable = false; return "trunk" }), canWrite: { revoking.writable })
         ok = await revokingController.startSession(.review, pr(7, band: .review, action: .review, base: nil)) { selected.append($0) }

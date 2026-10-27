@@ -19629,23 +19629,6 @@
         }
       }
     },
-    "native_ios_upnext_pr_description_missing": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Server hat keine Beschreibung geliefert. Öffne den Pull Request auf GitHub, um sie zu lesen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The server sent no description. Open the pull request on GitHub to read it."
-          }
-        }
-      }
-    },
     "native_ios_upnext_pr_done": {
       "extractionState": "manual",
       "localizations": {
@@ -19744,111 +19727,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Target"
-          }
-        }
-      }
-    },
-    "native_ios_upnext_pr_fix_prompt": {
-      "comment": "%1$@ = number, %2$@ = title, %3$@ = url, %4$@ = reason, %5$@ = base",
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bringe Pull Request #%1$@ \"%2$@\" (%3$@) in einen mergebaren Zustand: %4$@.\n\nChecke seinen Branch aus, rebase ihn auf %5$@ (niemals %5$@ in den Branch mergen), löse, was ihn blockiert, lass die Checks des Projekts laufen, bis sie grün sind, pushe und berichte, was du geändert hast. Merge den Pull Request nicht."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fix pull request #%1$@ \"%2$@\" (%3$@) so it can merge: %4$@.\n\nCheck out its branch, rebase it onto %5$@ (never merge %5$@ into the branch), resolve what blocks it, run the project's checks until they pass, push, and report what you changed. Do not merge the pull request."
-          }
-        }
-      }
-    },
-    "native_ios_upnext_pr_fix_reason_approval": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ein Workflow wartet auf Freigabe, seine Checks sind daher nicht gelaufen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "a workflow is awaiting approval, so its checks have not run"
-          }
-        }
-      }
-    },
-    "native_ios_upnext_pr_fix_reason_behind": {
-      "comment": "%1$@ = base",
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "er liegt hinter %1$@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "it is behind %1$@"
-          }
-        }
-      }
-    },
-    "native_ios_upnext_pr_fix_reason_ci": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "seine CI schlägt fehl"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "its CI is failing"
-          }
-        }
-      }
-    },
-    "native_ios_upnext_pr_fix_reason_conflict": {
-      "comment": "%1$@ = base",
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "er hat Merge-Konflikte mit %1$@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "it has merge conflicts with %1$@"
-          }
-        }
-      }
-    },
-    "native_ios_upnext_pr_fix_reason_generic": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "er ist noch nicht mergebar"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "it is not mergeable yet"
           }
         }
       }
@@ -40493,6 +40371,95 @@
           "stringUnit": {
             "state": "translated",
             "value": "priority"
+          }
+        }
+      }
+    },
+    "upnext_pr_body_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Beschreibung dieses PRs konnte nicht geladen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This pull request's description couldn't be loaded."
+          }
+        }
+      }
+    },
+    "upnext_pr_fix_failed": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix-Session für #%1$@ konnte nicht starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't start a fix session for #%1$@"
+          }
+        }
+      }
+    },
+    "upnext_pr_fix_fork": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "#%1$@ kommt aus einem Fork — sein Branch liegt nicht in diesem Repo, also auf GitHub beheben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "#%1$@ comes from a fork — its branch isn't in this repo, so fix it on GitHub"
+          }
+        }
+      }
+    },
+    "upnext_pr_fix_in_flight": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An #%1$@ arbeitet schon eine Session"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A session already works on #%1$@"
+          }
+        }
+      }
+    },
+    "upnext_pr_fix_started": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix-Session für #%1$@ gestartet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix session started for #%1$@"
           }
         }
       }

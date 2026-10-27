@@ -176,6 +176,39 @@ test("POST /api/prs/merge merges the PR by number, defaulting method + deleteBra
   expect(merged!.opts).toEqual({ method: "squash", deleteBranch: true, allowStacked: true });
 });
 
+test("POST /api/prs/merge lands with the method the operator picked from Merge ▾", async () => {
+  let opts: MergeInput | null = null;
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        merge: async (_number, o) => {
+          opts = o;
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(mergeReq({ repo: repoDir, number: 12, method: "rebase" }));
+  expect(res.status).toBe(200);
+  expect(opts!.method).toBe("rebase");
+});
+
+test("POST /api/prs/merge with an unknown method → 400, nothing merged", async () => {
+  let merged = false;
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        merge: async () => {
+          merged = true;
+        },
+      }),
+    ),
+  );
+  // GitHub's merge maps an unknown method to squash — it must never get that far.
+  const res = await app.fetch(mergeReq({ repo: repoDir, number: 12, method: "admin" }));
+  expect(res.status).toBe(400);
+  expect(merged).toBe(false);
+});
+
 test("POST /api/prs/merge into a landed epic child's branch → 409 base_already_merged (#3102)", async () => {
   let merged = false;
   const forge = fakeForge({

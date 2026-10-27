@@ -3,6 +3,10 @@
     DrainRunSummary,
     DrainStatus,
     Epic,
+    EpicAutoBlockers,
+    EpicAutoFixOption,
+    EpicAutoFixOptionId,
+    EpicAutoFixState,
     EpicRunStatus,
     EpicSummary,
     GitState,
@@ -17,8 +21,11 @@
     getDrain,
     overrideEpicBaseHold,
     reworkEpicBase,
+    getEpicAutoFix,
+    applyEpicAutoFix,
     ApiError,
   } from "#lib/api.js";
+  import { basename } from "#lib/basename.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { repoConfig } from "#lib/reviews.svelte.js";
   import { firstSafeHttpUrl } from "#lib/url.js";
@@ -36,7 +43,9 @@
     queuePosition,
     usageOverride,
   } from "../epic-panel";
+  import { confirmText, haltedSettings, issueList, startable } from "../epic-auto-fix";
   import type { EpicOthersFlag } from "../issues-panel";
+  import EpicAutoFixChooser from "./EpicAutoFixChooser.svelte";
   import EpicRunSteps from "./EpicRunSteps.svelte";
   import EpicRunSettings from "./EpicRunSettings.svelte";
   import EpicSupersedeDialog from "./EpicSupersedeDialog.svelte";
@@ -96,6 +105,123 @@
   });
 
   const stateLabel = $derived(epicRunStateLabel(runState.kind, inFlightText, runState.position));
+
+  // #3454: the repo's sandbox, the epic's CLI or this host holds the run. The auto-fix model
+  // (#3453) names every cause and the ways out; a fix applies in one step and stays undoable here
+  // until Undo or the next epic.
+  const sandboxHalt = $derived(runState.kind === "halted_sandbox");
+  const repoName = $derived(basename(repoPath));
+  let blockers = $state<EpicAutoBlockers | null>(null);
+  let fixBusy = $state(false);
+  let fix = $state<{
+    repoPath: string;
+    parent: number;
+    changes: EpicAutoFixOption["changes"];
+    previous: EpicAutoFixState;
+    starting: number[];
+  } | null>(null);
+  // The host may hand this instance another epic: a fix only belongs to the one it changed.
+  const activeFix = $derived(fix?.repoPath === repoPath && fix.parent === parent ? fix : null);
+  // Bumped by every load and adopt, so an answer that arrives late never overwrites a newer one.
+  let blockersSeq = 0;
+  function adoptBlockers(b: EpicAutoBlockers | null) {
+    blockersSeq++;
+    blockers = b;
+  }
+  // Re-asked whenever the hold or a setting the model reads changes.
+  const haltKey = $derived(
+    sandboxHalt
+      ? [
+          repoPath,
+          parent,
+          drain?.reason,
+          drain?.detail,
+          epic.run.agentProvider ?? "",
+          repoConfig.sandboxProfileFor(repoPath),
+        ].join("|")
+      : null,
+  );
+  $effect(() => {
+    if (haltKey == null) {
+      adoptBlockers(null);
+      return;
+    }
+    const seq = ++blockersSeq;
+    // A failed load drops any earlier answer, so the hold note shows in place of the card.
+    getEpicAutoFix(repoPath, parent)
+      .then((b) => {
+        if (seq === blockersSeq) blockers = b;
+      })
+      .catch(() => {
+        if (seq === blockersSeq) blockers = null;
+      });
+  });
+  const toStart = $derived(sandboxHalt ? startable(epic, drain?.runSummary) : null);
+  const haltHead = $derived.by(() => {
+    const ready = toStart?.ready ?? [];
+    if (ready.length === 0) return m.epic_autofix_head_none();
+    if (ready.length === 1) return m.epic_autofix_head_one({ issue: issueList(ready) });
+    return m.epic_autofix_head_many({ issues: issueList(ready) });
+  });
+  const applyLabel = $derived(
+    toStart?.starting.length
+      ? m.epic_autofix_apply_start({ issues: issueList(toStart.starting) })
+      : m.epic_autofix_apply(),
+  );
+  // The footer's CLI and Sandbox fields say "halts" while they are a cause.
+  const halts = $derived(
+    sandboxHalt ? haltedSettings(blockers, drain?.reason ?? null) : { cli: false, sandbox: false },
+  );
+  // What a fix started that holds no slot yet — the Now step lists it as starting.
+  const startingNow = $derived.by(() => {
+    if (!activeFix || runState.tone === "halt") return [];
+    const held = new Set(drain?.runSummary?.slots.holders.map((h) => h.issueNumber));
+    return activeFix.starting.filter(
+      (n) => !held.has(n) && epic.children.some((c) => c.number === n && c.state === "ready"),
+    );
+  });
+
+  function autoFixFailed(msg: string) {
+    toasts.info(msg, { alert: true, key: "epic-autofix-fail" });
+  }
+
+  async function applyFix(option: EpicAutoFixOptionId) {
+    const chosen = blockers?.options.find((o) => o.id === option);
+    if (!chosen || fixBusy) return;
+    const starting = toStart?.starting ?? [];
+    fixBusy = true;
+    try {
+      const result = await applyEpicAutoFix(repoPath, parent, { option });
+      adoptBlockers(result.blockers);
+      fix = { repoPath, parent, changes: chosen.changes, previous: result.previous, starting };
+      void repoConfig.reload(repoPath);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        // The model moved on (a setting changed meanwhile): show its current ways.
+        autoFixFailed(m.epic_autofix_unavailable());
+        getEpicAutoFix(repoPath, parent)
+          .then(adoptBlockers)
+          .catch(() => {});
+      } else autoFixFailed(m.epic_autofix_failed());
+    } finally {
+      fixBusy = false;
+    }
+  }
+
+  async function undoFix() {
+    if (!activeFix || fixBusy) return;
+    fixBusy = true;
+    try {
+      const result = await applyEpicAutoFix(repoPath, parent, { restore: activeFix.previous });
+      adoptBlockers(result.blockers);
+      fix = null;
+      void repoConfig.reload(repoPath);
+    } catch {
+      autoFixFailed(m.epic_autofix_undo_failed());
+    } finally {
+      fixBusy = false;
+    }
+  }
 
   // The repo's leading epic when it is another one — what a winding, superseded or ended epic
   // waits for.
@@ -439,8 +565,33 @@
     {/if}
   {/if}
 
-  {#if note}
+  {#if sandboxHalt && blockers?.causes.length}
+    <div class="halt-card" data-epic-halt-card>
+      <p class="halt-head">{haltHead}</p>
+      <EpicAutoFixChooser {blockers} {repoName} {applyLabel} busy={fixBusy} onapply={applyFix}>
+        {#snippet extra()}
+          {#if onopenautomation}
+            <button class="link" type="button" onclick={onopenautomation}
+              >{m.epic_autofix_all_settings()}</button
+            >
+          {/if}
+        {/snippet}
+      </EpicAutoFixChooser>
+    </div>
+  {:else if note && !(sandboxHalt && blockers)}
+    <!-- A sandbox halt shows its note only until the model answers (or when it can't): once
+         the model reports no cause, a fix just cleared it and the drain is catching up. -->
     <p class="note" class:alert={runState.tone === "halt"}>{note}</p>
+  {/if}
+
+  {#if activeFix}
+    <p class="fixed" role="status" data-epic-autofix-done>
+      <span class="fixed-mark" aria-hidden="true">✓</span>
+      <span>{confirmText(activeFix.changes, repoName)}</span>
+      <button class="link" type="button" disabled={fixBusy} onclick={undoFix}
+        >{m.epic_autofix_undo()}</button
+      >
+    </p>
   {/if}
 
   {#each mergeWaits as w (w.child)}
@@ -507,11 +658,12 @@
       {titleFor}
       onapprove={canApprove ? approveNext : undefined}
       {onopensession}
+      starting={startingNow}
     />
   {/if}
 
   <div class="run-foot">
-    <EpicRunSettings {repoPath} {parent} {epic} />
+    <EpicRunSettings {repoPath} {parent} {epic} {halts} />
   </div>
 </RunPanel>
 
@@ -597,6 +749,57 @@
     color: var(--status-running);
   }
 
+  /* #3454: the sandbox/CLI/host halt — red-washed so it reads as the reason nothing starts. */
+  .halt-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--wash-attention);
+    border: 1px solid color-mix(in srgb, var(--color-red) 45%, var(--color-line));
+    border-radius: 2px;
+  }
+  .halt-head {
+    margin: 0;
+    color: var(--color-ink-bright);
+    font-size: var(--fs-base);
+    font-weight: 600;
+  }
+
+  /* The fix is applied: what it set, and the way back. */
+  .fixed {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 8px;
+    margin: 0;
+    color: var(--color-ink);
+    font-size: var(--fs-meta);
+  }
+  .fixed-mark {
+    color: var(--status-done);
+  }
+
+  /* Text-link recipe (as EpicRunSteps' .link): a real button, styled as inline text. */
+  .link {
+    padding: 0;
+    background: transparent;
+    border: 0;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .link:hover:not(:disabled),
+  .link:focus-visible {
+    color: var(--color-amber);
+    outline: none;
+  }
+  .link:disabled {
+    cursor: progress;
+  }
+
   .run-foot {
     padding-top: 6px;
     border-top: 1px solid var(--color-line);
@@ -658,6 +861,9 @@
     .gbtn {
       min-height: 44px;
       padding: 2px 14px;
+    }
+    .link {
+      min-height: 44px;
     }
   }
 </style>

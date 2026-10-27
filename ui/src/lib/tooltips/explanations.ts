@@ -249,6 +249,20 @@ export function epicRunStateExplanation(): TooltipExplanation {
   };
 }
 
+/** The REPO / EPIC / HOST chip on an epic halt's cause (#3454): where the cause lives, and so
+ *  how far a fix reaches. */
+export function autoFixScopeExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_autofix_scope_title(),
+    summary: m.tooltip_autofix_scope_summary(),
+    sections: [
+      { label: m.tooltip_autofix_scope_repo(), text: m.tooltip_autofix_scope_repo_body() },
+      { label: m.tooltip_autofix_scope_epic(), text: m.tooltip_autofix_scope_epic_body() },
+      { label: m.tooltip_autofix_scope_host(), text: m.tooltip_autofix_scope_host_body() },
+    ],
+  };
+}
+
 /** Epic landing toggle (#3191) — integration branch vs incremental, the cost of landing
  *  incrementally, and why the choice locks once the epic has run. */
 export function epicLandingExplanation(locked: boolean): TooltipExplanation {

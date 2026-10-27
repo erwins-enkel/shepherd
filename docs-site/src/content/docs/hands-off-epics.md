@@ -108,6 +108,9 @@ in-flight work running and resumes on its own — and only a few are **terminal*
   only), the epic runs **Codex** under anything but **Trusted**, **Autonomous** lacks bubblewrap
   or its egress backend on this host, or a ticket's target repo has Auto-Drain off. The run shows
   **Halted** with the cause; change the setting (or install the backend) and the next child starts.
+  For the sandbox, CLI and host causes the epic's run area lists every cause (repo, epic or host)
+  and offers only the fixes that really start the ready children — **Apply** changes the repo's
+  sandbox and, if needed, the epic's CLI in one step, and **Undo** puts both back.
 - **Epic branch conflicts with `main`** — the rebase above hits a real conflict. No new child starts;
   an agent rebases the branch and resolves it — even with Auto-Drain off — and a second one retries
   if the first leaves it conflicting. If that doesn't clear it you get a notification:

@@ -219,7 +219,7 @@ async fn held_needs_submit_scope() {
 }
 
 #[tokio::test]
-async fn repo_defaults_to_the_git_toplevel_and_fails_outside_one() {
+async fn repo_defaults_to_the_main_checkout_and_fails_outside_one() {
     // The harness cwd is `/`, which is not inside a git repository.
     let h = Harness::new();
     assert_eq!(h.run(&["--url", "http://127.0.0.1:1", "issues"]).await, 2);

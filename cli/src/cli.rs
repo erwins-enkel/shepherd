@@ -165,7 +165,7 @@ pub enum Command {
     Train(TrainCmd),
     /// Epics of a repo: list, inspect, and control their runs
     Epics {
-        /// Repository path on the server (default: this directory's git toplevel)
+        /// Repository path on the server (default: this directory's main git checkout)
         #[arg(long, global = true, value_name = "PATH")]
         repo: Option<String>,
         #[command(subcommand)]
@@ -178,7 +178,7 @@ pub enum Command {
     },
     /// A repo's config: show it, or set one key
     RepoConfig {
-        /// Repository path on the server (default: this directory's git toplevel)
+        /// Repository path on the server (default: this directory's main git checkout)
         #[arg(long, global = true, value_name = "PATH")]
         repo: Option<String>,
         #[command(subcommand)]
@@ -218,10 +218,10 @@ pub enum SessionsCmd {
     },
 }
 
-/// `--repo`, defaulting to this directory's git toplevel.
+/// `--repo`, defaulting to this directory's main git checkout.
 #[derive(Debug, Args)]
 pub struct RepoArg {
-    /// Repository path on the server (default: this directory's git toplevel)
+    /// Repository path on the server (default: this directory's main git checkout)
     #[arg(long, value_name = "PATH")]
     pub repo: Option<String>,
 }
@@ -334,7 +334,7 @@ pub struct ScheduleAddArgs {
     /// Schedule name (1-80 chars)
     #[arg(long)]
     pub name: String,
-    /// Repository path on the server (default: this directory's git toplevel)
+    /// Repository path on the server (default: this directory's main git checkout)
     #[arg(long, value_name = "PATH")]
     pub repo: Option<String>,
     /// Server-local time to fire at (repeatable, up to 12)
@@ -438,7 +438,7 @@ pub struct MergePrArgs {
     /// Pull-request number
     #[arg(value_parser = clap::value_parser!(i64).range(1..))]
     pub number: i64,
-    /// Repository path on the server (default: this directory's git toplevel)
+    /// Repository path on the server (default: this directory's main git checkout)
     #[arg(long, value_name = "PATH")]
     pub repo: Option<String>,
     /// Merge method (forge default when omitted)
@@ -457,7 +457,7 @@ pub struct TrainLaunchArgs {
     /// PR numbers to run the train over (default: every ready-to-merge PR)
     #[arg(value_name = "NUMBER", value_parser = clap::value_parser!(i64).range(1..))]
     pub numbers: Vec<i64>,
-    /// Repository path on the server (default: this directory's git toplevel with numbers,
+    /// Repository path on the server (default: this directory's main git checkout with numbers,
     /// else the repo with the most ready PRs)
     #[arg(long, value_name = "PATH")]
     pub repo: Option<String>,
@@ -540,7 +540,7 @@ pub enum WaitState {
 pub struct NewArgs {
     /// Task prompt; `-` reads it from stdin
     pub prompt: String,
-    /// Repository path on the server (default: this directory's git toplevel)
+    /// Repository path on the server (default: this directory's main git checkout)
     #[arg(long, value_name = "PATH")]
     pub repo: Option<String>,
     /// Base branch

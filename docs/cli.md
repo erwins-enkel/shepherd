@@ -380,8 +380,9 @@ the default steer, the one the UI's Retry dialog sends.
 
 Flags for `new`:
 
-- `--repo <path>`: the repository path on the server. Defaults to the current directory's git
-  toplevel, which is only right when the CLI runs on the server's host.
+- `--repo <path>`: the repository path on the server. Defaults to the current directory's main
+  git checkout (the repository root, also when run from a linked worktree), which is only right
+  when the CLI runs on the server's host.
 - `--base <branch>`: the base branch. Defaults to `main`.
 - `--model`, `--effort <low|medium|high|xhigh|max|ultra>`, `--provider <claude|codex>`: override
   the server's defaults.
@@ -409,7 +410,7 @@ shepherd --json sessions list | jq -r '.[] | select(.status == "done") | .desig'
 
 ### Work intake
 
-A `--repo <path>` flag defaults to the current directory's git toplevel, as it does for `new`.
+A `--repo <path>` flag defaults to the current directory's main git checkout, as it does for `new`.
 
 | Command                                  | Route                                                       | Scope    |
 | ---------------------------------------- | ----------------------------------------------------------- | -------- |
@@ -477,7 +478,7 @@ panel: it reviews the PRs, proposes a merge order and waits for your approval be
 Without numbers it takes every PR flagged ready to merge whose review isn't running. `--repo`
 narrows them to one repo; without it the CLI picks the repo with the most ready PRs and warns on
 stderr about the ones it left out. No ready PR exits `6`. With numbers it runs over exactly those
-PRs in `--repo` (default: the current directory's git toplevel). The session skips the plan gate
+PRs in `--repo` (default: the current directory's main git checkout). The session skips the plan gate
 and autopilot and bypasses the usage hold. `--base` defaults to `main`.
 
 ```bash
@@ -490,8 +491,8 @@ shepherd train launch --repo ~/Work/my-repo
 
 ### Epics
 
-`<parent>` is the epic's parent issue number. `--repo` defaults to the current directory's git
-toplevel.
+`<parent>` is the epic's parent issue number. `--repo` defaults to the current directory's main
+git checkout.
 
 | Command                                                                    | Route                                       | Scope  |
 | -------------------------------------------------------------------------- | ------------------------------------------- | ------ |
@@ -530,7 +531,7 @@ Flags for `schedule add`:
 - `--at <HH:MM>` (required, repeatable, up to 12): a server-local time to fire at.
 - `--days <days>`: comma-separated `mon`…`sun`, `weekdays`, `weekends` or `daily` (the default),
   e.g. `--days mon,wed,fri`.
-- `--repo <path>`: defaults to the current directory's git toplevel, as for `new`.
+- `--repo <path>`: defaults to the current directory's main git checkout, as for `new`.
 - `--disabled`: create it switched off.
 - `--provider`, `--model`, `--effort`, `--autopilot`, `--plan-gate`, `--base <branch>`: launch
   options for every firing, as for `new`. Omitted, they resolve when the schedule fires: the

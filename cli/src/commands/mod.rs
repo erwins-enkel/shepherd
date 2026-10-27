@@ -79,19 +79,40 @@ pub fn label(sessions: &[Session], id: &str) -> String {
         .unwrap_or_else(|| id.to_string())
 }
 
-fn git_toplevel(cwd: &Path) -> Option<String> {
+fn git_out(cwd: &Path, args: &[&str]) -> Option<String> {
     let out = std::process::Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
+        .args(args)
         .current_dir(cwd)
         .output()
         .ok()?;
-    let path = String::from_utf8(out.stdout).ok()?.trim().to_string();
-    (out.status.success() && !path.is_empty()).then_some(path)
+    let text = String::from_utf8(out.stdout).ok()?;
+    out.status.success().then_some(text)
 }
 
-/// `--repo`, else this directory's git toplevel (the server resolves it under its repo root).
+/// The main worktree's path from `git worktree list --porcelain -z`: the first record, unless it
+/// is bare (no checkout to point at).
+fn main_worktree(porcelain: &str) -> Option<String> {
+    let mut fields = porcelain.split('\0').take_while(|f| !f.is_empty());
+    let path = fields.next()?.strip_prefix("worktree ")?.to_string();
+    (!fields.any(|f| f == "bare") && !path.is_empty()).then_some(path)
+}
+
+/// The repository's main checkout, also from a linked worktree; else this directory's toplevel
+/// (bare main repo).
+fn default_repo(cwd: &Path) -> Option<String> {
+    git_out(cwd, &["worktree", "list", "--porcelain", "-z"])
+        .and_then(|out| main_worktree(&out))
+        .or_else(|| {
+            let path = git_out(cwd, &["rev-parse", "--show-toplevel"])?
+                .trim()
+                .to_string();
+            (!path.is_empty()).then_some(path)
+        })
+}
+
+/// `--repo`, else this directory's main git checkout (the server resolves it under its repo root).
 pub fn repo_path(ctx: &Ctx<'_>, repo: Option<String>) -> Result<String> {
-    repo.or_else(|| git_toplevel(&ctx.io.cwd)).ok_or_else(|| {
+    repo.or_else(|| default_repo(&ctx.io.cwd)).ok_or_else(|| {
         CliError::new(
             Exit::Usage,
             "not inside a git repository: pass --repo <path on the server>",
@@ -105,4 +126,101 @@ pub fn print_done(ctx: &mut Ctx<'_>, value: &impl serde::Serialize, text: &str) 
         return crate::output::json(&mut ctx.io.stdout, value);
     }
     crate::output::line(&mut ctx.io.stdout, text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// Runs git in `dir` with no ambient repo env and a throwaway identity.
+    fn git(dir: &Path, args: &[&str]) {
+        let ok = std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "init.defaultBranch=main",
+            ])
+            .args(args)
+            .current_dir(dir)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?} failed");
+    }
+
+    fn canon(p: &Path) -> PathBuf {
+        p.canonicalize().unwrap()
+    }
+
+    fn resolved(cwd: &Path) -> PathBuf {
+        canon(Path::new(&default_repo(cwd).expect("inside a repo")))
+    }
+
+    /// A main checkout `repo/` with one commit and a linked worktree `wt/` beside it.
+    fn repo_with_worktree() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let main = tmp.path().join("repo");
+        std::fs::create_dir(&main).unwrap();
+        git(&main, &["init", "-q"]);
+        git(&main, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        git(&main, &["worktree", "add", "-q", "-b", "feat", "../wt"]);
+        let wt = tmp.path().join("wt");
+        (tmp, main, wt)
+    }
+
+    #[test]
+    fn worktree_resolves_to_the_main_checkout() {
+        let (_tmp, main, wt) = repo_with_worktree();
+        std::fs::create_dir(wt.join("sub")).unwrap();
+        assert_eq!(resolved(&wt), canon(&main));
+        assert_eq!(resolved(&wt.join("sub")), canon(&main));
+    }
+
+    #[test]
+    fn plain_checkout_resolves_to_its_root() {
+        let (_tmp, main, _wt) = repo_with_worktree();
+        std::fs::create_dir(main.join("sub")).unwrap();
+        assert_eq!(resolved(&main), canon(&main));
+        assert_eq!(resolved(&main.join("sub")), canon(&main));
+    }
+
+    #[test]
+    fn bare_main_falls_back_to_the_worktree_toplevel() {
+        // Bare repo in `x/.git` with worktrees beside it: `x` itself is no checkout.
+        let (tmp, main, _wt) = repo_with_worktree();
+        git(
+            tmp.path(),
+            &["clone", "-q", "--bare", main.to_str().unwrap(), "x/.git"],
+        );
+        git(
+            &tmp.path().join("x/.git"),
+            &["worktree", "add", "-q", "../wt"],
+        );
+        let wt = tmp.path().join("x/wt");
+        assert_eq!(resolved(&wt), canon(&wt));
+    }
+
+    #[test]
+    fn outside_a_repo_is_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(default_repo(tmp.path()), None);
+    }
+
+    #[test]
+    fn main_worktree_parses_the_first_record() {
+        let out = "worktree /r\0HEAD abc\0branch refs/heads/main\0\0worktree /w\0HEAD def\0\0";
+        assert_eq!(main_worktree(out).as_deref(), Some("/r"));
+        assert_eq!(
+            main_worktree("worktree /r.git\0bare\0\0worktree /w\0\0"),
+            None
+        );
+        assert_eq!(main_worktree(""), None);
+    }
 }

@@ -271,6 +271,31 @@ test("bootstrapDirective: workflows are actionlinted and CI must really run (#34
   expect(text).toContain("`self_status` shows no checks for your pushed head");
 });
 
+test("bootstrapDirective: web-UI scaffolds ship head metadata, not as a must-have", () => {
+  const text = bootstrapDirective({
+    stack: RESOLVED as Extract<HouseStackResolution, { ok: true }>,
+    agentProvider: "claude",
+  });
+  expect(text).toContain("When the PRD describes a web UI: a favicon set from the logo/mark");
+  expect(text).toContain("never invented; if the design has no mark, use AskUserQuestion");
+  expect(text).toContain("`favicon.svg`, a PNG fallback and `apple-touch-icon`");
+  expect(text).toContain("`theme-color` for light AND dark");
+  expect(text).toContain("it must not survive into the scaffold");
+  expect(text).toContain(
+    "ONE default Open Graph/Twitter card (og:title, og:description, og:image)",
+  );
+  expect(text).toContain("og:image must be an absolute URL");
+  expect(text).toContain("public-origin variable (e.g. `PUBLIC_ORIGIN`) to the env schema");
+  const mustHaves = text.split("\n").find((l) => l.includes("Readiness greenfield must-haves"));
+  expect(mustHaves).toBeDefined();
+  expect(mustHaves).not.toMatch(/favicon|og:|Open Graph|theme-color/i);
+  const codex = bootstrapDirective({
+    stack: RESOLVED as Extract<HouseStackResolution, { ok: true }>,
+    agentProvider: "codex",
+  });
+  expect(codex).toContain("if the design has no mark, ask the operator in chat");
+});
+
 test("bootstrapDirective: codex asks in chat; a missing stack fails closed", () => {
   const codex = bootstrapDirective({
     stack: RESOLVED as Extract<HouseStackResolution, { ok: true }>,
@@ -309,6 +334,10 @@ test("bootstrapP3Directive: gap sweep, one numbered grill, no orphans, design op
   expect(text).toContain("No orphans");
   expect(text).toContain("do NOT abort");
   expect(text).toContain("never ask one of those again");
+  expect(text).toContain(
+    "- Sharing/SEO: which pages are public, link previews (per-page or generated og images), " +
+      "robots/indexing, sitemap.",
+  );
   expect(text).not.toMatch(/\d+\.\d+\.\d+/);
   expect(bootstrapP3Directive({ agentProvider: "codex" })).toContain("ask the operator in chat");
 });

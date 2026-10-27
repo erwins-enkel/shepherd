@@ -116,6 +116,14 @@ export function bootstrapDirective(args: {
     "## P2 — scaffold",
     "- The framework on the pinned versions; it must build and its checks must pass.",
     "- Design tokens and `app.css` taken from `docs/design` (not reinvented); the app shell from P1.",
+    "- When the PRD describes a web UI: a favicon set from the logo/mark in `docs/design` (like the " +
+      `tokens — never invented; if the design has no mark, ${ask}): \`favicon.svg\`, a PNG ` +
+      "fallback and `apple-touch-icon`, plus `theme-color` for light AND dark matching the tokens. " +
+      "Replace the framework's default favicon (e.g. SvelteKit's) — it must not survive into the " +
+      "scaffold.",
+    "- When the PRD describes a web UI: the app-shell head — a title template, a meta description " +
+      "and ONE default Open Graph/Twitter card (og:title, og:description, og:image). og:image must " +
+      "be an absolute URL, so add a public-origin variable (e.g. `PUBLIC_ORIGIN`) to the env schema.",
     "- i18n catalog per P1 plus a drift gate (catalog key parity) in CI and the pre-push hook.",
     "- A CI workflow with a `quality` job (lint, typecheck, test, dead-code audit) and, when there " +
       "is a database, a `db` job on the P1 service container.",
@@ -158,6 +166,8 @@ const P3_CHECKLIST = [
   "Layout: responsive breakpoints, dark mode, the accessibility level to meet.",
   "First run: onboarding, sample data, the empty-account experience.",
   "Analytics/telemetry: what is measured, consent.",
+  "Sharing/SEO: which pages are public, link previews (per-page or generated og images), " +
+    "robots/indexing, sitemap.",
   "Copy: tone, who owns translated content.",
 ];
 

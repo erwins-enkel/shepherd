@@ -93,7 +93,8 @@ export interface PendingSend {
 /** Browser and server clocks may disagree; a logged echo may carry a slightly earlier stamp. */
 const ECHO_SKEW_MS = 60_000;
 
-/** The sends the transcript has not logged yet: no user row with the same text, stamped no
+/** The sends the transcript has not logged yet: no user (or steer — a send can open with Shepherd's
+ *  steer wording, e.g. "Plan approved.") row with the same text, stamped no
  *  earlier than the skew window before the send (an older identical message is not the echo).
  *  Each row settles one send, so a repeated answer ("Yes", then "Yes") waits for its own echo. */
 export function unsettled(pending: PendingSend[], entries: ChatEntry[]): PendingSend[] {
@@ -102,7 +103,7 @@ export function unsettled(pending: PendingSend[], entries: ChatEntry[]): Pending
     const i = entries.findIndex(
       (e, j) =>
         !used.has(j) &&
-        e.kind === "user" &&
+        (e.kind === "user" || e.kind === "steer") &&
         (p.match === undefined
           ? e.text.trim() === p.text.trim()
           : e.text.includes(p.match.trim())) &&

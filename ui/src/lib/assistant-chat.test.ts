@@ -89,6 +89,11 @@ describe("chatEntries", () => {
 });
 
 describe("unsettled", () => {
+  it("settles a send the transcript tagged as a Shepherd steer", () => {
+    const sent = { text: "Plan approved. Go ahead", at: 100_000 };
+    const echo = { ...user("Plan approved. Go ahead", 101_000), steer: "go" as const };
+    expect(unsettled([sent], chatEntries([echo]))).toEqual([]);
+  });
   it("settles a multi-line send against its id-wrapped echo", () => {
     const sent = { text: "line one\nline two", at: 100_000 };
     const echo =

@@ -277,6 +277,11 @@ const EPIC_STRUCTURE_TTL_MS = 2 * 60_000;
  *  call in it. Doubles per consecutive failed read, up to {@link EPIC_STRUCTURE_TTL_MS}. */
 const EPIC_STRUCTURE_RETRY_MS = 30_000;
 
+/** `gh pr` JSON fields of an open-PR snapshot row — the listing and the single-PR re-read
+ *  ({@link GithubForge.openPullRequest}) read the same ones, so a patched row matches. */
+const OPEN_PR_FIELDS =
+  "number,url,title,state,author,createdAt,isDraft,mergeable,mergeStateStatus,statusCheckRollup,reviews,reviewRequests,headRefName,headRefOid,baseRefName,labels,headRepositoryOwner";
+
 /** Issue fields of the GraphQL single-issue reads ({@link GithubForge.getIssue}, the epic
  *  parent). Carries the author's authorAssociation for the autonomous-spawn author trust gate. */
 const GQL_ISSUE_FIELDS =
@@ -2534,10 +2539,7 @@ export class GithubForge implements GitForge {
       GhPr & { author?: { login?: string } | null; labels?: Array<{ name?: string }> }
     >;
     try {
-      prs = await this.listOpenCli(
-        "pr",
-        "number,url,title,state,author,createdAt,isDraft,mergeable,mergeStateStatus,statusCheckRollup,reviews,reviewRequests,headRefName,headRefOid,baseRefName,labels,headRepositoryOwner",
-      );
+      prs = await this.listOpenCli("pr", OPEN_PR_FIELDS);
     } catch (err) {
       if (isRateLimitError(err)) return this.listOpenPrSnapshotRest(deployConfigured);
       throw err;
@@ -2585,6 +2587,32 @@ export class GithubForge implements GitForge {
     }
 
     return { prs: pullRequests, statuses, capped: prs.length >= 200, source: "graphql" };
+  }
+
+  /** One PR by number (`gh pr view`), mapped like a {@link listOpenPrSnapshot} row. Null when it
+   *  is not open. A read that finds `mergeable: UNKNOWN` starts GitHub's computation; a later read
+   *  returns the result. */
+  async openPullRequest(prNumber: number): Promise<{ pr: PullRequest; status: PrStatus } | null> {
+    const out = await this.run([
+      "pr",
+      "view",
+      String(prNumber),
+      "--repo",
+      this.slug,
+      "--json",
+      OPEN_PR_FIELDS,
+    ]);
+    const p = JSON.parse(out || "null") as
+      (GhPr & { author?: { login?: string } | null; labels?: Array<{ name?: string }> }) | null;
+    if (!p || p.state !== "OPEN") return null;
+    const [def, awaitingShas] = await Promise.all([
+      this.defaultBranch().catch(() => null),
+      this.hasCrossRepoPr([p]) ? this.awaitingApprovalShas() : new Set<string>(),
+    ]);
+    return {
+      pr: this.mapGhPrToPullRequest(p, def, awaitingShas),
+      status: this.mapGhPr(p, Boolean(this.cfg.deployWorkflow)),
+    };
   }
 
   /** Open PRs for this repo as full poll-grade PrStatus objects keyed by head

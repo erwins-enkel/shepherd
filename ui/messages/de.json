@@ -7521,5 +7521,8 @@
   "feat_schedule_noop_body": "Findet ein geplanter Lauf nichts zu tun (keine Änderungen, keine Fragen, keine Folgeaufgaben), schließt der Agent seine Sitzung selbst. Einstellungen → Zeitpläne zeigt den Lauf als „nichts zu tun“ mit der einzeiligen Zusammenfassung des Agenten – der nächste Lauf wird nicht blockiert und du wirst nicht benachrichtigt.",
   "model_label_mythos_5_1": "Mythos 5.1",
   "model_guidance_claude_mythos_5_1": "Angeboten, weil dein Claude-Konto Zugriff hat. Für die härtesten, langlaufenden Aufgaben; höchste unbeaufsichtigte Kosten.",
-  "newtask_model_unavailable": "Dein Claude-Konto hat keinen Zugriff auf dieses Modell. Wähle ein anderes Modell."
+  "newtask_model_unavailable": "Dein Claude-Konto hat keinen Zugriff auf dieses Modell. Wähle ein anderes Modell.",
+  "upnext_pr_syncing": "Gleiche diesen PR mit GitHub ab …",
+  "feat_upnext_pr_live_sync_title": "Als Nächstes: PRs werden beim Öffnen live geprüft",
+  "feat_upnext_pr_live_sync_body": "Öffnest du einen Pull Request in „Als Nächstes“, gleicht Shepherd ihn sofort mit GitHub ab. Du siehst gleich den zuletzt bekannten Stand; Merge und Fix bleiben gesperrt, bis die aktuelle Antwort von GitHub da ist, damit du nie auf veralteten Daten handelst. Ein PR, dessen Mergebarkeit GitHub noch berechnet hat, wird von selbst nachgeprüft, sodass ein PR mit Konflikt nicht mehr unter „Bereit zum Mergen“ steht."
 }

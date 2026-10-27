@@ -12,6 +12,7 @@ import { parseEpicBody } from "./epic-parse";
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
 import type { GitForge, PullRequest } from "./forge/types";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
+import { graphRateLimit } from "./forge/rate-limit";
 import { repoHasNoCiCached } from "./checks-gate";
 import { buildUpNextPrs, type UpNextPrsInFlight } from "./up-next-prs";
 import { reconcileRealPathRecordToRaw, reconcileRealPathsToRaw, type RepoEntry } from "./repos";
@@ -96,6 +97,9 @@ export interface UpNextDeps {
   /** Backoff (ms) between post-start recompute attempts; first is immediate. See
    *  `recomputeUntilCleared`. Injectable so tests can drive the loop with tiny delays. */
   postStartRetryDelaysMs?: number[];
+  /** Waits (ms) before re-reading a PR whose live read still has unknown mergeability. See
+   *  `syncPr`. Injectable like `postStartRetryDelaysMs`. */
+  syncRetryDelaysMs?: number[];
   /** realpath resolver, injectable for tests. Reconciles safeRepoDir/realpath-space paths
    *  against raw listRepos-space repo paths: started items against snapshot paths, and the
    *  store's session/epic history against each repo (`workedIn`). */
@@ -109,8 +113,10 @@ export interface UpNextDeps {
   /** The operator's issue filter (#3017), read per build; absent ⇒ the defaults. */
   issueFilter?: () => IssueFilterSettings;
   /** The shared per-repo open-PR snapshot the Backlog PRs tab reads — fingerprint-gated, so PRs
-   *  cost no GitHub call while they are unchanged. Absent ⇒ the forge's own PR listing. */
-  openPrSnapshot?: Pick<OpenPrSnapshotService, "get">;
+   *  cost no GitHub call while they are unchanged. Absent ⇒ the forge's own PR listing. `peek`
+   *  and `patchPr` back {@link UpNextService.prsUpdated} and {@link UpNextService.syncPr}. */
+  openPrSnapshot?: Pick<OpenPrSnapshotService, "get"> &
+    Partial<Pick<OpenPrSnapshotService, "peek" | "patchPr">>;
   /** What non-archived sessions hold per repo (`prsHeldBySessions`), keyed by the sessions'
    *  realpath-space repoPath; read per build so a just-started session drops its PR on refilter. */
   prsInFlight?: () => ReadonlyMap<string, UpNextPrsInFlight>;
@@ -130,6 +136,8 @@ const DEFAULT_INTERVAL_MS = 15 * 60_000;
 /** Immediate first attempt (claim writes have already settled by the caller), then two
  *  retries covering GitHub read-after-write lag; ~10s worst case, vs the 15-min interval. */
 const DEFAULT_POST_START_RETRY_DELAYS = [0, 3_000, 7_000];
+/** GitHub usually settles mergeability within seconds of the read that started it. */
+const DEFAULT_SYNC_RETRY_DELAYS = [1_500, 3_000];
 
 /** Spawn items strictly one-at-a-time (never overlapping). WorktreeMgr.create() uses
  *  synchronous `git worktree add` and is NOT parallel-safe per repo — concurrent spawns
@@ -156,6 +164,7 @@ export class UpNextService {
   private readonly concurrency: number;
   private readonly intervalMs: number;
   private readonly postStartRetryDelays: number[];
+  private readonly syncRetryDelays: number[];
   private readonly realpath: (p: string) => string;
   /** The latest compute's un-reranked snapshot. A background readiness run re-applies the cache to
    *  THIS, never to the snapshot it started from — so a slow judge can never publish stale items,
@@ -175,6 +184,7 @@ export class UpNextService {
     this.concurrency = deps.concurrency ?? DEFAULT_CONCURRENCY;
     this.intervalMs = deps.intervalMs ?? DEFAULT_INTERVAL_MS;
     this.postStartRetryDelays = deps.postStartRetryDelaysMs ?? DEFAULT_POST_START_RETRY_DELAYS;
+    this.syncRetryDelays = deps.syncRetryDelaysMs ?? DEFAULT_SYNC_RETRY_DELAYS;
     this.realpath = deps.realpath ?? realpathSync;
   }
 
@@ -230,6 +240,52 @@ export class UpNextService {
     } catch (err) {
       console.warn("[up-next] refilter:", err);
     }
+  }
+
+  /** The shared open-PR snapshot changed for `slug` (a fetch or a {@link syncPr} patch): swap its
+   *  rows into the cached input and rebuild when they differ — no forge call. Waits for an
+   *  in-flight compute first, which would otherwise publish the rows it read before. */
+  async prsUpdated(slug: string): Promise<void> {
+    if (this.inFlight) await this.inFlight.catch(() => {});
+    const peek = this.deps.openPrSnapshot?.peek?.bind(this.deps.openPrSnapshot);
+    if (!this.input || !peek) return;
+    let changed = false;
+    const repos = this.input.repos.map((repo) => {
+      if (repo.repoSlug !== slug) return repo;
+      const forge = this.deps.resolveForge(repo.repoPath);
+      const prs = forge ? peek(forge)?.prs : undefined;
+      if (!prs || JSON.stringify(prs) === JSON.stringify(repo.openPrs)) return repo;
+      changed = true;
+      return { ...repo, openPrs: prs };
+    });
+    if (!changed) return;
+    this.input = { ...this.input, repos };
+    try {
+      this.build();
+    } catch (err) {
+      console.warn("[up-next] prs update:", err);
+    }
+  }
+
+  /** Re-read one PR live and republish (the PR preview's sync). GitHub answers UNKNOWN
+   *  mergeability until a read starts computing it, so an unsettled read is retried after
+   *  `syncRetryDelays`. The read patches the shared snapshot, so every reader of it sees the
+   *  PR's current state. False when this repo can't read single PRs or GraphQL is limited; a
+   *  failing read rejects. */
+  async syncPr(repoPath: string, number: number): Promise<boolean> {
+    const forge = this.deps.resolveForge(repoPath);
+    const patchPr = this.deps.openPrSnapshot?.patchPr?.bind(this.deps.openPrSnapshot);
+    if (!forge?.slug || !forge.openPullRequest || !patchPr || graphRateLimit.blocked())
+      return false;
+    let read = await forge.openPullRequest(number);
+    for (const delay of this.syncRetryDelays) {
+      if (read?.pr.mergeable !== null) break;
+      await new Promise<void>((r) => setTimeout(r, delay).unref?.());
+      read = await forge.openPullRequest(number);
+    }
+    patchPr(forge, number, read);
+    await this.prsUpdated(forge.slug);
+    return true;
   }
 
   /** Build, rerank and publish a snapshot from the cached input with the current filter. */

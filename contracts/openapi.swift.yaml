@@ -6301,6 +6301,26 @@ components:
         steer:
           type: string
           description: An operator instruction that leads the fix prompt.
+    UpNextPrSyncRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - repo
+        - number
+      properties:
+        repo:
+          type: string
+        number:
+          type: integer
+          minimum: 1
+    UpNextPrSyncResult:
+      type: object
+      additionalProperties: true
+      required: []
+      properties:
+        pr:
+          description: The PR's row after the re-read; null when it no longer waits on the operator.
+          $ref: "#/components/schemas/UpNextPr"
     UpNextPrFixResult:
       type: object
       additionalProperties: true
@@ -13360,6 +13380,43 @@ paths:
                 $ref: "#/components/schemas/Error"
         "502":
           description: The base branch could not be read or the session could not be created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/up-next/pr-sync:
+    post:
+      operationId: syncUpNextPr
+      description: Re-read one waiting PR live from the forge (the PR preview opening it) — retrying while GitHub still computes its mergeability — patch the shared open-PR snapshot and republish Up Next (upnext:changed). Answers with the PR's republished row, null when it no longer waits on the operator.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpNextPrSyncRequest"
+      responses:
+        "200":
+          description: The PR was re-read and Up Next republished.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpNextPrSyncResult"
+        "400":
+          description: Invalid repository or number.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          description: Forge read failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Up Next is unwired, or the repo can't read single PRs right now (no forge support, GraphQL limited).
           content:
             application/json:
               schema:

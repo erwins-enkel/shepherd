@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { getUpNextPrBody } from "#lib/api.js";
   import { basename } from "#lib/basename.js";
   import { LazyBody } from "#lib/lazy-body.svelte.js";
@@ -52,8 +53,16 @@
   const requested = $derived(
     action === "dependabot_rebase" && key !== null && upNextUi.rebaseRequested.has(key),
   );
-  const locked = $derived(!pr || pr.action === null || !!actions.busy || requested);
+  const syncing = $derived(key !== null && upNextUi.syncing.has(key));
+  const locked = $derived(!pr || pr.action === null || !!actions.busy || requested || syncing);
   const why = $derived(pr ? mergeBlockLine(pr) : null);
+  // Opening a PR re-reads it live from the forge; the cached row shows meanwhile, its actions
+  // locked until the republished snapshot lands.
+  $effect(() => {
+    if (key === null) return;
+    const target = untrack(() => pr);
+    if (target) void upNextUi.sync(target);
+  });
   // Issue steers (Settings › Steers, "Show in: Backlog issues") for this repo, only beside a fix:
   // a steer leads the fix session's prompt. Merge, rebase and approve start no session.
   const fixSteers = $derived(
@@ -120,7 +129,7 @@
             class:split={fixSteers.length > 0}
             aria-disabled={locked ? "true" : undefined}
             use:statusTip={{
-              text: actionTip(pr, mergeFailed),
+              text: actionTip(pr, mergeFailed, syncing),
               stopClickPropagation: false,
               pinOnClick: false,
             }}
@@ -161,7 +170,9 @@
         <span>{m.upnext_pr_select_train()}</span>
       </label>
     </div>
-    {#if why}
+    {#if syncing}
+      <p class="unpr-sync" role="status">{m.upnext_pr_syncing()}</p>
+    {:else if why}
       <p class="unpr-why">{why}{pr.action === "fix" ? ` ${fixSummary(pr)}` : ""}</p>
     {/if}
     <UpNextPrFacts {pr} sessions={launchContext?.store.sessions} />
@@ -211,8 +222,10 @@
     border-style: dashed;
     cursor: not-allowed;
   }
-  /* Why Merge is locked, and what the primary action does about it. */
-  .unpr-why {
+  /* Why Merge is locked, and what the primary action does about it — or that the live re-read
+     still runs. */
+  .unpr-why,
+  .unpr-sync {
     margin: -6px 0 0;
     font-size: var(--fs-meta);
     color: var(--color-muted);

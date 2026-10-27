@@ -53,10 +53,12 @@ export function fixSummary(pr: UpNextPr): string {
 }
 
 /** The action button's explanation: what it does and what follows. A disabled button (CI still
- *  running) says what it waits for instead. */
-export function actionTip(pr: UpNextPr, mergeFailed = false): TooltipExplanation {
+ *  running, or the PR's live re-read with the forge still `syncing`) says what it waits for
+ *  instead. */
+export function actionTip(pr: UpNextPr, mergeFailed = false, syncing = false): TooltipExplanation {
   const action = buttonAction(pr, mergeFailed);
   const title = actionLabel(action);
+  if (syncing) return { title, summary: m.upnext_pr_syncing(), sections: [] };
   if (pr.action === null)
     return {
       title,

@@ -268,6 +268,38 @@ describe("Up Next", () => {
     }
   });
 
+  test("PR sync re-reads one PR and answers its row, or names why it cannot", async () => {
+    const p = "/api/up-next/pr-sync";
+    const pr = fx.waitingPr(s.validRepo);
+    const send = (status: number, body: Record<string, unknown>) => {
+      validateRequest("POST", p, body);
+      return check("POST", p, status, undefined, body);
+    };
+    let sync: (repoPath: string, number: number) => Promise<boolean> = async () => true;
+    s.deps.upNext = {
+      snapshot: () => ({ ...fx.snapshot, pullRequests: [pr] }),
+      refresh: async () => fx.snapshot,
+      refreshIfStale: () => {},
+      recomputeUntilCleared: async () => {},
+      hiddenRepoPathsRaw: () => new Set(),
+      refilter: () => {},
+      syncPr: (repoPath, number) => sync(repoPath, number),
+    };
+    try {
+      await check("POST", p, 400, undefined, { repo: s.validRepo });
+      expect(await send(200, { repo: s.validRepo, number: 77 })).toEqual({ pr });
+      expect(await send(200, { repo: s.validRepo, number: 78 })).toEqual({ pr: null });
+      sync = async () => false;
+      await send(503, { repo: s.validRepo, number: 77 });
+      sync = async () => {
+        throw new Error("offline");
+      };
+      await send(502, { repo: s.validRepo, number: 77 });
+    } finally {
+      delete s.deps.upNext;
+    }
+  });
+
   test("PR fix creates a repair session or names why it cannot", async () => {
     const p = "/api/up-next/pr-fix";
     const pr = fx.waitingPr(s.validRepo);
@@ -560,7 +592,7 @@ describe("restore and usage", () => {
 
 test("all queue operations require authentication", async () => {
   const ops = OPERATIONS.filter((op) => op.endsWith(" 401"));
-  expect(ops).toHaveLength(18);
+  expect(ops).toHaveLength(19);
   for (const op of ops) {
     const [method, template] = op.split(" ") as [string, string, string];
     const res = await request(method, template.replace("{id}", "missing"), undefined, false);

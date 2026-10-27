@@ -49,6 +49,12 @@ export class UpNextStore {
     this.changed();
   }
 
+  /** Re-read the cached snapshot now — never a recompute — and resolve once it has landed. */
+  async reload(): Promise<void> {
+    this.changed();
+    await this.task;
+  }
+
   private startRead() {
     if (this.task || !this.consumers.size) return;
     const generation = this.generation;

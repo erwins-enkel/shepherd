@@ -15,6 +15,7 @@ import {
   mergeBacklogPr,
   requestDependabotRebase,
   startUpNextPrFix,
+  syncUpNextPr,
 } from "#lib/api.js";
 
 vi.mock("#lib/api.js", async (importOriginal) => {
@@ -26,6 +27,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     startUpNextPrFix: vi.fn(async () => ({ session: { id: "fix" } })),
     requestDependabotRebase: vi.fn(async () => {}),
     refreshUpNext: vi.fn(async () => ({ ok: true })),
+    syncUpNextPr: vi.fn(async () => ({ pr: null })),
   };
 });
 
@@ -104,6 +106,7 @@ const fact = (label: string) =>
   )!;
 
 beforeEach(() => {
+  vi.mocked(syncUpNextPr).mockReset().mockResolvedValue({ pr: null });
   vi.mocked(getUpNextPrBody)
     .mockReset()
     .mockResolvedValue({ body: "## Summary\n\n- **two** fixes" });
@@ -333,5 +336,58 @@ describe("UpNextPrPreview", () => {
       expect(el.getBoundingClientRect().width).toBeCloseTo(row.width, 0);
     await page.getByRole("button", { name: `← ${m.issuedetail_back()}` }).click();
     expect(onback).toHaveBeenCalled();
+  });
+
+  describe("live re-read on open", () => {
+    const deferred = () => {
+      let resolve!: (v: { pr: UpNextPr | null }) => void;
+      let reject!: (e: unknown) => void;
+      const promise = new Promise<{ pr: UpNextPr | null }>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    };
+
+    it("shows the cached PR with its actions locked until the re-read lands", async () => {
+      const sync = deferred();
+      vi.mocked(syncUpNextPr).mockReturnValueOnce(sync.promise);
+      open(PRS[0]!);
+      render(UpNextPrPreview, { launchContext: ctx() });
+      await expect.element(page.getByRole("heading", { name: "pr 911" })).toBeVisible();
+      expect(vi.mocked(syncUpNextPr).mock.calls).toEqual([[REPO, 911]]);
+      await expect.element(page.getByRole("status")).toHaveTextContent(m.upnext_pr_syncing());
+      expect(primary().getAttribute("aria-disabled")).toBe("true");
+      primary().click(); // locked: no merge confirmation opens
+      expect(page.getByRole("button", { name: m.mergeconfirm_confirm() }).query()).toBeNull();
+      sync.resolve({ pr: PRS[0]! });
+      await expect.poll(() => primary().getAttribute("aria-disabled")).toBeNull();
+      expect(document.querySelector(".unpr-sync")).toBeNull();
+    });
+
+    it("unlocks with the cached data when the re-read fails", async () => {
+      const sync = deferred();
+      vi.mocked(syncUpNextPr).mockReturnValueOnce(sync.promise);
+      open(BLOCKED);
+      render(UpNextPrPreview, { launchContext: ctx() });
+      await expect.element(page.getByRole("status")).toBeVisible();
+      expect(primary().getAttribute("aria-disabled")).toBe("true");
+      sync.reject(new ApiError(502, "pull request read failed"));
+      await expect.poll(() => primary().getAttribute("aria-disabled")).toBeNull();
+      expect(document.querySelector(".unpr-why")!.textContent).toContain(
+        m.upnext_pr_why_conflict({ base: "main" }),
+      );
+    });
+
+    it("re-reads a PR at most once per SYNC_MIN_GAP_MS", async () => {
+      open(PRS[0]!);
+      const view = await render(UpNextPrPreview, { launchContext: ctx() });
+      await expect.poll(() => vi.mocked(syncUpNextPr).mock.calls.length).toBe(1);
+      await expect.poll(() => upNextUi.syncing.size).toBe(0);
+      await view.unmount();
+      render(UpNextPrPreview, { launchContext: ctx() });
+      await expect.element(page.getByRole("heading", { name: "pr 911" })).toBeVisible();
+      expect(vi.mocked(syncUpNextPr)).toHaveBeenCalledTimes(1);
+    });
   });
 });

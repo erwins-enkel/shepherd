@@ -1,4 +1,4 @@
-import type { GitForge, OpenPrSnapshot, PrStatus } from "./forge/types";
+import type { GitForge, OpenPrSnapshot, PrStatus, PullRequest } from "./forge/types";
 import { currentGhCaller } from "./forge/gh-caller";
 import { graphRateLimit } from "./forge/rate-limit";
 import { Semaphore } from "./semaphore";
@@ -8,7 +8,16 @@ import type { GithubCacheEntry, GithubReadCache } from "./github-read-cache";
  *  by the PRs tab across a whole interval without re-fetching. */
 export const SNAPSHOT_TTL_MS = 120_000;
 
+/** Delays of the re-reads that settle PRs GitHub still computes mergeability for, by attempt —
+ *  so at most this many per PR head and prs content key. */
+export const SETTLE_DELAYS_MS = [5_000, 30_000];
+
 type CacheEntry = GithubCacheEntry<OpenPrSnapshot>;
+type Schedule = (fn: () => void, ms: number) => void;
+
+const defaultSchedule: Schedule = (fn, ms) => {
+  setTimeout(fn, ms).unref?.();
+};
 
 /** An open PR whose checks, mergeability or merge state can still move without bumping its
  *  `updatedAt` — so a snapshot holding it can be stale under an unchanged fingerprint (#2799). */
@@ -41,11 +50,20 @@ export class OpenPrSnapshotService {
   private readonly transientSeen = new Map<string, Map<string, number>>();
   /** slug → when a head read last disagreed with the cached snapshot ({@link noteHeadRead}). */
   private readonly staleAt = new Map<string, number>();
+  /** slug → the prs content key its settle attempts count under, and `number:headSha` → attempts. */
+  private readonly settleTries = new Map<
+    string,
+    { contentKey: string | null; tries: Map<string, number> }
+  >();
+  /** Slugs with a settle re-read scheduled. */
+  private readonly settlePending = new Set<string>();
+  private readonly listeners = new Set<(slug: string) => void>();
 
   constructor(
     private readonly now: () => number = Date.now,
     maxConcurrency = 6,
     private readonly readCache?: GithubReadCache,
+    private readonly schedule: Schedule = defaultSchedule,
   ) {
     this.gate = new Semaphore(maxConcurrency);
   }
@@ -167,6 +185,39 @@ export class OpenPrSnapshotService {
       this.staleAt.set(forge.slug!, this.now());
   }
 
+  /** Subscribe to cache writes — a fetched snapshot or a {@link patchPr} — by slug. */
+  onUpdate(listener: (slug: string) => void): void {
+    this.listeners.add(listener);
+  }
+
+  /**
+   * Swap one PR's row in the cached snapshot for a newer read of it (`read` null: it is no longer
+   * open, so it is dropped), keeping the snapshot's fetch time and content key. A PR the snapshot
+   * doesn't hold stays out. No-op without a cached snapshot.
+   */
+  patchPr(
+    forge: GitForge,
+    number: number,
+    read: { pr: PullRequest; status: PrStatus } | null,
+  ): void {
+    if (!this.isCapable(forge)) return;
+    const slug = forge.slug!;
+    const entry = this.entry(forge);
+    if (!entry) return;
+    const prs = entry.value.prs.flatMap((p) => (p.number !== number ? [p] : read ? [read.pr] : []));
+    const statuses = new Map(entry.value.statuses);
+    for (const [head, st] of entry.value.statuses) {
+      if (st.number !== number) continue;
+      if (read) statuses.set(head, read.status);
+      else statuses.delete(head);
+    }
+    const value = { ...entry.value, prs, statuses };
+    this.cache.set(slug, { ...entry, value });
+    if (forge.kind === "github")
+      this.readCache?.put("prs", slug, entry.contentKey, value, "", entry.at);
+    this.notify(slug);
+  }
+
   /** True after {@link noteHeadRead} saw the cached snapshot disagree with a newer head read. */
   isStale(forge: GitForge): boolean {
     return this.isCapable(forge) && this.staleAt.has(forge.slug!);
@@ -203,6 +254,51 @@ export class OpenPrSnapshotService {
     const revision = this.readCache.revision(slug);
     if (revision !== (this.revisions.get(slug) ?? 0)) this.inflight.delete(slug);
     this.revisions.set(slug, revision);
+  }
+
+  private notify(slug: string): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(slug);
+      } catch (err) {
+        console.warn("[open-pr-snapshot] update listener:", err);
+      }
+    }
+  }
+
+  /**
+   * GitHub computes mergeability on demand: the read that finds it UNKNOWN starts the computation
+   * and a later read returns it. Settling moves no fingerprint, so the snapshot would hold the
+   * UNKNOWN until the repo changes. Re-read once more after a delay, at most
+   * {@link SETTLE_DELAYS_MS} times per PR head and prs content key. A REST listing carries no
+   * mergeability, so it never arms this.
+   */
+  private scheduleSettle(
+    slug: string,
+    forge: GitForge,
+    snap: OpenPrSnapshot,
+    contentKey: string | null,
+  ): void {
+    if (forge.kind !== "github" || snap.source === "rest" || this.settlePending.has(slug)) return;
+    const prev = this.settleTries.get(slug);
+    const carried = prev?.contentKey === contentKey ? prev.tries : new Map<string, number>();
+    const tries = new Map<string, number>();
+    for (const pr of snap.prs) {
+      if (pr.mergeable != null) continue;
+      const id = `${pr.number}:${pr.headSha ?? ""}`;
+      tries.set(id, carried.get(id) ?? 0);
+    }
+    this.settleTries.set(slug, { contentKey, tries });
+    const due = [...tries].filter(([, n]) => n < SETTLE_DELAYS_MS.length);
+    if (due.length === 0) return;
+    const attempt = Math.min(...due.map(([, n]) => n));
+    for (const [id, n] of due) tries.set(id, n + 1);
+    this.settlePending.add(slug);
+    this.schedule(() => {
+      this.settlePending.delete(slug);
+      if (graphRateLimit.blocked() || (this.readCache && !this.readCache.canRefresh())) return;
+      void this.refresh(forge);
+    }, SETTLE_DELAYS_MS[attempt]!);
   }
 
   /** True when the forge can supply a snapshot (non-null slug + method present). */
@@ -244,6 +340,8 @@ export class OpenPrSnapshotService {
               if (forge.kind === "github") this.readCache?.put("prs", slug, fpKey, v);
               if ((this.staleAt.get(slug) ?? Infinity) <= startedAt) this.staleAt.delete(slug);
               this.inflight.delete(slug);
+              this.notify(slug);
+              this.scheduleSettle(slug, forge, v, fpKey);
             }
             return v;
           },

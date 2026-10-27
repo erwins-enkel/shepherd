@@ -26,6 +26,13 @@ a dialog with:
 Each row shows the cadence, the next run and the last outcome. It also has an
 on/off switch, **Run now**, **Edit** and **Delete**.
 
+You can also ask the [Operator Assistant](/operating/#operator-assistant) to create
+one, for example "run /triage-feedback in this repo every weekday at 09:00". It sets
+name, prompt, days, times and optionally the base branch; every other launch option
+keeps its default, so the run is attended. Its **Automation** permission under
+**Settings → Assistant** decides whether it asks you first. Editing, deleting and
+**Run now** stay with you.
+
 ## All schedules
 
 **Settings → Schedules** lists the schedules of every repo in one place, soonest

@@ -30,6 +30,7 @@ import { probeHerdrRuntime, type HerdrRuntimeStatus } from "./herdr-runtime";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import { redactSecretText } from "./redact";
 import { resolveProfile } from "./sandbox";
+import { maskToDays, nextSlot } from "./schedules-core";
 import { defaultSandboxProfile } from "./sandbox-default";
 import type { HeldTask, HoldReason, PlanGate, Session } from "./types";
 import { fenceUntrusted, randomFenceToken } from "./untrusted";
@@ -395,6 +396,27 @@ function runEndBlock(deps: DiagDeps, repoPath: string, parent: number | undefine
   return end && { parentIssueNumber: parent, ...end, at: iso(end.at) };
 }
 
+/** The repo's schedules, so a schedule_create never duplicates one. Name and prompt are fenced;
+ *  a run shows only its outcome and time (its reason can carry a route error). */
+function schedulesBlock(deps: DiagDeps, repoPath: string, fence: Fence, now = Date.now()) {
+  const all = deps.store.listSchedules(repoPath);
+  const schedules = all.slice(0, MAX_LIST).map((s) => {
+    const last = deps.store.listScheduleRuns(s.id, 1)[0];
+    const next = s.enabled ? nextSlot(s.days, s.times, now) : null;
+    return {
+      id: s.id,
+      name: fence("schedule name", s.name, MAX_TITLE_CHARS),
+      prompt: fence("schedule prompt", s.prompt),
+      days: maskToDays(s.days),
+      times: s.times,
+      enabled: s.enabled,
+      nextAt: next && iso(next.at),
+      lastRun: last ? { outcome: last.outcome, at: iso(last.at) } : null,
+    };
+  });
+  return { schedules, omittedSchedules: Math.max(0, all.length - MAX_LIST) };
+}
+
 function repoBlock(deps: DiagDeps, repoPath: string, drain: DrainStatus | undefined, fence: Fence) {
   const cfg = deps.store.getRepoConfig(repoPath);
   const run = deps.store.getEpicRun(repoPath);
@@ -429,6 +451,7 @@ function repoBlock(deps: DiagDeps, repoPath: string, drain: DrainStatus | undefi
       .listEpicQueue(repoPath)
       .slice(0, MAX_LIST)
       .map((q) => ({ parentIssueNumber: q.parentIssueNumber, position: q.position, mode: q.mode })),
+    ...schedulesBlock(deps, repoPath, fence),
   };
 }
 
@@ -776,7 +799,8 @@ const REPO_AUTOMATION: McpTool = {
   description:
     "Drain and epic questions. Per repo: autoDrainEnabled, autoMergeEnabled, maxAuto, autoLabel, " +
     "criticEnabled, usageCeilingPct, repoMode, sandboxProfile (+ sandboxProfileEffective), the drain status (null when the " +
-    "drain reports nothing for the repo), the epic run, how it last ended, and the epic queue. " +
+    "drain reports nothing for the repo), the epic run, how it last ended, the epic queue, and " +
+    "its schedules (name, prompt, server-local days and times, enabled, nextAt, last run). " +
     "With epicParent (one repo): that epic's structural diagnosis — why its next child doesn't " +
     "start. With issueNumber and an explicit repo: fresh issue state, queue membership, priority and claim labels." +
     DIAG_READ_NOTE,

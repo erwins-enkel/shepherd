@@ -41,6 +41,7 @@ import {
   type AssistantScope,
 } from "./operator-assistant-tools";
 import { redactSecretText } from "./redact";
+import { daysToMask, WEEKDAYS } from "./schedules-core";
 import type { AgentProvider } from "./types";
 
 export interface OperatorActionRequest {
@@ -167,6 +168,49 @@ function startAnswer(body: unknown): Record<string, unknown> {
   const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
   if (b.held === true && typeof b.id === "string") return { held: true, heldId: b.id };
   return typeof b.desig === "string" ? { desig: b.desig } : {};
+}
+
+const SCHEDULE_ARGS = new Set(["repo", "name", "prompt", "days", "times", "baseBranch", "enabled"]);
+
+/** schedule_create's body for POST /api/schedules, or the argument error. The route's validator
+ *  stays the authority on times, lengths and the prompt; this only shapes the agent's arguments. */
+function scheduleBody(
+  args: Record<string, unknown>,
+  repoPath: string,
+): Record<string, unknown> | Fail {
+  const stray = Object.keys(args).filter((k) => !SCHEDULE_ARGS.has(k));
+  if (stray.length > 0) return fail(400, `not settable here: ${stray.join(", ")}`);
+  const name = nonEmptyText(args.name, "name");
+  if (isFail(name)) return name;
+  const prompt = nonEmptyText(args.prompt, "prompt");
+  if (isFail(prompt)) return prompt;
+  const days = Array.isArray(args.days) ? daysToMask(args.days) : null;
+  if (days === null) return fail(400, `days must be a non-empty array of ${WEEKDAYS.join(", ")}`);
+  if (!Array.isArray(args.times)) return fail(400, 'times must be an array of "HH:MM" strings');
+  if (args.enabled !== undefined && typeof args.enabled !== "boolean")
+    return fail(400, "enabled must be a boolean");
+  if (args.baseBranch !== undefined) {
+    const base = nonEmptyText(args.baseBranch, "baseBranch");
+    if (isFail(base)) return base;
+  }
+  return {
+    repoPath,
+    name,
+    prompt,
+    days,
+    times: args.times,
+    ...(args.enabled !== undefined && { enabled: args.enabled }),
+    ...(args.baseBranch !== undefined && { launch: { baseBranch: args.baseBranch } }),
+  };
+}
+
+/** A created schedule's answer: its id and next firing — never the stored row. */
+function scheduleAnswer(body: unknown): Record<string, unknown> {
+  const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+  return {
+    ...(typeof b.id === "string" && { scheduleId: b.id }),
+    nextAt: typeof b.nextAt === "number" ? new Date(b.nextAt).toISOString() : null,
+  };
 }
 
 const ACTIONS: Record<AssistantActionTool, Builder> = {
@@ -363,6 +407,18 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
       target: desigs.join(","),
     };
   },
+  schedule_create: (args, resolve) => {
+    const repo = resolve.repo(args.repo);
+    if (isFail(repo)) return repo;
+    const body = scheduleBody(args, repo);
+    if (isFail(body)) return body;
+    return {
+      requests: [{ method: "POST", path: "/api/schedules", body }],
+      target: `${basename(repo)} schedule ${JSON.stringify(body.name)}`,
+      echo: { days: args.days, times: args.times },
+      answer: scheduleAnswer,
+    };
+  },
 };
 
 /**
@@ -370,8 +426,8 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
  *  - every desig-targeted tool (steer, plan_answer, the sessions and approve groups,
  *    session_automation_set) and herd_retry (by desigs) resolve through `session()`, which refuses
  *    a session of another repo;
- *  - session_start, repo_automation_set and epic_run_set resolve through `repo()`, which refuses
- *    another repo;
+ *  - session_start, repo_automation_set, epic_run_set and schedule_create resolve through
+ *    `repo()`, which refuses another repo;
  *  - held_task resolves through `held()`, which refuses another repo's held task;
  *  - herd_halt interrupts every working session of every repo (`/api/halt` takes no target), so it
  *    is refused outright here — the global assistant halts the herd; a scoped one can interrupt
@@ -729,6 +785,48 @@ export const OPERATOR_ACTION_TOOLS: McpTool[] = [
         text: { type: "string", description: "The steer each resumed session gets." },
       },
       required: ["desigs"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "schedule_create",
+    description:
+      "[automation] Create a repo schedule: on the given weekdays and times Shepherd starts a " +
+      "fresh, attended session with the prompt (a task or a /skill), as the operator's Repo automation → " +
+      "Schedules would. Times are the SERVER's local time; the answer's nextAt " +
+      "(ISO, UTC) is the first firing — tell the operator. Model and effort: the operator's " +
+      "defaults at fire time; autopilot off. Check repo_automation's schedules first: never " +
+      "duplicate one. Editing, deleting or running a schedule stays the operator's." +
+      NOTE,
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: REPO,
+        name: { type: "string", description: "A short name, up to 80 chars." },
+        prompt: {
+          type: "string",
+          description: "What each run's agent gets. Self-contained: it sees nothing of this chat.",
+        },
+        days: {
+          type: "array",
+          minItems: 1,
+          items: { type: "string", enum: [...WEEKDAYS] },
+          description: "Weekdays it fires on.",
+        },
+        times: {
+          type: "array",
+          minItems: 1,
+          maxItems: 12,
+          items: { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$" },
+          description: 'Server-local "HH:MM" times, e.g. ["09:00"].',
+        },
+        baseBranch: {
+          type: "string",
+          description: "The branch each run starts from; default the repo's default branch.",
+        },
+        enabled: { type: "boolean", description: "Default true." },
+      },
+      required: ["repo", "name", "prompt", "days", "times"],
       additionalProperties: false,
     },
   },

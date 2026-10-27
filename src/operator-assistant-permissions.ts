@@ -41,6 +41,7 @@ export const ASSISTANT_ACTION_GROUPS = {
     "held_task",
     "herd_halt",
     "herd_retry",
+    "schedule_create",
   ],
 } as const;
 

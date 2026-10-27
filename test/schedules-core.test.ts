@@ -5,8 +5,10 @@ import { tmpdir } from "node:os";
 import {
   ALL_DAYS,
   STALE_MS,
+  daysToMask,
   decideFiring,
   latestDueSlot,
+  maskToDays,
   nextSlot,
   scheduleCreateInput,
   validateScheduleInput,
@@ -164,5 +166,18 @@ describe("validateScheduleInput", () => {
     expect(c.value.autopilotEnabled ?? null).toBeNull();
     expect(c.value.planGateEnabled).toBe(true);
     expect(c.value.research).toBe(true);
+  });
+});
+
+describe("weekday names", () => {
+  test("round-trip names and mask, Monday = bit 0", () => {
+    expect(daysToMask(["mon", "fri", "mon"])).toBe(0b0010001);
+    expect(maskToDays(0b0010001)).toEqual(["mon", "fri"]);
+    expect(maskToDays(ALL_DAYS)).toHaveLength(7);
+  });
+  test("empty or unknown names are null", () => {
+    expect(daysToMask([])).toBeNull();
+    expect(daysToMask(["monday"])).toBeNull();
+    expect(daysToMask([1])).toBeNull();
   });
 });

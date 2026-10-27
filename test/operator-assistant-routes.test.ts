@@ -989,6 +989,42 @@ test("assistant drain operations round-trip through MCP and repo_automation with
   expect((await denied.json()).error.code).toBe(-32602);
 });
 
+test("schedule_create creates an attended schedule in-process that repo_automation then lists", async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "oa-schedule-")));
+  const repo = join(root, "alpha");
+  mkdirSync(repo);
+  const saved = { repoRoot: config.repoRoot, permissions: config.assistantPermissions };
+  restore = () => {
+    config.repoRoot = saved.repoRoot;
+    config.assistantPermissions = saved.permissions;
+    rmSync(root, { recursive: true, force: true });
+  };
+  config.repoRoot = root;
+  config.assistantPermissions = { ...saved.permissions, automation: "allow" };
+  const { deps, store } = setup();
+  const assistant = assistantRow(store);
+  const app = makeApp(deps);
+  const args = {
+    repo: "alpha",
+    name: "Morning triage",
+    prompt: "/triage-feedback",
+    days: ["mon", "fri"],
+    times: ["09:00"],
+  };
+  const bad = await callTool(app, assistant.id, "schedule_create", { ...args, times: ["9am"] });
+  expect(bad.isError).toBe(true);
+  expect(store.listSchedules(repo)).toEqual([]);
+  const made = await callTool(app, assistant.id, "schedule_create", args);
+  expect(made.isError).toBe(false);
+  const [s] = store.listSchedules(repo);
+  expect(s).toMatchObject({ name: "Morning triage", days: 0b0010001, times: ["09:00"] });
+  expect(s!.launch.autopilotEnabled).toBe(false);
+  expect(made.data).toMatchObject({ scheduleId: s!.id });
+  expect(typeof made.data.nextAt).toBe("string");
+  const read = await callTool(app, assistant.id, "repo_automation", { repo: "alpha" });
+  expect(read.data.repos[0].schedules[0]).toMatchObject({ id: s!.id, days: ["mon", "fri"] });
+});
+
 test("F08: the ingress refuses an assistant action carrying only the session UUID", async () => {
   const saved = config.assistantPermissions;
   restore = () => (config.assistantPermissions = saved);

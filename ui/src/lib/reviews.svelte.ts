@@ -513,6 +513,12 @@ class RepoConfigStore {
     }
   }
 
+  /** Re-read a repo's config after the server changed it on its own (e.g. an epic auto-fix,
+   *  #3454) — no repo-config event reports that. */
+  reload(repoPath: string): Promise<boolean> {
+    return this.load(repoPath);
+  }
+
   private async load(repoPath: string): Promise<boolean> {
     try {
       this.ingest(repoPath, await getRepoConfig(repoPath));

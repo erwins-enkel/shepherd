@@ -17,6 +17,7 @@
     parent,
     epic,
     runSummary = null,
+    sandboxHeld = false,
     headActions = true,
     nowMs = Date.now(),
   }: {
@@ -25,6 +26,8 @@
     epic: Epic;
     /** The repo's run picture — marks the child holding an agent slot. */
     runSummary?: DrainRunSummary | null;
+    /** The run is held by its sandbox, CLI or host (#3454) — ready children say they wait. */
+    sandboxHeld?: boolean;
     /** Render Import + Diagnose in the head. False when the host (the backlog reading
      *  detail, #2617) offers them in its own ⋯ menu instead. */
     headActions?: boolean;
@@ -104,6 +107,8 @@
           <span class="deps"
             >{m.epic_blocked_on({ deps: c.blockedBy.map((n) => `#${n}`).join(", ") })}</span
           >
+        {:else if c.state === "ready" && sandboxHeld}
+          <span class="deps held">{m.epic_child_waits_sandbox()}</span>
         {/if}
       </li>
     {/each}
@@ -284,6 +289,10 @@
     font-size: var(--fs-micro);
     flex-basis: 100%;
     padding-left: calc(var(--fs-meta) + 12px); /* indent under title */
+  }
+
+  .deps.held {
+    color: var(--color-red);
   }
 
   .warn {

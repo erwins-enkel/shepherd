@@ -7261,7 +7261,7 @@
   "conn_offline_title": "Shepherd nicht erreichbar. Angezeigt wird der zuletzt gesendete Stand.",
   "conn_offline_reason": "Zuletzt live {time} · neuer Versuch läuft automatisch",
   "conn_offline_retry": "Jetzt erneut versuchen",
-  "conn_back_online": "Wieder verbunden.",
+  "conn_back_online": "Wieder verbunden. 🔌",
   "topbar_conn_offline": "Offline",
   "feat_offline_notice_title": "Unübersehbar, wenn Shepherd nicht erreichbar ist",
   "feat_offline_notice_body": "Verliert die Oberfläche ihre Verbindung – Tailscale aus, Handy offline, WLAN weg –, zeigt die Kopfleiste OFFLINE, die Herde wird gedimmt und pulsiert nicht mehr, und ein Hinweis nennt den letzten Live-Stand samt „Jetzt erneut versuchen“. Ist das Netz zurück, verbindet Shepherd sofort neu.",

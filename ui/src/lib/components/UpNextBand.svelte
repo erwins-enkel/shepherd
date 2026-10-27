@@ -80,7 +80,11 @@
 {#snippet prRow(pr: UpNextPr)}
   {@const key = upNextPrKey(pr)}
   {@const current = upNextUi.previewKey === key}
-  <li class="un-row" class:un-row-selected={selected.has(key)} class:un-row-current={current}>
+  <li
+    class="un-row un-row-pr"
+    class:un-row-selected={selected.has(key)}
+    class:un-row-current={current}
+  >
     {@render tickBox(key, m.upnext_pr_select_aria({ number: pr.number, title: pr.title }), () =>
       upNextUi.toggle(key),
     )}
@@ -357,6 +361,28 @@
       display: flex;
       align-items: center;
       min-height: var(--mobile-actionbar-hit);
+    }
+    /* A PR row's status line spans under #num too, so its action sits flush with the row edge. */
+    .un-row-pr {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      column-gap: 10px;
+      row-gap: 3px;
+    }
+    .un-row-pr .un-main {
+      display: contents;
+    }
+    .un-row-pr .un-check {
+      grid-area: 1 / 1;
+    }
+    .un-row-pr .un-link {
+      grid-area: 1 / 2;
+    }
+    .un-row-pr .un-meta {
+      grid-area: 1 / 3;
+    }
+    .un-row-pr .un-main > :global(.unpr-sub) {
+      grid-area: 2 / 2 / 3 / -1;
     }
   }
 

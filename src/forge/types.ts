@@ -764,6 +764,9 @@ export interface GitForge {
   /** Readiness → Forge settings snapshot (#3106): merge methods, auto-merge, branch cleanup,
    *  required checks and whether `label` exists. Optional: GitHub only. */
   repoForgeSettings?(label: string): Promise<RepoForgeSettings>;
+  /** The merge methods the repo allows, for Up Next's Merge ▾ menu; null when the host did not
+   *  say. Optional: GitHub only — without it the menu is not offered. */
+  allowedMergeMethods?(): Promise<MergeMethod[] | null>;
   /** Change repo merge settings (needs admin). Optional, same gating as {@link repoForgeSettings}. */
   patchRepoSettings?(patch: RepoSettingsPatch): Promise<void>;
   /** Add a ruleset requiring `contexts` on the default branch (needs admin). Optional, same gating. */

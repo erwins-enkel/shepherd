@@ -6267,6 +6267,11 @@ components:
           type: string
         mergeMethod:
           $ref: "#/components/schemas/MergeMethod"
+        allowedMergeMethods:
+          type: array
+          description: Every merge method the repo allows (the Merge ▾ menu); absent when the host did not say.
+          items:
+            $ref: "#/components/schemas/MergeMethod"
         closesIssue:
           type: integer
           description: The lowest-numbered issue this PR would close.

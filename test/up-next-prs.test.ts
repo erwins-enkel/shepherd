@@ -232,6 +232,7 @@ describe("buildUpNextPrs", () => {
           }),
         ],
         closingIssueByPr: { 7: 3 },
+        allowedMergeMethods: ["squash", "rebase"],
       }),
     ]);
     expect(row).toEqual({
@@ -250,6 +251,7 @@ describe("buildUpNextPrs", () => {
       latestReview: review,
       baseRefName: "main",
       mergeMethod: "squash",
+      allowedMergeMethods: ["squash", "rebase"],
       closesIssue: 3,
       band: "ready",
       action: "merge",

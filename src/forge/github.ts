@@ -273,6 +273,9 @@ const ISSUES_FAILURE_BACKOFF_MAX_MS = 15 * 60_000;
 /** How long {@link GithubForge.getEpicStructure} answers from its cache while no fingerprint
  *  covers the repo (#2807). A covered repo keeps it until its issue generation moves. */
 const EPIC_STRUCTURE_TTL_MS = 2 * 60_000;
+/** {@link GithubForge.allowedMergeMethods} cache. Repo settings rarely change, and a stale answer
+ *  only offers a method the host then refuses (or hides one it would take). */
+const MERGE_METHODS_TTL_MS = 10 * 60_000;
 /** How soon {@link GithubForge.getEpicStructure} retries after a REST fallback read with a failed
  *  call in it. Doubles per consecutive failed read, up to {@link EPIC_STRUCTURE_TTL_MS}. */
 const EPIC_STRUCTURE_RETRY_MS = 30_000;
@@ -1061,6 +1064,7 @@ export class GithubForge implements GitForge {
   private restReviewsGen = 0;
   /** {@link listWorkflowRuns} cache + in-flight share; `workflowRunsGen` bumps on rerun/cancel. */
   private workflowRunsCache: { at: number; runs: WorkflowRun[] } | null = null;
+  private mergeMethodsCache: { at: number; methods: MergeMethod[] | null } | null = null;
   private workflowRunsInflight: Promise<WorkflowRun[]> | null = null;
   private workflowRunsGen = 0;
   /** Jobs of a completed run, by runId, valid for that `attempt` only (a rerun keeps the id). */
@@ -2967,6 +2971,31 @@ export class GithubForge implements GitForge {
       "-F",
       "allow_auto_merge=true",
     ]);
+  }
+
+  async allowedMergeMethods(): Promise<MergeMethod[] | null> {
+    const hit = this.mergeMethodsCache;
+    if (hit && Date.now() - hit.at < MERGE_METHODS_TTL_MS) return hit.methods;
+    let methods: MergeMethod[] | null = null;
+    try {
+      const repo = JSON.parse((await this.run(["api", `repos/${this.slug}`])) || "{}") as {
+        allow_merge_commit?: unknown;
+        allow_squash_merge?: unknown;
+        allow_rebase_merge?: unknown;
+      };
+      const flags = {
+        merge: repo.allow_merge_commit,
+        squash: repo.allow_squash_merge,
+        rebase: repo.allow_rebase_merge,
+      };
+      // Only returned to callers with push access; absent ⇒ unknown, not "off".
+      if (Object.values(flags).every((f) => typeof f === "boolean"))
+        methods = (["merge", "squash", "rebase"] as const).filter((m) => flags[m]);
+    } catch {
+      // Unknown: Up Next then offers no menu, only the configured method.
+    }
+    this.mergeMethodsCache = { at: Date.now(), methods };
+    return methods;
   }
 
   async repoForgeSettings(label: string): Promise<RepoForgeSettings> {

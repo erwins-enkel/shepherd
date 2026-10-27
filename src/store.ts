@@ -2936,6 +2936,28 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
+  /** How long each of the repo's epic children integrated since `since` took, outside epic
+   *  `excludeParent`: from the child's earliest session or delivery fact to its `epic_integrated`
+   *  stamp — the measure `childTiming` (src/epic-timing.ts) gives a child. */
+  listEpicStepDurations(repoPath: string, since: number, excludeParent: number): number[] {
+    return (
+      this.db
+        .query(
+          `SELECT ei.createdAt - MIN(w.createdAt) AS ms
+           FROM epic_integrated ei
+           JOIN (
+             SELECT issueNumber, createdAt FROM delivery_facts WHERE repoPath = ?
+             UNION ALL
+             SELECT issueNumber, createdAt FROM sessions WHERE repoPath = ?
+           ) w ON w.issueNumber = ei.childNumber
+           WHERE ei.repoPath = ? AND ei.createdAt >= ? AND ei.parentIssueNumber <> ?
+           GROUP BY ei.parentIssueNumber, ei.childNumber
+           HAVING ms > 0`,
+        )
+        .all(repoPath, repoPath, repoPath, since, excludeParent) as { ms: number }[]
+    ).map((r) => r.ms);
+  }
+
   /** How long each of the repo's landed epics took to land (`landedAt − landingStartedAt`). */
   listEpicLandingDurations(repoPath: string): number[] {
     return (

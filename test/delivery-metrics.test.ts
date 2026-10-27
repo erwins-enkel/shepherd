@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
-import { buildDeliveryMetrics, repoLeadTime } from "../src/delivery-metrics";
+import { buildDeliveryMetrics, repoLeadTimes } from "../src/delivery-metrics";
 import type { CiConclusion, PlanDrift, ReviewerSpawnOutcome } from "../src/types";
 
 const DAY = 86_400_000;
@@ -227,7 +227,7 @@ test("unmerged tasks are excluded entirely", () => {
   expect(m.measuringSince).toBe(NOW - DAY);
 });
 
-test("repoLeadTime: one repo's 30-day lead-time median, the lens's own number for it", () => {
+test("repoLeadTimes: one repo's 30-day lead times, the tasks behind the lens's median", () => {
   const s = mk();
   const task = (id: string, repoPath: string, hours: number, mergedDaysAgo: number) =>
     seedTask(s, {
@@ -240,11 +240,15 @@ test("repoLeadTime: one repo's 30-day lead-time median, the lens's own number fo
   task("a2", "/repos/alpha", 3, 20);
   task("old", "/repos/alpha", 10, 40);
   task("b1", "/repos/beta", 7, 1);
-  expect(repoLeadTime(s, "/repos/alpha", NOW)).toEqual({ value: 2 * 3_600_000, n: 2 });
-  expect(repoLeadTime(s, "/repos/alpha", NOW)).toEqual(
-    build(s, "30d").repos.find((r) => r.repoPath === "/repos/alpha")!.leadTimeMs,
-  );
-  expect(repoLeadTime(s, "/repos/gamma", NOW)).toEqual({ value: null, n: 0 });
+  expect(repoLeadTimes(s, "/repos/alpha", NOW).sort((a, b) => a - b)).toEqual([
+    3_600_000,
+    3 * 3_600_000,
+  ]);
+  expect(build(s, "30d").repos.find((r) => r.repoPath === "/repos/alpha")!.leadTimeMs).toEqual({
+    value: 2 * 3_600_000,
+    n: 2,
+  });
+  expect(repoLeadTimes(s, "/repos/gamma", NOW)).toEqual([]);
 });
 
 test("repos are split, named by basename, and sorted by merged volume", () => {

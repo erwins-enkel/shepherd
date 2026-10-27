@@ -144,6 +144,7 @@ function timed(): Epic {
       landingMs: 20 * MIN,
       epicSamples: 1,
       repoSamples: 23,
+      repoBasis: "lead-time",
       firstFinishAt: null,
       fasterWithSlots: null,
       children: [
@@ -164,18 +165,27 @@ function timed(): Epic {
   };
 }
 
+const hm = (h: number, min: number) =>
+  new Date(2026, 9, 9, h, min).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
 const row = (n: number) =>
   page.getByRole("listitem").filter({ has: page.getByRole("link", { name: `#${n}` }) });
 
 describe("EpicPanel DAUER column (#2939)", () => {
-  it("shows each step's duration: measured, live, forecast", async () => {
+  it("shows each step's duration: measured, live, planned", async () => {
     render(EpicPanel, { repoPath: "/repo", parent: 327, epic: timed(), nowMs: NOW });
 
     await expect.element(page.getByText(m.epicdetail_col_duration())).toBeVisible();
     await expect.element(row(160).getByText("2 h 10 min")).toBeVisible();
     await expect.element(row(161).getByText("04:13")).toBeVisible();
     await expect.element(row(161).getByText(/· ~1 h 40 min left/)).toBeVisible();
-    await expect.element(row(159).getByText("~1 h 45 min · forecast")).toBeVisible();
+    // Projected 14:23–16:08, to 5 min.
+    await expect
+      .element(row(159).getByText(`~${hm(14, 25)}–${hm(16, 10)} · forecast`))
+      .toBeVisible();
   });
 
   it("has no column without the epic clock", async () => {

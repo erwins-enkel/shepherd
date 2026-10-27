@@ -208,6 +208,7 @@ describe("buildEpic attaches the forecast", () => {
       stepMs: 37 * MIN,
       epicSamples: 1,
       repoSamples: 2,
+      repoBasis: "lead-time",
       confidence: "low",
       finishAt: T0 + (60 + 2 * 37 + 20) * MIN,
       firstFinishAt: T0 + (60 + 2 * 37 + 20) * MIN,
@@ -219,6 +220,42 @@ describe("buildEpic attaches the forecast", () => {
     expect(later.finishAt).toBe(T0 + (70 + 2 * 37 + 20) * MIN);
     expect(later.firstFinishAt).toBe(first.finishAt);
     expect(h.store.getEpicClock(REPO, PARENT)!.firstFinishAt).toBe(first.finishAt);
+  });
+
+  test("priced from another epic's integrated steps once the repo has three", async () => {
+    const h = harness([sub(320, false), sub(321, false)]);
+    // A task outside any epic waited 6 h on its merge; epic #300's steps took 20, 30 and 40 min.
+    h.store.upsertDeliveryFact({
+      sessionId: "slow",
+      repoPath: REPO,
+      desig: "",
+      issueNumber: 900,
+      createdAt: T0 - 400 * MIN,
+      mergedAt: T0 - 40 * MIN,
+      now: T0,
+    });
+    [20, 30, 40].forEach((took, i) => {
+      h.store.upsertDeliveryFact({
+        sessionId: `prev${i}`,
+        repoPath: REPO,
+        desig: "",
+        issueNumber: 301 + i,
+        createdAt: T0 - 100 * MIN - took * MIN,
+        now: T0,
+      });
+      at(-100);
+      h.store.recordEpicIntegrated(REPO, 300, 301 + i);
+    });
+    at(0);
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+    at(2);
+    const f = (await h.drain.buildEpic(REPO, h.store.getEpicRun(REPO)!))!.forecast!;
+    expect(f).toMatchObject({ stepMs: 30 * MIN, repoBasis: "epic-steps", repoSamples: 3 });
   });
 });
 

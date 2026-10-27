@@ -173,7 +173,9 @@ You can change **Landing** only before the epic first runs. After that it is loc
 
 Hover an epic's **EPIC** badge in the Herd to see how long it has run and when it is forecast to
 land. The epic's detail in **Repos** adds time tiles, a timeline of every step and a **Duration**
-column in its step list. Both read the same epic clock and forecast.
+column in its step list: how long a merged step took, a running step's clock, and when a waiting
+step is planned to run (its estimate instead while the epic is paused). Both read the same epic
+clock and forecast.
 
 ### The epic clock
 
@@ -207,11 +209,13 @@ intact, though, so an agent that keeps working while the epic is paused still ad
 
 The forecast plays the rest of the epic through in three parts:
 
-1. **A duration per step.** Shepherd blends two sources: the repo's median
-   [lead time](/reference/glossary/#lead-time) over the last 30 days, counted as two samples, and
-   every step this epic has already finished, measured from its first session until it merged into
-   the epic's integration branch. The estimate is their mean, so the epic's own pace takes over as
-   its steps finish. A running step is given what is left of the estimate, but never less than a
+1. **A duration per step.** Shepherd blends two sources: a repo median, counted as two samples,
+   and every step this epic has already finished, measured from its first session until it merged
+   into the epic's integration branch. The repo median is taken over the steps of the repo's other
+   epics that finished in the last 30 days, measured the same way. With fewer than three of those,
+   or for an incremental epic, whose steps merge into main like any task, it falls back to the
+   repo's median [lead time](/reference/glossary/#lead-time) over the last 30 days. The estimate is
+   the mean, so the epic's own pace takes over as its steps finish. A running step is given what is left of the estimate, but never less than a
    tenth of it; a step running past 1.5× the estimate is flagged as taking much longer than usual.
 2. **The order.** The open steps are laid out in epic order over the repo's agent slots — the
    **Cap** in the automation pane, the concurrency cap above. A step starts once the steps it
@@ -227,10 +231,12 @@ resume** instead. With no repo median and no finished step yet, there is no fore
 
 ### Range and confidence
 
-The **range** plays the same schedule through twice more, with the 25th and the 75th percentile of
-the blended step durations. Until three of the epic's own steps are measured, those two durations
-are pushed out to at least 25 % below and 35 % above the estimate. The range narrows with every
-finished step.
+The **range** plays the same schedule through twice more, with a short and a long step. Each is the
+further out of two values: the 25th or 75th percentile of the blended step durations, and the
+blend taken with the repo's 25th or 75th percentile in place of its median — so a repo whose
+steps vary a lot gets a wide range from the start. Until three of the epic's own steps are
+measured, the two are pushed out to at least 25 % below and 35 % above the estimate. The range
+narrows with every finished step.
 
 **Confidence** says how much of the forecast rests on this epic's own steps. The first row that
 fits applies:
@@ -245,8 +251,8 @@ fits applies:
 ### Why the first estimate is wide
 
 Before the first step merges, the forecast knows nothing about this epic. Every step is priced at
-the repo median — a median over tasks of every size, not over steps like these — the range is
-widened, and confidence is **very low**. Read it as a rough guide. Each finished step replaces part
+the repo median — a median over other epics' steps (or over tasks of every size), not over this
+epic's — the range is widened, and confidence is **very low**. Read it as a rough guide. Each finished step replaces part
 of that guess with the epic's own pace, and the range narrows.
 
 The first forecast after the first merge is kept as the **first estimate**. If a later forecast

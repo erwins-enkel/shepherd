@@ -57,6 +57,7 @@ const forecast = (p: Partial<EpicForecast> = {}): EpicForecast => ({
   landingMs: 20 * MIN,
   epicSamples: 1,
   repoSamples: 23,
+  repoBasis: "lead-time",
   firstFinishAt: NOW + 435 * MIN,
   fasterWithSlots: null,
   children: [

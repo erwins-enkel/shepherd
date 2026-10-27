@@ -74,6 +74,7 @@ const forecast = (p: Partial<EpicForecast> = {}): EpicForecast => ({
   landingMs: 20 * MIN,
   epicSamples: 1,
   repoSamples: 23,
+  repoBasis: "lead-time",
   firstFinishAt: NOW + 435 * MIN,
   fasterWithSlots: null,
   children: [
@@ -415,6 +416,20 @@ describe("forecastBasisLines", () => {
     );
     expect(forecastBasisLines(epic({ forecast: null }), 1)).toBeNull();
   });
+
+  it("names the repo's past epic steps when the median is taken over them", () => {
+    const steps = (p: Partial<EpicForecast>) =>
+      forecastBasisLines(epic({ forecast: forecast({ repoBasis: "epic-steps", ...p }) }), 1)![0];
+    expect(steps({ epicSamples: 0 })).toBe(
+      "Each step ~1 h 45 min: the median of this repo's epic steps over the last 30 days, across 23 steps. From the first merge on, this epic's own steps count too.",
+    );
+    expect(steps({})).toBe(
+      "Each step ~1 h 45 min: blended from this epic (#160 took 2 h 10 min) and the median of this repo's epic steps over the last 30 days (23 steps).",
+    );
+    expect(steps({ epicSamples: 3 })).toBe(
+      "Each step ~1 h 45 min: blended from this epic (3 steps measured) and the median of this repo's epic steps over the last 30 days (23 steps).",
+    );
+  });
 });
 
 describe("childDuration", () => {
@@ -433,12 +448,47 @@ describe("childDuration", () => {
     });
   });
 
-  it("waiting: the step estimate", () => {
+  it("waiting: its planned window, to 5 min", () => {
+    // Projected 14:23–16:08.
     expect(childDuration(c(159), e, NOW)).toEqual({
-      text: "~1 h 45 min · forecast",
+      text: `~${hm(at(14, 25))}–${hm(at(16, 10))} · forecast`,
       tone: "forecast",
     });
     expect(childDuration(c(159), epic({ forecast: null }), NOW)).toBeNull();
+  });
+
+  it("waiting on another day: the date where the day changes", () => {
+    const tomorrow = (h: number, min: number) => new Date(2026, 9, 10, h, min).getTime();
+    const planned = (projectedStart: number, projectedEnd: number) =>
+      childDuration(
+        c(159),
+        epic({
+          forecast: forecast({
+            children: [{ number: 159, projectedStart, projectedEnd, overrun: false }],
+          }),
+        }),
+        NOW,
+      )!.text;
+    expect(planned(at(23, 30), tomorrow(1, 10))).toBe(
+      `~${hm(at(23, 30))}–${dt(tomorrow(1, 10))} · forecast`,
+    );
+    expect(planned(tomorrow(9, 0), tomorrow(10, 45))).toBe(
+      `~${dt(tomorrow(9, 0))}–${hm(tomorrow(10, 45))} · forecast`,
+    );
+  });
+
+  it("waiting while the clock stands: the step estimate", () => {
+    const p = paused();
+    expect(
+      childDuration(
+        p.children.find((x) => x.number === 159)!,
+        p,
+        NOW,
+      ),
+    ).toEqual({
+      text: "~1 h 45 min · forecast",
+      tone: "forecast",
+    });
   });
 
   it("is absent without an epic clock", () => {

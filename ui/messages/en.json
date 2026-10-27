@@ -7503,5 +7503,10 @@
   "native_ios_upnext_pr_rebase_requested": "Rebase requested from Dependabot for #{number}.",
   "native_ios_upnext_pr_merging": "Merging #{number}…",
   "native_ios_upnext_pr_badge_aria": "{lens}, {count} PRs ready to merge",
-  "native_ios_upnext_pr_merge_confirm_repo": "Repository"
+  "native_ios_upnext_pr_merge_confirm_repo": "Repository",
+  "epic_tip_samples_repo_steps": "Median over {count} epic steps in this repo.",
+  "epicdetail_basis_blend_steps_one": "Each step ~{step}: blended from this epic ({number} took {dur}) and the median of this repo's epic steps over the last 30 days ({count} steps).",
+  "epicdetail_basis_blend_steps_other": "Each step ~{step}: blended from this epic ({own} steps measured) and the median of this repo's epic steps over the last 30 days ({count} steps).",
+  "epicdetail_basis_repo_steps": "Each step ~{step}: the median of this repo's epic steps over the last 30 days, across {count} steps. From the first merge on, this epic's own steps count too.",
+  "epicdetail_dur_window": "~{start}–{end} · forecast"
 }

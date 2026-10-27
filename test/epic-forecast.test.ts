@@ -55,10 +55,11 @@ function epic(
   };
 }
 
-/** Repo median 60 min over 10 tasks, one slot, nothing landed before. */
+/** Repo lead time 60 min over 10 tasks, no past epic steps, one slot, nothing landed before. */
 function input(i: Partial<EpicForecastInput> = {}): EpicForecastInput {
   return {
-    repoLeadTime: { value: 60 * MIN, n: 10 },
+    leadTimeMs: Array<number>(10).fill(60 * MIN),
+    epicStepMs: [],
     maxAuto: 1,
     slotsUsed: 0,
     landingMs: [],
@@ -210,7 +211,60 @@ describe("forecastEpic — design-board cases", () => {
 
   test("no data anywhere: no forecast", () => {
     const e = epic([child(1, "running", { startedAt: ago(10) }), child(2, "ready")]);
-    expect(forecastEpic(e, input({ repoLeadTime: { value: null, n: 0 } }))).toBeNull();
+    expect(forecastEpic(e, input({ leadTimeMs: [] }))).toBeNull();
+  });
+});
+
+describe("forecastEpic — the repo's history a step is priced from", () => {
+  const fresh = (run: Partial<Epic["run"]> = {}) => {
+    const e = epic([child(1, "ready"), child(2, "ready"), child(3, "ready")]);
+    return { ...e, run: { ...e.run, ...run } };
+  };
+  // Every task's lead time waits on a human merge (~5 h 45); past epic steps took ~40 min, with a
+  // long tail (p25 30, p75 160).
+  const history = input({
+    leadTimeMs: Array<number>(10).fill(345 * MIN),
+    epicStepMs: [20, 30, 40, 160, 200].map((m) => m * MIN),
+  });
+
+  test("past epic steps, not every task's lead time", () => {
+    const f = forecastEpic(fresh(), history)!;
+    expect(f).toMatchObject({ stepMs: 40 * MIN, repoBasis: "epic-steps", repoSamples: 5 });
+    expect(f.finishAt).toBe(ahead(3 * 40 + 20));
+  });
+
+  test("the range spans the history's own p25 / p75, past the ×0.75 / ×1.35 floor", () => {
+    const f = forecastEpic(fresh(), history)!;
+    expect(f.finishLow).toBe(ahead(3 * 30 + 20));
+    expect(f.finishHigh).toBe(ahead(3 * 160 + 20));
+  });
+
+  test("the lead time's spread widens its range too", () => {
+    const f = forecastEpic(
+      fresh(),
+      input({ leadTimeMs: [30, 60, 60, 240, 300].map((m) => m * MIN) }),
+    )!;
+    expect(f).toMatchObject({ stepMs: 60 * MIN, repoBasis: "lead-time", repoSamples: 5 });
+    expect(f.finishHigh).toBe(ahead(3 * 240 + 20));
+  });
+
+  test("fewer than three past epic steps: the lead time", () => {
+    const f = forecastEpic(fresh(), input({ epicStepMs: [10 * MIN, 10 * MIN] }))!;
+    expect(f).toMatchObject({ stepMs: 60 * MIN, repoBasis: "lead-time", repoSamples: 10 });
+  });
+
+  test("an incremental epic merges like any task: the lead time", () => {
+    const f = forecastEpic(fresh({ landing: "incremental" }), history)!;
+    expect(f).toMatchObject({ stepMs: 345 * MIN, repoBasis: "lead-time", repoSamples: 10 });
+  });
+
+  test("own steps blend with the history as before", () => {
+    const e = epic([
+      child(1, "merged", { startedAt: ago(100), endedAt: ago(30) }),
+      child(2, "ready"),
+    ]);
+    // mean(40, 40, 70) = 50.
+    expect(forecastEpic(e, history)!.stepMs).toBe(50 * MIN);
   });
 });
 
@@ -228,9 +282,10 @@ describe("forecastEpic — model details", () => {
       child(4, "ready"),
       child(5, "ready"),
     ]);
-    const f = forecastEpic(e, input({ repoLeadTime: { value: null, n: 0 } }))!;
+    const f = forecastEpic(e, input({ leadTimeMs: [] }))!;
     expect(f.stepMs).toBe(50 * MIN);
     expect(f.repoSamples).toBe(0);
+    expect(f.repoBasis).toBeNull();
     expect(f.confidence).toBe("medium");
   });
 
@@ -255,7 +310,7 @@ describe("forecastEpic — model details", () => {
       child(3, "merged", { startedAt: ago(80), endedAt: ago(0) }),
       child(4, "ready"),
     ]);
-    const f = forecastEpic(e, input({ repoLeadTime: { value: null, n: 0 } }))!;
+    const f = forecastEpic(e, input({ leadTimeMs: [] }))!;
     expect(f.finishAt).toBe(ahead(60 + 20));
     expect(f.finishLow).toBe(ahead(50 + 20));
     expect(f.finishHigh).toBe(ahead(70 + 20));

@@ -117,6 +117,10 @@ export interface EpicTiming {
  *  rung: the epic then carries `forecast: null`. */
 export type EpicForecastConfidence = "very-low" | "low" | "medium" | "high";
 
+/** Which of the repo's histories prices a step: its past epic steps (first session → integrated),
+ *  or, with too few of those or for an incremental epic, every task's lead time. */
+export type EpicForecastRepoBasis = "epic-steps" | "lead-time";
+
 /** One child still to finish, as the forecast schedules it (epoch ms). */
 export interface EpicChildForecast {
   number: number;
@@ -138,14 +142,17 @@ export interface EpicForecast {
   /** While the clock is stopped (paused, idle): ms from a resume to the landing; else null. */
   remainingMsFromResume: number | null;
   confidence: EpicForecastConfidence;
-  /** The per-child estimate: this epic's measured children blended with the repo's median. */
+  /** The per-child estimate: this epic's measured children blended with the repo's median
+   *  (`repoBasis`). */
   stepMs: number;
   /** The landing estimate: the repo's past epic landings, else 20 min. */
   landingMs: number;
   /** This epic's children with a measured duration. */
   epicSamples: number;
-  /** Tasks behind the repo's median lead time (0 when it has none). */
+  /** Samples behind the repo's median (0 when it has none). */
   repoSamples: number;
+  /** What the repo's median is taken over; null when it has none. */
+  repoBasis: EpicForecastRepoBasis | null;
   /** The first forecast made after the first child merged — the drift anchor. */
   firstFinishAt: number | null;
   /** The finish with one more agent slot; set only when that saves ≥ 15 min and a `ready` child

@@ -33,7 +33,7 @@ import { bootstrapMissing } from "./bootstrap";
 import { assembleEpic, withRetiredPrs } from "./epic-model";
 import { withEpicTiming } from "./epic-timing";
 import { forecastEpic } from "./epic-forecast";
-import { repoLeadTime } from "./delivery-metrics";
+import { repoLeadTimes } from "./delivery-metrics";
 import {
   epicIntegrationBranch as epicBranchName,
   sessionEpicParent,
@@ -155,6 +155,9 @@ const EPIC_BASE_RECHECK_TTL_MS = 60_000;
  *  restart — the throttle map is in-memory). Slow on purpose: the sweep is convergence repair
  *  for merges whose event-time recording was missed, not a hot path. */
 const EPIC_RECONCILE_TTL_MS = 5 * 60_000;
+/** The epic forecast prices a step from the repo's epic steps integrated in this window — the
+ *  same 30 days as its lead-time fallback. */
+const EPIC_STEP_WINDOW_MS = 30 * 86_400_000;
 
 /** Cap on epic-landing-PR open attempts (#635, Stage B). A failed `openPr` flips the
  *  `epic_completed` row to `landingState:'error'` and increments `landingAttempts`; the
@@ -384,6 +387,7 @@ export interface DrainDeps {
     | "setSessionBaseBranch"
     | "recordEpicFirstFinish"
     | "listEpicLandingDurations"
+    | "listEpicStepDurations"
     | "listEpicQueue"
     | "shiftEpicQueue"
     | "getOrInitEpicIntegrationBranch"
@@ -943,7 +947,12 @@ export class DrainService {
       now,
     });
     const forecast = forecastEpic(timed, {
-      repoLeadTime: repoLeadTime(this.deps.store, repoPath, now),
+      leadTimeMs: repoLeadTimes(this.deps.store, repoPath, now),
+      epicStepMs: this.deps.store.listEpicStepDurations(
+        repoPath,
+        now - EPIC_STEP_WINDOW_MS,
+        epic.parentIssueNumber,
+      ),
       maxAuto: this.deps.store.getRepoConfig(repoPath).maxAuto,
       // What the drain's cap counts (buildState's autoSessions).
       slotsUsed: all.filter(

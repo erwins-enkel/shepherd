@@ -1493,6 +1493,9 @@ export interface EpicTiming {
 /** How much the forecast rests on the epic's own measured children (mirrors src/epic-core.ts). No
  *  data at all is not a rung: the epic then carries `forecast: null`. */
 export type EpicForecastConfidence = "very-low" | "low" | "medium" | "high";
+/** Which of the repo's histories prices a step (mirrors src/epic-core.ts): its past epic steps, or
+ *  every task's lead time. */
+export type EpicForecastRepoBasis = "epic-steps" | "lead-time";
 /** One child still to finish, as the forecast schedules it (epoch ms). */
 export interface EpicChildForecast {
   number: number;
@@ -1520,8 +1523,10 @@ export interface EpicForecast {
   landingMs: number;
   /** The epic's children with a measured duration. */
   epicSamples: number;
-  /** Tasks behind the repo's median lead time (0 when it has none). */
+  /** Samples behind the repo's median (0 when it has none). */
   repoSamples: number;
+  /** What the repo's median is taken over; null when it has none. */
+  repoBasis: EpicForecastRepoBasis | null;
   /** The first forecast made after the first child merged — the drift anchor. */
   firstFinishAt: number | null;
   /** The finish with one more agent slot; set only when that saves ≥ 15 min and a `ready` child

@@ -4,6 +4,7 @@ import "../../app.css";
 import type { SubagentEntry } from "#lib/types.js";
 
 const { default: SubagentFanout } = await import("./SubagentFanout.svelte");
+const { subagentsCollapse } = await import("#lib/subagents-collapse.svelte.js");
 
 const now = Date.now();
 const entry = (p: Partial<SubagentEntry> & { agentId: string }): SubagentEntry => ({
@@ -14,6 +15,7 @@ const entry = (p: Partial<SubagentEntry> & { agentId: string }): SubagentEntry =
 
 afterEach(() => {
   document.body.innerHTML = "";
+  subagentsCollapse.set(false);
 });
 
 describe("SubagentFanout", () => {
@@ -70,5 +72,27 @@ describe("SubagentFanout", () => {
       },
     });
     expect(document.querySelector(".count")?.textContent).toContain("2");
+  });
+
+  it("header toggles the list; title and live count stay visible", async () => {
+    render(SubagentFanout, {
+      sessionId: "s1",
+      subagents: { s1: [entry({ agentId: "a" }), entry({ agentId: "b", endedAt: now })] },
+    });
+    const head = document.querySelector<HTMLButtonElement>(".fanout button.head")!;
+    const list = document.querySelector<HTMLUListElement>(".fanout ul")!;
+    expect(head.getAttribute("aria-expanded")).toBe("true");
+    expect(head.getAttribute("aria-controls")).toBe(list.id);
+    expect(list.checkVisibility()).toBe(true);
+
+    head.click();
+    await expect.poll(() => head.getAttribute("aria-expanded")).toBe("false");
+    expect(list.checkVisibility(), "rows hidden when collapsed").toBe(false);
+    expect(document.querySelector(".count")?.textContent).toContain("1");
+    expect(document.querySelector(".title")?.checkVisibility()).toBe(true);
+
+    head.click();
+    await expect.poll(() => head.getAttribute("aria-expanded")).toBe("true");
+    expect(list.checkVisibility()).toBe(true);
   });
 });

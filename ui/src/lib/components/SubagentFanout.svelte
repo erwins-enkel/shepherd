@@ -2,6 +2,7 @@
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import type { SubagentEntry } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { subagentsCollapse } from "#lib/subagents-collapse.svelte.js";
 
   // The full per-session roster map (store.subagents), threaded like store.activity /
   // store.workingBlocked. We derive this session's roster from it so the section stays
@@ -12,6 +13,10 @@
   }: { sessionId: string; subagents?: Record<string, SubagentEntry[]> } = $props();
 
   const roster = $derived(subagents[sessionId] ?? []);
+  const listId = $derived(`fanout-list-${sessionId}`);
+  const toggleLabel = $derived(
+    subagentsCollapse.collapsed ? m.subagents_expand_aria() : m.subagents_collapse_aria(),
+  );
 
   // Live entries (no endedAt) first, then done — newest is fine in insertion order.
   const rows = $derived(
@@ -49,11 +54,21 @@
 {#if roster.length}
   <!-- coachTarget id "subagent-fanout" matches the Task-5 FeatureAnnouncement.targetId -->
   <section class="fanout" use:coachTarget={"subagent-fanout"}>
-    <header class="head">
+    <!-- The header folds the list (global, persisted); title + live count stay visible. -->
+    <button
+      type="button"
+      class="head"
+      onclick={() => subagentsCollapse.toggle()}
+      aria-expanded={!subagentsCollapse.collapsed}
+      aria-controls={listId}
+      aria-label={toggleLabel}
+      title={toggleLabel}
+    >
+      <span class="glyph" aria-hidden="true">{subagentsCollapse.collapsed ? "▴" : "▾"}</span>
       <span class="title">{m.subagents_section_title()}</span>
       <span class="count">{m.subagents_live_count({ count: liveCount })}</span>
-    </header>
-    <ul aria-live="polite">
+    </button>
+    <ul id={listId} aria-live="polite" hidden={subagentsCollapse.collapsed}>
       {#each rows as e (e.agentId)}
         {@const live = e.endedAt == null}
         <li>
@@ -81,9 +96,38 @@
   }
   .head {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 8px;
-    padding-bottom: 4px;
+    width: 100%;
+    padding: 0 0 4px;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .fanout:has(ul[hidden]) .head {
+    padding-bottom: 0;
+  }
+  /* The ▴/▾ glyph, styled like the Build Queue's disclosure toggle. */
+  .glyph {
+    flex: none;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    line-height: 1.4;
+    padding: 1px 5px;
+  }
+  .head:hover .glyph,
+  .head:focus-visible .glyph {
+    color: var(--color-ink-bright);
+    border-color: var(--color-ink);
+  }
+  @media (pointer: coarse), (max-width: 600px) {
+    .head {
+      min-height: var(--mobile-actionbar-hit);
+    }
   }
   .title {
     color: var(--color-ink-bright);

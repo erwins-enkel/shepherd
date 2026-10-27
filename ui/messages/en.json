@@ -533,6 +533,8 @@
   "subagents_live_count": "{count} live",
   "subagent_status_live": "live",
   "subagent_status_done": "done",
+  "subagents_collapse_aria": "Collapse sub-agents",
+  "subagents_expand_aria": "Expand sub-agents",
   "activity_active": "active {ago} ago",
   "activity_starting": "starting…",
   "activity_stage_planning": "Planning",

@@ -13,6 +13,9 @@ import { safeRealpath } from "./sandbox";
 /** Absolute path of the guard script inside this Shepherd install (mirrors doc-agent's
  *  SERVER_INSTALL_ROOT derivation: this file lives in `src/`, the script one level up). */
 const TOOL_GUARD_SCRIPT = resolve(import.meta.dir, "..", "scripts", "tool-guard.mjs");
+/** The heavy-check runner (#3181) the guard rewrites heavy commands onto; it sits beside the guard
+ *  (the guard derives the same path from its own location). */
+const HEAVY_SLOT_RUNNER = resolve(import.meta.dir, "..", "scripts", "heavy-slot.mjs");
 
 /** Interpreter for the guard: the REALPATH of the node binary Shepherd already resolved. It must be
  *  the realpath, because that (via its bin dir) is what `nodeToolchainFlags` binds into the
@@ -62,8 +65,10 @@ export function buildToolGuardFragment(
  * the hook command would silently fail inside a `standard`/`autonomous` session — and because the
  * decision to DROP the two notices from the prompt is taken host-side, that session would run with
  * neither the notice nor the deny. The interpreter is already bound (node toolchain), so only the
- * script is added here. Empty when the guard is off, keeping those flags byte-identical.
+ * scripts are added here: the guard, and the heavy-check runner it rewrites heavy commands onto
+ * (#3181) — the guard only rewrites when it can see the runner, so a missing bind fails open.
+ * Empty when the guard is off, keeping those flags byte-identical.
  */
 export function toolGuardMembranePaths(enabled: boolean = config.toolGuard): string[] {
-  return enabled ? [TOOL_GUARD_SCRIPT] : [];
+  return enabled ? [TOOL_GUARD_SCRIPT, HEAVY_SLOT_RUNNER] : [];
 }

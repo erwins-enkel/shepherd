@@ -51,7 +51,7 @@ export interface HeavySlotSnapshot {
 export interface HeavySlotSource {
   snapshot(): HeavySlotSnapshot;
   /** Manually free a holder's slot; false when that session holds none. */
-  release(sessionId: string): boolean;
+  release(sessionId: string): boolean | Promise<boolean>;
 }
 
 export const DISABLED_HEAVY_SLOT: HeavySlotSnapshot = {

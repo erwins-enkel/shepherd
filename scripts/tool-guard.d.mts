@@ -23,7 +23,15 @@ export interface ToolGuardContext {
   additionalContext: string;
 }
 
-export type ToolGuardDecision = ToolGuardDenial | ToolGuardContext;
+/** A heavy check routed through the host-wide slot (#3181): the whole tool input with only
+ *  `command` replaced by the runner invocation. No permission decision — the normal flow applies. */
+export interface ToolGuardRewrite {
+  updatedInput: { command: string; [k: string]: unknown };
+  /** The backgrounding note, when the rewritten call was backgrounded. */
+  additionalContext?: string;
+}
+
+export type ToolGuardDecision = ToolGuardDenial | ToolGuardContext | ToolGuardRewrite;
 
 export const STASH_REASON: string;
 export const INLINE_SHELL_REASON: string;
@@ -56,6 +64,11 @@ export interface ToolGuardDeps {
   currentBranch?: (cwd: string | undefined) => string | null;
   /** The repo's default branch (`origin/HEAD`, without `origin/`). */
   defaultBranch?: (cwd: string | undefined) => string | null;
+  /** A package.json or shell script's text (null: missing, too big, unreadable) — read to tell
+   *  whether `bun run X` / `./script.sh` is a heavy check (#3181). */
+  readText?: (path: string) => string | null;
+  /** The heavy-check runner to wrap heavy commands with, or null to rewrite nothing (#3181). */
+  heavyRunner?: () => { node: string; script: string } | null;
 }
 
 /** Decide one event: `null` = no opinion (normal permission flow). */

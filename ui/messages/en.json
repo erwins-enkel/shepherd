@@ -7665,5 +7665,7 @@
   "epic_rowhold_bootstrap_view": "View bootstrap",
   "epic_rowhold_usage_lift": "Lift for this run",
   "epic_rowhold_resolve": "Get the conflict resolved",
-  "epic_rowhold_approve": "Approve"
+  "epic_rowhold_approve": "Approve",
+  "feat_epic_row_holds_title": "Act on every epic halt from the list",
+  "feat_epic_row_holds_body": "An unfinished project bootstrap, the usage ceiling, the integration branch, a stuck agent or a pending approval now shows at the epic's row and in the repo overview, with its action right there: Override hold, Lift for this run, Continue anyway, Open session or Approve."
 }

@@ -7665,5 +7665,7 @@
   "epic_rowhold_bootstrap_view": "Bootstrap ansehen",
   "epic_rowhold_usage_lift": "Für diesen Lauf aufheben",
   "epic_rowhold_resolve": "Konflikt lösen lassen",
-  "epic_rowhold_approve": "Freigeben"
+  "epic_rowhold_approve": "Freigeben",
+  "feat_epic_row_holds_title": "Jeden Epic-Halt aus der Liste beheben",
+  "feat_epic_row_holds_body": "Ein unfertiger Projekt-Bootstrap, die Nutzungsgrenze, der Integrationszweig, ein hängender Agent oder eine offene Freigabe steht jetzt an der Epic-Zeile und im Repo-Überblick – mit der passenden Aktion direkt daneben: Halt übergehen, Für diesen Lauf aufheben, Trotzdem fortfahren, Sitzung öffnen oder Freigeben."
 }

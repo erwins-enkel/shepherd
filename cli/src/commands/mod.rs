@@ -9,6 +9,7 @@ pub mod merge;
 pub mod read;
 pub mod schedule;
 pub mod settings;
+pub mod slot;
 pub mod upnext;
 pub mod wait;
 pub mod worktree;

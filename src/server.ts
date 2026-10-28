@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
-import { DISABLED_HEAVY_SLOT, type HeavySlotSource, readLastResults } from "./heavy-slot-snapshot";
+import {
+  DISABLED_HEAVY_SLOT,
+  type HeavySlotSource,
+  OPERATOR_HOLDER,
+  readLastResults,
+} from "./heavy-slot-snapshot";
 import { type HostLoadSnapshot, hostLoadReport, readHostLoad } from "./remote-instances/load";
 import { jsonResponse as json, compressJsonResponse } from "./json-response";
 import { recapSummary } from "./recap-core";
@@ -677,7 +682,12 @@ export interface AppDeps {
   usageLimits: Pick<UsageLimitsService, "limits" | "projections">;
   /** Host-wide heavy-check slot (#3181); absent → `/api/heavy-slot` reports it switched off. */
   heavySlot?: HeavySlotSource &
-    Partial<Pick<import("./heavy-slot").HeavySlotService, "acquire" | "started" | "finish">>;
+    Partial<
+      Pick<
+        import("./heavy-slot").HeavySlotService,
+        "acquire" | "acquireOperator" | "started" | "finish"
+      >
+    >;
   /** Force a `/usage` re-scrape (calibration) and return fresh limits plus whether the probe
    *  actually returned a usable frame this run; absent in tests that don't wire the live
    *  calibrator (the route then falls back to the current snapshot, treated as scraped). */
@@ -6422,7 +6432,7 @@ function boundedString(v: unknown, max: number): string | null {
 
 type HeavySlotDeps = Pick<
   import("./heavy-slot").HeavySlotService,
-  "acquire" | "started" | "finish"
+  "acquire" | "acquireOperator" | "started" | "finish"
 >;
 
 /** The runner's three reports, keyed by `op`. Each validates its own body. */
@@ -6433,7 +6443,11 @@ const HEAVY_SLOT_OPS: Record<
   async acquire(slot, id, body) {
     const command = boundedString(body.command, 20_000);
     if (!command) return json({ error: "command must be a non-empty string" }, 400);
-    const out = await slot.acquire(id, command, boundedString(body.cwd, 4096));
+    const cwd = boundedString(body.cwd, 4096);
+    const out =
+      id === OPERATOR_HOLDER
+        ? await slot.acquireOperator(command, cwd)
+        : await slot.acquire(id, command, cwd);
     return out ? json(out) : json({ error: "not found" }, 404);
   },
   async started(slot, id, body) {
@@ -6462,9 +6476,19 @@ async function handleSessionHeavySlot({ req, parts, deps }: Ctx): Promise<Respon
     return json({ error: "heavy-check slot unavailable" }, 503);
   const body = await readJsonObject(req);
   if (body instanceof Response) return body;
+  // The operator holder id is reserved: a session id in the URL can never reach the operator path.
+  if (parts[2] === OPERATOR_HOLDER) return json({ error: "not found" }, 404);
+  return runHeavySlotOp(deps.heavySlot as HeavySlotDeps, parts[2], body);
+}
+
+function runHeavySlotOp(
+  slot: HeavySlotDeps,
+  id: string,
+  body: Record<string, unknown>,
+): Promise<Response> | Response {
   const op = typeof body.op === "string" && Object.hasOwn(HEAVY_SLOT_OPS, body.op) ? body.op : null;
   if (!op) return json({ error: "op must be acquire, started or finished" }, 400);
-  return HEAVY_SLOT_OPS[op]!(deps.heavySlot as HeavySlotDeps, parts[2], body);
+  return HEAVY_SLOT_OPS[op]!(slot, id, body);
 }
 
 // POST /api/sessions/:id/rename — rename a session (display name + git branch).
@@ -8359,22 +8383,38 @@ function codexUsageResponse(deps: AppDeps, action: string): Response {
   );
 }
 
-async function handleHeavySlot({ req, parts, deps }: Ctx): Promise<Response | null> {
+// POST /api/heavy-slot/operator — `shepherd slot run` outside any session (#3550): the runner's
+// acquire/started/finished ops for the host operator. Host-wide: a repo-scoped token gets 404.
+async function handleHeavySlotOperator(
+  req: Request,
+  deps: AppDeps,
+  token: Ctx["token"],
+): Promise<Response> {
+  if (token && token.repoPaths !== null) return json({ error: "not found" }, 404);
+  if (!deps.heavySlot?.acquireOperator || !deps.heavySlot.started || !deps.heavySlot.finish)
+    return json({ error: "heavy-check slot unavailable" }, 503);
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
+  return runHeavySlotOp(deps.heavySlot as HeavySlotDeps, OPERATOR_HOLDER, body);
+}
+
+async function handleHeavySlot({ req, parts, deps, token }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "heavy-slot") return null;
-  if (req.method === "GET" && parts.length === 2) {
-    const snapshot = deps.heavySlot?.snapshot() ?? DISABLED_HEAVY_SLOT;
-    // Staleness needs a git look at each worktree, so it is merged in here, not in the sync snapshot.
-    const lastResults = deps.heavySlot && deps.store ? await readLastResults(deps.store) : [];
-    return json({ ...snapshot, lastResults });
-  }
-  if (req.method === "POST" && parts.length === 3 && parts[2] === "release") {
-    const body = (await req.json().catch(() => null)) as { sessionId?: unknown } | null;
-    if (typeof body?.sessionId !== "string") return json({ error: "invalid_session_id" }, 400);
-    if (!(await deps.heavySlot?.release(body.sessionId)))
-      return json({ error: "not_holding" }, 404);
-    return json({ released: true });
-  }
-  return null;
+  if (req.method === "GET" && parts.length === 2) return heavySlotSnapshotResponse(deps);
+  if (req.method !== "POST" || parts.length !== 3) return null;
+  if (parts[2] === "operator") return handleHeavySlotOperator(req, deps, token);
+  if (parts[2] !== "release") return null;
+  const body = (await req.json().catch(() => null)) as { sessionId?: unknown } | null;
+  if (typeof body?.sessionId !== "string") return json({ error: "invalid_session_id" }, 400);
+  if (!(await deps.heavySlot?.release(body.sessionId))) return json({ error: "not_holding" }, 404);
+  return json({ released: true });
+}
+
+async function heavySlotSnapshotResponse(deps: AppDeps): Promise<Response> {
+  const snapshot = deps.heavySlot?.snapshot() ?? DISABLED_HEAVY_SLOT;
+  // Staleness needs a git look at each worktree, so it is merged in here, not in the sync snapshot.
+  const lastResults = deps.heavySlot && deps.store ? await readLastResults(deps.store) : [];
+  return json({ ...snapshot, lastResults });
 }
 
 async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | null> {

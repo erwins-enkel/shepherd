@@ -71,6 +71,10 @@ export interface ToolGuardDeps {
   heavyRunner?: () => { node: string; script: string } | null;
 }
 
+/** Is `command` a heavy check (tests, type checks, builds)? The one detection shared by the guard
+ *  and the Codex PATH shims (#3550). `cwd` resolves `bun run <script>` against package.json. */
+export function isHeavyCommand(command: string, cwd?: string, deps?: ToolGuardDeps): boolean;
+
 /** Decide one event: `null` = no opinion (normal permission flow). */
 export function decideToolGuard(
   event: ToolGuardEvent | null | undefined,

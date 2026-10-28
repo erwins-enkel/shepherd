@@ -17,7 +17,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { cpus, totalmem } from "node:os";
 import { captureRevision } from "./heavy-slot-revision";
-import type { HeavySlotSnapshot } from "./heavy-slot-snapshot";
+import { type HeavySlotSnapshot, OPERATOR_HOLDER } from "./heavy-slot-snapshot";
 import type { EventHub } from "./events";
 import { parseMemAvailable, parsePsiAvg10 } from "./host-parse";
 import { mapBounded } from "./map-bounded";
@@ -209,21 +209,47 @@ export class HeavySlotService {
   ): Promise<AcquireResponse | null> {
     const session = this.#deps.store.get(sessionId);
     if (!session || session.status === "archived") return null;
+    return this.#acquire(sessionId, command, cwd, session.repoPath, session.worktreePath);
+  }
+
+  /**
+   * `shepherd slot run` from an operator terminal (#3550): no session, so nobody to steer when it
+   * is the command's turn. It takes a free slot like any check, but a command that would have to
+   * wait gets the place and estimate and is NOT queued — re-running it retries. (An `offered` job
+   * of the operator holder could only expire unclaimed and stall the queue behind it.)
+   */
+  async acquireOperator(command: string, cwd: string | null): Promise<AcquireResponse> {
+    const out = await this.#acquire(OPERATOR_HOLDER, command, cwd, cwd ?? "", cwd ?? "");
+    if (out.decision === "queued") {
+      this.#ledger.drop(out.jobId, "released", this.#now());
+      await this.#changed();
+    }
+    return out;
+  }
+
+  async #acquire(
+    holder: string,
+    command: string,
+    cwd: string | null,
+    repoPath: string,
+    worktreePath: string,
+  ): Promise<AcquireResponse> {
     if (!this.#deps.enabled) return { decision: "run", unmanaged: true };
     if (this.#now() - (this.#brake.sampledAt ?? 0) > SAMPLE_FRESH_MS) await this.#sample();
     const out = this.#ledger.acquire(
       {
         id: (this.#deps.newId ?? randomUUID)(),
-        sessionId,
+        sessionId: holder,
         command,
         cwd,
-        etaKey: heavyEtaKey(session.repoPath, session.worktreePath, cwd, command),
+        etaKey: heavyEtaKey(repoPath, worktreePath, cwd, command),
       },
       this.#ctx(),
     );
-    if (out.kind === "run") {
-      // Bind the run to the source it starts on (#3554), before the runner is told to go.
-      const rev = await captureRevision(session.worktreePath, session.repoPath);
+    if (out.kind === "run" && holder !== OPERATOR_HOLDER) {
+      // Bind the run to the source it starts on (#3554), before the runner is told to go. An
+      // operator terminal has no session worktree to bind it to.
+      const rev = await captureRevision(worktreePath, repoPath);
       this.#ledger.setRevision(out.job.id, rev.head, rev.treeHash);
     }
     await this.#changed();

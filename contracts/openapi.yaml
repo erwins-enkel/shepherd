@@ -2590,7 +2590,7 @@ components:
         released: { type: boolean }
     HeavySlotSnapshot:
       type: object
-      required: [enabled, capacity, holders, waiters, brake, pressure, memoryBySource]
+      required: [enabled, capacity, holders, waiters, brake, pressure, memoryBySource, lastResults]
       properties:
         enabled: { type: boolean }
         capacity: { type: integer }
@@ -2653,6 +2653,22 @@ components:
                 properties:
                   name: { type: string }
                   bytes: { type: integer }
+        lastResults:
+          type: array
+          description: Each session's latest finished slot job, bound to the revision it ran against (#3554).
+          items:
+            type: object
+            required: [sessionId, command, startedAt, endedAt, exitCode, result, head, treeHash, stale]
+            properties:
+              sessionId: { type: string }
+              command: { type: string }
+              startedAt: { type: integer }
+              endedAt: { type: integer, nullable: true }
+              exitCode: { type: integer, nullable: true }
+              result: { type: string, enum: [passed, failed, aborted] }
+              head: { type: string, nullable: true, description: Commit the job ran on. }
+              treeHash: { type: string, description: Hash of the dirty worktree when the job started. }
+              stale: { type: boolean, description: The worktree no longer matches head + treeHash; a stale result is never shown as green. }
     ProjectIcons:
       type: object
       additionalProperties: { type: string }

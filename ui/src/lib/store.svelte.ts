@@ -1055,7 +1055,10 @@ export class HerdStore {
         this.usageLimits = ev.data;
         return true;
       case "heavyslot:status":
-        this.heavySlot = ev.data;
+        this.heavySlot = {
+          ...ev.data,
+          lastResults: ev.data.lastResults ?? this.heavySlot?.lastResults ?? [],
+        };
         return true;
       case "update:status":
         this.setUpdate(ev.data);

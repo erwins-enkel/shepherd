@@ -35,6 +35,7 @@ function snap(over: Partial<HeavySlotSnapshot> = {}): HeavySlotSnapshot {
       foreignBytes: 3 * GIB,
       foreignTop: [{ name: "whisper", bytes: GIB }],
     },
+    lastResults: [],
     ...over,
   };
 }

@@ -7806,5 +7806,11 @@
   "heavyslot_source_foreign": "Fremdlast",
   "heavyslot_settings_link": "Einstellungen",
   "heavyslot_close": "Schließen",
-  "heavyslot_unknown_session": "Unbekannte Session"
+  "heavyslot_unknown_session": "Unbekannte Session",
+  "heavyslot_last_results": "Letzte Prüfresultate",
+  "heavyslot_result_passed": "Bestanden",
+  "heavyslot_result_failed": "Fehlgeschlagen",
+  "heavyslot_result_aborted": "Abgebrochen",
+  "heavyslot_result_stale": "Veraltet",
+  "heavyslot_result_stale_hint": "Der Quellstand hat sich seit dieser Prüfung geändert, das Ergebnis gilt nicht mehr."
 }

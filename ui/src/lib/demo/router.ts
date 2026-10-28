@@ -45,6 +45,7 @@ const DEMO_HEAVY_SLOT_OFF: HeavySlotSnapshot = {
     cpuSomeAvg10: null,
   },
   memoryBySource: { agentsBytes: null, foreignBytes: null, foreignTop: [] },
+  lastResults: [],
 };
 
 const DEMO_BOOTSTRAP = {

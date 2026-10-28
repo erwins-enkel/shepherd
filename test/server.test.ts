@@ -149,7 +149,12 @@ test("GET /api/codex-update/notes returns the on-demand service result", async (
 test("GET /api/heavy-slot reports the slot switched off when nothing owns it", async () => {
   const res = await harness().fetch(new Request("http://localhost:7330/api/heavy-slot"));
   expect(res.status).toBe(200);
-  expect(await res.json()).toMatchObject({ enabled: false, holders: [], waiters: [] });
+  expect(await res.json()).toMatchObject({
+    enabled: false,
+    holders: [],
+    waiters: [],
+    lastResults: [],
+  });
 });
 
 test("POST /api/heavy-slot/release frees a holder and 404s for a non-holder", async () => {

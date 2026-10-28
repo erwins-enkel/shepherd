@@ -1,4 +1,4 @@
-import type { HeavySlotSnapshot } from "#lib/types.js";
+import type { HeavySlotLastResult, HeavySlotSnapshot } from "#lib/types.js";
 
 /** The master switch is the only gate: with it off there is no chip, strip or popover. */
 export function slotEnabled(s: HeavySlotSnapshot | null | undefined): s is HeavySlotSnapshot {
@@ -62,4 +62,17 @@ export function formatBytes(bytes: number | null): string {
 /** Waiters in queue order. */
 export function orderedWaiters(s: HeavySlotSnapshot): HeavySlotSnapshot["waiters"] {
   return [...s.waiters].sort((a, b) => a.position - b.position);
+}
+
+export type ResultView = "passed" | "failed" | "aborted" | "stale";
+
+/** What a last result shows as. A pass whose revision no longer matches the worktree is "stale",
+ *  never green; a failure stays red (an old failure is still the more useful signal). */
+export function resultView(r: HeavySlotLastResult): ResultView {
+  return r.result === "passed" && r.stale ? "stale" : r.result;
+}
+
+/** The 7-character commit the job ran on, or a dash when it is unknown. */
+export function shortRevision(r: HeavySlotLastResult): string {
+  return r.head ? r.head.slice(0, 7) : "–";
 }

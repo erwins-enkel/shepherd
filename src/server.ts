@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { DISABLED_HEAVY_SLOT, type HeavySlotSource } from "./heavy-slot-snapshot";
+import { DISABLED_HEAVY_SLOT, type HeavySlotSource, readLastResults } from "./heavy-slot-snapshot";
 import { type HostLoadSnapshot, hostLoadReport, readHostLoad } from "./remote-instances/load";
 import { jsonResponse as json, compressJsonResponse } from "./json-response";
 import { recapSummary } from "./recap-core";
@@ -8362,7 +8362,8 @@ function codexUsageResponse(deps: AppDeps, action: string): Response {
 async function handleHeavySlot({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "heavy-slot") return null;
   if (req.method === "GET" && parts.length === 2) {
-    return json(deps.heavySlot?.snapshot() ?? DISABLED_HEAVY_SLOT);
+    const snapshot = deps.heavySlot?.snapshot() ?? DISABLED_HEAVY_SLOT;
+    return json({ ...snapshot, lastResults: await readLastResults(deps.store) });
   }
   if (req.method === "POST" && parts.length === 3 && parts[2] === "release") {
     const body = (await req.json().catch(() => null)) as { sessionId?: unknown } | null;

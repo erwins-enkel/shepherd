@@ -293,6 +293,7 @@ describe("SettingsMachinesPanel", () => {
         cpuSomeAvg10: null,
       },
       memoryBySource: { agentsBytes: null, foreignBytes: null, foreignTop: [] },
+      lastResults: [],
     };
     stubApi({
       machines: [

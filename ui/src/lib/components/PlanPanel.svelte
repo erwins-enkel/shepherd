@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { renderMarkdown } from "#lib/sanitize-html.js";
-  import type { Session, PlanSummaryCode } from "#lib/types.js";
+  import type { Session } from "#lib/types.js";
   import { planGates, spawnNotices } from "#lib/reviews.svelte.js";
   import {
     dismissQuota,
     releasePlanGate,
+    replySession,
     resumeQuota,
     reviewPlan,
     getPlanDraft,
@@ -24,12 +24,17 @@
   import { dialog } from "#lib/a11yDialog.js";
   import { portal } from "#lib/portal.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { environmentLabel } from "#lib/reviewer-env.js";
+  import { environmentLabel, providerLabel } from "#lib/reviewer-env.js";
   import { DOCS_URL } from "#lib/build-info.js";
-  import VisualReview from "./VisualReview.svelte";
   import EffortSwitchNotice from "./EffortSwitchNotice.svelte";
   import { effortSwitchState } from "#lib/effort-switch.js";
   import { sessionEnvironment } from "#lib/session-env.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { planAnchorTarget, planOutline, splitReviewerNotes } from "#lib/plan-outline.js";
+  import PlanModeSwitch, { type PlanViewMode } from "./plan-panel/PlanModeSwitch.svelte";
+  import PlanToc from "./plan-panel/PlanToc.svelte";
+  import PlanVerdictCard from "./plan-panel/PlanVerdictCard.svelte";
+  import PlanDocument from "./plan-panel/PlanDocument.svelte";
 
   let { session, onclose }: { session: Session; onclose: () => void } = $props();
 
@@ -72,6 +77,35 @@
     };
   });
   const planText = $derived(gate?.plan ?? draft ?? "");
+  // Both texts are agent-authored and untrusted: they render only through MarkdownBody, i.e. the
+  // shared sanitizer (#lib/sanitize-html), never as raw HTML.
+  const outline = $derived(planOutline(planText));
+  const planBytes = $derived(new TextEncoder().encode(planText).length);
+  const verdict = $derived(splitReviewerNotes(gate?.body ?? ""));
+  const verdictTone = $derived(
+    gate?.decision === "approved"
+      ? "ready"
+      : gate?.decision === "changes_requested"
+        ? "changes"
+        : "error",
+  );
+  const release = $derived(
+    gate
+      ? {
+          round: gate.round,
+          cap: gate.cap,
+          approved: gate.approved,
+          findings: gate.findings.length,
+          notes: verdict.notes.length,
+        }
+      : null,
+  );
+  const agentName = $derived(providerLabel(session.agentProvider ?? "claude"));
+  let mode = $state<PlanViewMode>("read");
+  let bodyEl = $state<HTMLElement | null>(null);
+  function jump(anchor: string) {
+    if (bodyEl) planAnchorTarget(bodyEl, anchor, outline)?.scrollIntoView({ block: "start" });
+  }
   const emptyPlanLabel = $derived(
     gate || session.planPhase !== "planning"
       ? m.planpanel_empty()
@@ -128,10 +162,10 @@
   // The control's inert state, resolved once here rather than re-tested per attribute: the template
   // stays declarative and its synthetic complexity stays under the Tier-1 Svelte bar (.fallowrc.jsonc).
   const reviewInert = $derived(planReviewBlock === "approved");
+  // Once a verdict exists the control re-runs it; before that it starts the first review.
+  const reviewLabel = $derived(gate ? m.planpanel_review_again() : m.planpanel_review_now());
   const reviewAriaLabel = $derived(
-    reviewInert
-      ? `${m.planpanel_review_now()} — ${m.planpanel_review_already_approved()}`
-      : undefined,
+    reviewInert ? `${reviewLabel} — ${m.planpanel_review_already_approved()}` : undefined,
   );
   // Rendered whenever the footer has at least one control: Review (planning, or an edited plan
   // mid-execution) or Go (planning only).
@@ -157,6 +191,7 @@
     liveReviewEnv?.provider ? liveReviewEnv.effort : gate?.reviewerEffort,
   );
   const reviewEnv = $derived(environmentLabel(reviewProvider, reviewModel, reviewEffort));
+  const reviewerName = $derived(reviewProvider ? providerLabel(reviewProvider) : null);
   // In-flight button identity: shows the reviewer triple ONLY when a real (non-null) provider is
   // known, so an adopted-orphan {provider:null,…} or the pre-first-verdict bridge window falls back
   // to a plain "Reviewing…" rather than surfacing an ugly "unavailable · <model>" string. Composed
@@ -184,38 +219,6 @@
       ? m.plangate_review_spends_round({ round: rework.round, cap: rework.cap })
       : undefined,
   );
-
-  // Render the plan + reviewer body as markdown, SANITIZED before @html. Both are
-  // agent-authored — the planning agent and the reviewer ingest untrusted input (issue
-  // bodies, repo contents), so their markdown is untrusted and must be scrubbed of any
-  // embedded HTML/scripts and remote fetches. Mirrors GitRail's critic-body render: the shared
-  // sanitizer (#lib/sanitize-html) loads on first render (off the critical path; the browser-only
-  // sanitizer never runs during SSR).
-  let planHtml = $state("");
-  let bodyHtml = $state("");
-  $effect(() => {
-    const plan = planText;
-    const body = gate?.body ?? "";
-    planHtml = "";
-    bodyHtml = "";
-    if (!plan && !body) {
-      return;
-    }
-    let alive = true;
-    Promise.all([plan ? renderMarkdown(plan) : "", body ? renderMarkdown(body) : ""])
-      .then(([p, b]) => {
-        if (!alive) return;
-        planHtml = p;
-        bodyHtml = b;
-      })
-      .catch((err) => {
-        // Markdown render is progressive enhancement; warn so a broken load isn't swallowed.
-        console.warn("plan markdown render failed", err);
-      });
-    return () => {
-      alive = false;
-    };
-  });
 
   let busy = $state(false);
   // Set on a "started" trigger to bridge the window between the HTTP reply and the WS `reviewing`
@@ -378,9 +381,36 @@
     }
   }
 
+  // A note to the planning agent rides the ordinary steer, like the epic draft's amend line. Only
+  // while planning: during execution a steer would reach the implementing agent instead.
+  const canNote = $derived(planning && session.status !== "archived");
+  let noteText = $state("");
+  let noteBusy = $state(false);
+  async function sendNote() {
+    const text = noteText.trim();
+    if (!text || noteBusy || !canNote) return;
+    noteBusy = true;
+    try {
+      await replySession(session.id, text);
+      noteText = "";
+      toasts.info(m.planpanel_note_sent({ agent: agentName }));
+    } catch {
+      toasts.info(m.planpanel_note_failed(), {
+        key: `plan-note:${session.id}`,
+        sticky: true,
+        alert: true,
+      });
+    } finally {
+      noteBusy = false;
+    }
+  }
+
   const statusNoteId = $derived(`plan-status-${session.id}`);
   const statusNote = $derived(planStatusNote(chip, planStalled));
   const statusTone = $derived(planStatusTone(chip));
+  const chipLabel = $derived(planChipLabel(chip));
+  // The header chip follows the status line's tone; a running review pulses amber.
+  const chipTone = $derived(chip.kind === "reviewing" ? "changes" : statusTone);
 
   // Footer attribute state, resolved in the script for the same reason as `reviewInert` above —
   // the markup stays declarative and each template unit stays under the Tier-1 Svelte bar.
@@ -412,13 +442,25 @@
     }
   }
 
-  /** Server-authored gate summaries travel as a sentinel CODE and are localized here, so no English
-   *  is ever baked into the row. An unknown code (older UI, newer server) falls back to the generic
-   *  no-verdict copy rather than rendering nothing. */
-  function summaryForCode(code: PlanSummaryCode): string {
-    // #2111: the reviewer never launched — its agent binary does not start inside the membrane.
-    if (code === "membrane-launch") return m.planpanel_membrane_launch();
-    return m.planpanel_no_verdict();
+  function planChipLabel(currentChip: typeof chip): string | null {
+    switch (currentChip.kind) {
+      case "ready":
+        return m.planpanel_chip_ready();
+      case "changes":
+        return m.planpanel_chip_changes({ round: currentChip.round, cap: currentChip.cap });
+      case "error":
+        return m.planpanel_chip_error();
+      case "planning":
+        return m.planpanel_chip_planning();
+      case "reviewing":
+        return m.planpanel_chip_reviewing();
+      case "view":
+        return m.planpanel_chip_view();
+      case "edited":
+        return m.planpanel_chip_edited();
+      case "none":
+        return null;
+    }
   }
 
   function planStatusTone(currentChip: typeof chip): "ready" | "changes" | "error" | "muted" {
@@ -438,6 +480,8 @@
   }}
 />
 
+<!-- `class="overlay"` is load-bearing beyond styling: Viewport's shouldForwardEscape and +page's
+     anyOverlayOpen() stand down on it (see EpicDraftModal). -->
 <div
   class="overlay"
   role="presentation"
@@ -453,144 +497,153 @@
     aria-label={m.planpanel_title()}
     use:dialog={{ onclose }}
   >
-    <!-- Canonical top bar: a back chevron returns to the session view, the session
-         title rides in the middle (mirrors Viewport's mobile header). Replaces the
-         lone ✕ so the dialog reads like every other full-screen view on mobile. -->
-    <header class="chead">
-      <button type="button" class="back" onclick={onclose} aria-label={m.planpanel_back_aria()}
-        >‹</button
+    {@render headerBar()}
+
+    <!-- The dialog's only scroller. On a wide card it becomes two columns: a sticky table of
+         contents beside the verdict and the plan; narrower, the contents fold above them. -->
+    <div class="body" bind:this={bodyEl}>
+      <PlanToc
+        sections={outline.sections}
+        verdictTone={gate ? verdictTone : null}
+        hasBlocks={planBlocks.length > 0}
+        {release}
+        onjump={jump}
+      />
+      <article class="doc">
+        <SpawnFailureNotice notice={spawnFailure} />
+        {#if gate}
+          <PlanVerdictCard
+            {gate}
+            reviewer={reviewerName}
+            notes={verdict.notes}
+            rationale={verdict.rest}
+            tone={verdictTone}
+          />
+        {/if}
+        <PlanDocument
+          {outline}
+          bytes={planBytes}
+          agent={agentName}
+          asOf={gate ? gate.updatedAt : null}
+          blocks={planBlocks}
+          answerCtx={planAnswerCtx}
+          unreviewed={!gate && !!draft}
+          {edited}
+          emptyLabel={emptyPlanLabel}
+        />
+      </article>
+    </div>
+
+    {@render footerBar()}
+  </div>
+</div>
+
+<!-- Canonical top bar: a back chevron returns to the session view, the session title rides in the
+     middle (mirrors Viewport's mobile header), the gate state and the view switch sit right. -->
+{#snippet headerBar()}
+  <header class="chead">
+    <button type="button" class="back" onclick={onclose} aria-label={m.planpanel_back_aria()}>
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"
+        ><path d="M10 3 5 8l5 5" /></svg
       >
-      <div class="htitle">
-        <span class="micro">{m.planpanel_title()}</span>
-        <span class="sname" title={session.name}>{session.name}</span>
-        <div class="envline" aria-label={m.planpanel_env_aria()}>
-          <span class="env-chip" title={planEnv}>
-            <span class="env-label">{m.planpanel_env_plan()}</span>
-            <span class="env-value">{planEnv}</span>
-          </span>
-          <span class="env-chip" title={reviewEnv}>
-            <span class="env-label">{m.planpanel_env_review()}</span>
-            <span class="env-value">{reviewEnv}</span>
-          </span>
-          <span class="env-info">
-            <button
-              type="button"
-              class="env-help"
-              aria-label={m.planpanel_env_help_aria()}
-              aria-expanded={envOpen}
-              onclick={(e) => {
-                e.stopPropagation();
-                envOpen = !envOpen;
-              }}
-            >
-              i
-            </button>
-            {#if envOpen}
-              <div
-                class="env-pop"
-                role="dialog"
-                tabindex="-1"
-                aria-label={m.planpanel_env_popover_title()}
-                onclick={(e) => {
-                  e.stopPropagation();
-                }}
-                onkeydown={(e) => {
-                  if (e.key === "Escape") envOpen = false;
-                  e.stopPropagation();
-                }}
-              >
-                <strong>{m.planpanel_env_popover_title()}</strong>
-                <span>{m.planpanel_env_popover_body()}</span>
-                <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external docs URL -->
-                <a href={docsHref} target="_blank" rel="noopener noreferrer"
-                  >{m.planpanel_env_docs_link()}</a
-                >
-              </div>
-            {/if}
-          </span>
-        </div>
+    </button>
+    <div class="htitle">
+      <span class="micro">{m.planpanel_title()}</span>
+      <span class="sname" title={session.name}>{session.name}</span>
+      <div class="envline" aria-label={m.planpanel_env_aria()}>
+        <span class="env-chip" title={planEnv}>
+          <span class="env-label">{m.planpanel_env_plan()}</span>
+          <span class="env-value">{planEnv}</span>
+        </span>
+        <span class="env-chip" title={reviewEnv}>
+          <span class="env-label">{m.planpanel_env_review()}</span>
+          <span class="env-value">{reviewEnv}</span>
+        </span>
+        {@render envInfo()}
       </div>
-    </header>
+    </div>
+    {#if chipLabel}
+      <span class="state-chip {chipTone}" class:pulse={chip.kind === "reviewing"}>
+        <span class="dot" aria-hidden="true"></span>{chipLabel}
+      </span>
+    {/if}
+    <PlanModeSwitch {mode} onselect={(next) => (mode = next)} />
+  </header>
+{/snippet}
 
-    <div class="body">
-      <section class="plan">
-        {#if !gate && draft}
-          <p class="note" role="status">{m.planpanel_draft_unreviewed()}</p>
-        {/if}
-        {#if edited}
-          <p class="note edited-note" role="status">{m.planpanel_edited_note()}</p>
-        {/if}
-        {#if planBlocks.length > 0}
-          <div class="plan-blocks">
-            <span class="micro plan-blocks-caption">{m.planpanel_proposed_caption()}</span>
-            <VisualReview blocks={planBlocks} answerCtx={planAnswerCtx} />
-          </div>
-        {/if}
-        {#if planHtml}
-          <!-- eslint-disable-next-line svelte/no-at-html-tags -- plan markdown, renderMarkdown-sanitized above -->
-          <div class="md">{@html planHtml}</div>
-        {:else}
-          <p class="empty">
-            {emptyPlanLabel}
-          </p>
-        {/if}
-      </section>
+{#snippet envInfo()}
+  <span class="env-info">
+    <button
+      type="button"
+      class="env-help"
+      aria-label={m.planpanel_env_help_aria()}
+      aria-expanded={envOpen}
+      onclick={(e) => {
+        e.stopPropagation();
+        envOpen = !envOpen;
+      }}
+    >
+      i
+    </button>
+    {#if envOpen}
+      <div
+        class="env-pop"
+        role="dialog"
+        tabindex="-1"
+        aria-label={m.planpanel_env_popover_title()}
+        onclick={(e) => {
+          e.stopPropagation();
+        }}
+        onkeydown={(e) => {
+          if (e.key === "Escape") envOpen = false;
+          e.stopPropagation();
+        }}
+      >
+        <strong>{m.planpanel_env_popover_title()}</strong>
+        <span>{m.planpanel_env_popover_body()}</span>
+        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external docs URL -->
+        <a href={docsHref} target="_blank" rel="noopener noreferrer"
+          >{m.planpanel_env_docs_link()}</a
+        >
+      </div>
+    {/if}
+  </span>
+{/snippet}
 
-      {#if gate}
-        <section class="verdict">
-          <div class="micro">{m.planpanel_verdict()}</div>
-          {#if gate.summaryCode || gate.summary}
-            <p class="summary">
-              {gate.summaryCode ? summaryForCode(gate.summaryCode) : gate.summary}
-            </p>
-          {/if}
-          {#if bodyHtml}
-            <!-- eslint-disable-next-line svelte/no-at-html-tags -- reviewer markdown, renderMarkdown-sanitized above -->
-            <div class="md">{@html bodyHtml}</div>
-          {/if}
-          {#if gate.findings.length > 0}
-            <div class="micro findings-head">{m.planpanel_findings()}</div>
-            <ul class="findings">
-              {#each gate.findings as f, i (i)}
-                <li>{f}</li>
-              {/each}
-            </ul>
-          {/if}
-        </section>
-      {/if}
-
-      {#if heldAtCap}
-        <p class="note" role="status">{atCapNote}</p>
-      {/if}
-
-      {#if planUnavailable}
-        <p class="note" role="status">{m.planpanel_review_plan_unavailable()}</p>
-      {:else if outcome === "skipped"}
-        <p class="note" role="status">{m.planpanel_review_nothing_to_review()}</p>
-      {:else if outcome === "error-spawn"}
-        <p class="note err" role="alert">{m.planpanel_review_failed_spawn()}</p>
-      {:else if outcome === "error-worktree"}
-        <p class="note err" role="alert">{m.planpanel_review_failed_worktree()}</p>
-      {:else if outcome === "error-auth"}
-        <p class="note err" role="alert">{m.planpanel_review_failed_auth()}</p>
-      {/if}
-
+<!-- Pinned footer: never scrolls away. A note to the planner, the transient outcome notes, then the
+     status line beside the gate's actions. -->
+{#snippet footerBar()}
+  <footer class="foot">
+    {#if canNote}
+      <div class="note-row">
+        <input
+          class="note-input"
+          type="text"
+          bind:value={noteText}
+          disabled={noteBusy}
+          aria-label={m.planpanel_note_label({ agent: agentName })}
+          placeholder={m.planpanel_note_placeholder({ agent: agentName })}
+          onkeydown={(e) => {
+            if (e.key === "Enter" && !e.isComposing) void sendNote();
+          }}
+        />
+        <button
+          type="button"
+          class="send"
+          disabled={noteBusy || !noteText.trim()}
+          onclick={() => void sendNote()}>{m.planpanel_note_send()}</button
+        >
+      </div>
+    {/if}
+    {@render outcomeNotes()}
+    <div class="foot-row">
       {#if statusNote}
         <p id={statusNoteId} class="status-note {statusTone}">
-          {statusNote}
+          <span class="dot" aria-hidden="true"></span>{statusNote}
         </p>
       {/if}
-
-      <SpawnFailureNotice notice={spawnFailure} />
-
-      {#if effortSwitch}
-        <EffortSwitchNotice state={effortSwitch} {busy} ongo={(skip) => void go(skip)} />
-      {:else if goRefusal === "error"}
-        <p class="note err" role="alert">{m.hold_cta_go_failed()}</p>
-      {/if}
-
       {#if planStalled}
-        <div class="quota-actions" aria-describedby={statusNote ? statusNoteId : undefined}>
+        <div class="quota-actions" aria-describedby={describedBy}>
           <button
             type="button"
             class="quota-btn primary"
@@ -609,18 +662,46 @@
           </button>
         </div>
       {/if}
-      {#if quotaOutcome === "unreachable"}
-        <p class="note err" role="alert">{m.planpanel_quota_unreachable()}</p>
-      {:else if quotaOutcome === "not-stalled"}
-        <p class="note" role="status">{m.planpanel_quota_not_stalled()}</p>
-      {:else if quotaOutcome === "error"}
-        <p class="note err" role="alert">{m.planpanel_quota_failed()}</p>
-      {/if}
-
       {@render actionsFooter()}
     </div>
-  </div>
-</div>
+  </footer>
+{/snippet}
+
+{#snippet outcomeNotes()}
+  {#if heldAtCap}
+    <p class="note" role="status">{atCapNote}</p>
+  {/if}
+
+  {#if planUnavailable}
+    <p class="note" role="status">{m.planpanel_review_plan_unavailable()}</p>
+  {:else if outcome === "skipped"}
+    <p class="note" role="status">{m.planpanel_review_nothing_to_review()}</p>
+  {:else if outcome === "error-spawn"}
+    <p class="note err" role="alert">{m.planpanel_review_failed_spawn()}</p>
+  {:else if outcome === "error-worktree"}
+    <p class="note err" role="alert">{m.planpanel_review_failed_worktree()}</p>
+  {:else if outcome === "error-auth"}
+    <p class="note err" role="alert">{m.planpanel_review_failed_auth()}</p>
+  {/if}
+
+  {#if effortSwitch}
+    <EffortSwitchNotice state={effortSwitch} {busy} ongo={(skip) => void go(skip)} />
+  {:else if goRefusal === "error"}
+    <p class="note err" role="alert">{m.hold_cta_go_failed()}</p>
+  {/if}
+
+  {#if quotaOutcome === "unreachable"}
+    <p class="note err" role="alert">{m.planpanel_quota_unreachable()}</p>
+  {:else if quotaOutcome === "not-stalled"}
+    <p class="note" role="status">{m.planpanel_quota_not_stalled()}</p>
+  {:else if quotaOutcome === "error"}
+    <p class="note err" role="alert">{m.planpanel_quota_failed()}</p>
+  {/if}
+
+  {#if showActions && reviewInert}
+    <p class="note" role="status">{m.planpanel_review_already_approved()}</p>
+  {/if}
+{/snippet}
 
 <!-- The Review control as its own unit: its in-flight/idle label swap is what pushed the footer
      over the template-complexity bar as one block. -->
@@ -639,13 +720,13 @@
         >{reviewingButtonLabel}</span
       >
     {:else}
-      {m.planpanel_review_now()}
+      {reviewLabel}
     {/if}
   </button>
 {/snippet}
 
-<!-- The action footer, likewise: fallow scores a top-level {#snippet} as its own unit, which keeps
-     the card body within the health bar. Rendering is unchanged. -->
+<!-- The gate's own actions, likewise: fallow scores a top-level {#snippet} as its own unit, which
+     keeps the footer within the health bar. -->
 {#snippet actionsFooter()}
   {#if showActions}
     <div class="actions" aria-describedby={describedBy}>
@@ -660,13 +741,10 @@
           disabled={goDisabled}
           aria-describedby={describedBy}
         >
-          {m.planpanel_go()}
+          <span class="go-glyph" aria-hidden="true">▸</span>{m.planpanel_go()}
         </button>
       {/if}
     </div>
-    {#if reviewInert}
-      <p class="note" role="status">{m.planpanel_review_already_approved()}</p>
-    {/if}
   {/if}
 {/snippet}
 
@@ -680,30 +758,19 @@
     justify-content: center;
     z-index: 30;
   }
+  /* Fixed header and footer around one scroller (.body), the epic-draft dialog's shape. The card is
+     the container the plan's two-column layout and its table of contents query. */
   .card {
     position: relative;
-    /* Desktop plans carry diagrams, data-model cards, diffs and tables — give
-       them room. Running prose is capped to a readable measure separately
-       (.md/.summary/.findings) so widening the sheet helps structure without
-       letting paragraphs sprawl. */
-    width: min(1040px, 92vw);
-    max-height: 86vh;
-    overflow-y: auto;
-    /* lock horizontal axis: long code/plan text wraps or scrolls inside its own
-       block (.md pre), never swings the whole sheet sideways on touch. */
-    overflow-x: hidden;
-    overscroll-behavior: contain;
+    box-sizing: border-box;
+    width: min(1240px, 92vw);
+    max-height: 90dvh;
+    container-type: inline-size;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     border: 1px solid var(--color-line-bright);
     background: var(--color-panel);
-    display: flex;
-    flex-direction: column;
-  }
-  /* scrollable content below the sticky top bar */
-  .body {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
   }
   .bracket::before,
   .bracket::after {
@@ -725,42 +792,44 @@
     border-left: 0;
     border-top: 0;
   }
-  /* sticky top bar — same idiom as Viewport's .vp-head / BacklogView's .overlay-head:
-     back control left, title alongside, a hairline rule under it. */
   .chead {
     display: flex;
+    flex: none;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: 10px 16px;
     min-width: 0;
-    padding: 8px 12px;
+    padding: 10px 16px;
     background: var(--color-head);
     border-bottom: 1px solid var(--color-line);
-    position: sticky;
-    top: 0;
-    z-index: 1;
   }
-  /* canonical back chevron — mirrors Viewport's .back */
   .back {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
     background: transparent;
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-ink);
-    font: inherit;
-    font-size: var(--fs-xl);
-    line-height: 1;
-    padding: 2px 11px;
     cursor: pointer;
-    flex-shrink: 0;
   }
   .back:hover {
     background: var(--color-hover);
   }
+  .back svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+  }
   .htitle {
     display: flex;
+    flex: 1 1 260px;
     flex-direction: column;
     gap: 1px;
     min-width: 0;
-    flex: 1;
   }
   .micro {
     font-size: var(--fs-meta);
@@ -866,120 +935,139 @@
   .env-pop a:hover {
     text-decoration: underline;
   }
-  .plan-blocks {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-bottom: 12px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--color-line);
-  }
-  .plan-blocks-caption {
-    color: var(--color-muted);
-  }
-  .plan,
-  .verdict {
-    border: 1px solid var(--color-line);
+  /* The gate state at a glance — the same tones as the footer's status line. */
+  .state-chip {
+    --tone: var(--color-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    padding: 6px 10px;
+    border: 1px solid color-mix(in oklab, var(--tone) 40%, transparent);
     border-radius: 2px;
-    background: var(--color-inset);
-    padding: 10px 12px;
-  }
-  .verdict {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .summary {
-    margin: 0;
-    max-width: 74ch;
-    color: var(--color-ink-bright);
-    font-size: var(--fs-base);
-  }
-  .empty {
-    margin: 0;
-    color: var(--color-muted);
-    font-size: var(--fs-base);
-  }
-  .md {
-    color: var(--color-ink);
-    font-size: var(--fs-base);
-    line-height: 1.45;
-    overflow-wrap: anywhere;
-  }
-  /* Cap running text to a comfortable measure on wide desktop sheets; leave
-     pre/table free to use the full width. */
-  .md :global(p),
-  .md :global(ul),
-  .md :global(ol),
-  .md :global(h1),
-  .md :global(h2),
-  .md :global(h3),
-  .md :global(h4) {
-    max-width: 74ch;
-  }
-  .md :global(pre) {
-    background: var(--color-panel);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    padding: 8px 10px;
-    overflow-x: auto;
-  }
-  .md :global(code) {
-    font-family: var(--font-mono);
+    background: color-mix(in oklab, var(--tone) 9%, transparent);
+    color: var(--tone);
     font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
-  .findings-head {
-    margin-top: 2px;
-    color: var(--color-amber);
+  .state-chip.ready {
+    --tone: var(--color-green);
   }
-  .findings {
-    margin: 0;
-    max-width: 74ch;
-    padding-left: 18px;
-    color: var(--color-ink);
-    font-size: var(--fs-base);
-    line-height: 1.45;
+  .state-chip.changes {
+    --tone: var(--color-amber);
   }
-  .findings li {
-    margin-bottom: 3px;
+  .state-chip.error {
+    --tone: var(--color-red);
   }
-  .actions {
+  .dot {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .state-chip.pulse .dot {
+    /* functional status motion — exempt from the reduced-motion blanket (app.css) */
+    animation: pp-pulse 1.1s ease-in-out infinite !important;
+  }
+
+  .body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+    padding: 14px 16px 24px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  @container (min-width: 880px) {
+    .body {
+      display: grid;
+      grid-template-columns: 232px minmax(0, 1fr);
+      column-gap: 32px;
+      align-items: start;
+      padding: 0 24px;
+    }
+    .doc {
+      padding: 18px 0 40px;
+    }
+  }
+  .doc {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 30px;
+  }
+
+  .foot {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 16px 12px;
+    border-top: 1px solid var(--color-line);
+    background: var(--color-head);
+  }
+  .note-row {
     display: flex;
     gap: 8px;
-    justify-content: flex-end;
-    margin-top: 2px;
-    /* Let the in-flight Review button (which now carries the CLI·model·effort triple) drop to its
-       own line instead of pushing the row past the sheet on a narrow (~320px) phone. */
-    flex-wrap: wrap;
   }
+  .note-input {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    padding: 4px 10px;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-ink);
+    font: inherit;
+    font-size: var(--fs-base);
+    outline: none;
+  }
+  .note-input:focus {
+    border-color: var(--color-amber);
+  }
+  .note-input:disabled {
+    opacity: 0.5;
+  }
+  .foot-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .actions,
   .quota-actions {
     display: flex;
     gap: 8px;
     justify-content: flex-end;
+    /* Let the in-flight Review button (which carries the CLI·model·effort triple) drop to its own
+       line instead of pushing the row past the sheet on a narrow (~320px) phone. */
     flex-wrap: wrap;
+    max-width: 100%;
   }
   .note {
     margin: 0;
     color: var(--color-muted);
     font-size: var(--fs-meta);
-    text-align: right;
   }
   .note.err {
     color: var(--color-red);
   }
-  /* #2224: sits ABOVE the plan text (the other notes are right-aligned action footnotes) and says
-     the text below is the approved snapshot, not the live file. */
-  .edited-note {
-    text-align: left;
-    color: var(--color-amber);
-    margin-bottom: 10px;
-  }
   .status-note {
+    display: inline-flex;
+    flex: 1 1 260px;
+    align-items: center;
+    gap: 8px;
     margin: 0;
     color: var(--color-muted);
     font-size: var(--fs-meta);
     line-height: 1.35;
-    text-align: right;
   }
   .status-note.ready {
     color: var(--color-green);
@@ -992,7 +1080,9 @@
   }
   .review,
   .go,
-  .quota-btn {
+  .quota-btn,
+  .send {
+    min-height: 44px;
     border: 1px solid var(--color-line-bright);
     background: transparent;
     color: var(--color-ink);
@@ -1000,7 +1090,7 @@
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    padding: 8px 14px;
+    padding: 0 14px;
     border-radius: 2px;
     cursor: pointer;
   }
@@ -1044,13 +1134,22 @@
     }
   }
   .go {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 18px;
     border-color: var(--color-green);
     color: var(--color-green);
+    font-weight: 600;
     box-shadow: inset 0 0 18px -10px var(--color-green);
+  }
+  .go-glyph {
+    line-height: 1;
   }
   .review:disabled,
   .go:disabled,
   .quota-btn:disabled,
+  .send:disabled,
   /* Inert (approved) — kept focusable so its aria-label reason is keyboard-reachable,
      unlike bare `disabled`. */
   .review[aria-disabled="true"] {
@@ -1061,8 +1160,8 @@
     box-shadow: none;
   }
 
-  /* phone: a full-bleed sheet, edge to edge — no side margins, no corner brackets,
-     nothing to swing sideways. Matches the LeftoverDialog full-screen idiom. */
+  /* phone: a full-bleed sheet, edge to edge — no side margins, no corner brackets, nothing to swing
+     sideways. The view switch takes its own row under the title. */
   @media (max-width: 768px) {
     .overlay {
       align-items: stretch;
@@ -1079,21 +1178,17 @@
     .bracket::after {
       display: none;
     }
-    /* edge-to-edge plan content: trim the body's side gutter and let the plan /
-       verdict bands span the full screen width (no side border, no rounding) so
-       long code, tables and data-model cards use every available pixel. The bands
-       keep their inner text inset; actions/notes keep the slim body gutter so
-       buttons don't collide with the screen edge. */
-    .body {
-      padding: 12px 10px;
+    .chead {
+      padding: 10px;
     }
-    .plan,
-    .verdict {
-      margin-left: -10px;
-      margin-right: -10px;
-      border-left: 0;
-      border-right: 0;
-      border-radius: 0;
+    .htitle {
+      flex-basis: calc(100% - 64px);
+    }
+    .state-chip {
+      margin-left: 54px;
+    }
+    .foot {
+      padding-bottom: max(12px, env(safe-area-inset-bottom));
     }
   }
 </style>

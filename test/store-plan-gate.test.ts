@@ -215,3 +215,77 @@ test("plan_gate round-trips livePlanHash + approvedAt (legacy rows default null)
   expect(s.snapshotPlanGates().s1!.livePlanHash).toBe("h2");
   expect(s.snapshotPlanGates().s1!.approvedAt).toBe(1_700);
 });
+
+// ── #3514 plan revisions ──────────────────────────────────────────────────────
+
+const edit = {
+  id: "e1",
+  kind: "replace" as const,
+  section: "Approach",
+  before: "old",
+  after: "new",
+  reason: "simpler",
+};
+
+test("recordAgentPlanRevision numbers from 1 and skips a text the latest revision holds", () => {
+  const s = new SessionStore(":memory:");
+  expect(s.latestPlanRevision("s1")).toBeNull();
+  expect(s.recordAgentPlanRevision("s1", "h1", "PLAN 1")).toBe(1);
+  expect(s.recordAgentPlanRevision("s1", "h1", "PLAN 1")).toBe(1);
+  expect(s.recordAgentPlanRevision("s1", "h2", "PLAN 2")).toBe(2);
+  expect(s.recordAgentPlanRevision("s2", "h1", "PLAN 1")).toBe(1); // per session
+  expect(s.listPlanRevisions("s1").map((r) => [r.revision, r.author, r.planHash])).toEqual([
+    [1, "agent", "h1"],
+    [2, "agent", "h2"],
+  ]);
+});
+
+test("recordOperatorPlanRevision records an unrecorded base first, then the operator's text", () => {
+  const s = new SessionStore(":memory:");
+  s.recordAgentPlanRevision("s1", "h1", "PLAN 1");
+  const out = s.recordOperatorPlanRevision(
+    "s1",
+    { planHash: "h2", plan: "PLAN 2" },
+    { planHash: "h3", plan: "PLAN 3" },
+    [edit],
+  );
+  expect(out).toEqual({ from: 2, to: 3 });
+  const latest = s.latestPlanRevision("s1")!;
+  expect(latest).toMatchObject({ revision: 3, author: "operator", planHash: "h3", plan: "PLAN 3" });
+  expect(latest.edits).toEqual([edit]);
+  expect(s.listPlanRevisions("s1")[1]).toMatchObject({ revision: 2, author: "agent", edits: [] });
+});
+
+test("recordOperatorPlanRevision reuses a recorded base and records a comment-only edit", () => {
+  const s = new SessionStore(":memory:");
+  s.recordAgentPlanRevision("s1", "h1", "PLAN 1");
+  const comment = { id: "c1", kind: "comment" as const, section: "", before: "PLAN", after: "" };
+  expect(
+    s.recordOperatorPlanRevision(
+      "s1",
+      { planHash: "h1", plan: "PLAN 1" },
+      { planHash: "h1", plan: "PLAN 1" },
+      [{ ...comment, reason: "too vague" }],
+    ),
+  ).toEqual({ from: 1, to: 2 });
+  // The agent's next review of the same text adds nothing: the operator revision already holds it.
+  expect(s.recordAgentPlanRevision("s1", "h1", "PLAN 1")).toBe(2);
+});
+
+test("dropPlanRevisions removes only that session's revisions", () => {
+  const s = new SessionStore(":memory:");
+  s.recordAgentPlanRevision("s1", "h1", "PLAN 1");
+  s.recordAgentPlanRevision("s2", "h1", "PLAN 1");
+  s.dropPlanRevisions("s1");
+  expect(s.listPlanRevisions("s1")).toEqual([]);
+  expect(s.listPlanRevisions("s2")).toHaveLength(1);
+});
+
+test("pruneArchivedSessions cascades to plan revisions", () => {
+  const s = new SessionStore(":memory:");
+  const a = s.create({ ...base, claudeSessionId: "c", model: null });
+  s.recordAgentPlanRevision(a.id, "h1", "PLAN 1");
+  s.archive(a.id);
+  expect(s.pruneArchivedSessions({ maxAgeMs: 0, keepNewest: 0 })).toBeGreaterThan(0);
+  expect(s.listPlanRevisions(a.id)).toEqual([]);
+});

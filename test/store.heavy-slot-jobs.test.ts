@@ -1,73 +1,60 @@
-import { expect, test } from "bun:test";
-import { HEAVY_SLOT_JOBS_DDL, SessionStore } from "../src/store";
 import { Database } from "bun:sqlite";
+import { expect, test } from "bun:test";
+import type { HeavyJob } from "../src/heavy-slot-core";
+import { SessionStore } from "../src/store";
 
-const job = (id: string, startedAt: number, sessionId = "s1") => ({
+const job = (id: string, over: Partial<HeavyJob> = {}): HeavyJob => ({
   id,
-  sessionId,
+  sessionId: "s1",
   command: "vitest run",
-  repoPath: "/r",
-  worktreePath: "/w",
-  startedAt,
+  cwd: null,
+  etaKey: "k",
+  state: "done",
+  enqueuedAt: 1,
+  offerExpiresAt: null,
+  startedAt: 1,
+  finishedAt: 2,
+  releasedAt: 2,
+  exitCode: 0,
+  pgid: null,
+  dropReason: null,
   head: "abc",
   treeHash: "t",
+  ...over,
 });
 
-test("heavy_slot_jobs: the fresh DDL alone yields every column", () => {
-  const db = new Database(":memory:");
-  db.run(HEAVY_SLOT_JOBS_DDL);
-  const cols = (db.query("PRAGMA table_info(heavy_slot_jobs)").all() as { name: string }[]).map(
-    (c) => c.name,
-  );
-  expect(cols).toEqual([
-    "id",
-    "sessionId",
-    "command",
-    "repoPath",
-    "worktreePath",
-    "startedAt",
-    "head",
-    "treeHash",
-    "endedAt",
-    "exitCode",
-    "result",
-  ]);
+test("heavy_slot_jobs: revision columns are added to a table created before #3554", () => {
+  const path = `${process.env.TMPDIR ?? "/tmp"}/slot-old-${crypto.randomUUID()}.db`;
+  const old = new Database(path);
+  old.run(`CREATE TABLE heavy_slot_jobs (
+    id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, command TEXT NOT NULL, cwd TEXT,
+    etaKey TEXT NOT NULL, state TEXT NOT NULL, enqueuedAt INTEGER NOT NULL,
+    offerExpiresAt INTEGER, startedAt INTEGER, finishedAt INTEGER, releasedAt INTEGER,
+    exitCode INTEGER, pgid INTEGER, dropReason TEXT)`);
+  old.close();
+  const s = new SessionStore(path);
+  s.upsertHeavySlotJob(job("j1"));
+  expect(s.listHeavySlotJobs(["done"])[0]).toMatchObject({ head: "abc", treeHash: "t" });
 });
 
-test("heavy_slot_jobs: exit code decides passed/failed; running jobs are not results", () => {
+test("heavy_slot_jobs: the revision survives an upsert", () => {
   const s = new SessionStore(":memory:");
-  s.startHeavySlotJob(job("j1", 1));
-  expect(s.lastHeavySlotJobBySession()).toEqual([]);
-  s.finishHeavySlotJob("j1", { exitCode: 0, endedAt: 2 });
-  expect(s.lastHeavySlotJobBySession()[0]).toMatchObject({
-    id: "j1",
-    result: "passed",
-    exitCode: 0,
-  });
-  s.startHeavySlotJob(job("j2", 3));
-  s.finishHeavySlotJob("j2", { exitCode: 1, endedAt: 4 });
-  expect(s.lastHeavySlotJobBySession()).toHaveLength(1);
-  expect(s.lastHeavySlotJobBySession()[0]).toMatchObject({ id: "j2", result: "failed" });
-  s.finishHeavySlotJob("j2", { exitCode: 0, endedAt: 5 });
-  expect(s.lastHeavySlotJobBySession()[0]!.result).toBe("failed");
+  s.upsertHeavySlotJob(job("j1", { state: "running", finishedAt: null, exitCode: null }));
+  s.upsertHeavySlotJob(job("j1"));
+  expect(s.listHeavySlotJobs(["done"])[0]).toMatchObject({ head: "abc", treeHash: "t" });
 });
 
-test("heavy_slot_jobs: open jobs are closed as aborted", () => {
+test("lastHeavySlotResults: newest exited job per session, only with a captured revision", () => {
   const s = new SessionStore(":memory:");
-  s.startHeavySlotJob(job("j1", 1));
-  expect(s.abortOpenHeavySlotJobs(9)).toBe(1);
-  expect(s.lastHeavySlotJobBySession()[0]).toMatchObject({ result: "aborted", endedAt: 9 });
-});
-
-test("heavy_slot_jobs: only the newest jobs per session are kept", () => {
-  const s = new SessionStore(":memory:");
-  for (let i = 0; i < 25; i++) s.startHeavySlotJob(job(`j${i}`, i));
-  s.startHeavySlotJob(job("other", 1, "s2"));
-  s.abortOpenHeavySlotJobs(99);
-  const ids = s
-    .lastHeavySlotJobBySession()
-    .map((r) => r.id)
+  s.upsertHeavySlotJob(job("old", { finishedAt: 2 }));
+  s.upsertHeavySlotJob(job("new", { finishedAt: 5, exitCode: 1 }));
+  s.upsertHeavySlotJob(job("running", { state: "running", finishedAt: null, exitCode: null }));
+  s.upsertHeavySlotJob(job("legacy", { sessionId: "s2", head: null, treeHash: null }));
+  s.upsertHeavySlotJob(job("dropped", { sessionId: "s3", state: "dropped", finishedAt: null }));
+  s.upsertHeavySlotJob(job("lingering", { sessionId: "s4", state: "lingering", releasedAt: null }));
+  const got = s
+    .lastHeavySlotResults()
+    .map((j) => j.id)
     .sort();
-  expect(ids).toEqual(["j24", "other"]);
-  expect(s.abortOpenHeavySlotJobs(100)).toBe(0);
+  expect(got).toEqual(["lingering", "new"]);
 });

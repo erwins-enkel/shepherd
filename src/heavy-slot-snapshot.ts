@@ -2,7 +2,8 @@
 // and a "switched off" default live here; whatever enforces the slot supplies the real snapshot.
 
 import { captureRevision, type HeavySlotRevision, isStale } from "./heavy-slot-revision";
-import type { HeavySlotJobRow, SessionStore } from "./store";
+import type { HeavyJob } from "./heavy-slot-core";
+import type { SessionStore } from "./store";
 
 export interface HeavySlotHolder {
   sessionId: string;
@@ -105,32 +106,34 @@ function currentRevision(repoPath: string, path: string, now: number): Promise<H
   return rev;
 }
 
-function lastResultFromJob(job: HeavySlotJobRow, current: HeavySlotRevision) {
-  const result: HeavySlotLastResult = {
+function lastResultFromJob(job: HeavyJob, current: HeavySlotRevision): HeavySlotLastResult {
+  return {
     sessionId: job.sessionId,
     command: job.command,
-    startedAt: job.startedAt,
-    endedAt: job.endedAt,
+    startedAt: job.startedAt ?? job.enqueuedAt,
+    endedAt: job.finishedAt,
     exitCode: job.exitCode,
-    result: job.result ?? "aborted",
+    result: job.exitCode === null ? "aborted" : job.exitCode === 0 ? "passed" : "failed",
     head: job.head,
-    treeHash: job.treeHash,
-    stale: isStale({ head: job.head, treeHash: job.treeHash }, current),
+    treeHash: job.treeHash ?? "",
+    stale: isStale({ head: job.head, treeHash: job.treeHash ?? "" }, current),
   };
-  return result;
 }
 
 /** Each session's latest finished job, marked stale when its worktree moved on since the job began. */
 export async function readLastResults(
-  store: SessionStore,
+  store: Pick<SessionStore, "get" | "lastHeavySlotResults">,
   now = Date.now(),
 ): Promise<HeavySlotLastResult[]> {
-  const jobs = store.lastHeavySlotJobBySession();
-  return Promise.all(
-    jobs.map(async (job) =>
-      lastResultFromJob(job, await currentRevision(job.repoPath, job.worktreePath, now)),
-    ),
+  const results = await Promise.all(
+    store.lastHeavySlotResults().map(async (job) => {
+      const session = store.get(job.sessionId);
+      if (!session) return null;
+      const current = await currentRevision(session.repoPath, session.worktreePath, now);
+      return lastResultFromJob(job, current);
+    }),
   );
+  return results.filter((r) => r !== null);
 }
 
 /** Most holders / waiters / foreign processes taken from a connected machine's snapshot. */

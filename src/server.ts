@@ -8363,7 +8363,9 @@ async function handleHeavySlot({ req, parts, deps }: Ctx): Promise<Response | nu
   if (parts[0] !== "api" || parts[1] !== "heavy-slot") return null;
   if (req.method === "GET" && parts.length === 2) {
     const snapshot = deps.heavySlot?.snapshot() ?? DISABLED_HEAVY_SLOT;
-    return json({ ...snapshot, lastResults: await readLastResults(deps.store) });
+    // Staleness needs a git look at each worktree, so it is merged in here, not in the sync snapshot.
+    const lastResults = deps.heavySlot && deps.store ? await readLastResults(deps.store) : [];
+    return json({ ...snapshot, lastResults });
   }
   if (req.method === "POST" && parts.length === 3 && parts[2] === "release") {
     const body = (await req.json().catch(() => null)) as { sessionId?: unknown } | null;

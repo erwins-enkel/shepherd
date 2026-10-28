@@ -16,6 +16,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { cpus, totalmem } from "node:os";
+import { captureRevision } from "./heavy-slot-revision";
 import type { HeavySlotSnapshot } from "./heavy-slot-snapshot";
 import type { EventHub } from "./events";
 import { parseMemAvailable, parsePsiAvg10 } from "./host-parse";
@@ -196,6 +197,7 @@ export class HeavySlotService {
         cpuSomeAvg10: null,
       },
       memoryBySource: { agentsBytes: null, foreignBytes: null, foreignTop: [] },
+      lastResults: [],
     };
   }
 
@@ -219,6 +221,11 @@ export class HeavySlotService {
       },
       this.#ctx(),
     );
+    if (out.kind === "run") {
+      // Bind the run to the source it starts on (#3554), before the runner is told to go.
+      const rev = await captureRevision(session.worktreePath, session.repoPath);
+      this.#ledger.setRevision(out.job.id, rev.head, rev.treeHash);
+    }
     await this.#changed();
     if (out.kind === "unmanaged") return { decision: "run", unmanaged: true };
     if (out.kind === "run") return { decision: "run", jobId: out.job.id };

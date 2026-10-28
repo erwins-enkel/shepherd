@@ -1425,31 +1425,6 @@ const DISPATCHES_DDL = `CREATE TABLE IF NOT EXISTS dispatches (
   sessionId TEXT, heldId TEXT, reason TEXT, code TEXT, httpStatus INTEGER,
   createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)`;
 
-/** Heavy-check slot jobs (#3554): the source state each job ran against (`head` + `treeHash` of
- *  the dirty worktree) and how it ended. `result` is NULL while running. Pruned per session. */
-export const HEAVY_SLOT_JOBS_DDL = `CREATE TABLE IF NOT EXISTS heavy_slot_jobs (
-  id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, command TEXT NOT NULL, repoPath TEXT NOT NULL,
-  worktreePath TEXT NOT NULL, startedAt INTEGER NOT NULL, head TEXT, treeHash TEXT NOT NULL,
-  endedAt INTEGER, exitCode INTEGER, result TEXT)`;
-
-export type HeavySlotJobResult = "passed" | "failed" | "aborted";
-
-export interface HeavySlotJobRow {
-  id: string;
-  sessionId: string;
-  command: string;
-  repoPath: string;
-  worktreePath: string;
-  startedAt: number;
-  head: string | null;
-  treeHash: string;
-  endedAt: number | null;
-  exitCode: number | null;
-  result: HeavySlotJobResult | null;
-}
-
-const HEAVY_SLOT_JOB_KEEP_PER_SESSION = 20;
-
 /** Tasks this Shepherd sent to a connected machine (#2763, src/remote-instances/dispatch.ts): stored
  *  BEFORE they are sent, so a retry goes out again under the same `id` to the same `instanceId`.
  *  `clientKey` is the submitter's Idempotency-Key; `id` is what the machine receives as its own.
@@ -1468,10 +1443,11 @@ const HEAVY_SLOT_JOBS_DDL = `CREATE TABLE IF NOT EXISTS heavy_slot_jobs (
   id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, command TEXT NOT NULL, cwd TEXT,
   etaKey TEXT NOT NULL, state TEXT NOT NULL, enqueuedAt INTEGER NOT NULL,
   offerExpiresAt INTEGER, startedAt INTEGER, finishedAt INTEGER, releasedAt INTEGER,
-  exitCode INTEGER, pgid INTEGER, dropReason TEXT)`;
+  exitCode INTEGER, pgid INTEGER, dropReason TEXT,
+  head TEXT, treeHash TEXT)`;
 
 const HEAVY_SLOT_JOB_COLUMNS = `id, sessionId, command, cwd, etaKey, state, enqueuedAt,
-  offerExpiresAt, startedAt, finishedAt, releasedAt, exitCode, pgid, dropReason`;
+  offerExpiresAt, startedAt, finishedAt, releasedAt, exitCode, pgid, dropReason, head, treeHash`;
 
 const REMOTE_DISPATCH_COLUMNS = `id, clientKey, instanceId, payloadHash, wireBody, state, sessionId,
   heldId, reason, code, httpStatus, createdAt, updatedAt, uploads, project`;
@@ -2200,6 +2176,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(DISPATCHES_DDL);
     this.db.run(REMOTE_DISPATCHES_DDL);
     this.db.run(HEAVY_SLOT_JOBS_DDL);
+    // A table created before #3554 has no revision columns; a fresh one already has both.
+    this.addMissingColumns("heavy_slot_jobs", { head: "TEXT", treeHash: "TEXT" });
     // A table created before #2766 has no `uploads`, before #2775 no `project`; a fresh one already
     // has both (no write here).
     this.addMissingColumns("remote_dispatches", { uploads: "TEXT", project: "TEXT" });
@@ -2349,7 +2327,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   upsertHeavySlotJob(job: HeavyJob): void {
     this.db.run(
       `INSERT OR REPLACE INTO heavy_slot_jobs (${HEAVY_SLOT_JOB_COLUMNS})
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         job.id,
         job.sessionId,
@@ -2365,8 +2343,25 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         job.exitCode,
         job.pgid,
         job.dropReason,
+        job.head,
+        job.treeHash,
       ],
     );
+  }
+
+  /** The latest job per session whose command has exited and whose source state was captured
+   *  (#3554). Still-lingering jobs count: the exit code is known. */
+  lastHeavySlotResults(): HeavyJob[] {
+    return this.db
+      .query(
+        `SELECT ${HEAVY_SLOT_JOB_COLUMNS} FROM heavy_slot_jobs j
+         WHERE finishedAt IS NOT NULL AND treeHash IS NOT NULL AND state IN ('lingering', 'done')
+           AND id = (SELECT id FROM heavy_slot_jobs
+                     WHERE sessionId = j.sessionId AND finishedAt IS NOT NULL
+                       AND treeHash IS NOT NULL AND state IN ('lingering', 'done')
+                     ORDER BY finishedAt DESC, id DESC LIMIT 1)`,
+      )
+      .all() as HeavyJob[];
   }
 
   /** Slot occupancy (ms) of the most recent completed jobs, newest first, per eta key —
@@ -2427,70 +2422,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         ],
       ).changes === 1
     );
-  }
-
-  startHeavySlotJob(job: {
-    id: string;
-    sessionId: string;
-    command: string;
-    repoPath: string;
-    worktreePath: string;
-    startedAt: number;
-    head: string | null;
-    treeHash: string;
-  }): void {
-    this.db
-      .query(
-        `INSERT INTO heavy_slot_jobs (id, sessionId, command, repoPath, worktreePath, startedAt, head, treeHash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        job.id,
-        job.sessionId,
-        job.command,
-        job.repoPath,
-        job.worktreePath,
-        job.startedAt,
-        job.head,
-        job.treeHash,
-      );
-    this.db
-      .query(
-        `DELETE FROM heavy_slot_jobs WHERE sessionId = ? AND id NOT IN (
-           SELECT id FROM heavy_slot_jobs WHERE sessionId = ?
-           ORDER BY startedAt DESC, rowid DESC LIMIT ?)`,
-      )
-      .run(job.sessionId, job.sessionId, HEAVY_SLOT_JOB_KEEP_PER_SESSION);
-  }
-
-  /** Records how a running job ended; a no-op for an unknown or already-finished job. */
-  finishHeavySlotJob(id: string, end: { exitCode: number; endedAt: number }): void {
-    this.db
-      .query(
-        `UPDATE heavy_slot_jobs SET endedAt = ?, exitCode = ?, result = ?
-         WHERE id = ? AND result IS NULL`,
-      )
-      .run(end.endedAt, end.exitCode, end.exitCode === 0 ? "passed" : "failed", id);
-  }
-
-  /** Closes jobs still marked running (their runner died with the server) as `aborted`. */
-  abortOpenHeavySlotJobs(endedAt: number): number {
-    return this.db
-      .query(`UPDATE heavy_slot_jobs SET endedAt = ?, result = 'aborted' WHERE result IS NULL`)
-      .run(endedAt).changes;
-  }
-
-  /** The latest finished job per session. */
-  lastHeavySlotJobBySession(): HeavySlotJobRow[] {
-    return this.db
-      .query(
-        `SELECT id, sessionId, command, repoPath, worktreePath, startedAt, head, treeHash, endedAt, exitCode, result
-         FROM heavy_slot_jobs j
-         WHERE result IS NOT NULL AND rowid = (
-           SELECT rowid FROM heavy_slot_jobs WHERE sessionId = j.sessionId AND result IS NOT NULL
-           ORDER BY startedAt DESC, rowid DESC LIMIT 1)`,
-      )
-      .all() as HeavySlotJobRow[];
   }
 
   getRemoteDispatchByKey(clientKey: string): RemoteDispatchRow | null {

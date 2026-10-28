@@ -143,18 +143,31 @@
         }}>{turnLabel}</button
       >
     {:else}
-      <span class="turn-chip">{turnLabel}</span>
+      <button type="button" class="turn-chip" aria-expanded={open} onclick={() => (open = true)}
+        >{turnLabel}</button
+      >
     {/if}
-    {#if epic.landingStranded}<span class="waiting-chip"
-        >{m.integrated_epics_land_stranded({ ago: formatAgo(nowMs - epic.completedAt) })}</span
-      >{/if}
-    {#if epic.landingNoCiHold}<span class="waiting-chip">{m.integrated_epics_land_no_ci()}</span
-      >{/if}
-    {#if epic.landingConflictStranded && epic.landingConflictSince != null}<span
+    {#if epic.landingStranded}<button
+        type="button"
         class="waiting-chip"
+        aria-expanded={open}
+        onclick={() => (open = true)}
+        >{m.integrated_epics_land_stranded({ ago: formatAgo(nowMs - epic.completedAt) })}</button
+      >{/if}
+    {#if epic.landingNoCiHold}<button
+        type="button"
+        class="waiting-chip"
+        aria-expanded={open}
+        onclick={() => (open = true)}>{m.integrated_epics_land_no_ci()}</button
+      >{/if}
+    {#if epic.landingConflictStranded && epic.landingConflictSince != null}<button
+        type="button"
+        class="waiting-chip"
+        aria-expanded={open}
+        onclick={() => (open = true)}
         >{m.integrated_epics_land_conflict_stranded({
           ago: formatAgo(nowMs - epic.landingConflictSince),
-        })}</span
+        })}</button
       >{/if}
     {#if !open}<span class="summary">{summary}</span>{/if}
   </div>
@@ -263,7 +276,8 @@
     cursor: pointer;
   }
   .row-head:focus-visible,
-  button.turn-chip:focus-visible,
+  .turn-chip:focus-visible,
+  .waiting-chip:focus-visible,
   .children-toggle:focus-visible {
     outline: 2px solid var(--color-ink-bright);
     outline-offset: 2px;
@@ -326,11 +340,12 @@
     font-size: var(--fs-micro);
     letter-spacing: 0.04em;
   }
-  button.turn-chip {
+  .turn-chip,
+  .waiting-chip {
     font-family: inherit;
     cursor: pointer;
   }
-  button.turn-chip:hover {
+  .turn-chip:hover {
     background: color-mix(in srgb, var(--epic-tone) 24%, transparent);
     color: var(--color-ink-bright);
   }
@@ -338,6 +353,9 @@
     border-color: var(--status-warn);
     color: var(--status-warn);
     background: transparent;
+  }
+  .waiting-chip:hover {
+    background: color-mix(in srgb, var(--status-warn) 12%, transparent);
   }
   .summary {
     font-size: var(--fs-micro);
@@ -397,7 +415,8 @@
   }
   @media (pointer: coarse) {
     .row-head,
-    button.turn-chip,
+    .turn-chip,
+    .waiting-chip,
     .children-toggle {
       min-height: 44px;
     }

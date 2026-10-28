@@ -3018,6 +3018,8 @@ export class DrainService {
    * gate: that gate would leave a drain-on / auto-merge-off repo with no rebase (forcing the
    * operator to rebase manually before the manual land CTA can succeed). Here we include
    * autoDrainEnabled and the running-epic-run case to stay consistent with the tick's pump gate.
+   * Not engaged, a paused row still gets the clear-only pass (clearResolvedLandingPause) so a
+   * manually resolved conflict doesn't leave the landing card paused forever.
    *
    * GitHub-only (forge.kind === 'github'): mergeStateStatus is GitHub-specific; LocalForge has no
    * remote to push to; Gitea is out of scope.
@@ -3032,12 +3034,11 @@ export class DrainService {
    * manual land CTA.
    */
   private async rebaseStuckLandingPrsForRepo(repoPath: string): Promise<void> {
-    // Gate: automation must be engaged for this repo.
+    // Gate: automation must be engaged for this repo to rebase.
     const cfg = this.deps.store.getRepoConfig(repoPath);
     const er = this.deps.store.getEpicRun(repoPath);
     const engaged =
       !cfg.draftMode && (cfg.autoMergeEnabled || cfg.autoDrainEnabled || er?.status === "running");
-    if (!engaged) return;
 
     // GitHub-only: mergeStateStatus is not available on other forge kinds.
     const forge = this.deps.resolveForge(repoPath);
@@ -3045,12 +3046,18 @@ export class DrainService {
 
     // DB-gate: only open rows with a recorded landing PR number are candidates.
     // Unlike autoLandLandingPrsForRepo, we do NOT skip migration-bearing rows (see doc above).
+    // Not engaged: only paused rows, for the clear-only pass (zero forge calls when none are).
     const open = this.deps.store
       .listEpicCompleted(repoPath)
-      .filter((r) => r.landingState === "open" && r.landingPrNumber != null);
+      .filter(
+        (r) =>
+          r.landingState === "open" &&
+          r.landingPrNumber != null &&
+          (engaged || r.landingRebasePauseReason !== null),
+      );
     if (open.length === 0) return;
 
-    const defaultBranch = await forge.defaultBranch();
+    const defaultBranch = engaged ? await forge.defaultBranch() : "";
 
     for (const row of open) {
       const parent = row.parentIssueNumber;
@@ -3062,7 +3069,8 @@ export class DrainService {
       this.landingInFlight.add(key);
 
       try {
-        await this.processStuckLandingRow(repoPath, forge, defaultBranch, row);
+        if (engaged) await this.processStuckLandingRow(repoPath, forge, defaultBranch, row);
+        else await this.clearResolvedLandingPause(repoPath, forge, parent);
       } catch (err) {
         // Defense in depth: one stuck epic must not break the whole tick.
         console.warn(`[drain] rebaseStuckLandingPrsForRepo failed for ${key}:`, err);
@@ -3589,6 +3597,33 @@ export class DrainService {
 
     // h. Attempt rebase.
     await this.doLandingRebase(repoPath, parent, freshRow, branch, defaultBranch);
+  }
+
+  /** Clear-only counterpart of processStuckLandingRow for a repo without automation engaged: a
+   *  paused landing whose PR is no longer conflicting (e.g. the operator's "Resolve conflicts"
+   *  agent pushed) drops its pause. Never rebases, dispatches, merges or notifies. */
+  private async clearResolvedLandingPause(
+    repoPath: string,
+    forge: GitForge,
+    parent: number,
+  ): Promise<void> {
+    const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
+    if (branch === null) return;
+    const pr = await this.landingPrs.read(repoPath, forge, branch);
+    if (this.reconcileNotOpenLanding(repoPath, parent, branch, pr)) return;
+    // Only a definite `true`: a just-opened or just-pushed PR reads null while GitHub computes.
+    if (pr.mergeable !== true) return;
+    if (pr.mergeStateStatus !== "behind") {
+      this.clearLandingRebaseStateIfNeeded(repoPath, parent);
+      return;
+    }
+    // Behind but mergeable: the conflict is resolved; the remaining rebase is the operator's.
+    const fresh = this.deps.store
+      .listEpicCompleted(repoPath)
+      .find((r) => r.parentIssueNumber === parent);
+    if (fresh?.landingRebasePauseReason !== "conflict") return;
+    this.deps.store.setEpicLandingRebaseState(repoPath, parent, { count: 0, pauseReason: null });
+    this.emitCompleted(repoPath, parent);
   }
 
   /** #1841: a landing still conflict-paused AND still conflicting — auto-dispatch the capped

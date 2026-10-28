@@ -843,3 +843,69 @@ describe("rebaseStuckLandingPrsForRepo (#1071)", () => {
     });
   }
 });
+
+// A repo without automation still clears a pause once the landing PR is unstuck — e.g. after the
+// operator's "Resolve conflicts" agent pushed — so the card stops reading "Rebase paused".
+describe("rebaseStuckLandingPrsForRepo — pause clear without automation", () => {
+  test("conflict pause + PR now clean → pause and count cleared, no rebase", async () => {
+    const h = makeHarness({ prStatus: async () => cleanPr() });
+    seedOpenLanding(h, { pauseReason: "conflict", rebaseCount: 2 });
+
+    await callRebasePass(h);
+
+    expect(row(h).landingRebasePauseReason).toBeNull();
+    expect(row(h).landingRebaseCount).toBe(0);
+    expect(h.rebaseCalls).toHaveLength(0);
+    expect(h.completedEmits.length).toBeGreaterThan(0);
+  });
+
+  test("conflict pause + PR still conflicting → pause kept, no rebase", async () => {
+    const h = makeHarness({ prStatus: async () => conflictPr() });
+    seedOpenLanding(h, { pauseReason: "conflict" });
+
+    await callRebasePass(h);
+
+    expect(row(h).landingRebasePauseReason).toBe("conflict");
+    expect(row(h).landingConflictReworkCount).toBe(0);
+    expect(h.rebaseCalls).toHaveLength(0);
+  });
+
+  test("conflict pause + mergeability still computing (null) → pause kept", async () => {
+    const h = makeHarness({ prStatus: async () => cleanPr({ mergeable: null }) });
+    seedOpenLanding(h, { pauseReason: "conflict" });
+
+    await callRebasePass(h);
+
+    expect(row(h).landingRebasePauseReason).toBe("conflict");
+  });
+
+  test("conflict pause + PR behind but mergeable → pause cleared, no rebase", async () => {
+    const h = makeHarness({ prStatus: async () => behindPr({ mergeable: true }) });
+    seedOpenLanding(h, { pauseReason: "conflict" });
+
+    await callRebasePass(h);
+
+    expect(row(h).landingRebasePauseReason).toBeNull();
+    expect(h.rebaseCalls).toHaveLength(0);
+  });
+
+  test("cap pause + PR now clean → cleared", async () => {
+    const h = makeHarness({ prStatus: async () => cleanPr() });
+    seedOpenLanding(h, { pauseReason: "cap", rebaseCount: 5 });
+
+    await callRebasePass(h);
+
+    expect(row(h).landingRebasePauseReason).toBeNull();
+    expect(row(h).landingRebaseCount).toBe(0);
+  });
+
+  test("paused + PR merged → row reconciled to merged", async () => {
+    const h = makeHarness({ prStatus: async () => cleanPr({ state: "merged" }) });
+    seedOpenLanding(h, { pauseReason: "conflict" });
+
+    await callRebasePass(h);
+
+    expect(row(h).landingState).toBe("merged");
+    expect(h.rebaseCalls).toHaveLength(0);
+  });
+});

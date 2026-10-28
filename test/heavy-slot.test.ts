@@ -427,3 +427,58 @@ describe("heavy-slot Epic compatibility", () => {
     expect(await res.json()).toEqual(DISABLED_HEAVY_SLOT);
   });
 });
+
+describe("operator holder (shepherd slot run, #3550)", () => {
+  test("takes a free slot without a session and binds it like any job", async () => {
+    const h = harness();
+    await h.svc.start();
+    expect(await h.svc.acquireOperator("cargo clippy", "/repo/cli")).toEqual({
+      decision: "run",
+      jobId: "j1",
+    });
+    expect(h.svc.snapshot().holders).toMatchObject([{ sessionId: "operator" }]);
+    expect(await h.svc.finish("operator", "j1", 0)).toBe(true);
+  });
+
+  test("when the slot is taken it reports place and message but does not queue", async () => {
+    const h = harness();
+    await h.svc.start();
+    await h.svc.acquire("s1", "bun run test", "/wt/s1");
+    const out = await h.svc.acquireOperator("cargo clippy", "/repo");
+    expect(out).toMatchObject({ decision: "queued", position: 1 });
+    expect(h.svc.snapshot().waiters).toEqual([]);
+    expect(h.store.listHeavySlotJobs(["dropped"])).toMatchObject([
+      { sessionId: "operator", dropReason: "released" },
+    ]);
+    expect(h.steers).toEqual([]);
+  });
+
+  test("POST /api/heavy-slot/operator: ops, repo-scoped token 404, unavailable 503", async () => {
+    const h = harness();
+    await h.svc.start();
+    const app = makeApp({ heavySlot: h.svc } as unknown as AppDeps);
+    const post = (body: unknown) =>
+      app.fetch(
+        new Request("http://x/api/heavy-slot/operator", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    const run = await post({ op: "acquire", command: "cargo clippy", cwd: "/repo" });
+    expect(await run.json()).toEqual({ decision: "run", jobId: "j1" });
+    const done = await post({ op: "finished", jobId: "j1", exitCode: 0 });
+    expect(await done.json()).toEqual({ ok: true });
+    expect((await post({ op: "nope" })).status).toBe(400);
+    expect((await post({ op: "acquire" })).status).toBe(400);
+    const bare = makeApp({} as unknown as AppDeps);
+    const res = await bare.fetch(
+      new Request("http://x/api/heavy-slot/operator", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ op: "acquire", command: "x" }),
+      }),
+    );
+    expect(res.status).toBe(503);
+  });
+});

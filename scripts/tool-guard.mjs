@@ -599,6 +599,14 @@ function heavyWords(w, cwd, deps, depth, seen) {
 }
 
 /**
+ * Is `command` a heavy check — tests, type checks, builds? The single source of that decision:
+ * the PreToolUse guard (Claude) and the PATH shims (Codex, scripts/slot-shim.mjs) both ask it.
+ */
+export function isHeavyCommand(command, cwd, deps = {}) {
+  return heavyText(command, cwd, { ...DEFAULT_DEPS, ...deps }, 0, new Set());
+}
+
+/**
  * The rewrite that routes a heavy check through the host-wide slot (#3181), or null. The whole
  * command line is wrapped (one compound command holds the slot as one job); an already-wrapped
  * command, or one with no reachable runner, is left alone.
@@ -606,7 +614,7 @@ function heavyWords(w, cwd, deps, depth, seen) {
 function heavyRewrite(input, command, eventCwd, deps) {
   if (command.includes("heavy-slot.mjs")) return null;
   const cwd = typeof eventCwd === "string" ? eventCwd : undefined;
-  if (!heavyText(command, cwd, deps, 0, new Set())) return null;
+  if (!isHeavyCommand(command, cwd, deps)) return null;
   const runner = deps.heavyRunner();
   if (!runner) return null;
   const q = (x) => `'${x.replaceAll("'", `'\\''`)}'`;

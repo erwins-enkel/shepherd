@@ -231,3 +231,6 @@ export function parseHeavySlotSnapshot(raw: unknown): HeavySlotSnapshot | null {
     lastResults: parseList(raw.lastResults, parseLastResult),
   };
 }
+
+/** The ledger holder id of `shepherd slot run` calls made outside any session (#3550). */
+export const OPERATOR_HOLDER = "operator";

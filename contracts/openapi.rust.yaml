@@ -3102,6 +3102,33 @@ components:
           type: string
         busy:
           type: boolean
+    HeavySlotOperatorAnswer:
+      type: object
+      description: An `acquire` answer (`decision` run/queued, `jobId`, and for queued `message`, `position`, `total`, `etaMs`, `reason`) or a `started`/`finished` answer (`ok`).
+      additionalProperties: true
+      properties:
+        decision:
+          type: string
+          enum:
+            - run
+            - queued
+        jobId:
+          type: string
+        unmanaged:
+          type: boolean
+        message:
+          type: string
+        position:
+          type: integer
+        total:
+          type: integer
+        etaMs:
+          type: integer
+          nullable: true
+        reason:
+          type: string
+        ok:
+          type: boolean
     HeavySlotReleased:
       type: object
       required:
@@ -11441,6 +11468,51 @@ paths:
           description: Missing or invalid credential.
         "404":
           description: The session holds no slot.
+  /api/heavy-slot/operator:
+    post:
+      operationId: runHeavySlotOperator
+      description: |
+        `shepherd slot run` outside any session (#3550): ask for the slot (`op: acquire`) and report
+        the command's start (`started`, macOS process group) and exit (`finished`). A command that
+        would have to wait is answered `queued` with place and estimate and is NOT queued.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - op
+              properties:
+                op:
+                  type: string
+                  enum:
+                    - acquire
+                    - started
+                    - finished
+                command:
+                  type: string
+                cwd:
+                  type: string
+                jobId:
+                  type: string
+                pgid:
+                  type: integer
+                exitCode:
+                  type: integer
+      responses:
+        "200":
+          description: "`acquire`: { decision: run, jobId? } or { decision: queued, message, position, total, etaMs }; `started`/`finished`: { ok }."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeavySlotOperatorAnswer"
+        "400":
+          description: Unknown op or a missing field.
+        "401":
+          description: Missing or invalid credential.
+        "503":
+          description: The heavy-check slot is unavailable.
   /api/project-icons:
     get:
       operationId: listProjectIcons

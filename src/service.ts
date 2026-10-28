@@ -70,6 +70,7 @@ import {
   sanitizeHerdrAgentName,
 } from "./herdr";
 import { config } from "./config";
+import { ensureSlotShims } from "./slot-shims";
 import {
   operatorLanguageBlock,
   visualBlockLanguageLine,
@@ -451,6 +452,9 @@ export interface ServiceDeps {
 
   /** Dir holding task sessions' 0600 ingress spawn files (seam); default `config.agentSpawnDir`. */
   agentSpawnDir?: string;
+  /** Dir of the PATH shims that put Codex sessions' heavy checks behind the slot (#3550); default
+   *  `config.slotShimDir`. */
+  slotShimDir?: string;
   /** The Operator Assistant's working dir (seam); default `config.operatorAssistantDir`. */
   operatorAssistantDir?: string;
   /** Pre-accept Claude's workspace trust for the assistant dir (seam); default
@@ -3525,6 +3529,7 @@ export class SessionService {
       repoPath: ctx.repoPath,
       connectorHosts: connectorEgressHosts(repoConfig.claudeAiConnectorsEnabled, ctx),
     });
+    const slotShimEnv = await this.slotShimEnv(ctx.agentProvider);
     // api-key passthrough (trusted, or a sandboxed profile degraded to no-backend):
     // no membrane to mask the credential in place, so point the spawn at the
     // credential-less mirror dir. The membrane case masks creds in place (keeping
@@ -3546,6 +3551,7 @@ export class SessionService {
       [AGENT_API_URL_ENV]: agentApiUrl,
       ...ingressEnv,
       ...browserEnv,
+      ...slotShimEnv,
     };
     const agent = await this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv, {
       signal: ctx.signal,
@@ -4066,6 +4072,16 @@ export class SessionService {
     this.pushEffortFlag(argv, input.effort, "claude");
     argv.push(promptArg);
     return argv;
+  }
+
+  /**
+   * #3550: Codex has no rewriting PreToolUse hook, so its heavy checks reach the slot through PATH
+   * shims (scripts/slot-shim.mjs). Claude's go through the tool guard instead.
+   */
+  private async slotShimEnv(agentProvider: string | undefined): Promise<{ PATH?: string }> {
+    if (agentProvider !== "codex") return {};
+    const dir = await ensureSlotShims(this.deps.slotShimDir ?? config.slotShimDir);
+    return dir ? { PATH: `${dir}:${process.env.PATH ?? ""}` } : {};
   }
 
   private buildCodexSpawnArgv(args: {

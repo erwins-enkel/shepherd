@@ -10,9 +10,9 @@
 // This keeps each dispatcher a flat lookup or a handful of same-shape checks
 // instead of one long branchy switch.
 
+import { DISABLED_HEAVY_SLOT as DEMO_HEAVY_SLOT_OFF } from "../../../../src/heavy-slot-default";
 import { demoState } from "./state";
 import type {
-  HeavySlotSnapshot,
   AgentProvider,
   CreateInput,
   IssueRef,
@@ -29,25 +29,6 @@ function json(data: unknown, status = 200): Response {
 }
 
 /** Project bootstrap (#3105): no seeded repo is bootstrapping, nor offered it. */
-const DEMO_HEAVY_SLOT_OFF: HeavySlotSnapshot = {
-  enabled: false,
-  capacity: 0,
-  holders: [],
-  waiters: [],
-  brake: { active: false, reason: null },
-  pressure: {
-    ramAvailableBytes: null,
-    ramTotalBytes: null,
-    swapUsedBytes: null,
-    swapTotalBytes: null,
-    memFullAvg10: null,
-    memBrakeThreshold: null,
-    cpuSomeAvg10: null,
-  },
-  memoryBySource: { agentsBytes: null, foreignBytes: null, foreignTop: [] },
-  lastResults: [],
-};
-
 const DEMO_BOOTSTRAP = {
   state: "off",
   phase: 1,

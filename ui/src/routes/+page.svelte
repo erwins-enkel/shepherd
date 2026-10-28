@@ -1068,6 +1068,15 @@
   // replacement socket was open (the server never re-sends those deltas).
   let lastResyncAt = 0;
 
+  function refreshResourceStatus() {
+    getUsageLimits()
+      .then((r) => store.setUsageLimits(r.limits))
+      .catch(() => {});
+    getHeavySlot()
+      .then((r) => store.setHeavySlot(r))
+      .catch(() => {});
+  }
+
   function resync(opts?: { force?: boolean }) {
     const now = Date.now();
     if (!opts?.force && now - lastResyncAt < 2_000) return;
@@ -1079,12 +1088,7 @@
     loadOperatorAssistant();
     refreshRemoteDispatches();
     void machines.refresh();
-    getUsageLimits()
-      .then((r) => store.setUsageLimits(r.limits))
-      .catch(() => {});
-    getHeavySlot()
-      .then((r) => store.setHeavySlot(r))
-      .catch(() => {});
+    refreshResourceStatus();
     gitStates()
       .then((m) => store.setGit(m))
       .catch(() => {});
@@ -2377,12 +2381,7 @@
     loadOperatorAssistant();
     refreshRemoteDispatches();
     void machines.refresh();
-    getUsageLimits()
-      .then((r) => store.setUsageLimits(r.limits))
-      .catch(() => {});
-    getHeavySlot()
-      .then((r) => store.setHeavySlot(r))
-      .catch(() => {});
+    refreshResourceStatus();
     getUpdate()
       .then((u) => store.setUpdate(u))
       .catch(() => {});

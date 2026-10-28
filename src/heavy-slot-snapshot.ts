@@ -1,6 +1,7 @@
 // Read model of the host-wide heavy-check slot (#3181) as the overview renders it. Only the shape
 // and a "switched off" default live here; whatever enforces the slot supplies the real snapshot.
 
+import { DISABLED_HEAVY_SLOT as disabledSnapshot } from "./heavy-slot-default";
 import { captureRevision, type HeavySlotRevision, isStale } from "./heavy-slot-revision";
 import type { HeavyJob } from "./heavy-slot-core";
 import type { SessionStore } from "./store";
@@ -75,24 +76,7 @@ export interface HeavySlotSource {
   release(sessionId: string): boolean | Promise<boolean>;
 }
 
-export const DISABLED_HEAVY_SLOT: HeavySlotSnapshot = {
-  enabled: false,
-  capacity: 0,
-  holders: [],
-  waiters: [],
-  brake: { active: false, reason: null },
-  pressure: {
-    ramAvailableBytes: null,
-    ramTotalBytes: null,
-    swapUsedBytes: null,
-    swapTotalBytes: null,
-    memFullAvg10: null,
-    memBrakeThreshold: null,
-    cpuSomeAvg10: null,
-  },
-  memoryBySource: { agentsBytes: null, foreignBytes: null, foreignTop: [] },
-  lastResults: [],
-};
+export const DISABLED_HEAVY_SLOT: HeavySlotSnapshot = disabledSnapshot;
 
 const REVISION_CACHE_MS = 2000;
 const revisionCache = new Map<string, { at: number; rev: Promise<HeavySlotRevision> }>();

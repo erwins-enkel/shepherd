@@ -95,7 +95,9 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
      `POST /api/held/:id/spawn`, `PATCH`/`DELETE /api/held/:id`,
      `GET`/`DELETE /api/dispatches/:id` (the outcome of a keyed submission, see
      [Idempotent submission](#idempotent-submission-idempotency-key)),
-     `POST /api/uploads`, `POST /api/issues`. Everything else — steering a live
+     `POST /api/uploads`, `POST /api/issues`, `POST /api/placement` (where a
+     task would run; `shepherd new --on` resolves a machine name with it).
+     Everything else — steering a live
      session (`/reply`, `/interrupt`, `/relaunch`), archiving, the `/pty/:id`
      terminal, and every per-session read — needs **Full**. The policy is an
      allowlist (`src/token-scopes.ts`), matched exactly on method and path, so a

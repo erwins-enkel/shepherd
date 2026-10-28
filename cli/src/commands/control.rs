@@ -5,12 +5,15 @@ use serde_json::json;
 use super::{VersionCheck, list_sessions, print_done, repo_path, session_id};
 use crate::Ctx;
 use crate::api::Client;
-use crate::api::types::{CreateSessionSuccess, Session};
+use crate::api::types::{
+    Capability, CreateSessionSuccess, PlacementPreview, Session, SessionHost, TaskTarget,
+};
 use crate::cli::NewArgs;
 use crate::error::{CliError, Exit, Op, Result, Scope, api_error};
 use crate::output::{self, Mode};
 
 const NEW: Op = Op::new("new", Scope::Submit);
+const NEW_ON: Op = Op::new("new --on", Scope::Submit);
 const STEER: Op = Op::new("steer", Scope::Full);
 const INTERRUPT: Op = Op::new("interrupt", Scope::Full);
 const ARCHIVE: Op = Op::new("archive", Scope::Full);
@@ -22,13 +25,33 @@ const RETRY: Op = Op::new("retry", Scope::Full);
 /// The steer the UI's Retry dialog sends (`retry_continue_steer`; parity-tested against en.json).
 const RETRY_CONTINUE: &str = include_str!("../prompts/retry_continue.txt");
 
-fn print_created(ctx: &mut Ctx<'_>, verb: &str, s: &Session) -> Result<()> {
+/// The capability vocabulary (`CAPABILITIES` in src/remote-instances/capabilities.ts;
+/// parity-tested in test/cli-capability-parity.test.ts). The contract keeps it open, so `--require`
+/// warns about a value outside it and sends it anyway: the server decides.
+const CAPABILITIES: &[&str] = &[
+    "platform:linux",
+    "platform:macos",
+    "platform:windows",
+    "xcode",
+    "sdk:macos",
+    "sdk:ios",
+    "ios-simulator",
+    "android-sdk",
+    "agent:claude",
+    "agent:codex",
+    "sandbox:trusted",
+    "sandbox:standard",
+    "sandbox:autonomous",
+];
+
+fn print_created(ctx: &mut Ctx<'_>, verb: &str, s: &Session, on: Option<&str>) -> Result<()> {
     if ctx.mode == Mode::Json {
         return output::json(&mut ctx.io.stdout, s);
     }
+    let on = on.map(|m| format!(" on {m}")).unwrap_or_default();
     output::line(
         &mut ctx.io.stdout,
-        &format!("{verb} {} ({}) — {}", s.desig, s.id, s.name),
+        &format!("{verb} {} ({}) — {}{on}", s.desig, s.id, s.name),
     )
 }
 
@@ -36,7 +59,15 @@ fn print_created(ctx: &mut Ctx<'_>, verb: &str, s: &Session) -> Result<()> {
 /// waiting for the machine it is meant for (#2775).
 pub fn print_create_result(ctx: &mut Ctx<'_>, created: CreateSessionSuccess) -> Result<()> {
     match created {
-        CreateSessionSuccess::Session(s) => print_created(ctx, "created", &s),
+        CreateSessionSuccess::Session(s) => {
+            // The machine it was placed on (#3527); no record while no machine could take a task.
+            let on = s
+                .launch_metadata
+                .as_ref()
+                .and_then(|m| m.placement.as_ref())
+                .map(|p| p.target.name.as_str());
+            print_created(ctx, "created", &s, on)
+        }
         CreateSessionSuccess::HeldTask(h) => {
             if ctx.mode == Mode::Json {
                 return output::json(&mut ctx.io.stdout, &h);
@@ -74,6 +105,80 @@ pub fn print_create_result(ctx: &mut Ctx<'_>, created: CreateSessionSuccess) -> 
     }
 }
 
+/// What `POST /api/placement` answers for `repo`, with `target` named or not.
+async fn preview_placement(
+    client: &Client,
+    repo: &str,
+    target: Option<&str>,
+) -> Result<PlacementPreview> {
+    let result = client
+        .preview_placement()
+        .body_map(|b| {
+            b.repo_path(repo).target(target.map(|id| TaskTarget {
+                instance_id: id.to_string(),
+            }))
+        })
+        .send()
+        .await;
+    match result {
+        Ok(r) => Ok(r.into_inner()),
+        Err(e) => Err(api_error(e, NEW_ON).await),
+    }
+}
+
+/// The instance id of the machine `--on` names, among those a create for `repo` may name (#3527).
+async fn resolve_machine(client: &Client, repo: &str, on: &str) -> Result<String> {
+    let preview = preview_placement(client, repo, None).await?;
+    if preview.active {
+        return pick_machine(&preview.machines, on, false);
+    }
+    // No machine is set up, so the preview lists none. Named as the target, this instance's own id
+    // still answers `active: false`; any other value gets this instance listed.
+    let named = preview_placement(client, repo, Some(on)).await?;
+    if !named.active {
+        return Ok(on.to_string());
+    }
+    pick_machine(&named.machines, on, true)
+}
+
+/// `on` among `machines` (this instance first): an exact instance id, else the one name that
+/// matches ignoring case. `alone`: no other machine is connected.
+fn pick_machine(machines: &[SessionHost], on: &str, alone: bool) -> Result<String> {
+    if let Some(m) = machines.iter().find(|m| m.instance_id == on) {
+        return Ok(m.instance_id.clone());
+    }
+    let wanted = on.to_lowercase();
+    let named: Vec<&SessionHost> = machines
+        .iter()
+        .filter(|m| m.name.to_lowercase() == wanted)
+        .collect();
+    let message = match named.as_slice() {
+        [m] => return Ok(m.instance_id.clone()),
+        [] if alone => format!(
+            "--on: no other machine is connected to this server, so the task runs on this machine \
+             ({}); drop --on",
+            machines.first().map_or("this one", |m| m.name.as_str())
+        ),
+        [] => format!(
+            "--on: no machine '{on}' can take a task for this repo right now; available: {}",
+            machines
+                .iter()
+                .map(|m| m.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        several => format!(
+            "--on: '{on}' names several machines: {}; pass the instance id",
+            several
+                .iter()
+                .map(|m| format!("{} ({})", m.name, m.instance_id))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    };
+    Err(CliError::new(Exit::Usage, message))
+}
+
 pub async fn new(ctx: &mut Ctx<'_>, args: NewArgs) -> Result<()> {
     let prompt = ctx.io.text_arg(&args.prompt)?;
     if prompt.trim().is_empty() {
@@ -85,13 +190,37 @@ pub async fn new(ctx: &mut Ctx<'_>, args: NewArgs) -> Result<()> {
         .map(|a| a.parse())
         .transpose()
         .map_err(|_| CliError::new(Exit::Usage, "--after takes a task id or designation"))?;
+    // The server refuses it too (after_remote): a predecessor lives in this machine's namespace.
+    if after.is_some() && args.on.is_some() {
+        return Err(CliError::new(
+            Exit::Usage,
+            "--after tasks run on this machine, where their predecessor lives; drop --on",
+        ));
+    }
+    for unknown in args
+        .require
+        .iter()
+        .filter(|c| !CAPABILITIES.contains(&c.as_str()))
+    {
+        ctx.io.warn(&format!(
+            "warning: unknown capability '{unknown}' (known: {}); sending it anyway",
+            CAPABILITIES.join(", ")
+        ));
+    }
     let check = VersionCheck::start(&ctx.client);
+    let target = match &args.on {
+        Some(on) => Some(resolve_machine(&ctx.client, &repo, on).await?),
+        None => None,
+    };
+    let requirements: Vec<Capability> = args.require.into_iter().map(Capability).collect();
     let result = ctx
         .client
         .create_session()
         .body_map(|b| {
             let mut b = b
                 .repo_path(repo)
+                .target(target.map(|instance_id| TaskTarget { instance_id }))
+                .requirements(requirements)
                 .base_branch(args.base)
                 .prompt(prompt)
                 .model(args.model)
@@ -187,7 +316,7 @@ pub async fn resume(ctx: &mut Ctx<'_>, key: &str, force: bool) -> Result<()> {
         Ok(s) => s.into_inner(),
         Err(e) => return Err(api_error(e, RESUME).await),
     };
-    print_created(ctx, "resumed", &session)?;
+    print_created(ctx, "resumed", &session, None)?;
     check.finish(ctx.io).await;
     Ok(())
 }

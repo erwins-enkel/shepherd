@@ -46,6 +46,8 @@ const MATRIX: readonly {
   { method: "DELETE", path: "/api/dispatches/k1", allowed: ["submit", "full"] },
   { method: "POST", path: "/api/uploads", allowed: ["submit", "full"] },
   { method: "POST", path: "/api/issues", allowed: ["submit", "full"] },
+  // #3527: `shepherd new --on` resolves a machine name through the placement preview
+  { method: "POST", path: "/api/placement", allowed: ["submit", "full"] },
   // full-only: the terminal, and a sample of the reach a v1 token had
   { method: "GET", path: "/pty/abc", allowed: ["full"] },
   { method: "POST", path: "/api/sessions/s1/reply", allowed: ["full"] },

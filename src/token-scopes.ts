@@ -89,6 +89,9 @@ const SUBMIT_ROUTES: ReadonlySet<string> = new Set([
   "GET /api/held",
   "POST /api/uploads",
   "POST /api/issues",
+  // Where a task would run (#3527): `shepherd new --on` resolves a machine name with it. Stores and
+  // sends nothing; it lists the machines a create from this token may already name.
+  "POST /api/placement",
 ]);
 
 /** The `submit` routes carrying an id segment. Anchored, exactly one non-`/` segment — so

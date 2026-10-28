@@ -1733,7 +1733,7 @@ export class GithubForge implements GitForge {
    *
    *  Fail-quiet: any error or unparseable output degrades to an empty set (no flag),
    *  so the caller's snapshot never fails on this leg. Skipped when no open PR is
-   *  cross-repo (`hasCrossRepoPr`). */
+   *  cross-repo or Actions-bot authored (`mayAwaitApproval`). */
   private async awaitingApprovalShas(): Promise<Set<string>> {
     let out: string;
     try {
@@ -1763,12 +1763,17 @@ export class GithubForge implements GitForge {
     return shas;
   }
 
-  /** True when any PR's head lives outside this repo's owner — the only PRs whose
-   *  workflows can await maintainer approval. A missing head owner (e.g. a deleted
-   *  fork) counts as cross-repo so the approval check still runs. */
-  private hasCrossRepoPr(prs: GhPr[]): boolean {
+  /** True when any PR's workflows can await maintainer approval: its head lives outside
+   *  this repo's owner, or the Actions bot opened it (a `GITHUB_TOKEN` PR, e.g. a release
+   *  bot's). A missing head owner (e.g. a deleted fork) counts as cross-repo so the
+   *  approval check still runs. */
+  private mayAwaitApproval(prs: Array<GhPr & { author?: { login?: string } | null }>): boolean {
     const owner = this.slug.split("/")[0]!.toLowerCase();
-    return prs.some((p) => p.headRepositoryOwner?.login?.toLowerCase() !== owner);
+    return prs.some(
+      (p) =>
+        p.headRepositoryOwner?.login?.toLowerCase() !== owner ||
+        p.author?.login === "app/github-actions",
+    );
   }
 
   async listPullRequests(): Promise<PullRequest[]> {
@@ -2552,10 +2557,10 @@ export class GithubForge implements GitForge {
     // The awaiting-approval leg carries its own fail-quiet fallback (empty set), so a
     // run-list failure degrades to "no flag" instead of rejecting the whole snapshot
     // (which would empty the PRs tab AND break the poller's statuses batch). Only
-    // cross-repo PRs can await approval, so skip the REST call without one (#2861).
+    // cross-repo and Actions-bot PRs can await approval, so skip the REST call without one (#2861).
     const [def, awaitingShas] = await Promise.all([
       this.defaultBranch().catch(() => null),
-      this.hasCrossRepoPr(prs) ? this.awaitingApprovalShas() : new Set<string>(),
+      this.mayAwaitApproval(prs) ? this.awaitingApprovalShas() : new Set<string>(),
     ]);
 
     if (prs.length >= 200 && !this.openPrCapLogged) {
@@ -2611,7 +2616,7 @@ export class GithubForge implements GitForge {
     if (!p || p.state !== "OPEN") return null;
     const [def, awaitingShas] = await Promise.all([
       this.defaultBranch().catch(() => null),
-      this.hasCrossRepoPr([p]) ? this.awaitingApprovalShas() : new Set<string>(),
+      this.mayAwaitApproval([p]) ? this.awaitingApprovalShas() : new Set<string>(),
     ]);
     return {
       pr: this.mapGhPrToPullRequest(p, def, awaitingShas),

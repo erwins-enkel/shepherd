@@ -52,6 +52,8 @@ export interface HeavySlotBudget {
 }
 
 export interface MemorySample {
+  /** Present only on Darwin; null means the probe could not assess pressure. */
+  darwinPressure?: "normal" | "warning" | "critical" | null;
   availableBytes: number | null;
   psiFullAvg10: number | null;
 }
@@ -114,6 +116,8 @@ export const BRAKE_OFF: BrakeState = {
 function overLimit(sample: MemorySample, budget: HeavySlotBudget): HeavyBrakeReason | null {
   if (sample.availableBytes !== null && sample.availableBytes < budget.minAvailableBytes)
     return "memory_available";
+  if (sample.darwinPressure === "warning" || sample.darwinPressure === "critical")
+    return "memory_pressure";
   if (sample.psiFullAvg10 !== null && sample.psiFullAvg10 > budget.psiFullMax)
     return "memory_pressure";
   return null;
@@ -134,6 +138,11 @@ export function nextBrake(
   const over = overLimit(sample, budget);
   if (over) return { engaged: true, reason: over, clearSince: null, sample, sampledAt: now };
   if (!prev.engaged) return { ...BRAKE_OFF, sample, sampledAt: now };
+  if (
+    "darwinPressure" in sample &&
+    (sample.darwinPressure !== "normal" || sample.availableBytes === null)
+  )
+    return { ...prev, clearSince: null, sample, sampledAt: now };
   const clearSince = prev.clearSince ?? now;
   if (now - clearSince >= budget.releaseHoldMs) return { ...BRAKE_OFF, sample, sampledAt: now };
   return { ...prev, clearSince, sample, sampledAt: now };

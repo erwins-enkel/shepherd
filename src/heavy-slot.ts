@@ -10,12 +10,14 @@
 // every descendant inherits it, and a slot is held while ANY process carrying it lives — so a
 // parent that exits early, a runner killed mid-run or a Shepherd restart never frees a slot whose
 // browsers and workers still run. The marker survives `setsid` (Chromium) and the sandbox's PID
-// namespace (the host's /proc sees membrane processes). macOS has no environ probe here, so there
-// the runner reports the process group it started and the group's liveness stands in.
+// namespace (the host's /proc sees membrane processes). macOS scans KERN_PROCARGS2 and also
+// accepts the runner-reported process group as positive liveness evidence.
 
 import { readdir, readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { cpus, totalmem } from "node:os";
+import { scanMarkersDarwin, type DarwinMarkerScan } from "./proc-markers-darwin";
+import { sampleMemoryDarwin } from "./heavy-slot-darwin";
 import { captureRevision } from "./heavy-slot-revision";
 import { type HeavySlotSnapshot, OPERATOR_HOLDER } from "./heavy-slot-snapshot";
 import type { EventHub } from "./events";
@@ -88,6 +90,7 @@ export interface HeavySlotDeps {
   newId?: () => string;
   /** Linux: live marker processes per job id; null when the host cannot be scanned. */
   scanMarkers?: (jobIds: ReadonlySet<string>) => Promise<Map<string, ProcStat> | null>;
+  scanMarkersDarwin?: (jobIds: ReadonlySet<string>) => Promise<DarwinMarkerScan>;
   /** macOS: does any process of this group still run? */
   groupAlive?: (pgid: number) => boolean;
   sampleMemory?: () => Promise<MemorySample>;
@@ -298,15 +301,27 @@ export class HeavySlotService {
   }
 
   async #sample(): Promise<void> {
-    const sample = await (this.#deps.sampleMemory ?? defaultSampleMemory)();
+    const sample = await (this.#deps.sampleMemory ?? (() => defaultSampleMemory(this.#platform)))();
     this.#brake = nextBrake(this.#brake, sample, this.#deps.budget, this.#now());
   }
 
-  /** Liveness per job: the marker scan on Linux, the process group on macOS, null = unknown. */
+  /** Marker liveness, plus positive process-group evidence on macOS; null = unknown. */
   async #aliveMap(jobs: readonly HeavyJob[]): Promise<(job: HeavyJob) => boolean | null> {
     if (this.#platform === "darwin") {
       const groupAlive = this.#deps.groupAlive ?? defaultGroupAlive;
-      return (job) => (job.pgid === null ? false : groupAlive(job.pgid));
+      if (jobs.length === 0) return () => null;
+      const found = await (this.#deps.scanMarkersDarwin ?? scanMarkersDarwin)(
+        new Set(jobs.map((j) => j.id)),
+      ).catch(() => ({ procs: new Map<string, ProcStat>(), complete: false }));
+      for (const job of jobs) {
+        const stat = found.procs.get(job.id);
+        if (stat) this.#procs.set(job.id, stat);
+        else if (found.complete) this.#procs.delete(job.id);
+      }
+      return (job) => {
+        if (found.procs.has(job.id) || (job.pgid !== null && groupAlive(job.pgid))) return true;
+        return found.complete ? false : null;
+      };
     }
     const scan = this.#deps.scanMarkers ?? (this.#platform === "linux" ? scanMarkersLinux : null);
     const found = scan && jobs.length > 0 ? await scan(new Set(jobs.map((j) => j.id))) : null;
@@ -429,9 +444,10 @@ export function hostHeavySlotBudget(slotsOverride: number): HeavySlotBudget {
   );
 }
 
-/** Linux: MemAvailable + memory PSI `full avg10`; anything else is unassessable (null, null). */
-async function defaultSampleMemory(): Promise<MemorySample> {
-  if (process.platform !== "linux") return { availableBytes: null, psiFullAvg10: null };
+/** Native memory telemetry; unsupported platforms remain unassessable. */
+async function defaultSampleMemory(platform: NodeJS.Platform): Promise<MemorySample> {
+  if (platform === "darwin") return sampleMemoryDarwin();
+  if (platform !== "linux") return { availableBytes: null, psiFullAvg10: null };
   const read = (path: string) => readFile(path, "utf8").catch(() => "");
   const [meminfo, psi] = await Promise.all([read("/proc/meminfo"), read("/proc/pressure/memory")]);
   return { availableBytes: parseMemAvailable(meminfo), psiFullAvg10: parsePsiAvg10(psi, "full") };

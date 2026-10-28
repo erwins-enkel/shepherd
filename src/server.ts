@@ -682,7 +682,8 @@ export interface AppDeps {
   pluginsDir?: string;
   usageLimits: Pick<UsageLimitsService, "limits" | "projections">;
   /** Host-wide heavy-check slot (#3181); absent → `/api/heavy-slot` reports it switched off. */
-  heavySlot?: HeavySlotSource;
+  heavySlot?: HeavySlotSource &
+    Partial<Pick<import("./heavy-slot").HeavySlotService, "acquire" | "started" | "finish">>;
   /** Force a `/usage` re-scrape (calibration) and return fresh limits plus whether the probe
    *  actually returned a usable frame this run; absent in tests that don't wire the live
    *  calibrator (the route then falls back to the current snapshot, treated as scraped). */
@@ -6424,6 +6425,58 @@ async function resolveRenameBranch(deps: AppDeps, s: Session): Promise<boolean> 
   return !(await sessionHasOpenPr(deps, s));
 }
 
+/** A non-empty string of at most `max` characters, or null. */
+function boundedString(v: unknown, max: number): string | null {
+  return typeof v === "string" && v.length > 0 && v.length <= max ? v : null;
+}
+
+type HeavySlotDeps = Pick<
+  import("./heavy-slot").HeavySlotService,
+  "acquire" | "started" | "finish"
+>;
+
+/** The runner's three reports, keyed by `op`. Each validates its own body. */
+const HEAVY_SLOT_OPS: Record<
+  string,
+  (slot: HeavySlotDeps, id: string, body: Record<string, unknown>) => Promise<Response>
+> = {
+  async acquire(slot, id, body) {
+    const command = boundedString(body.command, 20_000);
+    if (!command) return json({ error: "command must be a non-empty string" }, 400);
+    const out = await slot.acquire(id, command, boundedString(body.cwd, 4096));
+    return out ? json(out) : json({ error: "not found" }, 404);
+  },
+  async started(slot, id, body) {
+    const jobId = boundedString(body.jobId, 200);
+    const pgid = body.pgid;
+    if (!jobId || typeof pgid !== "number" || !Number.isInteger(pgid) || pgid <= 0)
+      return json({ error: "jobId and a positive integer pgid are required" }, 400);
+    return json({ ok: await slot.started(id, jobId, pgid) });
+  },
+  async finished(slot, id, body) {
+    const jobId = boundedString(body.jobId, 200);
+    if (!jobId) return json({ error: "jobId must be a non-empty string" }, 400);
+    const code = body.exitCode;
+    const exitCode = typeof code === "number" && Number.isInteger(code) ? code : null;
+    return json({ ok: await slot.finish(id, jobId, exitCode) });
+  },
+};
+
+// POST /api/sessions/:id/heavy-slot — the heavy-check runner (scripts/heavy-slot.mjs, #3181).
+// `op: "acquire"` asks for the host-wide slot before the command starts; `started` (macOS: the
+// process group) and `finished` report on a job of THIS session only. Reached through the agent
+// ingress (allowlisted, per-session key); no service → 503, which the runner treats as fail-open.
+async function handleSessionHeavySlot({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "heavy-slot" && !parts[4])) return null;
+  if (!deps.heavySlot?.acquire || !deps.heavySlot.started || !deps.heavySlot.finish)
+    return json({ error: "heavy-check slot unavailable" }, 503);
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
+  const op = typeof body.op === "string" && Object.hasOwn(HEAVY_SLOT_OPS, body.op) ? body.op : null;
+  if (!op) return json({ error: "op must be acquire, started or finished" }, 400);
+  return HEAVY_SLOT_OPS[op]!(deps.heavySlot as HeavySlotDeps, parts[2], body);
+}
+
 // POST /api/sessions/:id/rename — rename a session (display name + git branch).
 // An open PR makes it display-only: the branch stays put so the PR survives.
 async function handleSessionRename({ req, parts, deps }: Ctx): Promise<Response | null> {
@@ -7747,6 +7800,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handlePreviewStop,
     handlePreviewReach,
     handleSessionRename,
+    handleSessionHeavySlot,
     handleSessionResume,
     handleSessionReady,
     handleSessionShelve,
@@ -8378,7 +8432,8 @@ async function handleHeavySlot({ req, parts, deps }: Ctx): Promise<Response | nu
   if (req.method === "POST" && parts.length === 3 && parts[2] === "release") {
     const body = (await req.json().catch(() => null)) as { sessionId?: unknown } | null;
     if (typeof body?.sessionId !== "string") return json({ error: "invalid_session_id" }, 400);
-    if (!deps.heavySlot?.release(body.sessionId)) return json({ error: "not_holding" }, 404);
+    if (!(await deps.heavySlot?.release(body.sessionId)))
+      return json({ error: "not_holding" }, 404);
     return json({ released: true });
   }
   return null;
@@ -13443,7 +13498,9 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
  *   - `rename`: the session's own retitle (issue #2053) — the write half of the coordinates the
  *     public `video-brief` skill uses to name a session after the recording it just watched. Like
  *     every route here except `browser` it needs the ingress key header (#3337), which a skill
- *     sends with curl's `-H @"$SHEPHERD_INGRESS_HEADER_FILE"` (#3370). */
+ *     sends with curl's `-H @"$SHEPHERD_INGRESS_HEADER_FILE"` (#3370).
+ *   - `heavy-slot`: the heavy-check runner (scripts/heavy-slot.mjs, #3181) asks for the host-wide
+ *     slot before a test/build starts and reports its exit — on its own session's jobs only. */
 const AGENT_LEAF_ROUTES = new Map<string, readonly string[]>([
   ["hooks", ["POST"]],
   ["assistant-view", ["POST"]],
@@ -13451,6 +13508,7 @@ const AGENT_LEAF_ROUTES = new Map<string, readonly string[]>([
   ["queue", ["PUT", "GET"]],
   ["epic-draft", ["PUT", "GET"]],
   ["rename", ["POST"]],
+  ["heavy-slot", ["POST"]],
   ["browser", ["GET"]],
 ]);
 

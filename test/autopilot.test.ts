@@ -1096,6 +1096,28 @@ test("eligible() returns null while planPhase === 'planning' (autopilot suppress
   expect(h.events.some((e) => "steer" in e)).toBe(false); // never steered
 });
 
+test("eligible() stands down while the session waits for the heavy-check slot (#3181)", async () => {
+  // The agent was told to keep working or end its turn; Shepherd steers it when the slot frees.
+  // Its turn end is not a stall — classifying it would steer "continue" into a re-queue loop.
+  let classified = false;
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    verdict: { kind: "finished", summary: "x" },
+  });
+  (h.svc as any).deps.classify = async () => {
+    classified = true;
+    return { kind: "finished", summary: "x" };
+  };
+  (h.svc as any).deps.heavySlotWaiting = (id: string) => id === "s1";
+  await h.svc.onDone("s1");
+  expect(classified).toBe(false);
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  (h.svc as any).deps.heavySlotWaiting = () => false;
+  await h.svc.onDone("s1");
+  expect(classified).toBe(true); // positive control: no longer waiting → classified as usual
+});
+
 test("eligible() stands down a Codex session without conversation identity", async () => {
   // Missing provenance must not classify or steer, even with Autopilot enabled.
   let classified = false;

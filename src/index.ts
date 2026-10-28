@@ -137,6 +137,7 @@ import {
   notifySessionDone,
 } from "./push";
 import { attachCiSteer } from "./ci-steer";
+import { HeavySlotService, hostHeavySlotBudget } from "./heavy-slot";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { ReadyNotifier } from "./ready-notify";
 import { Presence } from "./presence";
@@ -2436,6 +2437,16 @@ const ciSteer = attachCiSteer(events, store, {
   criticReviewing: (id, headSha) => reviewService.ciSteerHeld(id, headSha),
 });
 attachMergePush(events, push);
+// #3181: the host-wide heavy-check slot. Local only (no outbound call), so it starts at once: its
+// persisted jobs load synchronously, before the agent ingress can ask for a slot.
+const heavySlot = new HeavySlotService({
+  store,
+  events,
+  steer: (id, text) => service.reply(id, text, { automatic: true }),
+  enabled: config.heavySlot,
+  budget: hostHeavySlotBudget(config.heavySlots),
+});
+void heavySlot.start();
 
 // Reduced-push "ready-after-5s" evaluator (#896): while reducedPushMode is on, fire the
 // `ready` push once a session holds the ready set for ≥5s (with warm-up + seed-on-arm guard).
@@ -2833,6 +2844,7 @@ const apiErrorRetry = new ApiErrorRetry({
 const autopilot = new AutopilotService({
   capacity: (s) => sessionCapacity("autopilot", s),
   store,
+  heavySlotWaiting: (id) => heavySlot.waiting(id),
   hasConversation: (s) => service.hasConversation(s),
   classify: (tail, taskPrompt, label, taskSessionId) => {
     const env = roleEnv(config.autopilotCli, config.autopilotModel, config.autopilotEffort);
@@ -4449,6 +4461,7 @@ const appDeps: AppDeps = {
     tick: () => drain.tick(),
   } satisfies Required<NonNullable<AppDeps["drain"]>>,
   autoMerge: { snapshot: () => autoMerge.snapshot() },
+  heavySlot,
   holds: { snapshot: () => holdService.snapshot() },
   // Read the source session's recent terminal history off its live pane and hand it to a
   // transient second agent for a next-prompt recommendation. The menu offers this on every

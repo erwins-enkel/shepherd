@@ -3,6 +3,7 @@ import {
   decideToolGuard,
   hookOutput,
   isTmpfsPath,
+  BACKGROUND_CONTEXT,
   CI_POLL_CONTEXT,
   CI_WATCH_REASON,
   DEPLOY_WATCH_CONTEXT,
@@ -10,10 +11,19 @@ import {
   type ToolGuardContext,
   type ToolGuardDenial,
   type ToolGuardEvent,
+  type ToolGuardRewrite,
 } from "../scripts/tool-guard.mjs";
 import { buildToolGuardFragment, toolGuardMembranePaths } from "../src/tool-guard-hook";
 import { buildMembraneFlags } from "../src/sandbox";
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -39,6 +49,9 @@ const DEPS = {
   runInfo: noLookup,
   currentBranch: noLookup,
   defaultBranch: noLookup,
+  // The heavy-check rewrite (#3181) has its own describe block; everywhere else it stays off.
+  readText: () => null,
+  heavyRunner: () => null,
 };
 
 /** A decision, read as a denial (the context-only shapes assert through `ctx` instead). */
@@ -509,6 +522,155 @@ describe("#2002 hook envelope", () => {
 
   it("stays silent when there is no decision", () => {
     expect(hookOutput(null)).toBeNull();
+  });
+});
+
+describe("#3181 heavy checks are routed through the host-wide slot", () => {
+  const root = mkdtempSync(join(tmpdir(), "heavy-guard-"));
+  mkdirSync(join(root, "ui"));
+  mkdirSync(join(root, "scripts"));
+  writeFileSync(
+    join(root, "package.json"),
+    JSON.stringify({
+      scripts: {
+        test: "bun test ./test",
+        lint: "eslint .",
+        build: "vite build",
+        verify: "bun run lint && cd ui && bun run check",
+        loop: "bun run loop",
+      },
+    }),
+  );
+  writeFileSync(
+    join(root, "ui", "package.json"),
+    JSON.stringify({ scripts: { test: "vitest run", check: "svelte-kit sync && svelte-check" } }),
+  );
+  writeFileSync(
+    join(root, "scripts", "check-cli.sh"),
+    "#!/usr/bin/env bash\nset -euo pipefail\n# runs cargo test too\ncd cli\ncargo fmt --check\nif cargo clippy --all-targets -- -D warnings; then echo ok; fi\n",
+  );
+  writeFileSync(join(root, "scripts", "light.sh"), "#!/bin/sh\necho 'cargo clippy is heavy'\n");
+
+  const RUNNER = { node: "/usr/bin/node", script: "/opt/shepherd/scripts/heavy-slot.mjs" };
+  const HDEPS = {
+    ...DEPS,
+    // This fixture models a disk-backed repo even when CI puts its files under /tmp.
+    isTmpfs: (p: string) => (p === root || p.startsWith(`${root}/`) ? false : DEPS.isTmpfs(p)),
+    readText: (p: string) => {
+      try {
+        return readFileSync(p, "utf8");
+      } catch {
+        return null;
+      }
+    },
+    heavyRunner: () => RUNNER,
+  };
+  const decide = (command: string, extra: Record<string, unknown> = {}) =>
+    decideToolGuard({ tool_name: "Bash", tool_input: { command, ...extra }, cwd: root }, HDEPS) as
+      ToolGuardRewrite | ToolGuardDenial | null;
+  const wrapped = (command: string) =>
+    `'/usr/bin/node' '/opt/shepherd/scripts/heavy-slot.mjs' -- '${command.replaceAll("'", `'\\''`)}'`;
+
+  it("rewrites heavy checks onto the runner, keeping every other input field", () => {
+    for (const cmd of [
+      "bun run test",
+      "bun test",
+      "cd ui && bun run test",
+      "CI=true bun run check --cwd ui",
+      "bun --cwd ui run check",
+      "cd ui && bun run check",
+      "bun run verify",
+      "npm test",
+      "pnpm test",
+      "bash scripts/check-cli.sh",
+      "./scripts/check-cli.sh",
+      "npx vitest run",
+      "bunx vitest run src",
+      "cargo clippy --all-targets -- -D warnings",
+      "cargo +nightly test",
+      "timeout 600 bun test",
+      "env -u FOO NODE_ENV=test vitest run",
+      "node_modules/.bin/vitest run",
+      "bun run test 2>&1 | tail -40",
+      "bash -c 'cd ui && bun run test'",
+      "svelte-check --tsconfig ./tsconfig.json",
+      "tsc --noEmit",
+      "swift test --package-path native",
+      "playwright test",
+      "nice -n 10 cargo build --release",
+      "git add -A && cargo check",
+    ]) {
+      const d = decide(cmd, { description: "d", run_in_background: true, timeout: 600000 });
+      expect(d, cmd).toEqual({
+        updatedInput: {
+          command: wrapped(cmd),
+          description: "d",
+          run_in_background: true,
+          timeout: 600000,
+        },
+        additionalContext: BACKGROUND_CONTEXT, // still warned: it was backgrounded
+      });
+      expect(decide(cmd), cmd).toEqual({ updatedInput: { command: wrapped(cmd) } });
+    }
+  });
+
+  it("leaves light commands, mentions and unknown shapes alone", () => {
+    for (const cmd of [
+      "bun run lint",
+      "bun run build",
+      "bun run loop",
+      "bun install",
+      "git commit -m 'bun run test'",
+      'git commit -m "cargo clippy; vitest"',
+      "echo vitest",
+      "cargo fmt --check",
+      "vitest --version",
+      "tsc --help",
+      "bash scripts/light.sh",
+      "bash scripts/missing.sh",
+      "make test",
+      "cat <<EOF\nbun run test\nEOF",
+      `'/usr/bin/node' '/opt/shepherd/scripts/heavy-slot.mjs' -- 'bun run test'`,
+    ]) {
+      expect(decide(cmd), cmd).toBeNull();
+    }
+  });
+
+  it("rewrites nothing when the runner is not reachable (e.g. an older membrane)", () => {
+    const d = decideToolGuard(
+      { tool_name: "Bash", tool_input: { command: "bun run test" }, cwd: root },
+      { ...HDEPS, heavyRunner: () => null },
+    );
+    expect(d).toBeNull();
+  });
+
+  it("a denial still wins over the rewrite", () => {
+    const d = decide("git stash && bun run test") as ToolGuardDenial;
+    expect(d.permissionDecision).toBe("deny");
+  });
+
+  it("hookOutput carries the rewrite as updatedInput with no permission decision", () => {
+    const out = hookOutput(decide("bun test"));
+    expect(out?.hookSpecificOutput).toEqual({
+      hookEventName: "PreToolUse",
+      updatedInput: { command: wrapped("bun test") },
+    });
+  });
+
+  it("by default it wraps with the runner beside the guard", () => {
+    const d = decideToolGuard(
+      { tool_name: "Bash", tool_input: { command: "vitest run" }, cwd: root },
+      {
+        isTmpfs: DEPS.isTmpfs,
+        runInfo: noLookup,
+        currentBranch: noLookup,
+        defaultBranch: noLookup,
+      },
+    ) as ToolGuardRewrite;
+    const runner = join(import.meta.dir, "..", "scripts", "heavy-slot.mjs");
+    expect(existsSync(runner)).toBe(true);
+    expect(d.updatedInput.command).toContain(`'${runner}' -- 'vitest run'`);
+    expect(toolGuardMembranePaths(true)).toContain(runner);
   });
 });
 

@@ -125,6 +125,7 @@ describe("epicHaltView (#3456)", () => {
         {
           scope: "repo",
           scopeLabel: m.epic_autofix_scope_repo(),
+          pointer: true,
           what: causeView(INTERACTIVE).what,
           text: m.repooverview_halt_see_above(),
           action: null,
@@ -132,6 +133,7 @@ describe("epicHaltView (#3456)", () => {
         {
           scope: "epic",
           scopeLabel: m.epic_autofix_scope_epic(),
+          pointer: false,
           what: codex.what,
           text: codex.why,
           action: {
@@ -150,6 +152,7 @@ describe("epicHaltView (#3456)", () => {
         {
           scope: "epic",
           scopeLabel: m.epic_autofix_scope_epic(),
+          pointer: false,
           what: "",
           text: m.repooverview_precheck_would_halt({ reason: haltSummary([CODEX]) }),
           action: {

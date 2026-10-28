@@ -74,6 +74,8 @@ export interface CauseAction {
 export interface HaltLine {
   scope: string;
   scopeLabel: string;
+  /** Only points at the banner: the cause is the repo's or the host's, not this epic's. */
+  pointer: boolean;
   /** The setting at fault, emphasized; empty when the text says it all. */
   what: string;
   text: string;
@@ -111,8 +113,14 @@ function haltedLine(cause: EpicAutoBlockerCause): HaltLine {
   const base = { scope: v.scope, scopeLabel: v.scopeLabel };
   // The banner says the repo's and host's causes; the card only points there.
   if (repoWide(cause))
-    return { ...base, what: v.what || v.why, text: m.repooverview_halt_see_above(), action: null };
-  return { ...base, what: v.what, text: v.why, action: causeAction(cause) };
+    return {
+      ...base,
+      pointer: true,
+      what: v.what || v.why,
+      text: m.repooverview_halt_see_above(),
+      action: null,
+    };
+  return { ...base, pointer: false, what: v.what, text: v.why, action: causeAction(cause) };
 }
 
 function precheckLine(cause: EpicAutoBlockerCause): HaltLine {
@@ -120,6 +128,7 @@ function precheckLine(cause: EpicAutoBlockerCause): HaltLine {
   return {
     scope: v.scope,
     scopeLabel: v.scopeLabel,
+    pointer: false,
     what: "",
     text: m.repooverview_precheck_would_halt({ reason: haltSummary([cause]) }),
     action: causeAction(cause),

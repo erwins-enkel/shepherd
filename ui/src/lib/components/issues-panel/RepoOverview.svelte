@@ -2,7 +2,10 @@
   import type { DrainStatus, Epic, EpicSummary } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { labelChipStyle } from "#lib/label-color.js";
+  import { basename } from "#lib/basename.js";
   import { repoOverviewRunExplanation } from "#lib/tooltips/explanations.js";
+  import { RepoPrecheck } from "#lib/repo-precheck.svelte.js";
+  import { repoBootstrap } from "#lib/repo-bootstrap.svelte.js";
   import {
     epicRole,
     epicRunState,
@@ -10,9 +13,13 @@
     epicRunSteps,
     overviewRunState,
     queuePosition,
+    sandboxHaltedEpic,
   } from "../epic-panel";
   import { epicKey, STALE_DAYS, type RunningIssue, type StaleSummary } from "../issues-panel";
+  import { epicHaltView, repoHaltView } from "../repo-halt";
   import RunPanel from "./RunPanel.svelte";
+  import RepoHaltBanner from "./RepoHaltBanner.svelte";
+  import EpicCardHalt from "./EpicCardHalt.svelte";
   import EpicRunSteps from "./EpicRunSteps.svelte";
   import EpicRoleBadge from "./EpicRoleBadge.svelte";
   import EpicQueueList from "./EpicQueueList.svelte";
@@ -25,6 +32,8 @@
   // list beside it can't say (#2638), in two columns (#2950): left what runs right now (even
   // when the list's filters hide it) and what has lain untouched, right the open issues per
   // label as list filters; then the next step. No second issue list — the list is right there.
+  // A halt in the repo's sandbox or on this host is said once, at the top of the run area; each
+  // epic card shows its own cause or its pre-check (#3456).
 
   let {
     repoPath,
@@ -114,6 +123,36 @@
     return role === "leading" ? 0 : role === "winding" ? 1 : role === "queued" ? 2 : 3;
   }
 
+  // #3456: every epic still to finish gets its pre-check — the leader, queued and not-started
+  // ones; an epic winding down starts nothing new.
+  const precheck = new RepoPrecheck();
+  const candidates = $derived(
+    cards
+      .filter((c) => c.role !== "winding" && c.epic.merged < c.epic.total)
+      .map((c) => c.epic.parentIssueNumber),
+  );
+  $effect(() => precheck.watch(repoPath, candidates, drain));
+  $effect(() => void repoBootstrap.load(repoPath));
+  const repoName = $derived(basename(repoPath));
+  const halted = $derived(sandboxHaltedEpic(drain));
+  const repoHalt = $derived(repoHaltView(precheck.models, candidates, halted));
+  const cardHalts = $derived(
+    Object.fromEntries(
+      candidates.flatMap((p) => {
+        const model = precheck.models[p];
+        const view = model
+          ? epicHaltView(model, {
+              halted: p === halted,
+              bootstrap: repoBootstrap.viewFor(repoPath),
+            })
+          : null;
+        return view ? [[p, view]] : [];
+      }),
+    ),
+  );
+  const applied = $derived(precheck.applied);
+  const showLegend = $derived(repoHalt != null || Object.keys(cardHalts).length > 0);
+
   // Queue rows name the epic by its list entry, else by whatever the host knows.
   function epicTitle(parent: number): string | null {
     return epics.find((e) => e.parentIssueNumber === parent)?.parentTitle ?? titleFor(parent);
@@ -152,6 +191,20 @@
       <InfoTip text={repoOverviewRunExplanation()} label={m.tooltip_repo_run_title()} />
     {/snippet}
 
+    <RepoHaltBanner
+      view={repoHalt}
+      {repoName}
+      target={repoHalt ? (precheck.models[repoHalt.target] ?? null) : null}
+      applied={applied?.at === "repo" ? applied : null}
+      busy={precheck.busy}
+      onautonomous={() =>
+        repoHalt?.autonomous != null
+          ? precheck.applyCause(repoHalt.autonomous, "sandbox_interactive", "repo")
+          : Promise.resolve(false)}
+      onapply={(option) =>
+        repoHalt ? precheck.applyOption(repoHalt.target, option) : Promise.resolve(false)}
+      onundo={() => void precheck.undo()}
+    />
     {#if steps}
       <EpicRunSteps {repoPath} {steps} {titleFor} {onopensession} />
     {/if}
@@ -185,6 +238,8 @@
       <h3 class="group-head">{m.repooverview_epics()}</h3>
       <ul class="rows">
         {#each cards as { epic, role, position } (epic.parentIssueNumber)}
+          {@const parent = epic.parentIssueNumber}
+          {@const cardFix = applied?.at === "epic" && applied.parent === parent ? applied : null}
           <li>
             <button
               class="orow"
@@ -210,9 +265,38 @@
               </span>
               <span class="arrow" aria-hidden="true">›</span>
             </button>
+            {#if cardHalts[parent] || cardFix}
+              <!-- Beside the card's button, not in it: the halt has buttons of its own. -->
+              <div class="card-halt">
+                <EpicCardHalt
+                  view={cardHalts[parent] ?? null}
+                  {repoName}
+                  applied={cardFix}
+                  busy={precheck.busy}
+                  onaction={(code) => precheck.applyCause(parent, code, "epic")}
+                  onundo={() => void precheck.undo()}
+                />
+              </div>
+            {/if}
           </li>
         {/each}
       </ul>
+      {#if showLegend}
+        <ul class="legend" aria-label={m.tooltip_autofix_scope_title()} data-halt-legend>
+          <li>
+            <span class="legend-chip">{m.epic_autofix_scope_repo()}</span>
+            {m.repooverview_legend_repo()}
+          </li>
+          <li>
+            <span class="legend-chip">{m.epic_autofix_scope_epic()}</span>
+            {m.repooverview_legend_epic()}
+          </li>
+          <li>
+            <span class="legend-chip">{m.epic_autofix_scope_host()}</span>
+            {m.repooverview_legend_host()}
+          </li>
+        </ul>
+      {/if}
     </section>
   {/if}
 
@@ -431,6 +515,29 @@
   .slots-value {
     color: var(--color-ink);
     font-size: var(--fs-meta);
+  }
+
+  /* #3456: an epic card's halt or pre-check, under the card's text. */
+  .card-halt {
+    padding: 0 8px 6px;
+  }
+  /* What the scope chips mean, once under the epics. */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 22px;
+    margin: 4px 0 0;
+    padding: 8px 8px 0;
+    border-top: 1px solid var(--color-line);
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    list-style: none;
+  }
+  .legend-chip {
+    padding: 0 5px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    letter-spacing: 0.08em;
   }
 
   /* Running now (#2638): one line per issue, its session one click away. */

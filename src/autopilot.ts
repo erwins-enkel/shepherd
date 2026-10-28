@@ -222,6 +222,8 @@ export interface AutopilotDeps {
    *  result stands autopilot down until the operator completes it (the poller surfaces the
    *  banner). Reads fresh (not off an event) so `onDone` can short-circuit deterministically. */
   pendingAuthUrl: (id: string) => Promise<string | null>;
+  /** Native questions require operator answers even while the agent is working. */
+  pendingQuestions?: (id: string) => Promise<boolean>;
   /** Whether the session already has a PR in any state (open/merged/closed). True → autopilot
    *  stands down (open = critic territory; merged/closed = pre-PR mission over). */
   hasPr: (id: string) => boolean;
@@ -457,12 +459,17 @@ export class AutopilotService {
   /** Send `text` into the session, resuming an exited pane first (shared with the plan gate via
    *  resumeThenSteer). Returns whether the steer landed; does NOT bump the step (the caller decides
    *  whether the attempt counts). */
-  private sendSteer(s: Session, text: string): Promise<boolean> {
-    if (this.deps.capacity)
-      return this.deps
-        .capacity(s)
-        .then((ready) => (ready ? resumeThenSteer(s.id, text, this.deps) : false));
-    return resumeThenSteer(s.id, text, this.deps);
+  private async sendSteer(s: Session, text: string): Promise<boolean> {
+    if (this.deps.capacity && !(await this.deps.capacity(s))) return false;
+    if (await this.deps.pendingQuestions?.(s.id)) return false;
+    return resumeThenSteer(s.id, text, {
+      ...this.deps,
+      steer: async (id, message) => {
+        // Resume/pane discovery can await long enough for a new question to arrive.
+        if (await this.deps.pendingQuestions?.(id)) return false;
+        return this.deps.steer(id, message);
+      },
+    });
   }
 
   /** Steer `text` into the session and bump the step on a landed steer. Best-effort —
@@ -589,6 +596,7 @@ export class AutopilotService {
     // during the classify await.
     const cur = this.eligible(id);
     if (!cur) return;
+    if (await this.deps.pendingQuestions?.(id)) return;
     // A done-edge auth URL may have been unflushed when onDone read it; by now (post-classify)
     // it has landed. Re-read fresh and stand down before applying any terminal verdict, so a
     // mid-OAuth session is never markComplete'd — deterministic, not reliant on onBlock's timing.
@@ -634,6 +642,7 @@ export class AutopilotService {
       return;
     }
     this.authPending.delete(id); // null / non-auth block ⇒ no OAuth pending
+    if (block?.ask || block?.asks?.length || (await this.deps.pendingQuestions?.(id))) return;
     if (!block || !STEERABLE_SHAPES.has(block.shape)) return;
     // Only the demoted shape: a genuine `yes-no` carries its own evidence, and its tail may hold
     // an unrelated numbered list.
@@ -644,6 +653,7 @@ export class AutopilotService {
   /** session:status "done" handler — agent exited / idled. Read its tail and classify;
    *  a `finished` verdict drives it to a PR (resuming the pane if needed). */
   async onDone(id: string): Promise<void> {
+    if (await this.deps.pendingQuestions?.(id)) return;
     // Human-only MCP OAuth prompt: the agent relayed an authorize URL and idled. Stand down
     // BEFORE classify so a mid-OAuth session is never filed complete/paused (the poller surfaces
     // the banner). Cheap early-out; a done-edge read that misses an as-yet-unflushed URL is

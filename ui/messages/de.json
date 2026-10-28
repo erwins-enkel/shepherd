@@ -7758,5 +7758,7 @@
   "planpanel_note_failed": "Die Anmerkung konnte nicht gesendet werden. Versuche es erneut.",
   "planpanel_review_again": "Erneut prüfen",
   "feat_plan_reading_title": "Pläne lesen sich wie Epics",
-  "feat_plan_reading_body": "Der Plan vor der Ausführung öffnet sich als Dokument: links das Inhaltsverzeichnis, zuerst das Prüfer-Urteil mit blockierenden Befunden und Hinweisen, unten eine feste Leiste mit Los, Erneut prüfen und einer Anmerkung an den Planungs-Agenten."
+  "feat_plan_reading_body": "Der Plan vor der Ausführung öffnet sich als Dokument: links das Inhaltsverzeichnis, zuerst das Prüfer-Urteil mit blockierenden Befunden und Hinweisen, unten eine feste Leiste mit Los, Erneut prüfen und einer Anmerkung an den Planungs-Agenten.",
+  "feat_codex_question_center_title": "Codex-Fragen in Shepherd beantworten",
+  "feat_codex_question_center_body": "Codex-Fragen erscheinen jetzt neben Claude-Fragen im Fragezentrum: mehrere Anfragen, Auswahl und Freitext. Die Zustellung wird anhand der nativen Antwort geprüft. Fehlt die Bestätigung, prüfe vor einem erneuten Versand das Terminal. Der Terminal-Frageknopf unterstützt auch Shift+Links auf Desktop und Mobilgeräten."
 }

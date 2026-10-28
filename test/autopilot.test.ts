@@ -130,6 +130,7 @@ function harness(opts: {
   backgroundBusy?: () => boolean;
   /** The apiRetryPending dep (an API-error auto-retry is armed); omit = unset. */
   apiRetryPending?: () => boolean;
+  pendingQuestions?: () => Promise<boolean>;
   /** The criticReviewing dep (#3426: a critic run holds this head's CI steer); omit = unset. */
   criticReviewing?: (id: string, headSha: string) => boolean;
 }) {
@@ -218,6 +219,7 @@ function harness(opts: {
     deferSteer: opts.deferSteer,
     readTail: async () => ["finished, nothing else"],
     pendingAuthUrl: async () => opts.pendingAuthUrl ?? null,
+    pendingQuestions: opts.pendingQuestions,
     hasPr: () => prOpen,
     hasDiff: async () => opts.hasDiff ?? true,
     openLocalPr: async (id) => {
@@ -3001,4 +3003,45 @@ test("autopilot still delivers steps to live Claude without a JSONL transcript",
   expect(h.events).toContainEqual({ steer: PROCEED_STEER });
   expect(h.events.some((event) => "resume" in event)).toBe(false);
   expect(h.state().autopilotStepCount).toBe(1);
+});
+
+test("Codex questions suppress autopilot on both block and done edges", async () => {
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "gate", summary: "start" },
+    pendingQuestions: async () => true,
+  });
+  await h.svc.onBlock("s1", {
+    shape: "awaiting-input",
+    options: [],
+    tail: ["Color?"],
+    ask: { toolUseId: "q", questions: [] },
+  });
+  await h.svc.onDone("s1");
+  expect(h.classifyCount()).toBe(0);
+  expect(h.events.filter((e) => e.steer)).toEqual([]);
+});
+
+test("Codex questions appearing during classification prevent its verdict from steering", async () => {
+  let reads = 0;
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "gate", summary: "start" },
+    pendingQuestions: async () => ++reads > 1,
+  });
+  await h.svc.onBlock("s1", block());
+  expect(h.classifyCount()).toBe(1);
+  expect(h.events.some((e) => "steer" in e || "complete" in e)).toBe(false);
+});
+
+test("Codex question guard is rechecked after pane discovery before typing", async () => {
+  let reads = 0;
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "gate", summary: "start" },
+    pendingQuestions: async () => ++reads >= 4,
+  });
+  await h.svc.onBlock("s1", block());
+  expect(reads).toBe(4);
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
 });

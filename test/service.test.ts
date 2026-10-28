@@ -10503,3 +10503,20 @@ test("Codex capacity review: manual replies bypass automatic protection", async 
   expect(checks).toBe(0);
   expect(sent).toHaveLength(2);
 });
+
+test("Codex question transaction stops writing when its provider thread changes", async () => {
+  const h = interruptHarness({ agents: [liveAgent("term_a", "blocked")] });
+  h.store.update(h.session.id, { agentProvider: "codex", providerSessionId: "thread-before" });
+  const result = await h.service.withQuestionTerminal(
+    h.session.id,
+    "thread-before",
+    async (terminal) => {
+      expect(await terminal.send("2")).toBe(true);
+      h.store.update(h.session.id, { providerSessionId: "thread-after" });
+      expect(await terminal.send("\r")).toBe(false);
+      return { ok: true, result: "unverified" };
+    },
+  );
+  expect(result).toEqual({ ok: true, result: "unverified" });
+  expect(h.sent).toEqual([{ target: "term_a", text: "2" }]);
+});

@@ -1,0 +1,10 @@
+• Queued follow-up inputs
+
+  1 of 2
+  QPROBE-COLOR
+
+  › 1. Red
+    2. Blue
+    3. Other
+
+  enter submit   ^] skip   shift+→ main prompt   shift+← next question

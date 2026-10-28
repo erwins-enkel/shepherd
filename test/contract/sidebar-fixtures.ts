@@ -21,6 +21,36 @@ export const block: BlockReason = {
   options: [],
   tail: ["rework budget spent"],
   quotaKind: "rework",
+  asks: [
+    {
+      toolUseId: "codex-choice",
+      questions: [
+        {
+          id: "0",
+          question: "Color?",
+          header: "",
+          kind: "single",
+          allowOther: true,
+          multiSelect: false,
+          options: [{ label: "Blue", description: "" }],
+        },
+      ],
+    },
+    {
+      toolUseId: "codex-text",
+      questions: [
+        {
+          id: "1",
+          question: "Details?",
+          header: "",
+          kind: "freeform",
+          allowOther: true,
+          multiSelect: false,
+          options: [],
+        },
+      ],
+    },
+  ],
   // #3165: proves the AskUserQuestion payload against the contract on both the snapshot and event.
   ask: {
     toolUseId: "toolu_1",

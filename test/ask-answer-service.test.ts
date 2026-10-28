@@ -111,3 +111,33 @@ test("409 ask_in_flight for a concurrent answer; stillValid tracks the open ask"
   await first;
   expect(r.typedCalls[0]!.valid()).toBe(false); // the reply closed the ask
 });
+
+test("Codex delegation shares the session in-flight guard", async () => {
+  let finish!: (value: { ok: true; result: "verified" }) => void;
+  let calls = 0;
+  const svc = new AskAnswerService({
+    currentAsk: () => null,
+    askStillOpen: () => false,
+    typeKeys: async () => {
+      throw new Error("Claude path reached");
+    },
+    codex: {
+      isSession: () => true,
+      answer: async () => {
+        calls++;
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      },
+    },
+  });
+  const first = svc.answer("codex", "request", ANSWERS);
+  expect(await svc.answer("codex", "request", ANSWERS)).toEqual({
+    ok: false,
+    status: 409,
+    error: "ask_in_flight",
+  });
+  expect(calls).toBe(1);
+  finish({ ok: true, result: "verified" });
+  expect(await first).toEqual({ ok: true, result: "verified" });
+});

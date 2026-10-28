@@ -141,6 +141,8 @@ import type { PreviewService } from "./preview";
 import type { TelemetryService } from "./telemetry";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { amendmentBlock, type TaskAmendment } from "./task-amendments";
+import type { CodexQuestionTerminal } from "./codex-question-answer";
+import type { AnswerAskOutcome } from "./ask-answer-service";
 import { SHELLS } from "./json-tolerant";
 import { resumeThenSteer } from "./resume-then-steer";
 import { MAX_IMAGES, relaunchKinds, taskKindConflict, type HandoffMode } from "./validate";
@@ -6967,6 +6969,45 @@ export class SessionService {
       return false; // pane died between list and send
     }
     return true;
+  }
+
+  /** Keep Codex question interaction on the same native thread and terminal under the steer lock. */
+  async withQuestionTerminal(
+    id: string,
+    thread: string,
+    run: (terminal: CodexQuestionTerminal) => Promise<AnswerAskOutcome>,
+  ): Promise<AnswerAskOutcome | null> {
+    const s = this.deps.store.get(id);
+    if (!s || s.terminal || s.agentProvider !== "codex" || s.providerSessionId !== thread)
+      return null;
+    return this.#serializeSteer(id, async () => {
+      const valid = async () => {
+        const live = this.deps.store.get(id);
+        if (
+          !live ||
+          live.status === "archived" ||
+          live.agentProvider !== "codex" ||
+          live.providerSessionId !== thread ||
+          live.herdrAgentId !== s.herdrAgentId
+        )
+          return false;
+        const agent = await this.liveAgentFor(id).catch(() => null);
+        return agent?.terminalId === s.herdrAgentId;
+      };
+      if (!(await valid())) return null;
+      return run({
+        read: async () => ((await valid()) ? this.#readVisible(s.herdrAgentId) : null),
+        send: async (key) => {
+          if (!(await valid())) return false;
+          try {
+            await this.deps.herdr.send(s.herdrAgentId, key);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+      });
+    });
   }
 
   /**

@@ -10,7 +10,7 @@
     tab,
     send,
     notesKey,
-    codexQuestions = false,
+    codexQuestionKey = null,
     enter,
     uploading,
     uploadFailed,
@@ -23,7 +23,7 @@
     tab: string;
     send: (seq: string) => void;
     notesKey: string | null;
-    codexQuestions?: boolean;
+    codexQuestionKey?: string | null;
     enter: ControlKey;
     uploading: boolean;
     uploadFailed: boolean;
@@ -74,14 +74,14 @@
   });
 </script>
 
+{#if tab === "term" && codexQuestionKey}
+  <div class="questions-row" data-swipe-ignore>
+    <button type="button" onclick={() => codexQuestionKey && send(codexQuestionKey)}
+      >{m.viewport_codex_questions_open()}</button
+    >
+  </div>
+{/if}
 {#if (mobile || touch) && tab === "term"}
-  {#if mobile && codexQuestions}
-    <div class="questions-row" data-swipe-ignore>
-      <button type="button" onclick={() => send("\x1b[1;3A")}
-        >{m.viewport_codex_questions_open()}</button
-      >
-    </div>
-  {/if}
   <div class="ctrl-row" bind:this={ctrlRowEl} data-swipe-ignore>
     <!-- image upload frozen on the far left; Tab/Space + arrows + ^-keys scroll in
          the middle; Enter frozen on the right. Esc + the dictate mic now live on

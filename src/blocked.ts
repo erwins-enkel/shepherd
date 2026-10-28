@@ -26,6 +26,8 @@ export interface BlockReason {
    *  answer panel renders it and answers via `POST /api/sessions/:id/answer-ask`. Absent without
    *  hooks (the terminal still works). Attached by the poller's `emitBlock`. */
   ask?: PendingAsk;
+  /** Codex can queue multiple requests while its turn continues. `ask` mirrors the first. */
+  asks?: PendingAsk[];
   /** #2779: the ExitPlanMode approval dialog on screen, as data from the PreToolUse hook — its plan
    *  text for display; the options above still come from the PTY. Attached by `emitBlock`. */
   plan?: PendingPlan;

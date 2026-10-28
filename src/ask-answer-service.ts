@@ -18,6 +18,10 @@ import {
 import type { RawAnswer } from "./plan-gate";
 
 export interface AskAnswerDeps {
+  codex?: {
+    isSession: (id: string) => boolean;
+    answer: (id: string, toolUseId: string, raw: RawAnswer[]) => Promise<AnswerAskOutcome>;
+  };
   /** The ask the session's announced block carries right now (poller.currentAsk). */
   currentAsk: (id: string) => PendingAsk | null;
   /** Still open per the hooks (poller.askStillOpen) — checked before every typed key. */
@@ -51,6 +55,14 @@ export class AskAnswerService {
 
   async answer(id: string, toolUseId: string, raw: RawAnswer[]): Promise<AnswerAskOutcome> {
     if (this.#inflight.has(id)) return { ok: false, status: 409, error: "ask_in_flight" };
+    if (this.deps.codex?.isSession(id)) {
+      this.#inflight.add(id);
+      try {
+        return await this.deps.codex.answer(id, toolUseId, raw);
+      } finally {
+        this.#inflight.delete(id);
+      }
+    }
     const ask = this.deps.currentAsk(id);
     if (!ask || ask.toolUseId !== toolUseId) {
       return { ok: false, status: 409, error: "ask_not_open" };

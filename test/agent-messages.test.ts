@@ -362,3 +362,34 @@ describe("sessionMessages includeTools", () => {
   });
   test("cleanup", () => rmSync(dir, { recursive: true, force: true }));
 });
+
+test("Codex messages include live structured questions while the agent keeps working", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "codex-live-messages-"));
+  const path = join(dir, "rollout.jsonl");
+  try {
+    writeFileSync(path, "");
+    const result = await sessionMessages(
+      { status: "running", agentProvider: "codex" },
+      path,
+      { limit: 5, includeUser: true },
+      [
+        {
+          toolUseId: "q",
+          questions: [
+            {
+              question: "Which color?",
+              header: "",
+              options: [],
+              multiSelect: false,
+              kind: "freeform",
+            },
+          ],
+        },
+      ],
+    );
+    expect(result.awaitingInput).toBe(true);
+    expect(result.pendingQuestion).toBe("Which color?");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

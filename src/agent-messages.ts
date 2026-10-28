@@ -14,6 +14,7 @@ import { parseActivityObjects, readTranscriptTailAsync, type ActivityEntry } fro
 import { parseCodexActivityObjects } from "./codex-activity";
 import { eachJsonlObject } from "./jsonl";
 import { transcriptSteer, type SteerKind } from "./steer-log";
+import type { PendingAsk } from "./ask-user-question";
 import type { AgentProvider, SessionStatus } from "./types";
 
 export interface AgentMessage {
@@ -327,6 +328,7 @@ export async function sessionMessages(
   s: { status: SessionStatus; agentProvider?: AgentProvider | null },
   path: string | null,
   q: MessagesQuery,
+  pendingAsks: PendingAsk[] = [],
 ): Promise<SessionMessages> {
   if (!path) return unavailable("no-transcript");
   let text: string;
@@ -340,7 +342,10 @@ export async function sessionMessages(
   const parsed = isCodex(s.agentProvider)
     ? parseCodexMessageObjects(objs)
     : parseClaudeMessageObjects(objs);
-  const question = AT_REST.has(s.status) ? parsed.question : null;
+  const structured = pendingAsks
+    .flatMap((ask) => ask.questions.map((q) => q.question))
+    .join("\n\n");
+  const question = structured || (AT_REST.has(s.status) ? parsed.question : null);
   const kept = q.includeUser
     ? parsed.messages
     : parsed.messages.filter((m) => m.role === "assistant");

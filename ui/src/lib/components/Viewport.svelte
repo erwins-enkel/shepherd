@@ -64,7 +64,7 @@
   } from "#lib/terminalEscape.js";
   import { altComboKey, isPtySuppressedChord } from "./herd-keynav";
   import { detectNotesKey } from "#lib/notesAffordance.js";
-  import { hasCodexQuestionsHint } from "#lib/codexQuestionsAffordance.js";
+  import { codexQuestionsKey } from "#lib/codexQuestionsAffordance.js";
   import { isScrolledAwayFromBottom, SCROLL_UP_PX } from "#lib/scrollAffordance.js";
   import { onPageReturn, pollWhileVisible } from "#lib/visibility.js";
   import TodoPanel from "#lib/components/TodoPanel.svelte";
@@ -651,7 +651,7 @@
   // the painted screen (null when the prompt isn't offering it). On a phone
   // there's no keyboard to press it, so we surface a tappable control row button.
   let notesKey = $state<string | null>(null);
-  let codexQuestions = $state(false);
+  let codexQuestions = $state<string | null>(null);
   let uploading = $state(false);
   let uploadFailed = $state(false);
   // compact header: narrow mobile OR a touch device on the desktop layout (unfolded
@@ -670,15 +670,19 @@
   const askSeen = new SvelteSet<string>();
   let askOpenFor = $state<string | null>(null);
   const askEntries = $derived.by((): AskEntry[] => {
+    const own = pendingAsks.filter((e) => e.session.id === session.id);
     const others = pendingAsks.filter((e) => e.session.id !== session.id);
-    if (!ask) return others;
-    const since = pendingAsks.find((e) => e.session.id === session.id)?.since;
-    return [{ session, ask, since }, ...others];
+    if (ask && !own.some((e) => e.ask.toolUseId === ask.toolUseId)) own.unshift({ session, ask });
+    return [...own, ...others];
   });
   $effect(() => {
-    const id = ask?.toolUseId ?? null;
-    if (id && !askSeen.has(id) && (askOpenFor || openDialogs.count === 0)) {
-      askSeen.add(id);
+    const fresh = askEntries.filter(
+      (e) =>
+        e.session.id === session.id &&
+        !askSeen.has(JSON.stringify([e.session.id, e.ask.toolUseId])),
+    );
+    if (ask && fresh.length && (askOpenFor || openDialogs.count === 0)) {
+      for (const e of fresh) askSeen.add(JSON.stringify([e.session.id, e.ask.toolUseId]));
       askOpenFor = session.id;
     }
   });
@@ -1879,7 +1883,7 @@
     scrolledUp = false; // fresh terminal starts pinned to the bottom
     clearAgentScrollState();
     notesKey = null; // no prompt scraped yet on this fresh terminal
-    codexQuestions = false;
+    codexQuestions = null;
     let hasFreshOutput = false;
 
     // initial palette: non-reactive DOM read so this effect doesn't depend on
@@ -1927,7 +1931,7 @@
       // case the layout changed while away, then resize to repaint the attach
       () => {
         hasFreshOutput = false;
-        codexQuestions = false;
+        codexQuestions = null;
         refit();
       },
       // another device took over this terminal — park and offer to take it back
@@ -2493,7 +2497,7 @@
             (line?.isWrapped ? "" : "\n") + (line?.translateToString(false, 0, term.cols) ?? "");
         }
       }
-      codexQuestions = hasCodexQuestionsHint(liveText);
+      codexQuestions = codexQuestionsKey(liveText);
     };
     const renderSub = term.onRender(scanNotesAffordance);
 
@@ -2511,7 +2515,7 @@
 
     return () => {
       disposed = true; // stops a pending document.fonts.ready remeasure after teardown
-      codexQuestions = false;
+      codexQuestions = null;
       clearTimeout(pauseTimer);
       window.removeEventListener("keydown", onWindowKeydown, true);
       mount.removeEventListener("focusin", onTermFocusIn);
@@ -3682,7 +3686,9 @@
       conn?.send(seq);
     }}
     {notesKey}
-    codexQuestions={codexQuestions && effectiveAgentProvider === "codex" && !parked && !ended}
+    codexQuestionKey={effectiveAgentProvider === "codex" && !parked && !ended && !ask
+      ? codexQuestions
+      : null}
     {enter}
     {uploading}
     {uploadFailed}
@@ -3738,7 +3744,8 @@
       ((id) => {
         // The operator chose to look at that session: its question stays behind the strip
         // instead of popping straight back up on arrival.
-        for (const e of askEntries) if (e.session.id === id) askSeen.add(e.ask.toolUseId);
+        for (const e of askEntries)
+          if (e.session.id === id) askSeen.add(JSON.stringify([e.session.id, e.ask.toolUseId]));
         onnavigate(id);
       })}
   />

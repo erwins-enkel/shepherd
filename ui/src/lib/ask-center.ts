@@ -23,9 +23,9 @@ export function pendingAskEntries(
   return sessions
     .flatMap((session) => {
       const block = blocks[session.id];
-      const ask = block?.reason.ask;
-      if (!ask || session.host || session.operatorAssistant || session.assistantRepo) return [];
-      return [{ session, ask, since: block.since }];
+      if (!block || session.host || session.operatorAssistant || session.assistantRepo) return [];
+      const asks = block.reason.asks ?? (block.reason.ask ? [block.reason.ask] : []);
+      return asks.map((ask) => ({ session, ask, since: block.since }));
     })
     .sort((a, b) => a.since - b.since);
 }
@@ -41,3 +41,6 @@ export function groupAsksByRepo(entries: AskEntry[], focusRepo?: string): AskRep
   }
   return [...groups].map(([repoPath, list]) => ({ repoPath, entries: list }));
 }
+
+export const askEntryKey = (entry: AskEntry): string =>
+  JSON.stringify([entry.session.id, entry.ask.toolUseId]);

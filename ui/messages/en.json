@@ -7758,5 +7758,7 @@
   "planpanel_note_failed": "Couldn't send the note. Try again.",
   "planpanel_review_again": "Review again",
   "feat_plan_reading_title": "Plans read like epics",
-  "feat_plan_reading_body": "The pre-execution plan opens as a document: contents on the left, the reviewer's verdict first with its blocking findings and non-blocking notes, and a footer that stays put with Go, Review again and a note to the planning agent."
+  "feat_plan_reading_body": "The pre-execution plan opens as a document: contents on the left, the reviewer's verdict first with its blocking findings and non-blocking notes, and a footer that stays put with Go, Review again and a note to the planning agent.",
+  "feat_codex_question_center_title": "Answer Codex questions in Shepherd",
+  "feat_codex_question_center_body": "Codex questions now appear in the question center alongside Claude questions, including multiple requests, choices and free text. Delivery is checked against the native reply. If it cannot be confirmed, check the terminal before retrying. The terminal question shortcut also supports Shift+Left on desktop and mobile."
 }

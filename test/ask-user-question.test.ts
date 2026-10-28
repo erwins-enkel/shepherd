@@ -175,3 +175,48 @@ test("normalizeAskAnswers + askAnswersMatch", () => {
   expect(askAnswersMatch({ "A?": "x" }, actual!)).toBe(false);
   expect(normalizeAskAnswers("nope")).toBeNull();
 });
+
+test("Codex freeform and disabled Other validate against the server question", () => {
+  const freeform = {
+    question: "Note?",
+    header: "",
+    options: [],
+    multiSelect: false,
+    kind: "freeform" as const,
+    allowOther: false,
+  };
+  expect(
+    resolveAskAnswers([freeform], [{ blockId: "q", questionId: "0", text: "hello" }])?.[0]?.other,
+  ).toBe("hello");
+  const choice = {
+    ...freeform,
+    kind: "single" as const,
+    options: [
+      { label: "Yes", description: "" },
+      { label: "No", description: "" },
+    ],
+  };
+  expect(
+    resolveAskAnswers([choice], [{ blockId: "q", questionId: "0", text: "not offered" }]),
+  ).toBeNull();
+});
+
+test("Codex partial answers preserve the original question id", () => {
+  const q = {
+    id: "1",
+    question: "Second?",
+    header: "",
+    options: [
+      { label: "A", description: "" },
+      { label: "B", description: "" },
+    ],
+    multiSelect: false,
+  };
+  expect(
+    resolveAskAnswers([q], [{ blockId: "q", questionId: "0", optionIndices: [0] }]),
+  ).toBeNull();
+  expect(
+    resolveAskAnswers([q], [{ blockId: "q", questionId: "1", optionIndices: [1] }])?.[0]
+      ?.optionIndices,
+  ).toEqual([1]);
+});

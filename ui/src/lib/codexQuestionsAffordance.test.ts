@@ -26,3 +26,7 @@ describe("hasCodexQuestionsHint", () => {
     expect(hasCodexQuestionsHint(screen)).toBe(false);
   });
 });
+
+it("recognizes the current Shift+Left footer with its age and CRLF", () => {
+  expect(hasCodexQuestionsHint("? 2 questions · 18s\r\n shift+← to answer")).toBe(true);
+});

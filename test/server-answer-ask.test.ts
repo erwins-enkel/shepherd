@@ -65,7 +65,7 @@ test("service refusals map to their status", async () => {
   expect(await res.json()).toEqual({ error: "ask_in_flight" });
 });
 
-test("400 on a malformed body, 404 unknown session, 409 non-claude", async () => {
+test("400 on a malformed body, 404 unknown session, Codex supported", async () => {
   const h = harness({ ok: true, result: "verified" });
   expect((await post(h.app, h.session.id, { answers: [] })).status).toBe(400);
   expect(
@@ -78,6 +78,6 @@ test("400 on a malformed body, 404 unknown session, 409 non-claude", async () =>
   ).toBe(400);
   expect((await post(h.app, "nope", BODY)).status).toBe(404);
   const codex = harness({ ok: true, result: "verified" }, "codex");
-  expect((await post(codex.app, codex.session.id, BODY)).status).toBe(409);
-  expect(codex.calls).toHaveLength(0);
+  expect((await post(codex.app, codex.session.id, BODY)).status).toBe(200);
+  expect(codex.calls).toEqual([[codex.session.id, "toolu_1", BODY.answers]]);
 });

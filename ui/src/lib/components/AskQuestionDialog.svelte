@@ -2,7 +2,7 @@
   import type { PendingAsk, RawAnswer, Session } from "#lib/types.js";
   import { answerAsk } from "#lib/api.js";
   import { askToQuestionForm } from "#lib/askForm.js";
-  import { groupAsksByRepo, type AskEntry } from "#lib/ask-center.js";
+  import { askEntryKey, groupAsksByRepo, type AskEntry } from "#lib/ask-center.js";
   import { basename } from "#lib/basename.js";
   import { clock } from "#lib/now.svelte.js";
   import { formatAgo } from "#lib/format.js";
@@ -36,21 +36,23 @@
     onnavigate?: (id: string) => void;
   } = $props();
 
-  // Questions answered from this dialog: hidden at once instead of waiting for the server's block
-  // update to drop them.
+  // Hide only verified replies; failed/unconfirmed submissions keep their editable form.
   const answered = new SvelteSet<string>();
-  const initialFocus = () => focusId;
+  const initialFocus = () => {
+    const entry = entries.find((e) => e.session.id === focusId);
+    return entry ? askEntryKey(entry) : "";
+  };
   let selectedId = $state(initialFocus());
 
   const focusRepo = $derived(entries.find((e) => e.session.id === focusId)?.session.repoPath);
   const groups = $derived(
     groupAsksByRepo(
-      entries.filter((e) => !answered.has(e.ask.toolUseId)),
+      entries.filter((e) => !answered.has(askEntryKey(e))),
       focusRepo,
     ),
   );
   const ordered = $derived(groups.flatMap((g) => g.entries));
-  const current = $derived(ordered.find((e) => e.session.id === selectedId) ?? ordered[0]);
+  const current = $derived(ordered.find((e) => askEntryKey(e) === selectedId) ?? ordered[0]);
   const index = $derived(current ? ordered.indexOf(current) : -1);
   const multi = $derived(ordered.length > 1);
   const block = $derived(current ? askToQuestionForm(current.ask) : null);
@@ -76,7 +78,7 @@
 
   function skip() {
     const next = ordered[(index + 1) % ordered.length];
-    if (next) selectedId = next.session.id;
+    if (next) selectedId = askEntryKey(next);
   }
 
   async function onanswer(answers: RawAnswer[]) {
@@ -85,19 +87,15 @@
     if (!entry) return;
     const id = entry.session.id;
     const toolUseId = entry.ask.toolUseId;
-    // Advance before the request: the next question shows at once, or the dialog closes on the
-    // last one. The request outlives a closed dialog.
-    const next = ordered[index + 1] ?? ordered[0];
-    answered.add(toolUseId);
-    if (next && next !== entry) selectedId = next.session.id;
-    else close();
-    // One keyed toast: "typing…" while the server types + verifies (up to ~10 s), then the verdict.
-    const key = `ask:${toolUseId}`;
+    const key = `ask:${askEntryKey(entry)}`;
     toasts.info(m.ask_result_sending(), { key, sticky: true });
     try {
       const result = await answerAsk(id, toolUseId, answers);
-      if (result === "verified") toasts.info(m.ask_result_verified(), { key });
-      else
+      if (result === "verified") {
+        answered.add(askEntryKey(entry));
+        toasts.info(m.ask_result_verified(), { key });
+        return true;
+      } else
         toasts.info(result === "mismatch" ? m.ask_result_mismatch() : m.ask_result_unverified(), {
           key,
           alert: true,
@@ -105,6 +103,7 @@
     } catch {
       toasts.info(m.ask_result_failed(), { key, alert: true });
     }
+    return false;
   }
 </script>
 
@@ -135,12 +134,12 @@
             <span class="gname">{basename(g.repoPath)}</span>
             <span class="gcount">{g.entries.length}</span>
           </div>
-          {#each g.entries as e (e.ask.toolUseId)}
+          {#each g.entries as e (askEntryKey(e))}
             <button
               type="button"
               class="row"
               aria-current={e === current ? "true" : undefined}
-              onclick={() => (selectedId = e.session.id)}
+              onclick={() => (selectedId = askEntryKey(e))}
             >
               <span class="rtop">
                 <span class="desig">{e.session.desig}</span>
@@ -189,7 +188,7 @@
             {/if}
           </div>
           <p class="hint">{m.ask_center_hint({ task: s.desig })}</p>
-          {#key current.ask.toolUseId}
+          {#key `${askEntryKey(current)}:${current.ask.questions.map((q, i) => q.id ?? i).join(",")}`}
             <QuestionFormBlock
               {block}
               {onanswer}

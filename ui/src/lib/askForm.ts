@@ -12,13 +12,13 @@ export function askToQuestionForm(ask: PendingAsk): QuestionForm {
     type: "question-form",
     id: ask.toolUseId,
     questions: ask.questions.map((q, i) => ({
-      id: String(i),
+      id: q.id ?? String(i),
       prompt: q.question,
-      kind: q.multiSelect ? "multi" : "single",
+      kind: q.kind ?? (q.multiSelect ? "multi" : "single"),
       options: q.options.map((o) => o.label),
       optionDescriptions: q.options.map((o) => o.description),
       header: q.header,
-      allowOther: true,
+      allowOther: q.kind === "freeform" ? false : (q.allowOther ?? true),
     })),
   };
 }

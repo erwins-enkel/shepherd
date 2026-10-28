@@ -178,3 +178,31 @@ describe("AskQuestionDialog", () => {
     expect(onnavigate).toHaveBeenCalledWith("s2");
   });
 });
+
+it("selects two requests from the same session independently", async () => {
+  const { container } = await mount([
+    { session: session("same"), ask: ask("first", "First request?") },
+    { session: session("same"), ask: ask("second", "Second request?") },
+  ]);
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: /Second request/ })
+    .click();
+  await pickSecondAndSubmit(container);
+  expect(answerAsk).toHaveBeenCalledWith("same", "second", expect.any(Array));
+  await expect.element(page.getByText("First request?", { exact: true })).toBeVisible();
+});
+
+it("keeps unverified answers editable and does not send again automatically", async () => {
+  answerAsk.mockResolvedValueOnce("unverified");
+  const { container, onclose } = await mount([{ session: session("retry"), ask: ask("retry") }]);
+  await pickSecondAndSubmit(container);
+  await expect
+    .element(page.elementLocator(container.querySelector<HTMLButtonElement>("button.primary")!))
+    .toBeEnabled();
+  expect(onclose).not.toHaveBeenCalled();
+  expect(answerAsk).toHaveBeenCalledTimes(1);
+  expect(container.querySelectorAll<HTMLInputElement>('input[type="radio"]')[1]!.checked).toBe(
+    true,
+  );
+});

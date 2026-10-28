@@ -246,9 +246,10 @@ export class HeavySlotService {
       },
       this.#ctx(),
     );
-    if (out.kind === "run") {
-      // Bind the run to the source it starts on (#3554), before the runner is told to go.
-      const rev = await captureRevision(session.worktreePath, session.repoPath);
+    if (out.kind === "run" && holder !== OPERATOR_HOLDER) {
+      // Bind the run to the source it starts on (#3554), before the runner is told to go. An
+      // operator terminal has no session worktree to bind it to.
+      const rev = await captureRevision(worktreePath, repoPath);
       this.#ledger.setRevision(out.job.id, rev.head, rev.treeHash);
     }
     await this.#changed();

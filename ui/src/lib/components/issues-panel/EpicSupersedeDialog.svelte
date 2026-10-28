@@ -219,6 +219,7 @@
     white-space: nowrap;
   }
   .num {
+    font-family: var(--font-mono);
     color: var(--color-blue);
   }
   .muted {

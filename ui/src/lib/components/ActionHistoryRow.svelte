@@ -133,6 +133,7 @@
   }
 
   .hist-num {
+    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     color: var(--color-ink);
   }
@@ -142,6 +143,7 @@
     color: var(--color-faint);
   }
   .hist-sha {
+    font-family: var(--font-mono);
     font-variant-ligatures: none;
   }
 

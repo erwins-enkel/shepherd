@@ -361,11 +361,13 @@
     flex: none;
   }
   .ow-desig {
+    font-family: var(--font-mono);
     font-size: var(--fs-sm);
     font-weight: 600;
     color: var(--color-ink-bright);
   }
   .ow-pr {
+    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     color: var(--color-faint);
   }

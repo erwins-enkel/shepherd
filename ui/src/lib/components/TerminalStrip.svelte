@@ -47,7 +47,9 @@
     <span class="chev" aria-hidden="true">›</span>
     {#if session && status}
       <StatusPip {status} />
-      <span class="name" aria-hidden="true">{session.desig} · {session.name}</span>
+      <span class="name" aria-hidden="true"
+        ><span class="name-desig">{session.desig}</span> · {session.name}</span
+      >
     {/if}
   </button>
 {/if}
@@ -84,6 +86,9 @@
     line-height: 1;
   }
   /* Read bottom-to-top, like a spine on a shelf. */
+  .name-desig {
+    font-family: var(--font-mono);
+  }
   .name {
     writing-mode: vertical-rl;
     transform: rotate(180deg);

@@ -3944,6 +3944,7 @@
      competes with the semantic status chips. A sanctioned standalone ghost-chip
      form (DESIGN.md), distinct from the inline 2px Badge. */
   .desig {
+    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     text-transform: uppercase;

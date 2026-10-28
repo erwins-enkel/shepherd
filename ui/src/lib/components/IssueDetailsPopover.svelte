@@ -131,6 +131,7 @@
     color: var(--color-faint);
   }
   .id-num {
+    font-family: var(--font-mono);
     color: var(--color-muted);
   }
   .id-author {

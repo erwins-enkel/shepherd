@@ -189,6 +189,7 @@
   /* No overflow rule here — clipped by the parent .epic-toggle's overflow: hidden
      at extreme widths. */
   .num {
+    font-family: var(--font-mono);
     flex: none;
     color: var(--color-blue);
   }

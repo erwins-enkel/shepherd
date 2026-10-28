@@ -23,30 +23,36 @@ colors:
   slate: "#566460"
 typography:
   title:
-    fontFamily: "Berkeley Mono, JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontFamily: "Inter Variable, Inter, ui-sans-serif, system-ui, sans-serif"
     fontSize: "13px"
     fontWeight: 600
     lineHeight: 1.35
-    letterSpacing: "0.02em"
+    letterSpacing: "normal"
   body:
-    fontFamily: "Berkeley Mono, JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontFamily: "Inter Variable, Inter, ui-sans-serif, system-ui, sans-serif"
     fontSize: "13px"
     fontWeight: 400
     lineHeight: 1.45
-    letterSpacing: "0.02em"
+    letterSpacing: "normal"
   label:
-    fontFamily: "Berkeley Mono, JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontFamily: "Inter Variable, Inter, ui-sans-serif, system-ui, sans-serif"
     fontSize: "11px"
     fontWeight: 500
     lineHeight: 1.2
     letterSpacing: "0.12em"
   numeric:
-    fontFamily: "Berkeley Mono, JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontFamily: "Inter Variable, Inter, ui-sans-serif, system-ui, sans-serif"
     fontSize: "11px"
     fontWeight: 400
     lineHeight: 1.2
     letterSpacing: "0.06em"
     fontFeature: "tnum"
+  identifier:
+    fontFamily: "Berkeley Mono, JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontSize: "11px"
+    fontWeight: 400
+    lineHeight: 1.2
+    letterSpacing: "0.12em"
 rounded:
   sm: "2px"
   md: "3px"
@@ -108,15 +114,15 @@ components:
 
 **Creative North Star: "The Phosphor Watchfloor"**
 
-Shepherd is the dim room where one operator watches a herd of live agents at 2am. The interface is an instrument panel, not a dashboard: a near-black, green-tinted ground with text glowing like phosphor on a CRT, status lights that mean something, and gauges that read at a glance. Everything is monospace because everything here is, literally, a terminal. The aesthetic is earned, not styled: it reads like mission telemetry or an aircraft glass cockpit, where every mark on screen is a measurement and decoration is a liability.
+Shepherd is the dim room where one operator watches a herd of live agents at 2am. The interface is an instrument panel, not a dashboard: a near-black, green-tinted ground with text glowing like phosphor on a CRT, status lights that mean something, and gauges that read at a glance. Machine text (designations, hashes, code, the terminal itself) stays monospace because it is, literally, terminal output; everything a human reads runs in a quiet, legible sans. The aesthetic is earned, not styled: it reads like mission telemetry or an aircraft glass cockpit, where every mark on screen is a measurement and decoration is a liability.
 
 The system is dense and quiet. Surfaces are flat and square, separated by hairline strokes and shifts in tonal value rather than shadows or cards. Color is rationed: the ground and chrome are desaturated greens and grays, and saturation is spent almost entirely on the four status lights and the single amber action. When nothing needs the operator, the screen is calm to the point of being recessive. When an agent is blocked, the red pip is unmistakable. That contrast between calm and alarm is the whole design.
 
-This system explicitly rejects four families. It is not a **generic SaaS dashboard** (no rounded-card grids, pastel gradients, hero-metric tiles, or Inter-on-white). It is not a **consumer chat app** (no bubbly, emoji-forward, soft coziness). It is not an **enterprise admin panel** (no heavy gray chrome or density-without-elegance). It is not **crypto or gamer neon** (no glow-on-black spectacle, RGB, or glassmorphism for its own sake). If a mark on screen is not telemetry, it does not belong.
+This system explicitly rejects four families. It is not a **generic SaaS dashboard** (no rounded-card grids, pastel gradients, hero-metric tiles, or sans-on-white). It is not a **consumer chat app** (no bubbly, emoji-forward, soft coziness). It is not an **enterprise admin panel** (no heavy gray chrome or density-without-elegance). It is not **crypto or gamer neon** (no glow-on-black spectacle, RGB, or glassmorphism for its own sake). If a mark on screen is not telemetry, it does not belong.
 
 **Key Characteristics:**
 
-- Monospace everywhere (Berkeley Mono); hierarchy from weight, case, and color, never a second typeface.
+- Two typefaces with fixed jobs: Inter for reading, Berkeley Mono for machine text; hierarchy from weight, case, and color, never a third family.
 - Near-black green-phosphor ground; chroma reserved for four status lights plus one amber action.
 - Flat, square panels separated by tonal layering and 1px hairlines; no shadows at rest.
 - Dense, telemetry-first layout that reads at a glance and survives on a phone in one hand.
@@ -157,16 +163,19 @@ A desaturated, green-tinted monochrome ground with four reserved status accents.
 
 ## 3. Typography
 
-**Display / Body / Label Font:** Berkeley Mono (with JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace).
+**Display / Body / Label Font:** Inter (`--font-sans`: Inter Variable, ui-sans-serif, system-ui, sans-serif).
 
-**Character:** One monospaced typeface carries the entire system. The grid of a fixed-width face is the point: it makes the UI read as a terminal and keeps columns, gauges, and code aligned. Personality comes from weight, case, letter-spacing, and ink brightness, not from contrast between families. Base size is a deliberate 13px, tight and instrument-like.
+**Machine Font:** Berkeley Mono (`--font-mono`: with JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace).
+
+**Character:** Inter carries everything the operator reads: titles, summaries, prose, labels and readouts, with tabular figures on by default so numbers never reflow. Berkeley Mono marks machine text: designations, issue and PR numbers, SHAs, versions, paths, code and the terminal, plus chrome that deliberately sets `--font-mono`. Personality comes from weight, case, letter-spacing, and ink brightness. Base size is a deliberate 13px, tight and instrument-like.
 
 ### Hierarchy
 
-- **Title** (600, 13px, 1.35, +0.02em): Panel and section headers, the agent designation, the value the operator scans for. Brighter ink (Bright Phosphor) does as much work as the weight.
-- **Body** (400, 13px, 1.45, +0.02em): Default running text and terminal output. The global base; +0.02em tracking opens the mono just enough to breathe.
-- **Label** (500, 11px, uppercase, +0.12em): Buttons, tab and status labels, toolbar chrome. The wide tracking and small caps read as machine labeling, not prose.
-- **Numeric** (400, 11px, +0.06em, tabular): Token counts, usage percentages, gauge readouts, SHAs. Tabular figures so digits never reflow as values tick.
+- **Title** (Inter 600, 13px, 1.35): Panel and section headers, the agent designation, the value the operator scans for. Brighter ink (Bright Phosphor) does as much work as the weight.
+- **Body** (Inter 400, 13px, 1.45, tabular figures): Default running text. The global base on `html, body`.
+- **Label** (Inter 500, 11px, uppercase, +0.12em): Buttons, tab and status labels, toolbar chrome. The wide tracking and small caps read as machine labeling, not prose.
+- **Numeric** (Inter 400, 11px, +0.06em, tabular): Token counts, usage percentages, gauge readouts. Tabular figures so digits never reflow as values tick.
+- **Identifier** (Berkeley Mono, 11px, +0.12em): Task designations, `#issue` and `PR #` numbers, SHAs, versions. Always mono, everywhere, so the same ID reads the same in every surface.
 
 ### Scale (implemented rung ladder)
 
@@ -181,7 +190,7 @@ The hierarchy above is realized as a 6-rung type scale, the single source of tru
 
 ### Named Rules
 
-**The One Typeface Rule.** Everything is Berkeley Mono. A second family is forbidden; hierarchy is built from size, weight, case, and color only. The monospace grid is non-negotiable, it is what makes this an instrument.
+**The Two Typeface Rule.** Inter for reading, Berkeley Mono for machine text (identifiers, code, paths, terminal). Use `var(--font-sans)` (inherited by default) or `var(--font-mono)`, never a literal family and never a third typeface. Hierarchy is built from size, weight, case, and color.
 
 **The Tabular Rule.** Every numeral that updates in place (tokens, gauges, counts, percentages) uses tabular figures. Digits must hold their column so a ticking value reads as motion, not jitter.
 

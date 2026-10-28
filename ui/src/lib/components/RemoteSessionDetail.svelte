@@ -253,6 +253,7 @@
     flex-shrink: 0;
     background: transparent;
     font: inherit;
+    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     text-transform: uppercase;

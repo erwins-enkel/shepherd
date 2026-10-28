@@ -185,7 +185,7 @@
     </div>
     <div class="rfoot">
       <span class="rver"
-        >v{version} ·
+        ><span class="rver-num">v{version}</span> ·
         <span class="rlive" class:on={live}
           >● {live ? m.settings_live() : m.settings_offline()}</span
         ></span
@@ -220,6 +220,9 @@
 </div>
 
 <style>
+  .rver-num {
+    font-family: var(--font-mono);
+  }
   .shead {
     display: flex;
     align-items: center;

@@ -331,6 +331,7 @@
     min-width: 0;
   }
   .rtop .desig {
+    font-family: var(--font-mono);
     flex: none;
     font-size: var(--fs-meta);
     color: var(--color-muted);
@@ -395,6 +396,7 @@
     color: var(--color-muted);
   }
   .crumb .desig {
+    font-family: var(--font-mono);
     font-size: var(--fs-lg);
     color: var(--color-amber);
   }

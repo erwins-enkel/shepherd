@@ -799,6 +799,7 @@
     white-space: nowrap;
   }
   .ver {
+    font-family: var(--font-mono);
     color: var(--color-muted);
   }
   .state {

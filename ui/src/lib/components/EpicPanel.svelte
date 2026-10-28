@@ -176,6 +176,7 @@
   }
 
   .num {
+    font-family: var(--font-mono);
     color: var(--color-muted);
     font-size: var(--fs-micro);
     text-decoration: none;

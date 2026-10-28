@@ -859,6 +859,25 @@ const overview: TooltipExplanation = {
   </section>
 
   <section class="panel">
+    <h2>Type families</h2>
+    <p class="when">
+      Inter (--font-sans) for everything read; it is the inherited default. JetBrains Mono
+      (--font-mono) only for identifiers (TASK-…, #issue, PR #…, SHAs, versions), code, paths and
+      the terminal. Never a literal family, never a third.
+    </p>
+    <ul class="type-list">
+      <li>
+        <span class="type-demo" style="font-family: var(--font-sans)">Review blocked · 10:44</span>
+        <code>--font-sans</code><span class="note">Titles, body, labels, readouts</span>
+      </li>
+      <li>
+        <span class="type-demo" style="font-family: var(--font-mono)">TASK-4727 · 9a073251e</span>
+        <code>--font-mono</code><span class="note">Identifiers, code, terminal</span>
+      </li>
+    </ul>
+  </section>
+
+  <section class="panel">
     <h2>Status tokens</h2>
     <p class="when">
       Session state → hue. Driven by app.css <code>--status-*</code>; read the notes — the mapping

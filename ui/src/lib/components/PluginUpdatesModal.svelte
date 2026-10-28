@@ -361,6 +361,7 @@
     font-size: var(--fs-base);
   }
   .pver {
+    font-family: var(--font-mono);
     color: var(--color-muted);
     font-size: var(--fs-meta);
     font-variant-numeric: tabular-nums;

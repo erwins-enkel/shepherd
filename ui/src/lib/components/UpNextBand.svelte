@@ -344,7 +344,11 @@
     color: var(--color-faint);
   }
 
+  .un-num {
+    font-family: var(--font-mono);
+  }
   .unpr-num {
+    font-family: var(--font-mono);
     display: inline-flex;
     align-items: center;
     gap: 4px;

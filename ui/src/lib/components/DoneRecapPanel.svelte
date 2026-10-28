@@ -305,6 +305,7 @@
   }
 
   .dr-desig {
+    font-family: var(--font-mono);
     font-size: var(--fs-base);
     color: var(--color-ink-bright);
     font-weight: 600;

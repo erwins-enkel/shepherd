@@ -172,6 +172,7 @@
     gap: 8px;
   }
   .done-desig {
+    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     color: var(--color-ink-bright);
     font-weight: 600;

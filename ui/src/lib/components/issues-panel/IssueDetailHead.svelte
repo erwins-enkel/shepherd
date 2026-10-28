@@ -168,6 +168,7 @@
   }
 
   .num {
+    font-family: var(--font-mono);
     color: var(--color-muted);
   }
 

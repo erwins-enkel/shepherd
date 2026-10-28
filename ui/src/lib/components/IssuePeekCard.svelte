@@ -84,6 +84,7 @@
     color: var(--color-faint);
   }
   .ip-num {
+    font-family: var(--font-mono);
     color: var(--color-muted);
   }
   .ip-author {

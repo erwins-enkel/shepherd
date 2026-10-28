@@ -356,6 +356,7 @@
     min-width: 0;
   }
   .num {
+    font-family: var(--font-mono);
     color: var(--color-ink-bright);
   }
   .state {

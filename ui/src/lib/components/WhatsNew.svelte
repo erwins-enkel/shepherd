@@ -236,6 +236,7 @@
     letter-spacing: 0.06em;
   }
   .gversion {
+    font-family: var(--font-mono);
     color: var(--color-amber);
     font-variant-numeric: tabular-nums;
   }

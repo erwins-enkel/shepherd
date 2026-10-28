@@ -141,6 +141,7 @@
   }
 
   .num {
+    font-family: var(--font-mono);
     flex: none;
     color: var(--color-ink-bright);
     font-size: var(--fs-meta);

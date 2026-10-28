@@ -322,6 +322,7 @@
   }
 
   .task-desig {
+    font-family: var(--font-mono);
     flex: none;
     color: var(--color-muted);
     font-size: var(--fs-micro);

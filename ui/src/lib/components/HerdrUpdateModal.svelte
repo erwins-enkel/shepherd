@@ -794,6 +794,7 @@
     color: var(--color-amber);
   }
   .session .desig {
+    font-family: var(--font-mono);
     flex: none;
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.04em;

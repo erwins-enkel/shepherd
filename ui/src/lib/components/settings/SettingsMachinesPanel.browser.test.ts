@@ -276,6 +276,45 @@ describe("SettingsMachinesPanel", () => {
     );
   });
 
+  it("shows a machine's check slot, and its last known state when out of reach", async () => {
+    const snapshot = {
+      enabled: true,
+      capacity: 2,
+      holders: [{ sessionId: "s1", command: "vitest run", startedAt: 1, rssBytes: null }],
+      waiters: [{ sessionId: "s2", position: 1, reason: "slot" as const }],
+      brake: { active: true, reason: "memory" as const },
+      pressure: {
+        ramAvailableBytes: 1,
+        ramTotalBytes: 4,
+        swapUsedBytes: null,
+        swapTotalBytes: null,
+        memFullAvg10: null,
+        memBrakeThreshold: null,
+        cpuSomeAvg10: null,
+      },
+      memoryBySource: { agentsBytes: null, foreignBytes: null, foreignTop: [] },
+    };
+    stubApi({
+      machines: [
+        machine({ name: "Mac slot", heavySlot: { snapshot, readAt: Date.now(), stale: false } }),
+        machine({
+          name: "Mac gone",
+          status: "unreachable",
+          reason: "timeout",
+          heavySlot: { snapshot, readAt: Date.now() - 120_000, stale: true },
+        }),
+        machine({ name: "Mac old", heavySlot: null }),
+      ],
+    });
+    render(SettingsMachinesPanel);
+    await expect
+      .element(page.getByText(m.settings_machines_slot_waiting({ count: 1 })).first())
+      .toBeVisible();
+    expect(document.querySelectorAll("[data-heavy-slot] [data-brake]").length).toBe(2);
+    expect(document.querySelectorAll("[data-heavy-slot] [data-stale]").length).toBe(1);
+    expect(document.body.textContent).toContain(m.settings_machines_slot_none());
+  });
+
   it("marks a machine's stale capabilities and says nothing was reported by an older one", async () => {
     stubApi({
       machines: [

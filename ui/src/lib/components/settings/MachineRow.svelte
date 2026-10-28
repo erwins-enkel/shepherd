@@ -9,6 +9,7 @@
   } from "#lib/machines.js";
   import { formatAgo } from "#lib/format.js";
   import MachineCapabilities from "./MachineCapabilities.svelte";
+  import MachineHeavySlot from "./MachineHeavySlot.svelte";
   import { m } from "#lib/paraglide/messages.js";
 
   // One connected machine (#2759): who it is, whether this Shepherd can reach it right now, and —
@@ -135,6 +136,7 @@
       </li>
     </ul>
     {#if machine.info}<MachineCapabilities report={machine.capabilities} />{/if}
+    {#if machine.info}<MachineHeavySlot slot={machine.heavySlot} {now} />{/if}
     <span class="mch-meta">
       {seen}{#if machine.tokenHint}{seen ? " · " : ""}<span class="mch-mono"
           >{m.settings_machines_token({ hint: machine.tokenHint })}</span

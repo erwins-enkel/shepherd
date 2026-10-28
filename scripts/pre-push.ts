@@ -1,41 +1,22 @@
 #!/usr/bin/env bun
 /**
- * Parallel pre-push orchestrator (#1030).
+ * Local pre-push checks in bounded concurrent lanes (#1030, #3557).
  *
- * Runs the same gate set as `.github/workflows/ci.yml`, but in concurrent LANES
- * with bounded aggregate concurrency and per-lane timeout backstops — so a warm
- * push finishes well under a minute instead of the old ~2.3-min fully-sequential
- * hook that blew past the 120s agent command timeout.
+ * Lint, type/build and consistency checks run here; agents run affected test files
+ * explicitly. Full root/UI/extension suites, browser installation and the full
+ * CLI gate belong to `.github/workflows/ci.yml`, not this hook.
  *
- * ┌─ KEEP IN SYNC WITH `.github/workflows/ci.yml` (`verify` lanes) ──────────────┐
- * │ This TS orchestrator no longer shares ci.yml's shell body, so the two gate    │
- * │ definitions can drift. When you add/remove/reorder a CI step, mirror it here  │
- * │ (and vice-versa). DELIBERATE local-only differences from CI:                  │
- * │  • prettier/eslint are scoped to the push DELTA (vs origin/main) — CI keeps   │
- * │    the whole-repo check, so tree-wide drift is still caught before merge.     │
- * │  • fallow@2.100.0 pin — same as CI, gated by check-fallow-pin.mjs.            │
- * │  • a docs-only delta (CI's own rule, see `needsTests`) skips the type checks  │
- * │    too, not just the test lanes — CI's `static` job still runs them.          │
- * │  • local Bun below package.json engines.bun aborts the push (#2916); CI only  │
- * │    asserts its own `latest` meets the floor.                                  │
- * │  • root-tests runs `bun test --parallel=W` (#2571); CI's `test-root` stays    │
- * │    serial `--shard`s until oven-sh/bun#39987 (worker deadlock) is fixed.      │
- * └──────────────────────────────────────────────────────────────────────────────┘
+ * Shared checks should stay aligned with CI, with deliberate local differences:
+ * • prettier/eslint use the push delta vs origin/main; CI checks the whole repo.
+ * • fallow@2.100.0 stays pinned like CI (checked by check-fallow-pin.mjs).
+ * • docs-only deltas skip type/build lanes; CI's static job still type-checks.
+ * • local Bun below package.json engines.bun aborts the push (#2916).
  *
- * The hook (`.husky/pre-push`) scrubs git's local-env-vars and execs this script,
- * so every child inherits the same clean env as CI.
+ * `.husky/pre-push` scrubs git's local-env-vars before executing this script.
  */
 import { spawn, spawnSync } from "node:child_process";
-import {
-  createWriteStream,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-  statSync,
-} from "node:fs";
-import { availableParallelism, cpus, tmpdir } from "node:os";
+import { createWriteStream, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { availableParallelism, cpus } from "node:os";
 import { join } from "node:path";
 import { checkCurrentBun } from "./check-bun-version";
 import { changedPaths, classify } from "./ci-changes.mjs";
@@ -53,14 +34,6 @@ const EXT_ESLINT_IGNORES = ["extension/src/lib/paraglide/"];
 
 export function isEslintFile(path: string): boolean {
   return ESLINT_EXTENSIONS.some((e) => path.endsWith(e));
-}
-
-/**
- * Whether the push touches the Rust CLI: its own sources, or the derived contract its client is
- * generated from at build time.
- */
-export function touchesCli(changed: string[]): boolean {
-  return changed.some((f) => f.startsWith("cli/") || f === "contracts/openapi.rust.yaml");
 }
 
 /**
@@ -108,10 +81,9 @@ export function withFileArgs(flags: string[], files: string[]): string[] {
 }
 
 /**
- * Bound the AGGREGATE worker count, not just the lane count. Several lanes each
- * spawn multi-worker tools (vitest ×2, chromium, `bun test`); running them all
- * unbounded oversubscribes a modest box. Cap lane fan-out scaled to cores, then
- * cap each heavy tool's workers so `laneCap × maxWorkers ≤ cores`.
+ * Scale lane fan-out to cores and derive a per-lane worker budget. The current
+ * local checks use only laneCap; maxWorkers does not constrain their internal
+ * parallelism.
  */
 export function computeConcurrency(
   cores: number,
@@ -270,7 +242,7 @@ function makeStarter(logDir: string, stamp: string): (lane: LaneSpec) => LaneHan
         log.write(`\n▶ ${lane.name}: ${step.label}\n   $ ${step.cmd} ${step.args.join(" ")}\n`);
         const code = await new Promise<number>((resolve) => {
           // detached → own process group, so kill(-pid) reaps the whole subtree
-          // (vitest workers / chromium / svelte-kit), not just the bun parent.
+          // (including svelte-kit build children), not just the bun parent.
           const child = spawn(step.cmd, step.args, {
             cwd: step.cwd,
             env: step.env ?? process.env,
@@ -354,7 +326,7 @@ function changedFiles(repoRoot: string): string[] {
 }
 
 /**
- * Whether the push needs the tsc/root-tests/ui/ext lanes, by CI's own path rules (#2915):
+ * Whether the push needs the tsc/ui/ext lanes, by CI's own path rules (#2915):
  * `classify` from scripts/ci-changes.mjs over the same diff the `changes` job reads, so there
  * is no second list. Only a docs-only delta (docs/**, top-level *.md) answers false. The one
  * check among them that reads docs/*.md, docs-manifest freshness, runs in the gates lane; the
@@ -362,7 +334,7 @@ function changedFiles(repoRoot: string): string[] {
  * should a .ts file ever turn up under docs/). Event `pull_request` because main takes changes
  * only through PRs. Fails open: without origin/main, or when the diff fails, every lane runs.
  */
-function needsTests(delta: boolean): boolean {
+function needsCodeChecks(delta: boolean): boolean {
   if (!delta) return true;
   try {
     return classify(changedPaths("origin/main"), { event: "pull_request" }).test;
@@ -375,40 +347,20 @@ function needsTests(delta: boolean): boolean {
 
 /**
  * Number of lanes `buildLanes` will produce, computed WITHOUT side effects so
- * concurrency can be sized before the single (temp-dir-creating) build. MUST mirror
- * `buildLanes`' lane-inclusion logic: gates always runs; tsc/root-tests/ui/ext unless
- * `needsTests` says docs-only; prettier/eslint/cli are conditional under delta scoping.
+ * concurrency can be sized before building the lane list. MUST mirror
+ * `buildLanes`' lane-inclusion logic: gates always runs; tsc/ui/ext unless
+ * `needsCodeChecks` says docs-only; prettier/eslint are conditional under delta scoping.
  */
-export function plannedLaneCount(delta: boolean, changed: string[], tests: boolean): number {
-  let n = tests ? 5 : 1; // gates (+ tsc, root-tests, ui, ext)
+export function plannedLaneCount(delta: boolean, changed: string[], codeChecks: boolean): number {
+  let n = codeChecks ? 4 : 1; // gates (+ tsc, ui, ext)
   if (delta) {
     if (changed.length) n++; // prettier (delta)
     const routed = routeEslintFiles(changed);
     if (routed.root.length || routed.ext.length) n++; // eslint (delta)
-    if (touchesCli(changed)) n++; // cli (delta)
   } else {
-    n += 3; // prettier + eslint + cli (whole-repo fallback)
+    n += 2; // prettier + eslint (whole-repo fallback)
   }
   return n;
-}
-
-/**
- * A throwaway `SHEPHERD_REPO_ROOT` for the root-tests lane, removed when the orchestrator exits.
- *
- * Created HERE rather than by the test preload (`test/setup-test-env.ts`, which redirects TMPDIR
- * for the run) because this is the PARENT process — it is not preloaded, so without its own
- * cleanup this dir survives every push and accumulates (#1862).
- */
-function makeRepoRoot(): string {
-  const dir = mkdtempSync(join(tmpdir(), "shepherd-reporoot-"));
-  process.on("exit", () => {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch {
-      /* best-effort: never fail a green push over cleanup */
-    }
-  });
-  return dir;
 }
 
 export function buildLanes(
@@ -416,14 +368,12 @@ export function buildLanes(
   opts: {
     delta: boolean;
     changed: string[];
-    tests: boolean;
-    maxWorkers: number;
+    codeChecks: boolean;
     laneTimeoutOverride?: number;
   },
 ): LaneSpec[] {
   const ui = join(repoRoot, "ui");
   const ext = join(repoRoot, "extension");
-  const W = String(opts.maxWorkers);
   const t = (def: number) => opts.laneTimeoutOverride ?? def;
 
   const lanes: LaneSpec[] = [];
@@ -479,7 +429,7 @@ export function buildLanes(
         cwd: repoRoot,
       },
       // Reads docs/*.md headings, so it must also run on a docs-only push — hence here, not
-      // in the ui lane that `needsTests` drops.
+      // in the ui lane that `needsCodeChecks` drops.
       {
         label: "docs manifest freshness",
         cmd: "bun",
@@ -603,36 +553,15 @@ export function buildLanes(
     });
   }
 
-  // Dropped on a docs-only delta (`needsTests`), as CI skips its test lanes for one.
-  if (opts.tests) {
+  // Code checks are dropped on a docs-only delta (`needsCodeChecks`).
+  if (opts.codeChecks) {
     lanes.push({
       name: "tsc",
       timeoutMs: t(300_000),
       steps: [{ label: "root typecheck", cmd: "bun", args: ["run", "typecheck"], cwd: repoRoot }],
     });
 
-    lanes.push({
-      name: "root-tests",
-      // ~45s parallel vs ~150s serial on Bun 1.4.4 (#2571). Earlier TIMEOUTs here were Bun
-      // 1.3.x's child-process hang, now blocked by the engines.bun floor.
-      timeoutMs: t(300_000),
-      steps: [
-        {
-          label: "bun test ./test",
-          cmd: "bun",
-          // --parallel=W, never bare (keeps laneCap × maxWorkers ≤ cores), never --randomize.
-          // Needs Bun ≥1.4.3 for the lost-subprocess-exit fix (oven-sh/bun#43697). The worker
-          // deadlock (oven-sh/bun#39987) is still open upstream, so CI stays sharded+serial;
-          // a hang here is bounded by the lane timeout. Gate: 12/12 CI + 10/10 local green (#2571).
-          args: ["test", `--parallel=${W}`, "./test"],
-          cwd: repoRoot,
-          // Point server.test.ts's throwaway repo at a unique temp dir (never the real root).
-          env: { ...process.env, SHEPHERD_REPO_ROOT: makeRepoRoot() },
-        },
-      ],
-    });
-
-    // ui — serial WITHIN the lane: check/test/build each run paraglide+svelte-kit
+    // ui — serial WITHIN the lane: check/build each run paraglide+svelte-kit
     // codegen, which races on .svelte-kit/ + src/lib/paraglide/ if run concurrently.
     lanes.push({
       name: "ui",
@@ -640,15 +569,8 @@ export function buildLanes(
       steps: [
         { label: "svelte-check", cmd: "bun", args: ["run", "check"], cwd: ui },
         { label: "i18n parity", cmd: "bun", args: ["run", "check:i18n"], cwd: ui },
-        {
-          label: "playwright chromium (idempotent)",
-          cmd: "bunx",
-          args: ["playwright", "install", "chromium"],
-          cwd: ui,
-        },
-        { label: "vitest", cmd: "bun", args: ["run", "test", "--maxWorkers", W], cwd: ui },
-        // Same script CI's "Build (ui)" step runs (the ci.yml `verify` lanes header requires
-        // the two to stay in sync): builds, then fails on Rollup's INEFFECTIVE_DYNAMIC_IMPORT —
+        // Same script CI's "Build (ui)" step runs: builds, then fails on Rollup's
+        // INEFFECTIVE_DYNAMIC_IMPORT —
         // a static import that defeats a dynamic one, for any module. Rollup does not warn for
         // every static importer (a plain ui/src/lib/*.ts helper produces none), so the
         // eslint no-restricted-imports rule covers those files for the named libraries.
@@ -658,30 +580,13 @@ export function buildLanes(
     });
   }
 
-  if (!opts.delta || touchesCli(opts.changed)) {
-    lanes.push({
-      name: "cli",
-      // A cold build compiles the generated client and every dependency; warm runs are seconds.
-      timeoutMs: t(600_000),
-      steps: [
-        {
-          label: "cargo fmt/clippy/test",
-          cmd: "bash",
-          args: ["scripts/check-cli.sh"],
-          cwd: repoRoot,
-        },
-      ],
-    });
-  }
-
-  if (opts.tests) {
+  if (opts.codeChecks) {
     lanes.push({
       name: "ext",
       timeoutMs: t(300_000),
       steps: [
         { label: "svelte-check", cmd: "bun", args: ["run", "check"], cwd: ext },
         { label: "i18n parity", cmd: "bun", args: ["run", "check:i18n"], cwd: ext },
-        { label: "vitest", cmd: "bun", args: ["run", "test", "--maxWorkers", W], cwd: ext },
         { label: "build", cmd: "bun", args: ["run", "build"], cwd: ext },
       ],
     });
@@ -718,7 +623,7 @@ async function main(): Promise<void> {
 
   const repoRoot = process.cwd();
 
-  // Local-only: a Bun below engines.bun fails/hangs root-tests spuriously (#2916).
+  // Enforce the supported Bun floor for local checks (#2916).
   const bunCheck = checkCurrentBun(repoRoot);
   if (!bunCheck.ok) {
     if (!["1", "true"].includes(process.env.SHEPHERD_SKIP_BUN_VERSION_CHECK ?? "")) {
@@ -733,7 +638,7 @@ async function main(): Promise<void> {
   const cores = (availableParallelism?.() ?? cpus().length) || 4;
   const delta = hasOriginMain();
   const changed = delta ? changedFiles(repoRoot) : [];
-  const tests = needsTests(delta);
+  const codeChecks = needsCodeChecks(delta);
 
   const laneOverride = Number(process.env.SHEPHERD_PREPUSH_LANES) || undefined;
   const laneTimeoutOverride = Number(process.env.SHEPHERD_PREPUSH_LANE_TIMEOUT_MS) || undefined;
@@ -743,19 +648,20 @@ async function main(): Promise<void> {
   pruneLogs(logDir);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 
-  // Size concurrency from the side-effect-free lane count, then build lanes ONCE
-  // (buildLanes creates the root-tests temp dir, so it must not run twice).
-  const numLanes = plannedLaneCount(delta, changed, tests);
-  const { laneCap, maxWorkers } = computeConcurrency(cores, numLanes, laneOverride);
-  const lanes = buildLanes(repoRoot, { delta, changed, tests, maxWorkers, laneTimeoutOverride });
+  // Size concurrency from the lane count before assembling the local checks.
+  const numLanes = plannedLaneCount(delta, changed, codeChecks);
+  const { laneCap } = computeConcurrency(cores, numLanes, laneOverride);
+  const lanes = buildLanes(repoRoot, { delta, changed, codeChecks, laneTimeoutOverride });
 
   console.log(
-    `▶ pre-push: ${lanes.length} lanes · laneCap ${laneCap} · ${maxWorkers} workers/lane · ${cores} cores` +
+    `▶ pre-push: ${lanes.length} lanes · laneCap ${laneCap} · ${cores} cores` +
       (delta
         ? ` · delta-scoped lint (${changed.length} changed files)`
         : " · whole-repo lint (no origin/main)") +
-      (tests ? "" : " · docs-only delta: tsc, root-tests, ui and ext skipped like CI"),
+      (codeChecks ? "" : " · docs-only delta: tsc, ui and ext skipped"),
   );
+
+  console.log("  Tests: run affected files explicitly; full suites and CLI checks run in CI.");
 
   const start = makeStarter(logDir, stamp);
   const t0 = Date.now();

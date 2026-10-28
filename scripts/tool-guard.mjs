@@ -385,6 +385,63 @@ const HEAVY_SUBCOMMANDS = new Map([
   ["swift", new Set(["build", "test"])],
   ["playwright", new Set(["test"])],
 ]);
+
+/**
+ * The built-in "counts as heavy" list as plain data — the ONE list (#3552). Settings → Resources
+ * shows it as the "default" entries, and the operator's edits (a {@link HeavyListOverride}) are
+ * layered over it here; nothing else keeps a copy.
+ * @returns {{ command: string, subcommands: string[] }[]} `subcommands: []` = heavy whatever the arguments
+ */
+export function heavyDefaults() {
+  return [
+    ...[...HEAVY_BINARIES].map((command) => ({ command, subcommands: [] })),
+    ...[...HEAVY_SUBCOMMANDS].map(([command, subs]) => ({ command, subcommands: [...subs] })),
+  ];
+}
+
+const HEAVY_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/;
+
+/** The operator's edits read from the file `SHEPHERD_HEAVY_LIST_FILE` names, or null (unset,
+ *  missing, malformed — the built-in list then applies unchanged). */
+function readHeavyListOverride() {
+  const path = process.env.SHEPHERD_HEAVY_LIST_FILE;
+  if (!path) return null;
+  const text = readSmallText(path);
+  if (text === null) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/** The built-in list with `override` (`{ custom: {command, subcommands}[], disabled: string[] }`)
+ *  applied: a disabled command drops out whole, a custom one replaces the rule for that command. Anything malformed in the override is ignored. */
+function effectiveHeavy(override) {
+  const binaries = new Set(HEAVY_BINARIES);
+  const subs = new Map([...HEAVY_SUBCOMMANDS].map(([k, v]) => [k, new Set(v)]));
+  if (!override || typeof override !== "object") return { binaries, subs };
+  const names = (list) =>
+    Array.isArray(list) ? list.filter((x) => typeof x === "string" && HEAVY_NAME.test(x)) : [];
+  const custom = Array.isArray(override.custom) ? override.custom : [];
+  for (const entry of custom) {
+    if (!entry || typeof entry.command !== "string" || !HEAVY_NAME.test(entry.command)) continue;
+    const extra = names(entry.subcommands);
+    if (extra.length === 0) {
+      binaries.add(entry.command);
+      subs.delete(entry.command);
+    } else {
+      binaries.delete(entry.command);
+      subs.set(entry.command, new Set(extra));
+    }
+  }
+  for (const command of names(override.disabled)) {
+    binaries.delete(command);
+    subs.delete(command);
+  }
+  return { binaries, subs };
+}
+
 /** Package-manager flags that take a value; the cwd-moving ones relocate the script lookup. */
 const PM_VALUE_FLAGS = new Set([
   "--cwd",
@@ -560,8 +617,8 @@ function heavyWords(w, cwd, deps, depth, seen) {
   const [head, ...args] = argv;
   if (args.some((a) => a === "--help" || a === "-h" || a === "--version")) return false;
   const cmd = head.split("/").pop();
-  if (HEAVY_BINARIES.has(cmd)) return true;
-  const subs = HEAVY_SUBCOMMANDS.get(cmd);
+  if (deps.heavy.binaries.has(cmd)) return true;
+  const subs = deps.heavy.subs.get(cmd);
   if (subs) {
     const sub = args.find((a) => !a.startsWith("-") && !a.startsWith("+"));
     return sub !== undefined && subs.has(sub);
@@ -603,7 +660,7 @@ function heavyWords(w, cwd, deps, depth, seen) {
  * the PreToolUse guard (Claude) and the PATH shims (Codex, scripts/slot-shim.mjs) both ask it.
  */
 export function isHeavyCommand(command, cwd, deps = {}) {
-  return heavyText(command, cwd, { ...DEFAULT_DEPS, ...deps }, 0, new Set());
+  return heavyText(command, cwd, withHeavyList({ ...DEFAULT_DEPS, ...deps }), 0, new Set());
 }
 
 /**
@@ -821,7 +878,14 @@ const DEFAULT_DEPS = {
     ) ?? null,
   readText: readSmallText,
   heavyRunner: defaultHeavyRunner,
+  heavyList: readHeavyListOverride,
 };
+
+/** `deps` with the effective heavy list resolved once, so a command line's every segment sees the
+ *  same list (and the override file is read once per decision, not once per word). */
+function withHeavyList(deps) {
+  return deps.heavy ? deps : { ...deps, heavy: effectiveHeavy(deps.heavyList()) };
+}
 
 /** True when any segment does a one-shot CI read: `gh pr checks`, `gh run view` without its logs,
  *  or a check-runs / check-suites API call (#2852). */
@@ -969,6 +1033,9 @@ function readStdin() {
 /** CLI entry: body on stdin, decision on stdout, always exit 0 (a non-zero exit would surface as a
  *  hook error to the agent; silence is the correct "no opinion" signal). */
 async function main() {
+  // The hook command names the operator's heavy-list file (the sandbox clears the environment).
+  const at = process.argv.indexOf("--heavy-list");
+  if (at > 0 && process.argv[at + 1]) process.env.SHEPHERD_HEAVY_LIST_FILE = process.argv[at + 1];
   let out = null;
   try {
     out = hookOutput(decideToolGuard(JSON.parse(await readStdin())));

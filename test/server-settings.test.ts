@@ -6,6 +6,7 @@ import {
   realpathSync,
   existsSync,
   readFileSync,
+  writeFileSync,
   symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1841,4 +1842,60 @@ test("upnextQuickStarts: {} by default, per-CLI patch merges + persists, bad inp
     (await patch(app, { upnextQuickStarts: { codex: { enabled: true, model: "opus" } } })).status,
   ).toBe(400);
   expect((await get()).upnextQuickStarts).toEqual({ claude, codex });
+});
+
+test("resource settings persist partial edits and reject invalid values without changing saved state", async () => {
+  const { app, store } = harness();
+  const oldList = config.heavyListPath;
+  const oldShims = config.slotShimDir;
+  config.heavyListPath = join(tmp, "heavy-list", "list.json");
+  config.slotShimDir = join(tmp, "shims");
+  try {
+    const changed = await put(app, { heavySlot: { enabled: false, slots: 3, waitMinutes: 4 } });
+    expect(changed.status).toBe(200);
+    expect((await changed.json()).heavySlot).toMatchObject({
+      enabled: false,
+      slots: 3,
+      waitMinutes: 4,
+    });
+    expect((await put(app, { heavySlot: { brake: { psiFullMax: 15 } } })).status).toBe(200);
+    expect(JSON.parse(store.getSetting("heavySlot")!)).toMatchObject({
+      enabled: false,
+      slots: 3,
+      waitMinutes: 4,
+      brake: { psiFullMax: 15 },
+    });
+    for (const invalid of [
+      { slots: 0 },
+      { waitMinutes: -1 },
+      { brake: { psiFullMax: 101 } },
+      { heavyList: { custom: [{ command: "../escape" }] } },
+    ]) {
+      expect((await put(app, { heavySlot: invalid })).status).toBe(400);
+    }
+    const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+    expect(got.heavySlot).toMatchObject({
+      enabled: false,
+      slots: 3,
+      waitMinutes: 4,
+      brake: { psiFullMax: 15 },
+    });
+  } finally {
+    config.heavyListPath = oldList;
+    config.slotShimDir = oldShims;
+  }
+});
+
+test("resource settings report a list-file failure without persisting a change", async () => {
+  const { app, store } = harness();
+  const old = config.heavyListPath;
+  writeFileSync(join(tmp, "not-a-directory"), "x");
+  config.heavyListPath = join(tmp, "not-a-directory", "list.json");
+  try {
+    const result = await put(app, { heavySlot: { slots: 3 } });
+    expect(result.status).toBe(500);
+    expect(store.getSetting("heavySlot")).toBeNull();
+  } finally {
+    config.heavyListPath = old;
+  }
 });

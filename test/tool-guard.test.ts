@@ -680,12 +680,13 @@ describe("#2002 settings fragment", () => {
       enabled: true,
       interpreter: "/usr/bin/node",
       scriptPath: "/opt/she pherd/scripts/tool-guard.mjs",
+      heavyListPath: "/opt/heavy list/list.json",
     }) as { PreToolUse: { matcher: string; hooks: { type: string; command: string }[] }[] };
     expect(f.PreToolUse).toHaveLength(1);
     expect(f.PreToolUse[0]!.matcher).toBe("Bash");
     expect(f.PreToolUse[0]!.hooks[0]!.type).toBe("command");
     expect(f.PreToolUse[0]!.hooks[0]!.command).toBe(
-      "'/usr/bin/node' '/opt/she pherd/scripts/tool-guard.mjs'",
+      "'/usr/bin/node' '/opt/she pherd/scripts/tool-guard.mjs' --heavy-list '/opt/heavy list/list.json'",
     );
   });
 

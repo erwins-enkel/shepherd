@@ -534,3 +534,74 @@ describe("operator holder (shepherd slot run, #3550)", () => {
     expect(res.status).toBe(503);
   });
 });
+
+describe("runtime resource settings", () => {
+  test("reducing slots preserves holders; disabling clears waiters and re-enabling gates new starts", async () => {
+    const h = harness({ budget: { ...BUDGET, slots: 2 } });
+    await h.svc.start();
+    await h.svc.acquire("s1", "vitest run", "/wt/s1");
+    await h.svc.acquire("s2", "cargo test", "/wt/s2");
+    await h.svc.applyConfig({ enabled: true, budget: BUDGET });
+    expect(h.svc.snapshot().holders).toHaveLength(2);
+    expect(await h.svc.acquire("s3", "swift test", "/wt/s3")).toMatchObject({ decision: "queued" });
+    await h.svc.applyConfig({ enabled: false, budget: BUDGET });
+    expect(h.svc.snapshot()).toMatchObject({ enabled: false, waiters: [] });
+    expect(h.svc.snapshot().holders).toHaveLength(2);
+    expect(await h.svc.acquire("s3", "swift test", "/wt/s3")).toEqual({
+      decision: "run",
+      unmanaged: true,
+    });
+    await h.svc.applyConfig({ enabled: true, budget: BUDGET });
+    expect(await h.svc.acquire("s3", "swift test", "/wt/s3")).toMatchObject({ decision: "queued" });
+  });
+
+  test("blocking runner gets a deadline and claims a free slot without a competing agent steer", async () => {
+    const h = harness({ waitMinutes: 2 });
+    await h.svc.start();
+    await h.svc.acquire("s1", "vitest run", "/wt/s1");
+    const queued = await h.svc.acquire("s2", "cargo test", "/wt/s2", true);
+    expect(queued).toMatchObject({ decision: "queued", waitUntil: 1_120_000 });
+    await h.svc.finish("s1", "j1", 0);
+    expect(h.steers).toEqual([]);
+    expect(await h.svc.acquire("s2", "cargo test", "/wt/s2", true)).toMatchObject({
+      decision: "run",
+    });
+  });
+});
+
+test("older runners still get a steer when bounded waiting is configured", async () => {
+  const h = harness({ waitMinutes: 2 });
+  await h.svc.start();
+  await h.svc.acquire("s1", "vitest", "/wt/s1");
+  await h.svc.acquire("s2", "cargo test", "/wt/s2");
+  await h.svc.finish("s1", "j1", 0);
+  expect(h.steers.map(([id]) => id)).toEqual(["s2"]);
+});
+
+test("a vanished bounded-wait poller hands an existing offer back to the agent", async () => {
+  const h = harness({ waitMinutes: 60 });
+  await h.svc.start();
+  await h.svc.acquire("s1", "vitest", "/wt/s1");
+  await h.svc.acquire("s2", "cargo test", "/wt/s2", true);
+  await h.svc.finish("s1", "j1", 0);
+  expect(h.steers).toEqual([]);
+  await advance(h, 30_000);
+  expect(h.steers.map(([id]) => id)).toEqual(["s2"]);
+  await advance(h, 5_000);
+  expect(h.steers).toHaveLength(1);
+  expect(await h.svc.acquire("s2", "cargo test", "/wt/s2")).toMatchObject({ decision: "run" });
+});
+
+test("GET heavy-slot refreshes idle pressure and shares it with status events", async () => {
+  const h = harness();
+  await h.svc.start();
+  const app = makeApp({ store: h.store, heavySlot: h.svc } as unknown as AppDeps);
+  h.memory.sample = { availableBytes: 14 * GIB, psiFullAvg10: 2 };
+  h.clock.t += 6_000;
+  const response = await app.fetch(new Request("http://x/api/heavy-slot"));
+  expect((await response.json()).pressure).toMatchObject({
+    ramAvailableBytes: 14 * GIB,
+    memFullAvg10: 2,
+  });
+  expect(h.emitted.at(-1)?.pressure.ramAvailableBytes).toBe(14 * GIB);
+});

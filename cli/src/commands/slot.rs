@@ -16,7 +16,7 @@
 //! Every failure FAILS OPEN: the command runs unmanaged with a one-line note.
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
@@ -121,11 +121,11 @@ pub async fn run(ctx: &mut Ctx<'_>, args: Vec<String>) -> Result<i32> {
     let answer = post(
         &http,
         &route,
-        &json!({ "op": "acquire", "command": command, "cwd": cwd }),
+        &json!({ "op": "acquire", "command": command, "cwd": cwd, "canWait": true }),
         ACQUIRE_TIMEOUT,
     )
     .await;
-    let answer = match answer {
+    let mut answer = match answer {
         Ok(a) => a,
         Err(e) => {
             return Ok(unmanaged(
@@ -136,6 +136,29 @@ pub async fn run(ctx: &mut Ctx<'_>, args: Vec<String>) -> Result<i32> {
             .await);
         }
     };
+
+    while answer.get("decision").and_then(Value::as_str) == Some("queued") {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let until = answer.get("waitUntil").and_then(Value::as_u64).unwrap_or(0) as u128;
+        if until <= now {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis((until - now).min(1000) as u64)).await;
+        match post(
+            &http,
+            &route,
+            &json!({ "op": "acquire", "command": command, "cwd": cwd, "canWait": true }),
+            ACQUIRE_TIMEOUT,
+        )
+        .await
+        {
+            Ok(next) => answer = next,
+            Err(_) => break, // Already queued: do not fail open and start a duplicate.
+        }
+    }
 
     let decision = answer.get("decision").and_then(Value::as_str);
     if decision == Some("queued")

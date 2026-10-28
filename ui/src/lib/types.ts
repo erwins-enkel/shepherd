@@ -393,7 +393,28 @@ export interface RequirementsDerivation {
   cause?: string;
 }
 
+export interface HeavyResourceSettings {
+  enabled: boolean;
+  slots: number | null;
+  waitMinutes: number;
+  brake: {
+    minAvailableMiB: number | null;
+    psiFullMax: number | null;
+    releaseHoldSec: number | null;
+  };
+  heavyList: { custom: { command: string; subcommands: string[] }[]; disabled: string[] };
+  defaults: {
+    slots: number;
+    minAvailableMiB: number;
+    psiFullMax: number;
+    releaseHoldSec: number;
+    heavyList: { command: string; subcommands: string[] }[];
+  };
+  peaks: Record<string, number>;
+}
+
 export interface Settings {
+  heavySlot?: HeavyResourceSettings;
   repoRoot: string;
   repoRootDisplay: string;
   /** True on a genuine server-detected first run: the onboarding surface must block until the

@@ -3936,3 +3936,7 @@ export async function runScheduleNow(id: string): Promise<ScheduleRun> {
   const path = `/api/schedules/${encodeURIComponent(id)}/run`;
   return (await scheduleWrite("POST", path, "schedule run")).json();
 }
+
+export const putHeavyResources = (
+  heavySlot: Partial<Omit<import("./types").HeavyResourceSettings, "defaults" | "peaks">>,
+): Promise<{ heavySlot: import("./types").HeavyResourceSettings }> => patchSettings({ heavySlot });

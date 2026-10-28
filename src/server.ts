@@ -163,6 +163,17 @@ import {
   parseUpNextQuickStartsPatch,
   storedUpNextQuickStarts,
 } from "./upnext-quick-starts";
+import { ensureSlotShims } from "./slot-shims";
+import {
+  heavySlotSettingsView,
+  resolveHeavySlotConfig,
+  writeHeavyListFile,
+} from "./heavy-slot-apply";
+import {
+  HEAVY_SLOT_SETTING,
+  parseHeavySlotPatch,
+  storedHeavySlotSettings,
+} from "./heavy-slot-settings";
 import { ISSUE_FILTER_SETTING, parseIssueFilterPatch, storedIssueFilter } from "./issue-filter";
 import {
   type MachineView,
@@ -685,7 +696,7 @@ export interface AppDeps {
     Partial<
       Pick<
         import("./heavy-slot").HeavySlotService,
-        "acquire" | "acquireOperator" | "started" | "finish"
+        "acquire" | "acquireOperator" | "started" | "finish" | "applyConfig" | "refreshPressure"
       >
     >;
   /** Force a `/usage` re-scrape (calibration) and return fresh limits plus whether the probe
@@ -6447,7 +6458,7 @@ const HEAVY_SLOT_OPS: Record<
     const out =
       id === OPERATOR_HOLDER
         ? await slot.acquireOperator(command, cwd)
-        : await slot.acquire(id, command, cwd);
+        : await slot.acquire(id, command, cwd, body.canWait === true);
     return out ? json(out) : json({ error: "not found" }, 404);
   },
   async started(slot, id, body) {
@@ -8411,6 +8422,7 @@ async function handleHeavySlot({ req, parts, deps, token }: Ctx): Promise<Respon
 }
 
 async function heavySlotSnapshotResponse(deps: AppDeps): Promise<Response> {
+  await deps.heavySlot?.refreshPressure?.();
   const snapshot = deps.heavySlot?.snapshot() ?? DISABLED_HEAVY_SLOT;
   // Staleness needs a git look at each worktree, so it is merged in here, not in the sync snapshot.
   const lastResults = deps.heavySlot && deps.store ? await readLastResults(deps.store) : [];
@@ -9415,6 +9427,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       upnextQuickStarts: storedUpNextQuickStarts(
         deps.store.getSetting(UPNEXT_QUICK_STARTS_SETTING),
       ),
+      // Settings → Resources (#3552): the slot controls plus the defaults and peaks they explain.
+      heavySlot: heavySlotSettingsView(deps.store),
       // account-wide extra-credit (paid overage) spend ceiling; drain pauses above it.
       // 0 = pause on ANY extra-credit spend.
       extraCreditsDrainCeiling: config.extraCreditsDrainCeiling,
@@ -9485,7 +9499,10 @@ async function patchSetting(req: Request, deps: Ctx["deps"]): Promise<Response> 
 
 // Standalone settings patches: field name → its validating handler. Each handler
 // validates the value, live-updates config, and persists to the store.
-const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response][] = [
+const SETTING_PATCHES: [
+  string,
+  (value: unknown, deps: Ctx["deps"]) => Response | Promise<Response>,
+][] = [
   ["remoteControlAtStartup", putRemoteControl],
   ["reducedPushMode", putReducedPushMode],
   ["sessionHousekeepingEnabled", putSessionHousekeeping],
@@ -9519,6 +9536,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["defaultAgentProvider", putDefaultAgentProvider],
   ["upnextSkipCliPicker", putUpnextSkipCliPicker],
   ["upnextQuickStarts", putUpnextQuickStarts],
+  ["heavySlot", putHeavySlot],
   ["extraCreditsDrainCeiling", putExtraCreditsDrainCeiling],
   ["authMode", putAuthMode],
   ["operatorLanguage", putOperatorLanguage],
@@ -9902,6 +9920,25 @@ function putUpnextQuickStarts(value: unknown, deps: Ctx["deps"]): Response {
   if (!parsed.ok) return json({ error: parsed.error }, 400);
   deps.store.setSetting(UPNEXT_QUICK_STARTS_SETTING, JSON.stringify(parsed.value));
   return json({ upnextQuickStarts: parsed.value });
+}
+
+/** Settings → Resources (#3552). Takes effect at once for the next slot decision; running checks
+ *  are untouched. The list edits are written where the tool guard and the Codex shims read them. */
+async function putHeavySlot(value: unknown, deps: Ctx["deps"]): Promise<Response> {
+  const current = storedHeavySlotSettings(deps.store.getSetting(HEAVY_SLOT_SETTING));
+  const parsed = parseHeavySlotPatch(value, current);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  if (!writeHeavyListFile(parsed.value))
+    return json({ error: "could not save heavy-command list" }, 500);
+  deps.store.setSetting(HEAVY_SLOT_SETTING, JSON.stringify(parsed.value));
+  await ensureSlotShims(config.slotShimDir, process.execPath, undefined, {
+    tools: parsed.value.heavyList.custom
+      .map((e) => e.command)
+      .filter((c) => !["sh", "bash", "node", "env"].includes(c)),
+    heavyList: config.heavyListPath,
+  });
+  await deps.heavySlot?.applyConfig?.(resolveHeavySlotConfig(deps.store));
+  return json({ heavySlot: heavySlotSettingsView(deps.store) });
 }
 
 /** Arm/disarm the judge. Takes effect on the next classify — the client and ledger are built at

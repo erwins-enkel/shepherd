@@ -479,6 +479,8 @@ components:
           type: boolean
         upnextQuickStarts:
           $ref: "#/components/schemas/UpNextQuickStarts"
+        heavySlot:
+          $ref: "#/components/schemas/HeavySlotSettings"
         usageHoldEnabled:
           type: boolean
         usageHoldAutoRelease:
@@ -6825,6 +6827,121 @@ components:
           type:
             - string
             - "null"
+    HeavyListEntry:
+      type: object
+      additionalProperties: false
+      required:
+        - command
+        - subcommands
+      properties:
+        command:
+          type: string
+        subcommands:
+          type: array
+          items:
+            type: string
+          description: Empty = heavy whatever the arguments.
+    HeavySlotBrake:
+      type: object
+      additionalProperties: false
+      description: Pressure-brake thresholds; null = the hardware default.
+      properties:
+        minAvailableMiB:
+          type:
+            - integer
+            - "null"
+        psiFullMax:
+          type:
+            - integer
+            - "null"
+        releaseHoldSec:
+          type:
+            - integer
+            - "null"
+    HeavySlotSettings:
+      type: object
+      additionalProperties: true
+      description: Settings → Resources (#3552). enabled is the resolved master switch; slots null = derived from the hardware. defaults and peaks are read-only.
+      properties:
+        enabled:
+          type: boolean
+        slots:
+          type:
+            - integer
+            - "null"
+        waitMinutes:
+          type: integer
+          minimum: 0
+          maximum: 60
+        brake:
+          $ref: "#/components/schemas/HeavySlotBrake"
+        heavyList:
+          type: object
+          additionalProperties: false
+          properties:
+            custom:
+              type: array
+              items:
+                $ref: "#/components/schemas/HeavyListEntry"
+            disabled:
+              type: array
+              items:
+                type: string
+        defaults:
+          type: object
+          additionalProperties: true
+          properties:
+            slots:
+              type: integer
+            minAvailableMiB:
+              type: integer
+            psiFullMax:
+              type: integer
+            releaseHoldSec:
+              type: integer
+            heavyList:
+              type: array
+              items:
+                $ref: "#/components/schemas/HeavyListEntry"
+        peaks:
+          type: object
+          additionalProperties:
+            type: number
+          description: Last measured peak memory (bytes) of a finished check, per list command.
+    HeavySlotSettingsPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: enabled null = back to SHEPHERD_HEAVY_SLOT; slots 1–64 or null; brake merges per field; heavyList replaces the operator's edits. Applies to the next slot decision — running checks are untouched.
+      properties:
+        enabled:
+          type:
+            - boolean
+            - "null"
+        slots:
+          type:
+            - integer
+            - "null"
+          minimum: 1
+          maximum: 64
+        waitMinutes:
+          type: integer
+          minimum: 0
+          maximum: 60
+        brake:
+          $ref: "#/components/schemas/HeavySlotBrake"
+        heavyList:
+          type: object
+          additionalProperties: false
+          properties:
+            custom:
+              type: array
+              items:
+                $ref: "#/components/schemas/HeavyListEntry"
+            disabled:
+              type: array
+              items:
+                type: string
     UpNextQuickStartsPatch:
       type: object
       additionalProperties: false
@@ -8719,6 +8836,8 @@ components:
           type: boolean
         upnextQuickStarts:
           $ref: "#/components/schemas/UpNextQuickStartsPatch"
+        heavySlot:
+          $ref: "#/components/schemas/HeavySlotSettingsPatch"
         usageHoldEnabled:
           type: boolean
         usageHoldAutoRelease:
@@ -8829,6 +8948,8 @@ components:
           type: boolean
         upnextQuickStarts:
           $ref: "#/components/schemas/UpNextQuickStarts"
+        heavySlot:
+          $ref: "#/components/schemas/HeavySlotSettings"
         usageHoldEnabled:
           type: boolean
         usageHoldAutoRelease:

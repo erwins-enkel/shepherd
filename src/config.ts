@@ -58,6 +58,11 @@ const pluginSecretsPath =
 const apnsStorePath = join(dirname(dbPath), "apns.json");
 // PATH shims that route a Codex session's heavy checks through the heavy-check slot (#3550).
 const slotShimDir = join(dirname(dbPath), "slot-shims");
+// The operator's edits to the "counts as heavy" list (Settings → Resources, #3552), read by the
+// tool guard and the shims. Its own directory: the sandbox binds the directory, so an atomic
+// rewrite of the file is seen from inside.
+const heavyListDir = join(dirname(dbPath), "heavy-list");
+const heavyListPath = join(heavyListDir, "heavy-list.json");
 // The decision-model connection entered in Settings → Decision model (#3071): the JEV key plus
 // model, base URL and timeout, in one 0600 JSON file beside the db, never served by any route.
 const judgeStorePath = join(dirname(dbPath), "judge.json");
@@ -768,6 +773,8 @@ export const config = {
   apnsTopic: process.env.SHEPHERD_APNS_TOPIC || null,
   apnsStorePath,
   slotShimDir,
+  heavyListDir,
+  heavyListPath,
   // ── anonymous usage telemetry (Aptabase) ────────────────────────────────
   // The App-Key is the master enable. It defaults to Shepherd's public Aptabase
   // Cloud (EU) ingestion key — an Aptabase App-Key is write-only and safe to ship

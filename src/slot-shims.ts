@@ -31,8 +31,15 @@ export const SLOT_SHIM_TOOLS = [
 
 const q = (x: string) => `'${x.replaceAll("'", `'\\''`)}'`;
 
-function shimBody(dir: string, node: string, script: string, tool: string): string {
-  return `#!/bin/sh\nSHEPHERD_SLOT_SHIM_DIR=${q(dir)} exec ${q(node)} ${q(script)} ${tool} "$@"\n`;
+function shimBody(
+  dir: string,
+  node: string,
+  script: string,
+  tool: string,
+  heavyList: string | null,
+): string {
+  const list = heavyList ? ` SHEPHERD_HEAVY_LIST_FILE=${q(heavyList)}` : "";
+  return `#!/bin/sh\nSHEPHERD_SLOT_SHIM_DIR=${q(dir)}${list} exec ${q(node)} ${q(script)} ${tool} "$@"\n`;
 }
 
 /**
@@ -43,13 +50,17 @@ export async function ensureSlotShims(
   dir: string,
   node: string = process.execPath,
   script: string = join(SCRIPTS_DIR, "slot-shim.mjs"),
+  /** The operator's own heavy commands (#3552) get a shim too; the list file tells the shim which
+   *  commands count as heavy. */
+  extra: { tools: readonly string[]; heavyList: string | null } = { tools: [], heavyList: null },
 ): Promise<string | null> {
   if (!existsSync(script)) return null;
   try {
     await mkdir(dir, { recursive: true });
-    for (const tool of SLOT_SHIM_TOOLS) {
+    const tools = new Set<string>([...SLOT_SHIM_TOOLS, ...extra.tools]);
+    for (const tool of tools) {
       const path = join(dir, tool);
-      const body = shimBody(dir, node, script, tool);
+      const body = shimBody(dir, node, script, tool, extra.heavyList);
       if ((await readFile(path, "utf8").catch(() => null)) !== body) await writeFile(path, body);
       await chmod(path, 0o755);
     }

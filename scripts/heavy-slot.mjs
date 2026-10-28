@@ -119,12 +119,35 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
 
   let answer;
   try {
-    answer = await post(cfg, { op: "acquire", command, cwd: process.cwd() }, ACQUIRE_TIMEOUT_MS);
+    answer = await post(
+      cfg,
+      { op: "acquire", command, cwd: process.cwd(), canWait: true },
+      ACQUIRE_TIMEOUT_MS,
+    );
   } catch (err) {
     process.stderr.write(
       `Shepherd: heavy-check slot unavailable (${err?.message ?? err}); running without it.\n`,
     );
     return run(command, env);
+  }
+
+  while (
+    answer?.decision === "queued" &&
+    Number.isFinite(answer.waitUntil) &&
+    answer.waitUntil > Date.now()
+  ) {
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(1000, answer.waitUntil - Date.now())),
+    );
+    try {
+      answer = await post(
+        cfg,
+        { op: "acquire", command, cwd: process.cwd(), canWait: true },
+        ACQUIRE_TIMEOUT_MS,
+      );
+    } catch {
+      break; // Keep the queued result; a polling failure must not start a second copy.
+    }
   }
 
   if (answer?.decision === "queued" && typeof answer.message === "string") {

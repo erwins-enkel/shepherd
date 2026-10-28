@@ -26,6 +26,7 @@
     type SettingsSectionId,
     type SettingsSectionNav,
   } from "#lib/settings-search.js";
+  import SettingsResourcesPanel from "#lib/components/settings/SettingsResourcesPanel.svelte";
   import SettingsShell from "#lib/components/settings/SettingsShell.svelte";
   import SettingsWorkspacePanel from "#lib/components/settings/SettingsWorkspacePanel.svelte";
   import SettingsCodingCliPanel from "#lib/components/settings/SettingsCodingCliPanel.svelte";
@@ -376,6 +377,8 @@
         return m.settings_tab_access();
       case "machines":
         return m.settings_tab_machines();
+      case "resources":
+        return m.resources_title();
       case "diagnose":
         return m.settings_tab_diagnose();
     }
@@ -663,6 +666,18 @@
         {#if active === "machines" && (!isNarrow || !mobileList)}
           <SettingsMachinesPanel {query} {remoteSessions} />
         {/if}
+      </div>
+
+      <div
+        class="panel"
+        use:panelShape={isNarrow}
+        id="settings-panel-resources"
+        aria-label={m.resources_title()}
+        hidden={active !== "resources"}
+      >
+        {#if active === "resources" && (!isNarrow || !mobileList)}<SettingsResourcesPanel
+            {query}
+          />{/if}
       </div>
 
       <div

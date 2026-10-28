@@ -137,3 +137,43 @@ async fn a_missing_command_is_a_usage_error() {
     let h = Harness::new();
     assert_eq!(h.run(&["slot", "run"]).await, 2);
 }
+
+#[tokio::test]
+async fn bounded_wait_claims_the_slot_before_running() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let s = MockServer::start().await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    let until = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+        + 5000;
+    Mock::given(method("POST"))
+        .and(path(OPERATOR))
+        .and(body_partial_json(json!({ "op": "acquire", "canWait": true })))
+        .respond_with(move |_: &wiremock::Request| {
+            let body = if count.fetch_add(1, Ordering::SeqCst) == 0 {
+                json!({ "decision": "queued", "jobId": "j2", "message": "NOT RUN", "waitUntil": until as u64 })
+            } else { json!({ "decision": "run", "jobId": "j2" }) };
+            ResponseTemplate::new(200).set_body_json(body)
+        }).mount(&s).await;
+    answer(&s, OPERATOR, "finished", 200, json!({ "ok": true })).await;
+    let h = Harness::new();
+    let code = h
+        .run(&[
+            "--url",
+            &s.uri(),
+            "slot",
+            "run",
+            "--",
+            "test \"$SHEPHERD_HEAVY_JOB\" = j2",
+        ])
+        .await;
+    assert_eq!(code, 0, "stderr: {}", h.err.text());
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}

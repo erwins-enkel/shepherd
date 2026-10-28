@@ -3305,16 +3305,12 @@
           repoPath={session.repoPath}
           name={session.name}
           prompt={session.prompt}
-          ready={session.readyToMerge}
-          status={dStatus}
           planPhase={session.planPhase}
           {drain}
           autopilotOn={autopilotEffective}
           issueNumber={session.issueNumber}
-          isolated={session.isolated}
           baseBranch={session.baseBranch}
           epicParent={session.epicParent ?? null}
-          ondecommission={confirmDecommission}
           mobile
         />
         <span class="strip-controls">

@@ -12,7 +12,7 @@
 -->
 <script lang="ts">
   import GitRail from "./GitRail.svelte";
-  import type { Session, SessionStatus } from "#lib/types.js";
+  import type { Session } from "#lib/types.js";
 
   let {
     sessionId,
@@ -20,9 +20,6 @@
     name = "",
     prompt = "",
     mobile = false,
-    ready = false,
-    status = "idle",
-    showReady = true,
     planPhase = null,
   }: {
     sessionId: string;
@@ -30,9 +27,6 @@
     name?: string;
     prompt?: string;
     mobile?: boolean;
-    ready?: boolean;
-    status?: SessionStatus;
-    showReady?: boolean;
     planPhase?: Session["planPhase"];
   } = $props();
 
@@ -43,15 +37,4 @@
   }
 </script>
 
-<GitRail
-  {sessionId}
-  {repoPath}
-  {name}
-  {prompt}
-  {mobile}
-  {ready}
-  {status}
-  {showReady}
-  {planPhase}
-  {autopilotOn}
-/>
+<GitRail {sessionId} {repoPath} {name} {prompt} {mobile} {planPhase} {autopilotOn} />

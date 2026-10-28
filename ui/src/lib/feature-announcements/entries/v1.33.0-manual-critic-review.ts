@@ -2,7 +2,8 @@ import type { FeatureAnnouncement } from "../../feature-announcements";
 
 const entry = {
   // targetId "manual-critic-review" anchors the coachmark on the Review/Re-review
-  // button on the PR rail (GitRail), shown for open PRs with green CI + critic on.
+  // button in the merge row above the steer bar (PrActionRow, #3540), shown for open PRs with
+  // green CI + critic on.
   // 1.32.0 is the latest released tag, so this ships in 1.33.0.
   id: "manual-critic-review",
   sinceVersion: "1.33.0",

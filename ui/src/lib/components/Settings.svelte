@@ -766,6 +766,7 @@
   }
   .panel {
     flex-direction: column;
+    gap: 16px;
   }
   /* Keyboard focus on the tabpanel gets a quiet inset hairline (tabindex=0 stop). */
   .panel:focus-visible {

@@ -512,7 +512,8 @@ turn doesn't look stalled. The transcript is written per message, not per token:
 once the agent finishes it.
 
 On desktop a session opens on its **Terminal**; on a phone or touch screen it opens on the Chat.
-Either way the other is one tap away.
+Either way the other is one tap away. To always open on one of them, pick it under **Settings →
+Device → Session opens on**; the choice is saved per device.
 
 - **Write** in the field at the bottom: Enter sends, Shift+Enter breaks the line, Esc or **Stop**
   interrupts a turn (on touch, the Send button sends). Your message is typed into the session's

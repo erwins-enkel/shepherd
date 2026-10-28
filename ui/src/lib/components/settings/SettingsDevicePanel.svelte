@@ -1,6 +1,7 @@
 <script lang="ts">
   import { theme, type ThemePref, type MotionPref } from "#lib/theme.svelte.js";
   import { tabTicker } from "#lib/tab-ticker.svelte.js";
+  import { sessionStartTab, type SessionStartTab } from "#lib/session-start-tab.svelte.js";
   import { infoTips } from "#lib/info-tips.svelte.js";
   import { issueRef } from "#lib/issue-ref.svelte.js";
   import {
@@ -48,6 +49,12 @@
     { pref: "system", label: m.settings_motion_system },
     { pref: "reduced", label: m.settings_motion_reduced },
   ];
+  // The tab a session view opens on (Viewport's defaultTab); Auto keeps the device default.
+  const START_TABS: { pref: SessionStartTab; label: () => string }[] = [
+    { pref: "auto", label: m.settings_start_tab_auto },
+    { pref: "chat", label: m.viewport_chat_tab },
+    { pref: "term", label: m.viewport_terminal_tab },
+  ];
   const motionHint = $derived(
     theme.motion === "system"
       ? m.settings_motion_hint_system({
@@ -86,6 +93,21 @@
         class:on={theme.motion === mo.pref}
         aria-pressed={theme.motion === mo.pref}
         onclick={() => theme.setMotion(mo.pref)}>{mo.label()}</button
+      >
+    {/each}
+  </div>
+</div>
+<div class="motion-row">
+  <span class="micro"><HighlightText text={m.settings_start_tab_title()} {query} /></span>
+  <p class="hint"><HighlightText text={m.settings_start_tab_hint()} {query} /></p>
+  <div class="theme-seg" role="group" aria-label={m.settings_start_tab_title()}>
+    {#each START_TABS as st (st.pref)}
+      <button
+        type="button"
+        class="t-opt wide"
+        class:on={sessionStartTab.pref === st.pref}
+        aria-pressed={sessionStartTab.pref === st.pref}
+        onclick={() => sessionStartTab.set(st.pref)}>{st.label()}</button
       >
     {/each}
   </div>

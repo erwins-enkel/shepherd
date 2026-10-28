@@ -5,6 +5,7 @@ import "../../../app.css";
 import { m } from "#lib/paraglide/messages.js";
 import { infoTips } from "#lib/info-tips.svelte.js";
 import { theme } from "#lib/theme.svelte.js";
+import { sessionStartTab } from "#lib/session-start-tab.svelte.js";
 import SettingsDevicePanel from "./SettingsDevicePanel.svelte";
 
 let fontStyle: HTMLStyleElement;
@@ -125,5 +126,24 @@ describe("SettingsDevicePanel motion picker", () => {
     await expect
       .element(page.getByText(m.settings_motion_hint_system({ resolved })))
       .toBeInTheDocument();
+  });
+});
+
+describe("SettingsDevicePanel session start-tab picker", () => {
+  afterEach(() => sessionStartTab.set("auto"));
+  const group = () => page.getByRole("group", { name: m.settings_start_tab_title() });
+  const opt = (label: string) => group().getByRole("button", { name: label, exact: true });
+
+  it("defaults to Auto", async () => {
+    render(SettingsDevicePanel, {});
+    await expect.element(opt(m.settings_start_tab_auto())).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("picking Chat persists the choice", async () => {
+    render(SettingsDevicePanel, {});
+    await opt(m.viewport_chat_tab()).click();
+    expect(sessionStartTab.pref).toBe("chat");
+    expect(localStorage.getItem("shepherd:session-start-tab")).toBe("chat");
+    await expect.element(opt(m.viewport_chat_tab())).toHaveAttribute("aria-pressed", "true");
   });
 });

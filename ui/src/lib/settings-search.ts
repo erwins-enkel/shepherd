@@ -298,6 +298,7 @@ export function sectionSearchRows(ctx: {
       [m.settings_tab_device()],
       [m.actionbar_theme_group_aria()],
       [m.settings_motion_title(), m.settings_motion_hint()],
+      [m.settings_start_tab_title(), m.settings_start_tab_hint()],
       [m.settings_contrast_title(), m.settings_contrast_hint()],
       [m.settings_colorblind_title(), m.settings_colorblind_hint()],
       [m.settings_tab_ticker_title(), m.settings_tab_ticker_hint()],

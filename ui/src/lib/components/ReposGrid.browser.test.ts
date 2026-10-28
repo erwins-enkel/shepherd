@@ -337,3 +337,37 @@ it("keeps a blocked-session reason ahead of claim diagnostics", async () => {
     )
     .toBeVisible();
 });
+
+describe("ReposGrid no-PR-CI hold (#3305)", () => {
+  const held = () =>
+    projects().map((p) =>
+      p.path === "/r/alpha" || p.path === "/r/charlie" ? { ...p, noPrCiHold: true } : p,
+    );
+
+  it("flags held repos on big and small tiles only", async () => {
+    await render(ReposGrid, props({ projects: held() }));
+    const holdOf = (name: string) =>
+      qa(".rg-tile").find((t) => t.querySelector(".rg-name")?.textContent?.trim() === name);
+    expect(holdOf("alpha")!.querySelector(".rg-hold")?.textContent).toContain(
+      m.repos_grid_no_pr_ci(),
+    );
+    expect(holdOf("charlie")!.querySelector(".rg-hold-mark")).not.toBeNull();
+    expect(holdOf("bravo")!.querySelector(".rg-hold, .rg-hold-mark")).toBeNull();
+    expect(holdOf("delta")!.querySelector(".rg-hold, .rg-hold-mark")).toBeNull();
+  });
+
+  it("narrows the grid to held repos with the bar's toggle", async () => {
+    await render(ReposGrid, props({ projects: held() }));
+    const toggle = page.getByRole("button", { name: m.repos_grid_no_pr_ci_filter({ count: 2 }) });
+    await expect.element(toggle).toHaveAttribute("aria-pressed", "false");
+    (toggle.element() as HTMLButtonElement).click();
+    await tick();
+    await expect.element(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(names(".rg-tile").sort()).toEqual(["alpha", "charlie"]);
+  });
+
+  it("shows no toggle when no repo is held", async () => {
+    await render(ReposGrid, props());
+    expect(q(".rg-hold-filter")).toBeNull();
+  });
+});

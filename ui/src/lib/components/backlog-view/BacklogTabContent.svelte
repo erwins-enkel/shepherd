@@ -17,6 +17,7 @@
   import ReadinessPanel from "../ReadinessPanel.svelte";
   import AutomationSettings from "../AutomationSettings.svelte";
   import BootstrapChecklist from "../BootstrapChecklist.svelte";
+  import { m } from "#lib/paraglide/messages.js";
 
   type Tab = "issues" | "prs" | "actions" | "readiness" | "automation";
 
@@ -114,6 +115,7 @@
       repoPath={selectedPath}
       drain={drain?.[selectedPath] ?? null}
       showHeader={false}
+      onsetupci={() => onadopt(selectedPath, m.automation_no_pr_ci_task_prompt())}
     />
   </div>
 {:else}

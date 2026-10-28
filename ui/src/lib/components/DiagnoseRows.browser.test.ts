@@ -575,25 +575,3 @@ describe("DiagnoseRows clear-state contrast", () => {
     });
   }
 });
-
-describe("no_pr_ci per-repo row (#3305)", () => {
-  it("labels by id prefix and names the repo in label + hint", () => {
-    render(DiagnoseRows, {
-      props: {
-        checks: [
-          check({
-            id: "no_pr_ci:alpha",
-            state: "warning",
-            hintKey: "diagnostics_hint_no_pr_ci",
-            hintParams: { repo: "alpha" },
-          }),
-        ],
-      },
-    });
-    expect(document.querySelector(".label")?.textContent).toBe(
-      m.diagnostics_label_no_pr_ci({ repo: "alpha" }),
-    );
-    expect(document.querySelector(".hint")?.textContent).toContain("alpha");
-    expect(document.querySelector("button.fix")).toBeNull();
-  });
-});

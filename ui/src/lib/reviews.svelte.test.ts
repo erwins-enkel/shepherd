@@ -983,3 +983,23 @@ test("held flags ignore a non-session-id key", () => {
   expect(reviews.held.map).toEqual({});
   expect(Object.prototype).not.toHaveProperty("true");
 });
+
+test("noPrCiHeld: the payload flag until the config loads, then the loaded config wins (#3305)", () => {
+  repoConfig.noPrCi = {};
+  repoConfig.mergeWithoutCi = {};
+  expect(repoConfig.noPrCiHeld("/r", true)).toBe(true);
+  expect(repoConfig.noPrCiHeld("/r")).toBe(false);
+
+  repoConfig.loaded = { "/r": true };
+  repoConfig.noPrCi = { "/r": true };
+  expect(repoConfig.noPrCiHeld("/r", false)).toBe(true);
+  // An opt-in clears it at once, ahead of the next payload.
+  repoConfig.mergeWithoutCi = { "/r": true };
+  expect(repoConfig.noPrCiHeld("/r", true)).toBe(false);
+  repoConfig.mergeWithoutCi = {};
+  repoConfig.repoMode = { "/r": "lightweight" };
+  expect(repoConfig.noPrCiHeld("/r", true)).toBe(false);
+
+  repoConfig.noPrCi = {};
+  repoConfig.mergeWithoutCi = {};
+});

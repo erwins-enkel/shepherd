@@ -739,3 +739,28 @@ describe("RepoSwitcher — filter rail", () => {
     await expect.element(page.getByText("queued issue")).toBeVisible();
   });
 });
+
+describe("RepoSwitcher — no-PR-CI mark (#3305)", () => {
+  it("marks a held repo's chip and its automation menu item", async () => {
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: new Set<string>(),
+      onrepofilter: () => {},
+      noPrCiRepos: new Set(["/repo/alpha"]),
+    });
+    const [alpha, beta] = [...document.querySelectorAll<HTMLElement>(".rs-chip")];
+    expect(alpha.querySelector(".rs-hold-mark")).not.toBeNull();
+    expect(alpha.getAttribute("aria-label")).toContain(m.repo_chip_no_pr_ci());
+    expect(beta.querySelector(".rs-hold-mark")).toBeNull();
+
+    alpha.dispatchEvent(
+      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+    );
+    await tick();
+    const item = page.getByRole("menuitem", { name: m.repo_chip_automation_settings() });
+    await expect.element(item).toBeVisible();
+    expect(item.element().querySelector(".rs-menu-hold")?.textContent).toContain(
+      m.repo_chip_no_pr_ci(),
+    );
+  });
+});

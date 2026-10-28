@@ -101,3 +101,30 @@ describe("BacklogTabBar Overview button (#2950)", () => {
     expect(overview().elements()).toHaveLength(0);
   });
 });
+
+describe("BacklogTabBar Automation tab no-PR-CI mark (#3305)", () => {
+  const repo = (noPrCiHold: boolean) =>
+    ({
+      path: "/repo",
+      openIssues: 1,
+      openPRs: 0,
+      defaultBranch: "main",
+      noPrCiHold,
+    }) as BacklogProject;
+
+  it("marks the Automation tab while auto-merge holds the repo's PRs", async () => {
+    mount({ selected: repo(true) });
+    await expect
+      .element(page.getByRole("button", { name: m.backlog_tab_automation_no_pr_ci() }))
+      .toBeVisible();
+    expect(document.querySelector(".tab-hold")).not.toBeNull();
+  });
+
+  it("leaves the tab plain otherwise", async () => {
+    mount({ selected: repo(false) });
+    await expect
+      .element(page.getByRole("button", { name: m.backlog_tab_automation(), exact: true }))
+      .toBeVisible();
+    expect(document.querySelector(".tab-hold")).toBeNull();
+  });
+});

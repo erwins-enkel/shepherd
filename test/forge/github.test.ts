@@ -1072,6 +1072,27 @@ test("GithubForge.openPullRequest: reads one PR by number into both snapshot sha
   expect(read?.status).toMatchObject({ state: "open", number: 911, mergeable: false });
 });
 
+test("GithubForge.openPullRequest: an own-repo Actions-bot PR gets the approval lookup", async () => {
+  const pr = {
+    number: 106,
+    title: "chore(release): Versionen",
+    url: "https://github.com/o/r/pull/106",
+    state: "OPEN",
+    author: { login: "app/github-actions" },
+    createdAt: "2026-10-28T00:00:00Z",
+    headRefName: "changeset-release/main",
+    headRefOid: "576782b",
+    headRepositoryOwner: { login: "o" },
+  };
+  const { run, calls } = fakeRunner({
+    "pr view": JSON.stringify(pr),
+    "run list": JSON.stringify([{ headSha: "576782b" }]),
+  });
+  const read = await new GithubForge("o/r", {}, run).openPullRequest(106);
+  expect(calls.some((c) => c[0] === "run" && c[1] === "list")).toBe(true);
+  expect(read?.pr.awaitingWorkflowApproval).toBe(true);
+});
+
 test("GithubForge.openPullRequest: null when the PR is no longer open", async () => {
   const { run } = fakeRunner({
     "pr view": JSON.stringify({ number: 5, title: "t", url: "u", state: "MERGED" }),
@@ -3884,6 +3905,25 @@ test("listOpenPrSnapshot: a PR with no head owner (deleted fork) still runs the 
   const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
   expect(calls.some((c) => c[0] === "run" && c[1] === "list")).toBe(true);
   expect(snap.prs[0]!.awaitingWorkflowApproval).toBe(true);
+});
+
+test("listOpenPrSnapshot: a same-repo Actions-bot PR still runs the run list", async () => {
+  // GITHUB_TOKEN-opened PRs (release bots) await maintainer approval like fork PRs.
+  const bot = { ...SNAPSHOT_NODES[0]!, author: { login: "app/github-actions" } };
+  const { run, calls } = fakeRunner({
+    "pr list": JSON.stringify([bot, SNAPSHOT_NODES[1]]),
+    "run list": JSON.stringify([{ headSha: "aaa111" }]),
+  });
+  const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+  expect(calls.some((c) => c[0] === "run" && c[1] === "list")).toBe(true);
+  expect(snap.prs[0]!.awaitingWorkflowApproval).toBe(true);
+});
+
+test("listOpenPrSnapshot: a same-repo PR from another bot skips the run list", async () => {
+  const bot = { ...SNAPSHOT_NODES[0]!, author: { login: "app/dependabot" } };
+  const { run, calls } = fakeRunner({ "pr list": JSON.stringify([bot, SNAPSHOT_NODES[1]]) });
+  await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+  expect(calls.some((c) => c[0] === "run" && c[1] === "list")).toBe(false);
 });
 
 test("listOpenPrSnapshot: flags PRs whose head is awaiting workflow approval", async () => {

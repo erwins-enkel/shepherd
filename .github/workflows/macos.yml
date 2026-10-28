@@ -18,6 +18,10 @@ on:
     # PRs touching the probe backend or its consumers pay the macOS-runner cost.
     paths:
       - "src/proc-probes-darwin.ts"
+      - "src/proc-markers-darwin*.ts"
+      - "src/heavy-slot*.ts"
+      - "test/proc-markers-darwin.test.ts"
+      - "test/heavy-slot*.test.ts"
       - "src/process-reaper.ts"
       - "src/preview-launch.ts"
       - "src/preview.ts"
@@ -86,6 +90,11 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.full_suite) }}
         run: |
           bun test \
+            test/heavy-slot-core.test.ts \
+            test/heavy-slot.test.ts \
+            test/heavy-slot-darwin.test.ts \
+            test/heavy-slot-darwin.macos.test.ts \
+            test/proc-markers-darwin.test.ts \
             test/proc-probes-darwin.test.ts \
             test/proc-probes-darwin.integration.test.ts \
             test/proc-probes-darwin.macos.test.ts \

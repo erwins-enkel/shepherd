@@ -609,7 +609,7 @@
       </div>
 
       <div
-        class="panel"
+        class="panel loose"
         use:panelShape={isNarrow}
         id="settings-panel-notifications"
         aria-label={m.settings_tab_notifications()}
@@ -624,7 +624,7 @@
       </div>
 
       <div
-        class="panel"
+        class="panel loose"
         use:panelShape={isNarrow}
         id="settings-panel-device"
         aria-label={m.settings_tab_device()}
@@ -641,7 +641,7 @@
       </div>
 
       <div
-        class="panel"
+        class="panel loose"
         use:panelShape={isNarrow}
         id="settings-panel-access"
         aria-label={m.settings_tab_access()}
@@ -666,7 +666,7 @@
       </div>
 
       <div
-        class="panel"
+        class="panel loose"
         use:panelShape={isNarrow}
         id="settings-panel-diagnose"
         aria-label={m.settings_tab_diagnose()}
@@ -767,9 +767,10 @@
   .panel {
     flex-direction: column;
   }
-  /* Device stacks loose blocks (segmented pickers carry no vertical padding) straight
-     in the panel; the SettingRow panels stay flush, their hairline rows own the rhythm. */
-  #settings-panel-device {
+  /* Panels that stack bare blocks straight in the pane opt in to a section gap; the
+     SettingRow panels stay flush (hairline rows own the rhythm) and the rest space
+     their own blocks. */
+  .panel.loose {
     gap: 16px;
   }
   /* Keyboard focus on the tabpanel gets a quiet inset hairline (tabindex=0 stop). */

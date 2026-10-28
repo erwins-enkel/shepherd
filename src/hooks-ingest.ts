@@ -352,8 +352,11 @@ export class HookIngest {
    * A SubagentStart upserts a live entry (idempotent — a duplicate keeps the original
    * startedAt). A SubagentStop marks the matching entry done; with no prior Start (lost
    * forward / restart) it creates a fail-open done entry (startedAt = endedAt = now) so
-   * the sub-agent is still shown. A missing/empty agentId is a no-op. Pushes the updated
-   * roster to #onSubagents after any mutation. Caller wraps this in record()'s try/catch.
+   * the sub-agent is still shown — unless it is also untyped: Claude Code's internal helper
+   * agents emit only an untyped Stop (never a Start), which would render as a blank
+   * `done 0:00` row, so it is ignored (#3539). A missing/empty agentId is a no-op. Pushes
+   * the updated roster to #onSubagents after any mutation. Caller wraps this in record()'s
+   * try/catch.
    */
   #recordSubagent(sessionId: string, ev: HookEvent): void {
     const agentId = ev.agentId;
@@ -370,6 +373,8 @@ export class HookIngest {
       const existing = roster.get(agentId);
       if (existing) {
         existing.endedAt = ev.receivedAt;
+      } else if (!agentType) {
+        return; // untyped orphan Stop = internal CC agent, not a lost Start — no row.
       } else {
         roster.set(agentId, {
           agentId,

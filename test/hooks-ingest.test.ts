@@ -298,6 +298,29 @@ test("HookIngest roster: SubagentStop with no prior Start → fail-open done ent
   });
 });
 
+test("HookIngest roster: untyped SubagentStop with no prior Start is ignored (#3539)", () => {
+  // Claude Code's internal helper agents emit only an untyped Stop — not a lost Start.
+  for (const agentType of [undefined, ""]) {
+    let pushes = 0;
+    const h = new HookIngest();
+    h.setSubagentSink(() => pushes++);
+    h.record("s1", sub({ event: "SubagentStop", agentType, receivedAt: 300 }));
+    expect(h.subagentSnapshot("s1")).toEqual([]);
+    expect(pushes).toBe(0);
+    // Still buffered + observable; only the roster ignores it.
+    expect(h.snapshot("s1")).toHaveLength(1);
+  }
+});
+
+test("HookIngest roster: untyped SubagentStop still ends a matching typed Start", () => {
+  const h = new HookIngest();
+  h.record("s1", sub({ receivedAt: 100 }));
+  h.record("s1", sub({ event: "SubagentStop", agentType: undefined, receivedAt: 250 }));
+  expect(h.subagentSnapshot("s1")).toEqual([
+    { agentId: "a1", agentType: "general-purpose", startedAt: 100, endedAt: 250 },
+  ]);
+});
+
 test("HookIngest roster: duplicate SubagentStart is idempotent (keeps original startedAt)", () => {
   const h = new HookIngest();
   h.record("s1", sub({ receivedAt: 100 }));

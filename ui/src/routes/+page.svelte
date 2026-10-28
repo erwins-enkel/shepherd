@@ -182,6 +182,9 @@
   import FeedbackDialog from "#lib/components/FeedbackDialog.svelte";
   import TelemetryConsent from "#lib/components/TelemetryConsent.svelte";
   import Toasts from "#lib/components/Toasts.svelte";
+  import PullIndicator from "#lib/components/PullIndicator.svelte";
+  import { pullToCommand, type PullToCommandOptions } from "#lib/actions/pullToCommand.js";
+  import type { PullStage } from "#lib/pull-gesture.js";
   import LazyMount from "#lib/components/page/LazyMount.svelte";
   import type RemoteSessionDetailComponent from "#lib/components/RemoteSessionDetail.svelte";
   import {
@@ -1556,6 +1559,27 @@
   // The top chrome shows everywhere but on a phone's full-screen screens: the session console
   // merges it into its own header, the assistant screen carries a Back button instead.
   const showChrome = $derived(!mobile.current || mobileScreen === "list");
+
+  // Phone herd list pull-down: a short pull opens the command bar (a phone's only way in — no
+  // top-bar search, no ⌘K), a long one reloads. It replaces the browser's pull-to-refresh, so
+  // html also gets overscroll containment while the list shows. The DOM probe catches sheets
+  // this route has no flag for (the gear sheet's .scrim).
+  let pull = $state<{ stage: PullStage; distance: number }>({ stage: "idle", distance: 0 });
+  const pullOptions: PullToCommandOptions = {
+    enabled: () =>
+      mobileActionBarPresent &&
+      !anyOverlayOpen() &&
+      !document.querySelector(".scrim, [aria-modal='true']"),
+    onstage: (stage, distance) => (pull = { stage, distance }),
+    onsearch: () => (showCommandBar = true),
+    onreload: () => location.reload(),
+  };
+  $effect(() => {
+    if (!mobileActionBarPresent) return;
+    const root = document.documentElement;
+    root.classList.add("pull-contain");
+    return () => root.classList.remove("pull-contain");
+  });
 
   // Scroll-compress the chrome header on mobile list: hide on scroll-down, restore
   // on scroll-up or at/near top. Window (document) scroll only — the mobile list
@@ -3632,6 +3656,7 @@
   class:mobile={mobile.current}
   class:touch-wide={canCollapse}
   class:list={mobileActionBarPresent}
+  use:pullToCommand={pullOptions}
 >
   <!-- a11y: a single top-level heading for the app shell, visually hidden via the
        scoped .sr-only rule below (no layout change), gives screen-reader users an
@@ -4470,6 +4495,8 @@
 {/if}
 
 <Toasts aboveActionBar={mobileActionBarPresent} />
+<!-- Self-hiding at distance 0; only the phone list's pull gesture ever moves it. -->
+<PullIndicator stage={pull.stage} distance={pull.distance} />
 
 <style>
   /* Visually-hidden utility, scoped here explicitly rather than leaning on

@@ -18,6 +18,7 @@
   import BrowserAllowedHosts from "./automation-settings/BrowserAllowedHosts.svelte";
   import AutomationBootstrap from "./automation-settings/AutomationBootstrap.svelte";
   import AutomationSchedules from "./automation-settings/AutomationSchedules.svelte";
+  import AutomationNoPrCiHold from "./automation-settings/AutomationNoPrCiHold.svelte";
   import "./automation-settings/automation-fields.css";
   import { onMount } from "svelte";
   import type { Session, SandboxProfile, RepoSandboxSetting, DrainStatus } from "#lib/types.js";
@@ -137,8 +138,6 @@
   const manualStepsActive = $derived(repoConfig.manualStepsIssueOn(repoPath) && !lightweight);
   const preWarmEpicCiActive = $derived(repoConfig.preWarmEpicLandingCiOn(repoPath) && !lightweight);
   const mergeWithoutCiActive = $derived(repoConfig.mergeWithoutCiOn(repoPath) && !lightweight);
-  // #3221: no workflow runs on PRs, so PRs carry no checks — warn until the operator opts in.
-  const noPrCiWarn = $derived(repoConfig.noPrCiHeld(repoPath));
   const epicStacksActive = $derived(repoConfig.epicStacksOn(repoPath) && !lightweight);
   // Smell lens is a no-op without the critic (same dependency as auto-address); hoist its row state
   // out of the template so the markup stays under the Tier-1 <template> complexity bar.
@@ -197,26 +196,7 @@
   <!-- eslint-enable svelte/no-navigation-without-resolve -->
 {/if}
 
-<!-- #3305: auto-merge holds this repo's PRs for lack of PR CI — flagged here, on the repo,
-     with both ways out: set up CI, or opt in to merging without it. -->
-{#if noPrCiWarn}
-  <div class="auto-hold" role="status">
-    <div class="auto-hold-head">
-      <span class="auto-hold-glyph" aria-hidden="true">⚠</span>{m.automation_no_pr_ci_title()}
-    </div>
-    <p class="auto-hold-text">{m.automation_no_pr_ci_body()}</p>
-    <div class="auto-hold-actions">
-      {#if onsetupci}
-        <button type="button" class="gbtn primary" onclick={onsetupci}>
-          {m.automation_no_pr_ci_setup()}
-        </button>
-      {/if}
-      <button type="button" class="gbtn" onclick={() => repoConfig.toggleMergeWithoutCi(repoPath)}>
-        {m.automation_no_pr_ci_merge_without()}
-      </button>
-    </div>
-  </div>
-{/if}
+<AutomationNoPrCiHold {repoPath} {onsetupci} />
 
 <!-- Repo mode: lightweight (local-only) vs forge (GitHub/PRs) -->
 <div class="auto-row" use:coachIf={{ id: "lightweight-repo", on: armCoachmarks }}>
@@ -859,37 +839,6 @@
     color: var(--color-amber);
     margin-top: 2px;
   }
-  /* #3305: the repo's no-PR-CI hold — a status card above the rows, not a row of its own */
-  .auto-hold {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin: 8px 12px;
-    padding: 10px 12px;
-    border: 1px solid var(--color-line-bright);
-    background: var(--color-panel-2);
-  }
-  .auto-hold-head {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-family: var(--font-mono);
-    font-size: var(--fs-base);
-    color: var(--color-ink-bright);
-  }
-  .auto-hold-glyph {
-    color: var(--status-warn);
-  }
-  .auto-hold-text {
-    margin: 0;
-    font-size: var(--fs-meta);
-    color: var(--color-ink);
-  }
-  .auto-hold-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
   /* per-task plan-gate reality: amber, shown only when this task is actually gated
      — so a New Task tick reads as active even when the repo default is off */
   .auto-task {
@@ -964,8 +913,7 @@
       border-color 0.12s,
       color 0.12s;
   }
-  .gbtn:hover:not(:disabled),
-  .gbtn.primary {
+  .gbtn:hover:not(:disabled) {
     border-color: var(--color-amber);
     color: var(--color-amber);
   }

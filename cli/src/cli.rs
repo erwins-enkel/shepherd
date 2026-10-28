@@ -567,6 +567,21 @@ pub struct NewArgs {
     /// Hold the task until this task's PR has landed (id or designation, e.g. TASK-07)
     #[arg(long, value_name = "TASK")]
     pub after: Option<String>,
+    /// Run it on this machine, by name or instance id (default: the server's automatic choice)
+    #[arg(long, value_name = "MACHINE")]
+    pub on: Option<String>,
+    /// Only a machine with this capability may run it, e.g. xcode, sdk:ios, platform:macos
+    /// (repeatable or comma-separated)
+    #[arg(long, value_name = "CAPABILITY", value_delimiter = ',', value_parser = parse_capability)]
+    pub require: Vec<String>,
+}
+
+fn parse_capability(s: &str) -> Result<String, String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err("expected a capability, e.g. xcode or sdk:ios".to_string());
+    }
+    Ok(s.to_string())
 }
 
 fn parse_effort(s: &str) -> Result<Effort, String> {

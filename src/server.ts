@@ -152,6 +152,11 @@ import {
   sharedHouseStackResolver,
   storedHouseStack,
 } from "./house-stack";
+import {
+  UPNEXT_QUICK_STARTS_SETTING,
+  parseUpNextQuickStartsPatch,
+  storedUpNextQuickStarts,
+} from "./upnext-quick-starts";
 import { ISSUE_FILTER_SETTING, parseIssueFilterPatch, storedIssueFilter } from "./issue-filter";
 import {
   type MachineView,
@@ -9291,6 +9296,10 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // when true, Up Next quick-start skips the "Choose coding CLI" picker and launches
       // directly with the operator's default coding CLI.
       upnextSkipCliPicker: config.upnextSkipCliPicker,
+      // per-CLI quick-start presets (#3507); {} until one is set up.
+      upnextQuickStarts: storedUpNextQuickStarts(
+        deps.store.getSetting(UPNEXT_QUICK_STARTS_SETTING),
+      ),
       // account-wide extra-credit (paid overage) spend ceiling; drain pauses above it.
       // 0 = pause on ANY extra-credit spend.
       extraCreditsDrainCeiling: config.extraCreditsDrainCeiling,
@@ -9394,6 +9403,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["autopilotEffort", makeRoleEffortPatch("autopilot")],
   ["defaultAgentProvider", putDefaultAgentProvider],
   ["upnextSkipCliPicker", putUpnextSkipCliPicker],
+  ["upnextQuickStarts", putUpnextQuickStarts],
   ["extraCreditsDrainCeiling", putExtraCreditsDrainCeiling],
   ["authMode", putAuthMode],
   ["operatorLanguage", putOperatorLanguage],
@@ -9768,6 +9778,15 @@ function putUpnextSkipCliPicker(value: unknown, deps: Ctx["deps"]): Response {
   config.upnextSkipCliPicker = value;
   deps.store.setSetting("upnextSkipCliPicker", value ? "1" : "0");
   return json({ upnextSkipCliPicker: config.upnextSkipCliPicker });
+}
+
+/** Per-CLI quick-start presets (#3507): a patch replaces each CLI it names, the others stay. */
+function putUpnextQuickStarts(value: unknown, deps: Ctx["deps"]): Response {
+  const current = storedUpNextQuickStarts(deps.store.getSetting(UPNEXT_QUICK_STARTS_SETTING));
+  const parsed = parseUpNextQuickStartsPatch(value, current);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  deps.store.setSetting(UPNEXT_QUICK_STARTS_SETTING, JSON.stringify(parsed.value));
+  return json({ upnextQuickStarts: parsed.value });
 }
 
 /** Arm/disarm the judge. Takes effect on the next classify — the client and ledger are built at

@@ -8,7 +8,7 @@ import {
   type HeavySlotDeps,
   type ProcStat,
 } from "../src/heavy-slot";
-import { RUNNING_GRACE_MS, type HeavySlotBudget } from "../src/heavy-slot-core";
+import { RUNNING_GRACE_MS, type MemorySample, type HeavySlotBudget } from "../src/heavy-slot-core";
 import {
   DISABLED_HEAVY_SLOT,
   parseHeavySlotSnapshot,
@@ -39,7 +39,7 @@ interface Harness {
   emitted: HeavySlotSnapshot[];
   alive: Map<string, ProcStat>;
   clock: { t: number };
-  memory: { sample: { availableBytes: number | null; psiFullAvg10: number | null } };
+  memory: { sample: MemorySample };
   steerOk: { value: boolean };
   deps: HeavySlotDeps;
 }
@@ -273,12 +273,64 @@ describe("HeavySlotService", () => {
     expect(out && "message" in out && out.message).toContain("estimated wait ~2 min");
   });
 
+  test("macOS pressure blocks free slots and offers until healthy for 30 seconds", async () => {
+    const h = harness({ platform: "darwin" });
+    h.memory.sample = { availableBytes: 20 * GIB, psiFullAvg10: null, darwinPressure: "warning" };
+    await h.svc.start();
+    expect(await h.svc.acquire("s1", "x", null)).toMatchObject({
+      decision: "queued",
+      reason: "pressure",
+    });
+    expect(h.svc.snapshot()).toMatchObject({
+      brake: { active: true },
+      pressure: { memFullAvg10: null },
+    });
+    await advance(h, 40_000);
+    expect(h.steers).toHaveLength(0);
+    h.memory.sample.darwinPressure = "normal";
+    await advance(h, 5_000);
+    await advance(h, 29_999);
+    expect(h.steers).toHaveLength(0);
+    await advance(h, 1);
+    expect(h.steers.map(([id]) => id)).toEqual(["s1"]);
+  });
+
+  test("macOS detached markers survive finish and restart; unknown scans never free the slot", async () => {
+    const procs = new Map([["j1", { count: 1, rssBytes: 1234 }]]);
+    let complete = true;
+    const h = harness({
+      platform: "darwin",
+      groupAlive: () => false,
+      scanMarkersDarwin: async () => ({ procs, complete }),
+    });
+    await h.svc.start();
+    await h.svc.acquire("s1", "x", null);
+    await h.svc.started("s1", "j1", 4242);
+    await h.svc.acquire("s2", "y", null);
+    await h.svc.finish("s1", "j1", 0);
+    expect(h.store.listHeavySlotJobs(["lingering"])).toHaveLength(1);
+    h.svc.stop();
+    const restarted = new HeavySlotService(h.deps);
+    live.push(restarted);
+    await restarted.start();
+    expect(h.steers).toHaveLength(0);
+    procs.clear();
+    complete = false;
+    await restarted.sweep(true);
+    expect(h.steers).toHaveLength(0);
+    complete = true;
+    await restarted.sweep(true);
+    await restarted.sweep(true);
+    expect(h.steers.map(([id]) => id)).toEqual(["s2"]);
+  });
+
   test("macOS: the reported process group stands in for the marker scan", async () => {
     const groups = new Set([4242]);
     const h = harness({
       platform: "darwin",
       groupAlive: (g) => groups.has(g),
       scanMarkers: undefined,
+      scanMarkersDarwin: async () => ({ procs: new Map(), complete: true }),
     });
     await h.svc.start();
     await h.svc.acquire("s1", "x", null);

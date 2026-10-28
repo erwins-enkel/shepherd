@@ -7627,5 +7627,20 @@
   "epic_row_fix": "Beheben",
   "epic_row_fix_title": "Damit #{parent} von selbst läuft",
   "feat_epic_row_halt_title": "Epic-Halt aus der Liste beheben",
-  "feat_epic_row_halt_body": "Hält die Sandbox, die CLI oder der Rechner ein Epic an, steht das schon in der Backlog-Liste. „Beheben“ öffnet dieselbe Auswahl direkt an der Zeile – am Telefon als Blatt – und der Reiter Automatisierung zählt Repo- und Host-Halte."
+  "feat_epic_row_halt_body": "Hält die Sandbox, die CLI oder der Rechner ein Epic an, steht das schon in der Backlog-Liste. „Beheben“ öffnet dieselbe Auswahl direkt an der Zeile – am Telefon als Blatt – und der Reiter Automatisierung zählt Repo- und Host-Halte.",
+  "repooverview_halt_title": "In {repo} startet nichts von selbst",
+  "repooverview_halt_affects_one": "Betrifft 1 Epic und die Backlog-Abarbeitung.",
+  "repooverview_halt_affects_many": "Betrifft alle {count} Epics und die Backlog-Abarbeitung.",
+  "repooverview_halt_autonomous": "Auf Autonom stellen",
+  "repooverview_halt_other": "Andere Wahl …",
+  "repooverview_halt_see_above": "– siehe Hinweis oben",
+  "repooverview_precheck_would_halt": "Würde beim Start anhalten: {reason}",
+  "repooverview_precheck_waits": "Hängt am Repo-Halt oben.",
+  "repooverview_precheck_ready": "Sonst startklar:",
+  "repooverview_precheck_bootstrap_done": "Bootstrap fertig",
+  "repooverview_cli_switch": "CLI auf {cli}",
+  "repooverview_done_cli": "CLI von #{epic}: {cli}.",
+  "repooverview_legend_repo": "gilt für alle Epics und Sitzungen des Repos",
+  "repooverview_legend_epic": "gilt nur für diesen Epic-Lauf",
+  "repooverview_legend_host": "fehlt auf diesem Rechner, Diagnose hilft"
 }

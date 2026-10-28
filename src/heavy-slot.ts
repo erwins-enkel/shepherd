@@ -295,24 +295,8 @@ export class HeavySlotService {
       },
       this.#ctx(),
     );
-    if (
-      out.kind === "queued" &&
-      canWait &&
-      holder !== OPERATOR_HOLDER &&
-      !this.#blockingUntil.has(out.job.id)
-    ) {
-      this.#blockingUntil.set(out.job.id, this.#now() + (this.#deps.waitMinutes ?? 0) * 60_000);
-    }
-    if (out.kind === "queued" && canWait) {
-      this.#pollLease.set(
-        out.job.id,
-        Math.min(this.#blockingUntil.get(out.job.id) ?? 0, this.#now() + 20_000),
-      );
-    }
-    if (out.kind === "run") {
-      this.#blockingUntil.delete(out.job.id);
-      this.#pollLease.delete(out.job.id);
-    }
+    if (out.kind === "queued" && canWait) this.#renewPoll(out.job.id);
+    if (out.kind === "run") this.#clearPoll(out.job.id);
     if (out.kind === "run" && holder !== OPERATOR_HOLDER) {
       // Bind the run to the source it starts on (#3554), before the runner is told to go. An
       // operator terminal has no session worktree to bind it to.
@@ -333,6 +317,18 @@ export class HeavySlotService {
       reason: out.reason,
       message: queuedMessage(out.job.command, { ...out, etaMs }),
     };
+  }
+
+  #renewPoll(jobId: string): void {
+    if (!this.#blockingUntil.has(jobId)) {
+      this.#blockingUntil.set(jobId, this.#now() + (this.#deps.waitMinutes ?? 0) * 60_000);
+    }
+    this.#pollLease.set(jobId, Math.min(this.#blockingUntil.get(jobId)!, this.#now() + 20_000));
+  }
+
+  #clearPoll(jobId: string): void {
+    this.#blockingUntil.delete(jobId);
+    this.#pollLease.delete(jobId);
   }
 
   /** macOS: the runner reports the process group of the command it just started. */
@@ -447,8 +443,7 @@ export class HeavySlotService {
     for (const job of this.#ledger.takeDirty()) {
       this.#deps.store.upsertHeavySlotJob(job);
       if (job.state === "done" || job.state === "dropped") {
-        this.#blockingUntil.delete(job.id);
-        this.#pollLease.delete(job.id);
+        this.#clearPoll(job.id);
         this.#procs.delete(job.id);
         const peak = this.#peaks.get(job.id);
         this.#peaks.delete(job.id);
@@ -481,8 +476,7 @@ export class HeavySlotService {
         this.#persist();
         for (const job of offered) {
           if ((this.#pollLease.get(job.id) ?? 0) > this.#now()) continue;
-          this.#blockingUntil.delete(job.id);
-          this.#pollLease.delete(job.id);
+          this.#clearPoll(job.id);
           const landed = await this.#deps.steer(job.sessionId, offerSteer(job)).catch(() => false);
           if (!landed && this.#ledger.get(job.id)?.state === "offered") {
             this.#ledger.drop(job.id, "steer_missed", this.#now());

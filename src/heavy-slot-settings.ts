@@ -69,23 +69,27 @@ function parseHeavyList(raw: unknown): Parsed<HeavySlotSettings["heavyList"]> {
   if (!isRecord(raw)) return { ok: false, error: `${at} must be an object` };
   const disabled = parseNames(raw.disabled ?? [], `${at}.disabled`);
   if (!disabled.ok) return disabled;
-  if (
-    !Array.isArray(raw.custom ?? []) ||
-    ((raw.custom as unknown[] | undefined)?.length ?? 0) > MAX_CUSTOM
-  ) {
+  const parsed = parseCustomEntries(raw.custom ?? [], at);
+  if (!parsed.ok) return parsed;
+  return { ok: true, value: { custom: parsed.value, disabled: disabled.value } };
+}
+
+function parseCustomEntries(raw: unknown, at: string): Parsed<HeavyCustomEntry[]> {
+  if (!Array.isArray(raw) || raw.length > MAX_CUSTOM) {
     return { ok: false, error: `${at}.custom must be a list of at most ${MAX_CUSTOM} entries` };
   }
   const custom: HeavyCustomEntry[] = [];
-  for (const e of (raw.custom as unknown[] | undefined) ?? []) {
-    if (!isRecord(e) || typeof e.command !== "string" || !NAME.test(e.command)) {
+  for (const entry of raw) {
+    if (!isRecord(entry) || typeof entry.command !== "string" || !NAME.test(entry.command)) {
       return { ok: false, error: `${at}.custom: each entry needs a command name` };
     }
-    const subs = parseNames(e.subcommands ?? [], `${at}.custom.subcommands`);
+    const subs = parseNames(entry.subcommands ?? [], `${at}.custom.subcommands`);
     if (!subs.ok) return subs;
-    if (custom.some((c) => c.command === e.command)) continue;
-    custom.push({ command: e.command, subcommands: subs.value });
+    if (!custom.some((c) => c.command === entry.command)) {
+      custom.push({ command: entry.command, subcommands: subs.value });
+    }
   }
-  return { ok: true, value: { custom, disabled: disabled.value } };
+  return { ok: true, value: custom };
 }
 
 function parseBrake(
@@ -125,38 +129,45 @@ export function parseHeavySlotPatch(
     return { ok: false, error: `${HEAVY_SLOT_SETTING} must be a non-empty object` };
   }
   const next: HeavySlotSettings = structuredClone(current);
-  for (const key of Object.keys(raw)) {
-    const v = raw[key];
-    if (key === "enabled") {
-      if (v !== null && typeof v !== "boolean") {
-        return { ok: false, error: `${HEAVY_SLOT_SETTING}.enabled must be a boolean or null` };
-      }
-      next.enabled = v;
-    } else if (key === "slots") {
-      if (v !== null && !intInRange(v, 1, 64)) {
-        return {
-          ok: false,
-          error: `${HEAVY_SLOT_SETTING}.slots must be null or an integer in 1–64`,
-        };
-      }
-      next.slots = v;
-    } else if (key === "waitMinutes") {
-      if (!intInRange(v, 0, 60))
-        return { ok: false, error: "heavySlot.waitMinutes must be an integer in 0–60" };
-      next.waitMinutes = v;
-    } else if (key === "brake") {
-      const b = parseBrake(v, next.brake);
-      if (!b.ok) return b;
-      next.brake = b.value;
-    } else if (key === "heavyList") {
-      const l = parseHeavyList(v);
-      if (!l.ok) return l;
-      next.heavyList = l.value;
-    } else {
-      return { ok: false, error: `${HEAVY_SLOT_SETTING}.${key} is not a known field` };
-    }
+  for (const [key, value] of Object.entries(raw)) {
+    const error = applyField(next, key, value);
+    if (error) return { ok: false, error };
   }
   return { ok: true, value: next };
+}
+
+/** Validate one field before mutating the cloned settings. */
+function applyField(next: HeavySlotSettings, key: string, value: unknown): string | null {
+  switch (key) {
+    case "enabled":
+      if (value !== null && typeof value !== "boolean")
+        return "heavySlot.enabled must be a boolean or null";
+      next.enabled = value;
+      return null;
+    case "slots":
+      if (value !== null && !intInRange(value, 1, 64))
+        return "heavySlot.slots must be null or an integer in 1–64";
+      next.slots = value;
+      return null;
+    case "waitMinutes":
+      if (!intInRange(value, 0, 60)) return "heavySlot.waitMinutes must be an integer in 0–60";
+      next.waitMinutes = value;
+      return null;
+    case "brake": {
+      const result = parseBrake(value, next.brake);
+      if (!result.ok) return result.error;
+      next.brake = result.value;
+      return null;
+    }
+    case "heavyList": {
+      const result = parseHeavyList(value);
+      if (!result.ok) return result.error;
+      next.heavyList = result.value;
+      return null;
+    }
+    default:
+      return `heavySlot.${key} is not a known field`;
+  }
 }
 
 /** The persisted settings; anything that no longer validates falls back to the defaults. */

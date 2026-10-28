@@ -18,6 +18,7 @@
   import BrowserAllowedHosts from "./automation-settings/BrowserAllowedHosts.svelte";
   import AutomationBootstrap from "./automation-settings/AutomationBootstrap.svelte";
   import AutomationSchedules from "./automation-settings/AutomationSchedules.svelte";
+  import AutomationNoPrCiHold from "./automation-settings/AutomationNoPrCiHold.svelte";
   import "./automation-settings/automation-fields.css";
   import { onMount } from "svelte";
   import type { Session, SandboxProfile, RepoSandboxSetting, DrainStatus } from "#lib/types.js";
@@ -29,6 +30,7 @@
     drain = null,
     showHeader = true,
     armCoachmarks = false,
+    onsetupci,
   }: {
     repoPath: string;
     /** Per-task session id — drives the critic/plan-gate switch-pulse. Absent on the
@@ -46,6 +48,8 @@
      *  unmount deletes it, so a second mounted instance must NOT register or it would
      *  orphan the other instance's anchors on teardown. */
     armCoachmarks?: boolean;
+    /** Seed a New Task that sets up PR CI for this repo (#3305); absent hides that action. */
+    onsetupci?: () => void;
   } = $props();
 
   // Coach-target wrapper gated on `armCoachmarks`. The popover passes true; the
@@ -134,10 +138,6 @@
   const manualStepsActive = $derived(repoConfig.manualStepsIssueOn(repoPath) && !lightweight);
   const preWarmEpicCiActive = $derived(repoConfig.preWarmEpicLandingCiOn(repoPath) && !lightweight);
   const mergeWithoutCiActive = $derived(repoConfig.mergeWithoutCiOn(repoPath) && !lightweight);
-  // #3221: no workflow runs on PRs, so PRs carry no checks — warn until the operator opts in.
-  const noPrCiWarn = $derived(
-    repoConfig.noPrCiOn(repoPath) && !mergeWithoutCiActive && !lightweight,
-  );
   const epicStacksActive = $derived(repoConfig.epicStacksOn(repoPath) && !lightweight);
   // Smell lens is a no-op without the critic (same dependency as auto-address); hoist its row state
   // out of the template so the markup stays under the Tier-1 <template> complexity bar.
@@ -195,6 +195,8 @@
   </a>
   <!-- eslint-enable svelte/no-navigation-without-resolve -->
 {/if}
+
+<AutomationNoPrCiHold {repoPath} {onsetupci} />
 
 <!-- Repo mode: lightweight (local-only) vs forge (GitHub/PRs) -->
 <div class="auto-row" use:coachIf={{ id: "lightweight-repo", on: armCoachmarks }}>
@@ -635,7 +637,6 @@
   <div class="auto-meta">
     <div class="auto-name">⊘ {m.automation_merge_without_ci_name()}</div>
     <div class="auto-desc">{m.automation_merge_without_ci_desc()}</div>
-    <div class="auto-warn" hidden={!noPrCiWarn}>{m.automation_no_pr_ci_warning()}</div>
   </div>
   <button
     class={["sw", { on: mergeWithoutCiActive }]}

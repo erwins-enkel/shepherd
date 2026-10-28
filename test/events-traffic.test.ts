@@ -48,6 +48,7 @@ test("180 s stationary traffic falls by at least half while full changes remain 
       pinned: false,
       defaultBranch: "main",
       faviconUrl: "https://github.com/organization.png?size=40",
+      noPrCiHold: false,
     })),
     totals: { openIssues: 650, openPRs: 130 },
   };

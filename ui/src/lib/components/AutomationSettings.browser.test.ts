@@ -396,3 +396,53 @@ describe("AutomationSettings — merge without CI (#3104)", () => {
     expect(spy).toHaveBeenCalledWith("/tmp/repo");
   });
 });
+
+describe("AutomationSettings — no-PR-CI card (#3305)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    repoConfig.loaded = {};
+    repoConfig.noPrCi = {};
+    repoConfig.mergeWithoutCi = {};
+  });
+
+  const card = () => document.querySelector<HTMLElement>(".auto-hold");
+  const setup = () => page.getByRole("button", { name: m.automation_no_pr_ci_setup() });
+  const mergeWithout = () =>
+    page.getByRole("button", { name: m.automation_no_pr_ci_merge_without() });
+
+  function holdRepo() {
+    repoConfig.loaded = { "/tmp/repo": true };
+    repoConfig.noPrCi = { "/tmp/repo": true };
+  }
+
+  it("explains the hold with both fixes, and goes once Merge without CI is on", async () => {
+    holdRepo();
+    const spy = vi.spyOn(repoConfig, "toggleMergeWithoutCi").mockResolvedValue(undefined);
+    const onsetupci = vi.fn();
+    render(AutomationSettings, { repoPath: "/tmp/repo", onsetupci });
+    await expect.element(page.getByText(m.automation_no_pr_ci_title())).toBeVisible();
+    expect(card()!.getAttribute("role")).toBe("status");
+
+    (setup().element() as HTMLButtonElement).click();
+    expect(onsetupci).toHaveBeenCalledOnce();
+    (mergeWithout().element() as HTMLButtonElement).click();
+    expect(spy).toHaveBeenCalledWith("/tmp/repo");
+
+    repoConfig.mergeWithoutCi = { "/tmp/repo": true };
+    await tick();
+    expect(card()).toBeNull();
+  });
+
+  it("offers only Merge without CI when the host cannot seed a task", async () => {
+    holdRepo();
+    await mount();
+    await expect.element(mergeWithout()).toBeVisible();
+    expect(setup().query()).toBeNull();
+  });
+
+  it("shows no card for a repo that runs PR CI", async () => {
+    repoConfig.loaded = { "/tmp/repo": true };
+    await mount();
+    expect(card()).toBeNull();
+  });
+});

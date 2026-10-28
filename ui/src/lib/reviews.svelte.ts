@@ -954,6 +954,17 @@ class RepoConfigStore {
     return this.noPrCi[repoPath] ?? false;
   }
 
+  /** #3305: auto-merge holds this repo's PRs for lack of PR CI. The loaded config wins, so an
+   *  opt-in clears the flag at once; until it loads, the repos overview's server-side `payload`. */
+  noPrCiHeld(repoPath: string, payload = false): boolean {
+    if (!this.loaded[repoPath]) return payload;
+    return (
+      this.noPrCiOn(repoPath) &&
+      !this.mergeWithoutCiOn(repoPath) &&
+      this.repoModeFor(repoPath) !== "lightweight"
+    );
+  }
+
   epicStacksOn(repoPath: string): boolean {
     return this.epicStacks[repoPath] ?? false;
   }

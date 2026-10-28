@@ -25,7 +25,7 @@ async fn backlog_prints_the_payload() {
             "lastUsedAt": null, "recentAgentCount": 1, "openIssues": 4, "openPRs": 2,
             "prKinds": {"release": 0, "dependabot": 1, "regular": 1}, "workflows": 3,
             "ciStatus": "success", "hidden": false, "pinned": false, "defaultBranch": "main",
-            "faviconUrl": "https://github.com/o.png?size=40"
+            "faviconUrl": "https://github.com/o.png?size=40", "noPrCiHold": false
         }],
         "totals": {"openIssues": 4, "openPRs": 2}
     });

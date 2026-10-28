@@ -48,8 +48,18 @@
   let root = $state<HTMLElement>();
   let searchEl = $state<HTMLInputElement>();
 
+  // #3305: repos whose PRs auto-merge holds for lack of PR CI — flagged on the tile, and the
+  // bar's toggle narrows the grid to them.
+  let onlyHeld = $state(false);
+  const held = (p: BacklogProject) => repoConfig.noPrCiHeld(p.path, p.noPrCiHold ?? false);
+  const heldCount = $derived(projects.filter(held).length);
+
   const searching = $derived(query.trim() !== "");
-  const filtered = $derived(filterProjects(projects, { hasIssues: false, hasPRs: false, query }));
+  const filtered = $derived(
+    filterProjects(projects, { hasIssues: false, hasPRs: false, query }).filter(
+      (p) => !onlyHeld || held(p),
+    ),
+  );
   // Same grouping as the switcher (pinned → recents → rest); a search flattens the list.
   // The parent already dropped hidden repos, so `grouped.hidden` stays empty here.
   const grouped = $derived(
@@ -166,6 +176,9 @@
         {run.text}
       </span>
     {/if}
+    {#if held(project)}
+      <span class="rg-hold"><span aria-hidden="true">⚠</span> {m.repos_grid_no_pr_ci()}</span>
+    {/if}
   </button>
 {/snippet}
 
@@ -201,6 +214,17 @@
     </select>
     {#if filteredCount > 0}
       <span class="rg-badge">{m.repos_grid_filtered({ count: filteredCount })}</span>
+    {/if}
+    {#if heldCount > 0 || onlyHeld}
+      <button
+        type="button"
+        class="rg-hold-filter"
+        aria-pressed={onlyHeld}
+        onclick={() => (onlyHeld = !onlyHeld)}
+      >
+        <span aria-hidden="true">⚠</span>
+        {m.repos_grid_no_pr_ci_filter({ count: heldCount })}
+      </button>
     {/if}
     <span class="rg-add">
       <AddRepoButton onclone={onaddclone} onfork={onaddfork} onnewproject={onaddnewproject} />
@@ -250,6 +274,10 @@
                   issues: project.openIssues ?? "—",
                   prs: prCount(project),
                 })}
+                {#if held(project)}
+                  <span class="rg-hold-mark" role="img" aria-label={m.repos_grid_no_pr_ci()}>⚠</span
+                  >
+                {/if}
               </span>
             </span>
             <span class="rg-size" aria-hidden="true">
@@ -479,6 +507,44 @@
   .rg-run.paused,
   .rg-run.paused > span:first-child {
     color: var(--status-blocked);
+  }
+
+  .rg-hold {
+    color: var(--status-warn);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.04em;
+  }
+  .rg-hold-mark {
+    margin-left: 6px;
+    color: var(--status-warn);
+  }
+  .rg-hold-filter {
+    flex-shrink: 0;
+    min-height: 40px;
+    padding: 0 10px;
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.04em;
+    cursor: pointer;
+  }
+  .rg-hold-filter > span {
+    color: var(--status-warn);
+  }
+  .rg-hold-filter:hover {
+    border-color: var(--color-line-bright);
+  }
+  .rg-hold-filter[aria-pressed="true"] {
+    border-color: var(--color-amber);
+    background: var(--color-sel);
+    color: var(--color-ink-bright);
+  }
+  .rg-hold-filter:focus-visible {
+    outline: 2px solid var(--color-line-bright);
+    outline-offset: 2px;
   }
 
   .rg-tile-small {

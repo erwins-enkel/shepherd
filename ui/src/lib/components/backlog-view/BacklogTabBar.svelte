@@ -3,6 +3,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { issuesOverview } from "#lib/issues-overview.svelte.js";
+  import { repoConfig } from "#lib/reviews.svelte.js";
   import type { ActionsTabState } from "../backlog-view";
   import DocAgentControl from "./DocAgentControl.svelte";
 
@@ -55,6 +56,12 @@
   function coachMaybe(node: HTMLElement, id: string | undefined) {
     return id ? coachTarget(node, id) : undefined;
   }
+
+  // #3305: auto-merge holds the repo's PRs for lack of PR CI — marks the Automation tab, where
+  // the hold is explained and lifted.
+  const noPrCiHold = $derived(
+    selectedPath !== null && repoConfig.noPrCiHeld(selectedPath, selected?.noPrCiHold ?? false),
+  );
 
   const showOverview = $derived(
     variant === "desktop" && activeTab === "issues" && selectedPath !== null,
@@ -109,10 +116,12 @@
     class="tab-btn"
     class:active={activeTab === "automation"}
     type="button"
+    aria-label={noPrCiHold ? m.backlog_tab_automation_no_pr_ci() : undefined}
     onclick={() => onselecttab("automation")}
     use:coachMaybe={variant === "desktop" ? "backlog-automation" : undefined}
   >
-    {m.backlog_tab_automation()}
+    {m.backlog_tab_automation()}{#if noPrCiHold}<span class="tab-hold" aria-hidden="true">⚠</span
+      >{/if}
   </button>
   {#if showOverview}
     <button
@@ -210,6 +219,11 @@
     color: var(--color-red);
     border-color: var(--color-red);
     background: var(--color-inset);
+  }
+
+  .tab-hold {
+    margin-left: 6px;
+    color: var(--status-warn);
   }
 
   /* ── fast-forward button ── */

@@ -197,7 +197,6 @@ import {
 import { runSessionUsageBackfill } from "./usage-backfill";
 import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal, reconcileRealPathsToRaw } from "./repos";
-import { repoHasNoCiCached } from "./checks-gate";
 import { DocAgentService, SERVER_INSTALL_ROOT } from "./doc-agent";
 import { MaintainService } from "./maintain";
 import { PluginAgentService } from "./plugin-agents";
@@ -3900,17 +3899,6 @@ const diagnostics = new DiagnosticsService({
     listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).repoMode === "lightweight"),
   anySharedBrowserEnabled: () =>
     listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).sharedBrowserEnabled),
-  // #3305: repos whose PRs auto-merge holds for lack of PR CI — the automation pane's `noPrCi`
-  // warning condition (forge mode, GitHub, no PR-CI workflow, "Merge without CI" off).
-  noPrCiRepos: () =>
-    listRepos(config.repoRoot)
-      .filter((r) => {
-        const cfg = store.getRepoConfig(r.path);
-        if (cfg.repoMode !== "forge" || cfg.mergeWithoutCi) return false;
-        const forge = resolveForge(r.path);
-        return !!forge && repoHasNoCiCached(forge.kind, r.path);
-      })
-      .map((r) => r.name),
   configuredCodexModels: () => [
     ...(config.defaultAgentProvider === "codex"
       ? listRepos(config.repoRoot).map((r) => {
@@ -4029,6 +4017,7 @@ const broadcastBacklog = createBacklogBroadcast(
       recentCountsByRepo: (since) => store.recentSessionCountsByRepo(since),
       hiddenRepoPaths: () => store.hiddenRepoPaths(),
       pinnedRepoPaths: () => store.pinnedRepoPaths(),
+      repoConfig: (p) => store.getRepoConfig(p),
       repoRoot: config.repoRoot,
     }),
   (payload) => events.emit("backlog:update", payload),

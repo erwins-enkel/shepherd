@@ -1740,6 +1740,14 @@
   const assistantRepos = $derived(
     new Set(store.assistants.flatMap((s) => (s.assistantRepo ? [s.assistantRepo] : []))),
   );
+  // #3305: repos whose PRs auto-merge holds for lack of PR CI — their rail chip carries a mark.
+  const noPrCiRepos = $derived(
+    new Set(
+      (backlog?.projects ?? [])
+        .filter((p) => repoConfig.noPrCiHeld(p.path, p.noPrCiHold ?? false))
+        .map((p) => p.path),
+    ),
+  );
   // A start is settled once its row lands: from then on the row is the entry, so ending it
   // elsewhere drops it here too instead of leaving a placeholder that would start it again.
   $effect(() => {
@@ -3548,6 +3556,7 @@
       oncleanterminal={openCleanTerminal}
       onrepoassistant={repoAssistantItem}
       {assistantRepos}
+      {noPrCiRepos}
     />
   {/if}
 {/snippet}

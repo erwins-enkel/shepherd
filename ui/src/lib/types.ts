@@ -2854,6 +2854,8 @@ export interface BacklogProject {
   defaultBranch: string | null;
   /** Repo mark image (GitHub owner avatar); null/absent for other forges. */
   faviconUrl?: string | null;
+  /** Auto-merge holds this repo's PRs for lack of PR CI (#3305) — read via repoConfig.noPrCiHeld. */
+  noPrCiHold?: boolean;
 }
 export interface BacklogPayload {
   pinnedPath: string | null;

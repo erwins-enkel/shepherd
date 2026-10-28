@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { repoHasNoCi, checksCleared, repoHasNoCiCached } from "../src/checks-gate";
+import { repoHasNoCi, checksCleared, noPrCiHold, repoHasNoCiCached } from "../src/checks-gate";
 
 test("repoHasNoCi: github + zero workflows → true", () => {
   expect(repoHasNoCi("github", 0)).toBe(true);
@@ -78,6 +78,25 @@ test("repoHasNoCiCached: a pull_request workflow ⇒ has CI", () => {
   const dir = repoWith("ci.yml", "on: [pull_request]\n");
   try {
     expect(repoHasNoCiCached("github", dir)).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("noPrCiHold: a forge-mode GitHub repo with no PR CI holds unless Merge without CI is on (#3305)", () => {
+  const repo = "/tmp/checks-gate-nonexistent-hold"; // missing dir ⇒ 0 PR-CI workflows
+  const forge = { repoMode: "forge" as const, mergeWithoutCi: false };
+  expect(noPrCiHold(forge, "github", repo)).toBe(true);
+  expect(noPrCiHold({ ...forge, mergeWithoutCi: true }, "github", repo)).toBe(false);
+  expect(noPrCiHold({ ...forge, repoMode: "lightweight" }, "github", repo)).toBe(false);
+  expect(noPrCiHold(forge, "gitea", repo)).toBe(false);
+  expect(noPrCiHold(forge, undefined, repo)).toBe(false);
+});
+
+test("noPrCiHold: a repo whose PRs run CI never holds", () => {
+  const dir = repoWith("ci.yml", "on: [pull_request]\n");
+  try {
+    expect(noPrCiHold({ repoMode: "forge", mergeWithoutCi: false }, "github", dir)).toBe(false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

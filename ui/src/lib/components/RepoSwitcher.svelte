@@ -22,6 +22,7 @@
     oncleanterminal = () => {},
     onrepoassistant,
     assistantRepos = new Set(),
+    noPrCiRepos = new Set(),
     mobile = false,
   }: {
     chips: RepoChip[];
@@ -40,6 +41,9 @@
     onrepoassistant?: (repoPath: string) => void;
     // repos whose assistant runs: their item opens it instead of starting one
     assistantRepos?: ReadonlySet<string>;
+    // repos whose PRs auto-merge holds for lack of PR CI (#3305): their chip and automation item
+    // carry a mark until the operator adds CI or turns on "Merge without CI"
+    noPrCiRepos?: ReadonlySet<string>;
     // true when rendered on a phone-sized viewport — suppresses the lone-repo
     // telemetry band (collapses into the selected-state subline instead)
     mobile?: boolean;
@@ -174,6 +178,7 @@
     return [
       active ? activeLabel : m.repo_filter_apply_aria({ repo }),
       pinned ? m.repo_chip_pinned_aria() : "",
+      noPrCiRepos.has(chip.repoPath) ? m.repo_chip_no_pr_ci() : "",
     ]
       .filter(Boolean)
       .join(" ");
@@ -454,6 +459,9 @@
               <span class="rs-pin-mark" aria-hidden="true">⌖</span>
             {/if}
             <span class="rs-count">{chip.count}</span>
+            {#if noPrCiRepos.has(chip.repoPath)}
+              <span class="rs-hold-mark" aria-hidden="true">⚠</span>
+            {/if}
             {#if chip.drain?.paused}
               <span class="rs-paused-dot" aria-hidden="true">●</span>
             {/if}
@@ -511,7 +519,15 @@
       tabindex="-1"
       onclick={openAutomation}
     >
-      <span class="rs-menu-icon" aria-hidden="true">⚙</span>{m.repo_chip_automation_settings()}
+      <span class="rs-menu-icon" aria-hidden="true">⚙</span>
+      <span class="rs-menu-text">
+        {m.repo_chip_automation_settings()}
+        {#if noPrCiRepos.has(menu.chip.repoPath)}
+          <span class="rs-menu-hold"
+            ><span aria-hidden="true">⚠</span> {m.repo_chip_no_pr_ci()}</span
+          >
+        {/if}
+      </span>
     </button>
     <button
       class="rs-menu-item"
@@ -685,6 +701,11 @@
     font-size: var(--fs-micro);
     line-height: 1;
   }
+  .rs-hold-mark {
+    color: var(--status-warn);
+    font-size: var(--fs-micro);
+    line-height: 1;
+  }
   /* visually-hidden live region (no .sr-only util in app.css) */
   .rs-live {
     position: absolute;
@@ -731,6 +752,15 @@
   .rs-menu-item:focus-visible {
     background: var(--color-hover);
     outline: none;
+  }
+  .rs-menu-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .rs-menu-hold {
+    color: var(--status-warn);
+    font-size: var(--fs-micro);
   }
   .rs-menu-icon {
     width: 1em;

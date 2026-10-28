@@ -40,6 +40,7 @@
     usageOverride,
   } from "../epic-panel";
   import { confirmText, haltedSettings, issueList, startable } from "../epic-auto-fix";
+  import { baseReworkFailedText } from "../epic-hold";
   import type { EpicOthersFlag } from "../issues-panel";
   import EpicAutoFixChooser from "./EpicAutoFixChooser.svelte";
   import EpicRunSteps from "./EpicRunSteps.svelte";
@@ -225,14 +226,7 @@
   }
 
   function baseReworkFailed(err: unknown) {
-    const reason = err instanceof ApiError ? err.code : undefined;
-    const msg =
-      reason === "busy"
-        ? m.epic_base_resolve_busy()
-        : reason === "not-conflicting"
-          ? m.epic_base_resolve_not_conflicting()
-          : m.epic_base_resolve_failed();
-    toasts.info(msg, { alert: true, key: "epic-base-fail" });
+    toasts.info(baseReworkFailedText(err), { alert: true, key: "epic-base-fail" });
   }
 
   // Starting (or re-leading) while another epic leads supersedes it (the server keeps one epic

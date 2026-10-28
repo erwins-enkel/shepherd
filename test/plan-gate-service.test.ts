@@ -48,6 +48,7 @@ function harness(over: any = {}) {
   delete overWithoutStore.useDefaultReadVerdict;
   const notices = new Map<string, any>();
   const noticeEvents: string[] = [];
+  const revisions: any[] = [];
   const store = {
     // #1944 sidecar: a real in-memory implementation (not a no-op stub) so the wiring seams can
     // assert dedup, the steer bound, and suppression the way production behaves.
@@ -90,6 +91,8 @@ function harness(over: any = {}) {
     recordReviewerSpawn: (r: any) => recordedSpawns.push(r),
     completeReviewerSpawn: (id: any, u: any, at: any) => completedSpawns.push({ id, u, at }),
     listReviewerSpawns: () => [],
+    recordAgentPlanRevision: (...args: any[]) => revisions.push(args),
+    dropPlanRevisions() {},
     ...(over.store ?? {}),
   };
   const deps: any = {
@@ -144,6 +147,7 @@ function harness(over: any = {}) {
     store,
     notices,
     noticeEvents,
+    revisions,
     svc: new PlanGateService(deps),
   };
 }
@@ -855,6 +859,25 @@ test("consider re-reviews an error verdict even when the plan hash is unchanged"
   const status = await h.svc.consider(planningSession() as any);
   expect(status).toBe("started");
   expect(h.started.length).toBe(1); // an error verdict is retried, not deduped away
+});
+test("consider re-reviews an unchanged plan whose approval an operator edit withdrew (#3514)", async () => {
+  const hash = await PlanGateService.hashPlan("PLAN TEXT");
+  const h = harness({
+    store: { getPlanGate: () => ({ planHash: hash, approved: false, decision: "approved" }) },
+  });
+  expect(await h.svc.consider(planningSession() as any)).toBe("started");
+  expect(h.started.length).toBe(1);
+});
+test("a started review records its plan text as an agent revision (#3514)", async () => {
+  const h = harness();
+  expect(await h.svc.consider(planningSession() as any)).toBe("started");
+  expect(h.revisions).toEqual([["s1", await PlanGateService.hashPlan("PLAN TEXT"), "PLAN TEXT"]]);
+});
+test("forget drops the session's plan revisions with its gate (#3514)", () => {
+  const dropped: string[] = [];
+  const h = harness({ store: { dropPlanRevisions: (id: string) => dropped.push(id) } });
+  h.svc.forget("s1");
+  expect(dropped).toEqual(["s1"]);
 });
 test("consider persists reviewer ownership before asking Herdr to start it", async () => {
   const events: string[] = [];

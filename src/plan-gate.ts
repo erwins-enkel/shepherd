@@ -153,7 +153,7 @@ function orphanDisposition(
 }
 
 /** The plan the planning agent writes in its LIVE session worktree; the reviewer reads its text. */
-const PLAN_FILE = ".shepherd-plan.md";
+export const PLAN_FILE = ".shepherd-plan.md";
 
 /** Optional sidecar the planning agent writes next to the plan: a JSON array of visual blocks. */
 const PLAN_BLOCKS_FILE = ".shepherd-plan-blocks.json";
@@ -542,6 +542,8 @@ export interface PlanGateServiceDeps extends MembraneSeams {
     | "listActiveTaskAmendments"
     | "putPlanGate"
     | "dropPlanGate"
+    | "recordAgentPlanRevision"
+    | "dropPlanRevisions"
     | "snapshotPlanGates"
     | "getRepoConfig"
     | "addSignal"
@@ -738,7 +740,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     // capture into a const so the constant-thunk closure keeps the narrowed type.
     const cap = deps.cap;
     this.capFn = typeof cap === "function" ? cap : () => cap ?? DEFAULT_CAP;
-    this.readPlan = deps.readPlan ?? defaultReadPlan;
+    this.readPlan = deps.readPlan ?? readPlanFile;
     this.readPlanBlocks = deps.readPlanBlocks ?? defaultReadPlanBlocks;
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this.worktreeExists = deps.worktreeExists ?? existsSync;
@@ -904,7 +906,8 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
    *
    *  Then the two pre-existing dedupes, both bypassed by `force`:
    *  - an UNCHANGED plan on the auto-path — but never past an `error` verdict, which produced no
-   *    real verdict to dedupe against (mirrors review.ts rebaseSkip);
+   *    real verdict to dedupe against (mirrors review.ts rebaseSkip), nor past an approval an
+   *    operator plan edit withdrew (#3514);
    *  - #1944, a spawn already REFUSED for this exact plan text: the composition is deterministic, so
    *    it would refuse again — don't re-allocate a worktree every sweep. Only a `failed` notice
    *    carries an inputKey; a `clamped` one never suppresses anything. */
@@ -917,7 +920,11 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     const reReview = force && prior?.approved === true && prior.planHash !== planHash;
     if (prior?.approved && !reReview) return true;
     if (session.planPhase !== "planning" && !reReview) return true;
-    if (!force && prior?.planHash === planHash && prior.decision !== "error") return true;
+    // #3514: an operator plan edit withdraws the approval without a new verdict, so that plan is
+    // re-reviewed even when the planner left the text exactly as the operator wrote it.
+    const withdrawn = prior?.decision === "approved" && !prior.approved;
+    if (!force && !withdrawn && prior?.planHash === planHash && prior.decision !== "error")
+      return true;
     if (!force && this.cancelledHashes.get(session.id) === planHash) return true; // operator cancelled it
     return !force && this.deps.store.getSpawnNotice(session.id, "plan")?.inputKey === planHash;
   }
@@ -1339,6 +1346,13 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     console.log(
       `[plan-gate] plan-blocks captured session=${session.id} planHash=${planHash.slice(0, 8)} blocks=${blocks.length}`,
     );
+    // #3514: the text a review starts on is a plan revision (the store skips one it already holds).
+    // Bookkeeping only — it must never orphan a reviewer that has already started.
+    try {
+      this.deps.store.recordAgentPlanRevision(session.id, planHash, plan);
+    } catch (err) {
+      console.warn(`[plan-gate] plan revision not recorded for ${session.id}:`, err);
+    }
     this.inflight.set(session.id, {
       sessionId: session.id,
       repoPath: session.repoPath,
@@ -2109,6 +2123,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     this.forgetCompletedCodexTurn(sessionId);
     this.reapReviewer(sessionId);
     this.deps.store.dropPlanGate(sessionId);
+    this.deps.store.dropPlanRevisions(sessionId);
   }
 }
 
@@ -2485,7 +2500,7 @@ function defaultReadPlanBlocks(worktreePath: string): VisualBlock[] {
 }
 
 /** Read the live session worktree's plan text. Null when no plan has been written yet. */
-function defaultReadPlan(worktreePath: string): string | null {
+export function readPlanFile(worktreePath: string): string | null {
   const p = join(worktreePath, PLAN_FILE);
   if (!existsSync(p)) return null;
   try {

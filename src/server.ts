@@ -8383,6 +8383,21 @@ function codexUsageResponse(deps: AppDeps, action: string): Response {
   );
 }
 
+// POST /api/heavy-slot/operator — `shepherd slot run` outside any session (#3550): the runner's
+// acquire/started/finished ops for the host operator. Host-wide: a repo-scoped token gets 404.
+async function handleHeavySlotOperator(
+  req: Request,
+  deps: AppDeps,
+  token: Ctx["token"],
+): Promise<Response> {
+  if (token && token.repoPaths !== null) return json({ error: "not found" }, 404);
+  if (!deps.heavySlot?.acquireOperator || !deps.heavySlot.started || !deps.heavySlot.finish)
+    return json({ error: "heavy-check slot unavailable" }, 503);
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
+  return runHeavySlotOp(deps.heavySlot as HeavySlotDeps, OPERATOR_HOLDER, body);
+}
+
 async function handleHeavySlot({ req, parts, deps, token }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "heavy-slot") return null;
   if (req.method === "GET" && parts.length === 2) {
@@ -8391,16 +8406,8 @@ async function handleHeavySlot({ req, parts, deps, token }: Ctx): Promise<Respon
     const lastResults = deps.heavySlot && deps.store ? await readLastResults(deps.store) : [];
     return json({ ...snapshot, lastResults });
   }
-  // POST /api/heavy-slot/operator — `shepherd slot run` outside any session (#3550): the runner's
-  // acquire/started/finished ops for the host operator. Host-wide: a repo-scoped token gets 404.
-  if (req.method === "POST" && parts.length === 3 && parts[2] === "operator") {
-    if (token && token.repoPaths !== null) return json({ error: "not found" }, 404);
-    if (!deps.heavySlot?.acquireOperator || !deps.heavySlot.started || !deps.heavySlot.finish)
-      return json({ error: "heavy-check slot unavailable" }, 503);
-    const body = await readJsonObject(req);
-    if (body instanceof Response) return body;
-    return runHeavySlotOp(deps.heavySlot as HeavySlotDeps, OPERATOR_HOLDER, body);
-  }
+  if (req.method === "POST" && parts.length === 3 && parts[2] === "operator")
+    return handleHeavySlotOperator(req, deps, token);
   if (req.method === "POST" && parts.length === 3 && parts[2] === "release") {
     const body = (await req.json().catch(() => null)) as { sessionId?: unknown } | null;
     if (typeof body?.sessionId !== "string") return json({ error: "invalid_session_id" }, 400);

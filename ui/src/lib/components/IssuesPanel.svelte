@@ -924,6 +924,8 @@
             {mobile}
             running={isRunning}
             {oninject}
+            {onopensession}
+            {onopenautomation}
             onselect={selectFromList}
             ontoggle={toggleEpic}
           />

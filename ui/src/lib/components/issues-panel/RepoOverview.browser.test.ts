@@ -30,6 +30,14 @@ const api = vi.hoisted(() => ({
   }),
   applyEpicAutoFix:
     vi.fn<(repo: string, parent: number, body: unknown) => Promise<EpicAutoFixResult>>(),
+  updateEpic: vi.fn(async () => ({})),
+  overrideRepoBootstrap: vi.fn(async (): Promise<RepoBootstrapView> => ({
+    state: "active",
+    phase: 2,
+    overrideAt: 1,
+    missing: [],
+    suggested: false,
+  })),
 }));
 
 vi.mock("#lib/api.js", async (importOriginal) => {
@@ -818,5 +826,96 @@ describe("repo halt (#3456)", () => {
       button(halt(41)!, m.repooverview_cli_switch({ cli: "Claude Code" }))!,
     ])
       expectMinPx(b.getBoundingClientRect().height, 44, b.textContent ?? "");
+  });
+});
+
+describe("drain holds (#3457)", () => {
+  const holds = () => [...root().querySelectorAll<HTMLElement>("[data-epic-hold]")];
+  const epicCard = (parent: number) =>
+    [
+      ...root().querySelectorAll<HTMLElement>(
+        `section[aria-label="${m.repooverview_epics()}"] .rows > li`,
+      ),
+    ].find((li) => li.querySelector(".num")?.textContent === `#${parent}`)!;
+  const legend = () => root().querySelector<HTMLElement>("[data-halt-legend]");
+
+  function show(over: Partial<DrainStatus>, props: Record<string, unknown> = {}) {
+    const onopenautomation = vi.fn();
+    render(RepoOverview, {
+      epics: [summaryOf(B, 0, 3), summaryOf(A, 1, 2)],
+      ...quiet,
+      drain: { ...drain(), paused: true, ...over },
+      leadingRecord: leading(),
+      titleFor,
+      onselect: vi.fn(),
+      onopenautomation,
+      ...props,
+    });
+    return { onopenautomation };
+  }
+
+  beforeEach(() => {
+    api.updateEpic.mockClear();
+    api.overrideRepoBootstrap.mockClear();
+  });
+
+  it("names an unfinished bootstrap once at the top, not at a card, with its actions", async () => {
+    const { onopenautomation } = show({ reason: "bootstrap_incomplete", detail: "p2" });
+    await vi.waitFor(() => expect(holds()).toHaveLength(1));
+    const line = holds()[0]!;
+    expect(line.dataset.scope).toBe("repo");
+    expect(run().contains(line)).toBe(true);
+    expect(epicCard(B).querySelector("[data-epic-hold]")).toBeNull();
+    await page.getByRole("button", { name: m.epic_rowhold_bootstrap_view() }).click();
+    expect(onopenautomation).toHaveBeenCalledOnce();
+    await page.getByRole("button", { name: m.automation_bootstrap_override() }).click();
+    await vi.waitFor(() => expect(api.overrideRepoBootstrap).toHaveBeenCalledWith("/repo", true));
+  });
+
+  it("names it with no epic leading too", async () => {
+    show({
+      reason: "bootstrap_incomplete",
+      detail: "p2",
+      epicParent: null,
+      runSummary: { ...drain().runSummary!, leadingEpic: null },
+    });
+    await vi.waitFor(() => expect(holds()).toHaveLength(1));
+    expect(run().contains(holds()[0]!)).toBe(true);
+  });
+
+  it("puts the run's usage hold at the leading epic's card, with RUN in the legend", async () => {
+    show({ reason: "usage", detail: "91" });
+    await vi.waitFor(() => expect(holds()).toHaveLength(1));
+    const line = holds()[0]!;
+    expect(epicCard(B).contains(line)).toBe(true);
+    expect(run().contains(line)).toBe(false);
+    expect(legend()?.textContent).toContain(m.repooverview_legend_run());
+    await page.getByRole("button", { name: m.epic_rowhold_usage_lift() }).click();
+    await vi.waitFor(() =>
+      expect(api.updateEpic).toHaveBeenCalledWith("/repo", B, { ignoreUsageCeiling: true }),
+    );
+  });
+
+  it("an epic hold names no RUN in the legend; a pending approval reads amber at its card", async () => {
+    show({ reason: "awaiting_approval", detail: "21" });
+    await vi.waitFor(() => expect(holds()).toHaveLength(1));
+    expect(epicCard(B).contains(holds()[0]!)).toBe(true);
+    expect(holds()[0]!.dataset.tone).toBe("wait");
+    expect(legend()?.textContent).not.toContain(m.repooverview_legend_run());
+  });
+
+  it("in label mode a usage or agent hold has no epic to sit at: no line, no legend", async () => {
+    const label = { epicParent: null, runSummary: { ...drain().runSummary!, leadingEpic: null } };
+    show({ ...label, reason: "usage", detail: "91" });
+    await expect.element(page.getByText("Epic 20").first()).toBeVisible();
+    expect(holds()).toHaveLength(0);
+    expect(legend()).toBeNull();
+  });
+
+  it("without a hold the overview draws no hold line and no legend", async () => {
+    show({ reason: null, paused: false });
+    await expect.element(page.getByText("Epic 20").first()).toBeVisible();
+    expect(holds()).toHaveLength(0);
+    expect(legend()).toBeNull();
   });
 });

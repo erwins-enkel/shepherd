@@ -129,6 +129,15 @@ in-flight work running and resumes on its own — and only a few are **terminal*
   [stacked epic children](/reference/stacked-epic-children/) on — the layers above it can't land
   until you abandon or merge them.
 
+You don't have to open the epic to act on a hold. While the drain holds the leading epic for an
+unfinished project bootstrap, the usage ceiling, its integration branch, a stuck agent or an
+attended approval, the epic's row in the backlog list shows the hold with its scope (**REPO**,
+**RUN** or **EPIC**) and the action that already exists for it: **View bootstrap** and **Override
+hold**, **Lift for this run**, **Get the conflict resolved** and **Continue anyway**, **Open
+session**, or **Approve** (amber — it waits for you rather than stopping). The repo overview shows
+the same: a bootstrap hold once at the top, since it holds every epic, and the others at the leading
+epic's card.
+
 ## Starting the epic
 
 1. Make sure the epic exists (a parent issue with sub-issues or an `epic-dag` body) — see

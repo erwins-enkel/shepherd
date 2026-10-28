@@ -3,13 +3,16 @@
   import { m } from "#lib/paraglide/messages.js";
   import { chipFor, progress, sandboxHaltedEpic, type EpicRole } from "../epic-panel";
   import { activate } from "../issues-panel";
+  import { drainHold } from "../epic-hold";
   import EpicRoleBadge from "./EpicRoleBadge.svelte";
   import EpicRowHalt from "./EpicRowHalt.svelte";
+  import EpicHoldLine from "./EpicHoldLine.svelte";
 
   // Compact epic header of the backlog list (#2617), two lines: chevron, number and the wrapping
   // title on top; below it the role badge, a segmented progress bar and "m/n". Segments are per
   // child (tinted by state) once the epic's record is loaded; before that they come from the list
-  // summary (merged vs. rest). A third line shows a sandbox, CLI or host halt with its fix (#3455).
+  // summary (merged vs. rest). A third line shows a sandbox, CLI or host halt with its fix (#3455),
+  // or another drain hold with its action (#3457).
   let {
     issue,
     summary = undefined,
@@ -18,6 +21,8 @@
     position = null,
     drain = null,
     mobile = false,
+    onopensession = undefined,
+    onopenautomation = undefined,
     expanded,
     selected,
     optionId,
@@ -35,6 +40,10 @@
     drain?: DrainStatus | null;
     /** Phone layout: the halt's fix opens as a bottom sheet instead of a popover. */
     mobile?: boolean;
+    /** Opens the stuck session a hold names (#3457). */
+    onopensession?: (sessionId: string) => void;
+    /** Switches to the Automation tab — the project bootstrap's home (#3457). */
+    onopenautomation?: () => void;
     expanded: boolean;
     selected: boolean;
     optionId: string;
@@ -53,6 +62,8 @@
       : Array.from({ length: counts.total }, (_, i) => (i < counts.merged ? "done" : "empty")),
   );
   const halted = $derived(sandboxHaltedEpic(drain) === issue.number);
+  // #3457: the drain's other holds while it runs this epic — bootstrap, usage, base, agent, approval.
+  const hold = $derived(drain?.epicParent === issue.number ? drainHold(drain) : null);
 </script>
 
 <div
@@ -96,6 +107,16 @@
   </div>
   {#if halted && drain}
     <EpicRowHalt repoPath={drain.repoPath} parent={issue.number} {epic} {drain} {mobile} />
+  {:else if hold && drain}
+    <div class="hold-slot">
+      <EpicHoldLine
+        repoPath={drain.repoPath}
+        parent={issue.number}
+        view={hold}
+        {onopensession}
+        {onopenautomation}
+      />
+    </div>
   {/if}
 </div>
 
@@ -187,6 +208,11 @@
     background: var(--color-faint);
   }
 
+  /* Indented under the title, as EpicRowHalt's line. */
+  .hold-slot {
+    margin: 2px 0 0 24px;
+  }
+
   .count {
     flex: none;
     color: var(--color-muted);
@@ -204,6 +230,9 @@
     }
     .sub {
       padding-left: 38px;
+    }
+    .hold-slot {
+      margin-left: 38px;
     }
   }
 </style>

@@ -46,6 +46,8 @@ const SCOPE_LABELS: Record<string, () => string> = {
   repo: () => m.epic_autofix_scope_repo(),
   epic: () => m.epic_autofix_scope_epic(),
   host: () => m.epic_autofix_scope_host(),
+  // #3457: a repo limit the run lifts for itself (the usage ceiling).
+  run: () => m.epic_autofix_scope_run(),
 };
 
 const PROFILE_NAMES: Record<SandboxProfile, () => string> = {
@@ -69,7 +71,7 @@ function profileName(profile: SandboxProfile): string {
   return PROFILE_NAMES[profile]?.() ?? profile;
 }
 
-/** A scope's chip: REPO / EPIC / HOST. */
+/** A scope's chip: REPO / EPIC / HOST / RUN. */
 export function scopeLabel(scope: string): string {
   return SCOPE_LABELS[scope]?.() ?? scope.toUpperCase();
 }

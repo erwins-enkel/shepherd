@@ -7848,5 +7848,11 @@
   "settings_machines_slot_stale": "Letzter bekannter Stand, vor {ago}",
   "settings_machines_slot_stale_hint": "Die Machine ist gerade nicht erreichbar. Das ist ihr letzter gemeldeter Stand.",
   "feat_machine_check_slot_title": "Prüfslot je Machine",
-  "feat_machine_check_slot_body": "Einstellungen → Rechner zeigt jetzt für jede verbundene Machine den Prüfslot: wie viele Prüfungen laufen, wer wartet, ob die Speicherbremse greift und wie voll der RAM ist. Eine nicht erreichbare Machine zeigt ihren letzten bekannten Stand."
+  "feat_machine_check_slot_body": "Einstellungen → Rechner zeigt jetzt für jede verbundene Machine den Prüfslot: wie viele Prüfungen laufen, wer wartet, ob die Speicherbremse greift und wie voll der RAM ist. Eine nicht erreichbare Machine zeigt ihren letzten bekannten Stand.",
+  "heavyslot_last_results": "Letzte Prüfresultate",
+  "heavyslot_result_passed": "Bestanden",
+  "heavyslot_result_failed": "Fehlgeschlagen",
+  "heavyslot_result_aborted": "Abgebrochen",
+  "heavyslot_result_stale": "Veraltet",
+  "heavyslot_result_stale_hint": "Der Quellstand hat sich seit dieser Prüfung geändert, das Ergebnis gilt nicht mehr."
 }

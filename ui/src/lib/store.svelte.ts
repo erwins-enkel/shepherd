@@ -1062,7 +1062,9 @@ export class HerdStore {
         this.usageLimits = ev.data;
         return true;
       case "heavyslot:status":
-        this.heavySlot = ev.data;
+        // The event never carries last results (their staleness needs a git look per worktree and
+        // comes with GET /api/heavy-slot only), so keep what the last GET delivered.
+        this.heavySlot = { ...ev.data, lastResults: this.heavySlot?.lastResults ?? [] };
         return true;
       case "update:status":
         this.setUpdate(ev.data);

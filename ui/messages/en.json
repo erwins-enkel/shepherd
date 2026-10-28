@@ -7848,5 +7848,11 @@
   "settings_machines_slot_stale": "Last known state, {ago} ago",
   "settings_machines_slot_stale_hint": "The machine is not reachable right now. This is what it last reported.",
   "feat_machine_check_slot_title": "Check slot per machine",
-  "feat_machine_check_slot_body": "Settings → Machines now shows each connected machine's check slot: how many checks run, who is queued, whether the memory brake is on and how full its RAM is. An unreachable machine shows its last known state."
+  "feat_machine_check_slot_body": "Settings → Machines now shows each connected machine's check slot: how many checks run, who is queued, whether the memory brake is on and how full its RAM is. An unreachable machine shows its last known state.",
+  "heavyslot_last_results": "Last check results",
+  "heavyslot_result_passed": "Passed",
+  "heavyslot_result_failed": "Failed",
+  "heavyslot_result_aborted": "Aborted",
+  "heavyslot_result_stale": "Stale",
+  "heavyslot_result_stale_hint": "The source changed since this check ran, so the result no longer applies."
 }

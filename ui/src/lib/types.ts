@@ -3989,4 +3989,19 @@ export interface HeavySlotSnapshot {
     foreignBytes: number | null;
     foreignTop: { name: string; bytes: number }[];
   };
+  /** Each session's latest finished slot job, bound to the revision it ran on (#3554). */
+  lastResults: HeavySlotLastResult[];
+}
+
+/** `stale`: the worktree no longer matches `head` + `treeHash` — never shown as a pass. */
+export interface HeavySlotLastResult {
+  sessionId: string;
+  command: string;
+  startedAt: number;
+  endedAt: number | null;
+  exitCode: number | null;
+  result: "passed" | "failed" | "aborted";
+  head: string | null;
+  treeHash: string;
+  stale: boolean;
 }

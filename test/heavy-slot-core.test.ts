@@ -310,6 +310,8 @@ describe("estimateWaits", () => {
       exitCode: null,
       pgid: null,
       dropReason: null,
+      head: null,
+      treeHash: null,
       ...over,
     };
   }

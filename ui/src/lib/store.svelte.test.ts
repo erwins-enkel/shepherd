@@ -2082,3 +2082,40 @@ test("archive and restore clear a committing decommission's dim (local + mirrore
   });
   expect(isDecommissioning("dc2")).toBe(false);
 });
+
+test("a heavyslot:status event keeps the last results the GET delivered", () => {
+  const store = new HerdStore();
+  const result = {
+    sessionId: "s1",
+    command: "vitest run",
+    startedAt: 1,
+    endedAt: 2,
+    exitCode: 0,
+    result: "passed" as const,
+    head: "abc",
+    treeHash: "t",
+    stale: false,
+  };
+  const snap = {
+    enabled: true,
+    capacity: 1,
+    holders: [],
+    waiters: [],
+    brake: { active: false, reason: null },
+    pressure: {
+      ramAvailableBytes: null,
+      ramTotalBytes: null,
+      swapUsedBytes: null,
+      swapTotalBytes: null,
+      memFullAvg10: null,
+      memBrakeThreshold: null,
+      cpuSomeAvg10: null,
+    },
+    memoryBySource: { agentsBytes: null, foreignBytes: null, foreignTop: [] },
+    lastResults: [] as (typeof result)[],
+  };
+  store.setHeavySlot({ ...snap, lastResults: [result] });
+  store.apply({ event: "heavyslot:status", data: { ...snap, capacity: 2 } });
+  expect(store.heavySlot?.capacity).toBe(2);
+  expect(store.heavySlot?.lastResults).toEqual([result]);
+});

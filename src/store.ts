@@ -1443,10 +1443,11 @@ const HEAVY_SLOT_JOBS_DDL = `CREATE TABLE IF NOT EXISTS heavy_slot_jobs (
   id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, command TEXT NOT NULL, cwd TEXT,
   etaKey TEXT NOT NULL, state TEXT NOT NULL, enqueuedAt INTEGER NOT NULL,
   offerExpiresAt INTEGER, startedAt INTEGER, finishedAt INTEGER, releasedAt INTEGER,
-  exitCode INTEGER, pgid INTEGER, dropReason TEXT)`;
+  exitCode INTEGER, pgid INTEGER, dropReason TEXT,
+  head TEXT, treeHash TEXT)`;
 
 const HEAVY_SLOT_JOB_COLUMNS = `id, sessionId, command, cwd, etaKey, state, enqueuedAt,
-  offerExpiresAt, startedAt, finishedAt, releasedAt, exitCode, pgid, dropReason`;
+  offerExpiresAt, startedAt, finishedAt, releasedAt, exitCode, pgid, dropReason, head, treeHash`;
 
 const REMOTE_DISPATCH_COLUMNS = `id, clientKey, instanceId, payloadHash, wireBody, state, sessionId,
   heldId, reason, code, httpStatus, createdAt, updatedAt, uploads, project`;
@@ -2175,6 +2176,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(DISPATCHES_DDL);
     this.db.run(REMOTE_DISPATCHES_DDL);
     this.db.run(HEAVY_SLOT_JOBS_DDL);
+    // A table created before #3554 has no revision columns; a fresh one already has both.
+    this.addMissingColumns("heavy_slot_jobs", { head: "TEXT", treeHash: "TEXT" });
     // A table created before #2766 has no `uploads`, before #2775 no `project`; a fresh one already
     // has both (no write here).
     this.addMissingColumns("remote_dispatches", { uploads: "TEXT", project: "TEXT" });
@@ -2324,7 +2327,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   upsertHeavySlotJob(job: HeavyJob): void {
     this.db.run(
       `INSERT OR REPLACE INTO heavy_slot_jobs (${HEAVY_SLOT_JOB_COLUMNS})
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         job.id,
         job.sessionId,
@@ -2340,8 +2343,25 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         job.exitCode,
         job.pgid,
         job.dropReason,
+        job.head,
+        job.treeHash,
       ],
     );
+  }
+
+  /** The latest job per session whose command has exited and whose source state was captured
+   *  (#3554). Still-lingering jobs count: the exit code is known. */
+  lastHeavySlotResults(): HeavyJob[] {
+    return this.db
+      .query(
+        `SELECT ${HEAVY_SLOT_JOB_COLUMNS} FROM heavy_slot_jobs j
+         WHERE finishedAt IS NOT NULL AND treeHash IS NOT NULL AND state IN ('lingering', 'done')
+           AND id = (SELECT id FROM heavy_slot_jobs
+                     WHERE sessionId = j.sessionId AND finishedAt IS NOT NULL
+                       AND treeHash IS NOT NULL AND state IN ('lingering', 'done')
+                     ORDER BY finishedAt DESC, id DESC LIMIT 1)`,
+      )
+      .all() as HeavyJob[];
   }
 
   /** Slot occupancy (ms) of the most recent completed jobs, newest first, per eta key —

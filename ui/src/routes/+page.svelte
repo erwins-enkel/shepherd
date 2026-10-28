@@ -170,6 +170,7 @@
   import ActionBar from "#lib/components/ActionBar.svelte";
   import QueueStrip from "#lib/components/QueueStrip.svelte";
   import HeavySlotStrip from "#lib/components/heavy-slot/HeavySlotStrip.svelte";
+  import { needsResultRefresh, RESULT_REFRESH_MS } from "#lib/components/heavy-slot/heavy-slot.js";
   import RepoSwitcher from "#lib/components/RepoSwitcher.svelte";
   import {
     nextRepoFilter,
@@ -1941,6 +1942,32 @@
   // repo/status filter currently hides it. Shared by the command bar and auto-merge strip.
   // Routed through jumpHandlers (herd-jump.ts) so a target in a collapsed group is
   // revealed before selection.
+  // Last results ride on GET only: re-read when who holds the slot changes (a check ended).
+  let slotHoldersSig = "";
+  $effect(() => {
+    const hs = store.heavySlot;
+    const sig = hs?.enabled ? hs.holders.map((h) => h.sessionId).join(",") : "";
+    if (sig === slotHoldersSig) return;
+    slotHoldersSig = sig;
+    getHeavySlot()
+      .then((r) => store.setHeavySlot(r))
+      .catch(() => {});
+  });
+
+  // A current result goes stale when the source moves on, which nothing announces: re-read while
+  // one is shown and the tab is visible. The server caches the worktree look for a moment.
+  const refreshResults = $derived(needsResultRefresh(store.heavySlot));
+  $effect(() => {
+    if (!refreshResults) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      getHeavySlot()
+        .then((r) => store.setHeavySlot(r))
+        .catch(() => {});
+    }, RESULT_REFRESH_MS);
+    return () => clearInterval(timer);
+  });
+
   /** Free a holder's slot, then re-read the snapshot so chip, strip and popover agree. */
   async function releaseSlot(id: string) {
     await releaseHeavySlot(id);

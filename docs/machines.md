@@ -509,3 +509,5 @@ Xcode-less Mac across a crash of the coordinator and starts there once the Mac i
 ## Check slot per machine
 
 Settings → Machines shows each connected machine's heavy-check slot (budget in use, queue length, memory brake, RAM), read from its `GET /api/heavy-slot` on every connection check. The budget is configured on the machine itself. While a machine is unreachable the last known state is shown, marked as such; an older release that has no such route reports nothing.
+
+The slot popover also lists each session's last check result with the commit it ran on. A result is bound to that commit and to the uncommitted state of the worktree when the check started: once either changes, a pass is shown as stale instead of green, and a failure keeps its red mark with a stale note.

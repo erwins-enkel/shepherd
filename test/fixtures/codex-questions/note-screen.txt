@@ -1,0 +1,7 @@
+• Queued follow-up inputs
+
+  QPROBE-NOTE
+
+  Type your answer
+
+  enter submit   ^] skip   shift+→ main prompt

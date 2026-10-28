@@ -212,6 +212,9 @@ import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
 import { HookIngest, toolUseSince, type HookEvent } from "./hooks-ingest";
 import { AskAnswerService } from "./ask-answer-service";
+import { CodexQuestionTracker } from "./codex-questions";
+import { codexQuestionHint, readCodexQuestionScreen } from "./codex-question-screen";
+import { CodexQuestionAnswerService } from "./codex-question-answer";
 import { maintenance } from "./maintenance";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -1573,8 +1576,20 @@ const poller = new StatusPoller(
   { onChange: (id, busy) => events.emit("session:background-busy", { id, busy }) },
 );
 
-// #3165: answer an open AskUserQuestion dialog from the native panel by typing it into the pane.
+const codexQuestions = new CodexQuestionTracker();
+poller.codexQuestions = codexQuestions;
+const codexAnswers = new CodexQuestionAnswerService({
+  tracker: codexQuestions,
+  session: (id) => store.get(id),
+  withTerminal: (id, thread, run) => service.withQuestionTerminal(id, thread, run),
+});
+
+// Answer provider-native dialogs through the real PTY.
 const askAnswers = new AskAnswerService({
+  codex: {
+    isSession: (id) => store.get(id)?.agentProvider === "codex",
+    answer: (id, toolUseId, answers) => codexAnswers.answer(id, toolUseId, answers),
+  },
   currentAsk: (id) => poller.currentAsk(id),
   askStillOpen: (id, toolUseId) => poller.askStillOpen(id, toolUseId),
   typeKeys: (id, writes, gapMs, stillValid) => service.typeKeys(id, writes, gapMs, stillValid),
@@ -2815,6 +2830,20 @@ const autopilot = new AutopilotService({
   // freshness-gated) and, failing that, a fresh PTY visible read reconstructing a `/login`
   // account-re-login URL (PTY-only — never in the transcript). The `claudeSessionId` precondition
   // gates ONLY the transcript branch, so a `/login` session still reaches the PTY fallback.
+  pendingQuestions: async (id) => {
+    const s = store.get(id);
+    if (!s) return false;
+    if (s.agentProvider !== "codex") return poller.currentAsk(id) !== null;
+    if (poller.blockSnapshot()[id]?.asks?.length) return true;
+    await codexQuestions.refresh(s);
+    const visible = await readVisibleBuffer(id);
+    if (visible === null) return codexQuestions.pending(id).length > 0;
+    return (
+      codexQuestions.observe(s, visible).length > 0 ||
+      codexQuestionHint(visible) !== null ||
+      readCodexQuestionScreen(visible) !== null
+    );
+  },
   pendingAuthUrl: async (id) => {
     const s = store.get(id);
     if (!s) return null;

@@ -50,3 +50,21 @@ describe("askToQuestionForm", () => {
     });
   });
 });
+
+it("preserves Codex question IDs after partial answers and renders free text", () => {
+  const form = askToQuestionForm({
+    toolUseId: "codex",
+    questions: [
+      {
+        id: "2",
+        question: "Details?",
+        header: "",
+        multiSelect: false,
+        options: [],
+        kind: "freeform",
+        allowOther: true,
+      },
+    ],
+  });
+  expect(form.questions[0]).toMatchObject({ id: "2", kind: "freeform", allowOther: false });
+});

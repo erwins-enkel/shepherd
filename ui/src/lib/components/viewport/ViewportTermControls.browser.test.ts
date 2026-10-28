@@ -101,7 +101,7 @@ describe("Codex questions control", () => {
 
   it("sends Alt+Up once per click and keyboard activation", async () => {
     const send = vi.fn();
-    render(ViewportTermControls, { ...baseProps(), codexQuestions: true, send });
+    render(ViewportTermControls, { ...baseProps(), codexQuestionKey: "\x1b[1;3A", send });
     await questionButton().click();
     expect(send.mock.calls).toEqual([["\x1b[1;3A"]]);
     await userEvent.keyboard("{Enter}");
@@ -110,18 +110,29 @@ describe("Codex questions control", () => {
   });
 
   it.each([
-    { mobile: true, touch: true, tab: "term", codexQuestions: false },
-    { mobile: false, touch: true, tab: "term", codexQuestions: true },
-    { mobile: false, touch: false, tab: "term", codexQuestions: true },
-    { mobile: true, touch: true, tab: "diff", codexQuestions: true },
+    { mobile: true, touch: true, tab: "term", codexQuestionKey: null },
+    { mobile: true, touch: true, tab: "diff", codexQuestionKey: "\x1b[1;3A" },
   ])("hides when inapplicable: %j", async (props) => {
     render(ViewportTermControls, { ...baseProps(), ...props });
     await expect.element(questionButton()).not.toBeInTheDocument();
   });
 
+  it("opens the current Shift+Left action on desktop", async () => {
+    const send = vi.fn();
+    render(ViewportTermControls, {
+      ...baseProps(),
+      mobile: false,
+      touch: false,
+      codexQuestionKey: "\x1b[1;2D",
+      send,
+    });
+    await questionButton().click();
+    expect(send.mock.calls).toEqual([["\x1b[1;2D"]]);
+  });
+
   it.each([320, 390])("fits above the key row at %ipx", async (width) => {
     await page.viewport(width, 844);
-    render(ViewportTermControls, { ...baseProps(), codexQuestions: true });
+    render(ViewportTermControls, { ...baseProps(), codexQuestionKey: "\x1b[1;3A" });
     await expect.element(questionButton()).toBeVisible();
     const button = questionButton().element().getBoundingClientRect();
     const row = document.querySelector(".ctrl-row")!.getBoundingClientRect();

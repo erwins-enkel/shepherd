@@ -1280,6 +1280,9 @@ components:
           x-shepherd-open-enum: true
         authUrl: { type: string }
         ask: { $ref: "#/components/schemas/PendingAsk" }
+        asks:
+          type: array
+          items: { $ref: "#/components/schemas/PendingAsk" }
         plan: { $ref: "#/components/schemas/PendingPlan" }
     PendingPlan:
       type: object
@@ -1298,9 +1301,9 @@ components:
       type: object
       additionalProperties: true
       description: >-
-        The AskUserQuestion dialog the agent is waiting on, as data from Claude Code's PreToolUse
-        hook (#3165). Present on a block only while the dialog is hooked and on screen; answer it
-        with POST /api/sessions/{id}/answer-ask. Absent without hooks — the terminal still works.
+        An open Claude or Codex question request corroborated by the native terminal. Answer it
+        with POST /api/sessions/{id}/answer-ask. BlockReason.asks lists all requests; ask mirrors
+        its first entry for older clients. The terminal remains available as a fallback.
       required: [toolUseId, questions]
       properties:
         toolUseId: { type: string }
@@ -1312,6 +1315,14 @@ components:
       additionalProperties: true
       required: [question, header, options, multiSelect]
       properties:
+        id:
+          type: string
+          description: Stable question ID; use the array index when absent.
+        kind:
+          type: string
+          enum: [single, multi, freeform]
+          x-shepherd-open-enum: true
+        allowOther: { type: boolean }
         question: { type: string }
         header: { type: string }
         multiSelect: { type: boolean }
@@ -1330,7 +1341,7 @@ components:
       additionalProperties: false
       required: [toolUseId, answers]
       description: >-
-        One RawAnswer per question; `questionId` is the question's index ("0".."3"), `blockId` is
+        One RawAnswer per question; `questionId` is its `id` or array index when absent, `blockId` is
         ignored. A single answer carries exactly one option index OR `text` (the "Other" answer); a
         multi answer carries at least one option index and/or `text`.
       properties:
@@ -10058,9 +10069,9 @@ paths:
     post:
       operationId: answerAsk
       description: >-
-        Answer the open AskUserQuestion dialog (#3165): the answers are resolved against the hooked
-        questions, typed into the session's terminal as key presses, then verified against
-        PostToolUse. Waits up to 10 s for the verification.
+        Answer an open Claude or Codex question request: answers are validated against the observed
+        questions and typed into the native terminal. Claude PostToolUse or Codex reply records
+        verify delivery; an async acceptance alone does not. Verification waits up to 10 s per question.
       requestBody:
         required: true
         content:
@@ -10084,7 +10095,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "409":
-          description: '"ask_not_open" — no open dialog with that toolUseId (answered in the terminal first, or not a Claude session); "ask_in_flight" — an answer is already being typed.'
+          description: '"ask_not_open" — no open dialog with that toolUseId (answered in the terminal first, or not a supported provider); "ask_in_flight" — an answer is already being typed.'
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

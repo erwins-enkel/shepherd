@@ -1,7 +1,12 @@
-// Only the paired, standalone Codex footer lines advertise this action. A question
-// in the conversation or an isolated shortcut mention must not light the button.
+// Only paired live footer lines authorize this native action.
+export function codexQuestionsKey(screen: string): string | null {
+  const match =
+    /^\s*\?\s+[1-9]\d*\s+questions?(?:\s*·\s*[^\r\n]+)?\s*\r?\n\s*(alt\s*\+\s*↑|shift\s*\+\s*←)\s+to\s+answer[^\S\r\n]*$/im.exec(
+      screen,
+    );
+  return match ? (/^alt/i.test(match[1]) ? "\x1b[1;3A" : "\x1b[1;2D") : null;
+}
+
 export function hasCodexQuestionsHint(screen: string): boolean {
-  return /^\s*\?\s+[1-9]\d*\s+questions?\s*\r?\n\s*alt\s*\+\s*↑\s+to\s+answer[^\S\r\n]*$/im.test(
-    screen,
-  );
+  return codexQuestionsKey(screen) !== null;
 }

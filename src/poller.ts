@@ -35,6 +35,7 @@ import {
 } from "./activity-signal";
 import { readTranscriptTail } from "./activity";
 import type { PendingAsk } from "./ask-user-question";
+import type { CodexQuestionTracker } from "./codex-questions";
 import type { PendingPlan } from "./plan-approval";
 import { detectAuthUrl, detectPendingAuthUrl, detectLoginAuthUrl } from "./auth-url";
 import { MAIN_SESSION_CACHE_TTL } from "./pricing";
@@ -373,6 +374,8 @@ export class StatusPoller {
    *  the same tool_use_id, the clear of the block that carried it, a Stop/SessionEnd or the next ask
    *  ends it. Hook-only: the transcript holds no tool_use while the dialog is open. */
   private pendingAsk = new Map<string, PendingAsk>();
+  private codexQuestionsMissingSince = new Map<string, number>();
+  codexQuestions?: Pick<CodexQuestionTracker, "refresh" | "observe" | "pending" | "prune">;
   /** #2779: the ExitPlanMode approval dialog each session's agent is waiting on, from the
    *  PreToolUse hook — same lifecycle as `pendingAsk`, attached as `plan`. A rejected plan sends no
    *  PostToolUse, so it ends with the clear of the block that carried it or a Stop/SessionEnd. */
@@ -1204,6 +1207,7 @@ export class StatusPoller {
    * terminal (herdr replies agent_not_found in a tight reconnect loop).
    */
   private reapGone(s: Session): void {
+    this.codexQuestions?.observe(s, "");
     if (this.workingWhileBlocked.delete(s.id)) this.onWorkingBlocked(s.id, false);
     this.clearBackgroundBusy(s.id);
     this.bgCapped.delete(s.id);
@@ -1263,8 +1267,49 @@ export class StatusPoller {
     }
   }
 
+  private async reconcileCodexQuestions(s: Session): Promise<boolean> {
+    if (s.agentProvider !== "codex" || !this.codexQuestions) return false;
+    await this.codexQuestions.refresh(s);
+    const visible = await this.herdr.readAsync(s.herdrAgentId, "visible").catch(() => null);
+    if (visible === null) return !!this.lastBlockReason.get(s.id)?.asks;
+    const asks = this.codexQuestions.observe(s, visible);
+    if (!asks.length) {
+      if (this.lastBlockReason.get(s.id)?.asks) {
+        // A repaint or opening the native queue can briefly hide its footer. Require a second
+        // stable observation before withdrawing the form; answer authorization still reads fresh.
+        const since = this.codexQuestionsMissingSince.get(s.id);
+        if (since === undefined) this.codexQuestionsMissingSince.set(s.id, this.now());
+        if (since === undefined || this.now() - since < 2000) return true;
+        this.clearBlock(s.id);
+      }
+      return false;
+    }
+    this.codexQuestionsMissingSince.delete(s.id);
+    const sig = `codex-questions:${JSON.stringify(asks)}`;
+    if (this.lastSig.get(s.id) !== sig) {
+      this.lastSig.set(s.id, sig);
+      this.emitBlock(s.id, {
+        shape: "awaiting-input",
+        options: [],
+        tail: asks.flatMap((a) => a.questions.map((q) => q.question)),
+        ask: asks[0],
+        asks,
+      });
+    }
+    return true;
+  }
+
+  private pushCodexQuestionState(s: Session, status: Session["status"]): void {
+    if (status === "running" && this.codexQuestions?.pending(s.id).length) this.maybeProbe(s);
+    this.maybePushAgentState(s.id);
+  }
+
   private async reconcileAgent(s: Session, agent: HerdrAgent): Promise<void> {
     this.maybeReDriveRestoredAccount(s, agent);
+    const hasCodexQuestions = await this.reconcileCodexQuestions({
+      ...s,
+      herdrAgentId: agent.terminalId,
+    });
     // Re-fold liveness against this tick's fresh match (`lastMatched`) so a herdr-restored pane's
     // strand surfaces on the match change too, not only on the next throttled /proc sweep.
     // Feed `undefined` (silent) while liveness is unknown, so a retained
@@ -1308,6 +1353,9 @@ export class StatusPoller {
       this.blockBackstop?.release(s.id);
     }
     this.onLeaveResting(s.id, s.status, status);
+    if (hasCodexQuestions) {
+      return this.pushCodexQuestionState(s, status);
+    }
     // Phase-1 push block-trigger (issue #704): a Notification awaiting-input edge
     // can classify THIS tick even before herdr latches "blocked". When it handles the
     // session (announced a block), short-circuit so the normal routing below doesn't
@@ -1547,6 +1595,9 @@ export class StatusPoller {
 
   /** Prune tracking state for sessions no longer active (archived/removed). */
   private pruneInactive(activeIds: Set<string>): void {
+    this.codexQuestions?.prune(activeIds);
+    for (const id of this.codexQuestionsMissingSince.keys())
+      if (!activeIds.has(id)) this.codexQuestionsMissingSince.delete(id);
     const tracked = new Set([
       ...this.lastSig.keys(),
       ...this.lastReadAt.keys(),
@@ -1827,6 +1878,10 @@ export class StatusPoller {
       return; // best-effort; retry next cadence
     }
     const hookFresh = this.hookActivityFresh(s.id, t);
+    if (this.codexQuestions?.pending(s.id).length) {
+      if (signals.activity) this.emitProbeActivity(s.id, signals.activity, hookFresh);
+      return;
+    }
     const step = this.livenessFor(s.id).step(s.herdrAgentId, signals, t, hookFresh);
     if (!("pending" in step)) {
       // transcript path: poller owns the transcript activity emit (unchanged gating), then
@@ -1870,6 +1925,7 @@ export class StatusPoller {
    * prior blocked state.
    */
   private applyOutcome(s: Session, o: LivenessOutcome): void {
+    if (this.codexQuestions?.pending(s.id).length) return;
     if (o.clearStaleBlock) {
       if (this.lastSig.has(s.id) && this.lastSig.get(s.id) !== STALL_SIG) this.clearBlock(s.id);
     }

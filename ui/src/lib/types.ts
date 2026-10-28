@@ -696,6 +696,7 @@ export interface BlockReason {
   /** The AskUserQuestion dialog on screen, as data from the PreToolUse hook (#3165). Drives the
    *  native answer dialog; absent without hooks. Mirrors server `PendingAsk`. */
   ask?: PendingAsk;
+  asks?: PendingAsk[];
   /** The ExitPlanMode approval dialog on screen, as data from the PreToolUse hook (#2779). Its
    *  plan is shown above the terminal; approval stays in the terminal. Mirrors server `PendingPlan`. */
   plan?: PendingPlan;
@@ -703,6 +704,9 @@ export interface BlockReason {
 
 /** Mirrors server `AskQuestion` (src/ask-user-question.ts). */
 export interface AskQuestion {
+  id?: string;
+  kind?: "single" | "multi" | "freeform";
+  allowOther?: boolean;
   question: string;
   header: string;
   options: { label: string; description: string }[];

@@ -57,3 +57,13 @@ describe("groupAsksByRepo", () => {
     ]);
   });
 });
+
+it("keeps all requests of a session without duplicating the compatibility ask", () => {
+  const a = ask("first"),
+    b = ask("second");
+  expect(
+    pendingAskEntries([sess("s")], { s: { reason: { ...reason(a), asks: [a, b] }, since: 1 } }).map(
+      (e) => e.ask.toolUseId,
+    ),
+  ).toEqual(["first", "second"]);
+});

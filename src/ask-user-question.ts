@@ -27,10 +27,14 @@ export interface AskOption {
 }
 
 export interface AskQuestion {
+  /** Stable original position when Codex has already received some answers. */
+  id?: string;
   question: string;
   header: string;
   options: AskOption[];
   multiSelect: boolean;
+  kind?: "single" | "multi" | "freeform";
+  allowOther?: boolean;
 }
 
 /** An AskUserQuestion dialog the agent is waiting on, keyed by its tool_use id. */
@@ -122,7 +126,7 @@ export function resolveAskAnswers(
   if (byIndex.size !== questions.length) return null;
   const out: ResolvedAskAnswer[] = [];
   for (const [i, q] of questions.entries()) {
-    const a = byIndex.get(String(i));
+    const a = byIndex.get(q.id ?? String(i));
     const resolved = a ? resolveOne(q, a) : null;
     if (!resolved) return null;
     out.push(resolved);
@@ -138,6 +142,7 @@ function resolveOne(q: AskQuestion, a: RawAnswer): ResolvedAskAnswer | null {
   const inRange = (n: number) => Number.isInteger(n) && n >= 0 && n < q.options.length;
   if (indices.length !== raw.length || !indices.every(inRange)) return null;
   const other = typeof a.text === "string" ? sanitizeOtherText(a.text) : null;
+  if (other && q.kind !== "freeform" && q.allowOther === false) return null;
   const picked = indices.length + (other ? 1 : 0);
   if (q.multiSelect ? picked === 0 : picked !== 1) return null;
   return { question: q, optionIndices: indices, other };

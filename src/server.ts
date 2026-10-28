@@ -5148,7 +5148,8 @@ async function sessionMessagesRead(id: string, url: URL, deps: AppDeps): Promise
     : Math.min(Math.max(raw, 0), MESSAGES_MAX_LIMIT);
   const flag = (name: string) => ["1", "true"].includes(url.searchParams.get(name) ?? "");
   const q = { limit, includeUser: flag("includeUser"), includeTools: flag("includeTools") };
-  return json(await sessionMessages(s, path, q));
+  const block = deps.blocks?.snapshot()[id];
+  return json(await sessionMessages(s, path, q, block?.asks ?? (block?.ask ? [block.ask] : [])));
 }
 
 async function sessionDiffRead(id: string, url: URL, deps: AppDeps): Promise<Response> {
@@ -5808,7 +5809,7 @@ async function handleSessionAnswerAsk({ req, parts, deps }: Ctx): Promise<Respon
   }
   const s = deps.store.get(parts[2]);
   if (!s) return json({ error: "not found" }, 404);
-  if ((s.agentProvider ?? "claude") !== "claude" || !deps.askAnswers) {
+  if (!["claude", "codex"].includes(s.agentProvider ?? "claude") || !deps.askAnswers) {
     return json({ error: "ask_not_open" }, 409);
   }
   const out = await deps.askAnswers.answer(s.id, body.toolUseId, answers as RawAnswer[]);

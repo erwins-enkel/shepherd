@@ -16,7 +16,8 @@
   }: {
     block: Extract<VisualBlock, { type: "question-form" }>;
     answerCtx?: { sessionId: string; locked: boolean };
-    onanswer?: (answers: RawAnswer[]) => void;
+    /** Return false to unlock the form while preserving its draft after an unconfirmed reply. */
+    onanswer?: (answers: RawAnswer[]) => void | boolean | Promise<void | boolean>;
     submitLabel?: string;
   } = $props();
 
@@ -126,7 +127,14 @@
     // form so a double-click can't emit the same round twice.
     if (onanswer) {
       submitted = true;
-      onanswer(buildAnswers());
+      void Promise.resolve(onanswer(buildAnswers()))
+        .then((accepted) => {
+          submitted = accepted !== false;
+        })
+        .catch(() => {
+          submitted = false;
+          errored = true;
+        });
       return;
     }
     if (!answerCtx) return;

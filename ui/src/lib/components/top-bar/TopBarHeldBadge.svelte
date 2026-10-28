@@ -1,7 +1,7 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import { formatResetIn } from "#lib/format.js";
   import type { Gauge } from "../usage-gauges";
+  import HeldSegment from "./HeldSegment.svelte";
 
   // The held-tasks trigger where the usage gauge can't carry it: the phone bar (no inline gauge)
   // and a desktop bar with no usage data. Either way it opens the shared usage panel, whose
@@ -40,30 +40,12 @@
       aria-label={m.topbar_held_badge({ count: heldCount ?? 0 })}
       onclick={onToggle}
     >
-      <svg
-        class="held-glyph"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M5 2h14M5 22h14" />
-        <path d="M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4a2 2 0 0 0 .6-1.4V2" />
-        <path d="M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4a2 2 0 0 0-.6 1.4V22" />
-      </svg>
-      {#if mobile || compactBadges}
-        <span class="held-n">{heldCount}</span>
-      {:else}
-        <span>{m.topbar_held_badge({ count: heldCount ?? 0 })}</span>
-        {#if hotter?.w.resetAt}
-          <span class="held-reset"
-            >{m.topbar_held_resets({ time: formatResetIn(hotter.w.resetAt, nowMs) })}</span
-          >
-        {/if}
-      {/if}
+      <HeldSegment
+        count={heldCount}
+        full={!(mobile || compactBadges)}
+        resetAt={hotter?.w.resetAt ?? null}
+        {nowMs}
+      />
     </button>
   </div>
 {/if}
@@ -78,8 +60,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    /* shared bar control height; the hourglass glyph (#1122) centers instead of
-       stretching the box, so it stays equal-height with its siblings */
+    /* shared bar control height, equal with its siblings */
     min-height: var(--topbar-ctl-h);
     line-height: 1;
     gap: 5px;
@@ -118,20 +99,6 @@
      (where the compact badge keeps its natural ~36px height). */
   .held-badge.mobile {
     min-height: 44px;
-  }
-  .held-badge .held-glyph {
-    width: 1.15em;
-    height: 1.15em;
-    display: block;
-    flex-shrink: 0;
-  }
-  .held-badge .held-n {
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
-  .held-badge .held-reset {
-    color: color-mix(in srgb, var(--color-amber) 70%, transparent);
-    font-size: var(--fs-micro);
   }
   @media (pointer: coarse) {
     .held-badge {

@@ -73,6 +73,9 @@
   }
 
   let {
+    // Consumed by the `class:sheet` directive on the root below; fallow's prop-usage analyzer
+    // doesn't follow Svelte `class:` shorthand, so it false-positives here.
+    // fallow-ignore-next-line unused-component-props
     sheet = false,
     holdPct,
     holdEnabled,

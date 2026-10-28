@@ -1,11 +1,12 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
   import type { CreditWindow, UsageProviderSnapshot } from "#lib/types.js";
-  import { formatResetIn, formatTokenLabel } from "#lib/format.js";
+  import { formatTokenLabel } from "#lib/format.js";
   import { gaugeColor, modelDisplayName, type GaugeKey } from "../usage-gauges";
   import type { CompactUsageView } from "../usage-gauges";
   import type { Gauge } from "../usage-gauges";
   import CreditGauge from "./CreditGauge.svelte";
+  import HeldSegment from "./HeldSegment.svelte";
 
   // The usage trigger. The panel it opens is rendered by TopBar (it is shared with the phone's
   // held badge); this component only draws the inline gauge and, while tasks are held, the
@@ -104,33 +105,7 @@
 
 {#snippet heldSegment(full: boolean)}
   {#if held}
-    <span class="held-seg">
-      <svg
-        class="held-glyph"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M5 2h14M5 22h14" />
-        <path d="M7 2v4.2a2 2 0 0 0 .6 1.4L12 12l4.4-4.4a2 2 0 0 0 .6-1.4V2" />
-        <path d="M17 22v-4.2a2 2 0 0 0-.6-1.4L12 12l-4.4 4.4a2 2 0 0 0-.6 1.4V22" />
-      </svg>
-      {#if full}
-        <span>{m.topbar_held_badge({ count: heldCount })}</span>
-        {#if hotter?.w.resetAt}
-          <span class="held-reset"
-            >{m.topbar_held_resets({ time: formatResetIn(hotter.w.resetAt, nowMs) })}</span
-          >
-        {/if}
-      {:else}
-        <span class="held-n">{heldCount}</span>
-        <span class="vh">{m.topbar_held_badge({ count: heldCount })}</span>
-      {/if}
-    </span>
+    <HeldSegment count={heldCount} {full} resetAt={hotter?.w.resetAt ?? null} {nowMs} />
     <span class="held-sep" aria-hidden="true"></span>
   {/if}
 {/snippet}
@@ -464,42 +439,10 @@
   .gauge-btn.held[aria-expanded="true"] {
     background: color-mix(in srgb, var(--color-amber) 10%, transparent);
   }
-  .held-seg {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    color: var(--color-amber);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.06em;
-    line-height: 1;
-    white-space: nowrap;
-  }
-  .held-glyph {
-    display: block;
-    width: 1.15em;
-    height: 1.15em;
-    flex-shrink: 0;
-  }
-  .held-n {
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
-  .held-reset {
-    color: color-mix(in srgb, var(--color-amber) 70%, transparent);
-    font-size: var(--fs-micro);
-  }
   .held-sep {
     flex-shrink: 0;
     width: 1px;
     height: 16px;
     background: color-mix(in srgb, var(--color-amber) 45%, var(--color-line));
-  }
-  .vh {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
   }
 </style>

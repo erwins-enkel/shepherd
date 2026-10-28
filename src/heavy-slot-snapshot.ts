@@ -105,7 +105,7 @@ function currentRevision(repoPath: string, path: string, now: number): Promise<H
   return rev;
 }
 
-export function lastResultFromJob(job: HeavySlotJobRow, current: HeavySlotRevision) {
+function lastResultFromJob(job: HeavySlotJobRow, current: HeavySlotRevision) {
   const result: HeavySlotLastResult = {
     sessionId: job.sessionId,
     command: job.command,

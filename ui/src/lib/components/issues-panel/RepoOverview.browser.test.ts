@@ -1,10 +1,49 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../../app.css";
 import RepoOverview from "./RepoOverview.svelte";
-import type { DrainStatus, Epic, EpicSummary, Issue } from "#lib/types.js";
+import type {
+  DrainStatus,
+  Epic,
+  EpicAutoBlockerCause,
+  EpicAutoBlockers,
+  EpicAutoFixResult,
+  EpicSummary,
+  Issue,
+} from "#lib/types.js";
+import type { RepoBootstrapView } from "#lib/api.js";
 import { m } from "#lib/paraglide/messages.js";
+import { causeView } from "../epic-auto-fix";
+import { expectMinPx } from "#lib/test-support/geometry.js";
+
+// #3456: the overview asks every listed epic's auto-fix model; offline unless a test serves one.
+const api = vi.hoisted(() => ({
+  getRepoConfig: vi.fn<(repo: string) => Promise<unknown>>(async () => {
+    throw new Error("offline");
+  }),
+  getRepoBootstrap: vi.fn<(repo: string) => Promise<RepoBootstrapView>>(async () => {
+    throw new Error("offline");
+  }),
+  getEpicAutoFix: vi.fn<(repo: string, parent: number) => Promise<EpicAutoBlockers>>(async () => {
+    throw new Error("offline");
+  }),
+  applyEpicAutoFix:
+    vi.fn<(repo: string, parent: number, body: unknown) => Promise<EpicAutoFixResult>>(),
+  updateEpic: vi.fn(async () => ({})),
+  overrideRepoBootstrap: vi.fn(async (): Promise<RepoBootstrapView> => ({
+    state: "active",
+    phase: 2,
+    overrideAt: 1,
+    missing: [],
+    suggested: false,
+  })),
+}));
+
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
+  return { ...actual, ...api };
+});
 
 const B = 20;
 const A = 10;
@@ -425,5 +464,458 @@ describe("RepoOverview (#2622)", () => {
       expect(root().querySelectorAll(".facts > .facts-col")).toHaveLength(1);
       expect(root().querySelector(".facts .run-row")).not.toBeNull();
     });
+  });
+});
+
+describe("repo halt (#3456)", () => {
+  const ok = (id: string) => ({ id, ok: true });
+  const INTERACTIVE: EpicAutoBlockerCause = {
+    code: "sandbox_interactive",
+    scope: "repo",
+    detail: "standard",
+    fix: {
+      changes: { sandboxProfile: "autonomous" },
+      enabled: true,
+      checks: [ok("bwrap"), ok("egress"), ok("remote_https")],
+    },
+  };
+  const CODEX: EpicAutoBlockerCause = {
+    code: "sandbox_provider_unconfined",
+    scope: "epic",
+    detail: "codex",
+    fix: { changes: { agentProvider: "claude" }, enabled: true, checks: [] },
+  };
+  // "Behebung" Fall A — Standard + Codex — with its ways, for the chooser.
+  const STD_CODEX: EpicAutoBlockers = {
+    agentProvider: "codex",
+    causes: [INTERACTIVE, CODEX],
+    options: [
+      {
+        id: "autonomous_claude",
+        changes: { sandboxProfile: "autonomous", agentProvider: "claude" },
+        enabled: true,
+        checks: [ok("bwrap"), ok("egress"), ok("remote_https")],
+      },
+      { id: "trusted", changes: { sandboxProfile: "trusted" }, enabled: true, checks: [] },
+    ],
+    preselect: "autonomous_claude",
+  };
+  const STD_CLAUDE: EpicAutoBlockers = {
+    agentProvider: "claude",
+    causes: [INTERACTIVE],
+    options: [
+      {
+        id: "autonomous",
+        changes: { sandboxProfile: "autonomous" },
+        enabled: true,
+        checks: [ok("cli"), ok("bwrap"), ok("egress"), ok("remote_https")],
+      },
+      { id: "trusted", changes: { sandboxProfile: "trusted" }, enabled: true, checks: [] },
+    ],
+    preselect: "autonomous",
+  };
+  const AUTO_CODEX: EpicAutoBlockers = {
+    agentProvider: "codex",
+    causes: [CODEX],
+    options: [
+      {
+        id: "autonomous_claude",
+        changes: { agentProvider: "claude" },
+        enabled: true,
+        checks: [ok("bwrap"), ok("egress"), ok("remote_https")],
+      },
+      { id: "trusted", changes: { sandboxProfile: "trusted" }, enabled: true, checks: [] },
+    ],
+    preselect: "autonomous_claude",
+  };
+  const clear = (agentProvider: "claude" | "codex"): EpicAutoBlockers => ({
+    agentProvider,
+    causes: [],
+    options: [],
+    preselect: null,
+  });
+
+  // hundesport: #35 leads on Codex, #40 queued on Claude Code, #41 not started on Codex.
+  let served: Record<number, EpicAutoBlockers> = {};
+  let n = 0;
+  let repo = "";
+  const name = () => repo.split("/").pop()!;
+
+  beforeEach(() => {
+    repo = `/repo/hundesport-${++n}`;
+    served = { 35: STD_CODEX, 40: STD_CLAUDE, 41: STD_CODEX };
+    api.getEpicAutoFix.mockReset();
+    api.getEpicAutoFix.mockImplementation(async (_r, parent) => {
+      const b = served[parent];
+      if (!b) throw new Error("503");
+      return b;
+    });
+    api.applyEpicAutoFix.mockReset();
+    api.getRepoBootstrap.mockReset();
+    api.getRepoBootstrap.mockResolvedValue({
+      state: "done",
+      phase: 5,
+      overrideAt: null,
+      missing: [],
+      suggested: false,
+    });
+  });
+
+  function haltDrain(): DrainStatus {
+    return {
+      repoPath: repo,
+      enabled: true,
+      paused: false,
+      reason: "sandbox_provider_unconfined",
+      detail: "codex",
+      queued: 1,
+      inFlight: 0,
+      max: 2,
+      epicParent: 35,
+      runSummary: {
+        leadingEpic: 35,
+        windingDown: [],
+        slots: { used: 0, max: 2, holders: [] },
+        next: [17, 18],
+        after: [],
+        queued: [40],
+      },
+    };
+  }
+
+  function leader(): Epic {
+    return {
+      ...leading(),
+      repoPath: repo,
+      parentIssueNumber: 35,
+      parentTitle: "Hundesport-MVP",
+      run: { repoPath: repo, parentIssueNumber: 35, mode: "auto", status: "running" },
+    };
+  }
+
+  function show(over: Record<string, unknown> = {}) {
+    return render(RepoOverview, {
+      epics: [summaryOf(35, 0, 18), summaryOf(40, 0, 4), summaryOf(41, 0, 3)],
+      ...quiet,
+      repoPath: repo,
+      drain: haltDrain(),
+      leadingRecord: leader(),
+      titleFor,
+      onselect: vi.fn(),
+      ...over,
+    });
+  }
+
+  const banners = () => root().querySelectorAll<HTMLElement>("[data-repo-halt]");
+  const card = (parent: number) =>
+    [
+      ...root().querySelectorAll<HTMLElement>(
+        `section[aria-label="${m.repooverview_epics()}"] .rows > li`,
+      ),
+    ].find((li) => li.querySelector(".num")?.textContent === `#${parent}`)!;
+  const halt = (parent: number) => card(parent).querySelector<HTMLElement>("[data-epic-card-halt]");
+  const button = (el: ParentNode, text: string) =>
+    [...el.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === text);
+  const loaded = () => vi.waitFor(() => expect(banners()).toHaveLength(1));
+
+  it("names the repo halt once on top and each epic's own cause or pre-check at its card", async () => {
+    show();
+    await loaded();
+    const state = run().querySelector<HTMLElement>(".run-state")!;
+    expect(state.textContent).toContain(
+      m.repooverview_leading({ epic: 35, state: m.epic_run_state_halted_sandbox() }),
+    );
+    expect(state.classList.contains("tone-halt")).toBe(true);
+
+    const banner = banners()[0]!;
+    expect(run().contains(banner)).toBe(true);
+    expect(banner.textContent).toContain(m.repooverview_halt_title({ repo: name() }));
+    expect(banner.textContent).toContain(m.epic_autofix_short_interactive());
+    expect(banner.textContent).toContain(m.repooverview_halt_affects_many({ count: 3 }));
+    expect(banner.querySelector(".hc-chip")?.textContent).toBe(m.epic_autofix_scope_repo());
+    expect(button(banner, m.repooverview_halt_autonomous())).toBeDefined();
+    expect(button(banner, m.repooverview_halt_other())).toBeDefined();
+    // The repo's reason is said once, not per epic.
+    expect(root().textContent!.split(m.epic_autofix_short_interactive()).length - 1).toBe(1);
+
+    // The leader: the repo's cause only points up, its CLI cause carries its own fix.
+    const held = halt(35)!;
+    expect(held.dataset.epicCardHalt).toBe("halted");
+    const lines = [...held.querySelectorAll(".line")];
+    expect(lines).toHaveLength(2);
+    expect(lines[0]!.textContent).toContain(
+      `${causeView(INTERACTIVE).what} ${m.repooverview_halt_see_above()}`,
+    );
+    expect(lines[0]!.querySelector("button")).toBeNull();
+    expect(lines[1]!.textContent).toContain(`${causeView(CODEX).what} ${causeView(CODEX).why}`);
+    expect(button(lines[1]!, m.repooverview_cli_switch({ cli: "Claude Code" }))).toBeDefined();
+
+    // Queued on Claude Code: waits on the repo, otherwise ready.
+    const queued = halt(40)!;
+    expect(queued.dataset.epicCardHalt).toBe("waits");
+    await vi.waitFor(() =>
+      expect(queued.textContent).toContain(
+        `${m.repooverview_precheck_waits()} ${m.repooverview_precheck_ready()} ✓ ${m.epic_autofix_cli({ cli: "Claude Code" })} · ✓ ${m.repooverview_precheck_bootstrap_done()}`,
+      ),
+    );
+
+    // Not started on Codex: what would hold it on start, its own cause only.
+    const idle = halt(41)!;
+    expect(idle.dataset.epicCardHalt).toBe("precheck");
+    expect(idle.textContent).toContain(
+      m.repooverview_precheck_would_halt({
+        reason: m.epic_autofix_short_provider({ cli: "Codex" }),
+      }),
+    );
+    expect(idle.textContent).not.toContain(m.epic_autofix_scope_repo());
+
+    const legend = root().querySelector("[data-halt-legend]")!;
+    expect(legend.querySelectorAll("li")).toHaveLength(3);
+    expect(legend.textContent).toContain(m.repooverview_legend_repo());
+    // Nothing started: the pre-check only asked.
+    expect(api.applyEpicAutoFix).not.toHaveBeenCalled();
+  });
+
+  it("Switch to Autonomous lifts the repo halt; the Codex epics keep their own with its fix", async () => {
+    show();
+    await loaded();
+    api.applyEpicAutoFix.mockResolvedValueOnce({
+      previous: { sandboxProfile: "inherit" },
+      blockers: AUTO_CODEX,
+    });
+    served = { 35: AUTO_CODEX, 40: clear("claude"), 41: AUTO_CODEX };
+    button(banners()[0]!, m.repooverview_halt_autonomous())!.click();
+
+    await vi.waitFor(() => expect(banners()).toHaveLength(0));
+    expect(api.applyEpicAutoFix).toHaveBeenCalledWith(repo, 35, { cause: "sandbox_interactive" });
+    const done = run().querySelector<HTMLElement>("[data-repo-halt-done]")!;
+    expect(done.getAttribute("role")).toBe("status");
+    expect(done.textContent).toContain(
+      m.epic_autofix_done_sandbox({ repo: name(), profile: m.epic_autofix_profile_autonomous() }),
+    );
+    const undo = button(done, m.epic_autofix_undo())!;
+    await vi.waitFor(() => expect(document.activeElement).toBe(undo));
+
+    for (const parent of [35, 41]) {
+      const lines = [...halt(parent)!.querySelectorAll(".line")];
+      expect(lines).toHaveLength(1);
+      expect(lines[0]!.textContent).not.toContain(m.repooverview_halt_see_above());
+      expect(button(lines[0]!, m.repooverview_cli_switch({ cli: "Claude Code" }))).toBeDefined();
+    }
+    expect(halt(40)).toBeNull();
+
+    api.applyEpicAutoFix.mockResolvedValueOnce({ previous: {}, blockers: STD_CODEX });
+    undo.click();
+    await vi.waitFor(() =>
+      expect(api.applyEpicAutoFix).toHaveBeenLastCalledWith(repo, 35, {
+        restore: { sandboxProfile: "inherit" },
+      }),
+    );
+  });
+
+  it("offers no Autonomous where this host can't confine", async () => {
+    const cannot: EpicAutoBlockerCause = {
+      ...INTERACTIVE,
+      fix: { ...INTERACTIVE.fix!, enabled: false, why: "bwrap" },
+    };
+    const noBwrap: EpicAutoBlockerCause = {
+      code: "sandbox_backend_unavailable",
+      scope: "host",
+      detail: "standard",
+    };
+    const model = { ...STD_CLAUDE, causes: [cannot, noBwrap] };
+    served = { 35: model, 40: model, 41: model };
+    show();
+    await loaded();
+    const banner = banners()[0]!;
+    expect(button(banner, m.repooverview_halt_autonomous())).toBeUndefined();
+    expect(button(banner, m.repooverview_halt_other())).toBeDefined();
+    expect(banner.textContent).toContain(m.epic_autofix_short_backend());
+  });
+
+  it("Other choice … opens the held epic's ways inline; Escape closes back onto it", async () => {
+    show();
+    await loaded();
+    const other = button(banners()[0]!, m.repooverview_halt_other())!;
+    other.click();
+    const group = await vi.waitFor(() => {
+      const g = banners()[0]!.querySelector<HTMLElement>("[role=group]");
+      expect(g).not.toBeNull();
+      return g!;
+    });
+    expect(other.getAttribute("aria-expanded")).toBe("true");
+    expect(group.textContent).toContain(m.epic_row_fix_title({ parent: 35 }));
+    group.querySelector<HTMLInputElement>("input[type=radio]")!.focus();
+    await userEvent.keyboard("{Escape}");
+    await vi.waitFor(() => expect(banners()[0]!.querySelector("[role=group]")).toBeNull());
+    await vi.waitFor(() => expect(document.activeElement).toBe(other));
+
+    other.click();
+    api.applyEpicAutoFix.mockResolvedValueOnce({
+      previous: { sandboxProfile: "inherit", agentProvider: "codex", model: null, effort: null },
+      blockers: clear("claude"),
+    });
+    const apply = await vi.waitFor(() => {
+      const b = button(banners()[0]!, m.epic_autofix_apply());
+      expect(b).toBeDefined();
+      return b!;
+    });
+    apply.click();
+    await vi.waitFor(() =>
+      expect(api.applyEpicAutoFix).toHaveBeenCalledWith(repo, 35, { option: "autonomous_claude" }),
+    );
+  });
+
+  it("CLI to Claude Code at a card switches only that epic and confirms there", async () => {
+    show();
+    await loaded();
+    api.applyEpicAutoFix.mockResolvedValueOnce({
+      previous: { agentProvider: "codex", model: null, effort: null },
+      blockers: STD_CLAUDE,
+    });
+    served = { ...served, 41: STD_CLAUDE };
+    button(halt(41)!, m.repooverview_cli_switch({ cli: "Claude Code" }))!.click();
+    await vi.waitFor(() =>
+      expect(api.applyEpicAutoFix).toHaveBeenCalledWith(repo, 41, {
+        cause: "sandbox_provider_unconfined",
+      }),
+    );
+    const done = await vi.waitFor(() => {
+      const d = card(41).querySelector<HTMLElement>("[data-epic-card-done]");
+      expect(d).not.toBeNull();
+      return d!;
+    });
+    expect(done.textContent).toContain(m.repooverview_done_cli({ epic: 41, cli: "Claude Code" }));
+    await vi.waitFor(() => expect(halt(41)?.dataset.epicCardHalt).toBe("waits"));
+    // The repo's halt stays: only the epic changed.
+    expect(banners()).toHaveLength(1);
+    expect(run().querySelector("[data-repo-halt-done]")).toBeNull();
+  });
+
+  it("a healthy repo shows no banner, no card lines and no legend", async () => {
+    served = { 35: clear("claude"), 40: clear("claude"), 41: clear("claude") };
+    show({ drain: { ...haltDrain(), reason: null, detail: null } });
+    await vi.waitFor(() => expect(api.getEpicAutoFix).toHaveBeenCalledTimes(3));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(banners()).toHaveLength(0);
+    expect(root().querySelector("[data-epic-card-halt]")).toBeNull();
+    expect(root().querySelector("[data-halt-legend]")).toBeNull();
+  });
+
+  it("asks no model for an epic winding down or finished", async () => {
+    const d = haltDrain();
+    d.runSummary = { ...d.runSummary!, windingDown: [{ epic: 50, inFlight: [51] }] };
+    show({
+      epics: [summaryOf(35, 0, 18), summaryOf(50, 1, 3), summaryOf(60, 2, 2)],
+      drain: d,
+    });
+    await loaded();
+    expect(api.getEpicAutoFix.mock.calls.map(([, p]) => p)).toEqual([35]);
+    expect(banners()[0]!.textContent).toContain(m.repooverview_halt_affects_one());
+  });
+
+  it("fits a phone: no sideways scroll, touch-sized controls", async () => {
+    await page.viewport(390, 844);
+    show();
+    await loaded();
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+    const banner = banners()[0]!;
+    for (const b of [
+      button(banner, m.repooverview_halt_autonomous())!,
+      button(banner, m.repooverview_halt_other())!,
+      button(halt(41)!, m.repooverview_cli_switch({ cli: "Claude Code" }))!,
+    ])
+      expectMinPx(b.getBoundingClientRect().height, 44, b.textContent ?? "");
+  });
+});
+
+describe("drain holds (#3457)", () => {
+  const holds = () => [...root().querySelectorAll<HTMLElement>("[data-epic-hold]")];
+  const epicCard = (parent: number) =>
+    [
+      ...root().querySelectorAll<HTMLElement>(
+        `section[aria-label="${m.repooverview_epics()}"] .rows > li`,
+      ),
+    ].find((li) => li.querySelector(".num")?.textContent === `#${parent}`)!;
+  const legend = () => root().querySelector<HTMLElement>("[data-halt-legend]");
+
+  function show(over: Partial<DrainStatus>, props: Record<string, unknown> = {}) {
+    const onopenautomation = vi.fn();
+    render(RepoOverview, {
+      epics: [summaryOf(B, 0, 3), summaryOf(A, 1, 2)],
+      ...quiet,
+      drain: { ...drain(), paused: true, ...over },
+      leadingRecord: leading(),
+      titleFor,
+      onselect: vi.fn(),
+      onopenautomation,
+      ...props,
+    });
+    return { onopenautomation };
+  }
+
+  beforeEach(() => {
+    api.updateEpic.mockClear();
+    api.overrideRepoBootstrap.mockClear();
+  });
+
+  it("names an unfinished bootstrap once at the top, not at a card, with its actions", async () => {
+    const { onopenautomation } = show({ reason: "bootstrap_incomplete", detail: "p2" });
+    await vi.waitFor(() => expect(holds()).toHaveLength(1));
+    const line = holds()[0]!;
+    expect(line.dataset.scope).toBe("repo");
+    expect(run().contains(line)).toBe(true);
+    expect(epicCard(B).querySelector("[data-epic-hold]")).toBeNull();
+    await page.getByRole("button", { name: m.epic_rowhold_bootstrap_view() }).click();
+    expect(onopenautomation).toHaveBeenCalledOnce();
+    await page.getByRole("button", { name: m.automation_bootstrap_override() }).click();
+    await vi.waitFor(() => expect(api.overrideRepoBootstrap).toHaveBeenCalledWith("/repo", true));
+  });
+
+  it("names it with no epic leading too", async () => {
+    show({
+      reason: "bootstrap_incomplete",
+      detail: "p2",
+      epicParent: null,
+      runSummary: { ...drain().runSummary!, leadingEpic: null },
+    });
+    await vi.waitFor(() => expect(holds()).toHaveLength(1));
+    expect(run().contains(holds()[0]!)).toBe(true);
+  });
+
+  it("puts the run's usage hold at the leading epic's card, with RUN in the legend", async () => {
+    show({ reason: "usage", detail: "91" });
+    await vi.waitFor(() => expect(holds()).toHaveLength(1));
+    const line = holds()[0]!;
+    expect(epicCard(B).contains(line)).toBe(true);
+    expect(run().contains(line)).toBe(false);
+    expect(legend()?.textContent).toContain(m.repooverview_legend_run());
+    await page.getByRole("button", { name: m.epic_rowhold_usage_lift() }).click();
+    await vi.waitFor(() =>
+      expect(api.updateEpic).toHaveBeenCalledWith("/repo", B, { ignoreUsageCeiling: true }),
+    );
+  });
+
+  it("an epic hold names no RUN in the legend; a pending approval reads amber at its card", async () => {
+    show({ reason: "awaiting_approval", detail: "21" });
+    await vi.waitFor(() => expect(holds()).toHaveLength(1));
+    expect(epicCard(B).contains(holds()[0]!)).toBe(true);
+    expect(holds()[0]!.dataset.tone).toBe("wait");
+    expect(legend()?.textContent).not.toContain(m.repooverview_legend_run());
+  });
+
+  it("in label mode a usage or agent hold has no epic to sit at: no line, no legend", async () => {
+    const label = { epicParent: null, runSummary: { ...drain().runSummary!, leadingEpic: null } };
+    show({ ...label, reason: "usage", detail: "91" });
+    await expect.element(page.getByText("Epic 20").first()).toBeVisible();
+    expect(holds()).toHaveLength(0);
+    expect(legend()).toBeNull();
+  });
+
+  it("without a hold the overview draws no hold line and no legend", async () => {
+    show({ reason: null, paused: false });
+    await expect.element(page.getByText("Epic 20").first()).toBeVisible();
+    expect(holds()).toHaveLength(0);
+    expect(legend()).toBeNull();
   });
 });

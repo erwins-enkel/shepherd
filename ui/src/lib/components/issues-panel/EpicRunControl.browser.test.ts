@@ -8,6 +8,8 @@ import type {
   DrainRunSummary,
   DrainStatus,
   Epic,
+  EpicAutoBlockers,
+  EpicAutoFixResult,
   EpicChild,
   EpicSummary,
   GitState,
@@ -17,6 +19,8 @@ import { m } from "#lib/paraglide/messages.js";
 import { formatReset } from "#lib/format.js";
 import { toasts } from "#lib/toasts.svelte.js";
 import { ApiError } from "#lib/api.js";
+import { issueList } from "../epic-auto-fix";
+import { expectQuietLegible } from "#lib/test-support/contrast.js";
 
 const api = vi.hoisted(() => ({
   updateEpic: vi.fn(async () => ({})),
@@ -31,6 +35,14 @@ const api = vi.hoisted(() => ({
   overrideEpicBaseHold: vi.fn(async (): Promise<void> => {}),
   getRepoConfig: vi.fn<(repo: string) => Promise<unknown>>(async () => {
     throw new Error("offline");
+  }),
+  getEpicAutoFix: vi.fn<(repo: string, parent: number) => Promise<EpicAutoBlockers>>(async () => {
+    throw new Error("not needed");
+  }),
+  applyEpicAutoFix: vi.fn<
+    (repo: string, parent: number, body: unknown) => Promise<EpicAutoFixResult>
+  >(async () => {
+    throw new Error("not needed");
   }),
 }));
 
@@ -139,6 +151,8 @@ beforeEach(() => {
   api.getDrain.mockResolvedValue([]);
   api.reworkEpicBase.mockReset();
   api.overrideEpicBaseHold.mockReset();
+  api.getEpicAutoFix.mockClear();
+  api.applyEpicAutoFix.mockReset();
 });
 
 describe("EpicRunControl — acceptance scenario (#2620)", () => {
@@ -1130,5 +1144,271 @@ describe("EpicRunControl incremental merge gate", () => {
     });
     await expect.element(warning()).toBeInTheDocument();
     expect(wait().query()).toBeNull();
+  });
+});
+
+describe("EpicRunControl sandbox halt (#3454)", () => {
+  let n = 0;
+  const repo = () => `/repo/halt-${++n}`;
+  const ok = (id: string) => ({ id, ok: true });
+  // "Behebung" Fall A: the repo on Standard, the epic on Codex.
+  const FALL_A: EpicAutoBlockers = {
+    causes: [
+      { code: "sandbox_interactive", scope: "repo", detail: "standard" },
+      { code: "sandbox_provider_unconfined", scope: "epic", detail: "codex" },
+    ],
+    options: [
+      {
+        id: "autonomous_claude",
+        changes: { sandboxProfile: "autonomous", agentProvider: "claude" },
+        enabled: true,
+        checks: [ok("bwrap"), ok("egress"), ok("remote_https")],
+      },
+      { id: "trusted", changes: { sandboxProfile: "trusted" }, enabled: true, checks: [] },
+      {
+        id: "autonomous",
+        changes: { sandboxProfile: "autonomous" },
+        enabled: false,
+        why: "cli",
+        checks: [{ id: "cli", ok: false }, ok("bwrap"), ok("egress"), ok("remote_https")],
+      },
+    ],
+    preselect: "autonomous_claude",
+  };
+  const CLEAR: EpicAutoBlockers = { causes: [], options: [], preselect: null };
+  const PREVIOUS = { sandboxProfile: "inherit" as const, agentProvider: "codex" as const };
+  const free = (holders: DrainRunSummary["slots"]["holders"] = []) =>
+    summary({
+      windingDown: [],
+      slots: { used: holders.length, max: 2, holders },
+      next: [21, 22],
+      after: [23],
+    });
+  const halted = () =>
+    drain({
+      reason: "sandbox_provider_unconfined",
+      detail: "codex",
+      paused: true,
+      runSummary: free(),
+    });
+  const readyEpic = (c21: EpicChild["state"] = "ready") =>
+    epic(B, { agentProvider: "codex" }, [
+      child(21, c21),
+      child(22, "ready"),
+      child(23, "blocked", [21]),
+    ]);
+  const card = () => document.querySelector("[data-epic-halt-card]");
+  const radios = () => page.getByRole("radio").elements() as HTMLInputElement[];
+  const halts = () => page.getByText(m.epic_setting_halts(), { exact: true }).elements();
+
+  it("Fall A: halted · sandbox, the ready children, two causes, three ways with one disabled", async () => {
+    api.getEpicAutoFix.mockResolvedValue(FALL_A);
+    const repoPath = repo();
+    render(EpicRunControl, { repoPath, parent: B, epic: readyEpic(), drain: halted(), titleFor });
+
+    await expect.element(page.getByText(m.epic_run_state_halted_sandbox())).toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.epic_autofix_head_many({ issues: issueList([21, 22]) })))
+      .toBeInTheDocument();
+    expect(api.getEpicAutoFix).toHaveBeenCalledWith(repoPath, B);
+    const chip = (name: string) => page.getByRole("button", { name, exact: true });
+    await expect.element(chip(m.epic_autofix_scope_repo())).toBeVisible();
+    await expect.element(chip(m.epic_autofix_scope_epic())).toBeVisible();
+    expect(radios()).toHaveLength(3);
+    expect(radios().filter((r) => r.disabled)).toHaveLength(1);
+    expect(radios().find((r) => r.checked)?.value).toBe("autonomous_claude");
+    // The card replaces the hold line; the footer marks both settings at fault.
+    expect(
+      page.getByText(m.epic_hold_sandbox_provider_unconfined({ cli: "Codex" })).query(),
+    ).toBeNull();
+    expect(halts()).toHaveLength(2);
+  });
+
+  it("Halt → Übernehmen → Läuft → Rückgängig", async () => {
+    api.getEpicAutoFix.mockResolvedValue(FALL_A);
+    api.applyEpicAutoFix
+      .mockResolvedValueOnce({ previous: PREVIOUS, blockers: CLEAR })
+      .mockResolvedValueOnce({ previous: { sandboxProfile: "autonomous" }, blockers: FALL_A });
+    const repoPath = repo();
+    const repoName = repoPath.split("/").pop()!;
+    const { rerender } = await render(EpicRunControl, {
+      repoPath,
+      parent: B,
+      epic: readyEpic(),
+      drain: halted(),
+      titleFor,
+    });
+
+    await page
+      .getByRole("button", { name: m.epic_autofix_apply_start({ issues: issueList([21, 22]) }) })
+      .click();
+    expect(api.applyEpicAutoFix).toHaveBeenCalledWith(repoPath, B, { option: "autonomous_claude" });
+    const done = `${m.epic_autofix_done_sandbox({ repo: repoName, profile: m.epic_autofix_profile_autonomous() })} ${m.epic_autofix_done_cli({ cli: m.agent_provider_claude() })}`;
+    await expect.element(page.getByText(done)).toBeInTheDocument();
+    expect(card()).toBeNull();
+
+    // The drain starts #21; #22 is still on its way.
+    const holder = { sessionId: "s21", desig: "TASK-21", issueNumber: 21, epicParent: B };
+    await rerender({
+      epic: readyEpic("running"),
+      drain: drain({ reason: null, runSummary: free([holder]) }),
+    });
+    await expect.element(page.getByText(m.epic_run_state_running())).toBeInTheDocument();
+    await expect.element(page.getByText(m.epic_run_now_starting())).toBeInTheDocument();
+    await expect.element(page.getByText(TITLES[22]!)).toBeInTheDocument();
+    expect(halts()).toHaveLength(0);
+
+    await page.getByRole("button", { name: m.epic_autofix_undo() }).click();
+    expect(api.applyEpicAutoFix).toHaveBeenLastCalledWith(repoPath, B, { restore: PREVIOUS });
+    await expect.element(page.getByText(done)).not.toBeInTheDocument();
+  });
+
+  it("a failed apply keeps the card and says so", async () => {
+    api.getEpicAutoFix.mockResolvedValue(FALL_A);
+    api.applyEpicAutoFix.mockRejectedValueOnce(new ApiError(400, "nope"));
+    const info = vi.spyOn(toasts, "info");
+    render(EpicRunControl, {
+      repoPath: repo(),
+      parent: B,
+      epic: readyEpic(),
+      drain: halted(),
+      titleFor,
+    });
+    await page
+      .getByRole("button", { name: m.epic_autofix_apply_start({ issues: issueList([21, 22]) }) })
+      .click();
+    await vi.waitFor(() =>
+      expect(info).toHaveBeenCalledWith(m.epic_autofix_failed(), expect.anything()),
+    );
+    expect(card()).not.toBeNull();
+    info.mockRestore();
+  });
+
+  it("offers all automation settings beside the apply button", async () => {
+    api.getEpicAutoFix.mockResolvedValue(FALL_A);
+    const onopenautomation = vi.fn();
+    render(EpicRunControl, {
+      repoPath: repo(),
+      parent: B,
+      epic: readyEpic(),
+      drain: halted(),
+      titleFor,
+      onopenautomation,
+    });
+    await page.getByRole("button", { name: m.epic_autofix_all_settings() }).click();
+    expect(onopenautomation).toHaveBeenCalled();
+  });
+
+  it("keeps the hold line when the model can't be loaded", async () => {
+    api.getEpicAutoFix.mockRejectedValueOnce(new Error("503"));
+    render(EpicRunControl, {
+      repoPath: repo(),
+      parent: B,
+      epic: readyEpic(),
+      drain: halted(),
+      titleFor,
+    });
+    await expect
+      .element(page.getByText(m.epic_hold_sandbox_provider_unconfined({ cli: "Codex" })))
+      .toBeInTheDocument();
+    expect(card()).toBeNull();
+  });
+
+  // "Behebung" Fall C: bubblewrap missing, SSH remote — failed checks and the host hint in red.
+  const FALL_C: EpicAutoBlockers = {
+    causes: [
+      { code: "sandbox_interactive", scope: "repo", detail: "standard" },
+      { code: "sandbox_backend_unavailable", scope: "host", detail: "standard" },
+    ],
+    options: [
+      {
+        id: "autonomous",
+        changes: { sandboxProfile: "autonomous" },
+        enabled: false,
+        why: "bwrap",
+        checks: [
+          ok("cli"),
+          { id: "bwrap", ok: false },
+          ok("egress"),
+          { id: "remote_https", ok: false },
+        ],
+      },
+      { id: "trusted", changes: { sandboxProfile: "trusted" }, enabled: true, checks: [] },
+    ],
+    preselect: "trusted",
+  };
+  const legibleIn = [
+    {
+      name: "A",
+      blockers: FALL_A,
+      selectors: [
+        ".halt-head",
+        ".scope",
+        ".what",
+        "legend",
+        ".way-title",
+        ".where",
+        ".risk",
+        ".checks > span",
+        ".way.disabled .way-title",
+        ".way.disabled .way-text > span:nth-child(2)",
+        ".faint",
+      ],
+    },
+    {
+      name: "C",
+      blockers: FALL_C,
+      selectors: [".checks .fail", ".way.disabled .way-text > span:last-child"],
+    },
+  ];
+  for (const theme of ["light", "dark"] as const) {
+    for (const { name, blockers, selectors } of legibleIn) {
+      it(`keeps the halt card's text at AA contrast, Fall ${name}: ${theme}`, async () => {
+        document.documentElement.dataset.theme = theme;
+        try {
+          api.getEpicAutoFix.mockResolvedValue(blockers);
+          render(EpicRunControl, {
+            repoPath: repo(),
+            parent: B,
+            epic: readyEpic(),
+            drain: halted(),
+            titleFor,
+          });
+          await expect.element(page.getByText(m.epic_autofix_legend())).toBeInTheDocument();
+          const root = card() as HTMLElement;
+          const texts = selectors.map((sel) => {
+            const el = root.querySelector<HTMLElement>(sel);
+            expect(el, sel).not.toBeNull();
+            return el!;
+          });
+          texts.push(...document.querySelectorAll<HTMLElement>(".tag.halt"));
+          for (const el of texts) {
+            try {
+              expectQuietLegible(el);
+            } catch (e) {
+              throw new Error(`"${el.textContent?.slice(0, 30)}": ${e}`, { cause: e });
+            }
+          }
+        } finally {
+          document.documentElement.removeAttribute("data-theme");
+        }
+      });
+    }
+  }
+
+  it("without a sandbox halt the run area reads as before: no card, no 'halts', no request", async () => {
+    render(EpicRunControl, {
+      repoPath: repo(),
+      parent: B,
+      epic: readyEpic(),
+      drain: drain({ reason: null, runSummary: free() }),
+      titleFor,
+    });
+    await expect.element(page.getByText(m.epic_run_state_running())).toBeInTheDocument();
+    expect(card()).toBeNull();
+    expect(halts()).toHaveLength(0);
+    expect(api.getEpicAutoFix).not.toHaveBeenCalled();
+    // The repo's sandbox is in the footer, marked as the repo's setting.
+    await expect.element(page.getByText(m.epic_sandbox_repo_tag(), { exact: true })).toBeVisible();
   });
 });

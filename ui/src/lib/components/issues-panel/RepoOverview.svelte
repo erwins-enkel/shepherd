@@ -1,8 +1,11 @@
 <script lang="ts">
-  import type { DrainStatus, Epic, EpicSummary } from "#lib/types.js";
+  import type { DrainStatus, Epic, EpicAutoFixOptionId, EpicSummary } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { labelChipStyle } from "#lib/label-color.js";
+  import { basename } from "#lib/basename.js";
   import { repoOverviewRunExplanation } from "#lib/tooltips/explanations.js";
+  import { RepoPrecheck } from "#lib/repo-precheck.svelte.js";
+  import { repoBootstrap } from "#lib/repo-bootstrap.svelte.js";
   import {
     epicRole,
     epicRunState,
@@ -10,9 +13,16 @@
     epicRunSteps,
     overviewRunState,
     queuePosition,
+    sandboxHaltedEpic,
   } from "../epic-panel";
   import { epicKey, STALE_DAYS, type RunningIssue, type StaleSummary } from "../issues-panel";
+  import { epicHaltView, repoHaltView } from "../repo-halt";
+  import { drainHold } from "../epic-hold";
   import RunPanel from "./RunPanel.svelte";
+  import RepoHaltBanner from "./RepoHaltBanner.svelte";
+  import EpicCardHalt from "./EpicCardHalt.svelte";
+  import EpicHoldLine from "./EpicHoldLine.svelte";
+  import "./halt-controls.css";
   import EpicRunSteps from "./EpicRunSteps.svelte";
   import EpicRoleBadge from "./EpicRoleBadge.svelte";
   import EpicQueueList from "./EpicQueueList.svelte";
@@ -25,6 +35,9 @@
   // list beside it can't say (#2638), in two columns (#2950): left what runs right now (even
   // when the list's filters hide it) and what has lain untouched, right the open issues per
   // label as list filters; then the next step. No second issue list — the list is right there.
+  // A halt in the repo's sandbox or on this host is said once, at the top of the run area; each
+  // epic card shows its own cause or its pre-check (#3456). The drain's other holds likewise: the
+  // repo's (project bootstrap) once at the top, the run's or the epic's at its card (#3457).
 
   let {
     repoPath,
@@ -114,6 +127,67 @@
     return role === "leading" ? 0 : role === "winding" ? 1 : role === "queued" ? 2 : 3;
   }
 
+  // #3456: every epic still to finish gets its pre-check — the leader, queued and not-started
+  // ones; an epic winding down starts nothing new.
+  const precheck = new RepoPrecheck();
+  const candidates = $derived(
+    cards
+      .filter((c) => c.role !== "winding" && c.epic.merged < c.epic.total)
+      .map((c) => c.epic.parentIssueNumber),
+  );
+  $effect(() => precheck.watch(repoPath, candidates, drain));
+  $effect(() => void repoBootstrap.load(repoPath));
+  const repoName = $derived(basename(repoPath));
+  const halted = $derived(sandboxHaltedEpic(drain));
+  const repoHalt = $derived(repoHaltView(precheck.models, candidates, halted));
+  const cardHalts = $derived(
+    Object.fromEntries(
+      candidates.flatMap((p) => {
+        const model = precheck.models[p];
+        const view = model
+          ? epicHaltView(model, {
+              halted: p === halted,
+              bootstrap: repoBootstrap.viewFor(repoPath),
+            })
+          : null;
+        return view ? [[p, view]] : [];
+      }),
+    ),
+  );
+  // #3457: bootstrap, usage, base, agent or approval — with the action that already exists.
+  const hold = $derived(drainHold(drain));
+  const repoHold = $derived(hold?.scope === "repo" ? hold : null);
+  // The run's or the epic's hold sits at the card of the epic the drain runs — none in label mode.
+  const epicHold = $derived(
+    hold && hold.scope !== "repo" && drain?.epicParent != null ? hold : null,
+  );
+  const showLegend = $derived(
+    repoHalt != null || Object.keys(cardHalts).length > 0 || repoHold != null || epicHold != null,
+  );
+  // The banner's chooser offers the held epic's ways; a fix confirms where it was applied.
+  const bannerTarget = $derived(repoHalt ? (precheck.models[repoHalt.target] ?? null) : null);
+  const bannerFix = $derived(precheck.applied?.at === "repo" ? precheck.applied : null);
+
+  function cardHalt(parent: number) {
+    return cardHalts[parent] ?? null;
+  }
+  function cardHold(parent: number) {
+    return drain?.epicParent === parent ? epicHold : null;
+  }
+  function cardFix(parent: number) {
+    const fix = precheck.applied;
+    return fix?.at === "epic" && fix.parent === parent ? fix : null;
+  }
+  function applyAutonomous(): Promise<boolean> {
+    const via = repoHalt?.autonomous;
+    return via == null
+      ? Promise.resolve(false)
+      : precheck.applyCause(via, "sandbox_interactive", "repo");
+  }
+  function applyBannerWay(option: EpicAutoFixOptionId): Promise<boolean> {
+    return repoHalt ? precheck.applyOption(repoHalt.target, option) : Promise.resolve(false);
+  }
+
   // Queue rows name the epic by its list entry, else by whatever the host knows.
   function epicTitle(parent: number): string | null {
     return epics.find((e) => e.parentIssueNumber === parent)?.parentTitle ?? titleFor(parent);
@@ -152,6 +226,23 @@
       <InfoTip text={repoOverviewRunExplanation()} label={m.tooltip_repo_run_title()} />
     {/snippet}
 
+    <RepoHaltBanner
+      view={repoHalt}
+      {repoName}
+      target={bannerTarget}
+      applied={bannerFix}
+      busy={precheck.busy}
+      onautonomous={applyAutonomous}
+      onapply={applyBannerWay}
+      onundo={() => void precheck.undo()}
+    />
+    <EpicHoldLine
+      {repoPath}
+      parent={drain?.epicParent ?? null}
+      view={repoHold}
+      {onopensession}
+      {onopenautomation}
+    />
     {#if steps}
       <EpicRunSteps {repoPath} {steps} {titleFor} {onopensession} />
     {/if}
@@ -185,6 +276,7 @@
       <h3 class="group-head">{m.repooverview_epics()}</h3>
       <ul class="rows">
         {#each cards as { epic, role, position } (epic.parentIssueNumber)}
+          {@const parent = epic.parentIssueNumber}
           <li>
             <button
               class="orow"
@@ -210,9 +302,47 @@
               </span>
               <span class="arrow" aria-hidden="true">›</span>
             </button>
+            <!-- Beside the card's button, not in it: the halt has buttons of its own. -->
+            <EpicHoldLine
+              {repoPath}
+              {parent}
+              view={cardHold(parent)}
+              {onopensession}
+              {onopenautomation}
+            />
+            <EpicCardHalt
+              view={cardHalt(parent)}
+              {repoName}
+              applied={cardFix(parent)}
+              busy={precheck.busy}
+              onaction={(code) => precheck.applyCause(parent, code, "epic")}
+              onundo={() => void precheck.undo()}
+            />
           </li>
         {/each}
       </ul>
+      {#if showLegend}
+        <ul class="legend" aria-label={m.tooltip_autofix_scope_title()} data-halt-legend>
+          <li>
+            <span class="hc-chip">{m.epic_autofix_scope_repo()}</span>
+            {m.repooverview_legend_repo()}
+          </li>
+          <li>
+            <span class="hc-chip">{m.epic_autofix_scope_epic()}</span>
+            {m.repooverview_legend_epic()}
+          </li>
+          <li>
+            <span class="hc-chip">{m.epic_autofix_scope_host()}</span>
+            {m.repooverview_legend_host()}
+          </li>
+          {#if epicHold?.scope === "run"}
+            <li>
+              <span class="hc-chip">{m.epic_autofix_scope_run()}</span>
+              {m.repooverview_legend_run()}
+            </li>
+          {/if}
+        </ul>
+      {/if}
     </section>
   {/if}
 
@@ -431,6 +561,24 @@
   .slots-value {
     color: var(--color-ink);
     font-size: var(--fs-meta);
+  }
+
+  /* #3457: the drain's hold at its epic's card, indented as EpicCardHalt's lines. */
+  .rows > li > :global([data-epic-hold]) {
+    margin: 0 8px 6px;
+  }
+
+  /* #3456: what the scope chips mean, once under the epics. */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 22px;
+    margin: 4px 0 0;
+    padding: 8px 8px 0;
+    border-top: 1px solid var(--color-line);
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    list-style: none;
   }
 
   /* Running now (#2638): one line per issue, its session one click away. */

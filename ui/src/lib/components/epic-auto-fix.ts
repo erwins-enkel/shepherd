@@ -1,0 +1,274 @@
+import type {
+  AgentProvider,
+  DrainRunSummary,
+  Epic,
+  EpicAutoBlockerCause,
+  EpicAutoBlockers,
+  EpicAutoFixOption,
+  SandboxProfile,
+} from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { getLocale } from "#lib/i18n.js";
+import { providerLabel } from "#lib/reviewer-env.js";
+
+// #3454: the epic auto-fix model (#3453, GET /api/epic/auto-fix) in words — the causes that keep
+// an epic's children from starting unattended and the ways out, as the halt card and the
+// reusable EpicAutoFixChooser show them. Pure; the copy follows the "Behebung" artboard.
+
+export interface CauseView {
+  scope: string;
+  /** The scope chip: REPO / EPIC / HOST. */
+  scopeLabel: string;
+  /** The setting at fault, emphasized; empty for a cause this client doesn't know. */
+  what: string;
+  why: string;
+}
+
+export interface OptionView {
+  id: string;
+  enabled: boolean;
+  title: string;
+  /** Where it writes: the repo, this epic, or both. */
+  where: string;
+  body: string | null;
+  /** "Changes: …" — the epic's CLI switch; null when the option keeps the CLI. */
+  change: string | null;
+  /** Trusted's cost, shown in the warning colour. */
+  risk: string | null;
+  /** Passing checks of an enabled option, failing ones of a disabled one. */
+  checks: { ok: boolean; text: string }[];
+  /** Why a disabled option doesn't start the children, and what would make it choosable. */
+  disabledWhy: string | null;
+  disabledHint: string | null;
+}
+
+const SCOPE_LABELS: Record<string, () => string> = {
+  repo: () => m.epic_autofix_scope_repo(),
+  epic: () => m.epic_autofix_scope_epic(),
+  host: () => m.epic_autofix_scope_host(),
+  // #3457: a repo limit the run lifts for itself (the usage ceiling).
+  run: () => m.epic_autofix_scope_run(),
+};
+
+const PROFILE_NAMES: Record<SandboxProfile, () => string> = {
+  trusted: () => m.epic_autofix_profile_trusted(),
+  standard: () => m.epic_autofix_profile_standard(),
+  autonomous: () => m.epic_autofix_profile_autonomous(),
+};
+
+const CHECK_TEXT: Record<string, (ok: boolean) => string> = {
+  bwrap: (ok) => (ok ? m.epic_autofix_check_bwrap_ok() : m.epic_autofix_check_bwrap_fail()),
+  egress: (ok) => (ok ? m.epic_autofix_check_egress_ok() : m.epic_autofix_check_egress_fail()),
+  remote_https: (ok) =>
+    ok ? m.epic_autofix_check_remote_ok() : m.epic_autofix_check_remote_fail(),
+};
+
+function cliName(provider: string): string {
+  return providerLabel(provider as AgentProvider);
+}
+
+function profileName(profile: SandboxProfile): string {
+  return PROFILE_NAMES[profile]?.() ?? profile;
+}
+
+/** A scope's chip: REPO / EPIC / HOST / RUN. */
+export function scopeLabel(scope: string): string {
+  return SCOPE_LABELS[scope]?.() ?? scope.toUpperCase();
+}
+
+/** One cause with its scope chip. */
+export function causeView(cause: EpicAutoBlockerCause): CauseView {
+  const base = { scope: cause.scope, scopeLabel: scopeLabel(cause.scope) };
+  switch (cause.code) {
+    case "sandbox_interactive":
+      return {
+        ...base,
+        what: m.epic_autofix_cause_interactive_what(),
+        why: m.epic_autofix_cause_interactive_why(),
+      };
+    case "sandbox_provider_unconfined":
+      return {
+        ...base,
+        what: m.epic_autofix_cli({ cli: cliName(cause.detail) }),
+        why: m.epic_autofix_cause_provider_why(),
+      };
+    case "sandbox_backend_unavailable":
+      return {
+        ...base,
+        what: m.epic_autofix_cause_backend_what(),
+        why: m.epic_autofix_cause_backend_why(),
+      };
+    case "sandbox_egress_unavailable":
+      return {
+        ...base,
+        what: m.epic_autofix_cause_egress_what(),
+        why: m.epic_autofix_cause_egress_why(),
+      };
+    default:
+      return { ...base, what: "", why: m.epic_autofix_cause_other() };
+  }
+}
+
+const SHORT_CAUSES: Record<string, (detail: string) => string> = {
+  sandbox_interactive: () => m.epic_autofix_short_interactive(),
+  sandbox_provider_unconfined: (detail) => m.epic_autofix_short_provider({ cli: cliName(detail) }),
+  sandbox_backend_unavailable: () => m.epic_autofix_short_backend(),
+  sandbox_egress_unavailable: () => m.epic_autofix_short_egress(),
+};
+
+/** #3455: the epic row's short reason — one sentence per cause, e.g. "Sandbox Standard is
+ *  interactive only. Codex needs Trusted." */
+export function haltSummary(causes: Pick<EpicAutoBlockerCause, "code" | "detail">[]): string {
+  return causes
+    .map((c) => SHORT_CAUSES[c.code]?.(c.detail) ?? m.epic_autofix_short_other())
+    .join(" ");
+}
+
+/** One way out. `repoName` names the repo whose sandbox it writes. */
+export function optionView(
+  option: EpicAutoFixOption,
+  blockers: EpicAutoBlockers,
+  repoName: string,
+): OptionView {
+  // The CLI that runs unconfined today (Codex) — what Trusted keeps and the switch replaces.
+  const unconfined = blockers.causes.find((c) => c.code === "sandbox_provider_unconfined");
+  const cli = unconfined ? cliName(unconfined.detail) : null;
+  const onlyWay = option.enabled && blockers.options.filter((o) => o.enabled).length === 1;
+  const { agentProvider } = option.changes;
+  const trusted = option.changes.sandboxProfile === "trusted";
+  const enabled = option.enabled;
+  return {
+    id: option.id,
+    enabled,
+    title: optionTitle(option),
+    where: optionWhere(option.changes, repoName),
+    body: enabled ? optionBody(option.changes, cli, onlyWay) : null,
+    change:
+      enabled && agentProvider && cli
+        ? m.epic_autofix_change_cli({ from: cli, to: cliName(agentProvider) })
+        : null,
+    risk: enabled && trusted ? m.epic_autofix_risk_trusted({ repo: repoName }) : null,
+    checks: optionChecks(option),
+    ...disabledReason(option, cli),
+  };
+}
+
+function optionTitle(option: EpicAutoFixOption): string {
+  const { sandboxProfile, agentProvider } = option.changes;
+  if (option.why === "cli" && !agentProvider) return m.epic_autofix_title_autonomous_only();
+  const parts = [
+    sandboxProfile ? m.epic_autofix_title_sandbox({ profile: profileName(sandboxProfile) }) : "",
+    agentProvider ? m.epic_autofix_cli({ cli: cliName(agentProvider) }) : "",
+  ].filter(Boolean);
+  return parts.join(" + ") || option.id;
+}
+
+function optionWhere(changes: EpicAutoFixOption["changes"], repoName: string): string {
+  if (!changes.agentProvider) return m.epic_autofix_where_repo({ repo: repoName });
+  return changes.sandboxProfile ? m.epic_autofix_where_both() : m.epic_autofix_where_epic();
+}
+
+/** What an enabled option does. `cli` is the unconfined CLI a cause names, if any. */
+function optionBody(
+  changes: EpicAutoFixOption["changes"],
+  cli: string | null,
+  onlyWay: boolean,
+): string | null {
+  if (changes.sandboxProfile === "trusted") {
+    if (onlyWay) return m.epic_autofix_body_only_way();
+    return cli ? m.epic_autofix_body_keeps_cli({ cli }) : null;
+  }
+  if (changes.agentProvider) return m.epic_autofix_body_confined();
+  return `${m.epic_autofix_body_confined()} ${m.epic_autofix_body_nothing_else()}`;
+}
+
+/** Passing checks of an enabled option, failing ones of a disabled one. The CLI check never shows
+ *  as a tick: its failure is the disabled reason itself. */
+function optionChecks(option: EpicAutoFixOption): OptionView["checks"] {
+  if (option.why === "cli") return [];
+  return option.checks
+    .filter((c) => CHECK_TEXT[c.id] && (option.enabled || !c.ok))
+    .map((c) => ({ ok: c.ok, text: CHECK_TEXT[c.id]!(c.ok) }));
+}
+
+function disabledReason(
+  option: EpicAutoFixOption,
+  cli: string | null,
+): Pick<OptionView, "disabledWhy" | "disabledHint"> {
+  const none = { disabledWhy: null, disabledHint: null };
+  if (option.enabled) return none;
+  switch (option.why) {
+    case "cli":
+      return {
+        ...none,
+        disabledWhy: m.epic_autofix_disabled_cli({ cli: cli ?? m.agent_provider_codex() }),
+      };
+    case "bwrap":
+    case "egress":
+      return { ...none, disabledHint: m.epic_autofix_disabled_host() };
+    case "remote_https":
+      return { ...none, disabledHint: m.epic_autofix_disabled_remote() };
+    default:
+      return { ...none, disabledWhy: m.epic_autofix_disabled_other() };
+  }
+}
+
+/** The epic's ready children in drain order, and those a fix starts at once — as many as the
+ *  repo has free agent slots. Without a run picture the slots are unknown: nothing is promised. */
+export function startable(
+  epic: Pick<Epic, "children">,
+  summary: DrainRunSummary | null | undefined,
+): { ready: number[]; starting: number[] } {
+  const order = summary?.next ?? [];
+  const rank = (n: number) => {
+    const i = order.indexOf(n);
+    return i < 0 ? order.length : i;
+  };
+  const ready = epic.children
+    .filter((c) => c.state === "ready")
+    .map((c) => c.number)
+    .sort((a, b) => rank(a) - rank(b));
+  if (!summary) return { ready, starting: [] };
+  const free = Math.max(0, summary.slots.max - summary.slots.used);
+  return { ready, starting: ready.slice(0, free) };
+}
+
+/** "#17 und #18" — issue numbers as a localized list. */
+export function issueList(nums: number[]): string {
+  return new Intl.ListFormat(getLocale(), { type: "conjunction" }).format(nums.map((n) => `#${n}`));
+}
+
+/** The confirmation after a fix: what it set, e.g. "Sandbox of shop: Autonomous. CLI of this
+ *  epic: Claude Code." */
+export function confirmText(changes: EpicAutoFixOption["changes"], repoName: string): string {
+  return [
+    changes.sandboxProfile
+      ? m.epic_autofix_done_sandbox({
+          repo: repoName,
+          profile: profileName(changes.sandboxProfile),
+        })
+      : "",
+    changes.agentProvider ? m.epic_autofix_done_cli({ cli: cliName(changes.agentProvider) }) : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** Which footer settings hold the run: the epic's CLI (an epic-scoped cause) and the repo's
+ *  sandbox (a repo-scoped one). Until the model loads, the drain's own hold reason decides.
+ *  Pass null for both while the run is not held by a sandbox gate. */
+export function haltedSettings(
+  blockers: EpicAutoBlockers | null,
+  reason: string | null,
+): { cli: boolean; sandbox: boolean } {
+  if (blockers) {
+    return {
+      cli: blockers.causes.some((c) => c.scope === "epic"),
+      sandbox: blockers.causes.some((c) => c.scope === "repo"),
+    };
+  }
+  return {
+    cli: reason === "sandbox_provider_unconfined",
+    sandbox: reason === "sandbox_interactive",
+  };
+}

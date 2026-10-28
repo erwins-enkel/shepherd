@@ -5513,6 +5513,164 @@ components:
       oneOf:
         - $ref: "#/components/schemas/Epic"
         - $ref: "#/components/schemas/Ok"
+    EpicAutoBlockerCause:
+      type: object
+      additionalProperties: true
+      description: >-
+        One reason the epic's children can't start unattended — a drain spawn-gate hold code
+        (AutoBlockerCause in src/auto-blockers.ts).
+      required: [code, scope, detail]
+      properties:
+        code:
+          type: string
+          enum:
+            [
+              sandbox_interactive,
+              sandbox_provider_unconfined,
+              sandbox_backend_unavailable,
+              sandbox_egress_unavailable,
+            ]
+          x-shepherd-open-enum: true
+        scope:
+          type: string
+          enum: [repo, epic, host]
+          x-shepherd-open-enum: true
+          description: repo = the repo's settings, epic = this epic's settings, host = this machine.
+        detail:
+          type: string
+          description: The sandbox profile, or the CLI for sandbox_provider_unconfined — as drain:status names it.
+        fix: { $ref: "#/components/schemas/EpicAutoCauseFix" }
+    EpicAutoCauseFix:
+      type: object
+      additionalProperties: true
+      description: >-
+        The change that clears ONE cause in its own scope (AutoCauseFix, #3456): the repo's
+        Standard sandbox → Autonomous, the epic's Codex → Claude Code. Unlike an option it need not
+        start the children — another scope's cause may still hold. Absent for a host cause.
+        Applied with POST /api/epic/auto-fix {cause}.
+      required: [changes, enabled, checks]
+      properties:
+        changes:
+          type: object
+          additionalProperties: true
+          description: The repo's sandbox profile or the epic's CLI this fix sets.
+          properties:
+            sandboxProfile: { $ref: "#/components/schemas/SandboxProfile" }
+            agentProvider: { $ref: "#/components/schemas/AgentProvider" }
+        enabled:
+          type: boolean
+          description: >-
+            Every check passes — applying it clears the cause (for the repo's sandbox: this host
+            and remote can confine).
+        why:
+          type: string
+          enum: [cli, bwrap, egress, remote_https]
+          x-shepherd-open-enum: true
+          description: The first failing check; absent when enabled.
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/EpicAutoFixCheck" }
+    EpicAutoFixCheck:
+      type: object
+      additionalProperties: true
+      required: [id, ok]
+      properties:
+        id:
+          type: string
+          enum: [cli, bwrap, egress, remote_https]
+          x-shepherd-open-enum: true
+          description: >-
+            cli = the epic's CLI can run confined (Codex never does); bwrap / egress = the sandbox
+            and network-egress backends work on this host; remote_https = origin is an https remote
+            a sandboxed session can push to.
+        ok: { type: boolean }
+    EpicAutoFixOption:
+      type: object
+      additionalProperties: true
+      description: One fix, with the settings it writes and the checks it needs (AutoFixOption).
+      required: [id, changes, enabled, checks]
+      properties:
+        id:
+          type: string
+          enum: [autonomous, autonomous_claude, trusted]
+          x-shepherd-open-enum: true
+        changes:
+          type: object
+          additionalProperties: true
+          description: The repo's sandbox profile and/or the epic's CLI this fix sets.
+          properties:
+            sandboxProfile: { $ref: "#/components/schemas/SandboxProfile" }
+            agentProvider: { $ref: "#/components/schemas/AgentProvider" }
+        enabled:
+          type: boolean
+          description: Every check passes — applying it starts the epic's children.
+        why:
+          type: string
+          enum: [cli, bwrap, egress, remote_https]
+          x-shepherd-open-enum: true
+          description: The first failing check; absent when enabled.
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/EpicAutoFixCheck" }
+    EpicAutoBlockers:
+      type: object
+      additionalProperties: true
+      description: >-
+        GET /api/epic/auto-fix: what keeps the epic's children from starting unattended and the
+        fixes that would start them (AutoBlockers in src/auto-blockers.ts). Empty causes and
+        options when nothing blocks. Confined fixes come first; with Codex, Autonomous alone can
+        never work and comes last.
+      required: [agentProvider, causes, options, preselect]
+      properties:
+        agentProvider:
+          $ref: "#/components/schemas/AgentProvider"
+          description: The CLI the epic's children spawn with — the epic's, else the global default.
+        causes:
+          type: array
+          items: { $ref: "#/components/schemas/EpicAutoBlockerCause" }
+        options:
+          type: array
+          items: { $ref: "#/components/schemas/EpicAutoFixOption" }
+        preselect:
+          type: [string, "null"]
+          description: >-
+            The option id to preselect — the enabled confined fix, else trusted as the only way;
+            null without options.
+    EpicAutoFixState:
+      type: object
+      additionalProperties: false
+      description: >-
+        Settings a fix writes, or what they held before (the `previous` Undo sends back as
+        `restore`): the repo's stored sandbox setting and/or the epic's CLI settings. Only the
+        fields in play; at least one. model is checked against agentProvider as in EpicRunPatch.
+      minProperties: 1
+      properties:
+        sandboxProfile: { type: string, enum: [trusted, standard, autonomous, inherit] }
+        agentProvider:
+          { "oneOf": [{ "$ref": "#/components/schemas/AgentProvider" }, { "type": "null" }] }
+        model: { type: [string, "null"] }
+        effort: { type: [string, "null"] }
+    EpicAutoFixRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        POST /api/epic/auto-fix body: exactly one of `option` (apply a fix the model offers
+        enabled), `cause` (apply that cause's own fix while the model offers it enabled, #3456) or
+        `restore` (write back a `previous` state — Undo).
+      minProperties: 1
+      maxProperties: 1
+      properties:
+        option: { type: string, enum: [autonomous, autonomous_claude, trusted] }
+        cause: { type: string, enum: [sandbox_interactive, sandbox_provider_unconfined] }
+        restore: { $ref: "#/components/schemas/EpicAutoFixState" }
+    EpicAutoFixResult:
+      type: object
+      additionalProperties: true
+      description: POST /api/epic/auto-fix answer — what the written fields held before, and the model now.
+      required: [previous, blockers]
+      properties:
+        previous: { $ref: "#/components/schemas/EpicAutoFixState" }
+        blockers: { $ref: "#/components/schemas/EpicAutoBlockers" }
     BranchListing:
       type: object
       additionalProperties: true
@@ -11116,6 +11274,83 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "503":
+          description: 'error is "drain unavailable".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/epic/auto-fix:
+    get:
+      operationId: getEpicAutoFix
+      description: >-
+        What keeps the epic's children from starting unattended — the repo's sandbox, the epic's
+        CLI, this host — and the fixes that would start them. Answers alike for a leading, queued
+        or not-started epic (its stored settings, else the defaults). No forge reads.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema: { type: string }
+        - name: parent
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: The causes, the fixes and the one to preselect.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EpicAutoBlockers" }
+        "400":
+          description: 'error is "invalid repo" or "parent must be a positive integer".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503":
+          description: 'error is "drain unavailable".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    post:
+      operationId: applyEpicAutoFix
+      description: >-
+        Apply a fix in one step — the repo's sandbox profile and the epic's CLI (a model or effort
+        the new CLI doesn't offer resets to its default) —, with `cause` one cause's own fix in its
+        scope alone (#3456), or, with `restore`, write back the `previous` state a fix answered
+        (Undo). Every refusal is decided before the first write.
+        The epic's settings change where they live and its status never does. Kicks the drain.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema: { type: string }
+        - name: parent
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EpicAutoFixRequest" }
+      responses:
+        "200":
+          description: What the written fields held before, and the model after the write.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EpicAutoFixResult" }
+        "400":
+          description: 'error is "invalid repo", "parent must be a positive integer", "invalid auto-fix request", "invalid epic run patch", or a model the Codex ChatGPT login cannot run.'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: 'error is "option unavailable": the model does not offer that fix (option or cause fix) enabled (anymore); nothing was written.'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "503":
           description: 'error is "drain unavailable".'
           content:

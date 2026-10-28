@@ -128,3 +128,26 @@ describe("BacklogTabBar Automation tab no-PR-CI mark (#3305)", () => {
     expect(document.querySelector(".tab-hold")).toBeNull();
   });
 });
+
+describe("BacklogTabBar Automation halt count (#3455)", () => {
+  const automation = () => page.getByRole("button", { name: m.backlog_tab_automation() });
+  const count = () => automation().element().querySelector(".halt-count")?.textContent;
+
+  it("counts the repo's and host's halts on the Automation tab", async () => {
+    mount({ automationHalts: 1 });
+    await expect.element(automation()).toBeVisible();
+    expect(count()).toBe(m.backlog_tab_automation_halt_one());
+  });
+
+  it("names several halts", async () => {
+    mount({ variant: "mobile", automationHalts: 2 });
+    await expect.element(automation()).toBeVisible();
+    expect(count()).toBe(m.backlog_tab_automation_halts({ count: 2 }));
+  });
+
+  it("shows no count without a halt", async () => {
+    mount();
+    await expect.element(automation()).toBeVisible();
+    expect(count()).toBeUndefined();
+  });
+});

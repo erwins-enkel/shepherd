@@ -1,6 +1,13 @@
 <script lang="ts">
   import { firstSafeHttpUrl } from "#lib/url.js";
-  import type { DrainRunSummary, Epic, EpicSummary, Issue, Steer } from "#lib/types.js";
+  import type {
+    DrainRunSummary,
+    DrainStatus,
+    Epic,
+    EpicSummary,
+    Issue,
+    Steer,
+  } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { relativeTimeAgo } from "#lib/format.js";
   import { dataSlot } from "#lib/data-slot.js";
@@ -29,8 +36,12 @@
     epicFor,
     issueActions,
     runSummary = null,
+    drain = null,
+    mobile = false,
     running = undefined,
     oninject = undefined,
+    onopensession = undefined,
+    onopenautomation = undefined,
     onselect,
     ontoggle,
   }: {
@@ -41,9 +52,18 @@
     issueActions: Steer[];
     /** The repo's run picture (#2620): epic roles and the child holding a slot. */
     runSummary?: DrainRunSummary | null;
+    /** The repo's drain — an epic row shows a sandbox, CLI or host halt (#3455) or another hold
+     *  with its action (#3457) from it. */
+    drain?: DrainStatus | null;
+    /** Phone layout: a halt's fix opens as a bottom sheet. */
+    mobile?: boolean;
     /** Whether a single issue is being worked (a live session or the claim label). */
     running?: (issue: Issue) => boolean;
     oninject?: (issue: Issue, steer: Steer) => void;
+    /** An epic row's hold opens the stuck session (#3457). */
+    onopensession?: (sessionId: string) => void;
+    /** An epic row's bootstrap hold opens the Automation tab (#3457). */
+    onopenautomation?: () => void;
     onselect: (key: string) => void;
     ontoggle: (n: number) => void;
   } = $props();
@@ -100,6 +120,10 @@
       epic={epicFor(row.issue.number)}
       role={epicRole(runSummary, row.issue.number)}
       position={queuePosition(runSummary, row.issue.number)}
+      {drain}
+      {mobile}
+      {onopensession}
+      {onopenautomation}
       expanded={row.expanded}
       selected={row.key === selectedKey}
       optionId={`issue-opt-${row.key}`}

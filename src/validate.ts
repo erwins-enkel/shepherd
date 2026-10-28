@@ -22,7 +22,19 @@ import {
 import { modelCompatibleWithProvider } from "./default-model";
 import { stagingDir } from "./uploads";
 import { parseRemote } from "./forge/remote";
-import { isSandboxProfile, SANDBOX_PROFILES, type SandboxProfile } from "./sandbox";
+import {
+  isRepoSandboxSetting,
+  isSandboxProfile,
+  SANDBOX_PROFILES,
+  type SandboxProfile,
+} from "./sandbox";
+import {
+  AUTO_FIX_CAUSE_CODES,
+  AUTO_FIX_OPTION_IDS,
+  type AutoFixCauseCode,
+  type AutoFixOptionId,
+  type EpicAutoFixState,
+} from "./auto-blockers";
 import { type Capability, parseRequirements } from "./remote-instances/capabilities";
 import { type Placement, parsePlacementRecord } from "./remote-instances/placement";
 import type { TaskText } from "./requirements-classify-core";
@@ -1597,6 +1609,47 @@ export function validateEpicRunPatch(v: unknown): EpicRunPatch | null {
     if (key in o && !EPIC_RUN_PATCH_FIELD_VALIDATORS[key](o[key], out)) return null;
   }
   return out;
+}
+
+/** POST /api/epic/auto-fix body (#3453): apply a fix the model offers, apply one cause's own fix
+ *  (#3456), or write back the `previous` state a fix answered (Undo). */
+export type EpicAutoFixRequest =
+  { option: AutoFixOptionId } | { cause: AutoFixCauseCode } | { restore: EpicAutoFixState };
+
+const EPIC_AUTO_FIX_CLI_KEYS = new Set(["agentProvider", "model", "effort"]);
+
+/** Validate a POST /api/epic/auto-fix body: exactly one of `option` / `cause` / `restore`.
+ *  Returns null on any violation, an empty restore included. */
+export function validateEpicAutoFixRequest(v: unknown): EpicAutoFixRequest | null {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (Object.keys(o).length !== 1) return null;
+  if ("option" in o)
+    return (AUTO_FIX_OPTION_IDS as readonly unknown[]).includes(o.option)
+      ? { option: o.option as AutoFixOptionId }
+      : null;
+  if ("cause" in o)
+    return (AUTO_FIX_CAUSE_CODES as readonly unknown[]).includes(o.cause)
+      ? { cause: o.cause as AutoFixCauseCode }
+      : null;
+  if (!("restore" in o)) return null;
+  const restore = validateEpicAutoFixState(o.restore);
+  return restore ? { restore } : null;
+}
+
+function validateEpicAutoFixState(v: unknown): EpicAutoFixState | null {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const { sandboxProfile, ...cli } = v as Record<string, unknown>;
+  if (sandboxProfile !== undefined && !isRepoSandboxSetting(sandboxProfile)) return null;
+  if (Object.keys(cli).some((key) => !EPIC_AUTO_FIX_CLI_KEYS.has(key))) return null;
+  // The epic's CLI fields go through the PUT /api/epic rules (a model checked against its CLI).
+  const patch = validateEpicRunPatch(cli);
+  if (patch === null) return null;
+  const state: EpicAutoFixState = {
+    ...(sandboxProfile !== undefined ? { sandboxProfile } : {}),
+    ...(patch as Pick<EpicRunPatch, "agentProvider" | "model" | "effort">),
+  };
+  return Object.keys(state).length > 0 ? state : null;
 }
 
 function validateTextToIds(body: unknown): { text: string; ids: string[] } | null {

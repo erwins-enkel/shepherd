@@ -216,6 +216,8 @@ describe("epic", () => {
       ["POST", "/api/epic/approve-next", undefined],
       ["POST", "/api/epic/queue", undefined],
       ["DELETE", "/api/epic/queue", undefined],
+      ["GET", "/api/epic/auto-fix", undefined],
+      ["POST", "/api/epic/auto-fix", { option: "trusted" }],
     ] as const) {
       expect(await call(method, template, `${template}${q()}`, 503, body)).toEqual({
         error: "drain unavailable",
@@ -288,6 +290,65 @@ describe("epic", () => {
       ).toEqual({ ok: true });
     } finally {
       s.deps.drain = previousDrain;
+      s.deps.store.setEpicRun({
+        repoPath: s.validRepo,
+        parentIssueNumber: 412,
+        mode: "auto",
+        status: "idle",
+      });
+    }
+  });
+
+  test("auto-fix answers the blockers model, applies an enabled fix or cause fix and restores it (#3453, #3456)", async () => {
+    const previousDrain = s.deps.drain;
+    const before = s.deps.store.getRepoConfig(s.validRepo);
+    let ticks = 0;
+    s.deps.drain = {
+      buildEpic: async (_dir: string, run: EpicRun) => fx.epic(run),
+      tick: async () => {
+        ticks++;
+      },
+      autoBlockers: () => fx.autoBlockersCaseA,
+    } as unknown as NonNullable<typeof s.deps.drain>;
+    const path = `/api/epic/auto-fix${q()}`;
+    try {
+      expect(await call("GET", "/api/epic/auto-fix", path, 200)).toEqual(fx.autoBlockersCaseA);
+      // Codex: Autonomous alone is offered disabled.
+      expect(await call("POST", "/api/epic/auto-fix", path, 409, { option: "autonomous" })).toEqual(
+        { error: "option unavailable" },
+      );
+      for (const bad of [
+        { option: "bogus" },
+        { cause: "sandbox_backend_unavailable" },
+        { restore: {} },
+      ]) {
+        expect(() => validateRequest("POST", "/api/epic/auto-fix", bad)).toThrow();
+        await call("POST", "/api/epic/auto-fix", path, 400, bad);
+      }
+
+      const applied = (await call("POST", "/api/epic/auto-fix", path, 200, {
+        option: "autonomous_claude",
+      })) as { previous: Record<string, unknown> };
+      expect(applied.previous).toEqual({
+        sandboxProfile: before.sandboxProfile,
+        agentProvider: null,
+        model: null,
+        effort: null,
+      });
+      expect(s.deps.store.getRepoConfig(s.validRepo).sandboxProfile).toBe("autonomous");
+      await call("POST", "/api/epic/auto-fix", path, 200, { restore: applied.previous });
+      expect(s.deps.store.getRepoConfig(s.validRepo).sandboxProfile).toBe(before.sandboxProfile);
+
+      // #3456: one cause's own fix — the repo's sandbox alone.
+      const repoFix = (await call("POST", "/api/epic/auto-fix", path, 200, {
+        cause: "sandbox_interactive",
+      })) as { previous: Record<string, unknown> };
+      expect(repoFix.previous).toEqual({ sandboxProfile: before.sandboxProfile });
+      expect(s.deps.store.getRepoConfig(s.validRepo).sandboxProfile).toBe("autonomous");
+      expect(ticks).toBe(3);
+    } finally {
+      s.deps.drain = previousDrain;
+      s.deps.store.setRepoConfig(s.validRepo, before);
       s.deps.store.setEpicRun({
         repoPath: s.validRepo,
         parentIssueNumber: 412,

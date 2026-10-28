@@ -8,7 +8,7 @@ import type {
 } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 import { formatReset } from "#lib/format.js";
-import { bootstrapMissingText, pausedText } from "./queue-strip";
+import { bootstrapMissingText, holdCliLabel, pausedText } from "./queue-strip";
 
 export type ChipTone = "done" | "review" | "running" | "ready" | "muted";
 
@@ -49,7 +49,8 @@ export function progress(children: Pick<EpicChild, "state">[]): {
  *  #1757 `epic_base_unavailable`: `detail` is the integration branch, not a desig; self-heals when
  *  the forge recovers. `epic_unreadable`: the open-issue listing failed (e.g. a rate limit).
  *  #3105 `bootstrap_incomplete`: the repo is still in project bootstrap. #3101 base freshness:
- *  `detail` is the branch (stale/conflict) or the epic list (predecessor). */
+ *  `detail` is the branch (stale/conflict) or the epic list (predecessor). #3452 spawn gates:
+ *  `detail` is the profile (implied by the code), the CLI, or the target repo. */
 const DETAIL_HOLD_LINES: Record<string, (detail: string) => string> = {
   epic_base_unavailable: (branch) => m.epic_hold_epic_base_unavailable({ branch }),
   epic_unreadable: () => m.epic_hold_epic_unreadable(),
@@ -58,6 +59,12 @@ const DETAIL_HOLD_LINES: Record<string, (detail: string) => string> = {
   epic_base_stale: (branch) => m.epic_hold_epic_base_stale({ branch }),
   epic_base_conflict: (branch) => m.epic_hold_epic_base_conflict({ branch }),
   epic_predecessor_unlanded: (epics) => m.epic_hold_epic_predecessor_unlanded({ epics }),
+  sandbox_interactive: () => m.epic_hold_sandbox_interactive(),
+  sandbox_provider_unconfined: (cli) =>
+    m.epic_hold_sandbox_provider_unconfined({ cli: holdCliLabel(cli) }),
+  sandbox_backend_unavailable: () => m.epic_hold_sandbox_backend_unavailable(),
+  sandbox_egress_unavailable: () => m.epic_hold_sandbox_egress_unavailable(),
+  target_repo_drain_off: (repo) => m.epic_hold_target_repo_drain_off({ repo }),
 };
 
 /**
@@ -165,6 +172,7 @@ export type EpicRunKind =
   | "waiting_slot"
   | "awaiting_approval"
   | "halted"
+  | "halted_sandbox"
   | "nothing"
   | "running";
 
@@ -196,9 +204,30 @@ const HALT_REASONS = new Set([
   "epic_predecessor_unlanded",
   "epic_unreadable",
   "bootstrap_incomplete",
+  "sandbox_interactive",
+  "sandbox_provider_unconfined",
+  "sandbox_backend_unavailable",
+  "sandbox_egress_unavailable",
+  "target_repo_drain_off",
   "awaiting_signoff",
   "disabled",
 ]);
+
+/** #3452 spawn gates the #3453 auto-fix model covers: the repo's sandbox, the epic's CLI or this
+ *  host keeps the next child from starting unattended. The run reads "halted · sandbox". */
+const SANDBOX_HALT_REASONS: ReadonlySet<string> = new Set([
+  "sandbox_interactive",
+  "sandbox_provider_unconfined",
+  "sandbox_backend_unavailable",
+  "sandbox_egress_unavailable",
+]);
+
+/** #3455: the epic the repo's drain holds at one of those gates, or null. Only the leading epic
+ *  spawns, so a repo has at most one. */
+export function sandboxHaltedEpic(drain: DrainStatus | null | undefined): number | null {
+  if (drain?.epicParent == null || drain.reason == null) return null;
+  return SANDBOX_HALT_REASONS.has(drain.reason) ? drain.epicParent : null;
+}
 
 /** The region's live state. `drain` is the REPO's status; its hold reason only counts while it
  *  belongs to this epic (`drain.epicParent === parent`), as for the former hold line. */
@@ -222,11 +251,20 @@ export function epicRunState(
   if (reason === "cap") return { ...base, kind: "waiting_slot", tone: "run" };
   if (reason === "awaiting_approval") return { ...base, kind: "awaiting_approval", tone: "run" };
   if (reason != null && HALT_REASONS.has(reason)) {
-    return { ...base, kind: "halted", tone: "halt", note: epicHoldLine(own, true, epic.children) };
+    return {
+      ...base,
+      kind: haltKind(reason),
+      tone: "halt",
+      note: epicHoldLine(own, true, epic.children),
+    };
   }
   const inFlight = epic.children.some((c) => c.state === "running" || c.state === "in-review");
   if (reason === "empty" && !inFlight) return { ...base, kind: "nothing", tone: "quiet" };
   return { ...base, kind: "running", tone: "run" };
+}
+
+function haltKind(reason: string): "halted" | "halted_sandbox" {
+  return SANDBOX_HALT_REASONS.has(reason) ? "halted_sandbox" : "halted";
 }
 
 // ── repo overview run state (#2639) ────────────────────────────────────────────────────────
@@ -321,6 +359,7 @@ export function epicRunStateLabel(
     waiting_slot: m.epic_run_state_waiting_slot,
     awaiting_approval: m.epic_run_state_awaiting_approval,
     halted: m.epic_run_state_halted,
+    halted_sandbox: m.epic_run_state_halted_sandbox,
     nothing: m.epic_run_state_nothing,
     running: m.epic_run_state_running,
   };
@@ -351,8 +390,8 @@ export function epicRunWhy(
 
 export type SlotHolder = DrainRunSummary["slots"]["holders"][number];
 
-/** When the leading epic's next task starts. */
-export type NextNote = "after_slot" | "approval" | "resume" | "soon";
+/** When the leading epic's next task starts. `halted`: not until the run's hold is cleared. */
+export type NextNote = "after_slot" | "approval" | "resume" | "halted" | "soon";
 
 export type EpicRunSteps =
   | {
@@ -405,10 +444,11 @@ export function epicRunSteps(
     };
   }
   const full = slots.used >= slots.max;
+  const reason = drain?.epicParent === parent ? drain.reason : null;
   let nextNote: NextNote = "soon";
   if (epic.run.status === "paused") nextNote = "resume";
-  else if (drain?.epicParent === parent && drain.reason === "awaiting_approval")
-    nextNote = "approval";
+  else if (reason != null && HALT_REASONS.has(reason)) nextNote = "halted";
+  else if (reason === "awaiting_approval") nextNote = "approval";
   else if (full) nextNote = "after_slot";
   const merged = new Set(epic.children.filter((c) => c.state === "merged").map((c) => c.number));
   const parallel = summary.after.filter((n) => {

@@ -15,6 +15,7 @@
     titleFor,
     onapprove = undefined,
     onopensession = undefined,
+    starting = [],
   }: {
     /** The repo whose agent-slot cap the Now step's −/+ steps. */
     repoPath: string;
@@ -24,6 +25,8 @@
     /** Approve the next child — offered inline while the run waits for approval. */
     onapprove?: () => void;
     onopensession?: (sessionId: string) => void;
+    /** Children a just-applied fix starts (#3454) that hold no slot yet — listed under Now. */
+    starting?: number[];
   } = $props();
 
   // A holder of the leading epic "leads"; any other epic in flight is, by construction of
@@ -51,6 +54,8 @@
         return m.epic_run_next_approval();
       case "resume":
         return m.epic_run_next_resume();
+      case "halted":
+        return m.epic_run_next_halted();
       default:
         return m.epic_run_next_soon();
     }
@@ -68,7 +73,7 @@
       >
       <SlotStepper {repoPath} max={steps.slots.max} />
     </span>
-    {#if steps.now.length === 0}
+    {#if steps.now.length === 0 && starting.length === 0}
       <span class="quiet">{m.epic_run_now_empty()}</span>
     {:else}
       <ul class="holders">
@@ -91,7 +96,16 @@
             {/if}
           </li>
         {/each}
+        {#each starting as n (n)}
+          <li class="holder" data-starting>
+            <span class="line"><span class="num">#{n}</span></span>
+            <span class="item-title">{titleFor(n) ?? `#${n}`}</span>
+          </li>
+        {/each}
       </ul>
+      {#if starting.length}
+        <span class="note">{m.epic_run_now_starting()}</span>
+      {/if}
     {/if}
   </li>
 

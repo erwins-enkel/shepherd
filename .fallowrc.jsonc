@@ -210,7 +210,11 @@
       // button and the label/text-input recipes here (#2696) is what lets a new panel stop
       // copying them, so it necessarily matches the inline copies the older panels (Access,
       // Diagnose, Workspace) still carry. Those copies are the duplication; this file is the cure.
-      "**/ui/src/lib/components/settings/settings-controls.css"
+      "**/ui/src/lib/components/settings/settings-controls.css",
+      // halt-controls.css is the repo overview halt's SHARED recipe sheet (#3456), the same cure
+      // for its three components (banner, epic card lines, applied fix): it necessarily matches
+      // the inline copies the epic's run area, row halt and chooser still carry.
+      "**/ui/src/lib/components/issues-panel/halt-controls.css"
     ]
   },
 

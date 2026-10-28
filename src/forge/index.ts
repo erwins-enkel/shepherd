@@ -58,7 +58,7 @@ export function forgeFor(remoteUrl: string, map: ForgeMap, deps?: ForgeDeps): Gi
 }
 
 /** Read a named remote's URL for a repo dir, or null if the remote is absent. */
-function remoteUrl(repoDir: string, remote: string): string | null {
+export function remoteUrl(repoDir: string, remote: string): string | null {
   try {
     return execGitSync(["-C", repoDir, "remote", "get-url", remote], {
       encoding: "utf8",

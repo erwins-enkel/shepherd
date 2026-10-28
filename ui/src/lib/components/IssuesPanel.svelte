@@ -920,8 +920,12 @@
             {epicFor}
             {issueActions}
             runSummary={drain?.runSummary ?? null}
+            {drain}
+            {mobile}
             running={isRunning}
             {oninject}
+            {onopensession}
+            {onopenautomation}
             onselect={selectFromList}
             ontoggle={toggleEpic}
           />

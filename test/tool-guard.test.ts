@@ -554,6 +554,8 @@ describe("#3181 heavy checks are routed through the host-wide slot", () => {
   const RUNNER = { node: "/usr/bin/node", script: "/opt/shepherd/scripts/heavy-slot.mjs" };
   const HDEPS = {
     ...DEPS,
+    // This fixture models a disk-backed repo even when CI puts its files under /tmp.
+    isTmpfs: (p: string) => (p === root || p.startsWith(`${root}/`) ? false : DEPS.isTmpfs(p)),
     readText: (p: string) => {
       try {
         return readFileSync(p, "utf8");

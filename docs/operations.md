@@ -117,6 +117,11 @@ only when that port is actually listening and answers HTTP — a stale or wrong 
 falling back to automatic detection. Useful for multi-listener apps or apps on uncommon ports. The
 file is optional; Shepherd is detect-and-proxy only regardless.
 
+**Agents read their own preview URL** from the `self_status` MCP tool's `preview` block (`url`,
+`devPort`, `bound`, `unavailable`) — the same URL the HUD opens. A dev server an agent starts in
+its scratchpad is detected too (Linux), so agents should never conclude from `tailscale serve
+status` that it wasn't: that lists the slot port, never the dev port.
+
 **Routing: one port per active preview, distinct origin.** Each preview is served on its own port
 slot (`SHEPHERD_PREVIEW_PORT_BASE`..+`COUNT`) via `tailscale serve`. Because each slot is a distinct
 web origin (`https://host.ts.net:8001` ≠ `https://host.ts.net:8002` ≠ the HUD at `:443`), the

@@ -13,9 +13,24 @@ enabled, onto the tailnet). It finds the server by port.
 Start it **from this worktree**. That is the case the preview is built around, and it keeps the
 server next to the code you are changing.
 
-Prototyping from your scratchpad works too: Shepherd finds a server you start there by the session
-marker every process you spawn inherits. It is still the second-best option — nothing in the
-scratchpad ends up in the PR.
+Prototyping from your scratchpad works too — e.g. a throwaway comparison page to decide something
+before planning. Shepherd finds a server you start there by the session marker every process you
+spawn inherits, so there is no need to move it into the worktree. It is still the second-best
+option for real work — nothing in the scratchpad ends up in the PR.
+
+## Getting the preview URL
+
+Wait a few seconds after the server is listening (Shepherd sweeps every few seconds), then call
+the `self_status` MCP tool and read its `preview` block:
+
+- `bound: true`, `url` set — the preview is live. Hand the operator **`preview.url`**; it is the
+  same link the HUD's Preview badge opens. `devPort` is the port it proxies — check it is yours.
+- `bound: false` — not picked up yet, or not at all; see below.
+- `unavailable` — why there is no tailnet URL (`not_served`, `serve_pending`, `serve_failed`,
+  `serve_denied`). The HUD Preview pane may still work.
+
+The preview lives on a Shepherd **slot port** (e.g. `:8001` proxying to your server), never on your
+dev port. Never search `tailscale serve status` for your dev port and conclude the preview failed.
 
 ## Pointing the preview at a specific port
 
@@ -46,7 +61,7 @@ Debugger endpoints are never chosen as the preview, so a Node inspector or a CDP
 
 ## If no preview appears
 
-Verify, in this order:
+`self_status` → `preview.bound` stays false. Verify, in this order:
 
 1. the dev server process is still running;
 2. `.shepherd-preview` contains the actual listening port (a bare number);

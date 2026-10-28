@@ -7564,5 +7564,11 @@
   "prrow_fact_base_current": "aktuell mit {base}",
   "prrow_fact_base_behind": "hinter {base}",
   "prrow_fact_no_conflicts": "keine Konflikte",
-  "prrow_fact_conflicts": "Konflikte"
+  "prrow_fact_conflicts": "Konflikte",
+  "prrow_aria": "Pull Request #{number}",
+  "prrow_pr_link": "PR ↗",
+  "prrow_more_aria": "Weitere PR-Aktionen",
+  "prrow_merge_blocked_tip_title": "Merge gesperrt",
+  "prrow_menu_mark_ready": "Als bereit markieren",
+  "prrow_menu_summary": "Zusammenfassung"
 }

@@ -7564,5 +7564,11 @@
   "prrow_fact_base_current": "up to date with {base}",
   "prrow_fact_base_behind": "behind {base}",
   "prrow_fact_no_conflicts": "no conflicts",
-  "prrow_fact_conflicts": "conflicts"
+  "prrow_fact_conflicts": "conflicts",
+  "prrow_aria": "Pull request #{number}",
+  "prrow_pr_link": "PR ↗",
+  "prrow_more_aria": "More PR actions",
+  "prrow_merge_blocked_tip_title": "Merge locked",
+  "prrow_menu_mark_ready": "Mark ready",
+  "prrow_menu_summary": "Summary"
 }

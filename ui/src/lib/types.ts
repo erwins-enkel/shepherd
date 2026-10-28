@@ -462,6 +462,8 @@ export interface Settings {
   /** When true, Up Next quick-start launches with the default coding CLI without opening the
    *  "Choose coding CLI" picker, even when more than one CLI is ready. */
   upnextSkipCliPicker: boolean;
+  /** Per-CLI quick-start presets (#3507); `{}` until one is set up. Absent on older servers. */
+  upnextQuickStarts?: UpNextQuickStarts;
   /** How spawned agents authenticate: "subscription" (OAuth) | "api-key". */
   authMode: string;
   /** Whether an Anthropic API key is configured. The key itself is NEVER sent. */
@@ -3838,6 +3840,16 @@ export interface Leftover {
   startTicks?: number;
   command?: { bin: string; args: string[] };
 }
+
+/** One CLI's quick-start preset (#3507) — mirrors `UpNextQuickStart` in src/upnext-quick-starts.ts.
+ *  `model` / `effort` null = the CLI's own default. */
+export interface UpNextQuickStart {
+  enabled: boolean;
+  model: string | null;
+  effort: string | null;
+}
+/** A missing CLI = never set up; `enabled: false` = set up but hidden. */
+export type UpNextQuickStarts = Partial<Record<AgentProvider, UpNextQuickStart>>;
 
 /** House Stack setting (#3108) — mirrors `HouseStack` in src/house-stack.ts. */
 export interface HouseStack {

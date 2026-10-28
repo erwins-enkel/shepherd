@@ -17,6 +17,7 @@ import {
   putRoleEffort,
   putDefaultEffort,
   putEngineEffort,
+  putUpnextQuickStart,
   putUpNextReadiness,
 } from "#lib/api.js";
 import { toasts } from "#lib/toasts.svelte.js";
@@ -41,6 +42,9 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     putRoleEffort: vi.fn(async (key, value) => ({ [key]: value })),
     putDefaultEffort: vi.fn(async (value) => ({ defaultEffort: value })),
     putEngineEffort: vi.fn(async (key, value) => ({ [key]: value })),
+    putUpnextQuickStart: vi.fn(async (provider, entry) => ({
+      upnextQuickStarts: { [provider]: entry },
+    })),
     listDirs: vi.fn(async () => ({ path: "/repo", display: "/repo", parent: null, entries: [] })),
     getSteers: vi.fn(async () => []),
     getCommands: vi.fn(async () => ({ commands: [] })),
@@ -101,6 +105,7 @@ const mockPutTelemetry = vi.mocked(putTelemetryConsent);
 const mockPutHousekeeping = vi.mocked(putSessionHousekeeping);
 const mockPutUpNextReadiness = vi.mocked(putUpNextReadiness);
 const mockPutEngineEffort = vi.mocked(putEngineEffort);
+const mockPutQuickStart = vi.mocked(putUpnextQuickStart);
 
 function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
   return {
@@ -529,6 +534,121 @@ describe("Settings default coding environment", () => {
         ),
       ).toBe(true),
     );
+  });
+
+  describe("Quick start (#3507)", () => {
+    const qsBox = (engine: string) =>
+      page.getByRole("checkbox", { name: m.settings_quick_start_show_aria({ engine }) });
+    const qsModel = (engine: string) =>
+      page.getByRole("combobox", { name: m.settings_quick_start_model_aria({ engine }) });
+    const qsEffort = (engine: string) =>
+      page.getByRole("combobox", { name: m.settings_quick_start_effort_aria({ engine }) });
+    const claude = () => m.settings_cli_claude();
+    const codex = () => m.settings_cli_codex();
+
+    it("shows the stored presets again after a reload", async () => {
+      mockGetSettings.mockResolvedValue(
+        settings({
+          upnextQuickStarts: {
+            claude: { enabled: true, model: "claude-opus-5-5", effort: "high" },
+            codex: { enabled: false, model: null, effort: null },
+          },
+        }),
+      );
+      await mountCodingAgents();
+
+      await expect.element(qsBox(claude())).toBeChecked();
+      await expect.element(qsModel(claude())).toHaveValue("claude-opus-5-5");
+      await expect.element(qsEffort(claude())).toHaveValue("high");
+      await expect.element(qsBox(codex())).not.toBeChecked();
+      await expect.element(qsModel(codex())).toHaveValue("default");
+      await expect.element(qsEffort(codex())).toHaveValue("default");
+    });
+
+    it("sends one entry for one CLI per change, null for the CLI default", async () => {
+      mockPutQuickStart.mockClear();
+      mockGetSettings.mockResolvedValue(settings());
+      await mountCodingAgents();
+
+      await qsBox(codex()).click();
+      await vi.waitFor(() =>
+        expect(mockPutQuickStart).toHaveBeenLastCalledWith("codex", {
+          enabled: true,
+          model: null,
+          effort: null,
+        }),
+      );
+      await qsModel(codex()).selectOptions("gpt-6.1-sol");
+      await vi.waitFor(() =>
+        expect(mockPutQuickStart).toHaveBeenLastCalledWith("codex", {
+          enabled: true,
+          model: "gpt-6.1-sol",
+          effort: null,
+        }),
+      );
+      await qsEffort(codex()).selectOptions("ultra");
+      await vi.waitFor(() =>
+        expect(mockPutQuickStart).toHaveBeenLastCalledWith("codex", {
+          enabled: true,
+          model: "gpt-6.1-sol",
+          effort: "ultra",
+        }),
+      );
+      expect(mockPutQuickStart).toHaveBeenCalledTimes(3);
+    });
+
+    it("resets an effort the new model does not offer, in the same save", async () => {
+      mockPutQuickStart.mockClear();
+      mockGetSettings.mockResolvedValue(
+        settings({
+          upnextQuickStarts: { codex: { enabled: true, model: "gpt-6.1-sol", effort: "ultra" } },
+        }),
+      );
+      await mountCodingAgents();
+
+      await qsModel(codex()).selectOptions("gpt-5.5");
+      await vi.waitFor(() =>
+        expect(mockPutQuickStart).toHaveBeenLastCalledWith("codex", {
+          enabled: true,
+          model: "gpt-5.5",
+          effort: null,
+        }),
+      );
+      await expect.element(qsEffort(codex())).toHaveValue("default");
+    });
+
+    it("reverts the row and alerts when saving fails", async () => {
+      toasts.items = [];
+      mockGetSettings.mockResolvedValue(settings());
+      mockPutQuickStart.mockRejectedValueOnce(new Error("save failed"));
+      await mountCodingAgents();
+
+      await qsBox(claude()).click();
+
+      await expect.element(qsBox(claude())).not.toBeChecked();
+      await vi.waitFor(() =>
+        expect(
+          toasts.items.some(
+            (toast) => toast.text === m.settings_quick_start_save_failed({ engine: claude() }),
+          ),
+        ).toBe(true),
+      );
+    });
+
+    it("hides Fable while it is unavailable but keeps a stored one selectable", async () => {
+      mockGetSettings.mockResolvedValue(
+        settings({
+          fableAvailable: false,
+          upnextQuickStarts: { claude: { enabled: true, model: "fable", effort: null } },
+        }),
+      );
+      await mountCodingAgents();
+
+      const values = (engine: string) =>
+        [...(qsModel(engine).element() as HTMLSelectElement).options].map((o) => o.value);
+      expect(values(claude())).toContain("fable");
+      expect(values(claude())).not.toContain("claude-fable-5-1");
+    });
   });
 
   it("names the substitute's own default in the failover note", async () => {

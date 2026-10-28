@@ -455,6 +455,17 @@ describe("PUT /api/settings echoes the field the real server echoes", () => {
     expect(typeof body.upnextSkipCliPicker).toBe("boolean");
   });
 
+  it("merges a quick-start patch per CLI and echoes the full map", async () => {
+    const codex = { enabled: true, model: "gpt-6.1-sol", effort: "medium" };
+    const claude = { enabled: false, model: null, effort: null };
+    expect((await put({ upnextQuickStarts: { codex } })).body).toEqual({
+      upnextQuickStarts: { codex },
+    });
+    expect((await put({ upnextQuickStarts: { claude } })).body).toEqual({
+      upnextQuickStarts: { codex, claude },
+    });
+  });
+
   it("an empty patch is a read, not a stub", async () => {
     const { body } = await put({});
     expect(body.repoRoot).toBeDefined();

@@ -8,6 +8,7 @@
     CodexUpdateStatus,
     DiagnosticState,
     DiagnosticsSnapshot,
+    DrainStatus,
     ProviderFailoverStatus,
   } from "#lib/types.js";
   import { displayStatus } from "#lib/display-status.js";
@@ -45,6 +46,8 @@
   import TopBarTallies from "./top-bar/TopBarTallies.svelte";
   import TopBarHeldBadge from "./top-bar/TopBarHeldBadge.svelte";
   import TopBarUsage from "./top-bar/TopBarUsage.svelte";
+  import TopBarUsagePopover from "./top-bar/TopBarUsagePopover.svelte";
+  import CapacityWait from "./top-bar/CapacityWait.svelte";
   import TopBarBadges from "./top-bar/TopBarBadges.svelte";
   import TopBarSearch from "./top-bar/TopBarSearch.svelte";
   import TopBarAssist from "./top-bar/TopBarAssist.svelte";
@@ -85,6 +88,7 @@
     ondiagnose,
     heldCount = 0,
     onedithheld,
+    drain = {},
     pluginItems = [],
     onpluginitem,
     oncommandbar,
@@ -141,6 +145,8 @@
     heldCount?: number;
     /** Edit a held task: page opens the New Task composer pre-filled from its input. */
     onedithheld?: (task: HeldTask) => void;
+    /** Per-repo drain status (store.drain); usage-paused drains list in the usage panel. */
+    drain?: Record<string, DrainStatus>;
     /** Plugin-contributed gear-menu items (verbatim plugin data). */
     pluginItems?: { id: string; label: string; icon?: string; hint?: string }[];
     /** Called when a plugin item is selected from the gear menu. */
@@ -487,7 +493,7 @@
   }
   function refreshOnStaleOpen() {
     failoverFailed = false;
-    void loadFailover();
+    void loadPanelSettings();
     if (claudeAvailable && !subscriptionOnly && shouldRefreshObservedOnOpen(limits, nowMs)) {
       void doRefresh();
     }
@@ -498,12 +504,30 @@
   // REFRESH control inside it stays reachable. `gaugeWrap` anchors the outside-click test.
   let popoverOpen = $state(false);
   let gaugeWrap = $state<HTMLElement | null>(null);
+  let panelEl = $state<HTMLElement | null>(null);
+
+  // The held list loads through the effect that also reloads it on held:changed while open.
+  function openPanel() {
+    popoverOpen = true;
+    refreshOnStaleOpen();
+  }
+  function closePanel() {
+    popoverOpen = false;
+  }
+  function togglePanel() {
+    if (popoverOpen) closePanel();
+    else openPanel();
+  }
+  function openUsageView() {
+    closePanel();
+    chooseUsage();
+  }
 
   // ── Capacity failover ─────────────────────────────────────────────────────
   // Whether to OFFER the switch is predicted locally from data already pushed over the WS; the
   // server re-derives it and can still refuse (409 → failoverFailed). The default provider and
   // the active-failover record are read from settings when the popover opens, mirroring
-  // loadHeldAutoRelease() below, so an out-of-band change (settings API, the 30s auto-release)
+  // the held auto-start toggle, so an out-of-band change (settings API, the 30s auto-release)
   // shows up rather than a stale value.
   // null until the first load lands. Seeding a provider instead would let the popover's first
   // frame compute the offer against a guessed default and briefly render the OPPOSITE button —
@@ -518,11 +542,16 @@
       : providerFailoverOffer(limits, defaultAgentProvider, diagnostics),
   );
 
-  async function loadFailover() {
+  // One settings read per panel open: the failover state above and the hold settings the
+  // waiting column and the limit tick read (see the held-tasks section below).
+  async function loadPanelSettings() {
     try {
       const s = await getSettings();
       failover = s.providerFailover ?? null;
       defaultAgentProvider = s.defaultAgentProvider ?? "claude";
+      heldAutoRelease = s.usageHoldAutoRelease;
+      holdEnabled = s.usageHoldEnabled;
+      holdPct = s.usageHoldPct;
     } catch {
       // best-effort; leave the last known values
     }
@@ -537,27 +566,28 @@
       defaultAgentProvider = failover.current;
     } catch {
       failoverFailed = true;
-      void loadFailover(); // the server refused — resync rather than keep a guessed state
+      void loadPanelSettings(); // the server refused — resync rather than keep a guessed state
     } finally {
       failoverBusy = false;
     }
   }
 
-  // ── Held-tasks popover ────────────────────────────────────────────────────
-  // Non-modal anchored popover (design-system "small anchored popover" exemption:
-  // not aria-modal on desktop, no scrim). Cloned from AutomationPanel's .auto-pop.
-  let heldPopOpen = $state(false);
-  let heldPopEl = $state<HTMLDivElement | null>(null);
+  // ── Held tasks (the usage panel's waiting column) ──────────────────────────
+  // Held tasks used to live in their own popover; they now sit in the usage panel beside the
+  // numbers that hold them. The panel's open state is `popoverOpen` (below).
   let heldBadgeBtn = $state<HTMLButtonElement | null>(null);
-  let heldPopFlipUp = $state(false);
   let heldItems = $state<HeldTask[]>([]);
   let heldLoading = $state(false);
   // Auto-start toggle: when on, the server's 30s sweeper releases held tasks once usage drops
   // below the threshold; when off, they stay queued until started/discarded manually. Loaded
-  // from settings when the popover opens so it reflects out-of-band changes (settings API / env
+  // from settings when the panel opens so it reflects out-of-band changes (settings API / env
   // override) rather than a possibly-stale value.
   let heldAutoRelease = $state(true);
   let heldAutoReleaseBusy = $state(false);
+  // The hold limit, read with the same settings: null until loaded, so no tick is drawn on a guess.
+  let holdEnabled = $state<boolean | null>(null);
+  let holdPct = $state<number | null>(null);
+  const holdLimit = $derived(holdEnabled ? holdPct : null);
 
   async function loadHeld() {
     heldLoading = true;
@@ -567,14 +597,6 @@
       // best-effort; count stays live via WS
     } finally {
       heldLoading = false;
-    }
-  }
-
-  async function loadHeldAutoRelease() {
-    try {
-      heldAutoRelease = (await getSettings()).usageHoldAutoRelease;
-    } catch {
-      // best-effort; leave the last known value
     }
   }
 
@@ -593,21 +615,19 @@
     }
   }
 
-  function openHeldPop() {
-    heldPopOpen = true;
-    loadHeld();
-    loadHeldAutoRelease();
-  }
-
-  function closeHeldPop(returnFocus = false) {
-    heldPopOpen = false;
-    if (returnFocus) heldBadgeBtn?.focus();
-  }
-
-  function toggleHeldPop() {
-    if (heldPopOpen) closeHeldPop();
-    else openHeldPop();
-  }
+  // Drains paused because usage reached their repo's ceiling — the other thing the panel's
+  // numbers are holding back.
+  const usagePausedDrains = $derived(
+    Object.values(drain).filter((d) => d.paused && d.reason === "usage"),
+  );
+  // Each CLI's hottest window, named in the held rows' start-with picker.
+  const providerPct = $derived(
+    Object.fromEntries(
+      providerDisplayCapacityRows(limits)
+        .filter((row) => row.windows.length > 0)
+        .map((row) => [row.provider, Math.max(...row.windows.map((w) => w.usedPct))]),
+    ) as Partial<Record<AgentProvider, number>>,
+  );
 
   // Per-task action error, shown inline in the held popover. A spawn/discard can be
   // refused server-side (sandbox block, name collision, herdr failure, already gone)
@@ -644,10 +664,10 @@
     }
   }
 
-  // Edit a held task: close the popover (the composer is a separate modal that would
+  // Edit a held task: close the panel (the composer is a separate modal that would
   // otherwise sit behind this anchored surface) and hand the task to the page opener.
   function doEditHeld(task: HeldTask) {
-    closeHeldPop();
+    closePanel();
     onedithheld?.(task);
   }
 
@@ -665,63 +685,34 @@
     }
   }
 
-  // Flip-up + height clamp for held popover — mirrors AutomationPanel's $effect.
-  const MIN_HEIGHT_HELD = 120;
-  const EDGE_GAP_HELD = 12;
-  const ANCHOR_GAP_HELD = 4;
+  // The panel's trigger: the inline usage gauge where the bar shows one, else the held badge
+  // (the phone bar, or a desktop bar with no usage data). Mirrors TopBarUsage's own branches.
+  const usageTriggerShown = $derived(
+    !mobile && !(subscriptionOnly && !codexUsage) && activeCompactUsageView !== null,
+  );
+  // Close when its trigger is gone: the held badge disappears once nothing is held, and a panel
+  // left open would have nothing to return focus to.
   $effect(() => {
-    const el = heldPopEl;
-    if (!el) return;
-    if (mobile) {
-      heldPopFlipUp = false;
-      el.style.maxHeight = "";
-      return;
-    }
-    const clamp = () => {
-      const anchor = el.offsetParent;
-      if (!anchor) return;
-      const rect = anchor.getBoundingClientRect();
-      const below = window.innerHeight - rect.bottom - ANCHOR_GAP_HELD - EDGE_GAP_HELD;
-      const above = rect.top - ANCHOR_GAP_HELD - EDGE_GAP_HELD;
-      heldPopFlipUp = below < MIN_HEIGHT_HELD && above > below;
-      el.style.maxHeight = `${Math.max(MIN_HEIGHT_HELD, heldPopFlipUp ? above : below)}px`;
-    };
-    let raf = 0;
-    const schedule = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        clamp();
-      });
-    };
-    clamp();
-    window.addEventListener("resize", schedule);
-    window.addEventListener("scroll", schedule, true);
-    const ro = new ResizeObserver(schedule);
-    if (el.offsetParent) ro.observe(el.offsetParent);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("resize", schedule);
-      window.removeEventListener("scroll", schedule, true);
-      ro.disconnect();
-    };
+    if (popoverOpen && !usageTriggerShown && (heldCount ?? 0) === 0) closePanel();
   });
-
-  // Auto-close held popover when count drops to 0 while open.
-  $effect(() => {
-    if (heldPopOpen && (heldCount ?? 0) === 0) closeHeldPop();
-  });
-  // Refresh held list when the WS count changes while the popover is open.
+  // Refresh held list when the WS count changes while the panel is open.
   $effect(() => {
     void heldCount;
-    if (heldPopOpen) loadHeld();
+    if (popoverOpen) loadHeld();
   });
   $effect(() => {
-    // Close the popover when there's nothing left to show. Both desktop and touch drive
-    // popoverOpen now, so the only force-close is "no usage windows AND no credits AND no
-    // per-model bar" (a non-empty `gauges` implies `hotter`, so this also covers the touch
-    // collapse case). Keep `perModel` here or a Fable-only snapshot would force-close its own popover.
-    if (!claudeAvailable && !codexUsage) popoverOpen = false;
+    // Close the panel when there's nothing left to show: no usage windows, credits or per-model
+    // bar (a non-empty `gauges` implies `hotter`, so this also covers the touch collapse case)
+    // AND nothing waiting. Keep `perModel` here or a Fable-only snapshot would force-close its own
+    // panel; keep the waiting work, or a held-only panel would close itself on open.
+    if (
+      !claudeAvailable &&
+      !codexUsage &&
+      (heldCount ?? 0) === 0 &&
+      usagePausedDrains.length === 0
+    ) {
+      popoverOpen = false;
+    }
   });
 
   // The gear adapts to herd state. When the herd is idle (haltable === 0) a click
@@ -857,23 +848,21 @@
       return;
     }
     if (e.key !== "Escape") return;
-    if (popoverOpen) popoverOpen = false;
-    if (heldPopOpen) {
-      closeHeldPop(true);
+    if (popoverOpen) {
+      closePanel();
       return;
     }
     if (menuOpen) closeMenu(true);
   }
   function dismissOnOutside(e: MouseEvent) {
-    if (popoverOpen && gaugeWrap && !gaugeWrap.contains(e.target as Node)) popoverOpen = false;
+    const target = e.target as Node;
     if (
-      heldPopOpen &&
-      heldBadgeBtn &&
-      heldPopEl &&
-      !heldBadgeBtn.contains(e.target as Node) &&
-      !heldPopEl.contains(e.target as Node)
+      popoverOpen &&
+      !gaugeWrap?.contains(target) &&
+      !heldBadgeBtn?.contains(target) &&
+      !panelEl?.contains(target)
     ) {
-      closeHeldPop();
+      closePanel();
     }
     // On mobile the sheet's own `.menu-scrim` backdrop (onclick={() => closeMenu()}) handles
     // outside-tap and `use:dialog` handles Esc — so we MUST NOT gate on gearWrap containment
@@ -886,6 +875,29 @@
 <svelte:window onkeydown={dismissOnEscape} onclick={dismissOnOutside} />
 
 <!-- CR credit gauge + detail: extracted to top-bar/ children (#855). -->
+
+{#snippet waitColumn(sheet: boolean)}
+  <CapacityWait
+    {sheet}
+    holdPct={holdLimit}
+    {holdEnabled}
+    drains={usagePausedDrains}
+    heldCount={heldCount ?? 0}
+    {hotter}
+    {nowMs}
+    {heldItems}
+    {heldLoading}
+    {heldErrors}
+    {heldPending}
+    {heldAutoRelease}
+    {heldAutoReleaseBusy}
+    {toggleHeldAutoRelease}
+    {providerPct}
+    {doSpawnHeld}
+    {doDiscardHeld}
+    onEditHeld={doEditHeld}
+  />
+{/snippet}
 
 <div class="hud bracket" class:mobile class:touch={touch && !mobile} bind:this={hudEl}>
   <div class="logo">SHEP<b>HERD</b></div>
@@ -908,41 +920,24 @@
     {clickStatus}
   />
   <div class="rightside">
-    <TopBarHeldBadge
-      {heldCount}
-      {mobile}
-      {compactBadges}
-      {hotter}
-      {nowMs}
-      {heldPopFlipUp}
-      {heldItems}
-      {heldLoading}
-      {heldErrors}
-      {heldPending}
-      {heldAutoRelease}
-      {heldAutoReleaseBusy}
-      {toggleHeldAutoRelease}
-      bind:heldPopOpen
-      bind:heldBadgeBtn
-      bind:heldPopEl
-      {toggleHeldPop}
-      {closeHeldPop}
-      {doSpawnHeld}
-      {doDiscardHeld}
-      onEditHeld={doEditHeld}
-    />
+    {#if mobile || !usageTriggerShown}
+      <TopBarHeldBadge
+        heldCount={heldCount ?? 0}
+        {mobile}
+        {compactBadges}
+        {hotter}
+        {nowMs}
+        open={popoverOpen}
+        bind:btn={heldBadgeBtn}
+        onToggle={togglePanel}
+      />
+    {/if}
     {#if !mobile}
       <TopBarUsage
         {subscriptionOnly}
         {touch}
-        stale={claudeDisplayStale}
-        {gauges}
-        {perModel}
-        {credits}
         {codexUsage}
-        {claudeAvailable}
-        {observed}
-        hottest={hottestWindow}
+        {credits}
         {activeCompactUsageView}
         {compactUsageRotating}
         {overspend}
@@ -950,19 +945,12 @@
         {creditColor}
         {creditAmount}
         {nowMs}
-        {refreshing}
-        {refreshError}
-        onRefresh={doRefresh}
-        onOpenPopover={refreshOnStaleOpen}
         {periodLabel}
-        {failoverOffer}
-        {failover}
-        {failoverBusy}
-        {failoverFailed}
-        onEngageFailover={() => void actFailover("engage")}
-        onReleaseFailover={() => void actFailover("release")}
-        onusage={chooseUsage}
-        bind:popoverOpen
+        heldCount={heldCount ?? 0}
+        {hotter}
+        compact={compactBadges}
+        open={popoverOpen}
+        onToggle={togglePanel}
         bind:gaugeWrap
       />
     {/if}
@@ -1055,6 +1043,42 @@
       {periodLabel}
     />
   </div>
+  {#if popoverOpen}
+    <!-- The usage panel, shared by both triggers: anchored under the bar's right edge (the .hud
+         is its positioning box), or the phone's full-screen sheet. -->
+    <TopBarUsagePopover
+      variant={mobile ? "sheet" : touch ? "touch" : "desktop"}
+      stale={claudeDisplayStale}
+      {gauges}
+      {perModel}
+      {credits}
+      {codexUsage}
+      {claudeAvailable}
+      {observed}
+      hottest={hottestWindow}
+      {creditFill}
+      {creditColor}
+      {creditAmount}
+      {nowMs}
+      {refreshing}
+      {refreshError}
+      onRefresh={doRefresh}
+      {periodLabel}
+      {failoverOffer}
+      {failover}
+      {failoverBusy}
+      {failoverFailed}
+      onEngageFailover={() => void actFailover("engage")}
+      onReleaseFailover={() => void actFailover("release")}
+      holdPct={holdLimit}
+      heldCount={heldCount ?? 0}
+      pausedCount={usagePausedDrains.length}
+      wait={waitColumn}
+      onClose={closePanel}
+      onOpenUsage={openUsageView}
+      bind:el={panelEl}
+    />
+  {/if}
 </div>
 
 {#if menuOpen && mobile}

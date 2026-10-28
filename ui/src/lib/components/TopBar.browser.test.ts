@@ -12,7 +12,9 @@ import type {
   HerdrUpdateStatus,
   CodexUpdateStatus,
   DiagnosticState,
+  DrainStatus,
   HeldTask,
+  Settings,
 } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 import { REPO_URL, DOCS_URL, version } from "#lib/build-info.js";
@@ -25,13 +27,21 @@ vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
   // Default: resolve (success). The value is ignored by the component (the gauge
   // self-updates via the ln WS frame); the fail-closed test overrides with a reject.
-  return { ...actual, refreshUsage: vi.fn(async () => undefined) };
+  return {
+    ...actual,
+    refreshUsage: vi.fn(async () => undefined),
+    // The usage panel reads the held list and the hold settings on open; tests that need them
+    // stub a resolution, everything else gets an empty list and the real (failing) settings read.
+    listHeld: vi.fn(async () => []),
+    getSettings: vi.fn(actual.getSettings),
+    updateEpic: vi.fn(async () => undefined),
+  };
 });
 
 const { default: TopBar } = await import("./TopBar.svelte");
-const { default: TopBarHeldBadge } = await import("./top-bar/TopBarHeldBadge.svelte");
+const { default: CapacityWait } = await import("./top-bar/CapacityWait.svelte");
 const { default: TopBarLimitsHarness } = await import("./TopBarLimitsHarness.svelte");
-const { refreshUsage } = await import("#lib/api.js");
+const { refreshUsage, listHeld, getSettings, updateEpic } = await import("#lib/api.js");
 
 // Deterministic measurement: pin the bar's font so CI (no Berkeley Mono) and
 // local agree. Mounted into a full-width container; widths come from page.viewport.
@@ -856,17 +866,17 @@ describe("TopBar — async held-task arrival re-measures (touch-desktop reactivi
       // left pending that could self-heal after held arrives and mask the bug.
       await waitNoOverflow(hud!);
       await drainFrames(hud!);
-      expect(hud!.querySelector(".held-badge"), "no held badge before held arrives").toBeNull();
+      expect(hud!.querySelector(".held-seg"), "no held segment before held arrives").toBeNull();
       expect(
         hud!.querySelector(".tallies.compact"),
         "tallies full before held arrives (bar fits)",
       ).toBeNull();
 
-      // ASYNC arrival: a task is held → the held badge renders, pushing the bar over 800.
+      // ASYNC arrival: a task is held → the gauge trigger grows its held segment, pushing the bar over.
       // With the RO stubbed, ONLY the held-tracking measure effect can react and re-compact.
       component.setHeld(3);
       await nextFrame();
-      expect(hud!.querySelector(".held-badge"), "held badge renders after arrival").not.toBeNull();
+      expect(hud!.querySelector(".held-seg"), "held segment renders after arrival").not.toBeNull();
 
       // The re-measure (driven by the tracked badgeCount read now containing held) must
       // re-compact the bar back to a fitting form — collapsing the tallies on touch-desktop.
@@ -971,115 +981,198 @@ describe("TopBar — tallies toggle the status filter", () => {
   });
 });
 
-describe("TopBarHeldBadge — mobile held-task dialog", () => {
-  it("opens as a full-width dialog with comfortable touch actions on iPhone width", async () => {
+const heldTaskFixture: HeldTask = {
+  id: "held-1",
+  repoPath: "/work/shepherd",
+  createdAt: 1_700_000_000_000,
+  input: {
+    repoPath: "/work/shepherd",
+    baseBranch: "main",
+    prompt: "Die Buttons sind hier der Engpass auf meinem Smartphone",
+    agentProvider: "claude",
+    model: null,
+  },
+};
+
+function waitProps(
+  overrides: Partial<ComponentProps<typeof CapacityWait>> = {},
+): ComponentProps<typeof CapacityWait> {
+  return {
+    sheet: false,
+    holdPct: 80,
+    holdEnabled: true,
+    drains: [],
+    heldCount: 1,
+    hotter: null,
+    nowMs: 1_700_000_000_000,
+    heldItems: [heldTaskFixture],
+    heldLoading: false,
+    heldAutoRelease: true,
+    heldAutoReleaseBusy: false,
+    toggleHeldAutoRelease: vi.fn(),
+    doSpawnHeld: vi.fn(),
+    doDiscardHeld: vi.fn(),
+    onEditHeld: vi.fn(),
+    ...overrides,
+  };
+}
+
+const holdSettings = {
+  usageHoldEnabled: true,
+  usageHoldPct: 80,
+  usageHoldAutoRelease: true,
+} as Settings;
+
+describe("Usage panel — held tasks and what the limit holds back", () => {
+  afterEach(() => {
+    vi.mocked(listHeld).mockResolvedValue([]);
+    vi.mocked(getSettings).mockReset();
+  });
+
+  it("phone: the held badge opens the full-screen panel with comfortable touch actions", async () => {
     await page.viewport(390, 844);
     document.body.style.width = "390px";
-    const closeHeldPop = vi.fn();
-    const heldItems: HeldTask[] = [
-      {
-        id: "held-1",
-        repoPath: "/work/shepherd",
-        createdAt: 1_700_000_000_000,
-        input: {
-          repoPath: "/work/shepherd",
-          baseBranch: "main",
-          prompt: "Die Buttons sind hier der Engpass auf meinem Smartphone",
-          agentProvider: "claude",
-          model: null,
-        },
-      },
-    ];
-
-    render(TopBarHeldBadge, {
-      heldCount: 1,
-      mobile: true,
-      compactBadges: false,
-      hotter: null,
+    vi.mocked(listHeld).mockResolvedValue([heldTaskFixture]);
+    render(TopBar, {
       nowMs: 1_700_000_000_000,
-      heldPopFlipUp: false,
-      heldItems,
-      heldLoading: false,
-      heldAutoRelease: true,
-      heldAutoReleaseBusy: false,
-      toggleHeldAutoRelease: vi.fn(),
-      heldPopOpen: true,
-      heldBadgeBtn: null,
-      heldPopEl: null,
-      toggleHeldPop: vi.fn(),
-      closeHeldPop,
-      doSpawnHeld: vi.fn(),
-      doDiscardHeld: vi.fn(),
-      onEditHeld: vi.fn(),
+      connected: true,
+      ...FLAGS.mobile,
+      sessions: [],
+      heldCount: 1,
     });
-    await nextFrame();
+    await page.getByRole("button", { name: m.topbar_held_badge({ count: 1 }) }).click();
 
-    const dialog = document.querySelector<HTMLElement>(".held-fullscreen");
-    expect(dialog, "mobile held dialog rendered").not.toBeNull();
-    const dialogRect = dialog!.getBoundingClientRect();
-    expect(Math.round(dialogRect.left)).toBe(0);
-    expect(Math.round(dialogRect.right)).toBe(390);
-    expect(dialogRect.height).toBeGreaterThan(800);
-    await expect.element(page.getByRole("dialog", { name: m.topbar_held_title() })).toBeVisible();
+    const dialog = page.getByRole("dialog", { name: m.topbar_gauge_popover_title() });
+    await expect.element(dialog).toBeVisible();
+    const sheet = document.querySelector<HTMLElement>(".gauge-pop.sheet");
+    expect(sheet, "phone panel is the full-screen sheet").not.toBeNull();
+    const sheetRect = sheet!.getBoundingClientRect();
+    expect(Math.round(sheetRect.left)).toBe(0);
+    expect(Math.round(sheetRect.right)).toBe(390);
+    expect(sheetRect.height).toBeGreaterThan(800);
 
-    const close = page.getByRole("button", { name: m.common_close() });
-    const closeBox = (close.element() as HTMLElement).getBoundingClientRect();
-    expectMinPx(closeBox?.width, 44, "close tap-target width");
-    expectMinPx(closeBox?.height, 44, "close tap-target height");
-
-    const spawn = page.getByRole("button", { name: m.topbar_held_spawn_now() });
-    const discard = page.getByRole("button", { name: m.topbar_held_discard() });
+    const spawn = dialog.getByRole("button", { name: m.topbar_held_spawn_now() });
+    await expect.element(spawn).toBeVisible();
+    const discard = dialog.getByRole("button", { name: m.topbar_held_discard() });
     const spawnBox = (spawn.element() as HTMLElement).getBoundingClientRect();
     const discardBox = (discard.element() as HTMLElement).getBoundingClientRect();
-    expectMinPx(spawnBox?.height, 44, "spawn tap-target height");
-    expectMinPx(discardBox?.height, 44, "discard tap-target height");
-    expect(spawnBox?.width).toBeGreaterThan(150);
-    expect(discardBox?.width).toBeGreaterThan(150);
+    expectMinPx(spawnBox.height, 44, "spawn tap-target height");
+    expectMinPx(discardBox.height, 44, "discard tap-target height");
+    expect(spawnBox.width).toBeGreaterThan(150);
+    expect(discardBox.width).toBeGreaterThan(150);
 
+    const close = dialog.getByRole("button", { name: m.common_close() });
+    const closeBox = (close.element() as HTMLElement).getBoundingClientRect();
+    expectMinPx(closeBox.width, 44, "close tap-target width");
+    expectMinPx(closeBox.height, 44, "close tap-target height");
     await close.click();
-    expect(closeHeldPop).toHaveBeenCalledWith(true);
+    await expect.element(dialog).not.toBeInTheDocument();
+  });
+
+  it("desktop: the gauge trigger carries the held count — no separate held badge", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      ...sessionsProp(2),
+      limits: fullLimits,
+      heldCount: 2,
+    });
+    const hud = document.querySelector<HTMLElement>(".hud")!;
+    const toggle = hud.querySelector<HTMLButtonElement>(".gauges-toggle");
+    expect(toggle?.classList.contains("held"), "gauge trigger is the held chip").toBe(true);
+    expect(toggle?.textContent).toContain(m.topbar_held_badge({ count: 2 }));
+    expect(hud.querySelector(".held-badge"), "no standalone held badge").toBeNull();
+  });
+
+  it("desktop: the limit is drawn on Claude's bars and the hero names what it holds back", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    vi.mocked(getSettings).mockResolvedValue(holdSettings);
+    vi.mocked(listHeld).mockResolvedValue([heldTaskFixture]);
+    const paused = {
+      repoPath: "/work/shepherd",
+      enabled: true,
+      paused: true,
+      reason: "usage",
+      detail: "88",
+      queued: 3,
+      inFlight: 0,
+      max: 1,
+      epicParent: 3458,
+      usageCeilingPct: 80,
+    } satisfies DrainStatus;
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      ...sessionsProp(2),
+      limits: fullLimits,
+      heldCount: 1,
+      drain: { [paused.repoPath]: paused },
+    });
+    document.querySelector<HTMLButtonElement>(".gauges-toggle")!.click();
+
+    const panel = page.getByRole("dialog", { name: m.topbar_gauge_popover_title() });
+    await expect.element(panel).toBeVisible();
+    // Hero: the 88 % five-hour window is past the 80 % limit — tick, caption and both effects.
+    await expect.element(panel.getByText(m.capacity_limit({ pct: 80 })).first()).toBeVisible();
+    const hero = document.querySelector<HTMLElement>(".usage-hero")!;
+    expect(hero.querySelector(".hero-tick"), "limit tick on the hero bar").not.toBeNull();
+    expect(hero.querySelector(".hero-over"), "past-the-limit share hatched").not.toBeNull();
+    expect(hero.textContent).toContain(m.capacity_effect_paused());
+    expect(hero.textContent).toContain(m.topbar_held_badge({ count: 1 }));
+    // Both Claude rows carry the tick; the crossed one (88 %) is marked, the other (64 %) is not.
+    const ticks = [...document.querySelectorAll<HTMLElement>(".gauge-pop-claude .uw-tick")];
+    expect(ticks).toHaveLength(2);
+    expect(ticks.map((t) => t.classList.contains("crossed"))).toEqual([true, false]);
+
+    // The waiting column: the paused drain (with its epic override) and the held task.
+    await expect
+      .element(panel.getByText(m.drain_paused_usage_ceiling({ pct: "88", ceiling: 80 })))
+      .toBeVisible();
+    await panel.getByRole("button", { name: m.drain_usage_ignore({ epic: 3458 }) }).click();
+    expect(updateEpic).toHaveBeenCalledWith("/work/shepherd", 3458, { ignoreUsageCeiling: true });
+    await expect
+      .element(panel.getByRole("heading", { name: m.capacity_held_title({ count: 1 }) }))
+      .toBeVisible();
+    await expect
+      .element(panel.getByRole("button", { name: m.topbar_held_spawn_now() }))
+      .toBeVisible();
+  });
+
+  it("desktop: with nothing waiting the column says so and names the limit", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    vi.mocked(getSettings).mockResolvedValue(holdSettings);
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      ...sessionsProp(2),
+      limits: { ...fullLimits, session5h: { pct: 34, resetAt: 1_700_003_600_000 } },
+    });
+    document.querySelector<HTMLButtonElement>(".gauges-toggle")!.click();
+    const panel = page.getByRole("dialog", { name: m.topbar_gauge_popover_title() });
+    await expect.element(panel.getByText(m.capacity_nothing_waiting())).toBeVisible();
+    await expect
+      .element(panel.getByText(m.capacity_nothing_waiting_body({ pct: 80 })))
+      .toBeVisible();
+    await expect.element(panel.getByText(m.capacity_below_limit())).toBeVisible();
   });
 
   it("shows an inline error when a held-task spawn was refused server-side", async () => {
     await page.viewport(390, 844);
     document.body.style.width = "390px";
-    const heldItems: HeldTask[] = [
-      {
-        id: "held-1",
-        repoPath: "/work/shepherd",
-        createdAt: 1_700_000_000_000,
-        input: {
-          repoPath: "/work/shepherd",
-          baseBranch: "main",
-          prompt: "Die Buttons sind hier der Engpass auf meinem Smartphone",
-          agentProvider: "claude",
-          model: null,
-        },
-      },
-    ];
-
-    render(TopBarHeldBadge, {
-      heldCount: 1,
-      mobile: true,
-      compactBadges: false,
-      hotter: null,
-      nowMs: 1_700_000_000_000,
-      heldPopFlipUp: false,
-      heldItems,
-      heldLoading: false,
-      heldErrors: { "held-1": { kind: "spawn", detail: "task name already in use, retry" } },
-      heldAutoRelease: true,
-      heldAutoReleaseBusy: false,
-      toggleHeldAutoRelease: vi.fn(),
-      heldPopOpen: true,
-      heldBadgeBtn: null,
-      heldPopEl: null,
-      toggleHeldPop: vi.fn(),
-      closeHeldPop: vi.fn(),
-      doSpawnHeld: vi.fn(),
-      doDiscardHeld: vi.fn(),
-      onEditHeld: vi.fn(),
-    });
+    render(
+      CapacityWait,
+      waitProps({
+        sheet: true,
+        heldErrors: { "held-1": { kind: "spawn", detail: "task name already in use, retry" } },
+      }),
+    );
     await nextFrame();
 
     // The failure surfaces inline (a toast would render behind the fullscreen dialog),
@@ -1094,43 +1187,7 @@ describe("TopBarHeldBadge — mobile held-task dialog", () => {
   it("shows in-flight state on the spawn button while a held-task spawn is pending", async () => {
     await page.viewport(1280, 900);
     document.body.style.width = "1280px";
-    const heldItems: HeldTask[] = [
-      {
-        id: "held-1",
-        repoPath: "/work/shepherd",
-        createdAt: 1_700_000_000_000,
-        input: {
-          repoPath: "/work/shepherd",
-          baseBranch: "main",
-          prompt: "In der Dashboard-Übersicht",
-          agentProvider: "claude",
-          model: null,
-        },
-      },
-    ];
-
-    render(TopBarHeldBadge, {
-      heldCount: 1,
-      mobile: false,
-      compactBadges: false,
-      hotter: null,
-      nowMs: 1_700_000_000_000,
-      heldPopFlipUp: false,
-      heldItems,
-      heldLoading: false,
-      heldPending: { "held-1": "spawn" },
-      heldAutoRelease: true,
-      heldAutoReleaseBusy: false,
-      toggleHeldAutoRelease: vi.fn(),
-      heldPopOpen: true,
-      heldBadgeBtn: null,
-      heldPopEl: null,
-      toggleHeldPop: vi.fn(),
-      closeHeldPop: vi.fn(),
-      doSpawnHeld: vi.fn(),
-      doDiscardHeld: vi.fn(),
-      onEditHeld: vi.fn(),
-    });
+    render(CapacityWait, waitProps({ heldPending: { "held-1": "spawn" } }));
     await nextFrame();
 
     // While spawning, the button reads "starting…", is busy, and is disabled so the
@@ -1143,50 +1200,32 @@ describe("TopBarHeldBadge — mobile held-task dialog", () => {
   it("clicking Edit hands the whole held task to onEditHeld", async () => {
     await page.viewport(1280, 900);
     document.body.style.width = "1280px";
-    const task: HeldTask = {
-      id: "held-1",
-      repoPath: "/work/shepherd",
-      createdAt: 1_700_000_000_000,
-      input: {
-        repoPath: "/work/shepherd",
-        baseBranch: "main",
-        prompt: "fix the thing",
-        agentProvider: "claude",
-        model: null,
-      },
-    };
     const onEditHeld = vi.fn();
-
-    render(TopBarHeldBadge, {
-      heldCount: 1,
-      mobile: false,
-      compactBadges: false,
-      hotter: null,
-      nowMs: 1_700_000_000_000,
-      heldPopFlipUp: false,
-      heldItems: [task],
-      heldLoading: false,
-      heldAutoRelease: true,
-      heldAutoReleaseBusy: false,
-      toggleHeldAutoRelease: vi.fn(),
-      heldPopOpen: true,
-      heldBadgeBtn: null,
-      heldPopEl: null,
-      toggleHeldPop: vi.fn(),
-      closeHeldPop: vi.fn(),
-      doSpawnHeld: vi.fn(),
-      doDiscardHeld: vi.fn(),
-      onEditHeld,
-    });
+    render(CapacityWait, waitProps({ onEditHeld }));
     await nextFrame();
 
     await page.getByRole("button", { name: m.topbar_held_edit() }).click();
     expect(onEditHeld).toHaveBeenCalledTimes(1);
-    expect(onEditHeld.mock.calls[0]![0]).toEqual(task);
+    expect(onEditHeld.mock.calls[0]![0]).toEqual(heldTaskFixture);
+  });
+
+  it("names each CLI's usage in the start-with picker", async () => {
+    await page.viewport(1280, 900);
+    render(CapacityWait, waitProps({ providerPct: { claude: 82, codex: 9 } }));
+    await expect
+      .element(
+        page.getByRole("option", {
+          name: m.capacity_cli_option({ provider: m.agent_provider_codex(), pct: 9 }),
+        }),
+      )
+      .toBeInTheDocument();
+    expect(document.querySelector(".held-cli-value")!.textContent).toBe(
+      m.capacity_cli_option({ provider: m.agent_provider_claude(), pct: 82 }),
+    );
   });
 });
 
-describe("TopBarHeldBadge — readable prompts and action bars", () => {
+describe("CapacityWait — readable prompts and action bars", () => {
   const issuePrompt =
     "Bearbeite Issue #2871 (https://github.com/erwins-enkel/shepherd/issues/2871): Landing-PR-Titel länger als 100 Zeichen vollständig anzeigen";
   const longPrompt = `${issuePrompt} ${"https://example.com/" + "long-path/".repeat(60)} Weitere Hinweise zur Aufgabe.`;
@@ -1203,29 +1242,8 @@ describe("TopBarHeldBadge — readable prompts and action bars", () => {
     },
   };
   const props = (
-    overrides: Partial<ComponentProps<typeof TopBarHeldBadge>> = {},
-  ): ComponentProps<typeof TopBarHeldBadge> => ({
-    heldCount: 1,
-    mobile: false,
-    compactBadges: false,
-    hotter: null,
-    nowMs: 1_700_000_000_000,
-    heldPopFlipUp: false,
-    heldItems: [task],
-    heldLoading: false,
-    heldAutoRelease: true,
-    heldAutoReleaseBusy: false,
-    toggleHeldAutoRelease: vi.fn(),
-    heldPopOpen: true,
-    heldBadgeBtn: null,
-    heldPopEl: null,
-    toggleHeldPop: vi.fn(),
-    closeHeldPop: vi.fn(),
-    doSpawnHeld: vi.fn(),
-    doDiscardHeld: vi.fn(),
-    onEditHeld: vi.fn(),
-    ...overrides,
-  });
+    overrides: Partial<ComponentProps<typeof CapacityWait>> = {},
+  ): ComponentProps<typeof CapacityWait> => waitProps({ heldItems: [task], ...overrides });
   const promptTask = (prompt: string) => ({ ...task, input: { ...task.input, prompt } });
   let locale: ReturnType<typeof getLocale>;
   beforeEach(() => {
@@ -1239,7 +1257,7 @@ describe("TopBarHeldBadge — readable prompts and action bars", () => {
 
   it("names the predecessor an after hold waits on (#2589)", async () => {
     render(
-      TopBarHeldBadge,
+      CapacityWait,
       props({
         heldItems: [
           { ...task, reason: "after", afterDesig: "TASK-1490" },
@@ -1262,7 +1280,7 @@ describe("TopBarHeldBadge — readable prompts and action bars", () => {
       setLocale(language, { reload: false });
       await page.viewport(1280, 900);
       document.body.style.width = "1280px";
-      render(TopBarHeldBadge, props());
+      render(CapacityWait, props());
       await nextFrame();
       const prompt = document.querySelector<HTMLElement>(".held-row-prompt")!;
       expect(prompt.scrollWidth).toBeLessThanOrEqual(prompt.clientWidth);
@@ -1287,17 +1305,17 @@ describe("TopBarHeldBadge — readable prompts and action bars", () => {
   );
 
   it.each([
-    { mobile: false, width: 1280, lines: 3 },
-    { mobile: true, width: 390, lines: 4 },
+    { sheet: false, width: 1280, lines: 3 },
+    { sheet: true, width: 390, lines: 4 },
   ])(
     "clamps long prompts to $lines lines and expands them in place",
-    async ({ mobile, width, lines }) => {
+    async ({ sheet, width, lines }) => {
       await page.viewport(width, 900);
       document.body.style.width = `${width}px`;
       render(
-        TopBarHeldBadge,
+        CapacityWait,
         props({
-          mobile,
+          sheet,
           heldItems: [
             promptTask(longPrompt),
             { ...task, id: "short", input: { ...task.input, prompt: "Short task" } },
@@ -1330,7 +1348,7 @@ describe("TopBarHeldBadge — readable prompts and action bars", () => {
   it("remeasures clipping after resizing and editing a prompt", async () => {
     await page.viewport(1280, 900);
     document.body.style.width = "1280px";
-    const { rerender } = await render(TopBarHeldBadge, props());
+    const { rerender } = await render(CapacityWait, props());
     await expect
       .element(page.getByRole("button", { name: "Show full prompt" }))
       .not.toBeInTheDocument();
@@ -1343,49 +1361,58 @@ describe("TopBarHeldBadge — readable prompts and action bars", () => {
       .not.toBeInTheDocument();
   });
 
-  it("keeps the row keyboard order and focus trap, and restores focus on Escape", async () => {
+  it("keeps the row keyboard order inside the panel's focus trap, and restores focus on Escape", async () => {
     await page.viewport(1280, 900);
     document.body.style.width = "1280px";
-    const closeHeldPop = vi.fn();
-    const initial = props({
-      heldItems: [promptTask(longPrompt)],
-      heldPopOpen: false,
-      closeHeldPop,
-    });
-    const { rerender } = await render(TopBarHeldBadge, initial);
-    const badge = page.getByRole("button", { name: m.topbar_held_badge({ count: 1 }) });
-    (badge.element() as HTMLElement).focus();
-    await rerender({ ...initial, heldPopOpen: true });
-    const toggle = page.getByRole("button", { name: "Show full prompt" });
-    await expect.element(toggle).toBeVisible();
-    (toggle.element() as HTMLElement).focus();
-    for (const control of [
-      page.getByRole("button", { name: m.topbar_held_spawn_now() }),
-      page.getByRole("combobox", { name: m.topbar_held_spawn_cli_label() }),
-      page.getByRole("button", { name: m.topbar_held_edit() }),
-      page.getByRole("button", { name: m.topbar_held_discard() }),
-      page.getByRole("checkbox"),
-    ]) {
-      await userEvent.keyboard("{Tab}");
-      await expect.element(control).toHaveFocus();
-      if (control.element().tagName === "SELECT") {
-        expect(getComputedStyle(control.element().closest(".held-cli")!).boxShadow).not.toBe(
-          "none",
-        );
+    vi.mocked(listHeld).mockResolvedValue([promptTask(longPrompt)]);
+    try {
+      // No usage data: the held badge is the panel's trigger on desktop.
+      render(TopBar, {
+        nowMs: 1_700_000_000_000,
+        connected: true,
+        ...FLAGS.desktop,
+        sessions: [],
+        heldCount: 1,
+      });
+      const badge = page.getByRole("button", { name: m.topbar_held_badge({ count: 1 }) });
+      (badge.element() as HTMLElement).focus();
+      await userEvent.keyboard("{Enter}");
+      const toggle = page.getByRole("button", { name: "Show full prompt" });
+      await expect.element(toggle).toBeVisible();
+      (toggle.element() as HTMLElement).focus();
+      for (const control of [
+        page.getByRole("button", { name: m.topbar_held_spawn_now() }),
+        page.getByRole("combobox", { name: m.topbar_held_spawn_cli_label() }),
+        page.getByRole("button", { name: m.topbar_held_edit() }),
+        page.getByRole("button", { name: m.topbar_held_discard() }),
+        page.getByRole("button", { name: m.topbar_usage_link() }),
+      ]) {
+        await userEvent.keyboard("{Tab}");
+        await expect.element(control).toHaveFocus();
+        if (control.element().tagName === "SELECT") {
+          expect(getComputedStyle(control.element().closest(".held-cli")!).boxShadow).not.toBe(
+            "none",
+          );
+        }
       }
+      await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+      await expect
+        .element(page.getByRole("button", { name: m.topbar_held_discard() }))
+        .toHaveFocus();
+      await userEvent.keyboard("{Escape}");
+      await expect
+        .element(page.getByRole("dialog", { name: m.topbar_gauge_popover_title() }))
+        .not.toBeInTheDocument();
+      await expect.element(badge).toHaveFocus();
+    } finally {
+      vi.mocked(listHeld).mockResolvedValue([]);
     }
-    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
-    await expect.element(page.getByRole("button", { name: m.topbar_held_discard() })).toHaveFocus();
-    await userEvent.keyboard("{Escape}");
-    expect(closeHeldPop).toHaveBeenCalledWith(true);
-    await rerender(initial);
-    await expect.element(badge).toHaveFocus();
   });
 
   it("starts on the original provider or the operator's selection", async () => {
     await page.viewport(1280, 900);
     const doSpawnHeld = vi.fn();
-    render(TopBarHeldBadge, props({ doSpawnHeld }));
+    render(CapacityWait, props({ doSpawnHeld }));
     const select = page.getByRole("combobox", { name: m.topbar_held_spawn_cli_label() });
     await expect.element(select).toHaveValue("codex");
     await page.getByRole("button", { name: m.topbar_held_spawn_now() }).click();
@@ -1400,7 +1427,7 @@ describe("TopBarHeldBadge — readable prompts and action bars", () => {
     "keeps all actions disabled while %s is pending",
     async (pending) => {
       await page.viewport(1280, 900);
-      render(TopBarHeldBadge, props({ heldPending: { [task.id]: pending } }));
+      render(CapacityWait, props({ heldPending: { [task.id]: pending } }));
       const busy = page.getByRole("button", {
         name: pending === "spawn" ? m.topbar_held_spawning() : m.topbar_held_discarding(),
       });
@@ -1443,10 +1470,12 @@ describe("TopBarHeldBadge — readable prompts and action bars", () => {
   it.each(["dark", "light"])("keeps dialog text at AA contrast in the %s theme", async (theme) => {
     const previousTheme = document.documentElement.getAttribute("data-theme");
     document.documentElement.setAttribute("data-theme", theme);
+    // The column always sits on the usage panel's surface; measure against that, not the page.
+    document.body.style.background = "var(--color-panel)";
     try {
       await page.viewport(1280, 900);
       render(
-        TopBarHeldBadge,
+        CapacityWait,
         props({
           heldItems: [promptTask(longPrompt)],
           heldPending: { [task.id]: "spawn" },
@@ -1455,7 +1484,7 @@ describe("TopBarHeldBadge — readable prompts and action bars", () => {
       );
       await expect.element(page.getByRole("button", { name: "Show full prompt" })).toBeVisible();
       const text = document.querySelectorAll<HTMLElement>(
-        ".held-pop-head, .held-pop-count, .held-pop-why, .held-autostart, .held-row-prompt, .held-row-repo, .held-prompt-toggle, .held-action, .held-cli, .held-row-error, .held-row-error-detail",
+        ".wait-name, .wait-note, .wait-head, .held-pop-why, .held-autostart, .held-row-prompt, .held-row-repo, .held-prompt-toggle, .held-action, .held-cli, .held-row-error, .held-row-error-detail",
       );
       for (const element of text) {
         expect(contrast(element), element.className).toBeGreaterThanOrEqual(4.5);
@@ -1465,6 +1494,7 @@ describe("TopBarHeldBadge — readable prompts and action bars", () => {
       const actions = document.querySelector(".held-row-actions")!.getBoundingClientRect();
       expect(error.top).toBeGreaterThanOrEqual(actions.bottom);
     } finally {
+      document.body.style.background = "";
       if (previousTheme === null) document.documentElement.removeAttribute("data-theme");
       else document.documentElement.setAttribute("data-theme", previousTheme);
     }
@@ -1477,9 +1507,9 @@ describe("TopBarHeldBadge — readable prompts and action bars", () => {
       await page.viewport(390, 844);
       document.body.style.width = "390px";
       render(
-        TopBarHeldBadge,
+        CapacityWait,
         props({
-          mobile: true,
+          sheet: true,
           heldItems: [{ ...task, input: { ...task.input, agentProvider: "claude" } }],
         }),
       );
@@ -3535,10 +3565,11 @@ describe("TopBar — async diagnostics arrival re-measures the fold tier", () =>
   }
 
   it("diagnostics flipping to warning after mount folds like a fresh render", async () => {
-    // Find a width where the pip alone tips the compact bar into the fold tier.
+    // Find a width where the pip alone tips the compact bar into the fold tier. "warning" is
+    // probed first: above the window it never folds, so most widths cost one render, not two.
     let width = 0;
     for (let w = 1100; w >= 780 && !width; w -= 10) {
-      if (!(await foldedAt(w, "ok")) && (await foldedAt(w, "warning"))) width = w;
+      if ((await foldedAt(w, "warning")) && !(await foldedAt(w, "ok"))) width = w;
     }
     expect(width, "found a width where the pip alone triggers the fold").toBeGreaterThan(0);
 
@@ -3556,7 +3587,8 @@ describe("TopBar — async diagnostics arrival re-measures the fold tier", () =>
     );
     assertNoOverflow(hud);
     assertControlsHittable(hud);
-  });
+    // The width search renders the bar dozens of times; give it room on a loaded runner.
+  }, 30_000);
 });
 
 describe("TopBar — Operator Assistant entry points", () => {

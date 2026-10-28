@@ -7572,5 +7572,19 @@
   "prrow_menu_mark_ready": "Mark ready",
   "prrow_menu_summary": "Summary",
   "feat_pr_merge_row_title": "Merge right above the steer bar",
-  "feat_pr_merge_row_body": "While a session's PR is open, a row above the steer bar shows its state, the merge prerequisites (CI, critic, base, conflicts) and one Merge button. Merge stays locked, with the reason on hover, until the PR is ready, and always asks for confirmation first. Ready, the issue link and the session summary sit in its ⋯ menu; the PR strip at the top keeps status and settings."
+  "feat_pr_merge_row_body": "While a session's PR is open, a row above the steer bar shows its state, the merge prerequisites (CI, critic, base, conflicts) and one Merge button. Merge stays locked, with the reason on hover, until the PR is ready, and always asks for confirmation first. Ready, the issue link and the session summary sit in its ⋯ menu; the PR strip at the top keeps status and settings.",
+  "capacity_wait_title": "Waiting on capacity",
+  "capacity_limit": "Limit {pct}%",
+  "capacity_bar_aria": "{pct}% used, limit {limit}%",
+  "capacity_effect_paused": "Auto-starts paused",
+  "capacity_below_limit": "Below the limit · nothing held back",
+  "capacity_over_limit": "Over the limit · new tasks are held",
+  "capacity_drain_title": "Auto-Drain",
+  "capacity_held_title": "Held · {count}",
+  "capacity_nothing_waiting": "Nothing is waiting.",
+  "capacity_nothing_waiting_body": "From {pct}% in Claude Code's 5-hour or weekly window, new tasks are held here — right next to the numbers holding them back.",
+  "capacity_hold_off": "Holding is off: new tasks start regardless of usage.",
+  "capacity_cli_option": "{provider} · {pct}%",
+  "feat_capacity_panel_title": "Usage and held work on one screen",
+  "feat_capacity_panel_body": "The usage gauge and the held-tasks badge are now one control in the top bar. It opens a single panel: usage on the left, everything waiting on capacity on the right — held tasks and auto-drains paused at their ceiling. The hold limit is drawn on the bars, so you see how close you are and what it is holding back."
 }

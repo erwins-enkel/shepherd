@@ -1,36 +1,21 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import type {
-    CreditWindow,
-    ModelWeekWindow,
-    ObservedLimitWindows,
-    ProviderFailoverStatus,
-  } from "#lib/types.js";
-  import type { ProviderFailoverOffer } from "#lib/provider-capacity.js";
-  import type { UsageProviderSnapshot } from "#lib/types.js";
+  import type { CreditWindow, UsageProviderSnapshot } from "#lib/types.js";
   import { formatTokenLabel } from "#lib/format.js";
-  import {
-    gaugeColor,
-    modelDisplayName,
-    type GaugeKey,
-    type HottestCapacityWindow,
-  } from "../usage-gauges";
+  import { gaugeColor, modelDisplayName, type GaugeKey } from "../usage-gauges";
   import type { CompactUsageView } from "../usage-gauges";
   import type { Gauge } from "../usage-gauges";
   import CreditGauge from "./CreditGauge.svelte";
-  import TopBarUsagePopover from "./TopBarUsagePopover.svelte";
+  import HeldSegment from "./HeldSegment.svelte";
 
+  // The usage trigger. The panel it opens is rendered by TopBar (it is shared with the phone's
+  // held badge); this component only draws the inline gauge and, while tasks are held, the
+  // hourglass segment in front of it — one control for the numbers and what they hold back.
   let {
     subscriptionOnly,
     touch,
-    stale,
-    gauges,
-    perModel,
-    credits,
     codexUsage,
-    claudeAvailable,
-    observed,
-    hottest,
+    credits,
     activeCompactUsageView,
     compactUsageRotating,
     overspend,
@@ -38,31 +23,18 @@
     creditColor,
     creditAmount,
     nowMs,
-    refreshing,
-    refreshError,
-    onRefresh,
-    onOpenPopover,
     periodLabel,
-    failoverOffer,
-    failover,
-    failoverBusy,
-    failoverFailed,
-    onEngageFailover,
-    onReleaseFailover,
-    onusage,
-    popoverOpen = $bindable(),
+    heldCount,
+    hotter,
+    compact,
+    open,
+    onToggle,
     gaugeWrap = $bindable(null),
   }: {
     subscriptionOnly: boolean;
     touch: boolean;
-    stale: boolean;
-    gauges: Gauge[];
-    perModel: ModelWeekWindow[];
-    credits: CreditWindow | null;
     codexUsage: Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }> | null;
-    claudeAvailable: boolean;
-    hottest: HottestCapacityWindow | null;
-    observed: ObservedLimitWindows | undefined;
+    credits: CreditWindow | null;
     activeCompactUsageView: CompactUsageView | null;
     compactUsageRotating: boolean;
     overspend: boolean;
@@ -70,23 +42,19 @@
     creditColor: string;
     creditAmount: string;
     nowMs: number;
-    refreshing: boolean;
-    refreshError: boolean;
-    onRefresh: () => void;
-    onOpenPopover: () => void;
     periodLabel: (k: GaugeKey) => string;
-    /** Capacity failover: the switch worth offering right now, and the one already in effect. */
-    failoverOffer: ProviderFailoverOffer | null;
-    failover: ProviderFailoverStatus | null;
-    failoverBusy: boolean;
-    failoverFailed: boolean;
-    onEngageFailover: () => void;
-    onReleaseFailover: () => void;
-    onusage?: () => void;
-    popoverOpen: boolean;
+    /** Tasks held for usage; > 0 adds the hourglass segment to the trigger. */
+    heldCount: number;
+    /** Claude's hotter window; its reset is when held tasks can start again. */
+    hotter: Gauge | null;
+    /** Measured overflow: the held segment shrinks to the hourglass and count. */
+    compact: boolean;
+    open: boolean;
+    onToggle: () => void;
     gaugeWrap: HTMLElement | null;
   } = $props();
 
+  const held = $derived(heldCount > 0);
   const activeHotGauge = $derived(
     activeCompactUsageView?.mode === "limits"
       ? activeCompactUsageView.gauges.reduce((hot, g) => (g.w.pct >= hot.w.pct ? g : hot))
@@ -118,22 +86,15 @@
   const activeTouchLimitLabel = $derived(
     compactUsageRotating ? `${activeProviderName} · ${activeHotGaugeLabel}` : activeHotGaugeLabel,
   );
+  // The touch buttons carry an aria-label, which replaces their text content; the held count must
+  // ride along or a screen reader hears the gauge alone.
+  function withHeld(label: string): string {
+    return held ? `${m.topbar_held_badge({ count: heldCount })} · ${label}` : label;
+  }
   function gaugeValue(gauge: Gauge): string {
     return "scrapedAt" in gauge.w && gauge.w.resetAt <= nowMs
       ? m.topbar_usage_before_reset({ pct: gauge.w.pct })
       : `${gauge.w.pct}%`;
-  }
-  function togglePopover() {
-    const opening = !popoverOpen;
-    popoverOpen = opening;
-    if (opening) onOpenPopover();
-  }
-  function closePopover() {
-    popoverOpen = false;
-  }
-  function openUsage() {
-    popoverOpen = false;
-    onusage?.();
   }
   const activeTokenLabel = $derived(
     activeCompactUsageView?.mode === "tokens" && activeCompactUsageView.totalTokens !== null
@@ -142,34 +103,11 @@
   );
 </script>
 
-{#snippet usagePopover(desktop: boolean)}
-  <TopBarUsagePopover
-    {desktop}
-    {stale}
-    {gauges}
-    {perModel}
-    {credits}
-    {codexUsage}
-    {claudeAvailable}
-    {observed}
-    {hottest}
-    {creditFill}
-    {creditColor}
-    {creditAmount}
-    {nowMs}
-    {refreshing}
-    {refreshError}
-    {onRefresh}
-    {periodLabel}
-    {failoverOffer}
-    {failover}
-    {failoverBusy}
-    {failoverFailed}
-    {onEngageFailover}
-    {onReleaseFailover}
-    onClose={closePopover}
-    onOpenUsage={openUsage}
-  />
+{#snippet heldSegment(full: boolean)}
+  {#if held}
+    <HeldSegment count={heldCount} {full} resetAt={hotter?.w.resetAt ?? null} {nowMs} />
+    <span class="held-sep" aria-hidden="true"></span>
+  {/if}
 {/snippet}
 
 {#if subscriptionOnly && !codexUsage}
@@ -187,11 +125,13 @@
           class:stale={activeStale}
           class:alert={overspend}
           type="button"
+          class:held
           aria-haspopup="dialog"
-          aria-expanded={popoverOpen}
-          aria-label={activeTouchLimitLabel}
-          onclick={togglePopover}
+          aria-expanded={open}
+          aria-label={withHeld(activeTouchLimitLabel)}
+          onclick={onToggle}
         >
+          {@render heldSegment(!compact)}
           {#if compactUsageRotating}<span class="g-provider micro">{activeProviderShort}</span>{/if}
           <span class="g-label micro">{activeHotGauge.label}</span>
           <span class="g-bar"
@@ -212,15 +152,19 @@
           class:stale={activeStale}
           class:alert={overspend}
           type="button"
+          class:held
           aria-haspopup="dialog"
-          aria-expanded={popoverOpen}
-          aria-label={activeCompactUsageView.mode === "credit"
-            ? overspend
-              ? m.topbar_credits_alert_aria({ amount: creditAmount })
-              : `${m.topbar_credits_period()} · ${creditAmount}`
-            : `${activeProviderName} · ${activeTokenLabel}`}
-          onclick={togglePopover}
+          aria-expanded={open}
+          aria-label={withHeld(
+            activeCompactUsageView.mode === "credit"
+              ? overspend
+                ? m.topbar_credits_alert_aria({ amount: creditAmount })
+                : `${m.topbar_credits_period()} · ${creditAmount}`
+              : `${activeProviderName} · ${activeTokenLabel}`,
+          )}
+          onclick={onToggle}
         >
+          {@render heldSegment(!compact)}
           {#if compactUsageRotating}<span class="g-provider micro">{activeProviderShort}</span>{/if}
           {#if activeCompactUsageView.mode === "credit"}
             <span class="g-label micro">CR</span>
@@ -240,13 +184,17 @@
           class="gauge gauge-btn"
           class:stale={activeCompactUsageView.stale}
           type="button"
+          class:held
           aria-haspopup="dialog"
-          aria-expanded={popoverOpen}
-          aria-label={`${m.usage_limits_window_week_model({
-            model: modelDisplayName(activeCompactUsageView.model.model),
-          })} · ${activeCompactUsageView.model.pct}%`}
-          onclick={togglePopover}
+          aria-expanded={open}
+          aria-label={withHeld(
+            `${m.usage_limits_window_week_model({
+              model: modelDisplayName(activeCompactUsageView.model.model),
+            })} · ${activeCompactUsageView.model.pct}%`,
+          )}
+          onclick={onToggle}
         >
+          {@render heldSegment(!compact)}
           {#if compactUsageRotating}<span class="g-provider micro">{activeProviderShort}</span>{/if}
           <span class="g-label micro">{modelDisplayName(activeCompactUsageView.model.model)}</span>
           <span class="g-bar"
@@ -265,18 +213,19 @@
       {:else if activeCompactUsageView.mode === "empty"}
         <button
           class="gauge gauge-btn empty"
+          class:held
           type="button"
           aria-haspopup="dialog"
-          aria-expanded={popoverOpen}
-          aria-label={m.topbar_usage_provider_title({ provider: m.agent_provider_claude() })}
-          onclick={togglePopover}
+          aria-expanded={open}
+          aria-label={withHeld(
+            m.topbar_usage_provider_title({ provider: m.agent_provider_claude() }),
+          )}
+          onclick={onToggle}
         >
+          {@render heldSegment(!compact)}
           <span class="g-provider micro">{m.topbar_usage_provider_short_claude()}</span>
           <span class="g-pct empty-value">—</span>
         </button>
-      {/if}
-      {#if popoverOpen}
-        {@render usagePopover(false)}
       {/if}
     </div>
   {/if}
@@ -288,10 +237,12 @@
     <button
       type="button"
       class="gauges-link gauges-toggle"
+      class:held
       aria-haspopup="dialog"
-      aria-expanded={popoverOpen}
-      onclick={togglePopover}
+      aria-expanded={open}
+      onclick={onToggle}
     >
+      {@render heldSegment(!compact)}
       <!-- Phrasing-only content: a <button> may not contain block elements, so the
            gauge cluster + each gauge are <span>s (display:flex via class, blockified
            as flex items). Compact rule: percentages inline, swapped to the CR amount
@@ -345,9 +296,6 @@
         {/if}
       </span>
     </button>
-    {#if popoverOpen}
-      {@render usagePopover(true)}
-    {/if}
   </div>
 {/if}
 
@@ -470,5 +418,31 @@
       min-height: 44px;
       min-width: 44px;
     }
+  }
+  /* While tasks are held the trigger becomes one amber chip: the hourglass segment in front of the
+     gauge, so the numbers and what they hold back open the same panel. Same chrome as the
+     standalone held badge it replaces (amber hairline, chip radius, shared control height). */
+  .gauges-toggle.held,
+  .gauge-btn.held {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-sizing: border-box;
+    min-height: var(--topbar-ctl-h);
+    padding: 0 10px;
+    border: 1px solid var(--color-amber);
+    border-radius: var(--radius-chip);
+  }
+  .gauges-toggle.held:hover,
+  .gauges-toggle.held[aria-expanded="true"],
+  .gauge-btn.held:hover,
+  .gauge-btn.held[aria-expanded="true"] {
+    background: color-mix(in srgb, var(--color-amber) 10%, transparent);
+  }
+  .held-sep {
+    flex-shrink: 0;
+    width: 1px;
+    height: 16px;
+    background: color-mix(in srgb, var(--color-amber) 45%, var(--color-line));
   }
 </style>

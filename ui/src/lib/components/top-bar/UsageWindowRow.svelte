@@ -19,6 +19,7 @@
     nowMs,
     pending = false,
     age = null,
+    ceilingPct = null,
   }: {
     label: string;
     pct: number;
@@ -31,6 +32,9 @@
      * honestly collapse every window's age into its one header stamp. Never a sibling's.
      */
     age?: string | null;
+    /** The hold limit this window is measured against; drawn as a tick on the bar. Only Claude's
+     *  5-hour and weekly windows decide holding, so every other row leaves it null. */
+    ceilingPct?: number | null;
   } = $props();
 
   const fill = $derived(Math.min(Math.max(pct, 0), 100) / 100);
@@ -39,8 +43,15 @@
 
 <div class="uw-row">
   <span class="uw-label">{label}</span>
-  <span class="uw-bar"
-    ><span class="uw-fill" style="transform:scaleX({fill});background:{color}"></span></span
+  <span class="uw-track"
+    ><span class="uw-bar"
+      ><span class="uw-fill" style="transform:scaleX({fill});background:{color}"></span></span
+    >{#if ceilingPct !== null}<span
+        class="uw-tick"
+        class:crossed={pct >= ceilingPct}
+        style="left:{Math.min(Math.max(ceilingPct, 0), 100)}%"
+        aria-hidden="true"
+      ></span>{/if}</span
   >
   <!-- Past its reset, the number describes the window BEFORE the rollover, so it must never be
        presented as a bare current value. The countdown cell is empty then, so the qualified label
@@ -77,6 +88,10 @@
     letter-spacing: 0.1em;
     text-transform: uppercase;
   }
+  .uw-track {
+    position: relative;
+    display: block;
+  }
   .uw-bar {
     display: block;
     height: 9px;
@@ -90,6 +105,17 @@
     height: 100%;
     transform-origin: left;
     transition: transform 0.6s ease;
+  }
+  .uw-tick {
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    width: 1px;
+    margin-left: -0.5px;
+    background: var(--color-faint);
+  }
+  .uw-tick.crossed {
+    background: var(--color-ink-bright);
   }
   .uw-pct {
     font-size: var(--fs-meta);

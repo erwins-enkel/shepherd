@@ -82,18 +82,25 @@ jobs:
           name: xcode-fixture
           path: ${{ runner.temp }}/xcode-fixture/
 
-      # Root's test script scopes the suite; Darwin-only assertions run here, not on Linux.
-      - name: Probe + root tests
+      # Targeted probe, preview and Xcode capability tests. The `.macos.test.ts`
+      # assertions self-gate on process.platform === "darwin", so here (real macOS)
+      # they actually run; the parser/integration tests exercise the darwin backend
+      # on real Apple lsof.
+      - name: Probe + preview tests
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.full_suite) }}
-        env:
-          SHEPHERD_REPO_ROOT: ${{ runner.temp }}/reporoot
-          GIT_AUTHOR_NAME: t
-          GIT_AUTHOR_EMAIL: t@t
-          GIT_COMMITTER_NAME: t
-          GIT_COMMITTER_EMAIL: t@t
         run: |
-          mkdir -p "$SHEPHERD_REPO_ROOT"
-          bun run test
+          bun test \
+            test/heavy-slot-core.test.ts \
+            test/heavy-slot.test.ts \
+            test/heavy-slot-darwin.test.ts \
+            test/heavy-slot-darwin.macos.test.ts \
+            test/proc-markers-darwin.test.ts \
+            test/proc-probes-darwin.test.ts \
+            test/proc-probes-darwin.integration.test.ts \
+            test/proc-probes-darwin.macos.test.ts \
+            test/preview.test.ts \
+            test/capability-probe-xcode.test.ts \
+            test/capability-probe-xcode.macos.test.ts
 
       - name: Full root suite (manual baseline)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_suite }}

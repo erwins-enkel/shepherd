@@ -187,8 +187,10 @@ import Testing
     parent.standardError = FileHandle.nullDevice
     try parent.run()
     defer { fixture.stop(parent) }
-    try await waitUntil { fixture.ticks("server") > 0 }
-    let pid = try #require(Int32(String(contentsOf: fixture.directory.appendingPathComponent("server.pid"), encoding: .utf8)))
+    let pidFile = fixture.directory.appendingPathComponent("server.pid")
+    // The child can tick before its parent atomically publishes the PID file.
+    try await waitUntil { fixture.ticks("server") > 0 && FileManager.default.fileExists(atPath: pidFile.path) }
+    let pid = try #require(Int32(String(contentsOf: pidFile, encoding: .utf8)))
     let server = try #require(BatteryProcess(pid))
     defer { if server.alive { killpg(pid, SIGCONT); killpg(pid, SIGKILL) } }
     try fixture.writeOwnership(pid)

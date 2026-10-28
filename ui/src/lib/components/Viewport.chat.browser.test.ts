@@ -6,6 +6,7 @@ import type { BlockReason, Session, SessionMessages } from "#lib/types.js";
 import type { connectPty } from "#lib/pty.js";
 import { m } from "#lib/paraglide/messages.js";
 import { steers } from "#lib/steers.svelte.js";
+import { sessionStartTab } from "#lib/session-start-tab.svelte.js";
 
 const clients: { receive: Parameters<typeof connectPty>[3] }[] = [];
 const ptySend = vi.fn();
@@ -117,6 +118,7 @@ beforeEach(() => {
 
 afterEach(() => {
   document.body.innerHTML = "";
+  sessionStartTab.set("auto");
 });
 
 async function mount(props: Record<string, unknown> = {}) {
@@ -219,6 +221,21 @@ describe("Viewport Chat tab", () => {
     await open(m.viewport_chat_tab());
     await expect.element(tab(m.viewport_chat_tab())).toHaveAttribute("aria-selected", "true");
     await view.rerender({ ...props, session: session({ id: "s2" }) });
+    await expect.element(tab(m.viewport_terminal_tab())).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("the Chat start-tab choice opens a desktop session on the Chat, also after a switch", async () => {
+    sessionStartTab.set("chat");
+    const { view, props } = await mount();
+    await expect.element(tab(m.viewport_chat_tab())).toHaveAttribute("aria-selected", "true");
+    await open(m.viewport_terminal_tab());
+    await view.rerender({ ...props, session: session({ id: "s2" }) });
+    await expect.element(tab(m.viewport_chat_tab())).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("the Terminal start-tab choice opens a touch session on the terminal", async () => {
+    sessionStartTab.set("term");
+    await mount({ touch: true });
     await expect.element(tab(m.viewport_terminal_tab())).toHaveAttribute("aria-selected", "true");
   });
 

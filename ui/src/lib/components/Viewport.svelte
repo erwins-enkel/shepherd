@@ -31,6 +31,7 @@
   import { createWriteBatcher, type WriteBatcher } from "#lib/term-write-batcher.js";
   import { theme } from "#lib/theme.svelte.js";
   import { terminalFontSize, FONT_MIN, FONT_MAX } from "#lib/terminal-font-size.svelte.js";
+  import { sessionStartTab, resolveStartTab } from "#lib/session-start-tab.svelte.js";
   import { uiScale } from "#lib/ui-scale.svelte.js";
   import { tick, untrack } from "svelte";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
@@ -334,8 +335,10 @@
   let swiping = $state(false);
   // the drag has cleared the commit threshold: releasing now navigates (reveal turns amber)
   let swipeArmed = $state(false);
-  // A phone or touch screen opens on the Chat; desktop on the terminal. The assistant has no tabs.
-  const defaultTab = (): ViewTab => (!assistant && (mobile || touch) ? "chat" : "term");
+  // The operator's Settings → Device choice; its Auto opens a phone or touch screen on the Chat,
+  // desktop on the terminal. The assistant has no tabs.
+  const defaultTab = (): ViewTab =>
+    assistant ? "term" : resolveStartTab(sessionStartTab.pref, { mobile, touch });
   let tab = $state<ViewTab>(defaultTab());
   // The Chat mounts on its first open and then stays, hidden, keeping its draft and echoes.
   let chatOpened = $state(false);

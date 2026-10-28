@@ -432,6 +432,8 @@ keep the equivalent prompt notices resident.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SHEPHERD_TOOL_GUARD` | `1` (on) | Inject the `PreToolUse` Bash guard into Claude spawns. Besides the bare `git stash` and tmpfs worktree/install hazards, it also denies a `bash -c` script Claude Code falsely flags as running rm ([anthropics/claude-code#99630](https://github.com/anthropics/claude-code/issues/99630)), which would otherwise stall an unattended session. Set `0` to disable (kill switch) — turning it off puts both hazard notices back into the composed system prompt, so no guidance is lost |
+| `SHEPHERD_HEAVY_SLOT` | `1` (on) | Route agents' heavy checks (tests, type checks, builds) through the host-wide check slot ([#3181](https://github.com/erwins-enkel/shepherd/issues/3181)): the tool guard rewrites them onto `scripts/heavy-slot.mjs`, which asks Shepherd for the slot before the process starts, so they run one at a time and pause under memory pressure. Needs `SHEPHERD_TOOL_GUARD` on. Set `0` to disable (kill switch): the runner then runs every command unmanaged. Takes effect after a restart |
+| `SHEPHERD_HEAVY_SLOTS` | `0` (from hardware) | Number of heavy checks that may run at once. `0` derives it from the host: one slot per 16 cores **and** 32 GiB of RAM, never fewer than one (a 16-core / 30 GiB host gets one). Takes effect after a restart |
 
 ## Documentation automation (PR-gated doc agent)
 

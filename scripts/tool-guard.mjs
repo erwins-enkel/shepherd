@@ -24,9 +24,14 @@
 // `gh run watch` of the session's own PR CI are denied, and one-shot CI reads get a hint pointing at
 // `self_status`. A watched run Shepherd does NOT track (a deploy after merge, `workflow_dispatch`, a
 // release) is allowed — the guard looks the run up once to tell the two apart.
+//
+// The one REWRITE (#3181): a heavy check — tests, type checks, builds — is routed through the
+// host-wide heavy-check slot by replacing the command with `<node> heavy-slot.mjs -- '<command>'`
+// (`updatedInput`, no permission decision). The runner asks Shepherd for the slot before anything
+// starts. Recognition fails open like every rule here: an unknown shape runs unchanged.
 
 import { spawnSync } from "node:child_process";
-import { realpathSync, statfsSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync, statfsSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -362,6 +367,254 @@ function stashTouchesSharedStack(args) {
   return true; // bare `git stash`, push, save, pop, drop, clear, store, branch
 }
 
+// ── Heavy checks (#3181) ─────────────────────────────────────────────────────────────────────
+
+/** The runner beside this guard. Bound into the sandbox membrane next to the guard itself
+ *  (toolGuardMembranePaths), so the same path resolves on both sides. */
+const HEAVY_RUNNER = resolve(dirname(fileURLToPath(import.meta.url)), "heavy-slot.mjs");
+/** Scripts and package.json files larger than this are never read (a binary, a generated bundle). */
+const MAX_SCRIPT_BYTES = 256 * 1024;
+/** How deep `run X` → `run Y` → script-file references are followed. */
+const MAX_HEAVY_DEPTH = 4;
+
+/** Binaries that are heavy whatever their arguments (apart from --help / --version). */
+const HEAVY_BINARIES = new Set(["vitest", "jest", "svelte-check", "tsc", "vue-tsc", "xcodebuild"]);
+/** Tools whose first operand decides: `cargo clippy` is heavy, `cargo fmt` is not. */
+const HEAVY_SUBCOMMANDS = new Map([
+  ["cargo", new Set(["build", "b", "check", "c", "clippy", "test", "t", "nextest", "bench"])],
+  ["swift", new Set(["build", "test"])],
+  ["playwright", new Set(["test"])],
+]);
+/** Package-manager flags that take a value; the cwd-moving ones relocate the script lookup. */
+const PM_VALUE_FLAGS = new Set([
+  "--cwd",
+  "-C",
+  "--dir",
+  "--prefix",
+  "--filter",
+  "-F",
+  "--workspace",
+  "-w",
+]);
+const PM_CWD_FLAGS = new Set(["--cwd", "-C", "--dir", "--prefix"]);
+/** Words in front of the real command that only wrap it: shell keywords, `env`, `timeout`… */
+const SHELL_KEYWORDS = new Set([
+  "if",
+  "then",
+  "else",
+  "elif",
+  "do",
+  "while",
+  "until",
+  "!",
+  "{",
+  "(",
+  "time",
+  "nohup",
+  "exec",
+]);
+
+/** Read a small text file, or null (missing, too big, unreadable). */
+function readSmallText(path) {
+  try {
+    if (statSync(path).size > MAX_SCRIPT_BYTES) return null;
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+/** The runner and the node to start it with, or null when the runner isn't reachable from here
+ *  (e.g. a membrane spawned before the runner existed — then nothing is rewritten). */
+function defaultHeavyRunner() {
+  return existsSync(HEAVY_RUNNER) ? { node: process.execPath, script: HEAVY_RUNNER } : null;
+}
+
+/** Drop the wrappers in front of the command proper: assignments, shell keywords, `env [-u X]`,
+ *  `cross-env`, `timeout [opts] DURATION`, `nice [-n N]`, `time -p`. */
+function stripPrefixes(w) {
+  let i = 0;
+  const assignment = (x) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(x ?? "");
+  for (;;) {
+    const c = w[i];
+    if (c === undefined) return [];
+    if (assignment(c) || SHELL_KEYWORDS.has(c)) {
+      i++;
+      if (c === "time" && w[i] === "-p") i++;
+      continue;
+    }
+    if (c === "env" || c === "cross-env") {
+      i++;
+      while (w[i] !== undefined && (w[i].startsWith("-") || assignment(w[i]))) {
+        if (w[i] === "-u" || w[i] === "--unset") i++;
+        i++;
+      }
+      continue;
+    }
+    if (c === "timeout") {
+      i++;
+      while (w[i]?.startsWith("-")) {
+        if (["-s", "--signal", "-k", "--kill-after"].includes(w[i])) i++;
+        i++;
+      }
+      i++; // the duration
+      continue;
+    }
+    if (c === "nice") {
+      i++;
+      if (w[i] === "-n") i += 2;
+      else if (/^-\d+$|^--adjustment=/.test(w[i] ?? "")) i++;
+      continue;
+    }
+    return w.slice(i);
+  }
+}
+
+/** The nearest package.json at or above `dir`, parsed, with its directory — or null. */
+function nearestPackageJson(dir, deps) {
+  let d = dir;
+  for (let n = 0; n < 12; n++) {
+    const text = deps.readText(resolve(d, "package.json"));
+    if (text !== null) {
+      try {
+        const pkg = JSON.parse(text);
+        return pkg && typeof pkg === "object" ? { pkg, dir: d } : null;
+      } catch {
+        return null;
+      }
+    }
+    const up = dirname(d);
+    if (up === d) return null;
+    d = up;
+  }
+  return null;
+}
+
+/** Is package script `name` (looked up from `dir`) a heavy check? Follows its body. */
+function heavyScript(name, dir, deps, depth, seen) {
+  if (typeof dir !== "string" || !isAbsolute(dir)) return false;
+  const found = nearestPackageJson(dir, deps);
+  const body = found?.pkg?.scripts?.[name];
+  if (typeof body !== "string") return false;
+  const key = `${found.dir}#${name}`;
+  if (seen.has(key)) return false;
+  seen.add(key);
+  return heavyText(body, found.dir, deps, depth + 1, seen);
+}
+
+/** Does any command position in `text` (a command line, script body or file) run a heavy check?
+ *  Tracks `cd` like the deny rules do, so `cd ui && bun run check` resolves against `ui/`. */
+function heavyText(text, cwd, deps, depth, seen) {
+  if (depth > MAX_HEAVY_DEPTH) return false;
+  let dir = cwd;
+  for (const segment of segments(text)) {
+    const w = words(segment);
+    if (w[0] === "cd") {
+      const target = w.slice(1).find((a) => !a.startsWith("-"));
+      dir = target ? (resolvePath(target, dir) ?? undefined) : undefined;
+      continue;
+    }
+    if (heavySegment(segment, dir, deps, depth, seen)) return true;
+  }
+  return false;
+}
+
+/** One command position: a `<shell> -c '…'` script is read as text, anything else as words. */
+function heavySegment(segment, cwd, deps, depth, seen) {
+  const script = inlineShellScript(segment);
+  if (script !== null) return heavyText(script, cwd, deps, depth + 1, seen);
+  return heavyWords(words(segment), cwd, deps, depth, seen);
+}
+
+/** The script a package manager invocation runs, the command it executes, and where. */
+function packageManagerTarget(cmd, args, cwd) {
+  let dir = cwd;
+  const ops = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (PM_VALUE_FLAGS.has(a)) {
+      const value = args[++i];
+      if (PM_CWD_FLAGS.has(a) && value !== undefined) dir = resolvePath(value, cwd) ?? undefined;
+      continue;
+    }
+    if (a.startsWith("-")) continue;
+    ops.push(a);
+  }
+  const [sub, ...rest] = ops;
+  if (sub === undefined) return null;
+  if (cmd === "bun" && sub === "test") return { heavy: true };
+  const execs = cmd === "bun" ? ["x"] : cmd === "npm" ? ["exec"] : ["exec", "dlx"];
+  if (execs.includes(sub)) return { exec: args.slice(args.indexOf(sub) + 1), dir };
+  if (sub === "test" || sub === "t" || (cmd === "npm" && sub === "tst"))
+    return { script: "test", dir };
+  if (sub === "run" || sub === "run-script") return rest[0] ? { script: rest[0], dir } : null;
+  // `bun <script>`, `pnpm <script>`, `yarn <script>` run a package script when one has that name.
+  return cmd === "npm" ? null : { script: sub, dir };
+}
+
+/** Is this tokenized command a heavy check? `seen` guards script/file cycles. */
+function heavyWords(w, cwd, deps, depth, seen) {
+  if (depth > MAX_HEAVY_DEPTH) return false;
+  const argv = stripPrefixes(w).map(unquote);
+  if (argv.length === 0) return false;
+  const [head, ...args] = argv;
+  if (args.some((a) => a === "--help" || a === "-h" || a === "--version")) return false;
+  const cmd = head.split("/").pop();
+  if (HEAVY_BINARIES.has(cmd)) return true;
+  const subs = HEAVY_SUBCOMMANDS.get(cmd);
+  if (subs) {
+    const sub = args.find((a) => !a.startsWith("-") && !a.startsWith("+"));
+    return sub !== undefined && subs.has(sub);
+  }
+  if (cmd === "npx" || cmd === "bunx" || cmd === "pnpx") {
+    return heavyWords(
+      args.filter((a) => !a.startsWith("-")),
+      cwd,
+      deps,
+      depth + 1,
+      seen,
+    );
+  }
+  if (PACKAGE_MANAGERS.has(cmd)) {
+    const target = packageManagerTarget(cmd, args, cwd);
+    if (!target) return false;
+    if (target.heavy) return true;
+    if (target.exec) {
+      const rest = target.exec.filter((a) => !a.startsWith("-"));
+      return heavyWords(rest, target.dir, deps, depth + 1, seen);
+    }
+    return heavyScript(target.script, target.dir, deps, depth, seen);
+  }
+  // A shell script, run through a shell or by path: heavy when its own commands are.
+  const shell = INLINE_SHELLS.has(cmd);
+  // An inline `-c` script the segment parse could not extract stays unread (fail open).
+  if (shell && args.some((a) => /^-[A-Za-z]*c[A-Za-z]*$/.test(a))) return false;
+  const file = shell ? args.find((a) => !a.startsWith("-")) : head.includes("/") ? head : undefined;
+  if (file === undefined) return false;
+  const path = resolvePath(file, cwd);
+  if (!path || seen.has(path)) return false;
+  seen.add(path);
+  const text = deps.readText(path);
+  return text !== null && heavyText(text, cwd, deps, depth + 1, seen);
+}
+
+/**
+ * The rewrite that routes a heavy check through the host-wide slot (#3181), or null. The whole
+ * command line is wrapped (one compound command holds the slot as one job); an already-wrapped
+ * command, or one with no reachable runner, is left alone.
+ */
+function heavyRewrite(input, command, eventCwd, deps) {
+  if (command.includes("heavy-slot.mjs")) return null;
+  const cwd = typeof eventCwd === "string" ? eventCwd : undefined;
+  if (!heavyText(command, cwd, deps, 0, new Set())) return null;
+  const runner = deps.heavyRunner();
+  if (!runner) return null;
+  const q = (x) => `'${x.replaceAll("'", `'\\''`)}'`;
+  return {
+    updatedInput: { ...input, command: `${q(runner.node)} ${q(runner.script)} -- ${q(command)}` },
+  };
+}
+
 /**
  * Decide what to do about one `PreToolUse` event. Returns `null` for "no opinion" (the normal
  * permission flow applies), or the `hookSpecificOutput` payload minus its `hookEventName`.
@@ -383,6 +636,12 @@ export function decideToolGuard(event, deps = {}) {
   if (decided?.permissionDecision) return decided;
   if (runsUncheckableInlineShell(command)) {
     return { permissionDecision: "deny", permissionDecisionReason: INLINE_SHELL_REASON };
+  }
+  const heavy = heavyRewrite(input, command, event.cwd, { ...DEFAULT_DEPS, ...deps });
+  if (heavy) {
+    return isBackgrounded(input, command)
+      ? { ...heavy, additionalContext: BACKGROUND_CONTEXT }
+      : heavy;
   }
   if (decided) return decided;
   if (opensPullRequest(command)) return { additionalContext: PR_CREATE_CONTEXT };
@@ -552,6 +811,8 @@ const DEFAULT_DEPS = {
       /^origin\//,
       "",
     ) ?? null,
+  readText: readSmallText,
+  heavyRunner: defaultHeavyRunner,
 };
 
 /** True when any segment does a one-shot CI read: `gh pr checks`, `gh run view` without its logs,

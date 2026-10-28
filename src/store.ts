@@ -83,6 +83,7 @@ import { normalizeRepoDefaultModelSetting } from "./default-model";
 import { normalizeRepoDefaultEffortSetting } from "./default-effort";
 import { decodeStoredRepoPaths, type AccessTokenRow } from "./access-tokens";
 import type { RemoteInstanceRow } from "./remote-instances/service";
+import type { HeavyJob, HeavyJobState } from "./heavy-slot-core";
 import type { RemoteDispatchOutcome, RemoteDispatchRow } from "./remote-instances/dispatch";
 import {
   epicRunEnding,
@@ -1435,6 +1436,18 @@ const REMOTE_DISPATCHES_DDL = `CREATE TABLE IF NOT EXISTS remote_dispatches (
   sessionId TEXT, heldId TEXT, reason TEXT, code TEXT, httpStatus INTEGER,
   createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, uploads TEXT, project TEXT)`;
 
+/** Host-wide heavy-check slot jobs (#3181, src/heavy-slot.ts). Persisted so the queue order, the
+ *  holders and their process binding survive a restart; finished rows stay a while as the history
+ *  wait estimates are taken from (`etaKey`, `startedAt`→`releasedAt`). */
+const HEAVY_SLOT_JOBS_DDL = `CREATE TABLE IF NOT EXISTS heavy_slot_jobs (
+  id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, command TEXT NOT NULL, cwd TEXT,
+  etaKey TEXT NOT NULL, state TEXT NOT NULL, enqueuedAt INTEGER NOT NULL,
+  offerExpiresAt INTEGER, startedAt INTEGER, finishedAt INTEGER, releasedAt INTEGER,
+  exitCode INTEGER, pgid INTEGER, dropReason TEXT)`;
+
+const HEAVY_SLOT_JOB_COLUMNS = `id, sessionId, command, cwd, etaKey, state, enqueuedAt,
+  offerExpiresAt, startedAt, finishedAt, releasedAt, exitCode, pgid, dropReason`;
+
 const REMOTE_DISPATCH_COLUMNS = `id, clientKey, instanceId, payloadHash, wireBody, state, sessionId,
   heldId, reason, code, httpStatus, createdAt, updatedAt, uploads, project`;
 
@@ -2161,6 +2174,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     }
     this.db.run(DISPATCHES_DDL);
     this.db.run(REMOTE_DISPATCHES_DDL);
+    this.db.run(HEAVY_SLOT_JOBS_DDL);
     // A table created before #2766 has no `uploads`, before #2775 no `project`; a fresh one already
     // has both (no write here).
     this.addMissingColumns("remote_dispatches", { uploads: "TEXT", project: "TEXT" });
@@ -2291,6 +2305,70 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return (
       this.db.run(`DELETE FROM remote_instances WHERE instanceId = ?`, [instanceId]).changes > 0
     );
+  }
+
+  // ── heavy_slot_jobs (host-wide heavy-check slot, issue #3181) ─────────────
+  // Persistence only: the queue, the brake and the process binding live in HeavySlotService
+  // (src/heavy-slot.ts) and its pure core (src/heavy-slot-core.ts).
+
+  listHeavySlotJobs(states: readonly HeavyJobState[]): HeavyJob[] {
+    if (states.length === 0) return [];
+    return this.db
+      .query(
+        `SELECT ${HEAVY_SLOT_JOB_COLUMNS} FROM heavy_slot_jobs
+         WHERE state IN (${states.map(() => "?").join(", ")}) ORDER BY enqueuedAt, id`,
+      )
+      .all(...states) as HeavyJob[];
+  }
+
+  upsertHeavySlotJob(job: HeavyJob): void {
+    this.db.run(
+      `INSERT OR REPLACE INTO heavy_slot_jobs (${HEAVY_SLOT_JOB_COLUMNS})
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        job.id,
+        job.sessionId,
+        job.command,
+        job.cwd,
+        job.etaKey,
+        job.state,
+        job.enqueuedAt,
+        job.offerExpiresAt,
+        job.startedAt,
+        job.finishedAt,
+        job.releasedAt,
+        job.exitCode,
+        job.pgid,
+        job.dropReason,
+      ],
+    );
+  }
+
+  /** Slot occupancy (ms) of the most recent completed jobs, newest first, per eta key —
+   *  `perKey` each. Dropped jobs never count: their occupancy says nothing about the command. */
+  heavySlotDurations(perKey: number): Map<string, number[]> {
+    const rows = this.db
+      .query(
+        `SELECT etaKey, releasedAt - startedAt AS ms FROM heavy_slot_jobs
+         WHERE state = 'done' AND startedAt IS NOT NULL AND releasedAt IS NOT NULL
+         ORDER BY releasedAt DESC`,
+      )
+      .all() as { etaKey: string; ms: number }[];
+    const out = new Map<string, number[]>();
+    for (const { etaKey, ms } of rows) {
+      const list = out.get(etaKey) ?? [];
+      if (list.length < perKey) list.push(ms);
+      out.set(etaKey, list);
+    }
+    return out;
+  }
+
+  /** Delete finished (done/dropped) rows released before `before`. */
+  pruneHeavySlotJobs(before: number): number {
+    return this.db.run(
+      `DELETE FROM heavy_slot_jobs WHERE state IN ('done', 'dropped') AND releasedAt < ?`,
+      [before],
+    ).changes;
   }
 
   // ── remote_dispatches (tasks sent to connected machines, issue #2763) ──────

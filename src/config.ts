@@ -841,6 +841,14 @@ export const config = {
   // sessions that need it. Default ON; SHEPHERD_TOOL_GUARD=0 is the kill switch, and turning it off
   // puts BOTH notices back into the composed prompt (see composeSystemPromptBlocks).
   toolGuard: parseKillSwitch(process.env.SHEPHERD_TOOL_GUARD),
+  // Host-wide heavy-check slot (#3181): heavy checks (tests, type checks, builds) an agent starts
+  // are rewritten by the tool guard above onto scripts/heavy-slot.mjs, which asks this server for
+  // the slot before the process starts — so it needs `toolGuard` on to reach any session. Default
+  // ON; SHEPHERD_HEAVY_SLOT=0 is the kill switch (the runner is then told to run unmanaged).
+  heavySlot: parseKillSwitch(process.env.SHEPHERD_HEAVY_SLOT),
+  // Slots override; 0 (the default) derives the count from the host's cores and RAM
+  // (defaultHeavySlotBudget — one on a 16-core / 30 GiB box).
+  heavySlots: parseEnvNumber(process.env.SHEPHERD_HEAVY_SLOTS, "SHEPHERD_HEAVY_SLOTS", 0),
   // Phase 1: feed received hook events into the poller (the single owner of signal state).
   // Meaningful only when `hooksIngest` is also on — with ingest off no events arrive to feed.
   // DEFAULT ON as of #740, completing the flip #1686 started on `hooksIngest`. The soak gate this

@@ -15,9 +15,28 @@ describe("autoBlockers — the design's three cases (#3453)", () => {
     expect(
       autoBlockers({ agentProvider: "codex" }, { profile: "standard", remoteHttps: true }, HOST_OK),
     ).toEqual({
+      agentProvider: "codex",
       causes: [
-        { code: "sandbox_interactive", scope: "repo", detail: "standard" },
-        { code: "sandbox_provider_unconfined", scope: "epic", detail: "codex" },
+        {
+          code: "sandbox_interactive",
+          scope: "repo",
+          detail: "standard",
+          fix: {
+            changes: { sandboxProfile: "autonomous" },
+            enabled: true,
+            checks: [
+              { id: "bwrap", ok: true },
+              { id: "egress", ok: true },
+              { id: "remote_https", ok: true },
+            ],
+          },
+        },
+        {
+          code: "sandbox_provider_unconfined",
+          scope: "epic",
+          detail: "codex",
+          fix: { changes: { agentProvider: "claude" }, enabled: true, checks: [] },
+        },
       ],
       options: [
         {
@@ -56,7 +75,23 @@ describe("autoBlockers — the design's three cases (#3453)", () => {
         HOST_OK,
       ),
     ).toEqual({
-      causes: [{ code: "sandbox_interactive", scope: "repo", detail: "standard" }],
+      agentProvider: "claude",
+      causes: [
+        {
+          code: "sandbox_interactive",
+          scope: "repo",
+          detail: "standard",
+          fix: {
+            changes: { sandboxProfile: "autonomous" },
+            enabled: true,
+            checks: [
+              { id: "bwrap", ok: true },
+              { id: "egress", ok: true },
+              { id: "remote_https", ok: true },
+            ],
+          },
+        },
+      ],
       options: [
         {
           id: "autonomous",
@@ -83,8 +118,23 @@ describe("autoBlockers — the design's three cases (#3453)", () => {
         { bwrap: false, egress: true },
       ),
     ).toEqual({
+      agentProvider: "claude",
       causes: [
-        { code: "sandbox_interactive", scope: "repo", detail: "standard" },
+        {
+          code: "sandbox_interactive",
+          scope: "repo",
+          detail: "standard",
+          fix: {
+            changes: { sandboxProfile: "autonomous" },
+            enabled: false,
+            why: "bwrap",
+            checks: [
+              { id: "bwrap", ok: false },
+              { id: "egress", ok: true },
+              { id: "remote_https", ok: false },
+            ],
+          },
+        },
         { code: "sandbox_backend_unavailable", scope: "host", detail: "standard" },
       ],
       options: [
@@ -112,7 +162,9 @@ describe("autoBlockers — the design's three cases (#3453)", () => {
       { profile: "standard", remoteHttps: false },
       HOST_OK,
     );
-    expect(r.causes).toEqual([{ code: "sandbox_interactive", scope: "repo", detail: "standard" }]);
+    expect(r.causes.map((c) => [c.code, c.fix?.enabled, c.fix?.why])).toEqual([
+      ["sandbox_interactive", false, "remote_https"],
+    ]);
     expect(r.options.map((o) => [o.id, o.enabled, o.why])).toEqual([
       ["autonomous", false, "remote_https"],
       ["trusted", true, undefined],
@@ -130,7 +182,7 @@ describe("autoBlockers — other states", () => {
           { profile: "trusted", remoteHttps: false },
           { bwrap: false, egress: false },
         ),
-      ).toEqual({ causes: [], options: [], preselect: null });
+      ).toEqual({ agentProvider, causes: [], options: [], preselect: null });
   });
 
   test("autonomous + Codex: switching the CLI alone is the confined way", () => {
@@ -140,7 +192,12 @@ describe("autoBlockers — other states", () => {
       HOST_OK,
     );
     expect(r.causes).toEqual([
-      { code: "sandbox_provider_unconfined", scope: "epic", detail: "codex" },
+      {
+        code: "sandbox_provider_unconfined",
+        scope: "epic",
+        detail: "codex",
+        fix: { changes: { agentProvider: "claude" }, enabled: true, checks: [] },
+      },
     ]);
     expect(r.options.map((o) => [o.id, o.changes, o.enabled])).toEqual([
       ["autonomous_claude", { agentProvider: "claude" }, true],
@@ -169,7 +226,7 @@ describe("autoBlockers — other states", () => {
         { profile: "autonomous", remoteHttps: true },
         HOST_OK,
       ),
-    ).toEqual({ causes: [], options: [], preselect: null });
+    ).toEqual({ agentProvider: "claude", causes: [], options: [], preselect: null });
   });
 });
 
@@ -237,6 +294,50 @@ describe("autoBlockers agrees with the drain's spawn gate (#3452)", () => {
       if (r.preselect !== "trusted") continue;
       expect(r.options.filter((o) => o.enabled).map((o) => o.id)).toEqual(["trusted"]);
     }
+  });
+
+  test("an enabled cause fix clears every cause of its scope, the repo's its host causes too (#3456)", () => {
+    for (const s of states) {
+      const host = { bwrap: s.bwrap, egress: s.egress };
+      for (const c of autoBlockers(s, s, host).causes) {
+        if (!c.fix?.enabled) continue;
+        const after = autoBlockers(
+          { agentProvider: c.fix.changes.agentProvider ?? s.agentProvider },
+          { ...s, profile: c.fix.changes.sandboxProfile ?? s.profile },
+          host,
+        );
+        const cleared = c.scope === "repo" ? ["repo", "host"] : [c.scope];
+        expect(
+          after.causes.filter((a) => cleared.includes(a.scope)),
+          `${c.code} ${JSON.stringify(s)}`,
+        ).toEqual([]);
+      }
+    }
+  });
+
+  test("only the repo's sandbox and the epic's CLI carry a fix; host causes never do (#3456)", () => {
+    for (const s of states) {
+      for (const c of autoBlockers(s, s, { bwrap: s.bwrap, egress: s.egress }).causes) {
+        if (c.scope === "host") expect(c.fix, JSON.stringify(s)).toBeUndefined();
+        else expect(c.fix, JSON.stringify(s)).toBeDefined();
+      }
+    }
+  });
+
+  test("the repo's fix is enabled exactly when this host and remote can confine, whatever the CLI (#3456)", () => {
+    for (const s of states) {
+      const r = autoBlockers(s, s, { bwrap: s.bwrap, egress: s.egress });
+      const repoFix = r.causes.find((c) => c.code === "sandbox_interactive")?.fix;
+      if (!repoFix) continue;
+      expect(repoFix.enabled, JSON.stringify(s)).toBe(s.bwrap && s.egress && s.remoteHttps);
+    }
+  });
+
+  test("names the CLI the children spawn with, blocked or not (#3456)", () => {
+    for (const s of states)
+      expect(autoBlockers(s, s, { bwrap: s.bwrap, egress: s.egress }).agentProvider).toBe(
+        s.agentProvider,
+      );
   });
 
   test("no option is a no-op", () => {

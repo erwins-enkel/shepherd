@@ -180,7 +180,12 @@ describe("POST /api/epic/auto-fix", () => {
       expect(applied.status).toBe(200);
       const body = (await applied.json()) as { previous: EpicAutoFixState; blockers: AutoBlockers };
       expect(body.previous).toEqual({ sandboxProfile: "inherit", ...CODEX });
-      expect(body.blockers).toEqual({ causes: [], options: [], preselect: null });
+      expect(body.blockers).toEqual({
+        agentProvider: "claude",
+        causes: [],
+        options: [],
+        preselect: null,
+      });
       expect(h.store.getRepoConfig(repo).sandboxProfile).toBe("autonomous");
       expect(cliSettings(h.store, place)).toEqual({
         agentProvider: "claude",

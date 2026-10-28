@@ -7770,5 +7770,10 @@
   "settings_quick_start_show_aria": "Show quick start for {engine}",
   "settings_quick_start_model_aria": "Quick start model for {engine}",
   "settings_quick_start_effort_aria": "Quick start effort for {engine}",
-  "settings_quick_start_save_failed": "Couldn't save the {engine} quick start. Retry."
+  "settings_quick_start_save_failed": "Couldn't save the {engine} quick start. Retry.",
+  "mobile_pull_search": "Pull to search",
+  "mobile_release_search": "Release to search",
+  "mobile_release_reload": "Release to reload",
+  "feat_command_bar_pull_down_title": "Pull down to search on your phone",
+  "feat_command_bar_pull_down_body": "On a phone, pull down at the top of the herd list to open the command bar. Keep pulling and release to reload the page."
 }

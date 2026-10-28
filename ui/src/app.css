@@ -822,3 +822,10 @@ a.issue-list-title:hover {
 .status-tip.status-tip-still[popover]:popover-open {
   animation: none;
 }
+
+/* Phone herd list: the pull-down gesture (actions/pullToCommand) replaces the browser's
+   pull-to-refresh; containment stops Chrome's. iOS Safari ignores it in a tab, which the
+   action's touchmove preventDefault covers. Toggled by +page.svelte. */
+html.pull-contain {
+  overscroll-behavior-y: contain;
+}

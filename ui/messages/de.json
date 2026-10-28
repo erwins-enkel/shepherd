@@ -7770,5 +7770,10 @@
   "settings_quick_start_show_aria": "Schnellstart für {engine} zeigen",
   "settings_quick_start_model_aria": "Schnellstart-Modell für {engine}",
   "settings_quick_start_effort_aria": "Schnellstart-Aufwand für {engine}",
-  "settings_quick_start_save_failed": "Der {engine}-Schnellstart konnte nicht gespeichert werden. Erneut versuchen."
+  "settings_quick_start_save_failed": "Der {engine}-Schnellstart konnte nicht gespeichert werden. Erneut versuchen.",
+  "mobile_pull_search": "Ziehen zum Suchen",
+  "mobile_release_search": "Loslassen zum Suchen",
+  "mobile_release_reload": "Loslassen zum Neuladen",
+  "feat_command_bar_pull_down_title": "Auf dem Handy nach unten ziehen zum Suchen",
+  "feat_command_bar_pull_down_body": "Zieh auf dem Handy die Herdenliste oben nach unten, um die Befehlsleiste zu öffnen. Zieh weiter und lass los, um die Seite neu zu laden."
 }

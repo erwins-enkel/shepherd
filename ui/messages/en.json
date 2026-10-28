@@ -7570,5 +7570,7 @@
   "prrow_more_aria": "More PR actions",
   "prrow_merge_blocked_tip_title": "Merge locked",
   "prrow_menu_mark_ready": "Mark ready",
-  "prrow_menu_summary": "Summary"
+  "prrow_menu_summary": "Summary",
+  "feat_pr_merge_row_title": "Merge right above the steer bar",
+  "feat_pr_merge_row_body": "While a session's PR is open, a row above the steer bar shows its state, the merge prerequisites (CI, critic, base, conflicts) and one Merge button. Merge stays locked, with the reason on hover, until the PR is ready, and always asks for confirmation first. Ready, the issue link and the session summary sit in its ⋯ menu; the PR strip at the top keeps status and settings."
 }

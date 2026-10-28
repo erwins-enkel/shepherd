@@ -7570,5 +7570,7 @@
   "prrow_more_aria": "Weitere PR-Aktionen",
   "prrow_merge_blocked_tip_title": "Merge gesperrt",
   "prrow_menu_mark_ready": "Als bereit markieren",
-  "prrow_menu_summary": "Zusammenfassung"
+  "prrow_menu_summary": "Zusammenfassung",
+  "feat_pr_merge_row_title": "Mergen direkt über den Steuerknöpfen",
+  "feat_pr_merge_row_body": "Solange der PR einer Session offen ist, zeigt eine Zeile über den Steuerknöpfen seinen Stand, die Merge-Voraussetzungen (CI, Kritiker, Base, Konflikte) und einen Merge-Knopf. Merge bleibt gesperrt, bis der PR bereit ist (der Grund steht im Hovertext), und fragt vorher immer nach. „Bereit“, der Issue-Link und die Zusammenfassung liegen im ⋯-Menü; der PR-Streifen oben behält Status und Einstellungen."
 }

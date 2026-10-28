@@ -88,6 +88,7 @@ import type {
   EpicSummary,
   EpicDiagnosis,
   EpicAutoBlockers,
+  EpicAutoFixCauseCode,
   EpicAutoFixOptionId,
   EpicAutoFixResult,
   EpicAutoFixState,
@@ -3555,12 +3556,16 @@ export async function getEpicAutoFix(repoPath: string, parent: number): Promise<
   );
 }
 
-/** #3453: apply a fix the model offers enabled, or write back a fix's `previous` (Undo). Answers
- *  what the written fields held before and the model now. 409 = the option is no longer offered. */
+/** #3453: apply a fix the model offers enabled, one cause's own fix (#3456), or write back a fix's
+ *  `previous` (Undo). Answers what the written fields held before and the model now. 409 = the
+ *  fix is no longer offered. */
 export async function applyEpicAutoFix(
   repoPath: string,
   parent: number,
-  body: { option: EpicAutoFixOptionId } | { restore: EpicAutoFixState },
+  body:
+    | { option: EpicAutoFixOptionId }
+    | { cause: EpicAutoFixCauseCode }
+    | { restore: EpicAutoFixState },
 ): Promise<EpicAutoFixResult> {
   const r = await fetch(
     `/api/epic/auto-fix?repo=${encodeURIComponent(repoPath)}&parent=${parent}`,

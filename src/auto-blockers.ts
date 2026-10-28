@@ -23,7 +23,13 @@ export interface AutoBlockerCause {
   scope: AutoBlockerScope;
   /** As drain:status names it: the profile, or the CLI for `sandbox_provider_unconfined`. */
   detail: string;
+  /** #3456: the change that clears this cause in its own scope; absent for a host cause. */
+  fix?: AutoCauseFix;
 }
+
+/** #3456: the causes that carry a fix of their own. */
+export const AUTO_FIX_CAUSE_CODES = ["sandbox_interactive", "sandbox_provider_unconfined"] as const;
+export type AutoFixCauseCode = (typeof AUTO_FIX_CAUSE_CODES)[number];
 
 export const AUTO_FIX_OPTION_IDS = ["autonomous", "autonomous_claude", "trusted"] as const;
 export type AutoFixOptionId = (typeof AUTO_FIX_OPTION_IDS)[number];
@@ -48,7 +54,15 @@ export interface AutoFixOption {
   checks: AutoFixCheck[];
 }
 
+/** #3456: the change that clears ONE cause in its scope — the repo overview's "Auf Autonom stellen"
+ *  and an epic card's "CLI auf Claude Code". Unlike an option it need not start the children:
+ *  another scope's cause may still hold. `enabled`: its checks pass, so applying it really clears
+ *  the cause (for the repo's sandbox: this host and remote can confine). */
+export type AutoCauseFix = Omit<AutoFixOption, "id">;
+
 export interface AutoBlockers {
+  /** The CLI the epic's children spawn with — the epic's, else the global default. */
+  agentProvider: AgentProvider;
   causes: AutoBlockerCause[];
   /** Empty when nothing blocks. */
   options: AutoFixOption[];
@@ -78,24 +92,55 @@ export function autoBlockers(
   repo: { profile: SandboxProfile; remoteHttps: boolean },
   host: { bwrap: boolean; egress: boolean },
 ): AutoBlockers {
-  const causes = blockerCauses(epic.agentProvider, repo.profile, host);
-  if (causes.length === 0) return { causes, options: [], preselect: null };
-  const options = fixOptions(epic.agentProvider, repo, host);
+  const { agentProvider } = epic;
+  const causes = blockerCauses(agentProvider, repo, host);
+  if (causes.length === 0) return { agentProvider, causes, options: [], preselect: null };
+  const options = fixOptions(agentProvider, repo, host);
   const confined = options.find((o) => o.enabled && o.id !== "trusted");
-  return { causes, options, preselect: (confined ?? options.find((o) => o.enabled))!.id };
+  return {
+    agentProvider,
+    causes,
+    options,
+    preselect: (confined ?? options.find((o) => o.enabled))!.id,
+  };
+}
+
+/** The host and remote checks every confined way needs. */
+function confinableChecks(
+  repo: { remoteHttps: boolean },
+  host: { bwrap: boolean; egress: boolean },
+): AutoFixCheck[] {
+  return [
+    { id: "bwrap", ok: host.bwrap },
+    { id: "egress", ok: host.egress },
+    { id: "remote_https", ok: repo.remoteHttps },
+  ];
 }
 
 function blockerCauses(
   provider: AgentProvider,
-  profile: SandboxProfile,
+  repo: { profile: SandboxProfile; remoteHttps: boolean },
   host: { bwrap: boolean; egress: boolean },
 ): AutoBlockerCause[] {
+  const { profile } = repo;
   if (profile === "trusted") return [];
   const causes: AutoBlockerCause[] = [];
+  // Autonomous clears the repo's cause once this host and remote can confine, whatever the CLI.
   if (profile === "standard")
-    causes.push({ code: "sandbox_interactive", scope: "repo", detail: profile });
+    causes.push({
+      code: "sandbox_interactive",
+      scope: "repo",
+      detail: profile,
+      fix: causeFix({ sandboxProfile: "autonomous" }, confinableChecks(repo, host)),
+    });
+  // Claude Code runs confined, so switching to it always clears the epic's cause.
   if (provider === "codex")
-    causes.push({ code: "sandbox_provider_unconfined", scope: "epic", detail: provider });
+    causes.push({
+      code: "sandbox_provider_unconfined",
+      scope: "epic",
+      detail: provider,
+      fix: causeFix({ agentProvider: "claude" }, []),
+    });
   // Listed on standard too: they are why Autonomous can't help.
   if (!host.bwrap)
     causes.push({ code: "sandbox_backend_unavailable", scope: "host", detail: profile });
@@ -110,11 +155,7 @@ function fixOptions(
   repo: { profile: SandboxProfile; remoteHttps: boolean },
   host: { bwrap: boolean; egress: boolean },
 ): AutoFixOption[] {
-  const confinable: AutoFixCheck[] = [
-    { id: "bwrap", ok: host.bwrap },
-    { id: "egress", ok: host.egress },
-    { id: "remote_https", ok: repo.remoteHttps },
-  ];
+  const confinable = confinableChecks(repo, host);
   // Already autonomous: switching to it changes nothing, so it is no option.
   const toAutonomous: AutoFixOption["changes"] =
     repo.profile === "autonomous" ? {} : { sandboxProfile: "autonomous" };
@@ -142,10 +183,14 @@ function option(
   changes: AutoFixOption["changes"],
   checks: AutoFixCheck[],
 ): AutoFixOption {
+  return { id, ...causeFix(changes, checks) };
+}
+
+function causeFix(changes: AutoFixOption["changes"], checks: AutoFixCheck[]): AutoCauseFix {
   const failed = checks.find((c) => !c.ok);
   return failed
-    ? { id, changes, enabled: false, why: failed.id, checks }
-    : { id, changes, enabled: true, checks };
+    ? { changes, enabled: false, why: failed.id, checks }
+    : { changes, enabled: true, checks };
 }
 
 /** True for an `https://` remote; scp-style, `ssh://` and a missing remote can't push from the

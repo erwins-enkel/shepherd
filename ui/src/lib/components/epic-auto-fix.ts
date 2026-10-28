@@ -69,10 +69,14 @@ function profileName(profile: SandboxProfile): string {
   return PROFILE_NAMES[profile]?.() ?? profile;
 }
 
+/** A scope's chip: REPO / EPIC / HOST. */
+export function scopeLabel(scope: string): string {
+  return SCOPE_LABELS[scope]?.() ?? scope.toUpperCase();
+}
+
 /** One cause with its scope chip. */
 export function causeView(cause: EpicAutoBlockerCause): CauseView {
-  const scopeLabel = SCOPE_LABELS[cause.scope]?.() ?? cause.scope.toUpperCase();
-  const base = { scope: cause.scope, scopeLabel };
+  const base = { scope: cause.scope, scopeLabel: scopeLabel(cause.scope) };
   switch (cause.code) {
     case "sandbox_interactive":
       return {

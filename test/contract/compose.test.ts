@@ -299,7 +299,7 @@ describe("epic", () => {
     }
   });
 
-  test("auto-fix answers the blockers model, applies an enabled fix and restores it (#3453)", async () => {
+  test("auto-fix answers the blockers model, applies an enabled fix or cause fix and restores it (#3453, #3456)", async () => {
     const previousDrain = s.deps.drain;
     const before = s.deps.store.getRepoConfig(s.validRepo);
     let ticks = 0;
@@ -317,7 +317,11 @@ describe("epic", () => {
       expect(await call("POST", "/api/epic/auto-fix", path, 409, { option: "autonomous" })).toEqual(
         { error: "option unavailable" },
       );
-      for (const bad of [{ option: "bogus" }, { restore: {} }]) {
+      for (const bad of [
+        { option: "bogus" },
+        { cause: "sandbox_backend_unavailable" },
+        { restore: {} },
+      ]) {
         expect(() => validateRequest("POST", "/api/epic/auto-fix", bad)).toThrow();
         await call("POST", "/api/epic/auto-fix", path, 400, bad);
       }
@@ -334,7 +338,14 @@ describe("epic", () => {
       expect(s.deps.store.getRepoConfig(s.validRepo).sandboxProfile).toBe("autonomous");
       await call("POST", "/api/epic/auto-fix", path, 200, { restore: applied.previous });
       expect(s.deps.store.getRepoConfig(s.validRepo).sandboxProfile).toBe(before.sandboxProfile);
-      expect(ticks).toBe(2);
+
+      // #3456: one cause's own fix — the repo's sandbox alone.
+      const repoFix = (await call("POST", "/api/epic/auto-fix", path, 200, {
+        cause: "sandbox_interactive",
+      })) as { previous: Record<string, unknown> };
+      expect(repoFix.previous).toEqual({ sandboxProfile: before.sandboxProfile });
+      expect(s.deps.store.getRepoConfig(s.validRepo).sandboxProfile).toBe("autonomous");
+      expect(ticks).toBe(3);
     } finally {
       s.deps.drain = previousDrain;
       s.deps.store.setRepoConfig(s.validRepo, before);

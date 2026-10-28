@@ -28,7 +28,13 @@ import {
   SANDBOX_PROFILES,
   type SandboxProfile,
 } from "./sandbox";
-import { AUTO_FIX_OPTION_IDS, type AutoFixOptionId, type EpicAutoFixState } from "./auto-blockers";
+import {
+  AUTO_FIX_CAUSE_CODES,
+  AUTO_FIX_OPTION_IDS,
+  type AutoFixCauseCode,
+  type AutoFixOptionId,
+  type EpicAutoFixState,
+} from "./auto-blockers";
 import { type Capability, parseRequirements } from "./remote-instances/capabilities";
 import { type Placement, parsePlacementRecord } from "./remote-instances/placement";
 import type { TaskText } from "./requirements-classify-core";
@@ -1605,14 +1611,15 @@ export function validateEpicRunPatch(v: unknown): EpicRunPatch | null {
   return out;
 }
 
-/** POST /api/epic/auto-fix body (#3453): apply a fix the model offers, or write back the
- *  `previous` state a fix answered (Undo). */
-export type EpicAutoFixRequest = { option: AutoFixOptionId } | { restore: EpicAutoFixState };
+/** POST /api/epic/auto-fix body (#3453): apply a fix the model offers, apply one cause's own fix
+ *  (#3456), or write back the `previous` state a fix answered (Undo). */
+export type EpicAutoFixRequest =
+  { option: AutoFixOptionId } | { cause: AutoFixCauseCode } | { restore: EpicAutoFixState };
 
 const EPIC_AUTO_FIX_CLI_KEYS = new Set(["agentProvider", "model", "effort"]);
 
-/** Validate a POST /api/epic/auto-fix body: exactly one of `option` / `restore`. Returns null on
- *  any violation, an empty restore included. */
+/** Validate a POST /api/epic/auto-fix body: exactly one of `option` / `cause` / `restore`.
+ *  Returns null on any violation, an empty restore included. */
 export function validateEpicAutoFixRequest(v: unknown): EpicAutoFixRequest | null {
   if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
   const o = v as Record<string, unknown>;
@@ -1620,6 +1627,10 @@ export function validateEpicAutoFixRequest(v: unknown): EpicAutoFixRequest | nul
   if ("option" in o)
     return (AUTO_FIX_OPTION_IDS as readonly unknown[]).includes(o.option)
       ? { option: o.option as AutoFixOptionId }
+      : null;
+  if ("cause" in o)
+    return (AUTO_FIX_CAUSE_CODES as readonly unknown[]).includes(o.cause)
+      ? { cause: o.cause as AutoFixCauseCode }
       : null;
   if (!("restore" in o)) return null;
   const restore = validateEpicAutoFixState(o.restore);

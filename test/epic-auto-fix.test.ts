@@ -180,7 +180,12 @@ describe("POST /api/epic/auto-fix", () => {
       expect(applied.status).toBe(200);
       const body = (await applied.json()) as { previous: EpicAutoFixState; blockers: AutoBlockers };
       expect(body.previous).toEqual({ sandboxProfile: "inherit", ...CODEX });
-      expect(body.blockers).toEqual({ causes: [], options: [], preselect: null });
+      expect(body.blockers).toEqual({
+        agentProvider: "claude",
+        causes: [],
+        options: [],
+        preselect: null,
+      });
       expect(h.store.getRepoConfig(repo).sandboxProfile).toBe("autonomous");
       expect(cliSettings(h.store, place)).toEqual({
         agentProvider: "claude",
@@ -272,6 +277,9 @@ describe("POST /api/epic/auto-fix", () => {
       { restore: { sandboxProfile: "bogus" } },
       { restore: { agentProvider: "claude", model: "gpt-5.5" } },
       { restore: { mode: "attended" } },
+      { cause: "sandbox_backend_unavailable" },
+      { cause: "bogus" },
+      { cause: "sandbox_interactive", option: "trusted" },
     ])
       expect((await post(h.app, repo, 7, bad)).status, JSON.stringify(bad)).toBe(400);
     expect(h.ticks()).toBe(0);
@@ -279,11 +287,100 @@ describe("POST /api/epic/auto-fix", () => {
   });
 });
 
+describe("POST /api/epic/auto-fix {cause} — one cause's own fix (#3456)", () => {
+  type Result = { previous: EpicAutoFixState; blockers: AutoBlockers };
+
+  for (const place of ["run", "queue", "remembered"] as const) {
+    test(`${place}: Autonomous lifts the repo halt alone; Codex keeps its epic halt and its own fix`, async () => {
+      const h = harness();
+      seed(h.store, place);
+      const res = await post(h.app, repo, 7, { cause: "sandbox_interactive" });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Result;
+      expect(body.previous).toEqual({ sandboxProfile: "inherit" });
+      expect(h.store.getRepoConfig(repo).sandboxProfile).toBe("autonomous");
+      expect(cliSettings(h.store, place)).toEqual(CODEX);
+      expect(body.blockers.causes).toEqual([
+        {
+          code: "sandbox_provider_unconfined",
+          scope: "epic",
+          detail: "codex",
+          fix: { changes: { agentProvider: "claude" }, enabled: true, checks: [] },
+        },
+      ]);
+      expect(h.emitted).toEqual([]);
+      expect(h.ticks()).toBe(1);
+
+      // Then the epic's own fix: only its CLI changes, model and effort reset to the new CLI's.
+      const cli = await post(h.app, repo, 7, { cause: "sandbox_provider_unconfined" });
+      expect(cli.status).toBe(200);
+      const after = (await cli.json()) as Result;
+      expect(after.previous).toEqual(CODEX);
+      expect(after.blockers.causes).toEqual([]);
+      expect(h.store.getRepoConfig(repo).sandboxProfile).toBe("autonomous");
+      expect(cliSettings(h.store, place)).toEqual({
+        agentProvider: "claude",
+        model: null,
+        effort: null,
+      });
+      expect(h.emitted.map((e) => [e.parentIssueNumber, e.run.agentProvider])).toEqual([
+        [7, "claude"],
+      ]);
+      expect(h.ticks()).toBe(2);
+    });
+  }
+
+  test("the CLI switch while the repo still halts writes only the epic, the repo cause stays", async () => {
+    const h = harness();
+    seed(h.store, "remembered");
+    const res = await post(h.app, repo, 7, { cause: "sandbox_provider_unconfined" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Result;
+    expect(body.previous).toEqual(CODEX);
+    expect(body.blockers.causes.map((c) => c.code)).toEqual(["sandbox_interactive"]);
+    expect(h.store.getRepoConfig(repo).sandboxProfile).toBe("inherit");
+    expect(cliSettings(h.store, "remembered").agentProvider).toBe("claude");
+
+    // Undo writes the CLI back.
+    expect((await post(h.app, repo, 7, { restore: body.previous })).status).toBe(200);
+    expect(cliSettings(h.store, "remembered")).toEqual(CODEX);
+  });
+
+  test("409 for a fix that is disabled or a cause that isn't there — nothing written, no tick", async () => {
+    const ssh = harness({ remoteHttps: false });
+    const noBwrap = harness({ host: { bwrap: false, egress: true } });
+    for (const x of [ssh, noBwrap]) {
+      seed(x.store, "run");
+      expect(await (await post(x.app, repo, 7, { cause: "sandbox_interactive" })).json()).toEqual({
+        error: "option unavailable",
+      });
+    }
+    // A Claude Code epic has no CLI cause to fix.
+    const claude = harness();
+    claude.store.setEpicSettings({
+      repoPath: repo,
+      parentIssueNumber: 7,
+      mode: "auto",
+      agentProvider: "claude",
+    });
+    expect((await post(claude.app, repo, 7, { cause: "sandbox_provider_unconfined" })).status).toBe(
+      409,
+    );
+    for (const x of [ssh, noBwrap, claude]) {
+      expect(x.store.getRepoConfig(repo).sandboxProfile).toBe("inherit");
+      expect(x.ticks()).toBe(0);
+    }
+    expect(cliSettings(ssh.store, "run")).toEqual(CODEX);
+  });
+});
+
 describe("validateEpicAutoFixRequest", () => {
-  test("accepts exactly one of option or restore", () => {
+  test("accepts exactly one of option, cause or restore", () => {
     expect(validateEpicAutoFixRequest({ option: "autonomous_claude" })).toEqual({
       option: "autonomous_claude",
     });
+    for (const cause of ["sandbox_interactive", "sandbox_provider_unconfined"] as const)
+      expect(validateEpicAutoFixRequest({ cause })).toEqual({ cause });
     expect(
       validateEpicAutoFixRequest({
         restore: { sandboxProfile: "inherit", agentProvider: null, model: null, effort: null },
@@ -304,6 +401,8 @@ describe("validateEpicAutoFixRequest", () => {
       "trusted",
       { option: null },
       { option: "autonomous", extra: 1 },
+      { cause: null },
+      { cause: "sandbox_egress_unavailable" },
       { restore: null },
       { restore: [] },
       { restore: {} },

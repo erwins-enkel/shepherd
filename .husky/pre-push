@@ -1,15 +1,9 @@
 #!/usr/bin/env sh
-# CI-equivalent gate, run in parallel LANES by scripts/pre-push.ts (#1030). The old
-# fully-sequential body (~2.3 min warm) blew past the 120s agent command timeout and
-# failed pushes; the orchestrator runs independent work concurrently (bounded by cores)
-# with per-lane timeout backstops, bringing warm pushes well under a minute.
-#
-# DELIBERATE local-only differences from .github/workflows/ci.yml (flagged per house rules):
-#   • prettier/eslint are scoped to the push DELTA vs origin/main — CI keeps the whole-repo
-#     check, so tree-wide drift is still caught before merge.
-#   • a docs-only delta (scripts/ci-changes.mjs, the rules CI skips its test lanes by) also
-#     skips tsc, root tests, ui and extension — CI's static job still type-checks it.
-# See scripts/pre-push.ts for the lane definitions; keep them in sync with ci.yml.
+# Local lint, type/build and consistency checks in bounded parallel lanes.
+# Run affected tests explicitly before pushing. Full suites (including browser tests)
+# and the full CLI gate run in CI; do not mirror them into this hook.
+# Prettier/eslint use the delta vs origin/main; docs-only deltas skip type/build lanes.
+# See scripts/pre-push.ts for the local lane definitions and CI differences.
 set -e
 
 # Git exports GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE / … into hooks. Those leak

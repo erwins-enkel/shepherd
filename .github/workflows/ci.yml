@@ -20,15 +20,12 @@ concurrency:
 
 jobs:
   # ── The PR gate: four parallel lanes behind the `verify` aggregator ─────────────
-  # KEEP IN SYNC WITH .husky/pre-push (scripts/pre-push.ts). The local pre-push hook
-  # doesn't share these jobs' shell bodies — it runs the same gate set in parallel
-  # lanes via scripts/pre-push.ts. When you add/remove/move a step in static/test-root/
-  # test-ui/test-ui-browser, mirror it there (and vice-versa). Deliberate differences:
-  # the hook scopes prettier/eslint to the push delta and pins fallow@2.100.0;
-  # CI keeps the whole-repo checks. The pin is gated: scripts/check-fallow-pin.mjs
-  # fails when any site names a different version. On a docs-only delta (the `changes` rules
-  # below) the hook drops the type checks along with the test lanes; `static` still runs them.
-  # The hook runs root tests with `--parallel` (#2571); `test-root` stays serial shards.
+  # Full suites run here. The local hook (scripts/pre-push.ts) keeps lint, type/build
+  # and consistency checks; agents run affected tests explicitly before pushing.
+  # Keep shared checks aligned, but do not mirror full suites or the CLI gate locally.
+  # Local prettier/eslint use the push delta; CI checks the whole repo. Both pin
+  # fallow@2.100.0 (gated by scripts/check-fallow-pin.mjs). Docs-only deltas skip local
+  # type/build lanes; CI's static job still type-checks.
   #
   # Every lane carries the same release-please guard. Don't run the suite on
   # release-please's generated PR: it only bumps the version + CHANGELOG, so the gate is
@@ -57,7 +54,7 @@ jobs:
   # (#1859); an `if:`-skipped job reports "skipped", which the ruleset counts as passing.
   # Fail-open: gated jobs use `!cancelled()` and run anyway when this job fails, and
   # `verify` goes red. Pushes to main always run everything. scripts/pre-push.ts reads the same
-  # rules for its push delta, so a docs-only push skips the test lanes locally too (#2915).
+  # rules for its push delta, so a docs-only push skips local type/build lanes (#2915).
   changes:
     name: changes
     if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
@@ -504,7 +501,7 @@ jobs:
   # build time from contracts/openapi.rust.yaml, so this job is also the gate that a contract change
   # still produces a client the CLI compiles against. Own job (not a `verify` step) for the same
   # reason as docs-site/site; gated by `changes` via job-level `if:`, never workflow `paths:`
-  # (#1859). The commands live in scripts/check-cli.sh, which the pre-push `cli` lane runs too.
+  # (#1859). The full CI commands live in scripts/check-cli.sh; local tests are targeted.
   cli:
     name: cli
     # Skip release-please's generated PR, mirroring the jobs above.
@@ -528,6 +525,6 @@ jobs:
         with:
           workspaces: cli
 
-      # fmt --check, clippy -D warnings, test — shared with the pre-push `cli` lane.
+      # fmt --check, clippy -D warnings, test — the full CLI gate runs in CI.
       - name: Check (cli)
         run: bash scripts/check-cli.sh

@@ -5,6 +5,7 @@
   import { gaugeColor, modelDisplayName, type GaugeKey } from "../usage-gauges";
   import type { CompactUsageView } from "../usage-gauges";
   import type { Gauge } from "../usage-gauges";
+  import { gaugeValueText } from "../top-bar-layout";
   import CreditGauge from "./CreditGauge.svelte";
   import HeldSegment from "./HeldSegment.svelte";
 
@@ -91,11 +92,8 @@
   function withHeld(label: string): string {
     return held ? `${m.topbar_held_badge({ count: heldCount })} · ${label}` : label;
   }
-  function gaugeValue(gauge: Gauge): string {
-    return "scrapedAt" in gauge.w && gauge.w.resetAt <= nowMs
-      ? m.topbar_usage_before_reset({ pct: gauge.w.pct })
-      : `${gauge.w.pct}%`;
-  }
+  // Shared with TopBar's measure effect, which keys re-measurement on this text's width.
+  const gaugeValue = (gauge: Gauge): string => gaugeValueText(gauge, nowMs);
   const activeTokenLabel = $derived(
     activeCompactUsageView?.mode === "tokens" && activeCompactUsageView.totalTokens !== null
       ? formatTokenLabel(activeCompactUsageView.totalTokens)

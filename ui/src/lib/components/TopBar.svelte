@@ -41,7 +41,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import { openFeedback } from "#lib/feedback-dialog.svelte.js";
   import type { FeedbackKind } from "#lib/feedback-link.js";
-  import { modeOf, badgeCount } from "./top-bar-layout";
+  import { modeOf, badgeCount, usageTextWidthKey } from "./top-bar-layout";
   import { isSettingsChord } from "./herd-keynav";
   import TopBarTallies from "./top-bar/TopBarTallies.svelte";
   import TopBarHeldBadge from "./top-bar/TopBarHeldBadge.svelte";
@@ -296,19 +296,32 @@
   // Re-measure when what's-in-the-bar (badge count), the layout mode, or the gauges
   // change. These are the CONTENT changes that alter the full-label width, so they
   // INVALIDATE the cache and force a fresh full measurement.
+  //
+  // Every dependency is a deduped primitive ($derived of a number/bool/string). Reading the
+  // `gauges` array or the `chrome` object directly would subscribe to the derived itself and
+  // re-fire on every usage update (a fresh `limits` object even at the same %). Each re-measure
+  // renders the full-label bar for a frame: the bar flashes, and on an unfolded fold that frame
+  // widens the document, so Chrome Android grows the fixed-position viewport and open dialogs jump.
+  const chromeBadgeCount = $derived(badgeCount(chrome));
+  const diagnosticsShown = $derived(diagnosticsOverall !== "ok");
   $effect(() => {
     void mode;
-    void badgeCount(chrome);
+    void chromeBadgeCount;
+    // The held count's digits widen the held segment; badgeCount only counts its presence.
+    void heldCount;
     // Gauges MUST be a tracked dependency: `limits` (store.usageLimits) starts null
     // and is filled ASYNCHRONOUSLY (snapshot/SSE land after first paint), then ~110px
     // of inline gauges render inside .hud. That arrival changes NEITHER mode/badgeCount
     // NOR the .shell-capped box width (only inner content grows), so without this read
     // neither this effect nor the ResizeObserver would re-fire — the bar would stay
     // un-compacted and overflow until an unrelated resize/badge change self-healed it.
-    void gauges.length;
+    void gaugeCount;
+    // The inline usage value text (9%→10%, before-reset, a longer credit amount or token
+    // label) changes width without any other dependency moving.
+    void usageTextKey;
     // The diagnostics health pip (TopBarBadges) also arrives async with the WS snapshot
     // and widens the bar — re-measure on its appearance/disappearance.
-    void (diagnosticsOverall !== "ok");
+    void diagnosticsShown;
     // Compact provider rotation changes top-bar content without changing `gauges.length`.
     // Remeasure when the provider set/rotation state changes, and when the active view moves
     // between width classes (e.g. two bars ↔ token total), but not for same-width provider ticks.
@@ -369,6 +382,8 @@
   // hover, so it collapses to the window closest to its cap and exposes the full
   // breakdown — including reset times — through a tap popover instead.
   const gauges = $derived(claudeDisplayGauges(limits));
+  // Deduped count for the measure effect (see there): the array itself changes every update.
+  const gaugeCount = $derived(gauges.length);
   const hotter = $derived(hotterGauge(limits));
   // The window nearest its cap across BOTH CLIs — promoted to the popover's hero so the limit that
   // actually gates the next agent is read first. Same selection the gear menu's one-line gauge uses.
@@ -447,6 +462,7 @@
       : (compactUsageViews[0] ?? null),
   );
   const activeCompactUsageWidthClass = $derived(activeCompactUsageView?.widthClass ?? "none");
+  const usageTextKey = $derived(usageTextWidthKey(activeCompactUsageView, creditAmount, nowMs));
 
   $effect(() => {
     const signature = compactUsageSetSignature;

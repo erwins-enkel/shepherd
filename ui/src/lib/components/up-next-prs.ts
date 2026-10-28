@@ -1,4 +1,10 @@
-import type { UpNextPr, UpNextPrAction, UpNextPrBand, UpNextPrBlockReason } from "#lib/types.js";
+import type {
+  MergeMethod,
+  UpNextPr,
+  UpNextPrAction,
+  UpNextPrBand,
+  UpNextPrBlockReason,
+} from "#lib/types.js";
 
 /** Band order on screen, and the tone each band is tinted with. */
 const PR_BANDS: readonly UpNextPrBand[] = ["ready", "review", "blocked", "dependabot"];
@@ -28,6 +34,13 @@ export function buttonAction(pr: UpNextPr, mergeFailed = false): UpNextPrAction 
   if (pr.action) return pr.action;
   if (pr.band === "review") return "review";
   return pr.band === "blocked" ? "fix" : "merge";
+}
+
+/** The methods a PR's Merge ▾ menu lists, or null when it offers none: the repo did not say what
+ *  it allows, or allows nothing beyond the default a plain Merge already uses. */
+export function mergeMethodChoices(pr: UpNextPr): MergeMethod[] | null {
+  const allowed = pr.allowedMergeMethods;
+  return allowed?.some((method) => method !== pr.mergeMethod) ? allowed : null;
 }
 
 /** Why a PR cannot merge right now, or null when merging is its next action. */

@@ -1264,6 +1264,27 @@ describe("UpNextPanel pull requests", () => {
     await expect.poll(() => prRow(911)).toBeUndefined();
   });
 
+  it("merges a row with the method picked from its Merge ▾", async () => {
+    upNext.snapshot = withPrs([
+      pr(916, { mergeMethod: "squash", allowedMergeMethods: ["squash", "merge"] }),
+    ]);
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#916")).toBeInTheDocument();
+    prRow(916).querySelector<HTMLElement>(".unpr-more")!.click();
+    await page.getByRole("menuitem", { name: /^merge/ }).click();
+    const confirm = page.getByRole("button", {
+      name: m.mergeconfirm_confirm_method({ method: "merge" }),
+    });
+    await expect.element(confirm).toBeEnabled();
+    await confirm.click();
+    await expect.poll(() => vi.mocked(mergeBacklogPr).mock.calls.length).toBe(1);
+    expect(vi.mocked(mergeBacklogPr).mock.calls[0]).toMatchObject([
+      "~/projects/homeassistant",
+      916,
+      { method: "merge", deleteBranch: true },
+    ]);
+  });
+
   it("starts a fix session from a blocked row and hides it", async () => {
     upNext.snapshot = withPrs();
     render(UpNextPanel, {});

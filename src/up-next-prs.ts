@@ -50,7 +50,10 @@ export interface UpNextPr {
   latestReview?: PrReview;
   awaitingWorkflowApproval?: boolean;
   baseRefName?: string;
+  /** The method a plain Merge lands it with (the forge's configured one). */
   mergeMethod?: MergeMethod;
+  /** Every method the repo allows, for the Merge ▾ menu; absent when the host did not say. */
+  allowedMergeMethods?: MergeMethod[];
   /** The lowest-numbered issue this PR would close. */
   closesIssue?: number;
   band: UpNextPrBand;
@@ -130,6 +133,8 @@ export interface UpNextPrRepo {
   openPrs?: PullRequest[];
   /** PR number → the lowest issue number it would close. */
   closingIssueByPr?: Record<number, number>;
+  /** The merge methods the repo allows; absent/null when the host did not say. */
+  allowedMergeMethods?: MergeMethod[] | null;
   noCi?: boolean;
 }
 
@@ -197,6 +202,7 @@ function toRow(repo: UpNextPrRepo, pr: PullRequest, cls: UpNextPrClass): UpNextP
     awaitingWorkflowApproval: pr.awaitingWorkflowApproval,
     baseRefName: pr.baseRefName,
     mergeMethod: pr.mergeMethod,
+    allowedMergeMethods: repo.allowedMergeMethods ?? undefined,
     closesIssue: repo.closingIssueByPr?.[pr.number],
     ...cls,
     headRefName: pr.headRefName,

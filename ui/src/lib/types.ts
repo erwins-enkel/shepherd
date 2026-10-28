@@ -3231,7 +3231,10 @@ export interface UpNextPr {
   latestReview?: PullRequest["latestReview"];
   awaitingWorkflowApproval?: boolean;
   baseRefName?: string;
+  /** The method a plain Merge lands it with (the forge's configured one). */
   mergeMethod?: MergeMethod;
+  /** Every method the repo allows, for the Merge ▾ menu; absent when the host did not say. */
+  allowedMergeMethods?: MergeMethod[];
   /** The lowest-numbered issue this PR would close. */
   closesIssue?: number;
   band: UpNextPrBand;

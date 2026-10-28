@@ -7675,6 +7675,14 @@ function notOpenPrCode(state: PrStatus["state"]): string {
   return "pr_not_found";
 }
 
+/** A merge body's `method` names none of the three. GitHub's merge maps an unknown value to
+ *  squash, which would land the PR under a method nobody chose — so both endpoints refuse it. */
+function invalidMergeMethod(method: unknown): Response | null {
+  if (method === undefined || method === "merge" || method === "squash" || method === "rebase")
+    return null;
+  return json({ error: "invalid merge method" }, 400);
+}
+
 async function forgeMerge(
   forge: GitForge,
   session: Session,
@@ -7687,6 +7695,8 @@ async function forgeMerge(
     deleteBranch?: boolean;
     confirm?: unknown;
   };
+  const badMethod = invalidMergeMethod(body.method);
+  if (badMethod) return badMethod;
   const cur = await forge.prStatus(head);
   if (cur.state !== "open" || !cur.number) {
     return json({ error: "no open PR to merge", code: notOpenPrCode(cur.state) }, 409);
@@ -10703,6 +10713,8 @@ async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null
     deleteBranch?: boolean;
     confirm?: unknown;
   };
+  const badMethod = invalidMergeMethod(body.method);
+  if (badMethod) return badMethod;
   const resolved = await resolveBacklogMerge(body, deps);
   if (!resolved.ok) return resolved.refusal;
   const { dir, forge, number, confirm } = resolved;

@@ -10,7 +10,7 @@ import { mergeConfirmFromPr } from "./components/merge-confirm";
 import { MergeConfirmFlow } from "./components/merge-confirm-flow.svelte";
 import { m } from "./paraglide/messages";
 import { toasts } from "./toasts.svelte";
-import type { Steer, UpNextPr, UpNextPrAction } from "./types";
+import type { MergeMethod, Steer, UpNextPr, UpNextPrAction } from "./types";
 import type { UpNextLaunchContext } from "./up-next-start.svelte";
 import { upNextPrKey, upNextUi } from "./up-next-ui.svelte";
 
@@ -42,14 +42,15 @@ export class UpNextPrActions {
     this.#ctx = ctx;
   }
 
-  /** Merge behind the confirmation (#2299), bound to the head the row was classified at. */
-  merge(pr: UpNextPr) {
+  /** Merge behind the confirmation (#2299), bound to the head the row was classified at.
+   *  `method` is one picked from Merge ▾; omitted, the repo's configured method. */
+  merge(pr: UpNextPr, method?: MergeMethod) {
     if (this.busy) return;
     const key = upNextPrKey(pr);
-    this.mergeFlow.open(mergeConfirmFromPr(pr, pr.repoLabel), async (confirm) => {
+    this.mergeFlow.open(mergeConfirmFromPr(pr, pr.repoLabel, method), async (confirm) => {
       this.busy = key;
       try {
-        await mergeBacklogPr(pr.repoPath, pr.number, { deleteBranch: true, confirm });
+        await mergeBacklogPr(pr.repoPath, pr.number, { method, deleteBranch: true, confirm });
         upNextUi.markActed(key);
         void refreshUpNext().catch(() => {});
       } catch (e) {

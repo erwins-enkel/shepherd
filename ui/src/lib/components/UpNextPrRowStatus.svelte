@@ -6,11 +6,13 @@
   import { firstSafeHttpUrl } from "#lib/url.js";
   import type { UpNextPrActions } from "#lib/up-next-pr-actions.svelte.js";
   import { upNextPrKey, upNextUi } from "#lib/up-next-ui.svelte.js";
+  import MergeMethodMenu from "./MergeMethodMenu.svelte";
   import { actionLabel, actionTip, ciWord } from "./up-next-pr-copy";
-  import { buttonAction, ciShown } from "./up-next-prs";
+  import { buttonAction, ciShown, mergeMethodChoices } from "./up-next-prs";
 
   // A PR row's sub line in Up Next: its status words (conflicts or behind, workflow approval, CI,
-  // approval, author, repo) and, pushed to the right edge, its one next action.
+  // approval, author, repo) and, pushed to the right edge, its one next action — a merge split
+  // with ▾ when the repo allows other methods.
   let {
     pr,
     showRepo,
@@ -34,6 +36,13 @@
   function act(action: UpNextPrAction) {
     if (actions && !locked) actions.run(pr, action);
   }
+
+  const methods = $derived(action === "merge" && actions ? mergeMethodChoices(pr) : null);
+  let group = $state<HTMLElement>();
+  let menuOpen = $state(false);
+  $effect(() => {
+    if (!methods || locked) menuOpen = false;
+  });
 </script>
 
 <span class="unpr-sub">
@@ -66,22 +75,53 @@
     >
     <!-- eslint-enable svelte/no-navigation-without-resolve -->
   {:else}
-    <!-- aria-disabled, not disabled: a disabled button gets no hover, and its tip says what it
-         waits for. -->
-    <button
-      type="button"
-      class="unpr-act unpr-act-{action}"
-      aria-disabled={locked ? "true" : undefined}
-      use:statusTip={{
-        text: actionTip(pr, mergeFailed, syncing),
-        stopClickPropagation: false,
-        pinOnClick: false,
-      }}
-      onclick={() => act(action)}
-      >{requested ? m.prspanel_rebase_requested() : actionLabel(action)}</button
-    >
+    <span class="unpr-act-group" bind:this={group}>
+      <!-- aria-disabled, not disabled: a disabled button gets no hover, and its tip says what it
+           waits for. -->
+      <button
+        type="button"
+        class="unpr-act unpr-act-{action}"
+        class:split={methods}
+        aria-disabled={locked ? "true" : undefined}
+        use:statusTip={{
+          text: actionTip(pr, mergeFailed, syncing),
+          stopClickPropagation: false,
+          pinOnClick: false,
+        }}
+        onclick={() => act(action)}
+        >{requested ? m.prspanel_rebase_requested() : actionLabel(action)}</button
+      >
+      {#if methods}
+        <button
+          type="button"
+          class="unpr-act unpr-act-{action} unpr-more"
+          class:open={menuOpen}
+          aria-label={m.mergemethod_more()}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-disabled={locked ? "true" : undefined}
+          onclick={() => {
+            if (!locked) menuOpen = !menuOpen;
+          }}>▾</button
+        >
+      {/if}
+    </span>
   {/if}
 </span>
+{#if menuOpen && methods && group}
+  <MergeMethodMenu
+    anchor={group}
+    number={pr.number}
+    allowed={methods}
+    defaultMethod={pr.mergeMethod ?? null}
+    align="end"
+    onpick={(method) => {
+      menuOpen = false;
+      if (actions && !locked) actions.merge(pr, method);
+    }}
+    onclose={() => (menuOpen = false)}
+  />
+{/if}
 
 <style>
   .unpr-sub {
@@ -165,6 +205,25 @@
   .unpr-act:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--act);
+  }
+  .unpr-act-group {
+    margin-left: auto;
+    display: inline-flex;
+  }
+  /* Merge ▾: the two halves read as one control, split by a neutral rule. */
+  .unpr-act.split {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  .unpr-act.unpr-more {
+    padding: 0 7px;
+    border-left-color: var(--color-line-bright);
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+  .unpr-act.unpr-more.open {
+    background: var(--act);
+    color: var(--color-bg);
   }
   .unpr-act[aria-disabled="true"] {
     border-style: dashed;

@@ -478,6 +478,11 @@ export class UpNextService {
       summaries.summaries,
       blockedByOpen,
     );
+    const openPrs = await this.openPrs(forge);
+    // Only a repo with open PRs shows a Merge ▾ menu; the read is cached per forge.
+    const allowedMergeMethods = openPrs?.length
+      ? await forge.allowedMergeMethods?.().catch(() => null)
+      : undefined;
 
     return {
       repoPath: r.repoPath,
@@ -490,8 +495,9 @@ export class UpNextService {
       epics,
       subIssueNumbers: summaries.subIssueNumbers,
       linkedIssueNumbers: links.issues,
-      openPrs: await this.openPrs(forge),
+      openPrs,
       closingIssueByPr: links.closing,
+      allowedMergeMethods,
       noCi: (this.deps.hasNoCi ?? repoHasNoCiCached)(forge.kind, r.repoPath),
     };
   }

@@ -193,7 +193,7 @@ describe("UpNextPrPreview", () => {
     expect(vi.mocked(startUpNextPrFix).mock.calls[0]).toEqual([REPO, 985, "run TDD"]);
   });
 
-  it("shows no ▾ beside a merge, which starts no session", async () => {
+  it("shows no ▾ beside a merge whose repo names no other method", async () => {
     steers.list = [steer("tdd", "TDD")];
     open(PRS[0]!);
     render(UpNextPrPreview, { launchContext: ctx() });
@@ -216,6 +216,42 @@ describe("UpNextPrPreview", () => {
       911,
       { deleteBranch: true, confirm: { headSha: "sha911" } },
     ]);
+  });
+
+  it("offers the repo's other merge methods on Merge's ▾ and confirms the picked one", async () => {
+    const row = pr(913, { allowedMergeMethods: ["squash", "rebase"] });
+    upNext.snapshot = snapshot([row]);
+    open(row);
+    render(UpNextPrPreview, { launchContext: ctx() });
+    await page.getByRole("button", { name: m.mergemethod_more() }).click();
+    // Merge commits are off in this repo: listed with the reason, but inert.
+    const off = page.getByRole("menuitem", { name: /^merge/ });
+    await expect.element(off).toHaveAttribute("aria-disabled", "true");
+    expect(off.element().textContent).toContain(m.mergemethod_hint_off());
+    // Playwright refuses an aria-disabled target, so the click is dispatched directly.
+    (off.element() as HTMLElement).click();
+    expect(document.querySelector("[role='dialog']")).toBeNull();
+    await page.getByRole("menuitem", { name: /^rebase/ }).click();
+    const confirm = page.getByRole("button", {
+      name: m.mergeconfirm_confirm_method({ method: "rebase" }),
+    });
+    await expect.element(confirm).toBeEnabled();
+    await confirm.click();
+    await expect.poll(() => vi.mocked(mergeBacklogPr).mock.calls.length).toBe(1);
+    expect(vi.mocked(mergeBacklogPr).mock.calls[0]).toMatchObject([
+      REPO,
+      913,
+      { method: "rebase", deleteBranch: true, confirm: { headSha: "sha913" } },
+    ]);
+  });
+
+  it("offers no method ▾ when the repo allows only the default", async () => {
+    const row = pr(914, { allowedMergeMethods: ["squash"] });
+    upNext.snapshot = snapshot([row]);
+    open(row);
+    render(UpNextPrPreview, { launchContext: ctx() });
+    await expect.element(page.getByRole("heading", { name: "pr 914" })).toBeVisible();
+    expect(document.querySelector(".unp-more")).toBeNull();
   });
 
   describe("after a failed merge", () => {

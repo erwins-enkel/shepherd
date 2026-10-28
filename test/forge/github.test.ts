@@ -2636,6 +2636,25 @@ test("GithubForge.repoMergeSettings: no rules, auto-merge field absent → unkno
   });
 });
 
+test("GithubForge.allowedMergeMethods: the allowed flags, read once per TTL", async () => {
+  const { run, calls } = fakeRunner({
+    "api repos/o/r": JSON.stringify({
+      allow_merge_commit: false,
+      allow_squash_merge: true,
+      allow_rebase_merge: true,
+    }),
+  });
+  const forge = new GithubForge("o/r", {}, run);
+  expect(await forge.allowedMergeMethods!()).toEqual(["squash", "rebase"]);
+  expect(await forge.allowedMergeMethods!()).toEqual(["squash", "rebase"]);
+  expect(calls.length).toBe(1);
+});
+
+test("GithubForge.allowedMergeMethods: flags withheld (no push access) → unknown", async () => {
+  const { run } = fakeRunner({ "api repos/o/r": JSON.stringify({ allow_squash_merge: true }) });
+  expect(await new GithubForge("o/r", {}, run).allowedMergeMethods!()).toBeNull();
+});
+
 test("GithubForge.enableAutoMerge: arms gh pr merge --auto with the merge method", async () => {
   const { run, calls } = fakeRunner({});
   await new GithubForge("o/r", {}, run).enableAutoMerge!(7, "squash");

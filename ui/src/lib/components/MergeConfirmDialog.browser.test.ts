@@ -51,6 +51,22 @@ describe("MergeConfirmDialog", () => {
       .toBeInTheDocument();
   });
 
+  it("names a method picked over the repo's default, on the fact and on the confirm", async () => {
+    render(MergeConfirmDialog, {
+      props: {
+        ctx: ctx({ mergeMethod: "rebase", defaultMergeMethod: "squash" }),
+        onclose: vi.fn(),
+        onconfirm: vi.fn(),
+      },
+    });
+    await expect
+      .element(page.getByText(m.mergeconfirm_method_instead({ method: "squash" }), { exact: true }))
+      .toBeInTheDocument();
+    expect(confirmEl().textContent?.trim()).toBe(
+      m.mergeconfirm_confirm_method({ method: "rebase" }),
+    );
+  });
+
   it("uses the neutral wording and says nothing about responsibility when it is the operator's turn", async () => {
     render(MergeConfirmDialog, { props: { ctx: ctx(), onclose: vi.fn(), onconfirm: vi.fn() } });
     await expect.element(page.getByRole("note")).not.toBeInTheDocument();

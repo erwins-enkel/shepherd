@@ -17,15 +17,17 @@
   import { findUpNextPr, upNextPrKey, upNextUi } from "#lib/up-next-ui.svelte.js";
   import IssueDetailHead from "./issues-panel/IssueDetailHead.svelte";
   import MergeConfirmHost from "./MergeConfirmHost.svelte";
+  import MergeMethodMenu from "./MergeMethodMenu.svelte";
   import UpNextPreviewBody from "./UpNextPreviewBody.svelte";
   import UpNextPreviewFrame from "./UpNextPreviewFrame.svelte";
   import UpNextPrFacts from "./UpNextPrFacts.svelte";
   import UpNextSteerMenu from "./UpNextSteerMenu.svelte";
   import { actionLabel, actionTip, fixSummary, mergeBlockLine } from "./up-next-pr-copy";
-  import { buttonAction } from "./up-next-prs";
+  import { buttonAction, mergeMethodChoices } from "./up-next-prs";
 
   // Reading view for the Up Next PR whose title was clicked, built like the issue preview: its
-  // head, the one next action (split with ▾ for steers when it starts a fix session), "+ Review",
+  // head, the one next action (split with ▾ for steers when it starts a fix session, or for the
+  // repo's other merge methods when it merges), "+ Review",
   // a locked Merge with the reason, the merge-train tick, the facts and the description.
   // Desktop renders it in the main area; the phone swaps it in place of the list (`onback`).
   let {
@@ -71,10 +73,14 @@
       : [],
   );
 
+  // The other merge methods the repo allows, only beside a merge.
+  const methods = $derived(pr && action === "merge" ? mergeMethodChoices(pr) : null);
+  const hasMenu = $derived(fixSteers.length > 0 || methods !== null);
+
   let startGroup = $state<HTMLElement>();
   let menuOpen = $state(false);
   $effect(() => {
-    if (fixSteers.length === 0) menuOpen = false;
+    if (!hasMenu) menuOpen = false;
   });
 
   function run(pr: UpNextPr, action: UpNextPrAction) {
@@ -126,7 +132,7 @@
           <button
             type="button"
             class="gbtn primary"
-            class:split={fixSteers.length > 0}
+            class:split={hasMenu}
             aria-disabled={locked ? "true" : undefined}
             use:statusTip={{
               text: actionTip(pr, mergeFailed, syncing),
@@ -136,15 +142,15 @@
             onclick={() => run(pr, action)}
             >{requested ? m.prspanel_rebase_requested() : actionLabel(action)}</button
           >
-          {#if fixSteers.length > 0}
+          {#if hasMenu}
             <button
               type="button"
               class="gbtn primary unp-more"
               class:open={menuOpen}
-              aria-label={m.upnext_preview_more()}
+              aria-label={methods ? m.mergemethod_more() : m.upnext_preview_more()}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
-              disabled={!!actions.busy}
+              disabled={!!actions.busy || (methods !== null && locked)}
               onclick={() => (menuOpen = !menuOpen)}>▾</button
             >
           {/if}
@@ -182,7 +188,19 @@
 </UpNextPreviewFrame>
 
 <MergeConfirmHost flow={actions.mergeFlow} />
-{#if menuOpen && pr && startGroup}
+{#if menuOpen && pr && startGroup && methods}
+  <MergeMethodMenu
+    anchor={startGroup}
+    number={pr.number}
+    allowed={methods}
+    defaultMethod={pr.mergeMethod ?? null}
+    onpick={(method) => {
+      menuOpen = false;
+      if (!locked) actions.merge(pr, method);
+    }}
+    onclose={() => (menuOpen = false)}
+  />
+{:else if menuOpen && pr && startGroup}
   <UpNextSteerMenu
     anchor={startGroup}
     number={pr.number}

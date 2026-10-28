@@ -7,6 +7,7 @@ import {
   mergeConfirmFromPr,
   mergeConfirmPayload,
   mergeRefusalResponsibility,
+  replacedMergeMethod,
 } from "./merge-confirm";
 import type { GitState, PullRequest } from "#lib/types.js";
 
@@ -121,6 +122,17 @@ describe("mergeConfirmFromPr", () => {
       "shepherd",
     );
     expect(ctx).toMatchObject({ handoff: "reviewer", handoffWho: "scoop" });
+  });
+
+  it("lands with a method picked from Merge ▾ and names the default it replaces", () => {
+    const picked = mergeConfirmFromPr(pr({ mergeMethod: "squash" }), "shepherd", "rebase");
+    expect(picked).toMatchObject({ mergeMethod: "rebase", defaultMergeMethod: "squash" });
+    expect(replacedMergeMethod(picked)).toBe("squash");
+    // Picking the default, or not picking at all, replaces nothing.
+    expect(replacedMergeMethod(mergeConfirmFromPr(pr({ mergeMethod: "squash" }), "x"))).toBeNull();
+    expect(
+      replacedMergeMethod(mergeConfirmFromPr(pr({ mergeMethod: "squash" }), "x", "squash")),
+    ).toBeNull();
   });
 });
 

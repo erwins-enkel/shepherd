@@ -8,7 +8,7 @@
 // Epics collapse to ONE unit keyed by their next-actionable child; the unit is AGED BY THE
 // PARENT'S createdAt (the child carries none — SubIssueRef has no createdAt and
 // selectEpicCandidates hard-codes createdAt:0, so child-age would tie all epics at 0).
-import type { Issue, PullRequest } from "./forge/types";
+import type { Issue, MergeMethod, PullRequest } from "./forge/types";
 import type { UpNextPr } from "./up-next-prs";
 import { PRIORITY_LABEL, ACTIVE_LABEL } from "./drain-core";
 import { isDependabotAuthor } from "./forge/pr-kind";
@@ -150,6 +150,8 @@ export interface RepoInput {
   openPrs?: PullRequest[];
   /** PR number → the lowest issue number it would close. */
   closingIssueByPr?: Record<number, number>;
+  /** The merge methods the repo allows (Merge ▾ menu); absent/null when the host did not say. */
+  allowedMergeMethods?: MergeMethod[] | null;
   /** The repo runs no CI on PRs (src/checks-gate.ts). */
   noCi?: boolean;
 }

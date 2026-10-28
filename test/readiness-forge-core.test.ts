@@ -93,7 +93,7 @@ describe("forgeChecks", () => {
     const c = byId(
       {
         ...OK,
-        mergeMethods: { merge: true, squash: true, rebase: false },
+        mergeMethods: { merge: true, squash: false, rebase: true },
         autoMergeAllowed: false,
         deleteBranchOnMerge: false,
         requiredChecks: [],
@@ -101,16 +101,28 @@ describe("forgeChecks", () => {
       },
       ["lint"],
     );
+    // The fix turns the configured method on and leaves the others as the operator set them.
     expect(c.merge_methods).toEqual({
       id: "merge_methods",
       state: "fix",
-      current: ["merge", "squash"],
-      target: ["squash"],
+      current: ["merge", "rebase"],
+      target: ["merge", "squash", "rebase"],
     });
     expect(c.auto_merge!.state).toBe("fix");
     expect(c.delete_branch_on_merge!.state).toBe("fix");
     expect(c.required_checks).toMatchObject({ state: "fix", current: [], target: ["lint"] });
     expect(c.auto_label!.state).toBe("fix");
+  });
+
+  test("other methods allowed beside the configured one → ok (the Merge ▾ menu offers them)", () => {
+    expect(
+      byId({ ...OK, mergeMethods: { merge: true, squash: true, rebase: true } }).merge_methods,
+    ).toEqual({
+      id: "merge_methods",
+      state: "ok",
+      current: ["merge", "squash", "rebase"],
+      target: ["merge", "squash", "rebase"],
+    });
   });
 
   test("no admin → hints; push still allows label fix", () => {

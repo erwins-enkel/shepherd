@@ -19,12 +19,12 @@ Empfehlungen. Kontozugriff und erfolgreiche Cloud-Ausführung wurden nicht getes
 
 ## Was mit „Desktop-VM“ gemeint sein kann
 
-| Umgebung | Ausführung | Aus dem CLI nutzbar? |
-| --- | --- | --- |
-| Claude Cowork, bestehende lokale Deployments | Shell und generierter Code in einer Linux-VM; Agent-Loop nativ | Keine dokumentierte allgemeine VM-Attach-Schnittstelle gefunden |
-| Claude Code Cloud | Eigene Cloud-Session, standardmäßig auf Anthropic-Infrastruktur | Ja, `claude --cloud` |
-| Codex Local / Worktree | Auf dem eigenen Rechner, mit konfigurierbarer OS-Sandbox | Ja, entsprechende lokale CLI-Funktionen |
-| Codex Cloud | Remote-Aufgabe mit eigenem Workspace aus einer vorbereiteten Umgebung | Ja, experimentell über `codex cloud` |
+| Umgebung                                     | Ausführung                                                            | Aus dem CLI nutzbar?                                            |
+| -------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Claude Cowork, bestehende lokale Deployments | Shell und generierter Code in einer Linux-VM; Agent-Loop nativ        | Keine dokumentierte allgemeine VM-Attach-Schnittstelle gefunden |
+| Claude Code Cloud                            | Eigene Cloud-Session, standardmäßig auf Anthropic-Infrastruktur       | Ja, `claude --cloud`                                            |
+| Codex Local / Worktree                       | Auf dem eigenen Rechner, mit konfigurierbarer OS-Sandbox              | Ja, entsprechende lokale CLI-Funktionen                         |
+| Codex Cloud                                  | Remote-Aufgabe mit eigenem Workspace aus einer vorbereiteten Umgebung | Ja, experimentell über `codex cloud`                            |
 
 Quellen: [Cowork-Architektur](https://support.claude.com/en/articles/14479288-claude-cowork-architecture-overview),
 [Claude Code Cloud](https://code.claude.com/docs/en/claude-code-on-the-web),

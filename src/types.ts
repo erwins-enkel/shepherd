@@ -978,6 +978,34 @@ export interface PlanGate {
 
 export type EffortSwitchError = "busy" | "unconfirmed" | "restore_skipped" | "restore_unconfirmed";
 
+/** One operator change to `.shepherd-plan.md` (#3514). `replace`/`insert`/`delete` describe a text
+ *  change (`before` → `after`); a `comment` quotes a passage in `before`, carries the note in
+ *  `reason` and changes no text. The full new plan travels separately and is authoritative — these
+ *  describe it for the planning agent and for provenance. */
+export type PlanEditKind = "replace" | "insert" | "delete" | "comment";
+
+export interface PlanEdit {
+  id: string;
+  kind: PlanEditKind;
+  section: string;
+  before: string;
+  after: string;
+  reason?: string;
+}
+
+/** A recorded plan text (#3514). Revisions number 1, 2, 3 … per session: the agent's text gets one
+ *  when a review starts on it, an operator edit gets one carrying its `edits`. `plan` is trimmed,
+ *  `planHash` is `PlanGateService.hashPlan` of it — the same digest as `PlanGate.planHash`. */
+export interface PlanRevision {
+  sessionId: string;
+  revision: number;
+  author: "agent" | "operator";
+  planHash: string;
+  plan: string;
+  edits: PlanEdit[];
+  createdAt: number;
+}
+
 // ── critic-on-PR review verdict ─────────────────────────────────────────────
 export type ReviewDecision = "changes_requested" | "commented" | "error";
 

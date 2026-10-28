@@ -110,6 +110,8 @@ describe("allowlist", () => {
     ["GET", "leftovers"],
     ["POST", "go"],
     ["POST", "answer-plan-questions"],
+    ["GET", "plan"],
+    ["POST", "plan-edits"],
     ["POST", "rename"],
     ["POST", "amendments"],
     ["DELETE", "amendments/a1"],
@@ -145,6 +147,8 @@ describe("allowlist", () => {
     ["GET", "reply"], // and the listed method only
     ["DELETE", "amendments"],
     ["DELETE", "amendments/a1/x"],
+    ["POST", "plan"],
+    ["GET", "plan-edits"],
   ])("%s %s is not", (method, leaf) => {
     expect(forwardedLeaf(method, parts(leaf))).toBeNull();
   });

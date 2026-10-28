@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import * as fx from "./plan-fixtures";
 import {
   bearer,
@@ -335,6 +337,121 @@ describe("plan events", () => {
     // Assert receipt independently of the contract: an empty event block must fail RED too.
     expect(frames.filter((frame) => frame.event.startsWith("session:plangate"))).toEqual(payloads);
     for (const frame of payloads) validateEvent(frame.event, frame.data);
+  });
+});
+
+describe("plan edits (#3514)", () => {
+  const PLAN = "# Plan\n\n## Approach\nUse a new table.\n";
+  const EDITED = "# Plan\n\n## Approach\nReuse the column.\n";
+  const replace = {
+    id: "e1",
+    kind: "replace",
+    section: "Approach",
+    before: "Use a new table.",
+    after: "Reuse the column.",
+    reason: "Less migration risk",
+  };
+  /** A planning session whose worktree really holds a plan (the stub worktree is a bare path). */
+  function planningSession(name: string): string {
+    const wt = join(s.validRepo, "..", `wt-${name}`);
+    mkdirSync(wt);
+    writeFileSync(join(wt, ".shepherd-plan.md"), PLAN);
+    const row = s.deps.store.create({
+      name,
+      prompt: "plan me",
+      repoPath: s.validRepo,
+      baseBranch: "main",
+      branch: `shepherd/${name}`,
+      worktreePath: wt,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: `term_${name}`,
+      claudeSessionId: `claude-${name}`,
+      planPhase: "planning",
+    });
+    s.deps.store.update(row.id, { status: "idle" });
+    return row.id;
+  }
+
+  test("GET plan: 200, 404 (unknown and no_plan), 401", async () => {
+    const id = planningSession("read");
+    const ok = await get(`/api/sessions/${id}/plan`);
+    expect(ok.status).toBe(200);
+    const snap = (await validateResponse("GET", "/api/sessions/{id}/plan", ok)) as {
+      plan: string;
+      revision: number | null;
+    };
+    expect(snap).toMatchObject({ plan: PLAN, revision: null });
+
+    const unknown = await get("/api/sessions/nope/plan");
+    expect(unknown.status).toBe(404);
+    await validateResponse("GET", "/api/sessions/{id}/plan", unknown);
+    const noPlan = await get(`/api/sessions/${await createSession("no plan")}/plan`);
+    expect(noPlan.status).toBe(404);
+    expect(
+      ((await validateResponse("GET", "/api/sessions/{id}/plan", noPlan)) as { code: string }).code,
+    ).toBe("no_plan");
+
+    const anon = await get(`/api/sessions/${id}/plan`, false);
+    expect(anon.status).toBe(401);
+    await validateResponse("GET", "/api/sessions/{id}/plan", anon);
+  });
+
+  test("POST plan-edits walks 415, 400, 404, 409 (three codes), 401, then 200", async () => {
+    const path = "/api/sessions/{id}/plan-edits";
+    const id = planningSession("edit");
+    const snap = (await (await get(`/api/sessions/${id}/plan`)).json()) as { planHash: string };
+    const body = { baseHash: snap.planHash, plan: EDITED, edits: [replace] };
+    const at = (sid: string) => `/api/sessions/${sid}/plan-edits`;
+
+    const notJson = await fetch(`${s.baseUrl}${at(id)}`, {
+      method: "POST",
+      headers: { "content-type": "text/plain", ...bearer(token) },
+      body: JSON.stringify(body),
+    });
+    expect(notJson.status).toBe(415);
+    await validateResponse("POST", path, notJson);
+
+    const bad = await postJson(at(id), { ...body, edits: [] });
+    expect(bad.status).toBe(400);
+    await validateResponse("POST", path, bad);
+    const mismatch = await postJson(at(id), { ...body, edits: [{ ...replace, before: "Nope." }] });
+    expect(mismatch.status).toBe(400);
+    expect(((await validateResponse("POST", path, mismatch)) as { editId: string }).editId).toBe(
+      "e1",
+    );
+
+    const unknown = await postJson(at("nope"), body);
+    expect(unknown.status).toBe(404);
+    await validateResponse("POST", path, unknown);
+
+    const conflict = async (sid: string, b: unknown, code: string) => {
+      const res = await postJson(at(sid), b);
+      expect(res.status).toBe(409);
+      const out = (await validateResponse("POST", path, res)) as Record<string, unknown>;
+      expect(out.code).toBe(code);
+      return out;
+    };
+    await conflict(await createSession("not gated"), body, "not_editable");
+    s.deps.store.update(id, { status: "running" });
+    await conflict(id, body, "planner_busy");
+    s.deps.store.update(id, { status: "idle" });
+    const changed = await conflict(id, { ...body, baseHash: "stale" }, "plan_changed");
+    expect(changed).toMatchObject({ plan: PLAN, planHash: snap.planHash, revision: null });
+
+    const anon = await postJson(at(id), body, false);
+    expect(anon.status).toBe(401);
+    await validateResponse("POST", path, anon);
+
+    const ok = await postJson(at(id), body);
+    expect(ok.status).toBe(200);
+    const result = (await validateResponse("POST", path, ok)) as {
+      ok: boolean;
+      delivered: boolean;
+      revision: number;
+    };
+    expect(result).toMatchObject({ ok: true, revision: 2 });
+    expect(typeof result.delivered).toBe("boolean");
   });
 });
 

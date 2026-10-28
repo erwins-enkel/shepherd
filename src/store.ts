@@ -14,6 +14,8 @@ import type {
   ReviewDecision,
   CriticFinding,
   PlanGate,
+  PlanEdit,
+  PlanRevision,
   SpawnNotice,
   SpawnNoticeKind,
   PlanSummaryCode,
@@ -1155,6 +1157,19 @@ const hydrateTaskAmendment = (r: TaskAmendmentRow): TaskAmendment => ({
   retractedAt: r.retractedAt ?? null,
 });
 
+/** Raw `plan_revisions` row (#3514). `edits` is the stored JSON. */
+type PlanRevisionRow = Omit<PlanRevision, "edits" | "author"> & { author: string; edits: string };
+
+const hydratePlanRevision = (r: PlanRevisionRow): PlanRevision => ({
+  sessionId: r.sessionId,
+  revision: r.revision,
+  author: r.author === "operator" ? "operator" : "agent",
+  planHash: r.planHash,
+  plan: r.plan,
+  edits: JSON.parse(r.edits) as PlanEdit[],
+  createdAt: r.createdAt,
+});
+
 /** Raw `session_prompt_budget` row joined with its session (issue #1999). */
 type PromptBudgetRow = {
   sessionId: string;
@@ -1473,8 +1488,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // is sub-second, so the worst-case wait is a brief, bounded stall — not a crash. Keep equal to
     // BUSY_TIMEOUT_MS in scripts/backup.ts.
     this.db.run("PRAGMA busy_timeout = 5000");
-    // Everything below is ONE transaction. A fresh open fires 131 write statements: 42
-    // CREATE TABLE IF NOT EXISTS (39 here, REVIEWER_SPAWNS_DDL, DISPATCHES_DDL,
+    // Everything below is ONE transaction. A fresh open fires 132 write statements: 43
+    // CREATE TABLE IF NOT EXISTS (40 here, REVIEWER_SPAWNS_DDL, DISPATCHES_DDL,
     // REMOTE_DISPATCHES_DDL, and terminal_claims inside
     // migrateSessionColumns), 10 index creations (9 here plus that method's partial unique
     // index), 73 ALTER TABLE column adds behind PRAGMA table_info probes, and 3 seed INSERTs.
@@ -1717,6 +1732,17 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       livePlanHash TEXT,
       approvedAt INTEGER)`);
     this.migratePlanGateColumns();
+    // Plan revisions (#3514): every plan text a review started on, and every operator edit with
+    // its edits. Numbered per session from 1; `edits` is a JSON PlanEdit[] ('[]' for the agent).
+    this.db.run(`CREATE TABLE IF NOT EXISTS plan_revisions (
+      sessionId TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      author TEXT NOT NULL,
+      planHash TEXT NOT NULL,
+      plan TEXT NOT NULL,
+      edits TEXT NOT NULL DEFAULT '[]',
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (sessionId, revision))`);
     // Operator task amendments (#2225). APPEND-ONLY BY DESIGN: no method anywhere updates `text`,
     // so an authorization record can never be rewritten after the fact. `retractedAt` is the soft
     // delete — a retracted row stops reaching every prompt but stays in the operator's record.
@@ -5028,6 +5054,85 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(`DELETE FROM plan_gates WHERE sessionId = ?`, [sessionId]);
   }
 
+  // ── #3514 plan revisions ────────────────────────────────────────────────
+
+  /** A session's plan revisions, oldest first. */
+  listPlanRevisions(sessionId: string): PlanRevision[] {
+    return (
+      this.db
+        .query(
+          `SELECT sessionId, revision, author, planHash, plan, edits, createdAt FROM plan_revisions
+           WHERE sessionId = ? ORDER BY revision ASC`,
+        )
+        .all(sessionId) as PlanRevisionRow[]
+    ).map(hydratePlanRevision);
+  }
+
+  latestPlanRevision(sessionId: string): PlanRevision | null {
+    const r = this.db
+      .query(
+        `SELECT sessionId, revision, author, planHash, plan, edits, createdAt FROM plan_revisions
+         WHERE sessionId = ? ORDER BY revision DESC LIMIT 1`,
+      )
+      .get(sessionId) as PlanRevisionRow | null;
+    return r ? hydratePlanRevision(r) : null;
+  }
+
+  /** Record the agent's plan text as the next revision, unless the latest revision already holds
+   *  this exact text. Returns the revision number that holds it. */
+  recordAgentPlanRevision(sessionId: string, planHash: string, plan: string): number {
+    return this.db.transaction(() => {
+      const latest = this.latestPlanRevision(sessionId);
+      if (latest?.planHash === planHash) return latest.revision;
+      return this.insertPlanRevision(sessionId, "agent", planHash, plan, [], latest);
+    })();
+  }
+
+  /** Record an operator edit (#3514): the text it was made on is recorded first when no revision
+   *  holds it yet, then the edited text as the operator's revision. Returns both numbers — the
+   *  steer says "revision `from` → `to`". */
+  recordOperatorPlanRevision(
+    sessionId: string,
+    base: { planHash: string; plan: string },
+    next: { planHash: string; plan: string },
+    edits: PlanEdit[],
+  ): { from: number; to: number } {
+    return this.db.transaction(() => {
+      const from = this.recordAgentPlanRevision(sessionId, base.planHash, base.plan);
+      const latest = this.latestPlanRevision(sessionId);
+      const to = this.insertPlanRevision(
+        sessionId,
+        "operator",
+        next.planHash,
+        next.plan,
+        edits,
+        latest,
+      );
+      return { from, to };
+    })();
+  }
+
+  dropPlanRevisions(sessionId: string): void {
+    this.db.run(`DELETE FROM plan_revisions WHERE sessionId = ?`, [sessionId]);
+  }
+
+  private insertPlanRevision(
+    sessionId: string,
+    author: PlanRevision["author"],
+    planHash: string,
+    plan: string,
+    edits: PlanEdit[],
+    latest: PlanRevision | null,
+  ): number {
+    const revision = (latest?.revision ?? 0) + 1;
+    this.db.run(
+      `INSERT INTO plan_revisions (sessionId, revision, author, planHash, plan, edits, createdAt)
+       VALUES (?,?,?,?,?,?,?)`,
+      [sessionId, revision, author, planHash, plan, JSON.stringify(edits), Date.now()],
+    );
+    return revision;
+  }
+
   // ── #1944 spawn notices (display-only sidecar; NEVER a gating row) ─────────
 
   /** Upsert a notice. Returns true when the row actually CHANGED — callers gate their `onChange`
@@ -6559,6 +6664,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       );
       this.db.run(
         `DELETE FROM plan_gates WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
+        params,
+      );
+      this.db.run(
+        `DELETE FROM plan_revisions WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
         params,
       );
       this.db.run(

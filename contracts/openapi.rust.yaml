@@ -877,7 +877,7 @@ components:
         - instanceId
         - name
         - platform
-      description: "Set only on a session mirrored from a connected machine. Absent on this instance's own sessions. A `session:*` frame about a mirrored session carries the same `host` and `connection`. Its actions and reads under `/api/sessions/{id}` are forwarded to the machine when they are on the forwarded list (reply, interrupt, archive and its leftovers, go, answer-plan-questions, answer-ask, rename, amendments, autopilot, automerge, ready, diff and its annotations, messages, activity, usage, worktree and scratchpad listings, downloads and upload, and the preview: its start, stop and where it opens, a URL on the machine's own host); any other route answers 409 `remote_unsupported`, an id more than one machine reports 409 `remote_ambiguous`, and a machine that gives no usable answer 502 `machine_unreachable`, `machine_timeout` or `machine_unauthorized`."
+      description: "Set only on a session mirrored from a connected machine. Absent on this instance's own sessions. A `session:*` frame about a mirrored session carries the same `host` and `connection`. Its actions and reads under `/api/sessions/{id}` are forwarded to the machine when they are on the forwarded list (reply, interrupt, archive and its leftovers, go, answer-plan-questions, the plan and its edits, answer-ask, rename, amendments, autopilot, automerge, ready, diff and its annotations, messages, activity, usage, worktree and scratchpad listings, downloads and upload, and the preview: its start, stop and where it opens, a URL on the machine's own host); any other route answers 409 `remote_unsupported`, an id more than one machine reports 409 `remote_ambiguous`, and a machine that gives no usable answer 502 `machine_unreachable`, `machine_timeout` or `machine_unauthorized`."
       properties:
         instanceId:
           type: string
@@ -4512,6 +4512,121 @@ components:
         delivered:
           type: boolean
           description: Whether the steer reached the live planning pane. False is NOT an error — the answers are recorded either way — but the operator must be told, because the agent may have moved on.
+    PlanSnapshot:
+      type: object
+      additionalProperties: true
+      description: GET /api/sessions/{id}/plan — the live `.shepherd-plan.md` an edit is made on (#3514).
+      required:
+        - plan
+        - planHash
+        - revision
+      properties:
+        plan:
+          type: string
+          description: The file as written.
+        planHash:
+          type: string
+          description: sha256 of the trimmed plan — the same digest as PlanGate.planHash. Send it back as PlanEditsRequest.baseHash.
+        revision:
+          type: integer
+          nullable: true
+          description: The plan revision that holds this text, or null when the agent changed it since the last recorded revision (a review start or an operator edit records one).
+    PlanEditKind:
+      type: string
+      enum:
+        - replace
+        - insert
+        - delete
+        - comment
+    PlanEdit:
+      type: object
+      additionalProperties: false
+      description: 'One operator change to the plan (#3514). Per kind: `replace` — `before` and `after` non-empty and different; `insert` — `before` empty, `after` non-empty; `delete` — `before` non-empty, `after` empty; `comment` — `before` quotes the passage, `reason` carries the note (required) and `after` is empty, the text does not change. `before` and `after` default to "".'
+      required:
+        - id
+        - kind
+        - section
+      properties:
+        id:
+          type: string
+          description: Chosen by the client
+          unique within the request.: null
+        kind:
+          $ref: "#/components/schemas/PlanEditKind"
+        section:
+          type: string
+          description: The heading the change sits under; "" for none.
+        before:
+          type: string
+        after:
+          type: string
+        reason:
+          type: string
+          description: Why — handed to the agent with the edit. For a comment, the note itself.
+    PlanEditsRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - baseHash
+        - plan
+        - edits
+      properties:
+        baseHash:
+          type: string
+          description: PlanSnapshot.planHash of the plan the edits were made on.
+        plan:
+          type: string
+          description: The complete new `.shepherd-plan.md`. Authoritative — `edits` describe it.
+        edits:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlanEdit"
+        mode:
+          type: string
+          enum:
+            - resubmit
+          description: "`resubmit` (the default): the agent incorporates the edits and the plan is re-reviewed."
+    PlanEditsResult:
+      type: object
+      additionalProperties: true
+      required:
+        - ok
+        - delivered
+        - planHash
+        - revision
+      properties:
+        ok:
+          type: boolean
+        delivered:
+          type: boolean
+          description: Whether the steer reached the planning agent (an exited one is resumed first). False is NOT an error — the edit has landed — but the operator must be told.
+        planHash:
+          type: string
+          description: The new plan's hash.
+        revision:
+          type: integer
+          description: The operator's new plan revision.
+    PlanEditsConflictCode:
+      type: string
+    PlanEditsConflict:
+      type: object
+      additionalProperties: true
+      description: Why an edit cannot land now. `plan_changed` also carries the current plan, hash and revision (PlanSnapshot's fields) so the client can rebase the edits.
+      required:
+        - error
+        - code
+      properties:
+        error:
+          type: string
+        code:
+          $ref: "#/components/schemas/PlanEditsConflictCode"
+        plan:
+          type: string
+        planHash:
+          type: string
+        revision:
+          type: integer
+          nullable: true
     PlanGatePhaseKnown:
       type: string
       enum:
@@ -9152,6 +9267,11 @@ components:
       oneOf:
         - $ref: "#/components/schemas/ReviewCodeError"
         - $ref: "#/components/schemas/Error"
+    EditSessionPlanError:
+      description: "Rust-only: every error body editSessionPlan can answer (statuses 400, 401, 404, 409, 415)."
+      oneOf:
+        - $ref: "#/components/schemas/PlanEditsConflict"
+        - $ref: "#/components/schemas/Error"
     MergeBacklogPrError:
       description: "Rust-only: every error body mergeBacklogPr can answer (statuses 400, 401, 409, 502)."
       oneOf:
@@ -11866,6 +11986,84 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/plan:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getSessionPlan
+      description: The live `.shepherd-plan.md` with the hash an edit names as its base and the revision that holds it (#3514).
+      responses:
+        "200":
+          description: The live plan.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanSnapshot"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id, or code `no_plan` when no plan is written yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/plan-edits:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: editSessionPlan
+      description: "Apply the operator's edits to `.shepherd-plan.md` (#3514): write `plan`, record it as plan revision n+1 with the edits, cancel a plan review in flight, withdraw an approval and hand every edit, comment and reason to the planning agent — Claude Code or Codex alike — in ONE steer as binding operator decisions. An executing session returns to the planning phase. The normal plan review runs once the agent stops."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanEditsRequest"
+      responses:
+        "200":
+          description: The edit landed. `delivered` says whether the steer reached the agent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanEditsResult"
+        "400":
+          description: code `invalid_body` for a malformed body, or `edits_mismatch` when the edits do not describe the change from the current plan to `plan` — then `editId` names the edit at fault (null when none alone is).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EditSessionPlanError"
+        "401":
+          description: Missing or invalid credential.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EditSessionPlanError"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EditSessionPlanError"
+        "409":
+          description: Nothing was written. `plan_changed` — the plan is no longer the one `baseHash` names (the current one comes along); `planner_busy` — the agent is working, waiting on a prompt, or a review verdict is landing; `not_editable` — no plan gate, archived, no plan written yet, or an executing session without an approved plan.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EditSessionPlanError"
+        "415":
+          description: The body is not JSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EditSessionPlanError"
   /api/sessions/{id}/answer-ask:
     parameters:
       - name: id

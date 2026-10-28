@@ -151,6 +151,41 @@ for (const provider of ["claude", "codex"] as const) {
     expect(h.store.get(h.target.id)?.planPhase).toBe("planning");
   });
 
+  test(`shared-cwd ${provider}: an operator plan edit re-gates execution and revives the agent (#3514)`, async () => {
+    rollout("native-target", "target");
+    const h = harness(provider);
+    h.store.setPlanPhase(h.target.id, "executing");
+    h.store.putPlanGate({ ...h.store.getPlanGate(h.target.id)!, approved: false, approvedAt: 1 });
+    const steer = "The operator edited `.shepherd-plan.md` directly (revision 1 → 2: 1 edit).";
+    expect(await h.svc.regateForPlanEdit(h.target.id, steer)).toBe(true);
+    expect(h.starts).toHaveLength(1);
+    expect(h.starts[0]).toContain(provider === "codex" ? "native-target" : "target");
+    expect(h.sent.filter((s) => s.text.includes(steer))).toHaveLength(1);
+    expect(h.sent.every((s) => s.terminal === "resumed")).toBe(true);
+    expect(h.store.get(h.target.id)?.planPhase).toBe("planning");
+  });
+
+  test(`shared-cwd ${provider}: the review re-gate still drops its stop steer on an exited agent`, async () => {
+    rollout("native-target", "target");
+    const h = harness(provider);
+    h.store.setPlanPhase(h.target.id, "executing");
+    h.store.putPlanGate({ ...h.store.getPlanGate(h.target.id)!, approved: false, approvedAt: 1 });
+    expect(await h.svc.regatePlanGate(h.target.id)).toBe(true);
+    expect(h.starts).toEqual([]);
+    expect(h.sent).toEqual([]);
+    expect(h.store.get(h.target.id)?.planPhase).toBe("planning");
+  });
+
+  test(`shared-cwd ${provider}: a plan-edit re-gate needs a withdrawn approval`, async () => {
+    rollout("native-target", "target");
+    const h = harness(provider);
+    h.store.setPlanPhase(h.target.id, "executing");
+    expect(await h.svc.regateForPlanEdit(h.target.id, "steer")).toBe(false);
+    expect(h.starts).toEqual([]);
+    expect(h.sent).toEqual([]);
+    expect(h.store.get(h.target.id)?.planPhase).toBe("executing");
+  });
+
   test(`shared-cwd ${provider}: failed approval delivery retains planning phase`, async () => {
     rollout("native-target", "target");
     const h = harness(provider);

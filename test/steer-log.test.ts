@@ -9,7 +9,7 @@ import {
 } from "../src/autopilot";
 import { API_RETRY_STEER } from "../src/api-error-retry-core";
 import { RECONCILE_STEER } from "../src/build-queue-reminder";
-import { planAnswerSteerText } from "../src/plan-gate";
+import { planAnswerSteerText, planEditSteerText } from "../src/plan-gate";
 import { amendmentSteerText } from "../src/task-amendments";
 import { classifySteer, steerLog, transcriptSteer, unwrapPasted } from "../src/steer-log";
 import { SessionStore } from "../src/store";
@@ -25,6 +25,11 @@ test("classifySteer reads the channel off Shepherd's own steer texts", () => {
   expect(classifySteer(RECONCILE_STEER)).toBe("queue");
   expect(classifySteer(API_RETRY_STEER)).toBe("api_retry");
   expect(classifySteer(planAnswerSteerText([]))).toBe("plan_review");
+  const edits = [{ id: "e1", kind: "delete" as const, section: "", before: "x", after: "" }];
+  for (const executing of [false, true])
+    expect(classifySteer(planEditSteerText({ from: 1, to: 2, edits, executing }))).toBe(
+      "plan_review",
+    );
 });
 
 test("classifySteer covers the steers whose builders are module-private", () => {

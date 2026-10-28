@@ -4294,6 +4294,7 @@ const appDeps: AppDeps = {
     consider: (s, opts) => planGate.consider(s, opts),
     resume: (s) => planGate.resume(s),
     dismiss: (s) => planGate.dismiss(s),
+    cancel: (id) => planGate.cancel(id),
   },
   // Critic and plan review are never in flight together, so each action goes to whichever holds it.
   reviewControl: {

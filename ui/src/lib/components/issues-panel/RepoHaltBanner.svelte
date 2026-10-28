@@ -3,8 +3,10 @@
   import type { EpicAutoBlockers, EpicAutoFixOptionId } from "#lib/types.js";
   import type { OverviewFix } from "#lib/repo-precheck.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { overviewConfirmText, type RepoHaltView } from "../repo-halt";
+  import type { RepoHaltView } from "../repo-halt";
   import EpicAutoFixChooser from "./EpicAutoFixChooser.svelte";
+  import HaltFixApplied from "./HaltFixApplied.svelte";
+  import "./halt-controls.css";
 
   // #3456: a halt in the repo's settings or on this host, said once at the top of the repo
   // overview instead of on every epic: what holds, how many epics it holds, "Switch to
@@ -65,12 +67,18 @@
     await tick();
     undoBtn?.focus();
   }
+
+  function onChooserKey(e: KeyboardEvent) {
+    if (e.key !== "Escape" || e.defaultPrevented) return;
+    e.preventDefault();
+    close(true);
+  }
 </script>
 
 {#if view}
-  <section class="repo-halt" aria-labelledby={`${id}-title`} data-repo-halt>
+  <section class="hc-card" aria-labelledby={`${id}-title`} data-repo-halt>
     <div class="head">
-      <svg class="stop" viewBox="0 0 24 24" aria-hidden="true">
+      <svg class="hc-stop" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M7.9 2h8.2L22 7.9v8.2L16.1 22H7.9L2 16.1V7.9z" />
         <path d="M12 7.5v5.5M12 16.6h.01" />
       </svg>
@@ -79,11 +87,11 @@
         >
         <span class="reason">{view.reason} {affects}</span>
       </span>
-      <span class="chip" data-scope={view.scope}>{view.scopeLabel}</span>
+      <span class="hc-chip hc-own" data-scope={view.scope}>{view.scopeLabel}</span>
       <span class="acts">
         {#if view.autonomous != null}
           <button
-            class="gbtn primary"
+            class="hc-gbtn hc-primary"
             type="button"
             disabled={busy}
             aria-busy={busy}
@@ -95,7 +103,7 @@
         {#if target?.options.length}
           <button
             bind:this={otherBtn}
-            class="gbtn"
+            class="hc-gbtn"
             type="button"
             aria-expanded={open}
             aria-controls={open ? `${id}-choose` : undefined}
@@ -114,11 +122,7 @@
         class="choose"
         role="group"
         aria-labelledby={`${id}-choose-title`}
-        onkeydown={(e) => {
-          if (e.key !== "Escape" || e.defaultPrevented) return;
-          e.preventDefault();
-          close(true);
-        }}
+        onkeydown={onChooserKey}
       >
         <span class="choose-title" id={`${id}-choose-title`}
           >{m.epic_row_fix_title({ parent: view.target })}</span
@@ -132,7 +136,7 @@
           bind:picked
         >
           {#snippet extra()}
-            <button class="gbtn" type="button" onclick={() => close(true)}
+            <button class="hc-gbtn" type="button" onclick={() => close(true)}
               >{m.common_cancel()}</button
             >
           {/snippet}
@@ -143,41 +147,22 @@
 {/if}
 
 {#if applied}
-  <p class="fixed" role="status" data-repo-halt-done>
-    <span class="fixed-mark" aria-hidden="true">✓</span>
-    <span>{overviewConfirmText(applied.changes, repoName, applied.parent)}</span>
-    <button bind:this={undoBtn} class="link" type="button" disabled={busy} onclick={onundo}
-      >{m.epic_autofix_undo()}</button
-    >
-  </p>
+  <HaltFixApplied
+    fix={applied}
+    {repoName}
+    {busy}
+    {onundo}
+    bind:undoButton={undoBtn}
+    data-repo-halt-done
+  />
 {/if}
 
 <style>
-  /* Red-washed like the epic's halt card (#3454): the reason nothing starts in this repo. */
-  .repo-halt {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 10px 12px;
-    background: var(--wash-attention);
-    border: 1px solid color-mix(in srgb, var(--color-red) 45%, var(--color-line));
-    border-radius: 2px;
-  }
   .head {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 8px 12px;
-  }
-  .stop {
-    flex: none;
-    width: 15px;
-    height: 15px;
-    fill: none;
-    stroke: var(--color-red);
-    stroke-width: 2.2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
   }
   .body {
     display: flex;
@@ -194,18 +179,6 @@
   }
   .reason {
     color: var(--color-ink);
-    font-size: var(--fs-meta);
-  }
-  /* Scope chip, pulled toward the text colour so it keeps 4.5:1 on the red wash (as the halt
-     card's chips); the legend under the epics says what it means. */
-  .chip {
-    flex: none;
-    padding: 0 6px;
-    border: 1px solid color-mix(in srgb, var(--color-red) 45%, var(--color-line));
-    border-radius: 2px;
-    color: color-mix(in srgb, var(--color-red) 80%, var(--color-ink-bright));
-    font-size: var(--fs-micro);
-    letter-spacing: 0.08em;
   }
   .acts {
     display: flex;
@@ -217,7 +190,7 @@
     .acts {
       flex-basis: 100%;
     }
-    .acts .gbtn {
+    .acts > button {
       flex: 1 1 auto;
     }
   }
@@ -231,80 +204,6 @@
   }
   .choose-title {
     color: var(--color-ink-bright);
-    font-size: var(--fs-meta);
     font-weight: 600;
-  }
-
-  /* The fix is applied: what it set, and the way back (as in the epic's run area). */
-  .fixed {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 4px 8px;
-    margin: 0;
-    color: var(--color-ink);
-    font-size: var(--fs-meta);
-  }
-  .fixed-mark {
-    color: var(--status-done);
-  }
-
-  /* Text-link recipe (as EpicRunControl's .link): a real button, styled as inline text. */
-  .link {
-    padding: 0;
-    background: transparent;
-    border: 0;
-    color: var(--color-muted);
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    text-decoration: underline;
-    cursor: pointer;
-  }
-  .link:hover:not(:disabled),
-  .link:focus-visible {
-    color: var(--color-amber);
-    outline: none;
-  }
-  .link:disabled {
-    cursor: progress;
-  }
-
-  /* Canonical .gbtn recipe from /design-system (scoped copy, as in RepoOverview). */
-  .gbtn {
-    background: transparent;
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    color: var(--color-muted);
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.08em;
-    padding: 2px 8px;
-    cursor: pointer;
-  }
-  .gbtn.primary {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
-  .gbtn:hover:not(:disabled) {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
-  .gbtn:disabled {
-    cursor: progress;
-    opacity: 0.6;
-  }
-  .gbtn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-
-  @media (max-width: 768px), (max-height: 600px) {
-    .gbtn,
-    .link {
-      min-height: 44px;
-    }
-    .gbtn {
-      padding: 2px 14px;
-    }
   }
 </style>

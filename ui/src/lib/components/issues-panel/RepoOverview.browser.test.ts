@@ -624,7 +624,7 @@ describe("repo halt (#3456)", () => {
     expect(banner.textContent).toContain(m.repooverview_halt_title({ repo: name() }));
     expect(banner.textContent).toContain(m.epic_autofix_short_interactive());
     expect(banner.textContent).toContain(m.repooverview_halt_affects_many({ count: 3 }));
-    expect(banner.querySelector(".chip")?.textContent).toBe(m.epic_autofix_scope_repo());
+    expect(banner.querySelector(".hc-chip")?.textContent).toBe(m.epic_autofix_scope_repo());
     expect(button(banner, m.repooverview_halt_autonomous())).toBeDefined();
     expect(button(banner, m.repooverview_halt_other())).toBeDefined();
     // The repo's reason is said once, not per epic.

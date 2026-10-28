@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { DrainStatus, Epic, EpicSummary } from "#lib/types.js";
+  import type { DrainStatus, Epic, EpicAutoFixOptionId, EpicSummary } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { labelChipStyle } from "#lib/label-color.js";
   import { basename } from "#lib/basename.js";
@@ -20,6 +20,7 @@
   import RunPanel from "./RunPanel.svelte";
   import RepoHaltBanner from "./RepoHaltBanner.svelte";
   import EpicCardHalt from "./EpicCardHalt.svelte";
+  import "./halt-controls.css";
   import EpicRunSteps from "./EpicRunSteps.svelte";
   import EpicRoleBadge from "./EpicRoleBadge.svelte";
   import EpicQueueList from "./EpicQueueList.svelte";
@@ -150,8 +151,27 @@
       }),
     ),
   );
-  const applied = $derived(precheck.applied);
   const showLegend = $derived(repoHalt != null || Object.keys(cardHalts).length > 0);
+  // The banner's chooser offers the held epic's ways; a fix confirms where it was applied.
+  const bannerTarget = $derived(repoHalt ? (precheck.models[repoHalt.target] ?? null) : null);
+  const bannerFix = $derived(precheck.applied?.at === "repo" ? precheck.applied : null);
+
+  function cardHalt(parent: number) {
+    return cardHalts[parent] ?? null;
+  }
+  function cardFix(parent: number) {
+    const fix = precheck.applied;
+    return fix?.at === "epic" && fix.parent === parent ? fix : null;
+  }
+  function applyAutonomous(): Promise<boolean> {
+    const via = repoHalt?.autonomous;
+    return via == null
+      ? Promise.resolve(false)
+      : precheck.applyCause(via, "sandbox_interactive", "repo");
+  }
+  function applyBannerWay(option: EpicAutoFixOptionId): Promise<boolean> {
+    return repoHalt ? precheck.applyOption(repoHalt.target, option) : Promise.resolve(false);
+  }
 
   // Queue rows name the epic by its list entry, else by whatever the host knows.
   function epicTitle(parent: number): string | null {
@@ -194,15 +214,11 @@
     <RepoHaltBanner
       view={repoHalt}
       {repoName}
-      target={repoHalt ? (precheck.models[repoHalt.target] ?? null) : null}
-      applied={applied?.at === "repo" ? applied : null}
+      target={bannerTarget}
+      applied={bannerFix}
       busy={precheck.busy}
-      onautonomous={() =>
-        repoHalt?.autonomous != null
-          ? precheck.applyCause(repoHalt.autonomous, "sandbox_interactive", "repo")
-          : Promise.resolve(false)}
-      onapply={(option) =>
-        repoHalt ? precheck.applyOption(repoHalt.target, option) : Promise.resolve(false)}
+      onautonomous={applyAutonomous}
+      onapply={applyBannerWay}
       onundo={() => void precheck.undo()}
     />
     {#if steps}
@@ -239,7 +255,6 @@
       <ul class="rows">
         {#each cards as { epic, role, position } (epic.parentIssueNumber)}
           {@const parent = epic.parentIssueNumber}
-          {@const cardFix = applied?.at === "epic" && applied.parent === parent ? applied : null}
           <li>
             <button
               class="orow"
@@ -265,34 +280,30 @@
               </span>
               <span class="arrow" aria-hidden="true">›</span>
             </button>
-            {#if cardHalts[parent] || cardFix}
-              <!-- Beside the card's button, not in it: the halt has buttons of its own. -->
-              <div class="card-halt">
-                <EpicCardHalt
-                  view={cardHalts[parent] ?? null}
-                  {repoName}
-                  applied={cardFix}
-                  busy={precheck.busy}
-                  onaction={(code) => precheck.applyCause(parent, code, "epic")}
-                  onundo={() => void precheck.undo()}
-                />
-              </div>
-            {/if}
+            <!-- Beside the card's button, not in it: the halt has buttons of its own. -->
+            <EpicCardHalt
+              view={cardHalt(parent)}
+              {repoName}
+              applied={cardFix(parent)}
+              busy={precheck.busy}
+              onaction={(code) => precheck.applyCause(parent, code, "epic")}
+              onundo={() => void precheck.undo()}
+            />
           </li>
         {/each}
       </ul>
       {#if showLegend}
         <ul class="legend" aria-label={m.tooltip_autofix_scope_title()} data-halt-legend>
           <li>
-            <span class="legend-chip">{m.epic_autofix_scope_repo()}</span>
+            <span class="hc-chip">{m.epic_autofix_scope_repo()}</span>
             {m.repooverview_legend_repo()}
           </li>
           <li>
-            <span class="legend-chip">{m.epic_autofix_scope_epic()}</span>
+            <span class="hc-chip">{m.epic_autofix_scope_epic()}</span>
             {m.repooverview_legend_epic()}
           </li>
           <li>
-            <span class="legend-chip">{m.epic_autofix_scope_host()}</span>
+            <span class="hc-chip">{m.epic_autofix_scope_host()}</span>
             {m.repooverview_legend_host()}
           </li>
         </ul>
@@ -517,11 +528,7 @@
     font-size: var(--fs-meta);
   }
 
-  /* #3456: an epic card's halt or pre-check, under the card's text. */
-  .card-halt {
-    padding: 0 8px 6px;
-  }
-  /* What the scope chips mean, once under the epics. */
+  /* #3456: what the scope chips mean, once under the epics. */
   .legend {
     display: flex;
     flex-wrap: wrap;
@@ -532,12 +539,6 @@
     color: var(--color-muted);
     font-size: var(--fs-micro);
     list-style: none;
-  }
-  .legend-chip {
-    padding: 0 5px;
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    letter-spacing: 0.08em;
   }
 
   /* Running now (#2638): one line per issue, its session one click away. */

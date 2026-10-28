@@ -7642,5 +7642,7 @@
   "repooverview_done_cli": "CLI of #{epic}: {cli}.",
   "repooverview_legend_repo": "applies to every epic and session in the repo",
   "repooverview_legend_epic": "applies to this epic run only",
-  "repooverview_legend_host": "missing on this machine — the diagnostics help"
+  "repooverview_legend_host": "missing on this machine — the diagnostics help",
+  "feat_repo_overview_halt_title": "The overview names a repo halt once",
+  "feat_repo_overview_halt_body": "When the repo's sandbox or this host keeps every epic from starting on its own, the repo overview says so once at the top — with Switch to Autonomous when that works here. Each epic card shows its own cause with its fix, and queued or not-started epics show what would hold them before they start."
 }

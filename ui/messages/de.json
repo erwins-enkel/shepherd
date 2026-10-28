@@ -7642,5 +7642,7 @@
   "repooverview_done_cli": "CLI von #{epic}: {cli}.",
   "repooverview_legend_repo": "gilt für alle Epics und Sitzungen des Repos",
   "repooverview_legend_epic": "gilt nur für diesen Epic-Lauf",
-  "repooverview_legend_host": "fehlt auf diesem Rechner, Diagnose hilft"
+  "repooverview_legend_host": "fehlt auf diesem Rechner, Diagnose hilft",
+  "feat_repo_overview_halt_title": "Der Überblick nennt einen Repo-Halt einmal",
+  "feat_repo_overview_halt_body": "Hält die Sandbox des Repos oder dieser Rechner jedes Epic vom selbstständigen Start ab, sagt der Repo-Überblick das einmal oben – mit „Auf Autonom stellen“, wenn das hier wirkt. Jede Epic-Karte zeigt ihre eigene Ursache samt Behebung, und eingereihte oder nicht gestartete Epics zeigen schon vor dem Start, was sie anhalten würde."
 }

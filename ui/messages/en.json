@@ -7837,5 +7837,16 @@
   "heavyslot_source_foreign": "Other load",
   "heavyslot_settings_link": "Settings",
   "heavyslot_close": "Close",
-  "heavyslot_unknown_session": "Unknown session"
+  "heavyslot_unknown_session": "Unknown session",
+  "settings_machines_slot_title": "Check slot",
+  "settings_machines_slot_held": "{held} of {capacity} in use",
+  "settings_machines_slot_waiting": "{count} waiting",
+  "settings_machines_slot_brake": "Memory brake active",
+  "settings_machines_slot_ram": "RAM {pct}% used",
+  "settings_machines_slot_off": "Check slot is switched off on this machine.",
+  "settings_machines_slot_none": "This machine reports no check slot (older version).",
+  "settings_machines_slot_stale": "Last known state, {ago} ago",
+  "settings_machines_slot_stale_hint": "The machine is not reachable right now. This is what it last reported.",
+  "feat_machine_check_slot_title": "Check slot per machine",
+  "feat_machine_check_slot_body": "Settings → Machines now shows each connected machine's check slot: how many checks run, who is queued, whether the memory brake is on and how full its RAM is. An unreachable machine shows its last known state."
 }

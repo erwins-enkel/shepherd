@@ -99,6 +99,8 @@ interface FakeShepherd {
   repos: unknown;
   /** The machine's `GET /api/update`; absent = the route 404s. */
   update?: unknown;
+  /** The machine's `GET /api/heavy-slot`; absent = the route 404s. */
+  heavySlot?: unknown;
   /** Per-path status override (non-2xx answers carry `{error}`). */
   status: Record<string, number>;
 }
@@ -154,6 +156,9 @@ function stubFetch(remote: FakeShepherd | (() => Promise<Response>)) {
     if (path === "/api/instance") return jsonRes(remote.instance);
     if (path === "/api/repos") return jsonRes(remote.repos);
     if (path === "/api/update" && remote.update !== undefined) return jsonRes(remote.update);
+    if (path === "/api/heavy-slot" && remote.heavySlot !== undefined) {
+      return jsonRes(remote.heavySlot);
+    }
     return jsonRes({ error: "not found" }, 404);
   };
   return Object.assign(fn, { calls });
@@ -368,6 +373,7 @@ describe("RemoteInstanceService", () => {
       projects: ["acme/app", "erwins-enkel/shepherd"],
       capabilities: null,
       load: null,
+      heavySlot: null,
       released: true,
     });
     expect(JSON.stringify(instance)).not.toContain(TOKEN);
@@ -426,6 +432,52 @@ describe("RemoteInstanceService", () => {
       projects: ["acme/app", "erwins-enkel/shepherd"],
     });
     expect(svc.repoSlugs(REMOTE_ID).get("/Users/k/repos/shepherd")).toBe("erwins-enkel/shepherd");
+  });
+
+  describe("heavy slot (#3553)", () => {
+    const slot = {
+      enabled: true,
+      capacity: 2,
+      holders: [{ sessionId: "s1", command: "vitest run", startedAt: 5, rssBytes: 100 }],
+      waiters: [{ sessionId: "s2", position: 1, reason: "slot" }],
+      brake: { active: false, reason: null },
+      pressure: { ramAvailableBytes: 1, ramTotalBytes: 4 },
+      memoryBySource: { foreignTop: [{ name: "x", bytes: 3 }, { nope: 1 }] },
+    };
+
+    test("a probe stores the snapshot; a later failure keeps it, marked stale", async () => {
+      let t = 1_000;
+      const { svc, remote } = setup(fakeShepherd({ heavySlot: slot }), () => t);
+      const { instance } = (await svc.connect(connectReq)) as { instance: RemoteInstanceSummary };
+      expect(instance.heavySlot).toMatchObject({ readAt: 1_000, stale: false });
+      expect(instance.heavySlot?.snapshot).toMatchObject({
+        capacity: 2,
+        holders: [{ sessionId: "s1", command: "vitest run" }],
+        waiters: [{ position: 1, reason: "slot" }],
+        pressure: { ramTotalBytes: 4, swapTotalBytes: null },
+        memoryBySource: { foreignTop: [{ name: "x", bytes: 3 }] },
+      });
+      t = 2_000;
+      remote.status = { "/api/me": 401 };
+      const checked = await svc.check(REMOTE_ID);
+      expect(checked?.heavySlot).toMatchObject({ readAt: 1_000, stale: true });
+    });
+
+    test("a machine without the route or with junk reports none, and stays connected", async () => {
+      for (const heavySlot of [undefined, { nope: true }, "x"]) {
+        const { svc } = setup(fakeShepherd({ heavySlot }));
+        const { instance } = (await svc.connect(connectReq)) as { instance: RemoteInstanceSummary };
+        expect(instance.status).toBe("connected");
+        expect(instance.heavySlot).toBeNull();
+      }
+    });
+
+    test("removing the machine drops the snapshot", async () => {
+      const { svc } = setup(fakeShepherd({ heavySlot: slot }));
+      await svc.connect(connectReq);
+      svc.remove(REMOTE_ID);
+      expect(svc.get(REMOTE_ID)).toBeNull();
+    });
   });
 
   test("each checkout path names its project; unknown before a probe, absent from the summary", async () => {
@@ -540,8 +592,8 @@ describe("RemoteInstanceService", () => {
     await svc.connect(connectReq);
     fetch.calls.length = 0;
     await Promise.all([svc.check(REMOTE_ID), svc.check(REMOTE_ID), svc.probeAll()]);
-    // The three probe requests, then the answering machine's self-update.
-    expect(fetch.calls.length).toBe(4);
+    // The three probe requests, then the machine's self-update and heavy-slot reads.
+    expect(fetch.calls.length).toBe(5);
   });
 
   test("a machine that answers reports its self-update; one out of reach keeps the last", async () => {

@@ -7837,5 +7837,16 @@
   "heavyslot_source_foreign": "Fremdlast",
   "heavyslot_settings_link": "Einstellungen",
   "heavyslot_close": "Schließen",
-  "heavyslot_unknown_session": "Unbekannte Session"
+  "heavyslot_unknown_session": "Unbekannte Session",
+  "settings_machines_slot_title": "Prüfslot",
+  "settings_machines_slot_held": "{held} von {capacity} belegt",
+  "settings_machines_slot_waiting": "{count} wartend",
+  "settings_machines_slot_brake": "Speicherbremse aktiv",
+  "settings_machines_slot_ram": "RAM {pct} % belegt",
+  "settings_machines_slot_off": "Der Prüfslot ist auf dieser Machine ausgeschaltet.",
+  "settings_machines_slot_none": "Diese Machine meldet keinen Prüfslot (ältere Version).",
+  "settings_machines_slot_stale": "Letzter bekannter Stand, vor {ago}",
+  "settings_machines_slot_stale_hint": "Die Machine ist gerade nicht erreichbar. Das ist ihr letzter gemeldeter Stand.",
+  "feat_machine_check_slot_title": "Prüfslot je Machine",
+  "feat_machine_check_slot_body": "Einstellungen → Rechner zeigt jetzt für jede verbundene Machine den Prüfslot: wie viele Prüfungen laufen, wer wartet, ob die Speicherbremse greift und wie voll der RAM ist. Eine nicht erreichbare Machine zeigt ihren letzten bekannten Stand."
 }

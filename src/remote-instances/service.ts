@@ -36,6 +36,7 @@ import {
   probeRemote,
 } from "./client";
 import { type MachineSelfUpdate, parseSelfUpdate } from "./self-update";
+import { type HeavySlotSnapshot, parseHeavySlotSnapshot } from "../heavy-slot-snapshot";
 
 import {
   type HostLoadSnapshot,
@@ -94,6 +95,10 @@ export interface RemoteInstanceSummary {
    *  clock; null when it has not reported any. */
   capabilities: CapabilityReport | null;
   load?: HostLoadReport | null;
+  /** The machine's heavy-check slot (#3181) as of its last answered probe; `stale` when that
+   *  machine is not connected right now, i.e. this is its last known state. Null when it never
+   *  reported one (an older release). */
+  heavySlot?: { snapshot: HeavySlotSnapshot; readAt: number; stale: boolean } | null;
   /** Whether the machine's platform is cleared to run tasks. Windows is listed but not released;
    *  pickers must offer only released machines. False while the platform is unknown. */
   released: boolean;
@@ -127,6 +132,7 @@ interface ProbeState {
   repoSlugs: ReadonlyMap<string, string> | null;
   capabilities: CapabilitySnapshot | null;
   update: MachineSelfUpdate | null;
+  heavySlot: { snapshot: HeavySlotSnapshot; readAt: number } | null;
 }
 
 export interface ConnectRequest {
@@ -215,6 +221,10 @@ function machineInfo({ version, federationApi, platform, arch }: InstanceIdentit
   return { version, federationApi, platform, arch };
 }
 
+function heavySlotReport(state: ProbeState | undefined): RemoteInstanceSummary["heavySlot"] {
+  return state?.heavySlot ? { ...state.heavySlot, stale: state.status !== "connected" } : null;
+}
+
 export class RemoteInstanceService {
   private readonly states = new Map<string, ProbeState>();
   private readonly inflight = new Map<string, Promise<void>>();
@@ -260,9 +270,10 @@ export class RemoteInstanceService {
 
   /** Probe the target first and store it only once it answers as a compatible, distinct machine. */
   async connect(req: ConnectRequest): Promise<ConnectResult> {
-    const [outcome, update] = await Promise.all([
+    const [outcome, update, slot] = await Promise.all([
       probeRemote(req, { fetch: this.fetch, now: this.now }),
       this.readSelfUpdate(req),
+      this.readHeavySlot(req),
     ]);
     if (outcome.status !== "connected") {
       return { ok: false, error: `remote_${outcome.status}`, reason: outcome.reason };
@@ -281,7 +292,7 @@ export class RemoteInstanceService {
       createdAt: this.now(),
     };
     this.store.insertRemoteInstance(row);
-    this.apply(row, outcome, update);
+    this.apply(row, outcome, update, slot);
     return { ok: true, instance: this.summary(row) };
   }
 
@@ -464,9 +475,10 @@ export class RemoteInstanceService {
     const before = this.states.get(row.instanceId);
     // Its self-update is read beside the probe, so a slow answer never lengthens the round; it
     // counts only from a machine that answered — compatible or not.
-    const [outcome, fresh] = await Promise.all([
+    const [outcome, fresh, slot] = await Promise.all([
       probeRemote(row, { fetch: this.fetch, now: this.now }),
       this.readSelfUpdate(row),
+      this.readHeavySlot(row),
     ]);
     const answered = outcome.status === "connected" || outcome.status === "incompatible";
     const update = answered ? fresh : undefined;
@@ -483,7 +495,7 @@ export class RemoteInstanceService {
       this.store.updateRemoteInstanceReportedName(current.instanceId, outcome.info.name);
       current.reportedName = outcome.info.name;
     }
-    this.apply(current, outcome, update);
+    this.apply(current, outcome, update, outcome.status === "connected" ? slot : undefined);
   }
 
   /** The machine's self-update, or null when it does not say (a failed read never fails a probe). */
@@ -492,19 +504,30 @@ export class RemoteInstanceService {
     return res.ok ? parseSelfUpdate(res.body) : null;
   }
 
+  /** The machine's heavy-slot snapshot, or null when it does not say (an older release answers
+   *  404); a failed read never fails a probe. */
+  private async readHeavySlot(target: RemoteTarget): Promise<HeavySlotSnapshot | null> {
+    const res = await getRemoteJson(target, "/api/heavy-slot", { fetch: this.fetch });
+    return res.ok ? parseHeavySlotSnapshot(res.body) : null;
+  }
+
   /** Record a probe result. A failure keeps the last successful info/projects/capabilities
    *  ("last seen"); the capabilities keep ageing, so a machine out of reach turns stale. `update`
-   *  undefined = the machine did not answer, so its last known self-update stays. */
+   *  undefined = the machine did not answer, so its last known self-update stays. `slot` likewise:
+   *  undefined keeps the last snapshot, null (answered, none given) clears it. */
   private apply(
     row: RemoteInstanceRow,
     outcome: ProbeOutcome | { status: "identity_mismatch" },
     update?: MachineSelfUpdate | null,
+    slot?: HeavySlotSnapshot | null,
   ) {
     const prev = this.states.get(row.instanceId);
     if (outcome.status === "connected")
       this.noteLoad(row.instanceId, outcome.load, outcome.loadReadAt);
     const at = this.now();
     const knownUpdate = update === undefined ? (prev?.update ?? null) : update;
+    const knownSlot =
+      slot === undefined ? (prev?.heavySlot ?? null) : slot && { snapshot: slot, readAt: at };
     const next: ProbeState =
       outcome.status === "connected"
         ? {
@@ -517,6 +540,7 @@ export class RemoteInstanceService {
             repoSlugs: outcome.repoSlugs,
             capabilities: outcome.capabilities,
             update: knownUpdate,
+            heavySlot: knownSlot,
           }
         : {
             status: outcome.status,
@@ -524,6 +548,7 @@ export class RemoteInstanceService {
             checkedAt: at,
             ...lastSeen(prev),
             update: knownUpdate,
+            heavySlot: knownSlot,
           };
     this.states.set(row.instanceId, next);
     this.notify(row.instanceId);
@@ -560,6 +585,7 @@ export class RemoteInstanceService {
       projects: state?.projects ?? null,
       capabilities: state?.capabilities ? capabilityReport(state.capabilities, this.now()) : null,
       load: this.loadReport(row.instanceId),
+      heavySlot: heavySlotReport(state),
       released: state?.info ? platformReleased(state.info.platform) : false,
     };
   }

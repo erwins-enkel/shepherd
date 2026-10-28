@@ -299,6 +299,9 @@ export interface RemoteInstance {
   projects: string[] | null;
   /** The machine's verified capabilities from the last successful check; null if none reported. */
   capabilities: CapabilityReport | null;
+  /** The machine's heavy-check slot as of its last answered check; `stale` = it is not connected
+   *  now, so this is its last known state. Null if it never reported one. */
+  heavySlot?: { snapshot: HeavySlotSnapshot; readAt: number; stale: boolean } | null;
   /** False for platforms not cleared to run tasks (Windows) and while the platform is unknown. */
   released: boolean;
 }

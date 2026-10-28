@@ -424,7 +424,7 @@ import {
   completedEpicScopeRepos,
   reconcileCompletedEpicsForRepo,
 } from "./completed-epics-reconcile";
-import { repoHasNoCiCached } from "./checks-gate";
+import { noPrCiHold, repoHasNoCiCached } from "./checks-gate";
 import { parseEpicBody } from "./epic-parse";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
 import { invalidateIssuePeek, peekIssue } from "./issue-peek";
@@ -10874,6 +10874,9 @@ export interface BacklogProject {
   defaultBranch: string | null;
   /** Repo mark image: the GitHub owner's avatar; null for other forges. */
   faviconUrl: string | null;
+  /** Auto-merge holds this repo's PRs for lack of PR CI (#3305) — flagged on the repo's chip,
+   *  tile and Automation tab until the operator adds CI or turns on "Merge without CI". */
+  noPrCiHold: boolean;
 }
 export interface BacklogPayload {
   pinnedPath: string | null;
@@ -10907,6 +10910,8 @@ export interface BacklogPayloadInputs {
   hiddenRepoPaths: () => Set<string>;
   /** repoPaths pinned to the top of the repos panel — store.pinnedRepoPaths(). */
   pinnedRepoPaths: () => Set<string>;
+  /** A repo's persisted config by its realpath — store.getRepoConfig. */
+  repoConfig: (repoDir: string) => Pick<RepoConfig, "repoMode" | "mergeWithoutCi">;
   repoRoot: string;
 }
 
@@ -10983,6 +10988,12 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
       pinned: pinnedSet.has(r.path),
       defaultBranch: defaultBranches[i] ?? null,
       faviconUrl: r.forge?.kind === "github" ? githubOwnerAvatarUrl(r.forge.slug) : null,
+      // repo_config is realpath-keyed (see the hidden/pinned reconcile above).
+      noPrCiHold: noPrCiHold(
+        inputs.repoConfig(safeRepoDir(r.path, inputs.repoRoot) ?? r.path),
+        r.forge?.kind,
+        r.path,
+      ),
     };
   });
 
@@ -11210,6 +11221,7 @@ async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null
       recentCountsByRepo: (since) => deps.store.recentSessionCountsByRepo(since),
       hiddenRepoPaths: () => deps.store.hiddenRepoPaths(),
       pinnedRepoPaths: () => deps.store.pinnedRepoPaths(),
+      repoConfig: (p) => deps.store.getRepoConfig(p),
       repoRoot: config.repoRoot,
     }),
   );

@@ -81,6 +81,7 @@ function makeDeps(
   recentCounts: Record<string, number> = {},
   hidden: Set<string> = new Set<string>(),
   pinned: Set<string> = new Set<string>(),
+  mergeWithoutCi: Set<string> = new Set<string>(),
 ): AppDeps {
   return {
     store: {
@@ -88,6 +89,7 @@ function makeDeps(
       recentSessionCountsByRepo: () => recentCounts,
       hiddenRepoPaths: () => hidden,
       pinnedRepoPaths: () => pinned,
+      getRepoConfig: (p: string) => ({ repoMode: "forge", mergeWithoutCi: mergeWithoutCi.has(p) }),
     } as unknown as SessionStore,
     service: {} as SessionService,
     events: { emit: () => {} } as unknown as EventHub,
@@ -366,6 +368,27 @@ test("buildBacklogPayload: faviconUrl is the GitHub owner avatar, null for other
   expect(byPath[repoA]).toBe("https://github.com/some-org.png?size=40");
   expect(byPath[repoB]).toBeNull();
   expect(byPath[repoNonForge]).toBeNull();
+});
+
+test("buildBacklogPayload: noPrCiHold flags a no-PR-CI GitHub repo unless Merge without CI is on (#3305)", async () => {
+  // Neither test repo defines a workflow, so both have no PR CI. repo_config is realpath-keyed.
+  const app = makeApp(
+    makeDeps(
+      { [repoA]: { openIssues: 1, openPRs: 0 }, [repoB]: { openIssues: 1, openPRs: 0 } },
+      {},
+      undefined,
+      {},
+      new Set(),
+      new Set(),
+      new Set([realpathSync(repoB)]),
+    ),
+  );
+  const res = await app.fetch(new Request("http://x/api/backlog"));
+  const body = (await res.json()) as { projects: { path: string; noPrCiHold: boolean }[] };
+  const byPath = Object.fromEntries(body.projects.map((p) => [p.path, p.noPrCiHold]));
+  expect(byPath[repoA]).toBe(true);
+  expect(byPath[repoB]).toBe(false);
+  expect(byPath[repoNonForge]).toBe(false);
 });
 
 test("GET /api/backlog with deps.backlog absent → empty payload", async () => {

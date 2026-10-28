@@ -58,3 +58,15 @@ export function repoHasNoCiCached(
   countCache.set(repoPath, { at: t, count });
   return count === 0;
 }
+
+/** #3305: whether auto-merge holds this repo's PRs for lack of PR CI — a forge-mode GitHub repo
+ *  where no workflow runs on a PR and "Merge without CI" is off. The repos overview flags it on
+ *  the repo (chip, tile, Automation tab); the automation pane derives the same condition. */
+export function noPrCiHold(
+  cfg: { repoMode: "forge" | "lightweight"; mergeWithoutCi: boolean },
+  forgeKind: ForgeKind | undefined,
+  repoPath: string,
+): boolean {
+  if (cfg.repoMode !== "forge" || cfg.mergeWithoutCi || !forgeKind) return false;
+  return repoHasNoCiCached(forgeKind, repoPath);
+}

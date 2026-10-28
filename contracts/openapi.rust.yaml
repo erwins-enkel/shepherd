@@ -5998,6 +5998,7 @@ components:
         - pinned
         - defaultBranch
         - faviconUrl
+        - noPrCiHold
       properties:
         path:
           type: string
@@ -6042,6 +6043,9 @@ components:
         faviconUrl:
           type: string
           nullable: true
+        noPrCiHold:
+          type: boolean
+          description: Auto-merge holds this repo's PRs for lack of PR CI (forge-mode GitHub repo, no workflow on PRs, Merge without CI off).
     BacklogPrKinds:
       type: object
       additionalProperties: true

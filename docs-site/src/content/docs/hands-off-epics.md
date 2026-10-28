@@ -113,7 +113,11 @@ in-flight work running and resumes on its own — and only a few are **terminal*
   sandbox and, if needed, the epic's CLI in one step, and **Undo** puts both back. The epic's row in
   the backlog list shows the same halt with **Fix**, which opens that choice right beside the row
   (a sheet on the phone), and the **Automation** tab counts the halts in the repo's settings or on
-  this host.
+  this host. With nothing selected, the repo overview names a halt in the repo's settings or on this
+  host **once**, at the top: **Switch to Autonomous** appears when that alone lifts it here, and
+  **Other choice …** opens the same choice. Each epic card keeps only its own cause with its fix
+  (e.g. **CLI to Claude Code**), and queued or not-started epics show their pre-check — what would
+  hold them on start — without starting.
 - **Epic branch conflicts with `main`** — the rebase above hits a real conflict. No new child starts;
   an agent rebases the branch and resolves it — even with Auto-Drain off — and a second one retries
   if the first leaves it conflicting. If that doesn't clear it you get a notification:

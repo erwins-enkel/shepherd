@@ -5539,6 +5539,37 @@ components:
         detail:
           type: string
           description: The sandbox profile, or the CLI for sandbox_provider_unconfined — as drain:status names it.
+        fix: { $ref: "#/components/schemas/EpicAutoCauseFix" }
+    EpicAutoCauseFix:
+      type: object
+      additionalProperties: true
+      description: >-
+        The change that clears ONE cause in its own scope (AutoCauseFix, #3456): the repo's
+        Standard sandbox → Autonomous, the epic's Codex → Claude Code. Unlike an option it need not
+        start the children — another scope's cause may still hold. Absent for a host cause.
+        Applied with POST /api/epic/auto-fix {cause}.
+      required: [changes, enabled, checks]
+      properties:
+        changes:
+          type: object
+          additionalProperties: true
+          description: The repo's sandbox profile or the epic's CLI this fix sets.
+          properties:
+            sandboxProfile: { $ref: "#/components/schemas/SandboxProfile" }
+            agentProvider: { $ref: "#/components/schemas/AgentProvider" }
+        enabled:
+          type: boolean
+          description: >-
+            Every check passes — applying it clears the cause (for the repo's sandbox: this host
+            and remote can confine).
+        why:
+          type: string
+          enum: [cli, bwrap, egress, remote_https]
+          x-shepherd-open-enum: true
+          description: The first failing check; absent when enabled.
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/EpicAutoFixCheck" }
     EpicAutoFixCheck:
       type: object
       additionalProperties: true
@@ -5589,8 +5620,11 @@ components:
         fixes that would start them (AutoBlockers in src/auto-blockers.ts). Empty causes and
         options when nothing blocks. Confined fixes come first; with Codex, Autonomous alone can
         never work and comes last.
-      required: [causes, options, preselect]
+      required: [agentProvider, causes, options, preselect]
       properties:
+        agentProvider:
+          $ref: "#/components/schemas/AgentProvider"
+          description: The CLI the epic's children spawn with — the epic's, else the global default.
         causes:
           type: array
           items: { $ref: "#/components/schemas/EpicAutoBlockerCause" }
@@ -5621,11 +5655,13 @@ components:
       additionalProperties: false
       description: >-
         POST /api/epic/auto-fix body: exactly one of `option` (apply a fix the model offers
-        enabled) or `restore` (write back a `previous` state — Undo).
+        enabled), `cause` (apply that cause's own fix while the model offers it enabled, #3456) or
+        `restore` (write back a `previous` state — Undo).
       minProperties: 1
       maxProperties: 1
       properties:
         option: { type: string, enum: [autonomous, autonomous_claude, trusted] }
+        cause: { type: string, enum: [sandbox_interactive, sandbox_provider_unconfined] }
         restore: { $ref: "#/components/schemas/EpicAutoFixState" }
     EpicAutoFixResult:
       type: object
@@ -11280,8 +11316,9 @@ paths:
       operationId: applyEpicAutoFix
       description: >-
         Apply a fix in one step — the repo's sandbox profile and the epic's CLI (a model or effort
-        the new CLI doesn't offer resets to its default) — or, with `restore`, write back the
-        `previous` state a fix answered (Undo). Every refusal is decided before the first write.
+        the new CLI doesn't offer resets to its default) —, with `cause` one cause's own fix in its
+        scope alone (#3456), or, with `restore`, write back the `previous` state a fix answered
+        (Undo). Every refusal is decided before the first write.
         The epic's settings change where they live and its status never does. Kicks the drain.
       parameters:
         - name: repo
@@ -11310,7 +11347,7 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "409":
-          description: 'error is "option unavailable": the model does not offer that fix enabled (anymore); nothing was written.'
+          description: 'error is "option unavailable": the model does not offer that fix (option or cause fix) enabled (anymore); nothing was written.'
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

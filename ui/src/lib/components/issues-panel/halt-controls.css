@@ -1,0 +1,120 @@
+/* Shared chrome for the repo overview's halt (#3456): the repo banner (RepoHaltBanner), each
+   epic card's lines (EpicCardHalt), their confirmation (HaltFixApplied) and the scope legend.
+   Hoisted so those components don't each carry a verbatim copy of the recipes: the halt card's
+   red wash and stop mark (as in EpicRunControl / EpicRowHalt), the scope chip, the .gbtn recipe
+   from /design-system, the text-link recipe and the applied-fix line.
+
+   These rules are global (a plain CSS import is unscoped), so the class names are namespaced
+   with `hc-` to avoid colliding with other components' scoped recipes — many components define
+   their own `.gbtn` and `.link` (same caution as settings-controls.css's `set-`). */
+
+/* The halt's red wash — it reads as the reason nothing starts. */
+.hc-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--wash-attention);
+  border: 1px solid color-mix(in srgb, var(--color-red) 45%, var(--color-line));
+  border-radius: 2px;
+}
+.hc-stop {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: var(--color-red);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Scope chip: neutral where it only points at the banner (and in the legend), red where the
+   cause is this one's own — pulled toward the text colour so it keeps 4.5:1 on the red wash. */
+.hc-chip {
+  flex: none;
+  min-width: 40px;
+  padding: 0 4px;
+  border: 1px solid var(--color-line);
+  border-radius: 2px;
+  color: var(--color-muted);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+.hc-chip.hc-own {
+  border-color: color-mix(in srgb, var(--color-red) 45%, var(--color-line));
+  color: color-mix(in srgb, var(--color-red) 80%, var(--color-ink-bright));
+}
+
+/* The canonical .gbtn recipe under a halt-scoped name. */
+.hc-gbtn {
+  background: transparent;
+  border: 1px solid var(--color-line);
+  border-radius: 2px;
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  letter-spacing: 0.08em;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.hc-gbtn.hc-primary {
+  border-color: var(--color-amber);
+  color: var(--color-amber);
+}
+.hc-gbtn:hover:not(:disabled) {
+  border-color: var(--color-amber);
+  color: var(--color-amber);
+}
+.hc-gbtn:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+.hc-gbtn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--color-amber);
+}
+
+/* Text-link recipe: a real button, styled as inline text. */
+.hc-link {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.hc-link:hover:not(:disabled),
+.hc-link:focus-visible {
+  color: var(--color-amber);
+  outline: none;
+}
+.hc-link:disabled {
+  cursor: progress;
+}
+
+/* A fix is applied: what it set, and the way back. */
+.hc-fixed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 0;
+  color: var(--color-ink);
+}
+.hc-fixed-mark {
+  color: var(--status-done);
+}
+
+@media (max-width: 768px), (max-height: 600px) {
+  .hc-gbtn,
+  .hc-link {
+    min-height: 44px;
+  }
+  .hc-gbtn {
+    padding: 2px 14px;
+  }
+}

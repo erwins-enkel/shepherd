@@ -7676,5 +7676,22 @@
   "epic_row_fix": "Fix",
   "epic_row_fix_title": "So #{parent} runs on its own",
   "feat_epic_row_halt_title": "Fix an epic halt from the list",
-  "feat_epic_row_halt_body": "An epic that its sandbox, CLI or host keeps from starting says so right in the backlog list. Fix opens the same choice beside the row — a sheet on the phone — and the Automation tab counts repo and host halts."
+  "feat_epic_row_halt_body": "An epic that its sandbox, CLI or host keeps from starting says so right in the backlog list. Fix opens the same choice beside the row — a sheet on the phone — and the Automation tab counts repo and host halts.",
+  "repooverview_halt_title": "Nothing in {repo} starts on its own",
+  "repooverview_halt_affects_one": "Affects 1 epic and Auto-Drain.",
+  "repooverview_halt_affects_many": "Affects all {count} epics and Auto-Drain.",
+  "repooverview_halt_autonomous": "Switch to Autonomous",
+  "repooverview_halt_other": "Other choice …",
+  "repooverview_halt_see_above": "– see the note above",
+  "repooverview_precheck_would_halt": "Would halt on start: {reason}",
+  "repooverview_precheck_waits": "Waits on the repo halt above.",
+  "repooverview_precheck_ready": "Otherwise ready:",
+  "repooverview_precheck_bootstrap_done": "Bootstrap done",
+  "repooverview_cli_switch": "CLI to {cli}",
+  "repooverview_done_cli": "CLI of #{epic}: {cli}.",
+  "repooverview_legend_repo": "applies to every epic and session in the repo",
+  "repooverview_legend_epic": "applies to this epic run only",
+  "repooverview_legend_host": "missing on this machine — the diagnostics help",
+  "feat_repo_overview_halt_title": "The overview names a repo halt once",
+  "feat_repo_overview_halt_body": "When the repo's sandbox or this host keeps every epic from starting on its own, the repo overview says so once at the top — with Switch to Autonomous when that works here. Each epic card shows its own cause with its fix, and queued or not-started epics show what would hold them before they start."
 }

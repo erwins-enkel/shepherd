@@ -3125,10 +3125,11 @@ describe("#3453: DrainService.autoBlockers", () => {
     await withDefaults("codex", null, () => {
       const { h } = blockersHarness("inherit");
       const r = h.drain.autoBlockers(REPO, { agentProvider: null });
-      expect(r.causes).toEqual([
-        { code: "sandbox_interactive", scope: "repo", detail: "standard" },
-        { code: "sandbox_provider_unconfined", scope: "epic", detail: "codex" },
+      expect(r.causes.map((c) => [c.code, c.scope, c.detail])).toEqual([
+        ["sandbox_interactive", "repo", "standard"],
+        ["sandbox_provider_unconfined", "epic", "codex"],
       ]);
+      expect(r.agentProvider).toBe("codex");
       expect(r.preselect).toBe("autonomous_claude");
     });
   });
@@ -3146,6 +3147,7 @@ describe("#3453: DrainService.autoBlockers", () => {
     await withDefaults("claude", null, () => {
       const { h, probes } = blockersHarness("trusted", { backend: null, egress: null });
       expect(h.drain.autoBlockers(REPO, { agentProvider: "codex" })).toEqual({
+        agentProvider: "codex",
         causes: [],
         options: [],
         preselect: null,

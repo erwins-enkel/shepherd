@@ -134,3 +134,34 @@ describe("ensureSlotShims", () => {
     expect(isHeavyCommand("bun test", "/", deps)).toBe(true);
   });
 });
+
+describe("slot-shim end to end", () => {
+  test("a heavy command with an unreachable slot runs the REAL binary once (no shim recursion)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "shim-e2e-"));
+    const realDir = join(root, "real");
+    mkdirSync(realDir);
+    writeFileSync(join(realDir, "cargo"), '#!/bin/sh\necho "REAL $*"\n');
+    chmodSync(join(realDir, "cargo"), 0o755);
+    const shimDir = join(root, "shims");
+    const node = process.execPath.endsWith("bun") ? "node" : process.execPath;
+    expect(await ensureSlotShims(shimDir, node)).toBe(shimDir);
+    const header = join(root, "h");
+    writeFileSync(header, "x-key: k\n");
+    const proc = Bun.spawn([join(shimDir, "cargo"), "clippy"], {
+      cwd: root,
+      env: {
+        PATH: `${shimDir}:${realDir}:${process.env.PATH}`,
+        SHEPHERD_SESSION_ID: "s1",
+        SHEPHERD_AGENT_API_URL: "http://127.0.0.1:1", // nothing listens: the slot is unreachable
+        SHEPHERD_INGRESS_HEADER_FILE: header,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const timer = setTimeout(() => proc.kill(), 20_000);
+    const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+    clearTimeout(timer);
+    expect(code).toBe(0);
+    expect(out.match(/REAL clippy/g)).toHaveLength(1);
+  }, 30_000);
+});

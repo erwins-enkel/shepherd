@@ -82,11 +82,11 @@ function shellPath() {
  * forwarded so a Bash-tool timeout or Ctrl-C still reaches the command. Resolves its exit code
  * (128 + signal number when it was killed).
  */
-function run(command, extraEnv = {}, { detached = false, onSpawn } = {}) {
+function run(command, env, extraEnv = {}, { detached = false, onSpawn } = {}) {
   return new Promise((resolve) => {
     const child = spawn(shellPath(), ["-c", command], {
       stdio: "inherit",
-      env: { ...process.env, ...extraEnv },
+      env: { ...env, ...extraEnv },
       detached,
     });
     const forward = (sig) => {
@@ -115,7 +115,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     return 2;
   }
   const cfg = ingressConfig(env);
-  if (!cfg) return run(command);
+  if (!cfg) return run(command, env);
 
   let answer;
   try {
@@ -124,7 +124,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     process.stderr.write(
       `Shepherd: heavy-check slot unavailable (${err?.message ?? err}); running without it.\n`,
     );
-    return run(command);
+    return run(command, env);
   }
 
   if (answer?.decision === "queued" && typeof answer.message === "string") {
@@ -132,11 +132,12 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     return EXIT_QUEUED;
   }
   const jobId = answer?.decision === "run" ? answer.jobId : undefined;
-  if (typeof jobId !== "string") return run(command); // unmanaged, or an answer we don't know
+  if (typeof jobId !== "string") return run(command, env); // unmanaged, or an answer we don't know
 
   const darwin = process.platform === "darwin";
   const code = await run(
     command,
+    env,
     { SHEPHERD_HEAVY_JOB: jobId },
     {
       detached: darwin,

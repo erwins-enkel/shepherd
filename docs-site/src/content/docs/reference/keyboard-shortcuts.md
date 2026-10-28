@@ -14,7 +14,9 @@ Shepherd is built to drive from the keyboard. These shortcuts are **desktop-only
 
 The command bar also carries verbs beyond navigation — including **Next needs you**, which jumps to the next session waiting on your reply (offered whenever another session is waiting), and **Decommission**, which decommissions the session you have selected (offered whenever that session is on screen). Type part of a verb's name to surface it.
 
-On a phone there is no keyboard shortcut: pull down at the top of the herd list instead. Release once the hint reads **Release to search** to open the command bar, or keep pulling until it reads **Release to reload** to reload the page.
+On a phone there is no keyboard shortcut: pull down at the top of the herd list instead. Release once the hint reads **Release to search** to open the command bar, or keep pulling until it reads **Release to reload** to reload the page. Swipe right on the open command bar to close it.
+
+In **New Task** on a phone, pull down on the panel (anywhere outside a text field) to open the repo picker.
 
 Destructive verbs take **two** presses: the first `Enter` (or click) arms the row, which turns red and asks you to confirm; the second decommissions. The arm clears itself after three seconds, or as soon as you type or move the cursor. Decommission still opens the usual undo window, so an accidental confirm is recoverable until it expires.
 

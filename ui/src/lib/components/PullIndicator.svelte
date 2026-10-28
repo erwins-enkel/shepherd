@@ -2,16 +2,17 @@
   import { m } from "#lib/paraglide/messages.js";
   import type { PullStage } from "#lib/pull-gesture.js";
 
-  // The phone herd list's pull-down hint (#lib/actions/pullToCommand). aria-hidden: the
-  // gesture is a shortcut — the command bar and reload stay reachable without it.
-  let { stage, distance }: { stage: PullStage; distance: number } = $props();
+  // A phone pull-down hint (#lib/actions/pullToCommand): the herd list's, or New Task's with
+  // repo labels. aria-hidden: the gesture is a shortcut — what it opens stays reachable without it.
+  let {
+    stage,
+    distance,
+    pullLabel = m.mobile_pull_search(),
+    releaseLabel = m.mobile_release_search(),
+  }: { stage: PullStage; distance: number; pullLabel?: string; releaseLabel?: string } = $props();
 
   const label = $derived(
-    stage === "reload"
-      ? m.mobile_release_reload()
-      : stage === "search"
-        ? m.mobile_release_search()
-        : m.mobile_pull_search(),
+    stage === "reload" ? m.mobile_release_reload() : stage === "search" ? releaseLabel : pullLabel,
   );
 </script>
 

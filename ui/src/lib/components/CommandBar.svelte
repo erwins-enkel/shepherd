@@ -16,6 +16,8 @@
   import { m } from "#lib/paraglide/messages.js";
   import { isMacPlatform } from "#lib/platform.js";
   import { untrack } from "svelte";
+  import { MediaQuery } from "svelte/reactivity";
+  import { swipeBack } from "./swipe-back";
 
   let {
     sessions,
@@ -530,6 +532,12 @@
   function onWindowKeyup(e: KeyboardEvent) {
     altHeld = e.getModifierState("Alt");
   }
+
+  // Phone (the full-screen layout below): a rightward swipe closes the bar, like Backlog's
+  // swipe-back. Touches from the input stay native (see swipeBack).
+  const phone = new MediaQuery("(max-width: 768px)");
+  let cardX = $state(0); // rubber-banded display offset (px, ≥ 0)
+  const cardSwipe = swipeBack({ onback: () => onclose(), onoffset: (px) => (cardX = px) });
 </script>
 
 <svelte:window
@@ -554,10 +562,13 @@
 >
   <div
     class="card"
+    class:swiping={cardX > 0}
+    style:transform={cardX > 0 ? `translateX(${cardX}px)` : undefined}
     role="dialog"
     aria-modal="true"
     aria-label={m.commandbar_title()}
     use:dialog={{ onclose }}
+    {@attach phone.current ? cardSwipe : undefined}
   >
     <div class="chead">
       <span class="micro">{m.commandbar_title()}</span>
@@ -904,6 +915,12 @@
       max-height: none;
       height: 100dvh;
       border: 0;
+      transition: transform 0.18s ease-out;
+    }
+    /* Mid swipe-back: follows the finger 1:1, edge shadow over the uncovered herd. */
+    .card.swiping {
+      transition: none;
+      box-shadow: var(--shadow-popover);
     }
   }
 </style>

@@ -14,6 +14,10 @@ describe("pullStage", () => {
     expect(pullStage(PULL_RELOAD)).toBe("reload");
     expect(pullStage(PULL_RELOAD * 3)).toBe("reload");
   });
+  it("caps at search when there is no reload", () => {
+    expect(pullStage(PULL_SEARCH - 1, false)).toBe("idle");
+    expect(pullStage(PULL_RELOAD * 3, false)).toBe("search");
+  });
 });
 
 describe("resist", () => {

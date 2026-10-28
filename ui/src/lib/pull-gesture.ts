@@ -18,8 +18,9 @@ export function resist(dy: number): number {
   return MAX * (1 - Math.exp(-dy / (MAX * 1.5)));
 }
 
-export function pullStage(distance: number): PullStage {
-  if (distance >= PULL_RELOAD) return "reload";
+/** `canReload: false` (a pull with no reload action) caps the stage at "search". */
+export function pullStage(distance: number, canReload = true): PullStage {
+  if (canReload && distance >= PULL_RELOAD) return "reload";
   if (distance >= PULL_SEARCH) return "search";
   return "idle";
 }

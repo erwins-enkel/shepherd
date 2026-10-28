@@ -1031,3 +1031,53 @@ describe("CommandBar — arming by click keeps focus on the combobox", () => {
     expect(onclose).toHaveBeenCalledTimes(1);
   });
 });
+
+// ── phone: swipe right closes the bar ────────────────────────────────────────
+describe("CommandBar — phone swipe back", () => {
+  // Synthetic touches: the attachment reads only clientX/clientY from `touches`. Each one lands
+  // 500ms after the last, so back-to-back dispatches never read as a flick.
+  let clock = 0;
+  function fakeTouch(type: string, x: number, y: number): Event {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(e, "touches", {
+      value: type === "touchend" ? [] : [{ clientX: x, clientY: y }],
+      configurable: true,
+    });
+    Object.defineProperty(e, "timeStamp", { value: (clock += 500), configurable: true });
+    return e;
+  }
+  function swipe(el: Element, from: [number, number], to: [number, number]) {
+    el.dispatchEvent(fakeTouch("touchstart", ...from));
+    el.dispatchEvent(fakeTouch("touchmove", ...to));
+    el.dispatchEvent(fakeTouch("touchend", ...to));
+  }
+  const card = () => document.querySelector<HTMLElement>(".card")!;
+  const list = () => document.querySelector<HTMLElement>(".cb-list")!;
+
+  it("a rightward drag closes; it follows the finger; short, leftward, vertical and input stay", async () => {
+    await page.viewport(390, 844);
+    const { onclose } = renderBar();
+    await expect.poll(() => card().dataset.swipeBack).toBe("");
+    list().dispatchEvent(fakeTouch("touchstart", 10, 300));
+    list().dispatchEvent(fakeTouch("touchmove", 60, 300));
+    await expect.poll(() => card().style.transform).toBe("translateX(50px)");
+    list().dispatchEvent(fakeTouch("touchend", 60, 300));
+    await expect.poll(() => card().style.transform).toBe("");
+    swipe(list(), [10, 300], [40, 300]);
+    swipe(list(), [300, 300], [10, 300]);
+    swipe(list(), [100, 100], [110, 500]);
+    swipe(document.querySelector(".cb-input")!, [10, 60], [300, 60]);
+    expect(onclose).not.toHaveBeenCalled();
+    swipe(list(), [10, 300], [300, 300]);
+    expect(onclose).toHaveBeenCalledOnce();
+  });
+
+  it("desktop: no swipe", async () => {
+    await page.viewport(1280, 900);
+    const { onclose } = renderBar();
+    await expect.element(page.getByRole("dialog")).toBeVisible();
+    swipe(list(), [10, 300], [300, 300]);
+    expect(onclose).not.toHaveBeenCalled();
+    expect(card().dataset.swipeBack).toBeUndefined();
+  });
+});

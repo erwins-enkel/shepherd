@@ -3692,6 +3692,63 @@ describe("NewTask mobile sheets + shortcuts", () => {
     await expect.poll(() => chip().textContent).toContain("bravo");
   });
 
+  it("pulling down on the card opens the repo picker; a pull from the prompt does not", async () => {
+    await renderMobile();
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>(".ctx-chip")!.textContent)
+      .toContain("alpha");
+    const fire = (target: Element, type: string, y: number) => {
+      const touches =
+        type === "touchend" ? [] : [new Touch({ identifier: 1, target, clientX: 100, clientY: y })];
+      target.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true, touches }));
+    };
+    const pullFrom = (target: Element) => {
+      fire(target, "touchstart", 20);
+      fire(target, "touchmove", 120);
+      fire(target, "touchmove", 160);
+      fire(target, "touchend", 160);
+    };
+
+    pullFrom(document.querySelector("#nt-prompt")!);
+    expect(document.querySelector(".ctx-sheet")).toBeNull();
+
+    const head = document.querySelector(".chead-title")!;
+    fire(head, "touchstart", 20);
+    fire(head, "touchmove", 160);
+    await expect
+      .poll(() => document.querySelector(".pull")?.textContent)
+      .toContain(m.newtask_release_repo());
+    fire(head, "touchend", 160);
+    // Synchronous, like the chip: the focus must land inside the touchend's call stack.
+    expect(document.querySelector(".ctx-sheet .rs-panel")).toBeTruthy();
+    expect(document.activeElement).toBe(document.querySelector(".ctx-sheet .rs-filter"));
+  });
+
+  it("a drag down on a scrolled card scrolls it back instead of opening the repo picker", async () => {
+    await renderMobile();
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>(".ctx-chip")!.textContent)
+      .toContain("alpha");
+    const card = document.querySelector<HTMLElement>("form.card")!;
+    card.style.height = card.style.maxHeight = "200px"; // short region: keyboard up / landscape
+    card.scrollTop = 50;
+    await expect.poll(() => card.scrollTop).toBeGreaterThan(0);
+    const head = document.querySelector(".chead-title")!;
+    const fire = (type: string, y: number) => {
+      const touches =
+        type === "touchend"
+          ? []
+          : [new Touch({ identifier: 1, target: head, clientX: 100, clientY: y })];
+      const e = new TouchEvent(type, { bubbles: true, cancelable: true, touches });
+      head.dispatchEvent(e);
+      return e;
+    };
+    fire("touchstart", 20);
+    expect(fire("touchmove", 160).defaultPrevented).toBe(false);
+    fire("touchend", 160);
+    expect(document.querySelector(".ctx-sheet")).toBeNull();
+  });
+
   it("three-press Escape: repo panel → focus in-sheet trigger; sheet → focus chip", async () => {
     await renderMobile();
     const chip = document.querySelector<HTMLButtonElement>(".ctx-chip")!;

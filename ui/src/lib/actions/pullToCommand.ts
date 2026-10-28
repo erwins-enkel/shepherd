@@ -1,4 +1,5 @@
-// Svelte action — the phone herd list's pull-down gesture (see #lib/pull-gesture).
+// Svelte action — a phone pull-down gesture (see #lib/pull-gesture): the herd list's
+// (command bar / reload) and New Task's (repo picker, no reload stage).
 // Once a pull arms, every touchmove is preventDefault'ed so the browser's own
 // pull-to-refresh / rubber band never runs alongside it: iOS Safari does not
 // reliably honor overscroll-behavior for that (WebKit bug 275947).
@@ -10,8 +11,12 @@ export interface PullToCommandOptions {
   enabled: () => boolean;
   /** Live stage + resisted distance while pulling; ("idle", 0) when the pull ends. */
   onstage: (stage: PullStage, distance: number) => void;
+  /** Release in the first stage: the herd list opens the command bar, New Task the repo picker. */
   onsearch: () => void;
-  onreload: () => void;
+  /** Release in the long stage. Absent: there is no long stage, a long pull still searches. */
+  onreload?: () => void;
+  /** Scroll offset that must be 0 to arm. Default window.scrollY; a fixed overlay passes 0. */
+  scrollTop?: () => number;
 }
 
 // A nested scroller that is itself scrolled down owns the pull: scrolling it back up wins.
@@ -42,14 +47,20 @@ export function pullToCommand(node: HTMLElement, initial: PullToCommandOptions) 
   function onStart(e: TouchEvent) {
     reset();
     if (e.touches.length !== 1 || !opts.enabled() || inScrolledRegion(e.target, node)) return;
+    // A drag in a field moves its caret/selection, never a pull.
+    if (
+      e.target instanceof Element &&
+      e.target.closest("input, textarea, select, [contenteditable]")
+    )
+      return;
     start = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   }
 
   function track(dx: number, dy: number) {
-    if (!armed) armed = shouldArm({ scrollY: window.scrollY, dx, dy });
+    if (!armed) armed = shouldArm({ scrollY: opts.scrollTop?.() ?? window.scrollY, dx, dy });
     if (!armed) return;
     distance = resist(dy);
-    opts.onstage(pullStage(distance), distance);
+    opts.onstage(pullStage(distance, !!opts.onreload), distance);
   }
 
   function onMove(e: TouchEvent) {
@@ -61,10 +72,10 @@ export function pullToCommand(node: HTMLElement, initial: PullToCommandOptions) 
   }
 
   function onEnd() {
-    const stage = armed ? pullStage(distance) : "idle";
+    const stage = armed ? pullStage(distance, !!opts.onreload) : "idle";
     reset();
     if (stage === "search") opts.onsearch();
-    else if (stage === "reload") opts.onreload();
+    else if (stage === "reload") opts.onreload?.();
   }
 
   node.addEventListener("touchstart", onStart, { passive: true });

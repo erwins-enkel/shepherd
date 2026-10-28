@@ -127,6 +127,43 @@ describe("heavy slot", () => {
   });
 });
 
+describe("heavy slot operator route (#3550)", () => {
+  const PATH = "/api/heavy-slot/operator";
+  const post = (body: unknown, auth = true) =>
+    fetch(`${s.baseUrl}${PATH}`, {
+      method: "POST",
+      headers: { ...(auth ? bearer(token) : {}), "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  test("POST answers 200, 400, 503 and 401", async () => {
+    const unavailable = await post({ op: "acquire", command: "x" });
+    expect(unavailable.status).toBe(503);
+    await validateResponse("POST", PATH, unavailable);
+    s.deps.heavySlot = {
+      snapshot: () => DISABLED_HEAVY_SLOT,
+      release: () => false,
+      acquireOperator: async () => ({ decision: "run", jobId: "j1" }),
+      started: async () => true,
+      finish: async () => true,
+    } as unknown as NonNullable<typeof s.deps.heavySlot>;
+    try {
+      validateRequest("POST", PATH, { op: "acquire", command: "cargo clippy", cwd: "/repo" });
+      const ok = await post({ op: "acquire", command: "cargo clippy", cwd: "/repo" });
+      expect(ok.status).toBe(200);
+      expect(await validateResponse("POST", PATH, ok)).toEqual({ decision: "run", jobId: "j1" });
+      const bad = await post({ op: "nope" });
+      expect(bad.status).toBe(400);
+      await validateResponse("POST", PATH, bad);
+      const anon = await post({ op: "acquire", command: "x" }, false);
+      expect(anon.status).toBe(401);
+      await validateResponse("POST", PATH, anon);
+    } finally {
+      delete s.deps.heavySlot;
+    }
+  });
+});
+
 describe("project icons", () => {
   const PATH = "/api/project-icons";
 

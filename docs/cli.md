@@ -132,23 +132,24 @@ The CLI never prompts. It reads stdin only when you pass `-` as the text argumen
 
 These codes are stable. New ones may be added, but existing ones never change meaning.
 
-| Code | Meaning                                                         |
-| ---- | --------------------------------------------------------------- |
-| 0    | Success                                                         |
-| 1    | Unexpected failure                                              |
-| 2    | Usage error (bad flag or argument, bad URL, unknown profile)    |
-| 3    | Unauthenticated (`401`, or no token configured)                 |
-| 4    | Insufficient token scope (`403 insufficient_scope`)             |
-| 5    | Not found (`404`)                                               |
-| 6    | Refused by the server (`400`, other `403`, `409`, `415`, `422`) |
-| 7    | Server unreachable (connection, DNS, TLS, timeout)              |
-| 8    | Server error (`5xx`, or a response the CLI cannot decode)       |
-| 9    | `wait` only: `--timeout` passed first                           |
-| 10   | `wait` only: `needs-input`                                      |
-| 11   | `wait` only: `plan-ready`                                       |
-| 12   | `wait` only: `pr`                                               |
-| 13   | `wait` only: `done`                                             |
-| 14   | `wait` only: `halted`                                           |
+| Code | Meaning                                                                                         |
+| ---- | ----------------------------------------------------------------------------------------------- |
+| 0    | Success                                                                                         |
+| 1    | Unexpected failure                                                                              |
+| 2    | Usage error (bad flag or argument, bad URL, unknown profile)                                    |
+| 3    | Unauthenticated (`401`, or no token configured)                                                 |
+| 4    | Insufficient token scope (`403 insufficient_scope`)                                             |
+| 5    | Not found (`404`)                                                                               |
+| 6    | Refused by the server (`400`, other `403`, `409`, `415`, `422`)                                 |
+| 7    | Server unreachable (connection, DNS, TLS, timeout)                                              |
+| 8    | Server error (`5xx`, or a response the CLI cannot decode)                                       |
+| 9    | `wait` only: `--timeout` passed first                                                           |
+| 10   | `wait` only: `needs-input`                                                                      |
+| 11   | `wait` only: `plan-ready`                                                                       |
+| 12   | `wait` only: `pr`                                                                               |
+| 13   | `wait` only: `done`                                                                             |
+| 14   | `wait` only: `halted`                                                                           |
+| 75   | `slot run` only: the slot is taken, the command did NOT run (other codes are the command's own) |
 
 ## Commands
 
@@ -574,6 +575,30 @@ and `1` when the launch failed; the reason is on stderr.
 shepherd schedule add --repo ~/Work/my-repo --name triage --days weekdays --at 09:00 /triage-feedback
 shepherd schedule run triage
 ```
+
+### Heavy-check slot
+
+```sh
+shepherd slot run -- cargo clippy        # one shell string, or the words after `--`
+```
+
+Runs the command through the host-wide heavy-check slot (#3181), the same way the tool guard does
+for Claude sessions: Shepherd grants the slot before the command starts, the command runs with the
+slot bound to its processes, and the slot frees once they are gone. If the slot is taken, nothing
+runs: the place and estimate are printed to stderr and the exit code is **75**. Otherwise the exit
+code is the command's own (128 + signal when it was killed). If the server cannot be reached or
+answers with an error, the command runs unmanaged with a one-line note.
+
+- **In a session** (`SHEPHERD_SESSION_ID`, `SHEPHERD_AGENT_API_URL` and
+  `SHEPHERD_INGRESS_HEADER_FILE` set — also inside a sandbox membrane) it uses the session's own
+  ingress key; a session that has to wait is steered when it is its turn.
+- **In an operator terminal** it uses your token (`full` scope). A terminal cannot be steered, so a
+  command that would have to wait is not queued: run it again later.
+
+Codex sessions get the same behaviour without typing `slot run`: Shepherd puts PATH shims for
+`bun`, `npm`, `cargo`, `vitest`, `tsc` and the like in front of the tools, and they route only
+what the tool guard calls heavy. Direct paths (`./node_modules/.bin/vitest`) and shells that reset
+`PATH` bypass them.
 
 ### Settings and diagnostics
 

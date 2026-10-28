@@ -9084,6 +9084,7 @@ function baseUrlService(opts: {
   agentIngressPort?: () => number | undefined;
   browserToken?: BrowserTokenSigner;
   browserAttachDir?: string;
+  slotShimDir?: string;
 }) {
   return new SessionService({
     transcriptExists: () => true, // Fixture conversation is persisted.
@@ -9112,6 +9113,7 @@ function baseUrlService(opts: {
     agentIngressPort: opts.agentIngressPort,
     browserToken: opts.browserToken,
     browserAttachDir: opts.browserAttachDir,
+    slotShimDir: opts.slotShimDir,
   });
 }
 
@@ -9296,6 +9298,30 @@ test("agent coordinates: a Codex create carries them too (the control plane is p
     SHEPHERD_AGENT_API_URL: INGRESS_BASE,
     SHEPHERD_SESSION_ID: s.id,
   });
+});
+
+test("#3550 slot shims: only a Codex spawn gets the shim dir first on PATH", async () => {
+  const slotShimDir = join(mkdtempSync(join(tmpdir(), "svc-shims-")), "slot-shims");
+  const pathOf = async (agentProvider: "claude" | "codex") => {
+    const record: { argv?: string[]; env?: Record<string, string> } = {};
+    const service = baseUrlService({
+      store: new SessionStore(":memory:"),
+      record,
+      agentIngressPort: () => 7331,
+      slotShimDir,
+    });
+    await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      agentProvider,
+      model: null,
+      images: [],
+    });
+    return record.env?.PATH;
+  };
+  expect((await pathOf("codex"))?.startsWith(`${slotShimDir}:`)).toBe(true);
+  expect(await pathOf("claude")).toBeUndefined();
 });
 
 test("agent coordinates: resume re-stamps them for both providers", async () => {

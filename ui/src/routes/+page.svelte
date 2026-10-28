@@ -170,6 +170,7 @@
   import ActionBar from "#lib/components/ActionBar.svelte";
   import QueueStrip from "#lib/components/QueueStrip.svelte";
   import HeavySlotStrip from "#lib/components/heavy-slot/HeavySlotStrip.svelte";
+  import { needsResultRefresh, RESULT_REFRESH_MS } from "#lib/components/heavy-slot/heavy-slot.js";
   import RepoSwitcher from "#lib/components/RepoSwitcher.svelte";
   import {
     nextRepoFilter,
@@ -1913,6 +1914,20 @@
     getHeavySlot()
       .then((r) => store.setHeavySlot(r))
       .catch(() => {});
+  });
+
+  // A current result goes stale when the source moves on, which nothing announces: re-read while
+  // one is shown and the tab is visible. The server caches the worktree look for a moment.
+  const refreshResults = $derived(needsResultRefresh(store.heavySlot));
+  $effect(() => {
+    if (!refreshResults) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      getHeavySlot()
+        .then((r) => store.setHeavySlot(r))
+        .catch(() => {});
+    }, RESULT_REFRESH_MS);
+    return () => clearInterval(timer);
   });
 
   /** Free a holder's slot, then re-read the snapshot so chip, strip and popover agree. */

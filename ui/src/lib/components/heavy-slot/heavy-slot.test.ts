@@ -7,6 +7,7 @@ import {
   memPressureBar,
   orderedWaiters,
   slotActive,
+  needsResultRefresh,
   resultView,
   shortRevision,
   slotEnabled,
@@ -124,5 +125,26 @@ describe("resultView", () => {
   it("shortens the commit", () => {
     expect(shortRevision(base)).toBe("abcdef0");
     expect(shortRevision({ ...base, head: null })).toBe("–");
+  });
+});
+
+describe("needsResultRefresh", () => {
+  const r = (stale: boolean) => ({
+    sessionId: "a",
+    command: "x",
+    startedAt: 0,
+    endedAt: 1,
+    exitCode: 0,
+    result: "passed" as const,
+    head: "h",
+    treeHash: "t",
+    stale,
+  });
+  it("polls only while a still-current result is shown", () => {
+    expect(needsResultRefresh(snap({ lastResults: [r(false)] }))).toBe(true);
+    expect(needsResultRefresh(snap({ lastResults: [r(true)] }))).toBe(false);
+    expect(needsResultRefresh(snap())).toBe(false);
+    expect(needsResultRefresh(snap({ enabled: false, lastResults: [r(false)] }))).toBe(false);
+    expect(needsResultRefresh(null)).toBe(false);
   });
 });

@@ -64,6 +64,15 @@ export function orderedWaiters(s: HeavySlotSnapshot): HeavySlotSnapshot["waiters
   return [...s.waiters].sort((a, b) => a.position - b.position);
 }
 
+/** How often an open overview re-reads the snapshot while a result still counts as current. */
+export const RESULT_REFRESH_MS = 15_000;
+
+/** A result that is still current can go stale at any moment (the agent keeps editing, and no
+ *  event announces it), so such a snapshot has to be re-read. Stale ones only change on a new run. */
+export function needsResultRefresh(s: HeavySlotSnapshot | null | undefined): boolean {
+  return slotEnabled(s) && s.lastResults.some((r) => !r.stale);
+}
+
 export type ResultView = "passed" | "failed" | "aborted" | "stale";
 
 /** What a last result shows as. A pass whose revision no longer matches the worktree is "stale",

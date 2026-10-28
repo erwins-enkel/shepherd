@@ -7,6 +7,9 @@ import {
   memPressureBar,
   orderedWaiters,
   slotActive,
+  needsResultRefresh,
+  resultView,
+  shortRevision,
   slotEnabled,
 } from "./heavy-slot";
 
@@ -28,6 +31,7 @@ function snap(over: Partial<HeavySlotSnapshot> = {}): HeavySlotSnapshot {
       cpuSomeAvg10: null,
     },
     memoryBySource: { agentsBytes: null, foreignBytes: null, foreignTop: [] },
+    lastResults: [],
     ...over,
   };
 }
@@ -96,5 +100,51 @@ describe("heavy-slot logic", () => {
       ],
     });
     expect(orderedWaiters(s).map((w) => w.sessionId)).toEqual(["a", "b"]);
+  });
+});
+
+describe("resultView", () => {
+  const base = {
+    sessionId: "a",
+    command: "vitest run",
+    startedAt: 0,
+    endedAt: 1,
+    exitCode: 0,
+    result: "passed" as const,
+    head: "abcdef0123",
+    treeHash: "t",
+    stale: false,
+  };
+  it("shows a current pass as passed and a pass on a moved-on source as stale, never green", () => {
+    expect(resultView(base)).toBe("passed");
+    expect(resultView({ ...base, stale: true })).toBe("stale");
+  });
+  it("keeps failures red even when stale", () => {
+    expect(resultView({ ...base, result: "failed", exitCode: 1, stale: true })).toBe("failed");
+  });
+  it("shortens the commit", () => {
+    expect(shortRevision(base)).toBe("abcdef0");
+    expect(shortRevision({ ...base, head: null })).toBe("–");
+  });
+});
+
+describe("needsResultRefresh", () => {
+  const r = (stale: boolean) => ({
+    sessionId: "a",
+    command: "x",
+    startedAt: 0,
+    endedAt: 1,
+    exitCode: 0,
+    result: "passed" as const,
+    head: "h",
+    treeHash: "t",
+    stale,
+  });
+  it("polls only while a still-current result is shown", () => {
+    expect(needsResultRefresh(snap({ lastResults: [r(false)] }))).toBe(true);
+    expect(needsResultRefresh(snap({ lastResults: [r(true)] }))).toBe(false);
+    expect(needsResultRefresh(snap())).toBe(false);
+    expect(needsResultRefresh(snap({ enabled: false, lastResults: [r(false)] }))).toBe(false);
+    expect(needsResultRefresh(null)).toBe(false);
   });
 });

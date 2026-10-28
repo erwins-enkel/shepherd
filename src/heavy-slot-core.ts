@@ -36,6 +36,9 @@ export interface HeavyJob {
   /** macOS only: the process group the runner started the command in. */
   pgid: number | null;
   dropReason: HeavyDropReason | null;
+  /** The commit and dirty-worktree hash the command started on (#3554); null until captured. */
+  head: string | null;
+  treeHash: string | null;
 }
 
 export interface HeavySlotBudget {
@@ -240,6 +243,15 @@ export class HeavyLedger {
     return [...this.#jobs.values()];
   }
 
+  /** Binds a running job to the source state it started on. */
+  setRevision(id: string, head: string | null, treeHash: string): void {
+    const job = this.#jobs.get(id);
+    if (!job) return;
+    job.head = head;
+    job.treeHash = treeHash;
+    this.#touch(job);
+  }
+
   /** Jobs changed since the last call, including ones that just turned terminal. */
   takeDirty(): HeavyJob[] {
     const out = [...this.#dirty.values()];
@@ -320,6 +332,8 @@ export class HeavyLedger {
       exitCode: null,
       pgid: null,
       dropReason: null,
+      head: null,
+      treeHash: null,
     };
     this.#jobs.set(job.id, job);
     if (this.active().length < ctx.budget.slots && !ctx.brakeEngaged && this.queue().length === 1) {

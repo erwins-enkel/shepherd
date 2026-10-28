@@ -1,4 +1,4 @@
-import type { HeavySlotSnapshot } from "#lib/types.js";
+import type { HeavySlotLastResult, HeavySlotSnapshot } from "#lib/types.js";
 
 /** The master switch is the only gate: with it off there is no chip, strip or popover. */
 export function slotEnabled(s: HeavySlotSnapshot | null | undefined): s is HeavySlotSnapshot {
@@ -62,4 +62,26 @@ export function formatBytes(bytes: number | null): string {
 /** Waiters in queue order. */
 export function orderedWaiters(s: HeavySlotSnapshot): HeavySlotSnapshot["waiters"] {
   return [...s.waiters].sort((a, b) => a.position - b.position);
+}
+
+/** How often an open overview re-reads the snapshot while a result still counts as current. */
+export const RESULT_REFRESH_MS = 15_000;
+
+/** A result that is still current can go stale at any moment (the agent keeps editing, and no
+ *  event announces it), so such a snapshot has to be re-read. Stale ones only change on a new run. */
+export function needsResultRefresh(s: HeavySlotSnapshot | null | undefined): boolean {
+  return slotEnabled(s) && s.lastResults.some((r) => !r.stale);
+}
+
+export type ResultView = "passed" | "failed" | "aborted" | "stale";
+
+/** What a last result shows as. A pass whose revision no longer matches the worktree is "stale",
+ *  never green; a failure stays red (an old failure is still the more useful signal). */
+export function resultView(r: HeavySlotLastResult): ResultView {
+  return r.result === "passed" && r.stale ? "stale" : r.result;
+}
+
+/** The 7-character commit the job ran on, or a dash when it is unknown. */
+export function shortRevision(r: HeavySlotLastResult): string {
+  return r.head ? r.head.slice(0, 7) : "–";
 }

@@ -7,6 +7,8 @@
     memPressureBar,
     orderedWaiters,
     ramUsedPct,
+    resultView,
+    shortRevision,
   } from "./heavy-slot";
 
   let {
@@ -27,6 +29,12 @@
     el?: HTMLDivElement | null;
   } = $props();
 
+  const resultLabel = {
+    passed: () => m.heavyslot_result_passed(),
+    failed: () => m.heavyslot_result_failed(),
+    aborted: () => m.heavyslot_result_aborted(),
+    stale: () => m.heavyslot_result_stale(),
+  };
   let confirming = $state<string | null>(null);
   let releaseFailed = $state(false);
   const nameOf = (id: string) =>
@@ -99,6 +107,25 @@
     {/each}
     {#if heavySlot.brake.active}<p class="hp-brake">{m.heavyslot_strip_brake()}</p>{/if}
   </section>
+
+  {#if heavySlot.lastResults.length > 0}
+    <section>
+      <h3>{m.heavyslot_last_results()}</h3>
+      {#each heavySlot.lastResults as r (r.sessionId)}
+        {@const view = resultView(r)}
+        <div class="hp-row">
+          <span class="hp-name">{nameOf(r.sessionId)}</span>
+          <span class="hp-dim">
+            {r.command} · {shortRevision(r)}{r.exitCode == null ? "" : ` · exit ${r.exitCode}`}
+          </span>
+          <span class="hp-res hp-res-{view}">{resultLabel[view]()}</span>
+          {#if r.stale}
+            <p class="hp-dim">{m.heavyslot_result_stale_hint()}</p>
+          {/if}
+        </div>
+      {/each}
+    </section>
+  {/if}
 
   <section>
     <h3>{m.heavyslot_pressure()}</h3>
@@ -200,6 +227,19 @@
   .hp-dim {
     color: var(--color-muted);
     margin: 0;
+  }
+  .hp-res {
+    font-weight: 600;
+  }
+  .hp-res-passed {
+    color: var(--color-green);
+  }
+  .hp-res-failed {
+    color: var(--color-red);
+  }
+  .hp-res-stale,
+  .hp-res-aborted {
+    color: var(--color-muted);
   }
   .hp-brake,
   .hp-err {

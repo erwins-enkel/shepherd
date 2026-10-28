@@ -7806,5 +7806,11 @@
   "heavyslot_source_foreign": "Other load",
   "heavyslot_settings_link": "Settings",
   "heavyslot_close": "Close",
-  "heavyslot_unknown_session": "Unknown session"
+  "heavyslot_unknown_session": "Unknown session",
+  "heavyslot_last_results": "Last check results",
+  "heavyslot_result_passed": "Passed",
+  "heavyslot_result_failed": "Failed",
+  "heavyslot_result_aborted": "Aborted",
+  "heavyslot_result_stale": "Stale",
+  "heavyslot_result_stale_hint": "The source changed since this check ran, so the result no longer applies."
 }

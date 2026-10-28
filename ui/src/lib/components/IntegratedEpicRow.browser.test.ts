@@ -85,10 +85,28 @@ describe("IntegratedEpicRow", () => {
       .element(page.getByRole("button", { name: "Land epic", exact: true }))
       .toBeVisible();
   });
-  it("keeps the pill inert when the epic is not ready", async () => {
-    await render(IntegratedEpicRow, props(epic({ landingChecks: "failure" })));
-    await expect.element(page.getByText("YOUR TURN", { exact: true })).toBeInTheDocument();
+  it("opens the row, never the land, from the YOUR TURN pill", async () => {
+    const p = props(epic({ landingChecks: "failure" }));
+    await render(IntegratedEpicRow, p);
     expect(page.getByRole("button", { name: "Land epic #327…" }).query()).toBeNull();
+    expect(document.querySelector(".landing-path")).toBeNull();
+    await page.getByRole("button", { name: "YOUR TURN", exact: true }).click();
+    await vi.waitFor(() => expect(document.querySelector(".landing-path")).not.toBeNull());
+    expect(p.onland).not.toHaveBeenCalled();
+  });
+  it("opens the row from a waiting pill", async () => {
+    await render(
+      IntegratedEpicRow,
+      props(
+        epic({
+          landingMergeable: false,
+          landingConflictStranded: true,
+          landingConflictSince: 1000,
+        }),
+      ),
+    );
+    await page.getByRole("button", { name: "conflict unresolved for 9m" }).click();
+    await vi.waitFor(() => expect(document.querySelector(".landing-path")).not.toBeNull());
   });
   it("shows the land as in flight until the request settles", async () => {
     let settle!: () => void;

@@ -1352,13 +1352,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     console.log(
       `[plan-gate] plan-blocks captured session=${session.id} planHash=${planHash.slice(0, 8)} blocks=${blocks.length}`,
     );
-    // #3514: the text a review starts on is a plan revision (the store skips one it already holds).
-    // Bookkeeping only — it must never orphan a reviewer that has already started.
-    try {
-      this.deps.store.recordAgentPlanRevision(session.id, planHash, plan);
-    } catch (err) {
-      console.warn(`[plan-gate] plan revision not recorded for ${session.id}:`, err);
-    }
+    this.recordReviewedRevision(session.id, planHash, plan);
     this.inflight.set(session.id, {
       sessionId: session.id,
       repoPath: session.repoPath,
@@ -1381,6 +1375,16 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
       effort: reviewerEffort,
     });
     return startedStatus(prior, this.cap);
+  }
+
+  /** #3514: the text a review starts on is a plan revision (the store skips one it already holds).
+   *  Bookkeeping only — it must never orphan a reviewer that has already started. */
+  private recordReviewedRevision(sessionId: string, planHash: string, plan: string): void {
+    try {
+      this.deps.store.recordAgentPlanRevision(sessionId, planHash, plan);
+    } catch (err) {
+      console.warn(`[plan-gate] plan revision not recorded for ${sessionId}:`, err);
+    }
   }
 
   /** Re-adopt plan reviews that were in flight when the server last stopped. The `inflight`

@@ -3724,6 +3724,31 @@ describe("NewTask mobile sheets + shortcuts", () => {
     expect(document.activeElement).toBe(document.querySelector(".ctx-sheet .rs-filter"));
   });
 
+  it("a drag down on a scrolled card scrolls it back instead of opening the repo picker", async () => {
+    await renderMobile();
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>(".ctx-chip")!.textContent)
+      .toContain("alpha");
+    const card = document.querySelector<HTMLElement>("form.card")!;
+    card.style.height = card.style.maxHeight = "200px"; // short region: keyboard up / landscape
+    card.scrollTop = 50;
+    await expect.poll(() => card.scrollTop).toBeGreaterThan(0);
+    const head = document.querySelector(".chead-title")!;
+    const fire = (type: string, y: number) => {
+      const touches =
+        type === "touchend"
+          ? []
+          : [new Touch({ identifier: 1, target: head, clientX: 100, clientY: y })];
+      const e = new TouchEvent(type, { bubbles: true, cancelable: true, touches });
+      head.dispatchEvent(e);
+      return e;
+    };
+    fire("touchstart", 20);
+    expect(fire("touchmove", 160).defaultPrevented).toBe(false);
+    fire("touchend", 160);
+    expect(document.querySelector(".ctx-sheet")).toBeNull();
+  });
+
   it("three-press Escape: repo panel → focus in-sheet trigger; sheet → focus chip", async () => {
     await renderMobile();
     const chip = document.querySelector<HTMLButtonElement>(".ctx-chip")!;

@@ -1904,12 +1904,13 @@
   }
 
   // Phone: pull down on the card (outside fields) opens the repo picker — no reload stage.
-  // The overlay is fixed, so the window's scroll (the herd list behind) never gates it.
+  // Gated on the card's own scroll (it scrolls when short: keyboard up, landscape), never the
+  // window's — that belongs to the herd list behind the fixed overlay.
   // onsearch runs synchronously in touchend, keeping openRepoPicker's in-gesture focus.
   let pull = $state<{ stage: PullStage; distance: number }>({ stage: "idle", distance: 0 });
   const pullOptions: PullToCommandOptions = {
     enabled: () => mobile && activeSheet === null && !confirmStep && !submitting,
-    scrollTop: () => 0,
+    scrollTop: () => cardEl?.scrollTop ?? 0,
     onstage: (stage, distance) => (pull = { stage, distance }),
     onsearch: openRepoPicker,
   };

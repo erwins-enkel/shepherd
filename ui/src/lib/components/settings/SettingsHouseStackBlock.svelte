@@ -199,6 +199,7 @@
     overflow-wrap: anywhere;
   }
   .ver {
+    font-family: var(--font-mono);
     color: var(--color-amber);
   }
   .why,

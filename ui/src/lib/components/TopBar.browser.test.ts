@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import type { ComponentProps } from "svelte";
 import { getLocale, setLocale } from "#lib/paraglide/runtime.js";
 import { page, userEvent } from "vitest/browser";
+import "@fontsource-variable/inter";
 import "../../app.css";
 import type {
   Session,
@@ -49,7 +50,9 @@ const { refreshUsage, listHeld, getSettings, updateEpic } = await import("#lib/a
 // .hud actually spans the width under test (it's a flex container that would
 // otherwise size to content), making overflow measurable at the target width.
 let fontStyle: HTMLStyleElement;
-beforeEach(() => {
+beforeEach(async () => {
+  // Measure in the shipped body face, not the host's fallback sans.
+  await document.fonts.load('13px "Inter Variable"');
   fontStyle = document.createElement("style");
   fontStyle.textContent = `:root { --font-mono: ui-monospace, monospace; }
     *, *::before, *::after { box-sizing: border-box; }
@@ -1348,7 +1351,9 @@ describe("CapacityWait — readable prompts and action bars", () => {
   it("remeasures clipping after resizing and editing a prompt", async () => {
     await page.viewport(1280, 900);
     document.body.style.width = "1280px";
-    const { rerender } = await render(CapacityWait, props());
+    // Wide enough to pass three lines at 360px, short enough to fit at 1280px.
+    const fourLines = `${issuePrompt}, inklusive Tests, Screenshots und Doku-Update.`;
+    const { rerender } = await render(CapacityWait, props({ heldItems: [promptTask(fourLines)] }));
     await expect
       .element(page.getByRole("button", { name: "Show full prompt" }))
       .not.toBeInTheDocument();
@@ -1540,11 +1545,6 @@ describe("CapacityWait — readable prompts and action bars", () => {
       expect(spawn.getBoundingClientRect().height).toBeLessThanOrEqual(96);
       const providerLabel = document.querySelector<HTMLElement>(".held-cli-value")!;
       expect(providerLabel.scrollWidth).toBeLessThanOrEqual(providerLabel.clientWidth);
-      if (language === "de") {
-        expect(discard.getBoundingClientRect().top).toBeGreaterThanOrEqual(
-          edit.getBoundingClientRect().bottom,
-        );
-      }
       for (const control of [spawn, select, edit, discard]) {
         expectMinPx(control.getBoundingClientRect().height, 44, "action touch target");
         expect(control.scrollWidth).toBeLessThanOrEqual(control.clientWidth);

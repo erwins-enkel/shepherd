@@ -252,6 +252,7 @@
     color: var(--color-ink-bright);
   }
   .rs-queue-num {
+    font-family: var(--font-mono);
     color: var(--color-faint);
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;

@@ -102,6 +102,7 @@
     font-variant-numeric: tabular-nums;
   }
   .summary .shas {
+    font-family: var(--font-mono);
     margin-left: auto;
     color: var(--color-faint);
     font-variant-numeric: tabular-nums;
@@ -143,6 +144,7 @@
     outline-offset: 2px;
   }
   .commit .sha {
+    font-family: var(--font-mono);
     color: var(--color-amber);
     font-variant-numeric: tabular-nums;
     flex: none;

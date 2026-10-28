@@ -225,9 +225,11 @@
     align-items: center;
   }
   .version {
+    font-family: var(--font-mono);
     color: var(--color-muted);
   }
   .sha {
+    font-family: var(--font-mono);
     color: var(--color-ink);
   }
   .repo:hover,

@@ -1,6 +1,7 @@
 <script lang="ts">
   // Self-hosted (was Google Fonts): a cross-origin stylesheet in app.html blocked the inline
   // boot script, so an unreachable fonts.googleapis.com stalled the whole PWA on a slow link.
+  import "@fontsource-variable/inter";
   import "@fontsource/jetbrains-mono/400.css";
   import "@fontsource/jetbrains-mono/500.css";
   import "@fontsource/jetbrains-mono/700.css";

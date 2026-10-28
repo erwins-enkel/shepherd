@@ -85,6 +85,7 @@
     line-height: 1.45;
   }
   .edp-child-num {
+    font-family: var(--font-mono);
     color: var(--color-blue);
     margin-right: 3px;
   }

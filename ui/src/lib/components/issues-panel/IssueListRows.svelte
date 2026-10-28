@@ -184,7 +184,9 @@
       <span class="title issue-title">{issue.title}</span>
       <!-- SEP is a variable on purpose: a literal separator loses its spaces at block/element edges. -->
       <span class="meta"
-        >#{issue.number}{#if running?.(issue)}{SEP}<span class="dot dot-running" aria-hidden="true"
+        ><span class="meta-num">#{issue.number}</span>{#if running?.(issue)}{SEP}<span
+            class="dot dot-running"
+            aria-hidden="true"
           ></span>{m.issuelist_running()}{/if}{#if shown.length}{SEP}<span class="lchips"
             >{#each shown as label, i (label)}{#if i}{GAP}{/if}<span
                 class="lchip"
@@ -281,6 +283,7 @@
   }
 
   .num {
+    font-family: var(--font-mono);
     flex: none;
     color: var(--color-muted);
     font-size: var(--fs-micro);
@@ -332,6 +335,9 @@
     gap: 1px;
     padding: 4px 8px;
     font-size: var(--fs-base);
+  }
+  .meta-num {
+    font-family: var(--font-mono);
   }
   .meta {
     color: var(--color-faint);

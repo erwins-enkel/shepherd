@@ -37,6 +37,7 @@
   --color-data-7: var(--data-7);
   --color-scrim: var(--scrim);
   --color-term-fg: var(--term-fg);
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Berkeley Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -352,11 +353,11 @@ body {
     radial-gradient(120% 100% at 50% -10%, var(--color-glow) 0%, var(--color-bg) 60%),
     var(--color-bg);
   color: var(--color-ink);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   margin: 0;
   min-height: 100%;
   font-size: var(--fs-base);
-  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -551,6 +552,7 @@ button.issue-list-row {
 }
 
 .issue-list-number {
+  font-family: var(--font-mono);
   flex: none;
   color: var(--color-muted);
   font-size: var(--fs-meta);

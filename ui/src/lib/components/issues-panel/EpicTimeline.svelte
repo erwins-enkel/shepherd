@@ -291,6 +291,7 @@
   }
 
   .num {
+    font-family: var(--font-mono);
     flex: none;
     color: var(--color-blue);
   }

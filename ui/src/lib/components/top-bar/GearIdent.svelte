@@ -22,7 +22,8 @@
 <div class={["ident", { mobile }]}>
   <span class="ident-brand">SHEPHERD</span>
   <span class="ident-conn">
-    v{version} · <span class="ident-dot" class:on={connected} aria-hidden="true">●</span>
+    <span class="ident-ver">v{version}</span> ·
+    <span class="ident-dot" class:on={connected} aria-hidden="true">●</span>
     {connected ? m.gearmenu_conn_live() : m.gearmenu_conn_offline()}
   </span>
   {@render children?.()}
@@ -43,6 +44,9 @@
     letter-spacing: 0.2em;
     text-transform: uppercase;
     color: var(--color-muted);
+  }
+  .ident-ver {
+    font-family: var(--font-mono);
   }
   .ident-conn {
     margin-left: auto;

@@ -123,6 +123,7 @@
     background: transparent;
     color: var(--color-faint);
     font: inherit;
+    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -139,6 +140,7 @@
   /* Same quiet meta typography, but plain text: it sits under the card's hit overlay, so a
      click on it selects the row like anywhere else on the card. */
   .desig-remote {
+    font-family: var(--font-mono);
     padding: 1px 3px;
     color: var(--color-faint);
     font-size: var(--fs-micro);

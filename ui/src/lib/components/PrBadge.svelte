@@ -241,6 +241,7 @@
 
 <style>
   .pr-badge {
+    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -258,7 +259,6 @@
     z-index: 1;
     appearance: none;
     margin: 0;
-    font-family: inherit;
     line-height: inherit;
     background: transparent;
     cursor: pointer;

@@ -2881,7 +2881,8 @@
                 class="issue-ref-link"
                 href={firstSafeHttpUrl(issueRef.url) ?? undefined}
                 target="_blank"
-                rel="noopener">#{issueRef.number} {issueRef.title}</a
+                rel="noopener"
+                ><span class="issue-ref-num">#{issueRef.number}</span> {issueRef.title}</a
               >
               <!-- eslint-enable svelte/no-navigation-without-resolve -->
               <button
@@ -4286,6 +4287,9 @@
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--color-faint);
+  }
+  .issue-ref-num {
+    font-family: var(--font-mono);
   }
   .issue-ref-link {
     flex: 1;

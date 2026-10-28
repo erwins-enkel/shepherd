@@ -220,6 +220,7 @@
      for state that wants acting on. No `text-transform`: the value is a bare number, so
      there is no casing to normalise. */
   .issue-badge {
+    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     padding: 1px 6px;

@@ -183,6 +183,7 @@
     overflow-wrap: anywhere;
   }
   .meta .sha {
+    font-family: var(--font-mono);
     color: var(--color-ink);
   }
   .meta .sha.to {
@@ -213,6 +214,7 @@
     font-size: var(--fs-meta);
   }
   .commits .sha {
+    font-family: var(--font-mono);
     flex: none;
     color: var(--color-amber);
     font-variant-numeric: tabular-nums;

@@ -234,6 +234,7 @@
   }
 
   .num {
+    font-family: var(--font-mono);
     color: var(--color-ink-bright);
     font-size: var(--fs-meta);
   }

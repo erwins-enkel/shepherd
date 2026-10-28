@@ -440,6 +440,7 @@
   }
 
   .issue-link {
+    font-family: var(--font-mono);
     margin-left: 0.375rem;
     font-size: var(--fs-micro);
     color: var(--color-blue);

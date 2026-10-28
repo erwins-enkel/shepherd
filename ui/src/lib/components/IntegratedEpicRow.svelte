@@ -393,6 +393,7 @@
     color: var(--status-done);
   }
   .ref {
+    font-family: var(--font-mono);
     color: var(--color-ink);
     text-decoration: none;
   }

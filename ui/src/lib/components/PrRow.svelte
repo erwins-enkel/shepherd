@@ -363,6 +363,7 @@
   }
 
   .pr-num {
+    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     color: var(--color-faint);
     flex-shrink: 0;

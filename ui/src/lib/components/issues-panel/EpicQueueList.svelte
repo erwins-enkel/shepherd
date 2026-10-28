@@ -254,6 +254,7 @@
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .num {
+    font-family: var(--font-mono);
     flex: none;
     color: var(--color-muted);
     font-size: var(--fs-meta);

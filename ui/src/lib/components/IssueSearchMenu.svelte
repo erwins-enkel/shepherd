@@ -99,6 +99,7 @@
     cursor: default;
   }
   .ism-number {
+    font-family: var(--font-mono);
     flex-shrink: 0;
     color: var(--color-faint);
     font-variant-numeric: tabular-nums;

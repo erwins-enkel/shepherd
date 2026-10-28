@@ -3544,6 +3544,128 @@ components:
           type: string
         busy:
           type: boolean
+    HeavySlotSnapshot:
+      type: object
+      required:
+        - enabled
+        - capacity
+        - holders
+        - waiters
+        - brake
+        - pressure
+        - memoryBySource
+      properties:
+        enabled:
+          type: boolean
+        capacity:
+          type: integer
+        holders:
+          type: array
+          items:
+            type: object
+            required:
+              - sessionId
+              - command
+              - startedAt
+              - rssBytes
+            properties:
+              sessionId:
+                type: string
+              command:
+                type: string
+              startedAt:
+                type: integer
+              rssBytes:
+                type: integer
+                nullable: true
+        waiters:
+          type: array
+          items:
+            type: object
+            required:
+              - sessionId
+              - position
+              - reason
+            properties:
+              sessionId:
+                type: string
+              position:
+                type: integer
+              reason:
+                type: string
+                enum:
+                  - slot
+                  - pressure
+        brake:
+          type: object
+          required:
+            - active
+            - reason
+          properties:
+            active:
+              type: boolean
+            reason:
+              type: string
+              enum:
+                - memory
+              nullable: true
+        pressure:
+          type: object
+          required:
+            - ramAvailableBytes
+            - ramTotalBytes
+            - swapUsedBytes
+            - swapTotalBytes
+            - memFullAvg10
+            - memBrakeThreshold
+            - cpuSomeAvg10
+          properties:
+            ramAvailableBytes:
+              type: integer
+              nullable: true
+            ramTotalBytes:
+              type: integer
+              nullable: true
+            swapUsedBytes:
+              type: integer
+              nullable: true
+            swapTotalBytes:
+              type: integer
+              nullable: true
+            memFullAvg10:
+              type: number
+              nullable: true
+            memBrakeThreshold:
+              type: number
+              nullable: true
+            cpuSomeAvg10:
+              type: number
+              nullable: true
+        memoryBySource:
+          type: object
+          required:
+            - agentsBytes
+            - foreignBytes
+            - foreignTop
+          properties:
+            agentsBytes:
+              type: integer
+              nullable: true
+            foreignBytes:
+              type: integer
+              nullable: true
+            foreignTop:
+              type: array
+              items:
+                type: object
+                required:
+                  - name
+                  - bytes
+                properties:
+                  name:
+                    type: string
+                  bytes:
+                    type: integer
     ProjectIcons:
       type: object
       additionalProperties:
@@ -12120,6 +12242,52 @@ paths:
                 $ref: "#/components/schemas/UsageLimitsResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/heavy-slot:
+    get:
+      operationId: getHeavySlot
+      description: The host-wide heavy-check slot as the overview shows it (switched off when nothing owns it).
+      responses:
+        "200":
+          description: The slot snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeavySlotSnapshot"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/heavy-slot/release:
+    post:
+      operationId: releaseHeavySlot
+      description: Manually free the slot a session holds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - sessionId
+              properties:
+                sessionId:
+                  type: string
+      responses:
+        "200":
+          description: Released.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - released
+                properties:
+                  released:
+                    type: boolean
+        "400":
+          description: sessionId missing or not a string.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: The session holds no slot.
   /api/project-icons:
     get:
       operationId: listProjectIcons

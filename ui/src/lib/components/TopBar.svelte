@@ -2,6 +2,7 @@
   import type {
     Session,
     UsageLimits,
+    HeavySlotSnapshot,
     UpdateStatus,
     MachineUpdate,
     HerdrUpdateStatus,
@@ -44,6 +45,7 @@
   import { modeOf, badgeCount } from "./top-bar-layout";
   import { isSettingsChord } from "./herd-keynav";
   import TopBarTallies from "./top-bar/TopBarTallies.svelte";
+  import HeavySlotChip from "./heavy-slot/HeavySlotChip.svelte";
   import TopBarHeldBadge from "./top-bar/TopBarHeldBadge.svelte";
   import TopBarUsage from "./top-bar/TopBarUsage.svelte";
   import TopBarUsagePopover from "./top-bar/TopBarUsagePopover.svelte";
@@ -65,6 +67,8 @@
     mobile = false,
     touch = false,
     limits = null,
+    heavySlot = null,
+    onheavyslotrelease,
     onsettings,
     ondonelens,
     onowedlens,
@@ -107,6 +111,9 @@
     mobile?: boolean;
     touch?: boolean;
     limits?: UsageLimits | null;
+    /** The host-wide check slot; null/disabled → no chip. */
+    heavySlot?: HeavySlotSnapshot | null;
+    onheavyslotrelease?: (sessionId: string) => Promise<void>;
     onsettings?: () => void;
     /** Phone only: opens the Done lens from the gear menu, since its segment left the
      *  lens row (D11, docs/design/mobile-herd). */
@@ -920,6 +927,14 @@
     {clickStatus}
   />
   <div class="rightside">
+    <HeavySlotChip
+      {heavySlot}
+      {sessions}
+      {nowMs}
+      compact={mobile || compactBadges}
+      onrelease={async (id) => onheavyslotrelease?.(id)}
+      {onsettings}
+    />
     {#if mobile || !usageTriggerShown}
       <TopBarHeldBadge
         heldCount={heldCount ?? 0}

@@ -1,7 +1,7 @@
 // Short-lived Darwin-only process. Never import this FFI module into the server.
 import { dlopen, FFIType, ptr, read } from "bun:ffi";
 import { execFile } from "node:child_process";
-import { collectDarwinMarkers } from "./proc-markers-darwin";
+import { collectDarwinMarkers } from "./proc-markers-darwin-core";
 
 async function main() {
   if (process.platform !== "darwin") throw new Error("Darwin only");

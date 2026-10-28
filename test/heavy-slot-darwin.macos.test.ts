@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { scanMarkersDarwin, type DarwinMarkerScan } from "../src/proc-markers-darwin";
+import { scanMarkersDarwin } from "../src/proc-markers-darwin";
+import type { DarwinMarkerScan } from "../src/proc-markers-darwin-core";
 import { sampleMemoryDarwin } from "../src/heavy-slot-darwin";
 import { HeavySlotService, type HeavySlotDeps } from "../src/heavy-slot";
 import { defaultHeavySlotBudget } from "../src/heavy-slot-core";

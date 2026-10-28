@@ -1,9 +1,6 @@
 import { expect, test } from "bun:test";
-import {
-  parseProcArgsMarker,
-  collectDarwinMarkers,
-  makeDarwinMarkerScanner,
-} from "../src/proc-markers-darwin";
+import { parseProcArgsMarker, collectDarwinMarkers } from "../src/proc-markers-darwin-core";
+import { makeDarwinMarkerScanner } from "../src/proc-markers-darwin";
 
 function args(argv: string[], env: string[]) {
   const argc = Buffer.alloc(4);

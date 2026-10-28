@@ -16,7 +16,8 @@
 import { readdir, readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { cpus, totalmem } from "node:os";
-import { scanMarkersDarwin, type DarwinMarkerScan } from "./proc-markers-darwin";
+import { scanMarkersDarwin } from "./proc-markers-darwin";
+import type { DarwinMarkerScan } from "./proc-markers-darwin-core";
 import { sampleMemoryDarwin } from "./heavy-slot-darwin";
 import { captureRevision } from "./heavy-slot-revision";
 import { type HeavySlotSnapshot, OPERATOR_HOLDER } from "./heavy-slot-snapshot";
@@ -307,22 +308,7 @@ export class HeavySlotService {
 
   /** Marker liveness, plus positive process-group evidence on macOS; null = unknown. */
   async #aliveMap(jobs: readonly HeavyJob[]): Promise<(job: HeavyJob) => boolean | null> {
-    if (this.#platform === "darwin") {
-      const groupAlive = this.#deps.groupAlive ?? defaultGroupAlive;
-      if (jobs.length === 0) return () => null;
-      const found = await (this.#deps.scanMarkersDarwin ?? scanMarkersDarwin)(
-        new Set(jobs.map((j) => j.id)),
-      ).catch(() => ({ procs: new Map<string, ProcStat>(), complete: false }));
-      for (const job of jobs) {
-        const stat = found.procs.get(job.id);
-        if (stat) this.#procs.set(job.id, stat);
-        else if (found.complete) this.#procs.delete(job.id);
-      }
-      return (job) => {
-        if (found.procs.has(job.id) || (job.pgid !== null && groupAlive(job.pgid))) return true;
-        return found.complete ? false : null;
-      };
-    }
+    if (this.#platform === "darwin") return this.#aliveDarwin(jobs);
     const scan = this.#deps.scanMarkers ?? (this.#platform === "linux" ? scanMarkersLinux : null);
     const found = scan && jobs.length > 0 ? await scan(new Set(jobs.map((j) => j.id))) : null;
     if (!found) return () => null;
@@ -332,6 +318,23 @@ export class HeavySlotService {
       else this.#procs.delete(job.id);
     }
     return (job) => found.has(job.id);
+  }
+
+  async #aliveDarwin(jobs: readonly HeavyJob[]): Promise<(job: HeavyJob) => boolean | null> {
+    const groupAlive = this.#deps.groupAlive ?? defaultGroupAlive;
+    if (jobs.length === 0) return () => null;
+    const found = await (this.#deps.scanMarkersDarwin ?? scanMarkersDarwin)(
+      new Set(jobs.map((j) => j.id)),
+    ).catch(() => ({ procs: new Map<string, ProcStat>(), complete: false }));
+    for (const job of jobs) {
+      const stat = found.procs.get(job.id);
+      if (stat) this.#procs.set(job.id, stat);
+      else if (found.complete) this.#procs.delete(job.id);
+    }
+    return (job) => {
+      if (found.procs.has(job.id) || (job.pgid !== null && groupAlive(job.pgid))) return true;
+      return found.complete ? false : null;
+    };
   }
 
   /** One sweep: sample memory while anyone waits, scan holders, settle, refill, announce. The

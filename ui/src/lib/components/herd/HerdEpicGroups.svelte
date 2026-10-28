@@ -56,12 +56,18 @@
 {/each}
 
 <style>
-  /* Child rows of an epic group sit lightly inset under their headline so the
-     group reads as one unit. A hairline rail on the leading edge reinforces the
-     nesting without a heavy indent. Token-based; no raw px color. */
+  /* Child rows of an epic group nest by indentation alone: their pips shift one --nest step
+     right of the top-level pips. No rail — a vertical line here doubled up with the rows'
+     own edges. */
   .epic-children {
-    padding-left: 10px;
-    margin-left: 4px;
-    border-left: 1px solid color-mix(in srgb, var(--color-blue) 30%, var(--color-line));
+    --nest: 20px;
+  }
+  .epic-children :global(.unit) {
+    padding-left: calc(14px + var(--nest));
+  }
+  @container herd (max-width: 300px) {
+    .epic-children {
+      --nest: 12px;
+    }
   }
 </style>

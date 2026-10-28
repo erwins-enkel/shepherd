@@ -750,13 +750,35 @@ describe("Herd epic grouping", () => {
     });
     // group header present
     await expect.element(page.getByText("Big epic")).toBeInTheDocument();
-    // children render under the group rail
+    // children render inside the epic group
     const rail = document.querySelector(".epic-children")!;
     expect(rail.textContent).toContain("grouped one");
     expect(rail.textContent).toContain("grouped two");
-    // the non-epic session renders, but NOT inside the group rail
+    // the non-epic session renders, but NOT inside the epic group
     await expect.element(page.getByText("plain non-epic")).toBeInTheDocument();
     expect(rail.textContent).not.toContain("plain non-epic");
+  });
+
+  it("epic children nest by indent, not a rail", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "g1", name: "grouped one", issueNumber: 11 }),
+        session({ id: "n1", name: "plain non-epic", issueNumber: 999 }),
+      ],
+      git: {},
+      epics,
+      activeEpicKeys,
+    });
+    await expect.element(page.getByText("grouped one")).toBeInTheDocument();
+    const group = document.querySelector(".epic-children") as HTMLElement;
+    expect(getComputedStyle(group).borderLeftWidth).toBe("0px");
+    const pad = (id: string) =>
+      parseFloat(getComputedStyle(document.querySelector(`[data-unit-id="${id}"]`)!).paddingLeft);
+    expect(pad("g1")).toBeGreaterThan(pad("n1"));
+    // a headless group's first row keeps its ledger hairline (nothing else divides it)
+    const g1 = document.querySelector('[data-unit-id="g1"]')!;
+    expect(getComputedStyle(g1).borderTopColor).not.toBe("rgba(0, 0, 0, 0)");
   });
 
   it("collapse hides children but keeps the header + cue chips; toggle fires with the group key", async () => {

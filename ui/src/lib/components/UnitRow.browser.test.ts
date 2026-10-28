@@ -2100,36 +2100,73 @@ describe("UnitRow ask-the-assistant action (#1446)", () => {
   });
 });
 
-// The rail's job after a global jump: say unmistakably WHICH session is selected. Both
-// cues are asserted through computed style (app.css is imported above), not class names,
-// so a rule that stops applying — a renamed token, a specificity collision with the
-// attention wash — fails here rather than shipping a silently flat row.
+// The list's job after a global jump: say unmistakably WHICH session is selected. The cues
+// are asserted through computed style (app.css is imported above), not class names, so a
+// rule that stops applying — a renamed token, a specificity collision with the attention
+// wash — fails here rather than shipping a silently flat row.
 describe("UnitRow selection cues", () => {
   const unit = (screen: { container: HTMLElement }, id: string) =>
     screen.container.querySelector(`[data-unit-id="${id}"]`) as HTMLElement;
+  // resolve a colour token to the computed rgb() string the browser compares against
+  const token = (name: string, prop: "color" | "backgroundColor" = "color") => {
+    const probe = document.createElement("span");
+    probe.style[prop] = `var(${name})`;
+    document.body.append(probe);
+    const v = getComputedStyle(probe)[prop];
+    probe.remove();
+    return v;
+  };
 
-  it("selected: the status rule widens to 3px (width, not hue, carries the cue)", async () => {
+  it("selected: a cursor line — sel ground + bright hairlines, no side rule", async () => {
     const screen = await render(UnitRow, {
-      session: session({ id: "sel-row", name: "sel row" }),
+      session: session({ id: "sel-row", name: "sel row", status: "running" }),
       selected: true,
       nowMs: Date.now(),
       onselect: () => {},
     });
+    const el = () => unit(screen, "sel-row");
     await expect
-      .poll(() => getComputedStyle(unit(screen, "sel-row"), "::before").width)
-      .toBe("3px");
+      .poll(() => getComputedStyle(el()).backgroundColor)
+      .toBe(token("--color-sel", "backgroundColor"));
+    expect(getComputedStyle(el()).borderTopColor).toBe(token("--color-line-bright"));
+    expect(getComputedStyle(el()).boxShadow).toContain(token("--color-line-bright"));
+    expect(getComputedStyle(el(), "::before").content).toBe("none");
+    expect(getComputedStyle(el(), "::after").content).toBe("none");
   });
 
-  it("unselected: the same rule stays a 1px hairline", async () => {
+  it("unselected: plain ledger row — hairline above, no side rule, no ground", async () => {
     const screen = await render(UnitRow, {
-      session: session({ id: "plain-row", name: "plain row" }),
+      session: session({ id: "plain-row", name: "plain row", status: "running" }),
       selected: false,
       nowMs: Date.now(),
       onselect: () => {},
     });
+    const el = () => unit(screen, "plain-row");
+    await expect.poll(() => getComputedStyle(el()).borderTopColor).toBe(token("--color-line"));
+    expect(getComputedStyle(el()).borderLeftWidth).toBe("0px");
+    expect(getComputedStyle(el()).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(el(), "::before").content).toBe("none");
+  });
+
+  it("idle names recede to ink; working names stay bright", async () => {
+    const idle = await render(UnitRow, {
+      session: session({ id: "idle-row", name: "idle row", status: "idle" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    const working = await render(UnitRow, {
+      session: session({ id: "busy-row", name: "busy row", status: "running" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    const name = (s: { container: HTMLElement }, id: string) =>
+      unit(s, id).querySelector(".name") as HTMLElement;
     await expect
-      .poll(() => getComputedStyle(unit(screen, "plain-row"), "::before").width)
-      .toBe("1px");
+      .poll(() => getComputedStyle(name(idle, "idle-row")).color)
+      .toBe(token("--color-ink"));
+    expect(getComputedStyle(name(working, "busy-row")).color).toBe(token("--color-ink-bright"));
   });
 
   it("jumpFlash outlines the row; without it there is no outline", async () => {

@@ -101,7 +101,10 @@
     ctx,
   }: HerdGroupProps = $props();
   // Resolved here, not as a class: directive (keeps the template under its complexity cap).
-  const rowsClass = $derived(quiet ? "rows quiet" : "rows");
+  // `headed`: a ruled head sits directly above, so the first row drops its hairline.
+  const rowsClass = $derived(
+    ["rows", quiet && "quiet", headClass && "headed"].filter(Boolean).join(" "),
+  );
 </script>
 
 {#if headClass}
@@ -205,13 +208,20 @@
 {/if}
 
 <style>
-  /* layout-neutral row wrapper: exists only to scope the quiet ink step below */
+  /* layout-neutral row wrapper: scopes the quiet ink step and the first-row hairline below */
   .rows {
     display: contents;
   }
   .rows.quiet {
     --color-ink-bright: var(--ink);
     --color-ink: var(--muted);
+  }
+  /* under a rendered head (which draws its own rule) the first row drops its ledger
+     hairline, unless selected: the cursor line keeps its bright top edge. Headless groups
+     (active group, epic/experiment children) keep it so rows stay divided. */
+  .rows.headed > :global(.unit:first-child:not(.sel)),
+  .rows.headed > :global(.swipe-wrap:first-child .unit:not(.sel)) {
+    border-top-color: transparent;
   }
 
   .micro {

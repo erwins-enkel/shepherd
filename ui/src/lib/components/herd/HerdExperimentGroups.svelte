@@ -105,12 +105,19 @@
   .exp-compare {
     margin-left: auto;
   }
-  /* Mirror the epic group's leading rail so the comparison set reads as one unit. */
+  /* Mirror the epic group's nesting: indentation, no rail. */
   .exp-children {
-    padding-left: 10px;
-    margin-left: 4px;
-    border-left: 1px solid color-mix(in srgb, var(--color-blue) 30%, var(--color-line));
+    --nest: 20px;
   }
+  .exp-children :global(.unit) {
+    padding-left: calc(14px + var(--nest));
+  }
+  @container herd (max-width: 300px) {
+    .exp-children {
+      --nest: 12px;
+    }
+  }
+
   /* Canonical .gbtn recipe (see /design-system). */
   .gbtn {
     background: transparent;

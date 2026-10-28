@@ -239,6 +239,13 @@ Shadows are permitted in exactly one situation: a summoned overlay. Bottom sheet
 - **Shadow Strategy:** None at rest (see Elevation).
 - **Internal Padding:** 10px 14px is the standard toolbar/panel inset; gaps of 8 to 10px between controls.
 
+### Herd Row (ledger)
+
+- **Structure:** rows are ledger lines split by a 1px Hairline above each row. No card borders, no per-row colour rule: the status pip carries state.
+- **Selection:** the terminal's cursor line. The row steps to the `sel` ground and its hairlines above and below brighten to Bright Hairline. Selection is not a status, so it never takes a status hue.
+- **Nesting:** epic and experiment children nest by indentation (one 20px step, 12px in a compact sidebar), never by a rail.
+- **Quiet rows:** an idle row's name steps down from Bright Phosphor to Phosphor Ink so working and blocked rows lead. A WAITING row stays bright: it is parked for the operator's next steer.
+
 ### Status Pip (signature)
 
 - A 9px circle filled with the status color (amber / red / slate). The "working" pip pulses via an expanding, fading halo (`pip-pulse`, 1.5s ease-out — a compositor-only transform/opacity pseudo-element, not an animated box-shadow). A ready-to-ship agent shows a bare green check glyph instead of a filled dot — green is reserved for that actionable-complete state. A WAITING (`done`) agent is parked, not complete, so it shares the idle slate hue but takes a hollow ring instead of idle's solid dot. Status never relies on hue alone: position, the pulse, the check glyph, the hollow-vs-solid ring, and the WORKING / WAITING / IDLE / BLOCKED label all carry meaning.
@@ -275,5 +282,6 @@ Shadows are permitted in exactly one situation: a summoned overlay. Bottom sheet
 - **Don't** make it **crypto/gamer neon**: no glow-on-black spectacle, RGB accents, or glassmorphism. Style must never outrun signal.
 - **Don't** put a drop shadow on a resting surface, or round a structural panel. Flat and square is the doctrine.
 - **Don't** use a colored side-stripe (`border-left`/`border-right` > 1px) as an accent. Use a full hairline, a tonal tint, or a leading pip instead.
+- **Don't** draw a vertical rule in a list to show status, selection or nesting. The pip, the cursor line and the indent carry them.
 - **Don't** spend a status hue on decoration, or let visible chroma climb above ~10% of a screen at rest.
 - **Don't** fill the primary button solid amber. It is an outline ghost with an inset glow.

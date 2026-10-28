@@ -1214,6 +1214,7 @@
     class:jump-flash={jumpFlash}
     class:has-activity={live}
     class:awaits-operator={awaitsOperator}
+    class:idle={dStatus === "idle" && !session.readyToMerge}
     class:decommissioning
     class:link-lost={session.connection?.state === "disconnected"}
     data-unit-id={session.id}
@@ -1510,9 +1511,12 @@
     column-gap: 12px;
     row-gap: 3px;
     align-items: start;
-    padding: 11px 13px 11px 14px;
-    border: 1px solid transparent;
-    border-radius: 2px;
+    padding: 11px 14px;
+    /* Ledger row: a hairline above each row is the only divider. No side borders and no
+       per-row colour rule — the pip carries status, the cursor line (below) selection. */
+    border: 0;
+    border-top: 1px solid var(--color-line);
+    border-radius: 0;
     cursor: pointer;
     background: transparent;
     color: inherit;
@@ -1571,17 +1575,11 @@
     outline-offset: -1.5px;
   }
 
-  :global(.unit + .unit),
-  :global(.swipe-wrap + .swipe-wrap) {
-    margin-top: 2px;
-  }
-
   /* swipe-to-decommission (coarse pointer): the row slides left over a
      destructive action revealed behind it. */
   .swipe-wrap {
     position: relative;
     overflow: hidden;
-    border-radius: 2px;
   }
 
   .reveal {
@@ -1672,40 +1670,19 @@
     }
   }
 
-  .unit::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 8px;
-    bottom: 8px;
-    width: 1px;
-    background: var(--rule, var(--color-faint));
-    pointer-events: none;
-  }
-
-  /* Selection accent. --sel and --hover sit a few RGB steps apart in the dark theme, so
-     the background alone loses a glance — especially against a row carrying the
-     --wash-attention tint. Widening the status rule the row already draws makes the
-     selected row win without adding a colour: the cue is WIDTH (1px → 3px), which keeps
-     it legible independently of hue (WCAG 1.4.1). */
-  .unit.sel::before {
-    width: 3px;
-  }
-
   .unit:hover {
-    border-color: var(--color-line);
     background: var(--color-hover);
   }
 
+  /* Selection is the terminal's cursor line: one step brighter ground, framed by the row's
+     own hairlines brightened above and below. --sel and --hover sit a few RGB steps apart in
+     the dark theme, so the bright hairlines carry the cue at a glance (also against a row
+     carrying the --wash-attention tint) without borrowing a status hue — selection is not a
+     status. */
   .unit.sel {
-    border-color: var(--color-line-bright);
-    background:
-      radial-gradient(
-        120% 140% at 0% 50%,
-        color-mix(in srgb, var(--rule) 12%, transparent),
-        transparent 70%
-      ),
-      var(--color-sel);
+    background: var(--color-sel);
+    border-top-color: var(--color-line-bright);
+    box-shadow: inset 0 -1px 0 var(--color-line-bright);
   }
 
   /* Post-jump flash: a global jump (command bar, deep link, notification) scrolled this
@@ -1719,18 +1696,10 @@
     outline-offset: -2px;
   }
 
-  /* bracket corners on selected */
-  .unit.sel::after {
-    content: "";
-    position: absolute;
-    bottom: -1px;
-    right: -1px;
-    width: 9px;
-    height: 9px;
-    border: 1px solid var(--color-line-bright);
-    border-left: 0;
-    border-top: 0;
-    pointer-events: none;
+  /* Idle rows recede one ink step so working and blocked rows lead. WAITING stays bright:
+     it is parked for the operator's next steer, not dormant. */
+  .unit.idle .name {
+    color: var(--color-ink);
   }
 
   /* Card-level attention wash: the agent has stopped and awaits a direct operator
@@ -1746,13 +1715,7 @@
     background: color-mix(in srgb, var(--color-hover) 55%, var(--wash-attention));
   }
   .unit.awaits-operator.sel {
-    background:
-      radial-gradient(
-        120% 140% at 0% 50%,
-        color-mix(in srgb, var(--rule) 12%, transparent),
-        transparent 70%
-      ),
-      color-mix(in srgb, var(--color-sel) 78%, var(--wash-attention));
+    background: color-mix(in srgb, var(--color-sel) 78%, var(--wash-attention));
   }
 
   .pip-col {

@@ -766,6 +766,10 @@
   }
   .panel {
     flex-direction: column;
+  }
+  /* Device stacks loose blocks (segmented pickers carry no vertical padding) straight
+     in the panel; the SettingRow panels stay flush, their hairline rows own the rhythm. */
+  #settings-panel-device {
     gap: 16px;
   }
   /* Keyboard focus on the tabpanel gets a quiet inset hairline (tabindex=0 stop). */

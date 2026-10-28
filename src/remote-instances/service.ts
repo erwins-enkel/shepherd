@@ -221,6 +221,10 @@ function machineInfo({ version, federationApi, platform, arch }: InstanceIdentit
   return { version, federationApi, platform, arch };
 }
 
+function heavySlotReport(state: ProbeState | undefined): RemoteInstanceSummary["heavySlot"] {
+  return state?.heavySlot ? { ...state.heavySlot, stale: state.status !== "connected" } : null;
+}
+
 export class RemoteInstanceService {
   private readonly states = new Map<string, ProbeState>();
   private readonly inflight = new Map<string, Promise<void>>();
@@ -581,9 +585,7 @@ export class RemoteInstanceService {
       projects: state?.projects ?? null,
       capabilities: state?.capabilities ? capabilityReport(state.capabilities, this.now()) : null,
       load: this.loadReport(row.instanceId),
-      heavySlot: state?.heavySlot
-        ? { ...state.heavySlot, stale: state.status !== "connected" }
-        : null,
+      heavySlot: heavySlotReport(state),
       released: state?.info ? platformReleased(state.info.platform) : false,
     };
   }

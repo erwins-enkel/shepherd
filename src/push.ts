@@ -894,8 +894,12 @@ export function notifySessionDone(
   push: PushService,
   store: Pick<SessionStore, "get">,
   id: string,
+  /** True while the session waits for the heavy-check slot: it keeps working, so a "finished"
+   *  push would mislead (#3551). */
+  isWaitingOnSlot?: (id: string) => boolean,
 ): Promise<boolean> {
   const s = store.get(id);
+  if (isWaitingOnSlot?.(id)) return Promise.resolve(false);
   // The Operator Assistant never pushes: the operator is talking to it in its panel (#1446).
   if (isOperatorAssistant(s)) return Promise.resolve(false);
   return push.notify({ kind: "done", sessionId: id, tag: id, name: s?.name ?? id });
@@ -906,12 +910,17 @@ export const LOGIN_REASON_PUSH_CHARS = 160;
 
 /** Bridge F3 state events to push notifications. Both events are already edge-triggered. The
  *  Operator Assistant never pushes: the operator is talking to it in its panel (#1446). */
-export function attachPush(events: EventHub, store: SessionStore, push: PushService): void {
+export function attachPush(
+  events: EventHub,
+  store: SessionStore,
+  push: PushService,
+  isWaitingOnSlot?: (id: string) => boolean,
+): void {
   events.subscribe((event, data) => {
     if (event === "session:status") {
       const { id, status } = data as { id: string; status: string };
       if (status !== "done") return;
-      void notifySessionDone(push, store, id);
+      void notifySessionDone(push, store, id, isWaitingOnSlot);
     } else if (event === "session:block") {
       const { id, block } = data as { id: string; block: BlockReason | null };
       if (!block) return;

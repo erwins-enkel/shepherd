@@ -162,6 +162,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/manual-steps/outstanding"),
   get("/api/held"),
   get("/api/usage/limits"),
+  get("/api/heavy-slot"),
   get("/api/update"),
   get("/api/update/log"),
   get("/api/herdr-update"),
@@ -315,6 +316,8 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/retry",
     "/api/broadcast",
     "/api/revive-stranded",
+    // The demo's slot is always off, so no popover exists to release from.
+    "/api/heavy-slot/release",
   ],
 
   // Actions on a session that the scripted demo never drives. Each returns `{ok:true}`,

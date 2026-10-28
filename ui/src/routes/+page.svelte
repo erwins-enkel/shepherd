@@ -30,6 +30,8 @@
     stageRelaunchImages,
     ApiError,
     getUsageLimits,
+    getHeavySlot,
+    releaseHeavySlot,
     getUpdate,
     listMachineUpdates,
     getUpdateLog,
@@ -167,6 +169,7 @@
   import type { KickoffChoice } from "#lib/components/NewProject.svelte";
   import ActionBar from "#lib/components/ActionBar.svelte";
   import QueueStrip from "#lib/components/QueueStrip.svelte";
+  import HeavySlotStrip from "#lib/components/heavy-slot/HeavySlotStrip.svelte";
   import RepoSwitcher from "#lib/components/RepoSwitcher.svelte";
   import {
     nextRepoFilter,
@@ -1078,6 +1081,9 @@
     getUsageLimits()
       .then((r) => store.setUsageLimits(r.limits))
       .catch(() => {});
+    getHeavySlot()
+      .then((r) => store.setHeavySlot(r))
+      .catch(() => {});
     gitStates()
       .then((m) => store.setGit(m))
       .catch(() => {});
@@ -1897,6 +1903,12 @@
   // repo/status filter currently hides it. Shared by the command bar and auto-merge strip.
   // Routed through jumpHandlers (herd-jump.ts) so a target in a collapsed group is
   // revealed before selection.
+  /** Free a holder's slot, then re-read the snapshot so chip, strip and popover agree. */
+  async function releaseSlot(id: string) {
+    await releaseHeavySlot(id);
+    store.setHeavySlot(await getHeavySlot());
+  }
+
   function jumpToSession(id: string) {
     void jumpHandlers.jumpToSession(id);
   }
@@ -2340,6 +2352,9 @@
     void machines.refresh();
     getUsageLimits()
       .then((r) => store.setUsageLimits(r.limits))
+      .catch(() => {});
+    getHeavySlot()
+      .then((r) => store.setHeavySlot(r))
       .catch(() => {});
     getUpdate()
       .then((u) => store.setUpdate(u))
@@ -3648,6 +3663,8 @@
         mobile={mobile.current}
         touch={touch.current}
         limits={store.usageLimits}
+        heavySlot={store.heavySlot}
+        onheavyslotrelease={releaseSlot}
         onsettings={() => {
           settingsTab = "workspace";
           settingsDeepLink = false;
@@ -3696,6 +3713,11 @@
            renders it in the sidebar column instead (see .herd-col). -->
       {@render repoRail(railInChrome)}
       <QueueStrip autoMerge={store.autoMerge} onselect={jumpToSession} />
+      <HeavySlotStrip
+        heavySlot={store.heavySlot}
+        sessions={store.sessions}
+        onselect={jumpToSession}
+      />
     </header>
   {/if}
 

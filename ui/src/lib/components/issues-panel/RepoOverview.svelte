@@ -17,9 +17,11 @@
   } from "../epic-panel";
   import { epicKey, STALE_DAYS, type RunningIssue, type StaleSummary } from "../issues-panel";
   import { epicHaltView, repoHaltView } from "../repo-halt";
+  import { drainHold } from "../epic-hold";
   import RunPanel from "./RunPanel.svelte";
   import RepoHaltBanner from "./RepoHaltBanner.svelte";
   import EpicCardHalt from "./EpicCardHalt.svelte";
+  import EpicHoldLine from "./EpicHoldLine.svelte";
   import "./halt-controls.css";
   import EpicRunSteps from "./EpicRunSteps.svelte";
   import EpicRoleBadge from "./EpicRoleBadge.svelte";
@@ -34,7 +36,8 @@
   // when the list's filters hide it) and what has lain untouched, right the open issues per
   // label as list filters; then the next step. No second issue list — the list is right there.
   // A halt in the repo's sandbox or on this host is said once, at the top of the run area; each
-  // epic card shows its own cause or its pre-check (#3456).
+  // epic card shows its own cause or its pre-check (#3456). The drain's other holds likewise: the
+  // repo's (project bootstrap) once at the top, the run's or the epic's at its card (#3457).
 
   let {
     repoPath,
@@ -151,13 +154,22 @@
       }),
     ),
   );
-  const showLegend = $derived(repoHalt != null || Object.keys(cardHalts).length > 0);
+  // #3457: bootstrap, usage, base, agent or approval — with the action that already exists.
+  const hold = $derived(drainHold(drain));
+  const repoHold = $derived(hold?.scope === "repo" ? hold : null);
+  const showLegend = $derived(
+    repoHalt != null || Object.keys(cardHalts).length > 0 || hold != null,
+  );
   // The banner's chooser offers the held epic's ways; a fix confirms where it was applied.
   const bannerTarget = $derived(repoHalt ? (precheck.models[repoHalt.target] ?? null) : null);
   const bannerFix = $derived(precheck.applied?.at === "repo" ? precheck.applied : null);
 
   function cardHalt(parent: number) {
     return cardHalts[parent] ?? null;
+  }
+  /** The run's or the epic's hold, at the card of the epic the drain runs. */
+  function cardHold(parent: number) {
+    return hold && hold.scope !== "repo" && drain?.epicParent === parent ? hold : null;
   }
   function cardFix(parent: number) {
     const fix = precheck.applied;
@@ -221,6 +233,15 @@
       onapply={applyBannerWay}
       onundo={() => void precheck.undo()}
     />
+    {#if repoHold}
+      <EpicHoldLine
+        {repoPath}
+        parent={drain?.epicParent ?? null}
+        view={repoHold}
+        {onopensession}
+        {onopenautomation}
+      />
+    {/if}
     {#if steps}
       <EpicRunSteps {repoPath} {steps} {titleFor} {onopensession} />
     {/if}
@@ -255,6 +276,7 @@
       <ul class="rows">
         {#each cards as { epic, role, position } (epic.parentIssueNumber)}
           {@const parent = epic.parentIssueNumber}
+          {@const own = cardHold(parent)}
           <li>
             <button
               class="orow"
@@ -281,6 +303,11 @@
               <span class="arrow" aria-hidden="true">›</span>
             </button>
             <!-- Beside the card's button, not in it: the halt has buttons of its own. -->
+            {#if own}
+              <div class="card-hold">
+                <EpicHoldLine {repoPath} {parent} view={own} {onopensession} {onopenautomation} />
+              </div>
+            {/if}
             <EpicCardHalt
               view={cardHalt(parent)}
               {repoName}
@@ -306,6 +333,12 @@
             <span class="hc-chip">{m.epic_autofix_scope_host()}</span>
             {m.repooverview_legend_host()}
           </li>
+          {#if hold?.scope === "run"}
+            <li>
+              <span class="hc-chip">{m.epic_autofix_scope_run()}</span>
+              {m.repooverview_legend_run()}
+            </li>
+          {/if}
         </ul>
       {/if}
     </section>
@@ -526,6 +559,11 @@
   .slots-value {
     color: var(--color-ink);
     font-size: var(--fs-meta);
+  }
+
+  /* #3457: the drain's hold at its epic's card, indented as EpicCardHalt's lines. */
+  .card-hold {
+    padding: 0 8px 6px;
   }
 
   /* #3456: what the scope chips mean, once under the epics. */

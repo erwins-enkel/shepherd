@@ -34,6 +34,7 @@ const PREFIXES: ReadonlyArray<readonly [string, SteerKind]> = [
   ["The plan reviewer raised", "plan_review"],
   ["Shepherd could not run the plan reviewer", "plan_review"],
   ["The operator answered the open questions", "plan_review"],
+  ["The operator edited `.shepherd-plan.md`", "plan_review"],
   ["The PR critic reviewed your latest push", "review"],
   ["🔄 Your build-queue step statuses", "queue"],
   ["⟳ Your last response was cut off by a transient API error", "api_retry"],

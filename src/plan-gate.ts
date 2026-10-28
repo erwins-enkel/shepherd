@@ -14,6 +14,8 @@ import type {
   Session,
   PlanGate,
   PlanDecision,
+  PlanEdit,
+  PlanEditKind,
   PlanSummaryCode,
   AgentProvider,
   ReviewerEnv,
@@ -2284,6 +2286,157 @@ export function planAnswerSteerText(resolved: ResolvedAnswer[]): string {
     lines.join("\n") +
     "\n\nDon't start implementing yet — wait for the plan to be approved."
   );
+}
+
+// ── Operator plan edits (#3514) ────────────────────────────────────────────────
+
+/** A shape-checked `POST /api/sessions/:id/plan-edits` body. `plan` is the authoritative new file
+ *  content; `edits` describe it for the planning agent. */
+export interface PlanEditsRequest {
+  baseHash: string;
+  plan: string;
+  edits: PlanEdit[];
+}
+
+const PLAN_EDIT_KINDS: ReadonlySet<string> = new Set(["replace", "insert", "delete", "comment"]);
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Shape-check a plan-edits body. Returns the request, or the 400 message. `mode` may only be
+ *  `"resubmit"` (the default); #3518 adds `"go"`. Edit ids must be unique — a mismatch names one. */
+export function parsePlanEditsRequest(body: unknown): PlanEditsRequest | { error: string } {
+  if (!isRecord(body)) return { error: "body must be an object" };
+  const { baseHash, plan, edits, mode } = body;
+  if (typeof baseHash !== "string" || !baseHash) return { error: "baseHash must be a string" };
+  if (typeof plan !== "string" || !plan.trim()) return { error: "plan must be a non-blank string" };
+  if (mode !== undefined && mode !== "resubmit") return { error: 'mode must be "resubmit"' };
+  if (!Array.isArray(edits) || edits.length === 0) return { error: "edits must not be empty" };
+  const out: PlanEdit[] = [];
+  for (const raw of edits) {
+    const edit = parsePlanEdit(raw);
+    if (typeof edit === "string") return { error: edit };
+    if (out.some((e) => e.id === edit.id)) return { error: `duplicate edit id ${edit.id}` };
+    out.push(edit);
+  }
+  return { baseHash, plan, edits: out };
+}
+
+/** One edit, or its 400 message. `before`/`after` default to "", a blank `reason` is dropped. */
+function parsePlanEdit(raw: unknown): PlanEdit | string {
+  if (!isRecord(raw)) return "each edit must be an object";
+  const { id, kind, section, before = "", after = "", reason } = raw;
+  if (typeof id !== "string" || !id) return "each edit needs an id";
+  if (typeof kind !== "string" || !PLAN_EDIT_KINDS.has(kind)) return `edit ${id}: unknown kind`;
+  if (typeof section !== "string") return `edit ${id}: section must be a string`;
+  if (typeof before !== "string" || typeof after !== "string")
+    return `edit ${id}: before and after must be strings`;
+  if (reason !== undefined && typeof reason !== "string")
+    return `edit ${id}: reason must be a string`;
+  const edit: PlanEdit = { id, kind: kind as PlanEditKind, section, before, after };
+  if (reason?.trim()) edit.reason = reason;
+  const shape = planEditShapeError(edit);
+  return shape ? `edit ${id}: ${shape}` : edit;
+}
+
+function planEditShapeError(e: PlanEdit): string | null {
+  switch (e.kind) {
+    case "replace":
+      return e.before && e.after && e.before !== e.after ? null : "replace needs a changed text";
+    case "insert":
+      return !e.before && e.after ? null : "insert needs an empty before and a non-empty after";
+    case "delete":
+      return e.before && !e.after ? null : "delete needs a non-empty before and an empty after";
+    case "comment":
+      return e.before && !e.after && e.reason
+        ? null
+        : "comment needs the passage in before, the note in reason and an empty after";
+  }
+}
+
+/** Whether `edits` describes the change from `current` to `next` (#3514). A consistency check,
+ *  not a replay: the plan text changed exactly when there is a text edit, every quoted `before`
+ *  (replace, delete, comment) is in the current plan and every `after` (replace, insert) is in the
+ *  new one. Null when consistent; otherwise the first mismatch, `editId` null when no single edit
+ *  is at fault. Compares trimmed text, like the plan hash. */
+export function checkPlanEdits(
+  current: string,
+  next: string,
+  edits: PlanEdit[],
+): { editId: string | null; error: string } | null {
+  const changed = current.trim() !== next.trim();
+  const textEdits = edits.some((e) => e.kind !== "comment");
+  if (changed && !textEdits)
+    return { editId: null, error: "the plan changed but no edit says how" };
+  if (!changed && textEdits)
+    return { editId: null, error: "text edits, but the plan is unchanged" };
+  for (const e of edits) {
+    if (e.kind !== "insert" && !current.includes(e.before))
+      return { editId: e.id, error: "before is not in the current plan" };
+    if ((e.kind === "replace" || e.kind === "insert") && !next.includes(e.after))
+      return { editId: e.id, error: "after is not in the new plan" };
+  }
+  return null;
+}
+
+const countOf = (n: number, noun: string): string =>
+  n === 0 ? "" : `${n} ${noun}${n === 1 ? "" : "s"}`;
+
+/** `- `/`+ ` diff lines for one side of an edit; an empty side contributes nothing. */
+const diffLines = (text: string, sign: "-" | "+"): string[] =>
+  text ? text.split("\n").map((line) => (line ? `${sign} ${line}` : sign)) : [];
+
+function planEditItem(e: PlanEdit, n: number): string {
+  if (e.kind === "comment") {
+    const where = e.section ? ` (${e.section})` : "";
+    return `[comment ${n}] on "${e.before}"${where}\n${e.reason ?? ""}\n→ rewrite this passage yourself.`;
+  }
+  const lines = [
+    `[edit ${n}]${e.section ? ` ${e.section}` : ""}`,
+    ...diffLines(e.before, "-"),
+    ...diffLines(e.after, "+"),
+  ];
+  if (e.reason) lines.push(`why: ${e.reason}`);
+  return lines.join("\n");
+}
+
+/** Agent-facing steer that hands the operator's plan edits to the planning agent as binding
+ *  decisions (#3514). NOT i18n'd. One steer carries every edit and comment, numbered per kind in
+ *  the order sent, inside one untrusted fence: the edits quote plan text, which is the agent's
+ *  own and may carry issue content. `executing` adds the stop instruction for a session that the
+ *  edit returns to the planning phase. Opens with the steer-log prefix (src/steer-log.ts). */
+export function planEditSteerText(opts: {
+  from: number;
+  to: number;
+  edits: PlanEdit[];
+  executing: boolean;
+}): string {
+  const counters = { edit: 0, comment: 0 };
+  const items = opts.edits.map((e) =>
+    planEditItem(e, e.kind === "comment" ? ++counters.comment : ++counters.edit),
+  );
+  const counts = [countOf(counters.edit, "edit"), countOf(counters.comment, "comment")]
+    .filter(Boolean)
+    .join(", ");
+  const sentences = [
+    `The operator edited \`.shepherd-plan.md\` directly (revision ${opts.from} → ${opts.to}: ${counts}).`,
+  ];
+  if (opts.executing)
+    sentences.push(
+      "This session was executing: STOP implementing. It is back in the planning phase and its " +
+        "approval is withdrawn; do not write or modify any further product code and leave what " +
+        "you have already committed in place.",
+    );
+  if (counters.edit > 0)
+    sentences.push(
+      "These edits are the operator's decisions. Keep them: do not revert, soften or re-argue " +
+        "them. Update every part of the plan that depends on them so it stays consistent.",
+    );
+  if (counters.comment > 0)
+    sentences.push("Rewrite each commented passage yourself, as its comment asks.");
+  sentences.push("Then stop so it can be re-reviewed. Don't start implementing yet.");
+  return `${sentences.join(" ")}\n\n${fenceUntrusted("operator plan edits", items.join("\n\n"))}`;
 }
 
 /** Map the reviewer's raw decision string onto a PlanDecision; null = unrecognized (→ error). */

@@ -3870,3 +3870,101 @@ describe("TopBar — herdr entry points require an available update (#3516)", ()
     });
   }
 });
+
+describe("TopBar — usage updates re-measure only on a width change (fold flicker)", () => {
+  // Every usage update hands TopBar a fresh `limits` object. Re-measuring on each one renders
+  // the full-label bar for a frame before compacting again: the bar visibly flashes, and on an
+  // unfolded fold that frame widens the document, so Chrome Android grows the fixed-position
+  // viewport and every open dialog jumps. The measure effect therefore tracks deduped
+  // primitives — a same-width tick must leave the measured classes untouched, while text that
+  // really grows (a longer credit amount) must still re-measure.
+  const FOLD_WIDTH = 791;
+  const RealResizeObserver = globalThis.ResizeObserver;
+  class NoopResizeObserver {
+    // Mirror the real ResizeObserver(callback) signature so static analysis
+    // doesn't read our production `new ResizeObserver(cb)` as a superfluous arg.
+    constructor(readonly cb?: ResizeObserverCallback) {}
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+
+  async function mountTouch(width: number, initialLimits: UsageLimits) {
+    await page.viewport(width, 900);
+    document.body.style.width = `${width}px`;
+    const { component } = await render(TopBarLimitsHarness, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS["touch-desktop"],
+      ...sessionsProp(2),
+      update: { behind: 3 } as UpdateStatus,
+      initialLimits,
+    });
+    const hud = document.querySelector<HTMLElement>(".hud");
+    expect(hud, "TopBar .hud mounted").not.toBeNull();
+    await waitNoOverflow(hud!);
+    await drainFrames(hud!);
+    return { component, hud: hud! };
+  }
+
+  it("touch-desktop 791 — a same-width usage tick never un-compacts the bar", async () => {
+    const { component, hud } = await mountTouch(FOLD_WIDTH, fullLimits);
+    expect(
+      hud.querySelector(".search")?.classList.contains("compact"),
+      "fold-width bar settles compacted",
+    ).toBe(true);
+
+    // Record every class change in the bar: a re-measure flips the compaction classes off and
+    // back on, which is exactly the flash this guards against.
+    const flips: string[] = [];
+    const observer = new MutationObserver((records) => {
+      for (const r of records) flips.push((r.target as Element).className);
+    });
+    observer.observe(hud, { subtree: true, attributes: true, attributeFilter: ["class"] });
+    try {
+      component.setLimits({
+        ...fullLimits,
+        session5h: { ...fullLimits.session5h!, pct: 89 },
+        week: { ...fullLimits.week!, pct: 65 },
+      });
+      for (let i = 0; i < 6; i++) await nextFrame();
+    } finally {
+      observer.disconnect();
+    }
+    expect(flips, "no measured-class churn on a same-width tick").toEqual([]);
+    assertNoOverflow(hud);
+  });
+
+  // 1100 is where the amount decides it: the short amount fits the full-label bar, the long one
+  // overflows it by ~50px (probed) unless the bar re-measures and compacts.
+  it("touch-desktop 1100 — a wider credit amount re-measures and the bar still fits", async () => {
+    globalThis.ResizeObserver = NoopResizeObserver as unknown as typeof ResizeObserver;
+    try {
+      const credits = (spent: number, cap: number) => ({
+        ...fullLimits,
+        session5h: null,
+        week: null,
+        credits: {
+          pct: 10,
+          spent,
+          cap,
+          currency: "$",
+          resetAt: null,
+          scrapedAt: 1_700_000_000_000,
+          stale: false,
+        },
+      });
+      const { component, hud } = await mountTouch(1100, credits(1, 9));
+      expect(hud.querySelector(".credit-amount"), "credit amount renders inline").not.toBeNull();
+
+      // Same view, same width class — only the amount text grows. With the RO stubbed, only
+      // the measure effect's usage-text dependency can react and re-compact.
+      component.setLimits(credits(123_456.78, 500_000));
+      await nextFrame();
+      await waitNoOverflow(hud);
+      assertControlsHittable(hud);
+    } finally {
+      globalThis.ResizeObserver = RealResizeObserver;
+    }
+  });
+});

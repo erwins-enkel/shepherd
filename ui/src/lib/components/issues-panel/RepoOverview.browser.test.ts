@@ -904,6 +904,14 @@ describe("drain holds (#3457)", () => {
     expect(legend()?.textContent).not.toContain(m.repooverview_legend_run());
   });
 
+  it("in label mode a usage or agent hold has no epic to sit at: no line, no legend", async () => {
+    const label = { epicParent: null, runSummary: { ...drain().runSummary!, leadingEpic: null } };
+    show({ ...label, reason: "usage", detail: "91" });
+    await expect.element(page.getByText("Epic 20").first()).toBeVisible();
+    expect(holds()).toHaveLength(0);
+    expect(legend()).toBeNull();
+  });
+
   it("without a hold the overview draws no hold line and no legend", async () => {
     show({ reason: null, paused: false });
     await expect.element(page.getByText("Epic 20").first()).toBeVisible();

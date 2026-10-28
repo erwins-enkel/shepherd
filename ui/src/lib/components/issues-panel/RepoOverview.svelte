@@ -157,8 +157,12 @@
   // #3457: bootstrap, usage, base, agent or approval — with the action that already exists.
   const hold = $derived(drainHold(drain));
   const repoHold = $derived(hold?.scope === "repo" ? hold : null);
+  // The run's or the epic's hold sits at the card of the epic the drain runs — none in label mode.
+  const epicHold = $derived(
+    hold && hold.scope !== "repo" && drain?.epicParent != null ? hold : null,
+  );
   const showLegend = $derived(
-    repoHalt != null || Object.keys(cardHalts).length > 0 || hold != null,
+    repoHalt != null || Object.keys(cardHalts).length > 0 || repoHold != null || epicHold != null,
   );
   // The banner's chooser offers the held epic's ways; a fix confirms where it was applied.
   const bannerTarget = $derived(repoHalt ? (precheck.models[repoHalt.target] ?? null) : null);
@@ -167,9 +171,8 @@
   function cardHalt(parent: number) {
     return cardHalts[parent] ?? null;
   }
-  /** The run's or the epic's hold, at the card of the epic the drain runs. */
   function cardHold(parent: number) {
-    return hold && hold.scope !== "repo" && drain?.epicParent === parent ? hold : null;
+    return drain?.epicParent === parent ? epicHold : null;
   }
   function cardFix(parent: number) {
     const fix = precheck.applied;
@@ -233,15 +236,13 @@
       onapply={applyBannerWay}
       onundo={() => void precheck.undo()}
     />
-    {#if repoHold}
-      <EpicHoldLine
-        {repoPath}
-        parent={drain?.epicParent ?? null}
-        view={repoHold}
-        {onopensession}
-        {onopenautomation}
-      />
-    {/if}
+    <EpicHoldLine
+      {repoPath}
+      parent={drain?.epicParent ?? null}
+      view={repoHold}
+      {onopensession}
+      {onopenautomation}
+    />
     {#if steps}
       <EpicRunSteps {repoPath} {steps} {titleFor} {onopensession} />
     {/if}
@@ -276,7 +277,6 @@
       <ul class="rows">
         {#each cards as { epic, role, position } (epic.parentIssueNumber)}
           {@const parent = epic.parentIssueNumber}
-          {@const own = cardHold(parent)}
           <li>
             <button
               class="orow"
@@ -303,11 +303,13 @@
               <span class="arrow" aria-hidden="true">›</span>
             </button>
             <!-- Beside the card's button, not in it: the halt has buttons of its own. -->
-            {#if own}
-              <div class="card-hold">
-                <EpicHoldLine {repoPath} {parent} view={own} {onopensession} {onopenautomation} />
-              </div>
-            {/if}
+            <EpicHoldLine
+              {repoPath}
+              {parent}
+              view={cardHold(parent)}
+              {onopensession}
+              {onopenautomation}
+            />
             <EpicCardHalt
               view={cardHalt(parent)}
               {repoName}
@@ -333,7 +335,7 @@
             <span class="hc-chip">{m.epic_autofix_scope_host()}</span>
             {m.repooverview_legend_host()}
           </li>
-          {#if hold?.scope === "run"}
+          {#if epicHold?.scope === "run"}
             <li>
               <span class="hc-chip">{m.epic_autofix_scope_run()}</span>
               {m.repooverview_legend_run()}
@@ -562,8 +564,8 @@
   }
 
   /* #3457: the drain's hold at its epic's card, indented as EpicCardHalt's lines. */
-  .card-hold {
-    padding: 0 8px 6px;
+  .rows > li > :global([data-epic-hold]) {
+    margin: 0 8px 6px;
   }
 
   /* #3456: what the scope chips mean, once under the epics. */

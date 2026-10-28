@@ -209,7 +209,18 @@ import {
   forwardMachineRead,
 } from "./remote-instances/forward";
 import { scopeAllows } from "./token-scopes";
-import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
+import {
+  resolvePlanAnswers,
+  planAnswerSteerText,
+  parsePlanEditsRequest,
+  checkPlanEdits,
+  planEditSteerText,
+  planHashOf,
+  readPlanFile,
+  PLAN_FILE,
+  type PlanEditsRequest,
+  type RawAnswer,
+} from "./plan-gate";
 import type { AnswerAskOutcome } from "./ask-answer-service";
 import { slugifyManual } from "./namer";
 import {
@@ -866,6 +877,9 @@ export interface AppDeps {
     resume?(session: Session): Promise<boolean>;
     /** Reset the plan-gate round WITHOUT re-delivering findings (dismiss the quota block). */
     dismiss?(session: Session): void;
+    /** Cancel the session's in-flight plan review — never the PR critic. An operator plan edit
+     *  (#3514) supersedes the text under review. */
+    cancel?(sessionId: string): Promise<"cancelled" | "skipped" | "none">;
   };
   /** Operator hold / cancel of whichever review (critic or plan gate) is in flight for a session
    *  (the POST /review-hold and /review-cancel routes). Wired in index.ts; absent in tests that
@@ -5858,6 +5872,126 @@ async function handleSessionAnswerPlanQuestions({
   return json({ ok: true, delivered });
 }
 
+// ── Operator plan edits (#3514) ─────────────────────────────────────────────────────────────
+
+/** A session's live `.shepherd-plan.md`: the file text, the hash an edit names as its `baseHash`
+ *  (of the trimmed text — the same digest as `PlanGate.planHash`) and the revision that holds it,
+ *  null when the agent changed the text since the last recorded revision. Null when no plan is
+ *  written. Synchronous: the edit route re-reads it after its last await, right before writing. */
+function livePlan(
+  s: Session,
+  store: AppDeps["store"],
+): { plan: string; planHash: string; revision: number | null } | null {
+  const plan = readPlanFile(s.worktreePath);
+  if (!plan?.trim()) return null;
+  const planHash = planHashOf(plan.trim());
+  const latest = store.latestPlanRevision(s.id);
+  return { plan, planHash, revision: latest?.planHash === planHash ? latest.revision : null };
+}
+
+// GET /api/sessions/:id/plan — the live plan, its hash and revision (#3514): what a client edits and
+// echoes back as `baseHash`. 404 for an unknown id, and code `no_plan` when none is written yet.
+async function handleSessionPlan({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "GET" && parts[2] && parts[3] === "plan" && !parts[4])) return null;
+  const s = deps.store.get(parts[2]);
+  if (!s) return json({ error: "not found" }, 404);
+  const live = livePlan(s, deps.store);
+  return live ? json(live) : json({ error: "no plan written yet", code: "no_plan" }, 404);
+}
+
+const plannerBusy = () =>
+  json({ error: "the planning agent is working", code: "planner_busy" }, 409);
+
+/** The live plan an edit may land on, or the 409 that says why not: the session has no plan to
+ *  edit (plan gate off, archived, no plan file, or executing without an approved gate — the
+ *  re-gate needs one), its agent is working or waiting on a prompt a steer would answer, or the
+ *  plan is no longer the one the operator edited. Synchronous, for the same reason as livePlan. */
+function planEditBase(
+  s: Session,
+  store: AppDeps["store"],
+  baseHash: string,
+): NonNullable<ReturnType<typeof livePlan>> | Response {
+  const phaseOk =
+    s.planPhase === "planning" ||
+    (s.planPhase === "executing" && store.getPlanGate(s.id)?.approved === true);
+  const live = phaseOk && s.status !== "archived" ? livePlan(s, store) : null;
+  if (!live) return json({ error: "this session has no plan to edit", code: "not_editable" }, 409);
+  if (s.status === "running" || s.status === "blocked") return plannerBusy();
+  if (live.planHash !== baseHash)
+    return json(
+      { error: "the plan changed since it was read", code: "plan_changed", ...live },
+      409,
+    );
+  return live;
+}
+
+/** Land an edit: write the file, record the revision and withdraw an approval. No await — see
+ *  handleSessionPlanEdits. A withdrawn gate keeps `approvedAt` (it holds advanceToExecutionOnPr
+ *  off) and `updatedAt` (it dates the verdict). Returns the steer and what the response reports. */
+function applyPlanEdit(
+  s: Session,
+  deps: AppDeps,
+  req: PlanEditsRequest,
+  base: { plan: string; planHash: string },
+): { steer: string; executing: boolean; planHash: string; revision: number } {
+  writeFileSync(join(s.worktreePath, PLAN_FILE), req.plan);
+  const plan = req.plan.trim();
+  const planHash = planHashOf(plan);
+  const { from, to } = deps.store.recordOperatorPlanRevision(
+    s.id,
+    { planHash: base.planHash, plan: base.plan.trim() },
+    { planHash, plan },
+    req.edits,
+  );
+  const gate = deps.store.getPlanGate(s.id);
+  if (gate?.approved) {
+    const withdrawn: PlanGate = { ...gate, approved: false };
+    deps.store.putPlanGate(withdrawn);
+    deps.events.emit("session:plangate", { id: s.id, gate: withdrawn });
+  }
+  const executing = s.planPhase === "executing";
+  const steer = planEditSteerText({ from, to, edits: req.edits, executing });
+  return { steer, executing, planHash, revision: to };
+}
+
+// POST /api/sessions/:id/plan-edits — the operator's edits to `.shepherd-plan.md` (#3514), handed to
+// the planning agent (Claude or Codex alike) as binding decisions in ONE steer. `plan` is the new
+// file and is authoritative; `edits` must describe the change (checkPlanEdits). The edit cancels a
+// plan review in flight, withdraws an approval and — on an executing session — returns it to the
+// planning phase; the normal review runs once the agent stops. Everything that can refuse runs
+// before the first side effect, and again after the cancel's await, directly before the write: a
+// concurrent edit on the same base then fails `plan_changed` instead of both landing.
+async function handleSessionPlanEdits({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "plan-edits")) return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = parsePlanEditsRequest(await req.json().catch(() => null));
+  if ("error" in body) return json({ error: body.error, code: "invalid_body" }, 400);
+  const s = deps.store.get(parts[2]);
+  if (!s) return json({ error: "not found" }, 404);
+  const before = planEditBase(s, deps.store, body.baseHash);
+  if (before instanceof Response) return before;
+  const mismatch = checkPlanEdits(before.plan, body.plan, body.edits);
+  if (mismatch)
+    return json({ error: mismatch.error, code: "edits_mismatch", editId: mismatch.editId }, 400);
+  // A verdict already landing cannot be cancelled; the operator retries once it has.
+  if ((await deps.planGate?.cancel?.(s.id)) === "skipped") return plannerBusy();
+  const fresh = deps.store.get(s.id);
+  if (!fresh) return json({ error: "not found" }, 404);
+  const base = planEditBase(fresh, deps.store, body.baseHash);
+  if (base instanceof Response) return base;
+  const edit = applyPlanEdit(fresh, deps, body, base);
+  const deliver = edit.executing
+    ? deps.service.regateForPlanEdit(s.id, edit.steer)
+    : deps.service.resumeAndReply(s.id, edit.steer);
+  // The edit has landed either way; a steer that could not reach the agent is reported, not thrown.
+  const delivered = await deliver.catch((err: unknown) => {
+    console.warn(`[plan-edits] steer to ${s.id} failed:`, err);
+    return false;
+  });
+  return json({ ok: true, delivered, planHash: edit.planHash, revision: edit.revision });
+}
+
 function previewLauncher(deps: AppDeps): NonNullable<AppDeps["previewLauncher"]> {
   return {
     findDevPort: deps.previewLauncher?.findDevPort ?? findPreviewDevPort,
@@ -7526,6 +7660,8 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionRecommend,
     handleSessionGo,
     handleSessionAnswerPlanQuestions,
+    handleSessionPlan,
+    handleSessionPlanEdits,
     handleSessionAnswerAsk,
     handleSessionReviewPlan,
     handleSessionReviewPr,

@@ -155,6 +155,12 @@ function orphanDisposition(
 /** The plan the planning agent writes in its LIVE session worktree; the reviewer reads its text. */
 export const PLAN_FILE = ".shepherd-plan.md";
 
+/** sha256 of the plan text — what {@link PlanGateService.hashPlan} resolves. Synchronous for a
+ *  caller that must not yield between reading and writing the plan (the plan-edits route, #3514). */
+export function planHashOf(plan: string): string {
+  return createHash("sha256").update(plan).digest("hex");
+}
+
 /** Optional sidecar the planning agent writes next to the plan: a JSON array of visual blocks. */
 const PLAN_BLOCKS_FILE = ".shepherd-plan-blocks.json";
 
@@ -765,7 +771,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
    *  `force` path (consider's `opts.force`) deliberately bypasses this dedupe so an operator's
    *  re-review always runs even when the plan text is byte-identical. */
   static async hashPlan(plan: string): Promise<string> {
-    return createHash("sha256").update(plan).digest("hex");
+    return planHashOf(plan);
   }
 
   /** Recover native Codex turn ends even when a stale questions display keeps herdr blocked. */

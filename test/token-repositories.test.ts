@@ -42,6 +42,9 @@ test("repository policy: method and full leaf must match, including normalized s
     kind: "session",
     id: "abc",
   });
+  // #3514: the plan read and the operator's plan edits are scoped to their session's repository.
+  expect(policy("GET", "/api/sessions/abc/plan")).toEqual({ kind: "session", id: "abc" });
+  expect(policy("POST", "/api/sessions/abc/plan-edits")).toEqual({ kind: "session", id: "abc" });
   expect(policy("GET", "/api/dispatches/k1")).toEqual({ kind: "dispatch", id: "k1" });
   expect(policy("DELETE", "/api/dispatches/k1")).toEqual({ kind: "dispatch", id: "k1" });
   for (const [method, path] of [
@@ -56,6 +59,8 @@ test("repository policy: method and full leaf must match, including normalized s
     ["GET", "/api/sessions/abc/mcp"],
     ["GET", "/api/unknown"],
     ["GET", "/api/sessions%2fabc/activity"],
+    ["POST", "/api/sessions/abc/plan"],
+    ["GET", "/api/sessions/abc/plan-edits"],
   ] as const)
     expect(policy(method, path)).toBeNull();
 });

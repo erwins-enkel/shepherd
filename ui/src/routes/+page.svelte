@@ -1886,6 +1886,12 @@
     settingsDeepLink = true;
     showSettings = true;
   }
+  /** Command bar → Schedules: every repo's scheduled prompts (#3475). */
+  function openSchedulesSettings() {
+    settingsTab = "schedules";
+    settingsDeepLink = true;
+    showSettings = true;
+  }
   /** The assistant panel's mode chip: Settings at what the assistant may do. */
   function openAssistantSettings() {
     settingsTab = "assistant";
@@ -2496,6 +2502,7 @@
         showSettings = true;
       },
       onUsage: () => (showUsage = true),
+      onSchedules: openSchedulesSettings,
       onRetry: () => (showRetry = true),
       onNextNeedsYou: () => selectNextNeedsYou(),
       onDiagnoseEpic: () => (showEpicDiagnose = true),

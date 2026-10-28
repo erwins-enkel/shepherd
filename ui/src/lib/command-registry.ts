@@ -41,6 +41,8 @@ export type CommandCtx = {
   onBroadcast: () => void;
   onSettings: () => void;
   onUsage: () => void;
+  /** Opens Settings on the Schedules section (every repo's scheduled prompts, #3475). */
+  onSchedules: () => void;
   onRetry: () => void;
   onNextNeedsYou: () => void;
   /** Opens the epic-diagnosis entry (repo + arbitrary parent #) — reaches the fully
@@ -106,6 +108,15 @@ export function buildCommands(ctx: CommandCtx): Command[] {
         label: () => m.commandbar_cmd_usage(),
         keywords: () => m.commandbar_cmd_usage_kw(),
         run: ctx.onUsage,
+      },
+    },
+    {
+      available: true,
+      cmd: {
+        id: "schedules",
+        label: () => m.commandbar_cmd_schedules(),
+        keywords: () => m.commandbar_cmd_schedules_kw(),
+        run: ctx.onSchedules,
       },
     },
     {

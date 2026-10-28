@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import de from "../../messages/de.json";
 import { buildCommands, type CommandCtx } from "./command-registry";
 
 function ctx(overrides: Partial<CommandCtx> = {}): CommandCtx {
@@ -7,6 +8,7 @@ function ctx(overrides: Partial<CommandCtx> = {}): CommandCtx {
     onBroadcast: vi.fn(),
     onSettings: vi.fn(),
     onUsage: vi.fn(),
+    onSchedules: vi.fn(),
     onRetry: vi.fn(),
     onNextNeedsYou: vi.fn(),
     onDiagnoseEpic: vi.fn(),
@@ -31,6 +33,7 @@ describe("buildCommands — availability", () => {
       "broadcast",
       "settings",
       "usage",
+      "schedules",
       "retry",
       "diagnose-epic",
       "operator-assistant",
@@ -68,7 +71,7 @@ describe("buildCommands — availability", () => {
     expect(ids(ctx({ otherNeedsYouCount: 0 }))).not.toContain("next-needs-you");
   });
 
-  it("always offers New task, Settings, Usage, Diagnose epic and the Operator Assistant", () => {
+  it("always offers New task, Settings, Usage, Schedules, Diagnose epic and the Operator Assistant", () => {
     const bare = ids(
       ctx({
         hasSessions: false,
@@ -77,7 +80,14 @@ describe("buildCommands — availability", () => {
         decommissionDesig: null,
       }),
     );
-    expect(bare).toEqual(["new-task", "settings", "usage", "diagnose-epic", "operator-assistant"]);
+    expect(bare).toEqual([
+      "new-task",
+      "settings",
+      "usage",
+      "schedules",
+      "diagnose-epic",
+      "operator-assistant",
+    ]);
   });
 });
 
@@ -88,6 +98,15 @@ describe("buildCommands — Operator Assistant shortcut", () => {
     expect(assistant.shortcut?.(true)).toBe("⌘J");
     expect(assistant.shortcut?.(false)).toBe("Ctrl+J");
     expect(cmds.find((c) => c.id === "settings")!.shortcut).toBeUndefined();
+  });
+});
+
+describe("buildCommands — Schedules", () => {
+  it("is findable as scheduled prompts in EN and as zeitplan in DE", () => {
+    const cmd = buildCommands(ctx()).find((c) => c.id === "schedules")!;
+    expect(cmd.keywords?.()).toContain("scheduled");
+    // fuzzyScore folds no umlauts: "zeitplan" never matches the label "Zeitpläne".
+    expect(de.commandbar_cmd_schedules_kw).toContain("zeitplan");
   });
 });
 
@@ -123,6 +142,7 @@ describe("buildCommands — run() wiring", () => {
     byId["broadcast"].run();
     byId["settings"].run();
     byId["usage"].run();
+    byId["schedules"].run();
     byId["retry"].run();
     byId["diagnose-epic"].run();
     byId["operator-assistant"].run();
@@ -131,6 +151,7 @@ describe("buildCommands — run() wiring", () => {
     expect(c.onBroadcast).toHaveBeenCalledOnce();
     expect(c.onSettings).toHaveBeenCalledOnce();
     expect(c.onUsage).toHaveBeenCalledOnce();
+    expect(c.onSchedules).toHaveBeenCalledOnce();
     expect(c.onRetry).toHaveBeenCalledOnce();
     expect(c.onDiagnoseEpic).toHaveBeenCalledOnce();
     expect(c.onOperatorAssistant).toHaveBeenCalledOnce();

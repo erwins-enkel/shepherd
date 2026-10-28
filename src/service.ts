@@ -7236,10 +7236,33 @@ export class SessionService {
    * executing, or has no persisted non-approved gate.
    */
   async regatePlanGate(id: string): Promise<boolean> {
+    const out = await this.#regate(id, PLAN_REGATE_STEER, (text, opts) =>
+      this.reply(id, text, opts),
+    );
+    return out.regated;
+  }
+
+  /**
+   * #3514: return an EXECUTING session to the planning phase because the operator edited its plan.
+   * The same transition and caller contract as {@link regatePlanGate}, but the stop steer IS the
+   * operator's edits (planEditSteerText), so it revives an exited agent first — Codex exits after
+   * each turn — instead of being dropped on a dead pane. Returns whether the steer landed (false
+   * when no transition happened, too).
+   */
+  async regateForPlanEdit(id: string, steer: string): Promise<boolean> {
+    const out = await this.#regate(id, steer, (text, opts) => this.resumeAndReply(id, text, opts));
+    return out.delivered;
+  }
+
+  async #regate(
+    id: string,
+    steer: string,
+    deliver: (text: string, opts: SteerOpts) => Promise<boolean>,
+  ): Promise<{ regated: boolean; delivered: boolean }> {
     const s = this.deps.store.get(id);
-    if (!s || s.planPhase !== "executing") return false;
+    if (!s || s.planPhase !== "executing") return { regated: false, delivered: false };
     const gate = this.deps.store.getPlanGate(id);
-    if (!gate || gate.approved) return false;
+    if (!gate || gate.approved) return { regated: false, delivered: false };
     this.deps.store.setPlanPhase(id, "planning");
     this.deps.events?.emit("session:plangate", { id, planPhase: "planning" });
     // #3434: restore the planning effort in the stop steer's critical section — only on an idle
@@ -7258,9 +7281,9 @@ export class SessionService {
     // Awaited for the same reason releasePlanGate awaits its steer: the phase flip is only honest
     // once the "stop implementing" instruction has actually reached the pane. A dead pane still
     // transitions the phase — the operator sees a re-gated session either way.
-    await this.reply(id, PLAN_REGATE_STEER, restoreNeeded ? { prelude } : {});
+    const delivered = await deliver(steer, restoreNeeded ? { prelude } : {});
     if (restoreNeeded) this.#setEffortSwitchError(id, restoreError);
-    return true;
+    return { regated: true, delivered };
   }
 
   /**

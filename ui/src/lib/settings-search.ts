@@ -109,6 +109,7 @@ export function roleHint(role: RoleBase): string {
 export function codingCliRows(): {
   defaults: string[][];
   engines: string[][];
+  quickStarts: string[][];
   roles: string[][];
 } {
   return {
@@ -136,6 +137,11 @@ export function codingCliRows(): {
         m.settings_cli_codex_auth_hint(),
       ],
       [m.settings_engine_defaults_precedence()],
+    ],
+    quickStarts: [
+      [m.settings_quick_start_title(), m.settings_quick_start_hint()],
+      [m.settings_cli_claude(), m.settings_engine_model_label(), m.settings_engine_effort_label()],
+      [m.settings_cli_codex(), m.settings_engine_model_label(), m.settings_engine_effort_label()],
     ],
     roles: ROLE_BASES.map((r) => [roleTitle(r), roleHint(r)]),
   };
@@ -259,7 +265,13 @@ export function sectionSearchRows(ctx: {
       [m.upnext_filter_labels_heading(), m.settings_issue_filter_labels_desc()],
       [m.settings_repo_overrides_title(), m.settings_repo_overrides_summary()],
     ],
-    codingAgents: [[m.settings_tab_coding_agents()], ...cli.defaults, ...cli.engines, ...cli.roles],
+    codingAgents: [
+      [m.settings_tab_coding_agents()],
+      ...cli.defaults,
+      ...cli.engines,
+      ...cli.quickStarts,
+      ...cli.roles,
+    ],
     steers: [[m.settings_tab_steers()], [m.steerseditor_title(), m.steerseditor_hint()]],
     plugins: [[m.settings_tab_plugins()], [m.plugins_check_updates()]],
     session: [[m.settings_tab_session()], ...sessionRows(ctx.session ?? {})],

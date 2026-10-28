@@ -1808,3 +1808,37 @@ test("issueFilter.repoOverrides: raw keys stored as realpath, unknown keys kept,
     rmSync(base, { recursive: true, force: true });
   }
 });
+
+test("upnextQuickStarts: {} by default, per-CLI patch merges + persists, bad input 400s untouched", async () => {
+  const store = new SessionStore(":memory:");
+  const app = makeApp({
+    store,
+    events: new EventHub(),
+    service: {} as any,
+    usageLimits: { limits: () => ({}) } as any,
+    readCodexAuthMode: () => "unknown",
+  });
+  const get = async () => await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect((await get()).upnextQuickStarts).toEqual({});
+
+  const codex = { enabled: true, model: "gpt-6.1-sol", effort: "medium" };
+  const first = await patch(app, { upnextQuickStarts: { codex } });
+  expect(first.status).toBe(200);
+  expect(await first.json()).toEqual({ upnextQuickStarts: { codex } });
+
+  const claude = { enabled: false, model: null, effort: null };
+  const second = await patch(app, { upnextQuickStarts: { claude: { enabled: false } } });
+  expect(await second.json()).toEqual({ upnextQuickStarts: { claude, codex } });
+  expect(JSON.parse(store.getSetting("upnextQuickStarts")!)).toEqual({ claude, codex });
+  expect((await get()).upnextQuickStarts).toEqual({ claude, codex });
+
+  const bad = await patch(app, {
+    upnextQuickStarts: { claude: { enabled: true, effort: "ultra" } },
+  });
+  expect(bad.status).toBe(400);
+  expect((await bad.json()).error).toContain("upnextQuickStarts.claude.effort");
+  expect(
+    (await patch(app, { upnextQuickStarts: { codex: { enabled: true, model: "opus" } } })).status,
+  ).toBe(400);
+  expect((await get()).upnextQuickStarts).toEqual({ claude, codex });
+});

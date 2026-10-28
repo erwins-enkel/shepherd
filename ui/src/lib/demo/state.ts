@@ -21,6 +21,7 @@ import type {
   UpNextSnapshot,
   BacklogPayload,
   Settings,
+  UpNextQuickStarts,
   PluginInfo,
   DiagnosticsSnapshot,
   HeldTask,
@@ -1086,6 +1087,12 @@ export const demoState = {
     if (field === "anthropicApiKey") {
       world.settings.hasApiKey = typeof value === "string" && value.trim().length > 0;
       return { hasApiKey: world.settings.hasApiKey };
+    }
+    if (field === "upnextQuickStarts") {
+      // Merge per CLI like the server: a patch replaces only the CLIs it names.
+      const merged = { ...world.settings.upnextQuickStarts, ...(value as UpNextQuickStarts) };
+      world.settings.upnextQuickStarts = merged;
+      return { upnextQuickStarts: merged };
     }
     (world.settings as unknown as Record<string, unknown>)[field] = value;
     if (field === "repoRoot") {

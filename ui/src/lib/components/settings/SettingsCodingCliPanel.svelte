@@ -5,6 +5,7 @@
     putRoleEffort,
     putRoleCli,
     putUpnextSkipCliPicker,
+    putUpnextQuickStart,
     putDefaultEffort,
     putDefaultExecutionEffort,
     putEngineEffort,
@@ -17,7 +18,7 @@
   import { verifyFailureMessage } from "#lib/verify-key.js";
   import { configuredModelLabel } from "#lib/model-label.js";
   import { modelGuidanceAlias, modelOptionLabel } from "#lib/model-guidance.js";
-  import { pickerModels } from "#lib/provider-models.js";
+  import { modelAvailableForProvider, pickerModels, providerModels } from "#lib/provider-models.js";
   import {
     effortLabel,
     effortAvailableForProvider,
@@ -135,6 +136,22 @@
   let verifyMsg = $state("");
   let upnextSkipCliPicker = $state(false);
   let upnextSkipCliPickerBusy = $state(false);
+  // Quick-start presets (#3507), one per CLI. model / effort use "default" for the server's null.
+  interface QuickStartRow {
+    enabled: boolean;
+    model: string;
+    effort: string;
+  }
+  const QUICK_START_SEED: QuickStartRow = { enabled: false, model: "default", effort: "default" };
+  let quickStart = $state<Record<AgentProvider, QuickStartRow>>({
+    claude: { ...QUICK_START_SEED },
+    codex: { ...QUICK_START_SEED },
+  });
+  let quickStartSaved: Record<AgentProvider, QuickStartRow> = {
+    claude: { ...QUICK_START_SEED },
+    codex: { ...QUICK_START_SEED },
+  };
+  let quickStartBusy = $state<Record<AgentProvider, boolean>>({ claude: false, codex: false });
 
   const ROLE_CLI_SEED: Record<RoleBase, string> = {
     planner: "inherit",
@@ -195,6 +212,7 @@
       authModeSaved = s.authMode;
       hasApiKey = s.hasApiKey;
       upnextSkipCliPicker = s.upnextSkipCliPicker;
+      seedQuickStarts(s);
       const sr = s as unknown as Record<string, unknown>;
       for (const role of ROLE_BASES) {
         const cli = sr[`${role}Cli`];
@@ -294,6 +312,30 @@
   }
   function roleGuidanceContext(role: RoleBase): "role" | "classifier" {
     return ROLE_CLASSIFIERS.includes(role) ? "classifier" : "role";
+  }
+
+  /** Fill the quick-start rows from the payload; a CLI without a stored preset keeps the seed. */
+  function seedQuickStarts(s: Settings) {
+    for (const provider of AGENT_PROVIDERS) {
+      const qs = s.upnextQuickStarts?.[provider];
+      quickStart[provider] = qs
+        ? { enabled: qs.enabled, model: qs.model ?? "default", effort: qs.effort ?? "default" }
+        : { ...QUICK_START_SEED };
+      quickStartSaved[provider] = { ...quickStart[provider] };
+    }
+  }
+
+  /** Models offered for a quick start; a stored model the list hides (Fable off) stays selectable. */
+  function quickStartModels(provider: AgentProvider): readonly string[] {
+    const offered = providerModels(provider).filter((mdl) =>
+      modelAvailableForProvider(provider, mdl, fableAvailable),
+    );
+    const current = quickStart[provider].model;
+    return current !== "default" && !offered.includes(current) ? [current, ...offered] : offered;
+  }
+  function quickStartTiers(provider: AgentProvider): readonly string[] {
+    const model = quickStart[provider].model;
+    return providerEfforts(provider, model === "default" ? null : model);
   }
 
   // ── Save handlers (immediate persist, revert + deduped alert on failure) ──
@@ -543,6 +585,39 @@
       });
     } finally {
       authBusy = false;
+    }
+  }
+
+  /** One PUT carries the whole entry; a model change that drops the chosen tier resets effort. */
+  async function saveQuickStart(provider: AgentProvider) {
+    if (quickStartBusy[provider]) return;
+    quickStartBusy[provider] = true;
+    const row = quickStart[provider];
+    const model = row.model === "default" ? null : row.model;
+    if (!effortAvailableForProvider(provider, row.effort, model)) row.effort = "default";
+    try {
+      const r = await putUpnextQuickStart(provider, {
+        enabled: row.enabled,
+        model,
+        effort: row.effort === "default" ? null : row.effort,
+      });
+      const saved = r.upnextQuickStarts?.[provider];
+      if (saved) {
+        quickStart[provider] = {
+          enabled: saved.enabled,
+          model: saved.model ?? "default",
+          effort: saved.effort ?? "default",
+        };
+        quickStartSaved[provider] = { ...quickStart[provider] };
+      }
+    } catch {
+      quickStart[provider] = { ...quickStartSaved[provider] };
+      toasts.info(m.settings_quick_start_save_failed({ engine: providerLabel(provider) }), {
+        key: `quick-start-${provider}`,
+        alert: true,
+      });
+    } finally {
+      quickStartBusy[provider] = false;
     }
   }
 
@@ -885,6 +960,65 @@
   <HighlightText text={m.settings_engine_defaults_precedence()} query={q} />
 </p>
 
+<div class="glabel engines-label">
+  <HighlightText text={m.settings_quick_start_title()} query={q} />
+</div>
+<p class="rhint engines-hint">
+  <HighlightText text={m.settings_quick_start_hint()} query={q} />
+</p>
+<div class="qs-rows">
+  {#each AGENT_PROVIDERS as provider (provider)}
+    <div class="qs-row">
+      <label class="qs-show">
+        <input
+          type="checkbox"
+          bind:checked={quickStart[provider].enabled}
+          disabled={quickStartBusy[provider]}
+          aria-label={m.settings_quick_start_show_aria({ engine: providerLabel(provider) })}
+          onchange={() => saveQuickStart(provider)}
+        />
+        <HighlightText text={providerLabel(provider)} query={q} />
+      </label>
+      <label class="efield">
+        <span class="elabel"
+          ><HighlightText text={m.settings_engine_model_label()} query={q} /></span
+        >
+        <span class="set-select">
+          <select
+            bind:value={quickStart[provider].model}
+            disabled={quickStartBusy[provider]}
+            aria-label={m.settings_quick_start_model_aria({ engine: providerLabel(provider) })}
+            onchange={() => saveQuickStart(provider)}
+          >
+            <option value="default">{m.newtask_model_default()}</option>
+            {#each quickStartModels(provider) as mdl (mdl)}
+              <option value={mdl}>{modelOptionLabel(provider, mdl)}</option>
+            {/each}
+          </select>
+          <span class="set-chev" aria-hidden="true">▾</span>
+        </span>
+      </label>
+      <label class="efield">
+        <span class="elabel"
+          ><HighlightText text={m.settings_engine_effort_label()} query={q} /></span
+        >
+        <span class="set-select">
+          <select
+            bind:value={quickStart[provider].effort}
+            disabled={quickStartBusy[provider]}
+            aria-label={m.settings_quick_start_effort_aria({ engine: providerLabel(provider) })}
+            onchange={() => saveQuickStart(provider)}
+          >
+            <option value="default">{m.effort_default()}</option>
+            {@render tierOptions(quickStart[provider].effort, quickStartTiers(provider))}
+          </select>
+          <span class="set-chev" aria-hidden="true">▾</span>
+        </span>
+      </label>
+    </div>
+  {/each}
+</div>
+
 <div class="group-lead"></div>
 
 {#snippet roleRow(role: RoleBase)}
@@ -1064,6 +1198,46 @@
   .starts-source {
     font-size: var(--fs-meta);
     color: var(--color-muted);
+  }
+  .qs-rows {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    margin-bottom: 14px;
+  }
+  .qs-row {
+    display: grid;
+    grid-template-columns: 9rem minmax(0, 1fr) minmax(0, 12rem);
+    align-items: end;
+    gap: 12px;
+    padding: 12px 14px;
+  }
+  .qs-row + .qs-row {
+    border-top: 1px solid var(--color-line);
+  }
+  .qs-show {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 6px;
+    font-weight: 700;
+    color: var(--color-ink-bright);
+  }
+  .qs-show input {
+    accent-color: var(--color-amber);
+    margin: 0;
+  }
+  @media (max-width: 768px) {
+    .qs-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .qs-show {
+      min-height: 44px;
+    }
+    .qs-row :global(.set-select select) {
+      min-height: 44px;
+    }
   }
   .engines-foot {
     padding: 10px 0 14px;

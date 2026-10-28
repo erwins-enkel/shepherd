@@ -7760,5 +7760,11 @@
   "feat_plan_reading_title": "Plans read like epics",
   "feat_plan_reading_body": "The pre-execution plan opens as a document: contents on the left, the reviewer's verdict first with its blocking findings and non-blocking notes, and a footer that stays put with Go, Review again and a note to the planning agent.",
   "feat_codex_question_center_title": "Answer Codex questions in Shepherd",
-  "feat_codex_question_center_body": "Codex questions now appear in the question center alongside Claude questions, including multiple requests, choices and free text. Delivery is checked against the native reply. If it cannot be confirmed, check the terminal before retrying. The terminal question shortcut also supports Shift+Left on desktop and mobile."
+  "feat_codex_question_center_body": "Codex questions now appear in the question center alongside Claude questions, including multiple requests, choices and free text. Delivery is checked against the native reply. If it cannot be confirmed, check the terminal before retrying. The terminal question shortcut also supports Shift+Left on desktop and mobile.",
+  "settings_quick_start_title": "Quick start",
+  "settings_quick_start_hint": "One click next to “Start…” launches with a fixed CLI, model and effort — no picker.",
+  "settings_quick_start_show_aria": "Show quick start for {engine}",
+  "settings_quick_start_model_aria": "Quick start model for {engine}",
+  "settings_quick_start_effort_aria": "Quick start effort for {engine}",
+  "settings_quick_start_save_failed": "Couldn't save the {engine} quick start. Retry."
 }

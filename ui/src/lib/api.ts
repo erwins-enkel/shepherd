@@ -105,6 +105,8 @@ import type {
   OperatorAssistantState,
   OperatorAssistantUnavailableReason,
   AgentProvider,
+  UpNextQuickStart,
+  UpNextQuickStarts,
   UpNextSnapshot,
   UpNextItem,
   UpNextPr,
@@ -513,6 +515,16 @@ export const putTuiDisableMouse = (value: boolean): Promise<{ tuiDisableMouse: b
 // directly with the operator's default coding CLI.
 export const putUpnextSkipCliPicker = (value: boolean): Promise<{ upnextSkipCliPicker: boolean }> =>
   patchSettings<{ upnextSkipCliPicker: boolean }>({ upnextSkipCliPicker: value });
+
+// Replace one CLI's quick-start preset (#3507); the server keeps the other CLIs' presets and
+// answers with the full merged map.
+export const putUpnextQuickStart = (
+  provider: AgentProvider,
+  entry: UpNextQuickStart,
+): Promise<{ upnextQuickStarts: UpNextQuickStarts }> =>
+  patchSettings<{ upnextQuickStarts: UpNextQuickStarts }>({
+    upnextQuickStarts: { [provider]: entry },
+  });
 
 /** Upload one file; returns its absolute server path. Pass sessionId to store it
  *  inside that session's worktree (live terminal); omit for New Task staging. */

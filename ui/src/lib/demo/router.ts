@@ -12,6 +12,7 @@
 
 import { demoState } from "./state";
 import type {
+  HeavySlotSnapshot,
   AgentProvider,
   CreateInput,
   IssueRef,
@@ -28,6 +29,24 @@ function json(data: unknown, status = 200): Response {
 }
 
 /** Project bootstrap (#3105): no seeded repo is bootstrapping, nor offered it. */
+const DEMO_HEAVY_SLOT_OFF: HeavySlotSnapshot = {
+  enabled: false,
+  capacity: 0,
+  holders: [],
+  waiters: [],
+  brake: { active: false, reason: null },
+  pressure: {
+    ramAvailableBytes: null,
+    ramTotalBytes: null,
+    swapUsedBytes: null,
+    swapTotalBytes: null,
+    memFullAvg10: null,
+    memBrakeThreshold: null,
+    cpuSomeAvg10: null,
+  },
+  memoryBySource: { agentsBytes: null, foreignBytes: null, foreignTop: [] },
+};
+
 const DEMO_BOOTSTRAP = {
   state: "off",
   phase: 1,
@@ -132,6 +151,8 @@ const bootstrapGetRoutes: Record<string, GetHandler> = {
   "/api/manual-steps/outstanding": () => json(demoState.outstandingManualSteps()),
   "/api/held": () => json(demoState.held()),
   "/api/usage/limits": () => json(demoState.usageLimits()),
+  // The demo has no check slot: the master switch reads as off, so no chip or strip renders.
+  "/api/heavy-slot": () => json(DEMO_HEAVY_SLOT_OFF),
   "/api/update": () => json(demoState.update()),
   "/api/update/log": () => json({ phase: "idle", exitCode: null, log: "" }),
   "/api/herdr-update": () => json(demoState.herdrUpdate()),

@@ -14,6 +14,7 @@ import {
   withAuth,
   type ContractServer,
 } from "./harness";
+import { DISABLED_HEAVY_SLOT } from "../../src/heavy-slot-snapshot";
 import { eventsForStream, operationsForStream } from "./stream-blocks";
 
 /** The four frames this stream declares: three driven through the server's own EventHub below,
@@ -83,6 +84,46 @@ describe("sidebar reads", () => {
     };
     expect(typeof body.limits.subscriptionOnly).toBe("boolean");
     expect(Array.isArray(body.projections)).toBe(true);
+  });
+});
+
+describe("heavy slot", () => {
+  const post = (body: unknown, auth = true) =>
+    fetch(`${s.baseUrl}/api/heavy-slot/release`, {
+      method: "POST",
+      headers: { ...(auth ? bearer(token) : {}), "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  test("GET /api/heavy-slot answers the switched-off snapshot, and 401 without a credential", async () => {
+    const ok = await fetch(`${s.baseUrl}/api/heavy-slot`, { headers: bearer(token) });
+    expect(ok.status).toBe(200);
+    expect(await validateResponse("GET", "/api/heavy-slot", ok)).toMatchObject({ enabled: false });
+    const anon = await fetch(`${s.baseUrl}/api/heavy-slot`);
+    expect(anon.status).toBe(401);
+    await validateResponse("GET", "/api/heavy-slot", anon);
+  });
+
+  test("POST /api/heavy-slot/release answers 200, 400, 404 and 401", async () => {
+    s.deps.heavySlot = { snapshot: () => DISABLED_HEAVY_SLOT, release: (id) => id === "holder" };
+    try {
+      const path = "/api/heavy-slot/release";
+      validateRequest("POST", path, { sessionId: "holder" });
+      const ok = await post({ sessionId: "holder" });
+      expect(ok.status).toBe(200);
+      expect(await validateResponse("POST", path, ok)).toEqual({ released: true });
+      const bad = await post({ sessionId: 7 });
+      expect(bad.status).toBe(400);
+      await validateResponse("POST", path, bad);
+      const none = await post({ sessionId: "nobody" });
+      expect(none.status).toBe(404);
+      await validateResponse("POST", path, none);
+      const anon = await post({ sessionId: "holder" }, false);
+      expect(anon.status).toBe(401);
+      await validateResponse("POST", path, anon);
+    } finally {
+      delete s.deps.heavySlot;
+    }
   });
 });
 

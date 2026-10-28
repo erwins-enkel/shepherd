@@ -3388,6 +3388,7 @@ export type WsEvent =
     }
   | { event: "session:renamed"; data: { id: string; name: string; branch: string | null } }
   | { event: "usage:limits"; data: UsageLimits }
+  | { event: "heavyslot:status"; data: HeavySlotSnapshot }
   | { event: "session:block"; data: { id: string; block: BlockReason | null } }
   | { event: "session:hold"; data: { id: string; hold: HoldReason | null } }
   | { event: "session:login-request"; data: { id: string; request: LoginRequest | null } }
@@ -3961,4 +3962,28 @@ export interface AssistantSwitchState {
     fallback: string | null;
   };
   error?: string;
+}
+
+/** The host-wide heavy-check slot (#3181) as the overview renders it. `enabled: false` is the master
+ *  switch off: no chip, no strip. Mirrors `HeavySlotSnapshot` in contracts/openapi.yaml. */
+export interface HeavySlotSnapshot {
+  enabled: boolean;
+  capacity: number;
+  holders: { sessionId: string; command: string; startedAt: number; rssBytes: number | null }[];
+  waiters: { sessionId: string; position: number; reason: "slot" | "pressure" }[];
+  brake: { active: boolean; reason: "memory" | null };
+  pressure: {
+    ramAvailableBytes: number | null;
+    ramTotalBytes: number | null;
+    swapUsedBytes: number | null;
+    swapTotalBytes: number | null;
+    memFullAvg10: number | null;
+    memBrakeThreshold: number | null;
+    cpuSomeAvg10: number | null;
+  };
+  memoryBySource: {
+    agentsBytes: number | null;
+    foreignBytes: number | null;
+    foreignTop: { name: string; bytes: number }[];
+  };
 }

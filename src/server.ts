@@ -4,6 +4,7 @@ import {
   parseAssistantRuntimePatch,
 } from "./operator-assistant-settings";
 import { createHash } from "node:crypto";
+import { DISABLED_HEAVY_SLOT, type HeavySlotSource } from "./heavy-slot-snapshot";
 import { type HostLoadSnapshot, hostLoadReport, readHostLoad } from "./remote-instances/load";
 import { jsonResponse as json, compressJsonResponse } from "./json-response";
 import { recapSummary } from "./recap-core";
@@ -680,6 +681,8 @@ export interface AppDeps {
    *  routes. Absent in tests that don't wire it → `/api/plugins/manage/*` falls through. */
   pluginsDir?: string;
   usageLimits: Pick<UsageLimitsService, "limits" | "projections">;
+  /** Host-wide heavy-check slot (#3181); absent → `/api/heavy-slot` reports it switched off. */
+  heavySlot?: HeavySlotSource;
   /** Force a `/usage` re-scrape (calibration) and return fresh limits plus whether the probe
    *  actually returned a usable frame this run; absent in tests that don't wire the live
    *  calibrator (the route then falls back to the current snapshot, treated as scraped). */
@@ -8367,6 +8370,20 @@ function codexUsageResponse(deps: AppDeps, action: string): Response {
   );
 }
 
+async function handleHeavySlot({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "heavy-slot") return null;
+  if (req.method === "GET" && parts.length === 2) {
+    return json(deps.heavySlot?.snapshot() ?? DISABLED_HEAVY_SLOT);
+  }
+  if (req.method === "POST" && parts.length === 3 && parts[2] === "release") {
+    const body = (await req.json().catch(() => null)) as { sessionId?: unknown } | null;
+    if (typeof body?.sessionId !== "string") return json({ error: "invalid_session_id" }, 400);
+    if (!deps.heavySlot?.release(body.sessionId)) return json({ error: "not_holding" }, 404);
+    return json({ released: true });
+  }
+  return null;
+}
+
 async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts.length === 4 && parts.slice(0, 3).join("/") === "api/usage/codex") {
     return handleCodexUsageAction(req, parts[3]!, deps);
@@ -13267,6 +13284,7 @@ const ROUTE_HANDLERS = [
   handleSpawnCancel,
   handleExperimentCompare,
   handleSessionGit,
+  handleHeavySlot,
   handleUsageLimits,
   handleUsageBreakdown,
   handleUsageDelivery,

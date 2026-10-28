@@ -17,6 +17,7 @@ import type {
   SteerLogEntry,
   SessionUsage,
   UsageLimits,
+  HeavySlotSnapshot,
   UsageLimitsResponse,
   UsageBreakdown,
   UsageTimeline,
@@ -1564,6 +1565,22 @@ export async function getUsageLimits(): Promise<UsageLimitsResponse> {
   const r = await fetch("/api/usage/limits");
   if (!r.ok) throw await failed(r, "limits");
   return r.json();
+}
+
+export async function getHeavySlot(): Promise<HeavySlotSnapshot> {
+  const r = await fetch("/api/heavy-slot");
+  if (!r.ok) throw await failed(r, "heavy slot");
+  return r.json();
+}
+
+/** Manually free the slot a session holds. */
+export async function releaseHeavySlot(sessionId: string): Promise<void> {
+  const r = await fetch("/api/heavy-slot/release", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sessionId }),
+  });
+  if (!r.ok) throw await failed(r, "release heavy slot");
 }
 
 export async function getUsageBreakdown(range: UsageRange): Promise<UsageBreakdown> {

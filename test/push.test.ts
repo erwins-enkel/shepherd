@@ -180,6 +180,18 @@ test("attachPush pushes on session:status=done", async () => {
   expect(calls[0]).toMatchObject({ kind: "done", sessionId: "abc", tag: "abc" });
 });
 
+test("attachPush stays quiet for a session waiting on the heavy-check slot", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => calls.push(p);
+  const events = new EventHub();
+  attachPush(events, store, push, (id) => id === "waiting");
+  events.emit("session:status", { id: "waiting", status: "done" });
+  events.emit("session:status", { id: "other", status: "done" });
+  await Promise.resolve();
+  expect(calls.map((c) => c.sessionId)).toEqual(["other"]);
+});
+
 test("notifySessionDone builds the same payload attachPush sends on the real edge", async () => {
   // The turn-end backstop recovers a finish push herdr's lost `done` edge never triggered (#2267).
   // It must reproduce the fast path's payload exactly — a different kind/tag/cooldown key would

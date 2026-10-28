@@ -357,16 +357,16 @@ a question in plain chat, the server doesn't know it asked anything. Its status 
 
 ### Session control
 
-| Command                                | Route                              | Scope    |
-| -------------------------------------- | ---------------------------------- | -------- |
-| `shepherd new [flags] <prompt\|->`     | `POST /api/sessions`               | `submit` |
-| `shepherd steer <session> <text\|->`   | `POST /api/sessions/:id/reply`     | `full`   |
-| `shepherd interrupt <session>`         | `POST /api/sessions/:id/interrupt` | `full`   |
-| `shepherd archive <session>`           | `DELETE /api/sessions/:id`         | `full`   |
-| `shepherd resume <session> [--force]`  | `POST /api/sessions/:id/resume`    | `full`   |
-| `shepherd go <session>`                | `POST /api/sessions/:id/go`        | `full`   |
-| `shepherd halt --yes`                  | `POST /api/halt`                   | `full`   |
-| `shepherd retry [<session>…] [--text]` | `POST /api/retry`                  | `full`   |
+| Command                                | Route                                                     | Scope    |
+| -------------------------------------- | --------------------------------------------------------- | -------- |
+| `shepherd new [flags] <prompt\|->`     | `POST /api/sessions` (`--on`: also `POST /api/placement`) | `submit` |
+| `shepherd steer <session> <text\|->`   | `POST /api/sessions/:id/reply`                            | `full`   |
+| `shepherd interrupt <session>`         | `POST /api/sessions/:id/interrupt`                        | `full`   |
+| `shepherd archive <session>`           | `DELETE /api/sessions/:id`                                | `full`   |
+| `shepherd resume <session> [--force]`  | `POST /api/sessions/:id/resume`                           | `full`   |
+| `shepherd go <session>`                | `POST /api/sessions/:id/go`                               | `full`   |
+| `shepherd halt --yes`                  | `POST /api/halt`                                          | `full`   |
+| `shepherd retry [<session>…] [--text]` | `POST /api/retry`                                         | `full`   |
 
 `go` releases an approved plan gate and starts execution. The server refuses (exit `6`) when the
 session isn't in the planning phase or its plan isn't approved.
@@ -393,9 +393,31 @@ Flags for `new`:
   reason `after` and spawns on a fresh base once the PR lands. A predecessor that already landed
   spawns it now; an unknown one is `404`, one archived without landing is `409`. `held spawn`
   starts it early, `held discard` drops it.
+- `--on <machine>`: run the whole session on that machine, by name (case doesn't matter) or
+  instance id. The CLI looks it up among the machines `POST /api/placement` lists for `--repo`
+  (this one first, then every connected machine that can take tasks and has the project checked
+  out) and sends it as `target`. Naming this machine is allowed and means "here". An unknown or
+  ambiguous name exits `2` and lists the machines; so does any other name while no other machine is
+  connected. The server refuses a machine that doesn't fit (exit `6`), e.g. `missing_capabilities`
+  or `remote_target_unavailable`. Without `--on`, the server chooses (Linux before macOS by
+  default).
+- `--require <capability>`: only a machine with this capability may run the task; repeat it or
+  separate values with commas. Sent as `requirements`. Known values: `platform:linux`,
+  `platform:macos`, `platform:windows`, `xcode`, `sdk:macos`, `sdk:ios`, `ios-simulator`,
+  `android-sdk`, `agent:claude`, `agent:codex`, `sandbox:trusted`, `sandbox:standard`,
+  `sandbox:autonomous`. Another value draws a warning on stderr and is sent anyway, so a newer
+  server can accept it; one the server doesn't know is `400` (exit `6`). With `--on`, the server
+  checks that machine has them all. When no machine fits, the refusal (exit `6`,
+  `no_suitable_machine`) names the missing capabilities and any machine that has them but no
+  checkout of the project.
+- `--after` with `--on` exits `2` without sending anything: a dependent task always runs on this
+  machine, where its predecessor lives. `--after` with `--require` is allowed; the requirements are
+  then checked against this machine.
 
 When the usage hold trips, `new` still exits `0`. It prints the held task (`{"held": true, …}`)
 instead of a session.
+
+In text mode, a session placed on a machine names it: `created TASK-12 (…) — name on macbook`.
 
 Once running, an idle agent is steered when its base branch gains commits it does not have
 (checked every 2 minutes, at most one notice per 30 minutes), with the list of new commits, so it
@@ -404,6 +426,8 @@ can rebase if they affect its work.
 ```bash
 shepherd new --repo ~/Work/my-repo "Add OAuth login to the settings page"
 shepherd new --repo ~/Work/my-repo --after TASK-07 "Use the new OAuth hook on the profile page"
+shepherd new --repo ~/Work/my-app --on macbook "Fix the iOS share sheet crash"
+shepherd new --repo ~/Work/my-app --require xcode --require sdk:ios "Add a widget extension"
 echo "please rebase onto main" | shepherd steer TASK-07 -
 shepherd --json sessions list | jq -r '.[] | select(.status == "done") | .desig'
 ```

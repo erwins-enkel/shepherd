@@ -32,6 +32,20 @@ EOF
   - `--plan-gate` / `--autopilot`: run the plan gate, or autopilot.
   - `--model <model>`, `--effort <level>`, `--provider <claude|codex>`: override server defaults.
   - `--force`: spawn now even if the usage hold would queue it. Only when the operator asks.
+  - `--on <machine>`: run it on that machine, by name or instance id (e.g. `--on macbook`). Not
+    with `--after`: a dependent task always runs on this machine.
+  - `--require <capability>`: only a machine with all of these may run it; repeat it or separate
+    with commas. Values: `xcode`, `sdk:ios`, `sdk:macos`, `ios-simulator`, `android-sdk`,
+    `platform:linux`, `platform:macos`, `agent:claude`, `agent:codex`,
+    `sandbox:trusted|standard|autonomous`.
+- **Pick the machine for platform-bound work.** Without `--on` or `--require` the server prefers
+  Linux, which has no Xcode. A task that needs Xcode, the iOS or macOS SDK or the iOS simulator
+  (Swift, an iOS or macOS app) gets `--require xcode` (plus `sdk:ios` or `ios-simulator` as it
+  needs), or `--on <the mac>` when the operator named one.
+  - Exit 2 on `--on`: the machine is unknown or not connected; the message lists the available
+    names.
+  - Exit 6 (`no_suitable_machine`, `missing_capabilities`): no connected machine fits. Report the
+    message to the operator; don't drop the requirement to make it start.
 - The JSON result carries the new session's `desig` (e.g. `TASK-4530`); report it to the operator.
   `{"held": true, …}` (still exit 0) means the task was queued instead of spawned. Its `reason` says
   why:

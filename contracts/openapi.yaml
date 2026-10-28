@@ -2658,7 +2658,8 @@ components:
           description: Each session's latest finished slot job, bound to the revision it ran against (#3554).
           items:
             type: object
-            required: [sessionId, command, startedAt, endedAt, exitCode, result, head, treeHash, stale]
+            required:
+              [sessionId, command, startedAt, endedAt, exitCode, result, head, treeHash, stale]
             properties:
               sessionId: { type: string }
               command: { type: string }
@@ -2667,8 +2668,13 @@ components:
               exitCode: { type: integer, nullable: true }
               result: { type: string, enum: [passed, failed, aborted] }
               head: { type: string, nullable: true, description: Commit the job ran on. }
-              treeHash: { type: string, description: Hash of the dirty worktree when the job started. }
-              stale: { type: boolean, description: The worktree no longer matches head + treeHash; a stale result is never shown as green. }
+              treeHash:
+                { type: string, description: Hash of the dirty worktree when the job started. }
+              stale:
+                {
+                  type: boolean,
+                  description: The worktree no longer matches head + treeHash; a stale result is never shown as green.,
+                }
     ProjectIcons:
       type: object
       additionalProperties: { type: string }

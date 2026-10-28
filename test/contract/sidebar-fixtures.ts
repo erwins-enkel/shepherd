@@ -1,5 +1,6 @@
 import type { BlockReason } from "../../src/blocked";
 import type { HoldReason } from "../../src/types";
+import type { validateIconPatch } from "../../src/validate";
 
 /** Payloads the stubbed server cannot emit itself. `held:changed` and `session:working-blocked`
  *  come from inline object literals (src/held-release.ts:83, src/index.ts:1236), so those two are
@@ -36,3 +37,11 @@ export const block: BlockReason = {
     ],
   },
 };
+
+/** PUT /api/project-icons bodies, typed as what the server's validator returns. `iconInvalid`
+ *  passes the schema (it carries no length bound on `emoji`) but breaks the server's 8-code-point
+ *  rule, so the 400 it gets proves the rule the schema only describes. */
+type IconPatch = NonNullable<ReturnType<typeof validateIconPatch>>;
+export const iconSet: IconPatch = { path: "/repos/fixture", emoji: "🐑" };
+export const iconClear: IconPatch = { path: "/repos/fixture", emoji: "" };
+export const iconInvalid: IconPatch = { path: "/repos/fixture", emoji: "🐑".repeat(9) };

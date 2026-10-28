@@ -146,9 +146,19 @@ describe("Viewport — Operator Assistant variant", () => {
     expect(console_.container.querySelector("[role=tablist]")).not.toBeNull();
     document.body.innerHTML = "";
 
-    const { container } = await mount({});
+    // even with an open PR: the merge row (#3540) is session chrome too
+    const { container } = await mount({
+      git: { kind: "github", state: "open", number: 1, checks: "success", deployConfigured: false },
+    });
     expect(container.querySelector(".term-mount")).not.toBeNull();
-    for (const sel of [".vp-head", "[role=tablist]", ".vp-git-strip", ".ssb", ".steer-row"]) {
+    for (const sel of [
+      ".vp-head",
+      "[role=tablist]",
+      ".vp-git-strip",
+      ".ssb",
+      "section.pr-row",
+      ".steer-row",
+    ]) {
       expect(container.querySelector(sel), sel).toBeNull();
     }
     expect(container.querySelector(".vp-foot")).toBeNull();

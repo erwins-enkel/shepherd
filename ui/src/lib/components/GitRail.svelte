@@ -5,29 +5,19 @@
     gitState,
     setPrDraftState,
     openPr,
-    mergePr,
     redeploy,
     replySession,
-    reviewPr,
     reviewPlan,
     isPlanReviewError,
     planReviewStarted,
-    MergeRefusedError,
-    ApiError,
   } from "#lib/api.js";
-  import type { DrainStatus, GitState, Session, SessionStatus } from "#lib/types.js";
+  import type { DrainStatus, GitState, Session } from "#lib/types.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import { reviews, repoConfig, planGates } from "#lib/reviews.svelte.js";
-  import { checksCleared } from "#lib/checks-cleared.js";
-  import { isConflicting } from "#lib/pr-conflict.js";
   import { criticChip, criticBadgeLabel, criticTitle } from "./critic-badge";
   import { canOfferPlanReview, canTriggerPlanReview } from "./plan-gate-badge";
   import RailStatusActions from "./git-rail/RailStatusActions.svelte";
-  import MergeConfirmHost from "./MergeConfirmHost.svelte";
-  import { basename } from "#lib/basename.js";
-  import { mergeConfirmFromGit } from "./merge-confirm";
-  import { MergeConfirmFlow } from "./merge-confirm-flow.svelte";
   import PlanDriftNote from "./git-rail/PlanDriftNote.svelte";
   import AutomationPanel from "./AutomationPanel.svelte";
   import { automationCount, AUTOMATION_TOTAL } from "./git-rail-automation";
@@ -37,7 +27,6 @@
   import LazyMount from "#lib/components/page/LazyMount.svelte";
   import { loadCoachmark } from "#lib/components/page/overlay-loaders.js";
   import { pollWhileVisible } from "#lib/visibility.js";
-  import { pullMainAndToast } from "#lib/pull-offer.js";
   import { railEpicChild, railEpicStopped } from "./git-rail/epic-rail";
 
   let {
@@ -46,26 +35,18 @@
     name = "",
     prompt = "",
     mobile = false,
-    ready = false,
-    status = "idle",
-    showReady = true,
     planPhase = null,
     drain = null,
     autopilotOn = false,
     issueNumber = null,
-    isolated = false,
     baseBranch = "",
     epicParent = null,
-    ondecommission = undefined,
   }: {
     sessionId: string;
     repoPath?: string;
     name?: string;
     prompt?: string;
     mobile?: boolean;
-    ready?: boolean;
-    status?: SessionStatus;
-    showReady?: boolean;
     planPhase?: Session["planPhase"];
     /** Live drain status for this session's repo; passed through to AutomationPanel. */
     drain?: DrainStatus | null;
@@ -75,15 +56,10 @@
     /** Backlog issue this session was spawned for; drives the leftmost open-issue link.
         null = no linked issue. */
     issueNumber?: number | null;
-    /** When true and repoPath is set, the post-merge toast offers a combined
-        "Decommission & update local" action that also fast-forwards the local default branch. */
-    isolated?: boolean;
-    /** The session's base branch (e.g. "main"); used by the combined fast-forward action. */
+    /** The session's base branch (e.g. "main"); an `epic/<n>-…` base marks an epic child. */
     baseBranch?: string;
     /** The epic this session is a child of (`Session.epicParent`); null for a non-epic session. */
     epicParent?: number | null;
-    /** Offer to tear down THIS session after its PR is merged; called with the merged session's id. */
-    ondecommission?: (id: string) => void;
   } = $props();
 
   let git = $state<GitState | null>(null);
@@ -115,12 +91,11 @@
   // Repo-automation panel (pill-anchored popover; replaces the icon-toggle horde)
   let showAutomation = $state(false);
 
-  // two-step confirm for destructive actions (mirrors decommission UX). Merge is NOT among them
-  // any more: a two-step arm is answerable by one double-click, so it goes through
-  // MergeConfirmDialog instead (#2299).
-  let armed = $state<"redeploy" | "review" | "review-plan" | null>(null);
+  // two-step confirm for destructive actions (mirrors decommission UX). Merge is NOT among them:
+  // it lives in the merge row above the steer bar (#3540), behind MergeConfirmDialog (#2299).
+  let armed = $state<"redeploy" | "review-plan" | null>(null);
   let armTimer: ReturnType<typeof setTimeout> | undefined;
-  function arm(which: "redeploy" | "review" | "review-plan"): boolean {
+  function arm(which: "redeploy" | "review-plan"): boolean {
     if (armed === which) {
       clearTimeout(armTimer);
       armed = null;
@@ -178,7 +153,6 @@
     err = null;
     retry = null;
     armed = null;
-    mergeFlow.close(); // a merge already in flight keeps its dialog until it settles
     showPr = false;
     showReview = false;
     showAutomation = false;
@@ -307,85 +281,6 @@
     }
   }
 
-  // Queue the post-merge confirmation toast. Local-forge merges get a plain confirmation;
-  // remote-forge merges add a one-click Decommission, upgraded to "Decommission & update
-  // local" for isolated sessions (which also fast-forwards the local default branch). The
-  // FF target + isolation (isIsolated/ffPath/ffBranch) are captured by the caller at merge
-  // time — see doMerge. They MUST travel together: mixing a freshly-rebound isolated flag
-  // with the prior session's FF target would fast-forward the wrong checkout.
-  function showMergedToast(
-    kind: string,
-    mergedId: string,
-    isIsolated: boolean,
-    ffPath: string,
-    ffBranch: string,
-  ) {
-    const text = m.toast_merged({ name: name || mergedId });
-    if (kind === "local") {
-      toasts.info(text);
-      return;
-    }
-    const update = isIsolated && !!ffPath;
-    toasts.info(text, {
-      action: {
-        label: update ? m.gitrail_decommission_update_action() : m.gitrail_decommission_action(),
-        run: () => {
-          ondecommission?.(mergedId);
-          if (update) pullMainAndToast(ffPath, ffBranch);
-        },
-      },
-      duration: 15_000,
-      key: `decommission-offer:${mergedId}`,
-    });
-  }
-
-  /** A failed merge's message — the known local cause preferred over a raw server string. */
-  function mergeFailureText(e: unknown): string {
-    if (e instanceof ApiError && e.code === "base_already_merged")
-      return m.gitrail_merge_failed_base_merged();
-    if (e instanceof ApiError && e.code === "stack_untested")
-      return m.gitrail_merge_failed_stack_untested();
-    if (git?.checks === "failure") return m.gitrail_merge_failed_checks();
-    if (git && isConflicting(git)) return m.gitrail_merge_failed_unmergeable();
-    return m.gitrail_merge_failed({ reason: reason(e, m.gitrail_merge()) });
-  }
-
-  // Opens the merge confirmation (#2299). The inline Retry re-opens it rather than replaying the
-  // previous answer: a confirmation is bound to the revision and responsibility it was given for,
-  // and by retry time either may have moved.
-  const mergeFlow = new MergeConfirmFlow();
-  function doMerge() {
-    const ctx = mergeConfirmFromGit(git, basename(repoPath));
-    if (!ctx) return;
-    // Captured at DIALOG-OPEN time, not at confirm time: the rail rebinds on a session switch,
-    // and the confirmation is answered later — a live read could merge a different session's PR.
-    const mergedId = sessionId;
-    mergeFlow.open(ctx, async (confirm) => {
-      busy = true;
-      err = null;
-      retry = null;
-      try {
-        // Same reason for the FF target/isolation, which additionally must travel together: the
-        // toast lives 15s, so pairing a new session's isolated flag with the old FF target would
-        // fast-forward the wrong checkout.
-        const isIsolated = isolated;
-        const ffPath = repoPath;
-        const ffBranch = baseBranch;
-        git = {
-          kind: git?.kind ?? "github",
-          ...(await mergePr(mergedId, { deleteBranch: true, confirm })),
-        };
-        showMergedToast(git.kind, mergedId, isIsolated, ffPath, ffBranch);
-      } catch (e) {
-        if (e instanceof MergeRefusedError) throw e; // the dialog re-states and stays open
-        err = mergeFailureText(e);
-        retry = () => doMerge();
-      } finally {
-        busy = false;
-      }
-    });
-  }
-
   async function doRedeploy(skipArm = false) {
     if (!skipArm && !arm("redeploy")) return;
     busy = true;
@@ -424,39 +319,9 @@
     }
   }
 
-  const mergeBlocked = $derived(
-    !git ||
-      isConflicting(git) ||
-      busy ||
-      git.isDraft === true ||
-      (git.mergeStateStatus && git.mergeStateStatus !== "unknown"
-        ? git.mergeStateStatus === "blocked" || git.mergeStateStatus === "behind"
-        : git.checks === "failure"),
-  );
-
-  // #2735: an epic child merges into its epic branch, and the rail marks a run that won't integrate it.
+  // #2735: the rail marks an epic run that won't integrate this child.
   const epicChild = $derived(railEpicChild(epicParent, baseBranch));
   const epicStopped = $derived(railEpicStopped(epicChild, drain));
-
-  const mergeBlockedReason = $derived(
-    !mergeBlocked
-      ? undefined
-      : busy
-        ? m.gitrail_merge_blocked_busy()
-        : git?.isDraft === true
-          ? m.gitrail_merge_blocked_draft()
-          : git && isConflicting(git)
-            ? m.gitrail_merge_blocked_conflict()
-            : git?.mergeStateStatus === "behind"
-              ? m.gitrail_merge_blocked_behind()
-              : git?.mergeStateStatus === "blocked"
-                ? m.gitrail_merge_blocked_protected()
-                : git?.checks === "failure"
-                  ? m.gitrail_merge_blocked_checks()
-                  : // Unreachable: the merge button renders only under git.state==="open",
-                    // so `git` is truthy and `mergeBlocked` ⇒ one predicate above always holds.
-                    undefined,
-  );
 
   const local = $derived(git?.kind === "local");
 
@@ -464,24 +329,6 @@
   const reviewing = $derived(reviews.isReviewing(sessionId));
   const pillReviewing = $derived(reviewing || planGates.isReviewing(sessionId));
   const chip = $derived(criticChip(verdict, reviewing));
-  // Manual critic trigger: only when the auto path's own precondition holds (open PR, CI
-  // cleared — green OR a no-CI repo's terminal "none") AND the repo has the critic enabled.
-  // Mirrors the server's forceReview guard (checksCleared) so a shown button is never
-  // server-rejected. Reviewing is allowed (label becomes "Restart").
-  const canReview = $derived(
-    git?.state === "open" &&
-      checksCleared(git.checks, git.noCi) &&
-      repoConfig.flags(repoPath).critic,
-  );
-  const reviewLabel = $derived(
-    armed === "review"
-      ? m.gitrail_confirm_review()
-      : reviewing
-        ? m.gitrail_restart_review()
-        : verdict
-          ? m.gitrail_rereview()
-          : m.gitrail_review(),
-  );
   // Manual plan-review trigger: visible while the plan gate is active (planPhase === "planning"),
   // and — since #2224 — during execution when the approved plan has been edited since sign-off.
   // Matches PlanPanel's canReviewNow. The arm/confirm latch below matters more in that second case:
@@ -574,26 +421,6 @@
     if (repoPath) repoConfig.ensure(repoPath);
   });
 
-  async function doReview() {
-    if (!arm("review")) return; // first click arms, second confirms
-    try {
-      const status = await reviewPr(sessionId);
-      // "started" → the REVIEWING badge (via WS) is the feedback; nothing to show. Fail-closed:
-      // a decline or error must never read as success.
-      if (status === "skipped") toasts.info(m.gitrail_review_skipped());
-      else if (status !== "started")
-        toasts.info(m.gitrail_review_failed(), {
-          alert: true,
-          key: `review-pr:${sessionId}`,
-        });
-    } catch {
-      toasts.info(m.gitrail_review_failed(), {
-        alert: true,
-        key: `review-pr:${sessionId}`,
-      });
-    }
-  }
-
   async function doReviewPlan() {
     if (!arm("review-plan")) return; // first click arms, second confirms
     if (planReviewing) return; // already in flight — consider() would skip
@@ -661,7 +488,7 @@
       ro = new ResizeObserver(update);
       ro.observe(node);
       // The rail's box is width:100% of its wrapper, so a content change that
-      // shifts scrollWidth without resizing that box (Merge arming to 'confirm ✓',
+      // shifts scrollWidth without resizing that box (Redeploy arming to 'confirm ⟳',
       // the verdict chip appearing) won't trip ResizeObserver — watch the subtree
       // too so the fade can't go stale. NOT attributes: our own --fade-* writes are
       // style-attribute mutations and would loop.
@@ -713,29 +540,19 @@
         {autopilotOn}
         {busy}
         {armed}
-        {mergeBlocked}
-        {mergeBlockedReason}
-        {ready}
-        {showReady}
-        {status}
         {sessionId}
         {mobile}
         {chip}
         {showReview}
-        {canReview}
-        {reviewLabel}
         {canReviewPlan}
         {planReviewing}
         {planReviewLabel}
         {planReviewBlockedReason}
         {startPr}
         togglePrDraft={doTogglePrDraft}
-        {doMerge}
         {doRedeploy}
         {toggleReview}
-        {doReview}
         {doReviewPlan}
-        {epicChild}
         {epicStopped}
       />
 
@@ -813,7 +630,6 @@
       />
     {/if}
 
-    <MergeConfirmHost flow={mergeFlow} />
     {#if armedEntry}
       <!-- Lazy: the feature-catalog copy rides with Coachmark, off the boot bundle (#3242). -->
       <LazyMount load={loadCoachmark} onerror={() => (armedId = null)}>

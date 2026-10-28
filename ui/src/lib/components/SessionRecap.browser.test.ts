@@ -201,3 +201,25 @@ describe("SessionRecap detail fetch", () => {
     expect(recaps.map.lazy.blocks).toBeUndefined();
   });
 });
+
+describe("SessionRecap headless (merge row, #3540)", () => {
+  it("renders nothing until opened, then the card with its body", async () => {
+    recaps.map = { sh1: recap({ sessionId: "sh1", body: "Plain **body** text." }) };
+    const screen = await render(SessionRecap, {
+      session: session({ id: "sh1" }),
+      headless: true,
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(document.querySelector(".recap-card"), "no headline while headless").toBeNull();
+
+    await screen.rerender({ session: session({ id: "sh1" }), headless: true, expanded: true });
+    await expect.element(page.getByRole("button", { expanded: true })).toBeInTheDocument();
+    await expect.element(page.getByText("body", { exact: false })).toBeInTheDocument();
+  });
+
+  it("not headless: the headline shows as before", async () => {
+    recaps.map = { sh2: recap({ sessionId: "sh2" }) };
+    render(SessionRecap, { session: session({ id: "sh2" }), headless: false });
+    await expect.element(page.getByText("Session recap headline")).toBeVisible();
+  });
+});

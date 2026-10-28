@@ -99,6 +99,8 @@
   import { openDialogs } from "#lib/open-dialogs.svelte.js";
   import { epicDrafts } from "#lib/epic-draft.svelte.js";
   import SessionRecap from "#lib/components/SessionRecap.svelte";
+  import PrActionRow from "#lib/components/viewport/PrActionRow.svelte";
+  import { prActionRowVisible } from "#lib/components/viewport/pr-action-row.js";
   import ViewportTermBanners from "./viewport/ViewportTermBanners.svelte";
   import ReviewInFlightBanner from "./viewport/ReviewInFlightBanner.svelte";
   import CiRunningBanner from "./viewport/CiRunningBanner.svelte";
@@ -341,9 +343,16 @@
   $effect(() => {
     if (tab === "chat") chatOpened = true;
   });
-  // desktop only: reveals the git rail (PR / merge / critic / ready / verdict) as a
+  // desktop only: reveals the git rail (PR / CI / critic / verdict / automation) as a
   // second header row, so the primary strip stays uncrowded until the operator asks
   let gitOpen = $state(false);
+  // The merge row above the steer bar (#3540): an open PR's state + its one Merge, on the two
+  // tabs that steer. While it shows, the recap drops its one-line headline (no second "ready")
+  // and opens from the row's ⋯ menu instead.
+  const prRowShown = $derived(
+    !assistant && (tab === "term" || tab === "chat") && prActionRowVisible(git),
+  );
+  let recapOpen = $state(false);
   // mobile/compact only: folds the secondary header chrome (tabs + git rail +
   // build queue) into the first identity line so the terminal reclaims the
   // vertical space. Persisted globally → restored to the operator's last choice.
@@ -1146,6 +1155,7 @@
     renaming = false; // close a half-open rename editor when switching units
     renameError = null;
     gitOpen = false; // collapse the PR-actions disclosure on unit switch
+    recapOpen = false;
   });
   // A row's Preview badge was clicked (tick bumped) → open the Preview tab. Defined
   // AFTER the unit-switch reset above so that when a click both selects a new unit
@@ -3241,7 +3251,7 @@
          executing read-only chip — it is its home. -->
       <PlanGateBadge {session} pulseReady />
       {#if !compact}
-        <!-- passive at-rest pip: the READY control lives in the git strip; its ON
+        <!-- passive at-rest pip: the READY control lives in the merge row's ⋯ menu; its ON
            state stays glance-able here. Autopilot's ON state is surfaced solely
            by the Automation pill in GitRail; paused/complete states still appear
            via AutopilotBadge below. -->
@@ -3305,16 +3315,12 @@
           repoPath={session.repoPath}
           name={session.name}
           prompt={session.prompt}
-          ready={session.readyToMerge}
-          status={dStatus}
           planPhase={session.planPhase}
           {drain}
           autopilotOn={autopilotEffective}
           issueNumber={session.issueNumber}
-          isolated={session.isolated}
           baseBranch={session.baseBranch}
           epicParent={session.epicParent ?? null}
-          ondecommission={confirmDecommission}
           mobile
         />
         <span class="strip-controls">
@@ -3611,6 +3617,21 @@
     <SessionStatusBar {session} {usage} {activity} />
   {/if}
 
+  <!-- The merge decision sits right above the steer chips it competes with; the steer and ctrl
+       rows stay the bottom-most elements (swipe-up compose gesture). -->
+  {#if prRowShown}
+    <PrActionRow
+      {session}
+      {git}
+      status={dStatus}
+      {drain}
+      {mobile}
+      {touch}
+      ondecommission={confirmDecommission}
+      onsummary={() => (recapOpen = !recapOpen)}
+    />
+  {/if}
+
   {#if (tab === "term" || tab === "chat") && !assistant}
     <SteerBar
       focusedId={session.id}
@@ -3683,7 +3704,12 @@
   {/if}
 
   {#if !assistant}
-    <SessionRecap {session} autoMergeOwned={autoMergeHandsOff} />
+    <SessionRecap
+      {session}
+      autoMergeOwned={autoMergeHandsOff}
+      headless={prRowShown}
+      bind:expanded={recapOpen}
+    />
   {/if}
 
   <!-- footer: keyboard-affordance hints — true desktop only (mouse + hardware

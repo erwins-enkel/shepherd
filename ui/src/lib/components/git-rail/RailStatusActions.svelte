@@ -1,15 +1,11 @@
 <script lang="ts">
   import { firstSafeHttpUrl } from "#lib/url.js";
-  import type { GitState, SessionStatus } from "#lib/types.js";
+  import type { GitState } from "#lib/types.js";
   import type { CriticChip } from "../critic-badge";
-  import ReadyToggle from "../ReadyToggle.svelte";
   import PrBadgeMenu from "../PrBadgeMenu.svelte";
   import PrReviewRequestPopover from "../PrReviewRequestPopover.svelte";
-  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
-  import { mergeIntoEpicExplanation } from "#lib/tooltips/explanations.js";
-  import type { RailEpicChild, RailEpicStopped } from "./epic-rail";
+  import type { RailEpicStopped } from "./epic-rail";
 
   let {
     git,
@@ -18,29 +14,19 @@
     autopilotOn,
     busy,
     armed,
-    mergeBlocked,
-    mergeBlockedReason,
-    ready,
-    showReady,
-    status,
     sessionId,
     mobile,
     chip,
     showReview,
-    canReview,
-    reviewLabel,
     canReviewPlan,
     planReviewing,
     planReviewLabel,
     planReviewBlockedReason,
     startPr,
     togglePrDraft,
-    doMerge,
     doRedeploy,
     toggleReview,
-    doReview,
     doReviewPlan,
-    epicChild = null,
     epicStopped = null,
   }: {
     git: GitState;
@@ -48,31 +34,20 @@
     local: boolean;
     autopilotOn: boolean;
     busy: boolean;
-    armed: "redeploy" | "review" | "review-plan" | null;
-    mergeBlocked: boolean;
-    mergeBlockedReason: string | undefined;
-    ready: boolean;
-    showReady: boolean;
-    status: SessionStatus;
+    armed: "redeploy" | "review-plan" | null;
     sessionId: string;
     mobile: boolean;
     chip: CriticChip;
     showReview: boolean;
-    canReview: boolean;
-    reviewLabel: string;
     canReviewPlan: boolean;
     planReviewing: boolean;
     planReviewLabel: string;
     planReviewBlockedReason: string | null;
     startPr: () => void;
     togglePrDraft: (draft: boolean) => Promise<boolean>;
-    doMerge: () => void;
     doRedeploy: (skipArm?: boolean) => Promise<void>;
     toggleReview: (e?: Event) => void;
-    doReview: () => Promise<void>;
     doReviewPlan: () => Promise<void>;
-    /** #2735: the epic this session is a child of — the Merge button then merges into its branch. */
-    epicChild?: RailEpicChild | null;
     /** #2735: the epic run that is not integrating this child (null while the drain acts). */
     epicStopped?: RailEpicStopped | null;
   } = $props();
@@ -180,39 +155,17 @@
       reviewingSpan ||
       epicStoppedSpan,
   );
-  // An epic child's Merge explains where it lands — unless a block reason already titles it.
-  const mergeTip = $derived(
-    epicChild && !mergeBlocked
-      ? {
-          text: mergeIntoEpicExplanation({ branch: epicChild.branch, stopped: !!epicStopped }),
-          stopClickPropagation: false,
-          pinOnClick: false,
-        }
-      : null,
-  );
-
-  // tappable controls (<a>/<button> + ReadyToggle) — each maps 1:1 to a control:
+  // tappable controls (<a>/<button>) — each maps 1:1 to a control. Merge, Ready and the critic
+  // trigger live in the merge row above the steer bar (#3540), not here:
   const issueChip = $derived(!!git.issueUrl && issueNumber != null);
   const openPrBtn = $derived(git.state === "none" && !autopilotOn);
   const prMenuBtn = $derived(git.state === "open" && !local && !!git.url);
-  const mergeBtn = $derived(git.state === "open"); // always shown in open (may be disabled)
   const redeployBtn = $derived(git.state === "merged" && git.deployConfigured);
-  const readyToggleShown = $derived(
-    showReady && (git.state === "open" || ready) && status !== "running" && status !== "blocked",
-  );
   const verdictBtn = $derived(
     chip.kind === "verdict" || (chip.kind === "reviewing" && chip.hasFindings),
   );
   const hasActions = $derived(
-    issueChip ||
-      openPrBtn ||
-      prMenuBtn ||
-      mergeBtn ||
-      redeployBtn ||
-      readyToggleShown ||
-      verdictBtn ||
-      canReview ||
-      canReviewPlan,
+    issueChip || openPrBtn || prMenuBtn || redeployBtn || verdictBtn || canReviewPlan,
   );
 </script>
 
@@ -264,7 +217,7 @@
   {/if}
 {/snippet}
 
-<!-- Trailing actions zone: 44px tap targets (Issue link, PR menu, Merge, Ready, verdict, …).
+<!-- Trailing actions zone: 44px tap targets (Issue link, PR menu, Redeploy, verdict, …).
      Each {#if} guard mirrors a `hasActions` term. -->
 {#snippet actionsZone()}
   {#if git.issueUrl && issueNumber != null}
@@ -307,24 +260,6 @@
       ><span class="dot" aria-hidden="true"></span>{m.gitrail_pr_link()}</button
     >
   {/if}
-  {#if mergeBtn}
-    <button
-      class={["gbtn", "merge"]}
-      type="button"
-      disabled={mergeBlocked}
-      title={mergeBlockedReason}
-      use:statusTip={mergeTip}
-      onclick={() => doMerge()}
-    >
-      {#if local}
-        {m.gitrail_merge_locally()}
-      {:else if epicChild}
-        {m.gitrail_merge_into_epic()}
-      {:else}
-        {m.gitrail_merge()}
-      {/if}
-    </button>
-  {/if}
   {#if redeployBtn}
     <button
       class="gbtn"
@@ -335,9 +270,6 @@
     >
       {armed === "redeploy" ? m.gitrail_confirm_redeploy() : m.gitrail_redeploy()}
     </button>
-  {/if}
-  {#if readyToggleShown}
-    <ReadyToggle {sessionId} {ready} {mobile} />
   {/if}
   <!-- while re-reviewing: keep the prior findings reachable (hasFindings ⇒ verdict body
        exists, so the showReview popover has content). The no-findings variant is a
@@ -363,17 +295,6 @@
       onclick={(e) => toggleReview(e)}
     >
       {chip.label}
-    </button>
-  {/if}
-  {#if canReview}
-    <button
-      class="gbtn"
-      class:armed={armed === "review"}
-      type="button"
-      onclick={() => doReview()}
-      use:coachTarget={"manual-critic-review"}
-    >
-      {reviewLabel}
     </button>
   {/if}
   {#if canReviewPlan}
@@ -476,13 +397,6 @@
     border-color: var(--color-amber);
     color: var(--color-amber);
   }
-  /* MERGE is the single amber primary action in the row (Quiet Ground: the one
-     amber action). Secondary actions stay ghost-muted until hover. */
-  .gbtn.merge:not(:disabled) {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
-
   /* status │ actions divider (mobile only — rendered iff mobile && hasPassive && hasActions).
      Mirrors GitRail's own .rail-sep; the 8px side margins + the .rail 6px gap give 14px of
      breathing room each side, marking the passive-status → tap-target boundary. */

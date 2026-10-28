@@ -12,18 +12,24 @@
   let {
     session,
     autoMergeOwned = false,
+    headless = false,
+    expanded = $bindable(false),
   }: {
     session: Session;
     /** Full-auto merge carries this PR (TASK-1368): a "needs attention" verdict reads as
      *  "no action needed" — the agent's recap was written before the train took over. */
     autoMergeOwned?: boolean;
+    /** The merge row stands in for the one-line headline (#3540): render nothing until the
+     *  recap is opened from there, then the card as usual (its header collapses it again). */
+    headless?: boolean;
+    /** Whether the body is open; bindable so the merge row can open it. */
+    expanded?: boolean;
   } = $props();
 
   const summary = $derived(recaps.map[session.id]);
   const detail = new RecapDetailState();
   const recap = $derived(detail.current(session.id, summary) ?? summary);
 
-  let expanded = $state(false);
   const showBody = $derived(expanded);
   let regenerating = $state(false);
   let regenFailed = $state(false);
@@ -157,7 +163,7 @@
 {/snippet}
 
 <!-- fallow-ignore-next-line complexity -->
-{#if recap && recap.state !== "empty"}
+{#if recap && recap.state !== "empty" && (!headless || expanded)}
   <!-- coachTarget id "session-recap" matches FeatureAnnouncement.targetId -->
   <div class="recap-card panel" use:coachTarget={"session-recap"}>
     {@render inner()}

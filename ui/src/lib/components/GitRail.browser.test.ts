@@ -6,8 +6,8 @@ import type { GitState, ReviewVerdict } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 
 // GitRail loads PR state from #lib/api.gitState on mount; mock it to a populated
-// open PR so the rail renders its full button set (PR link + CI dot + Merge +
-// automation pill + ReadyToggle) without a backend. Mock ALL named exports
+// open PR so the rail renders its full button set (PR link + CI dot + verdict +
+// automation pill) without a backend. Mock ALL named exports
 // GitRail imports from #lib/api so the import resolves.
 const openPrState: GitState = {
   kind: "github",
@@ -46,9 +46,6 @@ const getRepoCollaboratorsFn = vi.fn(async () => ({
 // plus the two repo-role reads exercised when the panel opens. Their full response
 // shapes keep endpoint-specific global fetch stubs in PR tests from leaking reviewer
 // JSON into the nested role picker.
-// reviewPrFn drives the manual critic-trigger handler; per-test we resolve it to
-// "started"/"skipped"/"error" or reject it to exercise the fail-closed toast paths.
-const reviewPrFn = vi.fn(async () => "started" as "started" | "skipped" | "error");
 // reviewPlanFn drives the manual plan-review trigger handler; same resolution options.
 const reviewPlanFn = vi.fn(
   async () =>
@@ -65,23 +62,18 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     getRepoRoles: getRepoRolesFn,
     getRepoCollaborators: getRepoCollaboratorsFn,
     openPr: vi.fn(),
-    mergePr: vi.fn(),
     redeploy: vi.fn(),
     replySession: vi.fn(),
-    reviewPr: reviewPrFn,
     reviewPlan: reviewPlanFn,
   };
 });
 
-// Mock the shared toast store so the manual-review handler's fail-closed/skipped
+// Mock the shared toast store so the plan-review handler's fail-closed/skipped
 // toasts can be asserted without rendering the real toast UI.
 const toastsInfo = vi.fn();
 vi.mock("#lib/toasts.svelte.js", () => ({
   toasts: { info: toastsInfo },
 }));
-
-// Mock pull-offer so the combined decommission+update action doesn't issue real fetch calls.
-vi.mock("#lib/pull-offer.js", () => ({ pullMainAndToast: vi.fn() }));
 
 // Import the component AFTER the mock is registered.
 const { default: GitRail } = await import("./GitRail.svelte");
@@ -93,8 +85,6 @@ const { default: GitRailAutopilotHarness } = await import("./GitRailAutopilotHar
 // component reads so toggling it reactively updates the rendered pill.
 // repoConfig drives the critic-enabled flag the manual-review button gates on.
 const { planGates, reviews, repoConfig } = await import("#lib/reviews.svelte.js");
-// Mocked pull-offer fn — imported for assertions in the post-merge suite.
-const { pullMainAndToast } = await import("#lib/pull-offer.js");
 
 const mounted: Array<{ unmount: () => void | Promise<void> }> = [];
 async function render(
@@ -182,7 +172,7 @@ function assertControlsWithin(cell: HTMLElement) {
     // interactive status-chips (Issue link <a>, PR-menu trigger <button>), which used to
     // render at ~23px below the floor (the a11y bug this change fixes).
     const touchButtons = rail!.querySelectorAll<HTMLElement>(
-      "button.gbtn, button.verdict-chip, button.ready-toggle, a.status-chip, button.status-chip",
+      "button.gbtn, button.verdict-chip, a.status-chip, button.status-chip",
     );
     expect(expectedTouchHeight, "mobile actionbar height token").toBeGreaterThan(0);
     expect(touchButtons.length, "mobile rail has touch buttons").toBeGreaterThan(0);
@@ -241,9 +231,6 @@ const baseProps = {
   repoPath: "/repo",
   name: "feature-x",
   prompt: "do the thing",
-  status: "idle" as const,
-  ready: false,
-  showReady: true,
 };
 
 describe("GitRail — shortened issue & PR labels", () => {
@@ -300,7 +287,7 @@ describe("GitRail — epic child (#2735)", () => {
     epicParent: null,
   };
 
-  it("an epic child under a stopped drain: stopped chip + Merge into epic", async () => {
+  it("an epic child under a stopped drain shows the stopped chip", async () => {
     gitStateFn.mockResolvedValue(openPrState);
     const h = host(900);
     const screen = await render(GitRail, {
@@ -314,12 +301,9 @@ describe("GitRail — epic child (#2735)", () => {
       },
     });
     await expect.element(screen.getByText(m.gitrail_epic_stopped({ epic: 67 }))).toBeVisible();
-    await expect
-      .element(screen.getByRole("button", { name: m.gitrail_merge_into_epic() }))
-      .toBeVisible();
   });
 
-  it("a running drain hides the chip but keeps Merge into epic", async () => {
+  it("a running drain hides the chip", async () => {
     gitStateFn.mockResolvedValue(openPrState);
     const h = host(900);
     const screen = await render(GitRail, {
@@ -332,23 +316,18 @@ describe("GitRail — epic child (#2735)", () => {
         drain: { ...stoppedDrain, enabled: true },
       },
     });
-    await expect
-      .element(screen.getByRole("button", { name: m.gitrail_merge_into_epic() }))
-      .toBeVisible();
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     expect(h.textContent).not.toContain(m.gitrail_epic_stopped({ epic: 67 }));
   });
 
-  it("a non-epic session keeps the plain Merge label and no chip", async () => {
+  it("a non-epic session shows no chip", async () => {
     gitStateFn.mockResolvedValue(openPrState);
     const h = host(900);
     const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: false, baseBranch: "main", drain: stoppedDrain },
     });
-    await expect
-      .element(screen.getByRole("button", { name: m.gitrail_merge(), exact: true }))
-      .toBeVisible();
-    expect(h.textContent).not.toContain(m.gitrail_merge_into_epic());
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     expect(h.querySelector(".epic-stopped")).toBeNull();
   });
 });
@@ -599,213 +578,75 @@ describe("GitRail — controls stay within the cell", () => {
     assertControlsWithin(h);
   });
 
-  // ── open + merge-disabled (CI failure → mergeBlocked) ────────────────────
-  it("desktop 600px — open, checks:failure → Merge button disabled but in-bounds", async () => {
-    const blockedState: GitState = {
-      ...openPrState,
-      checks: "failure",
-      mergeable: true,
-    };
-    gitStateFn.mockResolvedValue(blockedState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    // Merge button must still be present (just disabled)
-    const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
-    expect(mergeBtn, "Merge button present").not.toBeNull();
-    expect(mergeBtn!.disabled, "Merge button disabled").toBe(true);
-    // Absent mergeStateStatus (Gitea) routes to the checks-fallback block reason.
-    expect(mergeBtn!.title, "checks fallback tooltip").toBe(m.gitrail_merge_blocked_checks());
-    assertControlsWithin(h);
+  // ── open: lifecycle decisions moved to the merge row above the steer bar (#3540) ──
+  it("desktop 600px — open PR: no Merge, Ready or critic trigger; readouts + settings stay", async () => {
+    repoConfig.enabled = { ...repoConfig.enabled, [baseProps.repoPath]: true };
+    try {
+      gitStateFn.mockResolvedValue({
+        ...openPrState,
+        issueUrl: "https://github.com/acme/shepherd/issues/855",
+      });
+      reviews.apply({
+        id: baseProps.sessionId,
+        review: {
+          sessionId: baseProps.sessionId,
+          headSha: "abc",
+          decision: "commented",
+          summary: "ok",
+          body: "fine",
+          findings: [],
+          addressRound: 0,
+          addressCap: 2,
+          finalRoundPending: false,
+          finalRoundTimeoutMs: 900000,
+          updatedAt: Date.now(),
+        },
+      });
+      await page.viewport(600, 900);
+      const h = host(600);
+      const screen = await render(GitRail, {
+        target: h,
+        props: { ...baseProps, mobile: false, issueNumber: 855 },
+      });
+      await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+      await vi.waitFor(() =>
+        expect(h.querySelector("button.verdict-chip"), "verdict chip stays").not.toBeNull(),
+      );
+      const labels = [...h.querySelectorAll<HTMLElement>("button, a[href]")].map(
+        (b) => b.textContent?.trim() ?? "",
+      );
+      for (const gone of [
+        m.gitrail_merge(),
+        m.gitrail_merge_locally(),
+        m.gitrail_merge_into_epic(),
+        m.gitrail_ready(),
+        `✓ ${m.gitrail_ready()}`,
+        m.gitrail_review(),
+        m.gitrail_rereview(),
+        m.gitrail_restart_review(),
+      ])
+        expect(labels, `${gone} left the strip`).not.toContain(gone);
+      expect(h.textContent, "CI readout stays").toContain(m.gitrail_ci_passing());
+      await expect.element(screen.getByRole("link", { name: "Issue #855" })).toBeVisible();
+      expect(h.querySelector(".auto-pill"), "automation pill stays").not.toBeNull();
+      assertControlsWithin(h);
+    } finally {
+      reviews.drop(baseProps.sessionId);
+      const next = { ...repoConfig.enabled };
+      delete next[baseProps.repoPath];
+      repoConfig.enabled = next;
+    }
   });
 
-  it("mobile 360px — open, mergeable:false → Merge button disabled, single scroll row", async () => {
-    const conflictState: GitState = {
-      ...openPrState,
-      checks: "success",
-      mergeable: false,
-    };
-    gitStateFn.mockResolvedValue(conflictState);
-    await page.viewport(400, 900);
-    const h = host(360);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
-    expect(mergeBtn, "Merge button present").not.toBeNull();
-    expect(mergeBtn!.disabled, "Merge button disabled").toBe(true);
-    expect(mergeBtn!.title, "conflict tooltip").toBe(m.gitrail_merge_blocked_conflict());
-    assertControlsWithin(h);
-  });
-
-  // ── mergeStateStatus path (GitHub) ────────────────────────────────────────
-  // The over-block fix: a non-required/flaky check failing makes GitHub report
-  // `unstable` (still mergeable), so we must NOT disable on checks:"failure" when
-  // mergeStateStatus says merge is allowed. This is the key regression guard.
-  it("desktop 600px — open, mergeStateStatus:unstable + checks:failure → Merge ENABLED", async () => {
-    const unstableState: GitState = {
-      ...openPrState,
-      checks: "failure",
-      mergeable: true,
-      mergeStateStatus: "unstable",
-    };
-    gitStateFn.mockResolvedValue(unstableState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
-    expect(mergeBtn, "Merge button present").not.toBeNull();
-    expect(mergeBtn!.disabled, "Merge button enabled despite failing non-required check").toBe(
-      false,
-    );
-    assertControlsWithin(h);
-  });
-
-  it("desktop 600px — open, mergeStateStatus:blocked → Merge disabled with protected tooltip", async () => {
-    const protectedState: GitState = {
-      ...openPrState,
-      checks: "pending",
-      mergeable: true,
-      mergeStateStatus: "blocked",
-    };
-    gitStateFn.mockResolvedValue(protectedState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
-    expect(mergeBtn, "Merge button present").not.toBeNull();
-    expect(mergeBtn!.disabled, "Merge button disabled").toBe(true);
-    expect(mergeBtn!.title, "protected tooltip").toBe(m.gitrail_merge_blocked_protected());
-    assertControlsWithin(h);
-  });
-
-  it("desktop 600px — open, mergeStateStatus:behind → Merge disabled with behind-base tooltip", async () => {
-    const behindState: GitState = {
-      ...openPrState,
-      checks: "success",
-      mergeable: true,
-      mergeStateStatus: "behind",
-    };
-    gitStateFn.mockResolvedValue(behindState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
-    expect(mergeBtn, "Merge button present").not.toBeNull();
-    expect(mergeBtn!.disabled, "Merge button disabled").toBe(true);
-    expect(mergeBtn!.title, "behind-base tooltip").toBe(m.gitrail_merge_blocked_behind());
-    assertControlsWithin(h);
-  });
-
-  // `unknown` is GitHub's transient "merge-eligibility not computed yet" state —
-  // not a reliable signal, so it must be treated as ABSENT and defer to the checks
-  // rollup (exactly like a forge without mergeStateStatus, e.g. Gitea). Without the
-  // fix, the truthy `"unknown"` string took the ternary's signal branch, skipped the
-  // checks fallback, and left a failing-check PR's Merge button wrongly ENABLED.
-  it("desktop 600px — open, mergeStateStatus:unknown + checks:failure → Merge disabled with checks tooltip", async () => {
-    const unknownFailState: GitState = {
-      ...openPrState,
-      checks: "failure",
-      mergeable: true,
-      mergeStateStatus: "unknown",
-    };
-    gitStateFn.mockResolvedValue(unknownFailState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
-    expect(mergeBtn, "Merge button present").not.toBeNull();
-    expect(mergeBtn!.disabled, "Merge button disabled").toBe(true);
-    // unknown defers to checks: failing check → checks-fallback block reason.
-    expect(mergeBtn!.title, "checks fallback tooltip").toBe(m.gitrail_merge_blocked_checks());
-    assertControlsWithin(h);
-  });
-
-  it("desktop 600px — open, mergeStateStatus:unknown + checks:success → Merge ENABLED", async () => {
-    const unknownOkState: GitState = {
-      ...openPrState,
-      checks: "success",
-      mergeable: true,
-      mergeStateStatus: "unknown",
-    };
-    gitStateFn.mockResolvedValue(unknownOkState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
-    expect(mergeBtn, "Merge button present").not.toBeNull();
-    // unknown defers to checks: green checks → no over-block during the unknown window.
-    expect(mergeBtn!.disabled, "Merge button enabled while unknown + checks green").toBe(false);
-    assertControlsWithin(h);
-  });
-
-  it("desktop 600px — open, isDraft:true → Merge disabled with draft tooltip", async () => {
-    const draftState: GitState = {
-      ...openPrState,
-      checks: "success",
-      mergeable: true,
-      isDraft: true,
-    };
-    gitStateFn.mockResolvedValue(draftState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
-    expect(mergeBtn, "Merge button present").not.toBeNull();
-    expect(mergeBtn!.disabled, "Merge button disabled").toBe(true);
-    expect(mergeBtn!.title, "draft tooltip").toBe(m.gitrail_merge_blocked_draft());
-    assertControlsWithin(h);
-  });
-
-  // ── open + ReadyToggle hidden (status:running) ────────────────────────────
-  it("desktop 600px — open, status:running → ReadyToggle absent, rail in-bounds", async () => {
-    gitStateFn.mockResolvedValue(openPrState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, {
-      target: h,
-      props: { ...baseProps, mobile: false, status: "running", showReady: true },
-    });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    // ReadyToggle hidden when status === "running"
-    const readyToggle = h.querySelector('[data-testid="ready-toggle"], .ready-toggle');
-    // We can't rely on a testid; instead verify the rail still fits without it
-    expect(readyToggle, "ReadyToggle absent when running").toBeNull();
-    assertControlsWithin(h);
-  });
-
-  it("mobile 360px — open, status:running → ReadyToggle absent, rail in-bounds", async () => {
-    gitStateFn.mockResolvedValue(openPrState);
-    await page.viewport(400, 900);
-    const h = host(360);
-    const screen = await render(GitRail, {
-      target: h,
-      props: { ...baseProps, mobile: true, status: "running", showReady: true },
-    });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    assertControlsWithin(h);
-  });
-
-  // ── open + armed "Confirm merge?" (widest label — the overflow stressor) ──
-  // "draining" is a session-level concept (the server DrainStatus), not a
-  // distinct GitRail rail state — the component has no git.state === "draining"
-  // branch. The widest real label is the armed merge-confirm text; that's the
-  // actual overflow stressor the critic named.
-  // #2299 moved the merge's confirmation out of the button (its label no longer swaps to a wider
-  // "confirm ✓"), so the stressor these two pin is now the steady-state open-PR rail.
+  // ── open PR (the steady-state overflow stressor) ──
+  // "draining" is a session-level concept (the server DrainStatus), not a distinct GitRail rail
+  // state. The stressor these two pin is the steady-state open-PR rail.
   it("mobile 360px — open PR rail stays one scroll row (key stressor)", async () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(400, 900);
     const h = host(360);
     const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    await expect.element(screen.getByRole("button", { name: /^Merge$/i })).toBeVisible();
 
     assertControlsWithin(h);
   });
@@ -816,7 +657,6 @@ describe("GitRail — controls stay within the cell", () => {
     const h = host(600);
     const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    await expect.element(screen.getByRole("button", { name: /^Merge$/i })).toBeVisible();
 
     assertControlsWithin(h);
   });
@@ -1261,174 +1101,6 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
   });
 });
 
-describe("GitRail — manual critic-review trigger", () => {
-  // The button gates on git open + checks success + repo critic enabled. critic
-  // defaults to enabled (repoConfig.isEnabled → true when unknown); we set it
-  // explicitly so the gate is deterministic and the disabled-critic case is real.
-  beforeEach(() => {
-    reviewPrFn.mockResolvedValue("started");
-    toastsInfo.mockClear();
-    reviewPrFn.mockClear();
-    repoConfig.enabled = { ...repoConfig.enabled, [baseProps.repoPath]: true };
-  });
-  afterEach(() => {
-    reviews.drop(baseProps.sessionId);
-    // reset critic flag so it can't leak across suites
-    const next = { ...repoConfig.enabled };
-    delete next[baseProps.repoPath];
-    repoConfig.enabled = next;
-  });
-
-  // The manual-review button is a .gbtn with one of the Review/Re-review/Restart
-  // labels; the Merge button is also a .gbtn, so select by accessible name.
-  function reviewBtn(h: HTMLElement): HTMLButtonElement | null {
-    return (
-      [...h.querySelectorAll<HTMLButtonElement>("button.gbtn:not(.auto-pill)")].find((b) =>
-        /^(Review|Re-review|Restart|confirm)/.test(b.textContent?.trim() ?? ""),
-      ) ?? null
-    );
-  }
-
-  // ── visibility ─────────────────────────────────────────────────────────────
-  it("renders the Review button when open + checks success + critic enabled", async () => {
-    gitStateFn.mockResolvedValue(openPrState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    // start state: no verdict, not reviewing → "Review" label (the new no-verdict path)
-    await vi.waitFor(() => expect(reviewBtn(h), "review button present").not.toBeNull());
-    expect(reviewBtn(h)!.textContent?.trim()).toBe(m.gitrail_review());
-  });
-
-  it("hides the Review button when CI is not success", async () => {
-    gitStateFn.mockResolvedValue({ ...openPrState, checks: "pending" });
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    expect(reviewBtn(h), "no review button without green CI").toBeNull();
-  });
-
-  it("hides the Review button when the PR is not open", async () => {
-    gitStateFn.mockResolvedValue({
-      kind: "github",
-      state: "merged",
-      checks: "success",
-      deployConfigured: false,
-    });
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByText(/merged/i)).toBeVisible();
-    expect(reviewBtn(h), "no review button when not open").toBeNull();
-  });
-
-  it("hides the Review button when the repo critic is disabled", async () => {
-    repoConfig.enabled = { ...repoConfig.enabled, [baseProps.repoPath]: false };
-    gitStateFn.mockResolvedValue(openPrState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    await vi.waitFor(() =>
-      expect(screen.getByRole("button", { name: /^Merge$/i }).element()).toBeTruthy(),
-    );
-    expect(reviewBtn(h), "no review button when critic disabled").toBeNull();
-  });
-
-  // ── arm → confirm → call ─────────────────────────────────────────────────────
-  it("first click arms (no call), second click calls reviewPr once", async () => {
-    gitStateFn.mockResolvedValue(openPrState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    await vi.waitFor(() => expect(reviewBtn(h)).not.toBeNull());
-
-    const btn = reviewBtn(h)!;
-    btn.click();
-    // armed → label becomes confirm, reviewPr NOT yet called
-    await vi.waitFor(() =>
-      expect(reviewBtn(h)!.textContent?.trim()).toBe(m.gitrail_confirm_review()),
-    );
-    expect(reviewPrFn, "not called on first (arming) click").not.toHaveBeenCalled();
-
-    reviewBtn(h)!.click();
-    await vi.waitFor(() => expect(reviewPrFn).toHaveBeenCalledTimes(1));
-    expect(reviewPrFn).toHaveBeenCalledWith(baseProps.sessionId);
-  });
-
-  // ── fail-closed + skipped + started toasts ───────────────────────────────────
-  async function armAndConfirm(h: HTMLElement) {
-    await vi.waitFor(() => expect(reviewBtn(h)).not.toBeNull());
-    reviewBtn(h)!.click();
-    await vi.waitFor(() =>
-      expect(reviewBtn(h)!.textContent?.trim()).toBe(m.gitrail_confirm_review()),
-    );
-    reviewBtn(h)!.click();
-  }
-
-  it("'error' status raises the persistent, keyed failure toast", async () => {
-    reviewPrFn.mockResolvedValue("error");
-    gitStateFn.mockResolvedValue(openPrState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    await armAndConfirm(h);
-    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
-    expect(toastsInfo).toHaveBeenCalledWith(
-      m.gitrail_review_failed(),
-      expect.objectContaining({
-        alert: true,
-        key: `review-pr:${baseProps.sessionId}`,
-      }),
-    );
-  });
-
-  it("a rejected reviewPr raises the failure toast", async () => {
-    reviewPrFn.mockRejectedValue(new Error("boom"));
-    gitStateFn.mockResolvedValue(openPrState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    await armAndConfirm(h);
-    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
-    expect(toastsInfo).toHaveBeenCalledWith(
-      m.gitrail_review_failed(),
-      expect.objectContaining({ alert: true }),
-    );
-  });
-
-  it("'skipped' status raises a transient info toast", async () => {
-    reviewPrFn.mockResolvedValue("skipped");
-    gitStateFn.mockResolvedValue(openPrState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    await armAndConfirm(h);
-    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
-    expect(toastsInfo).toHaveBeenCalledWith(m.gitrail_review_skipped());
-  });
-
-  it("'started' status raises NO toast (the REVIEWING badge is the feedback)", async () => {
-    reviewPrFn.mockResolvedValue("started");
-    gitStateFn.mockResolvedValue(openPrState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    await armAndConfirm(h);
-    await vi.waitFor(() => expect(reviewPrFn).toHaveBeenCalledTimes(1));
-    // give any (incorrect) toast a tick to fire, then assert silence
-    await new Promise((r) => setTimeout(r, 20));
-    expect(toastsInfo, "no toast on started").not.toHaveBeenCalled();
-  });
-});
-
 describe("GitRail — manual plan-review trigger", () => {
   beforeEach(() => {
     reviewPlanFn.mockResolvedValue("started");
@@ -1489,9 +1161,7 @@ describe("GitRail — manual plan-review trigger", () => {
       props: { ...baseProps, mobile: false, planPhase: null },
     });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    await vi.waitFor(() =>
-      expect(screen.getByRole("button", { name: /^Merge$/i }).element()).toBeTruthy(),
-    );
+    await vi.waitFor(() => expect(h.querySelector(".auto-pill")).not.toBeNull());
     expect(planReviewBtn(h), "no plan-review button when planPhase null").toBeNull();
   });
 
@@ -1504,9 +1174,7 @@ describe("GitRail — manual plan-review trigger", () => {
       props: { ...baseProps, mobile: false, planPhase: "executing" },
     });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    await vi.waitFor(() =>
-      expect(screen.getByRole("button", { name: /^Merge$/i }).element()).toBeTruthy(),
-    );
+    await vi.waitFor(() => expect(h.querySelector(".auto-pill")).not.toBeNull());
     expect(planReviewBtn(h), "no plan-review button when planPhase executing").toBeNull();
   });
 
@@ -1700,62 +1368,6 @@ describe("GitRail — manual plan-review trigger", () => {
     await vi.waitFor(() => expect(planReviewBtn(h)).not.toBeNull());
     expect(planReviewBtn(h)!.disabled, "button disabled while reviewing").toBe(true);
   });
-
-  // 10. Co-render arm isolation: both buttons mounted, arm one, other stays unarmed.
-  // Captures stable DOM node references before any clicking to avoid re-querying
-  // ambiguously when both may show "confirm ✓" text.
-  it("arming plan-review button does not arm the critic button (arm isolation)", async () => {
-    // enable critic so both buttons render
-    repoConfig.enabled = { ...repoConfig.enabled, [baseProps.repoPath]: true };
-    gitStateFn.mockResolvedValue(openPrState); // open + checks:success + critic enabled
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, {
-      target: h,
-      props: { ...baseProps, mobile: false, planPhase: "planning" },
-    });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-
-    // Capture stable DOM node references while both buttons show initial unarmed labels.
-    // The critic button starts as "Review" (no prior verdict); plan button as "Review plan".
-    let criticNode: HTMLButtonElement;
-    let planNode: HTMLButtonElement;
-    await vi.waitFor(() => {
-      const allBtns = [...h.querySelectorAll<HTMLButtonElement>("button.gbtn:not(.auto-pill)")];
-      const critic = allBtns.find((b) =>
-        /^(Review|Re-review|Restart)$/.test(b.textContent?.trim() ?? ""),
-      );
-      const plan = allBtns.find((b) => (b.textContent?.trim() ?? "").startsWith("Review plan"));
-      expect(critic, "critic button present").not.toBeNull();
-      expect(plan, "plan button present").not.toBeNull();
-      criticNode = critic!;
-      planNode = plan!;
-    });
-
-    // Click plan button once → plan button armed ("confirm ✓"), critic NOT armed
-    planNode!.click();
-    await vi.waitFor(() => expect(planNode!.textContent?.trim()).toBe(m.gitrail_confirm_review()));
-    expect(
-      criticNode!.textContent?.trim(),
-      "critic button NOT armed after plan button click",
-    ).not.toBe(m.gitrail_confirm_review());
-
-    // Click critic button once → critic button armed ("confirm ✓"), plan disarmed
-    criticNode!.click();
-    await vi.waitFor(() =>
-      expect(criticNode!.textContent?.trim()).toBe(m.gitrail_confirm_review()),
-    );
-    // plan button should show its unarmed "Review plan" label (NOT "confirm ✓")
-    expect(
-      planNode!.textContent?.trim(),
-      "plan button NOT armed after critic button click",
-    ).not.toBe(m.gitrail_confirm_review());
-
-    // cleanup
-    const next = { ...repoConfig.enabled };
-    delete next[baseProps.repoPath];
-    repoConfig.enabled = next;
-  });
 });
 
 // The strip always mounts GitRail with mobile=true (Viewport.svelte), so the autopilot
@@ -1828,270 +1440,6 @@ describe("GitRail — Open PR hidden under autopilot", () => {
     await vi.waitFor(() =>
       expect(h.querySelector(".pr-pop"), "popover closed after AP flips on").toBeNull(),
     );
-  });
-});
-
-describe("GitRail — post-merge decommission offer", () => {
-  const mergePrFn = vi.fn();
-
-  beforeEach(() => {
-    toastsInfo.mockClear();
-    mergePrFn.mockClear();
-    (pullMainAndToast as ReturnType<typeof vi.fn>).mockClear();
-  });
-
-  // Helper: open the merge confirmation and answer it (#2299). The dialog's confirm button is
-  // deliberately inert for a moment after it opens, so this waits for it to arm.
-  async function armAndConfirmMerge(h: HTMLElement) {
-    const mergeBtn = await vi.waitFor(() => {
-      const btn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
-      expect(btn, "merge button present").not.toBeNull();
-      return btn!;
-    });
-    mergeBtn.click();
-    const confirm = await vi.waitFor(() => {
-      const btn = h.querySelector<HTMLButtonElement>("[role='dialog'] button.run");
-      expect(btn, "merge confirmation open").not.toBeNull();
-      expect(btn!.disabled, "confirm armed").toBe(false);
-      return btn!;
-    });
-    confirm.click();
-  }
-
-  it("remote-forge merge (non-isolated) shows plain decommission offer with the merged session id", async () => {
-    // mergePr returns a github-kind merged status; baseProps has isolated unset (→ false)
-    const { mergePr: mergePrMock } = await import("#lib/api.js");
-    (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
-      kind: "github",
-      state: "merged",
-      checks: "none",
-      deployConfigured: false,
-    });
-    gitStateFn.mockResolvedValue(openPrState);
-
-    const ondecommission = vi.fn();
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, {
-      target: h,
-      props: { ...baseProps, sessionId: "sess-A", mobile: false, ondecommission },
-    });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-
-    await armAndConfirmMerge(h);
-
-    // Wait for toasts.info to be called
-    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
-
-    // The toast must have an action with the plain decommission label (not combo)
-    const [, opts] = toastsInfo.mock.calls[0] as [
-      string,
-      { action?: { label: string; run: () => void }; duration?: number; key?: string },
-    ];
-    expect(opts?.action, "toast has action").toBeDefined();
-    expect(opts?.action?.label, "plain decommission label").toBe(m.gitrail_decommission_action());
-    expect(opts?.duration, "toast has 15s duration").toBe(15_000);
-    expect(opts?.key, "toast has decommission key").toBe("decommission-offer:sess-A");
-
-    // Invoking the action must call ondecommission with the CAPTURED id ("sess-A"),
-    // not whatever session might be focused at click time.
-    opts!.action!.run();
-    expect(ondecommission, "ondecommission called with captured id").toHaveBeenCalledWith("sess-A");
-    expect(pullMainAndToast, "pullMainAndToast NOT called for non-isolated").not.toHaveBeenCalled();
-  });
-
-  it("remote-forge merge (isolated) shows combo decommission & update offer", async () => {
-    const { mergePr: mergePrMock } = await import("#lib/api.js");
-    (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
-      kind: "github",
-      state: "merged",
-      checks: "none",
-      deployConfigured: false,
-    });
-    gitStateFn.mockResolvedValue(openPrState);
-
-    const ondecommission = vi.fn();
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, {
-      target: h,
-      props: {
-        ...baseProps,
-        sessionId: "sess-A",
-        mobile: false,
-        isolated: true,
-        baseBranch: "main",
-        ondecommission,
-      },
-    });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-
-    await armAndConfirmMerge(h);
-
-    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
-
-    const [, opts] = toastsInfo.mock.calls[0] as [
-      string,
-      { action?: { label: string; run: () => void }; duration?: number; key?: string },
-    ];
-    expect(opts?.action, "toast has action").toBeDefined();
-    expect(opts?.action?.label, "combo label").toBe(m.gitrail_decommission_update_action());
-    expect(opts?.duration, "toast has 15s duration").toBe(15_000);
-    expect(opts?.key, "toast has decommission key").toBe("decommission-offer:sess-A");
-
-    opts!.action!.run();
-    expect(ondecommission, "ondecommission called with captured id").toHaveBeenCalledWith("sess-A");
-    expect(
-      pullMainAndToast,
-      "pullMainAndToast called with repoPath and baseBranch",
-    ).toHaveBeenCalledWith("/repo", "main");
-  });
-
-  it("combo action captures repoPath/baseBranch at merge time, not at click time", async () => {
-    // Regression: GitRail is reused across session switches (no {#key} wrapper in Viewport).
-    // Merging session A (repoPath "/repo"), then switching to session B (repoPath "/other")
-    // within the 15s toast window must still FF "/repo", not "/other".
-    const { mergePr: mergePrMock } = await import("#lib/api.js");
-    (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
-      kind: "github",
-      state: "merged",
-      checks: "none",
-      deployConfigured: false,
-    });
-    gitStateFn.mockResolvedValue(openPrState);
-
-    const ondecommission = vi.fn();
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, {
-      target: h,
-      props: {
-        ...baseProps,
-        sessionId: "sess-A",
-        mobile: false,
-        isolated: true,
-        baseBranch: "main",
-        ondecommission,
-      },
-    });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-
-    await armAndConfirmMerge(h);
-
-    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
-
-    const [, opts] = toastsInfo.mock.calls[0] as [
-      string,
-      { action?: { label: string; run: () => void }; duration?: number; key?: string },
-    ];
-    expect(opts?.action, "toast has action").toBeDefined();
-
-    // Simulate session switch: rebind the component to a different session (repo Y)
-    // before the operator clicks the toast action — mirrors the live Viewport behaviour.
-    await screen.rerender({
-      ...baseProps,
-      sessionId: "sess-B",
-      mobile: false,
-      isolated: true,
-      repoPath: "/other",
-      baseBranch: "release",
-      ondecommission,
-    });
-
-    // Invoke the captured action — must use the values snapshotted at merge time.
-    opts!.action!.run();
-    expect(
-      pullMainAndToast,
-      "pullMainAndToast called with captured (/repo, main), not live (/other, release)",
-    ).toHaveBeenCalledWith("/repo", "main");
-    expect(
-      pullMainAndToast,
-      "pullMainAndToast NOT called with live props",
-    ).not.toHaveBeenCalledWith("/other", "release");
-  });
-
-  it("combo action captures the isolated flag at merge time, not at click time", async () => {
-    // Regression: the `isolated` flag must be snapshotted before the merge await alongside
-    // the FF target. Merging an isolated session, then switching to a NON-isolated session
-    // within the 15s window, must still fast-forward (captured isolated=true wins) rather
-    // than reading the rebound live flag and silently skipping the pull.
-    const { mergePr: mergePrMock } = await import("#lib/api.js");
-    (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
-      kind: "github",
-      state: "merged",
-      checks: "none",
-      deployConfigured: false,
-    });
-    gitStateFn.mockResolvedValue(openPrState);
-
-    const ondecommission = vi.fn();
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, {
-      target: h,
-      props: {
-        ...baseProps,
-        sessionId: "sess-A",
-        mobile: false,
-        isolated: true,
-        baseBranch: "main",
-        ondecommission,
-      },
-    });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-
-    await armAndConfirmMerge(h);
-    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
-
-    const [, opts] = toastsInfo.mock.calls[0] as [
-      string,
-      { action?: { label: string; run: () => void } },
-    ];
-
-    // Switch to a NON-isolated session before clicking the toast action.
-    await screen.rerender({
-      ...baseProps,
-      sessionId: "sess-B",
-      mobile: false,
-      isolated: false,
-      ondecommission,
-    });
-
-    opts!.action!.run();
-    expect(
-      pullMainAndToast,
-      "pull still fires with captured isolated=true despite live isolated=false",
-    ).toHaveBeenCalledWith("/repo", "main");
-  });
-
-  it("local-forge merge → no decommission offer action", async () => {
-    const { mergePr: mergePrMock } = await import("#lib/api.js");
-    (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
-      kind: "local",
-      state: "merged",
-      checks: "none",
-      deployConfigured: false,
-    });
-    gitStateFn.mockResolvedValue(openPrState);
-
-    const ondecommission = vi.fn();
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, {
-      target: h,
-      props: { ...baseProps, sessionId: "sess-B", mobile: false, ondecommission },
-    });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-
-    await armAndConfirmMerge(h);
-
-    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
-
-    const call = toastsInfo.mock.calls[0] as [string, ({ action?: unknown } | undefined)?];
-    // local-forge toast: plain call with no action opts, OR opts without action
-    const opts = call[1];
-    expect(opts?.action ?? undefined, "no action on local-forge toast").toBeUndefined();
-    expect(ondecommission, "ondecommission never invoked").not.toHaveBeenCalled();
   });
 });
 

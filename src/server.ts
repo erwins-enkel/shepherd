@@ -8400,22 +8400,21 @@ async function handleHeavySlotOperator(
 
 async function handleHeavySlot({ req, parts, deps, token }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "heavy-slot") return null;
-  if (req.method === "GET" && parts.length === 2) {
-    const snapshot = deps.heavySlot?.snapshot() ?? DISABLED_HEAVY_SLOT;
-    // Staleness needs a git look at each worktree, so it is merged in here, not in the sync snapshot.
-    const lastResults = deps.heavySlot && deps.store ? await readLastResults(deps.store) : [];
-    return json({ ...snapshot, lastResults });
-  }
-  if (req.method === "POST" && parts.length === 3 && parts[2] === "operator")
-    return handleHeavySlotOperator(req, deps, token);
-  if (req.method === "POST" && parts.length === 3 && parts[2] === "release") {
-    const body = (await req.json().catch(() => null)) as { sessionId?: unknown } | null;
-    if (typeof body?.sessionId !== "string") return json({ error: "invalid_session_id" }, 400);
-    if (!(await deps.heavySlot?.release(body.sessionId)))
-      return json({ error: "not_holding" }, 404);
-    return json({ released: true });
-  }
-  return null;
+  if (req.method === "GET" && parts.length === 2) return heavySlotSnapshotResponse(deps);
+  if (req.method !== "POST" || parts.length !== 3) return null;
+  if (parts[2] === "operator") return handleHeavySlotOperator(req, deps, token);
+  if (parts[2] !== "release") return null;
+  const body = (await req.json().catch(() => null)) as { sessionId?: unknown } | null;
+  if (typeof body?.sessionId !== "string") return json({ error: "invalid_session_id" }, 400);
+  if (!(await deps.heavySlot?.release(body.sessionId))) return json({ error: "not_holding" }, 404);
+  return json({ released: true });
+}
+
+async function heavySlotSnapshotResponse(deps: AppDeps): Promise<Response> {
+  const snapshot = deps.heavySlot?.snapshot() ?? DISABLED_HEAVY_SLOT;
+  // Staleness needs a git look at each worktree, so it is merged in here, not in the sync snapshot.
+  const lastResults = deps.heavySlot && deps.store ? await readLastResults(deps.store) : [];
+  return json({ ...snapshot, lastResults });
 }
 
 async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | null> {

@@ -125,7 +125,8 @@ export class RepoPrecheck {
     this.#busy = true;
     try {
       const result = await applyEpicAutoFix(repo, parent, body);
-      this.#applied = { at, parent, changes, previous: result.previous };
+      // The overview moved to another repo meanwhile: the fix is done, but not this one's.
+      if (this.#repo === repo) this.#applied = { at, parent, changes, previous: result.previous };
       return true;
     } catch (err) {
       // 409: the model moved on (a setting changed meanwhile); the reload shows its current ways.
@@ -149,7 +150,7 @@ export class RepoPrecheck {
     this.#busy = true;
     try {
       await applyEpicAutoFix(repo, fix.parent, { restore: fix.previous });
-      this.#applied = null;
+      if (this.#applied === fix) this.#applied = null;
     } catch {
       failed(m.epic_autofix_undo_failed());
     } finally {
@@ -161,6 +162,6 @@ export class RepoPrecheck {
   /** A write changed the repo's sandbox or an epic's CLI: every model may have moved. */
   #refresh(repo: string) {
     void repoConfig.reload(repo);
-    void this.#load();
+    if (this.#repo === repo) void this.#load();
   }
 }

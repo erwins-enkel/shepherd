@@ -218,6 +218,22 @@ describe("RepoPrecheck (#3456)", () => {
     info.mockRestore();
   });
 
+  it("a fix that lands after the overview moved to another repo isn't shown there", async () => {
+    const a = repo();
+    const b = repo();
+    serve({ 35: STD_CODEX });
+    const p = new RepoPrecheck();
+    p.watch(a, [35], drain(a));
+    await settle();
+    const late = deferred<EpicAutoFixResult>();
+    api.applyEpicAutoFix.mockReturnValueOnce(late.promise);
+    const applying = p.applyCause(35, "sandbox_provider_unconfined", "epic");
+    p.watch(b, [35], drain(b));
+    late.resolve({ previous: CODEX_PREV, blockers: STD_CODEX });
+    expect(await applying).toBe(true);
+    expect(p.applied).toBeNull();
+  });
+
   it("another repo starts from scratch", async () => {
     const a = repo();
     const b = repo();

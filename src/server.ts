@@ -386,6 +386,8 @@ import type { EpicDraft, EpicDraftProgress } from "./types";
 import {
   providerSwitchSettings,
   type AutoBlockers,
+  type AutoFixCauseCode,
+  type AutoFixOption,
   type AutoFixOptionId,
   type EpicAutoFixState,
 } from "./auto-blockers";
@@ -12197,16 +12199,30 @@ function epicAutoFixTarget(
   return { ...target, drain: deps.drain as AutoBlockersDrain };
 }
 
-/** The settings fix `id` writes while the model offers it enabled, else null. Switching the CLI
- *  drops a model/effort the new one doesn't offer, as the epic's CLI picker does. */
+/** The settings fix `id` writes while the model offers it enabled, else null. */
 function autoFixOptionState(
   blockers: AutoBlockers,
   base: EpicRun,
   id: AutoFixOptionId,
 ): EpicAutoFixState | null {
   const option = blockers.options.find((o) => o.id === id && o.enabled);
-  if (!option) return null;
-  const { sandboxProfile, agentProvider } = option.changes;
+  return option ? autoFixChangesState(option.changes, base) : null;
+}
+
+/** #3456: the settings cause `code`'s own fix writes while the model offers it enabled, else null. */
+function autoFixCauseState(
+  blockers: AutoBlockers,
+  base: EpicRun,
+  code: AutoFixCauseCode,
+): EpicAutoFixState | null {
+  const fix = blockers.causes.find((c) => c.code === code)?.fix;
+  return fix?.enabled ? autoFixChangesState(fix.changes, base) : null;
+}
+
+/** A fix's changes as the state written. Switching the CLI drops a model/effort the new one
+ *  doesn't offer, as the epic's CLI picker does. */
+function autoFixChangesState(changes: AutoFixOption["changes"], base: EpicRun): EpicAutoFixState {
+  const { sandboxProfile, agentProvider } = changes;
   return {
     ...(sandboxProfile ? { sandboxProfile } : {}),
     ...(agentProvider ? providerSwitchSettings(base, agentProvider) : {}),
@@ -12291,8 +12307,9 @@ async function applyEpicAutoFixState(
 
 // GET /api/epic/auto-fix?repo=&parent= — what keeps the epic's children from starting unattended
 // and the fixes that would start them (#3453), alike for a leading, queued or not-started epic.
-// POST {option} applies a fix the model offers enabled, in one step; POST {restore} writes back the
-// `previous` a fix answered (Undo). Both kick the drain and answer {previous, blockers}.
+// POST {option} applies a fix the model offers enabled, in one step; POST {cause} applies one
+// cause's own fix in its scope alone (#3456); POST {restore} writes back the `previous` a fix
+// answered (Undo). All kick the drain and answer {previous, blockers}.
 async function handleEpicAutoFix({ req, parts, url, deps, token }: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "epic" && parts[2] === "auto-fix" && !parts[3]))
     return null;
@@ -12309,7 +12326,9 @@ async function handleEpicAutoFix({ req, parts, url, deps, token }: Ctx): Promise
   const state =
     "restore" in body
       ? body.restore
-      : autoFixOptionState(drain.autoBlockers(dir, base), base, body.option);
+      : "cause" in body
+        ? autoFixCauseState(drain.autoBlockers(dir, base), base, body.cause)
+        : autoFixOptionState(drain.autoBlockers(dir, base), base, body.option);
   if (!state) return json({ error: "option unavailable" }, 409);
   const via = requestTokenName(deps.store, token);
   const previous = await applyEpicAutoFixState(deps, drain, base, state, via);

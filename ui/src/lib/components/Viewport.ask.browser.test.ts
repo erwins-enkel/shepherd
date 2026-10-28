@@ -19,6 +19,10 @@ vi.mock("#lib/pty.js", () => ({
     return { send: ptySend, resize: ptyResize, close: vi.fn(), poke: vi.fn(), takeover: vi.fn() };
   }),
 }));
+vi.mock("#lib/api.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("#lib/api.js")>()),
+  answerAsk: vi.fn(async () => "verified"),
+}));
 const { default: Viewport } = await import("./Viewport.svelte");
 const { dialog } = await import("#lib/a11yDialog.js");
 
@@ -171,5 +175,53 @@ describe("AskUserQuestion dialog in the Viewport (#3165)", () => {
 
     await rerender({ session: other, ask: null, pendingAsks });
     await expect.element(center).not.toBeInTheDocument();
+  });
+
+  it("keeps the operator on another session's question when this one asks again", async () => {
+    const target = document.createElement("div");
+    target.style.cssText = "height: 800px; display: flex; flex-direction: column";
+    document.body.append(target);
+    const b = session({ id: "b", status: "blocked", desig: "TASK-02" });
+    const a = session({ id: "a", status: "blocked", desig: "TASK-01", repoPath: "/repo/z" });
+    const askA = ask("toolu_a");
+    const b1 = ask("toolu_b1");
+    const { rerender } = await render(Viewport, {
+      target,
+      props: {
+        session: b,
+        ask: b1,
+        pendingAsks: [
+          { session: a, ask: askA, since: 1 },
+          { session: b, ask: b1, since: 2 },
+        ],
+      },
+    });
+    await expect.element(dialogEl()).toBeVisible();
+    const selected = () =>
+      document.querySelector("[role=dialog] .row[aria-current=true] .desig")?.textContent;
+    const radios = () =>
+      document.querySelectorAll<HTMLInputElement>('[role=dialog] .detail input[type="radio"]');
+    // Answer b's question → the center moves on to a's; pick there without sending.
+    await page.elementLocator(radios()[1]!).click();
+    await page
+      .elementLocator(document.querySelector<HTMLButtonElement>("[role=dialog] button.primary")!)
+      .click();
+    await vi.waitFor(() => expect(selected()).toBe("TASK-01"));
+    await page.elementLocator(radios()[1]!).click();
+
+    // b's answer lands, then b asks its next question — listed first, as this Viewport's own.
+    await rerender({ session: b, ask: null, pendingAsks: [{ session: a, ask: askA, since: 1 }] });
+    const b2 = ask("toolu_b2");
+    await rerender({
+      session: b,
+      ask: b2,
+      pendingAsks: [
+        { session: a, ask: askA, since: 1 },
+        { session: b, ask: b2, since: 3 },
+      ],
+    });
+    await expect.element(dialogEl().getByRole("button", { name: /TASK-02/ })).toBeVisible();
+    expect(selected()).toBe("TASK-01");
+    expect(radios()[1]!.checked).toBe(true);
   });
 });

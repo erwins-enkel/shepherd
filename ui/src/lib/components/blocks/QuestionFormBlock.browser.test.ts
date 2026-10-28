@@ -428,3 +428,37 @@ describe("QuestionFormBlock — links", () => {
     expect(container.querySelector("a")).toBeNull();
   });
 });
+
+it("seeds its inputs from a draft and reports edits", async () => {
+  const ondraft = vi.fn();
+  const { container } = await render(QuestionFormBlock, {
+    block: {
+      type: "question-form",
+      id: "qd",
+      questions: [
+        { id: "s", prompt: "One?", kind: "single", options: ["A", "B"], allowOther: true },
+        { id: "f", prompt: "Why?", kind: "freeform" },
+      ],
+    },
+    onanswer: vi.fn(),
+    draft: {
+      single: { s: -1 },
+      multi: {},
+      freeform: { f: "because" },
+      otherChecked: {},
+      otherText: { s: "C" },
+    },
+    ondraft,
+  });
+  const radios = container.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+  expect(radios[2]!.checked).toBe(true);
+  await expect.element(page.getByRole("textbox", { name: /One\?/ })).toHaveValue("C");
+  await expect.element(page.getByPlaceholder(/./).last()).toHaveValue("because");
+
+  await page.elementLocator(radios[1]!).click();
+  await vi.waitFor(() =>
+    expect(ondraft).toHaveBeenLastCalledWith(
+      expect.objectContaining({ single: { s: 1 }, freeform: { f: "because" } }),
+    ),
+  );
+});

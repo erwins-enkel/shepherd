@@ -13,7 +13,7 @@
   import { dialog } from "#lib/a11yDialog.js";
   import { SvelteSet } from "svelte/reactivity";
   import { m } from "#lib/paraglide/messages.js";
-  import QuestionFormBlock from "./blocks/QuestionFormBlock.svelte";
+  import QuestionFormBlock, { type QuestionFormDraft } from "./blocks/QuestionFormBlock.svelte";
 
   // The agent's AskUserQuestion dialog as a native form (#3165), grown into a question center: it
   // names the repo, task and session asking, and lists every other session's open question beside
@@ -56,6 +56,14 @@
   const index = $derived(current ? ordered.indexOf(current) : -1);
   const multi = $derived(ordered.length > 1);
   const block = $derived(current ? askToQuestionForm(current.ask) : null);
+  // The entry on screen IS the selection: once the selected one is answered or gone, pin the one
+  // shown in its place, so a question arriving ahead of it later can't take the operator's spot.
+  $effect(() => {
+    if (current && askEntryKey(current) !== selectedId) selectedId = askEntryKey(current);
+  });
+  // Unsent inputs per entry while the dialog is open: switching rows (or the form remounting)
+  // brings them back. Deliberately not reactive: the form reads its draft once, on mount.
+  const drafts: Record<string, QuestionFormDraft> = {};
 
   let closed = false;
   function close() {
@@ -189,9 +197,12 @@
           </div>
           <p class="hint">{m.ask_center_hint({ task: s.desig })}</p>
           {#key `${askEntryKey(current)}:${current.ask.questions.map((q, i) => q.id ?? i).join(",")}`}
+            {@const key = askEntryKey(current)}
             <QuestionFormBlock
               {block}
               {onanswer}
+              draft={drafts[key]}
+              ondraft={(d) => (drafts[key] = d)}
               submitLabel={multi ? m.ask_center_submit_next() : m.ask_center_submit()}
             />
           {/key}

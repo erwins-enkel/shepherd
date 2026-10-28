@@ -326,6 +326,7 @@ import type {
   Session,
   AgentProvider,
   SessionPreviewState,
+  PreviewReach,
   IssueRef,
   RelaunchOverrides,
   PlanGate,
@@ -6237,15 +6238,19 @@ function handlePreviewReach({ req, parts, deps }: Ctx): Response | null {
     return null;
   const id = parts[2];
   if (!deps.store.get(id)) return json({ error: "not found" }, 404);
-  return json(
-    previewReach({
-      previewPort: deps.preview?.snapshot()[id]?.previewPort ?? null,
-      host: config.previewHost,
-      autoServe: config.previewAutoServe,
-      serve: deps.previewServe?.snapshot()[id],
-      denied: deps.previewServe?.permissionDenied?.() ?? false,
-    }),
-  );
+  return json(sessionPreviewReach(deps, id));
+}
+
+/** Session `id`'s `PreviewReach` on this instance — shared by the route above and the agent's
+ *  `self_status.preview`, so the URL an agent hands the operator is the one the HUD opens. */
+function sessionPreviewReach(deps: AppDeps, id: string): PreviewReach {
+  return previewReach({
+    previewPort: deps.preview?.snapshot()[id]?.previewPort ?? null,
+    host: config.previewHost,
+    autoServe: config.previewAutoServe,
+    serve: deps.previewServe?.snapshot()[id],
+    denied: deps.previewServe?.permissionDenied?.() ?? false,
+  });
 }
 
 // POST /api/sessions/:id/preview/stop — force-stop the previewed dev server.
@@ -7351,6 +7356,7 @@ async function handleSessionMcp({ req, parts, deps }: Ctx): Promise<Response | n
  *  session's, so Browser View preselects it). */
 function mcpDeps(deps: AppDeps): AgentControlDeps {
   const browser = deps.sharedBrowser;
+  const preview = deps.preview;
   return {
     ...deps,
     operatorDiag: operatorDiagDeps(deps),
@@ -7360,6 +7366,12 @@ function mcpDeps(deps: AppDeps): AgentControlDeps {
       hasLocalWork,
       archive: (id) => archiveAndAnnounce(deps, id, undefined, "noop"),
     },
+    ...(preview && {
+      previewOf: (id: string) => ({
+        ...sessionPreviewReach(deps, id),
+        devPort: preview.devPortFor?.(id) ?? null,
+      }),
+    }),
     ...(browser && {
       openLoginTab: async (repoPath: string, url: string, sessionId: string) => {
         await browser.open(repoPath, url, { sessionId });

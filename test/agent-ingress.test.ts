@@ -426,6 +426,37 @@ test("makeAgentIngressApp: the MCP endpoint delegates and drives the queue throu
   expect(deps.store.getBuildQueue(s.id).steps[0]!.status).toBe("active");
 });
 
+test("makeAgentIngressApp: self_status reads the session's live preview slot and dev port", async () => {
+  // The agent can't reach the operator-auth'd GET /api/sessions/:id/preview, so self_status is
+  // how it learns the slot it was given — never by grepping `tailscale serve` for its dev port.
+  const deps = makeDeps();
+  const s = await deps.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+  deps.preview = {
+    snapshot: () => ({ [s.id]: { previewPort: 8001 } }),
+    devPortFor: (id) => (id === s.id ? 4317 : null),
+  };
+  const res = await keyedIngressApp(deps).fetch(
+    new Request(`http://x/api/sessions/${s.id}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "self_status", arguments: {} },
+      }),
+    }),
+  );
+  const payload = JSON.parse((await res.json()).result.content[0].text);
+  expect(payload.preview).toMatchObject({ bound: true, devPort: 4317 });
+});
+
 /** The session id a spawn argv's `--mcp-config` points at. */
 function mcpSessionId(argv: string[]): string {
   const cfg = JSON.parse(inlineSpawnFiles(argv)[argv.indexOf("--mcp-config") + 1]!);

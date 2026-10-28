@@ -1137,7 +1137,9 @@ const PREVIEW_HINT_NOTICE =
   "belongs in the directory you started the server from. Shepherd uses the declared port only " +
   "when it is actually listening; otherwise it auto-detects the port. This is optional: skip it " +
   "if you have no dev server or the default detection already targets the right port. Shepherd " +
-  "never starts or stops your dev server.";
+  "never starts or stops your dev server. To confirm the preview, wait a few seconds; if you " +
+  "have the `self_status` tool, give the operator its `preview.url`. The preview is on a " +
+  "Shepherd slot port, so never search `tailscale serve` for your dev port.";
 
 /**
  * Seeded into the system prompt at spawn when the repo has autopilot on, so the agent knows

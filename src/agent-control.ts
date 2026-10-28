@@ -68,7 +68,7 @@ import {
 } from "./operator-assistant-permissions";
 import type { PrCache } from "./pr-poller";
 import type { SessionStore } from "./store";
-import type { BuildQueue, EpicDraft, Session } from "./types";
+import type { BuildQueue, EpicDraft, PreviewReach, Session } from "./types";
 import type { SessionPhase } from "./session-phase";
 import { fenceUntrusted, randomFenceToken } from "./untrusted";
 import {
@@ -106,7 +106,13 @@ export interface AgentControlDeps {
   sessionPhase?: (s: Session) => Promise<SessionPhase>;
   /** `schedule_noop`'s side effects; absent ⇒ the tool answers "unavailable". */
   scheduleNoop?: ScheduleNoopDeps;
+  /** Where a session's live preview opens (+ the dev port it proxies); absent ⇒
+   *  `self_status.preview` reads null. Agents can't reach the operator-auth'd preview route. */
+  previewOf?: (sessionId: string) => SelfPreview;
 }
+
+/** `self_status.preview`: the HUD's `PreviewReach` plus the dev port the slot proxies to. */
+export type SelfPreview = PreviewReach & { devPort: number | null };
 
 /** What closing a no-op scheduled run needs beyond the store: the local-work guard and the full
  *  archive (with its PR-cache drop and `session:archived` fan-out). */
@@ -394,6 +400,7 @@ function applySelfStatus(deps: AgentControlDeps, sessionId: string): ApplyResult
         cap: gate.cap,
       },
       github: deps.githubBackoff ? githubBudget(deps.githubBackoff(), Date.now()) : null,
+      preview: deps.previewOf?.(sessionId) ?? null,
     },
   };
 }
@@ -620,7 +627,9 @@ const SELF_STATUS: McpTool = {
     "This session's own state: PR and CI checks, the critic's latest review verdict, the " +
     "plan-gate verdict, and Shepherd's live GitHub API budget (`github`) — make no `gh` call " +
     "before `github.blockedUntil`. Read CI here instead of polling `gh pr checks`; Shepherd " +
-    "steers you when your checks finish." +
+    "steers you when your checks finish. `preview` is your live preview: `preview.url` is the " +
+    "link to hand the operator, `preview.devPort` the server it proxies (scratchpad servers " +
+    "included); it lives on a Shepherd slot port, never your dev port." +
     READ_NOTE,
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
 };

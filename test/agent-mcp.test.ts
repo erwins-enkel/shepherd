@@ -860,6 +860,43 @@ test("self_status carries the github block from the injected backoff trackers", 
   });
 });
 
+test("self_status carries this session's preview from the injected reach", async () => {
+  const { deps, sessionId } = harness();
+  const seen: string[] = [];
+  const withPreview: AgentControlDeps = {
+    ...deps,
+    previewOf: (id) => {
+      seen.push(id);
+      return {
+        bound: true,
+        url: "https://host.example.ts.net:8001/",
+        unavailable: null,
+        devPort: 4317,
+      };
+    },
+  };
+  const { payload } = toolPayload(await call(withPreview, sessionId, "self_status", {}));
+  expect(seen).toEqual([sessionId]);
+  expect(payload.preview).toEqual({
+    bound: true,
+    url: "https://host.example.ts.net:8001/",
+    unavailable: null,
+    devPort: 4317,
+  });
+});
+
+test("self_status without preview wiring reads preview null", async () => {
+  const { deps, sessionId } = harness();
+  const { payload } = toolPayload(await call(deps, sessionId, "self_status", {}));
+  expect(payload.preview).toBeNull();
+});
+
+test("the self_status description points the agent at its preview URL", () => {
+  const { deps, sessionId } = harness();
+  const tool = agentTools(deps, sessionId).find((t) => t.name === "self_status")!;
+  expect(tool.description).toContain("preview.url");
+});
+
 test("the self_status description tells the agent where the GitHub reset lives", () => {
   const { deps, sessionId } = harness();
   const tool = agentTools(deps, sessionId).find((t) => t.name === "self_status")!;

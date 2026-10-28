@@ -431,6 +431,30 @@ test("PATCH issueFilter merges a partial filter, GET reports it and settings:iss
     });
   }
 });
+test("PATCH upnextQuickStarts merges per CLI, GET reports it, bad presets 400", async () => {
+  try {
+    const codex = { enabled: true, model: "gpt-6.1-sol", effort: "medium" };
+    const first = (await request("PATCH", "/api/settings", 200, {
+      upnextQuickStarts: { codex },
+    })) as { upnextQuickStarts: unknown };
+    expect(first.upnextQuickStarts).toEqual({ codex });
+    const second = (await request("PATCH", "/api/settings", 200, {
+      upnextQuickStarts: { claude: { enabled: false } },
+    })) as { upnextQuickStarts: unknown };
+    const claude = { enabled: false, model: null, effort: null };
+    expect(second.upnextQuickStarts).toEqual({ claude, codex });
+    const settings = (await request("GET", "/api/settings", 200)) as {
+      upnextQuickStarts: unknown;
+    };
+    expect(settings.upnextQuickStarts).toEqual({ claude, codex });
+    await request("PATCH", "/api/settings", 400, {
+      upnextQuickStarts: { claude: { enabled: true, effort: "ultra" } },
+    });
+    await request("PATCH", "/api/settings", 400, { upnextQuickStarts: {} });
+  } finally {
+    s.deps.store.deleteSetting("upnextQuickStarts");
+  }
+});
 test("native iOS registration: 503 without an APNs key, 400 on a bad token, 200 once configured", async () => {
   const device = { token: "ab".repeat(32), environment: "production", locale: "de" };
   const saved = s.deps.push;

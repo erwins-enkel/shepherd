@@ -362,6 +362,8 @@ components:
           type: boolean
         upnextSkipCliPicker:
           type: boolean
+        upnextQuickStarts:
+          $ref: "#/components/schemas/UpNextQuickStarts"
         usageHoldEnabled:
           type: boolean
         usageHoldAutoRelease:
@@ -4831,6 +4833,39 @@ components:
       properties:
         repoPath: { "type": "string" }
         issueRef: { "$ref": "#/components/schemas/UpNextStartIssueRef" }
+    UpNextQuickStart:
+      type: object
+      additionalProperties: true
+      description: "One CLI's quick-start preset (#3507). model/effort null = the CLI's own default. A stored preset whose model or effort the server no longer offers is dropped on read."
+      required: [enabled, model, effort]
+      properties:
+        enabled: { type: boolean }
+        model: { type: [string, "null"] }
+        effort: { type: [string, "null"] }
+    UpNextQuickStarts:
+      type: object
+      additionalProperties: true
+      description: "Per-CLI quick-start presets (#3507), keyed by agent provider. An absent key = never set up; enabled false = set up but hidden. {} until one is set up."
+      properties:
+        claude: { $ref: "#/components/schemas/UpNextQuickStart" }
+        codex: { $ref: "#/components/schemas/UpNextQuickStart" }
+    UpNextQuickStartPatch:
+      type: object
+      additionalProperties: false
+      description: "Replaces one CLI's whole preset. model/effort omitted or null = the CLI default; model must be in that CLI's curated list, effort one of its tiers."
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+        model: { type: [string, "null"] }
+        effort: { type: [string, "null"] }
+    UpNextQuickStartsPatch:
+      type: object
+      additionalProperties: false
+      description: "Merged per CLI: only the CLIs named here are replaced, the others stay as stored."
+      minProperties: 1
+      properties:
+        claude: { $ref: "#/components/schemas/UpNextQuickStartPatch" }
+        codex: { $ref: "#/components/schemas/UpNextQuickStartPatch" }
     UpNextStartRequest:
       type: "object"
       additionalProperties: false
@@ -6028,6 +6063,8 @@ components:
           type: boolean
         upnextSkipCliPicker:
           type: boolean
+        upnextQuickStarts:
+          $ref: "#/components/schemas/UpNextQuickStartsPatch"
         usageHoldEnabled:
           type: boolean
         usageHoldAutoRelease:
@@ -6136,6 +6173,8 @@ components:
           type: boolean
         upnextSkipCliPicker:
           type: boolean
+        upnextQuickStarts:
+          $ref: "#/components/schemas/UpNextQuickStarts"
         usageHoldEnabled:
           type: boolean
         usageHoldAutoRelease:

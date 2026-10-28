@@ -1,8 +1,20 @@
+<script lang="ts" module>
+  /** A form's unsent inputs, keyed by question id — what `draft` seeds and `ondraft` reports. */
+  export interface QuestionFormDraft {
+    single: Record<string, number | null>;
+    multi: Record<string, number[]>;
+    freeform: Record<string, string>;
+    otherChecked: Record<string, boolean>;
+    otherText: Record<string, string>;
+  }
+</script>
+
 <script lang="ts">
   import type { VisualBlock, RawAnswer } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { answerPlanQuestions } from "#lib/api.js";
   import { linkSegments } from "#lib/textLinks.js";
+  import { untrack } from "svelte";
 
   // Three modes. `answerCtx` present → interactive, answers POST to the planning-phase plan gate.
   // `onanswer` present → interactive, answers are handed to the PARENT instead (the New Task
@@ -13,12 +25,18 @@
     answerCtx,
     onanswer,
     submitLabel,
+    draft,
+    ondraft,
   }: {
     block: Extract<VisualBlock, { type: "question-form" }>;
     answerCtx?: { sessionId: string; locked: boolean };
     /** Return false to unlock the form while preserving its draft after an unconfirmed reply. */
     onanswer?: (answers: RawAnswer[]) => void | boolean | Promise<void | boolean>;
     submitLabel?: string;
+    /** Inputs to start from instead of empty ones — read once, like `block`. */
+    draft?: QuestionFormDraft;
+    /** Called with the current inputs whenever they change, so a parent can keep the draft. */
+    ondraft?: (draft: QuestionFormDraft) => void;
   } = $props();
 
   const interactive = $derived(!!answerCtx || !!onanswer);
@@ -37,15 +55,22 @@
   const initFreeform = () =>
     Object.fromEntries(block.questions.filter((q) => q.kind === "freeform").map((q) => [q.id, ""]));
 
-  let single = $state<Record<string, number | null>>(initSingle());
-  let multi = $state<Record<string, number[]>>(initMulti());
-  let freeform = $state<Record<string, string>>(initFreeform());
+  const seed = () => (draft ? $state.snapshot(draft) : null);
+  const initial = seed();
+  let single = $state<Record<string, number | null>>(initial?.single ?? initSingle());
+  let multi = $state<Record<string, number[]>>(initial?.multi ?? initMulti());
+  let freeform = $state<Record<string, string>>(initial?.freeform ?? initFreeform());
   // `allowOther` questions (AskUserQuestion, #3165): an extra "Other…" choice that reveals a text
   // input. Single: the radio group's value OTHER. Multi: its own checkbox. The plan gate never sets
   // `allowOther`, so its forms are unchanged.
   const OTHER = -1;
-  let otherChecked = $state<Record<string, boolean>>({});
-  let otherText = $state<Record<string, string>>({});
+  let otherChecked = $state<Record<string, boolean>>(initial?.otherChecked ?? {});
+  let otherText = $state<Record<string, string>>(initial?.otherText ?? {});
+  $effect(() => {
+    if (!ondraft) return;
+    const current = $state.snapshot({ single, multi, freeform, otherChecked, otherText });
+    untrack(() => ondraft(current));
+  });
   const otherOn = (q: { id: string; kind: string }) =>
     q.kind === "single" ? single[q.id] === OTHER : !!otherChecked[q.id];
   const otherFilled = (id: string) => !!otherText[id]?.trim();

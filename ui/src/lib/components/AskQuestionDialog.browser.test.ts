@@ -206,3 +206,62 @@ it("keeps unverified answers editable and does not send again automatically", as
     true,
   );
 });
+
+it("stays on the question shown when another one arrives ahead of it", async () => {
+  const s1 = session("s1");
+  const s2 = session("s2", { desig: "TASK-7", repoPath: "/home/me/calendar" });
+  const a1 = { session: s1, ask: ask("pin_1", "Pet?") };
+  const a2 = { session: s2, ask: ask("pin_2", "Export RRULE?") };
+  const { container, rerender } = await render(AskQuestionDialog, {
+    entries: [a1, a2],
+    focusId: "s1",
+    onclose: vi.fn(),
+  });
+  // Answering s1's question moves on to s2's; pick there without sending.
+  await pickSecondAndSubmit(container);
+  await expect.element(page.getByText("Export RRULE?", { exact: true })).toBeVisible();
+  const radios = () => container.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+  await page.elementLocator(radios()[1]!).click();
+
+  // s1 asks again: its new question sorts first, but the selection and the pick stay put.
+  const a3 = { session: s1, ask: ask("pin_3", "Colour?") };
+  await rerender({ entries: [a3, a2], focusId: "s1", onclose: vi.fn() });
+  await expect.element(page.getByText("Export RRULE?", { exact: true })).toBeVisible();
+  expect(radios()[1]!.checked).toBe(true);
+});
+
+it("keeps each question's unsent draft when switching between them", async () => {
+  const multiAsk: PendingAsk = {
+    toolUseId: "draft_2",
+    questions: [
+      {
+        question: "Toppings?",
+        header: "Pizza",
+        multiSelect: true,
+        options: [
+          { label: "Ham", description: "" },
+          { label: "Olives", description: "" },
+        ],
+      },
+    ],
+  };
+  const { container } = await mount([
+    { session: session("s1"), ask: ask("draft_1", "Pet?") },
+    { session: session("s2", { desig: "TASK-7" }), ask: multiAsk },
+  ]);
+  const inputs = (type: string) =>
+    container.querySelectorAll<HTMLInputElement>(`.detail input[type="${type}"]`);
+  // Single: Other with text.
+  await page.elementLocator(inputs("radio")[2]!).click();
+  await page.getByPlaceholder(/./).fill("Hamster");
+
+  await page.getByRole("button", { name: /TASK-7/ }).click();
+  await page.elementLocator(inputs("checkbox")[1]!).click();
+
+  await page.getByRole("button", { name: /TASK-2240/ }).click();
+  expect(inputs("radio")[2]!.checked).toBe(true);
+  await expect.element(page.getByPlaceholder(/./)).toHaveValue("Hamster");
+
+  await page.getByRole("button", { name: /TASK-7/ }).click();
+  expect(inputs("checkbox")[1]!.checked).toBe(true);
+});

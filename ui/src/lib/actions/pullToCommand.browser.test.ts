@@ -109,4 +109,28 @@ describe("pullToCommand", () => {
     pull([40, 60], node, 300);
     expect(opts.onstage).not.toHaveBeenCalled();
   });
+
+  it("caps a long pull at search when there is no reload", () => {
+    action.update({ enabled: () => true, onstage: opts.onstage, onsearch: opts.onsearch });
+    pull([100, 250, 420]);
+    expect(opts.onsearch).toHaveBeenCalledOnce();
+    expect(opts.onstage).not.toHaveBeenCalledWith("reload", expect.anything());
+  });
+
+  it("arms under a scrolled page when scrollTop says the region is at its top", () => {
+    document.body.style.height = "5000px";
+    window.scrollTo(0, 300);
+    action.update({ ...opts, scrollTop: () => 0 });
+    pull([120, 160]);
+    expect(opts.onsearch).toHaveBeenCalledOnce();
+  });
+
+  it("ignores a pull that starts in a field", () => {
+    const field = document.createElement("textarea");
+    node.appendChild(field);
+    const moves = pull([120, 420], field);
+    expect(moves.some((e) => e.defaultPrevented)).toBe(false);
+    expect(opts.onsearch).not.toHaveBeenCalled();
+    expect(opts.onreload).not.toHaveBeenCalled();
+  });
 });

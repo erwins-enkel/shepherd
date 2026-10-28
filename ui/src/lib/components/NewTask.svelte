@@ -70,6 +70,9 @@
   import Keycap from "./new-task/Keycap.svelte";
   import KeymapSheet from "./new-task/KeymapSheet.svelte";
   import FirstTaskAutomationConfirm from "./FirstTaskAutomationConfirm.svelte";
+  import PullIndicator from "./PullIndicator.svelte";
+  import { pullToCommand, type PullToCommandOptions } from "#lib/actions/pullToCommand.js";
+  import type { PullStage } from "#lib/pull-gesture.js";
   import { ariaKeyshortcuts, modLabel } from "#lib/keymap/chord.js";
   import { createHoldReveal } from "#lib/keymap/hold.svelte.js";
   import { scrimIn, scrimOut } from "#lib/keymap/motion.js";
@@ -1900,6 +1903,17 @@
     flushSync(); // render the panel; RepoSelect's focus effect runs → filter focused
   }
 
+  // Phone: pull down on the card (outside fields) opens the repo picker — no reload stage.
+  // The overlay is fixed, so the window's scroll (the herd list behind) never gates it.
+  // onsearch runs synchronously in touchend, keeping openRepoPicker's in-gesture focus.
+  let pull = $state<{ stage: PullStage; distance: number }>({ stage: "idle", distance: 0 });
+  const pullOptions: PullToCommandOptions = {
+    enabled: () => mobile && activeSheet === null && !confirmStep && !submitting,
+    scrollTop: () => 0,
+    onstage: (stage, distance) => (pull = { stage, distance }),
+    onsearch: openRepoPicker,
+  };
+
   // ── keymap ──────────────────────────────────────────────────────────────
   // Every shortcut of this dialog lives in #lib/keymap/newTask.ts. This block
   // only supplies the context (what's possible right now, and how to do it) and
@@ -2326,6 +2340,7 @@
     aria-modal="true"
     aria-label={heading}
     use:dialog={{ onclose: dismiss }}
+    use:pullToCommand={pullOptions}
     onsubmit={submit}
     onkeydown={onFormKeydown}
     ondragover={(e) => {
@@ -3342,6 +3357,14 @@
     <KeymapSheet ctx={keymapCtx} onclose={() => (sheetOpen = false)} />
   {/if}
 </div>
+{#if mobile}
+  <PullIndicator
+    stage={pull.stage}
+    distance={pull.distance}
+    pullLabel={m.newtask_pull_repo()}
+    releaseLabel={m.newtask_release_repo()}
+  />
+{/if}
 
 {#snippet settingsGroups()}
   <!-- One prop/callback wiring for the single settings owner; rendered in exactly

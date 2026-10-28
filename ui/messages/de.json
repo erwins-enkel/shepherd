@@ -7775,5 +7775,9 @@
   "mobile_release_search": "Loslassen zum Suchen",
   "mobile_release_reload": "Loslassen zum Neuladen",
   "feat_command_bar_pull_down_title": "Auf dem Handy nach unten ziehen zum Suchen",
-  "feat_command_bar_pull_down_body": "Zieh auf dem Handy die Herdenliste oben nach unten, um die Befehlsleiste zu öffnen. Zieh weiter und lass los, um die Seite neu zu laden."
+  "feat_command_bar_pull_down_body": "Zieh auf dem Handy die Herdenliste oben nach unten, um die Befehlsleiste zu öffnen. Zieh weiter und lass los, um die Seite neu zu laden.",
+  "newtask_pull_repo": "Ziehen für Repo-Auswahl",
+  "newtask_release_repo": "Loslassen für Repo-Auswahl",
+  "feat_phone_gestures_title": "Wischen und Ziehen auf dem Handy",
+  "feat_phone_gestures_body": "Auf dem Handy schließt ein Wisch nach rechts die Befehlsleiste. In „Neue Aufgabe“ öffnet Herunterziehen die Repo-Auswahl."
 }

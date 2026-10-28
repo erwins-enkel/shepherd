@@ -7775,5 +7775,9 @@
   "mobile_release_search": "Release to search",
   "mobile_release_reload": "Release to reload",
   "feat_command_bar_pull_down_title": "Pull down to search on your phone",
-  "feat_command_bar_pull_down_body": "On a phone, pull down at the top of the herd list to open the command bar. Keep pulling and release to reload the page."
+  "feat_command_bar_pull_down_body": "On a phone, pull down at the top of the herd list to open the command bar. Keep pulling and release to reload the page.",
+  "newtask_pull_repo": "Pull to pick repo",
+  "newtask_release_repo": "Release to pick repo",
+  "feat_phone_gestures_title": "Swipe and pull on your phone",
+  "feat_phone_gestures_body": "On a phone, swipe right on the command bar to close it. In New Task, pull down to open the repo picker."
 }

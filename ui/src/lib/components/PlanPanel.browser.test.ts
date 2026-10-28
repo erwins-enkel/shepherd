@@ -5,7 +5,13 @@ import "../../app.css";
 import PlanPanel from "./PlanPanel.svelte";
 import type { PlanGate, Session } from "#lib/types.js";
 import { planGates, spawnNotices } from "#lib/reviews.svelte.js";
-import { reviewPlan, retrySpawnNotice, getPlanDraft, releasePlanGate } from "#lib/api.js";
+import {
+  reviewPlan,
+  retrySpawnNotice,
+  getPlanDraft,
+  releasePlanGate,
+  replySession,
+} from "#lib/api.js";
 import { m } from "#lib/paraglide/messages.js";
 import { DOCS_URL } from "#lib/build-info.js";
 
@@ -19,6 +25,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     reviewPlan: vi.fn(async () => "skipped"),
     getPlanDraft: vi.fn(async () => null),
     retrySpawnNotice: vi.fn(async () => ({ cleared: true })),
+    replySession: vi.fn(async () => {}),
   };
 });
 
@@ -191,7 +198,7 @@ describe("PlanPanel unreviewed draft", () => {
     await expect
       .element(page.getByRole("heading", { name: "Previous session" }))
       .not.toBeInTheDocument();
-    expect(document.querySelector(".plan script, .plan [onerror]")).toBeNull();
+    expect(document.querySelector(".plan-doc script, .plan-doc [onerror]")).toBeNull();
     expect((window as unknown as { planInjected?: boolean }).planInjected).toBeUndefined();
   });
 
@@ -271,7 +278,7 @@ describe("PlanPanel: a plan edited after approval (#2224)", () => {
 
     await expect.element(page.getByText(m.planpanel_edited_note())).toBeVisible();
     await expect.element(page.getByText(m.planpanel_status_edited())).toBeVisible();
-    const review = page.getByRole("button", { name: m.planpanel_review_now() });
+    const review = page.getByRole("button", { name: m.planpanel_review_again() });
     await expect.element(review).toBeVisible();
     // Go stays planning-only: this session is (still) executing.
     expect(document.querySelector("button.go")).toBeNull();
@@ -304,7 +311,7 @@ describe("PlanPanel: a plan edited after approval (#2224)", () => {
     await expect.element(page.getByText(m.planpanel_edited_note())).toBeVisible();
     // The "already approved" block is lifted for an edited plan.
     expect(document.querySelector("button.review")!.getAttribute("aria-disabled")).toBeNull();
-    await userEvent.click(page.getByRole("button", { name: m.planpanel_review_now() }));
+    await userEvent.click(page.getByRole("button", { name: m.planpanel_review_again() }));
     expect(vi.mocked(reviewPlan)).toHaveBeenCalledWith(id);
   });
 });
@@ -328,7 +335,9 @@ describe("PlanPanel release state", () => {
     });
 
     await expect.element(page.getByText(m.planpanel_status_changes())).toBeVisible();
-    expect(document.querySelector(".findings-head")?.textContent).toBe(m.planpanel_findings());
+    expect(document.querySelector(".findings-head")?.textContent).toBe(
+      m.planpanel_findings_blocking(),
+    );
     await expect.element(page.getByRole("button", { name: m.planpanel_go() })).toBeDisabled();
     expect(
       document.querySelector<HTMLButtonElement>("button.go")?.getAttribute("aria-describedby"),
@@ -611,7 +620,7 @@ describe("PlanPanel release state", () => {
     await expect.element(page.getByText(m.planpanel_review_already_approved())).toBeVisible();
 
     const reviewBtn = page.getByRole("button", {
-      name: `${m.planpanel_review_now()} — ${m.planpanel_review_already_approved()}`,
+      name: `${m.planpanel_review_again()} — ${m.planpanel_review_already_approved()}`,
     });
     await expect.element(reviewBtn).toHaveAttribute("aria-disabled", "true");
 
@@ -638,7 +647,7 @@ describe("PlanPanel release state", () => {
       props: { session: session({ id }), onclose: vi.fn() },
     });
 
-    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+    await page.getByRole("button", { name: m.planpanel_review_again() }).click();
     expect(vi.mocked(reviewPlan)).toHaveBeenCalledWith(id);
     // The in-flight indicator appears (the "started" bridge to the WS reviewing flag).
     await expect.element(page.getByText(m.planpanel_reviewing())).toBeVisible();
@@ -940,7 +949,7 @@ describe("PlanPanel at-cap re-review", () => {
 
     render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
 
-    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+    await page.getByRole("button", { name: m.planpanel_review_again() }).click();
 
     // A REAL run started (never a failure note) — but the operator is told its findings won't be
     // steered back, and Resume (which does deliver) stays on offer.
@@ -960,7 +969,7 @@ describe("PlanPanel at-cap re-review", () => {
 
     render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
 
-    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+    await page.getByRole("button", { name: m.planpanel_review_again() }).click();
     // The WS reviewing flag lands — canShowPlanStallActions requires !reviewing, so Resume/Dismiss
     // come off screen for the whole run. The note is set on the click, i.e. inside that very window.
     planGates.reviewing = { [id]: true };
@@ -985,7 +994,7 @@ describe("PlanPanel at-cap re-review", () => {
 
     render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
 
-    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+    await page.getByRole("button", { name: m.planpanel_review_again() }).click();
 
     // …but with the variant that does NOT point at Resume: canShowPlanStallActions renders it only
     // for a changes_requested verdict, so on an error gate that CTA is not on screen. Never name a
@@ -1008,7 +1017,7 @@ describe("PlanPanel at-cap re-review", () => {
     render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
 
     await expect
-      .element(page.getByRole("button", { name: m.planpanel_review_now() }))
+      .element(page.getByRole("button", { name: m.planpanel_review_again() }))
       .toHaveAttribute("title", m.plangate_review_spends_round({ round: 1, cap: 3 }));
   });
 });
@@ -1142,5 +1151,219 @@ describe("PlanPanel effort switch (#3434)", () => {
     await expect
       .element(page.getByRole("button", { name: m.effort_switch_retry_go() }))
       .not.toBeInTheDocument();
+  });
+});
+
+// ── #3515: the plan reads like the epic draft ─────────────────────────────────
+
+const READING_PLAN = [
+  "# Plan: Reading",
+  "## Goal",
+  "Read like an epic.",
+  "## Steps",
+  "1. **First step** does a thing.",
+  "2. **Second step** does another.",
+  "## Approach",
+  "### Server",
+  "Server text.",
+  "### UI",
+  "UI text.",
+].join("\n");
+
+const NOTED_BODY =
+  "## Verdict\nThe plan holds.\n\nSuggestions (non-blocking):\n- Name the seam.\n- Cap the contents.";
+
+describe("PlanPanel reading layout (#3515)", () => {
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await page.viewport(414, 896);
+  });
+
+  const toc = () => page.getByRole("navigation", { name: m.planpanel_toc_label() });
+  // Each approval figure as [label, value].
+  const releaseFigures = () =>
+    [...document.querySelectorAll(".release dd")].map((dd) =>
+      [...dd.children].map((c) => c.textContent),
+    );
+
+  it("jumps from the contents to a part, a numbered step and a ### heading", async () => {
+    await page.viewport(1440, 900);
+    const id = "s-toc";
+    planGates.map = { [id]: gate(id, { plan: READING_PLAN }) };
+    const scroll = vi.spyOn(HTMLElement.prototype, "scrollIntoView");
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+    const items = '[data-anchor="part-1"] .md-body > ol > li';
+    await expect.poll(() => document.querySelectorAll(items).length).toBe(2);
+
+    await toc().getByRole("button", { name: "Steps", exact: true }).click();
+    expect(scroll.mock.contexts.at(-1)).toBe(document.querySelector('[data-anchor="part-1"]'));
+
+    await toc().getByRole("button", { name: "Second step" }).click();
+    expect(scroll.mock.contexts.at(-1)).toBe(document.querySelectorAll(items)[1]);
+
+    await toc().getByRole("button", { name: "UI", exact: true }).click();
+    expect(scroll.mock.contexts.at(-1)).toBe(
+      document.querySelectorAll('[data-anchor="part-2"] .md-body > h3')[1],
+    );
+
+    await toc().getByRole("button", { name: m.planpanel_verdict() }).click();
+    expect(scroll.mock.contexts.at(-1)).toBe(document.querySelector('[data-anchor="verdict"]'));
+  });
+
+  it("puts an approved verdict first: summary, notes, the rationale folded without them", async () => {
+    await page.viewport(1440, 900);
+    const id = "s-card-approved";
+    planGates.map = {
+      [id]: gate(id, { summary: "Sound plan.", body: NOTED_BODY, plan: READING_PLAN }),
+    };
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    const card = page.getByRole("region", { name: m.planpanel_verdict() });
+    await expect
+      .element(
+        card.getByText(m.planpanel_verdict_head({ decision: m.planpanel_verdict_approved() })),
+      )
+      .toBeVisible();
+    await expect.element(card.getByText("Sound plan.")).toBeVisible();
+    await expect.element(card.getByText(m.planpanel_notes_head())).toBeVisible();
+    await expect.element(card.getByText("Cap the contents.")).toBeVisible();
+    // The card renders before the plan document.
+    const verdictEl = document.querySelector('[data-anchor="verdict"]')!;
+    expect(
+      verdictEl.compareDocumentPosition(document.querySelector(".plan-doc")!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    const rationale = verdictEl.querySelector("details")!;
+    expect(rationale.open).toBe(false);
+    await expect.poll(() => rationale.textContent).toContain("The plan holds.");
+    expect(rationale.textContent).not.toContain("Cap the contents.");
+
+    // Approval figures beside the contents: no round (an approval resets it), 0 blocking, 2 notes.
+    expect(releaseFigures()).toEqual([
+      [m.planpanel_release_findings(), "0"],
+      [m.planpanel_release_notes(), "2"],
+    ]);
+  });
+
+  it("leads a changes-requested verdict with its blocking findings", async () => {
+    await page.viewport(1440, 900);
+    const id = "s-card-changes";
+    planGates.map = {
+      [id]: gate(id, {
+        decision: "changes_requested",
+        approved: false,
+        round: 1,
+        cap: 3,
+        findings: ["Name the test seam."],
+        body: NOTED_BODY,
+        plan: READING_PLAN,
+      }),
+    };
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    const card = page.getByRole("region", { name: m.planpanel_verdict() });
+    await expect.element(card.getByText("Name the test seam.")).toBeVisible();
+    await expect.element(card.getByText("Cap the contents.")).toBeVisible();
+    const findingsHead = document.querySelector(".verdict .findings-head")!;
+    const notesHead = [...document.querySelectorAll(".verdict .vlabel")].find(
+      (el) => el.textContent === m.planpanel_notes_head(),
+    )!;
+    expect(
+      findingsHead.compareDocumentPosition(notesHead) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(document.querySelector(".verdict")!.classList).toContain("changes");
+    expect(releaseFigures()[0]).toEqual([
+      m.planpanel_release_round(),
+      m.planpanel_release_round_value({ round: 1, cap: 3 }),
+    ]);
+  });
+
+  it.each([
+    [1440, 900],
+    [390, 844],
+  ])(
+    "keeps header and footer in place while the plan scrolls, without a sideways page at %ipx",
+    async (width, height) => {
+      await page.viewport(width, height);
+      const id = `s-scroll-${width}`;
+      const wide = `| ${Array.from({ length: 12 }, (_, i) => `column ${i}`).join(" | ")} |`;
+      const plan = [
+        "# Long plan",
+        ...Array.from({ length: 14 }, (_, i) => `## Part ${i}\n${"Running text. ".repeat(40)}`),
+        `## Table\n${wide}\n|${" --- |".repeat(12)}\n${wide}`,
+        `\`\`\`\n${"x".repeat(400)}\n\`\`\``,
+      ].join("\n\n");
+      planGates.map = { [id]: gate(id, { plan, body: NOTED_BODY }) };
+      render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+      await expect.element(page.getByRole("heading", { name: "Long plan" })).toBeVisible();
+      await expect.poll(() => document.querySelector(".plan-doc table")).not.toBeNull();
+
+      const body = document.querySelector<HTMLElement>(".card .body")!;
+      const head = document.querySelector(".chead")!;
+      const foot = document.querySelector(".foot")!;
+      const before = [head.getBoundingClientRect().top, foot.getBoundingClientRect().bottom];
+      body.scrollTop = 800;
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      expect(body.scrollTop).toBeGreaterThan(0);
+      expect([head.getBoundingClientRect().top, foot.getBoundingClientRect().bottom]).toEqual(
+        before,
+      );
+      expect(foot.getBoundingClientRect().bottom).toBeLessThanOrEqual(window.innerHeight);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
+      expect(body.scrollWidth).toBeLessThanOrEqual(body.clientWidth);
+      expect(head.scrollWidth).toBeLessThanOrEqual(head.clientWidth);
+    },
+  );
+
+  it("folds the contents above the plan on a phone and folds it again after a jump", async () => {
+    await page.viewport(390, 844);
+    const id = "s-toc-mobile";
+    planGates.map = { [id]: gate(id, { plan: READING_PLAN }) };
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    const toggle = toc().getByRole("button", { name: m.planpanel_toc_label(), exact: true });
+    const listShown = () => getComputedStyle(document.querySelector(".toc-list")!).display;
+    await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(listShown()).toBe("none");
+
+    await toggle.click();
+    await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(listShown()).toBe("flex");
+    await toc().getByRole("button", { name: "Goal", exact: true }).click();
+    await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(listShown()).toBe("none");
+  });
+
+  it("offers only the Read view, pressed", async () => {
+    const id = "s-modes";
+    planGates.map = { [id]: gate(id) };
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    const group = page.getByRole("group", { name: m.planpanel_mode_label() });
+    await expect.element(group).toBeVisible();
+    expect(group.getByRole("button").elements()).toHaveLength(1);
+    await expect
+      .element(group.getByRole("button", { name: m.planpanel_mode_read() }))
+      .toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("steers a note to the planning agent while planning, and offers none during execution", async () => {
+    const id = "s-note";
+    planGates.map = { [id]: gate(id) };
+    const { rerender } = await render(PlanPanel, {
+      props: { session: session({ id }), onclose: vi.fn() },
+    });
+
+    const input = page.getByRole("textbox", {
+      name: m.planpanel_note_label({ agent: m.agent_provider_claude() }),
+    });
+    await input.fill("Keep the old endpoint.");
+    await userEvent.keyboard("{Enter}");
+    expect(vi.mocked(replySession)).toHaveBeenCalledWith(id, "Keep the old endpoint.");
+    await expect.element(input).toHaveValue("");
+
+    await rerender({ session: session({ id, planPhase: "executing" }), onclose: vi.fn() });
+    await expect.element(input).not.toBeInTheDocument();
   });
 });

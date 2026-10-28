@@ -37,6 +37,19 @@ export function planGateExplanation(): TooltipExplanation {
   };
 }
 
+/** The plan panel's approval figures (#3515): what a review round, a blocking finding and a note mean. */
+export function planReleaseExplanation(): TooltipExplanation {
+  return {
+    title: m.planpanel_release_info(),
+    summary: m.tooltip_plan_release_summary(),
+    sections: [
+      { label: m.planpanel_release_round(), text: m.tooltip_plan_release_round() },
+      { label: m.planpanel_release_findings(), text: m.tooltip_plan_release_findings() },
+      { label: m.planpanel_release_notes(), text: m.tooltip_plan_release_notes() },
+    ],
+  };
+}
+
 export function autopilotExplanation(): TooltipExplanation {
   return {
     title: m.gloss_autopilot_term(),

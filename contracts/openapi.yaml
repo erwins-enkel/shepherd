@@ -2583,6 +2583,11 @@ components:
       properties:
         id: { type: string }
         busy: { type: boolean }
+    HeavySlotReleased:
+      type: object
+      required: [released]
+      properties:
+        released: { type: boolean }
     HeavySlotSnapshot:
       type: object
       required: [enabled, capacity, holders, waiters, brake, pressure, memoryBySource]
@@ -2613,10 +2618,19 @@ components:
           required: [active, reason]
           properties:
             active: { type: boolean }
-            reason: { type: string, enum: [memory], nullable: true }
+            reason: { type: string, enum: [memory, null], nullable: true }
         pressure:
           type: object
-          required: [ramAvailableBytes, ramTotalBytes, swapUsedBytes, swapTotalBytes, memFullAvg10, memBrakeThreshold, cpuSomeAvg10]
+          required:
+            [
+              ramAvailableBytes,
+              ramTotalBytes,
+              swapUsedBytes,
+              swapTotalBytes,
+              memFullAvg10,
+              memBrakeThreshold,
+              cpuSomeAvg10,
+            ]
           properties:
             ramAvailableBytes: { type: integer, nullable: true }
             ramTotalBytes: { type: integer, nullable: true }
@@ -9370,11 +9384,7 @@ paths:
           description: Released.
           content:
             application/json:
-              schema:
-                type: object
-                required: [released]
-                properties:
-                  released: { type: boolean }
+              schema: { $ref: "#/components/schemas/HeavySlotReleased" }
         "400": { description: sessionId missing or not a string. }
         "404": { description: The session holds no slot. }
         "401": { $ref: "#/components/responses/Unauthorized" }

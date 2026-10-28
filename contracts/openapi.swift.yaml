@@ -3544,6 +3544,13 @@ components:
           type: string
         busy:
           type: boolean
+    HeavySlotReleased:
+      type: object
+      required:
+        - released
+      properties:
+        released:
+          type: boolean
     HeavySlotSnapshot:
       type: object
       required:
@@ -12276,12 +12283,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - released
-                properties:
-                  released:
-                    type: boolean
+                $ref: "#/components/schemas/HeavySlotReleased"
         "400":
           description: sessionId missing or not a string.
         "401":

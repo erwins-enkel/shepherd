@@ -85,6 +85,7 @@ import { toasts } from "#lib/toasts.svelte.js";
 import { m } from "#lib/paraglide/messages.js";
 import type {
   Session,
+  GitState,
   BuildQueue,
   Leftover,
   Recap,
@@ -2717,5 +2718,154 @@ describe("Viewport desktop header — clusters, name width, danger split (#2263)
     vi.advanceTimersByTime(60_000);
     await tick();
     expect(startBtn().disabled, "guard expires").toBe(false);
+  });
+});
+
+// ── The merge row above the steer bar (#3540) ────────────────────────────────
+describe("Viewport — merge row above the steer bar", () => {
+  const openGit: GitState = {
+    kind: "github",
+    state: "open",
+    number: 3530,
+    title: "Fix herdr update-entry eligibility",
+    url: "https://github.com/acme/shepherd/pull/3530",
+    checks: "success",
+    mergeable: true,
+    mergeStateStatus: "clean",
+    deployConfigured: false,
+  };
+  const readyRecap = (sessionId: string): Recap => ({
+    sessionId,
+    state: "ready",
+    headSha: "abc123",
+    verdict: "ready",
+    headline: "Recap headline",
+    body: "recap body text",
+    openItems: [],
+    changedFiles: [],
+    spawnSessionId: "sp1",
+    cwd: "/repo/a",
+    model: null,
+    spawnedAt: 0,
+    generatedAt: 1000,
+    updatedAt: 1000,
+    blocks: [],
+  });
+  const follows = (a: Element, b: Element) =>
+    Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+  beforeEach(() => {
+    recaps.map = {};
+  });
+  afterEach(async () => {
+    recaps.map = {};
+    await page.viewport(1280, 900);
+  });
+
+  it("an open PR on the terminal tab: status strip → merge row → steer row", async () => {
+    const { container } = await render(Viewport, {
+      session: session({ id: "mr-desk" }),
+      git: openGit,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    const row = await vi.waitFor(() => {
+      const r = container.querySelector("section.pr-row");
+      expect(r, "merge row mounted").not.toBeNull();
+      return r!;
+    });
+    const status = container.querySelector(".ssb")!;
+    const steer = container.querySelector(".steer-row")!;
+    expect(follows(status, row), "below the status strip").toBe(true);
+    expect(follows(row, steer), "above the steer row").toBe(true);
+    expect(row.querySelectorAll("button.primary")).toHaveLength(1);
+  });
+
+  it("phone: on chat the row shows; on the terminal the steer and ctrl rows stay below it", async () => {
+    await page.viewport(390, 844);
+    const { container } = await render(Viewport, {
+      session: session({ id: "mr-phone" }),
+      git: openGit,
+      mobile: true,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await expect
+      .element(page.getByRole("tab", { name: "Chat", exact: true }))
+      .toHaveClass(/active/);
+    await vi.waitFor(() =>
+      expect(container.querySelector("section.pr-row"), "merge row on chat").not.toBeNull(),
+    );
+    await page.getByRole("tab", { name: "Terminal", exact: true }).click();
+    const row = await vi.waitFor(() => {
+      const r = container.querySelector("section.pr-row");
+      const ctrl = container.querySelector(".ctrl-row");
+      expect(r, "merge row on terminal").not.toBeNull();
+      expect(ctrl, "ctrl row on terminal").not.toBeNull();
+      return r!;
+    });
+    expect(follows(row, container.querySelector(".steer-row")!)).toBe(true);
+    expect(follows(row, container.querySelector(".ctrl-row")!)).toBe(true);
+  });
+
+  it("no row off the steering tabs, without a PR, or once merged", async () => {
+    const { container, rerender } = await render(Viewport, {
+      session: session({ id: "mr-hide" }),
+      git: openGit,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(container.querySelector("section.pr-row")).not.toBeNull());
+    await page.getByRole("tab", { name: "Diff", exact: true }).click();
+    await vi.waitFor(() => expect(container.querySelector("section.pr-row")).toBeNull());
+    await page.getByRole("tab", { name: "Terminal", exact: true }).click();
+    await vi.waitFor(() => expect(container.querySelector("section.pr-row")).not.toBeNull());
+    await rerender({
+      session: session({ id: "mr-hide" }),
+      git: { ...openGit, state: "merged" },
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(container.querySelector("section.pr-row")).toBeNull());
+    await rerender({
+      session: session({ id: "mr-hide" }),
+      git: null,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    expect(container.querySelector("section.pr-row")).toBeNull();
+  });
+
+  it("the row replaces the recap headline and opens the recap from ⋯ → Summary", async () => {
+    const id = "mr-recap";
+    recaps.map = { [id]: readyRecap(id) };
+    const { container } = await render(Viewport, {
+      session: session({ id }),
+      git: openGit,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(container.querySelector("section.pr-row")).not.toBeNull());
+    expect(container.querySelector("button.recap-header"), "no second ready line").toBeNull();
+    await page.getByRole("button", { name: m.prrow_more_aria() }).click();
+    await page.getByRole("menuitem", { name: m.prrow_menu_summary() }).click();
+    await vi.waitFor(() =>
+      expect(container.querySelector("button.recap-header")?.getAttribute("aria-expanded")).toBe(
+        "true",
+      ),
+    );
+  });
+
+  it("without a PR the recap headline shows as before", async () => {
+    const id = "mr-no-pr";
+    recaps.map = { [id]: readyRecap(id) };
+    const { container } = await render(Viewport, {
+      session: session({ id }),
+      git: null,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(container.querySelector("button.recap-header")).not.toBeNull());
+    expect(container.querySelector("section.pr-row")).toBeNull();
   });
 });

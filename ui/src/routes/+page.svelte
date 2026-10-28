@@ -1903,6 +1903,18 @@
   // repo/status filter currently hides it. Shared by the command bar and auto-merge strip.
   // Routed through jumpHandlers (herd-jump.ts) so a target in a collapsed group is
   // revealed before selection.
+  // Last results ride on GET only: re-read when who holds the slot changes (a check ended).
+  let slotHoldersSig = "";
+  $effect(() => {
+    const hs = store.heavySlot;
+    const sig = hs?.enabled ? hs.holders.map((h) => h.sessionId).join(",") : "";
+    if (sig === slotHoldersSig) return;
+    slotHoldersSig = sig;
+    getHeavySlot()
+      .then((r) => store.setHeavySlot(r))
+      .catch(() => {});
+  });
+
   /** Free a holder's slot, then re-read the snapshot so chip, strip and popover agree. */
   async function releaseSlot(id: string) {
     await releaseHeavySlot(id);

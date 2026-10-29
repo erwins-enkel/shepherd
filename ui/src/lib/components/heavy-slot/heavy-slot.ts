@@ -85,3 +85,16 @@ export function resultView(r: HeavySlotLastResult): ResultView {
 export function shortRevision(r: HeavySlotLastResult): string {
   return r.head ? r.head.slice(0, 7) : "–";
 }
+
+/** How many last results the overview lists before "show all". */
+const RESULTS_SHOWN = 5;
+
+/** Last results newest first (unknown end last), cut to `RESULTS_SHOWN` unless `all`. */
+export function recentResults(
+  s: HeavySlotSnapshot,
+  all: boolean,
+): { rows: HeavySlotLastResult[]; hidden: number } {
+  const sorted = [...s.lastResults].sort((a, b) => (b.endedAt ?? -1) - (a.endedAt ?? -1));
+  const rows = all ? sorted : sorted.slice(0, RESULTS_SHOWN);
+  return { rows, hidden: sorted.length - rows.length };
+}

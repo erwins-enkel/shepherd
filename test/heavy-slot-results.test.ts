@@ -67,6 +67,12 @@ test("a passing result is current until the worktree moves on, then stale", asyn
   expect(stale).toMatchObject({ result: "passed", stale: true });
 });
 
+test("an archived session's result is omitted", async () => {
+  const lookup = await runJob(0);
+  const archived = { ...lookup.get("s1")!, archivedAt: 1 } as Session;
+  expect(await readLastResults({ ...lookup, get: () => archived }, 10_000)).toEqual([]);
+});
+
 test("a failed result keeps its result and also turns stale", async () => {
   const lookup = await runJob(1);
   git("commit", "--allow-empty", "-qm", "next");

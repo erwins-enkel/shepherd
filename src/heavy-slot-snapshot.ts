@@ -104,7 +104,8 @@ function lastResultFromJob(job: HeavyJob, current: HeavySlotRevision): HeavySlot
   };
 }
 
-/** Each session's latest finished job, marked stale when its worktree moved on since the job began. */
+/** Each live session's latest finished job, marked stale when its worktree moved on since the job
+ *  began. Archived sessions are skipped: their results no longer concern the operator. */
 export async function readLastResults(
   store: Pick<SessionStore, "get" | "lastHeavySlotResults">,
   now = Date.now(),
@@ -112,7 +113,7 @@ export async function readLastResults(
   const results = await Promise.all(
     store.lastHeavySlotResults().map(async (job) => {
       const session = store.get(job.sessionId);
-      if (!session) return null;
+      if (!session || session.archivedAt != null) return null;
       const current = await currentRevision(session.repoPath, session.worktreePath, now);
       return lastResultFromJob(job, current);
     }),

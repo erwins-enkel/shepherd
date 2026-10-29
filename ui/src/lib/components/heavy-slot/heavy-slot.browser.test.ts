@@ -269,7 +269,7 @@ describe("HostPopover — long commands", () => {
     [390, 800],
     [1440, 900],
   ] as const) {
-    it(`clamps every command to two lines at ${w}px and keeps the meta visible`, async () => {
+    it(`clamps holder commands to two lines, results to one at ${w}px`, async () => {
       await page.viewport(w, h);
       render(HostPopover, {
         heavySlot: longSnap(),
@@ -280,11 +280,11 @@ describe("HostPopover — long commands", () => {
       });
       const cmds = [...document.querySelectorAll(".hp-cmd")];
       expect(cmds).toHaveLength(2);
-      for (const btn of cmds) {
+      for (const [i, btn] of cmds.entries()) {
         const text = cmdText(btn);
         expect(btn.getAttribute("aria-expanded")).toBe("false");
         expect(btn.getAttribute("title")).toBe(LONG);
-        expect(text.clientHeight).toBeLessThanOrEqual(2 * lineHeight() + 1);
+        expect(text.clientHeight).toBeLessThanOrEqual((i === 0 ? 2 : 1) * lineHeight() + 1);
         expect(text.scrollHeight).toBeGreaterThan(text.clientHeight);
       }
       await expect.element(page.getByText("2:14 · 2.0 GiB")).toBeVisible();
@@ -334,5 +334,66 @@ describe("HeavySlotStrip — long commands", () => {
     expect(cmd.getBoundingClientRect().right).toBeLessThanOrEqual(window.innerWidth);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
     expect(document.querySelector(".hs-holder")?.getAttribute("title")).toBe(LONG);
+  });
+});
+
+describe("HostPopover — last results", () => {
+  const result = (sessionId: string, endedAt: number, stale = false) => ({
+    sessionId,
+    command: "vitest run",
+    startedAt: 0,
+    endedAt,
+    exitCode: 0,
+    result: "passed" as const,
+    head: "a1b2c3d4e5",
+    treeHash: "t",
+    stale,
+  });
+  const many = Array.from({ length: 7 }, (_, i) => result(`r${i}`, i, i < 2));
+  const names = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: `r${i}`, name: `result-${i}` }));
+  const props = (lastResults = many) => ({
+    heavySlot: snap({ lastResults }),
+    sessions: [...sessions, ...names(7)],
+    nowMs: 0,
+    onrelease: vi.fn(),
+    onClose: vi.fn(),
+  });
+  const shown = () =>
+    [...document.querySelectorAll("section:last-of-type .hp-name")].map((n) => n.textContent);
+
+  it("comes after pressure and memory by origin", async () => {
+    render(HostPopover, props());
+    const heads = [...document.querySelectorAll("h3")].map((h) => h.textContent);
+    expect(heads).toEqual([
+      "Holding the slot",
+      "Queue",
+      "Pressure",
+      "Memory by origin",
+      "Last check results",
+    ]);
+  });
+
+  it("lists the five newest and reveals the rest on request", async () => {
+    render(HostPopover, props());
+    expect(shown()).toEqual(["result-6", "result-5", "result-4", "result-3", "result-2"]);
+    await userEvent.click(page.getByRole("button", { name: "Show all (7)" }));
+    expect(shown()).toHaveLength(7);
+    expect(document.querySelector(".hp-more")?.getAttribute("aria-expanded")).toBe("true");
+    await userEvent.click(page.getByRole("button", { name: "Show fewer" }));
+    expect(shown()).toHaveLength(5);
+  });
+
+  it("explains staleness once, and only when a shown result is stale", async () => {
+    render(HostPopover, props());
+    expect(document.body.textContent).not.toContain("source changed");
+    await userEvent.click(page.getByRole("button", { name: "Show all (7)" }));
+    expect(document.body.textContent?.match(/source changed/g)).toHaveLength(1);
+    expect(document.querySelectorAll(".hp-res-stale")).toHaveLength(2);
+  });
+
+  it("offers no toggle at or under five results", async () => {
+    render(HostPopover, props(many.slice(0, 5)));
+    expect(document.querySelector(".hp-more")).toBeNull();
   });
 });

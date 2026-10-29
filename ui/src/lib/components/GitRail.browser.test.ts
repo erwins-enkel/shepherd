@@ -696,9 +696,17 @@ describe("GitRail — status │ actions seam (no orphan dividers)", () => {
     );
     // right-pin: first .rail child is the leading passive chip (gets margin-left:auto)
     expect(rail.firstElementChild, "first child is the leading passive readout").toBe(ci);
+    // the ⚙ pill sits OUTSIDE the scroller, after the single git │ cluster divider
+    await vi.waitFor(() => expect(h.querySelector(".auto-pill"), "auto-pill").not.toBeNull());
+    const pill = h.querySelector<HTMLElement>(".auto-pill")!;
+    expect(rail.contains(pill), "pill pinned outside the scrolling rail").toBe(false);
+    const sep = h.querySelector<HTMLElement>(".cluster-sep");
+    expect(sep, "cluster divider present").not.toBeNull();
+    expect(getComputedStyle(sep!).display, "cluster divider visible").not.toBe("none");
+    expect(sep!.nextElementSibling, "divider directly precedes the pill").toBe(pill);
   });
 
-  it("state:none + autopilot on: no seam, first child is the auto-pill divider (leading-orphan guard)", async () => {
+  it("state:none + autopilot on: empty rail + its divider hide, pill stands alone (leading-orphan guard)", async () => {
     const noneState: GitState = {
       kind: "github",
       state: "none",
@@ -712,15 +720,21 @@ describe("GitRail — status │ actions seam (no orphan dividers)", () => {
     await render(GitRail, { target: h, props: { ...baseProps, mobile: true, autopilotOn: true } });
     const rail = await railOf(h);
     await vi.waitFor(() =>
-      expect(rail.querySelector(".auto-pill"), "auto-pill present").not.toBeNull(),
+      expect(h.querySelector(".auto-pill"), "auto-pill present").not.toBeNull(),
     );
+    const pill = h.querySelector<HTMLElement>(".auto-pill")!;
     expect(rail.querySelector(".rail-status-sep"), "no dangling status seam").toBeNull();
-    // no leading orphan: first child is GitRail's own rail-sep, so margin-left:auto lands on a
-    // real divider rather than a 1px status seam
+    expect(rail.childElementCount, "no status chips in the rail").toBe(0);
+    expect(rail.contains(pill), "pill lives outside the rail").toBe(false);
+    // no orphan hairline: the empty rail and the cluster divider both collapse
+    expect(getComputedStyle(rail).display, "empty rail hidden").toBe("none");
+    const sep = h.querySelector<HTMLElement>(".cluster-sep")!;
+    expect(getComputedStyle(sep).display, "cluster divider hidden").toBe("none");
+    // right-pinned against the wrap's trailing edge
+    const wrap = h.querySelector<HTMLElement>(".git-rail-wrap")!;
     expect(
-      rail.firstElementChild?.classList.contains("rail-sep"),
-      "first child is the auto-pill divider",
-    ).toBe(true);
+      Math.abs(wrap.getBoundingClientRect().right - pill.getBoundingClientRect().right),
+    ).toBeLessThan(1);
   });
 
   it("state:none + autopilot off: no seam, first child is the Open PR action (empty-passive right-pin)", async () => {
@@ -763,16 +777,53 @@ describe("GitRail — status │ actions seam (no orphan dividers)", () => {
     await expect.element(screen.getByText(/closed/i)).toBeVisible();
     const rail = await railOf(h);
     await vi.waitFor(() =>
-      expect(rail.querySelector(".auto-pill"), "auto-pill present").not.toBeNull(),
+      expect(h.querySelector(".auto-pill"), "auto-pill present").not.toBeNull(),
     );
     expect(rail.querySelector(".rail-status-sep"), "no trailing status seam").toBeNull();
-    // only ONE divider precedes the auto-pill (GitRail's rail-sep) — never `│ │`
-    expect(rail.querySelectorAll(".rail-sep").length, "single divider, no doubling").toBe(1);
+    // only ONE divider precedes the auto-pill (the cluster divider, outside the rail) — never `│ │`
+    expect(rail.querySelectorAll(".rail-sep").length, "no divider inside the rail").toBe(0);
+    const seps = [...h.querySelectorAll<HTMLElement>(".rail-sep")].filter(
+      (e) => getComputedStyle(e).display !== "none",
+    );
+    expect(seps.length, "single visible divider").toBe(1);
+    expect(seps[0].nextElementSibling?.classList.contains("auto-pill")).toBe(true);
     // right-pin with passive present: first child is the CLOSED readout
     expect(
       rail.firstElementChild?.matches("span.status-chip"),
       "first child is the CLOSED label",
     ).toBe(true);
+  });
+});
+
+describe("GitRail — phone pill label", () => {
+  it("phone: pill reads ⚙ n/N without the word; aria-label keeps it", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(400, 900);
+    const h = host(360);
+    await render(GitRail, { target: h, props: { ...baseProps, mobile: true, phone: true } });
+    const pill = await vi.waitFor(() => {
+      const p = h.querySelector<HTMLButtonElement>("button.auto-pill");
+      expect(p, "auto-pill present").not.toBeNull();
+      return p!;
+    });
+    const text = pill.textContent ?? "";
+    expect(text).not.toContain(m.automation_pill_label());
+    expect(text).toMatch(/\d+\/\d+/);
+    // the full name survives for assistive tech ("Repo automation: n of N on…")
+    expect(pill.getAttribute("aria-label")).toContain(m.automation_pill_label());
+  });
+
+  it("non-phone strip keeps the full ⚙ automation label", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(800, 900);
+    const h = host(700);
+    await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
+    const pill = await vi.waitFor(() => {
+      const p = h.querySelector<HTMLButtonElement>("button.auto-pill");
+      expect(p, "auto-pill present").not.toBeNull();
+      return p!;
+    });
+    expect(pill.textContent).toContain(m.automation_pill_label());
   });
 });
 

@@ -69,6 +69,7 @@
     limits = null,
     heavySlot = null,
     onheavyslotrelease,
+    onhostpanel,
     onsettings,
     ondonelens,
     onowedlens,
@@ -114,6 +115,8 @@
     /** The host-wide check slot; null/disabled → no chip. */
     heavySlot?: HeavySlotSnapshot | null;
     onheavyslotrelease?: (sessionId: string) => Promise<void>;
+    /** Phone only: opens the full-screen host panel from the gear sheet's check-slot row. */
+    onhostpanel?: () => void;
     onsettings?: () => void;
     /** Phone only: opens the Done lens from the gear menu, since its segment left the
      *  lens row (D11, docs/design/mobile-herd). */
@@ -943,14 +946,17 @@
     {clickStatus}
   />
   <div class="rightside">
-    <HeavySlotChip
-      {heavySlot}
-      {sessions}
-      {nowMs}
-      compact={mobile || compactBadges}
-      onrelease={async (id) => onheavyslotrelease?.(id)}
-      {onsettings}
-    />
+    {#if !mobile}
+      <!-- A phone has no room for it: the gear sheet carries the check slot instead. -->
+      <HeavySlotChip
+        {heavySlot}
+        {sessions}
+        {nowMs}
+        compact={compactBadges}
+        onrelease={async (id) => onheavyslotrelease?.(id)}
+        {onsettings}
+      />
+    {/if}
     {#if mobile || !usageTriggerShown}
       <TopBarHeldBadge
         heldCount={heldCount ?? 0}
@@ -1146,6 +1152,8 @@
     onPluginItem={choosePlugin}
     onManagePlugins={chooseManagePlugins}
     {onassistant}
+    {heavySlot}
+    {onhostpanel}
   />
 {/if}
 

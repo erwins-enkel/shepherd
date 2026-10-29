@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { HeavySlotSnapshot, Session } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { portal } from "#lib/portal.js";
+  import { dialog } from "#lib/a11yDialog.js";
   import {
     formatBytes,
     formatRuntime,
@@ -18,6 +20,7 @@
     onrelease,
     onsettings,
     onClose,
+    variant = "anchored",
     el = $bindable(null),
   }: {
     heavySlot: HeavySlotSnapshot;
@@ -26,6 +29,8 @@
     onrelease: (sessionId: string) => Promise<void>;
     onsettings?: () => void;
     onClose: () => void;
+    /** "anchored" drops from the desktop chip; "sheet" is the phone's full-screen dialog. */
+    variant?: "anchored" | "sheet";
     el?: HTMLDivElement | null;
   } = $props();
 
@@ -55,7 +60,7 @@
   }
 </script>
 
-<div class="hp" role="dialog" aria-label={m.heavyslot_popover_title()} tabindex="-1" bind:this={el}>
+{#snippet body()}
   <header class="hp-head">
     <span class="hp-title">▤ {m.heavyslot_popover_title()}</span>
     <button type="button" class="hp-x" aria-label={m.heavyslot_close()} onclick={onClose}>×</button>
@@ -175,7 +180,34 @@
       >{m.heavyslot_settings_link()} →</button
     >
   {/if}
-</div>
+{/snippet}
+
+{#if variant === "sheet"}
+  <div class="hp-portal" use:portal>
+    <div class="scrim" aria-hidden="true" onclick={onClose}></div>
+    <div
+      class="hp hp-sheet"
+      role="dialog"
+      aria-modal="true"
+      aria-label={m.heavyslot_popover_title()}
+      tabindex="-1"
+      bind:this={el}
+      use:dialog={{ onclose: onClose }}
+    >
+      {@render body()}
+    </div>
+  </div>
+{:else}
+  <div
+    class="hp"
+    role="dialog"
+    aria-label={m.heavyslot_popover_title()}
+    tabindex="-1"
+    bind:this={el}
+  >
+    {@render body()}
+  </div>
+{/if}
 
 <style>
   .hp {
@@ -195,6 +227,23 @@
     font-size: var(--fs-meta);
     color: var(--color-ink);
     text-align: left;
+  }
+  .hp-portal {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+  }
+  /* Phone: a full-screen dialog in place of the anchored panel (the usage panel's pattern). */
+  .hp.hp-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    width: auto;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    padding: calc(4px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+    font-size: var(--fs-base);
   }
   .hp-head {
     display: flex;

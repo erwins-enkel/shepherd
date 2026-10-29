@@ -15,6 +15,7 @@ import type {
   DiagnosticState,
   DrainStatus,
   HeldTask,
+  HeavySlotSnapshot,
   Settings,
 } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
@@ -3966,5 +3967,73 @@ describe("TopBar — usage updates re-measure only on a width change (fold flick
     } finally {
       globalThis.ResizeObserver = RealResizeObserver;
     }
+  });
+});
+
+describe("TopBar — check slot on a phone lives in the gear sheet", () => {
+  const GIB = 1024 ** 3;
+  const slot: HeavySlotSnapshot = {
+    enabled: true,
+    capacity: 1,
+    holders: [],
+    waiters: [],
+    brake: { active: false, reason: null },
+    pressure: {
+      ramAvailableBytes: 16 * GIB,
+      ramTotalBytes: 32 * GIB,
+      swapUsedBytes: 0,
+      swapTotalBytes: 0,
+      memFullAvg10: 1,
+      memBrakeThreshold: 20,
+      cpuSomeAvg10: 2,
+    },
+    memoryBySource: { agentsBytes: GIB, foreignBytes: GIB, foreignTop: [] },
+    lastResults: [],
+  };
+
+  it("keeps the 390px bar on one row and opens the host panel from the sheet row", async () => {
+    await page.viewport(390, 800);
+    document.body.style.width = "390px";
+    const onhostpanel = vi.fn();
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.mobile,
+      sessions: sessions(2),
+      heavySlot: slot,
+      onhostpanel,
+      onassistant: () => {},
+    });
+    expect(document.querySelector(".hs-chip")).toBeNull();
+    const logo = document.querySelector<HTMLElement>(".hud .logo")!.getBoundingClientRect();
+    const gear = page.getByRole("button", { name: m.topbar_menu_aria() });
+    const gearRect = (gear.element() as HTMLElement).getBoundingClientRect();
+    // One row: the gear's box vertically spans the logo's centre line.
+    const mid = logo.top + logo.height / 2;
+    expect(gearRect.top).toBeLessThanOrEqual(mid);
+    expect(gearRect.bottom).toBeGreaterThanOrEqual(mid);
+
+    await gear.click();
+    await page.getByRole("button", { name: new RegExp(m.heavyslot_label()) }).click();
+    expect(onhostpanel).toHaveBeenCalledOnce();
+    await expect
+      .element(page.getByRole("dialog", { name: m.topbar_sheet_title() }))
+      .not.toBeInTheDocument();
+  });
+
+  it("anchors the desktop popover to the bar so it stays on a narrow touch screen", async () => {
+    await page.viewport(700, 800);
+    document.body.style.width = "700px";
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS["touch-desktop"],
+      sessions: sessions(2),
+      heavySlot: slot,
+    });
+    await page.getByRole("button", { name: /1 held, 0 waiting/i }).click();
+    const pop = document.querySelector<HTMLElement>(".hp")!.getBoundingClientRect();
+    expect(pop.left).toBeGreaterThanOrEqual(0);
+    expect(pop.right).toBeLessThanOrEqual(window.innerWidth);
   });
 });

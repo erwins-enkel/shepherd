@@ -82,7 +82,7 @@ test("empty store yields null metrics, not zeros", () => {
   expect(m.tasks).toEqual([]);
 });
 
-test("one clean review round = first pass; three rounds = not first pass", () => {
+test("one clean review round = first pass; rework requested = not first pass", () => {
   const s = mk();
   seedTask(s, {
     id: "clean",
@@ -108,6 +108,35 @@ test("one clean review round = first pass; three rounds = not first pass", () =>
   const rework = m.tasks.find((t) => t.sessionId === "rework")!;
   expect(rework.firstPass).toBe(false);
   expect(rework.reviewRounds).toBe(3);
+});
+
+test("clean re-reviews of later heads stay first pass (#3594)", () => {
+  const s = mk();
+  // A critic spawn fires per pushed head: a CI-fix push after a clean verdict adds a 2nd clean round.
+  seedTask(s, {
+    id: "reclean",
+    createdAt: NOW - DAY,
+    mergedAt: NOW - DAY / 2,
+    reviews: [
+      { outcome: "clean", spawnedAt: NOW - DAY + 1000 },
+      { outcome: "clean", spawnedAt: NOW - DAY + 2000 },
+    ],
+  });
+  seedTask(s, {
+    id: "fixed",
+    createdAt: NOW - DAY,
+    mergedAt: NOW - DAY / 2,
+    reviews: [
+      { outcome: "changes_requested", spawnedAt: NOW - DAY + 1000 },
+      { outcome: "clean", spawnedAt: NOW - DAY + 2000 },
+    ],
+  });
+  const m = build(s);
+  expect(m.totals.firstPassRate).toEqual({ value: 0.5, n: 2 });
+  const reclean = m.tasks.find((t) => t.sessionId === "reclean")!;
+  expect(reclean.firstPass).toBe(true);
+  expect(reclean.reviewRounds).toBe(2);
+  expect(m.tasks.find((t) => t.sessionId === "fixed")!.firstPass).toBe(false);
 });
 
 test("a crashed critic spawn is NOT a rework cycle", () => {

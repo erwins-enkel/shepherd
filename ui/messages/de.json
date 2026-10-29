@@ -3812,7 +3812,7 @@
   "usage_delivery_incident_count": "{occurrences}× in {sessions} Session(s)",
   "usage_delivery_incidents_caption": "Signale aus diesem Zeitraum, nach Art gruppiert. Eine Art, die sich über viele Sessions verteilt, ist ein Prozessproblem — nicht eine hängende Aufgabe.",
   "gloss_first_pass_rate_term": "Erst-Durchlauf-Quote",
-  "gloss_first_pass_rate_def": "Der Anteil gemergter Aufgaben, die das Review in einer einzigen sauberen Runde bestanden haben — ohne angeforderte Nacharbeit. Nie reviewte Aufgaben fließen gar nicht erst in die Berechnung ein, statt als Erfolg zu zählen.",
+  "gloss_first_pass_rate_def": "Der Anteil gemergter Aufgaben, bei denen das Review nie Nacharbeit angefordert hat. Ein sauberes erneutes Review nach einem späteren Push (CI-Fix, Rebase) zählt weiterhin als Erfolg. Nie reviewte Aufgaben fließen gar nicht erst in die Berechnung ein, statt als Erfolg zu zählen.",
   "gloss_first_push_green_term": "Erster Push grün",
   "gloss_first_push_green_def": "Der Anteil gemergter Aufgaben, deren erstes beobachtetes CI-Ergebnis grün war — die Änderung hat die CI auf Anhieb bestanden, ohne rote Runde davor. Gemessen wird, was Shepherd gesehen hat: Ein Push vor dem Öffnen des PRs zählt nicht mit. Aufgaben in Repos ohne CI und solche, deren CI nie beim Abschluss beobachtet wurde, bleiben unberücksichtigt statt als Fehlschlag zu zählen.",
   "gloss_lead_time_term": "Durchlaufzeit",

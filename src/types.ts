@@ -1313,7 +1313,8 @@ export interface DeliverySample {
 export interface DeliveryStats {
   /** Tasks whose merge settled inside the window. */
   mergedTasks: number;
-  /** Share (0..1) of reviewed merged tasks that needed exactly one clean review round. */
+  /** Share (0..1) of reviewed merged tasks the critic never asked to rework (clean re-reviews of
+   *  later heads still pass). */
   firstPassRate: DeliverySample;
   /** Merged tasks with no outcome-bearing review spawn — excluded from `firstPassRate`'s
    *  denominator, surfaced so the exclusion is visible rather than silent. */

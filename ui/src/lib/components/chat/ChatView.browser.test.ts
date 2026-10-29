@@ -110,6 +110,36 @@ describe("ChatView block answers", () => {
   });
 });
 
+describe("ChatView layout", () => {
+  it("code blocks and tables break out of the prose measure", async () => {
+    await page.viewport(1600, 900);
+    const prose = "Anmeldung erst in die Standliste übernehmen und Zusage später am Stand. ".repeat(
+      6,
+    );
+    const code = "Dev issue: #<N> " + "x".repeat(300);
+    mockMessages.mockResolvedValue({
+      messages: [
+        {
+          role: "assistant",
+          text: `${prose}\n\n\`\`\`\n${code}\n\`\`\`\n\n| a | b |\n| - | - |\n| ${"y".repeat(300)} | z |\n`,
+          ts: 0,
+        },
+      ],
+      awaitingInput: false,
+      pendingQuestion: null,
+      unavailable: null,
+    });
+    render(ChatView, props({ status: "idle" }));
+    await expect.element(page.getByText(code)).toBeInTheDocument();
+    await expect.poll(() => document.querySelector(".md-body table")).not.toBeNull();
+    const width = (sel: string) => document.querySelector(sel)!.getBoundingClientRect().width;
+    const measure = parseFloat(getComputedStyle(document.querySelector(".md-body p")!).maxWidth);
+    expect(width(".md-body p")).toBeLessThanOrEqual(measure);
+    expect(width(".md-body pre")).toBeGreaterThan(width(".md-body p"));
+    expect(width(".md-body table")).toBeGreaterThan(width(".md-body p"));
+  });
+});
+
 describe("ChatView steers", () => {
   const critic =
     "The PR critic reviewed your latest push. These are the BLOCKING points:\n\n1. fix it";

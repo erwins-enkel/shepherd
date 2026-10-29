@@ -288,7 +288,8 @@
     --tone: var(--color-amber);
   }
   /* subordinate red: text + dot only — no halo, pulse or wash */
-  .pr-row.ci_failed {
+  .pr-row.ci_failed,
+  .pr-row.conflict {
     --tone: var(--color-red);
   }
 
@@ -452,6 +453,10 @@
     color: var(--color-muted);
     box-shadow: none;
     cursor: not-allowed;
+  }
+  .pr-row.conflict .gbtn.primary[aria-disabled="true"] {
+    border-color: var(--color-red);
+    color: var(--color-red);
   }
   .gbtn.primary[aria-busy="true"] {
     border-color: color-mix(in srgb, var(--color-amber) 45%, var(--color-line));

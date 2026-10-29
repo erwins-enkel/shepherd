@@ -7,6 +7,7 @@ import {
   formatRuntime,
   memPressureBar,
   orderedWaiters,
+  popoverLeft,
   recentResults,
   slotActive,
   needsResultRefresh,
@@ -203,5 +204,17 @@ describe("commandLabel", () => {
     const cmd =
       "cd /home/p/wt; cat > /home/p/scratch/probe.test.ts <<'EOF'\nimport { it } from 'vitest';\nEOF";
     expect(commandLabel(cmd)).toBe("cat > /home/p/scratch/probe.test.ts <<'EOF'");
+  });
+});
+
+describe("popoverLeft", () => {
+  it("aligns under the chip when the popover fits", () => {
+    expect(popoverLeft(300, 380, 100, 1200)).toBe(200);
+  });
+  it("clamps to the box's right edge", () => {
+    expect(popoverLeft(1100, 380, 100, 1200)).toBe(820);
+  });
+  it("pins to the left when the box is narrower than the popover", () => {
+    expect(popoverLeft(150, 380, 100, 300)).toBe(0);
   });
 });

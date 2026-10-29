@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { HeavySlotSnapshot, Session } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { chipModel, slotActive, slotEnabled } from "./heavy-slot";
+  import { chipModel, popoverLeft, slotActive, slotEnabled } from "./heavy-slot";
   import HostPopover from "./HostPopover.svelte";
 
   let {
@@ -23,11 +23,26 @@
   let open = $state(false);
   let wrap = $state<HTMLDivElement | null>(null);
   let btn = $state<HTMLButtonElement | null>(null);
+  let pop = $state<HTMLDivElement | null>(null);
+  let left = $state<number | null>(null);
   const model = $derived(slotEnabled(heavySlot) ? chipModel(heavySlot) : null);
 
   // The master switch turning off while the popover is open takes the popover with it.
   $effect(() => {
     if (!model) open = false;
+  });
+
+  // Drop the popover under the chip rather than at the bar's right edge, clamped inside the bar.
+  function place() {
+    const box = pop?.offsetParent;
+    if (!btn || !pop || !box) return;
+    // `left` is measured from the box's padding edge, so leave its border out.
+    const boxLeft = box.getBoundingClientRect().left + box.clientLeft;
+    left = popoverLeft(btn.getBoundingClientRect().left, pop.offsetWidth, boxLeft, box.clientWidth);
+  }
+  $effect(() => {
+    if (open && pop) place();
+    else left = null;
   });
 
   function onDocPointer(e: PointerEvent) {
@@ -43,6 +58,7 @@
 </script>
 
 <svelte:document onpointerdown={onDocPointer} onkeydown={onDocKey} />
+<svelte:window onresize={() => open && place()} />
 
 {#if model && heavySlot}
   <div class="hs-wrap" bind:this={wrap}>
@@ -74,14 +90,23 @@
       {/if}
     </button>
     {#if open}
-      <HostPopover {heavySlot} {sessions} {nowMs} {onrelease} {onsettings} onClose={close} />
+      <HostPopover
+        {heavySlot}
+        {sessions}
+        {nowMs}
+        {onrelease}
+        {onsettings}
+        {left}
+        bind:el={pop}
+        onClose={close}
+      />
     {/if}
   </div>
 {/if}
 
 <style>
-  /* Deliberately unpositioned: the popover anchors to the bar (.hud), not the mid-bar chip,
-     so it right-aligns to the bar's edge and never runs off the left of a narrow screen. */
+  /* Deliberately unpositioned: the popover's positioning box is the bar (.hud), so `place()`
+     can line it up under the chip yet clamp it inside the bar's edges on a narrow screen. */
   .hs-chip {
     box-sizing: border-box;
     display: inline-flex;

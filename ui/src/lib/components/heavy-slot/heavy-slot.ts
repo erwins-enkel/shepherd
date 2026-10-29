@@ -109,3 +109,14 @@ export function recentResults(
   const rows = all ? sorted : sorted.slice(0, RESULTS_SHOWN);
   return { rows, hidden: sorted.length - rows.length };
 }
+
+/** The anchored popover's left offset inside its positioning box: under the chip's left edge,
+ *  pulled back so it never overflows the box's right edge (nor its left, when it can't fit). */
+export function popoverLeft(
+  chipLeft: number,
+  popWidth: number,
+  boxLeft: number,
+  boxWidth: number,
+): number {
+  return Math.min(Math.max(0, chipLeft - boxLeft), Math.max(0, boxWidth - popWidth));
+}

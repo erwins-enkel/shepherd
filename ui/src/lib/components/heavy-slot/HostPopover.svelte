@@ -25,6 +25,7 @@
     onsettings,
     onClose,
     variant = "anchored",
+    left = null,
     el = $bindable(null),
   }: {
     heavySlot: HeavySlotSnapshot;
@@ -35,6 +36,8 @@
     onClose: () => void;
     /** "anchored" drops from the desktop chip; "sheet" is the phone's full-screen dialog. */
     variant?: "anchored" | "sheet";
+    /** Anchored only: px offset from the positioning box's left edge; null keeps it right-aligned. */
+    left?: number | null;
     el?: HTMLDivElement | null;
   } = $props();
 
@@ -51,6 +54,7 @@
   const toggle = (key: string) => (expanded.has(key) ? expanded.delete(key) : expanded.add(key));
   const nameOf = (id: string) =>
     sessions.find((s) => s.id === id)?.name ?? m.heavyslot_unknown_session();
+  const anchorStyle = $derived(left == null ? undefined : `left: ${left}px; right: auto`);
   const bar = $derived(memPressureBar(heavySlot));
   const ram = $derived(ramUsedPct(heavySlot));
   const p = $derived(heavySlot.pressure);
@@ -255,6 +259,7 @@
     role="dialog"
     aria-label={m.heavyslot_popover_title()}
     tabindex="-1"
+    style={anchorStyle}
     bind:this={el}
   >
     {@render body()}

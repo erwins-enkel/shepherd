@@ -341,7 +341,18 @@ still stand.
   `--clearenv` membrane 401s the restricted ingress. Its script is bound RO into
   the membrane (`agentSupportPaths` → `agentSupportFlags`, `src/sandbox.ts`),
   because the decision to drop the equivalent prompt notices is taken host-side —
-  a guard missing inside the sandbox would leave that session with neither.
+  a guard missing inside the sandbox would leave that session with neither. The
+  guard's one rewrite routes heavy checks (tests, type checks, builds) through the
+  host-wide check slot (#3181): it replaces the command with
+  `node scripts/heavy-slot.mjs -- '<command>'`. That runner is bound RO beside the
+  guard, together with the operator's heavy-list directory. It asks the server for
+  the slot over the session's own agent-ingress route
+  (`POST /api/sessions/<id>/heavy-slot`, authorized by the per-session ingress key
+  from `SHEPHERD_INGRESS_HEADER_FILE`) and acts on that session's jobs only. It
+  fails open: without the runner bind (a membrane spawned before it existed) the
+  guard rewrites nothing, and with the server unreachable the command runs
+  unmanaged. Codex sessions reach the same runner through PATH shims
+  (`scripts/slot-shim.mjs`) instead of a hook.
 - **Autonomous task agents** run `--dangerously-skip-permissions`, but behind
   **both** the filesystem and the egress membrane. `standard` auto-spawns are
   refused outright (`src/sandbox.ts` `autoHoldReason`).

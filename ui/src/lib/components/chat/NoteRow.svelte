@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { ChatEntry } from "#lib/assistant-chat.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { clock } from "#lib/activity.js";
   import { steerKindLabel } from "#lib/pulse-text.js";
 
   // A quiet row between the messages: a background task's notice, or a steer Shepherd typed into
@@ -23,7 +22,6 @@
         aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg
       >
       <span>{m.session_chat_steer_by({ kind: steerKindLabel(entry.steer) })}</span>
-      {#if entry.ts}<span class="ac-steer-time">{clock(entry.ts)}</span>{/if}
     </summary>
     <p class="ac-steer-text">{entry.text}</p>
   </details>
@@ -63,10 +61,15 @@
     font-size: var(--fs-meta);
     line-height: 1.45;
   }
+  /* Shepherd's steer opens a turn: a labelled marker, so the gate is seen doing its job. */
   .ac-steer summary {
     display: flex;
     align-items: center;
     gap: 6px;
+    color: var(--color-ink);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     cursor: pointer;
     list-style: none;
   }
@@ -74,7 +77,7 @@
     display: none;
   }
   .ac-steer summary:hover {
-    color: var(--color-ink);
+    color: var(--color-ink-bright);
   }
   .ac-steer summary:focus-visible {
     outline: 1px solid var(--color-amber);
@@ -82,6 +85,7 @@
   }
   .ac-steer svg {
     flex: none;
+    color: var(--color-blue);
     width: 11px;
     height: 11px;
     transition: transform 0.15s;
@@ -89,12 +93,8 @@
   .ac-steer[open] svg {
     transform: rotate(90deg);
   }
-  .ac-steer-time {
-    font-size: var(--fs-micro);
-    letter-spacing: 0.06em;
-  }
   .ac-steer-text {
-    margin: 6px 0 0 17px;
+    margin: 8px 0 0 17px;
     padding-left: 10px;
     border-left: 1px solid var(--color-line);
     color: var(--color-ink);

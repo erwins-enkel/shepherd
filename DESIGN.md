@@ -263,6 +263,15 @@ Shadows are permitted in exactly one situation: a summoned overlay. Bottom sheet
 
 - The Chat view's "working…" line leads with a 40×10 amber oscilloscope trace (`chat/WorkingTrace.svelte`): a beam spot sweeps a fixed telemetry waveform every 1.6s, its phosphor tail decaying behind it over a faint `line` midline. Amber stroke only — no glow or halo. Under reduced motion it holds a frozen frame (beam at the right edge); the label still carries the state.
 
+### Chat Transcript (ledger)
+
+- The Chat view (`chat/ChatView.svelte`, shared by a session's Chat tab and the Operator Assistant) is a mission log, not a chat app. Each row is a 40px time gutter plus a content column held to a 72ch reading measure. The gutter shows `HH:MM` in Berkeley Mono, `--fs-micro`, Faint Moss, tabular; a time repeats only when the minute changes or a turn opens. The working trace sits in the gutter.
+- **Turns:** the operator's message or a Shepherd steer opens a turn: a 1px Hairline across the full pane plus extra air above. Rows inside a turn sit tight.
+- **Operator rows** are a prompt line, left-aligned like everything else: an `inset` band with a full 1px Hairline (2px radius, never a side stripe), an amber chevron caret, Bright Phosphor text. The composer carries the same caret.
+- **Shepherd steers** are an uppercase label marker (`--fs-micro`, +0.08em) with a Cold Blue disclosure chevron (informational, not a status hue), still collapsible to the full steer text.
+- **Tool runs** lead with an uppercase count; the latest call stays mono, amber while live. A failed count is subordinate red text only.
+- Cards, notices and questions indent to the content column so the gutter stays a clean time rail.
+
 ### Live Terminal (signature)
 
 - A full xterm.js pane on the `bg` ground, fed real PTY bytes. A single amber scanline (a 4%-opacity amber band) sweeps top to bottom over 8s (`scan`), the one piece of ambient motion in the system. It is texture, not noise: low enough opacity to never compete with the terminal text.

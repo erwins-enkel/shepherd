@@ -4,6 +4,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import { portal } from "#lib/portal.js";
   import { dialog } from "#lib/a11yDialog.js";
+  import { swipeBack } from "../swipe-back";
   import {
     formatBytes,
     formatRuntime,
@@ -62,6 +63,10 @@
       releaseFailed = true;
     }
   }
+
+  // Phone sheet: a rightward swipe closes it, like Settings and the command bar (see swipeBack).
+  let sheetX = $state(0); // rubber-banded display offset (px, ≥ 0)
+  const sheetSwipe = swipeBack({ onback: () => onClose(), onoffset: (px) => (sheetX = px) });
 </script>
 
 {#snippet commandToggle(key: string, command: string)}
@@ -211,12 +216,15 @@
     <div class="scrim" aria-hidden="true" onclick={onClose}></div>
     <div
       class="hp hp-sheet"
+      class:swiping={sheetX > 0}
+      style:transform={sheetX > 0 ? `translateX(${sheetX}px)` : undefined}
       role="dialog"
       aria-modal="true"
       aria-label={m.heavyslot_popover_title()}
       tabindex="-1"
       bind:this={el}
       use:dialog={{ onclose: onClose }}
+      {@attach sheetSwipe}
     >
       {@render body()}
     </div>
@@ -267,6 +275,12 @@
     border-radius: 0;
     padding: calc(4px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
     font-size: var(--fs-base);
+    transition: transform 0.18s ease-out;
+  }
+  /* Mid swipe-back: follows the finger 1:1, edge shadow over the uncovered page. */
+  .hp.hp-sheet.swiping {
+    transition: none;
+    box-shadow: var(--shadow-popover);
   }
   .hp-head {
     display: flex;

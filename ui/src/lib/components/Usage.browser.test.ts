@@ -336,3 +336,47 @@ describe("Usage modal component", () => {
     expect(dialog, "dialog element exists").not.toBeNull();
   });
 });
+
+describe("Usage phone swipe back", () => {
+  let clock = 0;
+  function swipe(el: Element, from: [number, number], to: [number, number]) {
+    for (const [type, [x, y]] of [
+      ["touchstart", from],
+      ["touchmove", to],
+      ["touchend", to],
+    ] as const) {
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(e, "touches", {
+        value: type === "touchend" ? [] : [{ clientX: x, clientY: y }],
+      });
+      // spaced 500ms apart so the drag never reads as a flick
+      Object.defineProperty(e, "timeStamp", { value: (clock += 500) });
+      el.dispatchEvent(e);
+    }
+  }
+  const card = () => document.querySelector<HTMLElement>(".card")!;
+
+  afterEach(async () => {
+    await page.viewport(1280, 900);
+  });
+
+  it("phone: a long rightward swipe closes, a short one stays", async () => {
+    await page.viewport(390, 844);
+    const onclose = vi.fn();
+    render(Usage, { onclose });
+    await expect.poll(() => card().dataset.swipeBack).toBe("");
+    swipe(card(), [10, 300], [40, 300]);
+    expect(onclose).not.toHaveBeenCalled();
+    swipe(card(), [10, 300], [300, 300]);
+    expect(onclose).toHaveBeenCalledOnce();
+  });
+
+  it("desktop: no swipe", async () => {
+    await page.viewport(1280, 900);
+    const onclose = vi.fn();
+    render(Usage, { onclose });
+    swipe(card(), [10, 300], [300, 300]);
+    expect(onclose).not.toHaveBeenCalled();
+    expect(card().dataset.swipeBack).toBeUndefined();
+  });
+});

@@ -418,11 +418,17 @@ test("makeAgentIngressApp: POST /api/sessions/:id/heavy-slot needs the key and t
   const ok = await app.fetch(post({ op: "acquire", command: "bun run test", cwd: "/wt" }));
   expect(ok.status).toBe(200);
   expect(await ok.json()).toEqual({ decision: "run", jobId: "j1" });
-  expect(calls[0]).toEqual(["acquire", ID, "bun run test", "/wt"]);
+  expect(calls[0]).toEqual(["acquire", ID, "bun run test", "/wt", false]);
 
   const fin = await app.fetch(post({ op: "finished", jobId: "j1", exitCode: 1 }));
   expect(await fin.json()).toEqual({ ok: true });
   expect(calls[1]).toEqual(["finish", ID, "j1", 1]);
+
+  const waiting = await app.fetch(
+    post({ op: "acquire", command: "bun run test", cwd: "/wt", canWait: true }),
+  );
+  expect(waiting.status).toBe(200);
+  expect(calls[2]).toEqual(["acquire", ID, "bun run test", "/wt", true]);
 
   expect((await app.fetch(post({ op: "acquire", command: "" }))).status).toBe(400);
   expect((await app.fetch(post({ op: "started", jobId: "j1", pgid: -1 }))).status).toBe(400);

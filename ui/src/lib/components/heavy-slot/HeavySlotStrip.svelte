@@ -185,6 +185,29 @@
     box-sizing: border-box;
     border-color: var(--color-line-bright);
     box-shadow: var(--shadow-popover);
+    align-items: center;
+  }
+  /* Docked is always one 44px row, whatever the width (a landscape phone is "mobile" by height
+     but misses the max-width rules below): the list reserves exactly --mobile-slotdock-h. */
+  .hs-docked .hs-rows {
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+    overflow-x: auto;
+  }
+  .hs-docked .hs-rows > li {
+    flex-shrink: 0;
+  }
+  .hs-docked .hs-row,
+  .hs-docked .hs-open {
+    min-height: 44px;
+    padding-top: 0;
+  }
+  .hs-docked .hs-holder {
+    max-width: min(70vw, 40ch);
+  }
+  .hs-docked .hs-brake {
+    white-space: nowrap;
   }
   /* Phone: one line, scrolling sideways; 44px tap targets. */
   @media (max-width: 768px) {

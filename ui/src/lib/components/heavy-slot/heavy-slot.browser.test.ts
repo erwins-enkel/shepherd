@@ -139,11 +139,19 @@ describe("HeavySlotStrip", () => {
     await expect.element(page.getByText(/Brake on/)).toBeVisible();
   });
 
-  it("docks out of the document flow, so showing it never reflows the list", async () => {
-    render(HeavySlotStrip, { heavySlot: snap(), sessions, docked: true });
-    const strip = document.querySelector<HTMLElement>(".hs-strip");
-    expect(strip?.classList.contains("hs-docked")).toBe(true);
-    expect(getComputedStyle(strip!).position).toBe("fixed");
+  it("docks out of the document flow as one row at any width", async () => {
+    // A landscape phone is "mobile" by height but misses the strip's max-width rules; docked must
+    // still be one row, so a holder plus two waiters fit the 56px the list reserves.
+    const { innerWidth: w, innerHeight: h } = window;
+    await page.viewport(900, 400);
+    try {
+      render(HeavySlotStrip, { heavySlot: snap(), sessions, docked: true });
+      const strip = document.querySelector<HTMLElement>(".hs-strip");
+      expect(getComputedStyle(strip!).position).toBe("fixed");
+      expect(strip!.getBoundingClientRect().height).toBeLessThanOrEqual(56);
+    } finally {
+      await page.viewport(w, h);
+    }
   });
 });
 

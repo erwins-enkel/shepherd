@@ -53,7 +53,9 @@ export function ingressConfig(env, readFile = (p) => readFileSync(p, "utf8")) {
     const url = new URL(base);
     if (
       !["http:", "https:"].includes(url.protocol) ||
-      !["127.0.0.1", "localhost", "[::1]", "10.0.2.2"].includes(url.hostname) ||
+      (!["127.0.0.1", "localhost", "[::1]", "10.0.2.2"].includes(url.hostname) &&
+        url.origin !== env.SHEPHERD_AGENT_API_ORIGIN) ||
+      url.port === "0" ||
       url.username ||
       url.password ||
       url.search ||
@@ -66,8 +68,9 @@ export function ingressConfig(env, readFile = (p) => readFileSync(p, "utf8")) {
       return null;
     url.pathname = `/api/sessions/${encodeURIComponent(id)}/heavy-slot`;
 
-    // The file carries this session's auth header, deliberately sent only to the configured local
-    // ingress (10.0.2.2 is the sandbox's gateway to host loopback). Never follow redirects with it.
+    // The file carries this session's auth header. Outside loopback/the sandbox host gateway,
+    // require the exact origin pinned by the server alongside its selected agent API URL (same
+    // scheme, host and port). Never follow redirects with this credential.
     const line = readFile(headerFile).replace(/\r?\n$/, "");
     const colon = line.indexOf(":");
     if (colon <= 0) return null;

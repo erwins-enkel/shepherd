@@ -286,6 +286,66 @@ describe("local ingress boundary", () => {
     expect(reads).toBe(0);
   });
 
+  test.each([
+    "http://100.101.102.103:7330",
+    "http://shepherd-container:7330",
+    "https://shepherd.example.ts.net:8443",
+    "http://shepherd-container",
+    "https://shepherd.example.ts.net",
+  ])("accepts the server-configured non-loopback origin %s", (origin) => {
+    const cfg = ingressConfig(
+      {
+        ...configEnv,
+        SHEPHERD_AGENT_API_URL: origin,
+        SHEPHERD_AGENT_API_ORIGIN: origin,
+      },
+      () => `${HEADER}: secret`,
+    );
+    expect(cfg?.endpoint).toBe(`${origin}/api/sessions/s1/heavy-slot`);
+    expect(
+      ingressConfig({ ...configEnv, SHEPHERD_AGENT_API_URL: origin }, () => `${HEADER}: secret`),
+    ).toBeNull();
+  });
+
+  test.each([
+    "http://foreign.example:7330",
+    "http://shepherd-container.evil.example:7330",
+    "http://shepherd-container:7331",
+    "https://shepherd-container:7330",
+    "http://shepherd-container:0",
+    "http://shepherd-container:65536",
+    "ftp://shepherd-container:7330",
+    "http://127.0.0.1:0",
+  ])("rejects unapproved origin or invalid port %s before reading credentials", (base) => {
+    let reads = 0;
+    expect(
+      ingressConfig(
+        {
+          ...configEnv,
+          SHEPHERD_AGENT_API_URL: base,
+          SHEPHERD_AGENT_API_ORIGIN: "http://shepherd-container:7330",
+        },
+        () => {
+          reads++;
+          return `${HEADER}: secret`;
+        },
+      ),
+    ).toBeNull();
+    expect(reads).toBe(0);
+  });
+
+  test("a configured non-loopback origin still permits loopback", () => {
+    expect(
+      ingressConfig(
+        {
+          ...configEnv,
+          SHEPHERD_AGENT_API_ORIGIN: "http://shepherd-container:7330",
+        },
+        () => `${HEADER}: secret`,
+      )?.endpoint,
+    ).toBe("http://127.0.0.1:7331/api/sessions/s1/heavy-slot");
+  });
+
   test("session ids remain a single encoded path segment", () => {
     for (const id of [".", "..", "bad\0id", ""]) {
       expect(

@@ -1,3 +1,4 @@
+import { ingressConfig } from "../scripts/heavy-slot.mjs";
 import { codexLaunchMarker } from "../src/codex-session-id";
 import { test, expect, spyOn } from "bun:test";
 import {
@@ -9249,11 +9250,12 @@ test("baseUrl: trusted with no ingress port yet (early boot) → falls back to g
 // providers on every spawn path — a Claude-only carrier (e.g. the `--settings` overlay's `env`)
 // would leave every Codex session unable to self-rename.
 
-/** Just the two coordinates out of a captured spawn env — so a miss reads as an explicit
+/** Coordinates and the origin pin out of a captured spawn env — so a miss reads as an explicit
  *  `undefined` in the diff rather than as a passing subset match. */
 function coordinates(env: Record<string, string> | undefined) {
   return {
     SHEPHERD_AGENT_API_URL: env?.SHEPHERD_AGENT_API_URL,
+    SHEPHERD_AGENT_API_ORIGIN: env?.SHEPHERD_AGENT_API_ORIGIN,
     SHEPHERD_SESSION_ID: env?.SHEPHERD_SESSION_ID,
   };
 }
@@ -9275,6 +9277,7 @@ test("agent coordinates: a Claude create carries SHEPHERD_AGENT_API_URL + SHEPHE
   });
   expect(coordinates(record.env)).toEqual({
     SHEPHERD_AGENT_API_URL: INGRESS_BASE,
+    SHEPHERD_AGENT_API_ORIGIN: INGRESS_BASE,
     SHEPHERD_SESSION_ID: s.id,
   });
 });
@@ -9296,6 +9299,7 @@ test("agent coordinates: a Codex create carries them too (the control plane is p
   expect(record.argv?.[0]).toBe("codex"); // it really is a Codex spawn
   expect(coordinates(record.env)).toEqual({
     SHEPHERD_AGENT_API_URL: INGRESS_BASE,
+    SHEPHERD_AGENT_API_ORIGIN: INGRESS_BASE,
     SHEPHERD_SESSION_ID: s.id,
   });
 });
@@ -9343,6 +9347,7 @@ test("agent coordinates: resume re-stamps them for both providers", async () => 
     expect(resumed).not.toBeNull();
     expect(coordinates(record.env)).toEqual({
       SHEPHERD_AGENT_API_URL: INGRESS_BASE,
+      SHEPHERD_AGENT_API_ORIGIN: INGRESS_BASE,
       SHEPHERD_SESSION_ID: s.id,
     });
   }
@@ -9369,6 +9374,7 @@ test("agent coordinates: provider replacement carries them in BOTH directions", 
     // The session id is stable across a replacement — same row, new agent.
     expect(coordinates(record.env)).toEqual({
       SHEPHERD_AGENT_API_URL: INGRESS_BASE,
+      SHEPHERD_AGENT_API_ORIGIN: INGRESS_BASE,
       SHEPHERD_SESSION_ID: s.id,
     });
   }
@@ -9399,8 +9405,57 @@ test("agent coordinates: the sandboxed membrane carries them past bwrap --cleare
     return i < 0 ? undefined : argv[i + 1];
   };
   expect(setenv("SHEPHERD_AGENT_API_URL")).toBe(INGRESS_BASE);
+  expect(setenv("SHEPHERD_AGENT_API_ORIGIN")).toBe(INGRESS_BASE);
   expect(setenv("SHEPHERD_SESSION_ID")).toBe(s.id);
 });
+
+test.each(["100.101.102.103", "shepherd-container"])(
+  "agent coordinates: configured API origin %s reaches the runner on both spawn paths",
+  async (host) => {
+    const previousHost = config.host;
+    try {
+      config.host = host;
+      for (const [agentProvider, sandboxProfile] of [
+        ["claude", "trusted"],
+        ["claude", "standard"],
+        ["codex", "trusted"],
+      ] as const) {
+        const store = new SessionStore(":memory:");
+        store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), sandboxProfile });
+        const record: { argv?: string[]; env?: Record<string, string> } = {};
+        const service = baseUrlService({ store, record, detectBackend: () => "bwrap" });
+        const session = await service.create({
+          repoPath: "/repo",
+          baseBranch: "main",
+          prompt: "go",
+          agentProvider,
+          model: null,
+          images: [],
+        });
+        const origin = `http://${host}:${config.port}`;
+        expect(record.env?.SHEPHERD_AGENT_API_URL).toBe(origin);
+        expect(record.env?.SHEPHERD_AGENT_API_ORIGIN).toBe(origin);
+        if (sandboxProfile === "standard") {
+          expect(hasSetenvPair(record.argv ?? [], "SHEPHERD_AGENT_API_ORIGIN", origin)).toBe(true);
+        }
+        const env = { ...record.env, SHEPHERD_INGRESS_HEADER_FILE: "/header" };
+        expect(ingressConfig(env, () => "x-shepherd-ingress-key: secret")?.endpoint).toBe(
+          `${origin}/api/sessions/${session.id}/heavy-slot`,
+        );
+        let reads = 0;
+        expect(
+          ingressConfig({ ...env, SHEPHERD_AGENT_API_URL: "http://foreign.example:7330" }, () => {
+            reads++;
+            return "x-shepherd-ingress-key: secret";
+          }),
+        ).toBeNull();
+        expect(reads).toBe(0);
+      }
+    } finally {
+      config.host = previousHost;
+    }
+  },
+);
 
 // ── Shared Browser (ADR 0001): SHEPHERD_BROWSER_CONFIG in the spawn env ──────────
 

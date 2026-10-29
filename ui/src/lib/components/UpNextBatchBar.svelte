@@ -98,10 +98,12 @@
     flex: 1;
     font-size: var(--fs-meta);
     color: var(--color-ink);
-  } /* Phone: the page scrolls and the fixed ActionBar covers its bottom edge — stick above it. */
+  } /* Phone: the page scrolls and the fixed ActionBar covers its bottom edge, with the floating
+       Assist/New buttons (MobileFabs) above it — stick above both. */
   .un-batch.flow {
     bottom: calc(
-      var(--mobile-actionbar-h) + max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom))
+      var(--mobile-actionbar-h) + max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom)) +
+        var(--mobile-fab-clear)
     );
   }
   .un-confirm-text {

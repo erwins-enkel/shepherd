@@ -7902,5 +7902,10 @@
   "resources_remove": "Remove",
   "newtask_prompt_file_delivery": "Will be passed in full as a file.",
   "feat_long_task_prompts_title": "Long tasks without splitting",
-  "feat_long_task_prompts_body": "Tasks longer than 8,000 characters are automatically passed in full as a file to Claude Code or Codex. A hint by the character count shows when file delivery is used."
+  "feat_long_task_prompts_body": "Tasks longer than 8,000 characters are automatically passed in full as a file to Claude Code or Codex. A hint by the character count shows when file delivery is used.",
+  "actionbar_menu": "Menu",
+  "gearmenu_herd_label": "Herd",
+  "topbar_status_line_label": "Herd status",
+  "feat_phone_thumb_bar_title": "Phone: everything in thumb reach",
+  "feat_phone_thumb_bar_body": "On a phone the top bar is now a slim status line: sessions, check slot, merge train, held tasks and usage at a glance. The menu moved to the Menu tab in the bottom bar, where you also filter by status, and Assist and New float just above it."
 }

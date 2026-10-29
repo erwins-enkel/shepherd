@@ -30,7 +30,7 @@
     assistants?: Session[];
     open: boolean;
     compact: boolean;
-    /** Phone layout (width-only): the chip takes the 44px floor the gear has. */
+    /** Phone layout (width-only): the floating button above the action bar (MobileFabs). */
     mobile?: boolean;
     workingBlocked: Record<string, boolean>;
     backgroundBusy: Record<string, boolean>;
@@ -117,17 +117,21 @@
   .assist.compact {
     min-width: 44px;
   }
-  /* Phone: the gear's ghost-button language (.gear.mobile), not the desktop chip — the bar's
-     ● ✦ ⚙ cluster reads as three equal 44px cells; open = .gear.open's sel ground. The 44px
-     floor is width-gated: `mobile` is width-only, so a fine-pointer narrow viewport gets no help
-     from the coarse-pointer floor below. */
+  /* Phone: a square floating button above the action bar (MobileFabs, variant E) on the
+     panel ground, so it reads over the scrolling list; open = the sel ground. The size is
+     width-gated: `mobile` is width-only, so a fine-pointer narrow viewport gets no help from
+     the coarse-pointer floor below. */
   .assist.phone {
-    min-height: 44px;
+    width: var(--mobile-fab-size);
+    height: var(--mobile-fab-size);
     padding: 0;
-    border-color: transparent;
+    background: var(--color-panel);
+    border-color: var(--color-line-bright);
+    border-radius: 0;
+    color: var(--color-ink-bright);
   }
   .assist.phone:hover {
-    background: transparent;
+    background: var(--color-panel);
     color: var(--color-amber);
   }
   .assist.phone.on {
@@ -162,10 +166,10 @@
     border-radius: 50%;
     box-shadow: 0 0 0 2px var(--color-panel);
   }
-  /* Phone: no border to straddle, so the pip sits inside the cell like .gear-pip. */
+  /* Phone: the pip sits inside the square's corner. */
   .assist.phone .assist-pip {
-    top: 2px;
-    right: 2px;
+    top: 4px;
+    right: 4px;
     width: 7px;
     height: 7px;
   }

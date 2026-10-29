@@ -28,9 +28,9 @@ afterEach(async () => {
 });
 
 describe("Toasts mobile inset above the action bar (#810)", () => {
-  it("env(safe-area-inset-bottom) resolves to 0 in headless chromium (keeps 114px stable)", () => {
+  it("env(safe-area-inset-bottom) resolves to 0 in headless chromium (keeps the inset stable)", () => {
     // Sanity: the expected inset assumes no notch safe-area. If a future headless
-    // env reported a non-zero inset, the 114px assertion below would drift — guard it.
+    // env reported a non-zero inset, the inset assertion below would drift — guard it.
     const probe = document.createElement("div");
     probe.style.paddingBottom = "env(safe-area-inset-bottom)";
     document.body.appendChild(probe);
@@ -43,11 +43,12 @@ describe("Toasts mobile inset above the action bar (#810)", () => {
     toasts.info("decommissioned", { sticky: true });
     render(Toasts, { aboveActionBar: true });
     await tick();
-    // --mobile-actionbar-h is ONE rank: the lens segments, REPOS and "New task" side by side,
+    // --mobile-actionbar-h is ONE rank: the lens segments, REPOS and Menu side by side,
     // --mobile-actionbar-hit tall, under a single top border (the bar has no side or bottom one).
-    // 44 + 10 + 1 = 55px, + max(--mobile-actionbar-pad 10px, 0) = 65px.
+    // 44 + 10 + 1 = 55px, + max(--mobile-actionbar-pad 10px, 0) = 65px, + the floating
+    // Assist/New band above it (--mobile-fab-clear: 48 + 12 = 60px) = 125px.
     const inset = toastsBottomPx();
-    expect(inset).toBeCloseTo(65, 0); // within ~0.5px
+    expect(inset).toBeCloseTo(125, 0); // within ~0.5px
     expect(inset).toBeGreaterThan(0); // strictly above the flush (false) case
   });
 

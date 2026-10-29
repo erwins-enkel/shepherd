@@ -19,7 +19,7 @@ import type { BuildQueue, GitState, PlanGate, ReviewVerdict, Session } from "#li
 // The sweep below is generic WITHIN each fixture — it measures whatever renders rather than a
 // hand-maintained list of selectors, so a control added to one of these surfaces cannot slip past
 // it. The reach is the fixture list, not the whole app: every surface this screen is built from is
-// rendered here (the card, the header tallies, the bottom navigation bar with its lens segments,
+// rendered here (the card, the read-only header status line, the bottom navigation bar with its lens segments,
 // and the REPOS sheet). A new SURFACE still needs a new fixture.
 //
 // Every exception must be named HERE, with its justification, which is what makes the exception
@@ -39,7 +39,8 @@ vi.mock("#lib/api.js", async (importOriginal) => {
 });
 
 const { default: UnitRow } = await import("./UnitRow.svelte");
-const { default: TopBarTallies } = await import("./top-bar/TopBarTallies.svelte");
+const { default: TopBarStatusLine } = await import("./top-bar/TopBarStatusLine.svelte");
+const { default: MobileFabs } = await import("./MobileFabs.svelte");
 const { default: ActionBar } = await import("./ActionBar.svelte");
 const { default: ReposSheet } = await import("./ReposSheet.svelte");
 const { reviews, planGates, repoConfig } = await import("#lib/reviews.svelte.js");
@@ -365,73 +366,50 @@ describe("D4/D5: the undersized card controls are readouts on touch, not tap tar
   });
 });
 
-describe("D6: the header status tallies are 44x44 on a phone", () => {
-  it("each compact tally clears 44x44", async () => {
+// D6 (44x44 header tallies) is superseded by variant E: the phone's top bar is a READ-ONLY
+// status line, so the top band holds no tap target at all. Asserted, because one stray button
+// there would silently reopen the sub-44px problem D6 fixed.
+describe("variant E: the phone status line holds no tap targets", () => {
+  it("renders the herd counts with no interactive descendants", async () => {
     const host = document.createElement("div");
     host.style.width = "430px";
     document.body.appendChild(host);
-    render(TopBarTallies, {
+    render(TopBarStatusLine, {
       target: host,
       props: {
-        mobile: true,
         total: 16,
-        working: 0,
+        working: 3,
         idle: 2,
         blocked: 1,
         statusFilter: "blocked" as const,
-        onstatusfilter: () => {},
-        clickStatus: () => {},
+        heldCount: 2,
       },
     });
     await frame();
 
-    const tallies = [...host.querySelectorAll<HTMLElement>(".ctally")];
-    expect(tallies.length, "all four compact tallies render").toBe(4);
-    for (const t of tallies) {
-      const r = t.getBoundingClientRect();
-      expect(r.width, `tally width (was 24px before D6)`).toBeGreaterThanOrEqual(HIG - SLACK);
-      expect(r.height, `tally height`).toBeGreaterThanOrEqual(HIG - SLACK);
-    }
+    const line = host.querySelector<HTMLElement>(".status-line");
+    expect(line, ".status-line rendered").not.toBeNull();
+    expect(line!.textContent).toContain("16");
+    expect(line!.querySelectorAll("button, a, input, [tabindex]").length).toBe(0);
   });
+});
 
-  // The one surviving exception, and the only one: below a 360px viewport TopBarTallies keeps its
-  // documented 24px width, because four 44px targets genuinely break that line on a fold cover.
-  // Asserted rather than asserted-to-be-true: the point is that the exception is BOUNDED — it
-  // applies below 360px and nowhere else, and it still clears the WCAG 2.5.8 (AA) 24x24 minimum.
-  it("below 360px the documented 24px width compromise stands, and stays above the WCAG floor", async () => {
-    await page.viewport(320, 800);
-    const host = document.createElement("div");
-    host.style.width = "320px";
-    document.body.appendChild(host);
-    render(TopBarTallies, {
-      target: host,
-      props: {
-        mobile: true,
-        total: 16,
-        working: 0,
-        idle: 2,
-        blocked: 1,
-        statusFilter: null,
-        onstatusfilter: () => {},
-        clickStatus: () => {},
-      },
+// The floating Assist + New buttons sit in the thumb corner on every phone width.
+describe("MobileFabs clear the floor", () => {
+  for (const width of [430, 320] as const) {
+    it(`Assist + New at ${width}px`, async () => {
+      await page.viewport(width, 800);
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      render(MobileFabs, {
+        target: host,
+        props: { onnew: () => {}, onassistant: () => {} },
+      });
+      await frame();
+      assertAllTargetsConform(host, `MobileFabs @${width}px`, 2);
+      await page.viewport(1280, 720);
     });
-    await frame();
-
-    const tallies = [...host.querySelectorAll<HTMLElement>(".ctally")];
-    expect(tallies.length).toBe(4);
-    for (const t of tallies) {
-      const r = t.getBoundingClientRect();
-      // Below the HIG floor on the narrow axis — deliberately, and only here…
-      expect(r.width, "fold-cover width stays at the documented compromise").toBeLessThan(HIG);
-      // …but never below the hard WCAG 2.5.8 (AA) minimum.
-      expect(r.width, "still clears WCAG 2.5.8 24x24").toBeGreaterThanOrEqual(24 - SLACK);
-      expect(r.height, "height keeps the 44px floor even on a fold cover").toBeGreaterThanOrEqual(
-        HIG - SLACK,
-      );
-    }
-    await page.viewport(1280, 720);
-  });
+  }
 });
 
 describe("the surfaces this screen is built from also clear the floor", () => {
@@ -452,6 +430,8 @@ describe("the surfaces this screen is built from also clear the floor", () => {
         onstatusfilter: () => {},
         onnew: () => {},
         onbacklog: () => {},
+        onmenu: () => {},
+        menuPip: "yellow" as const,
       },
     });
     await frame();
@@ -459,7 +439,7 @@ describe("the surfaces this screen is built from also clear the floor", () => {
   }
 
   // The bottom navigation bar: three lens segments (HerdSegRow renders inside it) plus
-  // "New task" and REPOS, all sharing ONE rank. Every one of those is a primary control on the
+  // REPOS and Menu, all sharing ONE rank ("New task" floats above it, see MobileFabs below). Every one of those is a primary control on the
   // phone. Measured at both ends of the phone range: 430px is the reference device, and 320px is
   // where the five slots are tightest — the actions shed padding there (ActionBar's 360px media
   // query) precisely so the DE labels keep their width, and this is what proves the hit areas
@@ -469,7 +449,7 @@ describe("the surfaces this screen is built from also clear the floor", () => {
       it(`bottom navigation bar [${locale}] at ${width}px`, async () => {
         overwriteGetLocale(() => locale);
         const host = await renderActionBar(width);
-        // three lens segments + REPOS + New task
+        // three lens segments + REPOS + Menu
         assertAllTargetsConform(host, `ActionBar [${locale}] @${width}px`, 5);
       });
     }
@@ -484,7 +464,7 @@ describe("the surfaces this screen is built from also clear the floor", () => {
   it("every control in the bottom bar shows a focus indicator", async () => {
     const host = await renderActionBar(430);
     const controls = [...host.querySelectorAll<HTMLElement>(".btn, .seg-btn")];
-    expect(controls.length, "three lens segments + REPOS + New task").toBe(5);
+    expect(controls.length, "three lens segments + REPOS + Menu").toBe(5);
     // Chromium only matches :focus-visible on a programmatically focused BUTTON once the page
     // has seen keyboard interaction — establish that modality first (house pattern, TopBar).
     controls[0].focus();

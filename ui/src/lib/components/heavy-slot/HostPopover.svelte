@@ -68,7 +68,7 @@
 
   <section>
     <h3>{m.heavyslot_holders()}</h3>
-    {#each heavySlot.holders as h (h.sessionId)}
+    {#each heavySlot.holders as h, i (i)}
       <div class="hp-row">
         <span class="hp-name">{nameOf(h.sessionId)}</span>
         <span class="hp-dim"

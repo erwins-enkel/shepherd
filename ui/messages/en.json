@@ -7926,5 +7926,11 @@
   "gearmenu_herd_label": "Herd",
   "topbar_status_line_label": "Herd status",
   "feat_phone_thumb_bar_title": "Phone: everything in thumb reach",
-  "feat_phone_thumb_bar_body": "On a phone the top bar is now a slim status line: sessions, check slot, merge train, held tasks and usage at a glance. The menu moved to the Menu tab in the bottom bar, where you also filter by status, and Assist and New float just above it."
+  "feat_phone_thumb_bar_body": "On a phone the top bar is now a slim status line: sessions, check slot, merge train, held tasks and usage at a glance. The menu moved to the Menu tab in the bottom bar, where you also filter by status, and Assist and New float just above it.",
+  "viewport_hints_title": "Keyboard shortcuts",
+  "viewport_hints_summary": "Drive the session console without leaving the keyboard.",
+  "viewport_hints_section": "Keys",
+  "viewport_hints_aria": "Show keyboard shortcuts",
+  "feat_keyboard_hints_title": "Shortcuts moved into one key",
+  "feat_keyboard_hints_body": "The hint strip under the terminal is gone. Hover the ⌘K key at the right end of the steer row to see every shortcut, and the terminal gets the height back."
 }

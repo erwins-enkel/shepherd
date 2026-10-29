@@ -108,7 +108,6 @@
   import AutoMergeBanner from "./viewport/AutoMergeBanner.svelte";
   import { ciBannerState } from "#lib/ci-banner.js";
   import ViewportTermControls from "./viewport/ViewportTermControls.svelte";
-  import ViewportFootHints from "./viewport/ViewportFootHints.svelte";
   import ViewportTabBar from "./viewport/ViewportTabBar.svelte";
   import BrowserPanel from "./viewport/BrowserPanel.svelte";
   import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
@@ -3630,7 +3629,7 @@
        Sits between .vp-body and SteerBar/controls so the ctrl-row stays bottom-most
        (the foldable swipe-up compose gesture starts on the bottom-most element). -->
   {#if !assistant}
-    <SessionStatusBar {session} {usage} {activity} />
+    <SessionStatusBar {session} {usage} {activity} joined={reviewActive && tab === "term"} />
   {/if}
 
   <!-- The merge decision sits right above the steer chips it competes with; the steer and ctrl
@@ -3664,6 +3663,7 @@
         conn?.send(seq);
       }}
       {micAvailable}
+      hints={!compact ? { showEnter: tab === "term" } : null}
       ondictate={() => {
         composeDictate = true;
         composeOpen = true;
@@ -3728,18 +3728,6 @@
       headless={prRowShown}
       bind:expanded={recapOpen}
     />
-  {/if}
-
-  <!-- footer: keyboard-affordance hints — true desktop only (mouse + hardware
-       keyboard). Any coarse-pointer device (phone OR unfolded foldable) has no
-       Tab key, so the hints are pure overhead; dropping it hands the height back
-       to the terminal AND keeps the ctrl-row the bottom-most element, so the
-       swipe-up-from-the-bottom-edge compose gesture lands on it (the footer would
-       otherwise sit below the row and swallow the gesture's start on foldables). -->
-  {#if !compact && !assistant}
-    <!-- Enter only hands focus back on the terminal tab (focusTerminal
-         no-ops elsewhere), so don't advertise it on other tabs -->
-    <ViewportFootHints showEnter={tab === "term"} />
   {/if}
 </div>
 

@@ -1011,3 +1011,22 @@ export function schedulesExplanation(): TooltipExplanation {
     ],
   };
 }
+
+/** The session console's keyboard shortcuts (the steer row's ⌘K key) — one parallel list. */
+export function keyboardHintsExplanation(isMac: boolean, showEnter: boolean): TooltipExplanation {
+  const rows = [
+    m.viewport_type_steer_hint(),
+    m.viewport_detach_hint(),
+    m.viewport_select_hint({ key: isMac ? "⌥" : "⇧" }),
+    m.viewport_keynav_hint(),
+    m.viewport_commandbar_hint({ key: isMac ? "⌘K" : "Ctrl+K" }),
+    ...(showEnter ? [m.viewport_keynav_enter_hint()] : []),
+  ];
+  return {
+    title: m.viewport_hints_title(),
+    summary: m.viewport_hints_summary(),
+    sections: [
+      { label: m.viewport_hints_section(), text: "", rows: rows.map((text) => ({ text })) },
+    ],
+  };
+}

@@ -107,8 +107,9 @@ changes, instead of approving it.
 
 ### First-pass rate
 
-The share of merged tasks that passed review in a single clean round — no rework
-requested. Tasks that were never reviewed are left out of the calculation
+The share of merged tasks the critic never asked to rework. A clean re-review of
+a later push (a CI fix, a rebase) still counts as a pass. Tasks that were never
+reviewed are left out of the calculation
 entirely rather than counted as passes.
 
 ### First-push CI green

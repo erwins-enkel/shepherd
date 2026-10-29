@@ -139,9 +139,10 @@ function toTaskView(fact: DeliveryFact, rounds: TaskRounds): TaskView {
     fact,
     rounds,
     // null = never reviewed, which is NOT a first-pass success. Kept out of the rate's denominator
-    // and reported separately as `unreviewed`.
-    firstPass:
-      rounds.reviewRounds === 0 ? null : rounds.reviewRounds === 1 && rounds.changesRequested === 0,
+    // and reported separately as `unreviewed`. A pass = the critic never asked for rework, NOT
+    // exactly one round: a critic spawn fires per pushed head, so a CI-fix push or rebase after a
+    // clean verdict adds another clean round without any rework (#3594).
+    firstPass: rounds.reviewRounds === 0 ? null : rounds.changesRequested === 0,
     timeToFirstReviewMs: duration(fact.prOpenedAt, rounds.firstReviewAt),
     leadTimeMs: duration(fact.createdAt, fact.mergedAt),
   };

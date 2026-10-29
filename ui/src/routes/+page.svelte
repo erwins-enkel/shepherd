@@ -1984,13 +1984,16 @@
     await releaseHeavySlot(id);
     store.setHeavySlot(await getHeavySlot());
   }
-  // Leaving the phone layout or the slot switching off takes the sheet with it, so a hidden
-  // sheet can't hold anyOverlayOpen() true or pop back on the next rotation.
+  // Leaving the phone layout, the phone list screen (the sheet mounts inside the chrome, which a
+  // deep link to a session's detail unmounts) or the slot switching off takes the sheet with it,
+  // so a hidden sheet can't hold anyOverlayOpen() true or pop back later.
   $effect(() => {
-    if (!mobile.current || !slotEnabled(store.heavySlot)) showHostPanel = false;
+    if (!mobile.current || !showChrome || !slotEnabled(store.heavySlot)) showHostPanel = false;
   });
   const hostSheetSlot = $derived(
-    showHostPanel && mobile.current && slotEnabled(store.heavySlot) ? store.heavySlot : null,
+    showHostPanel && mobile.current && showChrome && slotEnabled(store.heavySlot)
+      ? store.heavySlot
+      : null,
   );
   const openHostSheet = $derived(mobile.current ? () => (showHostPanel = true) : undefined);
 

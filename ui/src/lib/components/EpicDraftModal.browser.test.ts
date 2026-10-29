@@ -561,3 +561,44 @@ describe("EpicDraftModal — merge gate and overlap", () => {
     unmount();
   });
 });
+
+// Two-typeface rule: prose reads in the sans body face; only identifiers (#issue, paths, code)
+// switch to mono. The card used to force mono on its whole subtree.
+describe("EpicDraftModal typography", () => {
+  it("sets prose in sans and keeps identifiers mono", async () => {
+    const sessionId = "epic-draft-modal-fonts";
+    const draft = longDraft(sessionId);
+    draft.status = "materializing";
+    draft.materializedChildren = { "child-1": 305 };
+    draft.children[0] = {
+      ...draft.children[0]!,
+      body: "Prose with `inlineCode` in it.",
+      touches: ["packages/core/src/rollback.ts"],
+    };
+    epicDrafts.upsert(draft);
+
+    const { container, unmount } = await render(EpicDraftModal, {
+      sessionId,
+      repoPath: "/repo/draft",
+      sessionLive: true,
+      onclose: () => {},
+    });
+    const family = (sel: string) =>
+      getComputedStyle(container.querySelector<HTMLElement>(sel)!).fontFamily;
+    const sans = getComputedStyle(document.body).fontFamily;
+    const probe = document.body.appendChild(document.createElement("span"));
+    probe.style.fontFamily = "var(--font-mono)";
+    const mono = getComputedStyle(probe).fontFamily;
+    probe.remove();
+    expect(sans).not.toBe(mono);
+
+    for (const sel of [".card", ".parent-body", ".crit", ".edp-child-title", ".edp-child-body"]) {
+      expect(family(sel), sel).toBe(sans);
+    }
+    for (const sel of [".edp-child-num", ".edp-touches code", ".edp-child-body code"]) {
+      expect(family(sel), sel).toBe(mono);
+    }
+
+    unmount();
+  });
+});

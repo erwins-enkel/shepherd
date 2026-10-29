@@ -389,7 +389,6 @@
     background: var(--color-panel);
     border: 1px solid var(--color-line-bright);
     padding: 14px 16px 12px;
-    font-family: var(--font-mono);
     font-size: var(--fs-base);
   }
 

@@ -91,7 +91,6 @@
     padding: 4px 10px;
     background: var(--color-panel);
     border-top: 1px solid var(--color-line);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     min-width: 0;
   }

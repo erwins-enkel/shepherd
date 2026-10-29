@@ -674,7 +674,7 @@
       </div>
 
       <div
-        class="panel loose"
+        class="panel"
         use:panelShape={isNarrow}
         id="settings-panel-resources"
         aria-label={m.resources_title()}
@@ -686,7 +686,7 @@
       </div>
 
       <div
-        class="panel"
+        class="panel loose"
         use:panelShape={isNarrow}
         id="settings-panel-diagnose"
         aria-label={m.settings_tab_diagnose()}

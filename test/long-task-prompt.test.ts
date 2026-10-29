@@ -42,6 +42,7 @@ function harness(provider: AgentProvider, failSpawn = false) {
         };
       },
       list: () => [],
+      listAsync: async () => [],
     } as any,
   });
   const create = (prompt: string) =>

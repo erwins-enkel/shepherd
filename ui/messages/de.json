@@ -7809,6 +7809,7 @@
   "feat_hud_runtime_body": "Claude oder Codex, Modell und Denkaufwand unter Einstellungen → Assistent unabhängig vom Coding wählen. Automatisches Ausweichen und Jetzt wechseln übergeben laufende Gespräche.",
   "settings_assistant_runtime_limit_reason": "Bestätigtes Kontingentlimit",
   "settings_assistant_runtime_unavailable_reason": "Bevorzugte Laufzeit nicht verfügbar",
+  "native_host_unavailable": "Host-Informationen sind nicht verfügbar. Erneuter Versuch…",
   "heavyslot_label": "Prüfslot",
   "heavyslot_chip_aria": "Prüfslot: {held} von {capacity} belegt, {waiting} wartend. Host-Details öffnen.",
   "heavyslot_ram": "RAM {pct} %",

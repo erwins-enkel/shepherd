@@ -214,6 +214,13 @@ struct SessionListView: View {
                 .padding(.horizontal, 12).padding(.vertical, 5)
                 .background(SessionListStyle.panel)
                 .overlay(alignment: .bottom) { Rectangle().fill(SessionListStyle.brightLine).frame(height: 1) }
+            ForEach(hub?.connected ?? [app], id: \.activeProfile?.id) { owner in
+                if let store = owner.store {
+                    HostStatusButton(store: store, serverName: owner.activeProfile?.name)
+                        .id(ObjectIdentifier(store))
+                        .font(.caption)
+                }
+            }
             if !layout.bottomBar { lensStrip }
             if layout.repoRail, (chips.count >= 2 || !activeRepos.isEmpty) { repoRail(chips) }
             if let limits = model.limits {

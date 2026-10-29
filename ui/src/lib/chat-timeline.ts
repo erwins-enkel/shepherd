@@ -1,5 +1,6 @@
 import type { ChatEntry } from "./assistant-chat";
 import type { ActivityEntry, BlockReason } from "./types";
+import { clock } from "./activity";
 
 /** One row of a session's Chat: a conversation row, or a run of tool calls between two of them. */
 export type TimelineRow =
@@ -35,6 +36,25 @@ export function chatTimeline(
   }
   while (t < tools.length) pushTool(tools[t++]);
   return rows;
+}
+
+/** A row's place in the Chat's ledger: the gutter time it shows (null: same minute as the time
+ *  above, or no stamp) and whether it opens a turn (the operator's message or a Shepherd steer,
+ *  never the first row). A turn always shows its time, so each one stays anchored. */
+export interface LedgerMark {
+  time: string | null;
+  turn: boolean;
+}
+
+export function ledger(rows: readonly Pick<TimelineRow, "kind" | "ts">[]): LedgerMark[] {
+  let shown: string | null = null;
+  return rows.map((row, i) => {
+    const turn = i > 0 && (row.kind === "user" || row.kind === "steer");
+    const label = row.ts > 0 ? clock(row.ts) : null;
+    const time = label && (turn || label !== shown) ? label : null;
+    if (time) shown = time;
+    return { time, turn };
+  });
 }
 
 const OPTION_LINE_RE = /^[\s│|]*[❯>*]?\s*\d+[.)]/;

@@ -16,12 +16,9 @@
   <button type="button" class="tr-head" aria-expanded={open} onclick={() => (open = !open)}>
     <span class="tr-caret" aria-hidden="true">{open ? "▾" : "▸"}</span>
     <span class="tr-count"
-      >{calls.length === 1
-        ? m.chat_tools_one()
-        : m.chat_tools_many({ count: calls.length })}{#if failed > 0}&nbsp;· {m.chat_tools_failed({
-          count: failed,
-        })}{/if}</span
+      >{calls.length === 1 ? m.chat_tools_one() : m.chat_tools_many({ count: calls.length })}</span
     >
+    {#if failed > 0}<span class="tr-failed">{m.chat_tools_failed({ count: failed })}</span>{/if}
     {#if !open}<span class="tr-latest">{latest.summary}</span>{/if}
   </button>
   {#if open}
@@ -71,14 +68,22 @@
     flex: none;
     width: 1em;
   }
-  .tr-count {
+  .tr-count,
+  .tr-failed {
     flex: none;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .tr-failed {
+    color: var(--color-red);
   }
   .tr-latest {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    color: var(--color-ink);
     font-family: var(--font-mono);
   }
   .tr-live .tr-latest {

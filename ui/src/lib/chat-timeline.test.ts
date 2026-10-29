@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { blockCard, blockContext, chatTimeline } from "./chat-timeline";
+import { blockCard, blockContext, chatTimeline, ledger } from "./chat-timeline";
+import { clock } from "./activity";
 import type { ChatEntry } from "./assistant-chat";
 import type { ActivityEntry, BlockReason } from "./types";
 
@@ -99,5 +100,39 @@ describe("blockCard", () => {
     expect(blockCard(reason("menu"))).toBeNull();
     expect(blockCard(reason("awaiting-input"))).toBeNull();
     expect(blockCard(reason("stall"))).toBeNull();
+  });
+});
+
+describe("ledger", () => {
+  const at = (h: number, min: number, sec = 0) => new Date(2026, 9, 29, h, min, sec).getTime();
+
+  it("shows a time only when the minute changes", () => {
+    const marks = ledger([
+      { kind: "assistant", ts: at(8, 9, 1) },
+      { kind: "tools", ts: at(8, 9, 30) },
+      { kind: "assistant", ts: at(8, 10, 2) },
+    ]);
+    expect(marks.map((m) => m.time)).toEqual([clock(at(8, 9, 1)), null, clock(at(8, 10, 2))]);
+  });
+
+  it("opens a turn at the operator's message or a steer, never the first row", () => {
+    const marks = ledger([
+      { kind: "user", ts: at(8, 9) },
+      { kind: "assistant", ts: at(8, 9) },
+      { kind: "event", ts: at(8, 9) },
+      { kind: "tools", ts: at(8, 9) },
+      { kind: "steer", ts: at(8, 9) },
+      { kind: "user", ts: at(8, 9) },
+    ]);
+    expect(marks.map((m) => m.turn)).toEqual([false, false, false, false, true, true]);
+  });
+
+  it("re-shows the time at a turn and leaves unstamped rows blank", () => {
+    const marks = ledger([
+      { kind: "assistant", ts: at(8, 13) },
+      { kind: "steer", ts: at(8, 13) },
+      { kind: "assistant", ts: 0 },
+    ]);
+    expect(marks.map((m) => m.time)).toEqual([clock(at(8, 13)), clock(at(8, 13)), null]);
   });
 });

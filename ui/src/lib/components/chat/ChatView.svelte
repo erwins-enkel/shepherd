@@ -14,7 +14,6 @@
   import { answerAsk, getSessionMessages, uploadFile } from "#lib/api.js";
   import { handleImagePaste } from "#lib/clipboard.js";
   import { pollWhileVisible } from "#lib/visibility.js";
-  import { clock } from "#lib/activity.js";
   import {
     assistantChatMessage,
     chatEntries,
@@ -22,7 +21,7 @@
     yesNoQuestions,
     type PendingSend,
   } from "#lib/assistant-chat.js";
-  import { blockCard, chatTimeline } from "#lib/chat-timeline.js";
+  import { blockCard, chatTimeline, ledger } from "#lib/chat-timeline.js";
   import { steers } from "#lib/steers.svelte.js";
   import { askToQuestionForm } from "#lib/askForm.js";
   import QuestionFormBlock from "../blocks/QuestionFormBlock.svelte";
@@ -164,6 +163,7 @@
   const entries = $derived(chatEntries(data?.messages ?? []));
   const waiting = $derived(unsettled(pending, entries));
   const rows = $derived(chatTimeline(entries, tools ? (data?.tools ?? []) : []));
+  const marks = $derived(ledger(rows));
   const lastRow = $derived(rows.at(-1));
   const latest = $derived(
     rows.filter((row) => row.kind === "assistant" || row.kind === "user").at(-1),
@@ -427,6 +427,20 @@
   }
 </script>
 
+{#snippet caret()}
+  <!-- The prompt caret: the operator's words, as typed into the live pane. -->
+  <svg
+    class="ac-caret"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg
+  >
+{/snippet}
+
 <!-- The whole panel takes a dropped image, thread included, not just the composer. -->
 <div
   class="ac"
@@ -447,39 +461,51 @@
       {#if rows.length === 0 && waiting.length === 0 && !working && !ask}
         <p class="ac-empty">{copy.empty()}</p>
       {/if}
-      {#each rows as e (e.key)}
-        {#if e.kind === "assistant"}
-          <div class="ac-msg">
-            <MarkdownBody source={e.text} sessionDesigs={herdDesigs} onSessionLink={onnavigate} />
-            {#if showReplies && e.key === latest?.key}
-              <QuickReplies {questions} {answers} onreply={quickReply} onsendall={sendAnswers} />
-            {/if}
-            {#if e.ts}<span class="ac-meta">{clock(e.ts)}</span>{/if}
-          </div>
-        {:else if e.kind === "user"}
-          <div class="ac-msg ac-mine">
-            <p class="ac-bubble">{e.text}</p>
-            <span class="ac-meta"
-              >{[m.assistant_chat_you(), chipOf(e.text), e.ts ? clock(e.ts) : null]
-                .filter(Boolean)
-                .join(" · ")}</span
-            >
-          </div>
-        {:else if e.kind === "tools"}
-          <ToolRun calls={e.calls} live={working && e === lastRow} />
-        {:else}
-          <NoteRow entry={e} />
-        {/if}
+      {#each rows as e, i (e.key)}
+        <div class="ac-row" class:ac-turn={marks[i].turn}>
+          <span class="ac-gutter">
+            <time class="ac-time">{marks[i].time}</time>
+          </span>
+          {#if e.kind === "assistant"}
+            <div class="ac-msg">
+              <MarkdownBody source={e.text} sessionDesigs={herdDesigs} onSessionLink={onnavigate} />
+              {#if showReplies && e.key === latest?.key}
+                <QuickReplies {questions} {answers} onreply={quickReply} onsendall={sendAnswers} />
+              {/if}
+            </div>
+          {:else if e.kind === "user"}
+            <div class="ac-msg ac-mine">
+              <div class="ac-bubble">
+                {@render caret()}
+                <p>{e.text}</p>
+              </div>
+              <span class="ac-meta"
+                >{[m.assistant_chat_you(), chipOf(e.text)].filter(Boolean).join(" · ")}</span
+              >
+            </div>
+          {:else if e.kind === "tools"}
+            <ToolRun calls={e.calls} live={working && e === lastRow} />
+          {:else}
+            <NoteRow entry={e} />
+          {/if}
+        </div>
       {/each}
-      {#each waiting as p (p.at)}
-        <div class="ac-msg ac-mine ac-waiting">
-          <p class="ac-bubble">{p.text}</p>
-          <span class="ac-meta">{m.assistant_chat_sent()}</span>
+      {#each waiting as p, i (p.at)}
+        <div class="ac-row" class:ac-turn={rows.length + i > 0}>
+          <span class="ac-gutter"></span>
+          <div class="ac-msg ac-mine ac-waiting">
+            <div class="ac-bubble">
+              {@render caret()}
+              <p>{p.text}</p>
+            </div>
+            <span class="ac-meta">{m.assistant_chat_sent()}</span>
+          </div>
         </div>
       {/each}
       {#if working}
-        <p class="ac-working" role="status">
-          <WorkingTrace />{m.assistant_chat_working()}
+        <p class="ac-row ac-working" role="status">
+          <span class="ac-gutter"><WorkingTrace /></span>
+          <span>{m.assistant_chat_working()}</span>
         </p>
       {/if}
       {#if ask}
@@ -526,6 +552,7 @@
       <AttachmentChips {attachments} coarse={touch || mobile} onremove={removeAttachment} />
     {/if}
     <div class="ac-field">
+      {@render caret()}
       <textarea
         bind:this={input}
         bind:value={draft}
@@ -575,12 +602,43 @@
     flex-direction: column;
     padding: 16px 18px;
   }
-  /* Pinned to the composer, like a chat, without clipping a long conversation. */
+  /* Pinned to the composer, like a chat, without clipping a long conversation. A ledger: each row
+     is a time gutter plus a content column held to a reading measure. */
   .ac-stack {
+    --ac-gutter: 40px;
+    --ac-gap: 12px;
+    --ac-measure: 72ch;
     margin-top: auto;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 10px;
+  }
+  .ac-row {
+    display: grid;
+    grid-template-columns: var(--ac-gutter) minmax(0, var(--ac-measure));
+    column-gap: var(--ac-gap);
+    align-items: baseline;
+  }
+  /* The operator's message or a Shepherd steer opens a turn. */
+  .ac-turn {
+    margin-top: 8px;
+    padding-top: 14px;
+    border-top: 1px solid var(--color-line);
+  }
+  .ac-gutter {
+    min-width: 0;
+  }
+  .ac-time {
+    color: var(--color-faint);
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
+  }
+  /* Cards, notices and the empty line sit in the content column. */
+  .ac-stack > :global(:not(.ac-row)) {
+    margin-left: calc(var(--ac-gutter) + var(--ac-gap));
+    max-width: var(--ac-measure);
   }
   .ac-empty {
     margin: 0;
@@ -598,21 +656,33 @@
     line-height: 1.65;
   }
   .ac-mine {
-    align-self: flex-end;
-    align-items: flex-end;
-    max-width: 85%;
+    align-items: flex-start;
   }
+  /* The operator's words as a prompt line: what they typed into the live pane. */
   .ac-bubble {
-    margin: 0;
-    padding: 8px 12px;
+    display: flex;
+    gap: 8px;
+    max-width: 100%;
+    padding: 6px 10px;
     border: 1px solid var(--color-line);
-    border-radius: var(--radius-chip);
-    background: var(--wash-assistant-bubble);
+    border-radius: 2px;
+    background: var(--color-inset);
+  }
+  .ac-bubble p {
+    margin: 0;
+    min-width: 0;
     color: var(--color-ink-bright);
     font-size: var(--fs-base);
     line-height: 1.55;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+  .ac-caret {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    margin-top: 4px;
+    color: var(--color-amber);
   }
   .ac-waiting .ac-bubble {
     opacity: 0.7;
@@ -620,15 +690,14 @@
   .ac-meta {
     color: var(--color-muted);
     font-size: var(--fs-micro);
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
   .ac-working {
     margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
     color: var(--color-amber);
     font-size: var(--fs-meta);
+    align-items: center;
   }
   .ac-question {
     padding: 12px;
@@ -685,6 +754,10 @@
   }
   .ac-field:focus-within {
     border-color: var(--color-amber);
+  }
+  .ac-field .ac-caret {
+    align-self: center;
+    margin-top: 0;
   }
   .ac-field textarea {
     flex: 1;

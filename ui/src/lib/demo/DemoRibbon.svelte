@@ -194,7 +194,10 @@
     .demo-ribbon {
       left: auto;
       right: 8px;
-      bottom: calc(var(--mobile-actionbar-h) + var(--mobile-fab-clear) + 8px);
+      bottom: calc(
+        var(--mobile-actionbar-h) + max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom)) +
+          var(--mobile-fab-clear) + 8px
+      );
       border-top: none;
       border: 1px solid var(--color-line);
       border-radius: 999px;

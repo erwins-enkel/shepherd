@@ -90,3 +90,34 @@ describe("pulseExplanation", () => {
     ]);
   });
 });
+
+describe("pulseExplanation: heavy-check slot (#3181)", () => {
+  it("explains a waiting check with its place and what happens next", () => {
+    const pulse = sessionPulse({
+      session,
+      nowMs: NOW,
+      heavySlot: {
+        enabled: true,
+        capacity: 1,
+        holders: [],
+        waiters: [{ sessionId: "s", position: 2, reason: "slot" }],
+        brake: { active: false, reason: null },
+        pressure: {
+          ramAvailableBytes: null,
+          ramTotalBytes: null,
+          swapUsedBytes: null,
+          swapTotalBytes: null,
+          memFullAvg10: null,
+          memBrakeThreshold: null,
+          cpuSomeAvg10: null,
+        },
+        memoryBySource: { agentsBytes: null, foreignBytes: null, foreignTop: [] },
+        lastResults: [],
+      },
+    })!;
+    const x = pulseExplanation({ pulse, session, nowMs: NOW });
+    expect(x.title).toBe(m.pulse_title_slot_waiting());
+    expect(x.summary).toBe(m.pulse_summary_slot_waiting({ position: 2 }));
+    expect(x.sections.at(-1)?.rows?.[0]?.text).toBe(m.pulse_next_slot_waiting());
+  });
+});

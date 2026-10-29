@@ -6,6 +6,7 @@
     HoldReason,
     LivenessState,
     Epic,
+    HeavySlotSnapshot,
   } from "#lib/types.js";
   import UnitRow from "../UnitRow.svelte";
   import InfoTip from "../InfoTip.svelte";
@@ -21,6 +22,8 @@
     activity: Record<string, SessionActivity>;
     preview: Record<string, number | null>;
     previewServe: Record<string, "ok" | "failed">;
+    /** The host-wide heavy-check slot (#3181) — each card shows its session's part in it. */
+    heavySlot: HeavySlotSnapshot | null;
     onpreview?: (id: string, target?: "inline" | "tab") => void;
     onopenbrowser?: (id: string) => void;
     ondecommission?: (id: string) => void;
@@ -166,6 +169,7 @@
             : undefined}
           showModel={ctx.showModel}
           showCli={ctx.showCli}
+          heavySlot={ctx.heavySlot}
         />
       {:else}
         <UnitRow
@@ -201,6 +205,7 @@
           onshowowed={ctx.onshowowed}
           showModel={ctx.showModel}
           showCli={ctx.showCli}
+          heavySlot={ctx.heavySlot}
         />
       {/if}
     {/each}

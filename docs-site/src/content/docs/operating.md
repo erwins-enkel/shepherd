@@ -478,6 +478,82 @@ default soft limit of 1024 a burst of tabs can stop herdr's API with
 `No file descriptors available`. A `herdr.service.d` drop-in of your own still
 overrides this value.
 
+## Heavy checks take turns
+
+Tests, type checks and builds that agents start take turns through a host-wide
+**check slot** ([#3181](https://github.com/erwins-enkel/shepherd/issues/3181)).
+Each of those runners already uses every core on its own, so running them one
+after another costs little throughput. Running several at once is what filled
+memory and swap until the host stalled.
+
+**How a check gets the slot**
+
+1. **Recognition.** For Claude sessions, the `PreToolUse` tool guard rewrites a
+   heavy command to `node scripts/heavy-slot.mjs -- '<command>'`. Codex sessions
+   have no such hook, so they get PATH shims for `bun`, `cargo`, `vitest` and
+   similar tools (`scripts/slot-shim.mjs`), which use the same detection.
+   - The built-in list covers `vitest`, `jest`, `playwright test`,
+     `svelte-check`, `tsc`, `bun test`, `cargo build|check|clippy|test` and
+     `swift build|test`.
+   - It also catches package scripts and shell scripts that run one of these.
+   - Edit the list under **Settings → Resources → Counts as heavy**.
+
+   Anything not recognized runs unchanged.
+2. **Asking first.** The runner asks Shepherd for the slot **before** the
+   command starts.
+   - If a slot is free, the command runs as usual.
+   - If not, what happens depends on **When waiting** in Settings → Resources.
+     By default the command does **not** run: the agent gets its place in line
+     and an estimated wait (exit code 75), keeps working, and Shepherd messages
+     it when it's its turn. The slot is then held for it for five minutes.
+   - **Block for a limited time** instead makes the command wait up to the set
+     number of minutes before falling back to that message.
+3. **Bound to the processes.** A slot stays taken until every process the
+   check started has exited, not just the command. Shepherd finds them by the
+   `SHEPHERD_HEAVY_JOB` variable they inherit (on macOS, by process group plus
+   detached children). If a browser or worker is left behind, the slot stays
+   taken. **Release** in the host popover frees it without stopping anything.
+4. **Pressure brake.** No new check starts while the host is short on memory.
+   - On Linux the brake reads `MemAvailable` and memory PSI `full avg10`.
+   - On macOS it reads the system's memory-pressure level.
+   - It lets go only after the readings have stayed under the limits for the
+     hold time.
+   - The limits are in Settings → Resources → **Pressure brake**.
+
+**Where you see it**
+- The **check-slot chip** in the top bar shows slots held and waiting, plus
+  RAM. It opens the host popover: who holds and who waits, pressure readings,
+  memory by origin, and the last check results tied to the revision they ran
+  on.
+- The herd panel shows a check-slot strip; on a phone it docks above the
+  action bar.
+- Each session card's now-line shows its own part:
+  - **▤ Checking**, with command, time and memory;
+  - **◔ Waiting for check slot · Place n**, with the memory-pressure reason
+    when the brake holds it.
+- **Settings → Machines** shows each connected machine's slot.
+- Autopilot leaves a waiting session alone.
+
+**Defaults and switches.** With no configuration the slot count comes from the
+hardware: one slot per 16 cores *and* 32 GiB of RAM, never fewer than one, so a
+16-core / 30 GiB host gets one. **Settings → Resources** changes the master
+switch, slot count, wait behaviour, heavy list and brake at runtime. A change
+applies to the next start; running jobs keep running. `SHEPHERD_HEAVY_SLOT` and
+`SHEPHERD_HEAVY_SLOTS` set the defaults those settings fall back to.
+
+From an operator terminal, `shepherd slot run -- <command>` takes a free slot
+the same way. If none is free, it prints the place and estimate and exits 75
+without queuing.
+
+**Limits.**
+- Commands the detection doesn't recognize run unmanaged.
+- If the server can't be reached, the runner runs the command unmanaged rather
+  than blocking the agent.
+- A sandboxed session spawned before the update can't see the runner until it
+  is respawned.
+- Heavy runs don't get a memory limit of their own yet
+  ([#3555](https://github.com/erwins-enkel/shepherd/issues/3555)).
+
 ## Auto-merge without PR CI
 
 Full auto-merge waits for green CI before it merges a PR. Two cases have no CI to wait for, and

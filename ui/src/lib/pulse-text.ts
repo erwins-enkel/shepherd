@@ -6,6 +6,7 @@ import {
   steerTally,
   timeline,
   type Pulse,
+  type PulseSlot,
   type PulseState,
   type TimelineKind,
 } from "./session-pulse";
@@ -18,6 +19,10 @@ export function pulseLabel(state: PulseState): string {
       return m.pulse_state_needs_you();
     case "looping":
       return m.pulse_state_looping();
+    case "slot_running":
+      return m.pulse_state_slot_running();
+    case "slot_waiting":
+      return m.pulse_state_slot_waiting();
     case "ci_failed":
       return m.pulse_state_ci_failed();
     case "ci_overdue":
@@ -47,6 +52,10 @@ function pulseTitle(state: PulseState): string {
       return m.pulse_title_needs_you();
     case "looping":
       return m.pulse_title_looping();
+    case "slot_running":
+      return m.pulse_title_slot_running();
+    case "slot_waiting":
+      return m.pulse_title_slot_waiting();
     case "ci_failed":
       return m.pulse_title_ci_failed();
     case "ci_overdue":
@@ -58,6 +67,18 @@ function pulseTitle(state: PulseState): string {
   }
 }
 
+/** The status panel's summary for a heavy-check slot verdict (#3181). */
+function slotSummary(slot: PulseSlot): string {
+  if (slot.kind === "holding")
+    return m.pulse_summary_slot_running({
+      command: slot.command,
+      elapsed: minutes(slot.elapsedMs),
+    });
+  return slot.pressure
+    ? m.pulse_summary_slot_waiting_pressure({ position: slot.position })
+    : m.pulse_summary_slot_waiting({ position: slot.position });
+}
+
 function pulseSummary(p: Pulse): string {
   const job = p.job;
   const counts = { green: p.green, total: p.total };
@@ -66,6 +87,9 @@ function pulseSummary(p: Pulse): string {
       return m.pulse_summary_needs_you();
     case "looping":
       return m.pulse_summary_looping({ count: p.ciFixRun });
+    case "slot_running":
+    case "slot_waiting":
+      return slotSummary(p.slot!);
     case "ci_failed":
       return job
         ? m.pulse_summary_failed({ job: job.short, ...counts })
@@ -200,6 +224,10 @@ function nextSection(p: Pulse): TooltipSection {
         return [{ text: m.pulse_next_failed(), tone: "fail" as const }];
       case "looping":
         return [{ text: m.pulse_next_looping(), tone: "fail" as const }];
+      case "slot_running":
+        return [{ text: m.pulse_next_slot_running(), tone: "run" as const }];
+      case "slot_waiting":
+        return [{ text: m.pulse_next_slot_waiting(), tone: "idle" as const }];
       case "needs_you":
         return [{ text: m.pulse_next_needs_you(), tone: "warn" as const }];
       case "working":

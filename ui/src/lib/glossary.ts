@@ -126,6 +126,13 @@ const glossary: readonly GlossaryTerm[] = [
     bodyKey: "gloss_merge_train_def",
   },
   {
+    // The host-wide heavy-check slot (#3181): tests, type checks and builds take turns.
+    id: "heavy-slot",
+    kind: "internal",
+    termKey: "gloss_heavy_slot_term",
+    bodyKey: "gloss_heavy_slot_def",
+  },
+  {
     id: "rework",
     kind: "internal",
     termKey: "gloss_rework_term",

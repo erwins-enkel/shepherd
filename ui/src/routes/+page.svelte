@@ -3904,6 +3904,7 @@
             liveness={store.claudeAlive}
             blocks={store.blocks}
             holds={store.holds}
+            heavySlot={store.heavySlot}
             completedEpics={completedEpicsShown}
             ondismissepic={onDismissEpic}
             onlandepic={onLandEpic}
@@ -4126,6 +4127,7 @@
               liveness={store.claudeAlive}
               blocks={store.blocks}
               holds={store.holds}
+              heavySlot={store.heavySlot}
               collapsible={canCollapse}
               oncollapse={toggleSidebar}
               collapsedStageKeys={collapsedStages}

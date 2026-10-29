@@ -1,14 +1,16 @@
 /**
  * "Is this session getting anywhere?" — one verdict per session, derived from data the UI already
- * holds (session status, PR + per-job CI timings, build queue, steer log). Pure and text-free: the
- * card's now-line and the status panel localize it. Order of precedence: the operator is needed >
- * Shepherd keeps re-steering the same CI fix > CI is red > CI runs unusually long > CI runs >
- * the agent works. Anything else (idle, handed off, done) has no pulse.
+ * holds (session status, PR + per-job CI timings, build queue, steer log, the host-wide
+ * heavy-check slot). Pure and text-free: the card's now-line and the status panel localize it.
+ * Order of precedence: the operator is needed > Shepherd keeps re-steering the same CI fix > a
+ * local heavy check holds or waits for the check slot (#3181) > CI is red > CI runs unusually long
+ * > CI runs > the agent works. Anything else (idle, handed off, done) has no pulse.
  */
 import type {
   BuildQueue,
   ChecksState,
   GitState,
+  HeavySlotSnapshot,
   Session,
   SteerKind,
   SteerLogEntry,
@@ -16,7 +18,19 @@ import type {
 } from "./types";
 
 export type PulseState =
-  "needs_you" | "looping" | "ci_failed" | "ci_overdue" | "waiting_ci" | "working";
+  | "needs_you"
+  | "looping"
+  | "slot_running"
+  | "slot_waiting"
+  | "ci_failed"
+  | "ci_overdue"
+  | "waiting_ci"
+  | "working";
+
+/** The session's place in the host-wide heavy-check slot, as the card shows it (#3181). */
+export type PulseSlot =
+  | { kind: "holding"; command: string; elapsedMs: number; rssBytes: number | null }
+  | { kind: "waiting"; position: number; pressure: boolean };
 
 /** A running job counts as overdue past this multiple of its usual duration… */
 const OVERDUE_FACTOR = 1.5;
@@ -53,6 +67,8 @@ export interface Pulse {
   ciFixRun: number;
   /** The build-queue step being worked (1-based). */
   step?: { index: number; total: number; title: string };
+  /** The heavy-check slot entry behind a `slot_*` verdict. */
+  slot?: PulseSlot;
 }
 
 export interface PulseInput {
@@ -60,6 +76,8 @@ export interface PulseInput {
   git?: GitState;
   queue?: BuildQueue;
   steers?: readonly SteerLogEntry[];
+  /** The host-wide heavy-check slot (store.heavySlot); null/absent or switched off → no slot line. */
+  heavySlot?: HeavySlotSnapshot | null;
   nowMs: number;
 }
 
@@ -143,7 +161,37 @@ function ciPulse(
   return { ...withJob(overdue ? "ci_overdue" : "waiting_ci", base, job, nowMs), ...eta };
 }
 
-export function sessionPulse({ session, git, queue, steers, nowMs }: PulseInput): Pulse | null {
+/** This session's entry in the heavy-check slot: the slot it holds first, else its place in the
+ *  queue; null when the slot is off or the session neither holds nor waits. */
+export function slotFor(
+  snap: HeavySlotSnapshot | null | undefined,
+  sessionId: string,
+  nowMs: number,
+): PulseSlot | null {
+  if (!snap?.enabled) return null;
+  const holder = snap.holders.find((h) => h.sessionId === sessionId);
+  if (holder) {
+    return {
+      kind: "holding",
+      command: holder.command,
+      elapsedMs: Math.max(0, nowMs - holder.startedAt),
+      rssBytes: holder.rssBytes,
+    };
+  }
+  const waiter = snap.waiters.find((w) => w.sessionId === sessionId);
+  return waiter
+    ? { kind: "waiting", position: waiter.position, pressure: waiter.reason === "pressure" }
+    : null;
+}
+
+export function sessionPulse({
+  session,
+  git,
+  queue,
+  steers,
+  heavySlot,
+  nowMs,
+}: PulseInput): Pulse | null {
   const jobs = git?.state === "open" ? (git.jobs ?? []) : [];
   const base: PulseBase = {
     green: jobs.filter((j) => j.state === "success").length,
@@ -152,6 +200,12 @@ export function sessionPulse({ session, git, queue, steers, nowMs }: PulseInput)
   };
   if (session.status === "blocked") return { state: "needs_you", ...base };
   const ci = git?.state === "open" ? ciPulse(git.checks, jobs, base, nowMs) : null;
+  if (ci?.state === "looping") return ci;
+  // Any session but an archived one: a holder's processes outlive the agent's turn, and a waiting
+  // agent may have ended its turn on purpose (Shepherd steers it when its turn comes).
+  const slot = session.status === "archived" ? null : slotFor(heavySlot, session.id, nowMs);
+  if (slot)
+    return { state: slot.kind === "holding" ? "slot_running" : "slot_waiting", ...base, slot };
   if (ci) return ci;
   if (session.status !== "running") return null;
   const step = activeStep(queue);

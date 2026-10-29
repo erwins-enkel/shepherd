@@ -52,6 +52,7 @@ targets:
     platform: macOS
     sources:
       - path: Sources
+      - path: ../Shared
     dependencies:
       - target: ShepherdPowerHelper
         link: false

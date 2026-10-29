@@ -7809,6 +7809,7 @@
   "feat_hud_runtime_body": "Choose Claude or Codex, model and reasoning effort in Settings → Assistant, independently of coding defaults. Automatic fallback and Switch now keep conversations moving.",
   "settings_assistant_runtime_limit_reason": "Confirmed capacity limit",
   "settings_assistant_runtime_unavailable_reason": "Preferred runtime unavailable",
+  "native_host_unavailable": "Host information is unavailable. Retrying…",
   "heavyslot_label": "Check slot",
   "heavyslot_chip_aria": "Check slot: {held} of {capacity} held, {waiting} waiting. Open host details.",
   "heavyslot_ram": "RAM {pct} %",

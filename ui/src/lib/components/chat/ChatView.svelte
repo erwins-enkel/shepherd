@@ -462,7 +462,7 @@
         <p class="ac-empty">{copy.empty()}</p>
       {/if}
       {#each rows as e, i (e.key)}
-        <div class="ac-row" class:ac-turn={marks[i].turn}>
+        <div class="ac-row" class:ac-turn={marks[i].turn} class:ac-wide={e.kind === "assistant"}>
           <span class="ac-gutter">
             <time class="ac-time">{marks[i].time}</time>
           </span>
@@ -618,6 +618,16 @@
     grid-template-columns: var(--ac-gutter) minmax(0, var(--ac-measure));
     column-gap: var(--ac-gap);
     align-items: baseline;
+  }
+  /* An assistant reply spans the thread so code and tables scroll less; its prose keeps the
+     measure. */
+  .ac-wide {
+    grid-template-columns: var(--ac-gutter) minmax(0, 1fr);
+  }
+  .ac-wide .ac-msg > :global(:not(.md-body)),
+  .ac-wide :global(.md-plain),
+  .ac-wide :global(.md-body > :not(pre):not(table)) {
+    max-width: var(--ac-measure);
   }
   /* The operator's message or a Shepherd steer opens a turn. */
   .ac-turn {

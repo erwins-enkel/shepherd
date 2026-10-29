@@ -65,6 +65,8 @@ describe.each([
     expect(container.querySelector(".edp-list"), "bar must not render the child list").toBeNull();
     expect(bar.textContent).not.toContain("Section 1");
     expect(bar.getBoundingClientRect().height).toBeLessThanOrEqual(window.innerHeight * 0.15);
+    // Labels are sans: only identifiers are mono (two-typeface rule).
+    expect(getComputedStyle(bar).fontFamily).toBe(getComputedStyle(document.body).fontFamily);
 
     unmount();
   });

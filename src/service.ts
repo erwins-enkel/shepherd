@@ -6018,48 +6018,7 @@ export class SessionService {
         agentProvider,
       });
 
-      try {
-        this.deps.store.update(s.id, {
-          herdrAgentId: outcome.terminalId,
-          ...launch.launchIdentity,
-          // Relaunch spawns a fresh agent → a fresh rollout; clear any stale captured Codex id so the
-          // poller resolves the new launch marker, never an earlier conversation for this task.
-          providerSessionId: "",
-          agentProvider,
-          model: launch.resolvedInput.model,
-          // Mirror the create path (#1418): persist the effort actually spawned with, so a later
-          // resume of this same row (post-crash) re-emits the effort the operator chose here rather
-          // than reverting to whatever was stored before the replace.
-          ...replacedEffortFields(s, agentProvider, launch.spawnInput.effort ?? null),
-          status: "running",
-          lastState: "idle",
-          readyToMerge: false,
-          mergingSince: null,
-          mergingTrainId: null,
-          mergingPrNumber: null,
-          // Provider-agnostic (TASK-413): mirror the create path — Codex persists the flag too, so a
-          // replaced Codex session that entered planning (launch.planGateOn) doesn't record the gate
-          // as disabled (which would mis-display and drop the explicit-on choice on resume).
-          planGateEnabled: launch.spawnInput.planGateEnabled ?? null,
-          planPhase: s.planPhase,
-        });
-        this.deps.store.setSandboxState(s.id, {
-          applied: outcome.applied,
-          degraded: outcome.degraded,
-          egressApplied: outcome.egressApplied,
-          egressDegraded: outcome.egressDegraded,
-        });
-        this.deps.store.setPlanGateEffortSwitchError(s.id, null);
-        const updated = this.deps.store.get(s.id);
-        if (updated) this.persistSpawnIdentity(updated, outcome);
-      } catch (e) {
-        try {
-          await this.deps.herdr.stop(outcome.terminalId);
-        } catch {
-          /* best-effort: leave the original agent registered if persistence failed */
-        }
-        throw e;
-      }
+      await this.persistReplacementOrStop(s, agentProvider, launch, outcome);
 
       try {
         await this.deps.herdr.stop(s.herdrAgentId);
@@ -6071,6 +6030,57 @@ export class SessionService {
     } catch (error) {
       removeTaskPromptFile(composed.taskFile);
       throw error;
+    }
+  }
+
+  /** Persist a replaceAgent spawn onto the reused row; stop the new agent if that fails. */
+  private async persistReplacementOrStop(
+    s: Session,
+    agentProvider: AgentProvider,
+    launch: Awaited<ReturnType<SessionService["resolveCreateLaunch"]>>,
+    outcome: SpawnSuccess,
+  ): Promise<void> {
+    try {
+      this.deps.store.update(s.id, {
+        herdrAgentId: outcome.terminalId,
+        ...launch.launchIdentity,
+        // Relaunch spawns a fresh agent → a fresh rollout; clear any stale captured Codex id so the
+        // poller resolves the new launch marker, never an earlier conversation for this task.
+        providerSessionId: "",
+        agentProvider,
+        model: launch.resolvedInput.model,
+        // Mirror the create path (#1418): persist the effort actually spawned with, so a later
+        // resume of this same row (post-crash) re-emits the effort the operator chose here rather
+        // than reverting to whatever was stored before the replace.
+        ...replacedEffortFields(s, agentProvider, launch.spawnInput.effort ?? null),
+        status: "running",
+        lastState: "idle",
+        readyToMerge: false,
+        mergingSince: null,
+        mergingTrainId: null,
+        mergingPrNumber: null,
+        // Provider-agnostic (TASK-413): mirror the create path — Codex persists the flag too, so a
+        // replaced Codex session that entered planning (launch.planGateOn) doesn't record the gate
+        // as disabled (which would mis-display and drop the explicit-on choice on resume).
+        planGateEnabled: launch.spawnInput.planGateEnabled ?? null,
+        planPhase: s.planPhase,
+      });
+      this.deps.store.setSandboxState(s.id, {
+        applied: outcome.applied,
+        degraded: outcome.degraded,
+        egressApplied: outcome.egressApplied,
+        egressDegraded: outcome.egressDegraded,
+      });
+      this.deps.store.setPlanGateEffortSwitchError(s.id, null);
+      const updated = this.deps.store.get(s.id);
+      if (updated) this.persistSpawnIdentity(updated, outcome);
+    } catch (e) {
+      try {
+        await this.deps.herdr.stop(outcome.terminalId);
+      } catch {
+        /* best-effort: leave the original agent registered if persistence failed */
+      }
+      throw e;
     }
   }
 

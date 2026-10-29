@@ -1,5 +1,5 @@
 ---
-// Fifteen-card feature grid — the capabilities you operate. The discipline GATES
+// Eighteen-card feature grid — the capabilities you operate. The discipline GATES
 // (plan gate, critic, merge train, hygiene) live in their own
 // Guardrails section below, so they are not duplicated here. Copy is faithful
 // to the README and the feature-announcement catalog
@@ -36,6 +36,18 @@ const features: Feature[] = [
   {
     title: "Your /commands come with you",
     body: "Every slash command, skill, and plugin you use locally is available — each Claude session is a genuine interactive claude against your own ~/.claude. The cloud Claude Code can't carry that.",
+  },
+  {
+    title: "Session chat",
+    body: "Every session has a Chat tab next to its terminal: the conversation with tool calls folded in, prompts answered with buttons, and the steer bar underneath. On a phone it opens first.",
+  },
+  {
+    title: "Schedules",
+    body: "Run a prompt or /skill in a repo on fixed weekdays and times. Each run starts a fresh, normal session, and a run with nothing to do closes itself without pinging you.",
+  },
+  {
+    title: "Up Next",
+    body: "The pull requests that wait on you lead the queue, sorted into ready to merge, review due, blocked and Dependabot. Each row offers its next step: merge, review, start a fix session, or ask Dependabot to rebase.",
   },
   {
     title: "Readiness",

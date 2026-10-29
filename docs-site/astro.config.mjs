@@ -115,6 +115,7 @@ export default defineConfig({
         // https:// link and renders its own external-link affordance; left same-tab
         // (no `attrs.target`) to match the header back-link.
         { label: "shepherd.run", link: "https://shepherd.run" },
+        { label: "What's new in 2.6", slug: "releases/2-6" },
         { label: "What's new in 2.5", slug: "releases/2-5" },
         { label: "What's new in 2.0", slug: "releases/2-0" },
         {

@@ -4,7 +4,7 @@ description: Documentation for Shepherd — interactive mission control for Clau
 template: splash
 banner:
   content: |
-    <strong>Shepherd 2.5 is here</strong>: an iPhone app, the Operator Assistant, and tasks that run on your other machines. <a href="/releases/2-5/">What's new →</a>
+    <strong>Shepherd 2.6 is here</strong>: schedules, a chat for every session, and the pull requests that wait on you in Up Next. <a href="/releases/2-6/">What's new →</a>
 hero:
   tagline: Interactive mission control for fleets of Claude Code agents.
   actions:
@@ -23,6 +23,8 @@ agents.
 
 ## Start here
 
+- **[What's new in 2.6](/releases/2-6/)**: schedules, a chat for every session, pull requests
+  in Up Next, and a faster loop with a phone UI built for your thumb.
 - **[What's new since 2.0](/releases/2-5/)**: the iPhone app, the Operator Assistant, tasks on
   other machines, the shared browser and security hardening.
 - **[What's new in 2.0](/releases/2-0/)**: the Mac app, the `shepherd` CLI, Sentry auto-fix,

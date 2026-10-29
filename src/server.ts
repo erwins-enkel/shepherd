@@ -315,6 +315,7 @@ import { buildUsageTimeline } from "./usage-timeline";
 import { isApiKeyMode } from "./spawn-auth";
 import { detectDevCommand, previewReach } from "./preview";
 import { SharedBrowserError } from "./shared-browser";
+import { isShelved } from "./shelve";
 import { gateBrowserView, openBrowserView, type BrowserViewSession } from "./browser-view";
 import {
   gateBrowserAttach,
@@ -5547,12 +5548,13 @@ async function handleSessionScratchpadUpload({
 
 // Active sessions whose cached PR state is "merged" — the set "clear all merged"
 // operates on. Reads the same prCache snapshot the UI partitions on, so server and
-// client agree on what "merged" means without extra `gh` calls.
+// client agree on what "merged" means without extra `gh` calls. Shelved sessions are left out:
+// shelving promises the session stays until unshelved (the herd shows them in Shelved, not Merged).
 function mergedSessionIds(deps: AppDeps): string[] {
   const git = deps.prCache?.snapshot() ?? {};
   return deps.store
     .list({ activeOnly: true })
-    .filter((s) => git[s.id]?.state === "merged")
+    .filter((s) => git[s.id]?.state === "merged" && !isShelved(s))
     .map((s) => s.id);
 }
 

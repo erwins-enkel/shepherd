@@ -742,7 +742,7 @@ export const demoState = {
   // The demo connects no machines (see remoteInstances), so `machines` is always empty.
   mergedClearable: (): ClearMergedPreview => {
     const ids = world.sessions
-      .filter((s) => world.gitStates[s.id]?.state === "merged")
+      .filter((s) => world.gitStates[s.id]?.state === "merged" && !s.shelved)
       .map((s) => s.id);
     return {
       ids,
@@ -1142,7 +1142,8 @@ export const demoState = {
   clearMerged(ids: string[]): ClearMergedResult {
     const cleared: string[] = [];
     for (const id of ids) {
-      if (world.gitStates[id]?.state === "merged" && find(id)) {
+      const s = find(id);
+      if (world.gitStates[id]?.state === "merged" && s && !s.shelved) {
         this.archiveSession(id);
         cleared.push(id);
       }

@@ -2277,6 +2277,29 @@ test("POST /api/sessions/clear-merged with an explicit empty array clears nothin
   expect(h.emitted).toEqual([]);
 });
 
+// Shelving promises the session stays until unshelved: bulk decommission leaves it out.
+test("clear-merged skips shelved sessions in the preview, explicit ids and the fallback", async () => {
+  const h = clearMergedHarness();
+  const a = h.mk("a", "merged");
+  const shelved = h.mk("s", "merged");
+  h.store.setShelved(shelved.id, true);
+
+  const preview = await (
+    await h.app.fetch(new Request("http://localhost:7330/api/sessions/clear-merged"))
+  ).json();
+  expect(preview.ids).toEqual([a.id]);
+  expect(preview.leftoversById).toEqual({ [a.id]: 1 });
+
+  const explicit = await (await clearMergedPost(h.app, { ids: [shelved.id] })).json();
+  expect(explicit.cleared).toEqual([]);
+  expect(h.store.get(shelved.id)?.status).not.toBe("archived");
+
+  const fallback = await (await clearMergedPost(h.app, {})).json();
+  expect(fallback.cleared).toEqual([a.id]);
+  expect(h.store.get(shelved.id)?.status).not.toBe("archived");
+  expect(h.emitted).toEqual([a.id]);
+});
+
 test("DELETE /api/sessions/clear-merged → 405, never archives the literal segment", async () => {
   const h = clearMergedHarness();
   h.mk("a", "merged");

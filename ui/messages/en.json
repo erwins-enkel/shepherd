@@ -7813,6 +7813,8 @@
   "heavyslot_chip_aria": "Check slot: {held} of {capacity} held, {waiting} waiting. Open host details.",
   "heavyslot_ram": "RAM {pct} %",
   "heavyslot_strip_holder": "Running {command}",
+  "heavyslot_command_expand": "Show full command",
+  "heavyslot_command_collapse": "Collapse command",
   "heavyslot_strip_wait": "Waiting · place {n}",
   "heavyslot_strip_wait_pressure": "Waiting · memory pressure · place {n}",
   "heavyslot_strip_brake": "Brake on: memory pressure holds back new starts",

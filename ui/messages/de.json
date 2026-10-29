@@ -7813,6 +7813,8 @@
   "heavyslot_chip_aria": "Prüfslot: {held} von {capacity} belegt, {waiting} wartend. Host-Details öffnen.",
   "heavyslot_ram": "RAM {pct} %",
   "heavyslot_strip_holder": "Läuft: {command}",
+  "heavyslot_command_expand": "Ganzen Befehl zeigen",
+  "heavyslot_command_collapse": "Befehl einklappen",
   "heavyslot_strip_wait": "Wartet · Platz {n}",
   "heavyslot_strip_wait_pressure": "Wartet · Speicherdruck · Platz {n}",
   "heavyslot_strip_brake": "Bremse aktiv: Speicherdruck hält neue Starts zurück",

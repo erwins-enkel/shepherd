@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { HeavySlotSnapshot, Session } from "#lib/types.js";
+  import { SvelteSet } from "svelte/reactivity";
   import { m } from "#lib/paraglide/messages.js";
   import { portal } from "#lib/portal.js";
   import { dialog } from "#lib/a11yDialog.js";
@@ -42,6 +43,9 @@
   };
   let confirming = $state<string | null>(null);
   let releaseFailed = $state(false);
+  // Rows whose command is shown in full (`h:<id>` holders, `r:<id>` results); collapsed by default.
+  const expanded = new SvelteSet<string>();
+  const toggle = (key: string) => (expanded.has(key) ? expanded.delete(key) : expanded.add(key));
   const nameOf = (id: string) =>
     sessions.find((s) => s.id === id)?.name ?? m.heavyslot_unknown_session();
   const bar = $derived(memPressureBar(heavySlot));
@@ -60,6 +64,24 @@
   }
 </script>
 
+{#snippet commandToggle(key: string, command: string)}
+  {@const open = expanded.has(key)}
+  <button
+    type="button"
+    class="hp-cmd"
+    class:open
+    aria-expanded={open}
+    title={open ? undefined : command}
+    onclick={() => toggle(key)}
+  >
+    <span class="hp-chev" aria-hidden="true">{open ? "▾" : "▸"}</span>
+    <span class="sr-only"
+      >{open ? m.heavyslot_command_collapse() : m.heavyslot_command_expand()}:
+    </span>
+    <span class="hp-cmd-text">{command}</span>
+  </button>
+{/snippet}
+
 {#snippet body()}
   <header class="hp-head">
     <span class="hp-title">▤ {m.heavyslot_popover_title()}</span>
@@ -71,9 +93,7 @@
     {#each heavySlot.holders as h (h.sessionId)}
       <div class="hp-row">
         <span class="hp-name">{nameOf(h.sessionId)}</span>
-        <span class="hp-dim"
-          >{h.command} · {formatRuntime(h.startedAt, nowMs)} · {formatBytes(h.rssBytes)}</span
-        >
+        <span class="hp-dim">{formatRuntime(h.startedAt, nowMs)} · {formatBytes(h.rssBytes)}</span>
         {#if confirming === h.sessionId}
           <p class="hp-confirm">{m.heavyslot_release_confirm({ name: nameOf(h.sessionId) })}</p>
           <span class="hp-actions">
@@ -90,6 +110,7 @@
             {m.heavyslot_release()}
           </button>
         {/if}
+        {@render commandToggle(`h:${h.sessionId}`, h.command)}
       </div>
     {:else}
       <p class="hp-dim">{m.heavyslot_none_holding()}</p>
@@ -121,9 +142,10 @@
         <div class="hp-row">
           <span class="hp-name">{nameOf(r.sessionId)}</span>
           <span class="hp-dim">
-            {r.command} · {shortRevision(r)}{r.exitCode == null ? "" : ` · exit ${r.exitCode}`}
+            {shortRevision(r)}{r.exitCode == null ? "" : ` · exit ${r.exitCode}`}
           </span>
           <span class="hp-res hp-res-{view}">{resultLabel[view]()}</span>
+          {@render commandToggle(`r:${r.sessionId}`, r.command)}
           {#if r.stale}
             <p class="hp-dim">{m.heavyslot_result_stale_hint()}</p>
           {/if}
@@ -277,6 +299,61 @@
     color: var(--color-muted);
     margin: 0;
   }
+  /* The command sits on its own full-width line under the row's name/meta, clamped to two lines
+     so a heredoc pipeline can't push the queue and pressure below the fold; it toggles open. */
+  .hp-cmd {
+    order: 1;
+    flex-basis: 100%;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-chip);
+    background: transparent;
+    color: var(--color-muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .hp-cmd:hover {
+    color: var(--color-ink);
+  }
+  .hp-cmd:focus-visible {
+    outline: 1px solid var(--color-amber);
+  }
+  /* no .sr-only util in app.css (same as CommandBar) */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+  .hp-chev {
+    flex-shrink: 0;
+  }
+  .hp-cmd-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .hp-cmd.open .hp-cmd-text {
+    display: block;
+    -webkit-line-clamp: unset;
+    line-clamp: none;
+    white-space: pre-wrap;
+  }
   .hp-res {
     font-weight: 600;
   }
@@ -298,6 +375,11 @@
   .hp-confirm {
     flex-basis: 100%;
     margin: 2px 0;
+  }
+  /* Confirm prompt, its actions and hints follow the command line. */
+  .hp-row > p,
+  .hp-actions {
+    order: 2;
   }
   .hp-actions {
     display: inline-flex;

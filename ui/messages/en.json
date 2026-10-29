@@ -7932,5 +7932,9 @@
   "viewport_hints_section": "Keys",
   "viewport_hints_aria": "Show keyboard shortcuts",
   "feat_keyboard_hints_title": "Shortcuts moved into one key",
-  "feat_keyboard_hints_body": "The hint strip under the terminal is gone. Hover the ⌘K key at the right end of the steer row to see every shortcut, and the terminal gets the height back."
+  "feat_keyboard_hints_body": "The hint strip under the terminal is gone. Hover the ⌘K key at the right end of the steer row to see every shortcut, and the terminal gets the height back.",
+  "markdown_copy_code": "Copy code",
+  "markdown_code_copied": "Copied",
+  "feat_chat_copy_code_title": "Copy code from chat",
+  "feat_chat_copy_code_body": "Hover a code block in an agent's chat reply and click the copy icon in its corner to put the whole block on your clipboard."
 }

@@ -138,6 +138,19 @@ describe("ChatView layout", () => {
     expect(width(".md-body pre")).toBeGreaterThan(width(".md-body p"));
     expect(width(".md-body table")).toBeGreaterThan(width(".md-body p"));
   });
+
+  it("gives an assistant code block a copy button", async () => {
+    mockMessages.mockResolvedValue({
+      messages: [{ role: "assistant", text: "```\necho hi\n```", ts: 0 }],
+      awaitingInput: false,
+      pendingQuestion: null,
+      unavailable: null,
+    });
+    render(ChatView, props({ status: "idle" }));
+    await expect
+      .element(page.getByRole("button", { name: m.markdown_copy_code() }))
+      .toBeInTheDocument();
+  });
 });
 
 describe("ChatView steers", () => {

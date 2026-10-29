@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import { m } from "#lib/paraglide/messages.js";
+import { toasts } from "#lib/toasts.svelte.js";
 import MarkdownBody from "./MarkdownBody.svelte";
 
 afterEach(() => {
@@ -123,5 +124,49 @@ describe("MarkdownBody session links", () => {
     const { container } = await render(MarkdownBody, { source: "TASK-31", sessionDesigs });
     await expect.poll(() => container.querySelector("p")?.textContent).toBe("TASK-31");
     expect(container.querySelector("a")).toBeNull();
+  });
+});
+
+describe("MarkdownBody code copy", () => {
+  const source = "Run:\n\n```sh\nbun install\nbun run dev\n```\n\nand `inline` too.";
+
+  it("adds no copy button unless asked", async () => {
+    const { container } = await render(MarkdownBody, { source });
+    await expect.poll(() => container.querySelector("pre")).not.toBeNull();
+    expect(container.querySelector(".md-copy")).toBeNull();
+    expect(container.querySelector(".md-code")).toBeNull();
+  });
+
+  it("copies a code block's exact text and confirms", async () => {
+    const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const { container } = await render(MarkdownBody, { source, copyCode: true });
+    await expect.poll(() => container.querySelectorAll(".md-code .md-copy")).toHaveLength(1);
+    await userEvent.click(page.getByRole("button", { name: m.markdown_copy_code() }));
+    expect(write).toHaveBeenCalledWith("bun install\nbun run dev\n");
+    await expect
+      .element(page.getByRole("button", { name: m.markdown_code_copied() }))
+      .toHaveAttribute("data-copied");
+    await expect.element(page.getByRole("status")).toHaveTextContent(m.markdown_code_copied());
+    await expect
+      .element(page.getByRole("button", { name: m.markdown_copy_code() }), { timeout: 3000 })
+      .not.toHaveAttribute("data-copied");
+  });
+
+  it("adds no gap below a reply that ends in a code block", async () => {
+    const { container } = await render(MarkdownBody, {
+      source: "```\nx\n```",
+      copyCode: true,
+    });
+    await expect.poll(() => container.querySelector(".md-code")).not.toBeNull();
+    expect(getComputedStyle(container.querySelector(".md-code")!).marginBottom).toBe("0px");
+  });
+
+  it("toasts when the clipboard refuses", async () => {
+    toasts.items = [];
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("denied"));
+    const { container } = await render(MarkdownBody, { source, copyCode: true });
+    await expect.poll(() => container.querySelector(".md-copy")).not.toBeNull();
+    (container.querySelector(".md-copy") as HTMLButtonElement).click();
+    await expect.poll(() => toasts.items.map((t) => t.text)).toContain(m.clipboard_copy_failed());
   });
 });

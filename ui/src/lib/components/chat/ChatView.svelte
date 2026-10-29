@@ -468,7 +468,12 @@
           </span>
           {#if e.kind === "assistant"}
             <div class="ac-msg">
-              <MarkdownBody source={e.text} sessionDesigs={herdDesigs} onSessionLink={onnavigate} />
+              <MarkdownBody
+                source={e.text}
+                sessionDesigs={herdDesigs}
+                onSessionLink={onnavigate}
+                copyCode
+              />
               {#if showReplies && e.key === latest?.key}
                 <QuickReplies {questions} {answers} onreply={quickReply} onsendall={sendAnswers} />
               {/if}
@@ -626,7 +631,7 @@
   }
   .ac-wide .ac-msg > :global(:not(.md-body)),
   .ac-wide :global(.md-plain),
-  .ac-wide :global(.md-body > :not(pre):not(table)) {
+  .ac-wide :global(.md-body > :not(pre):not(table):not(.md-code)) {
     max-width: var(--ac-measure);
   }
   /* The operator's message or a Shepherd steer opens a turn. */

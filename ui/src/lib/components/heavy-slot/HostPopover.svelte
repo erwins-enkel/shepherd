@@ -11,6 +11,7 @@
     memPressureBar,
     orderedWaiters,
     ramUsedPct,
+    recentResults,
     resultView,
     shortRevision,
   } from "./heavy-slot";
@@ -53,6 +54,14 @@
   const ram = $derived(ramUsedPct(heavySlot));
   const p = $derived(heavySlot.pressure);
   const src = $derived(heavySlot.memoryBySource);
+  let showAllResults = $state(false);
+  const results = $derived(recentResults(heavySlot, showAllResults));
+  const anyStale = $derived(results.rows.some((r) => r.stale));
+  const moreLabel = $derived(
+    showAllResults
+      ? m.heavyslot_results_show_fewer()
+      : m.heavyslot_results_show_all({ n: heavySlot.lastResults.length }),
+  );
 
   async function release(id: string) {
     releaseFailed = false;
@@ -69,12 +78,13 @@
   const sheetSwipe = swipeBack({ onback: () => onClose(), onoffset: (px) => (sheetX = px) });
 </script>
 
-{#snippet commandToggle(key: string, command: string)}
+{#snippet commandToggle(key: string, command: string, oneLine = false)}
   {@const open = expanded.has(key)}
   <button
     type="button"
     class="hp-cmd"
     class:open
+    class:hp-cmd-1={oneLine}
     aria-expanded={open}
     title={open ? undefined : command}
     onclick={() => toggle(key)}
@@ -141,26 +151,6 @@
     {#if heavySlot.brake.active}<p class="hp-brake">{m.heavyslot_strip_brake()}</p>{/if}
   </section>
 
-  {#if heavySlot.lastResults.length > 0}
-    <section>
-      <h3>{m.heavyslot_last_results()}</h3>
-      {#each heavySlot.lastResults as r (r.sessionId)}
-        {@const view = resultView(r)}
-        <div class="hp-row">
-          <span class="hp-name">{nameOf(r.sessionId)}</span>
-          <span class="hp-dim hp-mono">
-            {shortRevision(r)}{r.exitCode == null ? "" : ` · exit ${r.exitCode}`}
-          </span>
-          <span class="hp-res hp-res-{view}">{resultLabel[view]()}</span>
-          {@render commandToggle(`r:${r.sessionId}`, r.command)}
-          {#if r.stale}
-            <p class="hp-dim">{m.heavyslot_result_stale_hint()}</p>
-          {/if}
-        </div>
-      {/each}
-    </section>
-  {/if}
-
   <section>
     <h3>{m.heavyslot_pressure()}</h3>
     <dl class="hp-kv">
@@ -203,6 +193,36 @@
       {/each}
     </dl>
   </section>
+
+  {#if results.rows.length > 0}
+    <section>
+      <h3>{m.heavyslot_last_results()}</h3>
+      {#if anyStale}
+        <p class="hp-dim hp-note">{m.heavyslot_result_stale_hint()}</p>
+      {/if}
+      {#each results.rows as r (r.sessionId)}
+        {@const view = resultView(r)}
+        <div class="hp-row">
+          <span class="hp-name">{nameOf(r.sessionId)}</span>
+          <span class="hp-dim hp-mono">
+            {shortRevision(r)}{r.exitCode == null ? "" : ` · exit ${r.exitCode}`}
+          </span>
+          <span class="hp-res hp-res-{view}">{resultLabel[view]()}</span>
+          {@render commandToggle(`r:${r.sessionId}`, r.command, true)}
+        </div>
+      {/each}
+      {#if results.hidden > 0 || showAllResults}
+        <button
+          type="button"
+          class="hp-btn hp-more"
+          aria-expanded={showAllResults}
+          onclick={() => (showAllResults = !showAllResults)}
+        >
+          {moreLabel}
+        </button>
+      {/if}
+    </section>
+  {/if}
 
   {#if onsettings}
     <button type="button" class="hp-link" onclick={onsettings}
@@ -314,8 +334,8 @@
     color: var(--color-muted);
     margin: 0;
   }
-  /* The command sits on its own full-width line under the row's name/meta, clamped to two lines
-     so a heredoc pipeline can't push the queue and pressure below the fold; it toggles open. */
+  /* The command sits on its own full-width line under the row's name/meta, clamped (two lines for
+     holders, one for results) so a heredoc pipeline can't push pressure below the fold; it toggles open. */
   .hp-cmd {
     order: 1;
     flex-basis: 100%;
@@ -364,6 +384,10 @@
     overflow-wrap: anywhere;
     font-family: var(--font-mono);
   }
+  .hp-cmd-1 .hp-cmd-text {
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+  }
   .hp-cmd.open .hp-cmd-text {
     display: block;
     -webkit-line-clamp: unset;
@@ -394,6 +418,12 @@
   .hp-err {
     color: var(--color-red);
     margin: 4px 0 0;
+  }
+  .hp-note {
+    margin-bottom: 4px;
+  }
+  .hp-more {
+    margin-top: 4px;
   }
   .hp-confirm {
     flex-basis: 100%;

@@ -6,6 +6,7 @@ import {
   formatRuntime,
   memPressureBar,
   orderedWaiters,
+  recentResults,
   slotActive,
   needsResultRefresh,
   resultView,
@@ -146,5 +147,38 @@ describe("needsResultRefresh", () => {
     expect(needsResultRefresh(snap())).toBe(false);
     expect(needsResultRefresh(snap({ enabled: false, lastResults: [r(false)] }))).toBe(false);
     expect(needsResultRefresh(null)).toBe(false);
+  });
+});
+
+describe("recentResults", () => {
+  const r = (sessionId: string, endedAt: number | null) => ({
+    sessionId,
+    command: "x",
+    startedAt: 0,
+    endedAt,
+    exitCode: 0,
+    result: "passed" as const,
+    head: "h",
+    treeHash: "t",
+    stale: false,
+  });
+  const ids = (rows: { sessionId: string }[]) => rows.map((x) => x.sessionId);
+  const s = snap({
+    lastResults: [r("a", 1), r("n", null), r("b", 7), r("c", 3), r("d", 5), r("e", 6), r("f", 2)],
+  });
+  it("lists newest first, unknown end last, cut to five", () => {
+    expect(recentResults(s, false)).toEqual({
+      rows: expect.any(Array),
+      hidden: 2,
+    });
+    expect(ids(recentResults(s, false).rows)).toEqual(["b", "e", "d", "c", "f"]);
+  });
+  it("lists everything when asked", () => {
+    const all = recentResults(s, true);
+    expect(ids(all.rows)).toEqual(["b", "e", "d", "c", "f", "a", "n"]);
+    expect(all.hidden).toBe(0);
+  });
+  it("hides nothing at or under the cap", () => {
+    expect(recentResults(snap({ lastResults: [r("a", 1)] }), false).hidden).toBe(0);
   });
 });

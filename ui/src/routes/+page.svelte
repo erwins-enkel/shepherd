@@ -1996,8 +1996,8 @@
       ? store.heavySlot
       : null,
   );
-  // Desktop: the strip sits in the chrome. Phone list: it docks above the action bar instead, so
-  // a check starting or ending never reflows the herd list.
+  // Desktop: the strip closes off the Herd panel. Phone list: it docks above the action bar. Either
+  // way a check starting or ending never reflows the herd list or the main area.
   const inlineSlot = $derived(mobile.current ? null : store.heavySlot);
   const dockedSlot = $derived(mobileActionBarPresent ? store.heavySlot : null);
   const openHostSheet = $derived(mobile.current ? () => (showHostPanel = true) : undefined);
@@ -3807,9 +3807,6 @@
            renders it in the sidebar column instead (see .herd-col). -->
       {@render repoRail(railInChrome)}
       <QueueStrip autoMerge={store.autoMerge} onselect={jumpToSession} />
-      <!-- Phone: docked above the action bar instead (below), since here every check start and
-           end would push the whole herd list down and back up. -->
-      <HeavySlotStrip heavySlot={inlineSlot} sessions={store.sessions} onselect={jumpToSession} />
       {#if hostSheetSlot}
         <HostPopover
           variant="sheet"
@@ -3831,7 +3828,7 @@
 
   <!-- Outside the chrome: its scroll-hide transform would make a fixed child anchor to it. -->
   <HeavySlotStrip
-    docked
+    variant="dock"
     heavySlot={dockedSlot}
     sessions={store.sessions}
     onselect={jumpToSession}
@@ -4145,7 +4142,17 @@
               onfocusresolved={onOwedFocusResolved}
               onbacklog={() => (showBacklog = true)}
               {upNextLaunch}
-            />
+            >
+              <!-- The check slot closes off the list, never the page chrome: a check starting or
+                   ending must not push the main area. Phone docks it above the action bar. -->
+              {#snippet footer()}
+                <HeavySlotStrip
+                  heavySlot={inlineSlot}
+                  sessions={store.sessions}
+                  onselect={jumpToSession}
+                />
+              {/snippet}
+            </Herd>
             <!-- Drag-resize splitter (issue #1588): abs-positioned child of the
                  position:relative .herd-col so it anchors to the sidebar's right
                  edge (.grid is not positioned). Drag to resize, double-click to

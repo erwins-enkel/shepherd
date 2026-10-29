@@ -77,6 +77,15 @@ describe("HeavySlotChip", () => {
     expect(document.querySelector(".hp")).toBeNull();
   });
 
+  it("reads quiet when nothing holds, waits or brakes, amber otherwise", async () => {
+    const props = { sessions, nowMs: 0, onrelease: vi.fn() };
+    render(HeavySlotChip, { ...props, heavySlot: snap({ holders: [], waiters: [] }) });
+    render(HeavySlotChip, { ...props, heavySlot: snap() });
+    const [idle, active] = document.querySelectorAll(".hs-chip");
+    expect(idle.classList.contains("idle")).toBe(true);
+    expect(active.classList.contains("idle")).toBe(false);
+  });
+
   it("lists every slot one session holds in the host popover", async () => {
     render(HeavySlotChip, {
       heavySlot: twoSlotsOneSession,
@@ -145,7 +154,7 @@ describe("HeavySlotStrip", () => {
     const { innerWidth: w, innerHeight: h } = window;
     await page.viewport(900, 400);
     try {
-      render(HeavySlotStrip, { heavySlot: snap(), sessions, docked: true });
+      render(HeavySlotStrip, { heavySlot: snap(), sessions, variant: "dock" });
       const strip = document.querySelector<HTMLElement>(".hs-strip");
       expect(getComputedStyle(strip!).position).toBe("fixed");
       expect(strip!.getBoundingClientRect().height).toBeLessThanOrEqual(56);
@@ -252,6 +261,8 @@ const LONG = [
   "EOF",
   "bash /tmp/check.sh && cargo test --locked --manifest-path cli/Cargo.toml",
 ].join("\n");
+const LABEL =
+  "bun run test src/lib/components/heavy-slot/heavy-slot.browser.test.ts src/lib/a.test.ts";
 
 function longSnap(): HeavySlotSnapshot {
   return snap({
@@ -284,7 +295,7 @@ describe("HostPopover — long commands", () => {
     [390, 800],
     [1440, 900],
   ] as const) {
-    it(`clamps holder commands to two lines, results to one at ${w}px`, async () => {
+    it(`shows holder and result commands as their first step on one line at ${w}px`, async () => {
       await page.viewport(w, h);
       render(HostPopover, {
         heavySlot: longSnap(),
@@ -295,12 +306,12 @@ describe("HostPopover — long commands", () => {
       });
       const cmds = [...document.querySelectorAll(".hp-cmd")];
       expect(cmds).toHaveLength(2);
-      for (const [i, btn] of cmds.entries()) {
+      for (const btn of cmds) {
         const text = cmdText(btn);
         expect(btn.getAttribute("aria-expanded")).toBe("false");
         expect(btn.getAttribute("title")).toBe(LONG);
-        expect(text.clientHeight).toBeLessThanOrEqual((i === 0 ? 2 : 1) * lineHeight() + 1);
-        expect(text.scrollHeight).toBeGreaterThan(text.clientHeight);
+        expect(text.textContent).toBe(LABEL);
+        expect(text.clientHeight).toBeLessThanOrEqual(lineHeight() + 1);
       }
       await expect.element(page.getByText("2:14 · 2.0 GiB")).toBeVisible();
       await expect.element(page.getByText(/a1b2c3d · exit 1/)).toBeVisible();
@@ -320,7 +331,7 @@ describe("HostPopover — long commands", () => {
       onClose: vi.fn(),
     });
     const [holder, result] = document.querySelectorAll(".hp-cmd");
-    const toggle = page.getByRole("button", { name: /^Show full command: cd ui/ }).first();
+    const toggle = page.getByRole("button", { name: /^Show full command: bun run test/ }).first();
     await userEvent.click(toggle);
     expect(holder.getAttribute("aria-expanded")).toBe("true");
     expect(holder.hasAttribute("title")).toBe(false);
@@ -331,24 +342,40 @@ describe("HostPopover — long commands", () => {
     expect(result.getAttribute("aria-expanded")).toBe("false");
     await userEvent.click(page.getByRole("button", { name: /^Collapse command: cd ui/ }));
     expect(holder.getAttribute("aria-expanded")).toBe("false");
-    expect(cmdText(holder).clientHeight).toBeLessThanOrEqual(2 * lineHeight() + 1);
+    expect(cmdText(holder).clientHeight).toBeLessThanOrEqual(lineHeight() + 1);
+    expect(cmdText(holder).textContent).toBe(LABEL);
   });
 });
 
 describe("HeavySlotStrip — long commands", () => {
   beforeEach(pinLineHeight);
-  it("cuts the holder command to one line without widening the page", async () => {
+  it("shows the command's first step on one line of at most 40ch", async () => {
     await page.viewport(1440, 900);
-    const chrome = document.createElement("header");
-    chrome.style.cssText = "display:flex;flex-direction:column;";
-    document.body.appendChild(chrome);
-    render(HeavySlotStrip, { target: chrome, props: { heavySlot: longSnap(), sessions } });
+    const panel = document.createElement("div");
+    panel.style.cssText = "display:flex;flex-direction:column;width:1000px;";
+    document.body.appendChild(panel);
+    render(HeavySlotStrip, { target: panel, props: { heavySlot: longSnap(), sessions } });
     const cmd = document.querySelector(".hs-cmd") as HTMLElement;
+    expect(cmd.textContent).toBe(`Running ${LABEL}`);
     expect(cmd.clientHeight).toBeLessThanOrEqual(lineHeight() + 1);
     expect(cmd.scrollWidth).toBeGreaterThan(cmd.clientWidth);
-    expect(cmd.getBoundingClientRect().right).toBeLessThanOrEqual(window.innerWidth);
-    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
+    const ruler = document.createElement("span");
+    ruler.textContent = "0".repeat(40);
+    cmd.parentElement!.appendChild(ruler);
+    expect(cmd.getBoundingClientRect().width).toBeLessThanOrEqual(
+      ruler.getBoundingClientRect().width + 1,
+    );
     expect(document.querySelector(".hs-holder")?.getAttribute("title")).toBe(LONG);
+  });
+
+  it("closes off its panel in the document flow, rows stacked", async () => {
+    render(HeavySlotStrip, { heavySlot: snap(), sessions });
+    const strip = document.querySelector<HTMLElement>(".hs-strip")!;
+    expect(getComputedStyle(strip).position).toBe("static");
+    const [a, b] = [...strip.querySelectorAll(".hs-rows > li")].map((li) =>
+      li.getBoundingClientRect(),
+    );
+    expect(b.top).toBeGreaterThanOrEqual(a.bottom);
   });
 });
 

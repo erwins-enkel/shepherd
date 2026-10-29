@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { HeavySlotSnapshot } from "#lib/types.js";
 import {
   chipModel,
+  commandLabel,
   formatBytes,
   formatRuntime,
   memPressureBar,
@@ -180,5 +181,27 @@ describe("recentResults", () => {
   });
   it("hides nothing at or under the cap", () => {
     expect(recentResults(snap({ lastResults: [r("a", 1)] }), false).hidden).toBe(0);
+  });
+});
+
+describe("commandLabel", () => {
+  it("drops leading cd hops", () => {
+    expect(commandLabel("cd /a; bun test x")).toBe("bun test x");
+    expect(commandLabel("cd /a && cd 'b c' && bun run check")).toBe("bun run check");
+  });
+  it("keeps only the first line and collapses whitespace", () => {
+    expect(commandLabel("\n  vitest   run\t a.ts\nmore")).toBe("vitest run a.ts");
+  });
+  it("leaves a plain command alone", () => {
+    expect(commandLabel("bun test ./test/x.test.ts")).toBe("bun test ./test/x.test.ts");
+  });
+  it("falls back to the command when nothing follows the cd", () => {
+    expect(commandLabel("cd /a")).toBe("cd /a");
+    expect(commandLabel("cd /a;")).toBe("cd /a;");
+  });
+  it("shortens a heredoc probe to its first command", () => {
+    const cmd =
+      "cd /home/p/wt; cat > /home/p/scratch/probe.test.ts <<'EOF'\nimport { it } from 'vitest';\nEOF";
+    expect(commandLabel(cmd)).toBe("cat > /home/p/scratch/probe.test.ts <<'EOF'");
   });
 });

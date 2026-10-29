@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { createRawSnippet } from "svelte";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
@@ -1582,5 +1583,17 @@ describe("Herd with connected machines (#3055)", () => {
       git: {},
     });
     expect(row("r1")).toBeNull();
+  });
+});
+
+describe("Herd footer", () => {
+  it("pins the footer under the scrolling list, inside the panel", async () => {
+    const footer = createRawSnippet(() => ({
+      render: () => `<div class="test-footer">slot</div>`,
+    }));
+    render(Herd, { ...base, sessions: [], git: {}, footer });
+    const el = document.querySelector(".test-footer")!;
+    expect(el.parentElement?.classList.contains("panel")).toBe(true);
+    expect(el.previousElementSibling?.classList.contains("units")).toBe(true);
   });
 });

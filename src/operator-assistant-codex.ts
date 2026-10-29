@@ -1,10 +1,11 @@
 /** Dedicated Codex HUD runtime. Never reuse the coding argv or the user's config. */
 import {
-  copyFileSync,
+  openSync,
+  closeSync,
+  renameSync,
   existsSync,
   mkdirSync,
   writeFileSync,
-  chmodSync,
   readdirSync,
   rmSync,
 } from "node:fs";
@@ -106,11 +107,19 @@ export function prepareCodexAssistant(opts: {
   const source = join(codexHome(), "auth.json");
   const stamp = join(home, "auth-source.sha256");
   if (existsSync(source)) {
-    const digest = createHash("sha256").update(readFileSync(source)).digest("hex");
+    const credentials = readFileSync(source);
+    const digest = createHash("sha256").update(credentials).digest("hex");
     if (!existsSync(auth) || !existsSync(stamp) || readFileSync(stamp, "utf8") !== digest) {
-      writeFileSync(auth, "", { mode: 0o600 });
-      copyFileSync(source, auth);
-      chmodSync(auth, 0o600);
+      // Publish one source snapshot atomically; never truncate or follow the destination.
+      const temp = join(home, `auth-${crypto.randomUUID()}.tmp`);
+      const fd = openSync(temp, "wx", 0o600);
+      try {
+        writeFileSync(fd, credentials);
+        renameSync(temp, auth);
+      } finally {
+        closeSync(fd);
+        rmSync(temp, { force: true });
+      }
       writeFileSync(stamp, digest, { mode: 0o600 });
     }
   }

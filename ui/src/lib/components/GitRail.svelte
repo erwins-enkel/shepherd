@@ -35,6 +35,7 @@
     name = "",
     prompt = "",
     mobile = false,
+    phone = false,
     planPhase = null,
     drain = null,
     autopilotOn = false,
@@ -47,6 +48,8 @@
     name?: string;
     prompt?: string;
     mobile?: boolean;
+    /** Phone width: the ⚙ pill drops its word label to `⚙ n/N` (aria-label keeps it). */
+    phone?: boolean;
     planPhase?: Session["planPhase"];
     /** Live drain status for this session's repo; passed through to AutomationPanel. */
     drain?: DrainStatus | null;
@@ -469,7 +472,7 @@
   }
 
   // The mobile rail is a hidden-scrollbar horizontal scroller; without a visible
-  // bar nothing hints that trailing controls (auto-pill, verdict chip) scroll off
+  // bar nothing hints that trailing controls (verdict chip, PR menu) scroll off
   // the right edge. Fade whichever edge still has content beyond it, driven into
   // the .rail.mobile mask via --fade-l/--fade-r (0 = no fade, 1 = fade). A row
   // that fully fits shows no fade; an overflowing one cues the scroll. No-op (and
@@ -514,6 +517,30 @@
   }
 </script>
 
+<!-- ⚙ automation pill. Sits OUTSIDE the (mobile: scrolling) .rail so on the strip it pins
+     beside the autopilot toggle as one control cluster. -->
+{#snippet autoPill()}
+  <button
+    class={["gbtn", "auto-pill", { reviewing: pillReviewing, armed: showAutomation }]}
+    type="button"
+    aria-haspopup="dialog"
+    aria-expanded={showAutomation}
+    aria-busy={pillReviewing}
+    aria-label={pillReviewing
+      ? m.automation_pill_reviewing_aria()
+      : m.automation_pill_aria({ count: autoCount, total: AUTOMATION_TOTAL })}
+    use:coachTarget={"critic"}
+    use:coachTarget={"auto-address"}
+    onclick={toggleAutomation}
+  >
+    ⚙{phone ? "" : ` ${m.automation_pill_label()}`}
+    <span class="auto-count" class:on={autoCount > 0}>{autoCount}/{AUTOMATION_TOTAL}</span>
+    {#if automationHasUnseen}<span class="new-dot" aria-hidden="true"></span><span class="sr-only"
+        >{m.newdot_aria()}</span
+      >{/if}
+  </button>
+{/snippet}
+
 <svelte:window onkeydown={onWindowKeydown} onpointerdown={onWindowPointerdown} />
 
 {#if git}
@@ -556,29 +583,6 @@
         {epicStopped}
       />
 
-      {#if repoPath}
-        <span class="rail-sep" aria-hidden="true"></span>
-        <button
-          class={["gbtn", "auto-pill", { reviewing: pillReviewing, armed: showAutomation }]}
-          type="button"
-          aria-haspopup="dialog"
-          aria-expanded={showAutomation}
-          aria-busy={pillReviewing}
-          aria-label={pillReviewing
-            ? m.automation_pill_reviewing_aria()
-            : m.automation_pill_aria({ count: autoCount, total: AUTOMATION_TOTAL })}
-          use:coachTarget={"critic"}
-          use:coachTarget={"auto-address"}
-          onclick={toggleAutomation}
-        >
-          ⚙ {m.automation_pill_label()}
-          <span class="auto-count" class:on={autoCount > 0}>{autoCount}/{AUTOMATION_TOTAL}</span>
-          {#if automationHasUnseen}<span class="new-dot" aria-hidden="true"></span><span
-              class="sr-only">{m.newdot_aria()}</span
-            >{/if}
-        </button>
-      {/if}
-
       {#if err}
         <span class="err" role="alert" title={err}>{err}</span>
         {#if retry}
@@ -588,6 +592,12 @@
         {/if}
       {/if}
     </span>
+    {#if repoPath}
+      <!-- the single divider: git status │ control cluster. On mobile it hides with the rail
+           when no status renders, so it can never orphan at the strip's leading edge. -->
+      <span class="rail-sep cluster-sep" aria-hidden="true"></span>
+      {@render autoPill()}
+    {/if}
 
     {#if showPr}
       <div class="pr-pop">
@@ -746,6 +756,7 @@
     position: relative;
     display: inline-flex;
     align-items: center;
+    gap: 6px;
   }
 
   .rail {
@@ -790,7 +801,8 @@
   /* Rail buttons (⚙ automation pill, err/Retry) take the 6px chip radius for
      chip-row cohesion (DESIGN.md #1541). Scoped to .rail so the PR-compose /
      findings-popover dialog buttons keep the standalone 2px. */
-  .rail .gbtn {
+  .rail .gbtn,
+  .auto-pill {
     border-radius: var(--radius-chip);
     padding: 3px 9px;
   }
@@ -864,14 +876,16 @@
      viewport — so go position:static here and let the popovers
      (.pr-pop/.auto-pop/.review-pop) anchor to the full-width .vp-git-strip
      (itself position:relative). Anchored to this narrow wrapper, a right:8px
-     popover would shoot off the left screen edge. */
+     popover would shoot off the left screen edge. The ⚙ pill sits after the
+     rail (not in it), so it pins right beside the strip's autopilot toggle. */
   .git-rail-wrap.mobile {
     position: static;
     flex: 1 1 auto;
     min-width: 0;
+    justify-content: flex-end;
   }
   .rail.mobile {
-    width: 100%;
+    flex: 1 1 auto;
     flex-wrap: nowrap;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
@@ -916,10 +930,14 @@
   .rail.mobile > :global(:first-child) {
     margin-left: auto;
   }
-  .rail.mobile :global(.gbtn) {
+  .rail.mobile :global(.gbtn),
+  .git-rail-wrap.mobile > .auto-pill {
     min-height: var(--mobile-actionbar-hit);
     padding: 6px 9px;
     font-size: var(--fs-base);
+  }
+  .git-rail-wrap.mobile > .auto-pill {
+    flex-shrink: 0;
   }
   /* The critic chip is the gateway to the findings popover, but it's a
      .verdict-chip — not a .gbtn — so it missed the touch enlargement above and
@@ -963,11 +981,15 @@
     padding: 0;
     font-size: var(--fs-base);
   }
-  /* automation divider breathes 14px each side on mobile (8px margin + the .rail 6px gap),
-     matching the new status-sep. Scoped to .rail.mobile so the base .rail-sep (shared with the
-     test-only desktop mount) is untouched. */
-  .rail.mobile .rail-sep {
+  /* git status │ control-cluster divider breathes 14px each side (8px margin + the wrap's
+     6px gap), matching the status-sep. No status chips → the rail has no element children:
+     hide it and its divider so the cluster stands alone with no orphan hairline. */
+  .git-rail-wrap.mobile > .cluster-sep {
     margin: 0 8px;
+  }
+  .rail.mobile:not(:has(> *)),
+  .rail.mobile:not(:has(> *)) + .cluster-sep {
+    display: none;
   }
   .rail.mobile :global(.dot) {
     width: 9px;

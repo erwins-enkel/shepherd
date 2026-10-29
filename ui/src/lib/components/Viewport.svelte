@@ -3337,6 +3337,7 @@
           baseBranch={session.baseBranch}
           epicParent={session.epicParent ?? null}
           mobile
+          phone={mobile}
         />
         <span class="strip-controls">
           <!-- per-session autopilot override toggle. Reflects the EFFECTIVE state
@@ -4639,23 +4640,23 @@
     min-height: 44px;
   }
   /* lifecycle cluster (autopilot toggle + decommission) at the strip's trailing
-     edge, split from the git controls by a hairline so the two groups read apart */
+     edge. It continues GitRail's ⚙ pill as one control cluster; the single
+     git-status │ cluster divider lives in GitRail (.cluster-sep), not here. */
   .strip-controls {
     display: flex;
     align-items: center;
     gap: 6px;
     flex: 0 0 auto;
-    /* divider breathes 14px each side: 8px margin + the strip's 6px gap on the left,
-       14px padding on the right — matching the rail's status-sep / rail-sep spacing */
-    margin-left: 8px;
-    padding-left: 14px;
-    border-left: 1px solid var(--color-line);
   }
   /* the strip's GitRail uses the shared actionbar touch height — match it so the
      cluster doesn't sit half-height beside the rail buttons */
   .strip-controls .ap-toggle {
     min-height: var(--mobile-actionbar-hit);
     padding: 6px 9px;
+  }
+  /* chip radius so the armed red fill rhymes with the cluster's 6px chips */
+  .strip-controls .decom {
+    border-radius: var(--radius-chip);
   }
 
   .vp-head.mobile {

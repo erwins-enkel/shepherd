@@ -336,15 +336,16 @@
       bottom: auto;
       height: 3px;
     }
-    /* On the mobile LIST screen the fixed ActionBar (+ New Task) occupies the
-       bottom edge too; at a higher z-index the toast banner would fully cover it
-       (issue #810). When the action bar is present, inset the banner to float just
-       above it — mirroring the shell's own padding-bottom reserve so the two can't
+    /* On the mobile LIST screen the fixed ActionBar and the floating Assist/New
+       buttons (MobileFabs) occupy the bottom edge too; at a higher z-index the toast
+       banner would fully cover them (issue #810). When the action bar is present, inset
+       the banner to float just above both — mirroring the shell's own padding-bottom reserve so the two can't
        drift. Compound selector (.toasts.above-bar) so it beats the base .toasts
        rule on specificity, not source order. */
     .toasts.above-bar {
       bottom: calc(
-        var(--mobile-actionbar-h) + max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom))
+        var(--mobile-actionbar-h) + max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom)) +
+          var(--mobile-fab-clear)
       );
     }
     /* No longer flush to the screen edge, so the home-bar safe-area reserve is the

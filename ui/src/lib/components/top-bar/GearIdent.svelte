@@ -22,9 +22,13 @@
 <div class={["ident", { mobile }]}>
   <span class="ident-brand">SHEPHERD</span>
   <span class="ident-conn">
-    <span class="ident-ver">v{version}</span> ·
-    <span class="ident-dot" class:on={connected} aria-hidden="true">●</span>
-    {connected ? m.gearmenu_conn_live() : m.gearmenu_conn_offline()}
+    <span class="ident-ver">v{version}</span>
+    <!-- No live/offline readout on a phone: the offline toast already says it, louder. -->
+    {#if !mobile}
+      ·
+      <span class="ident-dot" class:on={connected} aria-hidden="true">●</span>
+      {connected ? m.gearmenu_conn_live() : m.gearmenu_conn_offline()}
+    {/if}
   </span>
   {@render children?.()}
 </div>

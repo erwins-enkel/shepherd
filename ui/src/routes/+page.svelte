@@ -170,11 +170,12 @@
   import ActionBar from "#lib/components/ActionBar.svelte";
   import QueueStrip from "#lib/components/QueueStrip.svelte";
   import HeavySlotStrip from "#lib/components/heavy-slot/HeavySlotStrip.svelte";
+  import MobileFabs from "#lib/components/MobileFabs.svelte";
+  import { diagnosticsPip } from "#lib/components/top-bar/gear-pip.js";
   import HostPopover from "#lib/components/heavy-slot/HostPopover.svelte";
   import {
     needsResultRefresh,
     RESULT_REFRESH_MS,
-    slotActive,
     slotEnabled,
   } from "#lib/components/heavy-slot/heavy-slot.js";
   import RepoSwitcher from "#lib/components/RepoSwitcher.svelte";
@@ -1568,8 +1569,11 @@
   // "assistant" is the Operator Assistant's full-screen phone screen (#1446).
   let mobileScreen = $state<"list" | "detail" | "assistant">("list");
   let chromeHidden = $state(false);
+  // The phone's Menu sheet: owned by TopBar (it portals the sheet), opened from the
+  // ActionBar's Menu tab — the gear left the top bar in variant E.
+  let phoneMenuOpen = $state(false);
 
-  // The fixed mobile ActionBar (+ New Task) is rendered iff this is true (see its
+  // The fixed mobile ActionBar (+ MobileFabs) is rendered iff this is true (see its
   // render guard in the mobile list branch below). Single source for "is the action
   // bar present?", consumed by <Toasts aboveActionBar> so the toast banner insets
   // above the bar instead of covering it (issue #810). It is also the shell's `.list`
@@ -1996,11 +2000,9 @@
       ? store.heavySlot
       : null,
   );
-  // Desktop: the strip closes off the Herd panel. Phone list: it docks above the action bar. Either
-  // way a check starting or ending never reflows the herd list or the main area.
+  // Desktop: the strip closes off the Herd panel, so a check starting or ending never reflows
+  // the herd list or the main area. A phone folds it into the TopBar status line + Menu sheet.
   const inlineSlot = $derived(mobile.current ? null : store.heavySlot);
-  const dockedSlot = $derived(mobileActionBarPresent ? store.heavySlot : null);
-  const openHostSheet = $derived(mobile.current ? () => (showHostPanel = true) : undefined);
 
   function jumpToSession(id: string) {
     void jumpHandlers.jumpToSession(id);
@@ -3731,7 +3733,6 @@
   class:mobile={mobile.current}
   class:touch-wide={canCollapse}
   class:list={mobileActionBarPresent}
-  class:slot-docked={slotActive(dockedSlot)}
   use:pullToCommand={pullOptions}
 >
   <!-- a11y: a single top-level heading for the app shell, visually hidden via the
@@ -3800,13 +3801,19 @@
         assistants={store.assistants}
         {assistantOpen}
         onassistant={toggleAssistant}
+        autoMerge={store.autoMerge}
+        onselectsession={jumpToSession}
+        bind:menuOpen={phoneMenuOpen}
       />
       <!-- The repo rail is mouse-desktop chrome only. On a phone it cost 48px of the screen's
            top edge for three 10px labels and put a filter out of thumb reach; it now lives in the
            REPOS sheet, one tap from the bottom bar (D14, docs/design/mobile-herd). Touch-wide
            renders it in the sidebar column instead (see .herd-col). -->
       {@render repoRail(railInChrome)}
-      <QueueStrip autoMerge={store.autoMerge} onselect={jumpToSession} />
+      {#if !mobile.current}
+        <!-- A phone folds the merge train into the TopBar status line + Menu sheet (variant E). -->
+        <QueueStrip autoMerge={store.autoMerge} onselect={jumpToSession} />
+      {/if}
       {#if hostSheetSlot}
         <HostPopover
           variant="sheet"
@@ -3825,15 +3832,6 @@
       {/if}
     </header>
   {/if}
-
-  <!-- Outside the chrome: its scroll-hide transform would make a fixed child anchor to it. -->
-  <HeavySlotStrip
-    variant="dock"
-    heavySlot={dockedSlot}
-    sessions={store.sessions}
-    onselect={jumpToSession}
-    onopen={openHostSheet}
-  />
 
   <main id="main-content" class="main-region">
     {#if store.strandedCount > 0}
@@ -3964,6 +3962,18 @@
           bind:filter={herdFilter}
           {statusFilter}
           onstatusfilter={(s) => (statusFilter = s)}
+          onmenu={() => (phoneMenuOpen = !phoneMenuOpen)}
+          menuOpen={phoneMenuOpen}
+          menuPip={diagnosticsPip(store.diagnosticsOverall)}
+        />
+        <MobileFabs
+          onnew={() => (showNew = true)}
+          assistant={store.assistant}
+          assistants={store.assistants}
+          {assistantOpen}
+          workingBlocked={store.workingBlocked}
+          backgroundBusy={store.backgroundBusy}
+          onassistant={toggleAssistant}
         />
       {:else if mobileScreen === "assistant"}
         {@render assistantPanel()}
@@ -4994,18 +5004,12 @@
        shell's own top padding — otherwise a stuck header would inset twice
        (notch + shell). The bottom reserves room for the fixed ActionBar
        (--mobile-actionbar-h + its own safe-area inset, both shared with the bar
-       in app.css) so the last list row never hides behind it. */
+       in app.css) plus the floating Assist/New buttons above it (--mobile-fab-clear,
+       MobileFabs) so the last list row never hides behind either. */
     padding-top: 0;
     padding-bottom: calc(
-      var(--mobile-actionbar-h) + max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom))
-    );
-  }
-  /* The docked check-slot strip floats over the list's bottom edge: reserve it too (plus its
-     6px lift) so the last row can still scroll clear. Only the scroll end grows; nothing moves. */
-  .shell.mobile.list.slot-docked {
-    padding-bottom: calc(
       var(--mobile-actionbar-h) + max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom)) +
-        var(--mobile-slotdock-h) + 6px
+        var(--mobile-fab-clear)
     );
   }
   .shell.mobile.list .chrome {

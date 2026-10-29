@@ -581,8 +581,8 @@ until you ask.
 - **Assist** in the top bar opens it as a panel beside the selected session; ⌘K / Ctrl+K
   → _Open Operator Assistant_ does the same, and on desktop ⌘J / Ctrl+J opens or closes it
   from anywhere, even a focused terminal. The session terminal keeps working next to
-  it. On a phone the assistant is its own screen, opened from the Assist icon in the top
-  bar (or the gear sheet); **Back** returns to where you were.
+  it. On a phone the assistant is its own screen, opened from the floating Assist button
+  above the bottom bar; **Back** returns to where you were.
 - **Ask the assistant** in a herd row's right-click / long-press menu opens it with
   "What's going on with TASK-31, and is anything stuck?" typed into its prompt.
 - **Ask the assistant** on a warning or error check under Settings → Diagnose does the

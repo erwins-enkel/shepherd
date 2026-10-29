@@ -3,7 +3,7 @@
 
   // One telemetry-menu row, shared by the desktop popover and the mobile sheet:
   // 16/20px glyph column · label · optional right-aligned readout. Renders an <a>
-  // when href is set (external links), else a <button>. Plain elements — never
+  // when href is set (external links), a <button> when onclick is, else a static row. Plain elements — never
   // role=menuitem (both surfaces are dialogs); data-gear-row feeds the popover's
   // roving focus. Flat tonal states only: hover lift, focus = same lift + a
   // brightened inset hairline ring (the handoff's "no glow rings", never
@@ -19,6 +19,7 @@
     mobile = false,
     support = false,
     warm = false,
+    pressed,
     onclick,
   }: {
     label: string;
@@ -36,6 +37,8 @@
     support?: boolean;
     /** Amber attention tone (updates, error diagnostics). */
     warm?: boolean;
+    /** Toggle row (button only): sets aria-pressed and the pressed tone. */
+    pressed?: boolean;
     onclick?: () => void;
   } = $props();
 </script>
@@ -64,12 +67,18 @@
   >
     {@render body()}
   </a>
+{:else if !onclick}
+  <!-- Read-only row (e.g. a merge train with no session to jump to): not a control. -->
+  <div class={["row", "static", { mobile, support, warm }]}>
+    {@render body()}
+  </div>
 {:else}
   <button
-    class={["row", { mobile, support, warm }]}
+    class={["row", { mobile, support, warm, pressed }]}
     type="button"
     data-gear-row
     aria-label={ariaLabel || undefined}
+    aria-pressed={pressed}
     {onclick}
   >
     {@render body()}
@@ -115,6 +124,12 @@
   .row:hover {
     background: var(--color-hover);
   }
+  .row.static {
+    cursor: default;
+  }
+  .row.static:hover {
+    background: transparent;
+  }
   .row:focus-visible {
     outline: none;
     background: var(--color-hover);
@@ -127,6 +142,12 @@
   }
   .row.warm .glyph {
     color: inherit;
+  }
+  /* Pressed toggle (the phone sheet's status filters): the selection surface + amber edge. */
+  .row.pressed {
+    background: var(--color-sel);
+    color: var(--color-ink-bright);
+    box-shadow: inset 2px 0 0 var(--color-amber);
   }
   /* Sheet scale: 48px workspace/plugin tier (44px support), 16px text, 20px glyph
      column, sheet gutters. */

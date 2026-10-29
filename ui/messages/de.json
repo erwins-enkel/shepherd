@@ -7902,5 +7902,10 @@
   "resources_remove": "Entfernen",
   "newtask_prompt_file_delivery": "Wird vollständig als Datei übergeben.",
   "feat_long_task_prompts_title": "Lange Aufgaben ohne Aufteilen",
-  "feat_long_task_prompts_body": "Aufgaben mit mehr als 8.000 Zeichen werden Claude Code oder Codex automatisch vollständig als Datei übergeben. Ein Hinweis am Zeichenzähler zeigt die Dateiübergabe an."
+  "feat_long_task_prompts_body": "Aufgaben mit mehr als 8.000 Zeichen werden Claude Code oder Codex automatisch vollständig als Datei übergeben. Ein Hinweis am Zeichenzähler zeigt die Dateiübergabe an.",
+  "actionbar_menu": "Menü",
+  "gearmenu_herd_label": "Herd",
+  "topbar_status_line_label": "Herd-Status",
+  "feat_phone_thumb_bar_title": "Telefon: alles in Daumenreichweite",
+  "feat_phone_thumb_bar_body": "Auf dem Telefon ist die obere Leiste jetzt eine schmale Statuszeile: Sessions, Prüfslot, Merge-Train, zurückgehaltene Aufgaben und Verbrauch auf einen Blick. Das Menü sitzt jetzt im Menü-Tab der unteren Leiste, dort filterst du auch nach Status, und Assistent und Neu schweben direkt darüber."
 }

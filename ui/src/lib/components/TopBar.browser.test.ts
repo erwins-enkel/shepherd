@@ -40,7 +40,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
   };
 });
 
-const { default: TopBar } = await import("./TopBar.svelte");
+const { default: TopBar } = await import("./TopBarPhoneHarness.test.svelte");
 const { default: CapacityWait } = await import("./top-bar/CapacityWait.svelte");
 const { default: TopBarLimitsHarness } = await import("./TopBarLimitsHarness.svelte");
 const { refreshUsage, listHeld, getSettings, updateEpic } = await import("#lib/api.js");
@@ -372,7 +372,9 @@ describe("TopBar — no overflow, controls stay hittable", () => {
       const hud = document.querySelector<HTMLElement>(".hud");
       expect(hud, "TopBar .hud mounted").not.toBeNull();
       await waitNoOverflow(hud!);
-      assertControlsHittable(hud!);
+      // A phone's bar is the read-only status line (variant E): no controls to push out.
+      if (s.mode === "mobile") expect(hud!.querySelectorAll("button, a[href]").length).toBe(0);
+      else assertControlsHittable(hud!);
     });
   }
 });
@@ -946,25 +948,20 @@ describe("TopBar — tallies toggle the status filter", () => {
     expect(onstatusfilter).toHaveBeenCalledWith(null);
   });
 
-  it("mobile compact: the status segments toggle the same filter", async () => {
+  it("phone: the status line is read-only; the Menu sheet's status rows toggle the filter", async () => {
     await page.viewport(390, 800);
     document.body.style.width = "390px";
     const onstatusfilter = vi.fn();
-    render(TopBar, { ...behaviorBase, ...FLAGS.mobile, onstatusfilter });
-    // the accessible name must carry the COUNT, not just the action (the visible
-    // text is a bare digit) — and the no-op total renders disabled
-    await expect
-      .element(page.getByRole("button", { name: m.topbar_tally_total_aria({ count: 2 }) }))
-      .toBeDisabled();
-    await page
-      .getByRole("button", {
-        name: m.topbar_tally_status_aria({ status: m.topbar_blocked_label(), count: 0 }),
-      })
-      .click();
+    render(TopBar, { ...behaviorBase, ...FLAGS.mobile, onstatusfilter, menuOpen: true });
+    const line = document.querySelector<HTMLElement>(".status-line");
+    expect(line, "phone renders the status line").not.toBeNull();
+    expect(line!.querySelectorAll("button, a").length).toBe(0);
+    const sheet = page.getByRole("dialog", { name: m.topbar_sheet_title() });
+    await sheet.getByRole("button", { name: m.topbar_blocked_label() }).click();
     expect(onstatusfilter).toHaveBeenCalledWith("blocked");
   });
 
-  it("mobile compact: clicking the active segment clears; total clears too", async () => {
+  it("phone: the active status row renders pressed and clears the filter", async () => {
     await page.viewport(390, 800);
     document.body.style.width = "390px";
     const onstatusfilter = vi.fn();
@@ -973,14 +970,13 @@ describe("TopBar — tallies toggle the status filter", () => {
       ...FLAGS.mobile,
       statusFilter: "idle" as const,
       onstatusfilter,
+      menuOpen: true,
     });
-    const idleSeg = page.getByRole("button", {
-      name: m.topbar_tally_status_aria({ status: m.topbar_idle_label(), count: 0 }),
-    });
-    await expect.element(idleSeg).toHaveAttribute("aria-pressed", "true");
-    await idleSeg.click();
-    expect(onstatusfilter).toHaveBeenLastCalledWith(null);
-    await page.getByRole("button", { name: m.topbar_tally_total_aria({ count: 2 }) }).click();
+    const idleRow = page
+      .getByRole("dialog", { name: m.topbar_sheet_title() })
+      .getByRole("button", { name: m.topbar_idle_label() });
+    await expect.element(idleRow).toHaveAttribute("aria-pressed", "true");
+    await idleRow.click();
     expect(onstatusfilter).toHaveBeenLastCalledWith(null);
   });
 });
@@ -1033,7 +1029,7 @@ describe("Usage panel — held tasks and what the limit holds back", () => {
     vi.mocked(getSettings).mockReset();
   });
 
-  it("phone: the held badge opens the full-screen panel with comfortable touch actions", async () => {
+  it("phone: the Menu sheet's Held row opens the full-screen panel with comfortable touch actions", async () => {
     await page.viewport(390, 844);
     document.body.style.width = "390px";
     vi.mocked(listHeld).mockResolvedValue([heldTaskFixture]);
@@ -1043,8 +1039,12 @@ describe("Usage panel — held tasks and what the limit holds back", () => {
       ...FLAGS.mobile,
       sessions: [],
       heldCount: 1,
+      menuOpen: true,
     });
-    await page.getByRole("button", { name: m.topbar_held_badge({ count: 1 }) }).click();
+    await page
+      .getByRole("dialog", { name: m.topbar_sheet_title() })
+      .getByRole("button", { name: m.topbar_held_badge({ count: 1 }) })
+      .click();
 
     const dialog = page.getByRole("dialog", { name: m.topbar_gauge_popover_title() });
     await expect.element(dialog).toBeVisible();
@@ -1590,7 +1590,7 @@ describe("TopBar — working-while-blocked counts in the working tally, not bloc
 });
 
 describe("TopBar — gear attention dot is settings-owned", () => {
-  it("desktop: running or blocked sessions do not put a pip on the gear", async () => {
+  it("desktop: running or blocked sessions do not put a pip on the Menu tab", async () => {
     await page.viewport(1280, 900);
     document.body.style.width = "1280px";
     const list = [
@@ -1611,7 +1611,7 @@ describe("TopBar — gear attention dot is settings-owned", () => {
       .toBeInTheDocument();
   });
 
-  it("mobile: running, blocked, update and what's-new signals do not put a pip on the gear", async () => {
+  it("mobile: running, blocked, update and what's-new signals do not put a pip on the Menu tab", async () => {
     await page.viewport(390, 800);
     document.body.style.width = "390px";
     const list = [
@@ -1629,10 +1629,10 @@ describe("TopBar — gear attention dot is settings-owned", () => {
       diagnosticsOverall: "ok",
     });
 
-    expect(document.querySelector(".gear-pip")).toBeNull();
+    expect(document.querySelector(".menu-pip")).toBeNull();
   });
 
-  it("mobile: diagnostics warning/error put the settings-attention pip on the gear", async () => {
+  it("mobile: diagnostics warning/error put the settings-attention pip on the Menu tab", async () => {
     await page.viewport(390, 800);
     document.body.style.width = "390px";
     const { rerender } = await render(TopBar, {
@@ -1643,7 +1643,7 @@ describe("TopBar — gear attention dot is settings-owned", () => {
       diagnosticsOverall: "error",
     });
 
-    expect(document.querySelector(".gear-pip")?.getAttribute("data-tier")).toBe("red");
+    expect(document.querySelector(".menu-pip")?.getAttribute("data-tier")).toBe("red");
 
     await rerender({
       nowMs: 1_700_000_000_000,
@@ -1653,7 +1653,7 @@ describe("TopBar — gear attention dot is settings-owned", () => {
       diagnosticsOverall: "warning",
     });
 
-    expect(document.querySelector(".gear-pip")?.getAttribute("data-tier")).toBe("yellow");
+    expect(document.querySelector(".menu-pip")?.getAttribute("data-tier")).toBe("yellow");
   });
 });
 
@@ -3632,94 +3632,27 @@ describe("TopBar — Operator Assistant entry points", () => {
     expect(toggle().query()).toBeNull();
   });
 
-  it("phone: an icon-only toggle in the bar opens the assistant", async () => {
-    await page.viewport(390, 844);
-    document.body.style.width = "390px";
-    const onassistant = vi.fn();
-    render(TopBar, props({ onassistant, mobile: true, touch: true }));
-    await expect.element(toggle()).toBeVisible();
-    const chip = document.querySelector("#topbar-assist")!;
-    expect(chip.classList.contains("compact")).toBe(true);
-    expect(chip.querySelector(".assist-label")).toBeNull();
-    // Width-gated touch floor, independent of (pointer: coarse).
-    expect(chip.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
-    await toggle().click();
-    expect(onassistant).toHaveBeenCalledOnce();
-  });
-
-  it("phone: dot, Assist and gear share one ghost-cell rhythm", async () => {
+  // Variant E: on a phone Assist is a floating button (MobileFabs.browser.test.ts) and the
+  // gear's menu opens from the ActionBar's Menu tab — neither renders in the top bar.
+  it("phone: the top bar renders no Assist toggle and no gear", async () => {
     await page.viewport(390, 844);
     document.body.style.width = "390px";
     render(TopBar, props({ onassistant: vi.fn(), mobile: true, touch: true }));
-    await expect.element(toggle()).toBeVisible();
-    const chip = document.querySelector<HTMLElement>("#topbar-assist")!;
-    // Ghost like the gear: no resting border box.
-    expect(getComputedStyle(chip).borderTopColor).toBe(
-      getComputedStyle(document.querySelector(".gear")!).borderTopColor,
-    );
-    const [conn, dot, assist, gear] = [".conn", ".conn .dot", "#topbar-assist", ".gear"].map((s) =>
-      document.querySelector(s)!.getBoundingClientRect(),
-    );
-    for (const r of [assist, gear]) expect(r.width).toBeCloseTo(44, 0);
-    // The dot is informational, not a button: half a cell, no dead left half.
-    expect(conn.width).toBeLessThanOrEqual(24);
-    const mid = (r: DOMRect) => r.left + r.width / 2;
-    expect(mid(assist) - mid(dot)).toBeCloseTo(mid(gear) - mid(assist), 0);
-    expect(assist.top + assist.height / 2).toBeCloseTo(conn.top + conn.height / 2, 0);
-  });
-
-  it("phone: the ● ✦ ⚙ cluster stays on the logo + tallies row", async () => {
-    // Test fonts run narrower than a real phone's, so a narrow viewport stands in for the
-    // ~411px device where a 142px cluster wrapped to line 2.
-    await page.viewport(345, 844);
-    document.body.style.width = "345px";
-    const sessions = [
-      ...Array.from({ length: 3 }, (_, i) => ({ id: `r${i}`, status: "running" })),
-      { id: "i0", status: "idle" },
-      ...Array.from({ length: 5 }, (_, i) => ({ id: `d${i}`, status: "done" })),
-    ] as unknown as Session[];
-    render(TopBar, props({ onassistant: vi.fn(), mobile: true, touch: true, sessions }));
-    await expect.element(toggle()).toBeVisible();
-    const logo = document.querySelector(".logo")!.getBoundingClientRect();
-    const gear = document.querySelector(".gear")!.getBoundingClientRect();
-    expect(gear.top).toBeLessThan(logo.bottom);
-  });
-
-  it("phone: the pip follows the assistant's status", async () => {
-    await page.viewport(390, 844);
-    document.body.style.width = "390px";
-    render(
-      TopBar,
-      props({
-        onassistant: vi.fn(),
-        mobile: true,
-        touch: true,
-        assistant: { id: "oa", status: "blocked" } as Session,
-      }),
-    );
     await expect
-      .element(page.getByRole("button", { name: m.topbar_assist_blocked() }))
-      .toBeInTheDocument();
-  });
-
-  it("phone: renders no toggle without onassistant", async () => {
-    await page.viewport(390, 844);
-    document.body.style.width = "390px";
-    render(TopBar, props({ mobile: true, touch: true }));
-    await expect.element(page.getByRole("button", { name: m.topbar_menu_aria() })).toBeVisible();
+      .element(page.getByRole("group", { name: m.topbar_status_line_label() }))
+      .toBeVisible();
     expect(document.querySelector("#topbar-assist")).toBeNull();
+    expect(document.querySelector(".gear")).toBeNull();
   });
 
-  it("phone: the Controls sheet row also opens the assistant", async () => {
+  it("phone: the Menu sheet carries no Assistant row and no connection readout", async () => {
     await page.viewport(390, 844);
     document.body.style.width = "390px";
-    const onassistant = vi.fn();
-    render(TopBar, props({ onassistant, mobile: true, touch: true }));
-    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    render(TopBar, props({ onassistant: vi.fn(), mobile: true, touch: true, menuOpen: true }));
     const sheet = page.getByRole("dialog", { name: m.topbar_sheet_title() });
-    await sheet.getByRole("button", { name: m.operator_assistant_title() }).click();
-    expect(onassistant).toHaveBeenCalledOnce();
-    await expect.element(sheet).not.toBeInTheDocument();
+    await expect.element(sheet).toBeVisible();
+    expect(sheet.getByRole("button", { name: m.operator_assistant_title() }).query()).toBeNull();
+    expect(document.querySelector(".gear-sheet .ident-dot")).toBeNull();
   });
 });
 
@@ -3991,7 +3924,7 @@ describe("TopBar — check slot on a phone lives in the gear sheet", () => {
     lastResults: [],
   };
 
-  it("keeps the 390px bar on one row and opens the host panel from the sheet row", async () => {
+  it("keeps an idle slot off the 390px status line and opens the host panel from the sheet row", async () => {
     await page.viewport(390, 800);
     document.body.style.width = "390px";
     const onhostpanel = vi.fn();
@@ -4005,13 +3938,13 @@ describe("TopBar — check slot on a phone lives in the gear sheet", () => {
       onassistant: () => {},
     });
     expect(document.querySelector(".hs-chip")).toBeNull();
-    const logo = document.querySelector<HTMLElement>(".hud .logo")!.getBoundingClientRect();
+    const line = document.querySelector<HTMLElement>(".status-line .row")!;
+    // An idle slot (nothing held or waiting) stays off the line, as the strip did; the
+    // sheet row below still reaches the host panel.
+    expect(line.textContent).not.toContain("0/1");
+    // One 30px row: nothing wraps.
+    expect(line.getBoundingClientRect().height).toBeLessThanOrEqual(31);
     const gear = page.getByRole("button", { name: m.topbar_menu_aria() });
-    const gearRect = (gear.element() as HTMLElement).getBoundingClientRect();
-    // One row: the gear's box vertically spans the logo's centre line.
-    const mid = logo.top + logo.height / 2;
-    expect(gearRect.top).toBeLessThanOrEqual(mid);
-    expect(gearRect.bottom).toBeGreaterThanOrEqual(mid);
 
     await gear.click();
     await page.getByRole("button", { name: new RegExp(m.heavyslot_label()) }).click();

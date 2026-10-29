@@ -8,17 +8,12 @@
     sessions = [],
     onselect,
     onopen,
-    variant = "footer",
   }: {
     heavySlot?: HeavySlotSnapshot | null;
     sessions?: Pick<Session, "id" | "name">[];
     onselect?: (id: string) => void;
     /** Phone only: the label opens the host panel (the bar chip's job on desktop). */
     onopen?: () => void;
-    /** "footer" closes off the desktop Herd panel (the list viewport shortens, no row moves);
-     *  "dock" floats above the phone's action bar. Neither sits in the page chrome, so a check
-     *  starting or ending never pushes the main area. */
-    variant?: "footer" | "dock";
   } = $props();
 
   const nameOf = (id: string) =>
@@ -26,13 +21,10 @@
 </script>
 
 {#if slotActive(heavySlot) && heavySlot}
-  <div
-    class="hs-strip"
-    class:hs-footer={variant === "footer"}
-    class:hs-docked={variant === "dock"}
-    role="status"
-    aria-label={m.heavyslot_label()}
-  >
+  <!-- Closes off the desktop Herd panel (the list viewport shortens, no row moves), never the
+       page chrome, so a check starting or ending never pushes the main area. A phone folds the
+       slot into the TopBar status line + Menu sheet instead. -->
+  <div class="hs-strip hs-footer" role="status" aria-label={m.heavyslot_label()}>
     {#if onopen}
       {@const c = chipModel(heavySlot)}
       <button
@@ -186,42 +178,6 @@
     font-size: var(--fs-micro);
     letter-spacing: 0.04em;
     color: var(--color-red);
-  }
-  .hs-docked {
-    position: fixed;
-    left: var(--mobile-shell-pad);
-    right: var(--mobile-shell-pad);
-    bottom: calc(
-      var(--mobile-actionbar-h) + max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom)) +
-        6px
-    );
-    z-index: 5;
-    padding: 5px 10px;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    box-shadow: var(--shadow-popover);
-    align-items: center;
-  }
-  /* Docked is always one 44px row, whatever the width (a landscape phone is "mobile" by height
-     but misses any max-width rule): the list reserves exactly --mobile-slotdock-h. */
-  .hs-docked .hs-rows {
-    flex-direction: row;
-    align-items: center;
-    gap: 14px;
-    overflow-x: auto;
-  }
-  .hs-docked .hs-rows > li {
-    flex-shrink: 0;
-  }
-  .hs-docked .hs-row,
-  .hs-docked .hs-open {
-    min-height: 44px;
-  }
-  .hs-docked .hs-holder {
-    max-width: min(70vw, 40ch);
-  }
-  .hs-docked .hs-brake {
-    white-space: nowrap;
   }
   @media (pointer: coarse) {
     .hs-row {

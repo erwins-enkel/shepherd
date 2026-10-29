@@ -11,6 +11,7 @@
     DiagnosticsSnapshot,
     DrainStatus,
     ProviderFailoverStatus,
+    AutoMergeStatus,
   } from "#lib/types.js";
   import { displayStatus } from "#lib/display-status.js";
   import { updateBadge } from "#lib/machine-updates.js";
@@ -56,6 +57,8 @@
   import TopBarLayout from "./top-bar/TopBarLayout.svelte";
   import TopBarGear from "./top-bar/TopBarGear.svelte";
   import TopBarMobileSheet from "./top-bar/TopBarMobileSheet.svelte";
+  import TopBarStatusLine from "./top-bar/TopBarStatusLine.svelte";
+  import { diagnosticsPip, type GearPipTier } from "./top-bar/gear-pip";
 
   type TallyStatus = "running" | "idle" | "blocked";
 
@@ -103,6 +106,9 @@
     assistants = [],
     assistantOpen = false,
     onassistant,
+    autoMerge = {},
+    onselectsession,
+    menuOpen = $bindable(false),
   }: {
     sessions: Session[];
     nowMs: number;
@@ -173,8 +179,14 @@
     assistants?: Session[];
     /** Whether the Operator Assistant panel is open (the toggle's pressed state). */
     assistantOpen?: boolean;
-    /** Toggles the Operator Assistant panel. Absent → no Assist toggle and no sheet row. */
+    /** Toggles the Operator Assistant panel. Absent → no Assist toggle. */
     onassistant?: () => void;
+    /** Per-repo merge-train state (store.autoMerge): the phone's status line + Menu sheet. */
+    autoMerge?: Record<string, AutoMergeStatus>;
+    /** Phone only: jump to a session from a Menu-sheet row (merge train). */
+    onselectsession?: (id: string) => void;
+    /** The gear menu / phone Menu sheet. Bindable so the phone's ActionBar Menu tab opens it. */
+    menuOpen?: boolean;
   } = $props();
 
   // tally click: toggle — clicking the active status clears the filter
@@ -540,6 +552,12 @@
   function closePanel() {
     popoverOpen = false;
   }
+  // The phone's Menu-sheet Held row: open on the next task, after the tap's click has
+  // bubbled to dismissOnOutside — that handler would read the sheet row as an outside
+  // click and close the panel it just opened.
+  function openHeldFromSheet() {
+    setTimeout(openPanel);
+  }
   function togglePanel() {
     if (popoverOpen) closePanel();
     else openPanel();
@@ -745,7 +763,6 @@
   // opens the Settings pane directly — matching the gear's "Settings" tooltip/aria.
   // Only when something is haltable does it become a menu button: one click opens a
   // small popup with the e-stop row above a "Settings…" row.
-  let menuOpen = $state(false);
   let gearBtn = $state<HTMLButtonElement | null>(null);
   let gearWrap = $state<HTMLElement | null>(null);
   let menuEl = $state<HTMLElement | null>(null);
@@ -773,22 +790,16 @@
     closeMenu();
     openFeedback(kind);
   }
-  // Mobile: settings-owned diagnostics attention collapses into one dot on
-  // the gear, because the Diagnose row lives inside the gear sheet on phones.
-  // Herd/session state stays on the tallies and rows instead of duplicating here.
-  // Folded (narrow fold) badges also light it: blue "info" for updates / What's-New.
-  type GearPipTier = "red" | "yellow" | "info" | null;
+  // Folded (narrow fold) badges collapse into one dot on the gear: diagnostics first
+  // (red/yellow, shared with the phone's Menu tab via diagnosticsPip), then blue "info"
+  // for updates / What's-New. (A phone has no gear here — its Menu tab carries the pip.)
   const gearPipTier = $derived<GearPipTier>(
-    !mobile && !foldBadges
+    !foldBadges
       ? null
-      : diagnosticsOverall === "error"
-        ? "red"
-        : diagnosticsOverall === "warning"
-          ? "yellow"
-          : foldBadges &&
-              (updateAvailable || herdrUpdateAvailable || codexUpdateAvailable || whatsNew)
+      : (diagnosticsPip(diagnosticsOverall) ??
+          (updateAvailable || herdrUpdateAvailable || codexUpdateAvailable || whatsNew
             ? "info"
-            : null,
+            : null)),
   );
   // The gear ALWAYS toggles the menu (design handoff 3b/3c): the telemetry popover /
   // sheet now carries the identity header, usage gauge, docs and support rows, so it
@@ -926,28 +937,44 @@
 {/snippet}
 
 <div class="hud bracket" class:mobile class:touch={touch && !mobile} bind:this={hudEl}>
-  <div class="logo">SHEP<b>HERD</b></div>
-  {#if !mobile && !touch}
-    <!-- hidden on phones AND unfolded foldables: the label crowds the bar and
-         pushes the gear out on touch layouts narrower than a real desktop -->
+  {#if mobile}
+    <!-- Phone (variant E, docs/design/mobile-herd): a read-only status line. The gear,
+         Assist and New moved to the thumb zone (ActionBar Menu tab, MobileFabs), and the
+         check-slot + merge-train strips fold into this line's segments. -->
+    <TopBarStatusLine
+      total={sessions.length}
+      {working}
+      {idle}
+      {blocked}
+      {statusFilter}
+      {heavySlot}
+      {autoMerge}
+      heldCount={heldCount ?? 0}
+      hottest={hottestWindow}
+      holdPct={holdLimit}
+    />
+  {:else}
+    <div class="logo">SHEP<b>HERD</b></div>
+    {#if !touch}
+      <!-- hidden on unfolded foldables: the label crowds the bar and pushes the gear
+         out on touch layouts narrower than a real desktop -->
+      <div class="sep"></div>
+      <div class="micro">Mission&nbsp;Control</div>
+    {/if}
     <div class="sep"></div>
-    <div class="micro">Mission&nbsp;Control</div>
-  {/if}
-  <div class="sep"></div>
-  <TopBarTallies
-    {mobile}
-    compact={compactBadges}
-    total={sessions.length}
-    {working}
-    {idle}
-    {blocked}
-    {statusFilter}
-    {onstatusfilter}
-    {clickStatus}
-  />
-  <div class="rightside">
-    {#if !mobile}
-      <!-- A phone has no room for it: the gear sheet carries the check slot instead. -->
+    <TopBarTallies
+      mobile={false}
+      compact={compactBadges}
+      total={sessions.length}
+      {working}
+      {idle}
+      {blocked}
+      {statusFilter}
+      {onstatusfilter}
+      {clickStatus}
+    />
+    <div class="rightside">
+      <!-- A phone has no room for it: the Menu sheet carries the check slot instead. -->
       <HeavySlotChip
         {heavySlot}
         {sessions}
@@ -956,20 +983,18 @@
         onrelease={async (id) => onheavyslotrelease?.(id)}
         {onsettings}
       />
-    {/if}
-    {#if mobile || !usageTriggerShown}
-      <TopBarHeldBadge
-        heldCount={heldCount ?? 0}
-        {mobile}
-        {compactBadges}
-        {hotter}
-        {nowMs}
-        open={popoverOpen}
-        bind:btn={heldBadgeBtn}
-        onToggle={togglePanel}
-      />
-    {/if}
-    {#if !mobile}
+      {#if !usageTriggerShown}
+        <TopBarHeldBadge
+          heldCount={heldCount ?? 0}
+          mobile={false}
+          {compactBadges}
+          {hotter}
+          {nowMs}
+          open={popoverOpen}
+          bind:btn={heldBadgeBtn}
+          onToggle={togglePanel}
+        />
+      {/if}
       <TopBarUsage
         {subscriptionOnly}
         {touch}
@@ -990,96 +1015,91 @@
         onToggle={togglePanel}
         bind:gaugeWrap
       />
-    {/if}
-    <div class="conn tip" class:offline data-tip={connText} aria-label={connText}>
-      <span class="dot" class:on={live}>{live ? "●" : "○"}</span>
-      {#if offline}<span class="conn-label">{m.topbar_conn_offline()}</span>{/if}
-    </div>
-    {#if !mobile && !foldBadges}<TopBarBadges
-        {compactBadges}
+      <div class="conn tip" class:offline data-tip={connText} aria-label={connText}>
+        <span class="dot" class:on={live}>{live ? "●" : "○"}</span>
+        {#if offline}<span class="conn-label">{m.topbar_conn_offline()}</span>{/if}
+      </div>
+      {#if !foldBadges}<TopBarBadges
+          {compactBadges}
+          {updateAvailable}
+          updateBadge={updateInfo}
+          {onupdate}
+          {herdrUpdateAvailable}
+          {herdrUpdate}
+          {onherdrupdate}
+          {codexUpdateAvailable}
+          {codexUpdate}
+          {oncodexupdate}
+          {whatsNew}
+          {onwhatsnew}
+          {diagnosticsOverall}
+          {ondiagnose}
+        />{/if}
+      {#if assistantOpen}
+        <!-- Left of the Assist toggle so opening the panel doesn't move the button just clicked. -->
+        <TopBarLayout />
+      {/if}
+      {#if onassistant}
+        <TopBarAssist
+          {assistant}
+          {assistants}
+          open={assistantOpen}
+          compact={compactBadges}
+          {workingBlocked}
+          {backgroundBusy}
+          onclick={onassistant}
+        />
+      {/if}
+      <TopBarSearch compact={compactBadges} oncommandbar={() => oncommandbar?.()} />
+      <!-- The gear toggles the telemetry popover. Its dot is settings-owned attention
+         only: diagnostics have a standalone desktop pip. (A phone opens the same menu as
+         a sheet from the ActionBar's Menu tab.) -->
+      <TopBarGear
+        mobile={false}
+        {foldBadges}
+        {diagnosticsOverall}
         {updateAvailable}
         updateBadge={updateInfo}
-        {onupdate}
         {herdrUpdateAvailable}
-        {herdrUpdate}
-        {onherdrupdate}
         {codexUpdateAvailable}
-        {codexUpdate}
-        {oncodexupdate}
         {whatsNew}
-        {onwhatsnew}
-        {diagnosticsOverall}
         {ondiagnose}
-      />{/if}
-    {#if assistantOpen && !mobile}
-      <!-- Left of the Assist toggle so opening the panel doesn't move the button just clicked. -->
-      <TopBarLayout />
-    {/if}
-    {#if onassistant}
-      <!-- Icon-only on a phone: the label would crowd the wrapping bar. -->
-      <TopBarAssist
-        {assistant}
-        {assistants}
-        open={assistantOpen}
-        compact={compactBadges || mobile}
-        {mobile}
-        {workingBlocked}
-        {backgroundBusy}
-        onclick={onassistant}
+        {onupdate}
+        {onherdrupdate}
+        {oncodexupdate}
+        {onwhatsnew}
+        {ondonelens}
+        {onowedlens}
+        {haltable}
+        {gearPipTier}
+        {armed}
+        {connected}
+        bind:menuOpen
+        bind:gearWrap
+        bind:gearBtn
+        bind:menuEl
+        {clickGear}
+        {clickHalt}
+        closeMenu={() => closeMenu()}
+        {chooseSettings}
+        {chooseUsage}
+        {onMenuKey}
+        {onFeedback}
+        {pluginItems}
+        onPluginItem={choosePlugin}
+        onManagePlugins={chooseManagePlugins}
+        {limits}
+        {nowMs}
+        {creditFill}
+        {creditColor}
+        {creditAmount}
+        {refreshing}
+        {refreshError}
+        onRefresh={doRefresh}
+        {periodLabel}
       />
-    {/if}
-    {#if !mobile}
-      <TopBarSearch compact={compactBadges} oncommandbar={() => oncommandbar?.()} />
-    {/if}
-    <!-- The gear always toggles the telemetry menu (popover on desktop, sheet on
-         mobile). The gear's dot is settings-owned attention only: diagnostics have a
-         standalone desktop pip, and fold into the gear on mobile because the Diagnose
-         row lives in that sheet. -->
-    <TopBarGear
-      {mobile}
-      {foldBadges}
-      {diagnosticsOverall}
-      {updateAvailable}
-      updateBadge={updateInfo}
-      {herdrUpdateAvailable}
-      {codexUpdateAvailable}
-      {whatsNew}
-      {ondiagnose}
-      {onupdate}
-      {onherdrupdate}
-      {oncodexupdate}
-      {onwhatsnew}
-      {ondonelens}
-      {onowedlens}
-      {haltable}
-      {gearPipTier}
-      {armed}
-      {connected}
-      bind:menuOpen
-      bind:gearWrap
-      bind:gearBtn
-      bind:menuEl
-      {clickGear}
-      {clickHalt}
-      closeMenu={() => closeMenu()}
-      {chooseSettings}
-      {chooseUsage}
-      {onMenuKey}
-      {onFeedback}
-      {pluginItems}
-      onPluginItem={choosePlugin}
-      onManagePlugins={chooseManagePlugins}
-      {limits}
-      {nowMs}
-      {creditFill}
-      {creditColor}
-      {creditAmount}
-      {refreshing}
-      {refreshError}
-      onRefresh={doRefresh}
-      {periodLabel}
-    />
-  </div>
+    </div>
+  {/if}
   {#if popoverOpen}
     <!-- The usage panel, shared by both triggers: anchored under the bar's right edge (the .hud
          is its positioning box), or the phone's full-screen sheet. -->
@@ -1151,9 +1171,17 @@
     {pluginItems}
     onPluginItem={choosePlugin}
     onManagePlugins={chooseManagePlugins}
-    {onassistant}
     {heavySlot}
     {onhostpanel}
+    {working}
+    {idle}
+    {blocked}
+    {statusFilter}
+    {clickStatus}
+    {autoMerge}
+    {onselectsession}
+    heldCount={heldCount ?? 0}
+    onOpenHeld={openHeldFromSheet}
   />
 {/if}
 
@@ -1268,64 +1296,18 @@
   .hud.touch {
     padding-block: 5px;
   }
+  /* Phone: the bar is just the status line (TopBarStatusLine owns its own geometry and
+     hairline), full-bleed into the shell's base edge padding (--mobile-shell-pad, shared
+     with .shell.mobile in +page.svelte). */
   .hud.mobile {
-    /* wrap instead of overflowing: on fold-cover (~280px) and phones the
-       logo+tallies sit on line 1, the right-side controls drop to line 2
-       rather than forcing horizontal page scroll or clipping the gear */
-    flex-wrap: wrap;
-    gap: 7px;
-    row-gap: 8px;
-    /* 5px vertical, not 10: every control in this row already carries its own 44px touch floor,
-       so the padding was buying air, not reachability — and on the list screen it was air at the
-       top of the screen, the scarcest space there is (D10, docs/design/mobile-herd). Horizontal
-       padding is unchanged. */
-    padding: 5px 12px;
-    /* full-bleed like the herd panel in flow mode: drop the side borders +
-       brackets and stretch into the shell's base edge padding
-       (--mobile-shell-pad, shared with .shell.mobile in +page.svelte; with a
-       larger safe-area inset the shell keeps the remainder). Top/bottom
-       hairlines stay as section rules. */
-    border-inline: 0;
+    display: block;
+    padding: 0;
+    border: 0;
     margin-inline: calc(-1 * var(--mobile-shell-pad));
   }
   .hud.mobile.bracket::before,
   .hud.mobile.bracket::after {
     display: none;
-  }
-  .hud.mobile .logo {
-    font-size: var(--fs-base);
-    letter-spacing: 0.12em;
-  }
-  /* Mobile: let the bare connection dot ride inline at the head of the right-side
-     cluster (order:-1) — vertically centred with the gauge/gear instead of floating
-     off-centre in the corner. */
-  .hud.mobile .conn {
-    order: -1;
-    /* Half of the Assist + gear 44px ghost cell: the dot sits 22px left of the right edge, so
-       the three glyphs share one rhythm. The left half would be dead space — the dot is not a
-       button (no touch floor) and a full cell pushed the cluster to line 2 on phones. */
-    min-height: 44px;
-    padding-inline-end: 22px;
-  }
-  /* Zero-width box centred on that point; the glyph overflows into the row gap. */
-  .hud.mobile .conn .dot {
-    width: 0;
-    display: inline-flex;
-    justify-content: center;
-  }
-  /* Offline on a phone: the dot's zero-width cell gives way to the chip's own geometry. */
-  .hud.mobile .conn.offline {
-    min-height: var(--topbar-ctl-h);
-    padding-inline: 9px;
-  }
-  .hud.mobile .conn.offline .dot {
-    width: auto;
-  }
-  .hud.mobile .rightside {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 5px;
-    row-gap: 8px;
   }
   /* .hud.mobile .gear moved to top-bar/TopBarGear.svelte as .gear.mobile (#855) */
   /* .hud.mobile .gauge-btn* dropped: .gauge-btn renders only when touch && !mobile,

@@ -187,3 +187,26 @@ Drei Blocker, alle am Code bestätigt und behoben:
 Dazu: der Sweep rendert jetzt **alle** Oberflächen dieses Screens (Karte, Tallies, untere Leiste
 samt Lens-Segmenten, REPOS-Sheet) statt nur zwei, und jede Fixture nennt eine Mindestzahl an
 Zielen — eine Fixture, die nichts rendert, bestünde sonst stillschweigend.
+
+## Nachtrag: Variante E — oben lesen, unten handeln
+
+Die TopBar auf dem Telefon ist jetzt eine **reine Statuszeile** (`top-bar/TopBarStatusLine.svelte`,
+~30 px + 2-px-Verbrauchs-Haarlinie): `Gesamt · ●arbeitet · ◌untätig · !blockiert`, dazu bei Bedarf
+`▤ Prüfslot`, `↣ Merge-Train`, `⏸ zurückgehalten` und rechts der Prozentwert des Fensters, das
+seinem Limit am nächsten ist. Nichts darin ist bedienbar — die 44-px-Untergrenze muss im obersten
+Band also gar nicht erst bezahlt werden. Damit ist **D6** (44 × 44 px große Kopf-Tallies)
+überholt.
+
+- Wortmarke und Verbindungspunkt entfallen auf dem Telefon, auch im Kopf des Menü-Sheets. Offline
+  meldet der Toast.
+- `QueueStrip` und `HeavySlotStrip` rendern auf dem Telefon nicht mehr; ihr Inhalt steht in der
+  Statuszeile und als Zeilen im Menü-Sheet.
+- Das Zahnrad zieht als **Menü**-Tab in die untere Leiste: `Nächstes · Alle · Bereit · REPOS ·
+Menü`. Das Sheet bekommt eine Gruppe „Herd" mit den Status-Filtern (vorher die Tallies), dem
+  Prüfslot, je einer Zeile pro Merge-Train und den zurückgehaltenen Aufgaben. HALT bleibt im Sheet.
+- **Assistent** und **Neu** schweben als Buttons über der Leiste (`MobileFabs.svelte`).
+  `--mobile-fab-clear` in `app.css` ist ihr Band; Toasts und die Listen-Reserve unten weichen um
+  genau diesen Wert aus.
+
+Vorlage (gewählte Variante E neben den verworfenen A–D):
+<https://claude.ai/artifact/RnxBooW4VPJnZnc24ErjFo>

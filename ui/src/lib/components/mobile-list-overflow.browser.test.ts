@@ -244,10 +244,11 @@ describe("mobile list row never overflows its container", () => {
 });
 
 // The list screen's whole point is how many sessions fit (D10, docs/design/mobile-herd). On the
-// 430x932 reference phone the budget is: 113px of chrome above (59px safe area + a 54px TopBar)
-// and 89px of bottom navigation below (--mobile-actionbar-h + its safe-area inset, whose
-// arithmetic Toasts.browser.test.ts holds), leaving ~730px of list. The bar carried two ranks
-// until it collapsed to one; that is where the extra ~49px came from.
+// 430x932 reference phone the budget is: ~92px of chrome above (59px safe area + the ~33px
+// read-only status line of variant E, which replaced a 54px TopBar and its two strips) and 89px
+// of bottom navigation below (--mobile-actionbar-h + its safe-area inset, whose arithmetic
+// Toasts.browser.test.ts holds), leaving ~750px of list. The bar carried two ranks until it
+// collapsed to one; that is where an earlier ~49px came from.
 //
 // The card diet is one prompt line, 9px padding and a micro-rung clock: ~26px off EVERY row,
 // whatever its badge load. There is deliberately NO count cap on the badge stack (see

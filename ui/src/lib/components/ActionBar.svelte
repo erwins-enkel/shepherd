@@ -6,6 +6,7 @@
   import { REPO, REPO_URL, sha, version, commitUrl } from "#lib/build-info.js";
   import HerdSegRow from "#lib/components/herd/HerdSegRow.svelte";
   import type { HerdFilter } from "#lib/components/herd-partition.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
 
   // Two explicit theme choices; "system" stays the implicit default (followed on
   // first load + on OS changes until the operator picks one). The old third slot
@@ -31,6 +32,9 @@
     filter = $bindable<HerdFilter>("next"),
     statusFilter = null,
     onstatusfilter,
+    onmenu,
+    menuOpen = false,
+    menuPip = null,
   }: {
     onnew: () => void;
     onbacklog?: () => void;
@@ -45,43 +49,45 @@
     filter?: HerdFilter;
     statusFilter?: "running" | "idle" | "blocked" | null;
     onstatusfilter?: (status: "running" | "idle" | "blocked" | null) => void;
+    /** Phone: opens the Menu sheet (the gear moved here from the top bar, variant E). */
+    onmenu?: () => void;
+    menuOpen?: boolean;
+    /** Settings-owned attention on the Menu tab (diagnostics), as the gear's pip was. */
+    menuPip?: "red" | "yellow" | null;
   } = $props();
 
   // The lens rank renders only where it belongs: the phone list screen.
   const showLens = $derived(mobile && lens);
 </script>
 
-<!-- The two actions are snippets so the phone and the desktop can order them differently
-     WITHOUT a visual order that contradicts the DOM: the phone puts "New task" last, in the
-     thumb corner, and the desktop leads with it. A CSS `order` would have split focus order
-     from reading order on one of the two. -->
+<!-- The actions are snippets so the phone and the desktop can order them differently
+     WITHOUT a visual order that contradicts the DOM. On the phone "New task" is a floating
+     button (MobileFabs), so it renders only on the desktop here. -->
 {#snippet newTaskBtn()}
   <button
-    class="btn primary"
-    class:tip={!mobile}
+    class="btn primary tip"
     type="button"
     onclick={onnew}
-    aria-label={mobile ? m.actionbar_new_task() : undefined}
-    data-tip={!mobile ? m.actionbar_shortcut_hint({ key: "N" }) : undefined}
-    aria-keyshortcuts={!mobile ? "n" : undefined}
+    data-tip={m.actionbar_shortcut_hint({ key: "N" })}
+    aria-keyshortcuts="n"
   >
-    {#if mobile}
-      <!-- Drawn plus: the phone label is the bare verb, so the glyph carries the "+" the
-           desktop label spells out. Decorative — the full label rides on aria-label above. -->
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.6"
-        stroke-linecap="square"
-        aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg
-      >{m.actionbar_new_task_short()}
-    {:else}
-      {m.actionbar_new_task()}
-    {/if}
+    {m.actionbar_new_task()}
   </button>
+{/snippet}
+
+{#snippet menuBtn()}
+  <button
+    class="btn menu"
+    type="button"
+    onclick={onmenu}
+    aria-haspopup="dialog"
+    aria-expanded={menuOpen}
+    aria-label={m.topbar_menu_aria()}
+    use:coachTarget={"gear-menu"}
+    ><span class="menu-glyph" aria-hidden="true"
+      >⚙︎{#if menuPip}<span class="menu-pip" data-tier={menuPip}></span>{/if}</span
+    >{m.actionbar_menu()}</button
+  >
 {/snippet}
 
 {#snippet backlogBtn()}
@@ -105,8 +111,10 @@
         <HerdSegRow bind:filter placement="bottom" {statusFilter} {onstatusfilter} />
       {/if}
       {#if mobile}
+        <!-- "New task" left the phone bar for MobileFabs (variant E, docs/design/mobile-herd);
+             the gear's menu takes its thumb-corner slot. -->
         {#if onbacklog}{@render backlogBtn()}{/if}
-        {@render newTaskBtn()}
+        {#if onmenu}{@render menuBtn()}{/if}
       {:else}
         {@render newTaskBtn()}
         {#if onbacklog}{@render backlogBtn()}{/if}
@@ -301,7 +309,7 @@
      came unstuck and scrolled away on long lists. The list reserves matching
      padding-bottom (see .shell.mobile.list) so no row hides behind the bar.
      Side + bottom insets clear the gesture-nav / landscape-notch safe areas. */
-  /* ONE rank on the phone: the lens segments, REPOS and "New task" side by side.
+  /* ONE rank on the phone: the lens segments, REPOS and Menu side by side.
      --mobile-actionbar-h in app.css encodes exactly this geometry (hit + top pad + the single
      top border) and the list reserves it as padding-bottom, so the two cannot drift apart.
 
@@ -353,13 +361,31 @@
     justify-content: center;
     gap: 7px;
   }
-  .actions.mobile .btn.primary {
-    color: var(--color-amber);
-    padding: 0 15px;
-  }
-  .actions.mobile .btn.backlog {
+  .actions.mobile .btn.backlog,
+  .actions.mobile .btn.menu {
     color: var(--color-ink);
     padding: 0 13px;
+  }
+  /* U+FE0E + the mono face keep ⚙ a text glyph; platform fonts otherwise paint a colour emoji. */
+  .menu-glyph {
+    position: relative;
+    font-family: var(--font-mono);
+    font-size: var(--fs-lg);
+    line-height: 1;
+  }
+  .menu-pip {
+    position: absolute;
+    top: -2px;
+    right: -4px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+  }
+  .menu-pip[data-tier="red"] {
+    background: var(--color-red);
+  }
+  .menu-pip[data-tier="yellow"] {
+    background: var(--color-amber);
   }
   /* The primary's resting glow is desktop-only; on the phone every slot is flat. That `box-shadow:
      none` above outranks .btn:focus-visible (0,3,0 vs 0,2,0), which also kills the outline — so
@@ -378,10 +404,8 @@
     .actions.mobile .btn {
       gap: 6px;
     }
-    .actions.mobile .btn.primary {
-      padding: 0 6px;
-    }
-    .actions.mobile .btn.backlog {
+    .actions.mobile .btn.backlog,
+    .actions.mobile .btn.menu {
       padding: 0 6px;
     }
   }

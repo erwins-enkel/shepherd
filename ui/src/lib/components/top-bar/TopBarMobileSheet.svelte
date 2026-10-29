@@ -1,8 +1,15 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { GaugeKey } from "../usage-gauges";
-  import type { DiagnosticState, HeavySlotSnapshot, UsageLimits } from "#lib/types.js";
+  import type {
+    AutoMergeStatus,
+    DiagnosticState,
+    HeavySlotSnapshot,
+    UsageLimits,
+  } from "#lib/types.js";
   import { chipModel, slotEnabled } from "../heavy-slot/heavy-slot";
+  import { activeMergeTrain, mergeTrainIsAttention, mergeTrainLabel } from "../queue-strip";
+  import { basename } from "#lib/basename.js";
   import type { UpdateBadge } from "#lib/machine-updates.js";
   import { m } from "#lib/paraglide/messages.js";
   import { theme, type ThemePref } from "#lib/theme.svelte.js";
@@ -13,7 +20,6 @@
   import GearGroupHead from "./GearGroupHead.svelte";
   import GearRow from "./GearRow.svelte";
   import GearAttentionRows from "./GearAttentionRows.svelte";
-  import AssistantGlyph from "../AssistantGlyph.svelte";
   import { REPO_URL, DOCS_URL, MAC_APP_DOWNLOAD_URL } from "#lib/build-info.js";
   import { isMacOSPlatform } from "#lib/platform.js";
   import type { FeedbackKind } from "#lib/feedback-link.js";
@@ -70,9 +76,17 @@
     pluginItems = [],
     onPluginItem,
     onManagePlugins,
-    onassistant,
     heavySlot = null,
     onhostpanel,
+    working,
+    idle,
+    blocked,
+    statusFilter = null,
+    clickStatus,
+    autoMerge = {},
+    onselectsession,
+    heldCount = 0,
+    onOpenHeld,
   }: {
     limits: UsageLimits | null;
     connected: boolean;
@@ -105,13 +119,30 @@
     pluginItems?: { id: string; label: string; icon?: string; hint?: string }[];
     onPluginItem?: (id: string) => void;
     onManagePlugins?: () => void;
-    /** Opens the Operator Assistant screen (#1446); absent → no row. */
-    onassistant?: () => void;
     /** The host-wide check slot; its row replaces the bar chip on a phone. */
     heavySlot?: HeavySlotSnapshot | null;
     onhostpanel?: () => void;
+    /** Herd tallies (display status) — the phone's status line is read-only, so the
+     *  status filter is toggled from these rows instead. */
+    working: number;
+    idle: number;
+    blocked: number;
+    statusFilter?: "running" | "idle" | "blocked" | null;
+    clickStatus: (s: "running" | "idle" | "blocked") => void;
+    /** Per-repo merge-train state; one row per active train (the folded QueueStrip). */
+    autoMerge?: Record<string, AutoMergeStatus>;
+    onselectsession?: (id: string) => void;
+    heldCount?: number;
+    /** Opens the held-tasks / usage panel (the folded held badge). */
+    onOpenHeld?: () => void;
   } = $props();
   const slot = $derived(slotEnabled(heavySlot) ? chipModel(heavySlot) : null);
+  const trains = $derived(activeMergeTrain(autoMerge));
+  const statusRows = $derived([
+    { s: "running" as const, glyph: "●", label: m.topbar_working_label(), n: working },
+    { s: "idle" as const, glyph: "◌", label: m.topbar_idle_label(), n: idle },
+    { s: "blocked" as const, glyph: "!", label: m.topbar_blocked_label(), n: blocked },
+  ]);
 
   let showMacApp = $state(false);
   onMount(() => {
@@ -242,8 +273,21 @@
       onOpenUsage={closeAnd(chooseUsage)}
     />
 
-    {#if slot && onhostpanel}
-      <div class="grp">
+    <!-- Herd: what the phone's read-only status line shows, made actionable — status
+         filters, the check slot, the merge train (folded QueueStrip) and held tasks. -->
+    <div class="grp">
+      <GearGroupHead mobile label={m.gearmenu_herd_label()} />
+      {#each statusRows as r (r.s)}
+        <GearRow
+          mobile
+          glyph={r.glyph}
+          label={r.label}
+          meta={String(r.n)}
+          pressed={statusFilter === r.s}
+          onclick={closeAnd(() => clickStatus(r.s))}
+        />
+      {/each}
+      {#if slot && onhostpanel}
         <GearRow
           mobile
           glyph="▤"
@@ -252,8 +296,29 @@
           warm={slot.braking}
           onclick={closeAnd(onhostpanel)}
         />
-      </div>
-    {/if}
+      {/if}
+      {#each trains as t (t.repoPath)}
+        {@const label = mergeTrainLabel(t.state)}
+        {@const sessionId = t.sessionId}
+        <GearRow
+          mobile
+          glyph="↣"
+          label={basename(t.repoPath)}
+          meta={t.detail ? `${label} (${t.detail})` : label}
+          warm={mergeTrainIsAttention(t.state!)}
+          onclick={sessionId ? closeAnd(() => onselectsession?.(sessionId)) : undefined}
+        />
+      {/each}
+      {#if heldCount > 0 && onOpenHeld}
+        <GearRow
+          mobile
+          glyph="⏸"
+          label={m.topbar_held_badge({ count: heldCount })}
+          warm
+          onclick={closeAnd(onOpenHeld)}
+        />
+      {/if}
+    </div>
 
     <GearAttentionRows
       mobile
@@ -273,13 +338,6 @@
 
     <!-- Workspace rows -->
     <div class="grp">
-      {#if onassistant}
-        <GearRow mobile label={m.operator_assistant_title()} onclick={closeAnd(onassistant)}>
-          {#snippet glyphIcon()}
-            <span class="assist-glyph"><AssistantGlyph /></span>
-          {/snippet}
-        </GearRow>
-      {/if}
       <GearRow mobile glyph="⚙" label={m.settings_title()} onclick={chooseSettings} />
       <!-- Hosted documentation site — distinct from the GitHub repo link below. -->
       <GearRow
@@ -394,16 +452,6 @@
   .menu-scrim {
     z-index: 49;
   }
-  /* The assistant's SVG mark in the row's 20px glyph column (snippet content carries this
-     component's scope, not GearRow's), muted like the text glyphs around it. */
-  .assist-glyph {
-    width: 20px;
-    display: flex;
-    justify-content: center;
-    flex-shrink: 0;
-    color: var(--color-muted);
-  }
-
   /* Rising sheet: full-width, bright top hairline, 12px top radius (reserved for
      rising sheets), opaque panel chrome — the .scrim behind it dims+blurs the herd.
      No shadow: the scrim already separates it. */

@@ -119,7 +119,7 @@
      real bar. Buttons are border-box via Tailwind preflight, so
      --mobile-actionbar-hit is the button's full rendered height.
 
-     ONE rank: the lens segments, REPOS and "New task" share a single row, and the
+     ONE rank: the lens segments, REPOS and Menu share a single row, and the
      bar carries a top hairline only — no side or bottom border, so its ground runs
      into the home-indicator zone instead of ending in a box above it. */
   --mobile-actionbar-hit: 44px;
@@ -128,9 +128,12 @@
   --mobile-actionbar-h: calc(
     var(--mobile-actionbar-hit) + var(--mobile-actionbar-pad) + var(--actionbar-border)
   );
-  /* The phone's check-slot strip docked above the action bar: one 44px row plus the strip's
-     own 5px padding and 1px border, top and bottom. The list reserves it while the strip shows. */
-  --mobile-slotdock-h: calc(var(--mobile-actionbar-hit) + 12px);
+  /* Floating Assist + New buttons above the phone action bar (MobileFabs, variant E):
+     their size and gap, single-sourced so toasts and the list's bottom reserve clear
+     them by exactly the same amount. */
+  --mobile-fab-size: 48px;
+  --mobile-fab-gap: 12px;
+  --mobile-fab-clear: calc(var(--mobile-fab-size) + var(--mobile-fab-gap));
   /* Mobile shell's base edge padding — single source shared by .shell.mobile
      (+page.svelte) and the full-bleed herd panel's negative margin
      (Herd.svelte), so the two can't drift apart. */

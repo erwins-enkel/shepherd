@@ -1092,3 +1092,17 @@ test("schedule_noop with no matching run row refuses and never archives", async 
   expect(h.archived).toEqual([]);
   expect(h.emitted.map((e) => e.event)).not.toContain("schedules:changed");
 });
+
+test("a retired assistant loses MCP capabilities before its old process stops", async () => {
+  const { deps, sessionId } = harness({ operatorAssistant: true });
+  deps.store.archive(sessionId);
+  expect(agentTools(deps, sessionId)).toEqual([]);
+});
+
+test("Codex-only shell and view tools are not advertised to Claude assistants", () => {
+  const { deps, sessionId } = harness({ operatorAssistant: true });
+  expect(agentTools(deps, sessionId).map((t) => t.name)).not.toContain("assistant_shell");
+  deps.store.update(sessionId, { agentProvider: "codex" });
+  expect(agentTools(deps, sessionId).map((t) => t.name)).toContain("assistant_shell");
+  expect(agentTools(deps, sessionId).map((t) => t.name)).toContain("assistant_view");
+});

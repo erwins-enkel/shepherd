@@ -886,3 +886,16 @@ test("schedule_create: automation off refuses it; a scoped assistant creates onl
   expect(elsewhere?.status).toBe(403);
   expect(requests).toHaveLength(1);
 });
+
+test("handoff history cannot replay an allowed action before fresh operator input", async () => {
+  const { store, requests, run, worker } = setup({ permissions: { sessions: "allow" } });
+  store.setSetting(`assistantHandoff:${ASSISTANT_ID}`, "awaiting-operator");
+  expect(await run("session_interrupt", { desig: worker.desig })).toMatchObject({
+    ok: false,
+    status: 409,
+  });
+  expect(requests).toHaveLength(0);
+  store.deleteSetting(`assistantHandoff:${ASSISTANT_ID}`);
+  expect(await run("session_interrupt", { desig: worker.desig })).toMatchObject({ ok: true });
+  expect(requests).toHaveLength(1);
+});

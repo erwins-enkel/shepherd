@@ -23,6 +23,7 @@
   import type { AssistantViewReport, ViewTab } from "#lib/operator-assistant-view.js";
   import { viewFocus } from "#lib/assistant-chat.js";
   import AssistantChat from "./AssistantChat.svelte";
+  import AssistantRuntimeStatus from "./AssistantRuntimeStatus.svelte";
   import AssistantMark from "./AssistantMark.svelte";
   import Viewport from "./Viewport.svelte";
 
@@ -65,10 +66,16 @@
     onreset,
     onclose,
     ondiagnose,
+    runtimeSwitch = null,
+    runtimePreference = null,
+    fallbackReason = null,
     permissions = null,
     onpermissions,
   }: {
     /** A repo assistant's repo; null = the global assistant. */
+    fallbackReason?: string | null;
+    runtimeSwitch?: "pending" | "switching" | "failed" | null;
+    runtimePreference?: "claude" | "codex" | null;
     repo?: string | null;
     /** Shown in the dock's stack: the strip above closes the dock, so no Close here. */
     stacked?: boolean;
@@ -136,6 +143,11 @@
   const UNAVAILABLE: Record<OperatorAssistantUnavailableReason, () => string> = {
     claude_missing: m.operator_assistant_unavailable_claude_missing,
     herdr_unreachable: m.operator_assistant_unavailable_herdr_unreachable,
+    codex_missing: m.operator_assistant_unavailable_codex_missing,
+    disabled: m.operator_assistant_unavailable_disabled,
+    capacity: m.operator_assistant_unavailable_capacity,
+    runtime_unsupported: m.operator_assistant_unavailable_runtime,
+    model_unsupported: m.operator_assistant_unavailable_runtime,
   };
   // No reason: the node itself is fine but this Shepherd can't run agents at all (the demo).
   const unavailableText = $derived(
@@ -241,6 +253,10 @@
   );
 
   let viewport: Viewport | undefined = $state();
+  function sendChat(text: string) {
+    return runtimeSwitch === "switching" ? false : (viewport?.sendChatLine(text) ?? false);
+  }
+
   let chat: AssistantChat | undefined = $state();
   /** Hand the keyboard to the assistant (the panel was asked to open while open): the composer in
    *  the conversation, else the terminal. */
@@ -278,6 +294,7 @@
       <AssistantMark {repo} />
       <div class="oap-heading">
         <h2 class="oap-title">{title}</h2>
+        <AssistantRuntimeStatus {session} {runtimeSwitch} {runtimePreference} {fallbackReason} />
         {#if viewReport || scopeText}
           <span class="oap-sees"
             >{[scopeText, viewReport ? seesText : null].filter(Boolean).join(" · ")}</span
@@ -401,7 +418,7 @@
           prefill={shown === "chat" ? typeRequest : null}
           onprefilled={ontyped}
           consumeAutoFocus={shown === "chat" ? consumeAutoFocusTerm : undefined}
-          onsend={(text) => viewport?.sendLine(text) ?? false}
+          onsend={sendChat}
           onkeys={(seq) => viewport?.sendKeys(seq) ?? false}
           oninterrupt={() => viewport?.sendInterrupt()}
           onterminal={() => show("term")}

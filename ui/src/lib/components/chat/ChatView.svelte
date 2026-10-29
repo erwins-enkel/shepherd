@@ -101,6 +101,7 @@
   let data = $state<SessionMessages | null>(null);
   let pending = $state<PendingSend[]>([]);
   let draft = $state("");
+  let sending = $state(false);
   let sendFailed = $state(false);
   let thread: HTMLDivElement | undefined = $state();
   let input: HTMLTextAreaElement | undefined = $state();
@@ -129,7 +130,7 @@
         answer = null;
     });
   });
-  const composerLocked = $derived(!!ask || answer?.result === "sending");
+  const composerLocked = $derived(sending || !!ask || answer?.result === "sending");
   const uploadingAny = $derived(attachments.some((a) => a.path === null && !a.failed));
   const failedAny = $derived(attachments.some((a) => a.failed));
   const canSend = $derived(
@@ -249,7 +250,7 @@
       stick = true;
       data = null;
       pending = [];
-      untrack(() => (attachments = []));
+      if (variant !== "assistant") untrack(() => (attachments = []));
     }
     let alive = true;
     const load = () =>
@@ -330,14 +331,28 @@
     return true;
   }
 
-  function submit() {
+  async function submit() {
     if (!canSend) return;
+    const originalDraft = draft;
+    const sentAttachments = attachments.map((a) => a.id);
     const typed = draft.trim();
     const paths = attachments.map((a) => a.path!);
     const text = assistantChatMessage(typed, paths);
-    if (!send(text, paths.length > 0 ? typed : undefined)) return;
-    draft = "";
-    attachments = [];
+    const match = paths.length > 0 ? typed : undefined;
+    if (variant === "assistant") {
+      sending = true;
+      let delivered = false;
+      try {
+        delivered = await onsend(text);
+      } catch {
+        /* leave draft and attachments for retry */
+      } finally {
+        sending = false;
+      }
+      if (!track(text, delivered, match)) return;
+    } else if (!send(text, match)) return;
+    if (draft === originalDraft) draft = "";
+    attachments = attachments.filter((a) => !sentAttachments.includes(a.id));
     queueMicrotask(autosize);
   }
 

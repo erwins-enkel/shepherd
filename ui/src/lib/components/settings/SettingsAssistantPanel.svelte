@@ -1,4 +1,6 @@
 <script lang="ts">
+  import SettingsAssistantRuntime from "./SettingsAssistantRuntime.svelte";
+  import type { AssistantSwitchState, Session } from "#lib/types.js";
   import { untrack } from "svelte";
   import { putAssistantPermissions } from "#lib/api.js";
   import {
@@ -28,7 +30,17 @@
   // group, each saved on its own. Seeded once from the parent's getSettings() payload; the server
   // answers every save with the whole merged set, and its `operator-assistant:update` frame carries
   // the change to the panel chip.
-  let { payload, query = "" }: { payload: Settings | null; query?: string } = $props();
+  let {
+    payload,
+    query = "",
+    assistants = [],
+    switches = {},
+  }: {
+    payload: Settings | null;
+    query?: string;
+    assistants?: Session[];
+    switches?: Record<string, AssistantSwitchState>;
+  } = $props();
 
   let perms = $state<AssistantPermissions | null>(null);
   let saved: AssistantPermissions | null = null;
@@ -64,6 +76,8 @@
     }
   }
 </script>
+
+<SettingsAssistantRuntime {payload} {query} {assistants} {switches} />
 
 <p class="asp-intro">{m.settings_assistant_intro()}</p>
 

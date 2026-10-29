@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { AssistantSwitchState } from "#lib/types.js";
   import { onMount, untrack } from "svelte";
   import {
     getSettings,
@@ -80,6 +81,8 @@
     connected = false,
     showPairing = false,
     remoteSessions = [],
+    assistants = [],
+    assistantSwitches = {},
   }: {
     onclose?: () => void;
     onsaved?: (root: string) => void;
@@ -121,6 +124,8 @@
     showPairing?: boolean;
     /** Sessions mirrored from connected machines; Machines counts them per machine (#3056). */
     remoteSessions?: Session[];
+    assistants?: Session[];
+    assistantSwitches?: Record<string, AssistantSwitchState>;
   } = $props();
 
   // initialTab/initialMobileView seed the starting route; the user then freely
@@ -605,7 +610,7 @@
         aria-label={m.settings_tab_assistant()}
         hidden={active !== "assistant"}
       >
-        <SettingsAssistantPanel {payload} {query} />
+        <SettingsAssistantPanel {payload} {query} {assistants} switches={assistantSwitches} />
       </div>
 
       <div

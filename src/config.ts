@@ -1,3 +1,4 @@
+import { normalizeStoredAssistantRuntime } from "./operator-assistant-settings";
 import { dirname, join } from "node:path";
 import { resolveBunBin, resolveNodeBin } from "./node-bin";
 import { loadForgeMap } from "./forge/load-config";
@@ -1083,6 +1084,7 @@ export const config = {
   // What the Operator Assistant may do (Settings → Assistant): the shell level and one level per
   // action group. Persisted + UI-configurable; no env seed. Live: the assistant's
   // .claude/settings.local.json is rewritten on every change and the action tools read it per call.
+  assistantRuntime: normalizeStoredAssistantRuntime(null),
   assistantPermissions: { ...DEFAULT_ASSISTANT_PERMISSIONS } as AssistantPermissions,
   // Path to the apiKeyHelper script (written by Shepherd when the operator supplies a key).
   // null = no key configured. The raw key is NEVER stored — only this script path.

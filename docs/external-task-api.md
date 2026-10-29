@@ -776,3 +776,22 @@ Both routes sit behind the same operator cookie/bearer gate as every other read.
 They are deliberately **not** reachable through the loopback agent ingress: that
 listener is auth-exempt by design, and a full transcript is the most sensitive
 read in the API.
+
+### HUD assistant runtime
+
+Operator-authenticated `GET /api/settings` includes `assistantRuntime`:
+`enabled`, `preferredProvider` (`claude` or `codex`), `automaticFallback`, and
+`claude`/`codex` objects with `model` and `effort` (null means the provider default).
+`PUT` or `PATCH /api/settings` accepts a partial `assistantRuntime` object and returns
+the complete saved configuration. Invalid fields and incompatible model/provider choices
+return 400. These preferences do not change coding defaults.
+
+`POST /api/operator-assistant/switch` applies the saved runtime to all open global/repo
+assistants. It returns `{switches}` with entries keyed by source session id, including
+`sourceId`, `target`, `status` (`pending`, `switching`, `failed`) and optional `error`.
+It returns 202 while a turn or approval must finish, otherwise 200. It does not open
+closed scopes. `GET /api/operator-assistant` and `operator-assistant:update` include
+`assistantRuntime` and `switches` alongside their existing fields. A completed switch
+replaces that scope's session row and removes its pending entry. Failed switches retain
+the old conversation. Runtime settings and switch routes are operator-only and are not
+exposed on the agent ingress.

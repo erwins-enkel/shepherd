@@ -1,3 +1,4 @@
+import type { AssistantRuntimeSettings, AssistantSwitchState } from "./types";
 import { SvelteMap } from "svelte/reactivity";
 import { clearDecommissioning } from "./decommissioning.svelte";
 import type {
@@ -80,6 +81,9 @@ export class HerdStore {
    *  and replaced by `operator-assistant:update`, which every save in Settings emits. null until
    *  known. */
   assistantPermissions = $state<AssistantPermissions | null>(null);
+  assistantRuntime = $state<AssistantRuntimeSettings | null>(null);
+  assistantSwitches = $state<Record<string, AssistantSwitchState>>({});
+  assistantRuntimes = $state<Record<string, AssistantSwitchState["target"]>>({});
   /** Sessions mirrored from connected machines (#2762), held apart from `sessions` so nothing
    *  that acts on a local session — or keys a side map by its id — ever sees one. Only the herd's
    *  view (which joins them into its lifecycle groups, #3055), the jump to the next waiting session
@@ -245,6 +249,9 @@ export class HerdStore {
     this.assistantAvailable = state.available;
     this.assistantUnavailableReason = state.available ? null : state.reason;
     if (state.permissions) this.assistantPermissions = state.permissions;
+    if (state.assistantRuntime) this.assistantRuntime = state.assistantRuntime;
+    if (state.switches) this.assistantSwitches = state.switches;
+    if (state.runtimes) this.assistantRuntimes = state.runtimes;
   }
   /** Replace one assistant's row (an ensure/reset response, or an older server's update event):
    *  the row of the same scope gives way. null clears the global one. The server only hands a row
@@ -1078,12 +1085,28 @@ export class HerdStore {
         this.spawnProgress = ev.data;
         return true;
       case "operator-assistant:update":
-        if (ev.data.sessions) this.setAssistants(ev.data.sessions);
-        else this.setAssistant(ev.data.session);
-        if (ev.data.permissions) this.assistantPermissions = ev.data.permissions;
+        this.applyAssistantUpdate(ev.data);
         return true;
     }
     return false;
+  }
+
+  private applyAssistantUpdate(
+    data: Extract<WsEvent, { event: "operator-assistant:update" }>["data"],
+  ): void {
+    if (data.sessions) this.setAssistants(data.sessions);
+    else this.setAssistant(data.session);
+    if (data.permissions) this.assistantPermissions = data.permissions;
+    if (data.assistantRuntime) {
+      this.assistantRuntime = data.assistantRuntime;
+      if (!data.assistantRuntime.enabled) this.setAssistantUnavailable("disabled");
+      else if (this.assistantUnavailableReason === "disabled") {
+        this.assistantAvailable = true;
+        this.assistantUnavailableReason = null;
+      }
+    }
+    if (data.switches) this.assistantSwitches = data.switches;
+    if (data.runtimes) this.assistantRuntimes = data.runtimes;
   }
 
   /** Up Next invalidations and the default issue filter it applies (#3017). */

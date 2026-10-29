@@ -161,6 +161,8 @@ test("GET reports available with no session before the first open", async () => 
     session: null,
     sessions: [],
     permissions: config.assistantPermissions,
+    assistantRuntime: config.assistantRuntime,
+    switches: {},
   });
 });
 
@@ -229,6 +231,8 @@ for (const [reason, checks] of UNAVAILABLE) {
       session: null,
       sessions: [],
       permissions: config.assistantPermissions,
+      assistantRuntime: config.assistantRuntime,
+      switches: {},
     });
     for (const path of ["/api/operator-assistant", "/api/operator-assistant/reset"]) {
       const res = await app.fetch(post(path));
@@ -1068,4 +1072,45 @@ test("F08: the ingress refuses an assistant action carrying only the session UUI
     );
   expect((await own()).status).toBe(401);
   expect((await own(signer.sign(worker.id))).status).not.toBe(401);
+});
+
+test("Codex availability can keep HUD assistants available without Claude", async () => {
+  const { app } = setup([
+    { id: "herdr", state: "ok", hintKey: "diagnostics_hint_herdr_ok" },
+    { id: "claude", state: "optional", hintKey: "diagnostics_hint_claude_optional" },
+    { id: "codex", state: "ok", hintKey: "diagnostics_hint_codex_ok" },
+  ]);
+  const result = await (
+    await app.fetch(new Request("http://localhost/api/operator-assistant"))
+  ).json();
+  expect(result.available).toBe(true);
+  expect(result.reason).toBeNull();
+});
+
+test("saving an unavailable future runtime keeps an existing healthy conversation accessible", async () => {
+  const saved = config.assistantRuntime;
+  try {
+    const { app, store, calls } = setup();
+    const source = assistantRow(store);
+    config.assistantRuntime = { ...saved, preferredProvider: "codex", automaticFallback: false };
+    const state = await (
+      await app.fetch(new Request("http://localhost/api/operator-assistant"))
+    ).json();
+    expect(state.available).toBe(true);
+    expect(state.session.id).toBe(source.id);
+    expect(
+      (await app.fetch(new Request("http://localhost/api/operator-assistant", { method: "POST" })))
+        .status,
+    ).toBe(200);
+    expect(calls).toContain("ensure");
+    expect(
+      (
+        await app.fetch(
+          new Request("http://localhost/api/operator-assistant/reset", { method: "POST" }),
+        )
+      ).status,
+    ).toBe(503);
+  } finally {
+    config.assistantRuntime = saved;
+  }
 });

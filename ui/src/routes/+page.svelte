@@ -1670,6 +1670,14 @@
     return v;
   }
 
+  function assistantRuntimeProps(session: Session | null) {
+    return {
+      runtimeSwitch: session ? (store.assistantSwitches[session.id]?.status ?? null) : null,
+      runtimePreference: store.assistantRuntime?.preferredProvider ?? null,
+      fallbackReason: session ? (store.assistantRuntimes[session.id]?.fallback ?? null) : null,
+    };
+  }
+
   // bind:this on the desktop Viewport, so the Enter shortcut can hand the
   // keyboard back to the terminal that plain-key navigation kept it out of.
   let viewportRef: Viewport | undefined = $state();
@@ -3643,6 +3651,7 @@
         onend={assistantEndFor(repo)}
         onclose={() => closeAssistant()}
         ondiagnose={openDiagnose}
+        {...assistantRuntimeProps(entry.session)}
         permissions={store.assistantPermissions}
         onpermissions={openAssistantSettings}
       />

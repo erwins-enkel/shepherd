@@ -1,3 +1,6 @@
+import { codexCapacityInterrupted } from "./codex-capacity";
+import { assistantCodexHome } from "./operator-assistant-codex";
+import { findCodexRolloutById } from "./codex-session-id";
 import type { SessionStore } from "./store";
 import type { LivenessState, Session } from "./types";
 import {
@@ -1471,6 +1474,23 @@ export class StatusPoller {
    */
   private detectUsageHalt(s: Session): void {
     if (s.haltReason) return; // already set; skip
+    if (s.operatorAssistant && s.agentProvider === "codex") {
+      this.captureCodexSessionId?.(s);
+      const current = this.store.get(s.id);
+      const path =
+        current?.providerSessionId &&
+        findCodexRolloutById(current.providerSessionId, assistantCodexHome(s.worktreePath, s.id));
+      if (!path) return;
+      try {
+        if (!codexCapacityInterrupted(readTranscriptTail(path))) return;
+        const at = this.now();
+        this.store.setHaltReason(s.id, "usage_limit", at);
+        this.onHaltCb(s.id, "usage_limit", at);
+      } catch {
+        /* unreadable rollout: no inferred capacity failure */
+      }
+      return;
+    }
     try {
       const tail = readTranscriptTail(
         jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir),

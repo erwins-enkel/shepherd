@@ -4116,6 +4116,31 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return r?.epicParent ?? null;
   }
 
+  /** Publish a replacement only after its process started; failure rolls back the old live row. */
+  commitOperatorAssistant(
+    input: NewSession,
+    replacedId?: string,
+    runtime?: import("./operator-assistant-settings").AssistantRuntimeResolution,
+  ): Session {
+    return this.db.transaction(() => {
+      if (replacedId) {
+        const old = this.get(replacedId);
+        if (
+          !old?.operatorAssistant ||
+          old.archivedAt ||
+          (old.assistantRepo ?? null) !== (input.assistantRepo ?? null)
+        )
+          throw new Error("assistant source changed");
+        this.archive(replacedId);
+      }
+      const created = this.create(input);
+      this.setAutoMergeState(created.id, { enabled: false });
+      this.setSpawnIdentity(created.id, input.herdrAgentId, null);
+      if (runtime) this.setSetting(`assistantRuntime:${created.id}`, JSON.stringify(runtime));
+      return this.get(created.id)!;
+    })();
+  }
+
   /** The live (unarchived) Operator Assistant of one scope — `repo` null is the global one — or
    *  null. Newest first, though the `sessions_operator_assistant_scope` index already allows at
    *  most one per scope. Backs `SessionService.ensureOperatorAssistant`. */

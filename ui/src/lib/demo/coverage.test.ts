@@ -488,6 +488,7 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
   // ensure POST shares the GET's path and is covered by that classification. Its conversation
   // view and the dock's bars, the only readers of a session's messages, never render either.
   "Operator Assistant reset + close + conversation": [
+    "/api/operator-assistant/switch",
     "/api/operator-assistant/reset",
     "/api/operator-assistant/close",
     "/api/sessions/:p/messages",

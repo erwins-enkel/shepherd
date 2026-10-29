@@ -48,7 +48,7 @@
     /** One-shot: whether the composer may take the keyboard when it mounts. */
     consumeAutoFocus?: () => boolean;
     /** Submit a message at the agent's prompt; false when it could not be sent. */
-    onsend: (text: string) => boolean;
+    onsend: (text: string) => boolean | Promise<boolean>;
     /** Type raw keys into the terminal (a blocked prompt's answer); false when not sent. */
     onkeys?: (seq: string) => boolean;
     /** Interrupt the agent's turn (Escape). */

@@ -77,6 +77,7 @@ export function operatorAssistantPermissions(
   stateDir = "~/.shepherd",
   home = homedir(),
   spawnDir = `${stateDir.replace(/\/+$/, "")}/assistant-spawn`,
+  assistantDir = `${stateDir.replace(/\/+$/, "")}/assistant`,
 ): {
   defaultMode: "default";
   allow: string[];
@@ -96,6 +97,7 @@ export function operatorAssistantPermissions(
         "NotebookEdit",
         ...STATE_SECRETS.map((p) => `Read(${state}/${p})`),
         `Read(${rulePrefix(spawnDir, home)}/**)`,
+        `Read(${rulePrefix(assistantDir, home)}/.codex-runtime/**)`,
         ...CREDENTIAL_PATHS.map((p) => `Read(${p})`),
       ]),
     ],

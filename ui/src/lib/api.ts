@@ -1,3 +1,4 @@
+import type { AssistantRuntimeSettings, AssistantSwitchState } from "./types";
 import type {
   EpicLanding,
   SandboxProfile,
@@ -3872,7 +3873,17 @@ export function operatorAssistantUnavailableReason(
   e: unknown,
 ): OperatorAssistantUnavailableReason | null {
   if (!(e instanceof ApiError) || e.status !== 503) return null;
-  return e.code === "claude_missing" || e.code === "herdr_unreachable" ? e.code : null;
+  return [
+    "claude_missing",
+    "codex_missing",
+    "herdr_unreachable",
+    "disabled",
+    "capacity",
+    "runtime_unsupported",
+    "model_unsupported",
+  ].includes(e.code ?? "")
+    ? (e.code as OperatorAssistantUnavailableReason)
+    : null;
 }
 
 // ── Operator schedules (#3469) ──
@@ -3919,3 +3930,11 @@ export async function runScheduleNow(id: string): Promise<ScheduleRun> {
   const path = `/api/schedules/${encodeURIComponent(id)}/run`;
   return (await scheduleWrite("POST", path, "schedule run")).json();
 }
+
+export const putAssistantRuntime = (
+  assistantRuntime: AssistantRuntimeSettings,
+): Promise<{ assistantRuntime: AssistantRuntimeSettings }> => patchSettings({ assistantRuntime });
+
+export const switchOperatorAssistants = (): Promise<{
+  switches: Record<string, AssistantSwitchState>;
+}> => postOperatorAssistant("/api/operator-assistant/switch", "assistant runtime switch", null);

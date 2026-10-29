@@ -1,3 +1,8 @@
+import {
+  ASSISTANT_SHELL_TOOL,
+  ASSISTANT_VIEW_TOOL,
+  applyAssistantShell,
+} from "./operator-assistant-shell";
 /**
  * The agent→server control plane as a TOOL surface (issue #2003).
  *
@@ -96,6 +101,7 @@ export interface AgentControlDeps {
   loginWaitMs?: number;
   /** The Operator Assistant's diagnostic reads (#1446); absent ⇒ its tools answer "unavailable". */
   operatorDiag?: OperatorDiagDeps;
+  assistantViewText?: (id: string) => string;
   /** The Operator Assistant's actions (Settings → Assistant); absent ⇒ they answer "unavailable". */
   operatorActions?: OperatorActionDeps;
   /** Operator approvals for actions in an `ask` group (audit F08); absent ⇒ those refuse. */
@@ -693,6 +699,8 @@ export interface AgentCapabilities {
   browserLogin: boolean;
   /** The Operator Assistant's diagnostic tools (#1446) — that session only, and nothing else. */
   operatorDiag: boolean;
+  /** Codex HUDs use mediated shell/view tools; Claude keeps its native tools and hook. */
+  operatorCodex?: boolean;
   /** The Operator Assistant's action tools (steer, session control, approve and merge,
    *  automation) — that session only. No herd agent ever gets an approve or merge tool. */
   operatorActions: boolean;
@@ -752,6 +760,7 @@ function toolsFor(caps: AgentCapabilities): McpTool[] {
   if (caps.browserLogin) tools.push(BROWSER_REQUEST_LOGIN);
   if (caps.scheduleNoop) tools.push(SCHEDULE_NOOP);
   if (caps.operatorDiag) tools.push(...OPERATOR_DIAG_TOOLS);
+  if (caps.operatorCodex) tools.push(ASSISTANT_SHELL_TOOL, ASSISTANT_VIEW_TOOL);
   if (caps.operatorActions) tools.push(...OPERATOR_ACTION_TOOLS);
   return tools;
 }
@@ -777,7 +786,12 @@ export function browserLoginAllowed(
 export function sessionCapabilities(deps: AgentControlDeps, sessionId: string): AgentCapabilities {
   const session = deps.store.get(sessionId);
   if (!session) return NO_CAPABILITIES;
-  if (isOperatorAssistant(session)) return OPERATOR_ASSISTANT_CAPABILITIES;
+  if (isOperatorAssistant(session)) {
+    if (session.archivedAt) return NO_CAPABILITIES;
+    return session.agentProvider === "codex"
+      ? { ...OPERATOR_ASSISTANT_CAPABILITIES, operatorCodex: true }
+      : OPERATOR_ASSISTANT_CAPABILITIES;
+  }
   const repoConfig = deps.store.getRepoConfig(session.repoPath);
   return {
     buildQueue: repoConfig.buildQueueEnabled && !isNonCodeMode(session),
@@ -884,6 +898,11 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   repo_automation: (deps, id, args) => applyRepoAutomation(deps, args, assistantScope(deps, id)),
   system_health: (deps) => applySystemHealth(deps),
   logs_tail: (deps, _id, args) => applyLogsTail(deps, args),
+  assistant_shell: (deps, id, args, signal) => applyAssistantShell(deps, id, args, signal),
+  assistant_view: (deps, id) => ({
+    ok: true,
+    data: { view: deps.assistantViewText?.(id) ?? "View unavailable" },
+  }),
   ...Object.fromEntries(
     Object.values(ASSISTANT_ACTION_GROUPS)
       .flat()

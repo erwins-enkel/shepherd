@@ -286,6 +286,18 @@ export function sectionSearchRows(ctx: {
       ...dm.uses,
     ],
     assistant: [
+      [m.settings_assistant_runtime_enabled(), m.settings_assistant_runtime_intro()],
+      [m.settings_assistant_runtime_provider(), "Claude Codex"],
+      [
+        m.settings_assistant_runtime_model({ provider: "Claude" }),
+        m.settings_assistant_runtime_effort({ provider: "Claude" }),
+      ],
+      [
+        m.settings_assistant_runtime_model({ provider: "Codex" }),
+        m.settings_assistant_runtime_effort({ provider: "Codex" }),
+      ],
+      [m.settings_assistant_runtime_fallback(), m.settings_assistant_runtime_fallback_hint()],
+      [m.settings_assistant_runtime_switch(), m.settings_assistant_runtime_pending()],
       [m.settings_tab_assistant(), m.settings_assistant_intro()],
       [m.settings_assistant_shell_title(), m.settings_assistant_shell_hint()],
       [m.settings_assistant_steer_title(), m.settings_assistant_steer_hint()],

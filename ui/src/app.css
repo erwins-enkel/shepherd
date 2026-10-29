@@ -128,6 +128,9 @@
   --mobile-actionbar-h: calc(
     var(--mobile-actionbar-hit) + var(--mobile-actionbar-pad) + var(--actionbar-border)
   );
+  /* The phone's check-slot strip docked above the action bar: one 44px row plus the strip's
+     own 5px padding and 1px border, top and bottom. The list reserves it while the strip shows. */
+  --mobile-slotdock-h: calc(var(--mobile-actionbar-hit) + 12px);
   /* Mobile shell's base edge padding — single source shared by .shell.mobile
      (+page.svelte) and the full-bleed herd panel's negative margin
      (Herd.svelte), so the two can't drift apart. */

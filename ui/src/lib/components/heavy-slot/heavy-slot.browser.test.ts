@@ -138,6 +138,13 @@ describe("HeavySlotStrip", () => {
     });
     await expect.element(page.getByText(/Brake on/)).toBeVisible();
   });
+
+  it("docks out of the document flow, so showing it never reflows the list", async () => {
+    render(HeavySlotStrip, { heavySlot: snap(), sessions, docked: true });
+    const strip = document.querySelector<HTMLElement>(".hs-strip");
+    expect(strip?.classList.contains("hs-docked")).toBe(true);
+    expect(getComputedStyle(strip!).position).toBe("fixed");
+  });
 });
 
 describe("HostPopover — phone sheet", () => {

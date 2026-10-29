@@ -174,6 +174,7 @@
   import {
     needsResultRefresh,
     RESULT_REFRESH_MS,
+    slotActive,
     slotEnabled,
   } from "#lib/components/heavy-slot/heavy-slot.js";
   import RepoSwitcher from "#lib/components/RepoSwitcher.svelte";
@@ -1995,6 +1996,10 @@
       ? store.heavySlot
       : null,
   );
+  // Desktop: the strip sits in the chrome. Phone list: it docks above the action bar instead, so
+  // a check starting or ending never reflows the herd list.
+  const inlineSlot = $derived(mobile.current ? null : store.heavySlot);
+  const dockedSlot = $derived(mobileActionBarPresent ? store.heavySlot : null);
   const openHostSheet = $derived(mobile.current ? () => (showHostPanel = true) : undefined);
 
   function jumpToSession(id: string) {
@@ -3726,6 +3731,7 @@
   class:mobile={mobile.current}
   class:touch-wide={canCollapse}
   class:list={mobileActionBarPresent}
+  class:slot-docked={slotActive(dockedSlot)}
   use:pullToCommand={pullOptions}
 >
   <!-- a11y: a single top-level heading for the app shell, visually hidden via the
@@ -3801,12 +3807,9 @@
            renders it in the sidebar column instead (see .herd-col). -->
       {@render repoRail(railInChrome)}
       <QueueStrip autoMerge={store.autoMerge} onselect={jumpToSession} />
-      <HeavySlotStrip
-        heavySlot={store.heavySlot}
-        sessions={store.sessions}
-        onselect={jumpToSession}
-        onopen={openHostSheet}
-      />
+      <!-- Phone: docked above the action bar instead (below), since here every check start and
+           end would push the whole herd list down and back up. -->
+      <HeavySlotStrip heavySlot={inlineSlot} sessions={store.sessions} onselect={jumpToSession} />
       {#if hostSheetSlot}
         <HostPopover
           variant="sheet"
@@ -3825,6 +3828,15 @@
       {/if}
     </header>
   {/if}
+
+  <!-- Outside the chrome: its scroll-hide transform would make a fixed child anchor to it. -->
+  <HeavySlotStrip
+    docked
+    heavySlot={dockedSlot}
+    sessions={store.sessions}
+    onselect={jumpToSession}
+    onopen={openHostSheet}
+  />
 
   <main id="main-content" class="main-region">
     {#if store.strandedCount > 0}
@@ -4979,6 +4991,14 @@
     padding-top: 0;
     padding-bottom: calc(
       var(--mobile-actionbar-h) + max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom))
+    );
+  }
+  /* The docked check-slot strip floats over the list's bottom edge: reserve it too (plus its
+     6px lift) so the last row can still scroll clear. Only the scroll end grows; nothing moves. */
+  .shell.mobile.list.slot-docked {
+    padding-bottom: calc(
+      var(--mobile-actionbar-h) + max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom)) +
+        var(--mobile-slotdock-h) + 6px
     );
   }
   .shell.mobile.list .chrome {

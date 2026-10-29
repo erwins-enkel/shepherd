@@ -31,7 +31,15 @@
 // starts. Recognition fails open like every rule here: an unknown shape runs unchanged.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, statSync, statfsSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  statfsSync,
+} from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -473,11 +481,15 @@ const SHELL_KEYWORDS = new Set([
 
 /** Read a small text file, or null (missing, too big, unreadable). */
 function readSmallText(path) {
+  let fd;
   try {
-    if (statSync(path).size > MAX_SCRIPT_BYTES) return null;
-    return readFileSync(path, "utf8");
+    fd = openSync(path, "r");
+    if (fstatSync(fd).size > MAX_SCRIPT_BYTES) return null;
+    return readFileSync(fd, "utf8");
   } catch {
     return null;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
 }
 

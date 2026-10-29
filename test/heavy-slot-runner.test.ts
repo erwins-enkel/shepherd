@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { SessionStore } from "../src/store";
 import { HeavySlotService } from "../src/heavy-slot";
-import { EXIT_QUEUED, commandFrom, ingressConfig } from "../scripts/heavy-slot.mjs";
+import { EXIT_QUEUED, commandFrom, ingressConfig, main } from "../scripts/heavy-slot.mjs";
 import type { Session } from "../src/types";
 
 // The heavy-check runner (scripts/heavy-slot.mjs, #3181) as real subprocesses against a real
@@ -83,7 +83,7 @@ afterAll(() => {
 });
 
 function runner(
-  command: string,
+  command: string | string[],
   session: string | null,
   url = `http://127.0.0.1:${server.port}`,
 ): Promise<{ code: number | null; stderr: string }> {
@@ -94,7 +94,8 @@ function runner(
     env.SHEPHERD_INGRESS_HEADER_FILE = headerFile;
   }
   return new Promise((done) => {
-    const child = spawn("node", [RUNNER, "--", command], { cwd: dir, env });
+    const args = typeof command === "string" ? ["--", command] : command;
+    const child = spawn("node", [RUNNER, ...args], { cwd: dir, env });
     let stderr = "";
     child.stderr.on("data", (d) => (stderr += d));
     child.on("exit", (code) => done({ code, stderr }));
@@ -141,7 +142,7 @@ describe("heavy-slot runner", () => {
       await until(() => existsSync(f("A.started")));
 
       const t0 = Date.now();
-      const second = await runner(`touch ${f("B.ran")}`, "s2");
+      const second = await runner(["--exec", "touch", f("B.ran")], "s2");
       expect(Date.now() - t0).toBeLessThan(2_000);
       expect(second.code).toBe(EXIT_QUEUED);
       expect(second.stderr).toContain("NOT RUN");
@@ -153,7 +154,7 @@ describe("heavy-slot runner", () => {
       expect(readFileSync(f("A.marker"), "utf8").trim()).toMatch(/^[0-9a-f-]{36}$/);
       await until(() => steers.some(([id]) => id === "s2"));
 
-      const again = await runner(`touch ${f("B.ran")}`, "s2");
+      const again = await runner(["--exec", "touch", f("B.ran")], "s2");
       expect(again.code).toBe(0);
       expect(existsSync(f("B.ran"))).toBe(true);
     },
@@ -204,4 +205,229 @@ test("blocking runner starts after capacity increases without another agent turn
   });
   expect((await pending).code).toBe(0);
   expect(existsSync(marker)).toBe(true);
+});
+
+describe("runner execution boundaries", () => {
+  test("Bash receives exactly one unchanged command", async () => {
+    const command = `VALUE='a b'; printf '%s\\n' "$VALUE" | cat > '${f("shell-output")}'\nexit 6`;
+    expect(commandFrom(["--", command])).toBe(command);
+    const out = await runner(command, null);
+    expect(out.code).toBe(6);
+    expect(readFileSync(f("shell-output"), "utf8")).toBe("a b\n");
+    expect(commandFrom(["--", "echo one", "echo two"])).toBeNull();
+    expect((await runner(["--", "touch", f("must-not-run")], null)).code).toBe(2);
+    expect(existsSync(f("must-not-run"))).toBe(false);
+    expect(await main(["--", "echo\0bad"], {})).toBe(2);
+    expect(await main(["--exec", "node", "bad\0argument"], {})).toBe(2);
+  });
+
+  test.each([null, "s3"])("direct argv is literal (session %s)", async (session) => {
+    const suffix = session ?? "outside";
+    const output = f(`argv-${suffix}.json`);
+    const sideEffect = f(`injected-${suffix}`);
+    const args = ["a b", "", "it's", `; touch '${sideEffect}'`, `$(touch '${sideEffect}')`, "--"];
+    const script =
+      "require('node:fs').writeFileSync(process.argv[1], JSON.stringify({ args: process.argv.slice(2), job: process.env.SHEPHERD_HEAVY_JOB }))";
+    const out = await runner(["--exec", "node", "-e", script, output, ...args], session);
+    expect(out.code).toBe(0);
+    const result = JSON.parse(readFileSync(output, "utf8"));
+    expect(result.args).toEqual(args);
+    if (session) expect(result.job).toMatch(/^[0-9a-f-]{36}$/);
+    else expect(result.job).toBeUndefined();
+    expect(existsSync(sideEffect)).toBe(false);
+  });
+
+  test("direct spawn failures keep exit 127", async () => {
+    expect((await runner(["--exec", "/no-such-heavy-slot-executable"], null)).code).toBe(127);
+    const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
+    const before = signals.map((signal) => process.listenerCount(signal));
+    expect(await main(["--exec", "/no-such-heavy-slot-executable"], {})).toBe(127);
+    expect(signals.map((signal) => process.listenerCount(signal))).toEqual(before);
+    for (const args of [["--exec"], ["--exec", ""], ["--"], ["--", ""]]) {
+      expect((await runner(args, null)).code).toBe(2);
+    }
+  });
+});
+
+const configEnv = {
+  SHEPHERD_AGENT_API_URL: "http://127.0.0.1:7331",
+  SHEPHERD_SESSION_ID: "s1",
+  SHEPHERD_INGRESS_HEADER_FILE: "/h",
+};
+
+describe("local ingress boundary", () => {
+  test.each(["127.0.0.1", "localhost", "[::1]", "10.0.2.2"])("accepts local host %s", (host) => {
+    const cfg = ingressConfig(
+      { ...configEnv, SHEPHERD_AGENT_API_URL: `http://${host}:7331/` },
+      () => `${HEADER}: secret\n`,
+    );
+    expect(cfg?.endpoint).toBe(`http://${host}:7331/api/sessions/s1/heavy-slot`);
+  });
+
+  test.each([
+    "http://example.com",
+    "http://127.0.0.1.evil.example",
+    "http://10.0.2.3",
+    "file:///etc/passwd",
+    "ftp://127.0.0.1",
+    "not a URL",
+    "http://user:password@127.0.0.1",
+    "http://127.0.0.1/other",
+    "http://127.0.0.1/?target=elsewhere",
+    "http://127.0.0.1/#fragment",
+  ])("rejects %s before reading the credential", (base) => {
+    let reads = 0;
+    expect(
+      ingressConfig({ ...configEnv, SHEPHERD_AGENT_API_URL: base }, () => {
+        reads++;
+        return `${HEADER}: secret`;
+      }),
+    ).toBeNull();
+    expect(reads).toBe(0);
+  });
+
+  test("session ids remain a single encoded path segment", () => {
+    for (const id of [".", "..", "bad\0id", ""]) {
+      expect(
+        ingressConfig({ ...configEnv, SHEPHERD_SESSION_ID: id }, () => `${HEADER}: secret`),
+      ).toBeNull();
+    }
+    expect(
+      ingressConfig({ ...configEnv, SHEPHERD_SESSION_ID: "a/b?c#d" }, () => `${HEADER}: secret`)
+        ?.endpoint,
+    ).toBe("http://127.0.0.1:7331/api/sessions/a%2Fb%3Fc%23d/heavy-slot");
+  });
+
+  test.each([
+    "bad name: secret",
+    `${HEADER}: secret\r\nx-other: leak`,
+    `${HEADER}: secret\0`,
+    `${HEADER}: secret\n\n`,
+  ])("rejects malformed header %j", (line) => {
+    expect(ingressConfig(configEnv, () => line)).toBeNull();
+  });
+
+  test("invalid ingress config runs unmanaged without making a request", async () => {
+    let requests = 0;
+    const local = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch() {
+        requests++;
+        return Response.json({});
+      },
+    });
+    try {
+      const out = await runner(
+        `touch '${f("invalid-config-ran")}'`,
+        "s3",
+        `http://127.0.0.1:${local.port}/wrong`,
+      );
+      expect(out.code).toBe(0);
+      expect(existsSync(f("invalid-config-ran"))).toBe(true);
+      expect(requests).toBe(0);
+    } finally {
+      local.stop(true);
+    }
+  });
+
+  test("redirects never forward header-file credentials", async () => {
+    let requests = 0,
+      redirects = 0;
+    const receiver = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch() {
+        requests++;
+        return Response.json({});
+      },
+    });
+    const redirector = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(req) {
+        expect(req.headers.get(HEADER)).toBe("secret");
+        redirects++;
+        return Response.redirect(`http://127.0.0.1:${receiver.port}/leak`, 307);
+      },
+    });
+    try {
+      const out = await runner(
+        `touch '${f("redirect-fallback")}'`,
+        "s3",
+        `http://127.0.0.1:${redirector.port}`,
+      );
+      expect(out.code).toBe(0);
+      expect(out.stderr).toContain("heavy-check slot unavailable");
+      expect(existsSync(f("redirect-fallback"))).toBe(true);
+      expect(redirects).toBe(1);
+      expect(requests).toBe(0);
+    } finally {
+      redirector.stop(true);
+      receiver.stop(true);
+    }
+  });
+});
+
+test.each(["bash", "direct"])("forwards signals to the child (%s)", async (mode) => {
+  const ready = f(`signal-${mode}`);
+  const script = f(`signal-${mode}.cjs`);
+  writeFileSync(
+    script,
+    `require('node:fs').writeFileSync(${JSON.stringify(ready)}, 'ready'); process.on('SIGTERM', () => process.exit(42)); setInterval(() => {}, 1000);`,
+  );
+  const args = mode === "bash" ? ["--", `exec node '${script}'`] : ["--exec", "node", script];
+  const child = spawn("node", [RUNNER, ...args], {
+    env: { PATH: process.env.PATH },
+    stdio: "ignore",
+  });
+  const exited = new Promise((resolve) => child.on("exit", resolve));
+  try {
+    await until(() => existsSync(ready));
+    child.kill("SIGTERM");
+    expect(await exited).toBe(42);
+  } finally {
+    child.kill("SIGKILL");
+  }
+});
+
+test("a queued direct command supplies shell-quoted rerun instructions without starting it", async () => {
+  const slot = makeService(true);
+  await slot.start();
+  await slot.acquire("s1", "occupied", dir);
+  const api = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(req) {
+      const body = await req.json();
+      return Response.json(await slot.acquire("s2", body.command, dir));
+    },
+  });
+  const output = f("rerun-argv.json");
+  const injected = f("rerun-injected");
+  const args = ["a b", "", "it's", `$(touch '${injected}')`, ";"];
+  try {
+    const queued = await runner(
+      [
+        "--exec",
+        "node",
+        "-e",
+        "require('node:fs').writeFileSync(process.argv[1], JSON.stringify(process.argv.slice(2)))",
+        output,
+        ...args,
+      ],
+      "s2",
+      `http://127.0.0.1:${api.port}`,
+    );
+    expect(queued.code).toBe(EXIT_QUEUED);
+    expect(existsSync(output)).toBe(false);
+    const rerun = queued.stderr.match(/NOT RUN\. `([^`]+)`/)?.[1];
+    expect(rerun).toBeDefined();
+    expect((await runner(rerun!, null)).code).toBe(0);
+    expect(JSON.parse(readFileSync(output, "utf8"))).toEqual(args);
+    expect(existsSync(injected)).toBe(false);
+  } finally {
+    api.stop(true);
+    slot.stop();
+  }
 });

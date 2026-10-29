@@ -32,8 +32,15 @@ describe("slot-shim main", () => {
   test("a heavy command goes through the slot runner and passes its exit code through", async () => {
     const { code, calls } = run(SESSION_ENV, true);
     expect(await code).toBe(75);
-    expect(calls.slot).toEqual([["--", "bun run test"]]);
+    expect(calls.slot).toEqual([["--exec", "/usr/bin/real", "run", "test"]]);
     expect(calls.real).toEqual([]);
+  });
+
+  test("heavy argv reaches the runner without shell quoting or joining", async () => {
+    const args = ["test", "", "a b", "it's", "$(echo bad)", ";", "--"];
+    const { code, calls } = run(SESSION_ENV, true, ["bun", ...args]);
+    expect(await code).toBe(75);
+    expect(calls.slot).toEqual([["--exec", "/usr/bin/real", ...args]]);
   });
 
   test("a light command execs the real binary", async () => {

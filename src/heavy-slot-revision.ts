@@ -1,7 +1,7 @@
 // The source state a heavy-check slot job ran against (#3554): the commit plus a hash of the dirty
 // worktree. A result is only trustworthy while the worktree still matches it.
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { constants, open } from "node:fs/promises";
 import { join } from "node:path";
 import { execGit, type GitPin, resolveWorktreePin } from "./safe-git";
 
@@ -24,12 +24,18 @@ async function git(cwd: string, pin: GitPin | null, args: string[]): Promise<str
 async function untrackedFingerprint(cwd: string, rel: string): Promise<string> {
   try {
     const path = join(cwd, rel);
-    const st = await stat(path);
-    if (!st.isFile()) return `${rel}\0dir`;
-    if (st.size > CONTENT_HASH_MAX_BYTES) return `${rel}\0${st.size}\0${st.mtimeMs}`;
-    return `${rel}\0${createHash("sha1")
-      .update(await readFile(path))
-      .digest("hex")}`;
+    // A symlink may target a FIFO; opening must not block before fstat can reject it.
+    const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      const st = await file.stat();
+      if (!st.isFile()) return `${rel}\0dir`;
+      if (st.size > CONTENT_HASH_MAX_BYTES) return `${rel}\0${st.size}\0${st.mtimeMs}`;
+      return `${rel}\0${createHash("sha1")
+        .update(await file.readFile())
+        .digest("hex")}`;
+    } finally {
+      await file.close();
+    }
   } catch {
     return `${rel}\0gone`;
   }

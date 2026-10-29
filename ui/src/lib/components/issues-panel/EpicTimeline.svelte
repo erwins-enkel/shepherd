@@ -121,7 +121,6 @@
     background: var(--color-panel);
     border: 1px solid var(--color-line);
     border-radius: 2px;
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
   }
 
@@ -192,6 +191,7 @@
   .tick-label,
   .now-label {
     position: absolute;
+    font-family: var(--font-mono);
     top: 0;
     white-space: nowrap;
     transform: translateX(-50%);

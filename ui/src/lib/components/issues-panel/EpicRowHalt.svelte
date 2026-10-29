@@ -252,7 +252,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;
@@ -327,7 +326,6 @@
     border-radius: 2px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
     color: var(--color-ink);
-    font-family: var(--font-mono);
   }
 
   /* Phone: the rising bottom sheet (ReposSheet's recipe — the design system's sanctioned "sheet
@@ -353,7 +351,6 @@
     border-radius: 12px 12px 0 0;
     box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.5);
     color: var(--color-ink);
-    font-family: var(--font-mono);
   }
   .fix-sheet:focus-visible {
     outline: none;

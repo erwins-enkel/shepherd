@@ -239,7 +239,6 @@
     border-radius: 2px;
     background: var(--color-inset);
     color: var(--color-ink-bright);
-    font-family: var(--font-mono, ui-monospace, monospace);
     font-size: var(--fs-base);
     line-height: 1.5;
   }
@@ -260,7 +259,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 8px 14px;

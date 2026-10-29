@@ -119,7 +119,6 @@
     flex-direction: column;
     height: 100%;
     background: var(--color-inset);
-    font-family: var(--font-mono);
     overflow: hidden;
   }
 
@@ -142,7 +141,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -274,7 +272,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-base);
     padding: 5px 8px;
     outline: none;
@@ -294,7 +291,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 5px 10px;

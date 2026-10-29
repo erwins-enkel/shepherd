@@ -252,7 +252,6 @@
 
   .row-label {
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.05em;
   }

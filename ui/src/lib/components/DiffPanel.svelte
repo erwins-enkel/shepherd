@@ -358,7 +358,6 @@
   }
   .review-chip {
     flex-shrink: 0;
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     text-transform: uppercase;
     letter-spacing: 0.03em;

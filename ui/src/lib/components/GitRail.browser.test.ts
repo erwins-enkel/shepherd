@@ -824,10 +824,10 @@ describe("GitRail — forge-error fallback (no silent-empty rail)", () => {
 });
 
 describe("GitRail — mobile scroll affordance", () => {
-  it("mobile 360px — overflowing rail fades its trailing edge to cue the scroll", async () => {
+  it("mobile 300px — overflowing rail fades its trailing edge to cue the scroll", async () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(400, 900);
-    const h = host(360);
+    const h = host(300);
     // Emulate the real .vp-git-strip (display:flex; min-width:0) so the
     // .git-rail-wrap.mobile (flex:1 1 auto; min-width:0) clamps to the cell and
     // the rail scrolls — a plain block host only clamps while content fits.
@@ -837,7 +837,7 @@ describe("GitRail — mobile scroll affordance", () => {
 
     const rail = h.querySelector<HTMLElement>(".rail.mobile");
     expect(rail, ".rail.mobile mounted").not.toBeNull();
-    // content overflows the 360px cell → the right edge fades (--fade-r = 1)
+    // content overflows the 300px cell → the right edge fades (--fade-r = 1)
     expect(rail!.scrollWidth, "rail actually overflows").toBeGreaterThan(rail!.clientWidth);
     await vi.waitFor(() =>
       expect(rail!.style.getPropertyValue("--fade-r"), "trailing edge faded").toBe("1"),
@@ -846,10 +846,10 @@ describe("GitRail — mobile scroll affordance", () => {
     expect(rail!.style.getPropertyValue("--fade-l"), "leading edge not faded").toBe("0");
   });
 
-  it("mobile 360px — recomputes the fade on content change, not just scroll/resize", async () => {
+  it("mobile 300px — recomputes the fade on content change, not just scroll/resize", async () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(400, 900);
-    const h = host(360);
+    const h = host(300);
     // flex host mirrors the real .vp-git-strip so the wrap clamps and the rail scrolls
     h.style.display = "flex";
     const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });

@@ -343,7 +343,7 @@
        amber-washed surface (≈4.4:1 in dark and light themes). */
     color: var(--color-ink);
     font-size: var(--fs-base);
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

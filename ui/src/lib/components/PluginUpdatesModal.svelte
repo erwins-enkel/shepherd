@@ -438,7 +438,7 @@
     margin-top: 6px;
     font-size: var(--fs-meta);
     color: var(--color-muted);
-    font-family: monospace;
+    font-family: var(--font-mono);
     word-break: break-word;
   }
   .hint {
@@ -463,7 +463,7 @@
     color: var(--color-ink);
   }
   .cmd {
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     background: var(--color-panel);
     border: 1px solid var(--color-line);

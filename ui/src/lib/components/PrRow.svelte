@@ -567,6 +567,7 @@
      branch name truncates rather than stretching the row. */
   .target-branch {
     flex-shrink: 0;
+    font-family: var(--font-mono);
     max-width: 12em;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -582,6 +583,7 @@
   }
 
   .author {
+    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     color: var(--color-muted);
     overflow: hidden;
@@ -591,6 +593,7 @@
 
   .age-chip {
     margin-left: auto;
+    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.1em;
     color: var(--color-faint);
@@ -630,7 +633,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;

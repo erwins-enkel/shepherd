@@ -165,7 +165,6 @@
     border-radius: 50%;
     background: transparent;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     font-style: italic;
     line-height: 1;

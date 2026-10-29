@@ -152,7 +152,6 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-lg);
     line-height: 1;
     cursor: pointer;
@@ -209,7 +208,6 @@
   /* transient error line below the field when a transcription fails */
   .mic-hint {
     color: var(--color-red);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     padding: 4px 2px 0;
   }
@@ -219,7 +217,6 @@
      error; it is provenance, NOT a plugin health badge. */
   .mic-origin {
     color: var(--color-faint);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     padding: 4px 2px 0;
   }

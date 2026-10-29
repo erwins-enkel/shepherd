@@ -199,6 +199,44 @@ describe("statusTip panel and navigates", () => {
     expect(panel.querySelector(".tooltip-footer")?.textContent).toContain("Click opens");
   });
 
+  // #3597: the tip's prose reads in the body face; the timeline's times stay mono.
+  it("typography: prose in the body face, timeline times mono", async () => {
+    const node = document.createElement("span");
+    document.body.append(node);
+    const action = statusTip(node, {
+      text: {
+        ...explanation,
+        timeline: {
+          segments: [{ from: 0, to: 0.5, tone: "run" }],
+          start: "10:21",
+          end: "14:05",
+          now: { at: 0.5, label: "12:43" },
+          legend: [{ tone: "run", label: "Running" }],
+        },
+      },
+    });
+    cleanup = () => {
+      action?.destroy?.();
+      node.remove();
+    };
+    const panel = await hoverOpen(node);
+
+    const family = (el: Element) => getComputedStyle(el).fontFamily;
+    const sans = getComputedStyle(document.body).fontFamily;
+    const probe = document.body.appendChild(document.createElement("span"));
+    probe.style.fontFamily = "var(--font-mono)";
+    const mono = getComputedStyle(probe).fontFamily;
+    probe.remove();
+    expect(sans).not.toBe(mono);
+
+    for (const sel of [".tooltip-body", ".tooltip-title", ".tooltip-summary", ".tooltip-label"]) {
+      expect(family(panel.querySelector(sel)!), sel).toBe(sans);
+    }
+    for (const sel of [".tl-edges", ".tl-now-label"]) {
+      expect(family(panel.querySelector(sel)!), sel).toBe(mono);
+    }
+  });
+
   it("navigates: a mouse click reaches the action and closes the hovered tip", async () => {
     const { node, acted } = mountNavigating();
     const panel = await hoverOpen(node);

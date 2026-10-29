@@ -188,6 +188,27 @@ describe("EpicPanel DAUER column (#2939)", () => {
       .toBeVisible();
   });
 
+  // #3597: the panel, child titles and buttons read in the body face; numbers and clocks stay mono.
+  it("sets prose and buttons in the body face and keeps numbers and clocks mono", async () => {
+    render(EpicPanel, { repoPath: "/repo", parent: 327, epic: timed(), nowMs: NOW });
+    await expect.element(row(161).getByText("04:13")).toBeVisible();
+
+    const family = (el: Element) => getComputedStyle(el).fontFamily;
+    const sans = getComputedStyle(document.body).fontFamily;
+    const probe = document.body.appendChild(document.createElement("span"));
+    probe.style.fontFamily = "var(--font-mono)";
+    const mono = getComputedStyle(probe).fontFamily;
+    probe.remove();
+    expect(sans).not.toBe(mono);
+
+    for (const sel of [".epic", ".epic-child .title", ".epic-head .gbtn"]) {
+      expect(family(document.querySelector(sel)!), sel).toBe(sans);
+    }
+    for (const sel of [".epic-child .num", ".dur-clock"]) {
+      expect(family(document.querySelector(sel)!), sel).toBe(mono);
+    }
+  });
+
   it("has no column without the epic clock", async () => {
     render(EpicPanel, {
       repoPath: "/repo",

@@ -255,6 +255,7 @@
     margin-top: 1px;
   }
   .row-evidence {
+    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     color: var(--color-faint);
     word-break: break-word;

@@ -98,7 +98,6 @@
   .tooltip-body {
     display: block;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     font-weight: 400;
     line-height: 1.55;
@@ -182,6 +181,7 @@
     display: flex;
     justify-content: space-between;
     gap: 8px;
+    font-family: var(--font-mono);
   }
 
   .tl-strip {
@@ -252,6 +252,7 @@
     top: 0;
     white-space: nowrap;
     color: var(--status-running);
+    font-family: var(--font-mono);
     font-weight: 600;
   }
 

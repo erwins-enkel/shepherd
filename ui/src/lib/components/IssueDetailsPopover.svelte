@@ -117,7 +117,6 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    font-family: var(--font-mono);
   }
   .issue-details:focus {
     outline: none;
@@ -139,6 +138,9 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 20ch;
+  }
+  .id-age {
+    font-family: var(--font-mono);
   }
   .id-title {
     font-size: var(--fs-base);

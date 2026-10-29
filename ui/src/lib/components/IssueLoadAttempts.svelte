@@ -89,7 +89,6 @@
   .attempts {
     /* Inherit the caller's type scale — this block is a continuation of its
        failure sentence, not a surface of its own. */
-    font-family: var(--font-mono);
     font-size: inherit;
     color: var(--color-faint);
     margin-top: 6px;

@@ -825,7 +825,6 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-family: var(--font-mono);
     font-size: var(--fs-base);
     color: var(--color-ink-bright);
   }
@@ -904,7 +903,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;
@@ -938,6 +936,8 @@
     text-align: left;
     cursor: pointer;
     appearance: auto;
+    /* options are prose, not numbers: drop the `.afield-num` mono */
+    font-family: var(--font-sans);
   }
   .signoff-note {
     font-size: var(--fs-meta);
@@ -952,6 +952,8 @@
     text-align: left;
     cursor: pointer;
     appearance: auto;
+    /* options are prose, not numbers: drop the `.afield-num` mono */
+    font-family: var(--font-sans);
   }
   /* Sandbox summary line: flex so the circular ⓘ vertically centers against the
      text (mirrors .auto-name), instead of sitting baseline-misaligned. */
@@ -966,7 +968,6 @@
   .epic-mode-banner {
     margin: 0 12px 4px;
     padding: 5px 8px;
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     color: var(--status-running);
     background: color-mix(in oklab, var(--status-running) 12%, transparent);

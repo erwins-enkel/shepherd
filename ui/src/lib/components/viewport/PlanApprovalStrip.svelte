@@ -53,7 +53,7 @@
   .plan-text {
     margin: 0;
     color: var(--color-ink-bright);
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     font-size: var(--fs-base);
     white-space: pre-wrap;
     overflow-wrap: anywhere;

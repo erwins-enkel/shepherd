@@ -513,7 +513,6 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     /* 16px — the iOS no-zoom minimum, so focusing the field never zooms the
        page (kept at the threshold on desktop too for steering legibility) */
     font-size: var(--fs-lg);
@@ -553,7 +552,6 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-base);
     cursor: pointer;
     touch-action: pan-x;
@@ -585,7 +583,6 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-lg);
     cursor: pointer;
     touch-action: manipulation;
@@ -649,7 +646,6 @@
   /* transient error line above the action row when a transcription fails */
   .voice-hint {
     color: var(--color-red);
-    font-family: var(--font-mono);
     font-size: var(--fs-base);
     padding: 0 2px;
   }
@@ -659,7 +655,6 @@
      with the field and never reads as an error; it is provenance, NOT a plugin health badge. */
   .voice-origin {
     color: var(--color-faint);
-    font-family: var(--font-mono);
     font-size: var(--fs-base);
     padding: 0 2px;
   }

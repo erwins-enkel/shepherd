@@ -75,7 +75,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     box-shadow: var(--shadow-popover);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     container: run-panel / inline-size;
   }

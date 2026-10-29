@@ -160,13 +160,12 @@
     border-bottom: 0;
   }
   .num {
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     color: var(--color-blue);
   }
   .nm {
-    font-family: var(--font-mono, monospace);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

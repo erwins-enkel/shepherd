@@ -216,7 +216,6 @@
      (11px) here is a DELIBERATE sub-16px exception (the glyph carries primary meaning and a
      tooltip backs it); ellipsis is a last-resort guard for the very narrowest widths. */
   .lens .lb {
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.02em;
     text-transform: uppercase;
@@ -280,6 +279,8 @@
     .lens .lb {
       font-size: 9px;
       letter-spacing: 0;
+      /* sans caps run wider than mono; mixed case keeps "Nächstes" inside the segment */
+      text-transform: none;
     }
   }
 

@@ -534,7 +534,6 @@
     min-width: 0;
     background: var(--bqp-surface);
     border: 1px solid var(--color-line-bright);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
   }
 
@@ -652,6 +651,7 @@
   /* Tabular so the count holds its column as the queue ticks (DESIGN.md). */
   .bqp-count {
     flex: none;
+    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.06em;
     color: var(--color-ink);
@@ -887,6 +887,7 @@
 
   .bqp-num {
     flex: none;
+    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.06em;
     color: var(--color-muted);

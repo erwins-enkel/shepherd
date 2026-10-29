@@ -358,7 +358,6 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-base);
     cursor: pointer;
     touch-action: manipulation;
@@ -520,7 +519,6 @@
     background: var(--color-head);
     border-top: 1px solid var(--color-line);
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     line-height: 1.35;
   }
@@ -537,7 +535,6 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     cursor: pointer;
     touch-action: manipulation;

@@ -68,7 +68,7 @@
   .upd-detail {
     margin: 4px 0 0;
     color: var(--color-muted);
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     word-break: break-word;
   }
   /* Steady-state check result — quiet by design: it reports that this row WAS looked
@@ -79,6 +79,6 @@
     word-break: break-word;
   }
   .upd-checked .reason {
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
   }
 </style>

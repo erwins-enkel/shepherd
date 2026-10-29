@@ -277,7 +277,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;
@@ -376,7 +375,6 @@
     border: none;
     padding: 0;
     cursor: pointer;
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -413,7 +411,6 @@
     background: transparent;
     border: none;
     cursor: pointer;
-    font-family: var(--font-mono);
   }
   .retry:hover {
     color: var(--color-amber);
@@ -426,7 +423,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     padding: 2px 8px;

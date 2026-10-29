@@ -186,6 +186,31 @@ describe("PrActionRow — ready", () => {
     await expect.element(link).toHaveAttribute("href", readyGit.url!);
   });
 
+  // #3597: the row's label, title and buttons read in the body face; the PR number stays mono.
+  it("sets label, title and buttons in the body face and keeps the PR number mono", async () => {
+    const h = host();
+    await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: readyGit, status: "idle" },
+    });
+    await expect.poll(() => row(h)).not.toBeNull();
+
+    const family = (el: Element) => getComputedStyle(el).fontFamily;
+    const sans = getComputedStyle(document.body).fontFamily;
+    const probe = document.body.appendChild(document.createElement("span"));
+    probe.style.fontFamily = "var(--font-mono)";
+    const mono = getComputedStyle(probe).fontFamily;
+    probe.remove();
+    expect(sans).not.toBe(mono);
+
+    expect(family(row(h)!), ".pr-row").toBe(sans);
+    for (const sel of [".pr-label", ".pr-title"]) {
+      expect(family(row(h)!.querySelector(sel)!), sel).toBe(sans);
+    }
+    expect(family(mergeBtn(h)), ".gbtn.merge").toBe(sans);
+    expect(family(row(h)!.querySelector(".pr-num")!), ".pr-num").toBe(mono);
+  });
+
   it("Merge opens the existing confirmation — no inline merge", async () => {
     mergePrFn.mockResolvedValue({ ...readyGit, state: "merged" });
     const h = host();

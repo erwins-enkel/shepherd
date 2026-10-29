@@ -7,12 +7,17 @@
   >{#if webUrl}<!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
     <a class="repo-link" href={firstSafeHttpUrl(webUrl) ?? undefined} target="_blank" rel="noopener"
       >{slug}</a
-    >{:else}{slug}{/if}{/if}
+    >{:else}<span class="repo-slug">{slug}</span>{/if}{/if}
 
 <style>
   .sep {
     color: var(--color-faint);
     margin: 0 0.35em;
+  }
+
+  .repo-link,
+  .repo-slug {
+    font-family: var(--font-mono);
   }
 
   .repo-link {

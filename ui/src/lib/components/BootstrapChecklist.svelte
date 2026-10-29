@@ -254,7 +254,6 @@
     padding: 12px 14px 14px;
     border-bottom: 1px solid var(--color-line);
     background: var(--color-panel);
-    font-family: var(--font-mono);
   }
   .bsc-head {
     display: flex;
@@ -497,7 +496,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 6px 12px;

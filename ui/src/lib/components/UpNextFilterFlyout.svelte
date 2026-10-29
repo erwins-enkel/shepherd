@@ -293,7 +293,6 @@
     justify-content: space-between;
     width: 100%;
     padding: 0 0 4px;
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -345,7 +344,6 @@
   }
   /* Label toggles: the IssueFilterPopover .label-toggle recipe. */
   .label-toggle {
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;

@@ -174,7 +174,8 @@
 {#snippet passiveZone()}
   {#if readyToMerge}
     <span class="status-chip info"
-      ><span class="dot" aria-hidden="true"></span>{m.gitrail_ready_to_merge()} #{git.number}</span
+      ><span class="dot" aria-hidden="true"></span>{m.gitrail_ready_to_merge()}
+      <span class="chip-num">#{git.number}</span></span
     >
   {/if}
   {#if plainPr}
@@ -362,7 +363,6 @@
     border: 1px solid var(--color-line);
     border-radius: var(--radius-chip);
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 3px 9px;
@@ -420,7 +420,6 @@
     border: 1px solid var(--color-line);
     border-radius: var(--radius-chip);
     padding: 3px 9px;
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -491,6 +490,10 @@
   .status-chip.parked .dot {
     background: var(--color-slate);
   }
+  /* PR number is an identifier: mono inside the sans chip label. */
+  .chip-num {
+    font-family: var(--font-mono);
+  }
   .status-chip .dot.hollow {
     background: transparent;
     box-shadow: inset 0 0 0 1.5px currentColor;
@@ -502,7 +505,6 @@
     border: 1px solid currentColor;
     border-radius: var(--radius-chip);
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     text-transform: uppercase;

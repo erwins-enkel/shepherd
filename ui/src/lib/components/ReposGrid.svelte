@@ -303,7 +303,6 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    font-family: var(--font-mono);
     color: var(--color-ink);
   }
 
@@ -331,7 +330,6 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-ink-bright);
-    font-family: var(--font-mono);
     font-size: var(--fs-base);
     letter-spacing: 0.03em;
     outline: none;
@@ -362,7 +360,6 @@
     background: transparent;
     border: none;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-base);
     line-height: 1;
     cursor: pointer;
@@ -380,7 +377,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.04em;
     cursor: pointer;
@@ -445,7 +441,6 @@
     border-radius: 2px;
     color: inherit;
     font: inherit;
-    font-family: var(--font-mono);
     text-align: left;
     cursor: pointer;
     touch-action: manipulation;
@@ -473,6 +468,7 @@
   .rg-name {
     min-width: 0;
     color: var(--color-ink-bright);
+    font-family: var(--font-mono);
     font-size: var(--fs-base);
     font-weight: 500;
     letter-spacing: 0.03em;
@@ -482,6 +478,7 @@
   }
   .rg-owner {
     color: var(--color-muted);
+    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.04em;
     overflow: hidden;
@@ -526,7 +523,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.04em;
     cursor: pointer;

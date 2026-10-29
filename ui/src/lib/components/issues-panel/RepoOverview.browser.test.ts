@@ -172,6 +172,32 @@ describe("RepoOverview (#2622)", () => {
     expect(onopenautomation).toHaveBeenCalledOnce();
   });
 
+  // #3597: the overview's prose and buttons read in the body face; epic numbers stay mono.
+  it("sets prose and buttons in the body face and keeps epic numbers mono", async () => {
+    render(RepoOverview, {
+      epics: [summaryOf(A, 1, 3), summaryOf(B, 0, 2)],
+      ...quiet,
+      drain: drain(),
+      leadingRecord: leading(),
+      titleFor,
+      onselect: vi.fn(),
+      onopenautomation: vi.fn(),
+    });
+
+    const family = (el: Element) => getComputedStyle(el).fontFamily;
+    const sans = getComputedStyle(document.body).fontFamily;
+    const probe = document.body.appendChild(document.createElement("span"));
+    probe.style.fontFamily = "var(--font-mono)";
+    const mono = getComputedStyle(probe).fontFamily;
+    probe.remove();
+    expect(sans).not.toBe(mono);
+
+    expect(family(root()), ".overview").toBe(sans);
+    expect(family(root().querySelector(".title")!), ".title").toBe(sans);
+    expect(family(run().querySelector(".gbtn")!), ".gbtn").toBe(sans);
+    expect(family(root().querySelector(".num")!), ".num").toBe(mono);
+  });
+
   it("names landing repairs (no slot) and lists the epic queue in order (#2973)", async () => {
     const onselect = vi.fn();
     const d = drain();

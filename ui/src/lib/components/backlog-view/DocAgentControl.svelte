@@ -216,7 +216,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;
@@ -249,7 +248,6 @@
   .status-badge {
     display: inline-flex;
     align-items: center;
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -330,7 +328,6 @@
 
   .pop-head {
     padding: 7px 12px 6px;
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;

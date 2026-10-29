@@ -97,7 +97,6 @@
     border: 0;
     border-top: 1px solid var(--color-line);
     background: none;
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     color: var(--color-ink-bright);
     text-align: left;

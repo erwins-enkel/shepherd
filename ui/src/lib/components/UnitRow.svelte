@@ -1648,7 +1648,6 @@
     border-radius: 2px;
     background: transparent;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     text-align: left;
     cursor: pointer;
@@ -1872,7 +1871,6 @@
     flex: none;
     position: relative;
     z-index: 1;
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -2044,7 +2042,6 @@
     position: relative;
     z-index: 1;
     flex: none;
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;

@@ -62,7 +62,6 @@
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .un-chips-std {
-    font-family: var(--font-mono);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-faint);

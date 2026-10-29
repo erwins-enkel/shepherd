@@ -100,6 +100,7 @@
   }
 
   .pr-link {
+    font-family: var(--font-mono);
     color: var(--color-muted);
     font-size: var(--fs-meta);
     text-decoration: none;
@@ -115,7 +116,6 @@
     background: transparent;
     border: 0;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     text-decoration: underline;
     cursor: pointer;

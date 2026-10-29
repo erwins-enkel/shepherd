@@ -499,6 +499,26 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     expect(document.querySelector(".detail-col .overview")).toBeNull();
   });
 
+  // #3597: the panel, its prose and its controls read in the body face; issue numbers stay mono.
+  it("sets prose and controls in the body face and keeps issue numbers mono", async () => {
+    seed([plain(42, { title: "Compact issue row" })]);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+    await expect.poll(() => option("s:42")).not.toBeNull();
+
+    const family = (el: Element) => getComputedStyle(el).fontFamily;
+    const sans = getComputedStyle(document.body).fontFamily;
+    const probe = document.body.appendChild(document.createElement("span"));
+    probe.style.fontFamily = "var(--font-mono)";
+    const mono = getComputedStyle(probe).fontFamily;
+    probe.remove();
+    expect(sans).not.toBe(mono);
+
+    for (const sel of [".issues-panel", ".issue-filter", "#issue-opt-s\\:42 .issue-title"]) {
+      expect(family(document.querySelector(sel)!), sel).toBe(sans);
+    }
+    expect(family(option("s:42")!.querySelector(".meta-num")!), ".meta-num").toBe(mono);
+  });
+
   describe("repo overview beside the list (#2638)", () => {
     let prevActive = false;
     beforeEach(() => {

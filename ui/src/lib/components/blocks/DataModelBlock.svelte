@@ -70,7 +70,6 @@
   .dm-table {
     width: 100%;
     border-collapse: collapse;
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
   }
   /* Field row styles target child component markup via :global() */
@@ -83,10 +82,12 @@
   }
   :global(.dm-field-name) {
     color: var(--color-ink);
+    font-family: var(--font-mono);
     white-space: nowrap;
   }
   :global(.dm-field-type) {
     color: var(--color-muted);
+    font-family: var(--font-mono);
     white-space: nowrap;
   }
   :global(.dm-field-was) {
@@ -101,7 +102,7 @@
     font-size: var(--fs-micro);
     border-radius: 2px;
     vertical-align: middle;
-    font-family: inherit;
+    font-family: var(--font-sans);
     font-weight: 600;
   }
   :global(.dm-pk) {

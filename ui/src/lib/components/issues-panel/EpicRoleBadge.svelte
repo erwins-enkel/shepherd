@@ -24,7 +24,6 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     line-height: 1.5;

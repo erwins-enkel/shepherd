@@ -513,6 +513,32 @@ describe("BuildQueuePanel — curation state (unapproved, with steps)", () => {
     expect(inputs[1].value).toBe("Run tests");
   });
 
+  // #3597: the panel and its heading read in the body face; step numbers and the count stay mono.
+  it("sets the panel in the body face and keeps step numbers and the count mono", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: curationQueue,
+      onbootstrap: noop,
+    });
+    await expect.poll(() => document.querySelector(".bqp-num")).not.toBeNull();
+
+    const family = (el: Element) => getComputedStyle(el).fontFamily;
+    const sans = getComputedStyle(document.body).fontFamily;
+    const probe = document.body.appendChild(document.createElement("span"));
+    probe.style.fontFamily = "var(--font-mono)";
+    const mono = getComputedStyle(probe).fontFamily;
+    probe.remove();
+    expect(sans).not.toBe(mono);
+
+    for (const sel of [".bqp", ".bqp-title"]) {
+      expect(family(document.querySelector(sel)!), sel).toBe(sans);
+    }
+    for (const sel of [".bqp-num", ".bqp-count"]) {
+      expect(family(document.querySelector(sel)!), sel).toBe(mono);
+    }
+  });
+
   it("renders the Approve & run button", async () => {
     render(BuildQueuePanel, {
       sessionId: "s1",

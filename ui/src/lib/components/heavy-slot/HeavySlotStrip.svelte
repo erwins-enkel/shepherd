@@ -81,7 +81,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     background: var(--color-panel);
-    font-family: var(--font-mono);
     align-self: flex-start;
     max-width: 100%;
     min-width: 0;

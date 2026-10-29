@@ -181,7 +181,7 @@
     overflow-wrap: anywhere;
   }
   .mono {
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
   }
   /* A method picked from Merge ▾ over the repo's default: amber, like the confirm it changes. */
   .facts dd.replaced {

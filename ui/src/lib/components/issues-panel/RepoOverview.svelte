@@ -195,11 +195,9 @@
 
   const maxLabelCount = $derived(Math.max(1, ...labels.map((l) => l.count)));
 
-  function runningMeta(r: RunningIssue): string {
-    return [
-      r.desig ?? m.repooverview_running_label_only(),
-      ...(r.hidden ? [m.repooverview_running_hidden()] : []),
-    ].join(" · ");
+  /** Trailing " · hidden" after the designator (which renders mono on its own). */
+  function runningSuffix(r: RunningIssue): string {
+    return r.hidden ? ` · ${m.repooverview_running_hidden()}` : "";
   }
 </script>
 
@@ -361,7 +359,11 @@
                       <span class="run-title"
                         ><span class="num">#{r.issue.number}</span> {r.issue.title}</span
                       >
-                      <span class="faint">{runningMeta(r)}</span>
+                      <span class="faint"
+                        ><span class:desig={r.desig}
+                          >{r.desig ?? m.repooverview_running_label_only()}</span
+                        >{runningSuffix(r)}</span
+                      >
                     </span>
                     {#if r.sessionId && onopensession}
                       {@const id = r.sessionId}
@@ -472,7 +474,6 @@
     gap: 14px;
     min-width: 0;
     padding: 14px 18px 24px;
-    font-family: var(--font-mono);
   }
 
   .title {
@@ -693,6 +694,7 @@
   }
   .label-count {
     color: var(--color-ink);
+    font-family: var(--font-mono);
     text-align: right;
   }
 
@@ -739,6 +741,9 @@
     color: var(--color-faint);
     font-size: var(--fs-micro);
   }
+  .desig {
+    font-family: var(--font-mono);
+  }
   .card-title {
     min-width: 0;
     overflow: hidden;
@@ -767,7 +772,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;

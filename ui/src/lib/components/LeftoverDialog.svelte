@@ -138,7 +138,7 @@
     border-bottom: 0;
   }
   .nm {
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
   }
   .port {
     margin-left: auto;

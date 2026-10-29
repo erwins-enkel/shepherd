@@ -351,7 +351,7 @@
     border: 1px solid var(--color-line);
     background: var(--color-inset);
     padding: 10px 12px;
-    font-family: monospace;
+    font-family: var(--font-mono);
     font-size: var(--fs-base);
     line-height: 1.5;
     color: var(--color-ink-bright);

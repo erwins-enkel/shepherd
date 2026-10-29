@@ -85,7 +85,6 @@
     padding: 5px 10px;
     cursor: pointer;
     border-bottom: 1px solid var(--color-line);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
   }
   .ism-row:last-child {
@@ -127,7 +126,6 @@
     text-transform: uppercase;
   }
   .ism-empty {
-    font-family: var(--font-mono);
     padding: 8px 10px;
     color: var(--color-faint);
     font-size: var(--fs-meta);

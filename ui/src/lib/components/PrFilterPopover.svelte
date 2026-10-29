@@ -201,7 +201,6 @@
     border: 1px solid transparent;
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.1em;
     padding: 0 10px;
@@ -313,7 +312,6 @@
 
   .row-label {
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.05em;
   }
@@ -336,7 +334,6 @@
   }
 
   .section-heading {
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.14em;
     text-transform: uppercase;

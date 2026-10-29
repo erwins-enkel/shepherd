@@ -416,6 +416,11 @@
 {/if}
 
 <style>
+  /* Option labels are prose (model names, effort tiers, modes), not numbers: drop the
+     `.afield-num` mono these selects borrow for their chrome. */
+  .model-select {
+    font-family: var(--font-sans);
+  }
   /* Generic per-row layout classes — duplicated from the parent (every toggle row
      there uses them); the role rows here reuse the same conventions. */
   .auto-group {
@@ -440,7 +445,6 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-family: var(--font-mono);
     font-size: var(--fs-base);
     color: var(--color-ink-bright);
   }
@@ -511,7 +515,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;

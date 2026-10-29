@@ -57,7 +57,6 @@
     background: transparent;
     border: 0;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     line-height: 1.2;
     cursor: pointer;

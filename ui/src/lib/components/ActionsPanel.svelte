@@ -102,7 +102,6 @@
     flex-direction: column;
     height: 100%;
     background: var(--color-inset);
-    font-family: var(--font-mono);
     overflow: hidden;
   }
 

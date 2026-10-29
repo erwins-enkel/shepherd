@@ -244,7 +244,6 @@
     background: transparent;
     color: inherit;
     font: inherit;
-    font-family: var(--font-mono);
     text-align: left;
     cursor: pointer;
     transition:
@@ -380,6 +379,7 @@
   }
 
   .row-name {
+    font-family: var(--font-mono);
     color: var(--color-ink-bright);
     font-size: var(--fs-base);
     font-weight: 500;
@@ -411,6 +411,10 @@
     color: var(--color-muted);
     letter-spacing: 0.04em;
     font-variant-numeric: tabular-nums;
+  }
+
+  .count-item {
+    font-family: var(--font-mono);
   }
 
   .sep {

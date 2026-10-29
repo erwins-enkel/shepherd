@@ -158,7 +158,6 @@
     background: var(--color-inset);
     border: 1px solid var(--color-line);
     color: var(--color-ink-bright);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     padding: 0.35rem 0.5rem;
     border-radius: 2px;
@@ -197,7 +196,6 @@
   }
 
   .delivery {
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;

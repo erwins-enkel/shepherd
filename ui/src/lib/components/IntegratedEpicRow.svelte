@@ -252,7 +252,6 @@
     min-width: 0;
     padding: 10px;
     border: 1px solid var(--color-line);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
   }
   .row.ready {
@@ -300,6 +299,10 @@
   }
   .chev.collapsed {
     transform: rotate(-90deg);
+  }
+  .num,
+  .repo {
+    font-family: var(--font-mono);
   }
   .repo {
     flex: 1;

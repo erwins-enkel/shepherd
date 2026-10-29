@@ -184,6 +184,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
       "an iphone app, the operator assistant, tasks on your other machines, a shared logged-in browser, and two rounds of security hardening — the highlights of shepherd 2.1 to 2.5. shepherd for iphone the operator assistant run tasks on another machine shared browser epics and projects more from the cli security hardening also new upgrading",
   },
   {
+    title: "What's new in 2.6",
+    path: "/releases/2-6/",
+    keywords:
+      "scheduled prompts, a chat tab for every session, the pull requests that wait on you in up next, and a faster loop with a phone ui built for your thumb — the highlights of shepherd 2.6. schedules chat with any session pull requests in up next a faster loop, and a phone ui for your thumb also new upgrading",
+  },
+  {
     title: "Scheduled prompts",
     path: "/scheduled-prompts/",
     keywords:

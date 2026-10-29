@@ -5546,7 +5546,8 @@ export class DrainService {
    *  the merge is done, so a close failure must not block teardown. */
   private async reapMerged(s: Session): Promise<void> {
     // Shelved: never auto-decommissioned. Its epic integration is already recorded by the
-    // callers; the merged session waits in the Shelved group for Clear merged or an unshelve.
+    // callers; the merged session waits in the Shelved group until unshelved or decommissioned by
+    // hand (Clear merged skips shelved sessions).
     if (isShelved(s)) return;
     await settleMergedSession(s, {
       resolveForge: this.deps.resolveForge,

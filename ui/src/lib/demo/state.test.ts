@@ -316,6 +316,13 @@ describe("demoState mutators emit the correct WsEvent frames", () => {
     expect(demoState.sessions().find((s) => s.id === "coupon")).toBeDefined();
   });
 
+  it("shelved merged sessions are neither offered nor cleared", () => {
+    demoState.setShelved("deps", true);
+    expect(demoState.mergedClearable().ids).toEqual(["envflag"]);
+    expect(demoState.clearMerged(["deps"]).cleared).toEqual([]);
+    expect(demoState.sessions().find((s) => s.id === "deps")).toBeDefined();
+  });
+
   it("answerPlanQuestions emits activity and reports delivered", () => {
     let result: { delivered: boolean } | undefined;
     const frames = capture(() => (result = demoState.answerPlanQuestions("authstore")));

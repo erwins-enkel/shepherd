@@ -2,6 +2,7 @@
   import { renderMarkdown } from "#lib/sanitize-html.js";
   import { linkifySessionDesignations } from "#lib/markdownSessionLinks.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { toasts } from "#lib/toasts.svelte.js";
 
   // Shared reading surface for forge Markdown (issue descriptions, #2617): renders `source`
   // through the shared sanitizer (#lib/sanitize-html), styled from tokens only. It loads lazily,
@@ -10,19 +11,82 @@
     source,
     sessionDesigs = new Map(),
     onSessionLink,
+    copyCode = false,
   }: {
     source: string;
     sessionDesigs?: ReadonlyMap<string, string>;
     onSessionLink?: (id: string) => void;
+    /** Give each code block a hover copy button (chat replies). */
+    copyCode?: boolean;
   } = $props();
+
+  const COPY_ICON =
+    '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>';
+  const CHECK_ICON = '<path d="M20 6 9 17l-5-5"/>';
+
+  function svg(paths: string, cls: string): SVGSVGElement {
+    const el = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    for (const [k, v] of Object.entries({
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      "stroke-width": "2",
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+      "aria-hidden": "true",
+      class: cls,
+    }))
+      el.setAttribute(k, v);
+    el.innerHTML = paths;
+    return el;
+  }
+
+  // Wraps each (already sanitized) code block with our own copy button — built here, after the
+  // sanitizer, from constants only, so nothing from the Markdown source reaches the markup.
+  function addCopyButtons(root: HTMLElement) {
+    for (const pre of root.querySelectorAll("pre")) {
+      const wrap = document.createElement("div");
+      wrap.className = "md-code";
+      pre.replaceWith(wrap);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "icon-btn md-copy";
+      btn.dataset.copyCode = "";
+      btn.title = m.markdown_copy_code();
+      btn.setAttribute("aria-label", m.markdown_copy_code());
+      btn.append(svg(COPY_ICON, "md-copy-icon"), svg(CHECK_ICON, "md-check-icon"));
+      wrap.append(pre, btn);
+    }
+  }
+
+  async function copyBlock(btn: HTMLButtonElement) {
+    const text = btn.closest(".md-code")?.querySelector("pre")?.textContent ?? "";
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      toasts.info(m.clipboard_copy_failed(), { alert: true });
+      return;
+    }
+    btn.dataset.copied = "";
+    btn.setAttribute("aria-label", m.markdown_code_copied());
+    status = m.markdown_code_copied();
+    setTimeout(() => {
+      delete btn.dataset.copied;
+      btn.setAttribute("aria-label", m.markdown_copy_code());
+      status = "";
+    }, 1500);
+  }
 
   let rendered = $state("");
   // A failed load falls back to the plain (escaped) text — never to unsanitized markup.
   let failed = $state(false);
+  // Polite announcement for a finished copy (the button's own label swap isn't announced).
+  let status = $state("");
   $effect(() => {
     const body = source;
     const live = sessionDesigs;
     const linkSessions = !!onSessionLink;
+    const withCopy = copyCode;
     rendered = "";
     failed = false;
     if (!body.trim()) return;
@@ -32,10 +96,12 @@
     renderMarkdown(body)
       .then((html) => {
         if (!alive) return;
-        if (linkSessions && live.size > 0) {
+        const linkify = linkSessions && live.size > 0;
+        if (linkify || withCopy) {
           const root = document.createElement("div");
           root.innerHTML = html;
-          linkifySessionDesignations(root, live);
+          if (linkify) linkifySessionDesignations(root, live);
+          if (withCopy) addCopyButtons(root);
           rendered = root.innerHTML;
         } else {
           rendered = html;
@@ -54,6 +120,11 @@
   // away (and drop the open dialog). The sanitizer already sets target=_blank; this container
   // handler also routes generated session links and keeps `noopener` on every open.
   function onclick(e: MouseEvent) {
+    const copyBtn = e.target instanceof Element ? e.target.closest("button[data-copy-code]") : null;
+    if (copyBtn instanceof HTMLButtonElement) {
+      void copyBlock(copyBtn);
+      return;
+    }
     const a = e.target instanceof Element ? e.target.closest("a[href]") : null;
     if (!(a instanceof HTMLAnchorElement)) return;
     e.preventDefault();
@@ -76,6 +147,9 @@
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via renderMarkdown (#lib/sanitize-html) above -->
   <div class="md-body" {onclick}>{@html rendered}</div>
+  {#if copyCode}
+    <span class="sr-only" role="status">{status}</span>
+  {/if}
 {/if}
 
 <style>
@@ -105,7 +179,8 @@
   .md-body :global(ol),
   .md-body :global(pre),
   .md-body :global(blockquote),
-  .md-body :global(table) {
+  .md-body :global(table),
+  .md-body :global(.md-code) {
     margin: 0 0 10px;
   }
   .md-body :global(h1),
@@ -170,6 +245,51 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     background: var(--color-inset);
+  }
+  .md-body :global(.md-code) {
+    position: relative;
+  }
+  /* As specific as the `> *:last-child` reset above, so restate it for the wrapper. */
+  .md-body :global(> .md-code:last-child) {
+    margin-bottom: 0;
+  }
+  .md-body :global(.md-code > pre) {
+    margin: 0;
+  }
+  .md-body :global(.md-copy) {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 24px;
+    height: 24px;
+    background: var(--color-inset);
+    border-color: var(--color-line);
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  .md-body :global(.md-copy:hover) {
+    border-color: var(--color-line-bright);
+  }
+  .md-body :global(.md-code:hover .md-copy),
+  .md-body :global(.md-copy:focus-visible),
+  .md-body :global(.md-copy[data-copied]) {
+    opacity: 1;
+  }
+  @media (hover: none) {
+    .md-body :global(.md-copy) {
+      opacity: 1;
+    }
+  }
+  .md-body :global(.md-copy svg) {
+    width: 14px;
+    height: 14px;
+  }
+  .md-body :global(.md-copy .md-check-icon),
+  .md-body :global(.md-copy[data-copied] .md-copy-icon) {
+    display: none;
+  }
+  .md-body :global(.md-copy[data-copied] .md-check-icon) {
+    display: block;
   }
   .md-body :global(pre code) {
     padding: 0;

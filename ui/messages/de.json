@@ -7932,5 +7932,9 @@
   "viewport_hints_section": "Tasten",
   "viewport_hints_aria": "Tastenkürzel anzeigen",
   "feat_keyboard_hints_title": "Tastenkürzel in einer Taste",
-  "feat_keyboard_hints_body": "Die Hinweiszeile unter dem Terminal ist weg. Fahre über die ⌘K-Taste am rechten Ende der Steer-Zeile, um alle Tastenkürzel zu sehen – das Terminal bekommt die Höhe zurück."
+  "feat_keyboard_hints_body": "Die Hinweiszeile unter dem Terminal ist weg. Fahre über die ⌘K-Taste am rechten Ende der Steer-Zeile, um alle Tastenkürzel zu sehen – das Terminal bekommt die Höhe zurück.",
+  "markdown_copy_code": "Code kopieren",
+  "markdown_code_copied": "Kopiert",
+  "feat_chat_copy_code_title": "Code aus dem Chat kopieren",
+  "feat_chat_copy_code_body": "Fahre im Chat über einen Codeblock in der Antwort eines Agenten und klicke auf das Kopiersymbol in seiner Ecke, um den ganzen Block in die Zwischenablage zu legen."
 }

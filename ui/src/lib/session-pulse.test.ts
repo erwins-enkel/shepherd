@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { ciRows, sessionPulse, steerTally, timeline, type PulseInput } from "./session-pulse";
-import type { BuildQueue, GitState, Session, SteerLogEntry, WorkflowJob } from "./types";
+import {
+  ciRows,
+  sessionPulse,
+  slotFor,
+  steerTally,
+  timeline,
+  type PulseInput,
+} from "./session-pulse";
+import type {
+  BuildQueue,
+  GitState,
+  HeavySlotSnapshot,
+  Session,
+  SteerLogEntry,
+  WorkflowJob,
+} from "./types";
 
 const MIN = 60_000;
 const NOW = 1_000 * MIN;
@@ -167,5 +181,82 @@ describe("panel helpers", () => {
       ciFix: 2,
       ciFixRun: 1,
     });
+  });
+});
+
+describe("sessionPulse: the host-wide heavy-check slot (#3181)", () => {
+  const snap = (over: Partial<HeavySlotSnapshot> = {}): HeavySlotSnapshot => ({
+    enabled: true,
+    capacity: 1,
+    holders: [],
+    waiters: [],
+    brake: { active: false, reason: null },
+    pressure: {
+      ramAvailableBytes: null,
+      ramTotalBytes: null,
+      swapUsedBytes: null,
+      swapTotalBytes: null,
+      memFullAvg10: null,
+      memBrakeThreshold: null,
+      cpuSomeAvg10: null,
+    },
+    memoryBySource: { agentsBytes: null, foreignBytes: null, foreignTop: [] },
+    lastResults: [],
+    ...over,
+  });
+  const holding = snap({
+    holders: [
+      {
+        sessionId: "s1",
+        command: "bun run test",
+        startedAt: NOW - 2 * MIN,
+        rssBytes: 1.4 * 1024 ** 3,
+      },
+    ],
+  });
+  const waiting = (reason: "slot" | "pressure" = "slot") =>
+    snap({ waiters: [{ sessionId: "s1", position: 2, reason }] });
+
+  it("a holder checks with command, time and memory; a waiter has its place and reason", () => {
+    expect(pulse({ heavySlot: holding })).toMatchObject({
+      state: "slot_running",
+      slot: {
+        kind: "holding",
+        command: "bun run test",
+        elapsedMs: 2 * MIN,
+        rssBytes: 1.4 * 1024 ** 3,
+      },
+    });
+    expect(pulse({ heavySlot: waiting("pressure") })).toMatchObject({
+      state: "slot_waiting",
+      slot: { kind: "waiting", position: 2, pressure: true },
+    });
+  });
+
+  it("only this session's entry counts, and a switched-off slot shows nothing", () => {
+    expect(slotFor(waiting(), "other", NOW)).toBeNull();
+    expect(slotFor({ ...holding, enabled: false }, "s1", NOW)).toBeNull();
+    expect(slotFor(null, "s1", NOW)).toBeNull();
+    expect(pulse({ heavySlot: { ...holding, enabled: false } })?.state).toBe("working");
+  });
+
+  it("ranks below needs-you and a CI-fix loop, above red or running CI", () => {
+    const red = openPr([{ name: "CI / test", state: "failure", startedAt: NOW - MIN }]);
+    expect(pulse({ session: session({ status: "blocked" }), heavySlot: waiting() })?.state).toBe(
+      "needs_you",
+    );
+    expect(
+      pulse({ git: red, steers: steers("ci_fix", "ci_fix", "ci_fix"), heavySlot: waiting() })
+        ?.state,
+    ).toBe("looping");
+    expect(pulse({ git: red, heavySlot: waiting() })?.state).toBe("slot_waiting");
+    expect(pulse({ git: openPr([gate(9, 43)]), heavySlot: holding })?.state).toBe("slot_running");
+  });
+
+  it("shows on an idle session (the agent ended its turn on purpose), never on an archived one", () => {
+    expect(pulse({ session: session({ status: "idle" }), heavySlot: waiting() })?.state).toBe(
+      "slot_waiting",
+    );
+    expect(pulse({ session: session({ status: "archived" }), heavySlot: holding })).toBeNull();
   });
 });

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import type { Pulse } from "#lib/session-pulse.js";
+  import { getLocale } from "#lib/i18n.js";
+  import type { Pulse, PulseSlot } from "#lib/session-pulse.js";
   import { pulseLabel, typicalMinutes } from "#lib/pulse-text.js";
 
   // The card's "now" line: the session's progress verdict in one glance — what it is doing or
@@ -9,6 +10,43 @@
   let { pulse, id }: { pulse: Pulse | null; id: string } = $props();
 
   const min = (ms: number) => Math.max(0, Math.round(ms / 60_000));
+  /** "2:14" — a running check's age, untranslated like the other elapsed clocks. */
+  const clockOf = (ms: number) => {
+    const s = Math.floor(ms / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  };
+  const gib = (bytes: number) =>
+    m.pulse_slot_gib({
+      gib: new Intl.NumberFormat(getLocale(), {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      }).format(bytes / 1024 ** 3),
+    });
+
+  /** The heavy-check slot line (#3181): ▤ holding with command and memory, ◔ waiting with place. */
+  function slotView(p: Pulse, slot: PulseSlot) {
+    const holding = slot.kind === "holding";
+    const note = holding
+      ? ""
+      : slot.pressure
+        ? m.pulse_slot_note_pressure()
+        : slot.position === 1
+          ? m.pulse_slot_note_next()
+          : m.pulse_slot_note_informed();
+    return {
+      state: p.state,
+      glyph: holding ? "▤" : "◔",
+      label: pulseLabel(p.state),
+      metric: holding ? clockOf(slot.elapsedMs) : m.pulse_slot_place({ position: slot.position }),
+      ratio: null,
+      detail: holding
+        ? [slot.command, slot.rssBytes ? gib(slot.rssBytes) : ""].filter(Boolean).join(" · ")
+        : "",
+      loopNote: "",
+      note,
+      pressure: !holding && slot.pressure,
+    };
+  }
 
   function metricOf(p: Pulse, timed: boolean): string {
     const job = p.job;
@@ -32,6 +70,7 @@
 
   const view = $derived.by(() => {
     if (!pulse) return null;
+    if (pulse.slot) return slotView(pulse, pulse.slot);
     const job = pulse.job;
     const timed =
       (pulse.state === "waiting_ci" || pulse.state === "ci_overdue") && job?.elapsedMs != null;
@@ -46,6 +85,9 @@
         pulse.ciFixRun > 0 && pulse.state !== "looping" && pulse.state !== "working"
           ? m.pulse_ci_fix_no_loop({ count: pulse.ciFixRun })
           : "",
+      glyph: null,
+      note: "",
+      pressure: false,
     };
   });
 </script>
@@ -53,7 +95,11 @@
 {#if view}
   <div class="pulse pulse--{view.state}" {id}>
     <div class="p-top">
-      <span class="p-dot" aria-hidden="true"></span>
+      {#if view.glyph}
+        <span class="p-glyph" aria-hidden="true">{view.glyph}</span>
+      {:else}
+        <span class="p-dot" aria-hidden="true"></span>
+      {/if}
       <span class="p-label">{view.label}</span>
       {#if view.metric}<span class="p-metric">{view.metric}</span>{/if}
     </div>
@@ -64,6 +110,11 @@
       <div class="p-sub">
         {#if view.detail}<span class="p-detail">{view.detail}</span>{/if}
         {#if view.loopNote}<span class="p-loop">{view.loopNote}</span>{/if}
+      </div>
+    {/if}
+    {#if view.note}
+      <div class="p-sub">
+        <span class="p-note" class:p-pressure={view.pressure}>{view.note}</span>
       </div>
     {/if}
   </div>
@@ -93,6 +144,22 @@
   .pulse--looping,
   .pulse--needs_you {
     --pulse-hue: var(--status-blocked);
+  }
+  /* A waiting check keeps its session's colour (the agent works on); the line stays neutral. */
+  .pulse--slot_waiting {
+    --pulse-hue: var(--color-muted);
+  }
+  .p-glyph {
+    flex: none;
+    color: var(--pulse-hue);
+    line-height: 1;
+  }
+  .p-note {
+    min-width: 0;
+  }
+  /* The pressure brake is subordinate red: text only — the loudest red stays a blocked agent. */
+  .p-pressure {
+    color: var(--color-red);
   }
   .p-top,
   .p-sub {

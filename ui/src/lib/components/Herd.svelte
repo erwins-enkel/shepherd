@@ -11,6 +11,7 @@
     AgentProvider,
     LivenessState,
     RemoteDispatch,
+    HeavySlotSnapshot,
   } from "#lib/types.js";
   import type { Snippet } from "svelte";
   import type { HerdStore } from "#lib/store.svelte.js";
@@ -98,6 +99,7 @@
     liveness = {},
     blocks = {},
     holds = {},
+    heavySlot = null,
     collapsible = false,
     oncollapse = undefined,
     collapsedStageKeys = new Set(),
@@ -232,6 +234,8 @@
     blocks?: Record<string, BlockState>;
     // live hold reasons map (store.holds); surfaced as a muted subline on each held card
     holds?: Record<string, HoldReason>;
+    /** The host-wide heavy-check slot (store.heavySlot, #3181) — shown on each card's now-line. */
+    heavySlot?: HeavySlotSnapshot | null;
     // when true, renders a collapse arrow at the trailing end of the filters bar —
     // only set on touch-primary wide devices where collapsing is meaningful
     collapsible?: boolean;
@@ -509,6 +513,7 @@
     activity,
     preview,
     previewServe,
+    heavySlot,
     onpreview,
     onopenbrowser,
     ondecommission,

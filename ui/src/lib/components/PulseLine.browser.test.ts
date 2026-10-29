@@ -49,4 +49,42 @@ describe("PulseLine", () => {
     expect(container.textContent).toContain(m.pulse_ci_fix_count({ count: 3 }));
     expect(container.querySelector(".p-bar")).toBeNull();
   });
+
+  it("a heavy check holding the slot shows ▤, its age, command and memory (#3181)", async () => {
+    const pulse: Pulse = {
+      state: "slot_running",
+      green: 0,
+      total: 0,
+      ciFixRun: 0,
+      slot: {
+        kind: "holding",
+        command: "bun run test",
+        elapsedMs: 134_000,
+        rssBytes: 1.4 * 1024 ** 3,
+      },
+    };
+    const { container } = await render(PulseLine, { pulse, id: "u-pulse-x" });
+    const text = container.textContent ?? "";
+    expect(container.querySelector(".p-glyph")?.textContent).toBe("▤");
+    expect(text).toContain(m.pulse_state_slot_running());
+    expect(text).toContain("2:14");
+    expect(text).toContain("bun run test · ");
+    expect(container.querySelector(".p-dot")).toBeNull();
+  });
+
+  it("a waiting check shows ◔, its place and, under the brake, the pressure note (#3181)", async () => {
+    const pulse: Pulse = {
+      state: "slot_waiting",
+      green: 0,
+      total: 0,
+      ciFixRun: 0,
+      slot: { kind: "waiting", position: 2, pressure: true },
+    };
+    const { container } = await render(PulseLine, { pulse, id: "u-pulse-x" });
+    const text = container.textContent ?? "";
+    expect(container.querySelector(".p-glyph")?.textContent).toBe("◔");
+    expect(text).toContain(m.pulse_state_slot_waiting());
+    expect(text).toContain(m.pulse_slot_place({ position: 2 }));
+    expect(container.querySelector(".p-pressure")?.textContent).toBe(m.pulse_slot_note_pressure());
+  });
 });

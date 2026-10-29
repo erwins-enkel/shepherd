@@ -22,6 +22,7 @@
     HoldReason,
     LivenessState,
     Epic,
+    HeavySlotSnapshot,
   } from "#lib/types.js";
   import { STATUS_COLOR, canResume, canRelaunch, isStrandedLiveness } from "#lib/format.js";
   import { displayStatus } from "#lib/display-status.js";
@@ -125,6 +126,7 @@
     onshowowed,
     showModel = true,
     showCli = true,
+    heavySlot = null,
   }: {
     session: Session;
     selected: boolean;
@@ -199,6 +201,8 @@
      *  where the chip repeats one word down every row (see providersMixed). Defaults to TRUE for
      *  the same reason as {@link showModel}. */
     showCli?: boolean;
+    /** The host-wide heavy-check slot (#3181): the card's now-line shows this session's part in it. */
+    heavySlot?: HeavySlotSnapshot | null;
   } = $props();
 
   // Every status-driven DISPLAY branch below reads this, not session.status: a
@@ -678,6 +682,7 @@
       git,
       queue: buildQueues.map[session.id],
       steers: steerLogs.map[session.id],
+      heavySlot,
       nowMs,
     }),
   );

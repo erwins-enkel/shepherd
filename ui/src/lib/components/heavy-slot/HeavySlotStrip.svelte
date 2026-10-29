@@ -39,7 +39,7 @@
       <span class="hs-label">▤ {m.heavyslot_label()}</span>
     {/if}
     <ul class="hs-rows">
-      {#each heavySlot.holders as h (h.sessionId)}
+      {#each heavySlot.holders as h, i (i)}
         <li>
           <button
             type="button"

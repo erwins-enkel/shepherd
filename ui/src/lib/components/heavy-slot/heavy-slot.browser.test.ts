@@ -41,6 +41,14 @@ function snap(over: Partial<HeavySlotSnapshot> = {}): HeavySlotSnapshot {
   };
 }
 
+const twoSlotsOneSession = snap({
+  capacity: 2,
+  holders: [
+    { sessionId: "h", command: "vitest run", startedAt: 0, rssBytes: GIB },
+    { sessionId: "h", command: "bun test", startedAt: 1, rssBytes: GIB },
+  ],
+});
+
 afterEach(() => {
   document.body.innerHTML = "";
 });
@@ -67,6 +75,18 @@ describe("HeavySlotChip", () => {
     await expect.element(page.getByText(/2:14/)).toBeVisible();
     await userEvent.keyboard("{Escape}");
     expect(document.querySelector(".hp")).toBeNull();
+  });
+
+  it("lists every slot one session holds in the host popover", async () => {
+    render(HeavySlotChip, {
+      heavySlot: twoSlotsOneSession,
+      sessions,
+      nowMs: 0,
+      onrelease: vi.fn(),
+    });
+    await userEvent.click(page.getByRole("button", { name: /2 of 2 held/i }));
+    await expect.element(page.getByRole("dialog")).toBeVisible();
+    expect(document.querySelectorAll(".hp-row").length).toBe(4);
   });
 
   it("asks before releasing and reports the session to onrelease", async () => {
@@ -103,6 +123,12 @@ describe("HeavySlotStrip", () => {
     render(HeavySlotStrip, { heavySlot: snap(), sessions, onopen });
     await userEvent.click(page.getByRole("button", { name: /1 of 1 held, 2 waiting/i }));
     expect(onopen).toHaveBeenCalledOnce();
+  });
+
+  it("lists every slot one session holds when capacity is above one", async () => {
+    render(HeavySlotStrip, { heavySlot: twoSlotsOneSession, sessions });
+    const names = [...document.querySelectorAll(".hs-holder .hs-name")].map((n) => n.textContent);
+    expect(names).toEqual(["holder-session", "holder-session"]);
   });
 
   it("names the brake", async () => {

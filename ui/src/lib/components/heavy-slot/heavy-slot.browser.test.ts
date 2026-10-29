@@ -98,6 +98,34 @@ describe("HeavySlotChip", () => {
     expect(document.querySelectorAll(".hp-row").length).toBe(4);
   });
 
+  // The bar (.hud) is the popover's positioning box; the render container stands in for it.
+  async function openIn(width: number, chipOffset: number) {
+    render(HeavySlotChip, { heavySlot: snap(), sessions, nowMs: 0, onrelease: vi.fn() });
+    const container = document.querySelector<HTMLElement>(".hs-wrap")!.parentElement!;
+    Object.assign(container.style, {
+      position: "relative",
+      width: `${width}px`,
+      paddingLeft: `${chipOffset}px`,
+      boxSizing: "border-box",
+    });
+    await userEvent.click(page.getByRole("button", { name: /held/i }));
+    await expect.element(page.getByRole("dialog")).toBeVisible();
+    const pop = document.querySelector<HTMLElement>(".hp")!.getBoundingClientRect();
+    const chip = document.querySelector<HTMLElement>(".hs-chip")!.getBoundingClientRect();
+    return { pop, chip, box: container.getBoundingClientRect() };
+  }
+
+  it("drops the popover under the chip, not at the bar's right edge", async () => {
+    const { pop, chip } = await openIn(1000, 100);
+    expect(Math.abs(pop.left - chip.left)).toBeLessThanOrEqual(1);
+  });
+
+  it("keeps the popover inside the bar when the chip sits near its right edge", async () => {
+    const { pop, box } = await openIn(600, 500);
+    expect(pop.right).toBeLessThanOrEqual(box.right + 1);
+    expect(pop.left).toBeGreaterThanOrEqual(box.left - 1);
+  });
+
   it("asks before releasing and reports the session to onrelease", async () => {
     const onrelease = vi.fn().mockResolvedValue(undefined);
     render(HeavySlotChip, { heavySlot: snap(), sessions, nowMs: 0, onrelease });

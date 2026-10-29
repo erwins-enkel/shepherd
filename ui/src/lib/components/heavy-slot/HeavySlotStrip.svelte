@@ -1,16 +1,19 @@
 <script lang="ts">
   import type { HeavySlotSnapshot, Session } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { orderedWaiters, slotActive } from "./heavy-slot";
+  import { chipModel, orderedWaiters, slotActive } from "./heavy-slot";
 
   let {
     heavySlot = null,
     sessions = [],
     onselect,
+    onopen,
   }: {
     heavySlot?: HeavySlotSnapshot | null;
     sessions?: Pick<Session, "id" | "name">[];
     onselect?: (id: string) => void;
+    /** Phone only: the label opens the host panel (the bar chip's job on desktop). */
+    onopen?: () => void;
   } = $props();
 
   const nameOf = (id: string) =>
@@ -19,7 +22,22 @@
 
 {#if slotActive(heavySlot) && heavySlot}
   <div class="hs-strip" role="status" aria-label={m.heavyslot_label()}>
-    <span class="hs-label">▤ {m.heavyslot_label()}</span>
+    {#if onopen}
+      {@const c = chipModel(heavySlot)}
+      <button
+        type="button"
+        class="hs-label hs-open"
+        aria-haspopup="dialog"
+        aria-label={m.heavyslot_chip_aria({
+          held: c.held,
+          capacity: c.capacity,
+          waiting: c.waiting,
+        })}
+        onclick={onopen}>▤ {m.heavyslot_label()} ›</button
+      >
+    {:else}
+      <span class="hs-label">▤ {m.heavyslot_label()}</span>
+    {/if}
     <ul class="hs-rows">
       {#each heavySlot.holders as h (h.sessionId)}
         <li>
@@ -70,6 +88,18 @@
     white-space: nowrap;
     flex-shrink: 0;
     padding-top: 2px;
+  }
+  .hs-open {
+    margin: 0;
+    padding: 2px 0 0;
+    border: 0;
+    border-radius: 2px;
+    background: transparent;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .hs-open:focus-visible {
+    outline: 1px solid var(--color-amber);
   }
   .hs-rows {
     display: flex;
@@ -130,8 +160,12 @@
       gap: 14px;
       overflow-x: auto;
     }
-    .hs-row {
+    .hs-row,
+    .hs-open {
       min-height: 44px;
+    }
+    .hs-open {
+      padding-top: 0;
     }
     .hs-brake {
       white-space: nowrap;

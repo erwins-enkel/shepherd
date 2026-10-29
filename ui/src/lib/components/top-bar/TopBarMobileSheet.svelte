@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { GaugeKey } from "../usage-gauges";
-  import type { DiagnosticState, UsageLimits } from "#lib/types.js";
+  import type { DiagnosticState, HeavySlotSnapshot, UsageLimits } from "#lib/types.js";
+  import { chipModel, slotEnabled } from "../heavy-slot/heavy-slot";
   import type { UpdateBadge } from "#lib/machine-updates.js";
   import { m } from "#lib/paraglide/messages.js";
   import { theme, type ThemePref } from "#lib/theme.svelte.js";
@@ -70,6 +71,8 @@
     onPluginItem,
     onManagePlugins,
     onassistant,
+    heavySlot = null,
+    onhostpanel,
   }: {
     limits: UsageLimits | null;
     connected: boolean;
@@ -104,7 +107,11 @@
     onManagePlugins?: () => void;
     /** Opens the Operator Assistant screen (#1446); absent → no row. */
     onassistant?: () => void;
+    /** The host-wide check slot; its row replaces the bar chip on a phone. */
+    heavySlot?: HeavySlotSnapshot | null;
+    onhostpanel?: () => void;
   } = $props();
+  const slot = $derived(slotEnabled(heavySlot) ? chipModel(heavySlot) : null);
 
   let showMacApp = $state(false);
   onMount(() => {
@@ -234,6 +241,19 @@
       {periodLabel}
       onOpenUsage={closeAnd(chooseUsage)}
     />
+
+    {#if slot && onhostpanel}
+      <div class="grp">
+        <GearRow
+          mobile
+          glyph="▤"
+          label={m.heavyslot_label()}
+          meta="■ {slot.held}/{slot.capacity} · ◔ {slot.waiting}"
+          warm={slot.braking}
+          onclick={closeAnd(onhostpanel)}
+        />
+      </div>
+    {/if}
 
     <GearAttentionRows
       mobile

@@ -4,6 +4,7 @@ import { page, userEvent } from "vitest/browser";
 import type { HeavySlotSnapshot } from "#lib/types.js";
 import HeavySlotChip from "./HeavySlotChip.svelte";
 import HeavySlotStrip from "./HeavySlotStrip.svelte";
+import HostPopover from "./HostPopover.svelte";
 
 const GIB = 1024 ** 3;
 const sessions = [
@@ -95,11 +96,54 @@ describe("HeavySlotStrip", () => {
     expect(onselect).toHaveBeenCalledWith("w2");
   });
 
+  it("opens the host panel from its label only when given onopen", async () => {
+    render(HeavySlotStrip, { heavySlot: snap(), sessions });
+    expect(document.querySelector(".hs-open")).toBeNull();
+    const onopen = vi.fn();
+    render(HeavySlotStrip, { heavySlot: snap(), sessions, onopen });
+    await userEvent.click(page.getByRole("button", { name: /1 of 1 held, 2 waiting/i }));
+    expect(onopen).toHaveBeenCalledOnce();
+  });
+
   it("names the brake", async () => {
     render(HeavySlotStrip, {
       heavySlot: snap({ holders: [], waiters: [], brake: { active: true, reason: "memory" } }),
       sessions,
     });
     await expect.element(page.getByText(/Brake on/)).toBeVisible();
+  });
+});
+
+describe("HostPopover — phone sheet", () => {
+  it("portals a full-screen modal over a scrim that fits a 390px screen", async () => {
+    await page.viewport(390, 800);
+    const host = document.createElement("div");
+    host.style.cssText = "will-change:transform;position:fixed;top:0;left:200px;width:60px;";
+    document.body.appendChild(host);
+    const onClose = vi.fn();
+    render(HostPopover, {
+      target: host,
+      props: {
+        variant: "sheet",
+        heavySlot: snap(),
+        sessions,
+        nowMs: 0,
+        onrelease: vi.fn(),
+        onClose,
+      },
+    });
+    const sheet = page.getByRole("dialog");
+    await expect.element(sheet).toBeVisible();
+    const el = sheet.element() as HTMLElement;
+    expect(el.getAttribute("aria-modal")).toBe("true");
+    expect(host.contains(el)).toBe(false);
+    expect(document.querySelector(".hp-portal .scrim")).not.toBeNull();
+    const r = el.getBoundingClientRect();
+    expect(r.left).toBe(0);
+    expect(r.right).toBe(window.innerWidth);
+    expect(el.scrollWidth).toBeLessThanOrEqual(el.clientWidth);
+    await userEvent.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalled();
+    host.remove();
   });
 });

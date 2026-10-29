@@ -79,9 +79,8 @@
 {/if}
 
 <style>
-  .hs-wrap {
-    position: relative;
-  }
+  /* Deliberately unpositioned: the popover anchors to the bar (.hud), not the mid-bar chip,
+     so it right-aligns to the bar's edge and never runs off the left of a narrow screen. */
   .hs-chip {
     box-sizing: border-box;
     display: inline-flex;

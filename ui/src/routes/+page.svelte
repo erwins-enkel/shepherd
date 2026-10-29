@@ -170,7 +170,12 @@
   import ActionBar from "#lib/components/ActionBar.svelte";
   import QueueStrip from "#lib/components/QueueStrip.svelte";
   import HeavySlotStrip from "#lib/components/heavy-slot/HeavySlotStrip.svelte";
-  import { needsResultRefresh, RESULT_REFRESH_MS } from "#lib/components/heavy-slot/heavy-slot.js";
+  import HostPopover from "#lib/components/heavy-slot/HostPopover.svelte";
+  import {
+    needsResultRefresh,
+    RESULT_REFRESH_MS,
+    slotEnabled,
+  } from "#lib/components/heavy-slot/heavy-slot.js";
   import RepoSwitcher from "#lib/components/RepoSwitcher.svelte";
   import {
     nextRepoFilter,
@@ -376,6 +381,8 @@
   // the boot settles so their first open doesn't wait on the network.
   onMount(() => prefetchWhenIdle([loadNewTask, loadSettingsOverlay]));
   let showUsage = $state(false);
+  // Phone only: the full-screen host panel (the bar chip's popover on desktop).
+  let showHostPanel = $state(false);
   let settingsTab = $state<SettingsSectionId>("workspace");
   // Whether the pending Settings open is a deep link (diagnostics dot, plugin
   // focus, steer edit, workspace picker). On mobile a deep link drills straight
@@ -1977,6 +1984,15 @@
     await releaseHeavySlot(id);
     store.setHeavySlot(await getHeavySlot());
   }
+  // Leaving the phone layout or the slot switching off takes the sheet with it, so a hidden
+  // sheet can't hold anyOverlayOpen() true or pop back on the next rotation.
+  $effect(() => {
+    if (!mobile.current || !slotEnabled(store.heavySlot)) showHostPanel = false;
+  });
+  const hostSheetSlot = $derived(
+    showHostPanel && mobile.current && slotEnabled(store.heavySlot) ? store.heavySlot : null,
+  );
+  const openHostSheet = $derived(mobile.current ? () => (showHostPanel = true) : undefined);
 
   function jumpToSession(id: string) {
     void jumpHandlers.jumpToSession(id);
@@ -2229,6 +2245,7 @@
       showNew ||
       showSettings ||
       showUsage ||
+      showHostPanel ||
       showBacklog ||
       showRepos ||
       showBroadcast ||
@@ -3732,6 +3749,7 @@
         limits={store.usageLimits}
         heavySlot={store.heavySlot}
         onheavyslotrelease={releaseSlot}
+        onhostpanel={() => (showHostPanel = true)}
         onsettings={() => {
           settingsTab = "workspace";
           settingsDeepLink = false;
@@ -3784,7 +3802,24 @@
         heavySlot={store.heavySlot}
         sessions={store.sessions}
         onselect={jumpToSession}
+        onopen={openHostSheet}
       />
+      {#if hostSheetSlot}
+        <HostPopover
+          variant="sheet"
+          heavySlot={hostSheetSlot}
+          sessions={store.sessions}
+          {nowMs}
+          onrelease={releaseSlot}
+          onsettings={() => {
+            showHostPanel = false;
+            settingsTab = "workspace";
+            settingsDeepLink = false;
+            showSettings = true;
+          }}
+          onClose={() => (showHostPanel = false)}
+        />
+      {/if}
     </header>
   {/if}
 

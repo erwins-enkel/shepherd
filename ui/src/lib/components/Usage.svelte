@@ -19,6 +19,8 @@
     getDeliveryMetrics,
   } from "#lib/api.js";
   import { dialog } from "#lib/a11yDialog.js";
+  import { MediaQuery } from "svelte/reactivity";
+  import { swipeBack } from "#lib/components/swipe-back.js";
   import { formatTokenLabel } from "#lib/format.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { codexTokenUsage } from "#lib/components/usage-gauges.js";
@@ -33,6 +35,11 @@
   import ModelsLens from "#lib/components/usage/ModelsLens.svelte";
 
   let { onclose }: { onclose?: () => void } = $props();
+
+  // Phone (full-screen card): a rightward swipe closes, like Settings and the command bar.
+  const phone = new MediaQuery("(max-width: 768px)");
+  let cardX = $state(0); // rubber-banded display offset (px, ≥ 0)
+  const cardSwipe = swipeBack({ onback: () => onclose?.(), onoffset: (px) => (cardX = px) });
 
   type Tab =
     "spend" | "overhead" | "prompt" | "timeline" | "delivery" | "models" | "limits" | "github";
@@ -233,10 +240,13 @@
 >
   <div
     class="card bracket"
+    class:swiping={cardX > 0}
+    style:transform={cardX > 0 ? `translateX(${cardX}px)` : undefined}
     role="dialog"
     aria-modal="true"
     aria-label={m.usage_page_title()}
     use:dialog={{ onclose: () => onclose?.() }}
+    {@attach phone.current ? cardSwipe : undefined}
   >
     <div class="chead">
       <span class="micro">{m.usage_page_title()}</span>
@@ -628,6 +638,13 @@
       max-height: none;
       border: 0;
       overflow: hidden;
+      transition: transform 0.18s ease-out;
+    }
+
+    /* Mid swipe-back: follows the finger 1:1, edge shadow over the uncovered page. */
+    .card.swiping {
+      transition: none;
+      box-shadow: var(--shadow-popover);
     }
 
     .provider-strip {

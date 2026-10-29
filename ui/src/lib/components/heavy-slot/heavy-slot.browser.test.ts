@@ -172,6 +172,58 @@ describe("HostPopover — phone sheet", () => {
     expect(onClose).toHaveBeenCalled();
     host.remove();
   });
+
+  // Synthetic touches spaced 500ms apart, so back-to-back dispatches never read as a flick.
+  let clock = 0;
+  function fakeTouch(type: string, x: number, y: number): Event {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(e, "touches", {
+      value: type === "touchend" ? [] : [{ clientX: x, clientY: y }],
+      configurable: true,
+    });
+    Object.defineProperty(e, "timeStamp", { value: (clock += 500), configurable: true });
+    return e;
+  }
+  function swipe(el: Element, from: [number, number], to: [number, number]) {
+    el.dispatchEvent(fakeTouch("touchstart", ...from));
+    el.dispatchEvent(fakeTouch("touchmove", ...to));
+    el.dispatchEvent(fakeTouch("touchend", ...to));
+  }
+  const props = (variant: "sheet" | "anchored", onClose: () => void) => ({
+    variant,
+    heavySlot: snap(),
+    sessions,
+    nowMs: 0,
+    onrelease: vi.fn(),
+    onClose,
+  });
+
+  it("a rightward swipe closes; it follows the finger; short, leftward and vertical stay", async () => {
+    await page.viewport(390, 800);
+    const onClose = vi.fn();
+    render(HostPopover, props("sheet", onClose));
+    const el = document.querySelector<HTMLElement>(".hp-sheet")!;
+    el.dispatchEvent(fakeTouch("touchstart", 10, 300));
+    el.dispatchEvent(fakeTouch("touchmove", 60, 300));
+    await expect.poll(() => el.style.transform).toBe("translateX(50px)");
+    el.dispatchEvent(fakeTouch("touchend", 60, 300));
+    await expect.poll(() => el.style.transform).toBe("");
+    swipe(el, [10, 300], [40, 300]);
+    swipe(el, [300, 300], [10, 300]);
+    swipe(el, [100, 100], [110, 500]);
+    expect(onClose).not.toHaveBeenCalled();
+    swipe(el, [10, 300], [300, 300]);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("the anchored desktop panel has no swipe", async () => {
+    const onClose = vi.fn();
+    render(HostPopover, props("anchored", onClose));
+    const el = document.querySelector<HTMLElement>(".hp")!;
+    swipe(el, [10, 300], [300, 300]);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(el.dataset.swipeBack).toBeUndefined();
+  });
 });
 
 // A real agent check: a multi-line heredoc pipeline, hundreds of characters long.

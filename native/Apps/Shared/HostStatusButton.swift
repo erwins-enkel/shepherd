@@ -1,21 +1,22 @@
 import SwiftUI
 import ShepherdKit
+import ShepherdAppCore
 
 /// Each instance is scoped to one server store; switching servers discards its snapshot.
-public struct HostStatusButton: View {
-    public let store: SessionStore
-    public var serverName: String?
+struct HostStatusButton: View {
+    let store: SessionStore
+    var serverName: String?
     @Environment(\.scenePhase) private var scenePhase
     @State private var snapshot: Components.Schemas.HeavySlotSnapshot?
     @State private var showingDetails = false
     @State private var failed = false
 
-    public init(store: SessionStore, serverName: String? = nil) {
+    init(store: SessionStore, serverName: String? = nil) {
         self.store = store
         self.serverName = serverName
     }
 
-    public var body: some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if snapshot?.enabled == true || failed {
                 Button { showingDetails = true } label: {

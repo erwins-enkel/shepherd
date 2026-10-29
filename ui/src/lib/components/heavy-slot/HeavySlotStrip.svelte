@@ -8,12 +8,16 @@
     sessions = [],
     onselect,
     onopen,
+    docked = false,
   }: {
     heavySlot?: HeavySlotSnapshot | null;
     sessions?: Pick<Session, "id" | "name">[];
     onselect?: (id: string) => void;
     /** Phone only: the label opens the host panel (the bar chip's job on desktop). */
     onopen?: () => void;
+    /** Phone only: float above the action bar instead of sitting in the chrome, so a check
+     *  starting or ending never reflows the herd list. */
+    docked?: boolean;
   } = $props();
 
   const nameOf = (id: string) =>
@@ -21,7 +25,7 @@
 </script>
 
 {#if slotActive(heavySlot) && heavySlot}
-  <div class="hs-strip" role="status" aria-label={m.heavyslot_label()}>
+  <div class="hs-strip" class:hs-docked={docked} role="status" aria-label={m.heavyslot_label()}>
     {#if onopen}
       {@const c = chipModel(heavySlot)}
       <button
@@ -167,6 +171,42 @@
     font-size: var(--fs-micro);
     letter-spacing: 0.04em;
     color: var(--color-red);
+  }
+  .hs-docked {
+    position: fixed;
+    left: var(--mobile-shell-pad);
+    right: var(--mobile-shell-pad);
+    bottom: calc(
+      var(--mobile-actionbar-h) + max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom)) +
+        6px
+    );
+    z-index: 5;
+    box-sizing: border-box;
+    border-color: var(--color-line-bright);
+    box-shadow: var(--shadow-popover);
+    align-items: center;
+  }
+  /* Docked is always one 44px row, whatever the width (a landscape phone is "mobile" by height
+     but misses the max-width rules below): the list reserves exactly --mobile-slotdock-h. */
+  .hs-docked .hs-rows {
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+    overflow-x: auto;
+  }
+  .hs-docked .hs-rows > li {
+    flex-shrink: 0;
+  }
+  .hs-docked .hs-row,
+  .hs-docked .hs-open {
+    min-height: 44px;
+    padding-top: 0;
+  }
+  .hs-docked .hs-holder {
+    max-width: min(70vw, 40ch);
+  }
+  .hs-docked .hs-brake {
+    white-space: nowrap;
   }
   /* Phone: one line, scrolling sideways; 44px tap targets. */
   @media (max-width: 768px) {

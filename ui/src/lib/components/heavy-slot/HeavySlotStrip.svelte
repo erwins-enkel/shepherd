@@ -41,9 +41,14 @@
     <ul class="hs-rows">
       {#each heavySlot.holders as h (h.sessionId)}
         <li>
-          <button type="button" class="hs-row hs-holder" onclick={() => onselect?.(h.sessionId)}>
+          <button
+            type="button"
+            class="hs-row hs-holder"
+            title={h.command}
+            onclick={() => onselect?.(h.sessionId)}
+          >
             <span class="hs-name">{nameOf(h.sessionId)}</span>
-            <span>{m.heavyslot_strip_holder({ command: h.command })}</span>
+            <span class="hs-cmd">{m.heavyslot_strip_holder({ command: h.command })}</span>
           </button>
         </li>
       {/each}
@@ -68,6 +73,7 @@
 
 <style>
   .hs-strip {
+    box-sizing: border-box;
     display: flex;
     align-items: flex-start;
     gap: 12px;
@@ -110,6 +116,11 @@
     padding: 0;
     list-style: none;
     min-width: 0;
+    max-width: 100%;
+  }
+  .hs-rows > li {
+    max-width: 100%;
+    min-width: 0;
   }
   .hs-row {
     display: inline-flex;
@@ -127,10 +138,20 @@
     color: var(--color-muted);
     white-space: nowrap;
     cursor: pointer;
+    max-width: 100%;
+    min-width: 0;
   }
   .hs-name {
     color: var(--color-ink-bright);
     font-weight: 500;
+    flex-shrink: 0;
+  }
+  /* A check command can be a long multi-line pipeline: one line, cut with an ellipsis (full text
+     in the row's title), so it never widens the strip past the page. */
+  .hs-cmd {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .hs-holder {
     color: var(--color-amber);
@@ -166,6 +187,13 @@
     }
     .hs-open {
       padding-top: 0;
+    }
+    .hs-rows > li {
+      flex-shrink: 0;
+    }
+    /* The rows scroll sideways here, so cap the holder instead of letting it run the full command. */
+    .hs-holder {
+      max-width: min(70vw, 40ch);
     }
     .hs-brake {
       white-space: nowrap;

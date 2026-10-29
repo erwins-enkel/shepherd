@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import type { HeavySlotSnapshot } from "#lib/types.js";
@@ -145,5 +145,116 @@ describe("HostPopover — phone sheet", () => {
     await userEvent.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalled();
     host.remove();
+  });
+});
+
+// A real agent check: a multi-line heredoc pipeline, hundreds of characters long.
+const LONG = [
+  "cd ui && bun run test src/lib/components/heavy-slot/heavy-slot.browser.test.ts src/lib/a.test.ts",
+  "cat <<'EOF' > /tmp/check.sh",
+  ...Array.from(
+    { length: 8 },
+    (_, i) => `bunx vitest run --project browser src/lib/part-${i}.test.ts`,
+  ),
+  "EOF",
+  "bash /tmp/check.sh && cargo test --locked --manifest-path cli/Cargo.toml",
+].join("\n");
+
+function longSnap(): HeavySlotSnapshot {
+  return snap({
+    holders: [{ sessionId: "h", command: LONG, startedAt: 0, rssBytes: 2 * GIB }],
+    lastResults: [
+      {
+        sessionId: "w1",
+        command: LONG,
+        startedAt: 0,
+        endedAt: 1,
+        exitCode: 1,
+        result: "failed",
+        head: "a1b2c3d4e5",
+        treeHash: "t",
+        stale: false,
+      },
+    ],
+  });
+}
+
+// Test pages load no app.css, so pin a px line-height for the line-count arithmetic.
+const LINE = 18;
+const lineHeight = () => LINE;
+const pinLineHeight = () => (document.body.style.lineHeight = `${LINE}px`);
+const cmdText = (btn: Element) => btn.querySelector(".hp-cmd-text") as HTMLElement;
+
+describe("HostPopover — long commands", () => {
+  beforeEach(pinLineHeight);
+  for (const [w, h] of [
+    [390, 800],
+    [1440, 900],
+  ] as const) {
+    it(`clamps every command to two lines at ${w}px and keeps the meta visible`, async () => {
+      await page.viewport(w, h);
+      render(HostPopover, {
+        heavySlot: longSnap(),
+        sessions,
+        nowMs: 134_000,
+        onrelease: vi.fn(),
+        onClose: vi.fn(),
+      });
+      const cmds = [...document.querySelectorAll(".hp-cmd")];
+      expect(cmds).toHaveLength(2);
+      for (const btn of cmds) {
+        const text = cmdText(btn);
+        expect(btn.getAttribute("aria-expanded")).toBe("false");
+        expect(btn.getAttribute("title")).toBe(LONG);
+        expect(text.clientHeight).toBeLessThanOrEqual(2 * lineHeight() + 1);
+        expect(text.scrollHeight).toBeGreaterThan(text.clientHeight);
+      }
+      await expect.element(page.getByText("2:14 · 2.0 GiB")).toBeVisible();
+      await expect.element(page.getByText(/a1b2c3d · exit 1/)).toBeVisible();
+      await expect
+        .element(page.getByRole("button", { name: "Release", exact: true }))
+        .toBeVisible();
+    });
+  }
+
+  it("expands one row's command to the full text and collapses it again", async () => {
+    await page.viewport(390, 800);
+    render(HostPopover, {
+      heavySlot: longSnap(),
+      sessions,
+      nowMs: 0,
+      onrelease: vi.fn(),
+      onClose: vi.fn(),
+    });
+    const [holder, result] = document.querySelectorAll(".hp-cmd");
+    const toggle = page.getByRole("button", { name: /^Show full command: cd ui/ }).first();
+    await userEvent.click(toggle);
+    expect(holder.getAttribute("aria-expanded")).toBe("true");
+    expect(holder.hasAttribute("title")).toBe(false);
+    const text = cmdText(holder);
+    expect(text.scrollHeight).toBeLessThanOrEqual(text.clientHeight);
+    expect(text.clientHeight).toBeGreaterThan(4 * lineHeight());
+    expect(text.textContent).toBe(LONG);
+    expect(result.getAttribute("aria-expanded")).toBe("false");
+    await userEvent.click(page.getByRole("button", { name: /^Collapse command: cd ui/ }));
+    expect(holder.getAttribute("aria-expanded")).toBe("false");
+    expect(cmdText(holder).clientHeight).toBeLessThanOrEqual(2 * lineHeight() + 1);
+  });
+});
+
+describe("HeavySlotStrip — long commands", () => {
+  beforeEach(pinLineHeight);
+  it("cuts the holder command to one line without widening the page", async () => {
+    await page.viewport(1440, 900);
+    const chrome = document.createElement("header");
+    chrome.style.cssText = "display:flex;flex-direction:column;";
+    document.body.appendChild(chrome);
+    render(HeavySlotStrip, { target: chrome, props: { heavySlot: longSnap(), sessions } });
+    const cmd = document.querySelector(".hs-cmd") as HTMLElement;
+    expect(cmd.clientHeight).toBeLessThanOrEqual(lineHeight() + 1);
+    expect(cmd.scrollWidth).toBeGreaterThan(cmd.clientWidth);
+    expect(cmd.getBoundingClientRect().right).toBeLessThanOrEqual(window.innerWidth);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
+    expect(document.querySelector(".hs-holder")?.getAttribute("title")).toBe(LONG);
   });
 });

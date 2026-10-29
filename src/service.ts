@@ -70,6 +70,8 @@ import {
   sanitizeHerdrAgentName,
 } from "./herdr";
 import { config } from "./config";
+import { HEAVY_SLOT_SETTING, storedHeavySlotSettings } from "./heavy-slot-settings";
+import { ensureSlotShims } from "./slot-shims";
 import {
   operatorLanguageBlock,
   visualBlockLanguageLine,
@@ -451,6 +453,9 @@ export interface ServiceDeps {
 
   /** Dir holding task sessions' 0600 ingress spawn files (seam); default `config.agentSpawnDir`. */
   agentSpawnDir?: string;
+  /** Dir of the PATH shims that put Codex sessions' heavy checks behind the slot (#3550); default
+   *  `config.slotShimDir`. */
+  slotShimDir?: string;
   /** The Operator Assistant's working dir (seam); default `config.operatorAssistantDir`. */
   operatorAssistantDir?: string;
   /** Pre-accept Claude's workspace trust for the assistant dir (seam); default
@@ -2458,6 +2463,8 @@ function agentLoopbackIngressBaseUrl(ingressPort: number): string {
  * it would only widen the surface.
  */
 const AGENT_API_URL_ENV = "SHEPHERD_AGENT_API_URL";
+/** Pin the server-selected origin separately so the runner can reject foreign non-loopback URLs. */
+const AGENT_API_ORIGIN_ENV = "SHEPHERD_AGENT_API_ORIGIN";
 
 /**
  * Env var carrying the PATH of a session's Browser Attach config file (ADR 0001,
@@ -3436,6 +3443,7 @@ export class SessionService {
     // four callers (create / resume / relaunch / replaceAgent) because only this seam is common to
     // all of them — and only Claude's path computes a base URL of its own.
     const agentApiUrl = this.resolveSpawnBaseUrl(ctx.profileOverride, ctx.repoPath);
+    const agentApiOrigin = new URL(agentApiUrl).origin;
     const browserConfigFile = await this.writeBrowserAttachConfig(
       ctx.sessionId,
       agentApiUrl,
@@ -3495,6 +3503,7 @@ export class SessionService {
             ...patchEnv,
             [SESSION_MARKER_ENV]: ctx.sessionId,
             [AGENT_API_URL_ENV]: agentApiUrl,
+            [AGENT_API_ORIGIN_ENV]: agentApiOrigin,
             ...ingressEnv,
             ...browserEnv,
           },
@@ -3525,6 +3534,7 @@ export class SessionService {
       repoPath: ctx.repoPath,
       connectorHosts: connectorEgressHosts(repoConfig.claudeAiConnectorsEnabled, ctx),
     });
+    const slotShimEnv = await this.slotShimEnv(ctx.agentProvider);
     // api-key passthrough (trusted, or a sandboxed profile degraded to no-backend):
     // no membrane to mask the credential in place, so point the spawn at the
     // credential-less mirror dir. The membrane case masks creds in place (keeping
@@ -3544,8 +3554,10 @@ export class SessionService {
       ...patchEnv,
       [SESSION_MARKER_ENV]: ctx.sessionId,
       [AGENT_API_URL_ENV]: agentApiUrl,
+      [AGENT_API_ORIGIN_ENV]: agentApiOrigin,
       ...ingressEnv,
       ...browserEnv,
+      ...slotShimEnv,
     };
     const agent = await this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv, {
       signal: ctx.signal,
@@ -4066,6 +4078,25 @@ export class SessionService {
     this.pushEffortFlag(argv, input.effort, "claude");
     argv.push(promptArg);
     return argv;
+  }
+
+  /**
+   * #3550: Codex has no rewriting PreToolUse hook, so its heavy checks reach the slot through PATH
+   * shims (scripts/slot-shim.mjs). Claude's go through the tool guard instead.
+   */
+  private async slotShimEnv(agentProvider: string | undefined): Promise<{ PATH?: string }> {
+    if (agentProvider !== "codex") return {};
+    const custom = storedHeavySlotSettings(this.deps.store.getSetting(HEAVY_SLOT_SETTING))
+      .heavyList.custom.map((e) => e.command)
+      // A custom entry for a name the shim cannot safely shadow (a shell builtin path) is skipped.
+      .filter((c) => !["sh", "bash", "node", "env"].includes(c));
+    const dir = await ensureSlotShims(
+      this.deps.slotShimDir ?? config.slotShimDir,
+      process.execPath,
+      undefined,
+      { tools: custom, heavyList: config.heavyListPath },
+    );
+    return dir ? { PATH: `${dir}:${process.env.PATH ?? ""}` } : {};
   }
 
   private buildCodexSpawnArgv(args: {

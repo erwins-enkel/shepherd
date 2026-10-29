@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# The Rust CLI gate (cli/). The `cli` job in .github/workflows/ci.yml and the `cli` lane of
-# scripts/pre-push.ts both run THIS script, so there is one command list.
+# The full Rust CLI gate (cli/), run by the `cli` job in .github/workflows/ci.yml.
+# Local work uses targeted Cargo tests; the pre-push hook does not run this full gate.
 #
 # Deliberate local-only difference: a machine without cargo SKIPS (exit 0) instead of failing, so
-# a contributor with no Rust toolchain is not blocked from pushing a contract edit. In CI a missing
+# an explicit local full check remains optional without a Rust toolchain. In CI a missing
 # cargo is an error, never a skip.
 #
 # `--locked`: release-please bumps the crate version in BOTH Cargo.toml and Cargo.lock

@@ -43,6 +43,8 @@ test("isAgentIngressRoute: ALLOWS exactly the agent→server routes", () => {
   // retitle its own session. SELF only — the id segment is the capability.
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}`))).toBe(true);
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/rename`))).toBe(true);
+  // Heavy-check runner (#3181): acquire/started/finished on the session's own jobs.
+  expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/heavy-slot`))).toBe(true);
   // Browser Attach (ADR 0001): a GET WebSocket upgrade, token-gated in serveAgentIngress.
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/browser`))).toBe(true);
 });
@@ -87,6 +89,11 @@ test("isAgentIngressRoute: DENIES everything else (containment property)", () =>
   expect(isAgentIngressRoute("PUT", parts(`/api/sessions/${ID}/rename`))).toBe(false);
   expect(isAgentIngressRoute("DELETE", parts(`/api/sessions/${ID}/rename`))).toBe(false);
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/rename/x`))).toBe(false);
+  // The heavy-check route is POST-only, exact-path; the operator's host-wide view is no agent route.
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/heavy-slot`))).toBe(false);
+  expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/heavy-slot/x`))).toBe(false);
+  expect(isAgentIngressRoute("GET", parts(`/api/heavy-slot`))).toBe(false);
+  expect(isAgentIngressRoute("POST", parts(`/api/heavy-slot/jobs/j1/release`))).toBe(false);
   // Wrong methods on the allowed paths.
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/hooks`))).toBe(false);
   expect(isAgentIngressRoute("PUT", parts(`/api/sessions/${ID}/hooks`))).toBe(false);
@@ -377,6 +384,57 @@ test("makeAgentIngressApp: POST /api/sessions/:id/rename delegates to the canoni
     }),
   );
   expect(bad.status).toBe(400);
+});
+
+test("makeAgentIngressApp: POST /api/sessions/:id/heavy-slot needs the key and touches own jobs only (#3181)", async () => {
+  const deps = makeDeps();
+  const calls: unknown[][] = [];
+  deps.heavySlot = {
+    acquire: async (...a) => {
+      calls.push(["acquire", ...a]);
+      return { decision: "run", jobId: "j1" };
+    },
+    started: async () => true,
+    finish: async (...a) => {
+      calls.push(["finish", ...a]);
+      return a[0] === ID;
+    },
+    release: async () => true,
+    snapshot: () => ({}) as any,
+  };
+  deps.store.get = ((id: string) => ({ id, status: "running" })) as any;
+  const post = (body: unknown) =>
+    new Request(`http://x/api/sessions/${ID}/heavy-slot`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  // No key → refused at the gate.
+  const unkeyed = await makeAgentIngressApp(deps).fetch(post({ op: "acquire", command: "x" }));
+  expect(unkeyed.status).toBe(401);
+
+  const app = keyedIngressApp(deps);
+  const ok = await app.fetch(post({ op: "acquire", command: "bun run test", cwd: "/wt" }));
+  expect(ok.status).toBe(200);
+  expect(await ok.json()).toEqual({ decision: "run", jobId: "j1" });
+  expect(calls[0]).toEqual(["acquire", ID, "bun run test", "/wt", false]);
+
+  const fin = await app.fetch(post({ op: "finished", jobId: "j1", exitCode: 1 }));
+  expect(await fin.json()).toEqual({ ok: true });
+  expect(calls[1]).toEqual(["finish", ID, "j1", 1]);
+
+  const waiting = await app.fetch(
+    post({ op: "acquire", command: "bun run test", cwd: "/wt", canWait: true }),
+  );
+  expect(waiting.status).toBe(200);
+  expect(calls[2]).toEqual(["acquire", ID, "bun run test", "/wt", true]);
+
+  expect((await app.fetch(post({ op: "acquire", command: "" }))).status).toBe(400);
+  expect((await app.fetch(post({ op: "started", jobId: "j1", pgid: -1 }))).status).toBe(400);
+  expect((await app.fetch(post({ op: "nope", jobId: "j1" }))).status).toBe(400);
+  // The operator's host-wide routes are not reachable through the ingress at all.
+  expect((await app.fetch(new Request("http://x/api/heavy-slot"))).status).toBe(404);
 });
 
 test("makeAgentIngressApp: the MCP endpoint delegates and drives the queue through a tool call (issue #2003)", async () => {

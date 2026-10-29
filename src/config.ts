@@ -57,6 +57,13 @@ const pluginSecretsPath =
 // APNs credentials entered in Settings → Notifications (#2696): one 0600 JSON file beside the db,
 // never served by any route.
 const apnsStorePath = join(dirname(dbPath), "apns.json");
+// PATH shims that route a Codex session's heavy checks through the heavy-check slot (#3550).
+const slotShimDir = join(dirname(dbPath), "slot-shims");
+// The operator's edits to the "counts as heavy" list (Settings → Resources, #3552), read by the
+// tool guard and the shims. Its own directory: the sandbox binds the directory, so an atomic
+// rewrite of the file is seen from inside.
+const heavyListDir = join(dirname(dbPath), "heavy-list");
+const heavyListPath = join(heavyListDir, "heavy-list.json");
 // The decision-model connection entered in Settings → Decision model (#3071): the JEV key plus
 // model, base URL and timeout, in one 0600 JSON file beside the db, never served by any route.
 const judgeStorePath = join(dirname(dbPath), "judge.json");
@@ -766,6 +773,9 @@ export const config = {
   apnsTeamId: process.env.SHEPHERD_APNS_TEAM_ID || null,
   apnsTopic: process.env.SHEPHERD_APNS_TOPIC || null,
   apnsStorePath,
+  slotShimDir,
+  heavyListDir,
+  heavyListPath,
   // ── anonymous usage telemetry (Aptabase) ────────────────────────────────
   // The App-Key is the master enable. It defaults to Shepherd's public Aptabase
   // Cloud (EU) ingestion key — an Aptabase App-Key is write-only and safe to ship
@@ -842,6 +852,14 @@ export const config = {
   // sessions that need it. Default ON; SHEPHERD_TOOL_GUARD=0 is the kill switch, and turning it off
   // puts BOTH notices back into the composed prompt (see composeSystemPromptBlocks).
   toolGuard: parseKillSwitch(process.env.SHEPHERD_TOOL_GUARD),
+  // Host-wide heavy-check slot (#3181): heavy checks (tests, type checks, builds) an agent starts
+  // are rewritten by the tool guard above onto scripts/heavy-slot.mjs, which asks this server for
+  // the slot before the process starts — so it needs `toolGuard` on to reach any session. Default
+  // ON; SHEPHERD_HEAVY_SLOT=0 is the kill switch (the runner is then told to run unmanaged).
+  heavySlot: parseKillSwitch(process.env.SHEPHERD_HEAVY_SLOT),
+  // Slots override; 0 (the default) derives the count from the host's cores and RAM
+  // (defaultHeavySlotBudget — one on a 16-core / 30 GiB box).
+  heavySlots: parseEnvNumber(process.env.SHEPHERD_HEAVY_SLOTS, "SHEPHERD_HEAVY_SLOTS", 0),
   // Phase 1: feed received hook events into the poller (the single owner of signal state).
   // Meaningful only when `hooksIngest` is also on — with ingest off no events arrive to feed.
   // DEFAULT ON as of #740, completing the flip #1686 started on `hooksIngest`. The soak gate this

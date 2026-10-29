@@ -30,6 +30,8 @@
     stageRelaunchImages,
     ApiError,
     getUsageLimits,
+    getHeavySlot,
+    releaseHeavySlot,
     getUpdate,
     listMachineUpdates,
     getUpdateLog,
@@ -167,6 +169,8 @@
   import type { KickoffChoice } from "#lib/components/NewProject.svelte";
   import ActionBar from "#lib/components/ActionBar.svelte";
   import QueueStrip from "#lib/components/QueueStrip.svelte";
+  import HeavySlotStrip from "#lib/components/heavy-slot/HeavySlotStrip.svelte";
+  import { needsResultRefresh, RESULT_REFRESH_MS } from "#lib/components/heavy-slot/heavy-slot.js";
   import RepoSwitcher from "#lib/components/RepoSwitcher.svelte";
   import {
     nextRepoFilter,
@@ -1067,6 +1071,15 @@
   // replacement socket was open (the server never re-sends those deltas).
   let lastResyncAt = 0;
 
+  function refreshResourceStatus() {
+    getUsageLimits()
+      .then((r) => store.setUsageLimits(r.limits))
+      .catch(() => {});
+    getHeavySlot()
+      .then((r) => store.setHeavySlot(r))
+      .catch(() => {});
+  }
+
   function resync(opts?: { force?: boolean }) {
     const now = Date.now();
     if (!opts?.force && now - lastResyncAt < 2_000) return;
@@ -1078,9 +1091,7 @@
     loadOperatorAssistant();
     refreshRemoteDispatches();
     void machines.refresh();
-    getUsageLimits()
-      .then((r) => store.setUsageLimits(r.limits))
-      .catch(() => {});
+    refreshResourceStatus();
     gitStates()
       .then((m) => store.setGit(m))
       .catch(() => {});
@@ -1935,6 +1946,38 @@
   // repo/status filter currently hides it. Shared by the command bar and auto-merge strip.
   // Routed through jumpHandlers (herd-jump.ts) so a target in a collapsed group is
   // revealed before selection.
+  // Last results ride on GET only: re-read when who holds the slot changes (a check ended).
+  let slotHoldersSig = "";
+  $effect(() => {
+    const hs = store.heavySlot;
+    const sig = hs?.enabled ? hs.holders.map((h) => h.sessionId).join(",") : "";
+    if (sig === slotHoldersSig) return;
+    slotHoldersSig = sig;
+    getHeavySlot()
+      .then((r) => store.setHeavySlot(r))
+      .catch(() => {});
+  });
+
+  // A current result goes stale when the source moves on, which nothing announces: re-read while
+  // one is shown and the tab is visible. The server caches the worktree look for a moment.
+  const refreshResults = $derived(needsResultRefresh(store.heavySlot));
+  $effect(() => {
+    if (!refreshResults) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      getHeavySlot()
+        .then((r) => store.setHeavySlot(r))
+        .catch(() => {});
+    }, RESULT_REFRESH_MS);
+    return () => clearInterval(timer);
+  });
+
+  /** Free a holder's slot, then re-read the snapshot so chip, strip and popover agree. */
+  async function releaseSlot(id: string) {
+    await releaseHeavySlot(id);
+    store.setHeavySlot(await getHeavySlot());
+  }
+
   function jumpToSession(id: string) {
     void jumpHandlers.jumpToSession(id);
   }
@@ -2376,9 +2419,7 @@
     loadOperatorAssistant();
     refreshRemoteDispatches();
     void machines.refresh();
-    getUsageLimits()
-      .then((r) => store.setUsageLimits(r.limits))
-      .catch(() => {});
+    refreshResourceStatus();
     getUpdate()
       .then((u) => store.setUpdate(u))
       .catch(() => {});
@@ -3689,6 +3730,8 @@
         mobile={mobile.current}
         touch={touch.current}
         limits={store.usageLimits}
+        heavySlot={store.heavySlot}
+        onheavyslotrelease={releaseSlot}
         onsettings={() => {
           settingsTab = "workspace";
           settingsDeepLink = false;
@@ -3737,6 +3780,11 @@
            renders it in the sidebar column instead (see .herd-col). -->
       {@render repoRail(railInChrome)}
       <QueueStrip autoMerge={store.autoMerge} onselect={jumpToSession} />
+      <HeavySlotStrip
+        heavySlot={store.heavySlot}
+        sessions={store.sessions}
+        onselect={jumpToSession}
+      />
     </header>
   {/if}
 

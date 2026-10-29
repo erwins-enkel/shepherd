@@ -33,7 +33,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Run tasks on another machine",
     path: "/machines/",
     keywords:
-      "connect another shepherd as a machine — linux and macos setup, the automatic choice and waiting tasks, the trust decision, limits and an end-to-end checklist. how it works macos session controls prepare each machine make it reachable in your tailnet create a token on the machine connect it see both directions start a task on a machine automatic choice platform order waiting tasks when nothing starts work with its sessions update its shepherd the trust decision limits windows: modeled, not released test a branch on two machines check a two-machine setup end to end xcode missing on purpose lose an answer on purpose",
+      "connect another shepherd as a machine — linux and macos setup, the automatic choice and waiting tasks, the trust decision, limits and an end-to-end checklist. how it works macos session controls prepare each machine make it reachable in your tailnet create a token on the machine connect it see both directions start a task on a machine automatic choice platform order waiting tasks when nothing starts work with its sessions update its shepherd the trust decision limits windows: modeled, not released test a branch on two machines check a two-machine setup end to end xcode missing on purpose lose an answer on purpose check slot per machine",
   },
   {
     title: "Operating Shepherd",
@@ -163,7 +163,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "shepherd CLI",
     path: "/reference/shepherd-cli/",
     keywords:
-      "read the herd, tail events and steer sessions from the terminal or an agent. install build connect and authenticate token scopes output exit codes commands read worktree state session phase events wait session control work intake reviews and merge epics schedules settings and diagnostics",
+      "read the herd, tail events and steer sessions from the terminal or an agent. install build connect and authenticate token scopes output exit codes commands read worktree state session phase events wait session control work intake reviews and merge epics schedules heavy-check slot settings and diagnostics",
   },
   {
     title: "Stacked epic children",

@@ -457,6 +457,8 @@ components:
           type: boolean
         upnextQuickStarts:
           $ref: "#/components/schemas/UpNextQuickStarts"
+        heavySlot:
+          $ref: "#/components/schemas/HeavySlotSettings"
         usageHoldEnabled:
           type: boolean
         usageHoldAutoRelease:
@@ -3102,6 +3104,207 @@ components:
           type: string
         busy:
           type: boolean
+    HeavySlotOperatorAnswer:
+      type: object
+      description: An `acquire` answer (`decision` run/queued, `jobId`, and for queued `message`, `position`, `total`, `etaMs`, `reason`) or a `started`/`finished` answer (`ok`).
+      additionalProperties: true
+      properties:
+        decision:
+          type: string
+          enum:
+            - run
+            - queued
+        jobId:
+          type: string
+        unmanaged:
+          type: boolean
+        message:
+          type: string
+        position:
+          type: integer
+        total:
+          type: integer
+        etaMs:
+          type: integer
+          nullable: true
+        reason:
+          type: string
+        ok:
+          type: boolean
+    HeavySlotReleased:
+      type: object
+      required:
+        - released
+      properties:
+        released:
+          type: boolean
+    HeavySlotSnapshot:
+      type: object
+      required:
+        - enabled
+        - capacity
+        - holders
+        - waiters
+        - brake
+        - pressure
+        - memoryBySource
+        - lastResults
+      properties:
+        enabled:
+          type: boolean
+        capacity:
+          type: integer
+        holders:
+          type: array
+          items:
+            type: object
+            required:
+              - sessionId
+              - command
+              - startedAt
+              - rssBytes
+            properties:
+              sessionId:
+                type: string
+              command:
+                type: string
+              startedAt:
+                type: integer
+              rssBytes:
+                type: integer
+                nullable: true
+        waiters:
+          type: array
+          items:
+            type: object
+            required:
+              - sessionId
+              - position
+              - reason
+            properties:
+              sessionId:
+                type: string
+              position:
+                type: integer
+              reason:
+                type: string
+                enum:
+                  - slot
+                  - pressure
+        brake:
+          type: object
+          required:
+            - active
+            - reason
+          properties:
+            active:
+              type: boolean
+            reason:
+              type: string
+              enum:
+                - memory
+              nullable: true
+        pressure:
+          type: object
+          required:
+            - ramAvailableBytes
+            - ramTotalBytes
+            - swapUsedBytes
+            - swapTotalBytes
+            - memFullAvg10
+            - memBrakeThreshold
+            - cpuSomeAvg10
+          properties:
+            ramAvailableBytes:
+              type: integer
+              nullable: true
+            ramTotalBytes:
+              type: integer
+              nullable: true
+            swapUsedBytes:
+              type: integer
+              nullable: true
+            swapTotalBytes:
+              type: integer
+              nullable: true
+            memFullAvg10:
+              type: number
+              nullable: true
+            memBrakeThreshold:
+              type: number
+              nullable: true
+            cpuSomeAvg10:
+              type: number
+              nullable: true
+        memoryBySource:
+          type: object
+          required:
+            - agentsBytes
+            - foreignBytes
+            - foreignTop
+          properties:
+            agentsBytes:
+              type: integer
+              nullable: true
+            foreignBytes:
+              type: integer
+              nullable: true
+            foreignTop:
+              type: array
+              items:
+                type: object
+                required:
+                  - name
+                  - bytes
+                properties:
+                  name:
+                    type: string
+                  bytes:
+                    type: integer
+        lastResults:
+          type: array
+          description: Each session's latest finished slot job, bound to the revision it ran against (#3554).
+          items:
+            type: object
+            required:
+              - sessionId
+              - command
+              - startedAt
+              - endedAt
+              - exitCode
+              - result
+              - head
+              - treeHash
+              - stale
+            properties:
+              sessionId:
+                type: string
+              command:
+                type: string
+              startedAt:
+                type: integer
+              endedAt:
+                type: integer
+                nullable: true
+              exitCode:
+                type: integer
+                nullable: true
+              result:
+                type: string
+                enum:
+                  - passed
+                  - failed
+                  - aborted
+              head:
+                type: string
+                nullable: true
+                description: Commit the job ran on.
+              treeHash:
+                type: string
+                description: Hash of the dirty worktree when the job started.
+              stale:
+                type: boolean
+                description: The worktree no longer matches head + treeHash; a stale result is never shown as green.
     ProjectIcons:
       type: object
       additionalProperties:
@@ -5902,6 +6105,115 @@ components:
         effort:
           type: string
           nullable: true
+    HeavyListEntry:
+      type: object
+      additionalProperties: false
+      required:
+        - command
+        - subcommands
+      properties:
+        command:
+          type: string
+        subcommands:
+          type: array
+          items:
+            type: string
+          description: Empty = heavy whatever the arguments.
+    HeavySlotBrake:
+      type: object
+      additionalProperties: false
+      description: Pressure-brake thresholds; null = the hardware default.
+      properties:
+        minAvailableMiB:
+          type: integer
+          nullable: true
+        psiFullMax:
+          type: integer
+          nullable: true
+        releaseHoldSec:
+          type: integer
+          nullable: true
+    HeavySlotSettings:
+      type: object
+      additionalProperties: true
+      description: Settings → Resources (#3552). enabled is the resolved master switch; slots null = derived from the hardware. defaults and peaks are read-only.
+      properties:
+        enabled:
+          type: boolean
+        slots:
+          type: integer
+          nullable: true
+        waitMinutes:
+          type: integer
+          minimum: 0
+          maximum: 60
+        brake:
+          $ref: "#/components/schemas/HeavySlotBrake"
+        heavyList:
+          type: object
+          additionalProperties: false
+          properties:
+            custom:
+              type: array
+              items:
+                $ref: "#/components/schemas/HeavyListEntry"
+            disabled:
+              type: array
+              items:
+                type: string
+        defaults:
+          type: object
+          additionalProperties: true
+          properties:
+            slots:
+              type: integer
+            minAvailableMiB:
+              type: integer
+            psiFullMax:
+              type: integer
+            releaseHoldSec:
+              type: integer
+            heavyList:
+              type: array
+              items:
+                $ref: "#/components/schemas/HeavyListEntry"
+        peaks:
+          type: object
+          additionalProperties:
+            type: number
+          description: Last measured peak memory (bytes) of a finished check, per list command.
+    HeavySlotSettingsPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: enabled null = back to SHEPHERD_HEAVY_SLOT; slots 1–64 or null; brake merges per field; heavyList replaces the operator's edits. Applies to the next slot decision — running checks are untouched.
+      properties:
+        enabled:
+          type: boolean
+          nullable: true
+        slots:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 64
+        waitMinutes:
+          type: integer
+          minimum: 0
+          maximum: 60
+        brake:
+          $ref: "#/components/schemas/HeavySlotBrake"
+        heavyList:
+          type: object
+          additionalProperties: false
+          properties:
+            custom:
+              type: array
+              items:
+                $ref: "#/components/schemas/HeavyListEntry"
+            disabled:
+              type: array
+              items:
+                type: string
     UpNextQuickStartsPatch:
       type: object
       additionalProperties: false
@@ -7573,6 +7885,8 @@ components:
           type: boolean
         upnextQuickStarts:
           $ref: "#/components/schemas/UpNextQuickStartsPatch"
+        heavySlot:
+          $ref: "#/components/schemas/HeavySlotSettingsPatch"
         usageHoldEnabled:
           type: boolean
         usageHoldAutoRelease:
@@ -7683,6 +7997,8 @@ components:
           type: boolean
         upnextQuickStarts:
           $ref: "#/components/schemas/UpNextQuickStarts"
+        heavySlot:
+          $ref: "#/components/schemas/HeavySlotSettings"
         usageHoldEnabled:
           type: boolean
         usageHoldAutoRelease:
@@ -11226,6 +11542,92 @@ paths:
                 $ref: "#/components/schemas/UsageLimitsResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/heavy-slot:
+    get:
+      operationId: getHeavySlot
+      description: The host-wide heavy-check slot as the overview shows it (switched off when nothing owns it).
+      responses:
+        "200":
+          description: The slot snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeavySlotSnapshot"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/heavy-slot/release:
+    post:
+      operationId: releaseHeavySlot
+      description: Manually free the slot a session holds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - sessionId
+              properties:
+                sessionId:
+                  type: string
+      responses:
+        "200":
+          description: Released.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeavySlotReleased"
+        "400":
+          description: sessionId missing or not a string.
+        "401":
+          description: Missing or invalid credential.
+        "404":
+          description: The session holds no slot.
+  /api/heavy-slot/operator:
+    post:
+      operationId: runHeavySlotOperator
+      description: |
+        `shepherd slot run` outside any session (#3550): ask for the slot (`op: acquire`) and report
+        the command's start (`started`, macOS process group) and exit (`finished`). A command that
+        would have to wait is answered `queued` with place and estimate and is NOT queued.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - op
+              properties:
+                op:
+                  type: string
+                  enum:
+                    - acquire
+                    - started
+                    - finished
+                command:
+                  type: string
+                cwd:
+                  type: string
+                jobId:
+                  type: string
+                pgid:
+                  type: integer
+                exitCode:
+                  type: integer
+      responses:
+        "200":
+          description: "`acquire`: { decision: run, jobId? } or { decision: queued, message, position, total, etaMs }; `started`/`finished`: { ok }."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeavySlotOperatorAnswer"
+        "400":
+          description: Unknown op or a missing field.
+        "401":
+          description: Missing or invalid credential.
+        "503":
+          description: The heavy-check slot is unavailable.
   /api/project-icons:
     get:
       operationId: listProjectIcons

@@ -1,4 +1,5 @@
 import { test, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import { DISABLED_HEAVY_SLOT } from "../src/heavy-slot-snapshot";
 import {
   mkdtempSync,
   mkdirSync,
@@ -143,6 +144,37 @@ test("GET /api/codex-update/notes returns the on-demand service result", async (
   );
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual(result);
+});
+
+test("GET /api/heavy-slot reports the slot switched off when nothing owns it", async () => {
+  const res = await harness().fetch(new Request("http://localhost:7330/api/heavy-slot"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toMatchObject({
+    enabled: false,
+    holders: [],
+    waiters: [],
+    lastResults: [],
+  });
+});
+
+test("POST /api/heavy-slot/release frees a holder and 404s for a non-holder", async () => {
+  const deps = makeDeps();
+  deps.heavySlot = {
+    snapshot: () => ({ ...DISABLED_HEAVY_SLOT, enabled: true, capacity: 1 }),
+    release: (id) => id === "holder",
+  };
+  const app = makeApp(deps);
+  const post = (sessionId: unknown) =>
+    app.fetch(
+      new Request("http://localhost:7330/api/heavy-slot/release", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      }),
+    );
+  expect((await post("holder")).status).toBe(200);
+  expect((await post("nobody")).status).toBe(404);
+  expect((await post(7)).status).toBe(400);
 });
 
 test("GET /api/usage/limits returns limits + projections", async () => {

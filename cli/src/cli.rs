@@ -35,6 +35,17 @@ pub struct Cli {
 }
 
 #[derive(Debug, Subcommand)]
+pub enum SlotCmd {
+    /// Run a command once the slot is free; exits 75 without running it when it must wait, else
+    /// with the command's own exit code
+    Run {
+        /// The command, after `--`: one shell string or its words
+        #[arg(last = true, required = true, value_name = "COMMAND")]
+        command: Vec<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 pub enum Command {
     /// List or inspect sessions
     #[command(subcommand)]
@@ -171,6 +182,9 @@ pub enum Command {
         #[command(subcommand)]
         cmd: EpicsCmd,
     },
+    /// The host-wide heavy-check slot: run tests, type checks and builds through it
+    #[command(subcommand)]
+    Slot(SlotCmd),
     /// Operator settings: show them, or set one
     Settings {
         #[command(subcommand)]

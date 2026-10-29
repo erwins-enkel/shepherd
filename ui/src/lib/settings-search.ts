@@ -13,6 +13,7 @@ export const SETTINGS_SECTION_IDS = [
   "device",
   "access",
   "machines",
+  "resources",
   "diagnose",
 ] as const;
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
@@ -40,6 +41,7 @@ export const SECTION_GLYPHS: Record<SettingsSectionId, string> = {
   access: "◈",
   // U+25A3, same Geometric Shapes block as ▦/◫/◈ — a framed square reads as a screen.
   machines: "▣",
+  resources: "◴",
   diagnose: "⚠",
 };
 
@@ -345,6 +347,14 @@ export function sectionSearchRows(ctx: {
       [m.settings_machines_list_title()],
       [m.settings_machines_connect_title(), m.settings_machines_connect_hint()],
       [m.settings_machines_incoming_title(), m.settings_machines_incoming_hint()],
+    ],
+    resources: [
+      [m.resources_title(), m.resources_scope()],
+      [m.resources_enabled()],
+      [m.resources_slots(), m.resources_wait()],
+      [m.resources_heavy()],
+      [m.resources_brake(), m.resources_ram(), m.resources_psi(), m.resources_release()],
+      [m.resources_foreign()],
     ],
     diagnose: [[m.settings_tab_diagnose()], [m.diagnostics_title(), m.diagnostics_subtitle()]],
   };

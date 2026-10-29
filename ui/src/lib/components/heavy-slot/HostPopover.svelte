@@ -1,0 +1,325 @@
+<script lang="ts">
+  import type { HeavySlotSnapshot, Session } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import {
+    formatBytes,
+    formatRuntime,
+    memPressureBar,
+    orderedWaiters,
+    ramUsedPct,
+    resultView,
+    shortRevision,
+  } from "./heavy-slot";
+
+  let {
+    heavySlot,
+    sessions = [],
+    nowMs,
+    onrelease,
+    onsettings,
+    onClose,
+    el = $bindable(null),
+  }: {
+    heavySlot: HeavySlotSnapshot;
+    sessions?: Pick<Session, "id" | "name">[];
+    nowMs: number;
+    onrelease: (sessionId: string) => Promise<void>;
+    onsettings?: () => void;
+    onClose: () => void;
+    el?: HTMLDivElement | null;
+  } = $props();
+
+  const resultLabel = {
+    passed: () => m.heavyslot_result_passed(),
+    failed: () => m.heavyslot_result_failed(),
+    aborted: () => m.heavyslot_result_aborted(),
+    stale: () => m.heavyslot_result_stale(),
+  };
+  let confirming = $state<string | null>(null);
+  let releaseFailed = $state(false);
+  const nameOf = (id: string) =>
+    sessions.find((s) => s.id === id)?.name ?? m.heavyslot_unknown_session();
+  const bar = $derived(memPressureBar(heavySlot));
+  const ram = $derived(ramUsedPct(heavySlot));
+  const p = $derived(heavySlot.pressure);
+  const src = $derived(heavySlot.memoryBySource);
+
+  async function release(id: string) {
+    releaseFailed = false;
+    try {
+      await onrelease(id);
+      confirming = null;
+    } catch {
+      releaseFailed = true;
+    }
+  }
+</script>
+
+<div class="hp" role="dialog" aria-label={m.heavyslot_popover_title()} tabindex="-1" bind:this={el}>
+  <header class="hp-head">
+    <span class="hp-title">▤ {m.heavyslot_popover_title()}</span>
+    <button type="button" class="hp-x" aria-label={m.heavyslot_close()} onclick={onClose}>×</button>
+  </header>
+
+  <section>
+    <h3>{m.heavyslot_holders()}</h3>
+    {#each heavySlot.holders as h (h.sessionId)}
+      <div class="hp-row">
+        <span class="hp-name">{nameOf(h.sessionId)}</span>
+        <span class="hp-dim"
+          >{h.command} · {formatRuntime(h.startedAt, nowMs)} · {formatBytes(h.rssBytes)}</span
+        >
+        {#if confirming === h.sessionId}
+          <p class="hp-confirm">{m.heavyslot_release_confirm({ name: nameOf(h.sessionId) })}</p>
+          <span class="hp-actions">
+            <button type="button" class="hp-btn" onclick={() => void release(h.sessionId)}>
+              {m.heavyslot_release_confirm_yes()}
+            </button>
+            <button type="button" class="hp-btn" onclick={() => (confirming = null)}>
+              {m.heavyslot_release_cancel()}
+            </button>
+          </span>
+          {#if releaseFailed}<p class="hp-err" role="alert">{m.heavyslot_release_failed()}</p>{/if}
+        {:else}
+          <button type="button" class="hp-btn" onclick={() => (confirming = h.sessionId)}>
+            {m.heavyslot_release()}
+          </button>
+        {/if}
+      </div>
+    {:else}
+      <p class="hp-dim">{m.heavyslot_none_holding()}</p>
+    {/each}
+  </section>
+
+  <section>
+    <h3>{m.heavyslot_queue()}</h3>
+    {#each orderedWaiters(heavySlot) as w (w.sessionId)}
+      <div class="hp-row">
+        <span class="hp-name">{w.position}. {nameOf(w.sessionId)}</span>
+        <span class="hp-dim">
+          {w.reason === "pressure"
+            ? m.heavyslot_strip_wait_pressure({ n: w.position })
+            : m.heavyslot_strip_wait({ n: w.position })}
+        </span>
+      </div>
+    {:else}
+      <p class="hp-dim">{m.heavyslot_queue_empty()}</p>
+    {/each}
+    {#if heavySlot.brake.active}<p class="hp-brake">{m.heavyslot_strip_brake()}</p>{/if}
+  </section>
+
+  {#if heavySlot.lastResults.length > 0}
+    <section>
+      <h3>{m.heavyslot_last_results()}</h3>
+      {#each heavySlot.lastResults as r (r.sessionId)}
+        {@const view = resultView(r)}
+        <div class="hp-row">
+          <span class="hp-name">{nameOf(r.sessionId)}</span>
+          <span class="hp-dim">
+            {r.command} · {shortRevision(r)}{r.exitCode == null ? "" : ` · exit ${r.exitCode}`}
+          </span>
+          <span class="hp-res hp-res-{view}">{resultLabel[view]()}</span>
+          {#if r.stale}
+            <p class="hp-dim">{m.heavyslot_result_stale_hint()}</p>
+          {/if}
+        </div>
+      {/each}
+    </section>
+  {/if}
+
+  <section>
+    <h3>{m.heavyslot_pressure()}</h3>
+    <dl class="hp-kv">
+      <dt>{m.heavyslot_ram_row()}</dt>
+      <dd>
+        {ram == null ? "–" : `${ram} %`} · {formatBytes(p.ramAvailableBytes)} / {formatBytes(
+          p.ramTotalBytes,
+        )}
+      </dd>
+      <dt>{m.heavyslot_swap_row()}</dt>
+      <dd>{formatBytes(p.swapUsedBytes)} / {formatBytes(p.swapTotalBytes)}</dd>
+      <dt>{m.heavyslot_mem_psi()}</dt>
+      <dd>
+        {p.memFullAvg10 == null ? "–" : `${p.memFullAvg10} %`}
+        {#if bar}
+          <span class="hp-bar" aria-hidden="true">
+            <span class="hp-fill" style:width="{bar.fill * 100}%"></span>
+            <span class="hp-limit" style:left="{bar.limit * 100}%"></span>
+          </span>
+          <span class="hp-dim"
+            >{m.heavyslot_mem_psi_limit({ limit: p.memBrakeThreshold ?? 0 })}</span
+          >
+        {/if}
+      </dd>
+      <dt>{m.heavyslot_cpu_psi()}</dt>
+      <dd>{p.cpuSomeAvg10 == null ? "–" : `${p.cpuSomeAvg10} %`}</dd>
+    </dl>
+  </section>
+
+  <section>
+    <h3>{m.heavyslot_source()}</h3>
+    <dl class="hp-kv">
+      <dt>{m.heavyslot_source_agents()}</dt>
+      <dd>{formatBytes(src.agentsBytes)}</dd>
+      <dt>{m.heavyslot_source_foreign()}</dt>
+      <dd>{formatBytes(src.foreignBytes)}</dd>
+      {#each src.foreignTop as f (f.name)}
+        <dt class="hp-dim">{f.name}</dt>
+        <dd class="hp-dim">{formatBytes(f.bytes)}</dd>
+      {/each}
+    </dl>
+  </section>
+
+  {#if onsettings}
+    <button type="button" class="hp-link" onclick={onsettings}
+      >{m.heavyslot_settings_link()} →</button
+    >
+  {/if}
+</div>
+
+<style>
+  .hp {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 40;
+    box-sizing: border-box;
+    width: min(380px, calc(100vw - 32px));
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+    padding: 10px 12px;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-chip);
+    background: var(--color-panel);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    color: var(--color-ink);
+    text-align: left;
+  }
+  .hp-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .hp-title,
+  h3 {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    font-weight: 400;
+    margin: 10px 0 4px;
+  }
+  .hp-head .hp-title {
+    margin: 0;
+  }
+  .hp-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    padding: 3px 0;
+  }
+  .hp-name {
+    color: var(--color-ink-bright);
+    overflow-wrap: anywhere;
+  }
+  .hp-dim {
+    color: var(--color-muted);
+    margin: 0;
+  }
+  .hp-res {
+    font-weight: 600;
+  }
+  .hp-res-passed {
+    color: var(--color-green);
+  }
+  .hp-res-failed {
+    color: var(--color-red);
+  }
+  .hp-res-stale,
+  .hp-res-aborted {
+    color: var(--color-muted);
+  }
+  .hp-brake,
+  .hp-err {
+    color: var(--color-red);
+    margin: 4px 0 0;
+  }
+  .hp-confirm {
+    flex-basis: 100%;
+    margin: 2px 0;
+  }
+  .hp-actions {
+    display: inline-flex;
+    gap: 8px;
+  }
+  .hp-btn,
+  .hp-x,
+  .hp-link {
+    min-height: 30px;
+    padding: 0 8px;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-chip);
+    background: transparent;
+    color: var(--color-ink);
+    font: inherit;
+    cursor: pointer;
+  }
+  .hp-x {
+    border: 0;
+    font-size: 16px;
+  }
+  .hp-link {
+    margin-top: 10px;
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .hp-btn:hover,
+  .hp-link:hover {
+    background: color-mix(in srgb, var(--color-amber) 10%, transparent);
+  }
+  .hp-btn:focus-visible,
+  .hp-x:focus-visible,
+  .hp-link:focus-visible {
+    outline: 1px solid var(--color-amber);
+  }
+  .hp-kv {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 3px 12px;
+    margin: 0;
+  }
+  .hp-kv dd {
+    margin: 0;
+  }
+  .hp-bar {
+    position: relative;
+    display: inline-block;
+    width: 80px;
+    height: 6px;
+    margin: 0 6px;
+    vertical-align: middle;
+    background: color-mix(in srgb, var(--color-line) 60%, transparent);
+  }
+  .hp-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--color-amber);
+  }
+  .hp-limit {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 1px;
+    background: var(--color-red);
+  }
+  @media (max-width: 768px), (pointer: coarse) {
+    .hp-btn,
+    .hp-x,
+    .hp-link {
+      min-height: 44px;
+      min-width: 44px;
+    }
+  }
+</style>

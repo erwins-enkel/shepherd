@@ -215,6 +215,10 @@ export interface AutopilotDeps {
   paneAlive: (id: string) => Promise<boolean>;
   /** Defer steering while a herdr-restored account pane still needs a re-drive (SessionService.shouldDeferSteer). */
   deferSteer?: (id: string) => Promise<boolean>;
+  /** #3181: the session waits for the host-wide heavy-check slot (HeavySlotService.waiting). Its
+   *  agent was told to keep working or end its turn, and Shepherd steers it when the slot frees —
+   *  so a turn end meanwhile is not a stall to classify. Omitted → never waiting. */
+  heavySlotWaiting?: (id: string) => boolean;
   /** Visible terminal tail for a session (herdr.readAsync → tailLines). */
   readTail: (id: string) => Promise<string[]>;
   /** The pending MCP OAuth authorize URL for a session (freshness-gated transcript read), or
@@ -390,6 +394,7 @@ export class AutopilotService {
     // open-a-PR steer is still suppressed for any PR (see dispatch), so we never double-open.
     if (this.deps.hasPr(id) && !this.deps.fullAuto(id)) return null;
     if (this.pending.has(id)) return null; // a classify is already in flight
+    if (this.deps.heavySlotWaiting?.(id)) return null; // queued for the heavy-check slot (#3181)
     return s;
   }
 

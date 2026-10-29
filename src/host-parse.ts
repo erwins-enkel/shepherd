@@ -25,10 +25,17 @@ export function parseSystemctlShow(text: string): Record<string, string> {
   return out;
 }
 
-/** Parse a `/proc/pressure/<res>` file's `some avg10=` value (the standard some-stalled
- *  indicator), or null when absent/unparseable. */
-export function parsePsiAvg10(psi: string): number | null {
-  const some = psi.split("\n").find((l) => l.startsWith("some "));
-  const m = some?.match(/avg10=(\d+(?:\.\d+)?)/);
+/** Parse a `/proc/pressure/<res>` file's `avg10=` value on its `some` line (the standard
+ *  some-stalled indicator) or, with `line = "full"`, its all-stalled line; null when
+ *  absent/unparseable. */
+export function parsePsiAvg10(psi: string, line: "some" | "full" = "some"): number | null {
+  const row = psi.split("\n").find((l) => l.startsWith(`${line} `));
+  const m = row?.match(/avg10=(\d+(?:\.\d+)?)/);
   return m ? Number(m[1]) : null;
+}
+
+/** Parse `/proc/meminfo`'s `MemAvailable:` (kB) into bytes, or null when absent/unparseable. */
+export function parseMemAvailable(meminfo: string): number | null {
+  const m = meminfo.match(/^MemAvailable:\s+(\d+)\s+kB$/m);
+  return m ? Number(m[1]) * 1024 : null;
 }

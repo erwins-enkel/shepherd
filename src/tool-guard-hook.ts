@@ -13,6 +13,9 @@ import { safeRealpath } from "./sandbox";
 /** Absolute path of the guard script inside this Shepherd install (mirrors doc-agent's
  *  SERVER_INSTALL_ROOT derivation: this file lives in `src/`, the script one level up). */
 const TOOL_GUARD_SCRIPT = resolve(import.meta.dir, "..", "scripts", "tool-guard.mjs");
+/** The heavy-check runner (#3181) the guard rewrites heavy commands onto; it sits beside the guard
+ *  (the guard derives the same path from its own location). */
+const HEAVY_SLOT_RUNNER = resolve(import.meta.dir, "..", "scripts", "heavy-slot.mjs");
 
 /** Interpreter for the guard: the REALPATH of the node binary Shepherd already resolved. It must be
  *  the realpath, because that (via its bin dir) is what `nodeToolchainFlags` binds into the
@@ -35,11 +38,19 @@ function shellQuote(path: string): string {
  * command, so no other tool needs to pay the hook's process spawn.
  */
 export function buildToolGuardFragment(
-  opts: { interpreter?: string; scriptPath?: string; enabled?: boolean } = {},
+  opts: {
+    interpreter?: string;
+    scriptPath?: string;
+    enabled?: boolean;
+    heavyListPath?: string;
+  } = {},
 ): Record<string, unknown> {
   if (!(opts.enabled ?? config.toolGuard)) return {};
   const interpreter = opts.interpreter ?? toolGuardInterpreter();
   const script = opts.scriptPath ?? TOOL_GUARD_SCRIPT;
+  // The operator's heavy-list edits (#3552): named in the command because the sandbox clears the
+  // environment; the guard reads the file per decision, so an edit reaches running sessions.
+  const heavyList = opts.heavyListPath ?? config.heavyListPath;
   return {
     PreToolUse: [
       {
@@ -47,7 +58,7 @@ export function buildToolGuardFragment(
         hooks: [
           {
             type: "command",
-            command: `${shellQuote(interpreter)} ${shellQuote(script)}`,
+            command: `${shellQuote(interpreter)} ${shellQuote(script)} --heavy-list ${shellQuote(heavyList)}`,
             timeout: 10,
           },
         ],
@@ -62,8 +73,10 @@ export function buildToolGuardFragment(
  * the hook command would silently fail inside a `standard`/`autonomous` session — and because the
  * decision to DROP the two notices from the prompt is taken host-side, that session would run with
  * neither the notice nor the deny. The interpreter is already bound (node toolchain), so only the
- * script is added here. Empty when the guard is off, keeping those flags byte-identical.
+ * scripts are added here: the guard, and the heavy-check runner it rewrites heavy commands onto
+ * (#3181) — the guard only rewrites when it can see the runner, so a missing bind fails open.
+ * Empty when the guard is off, keeping those flags byte-identical.
  */
 export function toolGuardMembranePaths(enabled: boolean = config.toolGuard): string[] {
-  return enabled ? [TOOL_GUARD_SCRIPT] : [];
+  return enabled ? [TOOL_GUARD_SCRIPT, HEAVY_SLOT_RUNNER, config.heavyListDir] : [];
 }

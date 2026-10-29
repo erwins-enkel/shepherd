@@ -5,7 +5,7 @@ Five Bun/Node packages, each with its own deps and lockfile: root (herdr/server,
 the marketing site). Plus `native/`, a Swift package (`ShepherdKit`) generated from
 `contracts/openapi.swift.yaml` (derived from `contracts/openapi.yaml` by
 `bun run gen:contract-swift`) — build and test it with `swift build --package-path native` and
-`swift test --package-path native`, never with `bun`. See `native/README.md`. And `cli/`, the Rust
+targeted `swift test --package-path native --filter <test>`, never with `bun`. See `native/README.md`. And `cli/`, the Rust
 `shepherd` CLI (Cargo crate), whose client is generated at build time from
 `contracts/openapi.rust.yaml` — see `docs/cli.md`.
 
@@ -33,22 +33,36 @@ considering the release complete. See [the TestFlight release checklist](native/
 
 ## Verify
 
-**Always `bun run test`, never bare `bun test`.** Root's script scopes to `./test`; `ui/` and
-`extension/` run `vitest`. Bare `bun test` invokes Bun's runner over the wrong file set and
-"passes" without running the suite you meant.
+**Locally, run only affected tests with explicit file paths or test filters.** Select tests
+for the changed behavior, its callers and regressions; when server + UI are affected, select
+tests in both packages. Leave full suites (including browser suites) and `clippy --all-targets`
+to GitHub CI unless the user explicitly requests a full local run. For documentation-only
+changes, relevant static checks suffice. Report which tests ran and which checks remain in CI.
 
-| Package      | Lint/check                          | Test                               |
-| ------------ | ----------------------------------- | ---------------------------------- |
-| Root         | `bun run lint`                      | `bun run test`                     |
-| `ui/`        | `bun run check`                     | `bun run test`                     |
-| `extension/` | `bun run check`                     | `bun run test`                     |
-| `native/`    | `swift build --package-path native` | `swift test --package-path native` |
-| `cli/`       | `bash scripts/check-cli.sh`         | (same: fmt, clippy, `cargo test`)  |
+| Package      | Targeted local test command (replace placeholders)                         |
+| ------------ | -------------------------------------------------------------------------- |
+| Root         | `bun test ./test/<file>.test.ts` (multiple explicit files allowed)         |
+| `ui/`        | `bun run test <path>` from `ui/`; optionally `--project node` or `browser` |
+| `extension/` | `bun run test <path>` from `extension/`                                    |
+| `native/`    | `swift test --package-path native --filter <TestClass/testMethod>`         |
+| `cli/`       | `cargo test --locked --manifest-path cli/Cargo.toml <testfilter>`          |
 
-Run both halves when a change spans server + UI. `cli/` is Rust: run the script above (or `cargo`
-in `cli/`), never `bun`; a change to `contracts/openapi.rust.yaml` needs it too. `native/` is
-Swift, not Bun/Node — build and test it with the two commands above, not `bun run`. The `Shepherd.app` shell built on top of it
-has its own build/run/test scripts under `native/scripts/`; see `native/README.md`.
+Never run unqualified `bun test`: it discovers the wrong file set, and UI/extension tests
+require Vitest. Do not use root `bun run test <file>` to narrow a run: that script already
+includes all of `./test`. In UI/extension, `bun run test <path>` forwards the selection to
+`vitest run`. Check the runner output to confirm the intended tests actually ran.
+
+Run relevant lint/check commands for changed code: scope ESLint and Prettier to changed files;
+use `bun run typecheck` at root or `bun run check` in UI/extension when type checks are needed.
+`native/` is Swift: use `swift build --package-path native` and filtered Swift tests, never Bun.
+`cli/` is Rust: use Cargo, never Bun; Rust contract changes need relevant CLI checks too.
+`bash scripts/check-cli.sh` is the full CI gate (fmt, all-target clippy, full tests), not the
+local default. The `Shepherd.app` shell has its own scripts under `native/scripts/`; see
+`native/README.md`.
+
+The pre-push hook runs lint, type/build and consistency checks, but no test suites or full
+CLI gate. Run affected tests explicitly before pushing; CI supplies full coverage. Keep the
+hook enabled and do not treat a successful push as proof that the CI suite passed.
 
 Deps for those three install themselves — the `ensure-deps.sh` SessionStart hook runs
 `bun install` in root, `ui/` and `extension/` when `node_modules` is absent. It does **not**

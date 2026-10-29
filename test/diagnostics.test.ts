@@ -19,7 +19,12 @@ import {
   type DiagnosticsDeps,
   type HostCapacityFacts,
 } from "../src/diagnostics";
-import { parseCgroupUnit, parsePsiAvg10, parseSystemctlShow } from "../src/host-parse";
+import {
+  parseCgroupUnit,
+  parseMemAvailable,
+  parsePsiAvg10,
+  parseSystemctlShow,
+} from "../src/host-parse";
 import type { HerdrAgent } from "../src/herdr";
 import type { MiseClaudeState } from "../src/mise-claude";
 import {
@@ -2002,6 +2007,21 @@ describe("host_capacity parsers", () => {
   });
   it("parsePsiAvg10: no some line → null", () => {
     expect(parsePsiAvg10("")).toBe(null);
+  });
+  it("parsePsiAvg10: reads the full-line avg10 on request", () => {
+    expect(
+      parsePsiAvg10(
+        "some avg10=12.34 avg60=5.00 total=999\nfull avg10=6.50 avg60=1.00 total=42",
+        "full",
+      ),
+    ).toBe(6.5);
+    expect(parsePsiAvg10("some avg10=12.34 total=999", "full")).toBe(null);
+  });
+  it("parseMemAvailable: kB → bytes, null when absent", () => {
+    expect(parseMemAvailable("MemTotal:       31000000 kB\nMemAvailable:    2900000 kB\n")).toBe(
+      2900000 * 1024,
+    );
+    expect(parseMemAvailable("MemTotal:       31000000 kB\n")).toBe(null);
   });
 
   it("parseSwap: computes used bytes", () => {

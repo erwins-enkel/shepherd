@@ -299,6 +299,9 @@ export interface RemoteInstance {
   projects: string[] | null;
   /** The machine's verified capabilities from the last successful check; null if none reported. */
   capabilities: CapabilityReport | null;
+  /** The machine's heavy-check slot as of its last answered check; `stale` = it is not connected
+   *  now, so this is its last known state. Null if it never reported one. */
+  heavySlot?: { snapshot: HeavySlotSnapshot; readAt: number; stale: boolean } | null;
   /** False for platforms not cleared to run tasks (Windows) and while the platform is unknown. */
   released: boolean;
 }
@@ -390,7 +393,28 @@ export interface RequirementsDerivation {
   cause?: string;
 }
 
+export interface HeavyResourceSettings {
+  enabled: boolean;
+  slots: number | null;
+  waitMinutes: number;
+  brake: {
+    minAvailableMiB: number | null;
+    psiFullMax: number | null;
+    releaseHoldSec: number | null;
+  };
+  heavyList: { custom: { command: string; subcommands: string[] }[]; disabled: string[] };
+  defaults: {
+    slots: number;
+    minAvailableMiB: number;
+    psiFullMax: number;
+    releaseHoldSec: number;
+    heavyList: { command: string; subcommands: string[] }[];
+  };
+  peaks: Record<string, number>;
+}
+
 export interface Settings {
+  heavySlot?: HeavyResourceSettings;
   repoRoot: string;
   repoRootDisplay: string;
   /** True on a genuine server-detected first run: the onboarding surface must block until the
@@ -3388,6 +3412,7 @@ export type WsEvent =
     }
   | { event: "session:renamed"; data: { id: string; name: string; branch: string | null } }
   | { event: "usage:limits"; data: UsageLimits }
+  | { event: "heavyslot:status"; data: HeavySlotSnapshot }
   | { event: "session:block"; data: { id: string; block: BlockReason | null } }
   | { event: "session:hold"; data: { id: string; hold: HoldReason | null } }
   | { event: "session:login-request"; data: { id: string; request: LoginRequest | null } }
@@ -3961,4 +3986,43 @@ export interface AssistantSwitchState {
     fallback: string | null;
   };
   error?: string;
+}
+
+/** The host-wide heavy-check slot (#3181) as the overview renders it. `enabled: false` is the master
+ *  switch off: no chip, no strip. Mirrors `HeavySlotSnapshot` in contracts/openapi.yaml. */
+export interface HeavySlotSnapshot {
+  enabled: boolean;
+  capacity: number;
+  holders: { sessionId: string; command: string; startedAt: number; rssBytes: number | null }[];
+  waiters: { sessionId: string; position: number; reason: "slot" | "pressure" }[];
+  brake: { active: boolean; reason: "memory" | null };
+  pressure: {
+    ramAvailableBytes: number | null;
+    ramTotalBytes: number | null;
+    swapUsedBytes: number | null;
+    swapTotalBytes: number | null;
+    memFullAvg10: number | null;
+    memBrakeThreshold: number | null;
+    cpuSomeAvg10: number | null;
+  };
+  memoryBySource: {
+    agentsBytes: number | null;
+    foreignBytes: number | null;
+    foreignTop: { name: string; bytes: number }[];
+  };
+  /** Each session's latest finished slot job, bound to the revision it ran on (#3554). */
+  lastResults: HeavySlotLastResult[];
+}
+
+/** `stale`: the worktree no longer matches `head` + `treeHash` — never shown as a pass. */
+export interface HeavySlotLastResult {
+  sessionId: string;
+  command: string;
+  startedAt: number;
+  endedAt: number | null;
+  exitCode: number | null;
+  result: "passed" | "failed" | "aborted";
+  head: string | null;
+  treeHash: string;
+  stale: boolean;
 }

@@ -4,6 +4,12 @@ import {
   parseAssistantRuntimePatch,
 } from "./operator-assistant-settings";
 import { createHash } from "node:crypto";
+import {
+  DISABLED_HEAVY_SLOT,
+  type HeavySlotSource,
+  OPERATOR_HOLDER,
+  readLastResults,
+} from "./heavy-slot-snapshot";
 import { type HostLoadSnapshot, hostLoadReport, readHostLoad } from "./remote-instances/load";
 import { jsonResponse as json, compressJsonResponse } from "./json-response";
 import { recapSummary } from "./recap-core";
@@ -162,6 +168,17 @@ import {
   parseUpNextQuickStartsPatch,
   storedUpNextQuickStarts,
 } from "./upnext-quick-starts";
+import { ensureSlotShims } from "./slot-shims";
+import {
+  heavySlotSettingsView,
+  resolveHeavySlotConfig,
+  writeHeavyListFile,
+} from "./heavy-slot-apply";
+import {
+  HEAVY_SLOT_SETTING,
+  parseHeavySlotPatch,
+  storedHeavySlotSettings,
+} from "./heavy-slot-settings";
 import { ISSUE_FILTER_SETTING, parseIssueFilterPatch, storedIssueFilter } from "./issue-filter";
 import {
   type MachineView,
@@ -680,6 +697,14 @@ export interface AppDeps {
    *  routes. Absent in tests that don't wire it → `/api/plugins/manage/*` falls through. */
   pluginsDir?: string;
   usageLimits: Pick<UsageLimitsService, "limits" | "projections">;
+  /** Host-wide heavy-check slot (#3181); absent → `/api/heavy-slot` reports it switched off. */
+  heavySlot?: HeavySlotSource &
+    Partial<
+      Pick<
+        import("./heavy-slot").HeavySlotService,
+        "acquire" | "acquireOperator" | "started" | "finish" | "applyConfig" | "refreshPressure"
+      >
+    >;
   /** Force a `/usage` re-scrape (calibration) and return fresh limits plus whether the probe
    *  actually returned a usable frame this run; absent in tests that don't wire the live
    *  calibrator (the route then falls back to the current snapshot, treated as scraped). */
@@ -6421,6 +6446,72 @@ async function resolveRenameBranch(deps: AppDeps, s: Session): Promise<boolean> 
   return !(await sessionHasOpenPr(deps, s));
 }
 
+/** A non-empty string of at most `max` characters, or null. */
+function boundedString(v: unknown, max: number): string | null {
+  return typeof v === "string" && v.length > 0 && v.length <= max ? v : null;
+}
+
+type HeavySlotDeps = Pick<
+  import("./heavy-slot").HeavySlotService,
+  "acquire" | "acquireOperator" | "started" | "finish"
+>;
+
+/** The runner's three reports, keyed by `op`. Each validates its own body. */
+const HEAVY_SLOT_OPS: Record<
+  string,
+  (slot: HeavySlotDeps, id: string, body: Record<string, unknown>) => Promise<Response>
+> = {
+  async acquire(slot, id, body) {
+    const command = boundedString(body.command, 20_000);
+    if (!command) return json({ error: "command must be a non-empty string" }, 400);
+    const cwd = boundedString(body.cwd, 4096);
+    const out =
+      id === OPERATOR_HOLDER
+        ? await slot.acquireOperator(command, cwd)
+        : await slot.acquire(id, command, cwd, body.canWait === true);
+    return out ? json(out) : json({ error: "not found" }, 404);
+  },
+  async started(slot, id, body) {
+    const jobId = boundedString(body.jobId, 200);
+    const pgid = body.pgid;
+    if (!jobId || typeof pgid !== "number" || !Number.isInteger(pgid) || pgid <= 0)
+      return json({ error: "jobId and a positive integer pgid are required" }, 400);
+    return json({ ok: await slot.started(id, jobId, pgid) });
+  },
+  async finished(slot, id, body) {
+    const jobId = boundedString(body.jobId, 200);
+    if (!jobId) return json({ error: "jobId must be a non-empty string" }, 400);
+    const code = body.exitCode;
+    const exitCode = typeof code === "number" && Number.isInteger(code) ? code : null;
+    return json({ ok: await slot.finish(id, jobId, exitCode) });
+  },
+};
+
+// POST /api/sessions/:id/heavy-slot — the heavy-check runner (scripts/heavy-slot.mjs, #3181).
+// `op: "acquire"` asks for the host-wide slot before the command starts; `started` (macOS: the
+// process group) and `finished` report on a job of THIS session only. Reached through the agent
+// ingress (allowlisted, per-session key); no service → 503, which the runner treats as fail-open.
+async function handleSessionHeavySlot({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "heavy-slot" && !parts[4])) return null;
+  if (!deps.heavySlot?.acquire || !deps.heavySlot.started || !deps.heavySlot.finish)
+    return json({ error: "heavy-check slot unavailable" }, 503);
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
+  // The operator holder id is reserved: a session id in the URL can never reach the operator path.
+  if (parts[2] === OPERATOR_HOLDER) return json({ error: "not found" }, 404);
+  return runHeavySlotOp(deps.heavySlot as HeavySlotDeps, parts[2], body);
+}
+
+function runHeavySlotOp(
+  slot: HeavySlotDeps,
+  id: string,
+  body: Record<string, unknown>,
+): Promise<Response> | Response {
+  const op = typeof body.op === "string" && Object.hasOwn(HEAVY_SLOT_OPS, body.op) ? body.op : null;
+  if (!op) return json({ error: "op must be acquire, started or finished" }, 400);
+  return HEAVY_SLOT_OPS[op]!(slot, id, body);
+}
+
 // POST /api/sessions/:id/rename — rename a session (display name + git branch).
 // An open PR makes it display-only: the branch stays put so the PR survives.
 async function handleSessionRename({ req, parts, deps }: Ctx): Promise<Response | null> {
@@ -7744,6 +7835,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handlePreviewStop,
     handlePreviewReach,
     handleSessionRename,
+    handleSessionHeavySlot,
     handleSessionResume,
     handleSessionReady,
     handleSessionShelve,
@@ -8365,6 +8457,41 @@ function codexUsageResponse(deps: AppDeps, action: string): Response {
         ? 503
         : 200,
   );
+}
+
+// POST /api/heavy-slot/operator — `shepherd slot run` outside any session (#3550): the runner's
+// acquire/started/finished ops for the host operator. Host-wide: a repo-scoped token gets 404.
+async function handleHeavySlotOperator(
+  req: Request,
+  deps: AppDeps,
+  token: Ctx["token"],
+): Promise<Response> {
+  if (token && token.repoPaths !== null) return json({ error: "not found" }, 404);
+  if (!deps.heavySlot?.acquireOperator || !deps.heavySlot.started || !deps.heavySlot.finish)
+    return json({ error: "heavy-check slot unavailable" }, 503);
+  const body = await readJsonObject(req);
+  if (body instanceof Response) return body;
+  return runHeavySlotOp(deps.heavySlot as HeavySlotDeps, OPERATOR_HOLDER, body);
+}
+
+async function handleHeavySlot({ req, parts, deps, token }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "heavy-slot") return null;
+  if (req.method === "GET" && parts.length === 2) return heavySlotSnapshotResponse(deps);
+  if (req.method !== "POST" || parts.length !== 3) return null;
+  if (parts[2] === "operator") return handleHeavySlotOperator(req, deps, token);
+  if (parts[2] !== "release") return null;
+  const body = (await req.json().catch(() => null)) as { sessionId?: unknown } | null;
+  if (typeof body?.sessionId !== "string") return json({ error: "invalid_session_id" }, 400);
+  if (!(await deps.heavySlot?.release(body.sessionId))) return json({ error: "not_holding" }, 404);
+  return json({ released: true });
+}
+
+async function heavySlotSnapshotResponse(deps: AppDeps): Promise<Response> {
+  await deps.heavySlot?.refreshPressure?.();
+  const snapshot = deps.heavySlot?.snapshot() ?? DISABLED_HEAVY_SLOT;
+  // Staleness needs a git look at each worktree, so it is merged in here, not in the sync snapshot.
+  const lastResults = deps.heavySlot && deps.store ? await readLastResults(deps.store) : [];
+  return json({ ...snapshot, lastResults });
 }
 
 async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | null> {
@@ -9366,6 +9493,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       upnextQuickStarts: storedUpNextQuickStarts(
         deps.store.getSetting(UPNEXT_QUICK_STARTS_SETTING),
       ),
+      // Settings → Resources (#3552): the slot controls plus the defaults and peaks they explain.
+      heavySlot: heavySlotSettingsView(deps.store),
       // account-wide extra-credit (paid overage) spend ceiling; drain pauses above it.
       // 0 = pause on ANY extra-credit spend.
       extraCreditsDrainCeiling: config.extraCreditsDrainCeiling,
@@ -9436,7 +9565,10 @@ async function patchSetting(req: Request, deps: Ctx["deps"]): Promise<Response> 
 
 // Standalone settings patches: field name → its validating handler. Each handler
 // validates the value, live-updates config, and persists to the store.
-const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response][] = [
+const SETTING_PATCHES: [
+  string,
+  (value: unknown, deps: Ctx["deps"]) => Response | Promise<Response>,
+][] = [
   ["remoteControlAtStartup", putRemoteControl],
   ["reducedPushMode", putReducedPushMode],
   ["sessionHousekeepingEnabled", putSessionHousekeeping],
@@ -9470,6 +9602,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["defaultAgentProvider", putDefaultAgentProvider],
   ["upnextSkipCliPicker", putUpnextSkipCliPicker],
   ["upnextQuickStarts", putUpnextQuickStarts],
+  ["heavySlot", putHeavySlot],
   ["extraCreditsDrainCeiling", putExtraCreditsDrainCeiling],
   ["authMode", putAuthMode],
   ["operatorLanguage", putOperatorLanguage],
@@ -9865,6 +9998,25 @@ function putUpnextQuickStarts(value: unknown, deps: Ctx["deps"]): Response {
   if (!parsed.ok) return json({ error: parsed.error }, 400);
   deps.store.setSetting(UPNEXT_QUICK_STARTS_SETTING, JSON.stringify(parsed.value));
   return json({ upnextQuickStarts: parsed.value });
+}
+
+/** Settings → Resources (#3552). Takes effect at once for the next slot decision; running checks
+ *  are untouched. The list edits are written where the tool guard and the Codex shims read them. */
+async function putHeavySlot(value: unknown, deps: Ctx["deps"]): Promise<Response> {
+  const current = storedHeavySlotSettings(deps.store.getSetting(HEAVY_SLOT_SETTING));
+  const parsed = parseHeavySlotPatch(value, current);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  if (!writeHeavyListFile(parsed.value))
+    return json({ error: "could not save heavy-command list" }, 500);
+  deps.store.setSetting(HEAVY_SLOT_SETTING, JSON.stringify(parsed.value));
+  await ensureSlotShims(config.slotShimDir, process.execPath, undefined, {
+    tools: parsed.value.heavyList.custom
+      .map((e) => e.command)
+      .filter((c) => !["sh", "bash", "node", "env"].includes(c)),
+    heavyList: config.heavyListPath,
+  });
+  await deps.heavySlot?.applyConfig?.(resolveHeavySlotConfig(deps.store));
+  return json({ heavySlot: heavySlotSettingsView(deps.store) });
 }
 
 /** Arm/disarm the judge. Takes effect on the next classify — the client and ledger are built at
@@ -13267,6 +13419,7 @@ const ROUTE_HANDLERS = [
   handleSpawnCancel,
   handleExperimentCompare,
   handleSessionGit,
+  handleHeavySlot,
   handleUsageLimits,
   handleUsageBreakdown,
   handleUsageDelivery,
@@ -13425,7 +13578,9 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
  *   - `rename`: the session's own retitle (issue #2053) — the write half of the coordinates the
  *     public `video-brief` skill uses to name a session after the recording it just watched. Like
  *     every route here except `browser` it needs the ingress key header (#3337), which a skill
- *     sends with curl's `-H @"$SHEPHERD_INGRESS_HEADER_FILE"` (#3370). */
+ *     sends with curl's `-H @"$SHEPHERD_INGRESS_HEADER_FILE"` (#3370).
+ *   - `heavy-slot`: the heavy-check runner (scripts/heavy-slot.mjs, #3181) asks for the host-wide
+ *     slot before a test/build starts and reports its exit — on its own session's jobs only. */
 const AGENT_LEAF_ROUTES = new Map<string, readonly string[]>([
   ["hooks", ["POST"]],
   ["assistant-view", ["POST"]],
@@ -13433,6 +13588,7 @@ const AGENT_LEAF_ROUTES = new Map<string, readonly string[]>([
   ["queue", ["PUT", "GET"]],
   ["epic-draft", ["PUT", "GET"]],
   ["rename", ["POST"]],
+  ["heavy-slot", ["POST"]],
   ["browser", ["GET"]],
 ]);
 

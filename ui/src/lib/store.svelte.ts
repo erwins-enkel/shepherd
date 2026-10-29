@@ -11,6 +11,7 @@ import type {
   PluginUIView,
   PluginGearItem,
   UsageLimits,
+  HeavySlotSnapshot,
   UpdateStatus,
   MachineUpdate,
   HerdrUpdateStatus,
@@ -122,6 +123,8 @@ export class HerdStore {
    *  presence edge in connect(); false during SSR. */
   attended = $state(false);
   usageLimits = $state<UsageLimits | null>(null);
+  /** The heavy-check slot; null until the first snapshot (or when the server predates it). */
+  heavySlot = $state<HeavySlotSnapshot | null>(null);
   update = $state<UpdateStatus | null>(null);
   /** Every connected machine's self-update — the update window lists those behind beside this
    *  one. Seeded by a bootstrap GET, live-updated by the `remote:updates` event. */
@@ -447,6 +450,9 @@ export class HerdStore {
   /** Seed (or replace) the completed-epics list after a bootstrap GET. */
   seedCompletedEpics(list: CompletedEpic[]): void {
     this.completedEpics = list;
+  }
+  setHeavySlot(s: HeavySlotSnapshot) {
+    this.heavySlot = s;
   }
   setUsageLimits(l: UsageLimits) {
     this.usageLimits = l;
@@ -1054,6 +1060,11 @@ export class HerdStore {
     switch (ev.event) {
       case "usage:limits":
         this.usageLimits = ev.data;
+        return true;
+      case "heavyslot:status":
+        // The event never carries last results (their staleness needs a git look per worktree and
+        // comes with GET /api/heavy-slot only), so keep what the last GET delivered.
+        this.heavySlot = { ...ev.data, lastResults: this.heavySlot?.lastResults ?? [] };
         return true;
       case "update:status":
         this.setUpdate(ev.data);

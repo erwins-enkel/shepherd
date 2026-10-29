@@ -10,6 +10,7 @@
 // This keeps each dispatcher a flat lookup or a handful of same-shape checks
 // instead of one long branchy switch.
 
+import { DISABLED_HEAVY_SLOT as DEMO_HEAVY_SLOT_OFF } from "../../../../src/heavy-slot-default";
 import { demoState } from "./state";
 import type {
   AgentProvider,
@@ -132,6 +133,8 @@ const bootstrapGetRoutes: Record<string, GetHandler> = {
   "/api/manual-steps/outstanding": () => json(demoState.outstandingManualSteps()),
   "/api/held": () => json(demoState.held()),
   "/api/usage/limits": () => json(demoState.usageLimits()),
+  // The demo has no check slot: the master switch reads as off, so no chip or strip renders.
+  "/api/heavy-slot": () => json(DEMO_HEAVY_SLOT_OFF),
   "/api/update": () => json(demoState.update()),
   "/api/update/log": () => json({ phase: "idle", exitCode: null, log: "" }),
   "/api/herdr-update": () => json(demoState.herdrUpdate()),

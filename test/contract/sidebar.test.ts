@@ -14,6 +14,7 @@ import {
   withAuth,
   type ContractServer,
 } from "./harness";
+import { DISABLED_HEAVY_SLOT } from "../../src/heavy-slot-snapshot";
 import { eventsForStream, operationsForStream } from "./stream-blocks";
 
 /** The four frames this stream declares: three driven through the server's own EventHub below,
@@ -83,6 +84,83 @@ describe("sidebar reads", () => {
     };
     expect(typeof body.limits.subscriptionOnly).toBe("boolean");
     expect(Array.isArray(body.projections)).toBe(true);
+  });
+});
+
+describe("heavy slot", () => {
+  const post = (body: unknown, auth = true) =>
+    fetch(`${s.baseUrl}/api/heavy-slot/release`, {
+      method: "POST",
+      headers: { ...(auth ? bearer(token) : {}), "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  test("GET /api/heavy-slot answers the switched-off snapshot, and 401 without a credential", async () => {
+    const ok = await fetch(`${s.baseUrl}/api/heavy-slot`, { headers: bearer(token) });
+    expect(ok.status).toBe(200);
+    expect(await validateResponse("GET", "/api/heavy-slot", ok)).toMatchObject({ enabled: false });
+    const anon = await fetch(`${s.baseUrl}/api/heavy-slot`);
+    expect(anon.status).toBe(401);
+    await validateResponse("GET", "/api/heavy-slot", anon);
+  });
+
+  test("POST /api/heavy-slot/release answers 200, 400, 404 and 401", async () => {
+    s.deps.heavySlot = { snapshot: () => DISABLED_HEAVY_SLOT, release: (id) => id === "holder" };
+    try {
+      const path = "/api/heavy-slot/release";
+      validateRequest("POST", path, { sessionId: "holder" });
+      const ok = await post({ sessionId: "holder" });
+      expect(ok.status).toBe(200);
+      expect(await validateResponse("POST", path, ok)).toEqual({ released: true });
+      const bad = await post({ sessionId: 7 });
+      expect(bad.status).toBe(400);
+      await validateResponse("POST", path, bad);
+      const none = await post({ sessionId: "nobody" });
+      expect(none.status).toBe(404);
+      await validateResponse("POST", path, none);
+      const anon = await post({ sessionId: "holder" }, false);
+      expect(anon.status).toBe(401);
+      await validateResponse("POST", path, anon);
+    } finally {
+      delete s.deps.heavySlot;
+    }
+  });
+});
+
+describe("heavy slot operator route (#3550)", () => {
+  const PATH = "/api/heavy-slot/operator";
+  const post = (body: unknown, auth = true) =>
+    fetch(`${s.baseUrl}${PATH}`, {
+      method: "POST",
+      headers: { ...(auth ? bearer(token) : {}), "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  test("POST answers 200, 400, 503 and 401", async () => {
+    const unavailable = await post({ op: "acquire", command: "x" });
+    expect(unavailable.status).toBe(503);
+    await validateResponse("POST", PATH, unavailable);
+    s.deps.heavySlot = {
+      snapshot: () => DISABLED_HEAVY_SLOT,
+      release: () => false,
+      acquireOperator: async () => ({ decision: "run", jobId: "j1" }),
+      started: async () => true,
+      finish: async () => true,
+    } as unknown as NonNullable<typeof s.deps.heavySlot>;
+    try {
+      validateRequest("POST", PATH, { op: "acquire", command: "cargo clippy", cwd: "/repo" });
+      const ok = await post({ op: "acquire", command: "cargo clippy", cwd: "/repo" });
+      expect(ok.status).toBe(200);
+      expect(await validateResponse("POST", PATH, ok)).toEqual({ decision: "run", jobId: "j1" });
+      const bad = await post({ op: "nope" });
+      expect(bad.status).toBe(400);
+      await validateResponse("POST", PATH, bad);
+      const anon = await post({ op: "acquire", command: "x" }, false);
+      expect(anon.status).toBe(401);
+      await validateResponse("POST", PATH, anon);
+    } finally {
+      delete s.deps.heavySlot;
+    }
   });
 });
 

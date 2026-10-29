@@ -22,7 +22,7 @@ use std::time::Duration;
 use clap::Parser;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 
-use crate::cli::{Cli, Command, EventsCmd, SessionsCmd};
+use crate::cli::{Cli, Command, EventsCmd, SessionsCmd, SlotCmd};
 use crate::config::Target;
 use crate::error::{CliError, Exit, Result};
 use crate::output::Mode;
@@ -148,7 +148,7 @@ where
         }
     };
     match dispatch(cli, io).await {
-        Ok(exit) => exit.code(),
+        Ok(code) => code,
         Err(e) => {
             io.warn(&format!("error: {e}"));
             e.exit.code()
@@ -156,14 +156,15 @@ where
     }
 }
 
-/// Runs the command; a success is `Exit::Ok` except for `wait`, which exits per reached state.
-async fn dispatch(cli: Cli, io: &mut Io) -> Result<Exit> {
+/// Runs the command and returns the process exit code: `Exit::Ok` except for `wait` (per reached
+/// state) and `slot run` (the command's own code, or 75 when queued).
+async fn dispatch(cli: Cli, io: &mut Io) -> Result<i32> {
     let mode = Mode::pick(cli.json, io.stdout_is_tty);
     if let Command::Login { token } = &cli.command {
         let token = io.text_arg(token)?;
         return commands::login::run(io, mode, cli.url.as_deref(), cli.profile.as_deref(), &token)
             .await
-            .map(|()| Exit::Ok);
+            .map(|()| Exit::Ok.code());
     }
     let path = config::config_path(&io.env);
     let cfg = match &path {
@@ -195,7 +196,7 @@ async fn dispatch(cli: Cli, io: &mut Io) -> Result<Exit> {
         target,
         client,
     };
-    let mut exit = Exit::Ok;
+    let mut exit = Exit::Ok.code();
     let result = match cli.command {
         Command::Sessions(SessionsCmd::List { all }) => {
             commands::read::sessions_list(&mut ctx, all).await
@@ -224,7 +225,7 @@ async fn dispatch(cli: Cli, io: &mut Io) -> Result<Exit> {
         Command::Events(EventsCmd::Tail(args)) => commands::events::tail(&mut ctx, args).await,
         Command::Wait(args) => commands::wait::wait(&mut ctx, args)
             .await
-            .map(|reached| exit = reached),
+            .map(|reached| exit = reached.code()),
         Command::New(args) => commands::control::new(&mut ctx, args).await,
         Command::Steer { session, text } => {
             commands::control::steer(&mut ctx, &session, &text).await
@@ -250,6 +251,9 @@ async fn dispatch(cli: Cli, io: &mut Io) -> Result<Exit> {
         Command::Merge(args) => commands::merge::merge(&mut ctx, args).await,
         Command::Train(cmd) => commands::merge::train(&mut ctx, cmd).await,
         Command::Epics { repo, cmd } => commands::epics::run(&mut ctx, repo, cmd).await,
+        Command::Slot(SlotCmd::Run { command }) => commands::slot::run(&mut ctx, command)
+            .await
+            .map(|code| exit = code),
         Command::Settings { cmd } => commands::settings::settings(&mut ctx, cmd).await,
         Command::RepoConfig { repo, cmd } => {
             commands::settings::repo_config(&mut ctx, repo, cmd).await

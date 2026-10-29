@@ -7926,5 +7926,11 @@
   "gearmenu_herd_label": "Herd",
   "topbar_status_line_label": "Herd-Status",
   "feat_phone_thumb_bar_title": "Telefon: alles in Daumenreichweite",
-  "feat_phone_thumb_bar_body": "Auf dem Telefon ist die obere Leiste jetzt eine schmale Statuszeile: Sessions, Prüfslot, Merge-Train, zurückgehaltene Aufgaben und Verbrauch auf einen Blick. Das Menü sitzt jetzt im Menü-Tab der unteren Leiste, dort filterst du auch nach Status, und Assistent und Neu schweben direkt darüber."
+  "feat_phone_thumb_bar_body": "Auf dem Telefon ist die obere Leiste jetzt eine schmale Statuszeile: Sessions, Prüfslot, Merge-Train, zurückgehaltene Aufgaben und Verbrauch auf einen Blick. Das Menü sitzt jetzt im Menü-Tab der unteren Leiste, dort filterst du auch nach Status, und Assistent und Neu schweben direkt darüber.",
+  "viewport_hints_title": "Tastenkürzel",
+  "viewport_hints_summary": "Steuere die Sitzungskonsole, ohne die Tastatur zu verlassen.",
+  "viewport_hints_section": "Tasten",
+  "viewport_hints_aria": "Tastenkürzel anzeigen",
+  "feat_keyboard_hints_title": "Tastenkürzel in einer Taste",
+  "feat_keyboard_hints_body": "Die Hinweiszeile unter dem Terminal ist weg. Fahre über die ⌘K-Taste am rechten Ende der Steer-Zeile, um alle Tastenkürzel zu sehen – das Terminal bekommt die Höhe zurück."
 }

@@ -20,7 +20,14 @@
     session,
     usage,
     activity,
-  }: { session: Session; usage: SessionUsage | null; activity?: SessionActivity } = $props();
+    joined = false,
+  }: {
+    session: Session;
+    usage: SessionUsage | null;
+    activity?: SessionActivity;
+    /** A review banner sits right above: drop the hairline so the two read as one strip. */
+    joined?: boolean;
+  } = $props();
 
   // Identity shows what the agent ACTUALLY ran wherever that is known (#1823): the model/effort a
   // spawn resolves to is not necessarily what was configured — pushModelFlag applies usage-downgrade
@@ -108,7 +115,7 @@
      The group name and the identity segment's accessible name both carry the configured-
      intent caveat (not just the mouse-only hover title), so keyboard/touch/AT users get it
      too — the runtime may substitute the model at spawn without rewriting the row. -->
-<div class="ssb" role="group" aria-label={m.statusbar_aria()}>
+<div class="ssb" data-joined={joined} role="group" aria-label={m.statusbar_aria()}>
   <span class="ssb-identity" title={identityTitle} aria-label={identityTitle}>{identity}</span>
   <span class="ssb-sep" aria-hidden="true">·</span>
   {#if tokensKnown}
@@ -154,6 +161,10 @@
     flex-shrink: 0;
     white-space: nowrap;
     min-width: 0;
+  }
+
+  .ssb[data-joined="true"] {
+    border-top: none;
   }
 
   .ssb-identity {

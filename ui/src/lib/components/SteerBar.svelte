@@ -8,7 +8,16 @@
   import { m } from "#lib/paraglide/messages.js";
   import SteerMenu from "#lib/components/SteerMenu.svelte";
   import ControlBar from "#lib/components/ControlBar.svelte";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { keyboardHintsExplanation } from "#lib/tooltips/explanations.js";
   import type { AgentProvider, Steer } from "#lib/types.js";
+
+  // Platform-correct modifier for the legend (⌘ on macOS); SSR renders the Ctrl form, hydrate corrects.
+  const isMac = $derived(
+    typeof navigator !== "undefined" &&
+      /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent),
+  );
 
   let {
     focusedId,
@@ -24,6 +33,7 @@
     micAvailable = false,
     ondictate = () => {},
     onsent,
+    hints = null,
   }: {
     focusedId: string;
     repoPath: string;
@@ -37,6 +47,8 @@
     termSend?: (seq: string) => void;
     micAvailable?: boolean;
     ondictate?: () => void;
+    /** True desktop only: shows the keyboard-shortcuts key; `showEnter` adds the terminal-tab Enter hint. */
+    hints?: { showEnter: boolean } | null;
     /** A steer's text went out; `sent` settles false when it failed (the Chat's echo). */
     onsent?: (text: string, sent: Promise<boolean>) => void;
   } = $props();
@@ -268,6 +280,19 @@
     onpointercancel={cancel}
     onpointerup={(e) => tap(e, () => onedit?.())}>✎</button
   >
+  {#if hints}
+    <!-- Shortcut legend: replaces the old always-on footer strip. Explanation-only, so the
+         hover/focus panel is its whole job (statusTip); the key shown is the command bar's. -->
+    <button
+      type="button"
+      class="chip hints-key"
+      aria-label={m.viewport_hints_aria()}
+      data-swipe-ignore
+      use:coachTarget={"keyboard-hints"}
+      use:statusTip={{ text: keyboardHintsExplanation(isMac, hints.showEnter), placement: "top" }}
+      >{isMac ? "⌘K" : "Ctrl+K"}</button
+    >
+  {/if}
   <!-- Dictate mic: rightmost pinned sibling on mobile/touch when speech capture is
        available. Opens the compose sheet already listening (ondictate). Moved up
        from the ctrl-row so Row 1 owns the mic; Row 2 keeps upload + Enter. -->
@@ -442,6 +467,16 @@
     min-width: 44px;
     padding: 0;
     font-size: var(--fs-base);
+    color: var(--color-muted);
+  }
+  .hints-key {
+    flex: 0 0 auto;
+    align-self: center;
+    margin: 6px 10px 6px 0;
+    min-width: 44px;
+    padding: 0 8px;
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
     color: var(--color-muted);
   }
   .steer-bar:global(.compact) ~ .edit-steers {

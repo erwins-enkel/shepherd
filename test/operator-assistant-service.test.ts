@@ -27,13 +27,19 @@ import type { Session } from "../src/types";
 type Start = { name: string; cwd: string; argv: string[]; caps: AgentCapabilities | null };
 
 function harness(
-  opts: { transcript?: boolean; runSpawnHooks?: (d: SpawnDescriptor) => Promise<SpawnPatch> } = {},
+  opts: {
+    transcript?: boolean;
+    runSpawnHooks?: (d: SpawnDescriptor) => Promise<SpawnPatch>;
+    usageDowngrade?: () => string | null;
+    assistantRuntimeBlocked?: import("../src/service").ServiceDeps["assistantRuntimeBlocked"];
+  } = {},
 ) {
   const store = new SessionStore(":memory:");
   const dir = join(mkdtempSync(join(tmpdir(), "operator-assistant-")), "assistant");
   const calls = {
     starts: [] as Start[],
     stops: [] as string[],
+    events: [] as { event: string; data: unknown }[],
     trusts: [] as { configPath: string; dir: string }[],
   };
   const fake = {
@@ -41,17 +47,31 @@ function harness(
     procs: ["claude"],
     /** When set, every herdr.start waits on it — holds a spawn in flight. */
     gate: null as Promise<void> | null,
+    startError: false,
   };
   let n = 0;
   const spawnDir = join(dirname(dir), "assistant-spawn");
   const signer = new BrowserTokenSigner(Buffer.alloc(32, 7));
   const svc: SessionService = new SessionService({
     store,
+    events: {
+      emit: (event, data) => {
+        calls.events.push({ event, data });
+      },
+    },
     assistantSpawnDir: spawnDir,
     assistantIngress: signer,
+    assistantMessages: async () => ({
+      messages: [{ role: "user", text: "diagnose my node", ts: 1 }],
+      unavailable: null,
+      awaitingInput: false,
+      pendingQuestion: null,
+    }),
     namer: async () => "unused",
     transcriptExists: () => opts.transcript ?? true,
     runSpawnHooks: opts.runSpawnHooks,
+    usageDowngrade: opts.usageDowngrade,
+    assistantRuntimeBlocked: opts.assistantRuntimeBlocked,
     operatorAssistantDir: dir,
     trustDir: async (configPath, d) => {
       calls.trusts.push({ configPath, dir: d });
@@ -74,6 +94,7 @@ function harness(
           argv,
           caps: svc.spawningAgentCapabilities(env[SESSION_MARKER_ENV]!),
         });
+        if (fake.startError) throw new Error("spawn failed");
         if (fake.gate) await fake.gate;
         n++;
         return { terminalId: `term_${n}`, cwd, agentStatus: "idle", paneId: `p${n}` } as any;
@@ -84,6 +105,7 @@ function harness(
       },
       paneForegroundProcs: async () => fake.procs,
       closeTab: async () => {},
+      send: async () => {},
     } as any,
   });
   /** Make `s`'s pane show up in `herdr agent list` (status `done`: turn over, claude waiting). */
@@ -131,7 +153,7 @@ test("ensure creates the assistant: 0700 dir, trust seeded, read-only argv, fenc
   );
   expect(argv).not.toContain("--dangerously-skip-permissions");
   expect(fileAfter(argv, "--settings").permissions).toEqual(
-    operatorAssistantPermissions(dirname(config.dbPath), homedir(), spawnDir),
+    operatorAssistantPermissions(dirname(config.dbPath), homedir(), spawnDir, dir),
   );
   // #3161: the operator's view rides each message through its UserPromptSubmit hook.
   expect(fileAfter(argv, "--settings").hooks.UserPromptSubmit[0].hooks[0].url).toEndWith(
@@ -165,16 +187,25 @@ test("the spawn serves the diagnostic MCP capabilities before the row exists", a
   expect(svc.spawningAgentCapabilities(s.id)).toBeNull(); // cleared once the row exists
 });
 
-test("model and effort are Shepherd's configured Claude defaults", async () => {
-  const prev = { model: config.defaultModel, effort: config.defaultClaudeEffort };
-  config.defaultModel = "opus";
-  config.defaultClaudeEffort = "high";
+test("model and effort are independent HUD preferences", async () => {
+  const prev = {
+    model: config.defaultModel,
+    effort: config.defaultClaudeEffort,
+    runtime: config.assistantRuntime,
+  };
+  config.assistantRuntime = {
+    ...config.assistantRuntime,
+    claude: { model: "opus", effort: "high" },
+  };
+  config.defaultModel = "sonnet";
+  config.defaultClaudeEffort = "low";
   try {
     const { svc, calls } = harness();
     const s = await svc.ensureOperatorAssistant();
     expect(calls.starts[0]!.argv.slice(-4)).toEqual(["--model", "opus", "--effort", "high"]);
     expect(s).toMatchObject({ model: "opus", effort: "high" });
   } finally {
+    config.assistantRuntime = prev.runtime;
     config.defaultModel = prev.model;
     config.defaultClaudeEffort = prev.effort;
   }
@@ -450,4 +481,216 @@ test("close archives a repo assistant; a scope with none live is a not-found err
   // The slot is free again.
   const again = await svc.ensureOperatorAssistant("/r/alpha");
   expect(again.id).not.toBe(alpha.id);
+});
+
+test("disabled HUDs refuse ensure and resume without spawning", async () => {
+  const saved = config.assistantRuntime;
+  try {
+    const { svc, calls } = harness();
+    config.assistantRuntime = { ...saved, enabled: false };
+    await expect(svc.ensureOperatorAssistant()).rejects.toThrow("disabled");
+    expect(calls.starts).toHaveLength(0);
+  } finally {
+    config.assistantRuntime = saved;
+  }
+});
+
+test("switch keeps the old conversation when the replacement spawn fails", async () => {
+  const { svc, store, calls, live, fake } = harness();
+  const old = await svc.ensureOperatorAssistant();
+  live(old);
+  const saved = config.assistantRuntime;
+  try {
+    config.assistantRuntime = { ...saved, claude: { model: "opus", effort: "high" } };
+    fake.startError = true;
+    const result = await svc.switchOperatorAssistants();
+    expect(result[old.id]?.error).toBeTruthy();
+    expect(store.getLiveOperatorAssistant()?.id).toBe(old.id);
+    expect(calls.stops).not.toContain(old.herdrAgentId);
+  } finally {
+    config.assistantRuntime = saved;
+  }
+});
+
+test("a shared switch replaces idle scopes and preserves conversation context", async () => {
+  const { svc, store, calls, live } = harness();
+  const old = await svc.ensureOperatorAssistant();
+  live(old);
+  const saved = config.assistantRuntime;
+  try {
+    config.assistantRuntime = { ...saved, claude: { model: "opus", effort: "high" } };
+    const result = await svc.switchOperatorAssistants();
+    expect(result).toEqual({});
+    const replacement = store.getLiveOperatorAssistant()!;
+    expect(replacement.id).not.toBe(old.id);
+    expect(replacement.model).toBe("opus");
+    expect(replacement.prompt).toContain("diagnose my node");
+    expect(store.get(old.id)?.status).toBe("archived");
+    expect(calls.stops).toContain(old.herdrAgentId);
+  } finally {
+    config.assistantRuntime = saved;
+  }
+});
+
+test("working answers defer switching until the existing lifecycle reports rest", async () => {
+  const { svc, store, live } = harness();
+  const old = await svc.ensureOperatorAssistant();
+  live(old, { agentStatus: "working" });
+  const saved = config.assistantRuntime;
+  try {
+    config.assistantRuntime = { ...saved, claude: { model: "opus", effort: "high" } };
+    expect((await svc.switchOperatorAssistants())[old.id]?.status).toBe("pending");
+    expect(store.getLiveOperatorAssistant()?.id).toBe(old.id);
+    live(old);
+    await svc.processAssistantSwitches();
+    expect(store.getLiveOperatorAssistant()?.model).toBe("opus");
+    expect(svc.assistantSwitchStates()).toEqual({});
+  } finally {
+    config.assistantRuntime = saved;
+  }
+});
+
+test.skipIf(!Bun.which("codex"))(
+  "Codex HUD spawn and resume keep their own model and native identity",
+  async () => {
+    const { mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+    const auth = mkdtempSync(join(tmpdir(), "hud-auth-fixture-"));
+    const savedHome = process.env.CODEX_HOME;
+    const savedRuntime = config.assistantRuntime;
+    let codexMissing = false;
+    const { svc, store, calls, dir } = harness({
+      assistantRuntimeBlocked: async () => (codexMissing ? { codex: "missing" } : {}),
+    });
+    try {
+      process.env.CODEX_HOME = auth;
+      mkdirSync(auth, { recursive: true });
+      writeFileSync(join(auth, "auth.json"), "{}", { mode: 0o600 });
+      config.assistantRuntime = {
+        ...savedRuntime,
+        preferredProvider: "codex",
+        codex: { model: "gpt-6-astra", effort: "high" },
+      };
+      const session = await svc.ensureOperatorAssistant();
+      expect(session.agentProvider).toBe("codex");
+      expect(session.model).toBe("gpt-6-astra");
+      expect(calls.starts[0]!.argv.join(" ")).not.toContain("dangerously");
+      expect(calls.starts[0]!.argv).toContain(
+        `CODEX_HOME=${join(dir, ".codex-runtime", session.id)}`,
+      );
+      store.setProviderSessionId(session.id, "native-fixture");
+      config.assistantRuntime = {
+        ...config.assistantRuntime,
+        codex: { model: "gpt-6-sol", effort: "low" },
+      };
+      await svc.resume(session.id);
+      expect(calls.starts[1]!.argv).toContain("native-fixture");
+      expect(calls.starts[1]!.argv).toContain("gpt-6-astra");
+      codexMissing = true;
+      const recovered = await svc.ensureOperatorAssistant();
+      expect(recovered.agentProvider).toBe("claude");
+      expect(recovered.id).not.toBe(session.id);
+      expect(recovered.prompt).toContain("diagnose my node");
+    } finally {
+      if (savedHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = savedHome;
+      config.assistantRuntime = savedRuntime;
+      rmSync(auth, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test("HUD runtime ignores the coding usage downgrade", async () => {
+  const saved = config.assistantRuntime;
+  try {
+    config.assistantRuntime = { ...saved, claude: { model: "opus", effort: "high" } };
+    const { svc } = harness({ usageDowngrade: () => "haiku" });
+    expect((await svc.assistantRuntimeResolution()).provider).toBe("claude");
+    expect((await svc.assistantRuntimeResolution()).model).toBe("opus");
+  } finally {
+    config.assistantRuntime = saved;
+  }
+});
+
+test("a fresh operator turn releases the previous turn's failover guard", async () => {
+  const { svc, store, live } = harness();
+  const source = await svc.ensureOperatorAssistant();
+  live(source);
+  store.setSetting(`assistantFailover:${source.id}`, "attempted");
+  expect(await svc.operatorReply(source.id, "new independent question")).toBe(true);
+  expect(store.getSetting(`assistantFailover:${source.id}`)).toBeNull();
+});
+
+test("native permission prompts keep their conversation until the operator resolves them", async () => {
+  const { svc, store, live, calls } = harness();
+  const source = await svc.ensureOperatorAssistant();
+  live(source, { agentStatus: "blocked" });
+  const saved = config.assistantRuntime;
+  try {
+    config.assistantRuntime = { ...saved, claude: { model: "opus", effort: "high" } };
+    expect((await svc.switchOperatorAssistants())[source.id]?.status).toBe("pending");
+    expect(store.getLiveOperatorAssistant()?.id).toBe(source.id);
+    expect(calls.stops).toHaveLength(0);
+  } finally {
+    config.assistantRuntime = saved;
+  }
+});
+
+test("accepted input waits for its answer to enter history before a manual switch", async () => {
+  const { svc, store, live, calls } = harness();
+  const source = await svc.ensureOperatorAssistant();
+  live(source);
+  const saved = config.assistantRuntime;
+  try {
+    expect(await svc.operatorReply(source.id, "new question not in the transcript yet")).toBe(true);
+    config.assistantRuntime = { ...saved, claude: { model: "opus", effort: "high" } };
+    expect((await svc.switchOperatorAssistants())[source.id]?.status).toBe("pending");
+    expect(store.getLiveOperatorAssistant()?.id).toBe(source.id);
+    expect(calls.stops).toHaveLength(0);
+  } finally {
+    config.assistantRuntime = saved;
+  }
+});
+
+test("reenabling HUDs cancels a deferred stop without restarting the conversation", async () => {
+  const { svc, store, live, calls } = harness();
+  const source = await svc.ensureOperatorAssistant();
+  live(source, { agentStatus: "working" });
+  const saved = config.assistantRuntime;
+  try {
+    config.assistantRuntime = { ...saved, enabled: false };
+    expect((await svc.switchOperatorAssistants())[source.id]?.status).toBe("pending");
+    config.assistantRuntime = saved;
+    live(source);
+    await svc.processAssistantSwitches();
+    expect(svc.assistantSwitchStates()).toEqual({});
+    expect(store.getLiveOperatorAssistant()?.id).toBe(source.id);
+    expect(calls.stops).toHaveLength(0);
+  } finally {
+    config.assistantRuntime = saved;
+  }
+});
+
+test("a replacement is published before retiring the old assistant so drafts stay mounted", async () => {
+  const { svc, calls, live, store } = harness();
+  const old = await svc.ensureOperatorAssistant();
+  live(old);
+  const saved = config.assistantRuntime;
+  try {
+    config.assistantRuntime = { ...saved, claude: { model: "opus", effort: "high" } };
+    await svc.switchOperatorAssistants();
+    const next = store.getLiveOperatorAssistant()!;
+    const published = calls.events.findIndex(
+      (e) =>
+        e.event === "operator-assistant:update" &&
+        (e.data as { session?: Session }).session?.id === next.id,
+    );
+    const retired = calls.events.findIndex(
+      (e) => e.event === "session:archived" && (e.data as { id: string }).id === old.id,
+    );
+    expect(published).toBeGreaterThanOrEqual(0);
+    expect(published).toBeLessThan(retired);
+  } finally {
+    config.assistantRuntime = saved;
+  }
 });

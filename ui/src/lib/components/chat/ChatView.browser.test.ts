@@ -175,3 +175,16 @@ describe("ChatView steers", () => {
     expect(page.getByText("Run the tests again").query()).toBeNull();
   });
 });
+
+describe("HUD asynchronous delivery", () => {
+  it("retains the operator draft when a switch rejects delivery", async () => {
+    render(
+      ChatView,
+      props({ variant: "assistant", status: "done", onsend: vi.fn(async () => false) }),
+    );
+    const input = page.getByRole("textbox");
+    await input.fill("keep this question");
+    await page.getByRole("button", { name: m.assistant_chat_send(), exact: true }).click();
+    await expect.element(input).toHaveValue("keep this question");
+  });
+});

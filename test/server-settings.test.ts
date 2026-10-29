@@ -1632,7 +1632,13 @@ test("assistantPermissions: GET reports the set; a partial PUT/PATCH merges, per
     expect(syncs).toBe(1); // the running assistant's file is rewritten
     expect(frames.at(-1)).toEqual({
       event: "operator-assistant:update",
-      data: { session: null, sessions: [], permissions: merged },
+      data: {
+        session: null,
+        sessions: [],
+        permissions: merged,
+        assistantRuntime: config.assistantRuntime,
+        switches: {},
+      },
     });
 
     const res2 = await patch(app, { assistantPermissions: { shell: "all" } });
@@ -1841,4 +1847,27 @@ test("upnextQuickStarts: {} by default, per-CLI patch merges + persists, bad inp
     (await patch(app, { upnextQuickStarts: { codex: { enabled: true, model: "opus" } } })).status,
   ).toBe(400);
   expect((await get()).upnextQuickStarts).toEqual({ claude, codex });
+});
+
+test("HUD runtime settings persist independently, merge provider fields and reject invalid models", async () => {
+  const saved = config.assistantRuntime;
+  try {
+    const { app, store } = harness();
+    const coding = { model: config.defaultModel, provider: config.defaultAgentProvider };
+    const response = await put(app, {
+      assistantRuntime: { preferredProvider: "codex", codex: { model: "gpt-6-astra" } },
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.assistantRuntime.preferredProvider).toBe("codex");
+    expect(body.assistantRuntime.codex.model).toBe("gpt-6-astra");
+    expect(body.assistantRuntime.claude).toEqual(saved.claude);
+    expect(JSON.parse(store.getSetting("assistantRuntime")!)).toEqual(body.assistantRuntime);
+    expect({ model: config.defaultModel, provider: config.defaultAgentProvider }).toEqual(coding);
+    const rejected = await put(app, { assistantRuntime: { claude: { model: "gpt-6-astra" } } });
+    expect(rejected.status).toBe(400);
+    expect(config.assistantRuntime).toEqual(body.assistantRuntime);
+  } finally {
+    config.assistantRuntime = saved;
+  }
 });

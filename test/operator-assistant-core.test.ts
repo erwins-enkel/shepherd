@@ -108,6 +108,7 @@ test("permissions: exact shape — the read tools by name the only allow, edits 
       "Read(~/.shepherd/backups/**)",
       "Read(~/.shepherd/plugins/**)",
       "Read(~/.shepherd/assistant-spawn/**)",
+      "Read(~/.shepherd/assistant/.codex-runtime/**)",
       "Read(~/.config/shepherd/config.toml)",
       "Read(~/.claude.json)",
       "Read(~/.claude/.credentials.json)",
@@ -269,4 +270,10 @@ test("brief teaches drain issue actions and verification without a shell bypass"
   expect(brief()).toContain("drain_enqueue");
   expect(brief()).toContain("repo_automation({repo, issueNumber})");
   expect(brief()).toContain("Never use Bash or gh to bypass");
+});
+
+test("Claude assistants cannot read the private Codex runtime homes", () => {
+  expect(
+    operatorAssistantPermissions("/state", "/home/test", "/state/spawn", "/custom/assistant").deny,
+  ).toContain("Read(//custom/assistant/.codex-runtime/**)");
 });

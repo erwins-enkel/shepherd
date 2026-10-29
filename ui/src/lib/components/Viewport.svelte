@@ -607,6 +607,14 @@
     conn.send(seq);
     return true;
   }
+  /** HUD chat delivery shares the server's lifecycle lock with provider switching. */
+  export function sendChatLine(text: string): Promise<boolean> {
+    if (conn && viewReport) conn.view(JSON.stringify(viewReport));
+    return replySession(session.id, text).then(
+      () => true,
+      () => false,
+    );
+  }
   /** The Chat's composer: the terminal socket while it is live, else the reply route. Codex always
    *  takes the reply route: Codex exits after each turn, leaving a shell that must not get the
    *  message, and the route resumes the pane first. */

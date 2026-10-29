@@ -1,3 +1,4 @@
+import { assistantCodexHome } from "./operator-assistant-codex";
 import { readFileSync } from "node:fs";
 import { normalize } from "node:path";
 import { eachJsonlObject } from "./jsonl";
@@ -631,7 +632,7 @@ const ROLLOUT_MISS_CAP_MS = 15_000;
 
 export interface CodexTranscriptLocatorDeps {
   /** Injected for tests; production is `findCodexRolloutById` over the real `$CODEX_HOME`. */
-  find: (providerSessionId: string) => string | null;
+  find: (providerSessionId: string, home?: string) => string | null;
   now: () => number;
 }
 
@@ -652,13 +653,16 @@ export class CodexTranscriptLocator {
 
   constructor(
     private deps: CodexTranscriptLocatorDeps = {
-      find: (id) => findCodexRolloutById(id),
+      find: (id, home) => findCodexRolloutById(id, home),
       now: () => Date.now(),
     },
   ) {}
 
   /** The session's rollout path, or null when it is unresolvable (or being backed off). */
-  pathFor(s: Pick<Session, "providerSessionId">): string | null {
+  pathFor(
+    s: Pick<Session, "providerSessionId"> &
+      Partial<Pick<Session, "operatorAssistant" | "id" | "worktreePath">>,
+  ): string | null {
     const id = s.providerSessionId;
     if (!id) return null;
 
@@ -672,7 +676,12 @@ export class CodexTranscriptLocator {
     const miss = this.misses.get(id);
     if (miss && now < miss.nextAt) return null;
 
-    const found = this.deps.find(id);
+    const found = this.deps.find(
+      id,
+      s.operatorAssistant && s.worktreePath && s.id
+        ? assistantCodexHome(s.worktreePath, s.id)
+        : undefined,
+    );
     if (!found) {
       const count = (miss?.count ?? 0) + 1;
       const delay = Math.min(ROLLOUT_MISS_BASE_MS * 2 ** (count - 1), ROLLOUT_MISS_CAP_MS);

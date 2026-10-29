@@ -534,6 +534,12 @@ export async function applyOperatorAction(
   args: Record<string, unknown>,
   caller: ActionCaller,
 ): Promise<ApplyResult<unknown>> {
+  if (deps.store.getSetting(`assistantHandoff:${caller.sessionId}`)) {
+    return fail(
+      409,
+      "Conversation transferred. Wait for a fresh operator request before taking actions; never replay actions from the handoff.",
+    );
+  }
   const { scope } = caller;
   const actions = deps.operatorActions;
   if (!actions) return fail(503, "operator actions unavailable");
@@ -565,6 +571,14 @@ export async function applyOperatorAction(
     if (actions.permissions()[group] === "off")
       return fail(403, `${group} actions were turned off`);
   }
+  return dispatchOperatorAction(actions, tool, built);
+}
+
+async function dispatchOperatorAction(
+  actions: OperatorActionDeps,
+  tool: AssistantActionTool,
+  built: Built,
+): Promise<ApplyResult<unknown>> {
   const log = actions.log ?? ((line: string) => console.info(line));
   let last: unknown = null;
   for (const req of built.requests) {

@@ -1,3 +1,20 @@
+import { buildAssistantHandoff, type AssistantSwitchState } from "./operator-assistant-handoff";
+import { sessionMessages, type SessionMessages } from "./agent-messages";
+import { jsonlPathFor } from "./usage";
+import { findCodexRolloutById } from "./codex-session-id";
+import {
+  assistantCodexHome,
+  findAssistantCodexSessionId,
+  removeCodexAssistantSecrets,
+  prepareCodexAssistant,
+  buildCodexAssistantArgv,
+  runAssistantShell,
+} from "./operator-assistant-codex";
+import {
+  resolveAssistantRuntime,
+  type AssistantRuntimeBlock,
+  type AssistantRuntimeResolution,
+} from "./operator-assistant-settings";
 import { isEpicChild } from "./epic-branch";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
@@ -97,7 +114,6 @@ import { slugifyManual, isHeuristicNameStrong, NAMER_LABEL, withIssueNumber } fr
 import { SpawnCanceled, SpawnPhaseTracker } from "./spawn-progress";
 import {
   clampCodexModelForAuth,
-  drainSpawnModel,
   modelCompatibleWithProvider,
   modelForProviderOrDefault,
   spawnModelForAvailability,
@@ -106,7 +122,7 @@ import {
 import { readCodexAuthMode } from "./codex-auth";
 import { assertModelAvailable } from "./claude-account-models";
 import { codexNoDaemonArgs } from "./codex-cli-capabilities";
-import { drainSpawnEffort, effortForSpawn, engineDefaultEffortSetting } from "./default-effort";
+import { effortForSpawn } from "./default-effort";
 import {
   countMatches,
   effortSwitchSteps,
@@ -428,6 +444,11 @@ export interface ServiceDeps {
   assistantIngress?: Pick<BrowserTokenSigner, "sign">;
   /** Dir holding the assistant's 0600 spawn files (seam); default `config.assistantSpawnDir`. */
   assistantSpawnDir?: string;
+  assistantRuntimeBlocked?: () => Promise<Partial<Record<AgentProvider, AssistantRuntimeBlock>>>;
+  assistantViewContext?: (id: string) => string;
+  assistantMessages?: (s: Session) => Promise<SessionMessages>;
+  assistantHasApproval?: (id: string) => boolean;
+
   /** Dir holding task sessions' 0600 ingress spawn files (seam); default `config.agentSpawnDir`. */
   agentSpawnDir?: string;
   /** The Operator Assistant's working dir (seam); default `config.operatorAssistantDir`. */
@@ -4187,11 +4208,9 @@ export class SessionService {
     if (!current || current.codexLaunchId !== s.codexLaunchId) return false;
     if ((s.agentProvider ?? "claude") !== "codex" || current.providerSessionId) return false;
     if (!s.codexLaunchId) return false; // legacy sessions without provenance remain manual
-    const id = findCodexLaunchSessionId(
-      s.worktreePath,
-      s.codexLaunchId,
-      s.createdAt - CODEX_ID_SKEW_MS,
-    );
+    const id = isOperatorAssistant(s)
+      ? findAssistantCodexSessionId(assistantCodexHome(s.worktreePath, s.id), s.worktreePath)
+      : findCodexLaunchSessionId(s.worktreePath, s.codexLaunchId, s.createdAt - CODEX_ID_SKEW_MS);
     if (!id) return true;
     this.deps.store.setProviderSessionId(s.id, id);
     return false;
@@ -5000,6 +5019,225 @@ export class SessionService {
   // One global assistant (scope null) plus at most one per repo (scope = that repo's path). Every
   // lifecycle verb takes the scope; the no-arg calls are the global assistant, as before scopes.
 
+  private readonly assistantSwitchKey = "assistantSwitches";
+
+  assistantRuntimeStates(): Record<string, AssistantRuntimeResolution> {
+    return Object.fromEntries(
+      this.deps.store.listLiveOperatorAssistants().map((s) => {
+        const raw = this.deps.store.getSetting(`assistantRuntime:${s.id}`);
+        let fallback: AssistantRuntimeResolution["fallback"] = null;
+        try {
+          fallback = raw ? (JSON.parse(raw).fallback ?? null) : null;
+        } catch {
+          /* legacy conversation */
+        }
+        return [
+          s.id,
+          {
+            provider: s.agentProvider ?? "claude",
+            model: s.model,
+            effort: s.effort ?? null,
+            reason: null,
+            fallback,
+          },
+        ];
+      }),
+    );
+  }
+
+  assistantSwitchStates(): Record<string, AssistantSwitchState> {
+    try {
+      return JSON.parse(this.deps.store.getSetting(this.assistantSwitchKey) ?? "{}");
+    } catch {
+      return {};
+    }
+  }
+
+  private writeAssistantSwitch(states: Record<string, AssistantSwitchState>): void {
+    this.deps.store.setSetting(this.assistantSwitchKey, JSON.stringify(states));
+    this.emitAssistantRuntimeUpdate();
+  }
+
+  private emitAssistantRuntimeUpdate(): void {
+    this.deps.events?.emit("operator-assistant:update", {
+      session: this.deps.store.getLiveOperatorAssistant(),
+      sessions: this.deps.store.listLiveOperatorAssistants(),
+      permissions: config.assistantPermissions,
+      assistantRuntime: config.assistantRuntime,
+      switches: this.assistantSwitchStates(),
+      runtimes: this.assistantRuntimeStates(),
+    });
+  }
+
+  async switchOperatorAssistants(): Promise<Record<string, AssistantSwitchState>> {
+    return this.serializeAssistant(async () => {
+      const target = await this.assistantRuntimeResolution();
+      const states = this.assistantSwitchStates();
+      for (const source of this.deps.store.listLiveOperatorAssistants()) {
+        states[source.id] = { sourceId: source.id, target, status: "pending" };
+      }
+      this.writeAssistantSwitch(states);
+      await this.processAssistantSwitchesNow();
+      return this.assistantSwitchStates();
+    });
+  }
+
+  processAssistantSwitches(): Promise<void> {
+    return this.serializeAssistant(() => this.processAssistantSwitchesNow());
+  }
+
+  private async processAssistantSwitchesNow(): Promise<void> {
+    const states = this.assistantSwitchStates();
+    if (!Object.values(states).some((s) => s.status !== "failed")) return;
+    for (const [id, state] of Object.entries(states)) {
+      const source = this.deps.store.get(id);
+      if (!source || source.archivedAt || !source.operatorAssistant) {
+        delete states[id];
+        continue;
+      }
+      if (state.status === "failed") continue;
+      if (state.target.reason === "disabled" && config.assistantRuntime.enabled) {
+        delete states[id];
+        continue;
+      }
+      if (await this.tryAssistantSwitch(source, state, states)) delete states[id];
+    }
+    this.writeAssistantSwitch(states);
+  }
+
+  private async tryAssistantSwitch(
+    source: Session,
+    state: AssistantSwitchState,
+    states: Record<string, AssistantSwitchState>,
+  ): Promise<boolean> {
+    if (await this.assistantSwitchWaiting(source)) return false;
+    try {
+      return await this.switchAssistantScope(source, state, states);
+    } catch {
+      state.status = "failed";
+      state.error = "switch_failed";
+      return false;
+    }
+  }
+
+  private async assistantSwitchWaiting(source: Session): Promise<boolean> {
+    const agent = await this.liveAgentFor(source.id);
+    return !!(
+      (agent &&
+        !["done", "idle"].includes(agent.agentStatus) &&
+        source.haltReason !== "usage_limit") ||
+      this.deps.assistantHasApproval?.(source.id)
+    );
+  }
+
+  private async switchAssistantScope(
+    source: Session,
+    state: AssistantSwitchState,
+    states: Record<string, AssistantSwitchState>,
+  ): Promise<boolean> {
+    if (!config.assistantRuntime.enabled) {
+      if (source.herdrAgentId) await this.deps.herdr.stop(source.herdrAgentId);
+      return true;
+    }
+    if (!state.target.provider) throw new Error("requested runtime unavailable");
+    if (
+      source.agentProvider === state.target.provider &&
+      source.model === state.target.model &&
+      source.effort === state.target.effort
+    )
+      return true;
+    state.status = "switching";
+    this.writeAssistantSwitch(states);
+    this.captureCodexSessionId(source);
+    const current = this.deps.store.get(source.id)!;
+    const history = await this.assistantHandoffHistory(current);
+    if (!this.assistantInputReady(current, history.messages)) {
+      state.status = "pending";
+      return false;
+    }
+    await this.createOperatorAssistant(current.assistantRepo ?? null, {
+      runtime: state.target,
+      replacedId: current.id,
+      handoff: history.messages.length
+        ? buildAssistantHandoff(history.messages, history.tools)
+        : undefined,
+    });
+    return true;
+  }
+
+  private async assistantHandoffHistory(current: Session) {
+    const id = current.id;
+    const path =
+      current.agentProvider === "codex"
+        ? current.providerSessionId
+          ? findCodexRolloutById(
+              current.providerSessionId,
+              assistantCodexHome(current.worktreePath, id),
+            )
+          : null
+        : jsonlPathFor(current.worktreePath, current.claudeSessionId, current.spawnAccountDir);
+    const history = this.deps.assistantMessages
+      ? await this.deps.assistantMessages(current)
+      : await sessionMessages(current, path, { includeUser: true, limit: 33, includeTools: true });
+    if (
+      history.unavailable &&
+      (this.deps.store.getSetting(`assistantMarker:${id}`) ||
+        current.lastState !== "idle" ||
+        current.prompt)
+    )
+      throw new Error("conversation history unavailable");
+    return history;
+  }
+
+  private assistantInputReady(
+    current: Session,
+    messages: import("./agent-messages").AgentMessage[],
+  ): boolean {
+    const accepted = this.deps.store.getSetting(`assistantInput:${current.id}`);
+    if (!accepted) return true;
+    const message = JSON.parse(accepted) as import("./agent-messages").AgentMessage;
+    const index = messages.findLastIndex(
+      (m) => m.role === "user" && m.ts >= message.ts && m.text.includes(message.text),
+    );
+    const answered = index >= 0 && messages.slice(index + 1).some((m) => m.role === "assistant");
+    if (!answered && current.haltReason !== "usage_limit") return false;
+    if (index < 0) messages.push(message);
+    return true;
+  }
+
+  /** Called only on confirmed provider-limit events; never on generic network errors. */
+  async failoverOperatorAssistant(id: string): Promise<void> {
+    await this.serializeAssistant(async () => {
+      const source = this.deps.store.get(id);
+      if (
+        !source?.operatorAssistant ||
+        source.archivedAt ||
+        !config.assistantRuntime.enabled ||
+        !config.assistantRuntime.automaticFallback
+      )
+        return;
+      if (this.deps.store.getSetting(`assistantFailover:${id}`)) return;
+      const provider = source.agentProvider === "codex" ? "claude" : "codex";
+      const blocked = (await this.deps.assistantRuntimeBlocked?.()) ?? {};
+      if (blocked[provider]) return;
+      const target: AssistantRuntimeResolution = {
+        provider,
+        ...config.assistantRuntime[provider],
+        reason: null,
+        fallback: "capacity",
+      };
+      const states = this.assistantSwitchStates();
+      states[id] = { sourceId: id, target, status: "pending" };
+      this.deps.store.setSetting(`assistantFailover:${id}`, "attempted");
+      this.writeAssistantSwitch(states);
+      await this.processAssistantSwitchesNow();
+      // The replacement must not bounce back automatically on the same exhausted turn.
+      const replacement = this.deps.store.getLiveOperatorAssistant(source.assistantRepo ?? null);
+      if (replacement && replacement.id !== id)
+        this.deps.store.setSetting(`assistantFailover:${replacement.id}`, "attempted");
+    });
+  }
+
   /** Tail of the assistants' lifecycle chain, shared by every scope. Ensure, reset and close run
    *  strictly one after the other, so a New conversation clicked while an ensure is still spawning
    *  archives THAT row instead of racing it into a second live assistant of the scope. */
@@ -5053,20 +5291,53 @@ export class SessionService {
   }
 
   private async ensureOperatorAssistantNow(repo: string | null): Promise<Session> {
+    if (!config.assistantRuntime.enabled) throw new Error("operator assistant disabled");
     const live = this.deps.store.getLiveOperatorAssistant(repo);
     if (!live) return this.createOperatorAssistant(repo);
     const agent = await this.liveAgentFor(live.id);
     // Re-point a herdr-restored pane first, so a replace below stops the pane that is really there.
     const current = (agent && this.adoptLiveResumeAgent(live, agent)) || live;
     if (agent && !(await this.paneIsBareShell(agent))) return current;
+    const recovered = await this.recoverUnavailableAssistant(current);
+    if (recovered) return recovered;
     if (!this.canRespawnConversation(current)) return this.replaceOperatorAssistant(current);
     const resumed = await this.resume(current.id, { force: agent !== null });
     if (!resumed) throw new Error(`operator assistant ${current.desig} could not be resumed`);
     return resumed;
   }
 
+  private async recoverUnavailableAssistant(current: Session): Promise<Session | null> {
+    const blocked = (await this.deps.assistantRuntimeBlocked?.()) ?? {};
+    const provider = current.agentProvider ?? "claude";
+    const other = provider === "claude" ? "codex" : "claude";
+    if (config.assistantRuntime.automaticFallback && blocked[provider] && !blocked[other]) {
+      const states = this.assistantSwitchStates();
+      states[current.id] = {
+        sourceId: current.id,
+        status: "pending",
+        target: {
+          provider: other,
+          ...config.assistantRuntime[other],
+          reason: null,
+          fallback: blocked[provider]!,
+        },
+      };
+      this.writeAssistantSwitch(states);
+      await this.processAssistantSwitchesNow();
+      const replacement = this.deps.store.getLiveOperatorAssistant(current.assistantRepo ?? null);
+      if (replacement && replacement.id !== current.id) return replacement;
+      throw new Error("assistant runtime fallback could not complete");
+    }
+    return null;
+  }
+
   private async resetOperatorAssistantNow(repo: string | null): Promise<Session> {
     const live = this.deps.store.getLiveOperatorAssistant(repo);
+    if (live) {
+      const states = this.assistantSwitchStates();
+      delete states[live.id];
+      this.writeAssistantSwitch(states);
+    }
     return live ? this.replaceOperatorAssistant(live) : this.createOperatorAssistant(repo);
   }
 
@@ -5093,19 +5364,25 @@ export class SessionService {
    * Spawn a fresh assistant: its private dir with Claude's workspace trust pre-accepted, then the
    * assistant argv through the common prepareSpawn (api-key auth, env passthrough, renderer env;
    * plugin onSpawn hooks skipped) on the `trusted` profile, then the row. No prompt rides the argv, so nothing is
-   * spent until the operator asks. Model and effort are Shepherd's configured Claude defaults.
+   * spent until the operator asks. Model and effort come from the independent HUD settings.
    * Every scope shares the one assistant dir (each conversation has its own claude session id);
    * a repo assistant is named after its repo (`operator-assistant-<repo>`) and carries `repo` as
    * `assistantRepo`.
    */
-  private async createOperatorAssistant(repo: string | null): Promise<Session> {
+  private async createOperatorAssistant(
+    repo: string | null,
+    options: { runtime?: AssistantRuntimeResolution; replacedId?: string; handoff?: string } = {},
+  ): Promise<Session> {
+    const runtime = options.runtime ?? (await this.assistantRuntimeResolution());
+    if (!runtime.provider) throw new Error(`operator assistant unavailable: ${runtime.reason}`);
+    const provider = runtime.provider;
     const dir = this.deps.operatorAssistantDir ?? config.operatorAssistantDir;
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    await this.trustOperatorAssistantDir(dir);
+    if (provider === "claude") await this.trustOperatorAssistantDir(dir);
     const sessionId = randomUUID();
     const claudeSessionId = randomUUID();
-    const model = modelForProviderOrDefault(drainSpawnModel(config.defaultModel), "claude");
-    const effort = drainSpawnEffort(engineDefaultEffortSetting("claude", config));
+    const { model, effort } = runtime;
+    const codexLaunchId = provider === "codex" ? randomUUID() : undefined;
     const name = this.uniqueName(
       await this.takenHerdrNames(),
       repo
@@ -5114,11 +5391,29 @@ export class SessionService {
     );
     // Served until the row exists: claude connects to its MCP server during startup (see
     // spawningMcp). Cleared however the spawn ends.
-    this.spawningMcp.set(sessionId, OPERATOR_ASSISTANT_CAPABILITIES);
+    this.spawningMcp.set(
+      sessionId,
+      provider === "codex"
+        ? { ...OPERATOR_ASSISTANT_CAPABILITIES, operatorCodex: true }
+        : OPERATOR_ASSISTANT_CAPABILITIES,
+    );
+    if (options.handoff)
+      this.deps.store.setSetting(`assistantHandoff:${sessionId}`, "awaiting-operator");
     try {
       const argv = await this.operatorAssistantArgv(
-        { id: sessionId, worktreePath: dir, claudeSessionId, model, effort, assistantRepo: repo },
+        {
+          id: sessionId,
+          worktreePath: dir,
+          claudeSessionId,
+          model,
+          effort,
+          assistantRepo: repo,
+          agentProvider: provider,
+          codexLaunchId,
+          providerSessionId: undefined,
+        },
         false,
+        options.handoff,
       );
       const outcome = await this.prepareSpawnOrThrow(argv, {
         sessionId,
@@ -5129,50 +5424,99 @@ export class SessionService {
         auto: false,
         profileOverride: "trusted",
         model,
-        agentProvider: "claude",
+        agentProvider: provider,
         operatorAssistant: true,
       });
       try {
-        this.deps.store.create({
-          id: sessionId,
-          name,
-          prompt: "",
-          repoPath: dir,
-          baseBranch: "",
-          branch: null,
-          worktreePath: dir,
-          isolated: false,
-          herdrSession: config.herdrSession,
-          herdrAgentId: outcome.terminalId,
-          claudeSessionId,
-          agentProvider: "claude",
-          model,
-          effort,
-          sandboxApplied: outcome.applied,
-          sandboxDegraded: outcome.degraded,
-          egressApplied: outcome.egressApplied,
-          egressDegraded: outcome.egressDegraded,
-          auto: false,
-          issueNumber: null,
-          autopilotEnabled: false,
-          planGateEnabled: false,
-          planPhase: null,
-          operatorAssistant: true,
-          assistantRepo: repo,
-        });
-        // Every per-session automation override off, not just inherited: auto-merge too.
-        this.deps.store.setAutoMergeState(sessionId, { enabled: false });
+        this.deps.store.commitOperatorAssistant(
+          {
+            id: sessionId,
+            name,
+            prompt: options.handoff ?? "",
+            repoPath: dir,
+            baseBranch: "",
+            branch: null,
+            worktreePath: dir,
+            isolated: false,
+            herdrSession: config.herdrSession,
+            herdrAgentId: outcome.terminalId,
+            claudeSessionId,
+            codexLaunchId,
+            agentProvider: provider,
+            model,
+            effort,
+            sandboxApplied: outcome.applied,
+            sandboxDegraded: outcome.degraded,
+            egressApplied: outcome.egressApplied,
+            egressDegraded: outcome.egressDegraded,
+            auto: false,
+            issueNumber: null,
+            autopilotEnabled: false,
+            planGateEnabled: false,
+            planPhase: null,
+            operatorAssistant: true,
+            assistantRepo: repo,
+          },
+          options.replacedId,
+          runtime,
+        );
       } catch (e) {
         // The agent runs but has no row — stop it so nothing orphans.
         await this.deps.herdr.stop(outcome.terminalId).catch(() => {});
         throw e;
       }
-      const created = this.deps.store.get(sessionId)!;
-      this.persistSpawnIdentity(created, outcome);
+
+      // The row now owns its scoped tools; publish before retiring the old UI/terminal.
+      this.spawningMcp.delete(sessionId);
+      if (options.replacedId) await this.retireReplacedAssistant(options.replacedId);
+      if (options.handoff) {
+        // The new process sees conversation data on its first turn; never native-resume another provider.
+        if (provider === "codex")
+          this.deps.store.setSetting(`assistantMarker:${sessionId}`, "sent");
+      }
       return this.deps.store.get(sessionId)!;
     } finally {
       this.spawningMcp.delete(sessionId);
+      if (!this.deps.store.get(sessionId))
+        await this.cleanupUncommittedAssistant(sessionId, dir, provider);
     }
+  }
+
+  private async retireReplacedAssistant(id: string): Promise<void> {
+    this.emitAssistantRuntimeUpdate();
+    const old = this.deps.store.get(id);
+    if (old?.herdrAgentId) await this.deps.herdr.stop(old.herdrAgentId).catch(() => {});
+    this.deps.events?.emit("session:archived", { id });
+    await removeIngressSpawnFiles(this.assistantSpawnDir(), id).catch(() => {});
+    if (old) this.cleanupAssistantConversation(old);
+  }
+
+  private async cleanupUncommittedAssistant(
+    id: string,
+    dir: string,
+    provider: AgentProvider,
+  ): Promise<void> {
+    if (provider === "codex") removeCodexAssistantSecrets(dir, id);
+    this.deps.store.deleteSetting(`assistantHandoff:${id}`);
+    await removeIngressSpawnFiles(this.assistantSpawnDir(), id).catch(() => {});
+  }
+
+  private cleanupAssistantConversation(s: Session): void {
+    if (s.agentProvider === "codex") removeCodexAssistantSecrets(s.worktreePath, s.id);
+    for (const prefix of [
+      "assistantMarker",
+      "assistantHandoff",
+      "assistantFailover",
+      "assistantInput",
+    ])
+      this.deps.store.deleteSetting(`${prefix}:${s.id}`);
+  }
+
+  private cleanupArchivedAssistant(s: Session): void {
+    this.cleanupAssistantConversation(s);
+    const states = this.assistantSwitchStates();
+    delete states[s.id];
+    this.writeAssistantSwitch(states);
   }
 
   /** Best-effort: without the seed claude opens on "do you trust this folder?", which the operator
@@ -5216,6 +5560,21 @@ export class SessionService {
     }
   }
 
+  async assistantRuntimeResolution(): Promise<AssistantRuntimeResolution> {
+    const blocked = (await this.deps.assistantRuntimeBlocked?.()) ?? {};
+    const model = config.assistantRuntime.claude.model;
+    if (model) {
+      try {
+        this.assertModelAvailable(model);
+      } catch {
+        blocked.claude = "model_unsupported";
+      }
+      if (spawnModelForAvailability(model, config.fableAvailable) !== model)
+        blocked.claude = "model_unsupported";
+    }
+    return resolveAssistantRuntime(config.assistantRuntime, blocked);
+  }
+
   /** The assistant's inner argv, fresh (`--session-id`) or resumed (`--resume`) — one builder for
    *  create and resume so the two can't drift (its repo scope included). Syncs its permission file
    *  first, for the same reason. Its `--settings` / `--mcp-config` carry the ingress key, so they
@@ -5223,10 +5582,51 @@ export class SessionService {
   private async operatorAssistantArgv(
     s: Pick<
       Session,
-      "id" | "worktreePath" | "claudeSessionId" | "model" | "effort" | "assistantRepo"
+      | "id"
+      | "worktreePath"
+      | "claudeSessionId"
+      | "model"
+      | "effort"
+      | "assistantRepo"
+      | "agentProvider"
+      | "codexLaunchId"
+      | "providerSessionId"
     >,
     resume: boolean,
+    handoff?: string,
   ): Promise<string[]> {
+    if (!config.assistantRuntime.enabled) throw new Error("operator assistant disabled");
+    if (s.agentProvider === "codex") {
+      if (resume && !s.providerSessionId)
+        throw new Error("assistant native conversation unavailable");
+      const baseUrl = this.resolveSpawnBaseUrl("trusted", s.worktreePath);
+      const key = this.deps.assistantIngress?.sign(s.id);
+      if (!key) throw new Error("assistant ingress unavailable");
+      const home = prepareCodexAssistant({
+        cwd: s.worktreePath,
+        id: s.id,
+        endpoint: `${baseUrl}/api/sessions/${s.id}/mcp`,
+        key,
+        brief:
+          operatorAssistantBrief({
+            installRoot: SHEPHERD_INSTALL_ROOT,
+            assistantDir: s.worktreePath,
+            language: config.operatorLanguage,
+            repo: s.assistantRepo,
+          }) +
+          "\nUse assistant_shell for shell commands and assistant_view for the operator's current view. Files and credentials remain protected even after tool approval.",
+      });
+      // Fail closed if this installed CLI cannot enforce the generated profile.
+      await runAssistantShell(home, s.worktreePath, ["true"]);
+      return buildCodexAssistantArgv({
+        home,
+        resumeId: resume ? s.providerSessionId : null,
+        launchId: s.codexLaunchId!,
+        model: s.model,
+        effort: s.effort,
+        prompt: handoff,
+      });
+    }
     this.syncOperatorAssistantPermissions(s.worktreePath);
     const baseUrl = this.resolveSpawnBaseUrl("trusted", s.worktreePath);
     const ingressKey = this.deps.assistantIngress?.sign(s.id);
@@ -5240,6 +5640,7 @@ export class SessionService {
           dirname(config.dbPath),
           homedir(),
           this.assistantSpawnDir(),
+          s.worktreePath,
         ),
         assistantView: hook,
       }),
@@ -5249,7 +5650,7 @@ export class SessionService {
         ingressKey ? { [ASSISTANT_INGRESS_HEADER]: ingressKey } : undefined,
       ),
     });
-    return buildOperatorAssistantArgv({
+    const argv = buildOperatorAssistantArgv({
       installRoot: SHEPHERD_INSTALL_ROOT,
       resume,
       claudeSessionId: s.claudeSessionId,
@@ -5261,9 +5662,11 @@ export class SessionService {
         language: config.operatorLanguage,
         repo: s.assistantRepo,
       }),
-      model: this.spawnModel(s.model),
+      model: s.model,
       effort: s.effort,
     });
+    if (handoff) argv.push(handoff);
+    return argv;
   }
 
   /**
@@ -6587,9 +6990,23 @@ export class SessionService {
    * before.
    */
   async operatorReply(id: string, text: string, signalPayload: string = text): Promise<boolean> {
+    if (this.deps.store.get(id)?.operatorAssistant)
+      return this.serializeAssistant(() => this.operatorReplyNow(id, text, signalPayload));
+    return this.operatorReplyNow(id, text, signalPayload);
+  }
+
+  private async operatorReplyNow(
+    id: string,
+    text: string,
+    signalPayload: string,
+  ): Promise<boolean> {
+    const submittedAt = Date.now();
     const s = this.deps.store.get(id);
     if (!s) return false;
     this.assertNotTerminal(s, "reply");
+    const prepared = this.assistantReplyText(s, text);
+    if (prepared === null) return false;
+    text = prepared;
     const resumableCodex = (s.agentProvider ?? "claude") === "codex" && this.hasConversation(s);
     const target = await this.operatorReplyTarget(id, resumableCodex);
     if (!target) return false;
@@ -6599,7 +7016,7 @@ export class SessionService {
     if (paneAlive && target.agent && target.agent.terminalId !== s.herdrAgentId) {
       if (!this.adoptLiveResumeAgent(s, target.agent)) return false;
     }
-    return await resumeThenSteer(id, text, {
+    const delivered = await resumeThenSteer(id, text, {
       paneAlive: async () => paneAlive,
       resume: async () => {
         if (!resumableCodex) return null;
@@ -6612,6 +7029,40 @@ export class SessionService {
         return true;
       },
     });
+    if (delivered && isOperatorAssistant(s))
+      this.recordAssistantInput(s, signalPayload, submittedAt);
+    return delivered;
+  }
+
+  private assistantReplyText(s: Session, text: string): string | null {
+    if (!isOperatorAssistant(s)) return text;
+    const id = s.id;
+    if (
+      !config.assistantRuntime.enabled ||
+      this.assistantSwitchStates()[id]?.status === "switching"
+    )
+      return null;
+    if (s.agentProvider === "codex") {
+      text = `${this.deps.assistantViewContext?.(id) ?? ""}\n${text}`;
+      if (!this.deps.store.getSetting(`assistantMarker:${id}`))
+        text = `${codexLaunchMarker(s.codexLaunchId!)}${text}`;
+    }
+    return text;
+  }
+
+  private recordAssistantInput(s: Session, signalPayload: string, submittedAt: number): void {
+    const id = s.id;
+    this.deps.store.deleteSetting(`assistantHandoff:${id}`);
+    this.deps.store.deleteSetting(`assistantFailover:${id}`);
+    if (s.haltReason) {
+      this.deps.store.setHaltReason(id, null, null);
+      this.deps.events?.emit("session:halt", { id, haltReason: null, haltedAt: null });
+    }
+    this.deps.store.setSetting(
+      `assistantInput:${id}`,
+      JSON.stringify({ role: "user", text: signalPayload.slice(-24_000), ts: submittedAt }),
+    );
+    this.deps.store.setSetting(`assistantMarker:${id}`, "sent");
   }
 
   /**
@@ -7836,6 +8287,7 @@ export class SessionService {
       (err: unknown) => console.warn(`[ingress] spawn files for ${s.id} not removed:`, err),
     );
     this.deps.store.archive(id, reason);
+    if (s.operatorAssistant) this.cleanupArchivedAssistant(s);
     // AFTER store.archive, so the reaper's terminality gate sees `archived`. While a batch is
     // draining we DEFER rather than skip: `archive` awaits (herdr.stop, the 15s beforeArchive
     // window), so a timer-driven archive (automerge / drain / merge-teardown) can interleave with

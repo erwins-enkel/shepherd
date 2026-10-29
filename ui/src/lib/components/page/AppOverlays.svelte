@@ -638,6 +638,8 @@
         initialMobileView={settingsMobileView}
         connected={store.connected}
         remoteSessions={store.remoteSessions}
+        assistants={store.assistants}
+        assistantSwitches={store.assistantSwitches}
         initialDiagnostics={store.diagnostics?.checks ?? null}
         plugins={store.plugins}
         onpluginschanged={async () => store.setPlugins(await getPlugins())}

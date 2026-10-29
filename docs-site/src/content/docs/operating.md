@@ -536,14 +536,43 @@ The Chat reads the transcript only while it is on screen: every 2 s while the ag
 
 ## Operator Assistant
 
-The **Operator Assistant** is a Claude session that Shepherd runs for you and grounds
+The **Operator Assistant** is an interactive Claude or Codex session that Shepherd runs for you and grounds
 in its own state. Ask it in plain words why the herd stalled, why an epic won't drain,
 why an agent died, or whether this node is healthy. It reads, explains and tells you
 what to do. Ask it to get something done in a repo and it starts a session for it, as New
 Task would. What else it may change itself — steer a session, approve a plan, merge a PR,
 flip repo automation — you decide under **Settings → Assistant**.
 
-It uses Shepherd's default Claude model and effort, and its tokens count toward your
+Set its preferred provider, model and reasoning effort under **Settings → Assistant**.
+One configuration applies to the global and all repo assistants, independently of coding
+defaults. Each provider keeps its own model and effort selection. Existing installations
+start with a snapshot of their previous Claude defaults; changing coding defaults later
+has no effect on HUD assistants.
+
+Saving applies to new conversations. **Switch now** transfers every open assistant's
+recent conversation to the saved runtime, waiting for current answers and pending approvals.
+The old conversation is archived only after its replacement starts. A failed switch keeps
+the original conversation and reports the failure. Transfers use a bounded recent history,
+including recorded tool activity; they do not preserve native conversation identity across
+providers. After a transfer, actions wait for a fresh operator request so old actions are
+not replayed.
+
+**Automatic fallback** selects the other available provider when the preferred one is missing,
+unsupported or has a confirmed capacity limit. The preferred setting and coding defaults
+stay unchanged. Existing fallback conversations stay where they are when capacity returns;
+new conversations check the preference again. Unknown or stale capacity measurements do not
+cause a switch, and ordinary network errors do not trigger fallback. The panel shows the
+active provider/model and switch progress. If both providers are unavailable, retry when
+capacity returns or change the selection.
+
+Turning HUD assistants off prevents starts and resumes and stops their processes after
+current answers finish. Conversations are retained. Turning them on does not start work.
+Codex assistants use an isolated configuration and a read-only sandbox with credential
+paths blocked. Their diagnostic shell runs through Shepherd's approval controls inside that
+same sandbox; approval never grants file writes or credential access. Installations whose
+Codex CLI cannot enforce this profile cannot run a Codex HUD assistant.
+
+Their tokens count toward your
 usage like any session's. The first open starts it with no prompt, so nothing is spent
 until you ask.
 

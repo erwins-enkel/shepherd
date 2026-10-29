@@ -1,3 +1,9 @@
+import { codexAssistantSupported } from "./operator-assistant-codex";
+import {
+  assistantRuntimeBlocks,
+  normalizeStoredAssistantRuntime,
+} from "./operator-assistant-settings";
+import { drainSpawnEffort, engineDefaultEffortSetting } from "./default-effort";
 import { recapSummary } from "./recap-core";
 import { SessionActivityPublisher } from "./activity-publisher";
 import { enablePowerPaneJournal } from "./power-panes";
@@ -151,7 +157,7 @@ import { AutoMergeService } from "./automerge";
 import { DraftReconcileService } from "./draft-reconcile";
 import { isFullAuto } from "./full-auto";
 import { isOperatorAssistant } from "./operator-assistant-core";
-import { AssistantViewRegistry } from "./operator-assistant-view";
+import { renderAssistantView, AssistantViewRegistry } from "./operator-assistant-view";
 import { classifyStop } from "./autopilot-llm";
 import { createTypeSafeJudge, probeTypeSafeKey } from "./judge-typesafe";
 import { JudgeSettings } from "./judge-settings";
@@ -545,6 +551,11 @@ if (savedOl !== null) {
 }
 // The Operator Assistant's permissions (Settings → Assistant); absent or corrupt fields keep their
 // defaults one by one.
+config.assistantRuntime = normalizeStoredAssistantRuntime(store.getSetting("assistantRuntime"), {
+  model: drainSpawnModel(config.defaultModel),
+  effort: drainSpawnEffort(engineDefaultEffortSetting("claude", config)),
+});
+store.setSetting("assistantRuntime", JSON.stringify(config.assistantRuntime));
 config.assistantPermissions = normalizeStoredAssistantPermissions(
   store.getSetting("assistantPermissions"),
 );
@@ -1008,6 +1019,7 @@ const capacityInterrupted: CapacityInterruptionCheck = async (intent, worktreePa
   }
 };
 
+const assistantView = new AssistantViewRegistry();
 const service = new SessionService({
   capacity: (s) => (s.agentProvider !== "codex" ? Promise.resolve(true) : codexReady()),
   store,
@@ -1023,6 +1035,20 @@ const service = new SessionService({
   agentIngressPort: () => agentIngressState.port,
   browserToken,
   assistantIngress,
+  assistantRuntimeBlocked: async () => {
+    const blocks = assistantRuntimeBlocks({
+      checks: (await diagnostics.current(Date.now())).checks,
+      limits: usageLimits.limits(Date.now()),
+      settings: config.assistantRuntime,
+      now: Date.now(),
+      codexAuthMode: readCodexAuthMode(),
+    });
+    if (!blocks.codex && !(await codexAssistantSupported())) blocks.codex = "runtime_unsupported";
+    return blocks;
+  },
+  assistantHasApproval: (id) => !!actionRequests.snapshot()[id],
+  assistantViewContext: (id) =>
+    renderAssistantView(assistantView.get(id) ?? null, (sid) => store.get(sid)),
   // Usage-aware model downgrade (#825 companion): once live usage crosses the (lower) downgrade
   // threshold, every spawn that flows through pushModelFlag — Claude main task agents (here) and the
   // role agents (via roleEnv) — runs on the cheap usageDowngradeModel instead of its configured
@@ -1494,6 +1520,24 @@ events.subscribe((event, data) => {
   if (event === "session:archived") activityPublisher.forget((data as { id: string }).id);
 });
 
+// Assistant switches use the existing status/halt stream, not another timer.
+events.subscribe((event, data) => {
+  const payload = data as { id?: string; status?: string; haltReason?: string };
+  if (!payload.id || !store.get(payload.id)?.operatorAssistant) return;
+  if (event === "session:halt" && payload.haltReason === "usage_limit") {
+    void service
+      .failoverOperatorAssistant(payload.id)
+      .catch((err) => console.warn("[assistant] failover failed", err));
+  } else if (
+    event === "session:status" ||
+    event === "session:action-request" ||
+    event === "session:activity"
+  ) {
+    void service
+      .processAssistantSwitches()
+      .catch((err) => console.warn("[assistant] switch failed", err));
+  }
+});
 const poller = new StatusPoller(
   store,
   herdr,
@@ -3987,6 +4031,9 @@ const diagnostics = new DiagnosticsService({
 // resolves to its non-ok state), so the catch is defensive; on the off chance it throws we
 // re-arm at the recheck cadence to retry soon rather than wait 6h.
 const diagnosticsTick = async (): Promise<void> => {
+  void service
+    .processAssistantSwitches()
+    .catch((err) => console.warn("[assistant] pending switch failed", err));
   let delay = DIAGNOSTICS_RECHECK_INTERVAL_MS;
   try {
     const snapshot = await diagnostics.check(Date.now());
@@ -4293,7 +4340,7 @@ const appDeps: AppDeps = {
   presence,
   poller,
   hooks: hookIngest,
-  assistantView: new AssistantViewRegistry(),
+  assistantView,
   askAnswers,
   reviewCache: {
     snapshot: () => reviewService.snapshot(),

@@ -432,6 +432,7 @@ export interface Settings {
    *  interface language — set only from the Settings page. */
   operatorLanguage: string;
   /** What the Operator Assistant may do (Settings → Assistant); absent from an older server. */
+  assistantRuntime?: AssistantRuntimeSettings;
   assistantPermissions?: AssistantPermissions;
   /** Per-role ENVIRONMENT settings for the helper agents Shepherd spawns: a CLI pair per role.
    *  `<role>Cli` ∈ "inherit" | "claude" | "codex" ("inherit" follows `defaultAgentProvider` +
@@ -3497,11 +3498,25 @@ export type WsEvent =
       event: "operator-assistant:update";
       /** `session` is always the global assistant (older clients read only it); `sessions` every
        *  live assistant, global first (absent from an older server). */
-      data: { session: Session | null; sessions?: Session[]; permissions?: AssistantPermissions };
+      data: {
+        session: Session | null;
+        sessions?: Session[];
+        permissions?: AssistantPermissions;
+        assistantRuntime?: AssistantRuntimeSettings;
+        switches?: Record<string, AssistantSwitchState>;
+        runtimes?: Record<string, AssistantSwitchState["target"]>;
+      };
     };
 
 /** Why the Operator Assistant can't run: no `claude` on the node, or herdr is down. */
-export type OperatorAssistantUnavailableReason = "claude_missing" | "herdr_unreachable";
+export type OperatorAssistantUnavailableReason =
+  | "claude_missing"
+  | "codex_missing"
+  | "herdr_unreachable"
+  | "disabled"
+  | "capacity"
+  | "runtime_unsupported"
+  | "model_unsupported";
 
 /** Settings → Assistant: the shell row's levels (off · every command asks · read-only commands
  *  run, the rest asks · everything runs). Mirrors src/operator-assistant-permissions.ts. */
@@ -3534,6 +3549,9 @@ export interface OperatorAssistantState {
   /** Every live assistant, global first, then the repo assistants (absent from an older server). */
   sessions?: Session[];
   permissions?: AssistantPermissions;
+  assistantRuntime?: AssistantRuntimeSettings;
+  switches?: Record<string, AssistantSwitchState>;
+  runtimes?: Record<string, AssistantSwitchState["target"]>;
 }
 
 /** Optional override bag for relaunch; absent fields inherit the original session. */
@@ -3921,4 +3939,26 @@ export interface ScheduleInput {
   times: string[];
   enabled?: boolean;
   launch?: Partial<ScheduleLaunch>;
+}
+
+/** Shared HUD preferences, independent of coding defaults. */
+export interface AssistantRuntimeSettings {
+  enabled: boolean;
+  preferredProvider: AgentProvider;
+  automaticFallback: boolean;
+  claude: { model: string | null; effort: string | null };
+  codex: { model: string | null; effort: string | null };
+}
+
+export interface AssistantSwitchState {
+  sourceId: string;
+  status: "pending" | "switching" | "failed";
+  target: {
+    provider: AgentProvider | null;
+    model: string | null;
+    effort: string | null;
+    reason: string | null;
+    fallback: string | null;
+  };
+  error?: string;
 }

@@ -1,3 +1,8 @@
+import {
+  assistantRuntimeBlocks,
+  resolveAssistantRuntime,
+  parseAssistantRuntimePatch,
+} from "./operator-assistant-settings";
 import { createHash } from "node:crypto";
 import { type HostLoadSnapshot, hostLoadReport, readHostLoad } from "./remote-instances/load";
 import { jsonResponse as json, compressJsonResponse } from "./json-response";
@@ -7360,6 +7365,8 @@ function mcpDeps(deps: AppDeps): AgentControlDeps {
   return {
     ...deps,
     operatorDiag: operatorDiagDeps(deps),
+    assistantViewText: (id) =>
+      renderAssistantView(deps.assistantView?.get(id) ?? null, (sid) => deps.store.get(sid)),
     operatorActions: operatorActionDeps(deps),
     sessionPhase: (s) => sessionPhases(deps).phaseOf(s),
     scheduleNoop: {
@@ -7474,31 +7481,59 @@ function operatorDiagDeps(deps: AppDeps): OperatorDiagDeps {
   };
 }
 
-/** Why the Operator Assistant can't run, read off Settings → Diagnose, or null when it can (or when
- *  diagnostics is unwired). It runs claude only, so any non-ok `claude` check is missing — that row
- *  reads `optional` rather than `error` while codex is present. It runs in a herdr pane, so a
- *  `herdr` error (absent, offline, unsupported or needing a restart) leaves it nowhere to run. */
+/** Availability follows the pinned runtime for an existing conversation, and the saved
+ * preference/fallback policy for a new one. Disabled assistants and unreachable herdr apply to both. */
 async function operatorAssistantUnavailable(
   deps: AppDeps,
-): Promise<"claude_missing" | "herdr_unreachable" | null> {
-  if (!deps.diagnostics) return null;
-  const { checks } = await deps.diagnostics.current(Date.now());
-  const state = (id: string) => checks.find((c) => c.id === id)?.state;
-  const claude = state("claude");
-  if (claude !== undefined && claude !== "ok") return "claude_missing";
-  if (state("herdr") === "error") return "herdr_unreachable";
-  return null;
+  existing?: Session | null,
+): Promise<string | null> {
+  if (!config.assistantRuntime.enabled) return "disabled";
+  const checks = (await deps.diagnostics?.current(Date.now()))?.checks;
+  if (checks?.some((c) => c.id === "herdr" && c.state === "error")) return "herdr_unreachable";
+  if (
+    existing &&
+    (!checks ||
+      checks.some((c) => c.id === (existing.agentProvider ?? "claude") && c.state === "ok"))
+  )
+    return null;
+  const runtime = resolveAssistantRuntime(
+    config.assistantRuntime,
+    assistantRuntimeBlocks({
+      checks,
+      limits: deps.usageLimits?.limits(Date.now()),
+      settings: config.assistantRuntime,
+      now: Date.now(),
+      codexAuthMode: (deps.readCodexAuthMode ?? readCodexAuthMode)(),
+    }),
+  );
+  const effective = deps.service.assistantRuntimeResolution
+    ? await deps.service.assistantRuntimeResolution()
+    : runtime;
+  if (effective.provider) return null;
+  if (effective.reason && effective.reason !== "missing") return effective.reason;
+  return runtime.reason === "missing"
+    ? `${config.assistantRuntime.preferredProvider}_missing`
+    : runtime.reason;
 }
 
 /** `operator-assistant:update`: the GLOBAL live row as `session` — older clients (the iOS app)
  *  replace their one assistant with it, so a repo assistant must never ride there — every live
  *  assistant as `sessions`, and the current permissions. */
 function emitOperatorAssistantUpdate(deps: AppDeps): void {
-  deps.events.emit("operator-assistant:update", {
+  deps.events.emit("operator-assistant:update", operatorAssistantSnapshot(deps));
+}
+
+function operatorAssistantSnapshot(deps: AppDeps) {
+  return {
     session: deps.store.getLiveOperatorAssistant(),
     sessions: deps.store.listLiveOperatorAssistants(),
     permissions: config.assistantPermissions,
-  });
+    assistantRuntime: config.assistantRuntime,
+    switches: deps.service.assistantSwitchStates?.() ?? {},
+    ...(deps.service.assistantRuntimeStates
+      ? { runtimes: deps.service.assistantRuntimeStates() }
+      : {}),
+  };
 }
 
 /** The `repo` of an Operator Assistant POST body (`{repo?: string}`): a missing or empty body, or
@@ -7559,20 +7594,35 @@ async function closeOperatorAssistantRoute(req: Request, deps: AppDeps): Promise
 async function handleOperatorAssistant({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "operator-assistant") || parts[3]) return null;
   const verb = parts[2] ?? "";
-  if (verb !== "" && verb !== "reset" && verb !== "close") return null;
+  if (!["", "reset", "close", "switch"].includes(verb)) return null;
   if (req.method === "GET" && verb === "") {
-    const reason = await operatorAssistantUnavailable(deps);
+    const reason = await operatorAssistantUnavailable(
+      deps,
+      deps.store.getLiveOperatorAssistant() ?? deps.store.listLiveOperatorAssistants()[0],
+    );
     return json({
       available: reason === null,
       reason,
-      session: deps.store.getLiveOperatorAssistant(),
-      sessions: deps.store.listLiveOperatorAssistants(),
-      permissions: config.assistantPermissions,
+      ...operatorAssistantSnapshot(deps),
     });
   }
   if (req.method !== "POST") return null;
+  if (verb === "switch") {
+    return switchOperatorAssistantsRoute(deps);
+  }
   if (verb === "close") return closeOperatorAssistantRoute(req, deps);
   return spawnOperatorAssistantRoute(req, deps, verb === "reset");
+}
+
+async function switchOperatorAssistantsRoute(deps: AppDeps): Promise<Response> {
+  const switches = await deps.service.switchOperatorAssistants();
+  emitOperatorAssistantUpdate(deps);
+  return json(
+    { switches },
+    Object.values(switches).some((s) => s.status === "pending" || s.status === "switching")
+      ? 202
+      : 200,
+  );
 }
 
 // POST /api/operator-assistant[/reset] {repo?} → ensure (or reset) that scope's assistant.
@@ -7585,7 +7635,10 @@ async function spawnOperatorAssistantRoute(
   if (raw instanceof Response) return raw;
   const repo = raw === null ? null : knownAssistantRepo(raw);
   if (raw !== null && repo === null) return json({ error: `unknown repo: ${raw}` }, 400);
-  const reason = await operatorAssistantUnavailable(deps);
+  const reason = await operatorAssistantUnavailable(
+    deps,
+    reset ? null : deps.store.getLiveOperatorAssistant(repo),
+  );
   if (reason) return json({ error: "operator assistant unavailable", reason }, 503);
   try {
     const session = reset
@@ -9252,6 +9305,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       issueFilter: storedIssueFilter(deps.store.getSetting(ISSUE_FILTER_SETTING)),
       reducedPushMode: config.reducedPushMode,
       // What the Operator Assistant may do (Settings → Assistant).
+      assistantRuntime: config.assistantRuntime,
       assistantPermissions: config.assistantPermissions,
       sessionHousekeepingEnabled: config.sessionHousekeepingEnabled,
       autoReviveEnabled: config.autoReviveEnabled,
@@ -9419,6 +9473,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["extraCreditsDrainCeiling", putExtraCreditsDrainCeiling],
   ["authMode", putAuthMode],
   ["operatorLanguage", putOperatorLanguage],
+  ["assistantRuntime", putAssistantRuntime],
   ["assistantPermissions", putAssistantPermissions],
   ["anthropicApiKey", putAnthropicApiKey],
   ["usageHoldEnabled", putUsageHoldEnabled],
@@ -9703,6 +9758,17 @@ function putOperatorLanguage(value: unknown, deps: Ctx["deps"]): Response {
   config.operatorLanguage = v; // live: next spawn picks it up
   deps.store.setSetting("operatorLanguage", v); // persist across restarts
   return json({ operatorLanguage: config.operatorLanguage });
+}
+
+// HUD runtime preferences are persisted independently of coding defaults.
+function putAssistantRuntime(value: unknown, deps: Ctx["deps"]): Response {
+  const parsed = parseAssistantRuntimePatch(value, config.assistantRuntime);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  deps.store.setSetting("assistantRuntime", JSON.stringify(parsed.value));
+  config.assistantRuntime = parsed.value;
+  if (!parsed.value.enabled) void deps.service.switchOperatorAssistants().catch(() => {});
+  emitOperatorAssistantUpdate(deps);
+  return json({ assistantRuntime: config.assistantRuntime });
 }
 
 // What the Operator Assistant may do (Settings → Assistant): a partial patch, merged. Live: the
@@ -14122,6 +14188,22 @@ export function serve(deps: AppDeps, port: number) {
       });
     }
   }
+  function acceptAssistantKeystroke(id: string, frame: string): boolean {
+    const assistant = deps.store.get(id);
+    if (assistant?.operatorAssistant && isOperatorKeystroke(frame)) {
+      if (
+        !config.assistantRuntime.enabled ||
+        deps.service.assistantSwitchStates?.()[assistant.id]?.status === "switching"
+      )
+        return false;
+      if (frame.includes("\r")) {
+        deps.store.deleteSetting(`assistantHandoff:${assistant.id}`);
+        deps.store.deleteSetting(`assistantFailover:${assistant.id}`);
+      }
+      deps.store.setSetting(`assistantMarker:${assistant.id}`, "sent");
+    }
+    return true;
+  }
   function onSocketMessage(ws: ServerWebSocket<WsData>, msg: string | Buffer): void {
     if (!socketAuthorized(ws)) return;
     if (ws.data.kind === "events") return onEventsMessage(ws, msg);
@@ -14134,6 +14216,7 @@ export function serve(deps: AppDeps, port: number) {
     }
     const frame = typeof msg === "string" ? msg : msg.toString();
     if (takeViewFrame(ws as ServerWebSocket<WsData & { kind: "pty" }>, frame)) return;
+    if (!acceptAssistantKeystroke(ws.data.id, frame)) return;
     markPtyEvent("in");
     // Stamp the operator-activity seam only for genuine keystrokes — the same
     // stream carries \x00resize: control frames that storm on mobile (#1022).

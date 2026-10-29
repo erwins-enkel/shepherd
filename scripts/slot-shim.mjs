@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import { main as runSlot } from "./heavy-slot.mjs";
 import { isHeavyCommand } from "./tool-guard.mjs";
 
-/** POSIX single-quote one word for the command line handed to the runner. */
+/** POSIX single-quote one word for heavy-command detection (never for execution). */
 export function shellQuote(word) {
   return /^[A-Za-z0-9_@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
 }
@@ -97,7 +97,7 @@ export async function main(argv, env = process.env, deps = {}) {
     try {
       const command = [tool, ...args].map(shellQuote).join(" ");
       if ((deps.isHeavy ?? isHeavyCommand)(command, process.cwd())) {
-        return await (deps.runSlot ?? runSlot)(["--", command], childEnv);
+        return await (deps.runSlot ?? runSlot)(["--exec", real, ...args], childEnv);
       }
     } catch {
       // fail open to the real binary

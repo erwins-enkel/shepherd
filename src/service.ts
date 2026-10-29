@@ -2463,6 +2463,8 @@ function agentLoopbackIngressBaseUrl(ingressPort: number): string {
  * it would only widen the surface.
  */
 const AGENT_API_URL_ENV = "SHEPHERD_AGENT_API_URL";
+/** Pin the server-selected origin separately so the runner can reject foreign non-loopback URLs. */
+const AGENT_API_ORIGIN_ENV = "SHEPHERD_AGENT_API_ORIGIN";
 
 /**
  * Env var carrying the PATH of a session's Browser Attach config file (ADR 0001,
@@ -3441,6 +3443,7 @@ export class SessionService {
     // four callers (create / resume / relaunch / replaceAgent) because only this seam is common to
     // all of them — and only Claude's path computes a base URL of its own.
     const agentApiUrl = this.resolveSpawnBaseUrl(ctx.profileOverride, ctx.repoPath);
+    const agentApiOrigin = new URL(agentApiUrl).origin;
     const browserConfigFile = await this.writeBrowserAttachConfig(
       ctx.sessionId,
       agentApiUrl,
@@ -3500,6 +3503,7 @@ export class SessionService {
             ...patchEnv,
             [SESSION_MARKER_ENV]: ctx.sessionId,
             [AGENT_API_URL_ENV]: agentApiUrl,
+            [AGENT_API_ORIGIN_ENV]: agentApiOrigin,
             ...ingressEnv,
             ...browserEnv,
           },
@@ -3550,6 +3554,7 @@ export class SessionService {
       ...patchEnv,
       [SESSION_MARKER_ENV]: ctx.sessionId,
       [AGENT_API_URL_ENV]: agentApiUrl,
+      [AGENT_API_ORIGIN_ENV]: agentApiOrigin,
       ...ingressEnv,
       ...browserEnv,
       ...slotShimEnv,

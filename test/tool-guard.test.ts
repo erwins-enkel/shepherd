@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { execFileSync } from "node:child_process";
 import {
   decideToolGuard,
   hookOutput,
@@ -805,4 +806,72 @@ describe("#2002 CLI entry (stdin → stdout)", () => {
     const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
     expect(`${out}|${code}`).toBe("|0");
   });
+});
+
+describe("heavy detection reads the checked file descriptor", () => {
+  it.each(["content", "large", "read-error"])(
+    "keeps the checked inode and closes it (%s)",
+    (mode) => {
+      const dir = mkdtempSync(join(tmpdir(), "guard-race-"));
+      try {
+        const script = join(dir, "check.sh");
+        writeFileSync(script, mode === "large" ? "cargo test\n".repeat(30_000) : "cargo test\n");
+        const output = execFileSync(
+          "node",
+          [
+            "--input-type=module",
+            "-e",
+            `
+        import fs from "node:fs";
+        import { syncBuiltinESMExports } from "node:module";
+        const path = ${JSON.stringify(script)};
+        const { statSync, fstatSync, openSync, closeSync, readFileSync } = fs;
+        let fd, closed = false, swapped = false;
+        function swap() {
+          if (swapped) return;
+          swapped = true;
+          fs.renameSync(path, path + ".old");
+          fs.writeFileSync(path, "echo light\\n");
+        }
+        fs.openSync = (...args) => {
+          const result = openSync(...args);
+          if (args[0] === path) fd = result;
+          return result;
+        };
+        fs.statSync = (...args) => {
+          const result = statSync(...args);
+          if (args[0] === path) swap();
+          return result;
+        };
+        fs.fstatSync = (...args) => {
+          const result = fstatSync(...args);
+          if (args[0] === fd) swap();
+          return result;
+        };
+        fs.readFileSync = (...args) => {
+          if (args[0] === fd && ${JSON.stringify(mode)} === "read-error") throw new Error("read failed");
+          return readFileSync(...args);
+        };
+        fs.closeSync = (value) => {
+          if (value === fd) closed = true;
+          return closeSync(value);
+        };
+        syncBuiltinESMExports();
+        const { isHeavyCommand } = await import(${JSON.stringify(join(import.meta.dir, "../scripts/tool-guard.mjs"))});
+        const heavy = isHeavyCommand("bash check.sh", ${JSON.stringify(dir)});
+        console.log(JSON.stringify({ heavy, swapped, closed }));
+      `,
+          ],
+          { encoding: "utf8" },
+        );
+        expect(JSON.parse(output)).toEqual({
+          heavy: mode === "content",
+          swapped: true,
+          closed: true,
+        });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });

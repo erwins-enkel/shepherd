@@ -395,13 +395,13 @@ final class IOSServerHubTests: XCTestCase {
     func testNotificationServerIdentityAndLegacyCollisionNeverSelectWrongStore() async throws {
         let (_, hub, a, b) = try fixture()
         defer { stop(hub) }
-        await hub.connect(a); await hub.connect(b)
-        let first = try XCTUnwrap(hub.models[a.id]?.store), second = try XCTUnwrap(hub.models[b.id]?.store)
-        try await first.bootstrap(); try await second.bootstrap()
+        // Seed before connecting: refresh() can join an in-flight bootstrap of the fixture.
         let duplicate = PreviewData.session(id: "same", desig: "TASK-1", status: .init(known: .running))
         IOSMultiServerFixtureTransport.set([duplicate], for: a.baseURL)
         IOSMultiServerFixtureTransport.set([duplicate], for: b.baseURL)
-        try await first.refresh(); try await second.refresh()
+        await hub.connect(a); await hub.connect(b)
+        await settle { hub.models[a.id]?.store?.session(id: "same") != nil && hub.models[b.id]?.store?.session(id: "same") != nil }
+        let first = try XCTUnwrap(hub.models[a.id]?.store)
         XCTAssertEqual(hub.notificationTargets(sessionID: "same", server: b.baseURL.absoluteString), [.init(profileID: b.id, sessionID: "same")])
         XCTAssertEqual(hub.notificationTargets(sessionID: "same", server: b.id.uuidString), [.init(profileID: b.id, sessionID: "same")])
         XCTAssertEqual(hub.notificationTargets(sessionID: "same", server: nil).count, 2)

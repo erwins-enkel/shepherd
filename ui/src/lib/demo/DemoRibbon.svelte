@@ -186,14 +186,15 @@
     /* ActionBar's mobile bar (.actions.mobile in ActionBar.svelte) is also
        fixed to the viewport bottom, occupying --mobile-actionbar-h, and would
        otherwise sit under this ribbon's higher z-index and lose its primary
-       "New Task"/"Backlog" actions. Lift the ribbon clear of that bar and
+       actions; the floating Assist/New buttons (MobileFabs) sit just above it, in
+       --mobile-fab-clear. Lift the ribbon clear of both and
        shrink it to a compact, non-stretched pill (drop the left:0/right:0
        stretch) so it reads as a small anchored aside rather than a second
        bar covering content. */
     .demo-ribbon {
       left: auto;
       right: 8px;
-      bottom: calc(var(--mobile-actionbar-h) + 8px);
+      bottom: calc(var(--mobile-actionbar-h) + var(--mobile-fab-clear) + 8px);
       border-top: none;
       border: 1px solid var(--color-line);
       border-radius: 999px;

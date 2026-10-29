@@ -137,7 +137,9 @@ import {
   notifySessionDone,
 } from "./push";
 import { attachCiSteer } from "./ci-steer";
-import { HeavySlotService, hostHeavySlotBudget } from "./heavy-slot";
+import { HeavySlotService } from "./heavy-slot";
+import { recordHeavyPeak, resolveHeavySlotConfig, writeHeavyListFile } from "./heavy-slot-apply";
+import { HEAVY_SLOT_SETTING, storedHeavySlotSettings } from "./heavy-slot-settings";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { ReadyNotifier } from "./ready-notify";
 import { Presence } from "./presence";
@@ -2443,9 +2445,10 @@ const heavySlot = new HeavySlotService({
   store,
   events,
   steer: (id, text) => service.reply(id, text, { automatic: true }),
-  enabled: config.heavySlot,
-  budget: hostHeavySlotBudget(config.heavySlots),
+  ...resolveHeavySlotConfig(store),
+  onPeak: (command, bytes) => recordHeavyPeak(store, command, bytes),
 });
+writeHeavyListFile(storedHeavySlotSettings(store.getSetting(HEAVY_SLOT_SETTING)));
 void heavySlot.start();
 
 // Reduced-push "ready-after-5s" evaluator (#896): while reducedPushMode is on, fire the

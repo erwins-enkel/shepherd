@@ -926,3 +926,27 @@ test("settings owns a full unauthenticated sweep and its exception coverage", as
   for (const status of [200, 400, 401])
     expect(seen.operations.has(`PATCH /api/settings ${status}`)).toBe(true);
 });
+
+test("resource settings contract round-trips partial changes and rejects invalid thresholds", async () => {
+  const listPath = config.heavyListPath;
+  const shimDir = config.slotShimDir;
+  config.heavyListPath = join(s.tmpRoot, "heavy-list", "list.json");
+  config.slotShimDir = join(s.tmpRoot, "slot-shims");
+  try {
+    const result = await request("PATCH", "/api/settings", 200, {
+      heavySlot: {
+        enabled: false,
+        slots: 2,
+        waitMinutes: 5,
+        heavyList: { custom: [{ command: "mycheck", subcommands: [] }], disabled: ["cargo"] },
+      },
+    });
+    expect(result).toMatchObject({ heavySlot: { enabled: false, slots: 2, waitMinutes: 5 } });
+    await request("PATCH", "/api/settings", 400, { heavySlot: { brake: { psiFullMax: 101 } } });
+    const view = await request("GET", "/api/settings", 200);
+    expect(view).toMatchObject({ heavySlot: { slots: 2, heavyList: { disabled: ["cargo"] } } });
+  } finally {
+    config.heavyListPath = listPath;
+    config.slotShimDir = shimDir;
+  }
+});

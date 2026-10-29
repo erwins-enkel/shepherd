@@ -15,7 +15,7 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { cpus, totalmem } from "node:os";
+import { totalmem } from "node:os";
 import { scanMarkersDarwin } from "./proc-markers-darwin";
 import type { DarwinMarkerScan } from "./proc-markers-darwin-core";
 import { sampleMemoryDarwin } from "./heavy-slot-darwin";
@@ -30,7 +30,7 @@ import {
   ETA_HISTORY,
   HeavyLedger,
   buildSnapshot,
-  defaultHeavySlotBudget,
+  disabledSteer,
   estimateWaits,
   heavyEtaKey,
   nextBrake,
@@ -75,6 +75,7 @@ export type AcquireResponse =
       etaMs: number | null;
       reason: HeavyWaitReason;
       message: string;
+      waitUntil?: number;
     };
 
 export interface HeavySlotDeps {
@@ -86,6 +87,7 @@ export interface HeavySlotDeps {
   /** Steer a LIVE pane only (SessionService.reply, automatic). false = it did not land. */
   steer: (sessionId: string, text: string) => Promise<boolean>;
   enabled: boolean;
+  waitMinutes?: number;
   budget: HeavySlotBudget;
   now?: () => number;
   newId?: () => string;
@@ -96,10 +98,19 @@ export interface HeavySlotDeps {
   groupAlive?: (pgid: number) => boolean;
   sampleMemory?: () => Promise<MemorySample>;
   platform?: NodeJS.Platform;
+  /** A job ended; `peakRssBytes` is the largest summed RSS the scans saw (Settings → Resources). */
+  onPeak?: (command: string, peakRssBytes: number) => void;
 }
 
+/** The part of the deps the operator changes at runtime (Settings → Resources, #3552). */
+export type HeavySlotConfig = Pick<HeavySlotDeps, "enabled" | "budget" | "waitMinutes">;
+
 export class HeavySlotService {
-  readonly #deps: HeavySlotDeps;
+  #deps: HeavySlotDeps;
+  #peaks = new Map<string, number>();
+  #blockingUntil = new Map<string, number>();
+  // A runner polls every second; allow its 15-second request timeout before steering instead.
+  #pollLease = new Map<string, number>();
   readonly #now: () => number;
   readonly #platform: NodeJS.Platform;
   #ledger = new HeavyLedger();
@@ -121,6 +132,37 @@ export class HeavySlotService {
 
   get enabled(): boolean {
     return this.#deps.enabled;
+  }
+
+  /**
+   * Apply a changed master switch / budget without a restart. Running and lingering jobs are never
+   * touched; a new slot count or brake limit governs the NEXT admission. Switching off frees the
+   * queue at once — each waiting session is told to rerun its check — and switching on makes new
+   * checks queue again.
+   */
+  async applyConfig(config: HeavySlotConfig): Promise<void> {
+    const wasEnabled = this.#deps.enabled;
+    this.#deps = { ...this.#deps, ...config };
+    if (wasEnabled && !config.enabled) {
+      const now = this.#now();
+      const waiting = [
+        ...this.#ledger.queue(),
+        ...this.#ledger.active().filter((j) => j.state === "offered"),
+      ];
+      const notify = waiting.filter((j) => (this.#pollLease.get(j.id) ?? 0) <= now);
+      for (const job of waiting) {
+        this.#ledger.drop(job.id, "disabled", now);
+      }
+      this.#persist();
+      this.#emit();
+      this.#schedule();
+      for (const job of notify) {
+        void this.#deps.steer(job.sessionId, disabledSteer(job)).catch(() => false);
+      }
+      return;
+    }
+    await this.#sample();
+    await this.#changed();
   }
 
   /** Load persisted jobs, settle what a restart left behind, and start the sweep if needed. */
@@ -210,10 +252,11 @@ export class HeavySlotService {
     sessionId: string,
     command: string,
     cwd: string | null,
+    canWait = false,
   ): Promise<AcquireResponse | null> {
     const session = this.#deps.store.get(sessionId);
     if (!session || session.status === "archived") return null;
-    return this.#acquire(sessionId, command, cwd, session.repoPath, session.worktreePath);
+    return this.#acquire(sessionId, command, cwd, session.repoPath, session.worktreePath, canWait);
   }
 
   /**
@@ -237,9 +280,11 @@ export class HeavySlotService {
     cwd: string | null,
     repoPath: string,
     worktreePath: string,
+    canWait = false,
   ): Promise<AcquireResponse> {
     if (!this.#deps.enabled) return { decision: "run", unmanaged: true };
     if (this.#now() - (this.#brake.sampledAt ?? 0) > SAMPLE_FRESH_MS) await this.#sample();
+    if (!this.#deps.enabled) return { decision: "run", unmanaged: true };
     const out = this.#ledger.acquire(
       {
         id: (this.#deps.newId ?? randomUUID)(),
@@ -250,6 +295,8 @@ export class HeavySlotService {
       },
       this.#ctx(),
     );
+    if (out.kind === "queued" && canWait) this.#renewPoll(out.job.id);
+    if (out.kind === "run") this.#clearPoll(out.job.id);
     if (out.kind === "run" && holder !== OPERATOR_HOLDER) {
       // Bind the run to the source it starts on (#3554), before the runner is told to go. An
       // operator terminal has no session worktree to bind it to.
@@ -262,6 +309,7 @@ export class HeavySlotService {
     const etaMs = this.#ledgerView().jobs.find((j) => j.id === out.job.id)?.etaMs ?? null;
     return {
       decision: "queued",
+      waitUntil: this.#blockingUntil.get(out.job.id),
       jobId: out.job.id,
       position: out.position,
       total: out.total,
@@ -269,6 +317,18 @@ export class HeavySlotService {
       reason: out.reason,
       message: queuedMessage(out.job.command, { ...out, etaMs }),
     };
+  }
+
+  #renewPoll(jobId: string): void {
+    if (!this.#blockingUntil.has(jobId)) {
+      this.#blockingUntil.set(jobId, this.#now() + (this.#deps.waitMinutes ?? 0) * 60_000);
+    }
+    this.#pollLease.set(jobId, Math.min(this.#blockingUntil.get(jobId)!, this.#now() + 20_000));
+  }
+
+  #clearPoll(jobId: string): void {
+    this.#blockingUntil.delete(jobId);
+    this.#pollLease.delete(jobId);
   }
 
   /** macOS: the runner reports the process group of the command it just started. */
@@ -314,8 +374,10 @@ export class HeavySlotService {
     if (!found) return () => null;
     for (const job of jobs) {
       const stat = found.get(job.id);
-      if (stat) this.#procs.set(job.id, stat);
-      else this.#procs.delete(job.id);
+      if (stat) {
+        this.#procs.set(job.id, stat);
+        this.#peaks.set(job.id, Math.max(this.#peaks.get(job.id) ?? 0, stat.rssBytes));
+      } else this.#procs.delete(job.id);
     }
     return (job) => found.has(job.id);
   }
@@ -335,6 +397,13 @@ export class HeavySlotService {
       if (found.procs.has(job.id) || (job.pgid !== null && groupAlive(job.pgid))) return true;
       return found.complete ? false : null;
     };
+  }
+
+  /** Live observations also sample an idle host, at most once per freshness interval. */
+  async refreshPressure(): Promise<void> {
+    if (this.#now() - (this.#brake.sampledAt ?? 0) <= SAMPLE_FRESH_MS) return;
+    await this.#sample();
+    await this.#changed();
   }
 
   /** One sweep: sample memory while anyone waits, scan holders, settle, refill, announce. The
@@ -374,7 +443,11 @@ export class HeavySlotService {
     for (const job of this.#ledger.takeDirty()) {
       this.#deps.store.upsertHeavySlotJob(job);
       if (job.state === "done" || job.state === "dropped") {
+        this.#clearPoll(job.id);
         this.#procs.delete(job.id);
+        const peak = this.#peaks.get(job.id);
+        this.#peaks.delete(job.id);
+        if (peak) this.#deps.onPeak?.(job.command, peak);
         finished ||= job.state === "done";
       }
     }
@@ -396,9 +469,14 @@ export class HeavySlotService {
     try {
       do {
         this.#refill = false;
-        const offered = this.#ledger.fill(this.#ctx());
+        const pending = this.#ledger
+          .active()
+          .filter((job) => job.state === "offered" && this.#blockingUntil.has(job.id));
+        const offered = [...pending, ...this.#ledger.fill(this.#ctx())];
         this.#persist();
         for (const job of offered) {
+          if ((this.#pollLease.get(job.id) ?? 0) > this.#now()) continue;
+          this.#clearPoll(job.id);
           const landed = await this.#deps.steer(job.sessionId, offerSteer(job)).catch(() => false);
           if (!landed && this.#ledger.get(job.id)?.state === "offered") {
             this.#ledger.drop(job.id, "steer_missed", this.#now());
@@ -437,14 +515,6 @@ export class HeavySlotService {
       this.stop();
     }
   }
-}
-
-/** The budget for this host: hardware defaults, `SHEPHERD_HEAVY_SLOTS` (0 = derive) on top. */
-export function hostHeavySlotBudget(slotsOverride: number): HeavySlotBudget {
-  return defaultHeavySlotBudget(
-    { cpus: cpus().length, memTotalBytes: totalmem() },
-    slotsOverride > 0 ? slotsOverride : null,
-  );
 }
 
 /** Native memory telemetry; unsupported platforms remain unassessable. */

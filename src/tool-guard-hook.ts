@@ -38,11 +38,19 @@ function shellQuote(path: string): string {
  * command, so no other tool needs to pay the hook's process spawn.
  */
 export function buildToolGuardFragment(
-  opts: { interpreter?: string; scriptPath?: string; enabled?: boolean } = {},
+  opts: {
+    interpreter?: string;
+    scriptPath?: string;
+    enabled?: boolean;
+    heavyListPath?: string;
+  } = {},
 ): Record<string, unknown> {
   if (!(opts.enabled ?? config.toolGuard)) return {};
   const interpreter = opts.interpreter ?? toolGuardInterpreter();
   const script = opts.scriptPath ?? TOOL_GUARD_SCRIPT;
+  // The operator's heavy-list edits (#3552): named in the command because the sandbox clears the
+  // environment; the guard reads the file per decision, so an edit reaches running sessions.
+  const heavyList = opts.heavyListPath ?? config.heavyListPath;
   return {
     PreToolUse: [
       {
@@ -50,7 +58,7 @@ export function buildToolGuardFragment(
         hooks: [
           {
             type: "command",
-            command: `${shellQuote(interpreter)} ${shellQuote(script)}`,
+            command: `${shellQuote(interpreter)} ${shellQuote(script)} --heavy-list ${shellQuote(heavyList)}`,
             timeout: 10,
           },
         ],
@@ -70,5 +78,5 @@ export function buildToolGuardFragment(
  * Empty when the guard is off, keeping those flags byte-identical.
  */
 export function toolGuardMembranePaths(enabled: boolean = config.toolGuard): string[] {
-  return enabled ? [TOOL_GUARD_SCRIPT, HEAVY_SLOT_RUNNER] : [];
+  return enabled ? [TOOL_GUARD_SCRIPT, HEAVY_SLOT_RUNNER, config.heavyListDir] : [];
 }

@@ -70,6 +70,7 @@ import {
   sanitizeHerdrAgentName,
 } from "./herdr";
 import { config } from "./config";
+import { HEAVY_SLOT_SETTING, storedHeavySlotSettings } from "./heavy-slot-settings";
 import { ensureSlotShims } from "./slot-shims";
 import {
   operatorLanguageBlock,
@@ -4080,7 +4081,16 @@ export class SessionService {
    */
   private async slotShimEnv(agentProvider: string | undefined): Promise<{ PATH?: string }> {
     if (agentProvider !== "codex") return {};
-    const dir = await ensureSlotShims(this.deps.slotShimDir ?? config.slotShimDir);
+    const custom = storedHeavySlotSettings(this.deps.store.getSetting(HEAVY_SLOT_SETTING))
+      .heavyList.custom.map((e) => e.command)
+      // A custom entry for a name the shim cannot safely shadow (a shell builtin path) is skipped.
+      .filter((c) => !["sh", "bash", "node", "env"].includes(c));
+    const dir = await ensureSlotShims(
+      this.deps.slotShimDir ?? config.slotShimDir,
+      process.execPath,
+      undefined,
+      { tools: custom, heavyList: config.heavyListPath },
+    );
     return dir ? { PATH: `${dir}:${process.env.PATH ?? ""}` } : {};
   }
 

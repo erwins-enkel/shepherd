@@ -64,7 +64,9 @@ beforeAll(async () => {
       const id = parts[2]!;
       const slot = enabled ? svc : makeService(false);
       if (body.op === "acquire")
-        return Response.json(await slot.acquire(id, String(body.command), String(body.cwd)));
+        return Response.json(
+          await slot.acquire(id, String(body.command), String(body.cwd), body.canWait === true),
+        );
       if (body.op === "finished")
         return Response.json({
           ok: await slot.finish(id, String(body.jobId), Number(body.exitCode)),
@@ -181,4 +183,25 @@ describe("heavy-slot runner", () => {
     expect(out.code).toBe(0);
     expect(existsSync(f("E.ran"))).toBe(true);
   });
+});
+
+test("blocking runner starts after capacity increases without another agent turn", async () => {
+  enabled = true;
+  await svc.applyConfig({
+    enabled: true,
+    waitMinutes: 1,
+    budget: { slots: 1, minAvailableBytes: 0, psiFullMax: 100, releaseHoldMs: 0 },
+  });
+  await svc.acquire("s1", "occupied", dir);
+  const marker = join(dir, "blocked-then-ran");
+  const pending = runner(`touch '${marker}'`, "s2");
+  await new Promise((r) => setTimeout(r, 200));
+  expect(existsSync(marker)).toBe(false);
+  await svc.applyConfig({
+    enabled: true,
+    waitMinutes: 1,
+    budget: { slots: 2, minAvailableBytes: 0, psiFullMax: 100, releaseHoldMs: 0 },
+  });
+  expect((await pending).code).toBe(0);
+  expect(existsSync(marker)).toBe(true);
 });

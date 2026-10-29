@@ -534,6 +534,14 @@ export function offerSteer(job: HeavyJob, ttlMs = OFFER_TTL_MS): string {
   );
 }
 
+/** Sent to a session that was waiting when the operator switched the slot control off. */
+export function disabledSteer(job: HeavyJob): string {
+  return (
+    "Shepherd: the heavy-check slot control was switched off, so your queued check no longer " +
+    `waits. Rerun it now (\`${job.command}\`).`
+  );
+}
+
 /** One job as the UI sees it. */
 export interface HeavySlotJobView {
   id: string;

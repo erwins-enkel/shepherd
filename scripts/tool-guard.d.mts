@@ -69,7 +69,21 @@ export interface ToolGuardDeps {
   readText?: (path: string) => string | null;
   /** The heavy-check runner to wrap heavy commands with, or null to rewrite nothing (#3181). */
   heavyRunner?: () => { node: string; script: string } | null;
+  /** The operator's edits to the built-in heavy list (#3552), or null. Default: the JSON file
+   *  `SHEPHERD_HEAVY_LIST_FILE` names. */
+  heavyList?: () => HeavyListOverride | null;
 }
+
+/** Operator edits to the built-in "counts as heavy" list (Settings → Resources). */
+export interface HeavyListOverride {
+  /** Added commands; `subcommands: []` = heavy whatever the arguments. */
+  custom: Array<{ command: string; subcommands: string[] }>;
+  /** Built-in commands switched off. */
+  disabled: string[];
+}
+
+/** The built-in heavy list as data — the single source the settings page shows as "default". */
+export function heavyDefaults(): Array<{ command: string; subcommands: string[] }>;
 
 /** Is `command` a heavy check (tests, type checks, builds)? The one detection shared by the guard
  *  and the Codex PATH shims (#3550). `cwd` resolves `bun run <script>` against package.json. */

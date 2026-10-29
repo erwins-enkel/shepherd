@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { HeavySlotSnapshot, Session } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { chipModel, slotEnabled } from "./heavy-slot";
+  import { chipModel, slotActive, slotEnabled } from "./heavy-slot";
   import HostPopover from "./HostPopover.svelte";
 
   let {
@@ -50,6 +50,7 @@
       bind:this={btn}
       class="hs-chip"
       class:compact
+      class:idle={!slotActive(heavySlot)}
       class:braking={model.braking}
       type="button"
       aria-haspopup="dialog"
@@ -111,6 +112,15 @@
   }
   .hs-sep {
     color: var(--color-muted);
+  }
+  /* Nothing held, queued or braked: quiet, so amber only ever means a check is running or waiting. */
+  .hs-chip.idle {
+    border-color: var(--color-line-bright);
+    color: var(--color-muted);
+  }
+  .hs-chip.idle:hover {
+    background: var(--color-panel-2);
+    color: var(--color-ink);
   }
   /* Brake: type and border only (the quieter red). */
   .hs-chip.braking {

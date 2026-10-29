@@ -12,6 +12,7 @@
     LivenessState,
     RemoteDispatch,
   } from "#lib/types.js";
+  import type { Snippet } from "svelte";
   import type { HerdStore } from "#lib/store.svelte.js";
   import type { BlockState } from "#lib/triage.js";
   import HerdGroup from "./herd/HerdGroup.svelte";
@@ -123,6 +124,7 @@
     onowedback = undefined,
     onbacklog = undefined,
     upNextLaunch = null,
+    footer,
   }: {
     sessions: Session[];
     // sessions mirrored from connected machines (#2762) — joined into the lifecycle groups among
@@ -297,6 +299,9 @@
       usageHoldPct: number;
       nowMs: number;
     } | null;
+    // Pinned under the scrolling list (the check-slot strip): it shortens the list's viewport from
+    // the bottom, so no row and nothing outside the panel moves when it comes and goes.
+    footer?: Snippet;
   } = $props();
 
   // Outstanding owed records (#1257) — drives the OWED lens count badge. Scoped to the active repo
@@ -927,6 +932,7 @@
     {/if}
     {#if !epicNeedsOperator}{@render integratedEpics()}{/if}
   </div>
+  {@render footer?.()}
 </div>
 
 <style>

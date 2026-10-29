@@ -6,6 +6,7 @@
   import { dialog } from "#lib/a11yDialog.js";
   import { swipeBack } from "../swipe-back";
   import {
+    commandLabel,
     formatBytes,
     formatRuntime,
     memPressureBar,
@@ -78,13 +79,12 @@
   const sheetSwipe = swipeBack({ onback: () => onClose(), onoffset: (px) => (sheetX = px) });
 </script>
 
-{#snippet commandToggle(key: string, command: string, oneLine = false)}
+{#snippet commandToggle(key: string, command: string)}
   {@const open = expanded.has(key)}
   <button
     type="button"
     class="hp-cmd"
     class:open
-    class:hp-cmd-1={oneLine}
     aria-expanded={open}
     title={open ? undefined : command}
     onclick={() => toggle(key)}
@@ -93,7 +93,7 @@
     <span class="sr-only"
       >{open ? m.heavyslot_command_collapse() : m.heavyslot_command_expand()}:
     </span>
-    <span class="hp-cmd-text">{command}</span>
+    <span class="hp-cmd-text">{open ? command : commandLabel(command)}</span>
   </button>
 {/snippet}
 
@@ -208,7 +208,7 @@
             {shortRevision(r)}{r.exitCode == null ? "" : ` · exit ${r.exitCode}`}
           </span>
           <span class="hp-res hp-res-{view}">{resultLabel[view]()}</span>
-          {@render commandToggle(`r:${r.sessionId}`, r.command, true)}
+          {@render commandToggle(`r:${r.sessionId}`, r.command)}
         </div>
       {/each}
       {#if results.hidden > 0 || showAllResults}
@@ -334,8 +334,9 @@
     color: var(--color-muted);
     margin: 0;
   }
-  /* The command sits on its own full-width line under the row's name/meta, clamped (two lines for
-     holders, one for results) so a heredoc pipeline can't push pressure below the fold; it toggles open. */
+  /* The command sits on its own full-width line under the row's name/meta: collapsed it is its first
+     step (commandLabel) on one line, so a heredoc pipeline can't push pressure below the fold; it
+     toggles open to the full text. */
   .hp-cmd {
     order: 1;
     flex-basis: 100%;
@@ -377,16 +378,12 @@
   .hp-cmd-text {
     display: -webkit-box;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
     overflow: hidden;
     min-width: 0;
     overflow-wrap: anywhere;
     font-family: var(--font-mono);
-  }
-  .hp-cmd-1 .hp-cmd-text {
-    -webkit-line-clamp: 1;
-    line-clamp: 1;
   }
   .hp-cmd.open .hp-cmd-text {
     display: block;

@@ -59,6 +59,17 @@ export function formatBytes(bytes: number | null): string {
   return `${Math.round(bytes / 1024 ** 2)} MiB`;
 }
 
+const LEADING_CD = /^cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:;|&&)\s*/;
+
+/** A check command shortened for a one-line slot row: its first line, without the leading
+ *  `cd <dir>;` / `cd <dir> &&` hops (the worktree is already implied by the session). */
+export function commandLabel(command: string): string {
+  const first = command.split("\n").find((l) => l.trim() !== "") ?? "";
+  let label = first.trim();
+  while (LEADING_CD.test(label)) label = label.replace(LEADING_CD, "");
+  return label.replace(/\s+/g, " ") || first.trim();
+}
+
 /** Waiters in queue order. */
 export function orderedWaiters(s: HeavySlotSnapshot): HeavySlotSnapshot["waiters"] {
   return [...s.waiters].sort((a, b) => a.position - b.position);

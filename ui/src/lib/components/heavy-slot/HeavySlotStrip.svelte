@@ -1,23 +1,24 @@
 <script lang="ts">
   import type { HeavySlotSnapshot, Session } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { chipModel, orderedWaiters, slotActive } from "./heavy-slot";
+  import { chipModel, commandLabel, orderedWaiters, slotActive } from "./heavy-slot";
 
   let {
     heavySlot = null,
     sessions = [],
     onselect,
     onopen,
-    docked = false,
+    variant = "footer",
   }: {
     heavySlot?: HeavySlotSnapshot | null;
     sessions?: Pick<Session, "id" | "name">[];
     onselect?: (id: string) => void;
     /** Phone only: the label opens the host panel (the bar chip's job on desktop). */
     onopen?: () => void;
-    /** Phone only: float above the action bar instead of sitting in the chrome, so a check
-     *  starting or ending never reflows the herd list. */
-    docked?: boolean;
+    /** "footer" closes off the desktop Herd panel (the list viewport shortens, no row moves);
+     *  "dock" floats above the phone's action bar. Neither sits in the page chrome, so a check
+     *  starting or ending never pushes the main area. */
+    variant?: "footer" | "dock";
   } = $props();
 
   const nameOf = (id: string) =>
@@ -25,7 +26,13 @@
 </script>
 
 {#if slotActive(heavySlot) && heavySlot}
-  <div class="hs-strip" class:hs-docked={docked} role="status" aria-label={m.heavyslot_label()}>
+  <div
+    class="hs-strip"
+    class:hs-footer={variant === "footer"}
+    class:hs-docked={variant === "dock"}
+    role="status"
+    aria-label={m.heavyslot_label()}
+  >
     {#if onopen}
       {@const c = chipModel(heavySlot)}
       <button
@@ -52,7 +59,9 @@
             onclick={() => onselect?.(h.sessionId)}
           >
             <span class="hs-name">{nameOf(h.sessionId)}</span>
-            <span class="hs-cmd">{m.heavyslot_strip_holder({ command: h.command })}</span>
+            <span class="hs-cmd"
+              >{m.heavyslot_strip_holder({ command: commandLabel(h.command) })}</span
+            >
           </button>
         </li>
       {/each}
@@ -79,15 +88,17 @@
   .hs-strip {
     box-sizing: border-box;
     display: flex;
-    align-items: flex-start;
     gap: 12px;
-    padding: 5px 10px;
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
     background: var(--color-panel);
-    align-self: flex-start;
-    max-width: 100%;
     min-width: 0;
+  }
+  /* Desktop: the Herd panel's last row, ruled off from the list above it. */
+  .hs-footer {
+    flex: none;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 10px 8px;
+    border-top: 1px solid var(--color-line);
   }
   .hs-label {
     font-size: var(--fs-micro);
@@ -96,11 +107,10 @@
     color: var(--color-muted);
     white-space: nowrap;
     flex-shrink: 0;
-    padding-top: 2px;
   }
   .hs-open {
     margin: 0;
-    padding: 2px 0 0;
+    padding: 0;
     border: 0;
     border-radius: 2px;
     background: transparent;
@@ -147,12 +157,17 @@
   .hs-name {
     color: var(--color-ink-bright);
     font-weight: 500;
-    flex-shrink: 0;
-  }
-  /* A check command can be a long multi-line pipeline: one line, cut with an ellipsis (full text
-     in the row's title), so it never widens the strip past the page. */
-  .hs-cmd {
     min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* The command is shortened to its first real step (commandLabel) and cut to one line of at most
+     40ch, the row's title carrying the full text. In a narrow sidebar it gives way first; the name
+     only cuts once it is gone. */
+  .hs-cmd {
+    flex-shrink: 100;
+    min-width: 0;
+    max-width: 40ch;
     overflow: hidden;
     text-overflow: ellipsis;
   }
@@ -181,13 +196,14 @@
         6px
     );
     z-index: 5;
-    box-sizing: border-box;
-    border-color: var(--color-line-bright);
+    padding: 5px 10px;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
     box-shadow: var(--shadow-popover);
     align-items: center;
   }
   /* Docked is always one 44px row, whatever the width (a landscape phone is "mobile" by height
-     but misses the max-width rules below): the list reserves exactly --mobile-slotdock-h. */
+     but misses any max-width rule): the list reserves exactly --mobile-slotdock-h. */
   .hs-docked .hs-rows {
     flex-direction: row;
     align-items: center;
@@ -200,43 +216,12 @@
   .hs-docked .hs-row,
   .hs-docked .hs-open {
     min-height: 44px;
-    padding-top: 0;
   }
   .hs-docked .hs-holder {
     max-width: min(70vw, 40ch);
   }
   .hs-docked .hs-brake {
     white-space: nowrap;
-  }
-  /* Phone: one line, scrolling sideways; 44px tap targets. */
-  @media (max-width: 768px) {
-    .hs-strip {
-      align-self: stretch;
-      align-items: center;
-    }
-    .hs-rows {
-      flex-direction: row;
-      align-items: center;
-      gap: 14px;
-      overflow-x: auto;
-    }
-    .hs-row,
-    .hs-open {
-      min-height: 44px;
-    }
-    .hs-open {
-      padding-top: 0;
-    }
-    .hs-rows > li {
-      flex-shrink: 0;
-    }
-    /* The rows scroll sideways here, so cap the holder instead of letting it run the full command. */
-    .hs-holder {
-      max-width: min(70vw, 40ch);
-    }
-    .hs-brake {
-      white-space: nowrap;
-    }
   }
   @media (pointer: coarse) {
     .hs-row {

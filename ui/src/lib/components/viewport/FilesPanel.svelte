@@ -565,7 +565,6 @@
   }
   .drop-overlay-hint {
     color: var(--color-blue);
-    font-family: var(--font-mono);
     font-size: var(--fs-lg);
     letter-spacing: 0.04em;
   }
@@ -607,7 +606,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;
@@ -685,7 +683,6 @@
     background: transparent;
     border: 0;
     padding: 0;
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.04em;
     color: var(--color-muted);
@@ -731,7 +728,6 @@
     border: 0;
     border-bottom: 1px solid var(--color-line);
     color: var(--color-ink-bright);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     text-align: left;
     text-decoration: none;
@@ -763,12 +759,14 @@
   }
   .nm {
     min-width: 0;
+    font-family: var(--font-mono);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .created {
     justify-self: end;
+    font-family: var(--font-mono);
     color: var(--color-muted);
     white-space: nowrap;
     font-variant-numeric: tabular-nums;

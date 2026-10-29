@@ -384,7 +384,7 @@
     background: var(--color-inset);
     border-radius: 2px;
     padding: 8px 10px;
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     color: var(--color-ink-bright);
     overflow-x: auto;

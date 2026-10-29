@@ -207,7 +207,6 @@
   border: 1px solid var(--color-line);
   border-radius: 2px;
   color: var(--color-muted);
-  font-family: var(--font-mono);
   font-size: var(--fs-meta);
   letter-spacing: 0.08em;
   padding: 2px 8px;
@@ -861,18 +860,21 @@ const overview: TooltipExplanation = {
   <section class="panel">
     <h2>Type families</h2>
     <p class="when">
-      Inter (--font-sans) for everything read; it is the inherited default. JetBrains Mono
-      (--font-mono) only for identifiers (TASK-…, #issue, PR #…, SHAs, versions), code, paths and
-      the terminal. Never a literal family, never a third.
+      Inter (--font-sans) for everything read, buttons included; it is the inherited default.
+      JetBrains Mono (--font-mono) only for identifiers (TASK-…, #issue, PR #…, SHAs, versions, repo
+      names, @logins), code, paths, the terminal and numeric readouts — set on that element, never
+      on a container. Never a literal family, never a third.
     </p>
     <ul class="type-list">
       <li>
-        <span class="type-demo" style="font-family: var(--font-sans)">Review blocked · 10:44</span>
-        <code>--font-sans</code><span class="note">Titles, body, labels, readouts</span>
+        <span class="type-demo" style="font-family: var(--font-sans)">Review blocked</span>
+        <code>--font-sans</code><span class="note">Titles, body, labels, buttons</span>
       </li>
       <li>
-        <span class="type-demo" style="font-family: var(--font-mono)">TASK-4727 · 9a073251e</span>
-        <code>--font-mono</code><span class="note">Identifiers, code, terminal</span>
+        <span class="type-demo" style="font-family: var(--font-mono)"
+          >TASK-4727 · 9a073251e · 10:44</span
+        >
+        <code>--font-mono</code><span class="note">Identifiers, code, terminal, readouts</span>
       </li>
     </ul>
   </section>
@@ -1650,7 +1652,6 @@ const overview: TooltipExplanation = {
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;

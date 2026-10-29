@@ -59,7 +59,6 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-family: var(--font-mono);
     font-size: var(--fs-base);
     color: var(--color-ink-bright);
   }

@@ -69,7 +69,6 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    font-family: var(--font-mono);
     /* The trigger sits in a badge rail that may impose uppercase/tracking — the preview
        is prose and must render verbatim (same reasoning as InfoTip's tooltip). */
     text-transform: none;
@@ -92,6 +91,9 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 20ch;
+  }
+  .ip-age {
+    font-family: var(--font-mono);
   }
   .ip-title {
     font-size: var(--fs-base);

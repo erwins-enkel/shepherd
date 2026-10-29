@@ -47,7 +47,6 @@
     border-radius: 2px;
     background: color-mix(in srgb, var(--mark) 22%, transparent);
     color: var(--mark);
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     font-weight: 600;
     line-height: 1;

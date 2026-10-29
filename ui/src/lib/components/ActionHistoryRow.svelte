@@ -124,7 +124,6 @@
     border: none;
     padding: 1px 0;
     cursor: pointer;
-    font-family: var(--font-mono);
     color: var(--color-ink);
     text-align: left;
   }
@@ -139,11 +138,11 @@
   }
   .hist-age,
   .hist-sha {
+    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     color: var(--color-faint);
   }
   .hist-sha {
-    font-family: var(--font-mono);
     font-variant-ligatures: none;
   }
 
@@ -202,7 +201,6 @@
     background: transparent;
     border: none;
     cursor: pointer;
-    font-family: var(--font-mono);
     text-align: left;
   }
   .retry:hover {

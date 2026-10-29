@@ -241,7 +241,6 @@
 
 <style>
   .pr-badge {
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;

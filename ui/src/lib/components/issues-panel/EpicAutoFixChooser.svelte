@@ -120,7 +120,6 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     color: var(--color-ink);
   }
@@ -152,7 +151,6 @@
     border-radius: 2px;
     /* Pulled toward the text colour so it keeps 4.5:1 on the halt card's red wash. */
     color: color-mix(in srgb, var(--color-red) 80%, var(--color-ink-bright));
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-align: center;
@@ -269,7 +267,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;

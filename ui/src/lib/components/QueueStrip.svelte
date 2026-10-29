@@ -59,7 +59,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     background: var(--color-panel);
-    font-family: var(--font-mono);
     /* override the parent .chrome column's default align-items:stretch so the
        band shrink-wraps its content instead of spanning the full viewport width */
     align-self: flex-start;
@@ -117,6 +116,7 @@
   }
   .qs-repo {
     color: var(--color-ink-bright);
+    font-family: var(--font-mono);
     font-weight: 500;
   }
   /* merge-train state: active tone (merging/rebasing) matches inflight color */

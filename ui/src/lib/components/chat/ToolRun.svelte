@@ -79,7 +79,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
   }
   .tr-live .tr-latest {
     color: var(--color-amber);
@@ -110,7 +110,7 @@
   .tr-summary {
     min-width: 0;
     overflow-wrap: anywhere;
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
   }
   .tr-calls li.pending {
     color: var(--color-muted);

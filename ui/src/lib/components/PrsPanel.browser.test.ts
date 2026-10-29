@@ -170,6 +170,28 @@ describe("PrsPanel repo slug link", () => {
   });
 });
 
+describe("PrsPanel typography", () => {
+  // #3597: the panel, its header and toolbar read in the body face; PR numbers stay mono.
+  it("sets prose and controls in the body face and keeps PR numbers mono", async () => {
+    seed([pr(1), pr(2)]);
+    render(PrsPanel, { repoPath: "/repo", onreview: noop, onlaunchtrain: noop });
+    await expect.element(checkbox(1)).toBeInTheDocument();
+
+    const family = (el: Element) => getComputedStyle(el).fontFamily;
+    const sans = getComputedStyle(document.body).fontFamily;
+    const probe = document.body.appendChild(document.createElement("span"));
+    probe.style.fontFamily = "var(--font-mono)";
+    const mono = getComputedStyle(probe).fontFamily;
+    probe.remove();
+    expect(sans).not.toBe(mono);
+
+    for (const sel of [".prs-panel", ".prs-header", ".prs-toolbar .link", ".prs-toolbar .gbtn"]) {
+      expect(family(document.querySelector(sel)!), sel).toBe(sans);
+    }
+    expect(family(document.querySelector(".pr-num")!), ".pr-num").toBe(mono);
+  });
+});
+
 describe("PrsPanel launch-train toolbar", () => {
   it("disables Launch with 0 and 1 selected, enables it with 2", async () => {
     seed([pr(1), pr(2), pr(3)]);

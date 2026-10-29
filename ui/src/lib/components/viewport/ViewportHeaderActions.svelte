@@ -269,7 +269,6 @@
   /* mobile fold toggle: now an .icon-btn.compact — ghost/sizing/hover from recipe.
      Keep only the Unicode-chevron legibility bits the recipe doesn't provide. */
   .vp-fold {
-    font-family: var(--font-mono);
     font-size: var(--fs-base);
     line-height: 1;
   }
@@ -288,7 +287,6 @@
   }
   /* text-pill-only declarations — not applied when icon-btn form is used */
   .decom:not(.icon-btn) {
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -320,7 +318,6 @@
   /* text-pill-only declarations — not applied when compact icon-btn form is used */
   .vp-resume:not(.icon-btn) {
     gap: 5px;
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;
     text-transform: uppercase;

@@ -131,7 +131,6 @@
   .ae-table {
     width: 100%;
     border-collapse: collapse;
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
   }
   /* Row styles target child component markup via :global() */
@@ -147,14 +146,17 @@
   }
   :global(.ae-param-name) {
     color: var(--color-ink);
+    font-family: var(--font-mono);
     white-space: nowrap;
   }
   :global(.ae-param-in) {
     color: var(--color-muted);
+    font-family: var(--font-mono);
     white-space: nowrap;
   }
   :global(.ae-param-type) {
     color: var(--color-muted);
+    font-family: var(--font-mono);
     white-space: nowrap;
   }
   :global(.ae-param-note) {
@@ -166,10 +168,11 @@
     margin-left: 4px;
     font-size: var(--fs-micro);
     color: var(--color-red);
-    font-family: inherit;
+    font-family: var(--font-sans);
   }
   :global(.ae-resp-status) {
     color: var(--color-ink);
+    font-family: var(--font-mono);
     white-space: nowrap;
   }
   :global(.ae-resp-desc) {

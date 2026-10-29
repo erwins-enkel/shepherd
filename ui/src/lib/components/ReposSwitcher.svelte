@@ -229,7 +229,7 @@
   {/if}
   <span class="rs-id">
     {#if id?.owner}<span class="rs-owner">{id.owner}</span>{/if}
-    <span class="rs-name">{id ? id.name : m.repos_switcher_choose()}</span>
+    <span class="rs-name" class:rs-name-id={id}>{id ? id.name : m.repos_switcher_choose()}</span>
   </span>
   <span class="rs-caret" aria-hidden="true">▾</span>
   <kbd class="rs-key" aria-hidden="true">R</kbd>
@@ -351,7 +351,6 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-ink-bright);
-    font-family: var(--font-mono);
     text-align: left;
     cursor: pointer;
     touch-action: manipulation;
@@ -377,6 +376,7 @@
   }
   .rs-owner {
     color: var(--color-muted);
+    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.04em;
     overflow: hidden;
@@ -390,6 +390,10 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+  /* Repo name is an identifier; the "choose a repo" fallback stays sans. */
+  .rs-name-id {
+    font-family: var(--font-mono);
   }
 
   .rs-caret {
@@ -435,7 +439,6 @@
     box-shadow: var(--shadow-popover);
     color: var(--color-ink);
     font: inherit;
-    font-family: var(--font-mono);
   }
   [popover].rs-pop:focus {
     outline: none;
@@ -501,7 +504,6 @@
     border-radius: 2px;
     color: inherit;
     font: inherit;
-    font-family: var(--font-mono);
     text-align: left;
     cursor: pointer;
     touch-action: manipulation;
@@ -530,6 +532,7 @@
   .rs-tile-name {
     min-width: 0;
     color: var(--color-ink-bright);
+    font-family: var(--font-mono);
     font-size: var(--fs-base);
     font-weight: 500;
     letter-spacing: 0.03em;

@@ -311,7 +311,6 @@
     padding: 5px 7px;
   }
   textarea {
-    font-family: var(--font-mono, monospace);
     resize: vertical;
   }
   .chips,

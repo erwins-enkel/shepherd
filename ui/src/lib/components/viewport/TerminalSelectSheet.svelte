@@ -61,7 +61,6 @@
     flex: 1;
     min-width: 0;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
   }
   .done {
@@ -71,7 +70,6 @@
     border-radius: 2px;
     background: transparent;
     color: var(--color-amber);
-    font-family: var(--font-mono);
     font-size: var(--fs-base);
     cursor: pointer;
     touch-action: manipulation;

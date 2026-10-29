@@ -125,7 +125,6 @@
 
 <style>
   .ft-root {
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     color: var(--color-ink);
     display: flex;
@@ -154,11 +153,13 @@
   }
   .ft-badge {
     flex-shrink: 0;
+    font-family: var(--font-mono);
     width: 1em;
     text-align: center;
     font-weight: 600;
   }
   .ft-segment {
+    font-family: var(--font-mono);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

@@ -68,6 +68,7 @@
     color: var(--color-faint);
   }
   .count {
+    font-family: var(--font-mono);
     letter-spacing: 0.08em;
   }
 </style>

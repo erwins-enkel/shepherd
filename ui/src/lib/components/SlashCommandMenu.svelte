@@ -172,7 +172,6 @@
     margin-top: 2px;
   }
   .sc-empty {
-    font-family: var(--font-mono);
     padding: 10px;
     color: var(--color-faint);
     font-size: var(--fs-base);

@@ -236,7 +236,6 @@
     border: 1px solid var(--color-line-bright);
     padding: 18px 18px 16px;
     box-shadow: inset 0 0 30px -16px var(--color-blue);
-    font-family: var(--font-mono);
   }
   .bracket::before,
   .bracket::after {
@@ -443,7 +442,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;

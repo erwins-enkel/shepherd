@@ -83,7 +83,7 @@
     <span class="num">#{number}</span>
     <IssueLabelChips {labels} {labelColors} />
     {#if author}<span class="faint">{m.issuerow_author_by({ login: author })}</span>{/if}
-    {#if age}<span class="faint">{age}</span>{/if}
+    {#if age}<span class="faint age">{age}</span>{/if}
     {#if blockedText}<span class="blocked-chip">{blockedText}</span>{/if}
     {#if assign}<AssignedPill who={assign.who} framed={assign.framed} />{/if}
     <EpicOthersPill flag={othersFlag} />
@@ -135,7 +135,6 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    font-family: var(--font-mono);
   }
 
   .meta {
@@ -175,6 +174,9 @@
   .faint {
     color: var(--color-faint);
     font-size: var(--fs-micro);
+  }
+  .age {
+    font-family: var(--font-mono);
   }
 
   /* "blocked on #N" — semantic blocked token (red), as on the former list row. */

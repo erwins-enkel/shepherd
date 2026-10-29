@@ -96,7 +96,7 @@
     border: 1px solid var(--color-line);
     background: var(--color-inset);
     color: var(--color-ink-bright);
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     line-height: 1.5;
     white-space: pre;

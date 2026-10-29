@@ -215,7 +215,6 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.06em;
     padding: 3px 9px;

@@ -186,7 +186,6 @@
     background: var(--color-panel);
     border: 1px solid var(--color-line);
     border-radius: 2px;
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
   }
 
@@ -303,7 +302,6 @@
     border-left-width: 2px;
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     text-align: left;
     cursor: pointer;

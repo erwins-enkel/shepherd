@@ -761,7 +761,7 @@
     color: var(--color-ink);
   }
   .cmd {
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     background: var(--color-panel);
     border: 1px solid var(--color-line);

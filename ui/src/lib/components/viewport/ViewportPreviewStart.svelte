@@ -229,7 +229,6 @@
     background: transparent;
     border: 1px solid transparent;
     border-radius: 2px;
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.1em;
     padding: 10px 6px;
@@ -241,7 +240,6 @@
   /* full-strength blue at rest: the old 0.85 opacity dropped it to 4.47:1 (<AA) */
   .preview-start-btn {
     color: var(--color-blue);
-    font-family: var(--font-mono);
   }
   .preview-start-btn:hover:not(:disabled) {
     color: var(--color-blue);

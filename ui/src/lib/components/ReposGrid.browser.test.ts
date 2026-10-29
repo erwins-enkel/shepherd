@@ -199,6 +199,29 @@ describe("ReposGrid tiles", () => {
   });
 });
 
+describe("ReposGrid typography", () => {
+  // #3597: the grid, its tiles and search read in the body face; repo names and owners stay mono.
+  it("sets tiles and search in the body face and keeps repo names and owners mono", async () => {
+    render(ReposGrid, props());
+    await expect.poll(() => q(".rg-tile-big .rg-owner")).not.toBeNull();
+
+    const family = (el: Element) => getComputedStyle(el).fontFamily;
+    const sans = getComputedStyle(document.body).fontFamily;
+    const probe = document.body.appendChild(document.createElement("span"));
+    probe.style.fontFamily = "var(--font-mono)";
+    const mono = getComputedStyle(probe).fontFamily;
+    probe.remove();
+    expect(sans).not.toBe(mono);
+
+    for (const sel of [".rg", ".rg-search", ".rg-tile-big", ".rg-tile-big .rg-counts"]) {
+      expect(family(q(sel)!), sel).toBe(sans);
+    }
+    for (const sel of [".rg-tile-big .rg-name", ".rg-tile-big .rg-owner"]) {
+      expect(family(q(sel)!), sel).toBe(mono);
+    }
+  });
+});
+
 describe("ReposGrid search", () => {
   it("filters by name and drops the recents group while searching", async () => {
     await render(ReposGrid, props());

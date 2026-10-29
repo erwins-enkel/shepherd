@@ -379,7 +379,6 @@
     flex-direction: column;
     height: 100%;
     background: var(--color-inset);
-    font-family: var(--font-mono);
     overflow: hidden;
   }
 
@@ -440,6 +439,10 @@
   .score-ring.strong {
     border-color: var(--color-green);
     color: var(--color-green);
+  }
+  .score-num,
+  .score-pct {
+    font-family: var(--font-mono);
   }
   .score-num {
     font-size: var(--fs-2xl);
@@ -534,6 +537,7 @@
     margin-top: 1px;
   }
   .row-evidence {
+    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     color: var(--color-faint);
     word-break: break-word;
@@ -561,7 +565,6 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.06em;
     padding: 3px 9px;

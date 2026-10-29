@@ -108,7 +108,7 @@
   .ba-plan {
     margin: 0;
     color: var(--color-ink-bright);
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     line-height: 1.45;
     white-space: pre-wrap;

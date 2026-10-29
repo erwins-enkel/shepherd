@@ -638,7 +638,6 @@
     border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--color-line));
     border-radius: 2px;
     color: var(--color-ink-bright);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.04em;
     padding: 4px 9px;
@@ -688,7 +687,6 @@
   }
   .rb-env {
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     line-height: 1.3;
     overflow-wrap: anywhere;

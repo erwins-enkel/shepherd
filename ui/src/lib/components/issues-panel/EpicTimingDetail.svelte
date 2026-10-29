@@ -118,7 +118,6 @@
     flex-direction: column;
     gap: 10px;
     min-width: 0;
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
   }
 
@@ -181,6 +180,7 @@
 
   .tile-value {
     color: var(--color-ink-bright);
+    font-family: var(--font-mono);
     font-size: var(--fs-xl);
     font-weight: 600;
     font-variant-numeric: tabular-nums;

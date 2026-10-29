@@ -89,7 +89,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     padding: 1px 6px;
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     color: var(--color-faint);
   }

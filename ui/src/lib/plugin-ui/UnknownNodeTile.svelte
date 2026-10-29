@@ -27,7 +27,7 @@
     letter-spacing: 0.04em;
   }
   .pui-unknown-type {
-    font-family: monospace;
+    font-family: var(--font-mono);
     color: var(--color-ink);
   }
 </style>

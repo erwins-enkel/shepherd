@@ -276,7 +276,6 @@
     padding: 8px 10px 8px 14px;
     background: var(--color-head);
     border-top: 1px solid var(--color-line);
-    font-family: var(--font-mono);
     min-width: 0;
   }
   .pr-row.ready {
@@ -402,7 +401,6 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.12em;
     text-transform: uppercase;

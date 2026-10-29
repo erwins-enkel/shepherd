@@ -93,7 +93,9 @@
     {#each heavySlot.holders as h, i (i)}
       <div class="hp-row">
         <span class="hp-name">{nameOf(h.sessionId)}</span>
-        <span class="hp-dim">{formatRuntime(h.startedAt, nowMs)} · {formatBytes(h.rssBytes)}</span>
+        <span class="hp-dim hp-mono"
+          >{formatRuntime(h.startedAt, nowMs)} · {formatBytes(h.rssBytes)}</span
+        >
         {#if confirming === h.sessionId}
           <p class="hp-confirm">{m.heavyslot_release_confirm({ name: nameOf(h.sessionId) })}</p>
           <span class="hp-actions">
@@ -141,7 +143,7 @@
         {@const view = resultView(r)}
         <div class="hp-row">
           <span class="hp-name">{nameOf(r.sessionId)}</span>
-          <span class="hp-dim">
+          <span class="hp-dim hp-mono">
             {shortRevision(r)}{r.exitCode == null ? "" : ` · exit ${r.exitCode}`}
           </span>
           <span class="hp-res hp-res-{view}">{resultLabel[view]()}</span>
@@ -173,7 +175,7 @@
             <span class="hp-fill" style:width="{bar.fill * 100}%"></span>
             <span class="hp-limit" style:left="{bar.limit * 100}%"></span>
           </span>
-          <span class="hp-dim"
+          <span class="hp-dim hp-sans"
             >{m.heavyslot_mem_psi_limit({ limit: p.memBrakeThreshold ?? 0 })}</span
           >
         {/if}
@@ -191,7 +193,7 @@
       <dt>{m.heavyslot_source_foreign()}</dt>
       <dd>{formatBytes(src.foreignBytes)}</dd>
       {#each src.foreignTop as f (f.name)}
-        <dt class="hp-dim">{f.name}</dt>
+        <dt class="hp-dim hp-mono">{f.name}</dt>
         <dd class="hp-dim">{formatBytes(f.bytes)}</dd>
       {/each}
     </dl>
@@ -245,7 +247,6 @@
     border: 1px solid var(--color-line);
     border-radius: var(--radius-chip);
     background: var(--color-panel);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     color: var(--color-ink);
     text-align: left;
@@ -347,12 +348,20 @@
     overflow: hidden;
     min-width: 0;
     overflow-wrap: anywhere;
+    font-family: var(--font-mono);
   }
   .hp-cmd.open .hp-cmd-text {
     display: block;
     -webkit-line-clamp: unset;
     line-clamp: none;
     white-space: pre-wrap;
+  }
+  /* Commands, revisions, exit codes and byte/% readouts are mono; prose stays sans. */
+  .hp-mono {
+    font-family: var(--font-mono);
+  }
+  .hp-sans {
+    font-family: var(--font-sans);
   }
   .hp-res {
     font-weight: 600;
@@ -423,6 +432,7 @@
   }
   .hp-kv dd {
     margin: 0;
+    font-family: var(--font-mono);
   }
   .hp-bar {
     position: relative;

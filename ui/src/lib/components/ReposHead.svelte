@@ -144,7 +144,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     cursor: pointer;
     touch-action: manipulation;
@@ -162,12 +161,14 @@
   }
   .rh-chip-name {
     max-width: 18ch;
+    font-family: var(--font-mono);
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
   }
   .rh-chip-count {
     color: var(--color-muted);
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
 
@@ -185,7 +186,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;

@@ -616,7 +616,6 @@
     flex-direction: column;
     height: 100%;
     background: var(--color-inset);
-    font-family: var(--font-mono);
     overflow: hidden;
   }
 
@@ -740,7 +739,6 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 6px 12px;

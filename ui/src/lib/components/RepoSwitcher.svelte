@@ -586,7 +586,6 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
-    font-family: var(--font-mono);
     /* don't span the parent column — shrink-wrap to the rail content */
     align-self: flex-start;
     max-width: 100%;
@@ -681,9 +680,11 @@
     text-transform: none;
   }
   .rs-name {
+    font-family: var(--font-mono);
     color: inherit;
   }
   .rs-count {
+    font-family: var(--font-mono);
     color: var(--color-faint);
     font-variant-numeric: tabular-nums;
   }

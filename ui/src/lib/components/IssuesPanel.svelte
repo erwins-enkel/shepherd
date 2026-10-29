@@ -1019,7 +1019,6 @@
     height: 100%;
     min-height: 0;
     background: var(--color-inset);
-    font-family: var(--font-mono);
     overflow: hidden;
   }
   .issues-panel.mobile {
@@ -1103,7 +1102,6 @@
     background: var(--color-inset);
     border: 1px solid var(--color-line);
     color: var(--color-ink-bright);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     padding: 4px 8px;
     border-radius: 2px;
@@ -1123,7 +1121,6 @@
     border: 1px solid var(--color-amber);
     border-radius: 2px;
     color: var(--color-amber);
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     cursor: pointer;
@@ -1177,7 +1174,6 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     cursor: pointer;
@@ -1201,7 +1197,6 @@
     padding: 0;
     color: var(--color-amber);
     cursor: pointer;
-    font-family: var(--font-mono);
     font-size: var(--fs-base);
     text-decoration: underline;
   }

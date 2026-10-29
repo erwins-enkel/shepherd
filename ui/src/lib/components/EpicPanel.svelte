@@ -137,7 +137,6 @@
     background: var(--color-panel);
     /* No border-top: the host ([data-epic-panel]) owns the single head↔children
        divider, so it also covers the pre-resolve loading line. */
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
   }
 
@@ -281,6 +280,7 @@
     color: var(--color-ink-bright);
   }
   .dur-clock {
+    font-family: var(--font-mono);
     color: var(--status-running);
   }
 
@@ -327,7 +327,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
     padding: 2px 8px;

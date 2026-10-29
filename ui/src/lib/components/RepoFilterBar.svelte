@@ -121,7 +121,6 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.04em;
     padding: 0 28px 0 26px;
@@ -136,7 +135,6 @@
     top: 50%;
     transform: translateY(-50%);
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     pointer-events: none;
   }
@@ -157,7 +155,6 @@
     background: transparent;
     border: none;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     padding: 0 8px;
     min-height: 36px;
@@ -181,7 +178,6 @@
     border: 1px solid transparent;
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     padding: 0 6px;
     min-height: 36px;
@@ -212,6 +208,7 @@
   }
 
   .hidden-count {
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
 

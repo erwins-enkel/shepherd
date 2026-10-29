@@ -384,7 +384,6 @@
     border: 1px solid transparent;
     border-radius: 2px;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.1em;
     padding: 0 10px;
@@ -504,7 +503,6 @@
 
   .row-label {
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.05em;
   }
@@ -529,7 +527,6 @@
   /* Persistent vs. per-view block titles: what a choice here changes. */
   .block-heading {
     padding: 2px 12px 0;
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -555,7 +552,6 @@
   }
 
   .pop-heading {
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -592,7 +588,6 @@
   }
 
   .label-toggle {
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;

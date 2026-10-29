@@ -402,7 +402,7 @@
 
 <div class="ps-wrap">
   <div class="ps-head">
-    <span class="micro seed-label">{m.promptsources_title()}</span>
+    <span class="seed-label">{m.promptsources_title()}</span>
     {#if allowIssues && slug !== null && !loadError}
       <span class="open-count">{m.promptsources_open_count({ count: issues.length })}</span>
     {/if}
@@ -621,10 +621,6 @@
     flex-shrink: 0;
   }
 
-  .micro {
-    font-family: var(--font-mono);
-  }
-
   .tabs {
     display: flex;
     gap: 2px;
@@ -635,7 +631,6 @@
     background: transparent;
     border: 1px solid transparent;
     color: var(--color-muted);
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -682,7 +677,6 @@
   }
 
   .muted {
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     color: var(--color-faint);
     padding: 6px 10px;
@@ -696,7 +690,6 @@
     padding: 0;
     color: var(--color-amber);
     cursor: pointer;
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     text-decoration: underline;
   }
@@ -708,7 +701,6 @@
     background: transparent;
     border: none;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-base);
     text-align: left;
     padding: 4px 10px;
@@ -733,6 +725,7 @@
   }
 
   .row-marker {
+    font-family: var(--font-mono);
     color: var(--color-faint);
     flex-shrink: 0;
     font-size: var(--fs-micro);
@@ -769,7 +762,6 @@
     background: var(--color-inset);
     border: 1px solid var(--color-line);
     color: var(--color-ink-bright);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     padding: 4px 8px;
     border-radius: 2px;
@@ -797,6 +789,7 @@
   }
 
   .cmd-name {
+    font-family: var(--font-mono);
     color: var(--color-ink-bright);
     flex-shrink: 0;
   }
@@ -826,7 +819,6 @@
     border: none;
     text-align: left;
     padding: 3px 10px 1px;
-    font-family: var(--font-mono);
     font-size: var(--fs-micro);
     color: var(--color-faint);
     cursor: pointer;

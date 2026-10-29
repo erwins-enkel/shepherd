@@ -231,12 +231,14 @@
     min-width: 0;
   }
   .row-title {
+    font-family: var(--font-mono);
     font-size: var(--fs-base);
     color: var(--color-ink);
     word-break: break-word;
   }
   .row-values {
     display: flex;
+    font-family: var(--font-mono);
     flex-wrap: wrap;
     gap: 2px 12px;
     font-size: var(--fs-meta);
@@ -254,7 +256,6 @@
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     color: var(--color-ink);
-    font-family: var(--font-mono);
     font-size: var(--fs-meta);
     letter-spacing: 0.06em;
     padding: 3px 9px;

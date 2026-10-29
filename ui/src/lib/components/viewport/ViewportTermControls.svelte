@@ -222,7 +222,6 @@
     border-radius: 2px;
     background: transparent;
     color: var(--color-amber);
-    font-family: var(--font-mono);
     font-size: var(--fs-base);
     cursor: pointer;
     touch-action: manipulation;

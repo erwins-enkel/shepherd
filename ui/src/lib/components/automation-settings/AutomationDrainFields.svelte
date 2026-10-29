@@ -101,7 +101,7 @@
       <label class="drain-field">
         <span class="drain-label">{m.drain_label_label()}</span>
         <input
-          class="afield-num txt"
+          class="afield-num txt drain-label-input"
           type="text"
           bind:value={drainLabel}
           aria-label={m.drain_label_label()}
@@ -147,5 +147,9 @@
     font-size: var(--fs-micro);
     line-height: 1.45;
     color: var(--color-faint);
+  }
+  /* Free-text label name, not a number: drop the `.afield-num` mono. */
+  .drain-label-input {
+    font-family: var(--font-sans);
   }
 </style>

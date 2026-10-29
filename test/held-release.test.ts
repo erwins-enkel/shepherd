@@ -462,3 +462,16 @@ test("after-task with a pruned predecessor releases; without taskDeps it stays",
       .released,
   ).toBe(0);
 });
+
+test("held release delivers the complete long task to the session creator", async () => {
+  const prompt = `START${"x".repeat(150_000)}END`;
+  const deps = makeDeps([{ id: "long", input: makeInput(prompt) }]);
+  const result = await releaseHeldTasks(
+    deps,
+    { enabled: true, holdPct: 80, autoRelease: true },
+    Date.now(),
+    10,
+  );
+  expect(result.released).toBe(1);
+  expect(deps.creates[0]!.prompt).toBe(prompt);
+});

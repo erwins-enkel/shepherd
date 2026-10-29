@@ -7897,5 +7897,8 @@
   "feat_resources_title": "Resource controls without restarting",
   "feat_resources_body": "Settings → Resources controls this machine’s check slots, waiting behavior, heavy commands and pressure brake. Switching off releases waiting checks; running checks are untouched.",
   "resources_edit": "Edit",
-  "resources_remove": "Remove"
+  "resources_remove": "Remove",
+  "newtask_prompt_file_delivery": "Will be passed in full as a file.",
+  "feat_long_task_prompts_title": "Long tasks without splitting",
+  "feat_long_task_prompts_body": "Tasks longer than 8,000 characters are automatically passed in full as a file to Claude Code or Codex. A hint by the character count shows when file delivery is used."
 }

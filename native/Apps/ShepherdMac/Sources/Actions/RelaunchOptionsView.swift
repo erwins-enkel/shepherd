@@ -45,7 +45,7 @@ struct RelaunchOptionsView: View {
                 Button(L.t("native_actions_relaunch_confirm_action"), role: .destructive) {
                     confirm(Self.request(session: session, repo: repo, branch: branch, prompt: prompt))
                 }.disabled((session.host != nil && (ownerRepos == nil || store?.canOperateSession(id: session.id) != true)) || repo.isEmpty || branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || prompt.count > 8000)
+                    || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }.padding(24).frame(width: 600)
         .task(id: session.host?.instanceId) { await loadOwnerRepos() }

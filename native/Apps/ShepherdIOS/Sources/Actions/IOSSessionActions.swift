@@ -306,7 +306,7 @@ final class IOSSessionActionState {
         case .relaunch:
             return actions.contains(.relaunch) && !repo.isEmpty
                 && !branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && prompt.utf16.count <= 8000
+                && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .merge, .decommission, nil: return false
         }
     }

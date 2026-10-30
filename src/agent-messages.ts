@@ -12,6 +12,7 @@
  */
 import { parseActivityObjects, readTranscriptTailAsync, type ActivityEntry } from "./activity";
 import { parseCodexActivityObjects } from "./codex-activity";
+import { stat } from "node:fs/promises";
 import { eachJsonlObject } from "./jsonl";
 import { transcriptSteer, type SteerKind } from "./steer-log";
 import type { PendingAsk } from "./ask-user-question";
@@ -50,6 +51,10 @@ export interface ParsedMessages {
 
 /** Far more than the few turns this reads; bounds the parse on a multi-MB transcript. */
 const TAIL_BYTES = 2 * 1024 * 1024;
+
+/** How far back {@link sessionMessages} reads to fill its limit when large records (base64
+ *  screenshots in tool results) crowd the messages out of {@link TAIL_BYTES}. */
+const MESSAGES_TAIL_MAX_BYTES = 16 * 1024 * 1024;
 
 /** How many trailing paragraphs may hold the question — enough for "Which one?" plus an option
  *  list and a closing line. */
@@ -319,6 +324,36 @@ function unavailable(reason: MessagesUnavailable): SessionMessages {
   return { messages: [], awaitingInput: false, pendingQuestion: null, unavailable: reason };
 }
 
+function keptMessages(parsed: ParsedMessages, q: MessagesQuery): AgentMessage[] {
+  return q.includeUser ? parsed.messages : parsed.messages.filter((m) => m.role === "assistant");
+}
+
+/** The transcript tail parsed: {@link TAIL_BYTES}, doubled while it holds fewer than `q.limit`
+ *  messages and more of the file is left, up to {@link MESSAGES_TAIL_MAX_BYTES}. Null when the
+ *  file can't be read. */
+async function readMessagesWindow(
+  provider: AgentProvider | null | undefined,
+  path: string,
+  q: MessagesQuery,
+): Promise<{ objs: unknown[]; parsed: ParsedMessages } | null> {
+  for (let bytes = TAIL_BYTES; ; bytes *= 2) {
+    let text: string;
+    let size: number;
+    try {
+      [text, { size }] = await Promise.all([readTranscriptTailAsync(path, bytes), stat(path)]);
+    } catch {
+      return null;
+    }
+    // One JSON pass serves both the messages and, with includeTools, the tool calls.
+    const objs = [...eachJsonlObject(text)];
+    const parsed = isCodex(provider)
+      ? parseCodexMessageObjects(objs)
+      : parseClaudeMessageObjects(objs);
+    const full = keptMessages(parsed, q).length >= q.limit;
+    if (full || size <= bytes || bytes >= MESSAGES_TAIL_MAX_BYTES) return { objs, parsed };
+  }
+}
+
 /**
  * Read a session's transcript at `path` (resolved by the caller — the server owns the per-provider
  * path ladder) and answer its messages and open question. Never throws: an unreadable file reads
@@ -331,24 +366,14 @@ export async function sessionMessages(
   pendingAsks: PendingAsk[] = [],
 ): Promise<SessionMessages> {
   if (!path) return unavailable("no-transcript");
-  let text: string;
-  try {
-    text = await readTranscriptTailAsync(path, TAIL_BYTES);
-  } catch {
-    return unavailable("file-missing");
-  }
-  // One JSON pass serves both the messages and, with includeTools, the tool calls.
-  const objs = [...eachJsonlObject(text)];
-  const parsed = isCodex(s.agentProvider)
-    ? parseCodexMessageObjects(objs)
-    : parseClaudeMessageObjects(objs);
+  const tail = await readMessagesWindow(s.agentProvider, path, q);
+  if (!tail) return unavailable("file-missing");
+  const { objs, parsed } = tail;
   const structured = pendingAsks
     .flatMap((ask) => ask.questions.map((q) => q.question))
     .join("\n\n");
   const question = structured || (AT_REST.has(s.status) ? parsed.question : null);
-  const kept = q.includeUser
-    ? parsed.messages
-    : parsed.messages.filter((m) => m.role === "assistant");
+  const kept = keptMessages(parsed, q);
   const messages = q.limit > 0 ? kept.slice(-q.limit).map(withSteer) : [];
   const result: SessionMessages = {
     messages,

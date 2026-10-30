@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assistantChatMessage,
   chatEntries,
+  settle,
   unsettled,
   unwrapPasted,
   viewFocus,
@@ -142,6 +143,31 @@ describe("unsettled", () => {
     const echo = (ts: number) => ({ kind: "user" as const, text: "Yes", ts });
     expect(unsettled([first, second], [echo(101_000)])).toEqual([second]);
     expect(unsettled([first, second], [echo(101_000), echo(111_000)])).toEqual([]);
+  });
+});
+
+describe("settle", () => {
+  const echo = (text: string, ts: number) => ({ kind: "user" as const, text, ts });
+
+  it("keeps a send settled after its echo leaves the window", () => {
+    const sent = { text: "works", at: 100_000 };
+    const settled = settle([sent], [echo("works", 101_000)]);
+    expect(settled).toEqual([{ ...sent, echoTs: 101_000 }]);
+    expect(unsettled(settled, [echo("later", 200_000)])).toEqual([]);
+  });
+
+  it("does not let a settled send take a newer identical echo", () => {
+    const first = settle([{ text: "Yes", at: 100_000 }], [echo("Yes", 101_000)]);
+    const both = [...first, { text: "Yes", at: 110_000 }];
+    // The first echo scrolled out; the newer row is the second send's own.
+    expect(settle(both, [echo("Yes", 111_000)]).map((p) => p.echoTs)).toEqual([101_000, 111_000]);
+  });
+
+  it("returns the same array when nothing new settles", () => {
+    const pending = [{ text: "x", at: 100_000 }];
+    expect(settle(pending, [])).toBe(pending);
+    const settled = settle(pending, [echo("x", 101_000)]);
+    expect(settle(settled, [echo("x", 101_000)])).toBe(settled);
   });
 });
 

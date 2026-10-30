@@ -141,6 +141,7 @@
       url={item.url}
       labels={item.labels}
       labelColors={item.labelColors}
+      author={item.author ?? loader.author ?? undefined}
       createdAt={item.createdAt}
     />
     <div class="unp-actions">

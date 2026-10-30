@@ -2414,11 +2414,12 @@ function handleUpNextGet(req: Request, url: URL, deps: AppDeps): Response {
 async function loadUpNextBody(
   forge: GitForge | null,
   number: number,
-): Promise<{ body: string } | { error: string; status: number }> {
+): Promise<{ body: string; author?: string } | { error: string; status: number }> {
   if (!forge?.getIssue) return { error: "issue reads unavailable for repo", status: 503 };
   try {
     const issue = await forge.getIssue(number);
-    return issue ? { body: issue.body } : { error: "issue not found or unreadable", status: 404 };
+    if (!issue) return { error: "issue not found or unreadable", status: 404 };
+    return issue.author ? { body: issue.body, author: issue.author } : { body: issue.body };
   } catch {
     return { error: "issue read failed", status: 502 };
   }

@@ -14,7 +14,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
-    getUpNextBody: vi.fn<() => Promise<{ body: string }>>(),
+    getUpNextBody: vi.fn<() => Promise<{ body: string; author?: string }>>(),
     startUpNext: vi.fn(async () => ({ created: [], held: [], errors: [] })),
   };
 });
@@ -110,6 +110,20 @@ describe("UpNextPreview", () => {
     expect(
       page.getByText(m.upnext_preview_position({ index: 1, total: 3 })).element(),
     ).toBeTruthy();
+  });
+
+  it("shows the issue author from the row, else from the body read (epic child)", async () => {
+    upNext.snapshot = snapshot([
+      item(7, { author: "alice" }),
+      item(8, { kind: "epic", epicParent: { number: 1, title: "epic" } }),
+    ]);
+    upNextUi.order = [key(7), key(8)];
+    vi.mocked(getUpNextBody).mockResolvedValue({ body: "text", author: "bob" });
+    upNextUi.previewKey = key(7);
+    render(UpNextPreview, {});
+    await expect.element(page.getByText(m.issuerow_author_by({ login: "alice" }))).toBeVisible();
+    upNextUi.previewKey = key(8);
+    await expect.element(page.getByText(m.issuerow_author_by({ login: "bob" }))).toBeVisible();
   });
 
   it("starts just this issue", async () => {

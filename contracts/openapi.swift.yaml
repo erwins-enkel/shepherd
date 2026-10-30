@@ -6341,6 +6341,9 @@ components:
         body:
           type: string
           description: Full untruncated issue Markdown.
+        author:
+          type: string
+          description: The issue author's login, when the forge provides it.
     UpNextItem:
       type: object
       additionalProperties: true
@@ -6404,6 +6407,9 @@ components:
         mine:
           type: boolean
           description: "Assigned to or authored by the viewer (the epic parent's, for an epic unit). With fromFork: FORK (mine) or UPSTREAM (not mine)."
+        author:
+          type: string
+          description: The issue author's login. Standalone rows only; an epic unit's child author comes from the body read.
       description: For an epic, number/title/url/issueRef describe the next-actionable child; createdAt is the parent age.
     UpNextFilterStats:
       type: object

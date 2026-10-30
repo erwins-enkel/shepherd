@@ -3264,6 +3264,8 @@ export interface UpNextItem {
   fromFork?: boolean;
   /** Assigned to or authored by the viewer. With fromFork: FORK (mine) or UPSTREAM (not mine). */
   mine?: boolean;
+  /** The issue author's login. Standalone rows only — an epic child's comes from the body read. */
+  author?: string;
 }
 // Default issue filter (#3007/#3017). Mirrors src/issue-filter.ts.
 export type IssueFilterScope = "all" | "mine_unassigned" | "mine";

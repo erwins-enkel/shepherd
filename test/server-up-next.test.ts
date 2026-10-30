@@ -599,6 +599,11 @@ test("up-next body returns untruncated Unicode text without refreshing the list"
   expect(h.staleRefreshCalls).toEqual([]);
 });
 
+test("up-next body returns the issue author when the forge provides one", async () => {
+  const h = harness({ getIssue: async (n) => ({ ...loadedIssue(n), author: "bob" }) });
+  expect(await (await h.app.fetch(bodyReq())).json()).toEqual({ body: fullBody, author: "bob" });
+});
+
 test("up-next body handles empty text, invalid parameters and unavailable issues", async () => {
   const empty = harness({ getIssue: async (n) => loadedIssue(n, "") });
   expect(await (await empty.app.fetch(bodyReq())).json()).toEqual({ body: "" });

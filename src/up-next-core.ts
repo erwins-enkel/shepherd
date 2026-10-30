@@ -56,6 +56,9 @@ export interface UpNextItem {
   /** Assigned to or authored by the viewer (the parent's, for an epic unit) — see issue-filter.ts.
    *  With `fromFork` it drives the row tag: FORK (mine) or UPSTREAM (not mine). */
   mine: boolean;
+  /** The issue's author login (standalone rows only — an epic unit's child author isn't listed;
+   *  the preview reads it from the body endpoint instead). */
+  author?: string;
 }
 
 /** What the operator's issue filter (src/issue-filter.ts) hides from the startable items. */
@@ -259,6 +262,7 @@ function standaloneItem(repo: RepoInput, issue: Issue, linkedSet: Set<number>): 
     labels: issue.labels,
     labelColors: issue.labelColors,
     issueRef: { number: issue.number, url: issue.url, title: issue.title },
+    author: issue.author,
   };
   return candidate(repo, item, issue);
 }

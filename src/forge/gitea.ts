@@ -177,6 +177,7 @@ export class GiteaForge implements GitForge {
         labels?: Array<{ name: string }>;
         created_at?: string;
         assignees?: Array<{ login?: string }> | null;
+        user?: { login?: string } | null;
       } | null;
       if (!i) return null;
       const ts = Date.parse(i.created_at ?? "");
@@ -188,6 +189,7 @@ export class GiteaForge implements GitForge {
         labels: (i.labels ?? []).map((l) => l.name),
         createdAt: Number.isFinite(ts) ? ts : Date.now(),
         assignees: (i.assignees ?? []).map((a) => a.login).filter((l): l is string => !!l),
+        author: i.user?.login || undefined,
         ...issueStateField(i.state),
       };
     } catch {

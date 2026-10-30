@@ -2842,7 +2842,10 @@ export async function getUpNext(opts?: {
 }
 
 /** Load the full issue text only when it is needed. */
-export async function getUpNextBody(repoPath: string, number: number): Promise<{ body: string }> {
+export async function getUpNextBody(
+  repoPath: string,
+  number: number,
+): Promise<{ body: string; author?: string }> {
   return getJson(
     `/api/up-next/body?repo=${encodeURIComponent(repoPath)}&number=${number}`,
     "up next body",

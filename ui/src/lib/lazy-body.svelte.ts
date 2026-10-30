@@ -3,12 +3,14 @@
 export class LazyBody {
   /** null while loading (or with nothing to load). */
   body = $state<string | null>(null);
+  /** The author the read reported, if any; null while loading or when absent. */
+  author = $state<string | null>(null);
   error = $state(false);
   #attempt = $state(0);
 
   constructor(
     target: () => { repo: string; number: number } | null,
-    load: (repo: string, number: number) => Promise<{ body: string }>,
+    load: (repo: string, number: number) => Promise<{ body: string; author?: string }>,
   ) {
     // A primitive key, so a snapshot refresh that rebuilds the row object doesn't reload it.
     const wanted = $derived.by(() => {
@@ -19,13 +21,16 @@ export class LazyBody {
       const key = wanted;
       void this.#attempt;
       this.body = null;
+      this.author = null;
       this.error = false;
       if (key === null) return;
       const [repo, number] = JSON.parse(key) as [string, number];
       let current = true;
       void load(repo, number).then(
         (result) => {
-          if (current) this.body = result.body;
+          if (!current) return;
+          this.body = result.body;
+          this.author = result.author ?? null;
         },
         () => {
           if (current) this.error = true;

@@ -231,6 +231,12 @@ describe("Up Next", () => {
       const body = "Private ü😀 text".repeat(400);
       s.deps.resolveForge = () => ({ getIssue: async () => ({ ...fx.issueRef, body }) }) as never;
       expect(await check("GET", "/api/up-next/body", 200, path)).toEqual({ body });
+      s.deps.resolveForge = () =>
+        ({ getIssue: async () => ({ ...fx.issueRef, body, author: "octocat" }) }) as never;
+      expect(await check("GET", "/api/up-next/body", 200, path)).toEqual({
+        body,
+        author: "octocat",
+      });
     } finally {
       s.deps.resolveForge = saved;
     }

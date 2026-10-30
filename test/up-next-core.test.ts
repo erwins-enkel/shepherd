@@ -78,6 +78,26 @@ describe("classification", () => {
   });
 });
 
+describe("author", () => {
+  test("standalone item carries the issue's author; epic unit carries none (child author unlisted)", () => {
+    const r = [
+      repo({
+        openIssues: [issue(1, { author: "alice" }), issue(2)],
+        epics: [
+          epic({
+            memberNumbers: [2],
+            parentAuthor: "carol",
+            candidate: issue(2, { author: "bob" }),
+          }),
+        ],
+      }),
+    ];
+    const items = repoSection(r, "/r/a")!.items;
+    expect(items.find((i) => i.number === 1)!.author).toBe("alice");
+    expect(items.find((i) => i.kind === "epic")!.author).toBeUndefined();
+  });
+});
+
 describe("labels", () => {
   test("standalone item carries the issue's labels and available forge colors", () => {
     const r = [

@@ -5,6 +5,7 @@ import {
   lastKnownLabel,
   machineColorVar,
   machineDisplayNames,
+  machineHeavySlot,
   mirroredNeedsYou,
   mirroredPreviewChange,
   platformName,
@@ -13,7 +14,8 @@ import {
   remoteActionMessage,
 } from "./remote-sessions";
 import { m } from "#lib/paraglide/messages.js";
-import type { Session } from "./types";
+import { slotFor } from "./session-pulse";
+import type { HeavySlotSnapshot, Session } from "./types";
 
 const HOST = { instanceId: "m1", name: "MacBook", platform: "macos" };
 const LIVE = { state: "connected" as const, since: 1 };
@@ -195,5 +197,50 @@ describe("remoteActionMessage (#2765)", () => {
     expect(remoteActionMessage({ code: "in_progress" }, machine)).toBeNull();
     expect(remoteActionMessage(new Error("boom"), machine)).toBeNull();
     expect(remoteActionMessage(null, machine)).toBeNull();
+  });
+});
+
+describe("a mirrored session's heavy-check slot", () => {
+  const snap = (waiters: HeavySlotSnapshot["waiters"]): HeavySlotSnapshot => ({
+    enabled: true,
+    capacity: 1,
+    holders: [],
+    waiters,
+    brake: { active: false, reason: null },
+    pressure: {
+      ramAvailableBytes: null,
+      ramTotalBytes: null,
+      swapUsedBytes: null,
+      swapTotalBytes: null,
+      memFullAvg10: null,
+      memBrakeThreshold: null,
+      cpuSomeAvg10: null,
+    },
+    memoryBySource: { agentsBytes: null, foreignBytes: null, foreignTop: [] },
+    lastResults: [],
+  });
+  const queue = snap([{ sessionId: "s108", position: 3, reason: "slot" }]);
+  const machine = (instanceId: string, heavySlot?: { stale: boolean } | null) => ({
+    instanceId,
+    heavySlot: heavySlot && { snapshot: queue, readAt: 1, stale: heavySlot.stale },
+  });
+
+  test("comes from the session's own machine while that machine is connected", () => {
+    const machines = [machine("m2", { stale: false }), machine("m1", { stale: false })];
+    expect(machineHeavySlot("m1", machines)).toBe(queue);
+    expect(slotFor(machineHeavySlot("m1", machines), "s108", 0)).toEqual({
+      kind: "waiting",
+      position: 3,
+      pressure: false,
+    });
+    // This host's own queue does not list the mirrored session.
+    expect(slotFor(snap([]), "s108", 0)).toBeNull();
+  });
+
+  test("is absent for an unreachable, silent or unknown machine", () => {
+    expect(machineHeavySlot("m1", [machine("m1", { stale: true })])).toBeNull();
+    expect(machineHeavySlot("m1", [machine("m1", null)])).toBeNull();
+    expect(machineHeavySlot("m1", [machine("m1")])).toBeNull();
+    expect(machineHeavySlot("gone", [machine("m1", { stale: false })])).toBeNull();
   });
 });

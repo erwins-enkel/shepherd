@@ -1,4 +1,11 @@
-import type { RemoteInstance, RepoEntry, Session, SessionConnection, SessionHost } from "./types";
+import type {
+  HeavySlotSnapshot,
+  RemoteInstance,
+  RepoEntry,
+  Session,
+  SessionConnection,
+  SessionHost,
+} from "./types";
 import { m } from "#lib/paraglide/messages.js";
 
 /**
@@ -124,6 +131,20 @@ export function machineColorVar(
   );
   const slot = order.findIndex((x) => x.instanceId === instanceId);
   return slot === -1 ? null : `var(--color-data-${(slot % MACHINE_HUES) + 1})`;
+}
+
+/**
+ * The heavy-check slot (#3181) a mirrored session's card reads: its own machine's snapshot from the
+ * last connection check, never this host's — the session queues on the machine it runs on. Null
+ * while that machine is unreachable (its snapshot is only the last known state), has not reported
+ * one, or is not in the list.
+ */
+export function machineHeavySlot(
+  instanceId: string,
+  machines: readonly Pick<RemoteInstance, "instanceId" | "heavySlot">[],
+): HeavySlotSnapshot | null {
+  const slot = machines.find((x) => x.instanceId === instanceId)?.heavySlot;
+  return slot && !slot.stale ? slot.snapshot : null;
 }
 
 /**

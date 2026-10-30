@@ -53,7 +53,7 @@
   class="qs-chip unp-chip"
   class:hold
   class:blocked
-  class:clipped
+  style:visibility={clipped ? "hidden" : undefined}
   aria-label={quickStartAria(chip)}
   aria-disabled={blocked ? "true" : undefined}
   disabled={starting}
@@ -143,9 +143,6 @@
   .qs-chip:disabled {
     opacity: 0.4;
     cursor: not-allowed;
-  }
-  .qs-chip.clipped {
-    visibility: hidden;
   }
 
   /* Phone: two lines (CLI / model · effort), 52 px tall. */

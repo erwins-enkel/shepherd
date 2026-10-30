@@ -16,4 +16,5 @@ export const DISABLED_HEAVY_SLOT = {
   },
   memoryBySource: { agentsBytes: null, foreignBytes: null, foreignTop: [] },
   lastResults: [],
+  startQueue: [],
 };

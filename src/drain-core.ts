@@ -48,6 +48,7 @@ export interface HoldReason {
     | "sandbox_backend_unavailable" // `autonomous` but no bwrap on this host (#3452); detail = profile
     | "sandbox_egress_unavailable" // `autonomous` but no egress backend on this host (#3452); detail = profile
     | "target_repo_drain_off" // next spawn routes to a repo with auto-drain off (#3325, #3452); detail = target repo
+    | "memory_pressure" // the spawn waits in the host's start queue (src/start-queue-core.ts) — set by DrainService's start gate, never by computeNext
     | "empty"; // no eligible backlog item
   /** A desig (trouble pauses) or a percentage (usage), for the operator banner. */
   detail?: string;

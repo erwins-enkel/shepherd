@@ -1675,11 +1675,12 @@ export interface HeldTask {
   input: StandardCreateInput;
   createdAt: number;
   /** Hold reason: `'usage'` = usage-gate hold; `'capacity'` = plugin-refused (no account);
-   *  `'after'` = waiting for `input.afterSessionId`'s PR to land (#2589). */
+   *  `'after'` = waiting for `input.afterSessionId`'s PR to land (#2589); `'memory'` = the
+   *  heavy-slot pressure brake held the start (src/start-queue-core.ts). */
   reason: HeldReason;
 }
 
-export type HeldReason = "usage" | "capacity" | "after";
+export type HeldReason = "usage" | "capacity" | "after" | "memory";
 
 /** Outcome states of a keyed submission (#2761, `src/dispatch.ts`). */
 export const DISPATCH_STATES = ["pending", "started", "held", "failed"] as const;

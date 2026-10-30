@@ -2,6 +2,7 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { makeApp, type AppDeps } from "../src/server";
+import { DISABLED_HEAVY_SLOT } from "../src/heavy-slot-snapshot";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
@@ -70,6 +71,7 @@ function harness(
     /** #3245: forge slug per repo dir (target-repo routing). */
     slugOf?: (repoPath: string) => string | null;
     prReviewMeta?: (number: number) => Promise<PrReviewMeta | null>;
+    heavySlot?: AppDeps["heavySlot"];
   } = {},
 ) {
   const store = new SessionStore(":memory:");
@@ -110,6 +112,7 @@ function harness(
     } as unknown as AppDeps["service"],
     events: new EventHub(),
     usageLimits: { limits: opts.limits ?? (() => ({})) } as unknown as AppDeps["usageLimits"],
+    heavySlot: opts.heavySlot,
     resolveForge: (repoPath: string) =>
       opts.noForge
         ? null
@@ -379,6 +382,34 @@ test("POST /api/up-next/start reuses an existing held task for the same issue", 
   expect(secondBody.held[0]!.reused).toBe(true);
   expect(store.listHeldTasks()).toHaveLength(1);
   expect(createCalls).toHaveLength(0);
+});
+
+test("POST /api/up-next/start holds under memory pressure; a reheld issue withdraws its waiter", async () => {
+  const asked: string[] = [];
+  const forgot: string[] = [];
+  const heavySlot = {
+    snapshot: () => DISABLED_HEAVY_SLOT,
+    release: () => false,
+    admitStart: async (e: { key: string }) => {
+      asked.push(e.key);
+      return false; // the brake holds
+    },
+    forgetStart: (key: string) => void forgot.push(key),
+  };
+  const { app, store, createCalls } = harness({ heavySlot });
+  const item = { repoPath: repoDir, issueRef: { number: 7, url: "u", title: "t", body: "b" } };
+  const first = await app.fetch(startReq([item], { agentProvider: "claude" }));
+  expect(first.status).toBe(200);
+  const body = (await first.json()) as { held: { id: string; reason: string }[] };
+  expect(body.held).toMatchObject([{ reason: "memory" }]);
+  expect(asked).toEqual([`task:${body.held[0]!.id}`]);
+  expect(store.getHeldTask(body.held[0]!.id)?.reason).toBe("memory");
+  expect(createCalls).toHaveLength(0);
+
+  const second = await app.fetch(startReq([item], { agentProvider: "claude" }));
+  const again = (await second.json()) as { held: { id: string; reused?: boolean }[] };
+  expect(again.held[0]).toMatchObject({ id: body.held[0]!.id, reused: true, reason: "memory" });
+  expect(forgot).toEqual([asked[1]!]);
 });
 
 test("POST /api/up-next/start recomputes the lens via recomputeUntilCleared (not an immediate refresh)", async () => {

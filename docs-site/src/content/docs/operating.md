@@ -519,6 +519,17 @@ memory and swap until the host stalled.
    - It lets go only after the readings have stayed under the limits for the
      hold time.
    - The limits are in Settings → Resources → **Pressure brake**.
+5. **New sessions wait too.** While the brake holds, new agent sessions don't
+   start either: New Task, `shepherd new`, schedules, Up Next starts, held tasks
+   due for release and the auto-drain queue up instead.
+   - Once the brake lets go they start in the order they arrived, one at a
+     time, at least 30 seconds apart. Each start is let through only after a
+     fresh memory reading.
+   - A held task waits with the reason *memory pressure*. The drain shows
+     *Paused: memory pressure*.
+   - **Spawn now** on a held task starts it at once.
+   - The master switch in Settings → Resources turns this off together with
+     the slot.
 
 **Where you see it**
 - The **check-slot chip** in the top bar shows slots held and waiting, plus
@@ -526,7 +537,8 @@ memory and swap until the host stalled.
   memory by origin, and the last check results tied to the revision they ran
   on.
 - The herd panel shows a check-slot strip; on a phone it docks above the
-  action bar.
+  action bar. Its brake line counts the new sessions waiting to start, and the
+  host popover lists them in start order under **Waiting starts**.
 - Each session card's now-line shows its own part:
   - **▤ Checking**, with command, time and memory;
   - **◔ Waiting for check slot · Place n**, with the memory-pressure reason

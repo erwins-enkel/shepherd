@@ -12,7 +12,7 @@
     type DrainStatus,
     type HeldTask,
   } from "#lib/types.js";
-  import HeldAfterLabel from "./HeldAfterLabel.svelte";
+  import HeldReasonLabel from "./HeldReasonLabel.svelte";
 
   // The usage panel's "waiting on capacity" column: everything the usage numbers beside it are
   // currently holding back — auto-drains paused at their ceiling and tasks held at creation —
@@ -152,7 +152,7 @@
   >
   <div class="held-row-meta">
     <span class="held-row-repo">{task.repoPath.split("/").at(-1) ?? task.repoPath}</span>
-    <HeldAfterLabel {task} />
+    <HeldReasonLabel {task} />
     {#if clippedPrompts[task.id]}
       <button
         type="button"

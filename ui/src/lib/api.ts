@@ -8,6 +8,7 @@ import type {
   ClearMergedResult,
   CreateInput,
   HeldTask,
+  HeldReason,
   HeldResult,
   RepoEntry,
   Issue,
@@ -2900,7 +2901,13 @@ export async function startUpNext(
   choice?: UpNextStartChoice,
 ): Promise<{
   created: Session[];
-  held: { id: string; repoPath: string; number: number; reused?: boolean }[];
+  held: {
+    id: string;
+    repoPath: string;
+    number: number;
+    reason?: HeldReason;
+    reused?: boolean;
+  }[];
   errors: { number: number; error: string }[];
 }> {
   return postJson("/api/up-next/start", { items, ...(choice ?? {}) }, "start up next");

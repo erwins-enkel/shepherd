@@ -12,6 +12,9 @@
 // browsers and workers still run. The marker survives `setsid` (Chromium) and the sandbox's PID
 // namespace (the host's /proc sees membrane processes). macOS scans KERN_PROCARGS2 and also
 // accepts the runner-reported process group as positive liveness evidence.
+//
+// The brake also gates new agent sessions: while it holds, New Task, Up Next, released held tasks
+// and the auto-drain wait in a start queue (src/start-queue-core.ts) and start FIFO once it lets go.
 
 import { readdir, readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -44,6 +47,7 @@ import {
   type LedgerContext,
   type MemorySample,
 } from "./heavy-slot-core";
+import { StartQueue, type StartEntry } from "./start-queue-core";
 
 /** The env var the runner stamps on the command it starts (scripts/heavy-slot.mjs). */
 const HEAVY_JOB_ENV = "SHEPHERD_HEAVY_JOB";
@@ -115,6 +119,7 @@ export class HeavySlotService {
   readonly #platform: NodeJS.Platform;
   #ledger = new HeavyLedger();
   #brake: BrakeState = BRAKE_OFF;
+  #starts = new StartQueue();
   #procs = new Map<string, ProcStat>();
   #history = new Map<string, number[]>();
   #lastScanAt = 0;
@@ -153,6 +158,8 @@ export class HeavySlotService {
       for (const job of waiting) {
         this.#ledger.drop(job.id, "disabled", now);
       }
+      // Waiting starts need no message: their callers ask again and are let through.
+      this.#starts.clear();
       this.#persist();
       this.#emit();
       this.#schedule();
@@ -190,6 +197,36 @@ export class HeavySlotService {
   /** True while the session waits for the slot — autopilot stands down meanwhile. */
   waiting(sessionId: string): boolean {
     return this.#deps.enabled && this.#ledger.waiting(sessionId);
+  }
+
+  /**
+   * May a new agent session start now? False queues it (see {@link StartQueue.admit}); the caller
+   * holds the start and asks again later. `queued`: the start already waited where this queue
+   * can't see it (a held task across a restart), so the next one is paced after it.
+   */
+  async admitStart(entry: StartEntry, queued = false): Promise<boolean> {
+    if (!this.#deps.enabled) return true;
+    if (this.#now() - (this.#brake.sampledAt ?? 0) > SAMPLE_FRESH_MS) await this.#sample();
+    // Decided synchronously after the sample: two callers interleaving across the await (the
+    // drain tick and the held-task sweep) can never both be let through.
+    if (!this.#deps.enabled) return true;
+    const now = this.#now();
+    this.#starts.prune(now);
+    const ok = this.#starts.admit(entry, { now, brakeEngaged: this.#brake.engaged }, queued);
+    this.#emit();
+    this.#schedule();
+    return ok;
+  }
+
+  /** A waiting start left without starting (discarded, started by hand, no longer due). */
+  forgetStart(key: string): void {
+    if (!this.#starts.forget(key)) return;
+    this.#emit();
+    this.#schedule();
+  }
+
+  waitingStart(key: string): boolean {
+    return this.#starts.waiting(key);
   }
 
   #ledgerView() {
@@ -244,6 +281,14 @@ export class HeavySlotService {
       },
       memoryBySource: { agentsBytes: null, foreignBytes: null, foreignTop: [] },
       lastResults: [],
+      startQueue: this.#starts.list().map((w, i) => ({
+        kind: w.kind,
+        repoPath: w.repoPath,
+        issueNumber: w.issueNumber,
+        label: w.label,
+        since: w.since,
+        position: i + 1,
+      })),
     };
   }
 
@@ -424,6 +469,7 @@ export class HeavySlotService {
         const s = this.#deps.store.get(id);
         return !!s && s.status !== "archived";
       });
+      this.#starts.prune(this.#now());
       await this.#changed();
     } finally {
       this.#ticking = false;
@@ -507,7 +553,8 @@ export class HeavySlotService {
 
   /** Run the sweep only while something is in flight; an idle host carries no timer. */
   #schedule(): void {
-    const busy = this.#ledger.all().length > 0 || this.#brake.engaged;
+    const busy =
+      this.#ledger.all().length > 0 || this.#brake.engaged || this.#starts.list().length > 0;
     if (busy && !this.#timer) {
       this.#timer = setInterval(() => void this.sweep(), TICK_MS);
       this.#timer.unref?.();

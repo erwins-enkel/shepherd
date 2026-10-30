@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { HeavySlotSnapshot } from "#lib/types.js";
+import type { HeavySlotSnapshot, HeavySlotStartWaiter } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 import {
+  brakeLine,
   chipModel,
   commandLabel,
   formatBytes,
@@ -58,6 +60,32 @@ describe("heavy-slot logic", () => {
     expect(slotActive(snap({ brake: { active: true, reason: "memory" } }))).toBe(true);
     expect(slotActive(snap({ waiters: [{ sessionId: "a", position: 1, reason: "slot" }] }))).toBe(
       true,
+    );
+  });
+
+  const start: HeavySlotStartWaiter = {
+    kind: "task",
+    repoPath: "/r",
+    issueNumber: null,
+    label: "x",
+    since: 0,
+    position: 1,
+  };
+
+  it("stays active while new sessions wait to start", () => {
+    expect(slotActive(snap({ startQueue: [] }))).toBe(false);
+    expect(slotActive(snap({ startQueue: [start] }))).toBe(true);
+  });
+
+  it("names the brake with how many starts wait, and the waiting starts once it let go", () => {
+    const on = { active: true, reason: "memory" } as const;
+    expect(brakeLine(snap())).toBeNull();
+    expect(brakeLine(snap({ brake: on }))).toBe(m.heavyslot_strip_brake());
+    expect(brakeLine(snap({ brake: on, startQueue: [start, start] }))).toBe(
+      m.heavyslot_strip_brake_waiting({ n: 2 }),
+    );
+    expect(brakeLine(snap({ startQueue: [start] }))).toBe(
+      m.heavyslot_strip_starts_pacing({ n: 1 }),
     );
   });
 

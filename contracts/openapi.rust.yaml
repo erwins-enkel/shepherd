@@ -3304,6 +3304,39 @@ components:
               stale:
                 type: boolean
                 description: The worktree no longer matches head + treeHash; a stale result is never shown as green.
+        startQueue:
+          type: array
+          description: New agent sessions waiting for the pressure brake to let go, in start order. Absent from older servers.
+          items:
+            type: object
+            required:
+              - kind
+              - repoPath
+              - issueNumber
+              - label
+              - since
+              - position
+            properties:
+              kind:
+                type: string
+                enum:
+                  - task
+                  - drain
+              repoPath:
+                type: string
+              issueNumber:
+                type: integer
+                nullable: true
+              label:
+                type: string
+                nullable: true
+                description: An issue title or the prompt's first line, verbatim.
+              since:
+                type: integer
+                description: When it began waiting (ms epoch).
+              position:
+                type: integer
+                description: 1-based place in the start order.
     ProjectIcons:
       type: object
       additionalProperties:

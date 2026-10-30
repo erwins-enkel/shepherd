@@ -181,6 +181,7 @@ function makeHarness(
     detectBackend?: ConstructorParameters<typeof DrainService>[0]["detectBackend"];
     detectEgressBackend?: ConstructorParameters<typeof DrainService>[0]["detectEgressBackend"];
     originUrl?: ConstructorParameters<typeof DrainService>[0]["originUrl"];
+    startGate?: ConstructorParameters<typeof DrainService>[0]["startGate"];
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -327,6 +328,7 @@ function makeHarness(
     detectBackend: opts.detectBackend,
     detectEgressBackend: opts.detectEgressBackend,
     originUrl: opts.originUrl,
+    startGate: opts.startGate,
     store,
     service,
     resolveForge: () => forge,
@@ -921,6 +923,68 @@ test("usage ceiling hold → status paused (usage banner reachable)", async () =
   expect(last.detail).toBe("92");
   expect(last.usageCeilingPct).toBe(80);
   expect(last.usageCeilingIgnored).toBe(false);
+});
+
+/** A start gate letting `admits` starts through, then holding; records what was asked. */
+function fakeStartGate(admits: number) {
+  const asked: import("../src/start-queue-core").StartEntry[] = [];
+  const forgot: string[] = [];
+  const waiting = new Set<string>();
+  let left = admits;
+  const gate = {
+    admitStart: async (entry: import("../src/start-queue-core").StartEntry) => {
+      asked.push(entry);
+      if (left > 0) {
+        left--;
+        waiting.delete(entry.key);
+        return true;
+      }
+      waiting.add(entry.key);
+      return false;
+    },
+    forgetStart: (key: string) => {
+      forgot.push(key);
+      waiting.delete(key);
+    },
+    waitingStart: (key: string) => waiting.has(key),
+  };
+  return { gate, asked, forgot };
+}
+
+test("memory pressure: the spawn waits in the start queue → paused, nothing created", async () => {
+  const g = fakeStartGate(0);
+  const h = makeHarness({ issues: [issue(1, { title: "Fix login" })], startGate: g.gate });
+  await h.drain.pump(REPO);
+  expect(h.creates).toHaveLength(0);
+  expect(h.statuses.at(-1)).toMatchObject({ reason: "memory_pressure", paused: true });
+  expect(g.asked).toEqual([
+    { key: `drain:${REPO}`, kind: "drain", repoPath: REPO, issueNumber: 1, label: "Fix login" },
+  ]);
+  // A status built without side effects still reads the waiting repo as held.
+  expect((await h.drain.snapshot()).find((s) => s.repoPath === REPO)?.reason).toBe(
+    "memory_pressure",
+  );
+});
+
+test("memory pressure easing: one spawn gets through, the next waits its pace", async () => {
+  const g = fakeStartGate(1);
+  const h = makeHarness({ maxAuto: 2, issues: [issue(1), issue(2)], startGate: g.gate });
+  await h.drain.pump(REPO);
+  expect(h.creates).toHaveLength(1);
+  expect(h.statuses.at(-1)).toMatchObject({ reason: "memory_pressure", paused: true });
+});
+
+test("a repo that no longer wants to spawn, or whose drain is off, leaves the start queue", async () => {
+  const g = fakeStartGate(0);
+  const h = makeHarness({ issues: [], startGate: g.gate });
+  await h.drain.pump(REPO);
+  expect(g.asked).toHaveLength(0);
+  expect(g.forgot).toEqual([`drain:${REPO}`]);
+
+  const off = fakeStartGate(0);
+  const h2 = makeHarness({ autoDrainEnabled: false, issues: [issue(1)], startGate: off.gate });
+  await h2.drain.tick();
+  expect(off.forgot).toContain(`drain:${REPO}`);
 });
 
 test("label drain with global Codex default bypasses Claude usage ceiling", async () => {

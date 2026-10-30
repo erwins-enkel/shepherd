@@ -544,6 +544,7 @@ import { validateHookEvent, type HookEvent, type SubagentEntry } from "./hooks-i
 import { quotaBlockReason, type BlockReason } from "./blocked";
 import { upstreamStatus } from "./upstream-status";
 import { shouldHold } from "./usage-hold";
+import { taskStartEntry } from "./start-queue-core";
 import {
   clearProviderFailover,
   providerFailoverOffer,
@@ -704,7 +705,14 @@ export interface AppDeps {
     Partial<
       Pick<
         import("./heavy-slot").HeavySlotService,
-        "acquire" | "acquireOperator" | "started" | "finish" | "applyConfig" | "refreshPressure"
+        | "acquire"
+        | "acquireOperator"
+        | "started"
+        | "finish"
+        | "applyConfig"
+        | "refreshPressure"
+        | "admitStart"
+        | "forgetStart"
       >
     >;
   /** Force a `/usage` re-scrape (calibration) and return fresh limits plus whether the probe
@@ -2834,25 +2842,48 @@ function findHeldIssue(deps: AppDeps, repoPath: string, issueNumber: number) {
     .find((h) => h.repoPath === repoPath && h.input.issueRef?.number === issueNumber);
 }
 
+/** Hold an Up Next start: for usage, or — with `pressureId` from {@link startHeldByPressure} — for
+ *  memory, under that id. An issue already held keeps its row; the new waiter is withdrawn. */
 function holdUpNextIssue(
   deps: AppDeps,
   input: StandardCreateInput,
-): { id: string; repoPath: string; number: number; reused?: boolean } {
+  pressureId: string | null,
+): { id: string; repoPath: string; number: number; reason: HeldReason; reused?: boolean } {
   const number = input.issueRef?.number;
   if (number == null) throw new Error("held Up Next item missing issueRef");
   const existing = findHeldIssue(deps, input.repoPath, number);
-  if (existing) return { id: existing.id, repoPath: input.repoPath, number, reused: true };
-  const id = randomUUID();
+  if (existing) {
+    if (pressureId) deps.heavySlot?.forgetStart?.(`task:${pressureId}`);
+    return {
+      id: existing.id,
+      repoPath: input.repoPath,
+      number,
+      reason: existing.reason,
+      reused: true,
+    };
+  }
+  const id = pressureId ?? randomUUID();
+  const reason: HeldReason = pressureId ? "memory" : "usage";
   deps.store.addHeldTask({
     id,
     repoPath: input.repoPath,
     input: { ...input, agentProvider: input.agentProvider ?? config.defaultAgentProvider },
     createdAt: Date.now(),
-    reason: "usage",
+    reason,
   });
   bindHeldCodexAccount(deps, id, input);
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
-  return { id, repoPath: input.repoPath, number };
+  return { id, repoPath: input.repoPath, number, reason };
+}
+
+/** Up Next's hold gates, usage first, then memory pressure: the held item, or null to start now. */
+async function holdUpNextIfDue(
+  deps: AppDeps,
+  input: StandardCreateInput,
+): Promise<ReturnType<typeof holdUpNextIssue> | null> {
+  if (await usageHoldApplies(input, deps)) return holdUpNextIssue(deps, input, null);
+  const pressureId = await startHeldByPressure(input, deps);
+  return pressureId ? holdUpNextIssue(deps, input, pressureId) : null;
 }
 
 /** #3245: route a create whose linked issue names another `Target repo:` to that registered repo,
@@ -2892,7 +2923,13 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
   const { items, choice } = payload;
 
   const created: Session[] = [];
-  const held: { id: string; repoPath: string; number: number; reused?: boolean }[] = [];
+  const held: {
+    id: string;
+    repoPath: string;
+    number: number;
+    reason: HeldReason;
+    reused?: boolean;
+  }[] = [];
   const errors: { number: number; error: string }[] = [];
   const claims: Promise<void>[] = [];
   const startedRefs: { repoPath: string; issueNumber: number }[] = [];
@@ -2956,8 +2993,9 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
         errors.push({ number: it.issueRef.number, error: "target repo not registered" });
         return;
       }
-      if (await usageHoldApplies(input, deps)) {
-        held.push(holdUpNextIssue(deps, input));
+      const heldItem = await holdUpNextIfDue(deps, input);
+      if (heldItem) {
+        held.push(heldItem);
         claims.push(claimLinkedIssue(forge, it.issueRef.number));
         startedRefs.push({ repoPath: it.dir, issueNumber: it.issueRef.number });
         return;
@@ -4437,8 +4475,12 @@ function persistHeldTask(value: StandardCreateInput, deps: AppDeps, reason: Held
 }
 
 /** Park `value` in held_tasks under `reason`. */
-function holdTask(value: StandardCreateInput, deps: AppDeps, reason: HeldReason): HeldTaskRef {
-  const id = randomUUID();
+function holdTask(
+  value: StandardCreateInput,
+  deps: AppDeps,
+  reason: HeldReason,
+  id: string = randomUUID(),
+): HeldTaskRef {
   const createdAt = Date.now();
   deps.store.addHeldTask({
     id,
@@ -4453,32 +4495,47 @@ function holdTask(value: StandardCreateInput, deps: AppDeps, reason: HeldReason)
   return { id, count, reason };
 }
 
-/** Usage/capacity hold gate: parks the task and returns its ref, or null to proceed. */
+/**
+ * The pressure brake's start gate: while the host is short on memory a new task waits in the start
+ * queue (src/start-queue-core.ts). Returns the id to hold it under, or null to start now.
+ */
+async function startHeldByPressure(
+  value: StandardCreateInput,
+  deps: AppDeps,
+): Promise<string | null> {
+  const id = randomUUID();
+  const admitted = (await deps.heavySlot?.admitStart?.(taskStartEntry(id, value))) ?? true;
+  return admitted ? null : id;
+}
+
+/** Usage/capacity/memory hold gate: parks the task and returns its ref, or null to proceed. */
 async function tryHoldNewTask(
   force: boolean,
   value: StandardCreateInput,
   deps: AppDeps,
 ): Promise<HeldTaskRef | null> {
   const provider = normalizeAgentProvider(value.agentProvider ?? config.defaultAgentProvider);
-  if (provider === "codex")
-    return deps.codexCapacity && !(await deps.codexCapacity())
-      ? holdTask(value, deps, "capacity")
-      : null;
-
-  const lim = deps.usageLimits.limits(Date.now());
-  const s5h = lim.session5h?.pct ?? 0;
-  const week = lim.week?.pct ?? 0;
-  if (
-    !shouldHold({
-      enabled: config.usageHoldEnabled,
-      holdPct: config.usageHoldPct,
-      session5hPct: s5h,
-      weekPct: week,
-      force,
-    })
-  )
-    return null;
-  return holdTask(value, deps, "usage");
+  if (provider === "codex") {
+    if (deps.codexCapacity && !(await deps.codexCapacity()))
+      return holdTask(value, deps, "capacity");
+  } else {
+    const lim = deps.usageLimits.limits(Date.now());
+    const s5h = lim.session5h?.pct ?? 0;
+    const week = lim.week?.pct ?? 0;
+    if (
+      shouldHold({
+        enabled: config.usageHoldEnabled,
+        holdPct: config.usageHoldPct,
+        session5hPct: s5h,
+        weekPct: week,
+        force,
+      })
+    )
+      return holdTask(value, deps, "usage");
+  }
+  if (force) return null;
+  const pressureId = await startHeldByPressure(value, deps);
+  return pressureId ? holdTask(value, deps, "memory", pressureId) : null;
 }
 
 /** How {@link launchTask} ended: a session, a held task, or a create failure (`error`). */
@@ -10263,6 +10320,7 @@ async function heldSpawn(
   }
   deps.store.removeHeldTask(h.id);
   deps.store.markHeldDispatchStarted(h.id, s.id);
+  deps.heavySlot?.forgetStart?.(`task:${h.id}`);
   // service.create does not emit session:new (see finalizeRelaunch) — emit it here so the
   // new session appears in the Herd live, then decrement the held badge.
   deps.events.emit("session:new", s);
@@ -10284,6 +10342,7 @@ async function heldSpawn(
 function heldDiscard(id: string, deps: AppDeps): Response {
   deps.store.removeHeldTask(id);
   deps.store.markHeldDispatchDiscarded(id);
+  deps.heavySlot?.forgetStart?.(`task:${id}`);
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
   return json({ ok: true });
 }

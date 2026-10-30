@@ -2691,6 +2691,26 @@ components:
                   type: boolean,
                   description: The worktree no longer matches head + treeHash; a stale result is never shown as green.,
                 }
+        startQueue:
+          type: array
+          description: New agent sessions waiting for the pressure brake to let go, in start order. Absent from older servers.
+          items:
+            type: object
+            required: [kind, repoPath, issueNumber, label, since, position]
+            properties:
+              kind: { type: string, enum: [task, drain] }
+              repoPath: { type: string }
+              issueNumber: { type: integer, nullable: true }
+              label:
+                type: string
+                nullable: true
+                description: "An issue title or the prompt's first line, verbatim."
+              since:
+                type: integer
+                description: "When it began waiting (ms epoch)."
+              position:
+                type: integer
+                description: "1-based place in the start order."
     ProjectIcons:
       type: object
       additionalProperties: { type: string }
@@ -4529,10 +4549,10 @@ components:
         $ref: "#/components/schemas/DrainQueuedItem"
     # ── /stream: merge ──
     # ── stream: queues ──
-    # Why this task is held (src/types.ts:1537-1545). usage is the usage gate; capacity is a plugin refusing for want of an account. The list is ordered ORDER BY (reason = 'capacity'), createdAt ASC — capacity holds sort last, everything else is FIFO.
+    # Why this task is held (src/types.ts:1537-1545). usage is the usage gate; capacity is a plugin refusing for want of an account; after waits for a predecessor's PR; memory waits for the heavy-slot pressure brake to let go and then starts in order. The list is ordered ORDER BY (reason = 'capacity'), createdAt ASC — capacity holds sort last, everything else is FIFO.
     HeldReason:
       type: "string"
-      enum: ["usage", "capacity", "after"]
+      enum: ["usage", "capacity", "after", "memory"]
       x-shepherd-open-enum: true
     HeldQueueInput:
       type: "object"

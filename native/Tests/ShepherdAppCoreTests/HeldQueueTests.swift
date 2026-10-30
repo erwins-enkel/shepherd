@@ -47,10 +47,12 @@ struct HeldQueueTests {
         let path = try #require(CoreResources.bundle.path(forResource: language, ofType: "lproj"))
         let bundle = try #require(Bundle(path: path))
         let expected = language == "en"
-            ? ["Held because usage is high.", "Held because no account has capacity.", "Held — reason unavailable."]
+            ? ["Held because usage is high.", "Held because no account has capacity.",
+               "Held because of memory pressure. Starts in order once it eases.", "Held — reason unavailable."]
             : ["Zurückgehalten, weil die Nutzung hoch ist.", "Zurückgehalten, weil kein Konto Kapazität hat.",
+               "Zurückgehalten wegen Speicherdruck. Startet der Reihe nach, sobald er nachlässt.",
                "Zurückgehalten — Grund nicht verfügbar."]
-        for (index, reason) in ["usage", "capacity", "future-reason"].enumerated() {
+        for (index, reason) in ["usage", "capacity", "memory", "future-reason"].enumerated() {
             var row = try entry()
             row.reason = try JSONDecoder().decode(HeldReason.self, from: JSONEncoder().encode(reason))
             let key = HeldQueuePresentation.reasonKey(row.reason)

@@ -1259,7 +1259,7 @@ describe("CapacityWait — readable prompts and action bars", () => {
     document.documentElement.style.removeProperty("--ui-scale");
   });
 
-  it("names the predecessor an after hold waits on (#2589)", async () => {
+  it("names the predecessor an after hold waits on (#2589), and memory for a pressure hold", async () => {
     render(
       CapacityWait,
       props({
@@ -1267,14 +1267,16 @@ describe("CapacityWait — readable prompts and action bars", () => {
           { ...task, reason: "after", afterDesig: "TASK-1490" },
           { ...task, id: "held-gone", reason: "after", afterDesig: null },
           { ...task, id: "held-usage", reason: "usage" },
+          { ...task, id: "held-memory", reason: "memory" },
         ],
       }),
     );
     await nextFrame();
-    const labels = [...document.querySelectorAll(".held-row-after")].map((e) => e.textContent);
+    const labels = [...document.querySelectorAll(".held-row-reason")].map((e) => e.textContent);
     expect(labels).toEqual([
       m.topbar_held_after({ task: "TASK-1490" }),
       m.topbar_held_after_unknown(),
+      m.topbar_held_memory(),
     ]);
   });
 

@@ -2888,7 +2888,8 @@
     if ("held" in r) {
       // Held tasks are queued (visible via the TopBar badge); close the composer like a
       // normal submit so the populated prompt can't be re-clicked into a duplicate hold.
-      toasts.info(m.toast_task_held());
+      const memory = "reason" in r && r.reason === "memory";
+      toasts.info(memory ? m.toast_task_held_memory() : m.toast_task_held());
       showNew = false;
       resetCompose();
       return;
@@ -2927,7 +2928,13 @@
       // The machine it is meant for is out of reach (#2775): it waits in that machine's group.
       toasts.info(m.toast_task_waiting_for({ machine: r.host.name }));
     } else if ("held" in r) {
-      toasts.info(r.host ? m.toast_task_held_on({ machine: r.host.name }) : m.toast_task_held());
+      toasts.info(
+        r.host
+          ? m.toast_task_held_on({ machine: r.host.name })
+          : r.reason === "memory"
+            ? m.toast_task_held_memory()
+            : m.toast_task_held(),
+      );
     } else if ("host" in r && r.host) {
       store.apply({ event: "session:new", data: r });
       selectedId = r.id;

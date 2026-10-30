@@ -475,3 +475,52 @@ test("held release delivers the complete long task to the session creator", asyn
   expect(result.released).toBe(1);
   expect(deps.creates[0]!.prompt).toBe(prompt);
 });
+
+// ── memory-pressure start gate ──────────────────────────────────────────────
+
+test("the start gate holds every release while it refuses, asking in held order", async () => {
+  const deps = makeDeps([
+    { id: "t1", input: makeInput("task 1"), reason: "memory" },
+    { id: "t2", input: makeInput("task 2") },
+  ]);
+  const asked: [string, boolean | undefined][] = [];
+  deps.startGate = {
+    admitStart: async (entry, queued) => {
+      asked.push([entry.key, queued]);
+      return false;
+    },
+  };
+  const out = await releaseHeldTasks(deps, { enabled: true, holdPct: 80, autoRelease: true }, 0);
+  expect(out.released).toBe(0);
+  expect(deps.creates).toHaveLength(0);
+  expect(asked).toEqual([
+    ["task:t1", true],
+    ["task:t2", false],
+  ]);
+});
+
+test("the gate lets one through per pace: only the head starts this tick", async () => {
+  const deps = makeDeps([
+    { id: "t1", input: makeInput("task 1"), reason: "memory" },
+    { id: "t2", input: makeInput("task 2"), reason: "memory" },
+  ]);
+  let open = true;
+  deps.startGate = {
+    admitStart: async () => {
+      const ok = open;
+      open = false; // the start that got through paces the next one
+      return ok;
+    },
+  };
+  const out = await releaseHeldTasks(deps, { enabled: true, holdPct: 80, autoRelease: true }, 0);
+  expect(out.released).toBe(1);
+  expect(deps.creates.map((c) => c.prompt)).toEqual(["task 1"]);
+});
+
+test("a memory hold ignores autoRelease off but still waits for usage headroom", async () => {
+  const task = [{ id: "m1", input: makeInput("mem"), reason: "memory" as HeldReason }];
+  const manual = { enabled: true, holdPct: 80, autoRelease: false };
+  expect((await releaseHeldTasks(makeDeps(task), manual, 0)).released).toBe(1);
+  const hot = makeDeps(task, { session5h: { pct: 90, resetAt: 0 } });
+  expect((await releaseHeldTasks(hot, manual, 0)).released).toBe(0);
+});

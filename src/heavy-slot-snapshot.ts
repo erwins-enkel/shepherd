@@ -57,6 +57,18 @@ export interface HeavySlotLastResult {
   stale: boolean;
 }
 
+/** A new session waiting for the brake to let go (src/start-queue-core.ts). */
+export interface HeavySlotStartWaiter {
+  kind: "task" | "drain";
+  repoPath: string;
+  issueNumber: number | null;
+  /** An issue title or the prompt's first line, as data; null when unknown. */
+  label: string | null;
+  since: number;
+  /** 1-based place in the start order. */
+  position: number;
+}
+
 export interface HeavySlotSnapshot {
   /** Master switch. Off → the overview shows no chip and no strip. */
   enabled: boolean;
@@ -67,6 +79,8 @@ export interface HeavySlotSnapshot {
   pressure: HeavySlotPressure;
   memoryBySource: HeavySlotMemoryBySource;
   lastResults: HeavySlotLastResult[];
+  /** New sessions waiting to start, in start order. */
+  startQueue: HeavySlotStartWaiter[];
 }
 
 /** What the slot owner exposes to the server. */
@@ -147,6 +161,21 @@ function parseWaiter(w: unknown): HeavySlotWaiter | null {
   return { sessionId, position: w.position, reason: w.reason === "pressure" ? "pressure" : "slot" };
 }
 
+function parseStartWaiter(w: unknown): HeavySlotStartWaiter | null {
+  if (!rec(w) || !finite(w.since) || !finite(w.position)) return null;
+  const repoPath = text(w.repoPath);
+  if (repoPath === null) return null;
+  return {
+    kind: w.kind === "drain" ? "drain" : "task",
+    repoPath,
+    issueNumber:
+      typeof w.issueNumber === "number" && Number.isInteger(w.issueNumber) ? w.issueNumber : null,
+    label: text(w.label),
+    since: w.since,
+    position: w.position,
+  };
+}
+
 function parseForeign(f: unknown): { name: string; bytes: number } | null {
   if (!rec(f) || !finite(f.bytes)) return null;
   const name = text(f.name);
@@ -214,6 +243,7 @@ export function parseHeavySlotSnapshot(raw: unknown): HeavySlotSnapshot | null {
       foreignTop: parseList(src.foreignTop, parseForeign),
     },
     lastResults: parseList(raw.lastResults, parseLastResult),
+    startQueue: parseList(raw.startQueue, parseStartWaiter),
   };
 }
 

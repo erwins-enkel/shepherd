@@ -1,13 +1,30 @@
 import type { HeavySlotLastResult, HeavySlotSnapshot } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 /** The master switch is the only gate: with it off there is no chip, strip or popover. */
 export function slotEnabled(s: HeavySlotSnapshot | null | undefined): s is HeavySlotSnapshot {
   return s?.enabled === true;
 }
 
-/** Something is going on worth a strip: a holder, a waiter, or the brake holding starts back. */
+/** Something is going on worth a strip: a holder, a waiter, the brake holding starts back, or new
+ *  sessions waiting to start. */
 export function slotActive(s: HeavySlotSnapshot | null | undefined): boolean {
-  return slotEnabled(s) && (s.holders.length > 0 || s.waiters.length > 0 || s.brake.active);
+  return (
+    slotEnabled(s) &&
+    (s.holders.length > 0 ||
+      s.waiters.length > 0 ||
+      s.brake.active ||
+      (s.startQueue?.length ?? 0) > 0)
+  );
+}
+
+/** The line under the queue: the brake holding new starts back (with how many wait), or — once it
+ *  let go — the waiting starts following one by one; null when neither. */
+export function brakeLine(s: HeavySlotSnapshot): string | null {
+  const n = s.startQueue?.length ?? 0;
+  if (s.brake.active)
+    return n > 0 ? m.heavyslot_strip_brake_waiting({ n }) : m.heavyslot_strip_brake();
+  return n > 0 ? m.heavyslot_strip_starts_pacing({ n }) : null;
 }
 
 /** Used RAM as a whole percent, or null when the host didn't report it. */

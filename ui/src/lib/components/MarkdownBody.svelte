@@ -232,11 +232,24 @@
   .md-body :global(ol) {
     padding-left: 20px;
   }
+  /* Tailwind preflight strips list markers; restore them. */
+  .md-body :global(ul) {
+    list-style: disc;
+  }
+  .md-body :global(ol) {
+    list-style: decimal;
+  }
+  .md-body :global(ul ul) {
+    list-style: circle;
+  }
   .md-body :global(li) {
     margin: 2px 0;
   }
-  /* GFM task lists: the checkbox is the marker. */
-  .md-body :global(li:has(> input[type="checkbox"])) {
+  /* GFM task lists: the checkbox is the marker. Loose lists wrap it in a <p>. */
+  .md-body
+    :global(
+      li:has(> input[type="checkbox"], > p:first-child > input[type="checkbox"]:first-child)
+    ) {
     list-style: none;
     margin-left: -18px;
   }

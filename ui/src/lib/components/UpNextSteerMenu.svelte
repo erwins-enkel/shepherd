@@ -1,6 +1,15 @@
 <script lang="ts">
   import type { Steer } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { providerLabel } from "#lib/reviewer-env.js";
+  import {
+    quickStartAria,
+    quickStartEffortText,
+    quickStartHoldText,
+    quickStartModelText,
+    type QuickStartChip,
+  } from "#lib/up-next-quick-start.js";
+  import { gaugeColor } from "./usage-gauges";
 
   // The Up Next preview's "▾" beside Start, shown once the action row is too narrow for every
   // issue steer: plain Start plus ALL steers (not just the clipped ones, so the list never
@@ -16,6 +25,11 @@
     onmanage = undefined,
     onclose,
     startLabel = undefined,
+    startHint = undefined,
+    quickStarts = [],
+    onquick = undefined,
+    onmanagequickstarts = undefined,
+    nowMs = 0,
   }: {
     anchor: HTMLElement;
     /** The issue number, woven into the menu's accessible name. */
@@ -28,6 +42,14 @@
     onclose: () => void;
     /** The plain item's label; defaults to Start (a PR's fix passes "Start fix"). */
     startLabel?: string;
+    /** The plain item's hint; defaults to "without a steer, as before". */
+    startHint?: string;
+    /** Quick-start chips, listed between Start… and the steers (the issue preview only). */
+    quickStarts?: QuickStartChip[];
+    onquick?: (chip: QuickStartChip) => void;
+    /** Open Settings on the Coding CLI panel; omitted → no "Manage quick starts" item. */
+    onmanagequickstarts?: () => void;
+    nowMs?: number;
   } = $props();
 
   let el = $state<HTMLDivElement>();
@@ -113,11 +135,56 @@
   <button class="sm-item" type="button" role="menuitem" tabindex="-1" onclick={onstart}>
     <span class="sm-text">
       <span class="sm-name">{startLabel ?? m.upnext_start()}</span>
-      <span class="sm-hint">{m.upnext_preview_menu_start_hint()}</span>
+      <span class="sm-hint">{startHint ?? m.upnext_preview_menu_start_hint()}</span>
     </span>
   </button>
-  <div class="sm-sep" role="separator"></div>
-  <span class="sm-head" aria-hidden="true">{m.upnext_preview_menu_steers()}</span>
+  {#if quickStarts.length > 0}
+    <div class="sm-sep" role="separator"></div>
+    <span class="sm-head" aria-hidden="true">{m.upnext_quickstart_menu_head()}</span>
+    {#each quickStarts as chip (chip.provider)}
+      <button
+        class="sm-item sm-quick"
+        class:sm-hold={chip.state === "hold"}
+        class:sm-blocked={chip.state === "blocked"}
+        type="button"
+        role="menuitem"
+        tabindex="-1"
+        aria-label={quickStartAria(chip)}
+        aria-disabled={chip.state === "blocked" ? "true" : undefined}
+        onclick={() => chip.state !== "blocked" && onquick?.(chip)}
+      >
+        <span class="sm-tile sm-bolt" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="12" height="12"
+            ><path d="M9.5 1 3 9h4l-1 6 7-8.5H9z" fill="currentColor" /></svg
+          >
+        </span>
+        <span class="sm-text">
+          <span class="sm-name">{providerLabel(chip.provider)}</span>
+          <span class="sm-hint"
+            >{chip.state === "blocked"
+              ? m.upnext_quickstart_blocked()
+              : chip.state === "hold"
+                ? quickStartHoldText(chip, nowMs)
+                : `${quickStartModelText(chip)} · ${quickStartEffortText(chip)}`}</span
+          >
+        </span>
+        {#if chip.usedPct !== null}
+          <i
+            class="sm-bar"
+            aria-hidden="true"
+            style:width="{Math.min(Math.max(chip.usedPct, 0), 100)}%"
+            style:background={chip.state === "hold"
+              ? "var(--color-warn)"
+              : gaugeColor(chip.usedPct)}
+          ></i>
+        {/if}
+      </button>
+    {/each}
+  {/if}
+  {#if steers.length > 0}
+    <div class="sm-sep" role="separator"></div>
+    <span class="sm-head" aria-hidden="true">{m.upnext_preview_menu_steers()}</span>
+  {/if}
   {#each steers as s (s.id)}
     <button
       class="sm-item"
@@ -134,8 +201,19 @@
       </span>
     </button>
   {/each}
-  {#if onmanage}
+  {#if onmanage || (onmanagequickstarts && quickStarts.length > 0)}
     <div class="sm-sep" role="separator"></div>
+  {/if}
+  {#if onmanagequickstarts && quickStarts.length > 0}
+    <button
+      class="sm-item sm-manage"
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      onclick={onmanagequickstarts}>{m.upnext_quickstart_manage()} ›</button
+    >
+  {/if}
+  {#if onmanage}
     <button class="sm-item sm-manage" type="button" role="menuitem" tabindex="-1" onclick={onmanage}
       >{m.upnext_preview_manage_steers()} ›</button
     >
@@ -223,6 +301,27 @@
     height: 1px;
     margin: 4px 0;
     background: var(--color-line);
+  }
+  .sm-quick {
+    position: relative;
+    overflow: hidden;
+  }
+  .sm-bolt {
+    color: var(--color-amber);
+  }
+  .sm-hold .sm-bolt,
+  .sm-hold .sm-hint {
+    color: var(--color-warn);
+  }
+  .sm-blocked {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  .sm-bar {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 2px;
   }
   .sm-manage {
     color: var(--color-muted);

@@ -916,11 +916,13 @@
     defaultAgentProvider: settings?.defaultAgentProvider ?? "claude",
     fableAvailable: settings?.fableAvailable ?? true,
     upnextSkipCliPicker: settings?.upnextSkipCliPicker ?? false,
+    upnextQuickStarts: settings?.upnextQuickStarts ?? {},
     usageHoldEnabled,
     usageHoldPct,
     nowMs,
     onquick: onquickissue,
     onmanagesteers: () => openSteersEditor(),
+    onmanagequickstarts: () => openCodingCliSettings(),
     onreviewpr: onpr,
     onlaunchtrain: onupnexttrain,
   });
@@ -985,6 +987,11 @@
   function openWorkspaceSettings(focus?: "repo-overrides") {
     settingsTab = "workspace";
     focusWorkspace = focus ?? null;
+    settingsDeepLink = true;
+    showSettings = true;
+  }
+  function openCodingCliSettings() {
+    settingsTab = "codingAgents";
     settingsDeepLink = true;
     showSettings = true;
   }

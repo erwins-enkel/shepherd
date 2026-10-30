@@ -1,4 +1,13 @@
-import type { AgentProvider, Issue, PullRequest, Steer, UpNextItem, UpNextPr } from "./types";
+import type {
+  AgentProvider,
+  Issue,
+  PullRequest,
+  Steer,
+  UpNextItem,
+  UpNextPr,
+  UpNextQuickStart,
+  UpNextQuickStarts,
+} from "./types";
 import type { HerdStore } from "./store.svelte";
 import { getUpNextBody, startUpNext, type UpNextStartChoice } from "./api";
 import { toasts } from "./toasts.svelte";
@@ -19,6 +28,8 @@ export type UpNextLaunchContext = {
   defaultAgentProvider: AgentProvider;
   fableAvailable: boolean;
   upnextSkipCliPicker: boolean;
+  /** Per-CLI quick-start presets (#3507); absent → no quick-start chips. */
+  upnextQuickStarts?: UpNextQuickStarts;
   usageHoldEnabled: boolean;
   usageHoldPct: number;
   nowMs: number;
@@ -27,6 +38,8 @@ export type UpNextLaunchContext = {
   onquick?: (repoPath: string, issue: Issue, steer: Steer) => Promise<"created" | "held" | null>;
   /** Open Settings on the steers editor. */
   onmanagesteers?: () => void;
+  /** Open Settings on the Coding CLI panel, where the quick-start presets live. */
+  onmanagequickstarts?: () => void;
   /** "+ Review" on a PR: the New Task composer seeded with a review of it (the PRs tab's path). */
   onreviewpr?: (repoPath: string, pr: Pick<PullRequest, "number" | "url">) => void;
   /** "Merge-Train starten" for the ticked PRs: the hand-picked train behind its confirmation. */
@@ -68,6 +81,15 @@ export class UpNextStarter {
   get nowMs() {
     return this.#ctx()?.nowMs ?? clock.current;
   }
+  get quickStarts(): UpNextQuickStarts {
+    return this.#ctx()?.upnextQuickStarts ?? {};
+  }
+  get holdPct() {
+    return this.#ctx()?.usageHoldPct ?? 80;
+  }
+  get diagnostics() {
+    return this.#ctx()?.store.diagnostics ?? null;
+  }
   get holdLikely() {
     const ctx = this.#ctx();
     return claudeUsageHoldLikely(
@@ -104,6 +126,16 @@ export class UpNextStarter {
       return;
     }
     void this.start(items);
+  }
+
+  /** Start one row with a CLI's quick-start preset: no picker, whatever `upnextSkipCliPicker`
+   *  says. A Claude start over the hold threshold is held by the server, as for any start. */
+  startQuick(item: UpNextItem, provider: AgentProvider, preset: UpNextQuickStart) {
+    return this.start([item], {
+      agentProvider: provider,
+      model: preset.model,
+      effort: preset.effort,
+    });
   }
 
   /** Start one row with an issue steer through the page's quick-launch. No CLI picker: the

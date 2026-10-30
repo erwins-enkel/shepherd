@@ -3,6 +3,7 @@
   import { linkifySessionDesignations } from "#lib/markdownSessionLinks.js";
   import { m } from "#lib/paraglide/messages.js";
   import { toasts } from "#lib/toasts.svelte.js";
+  import { theme } from "#lib/theme.svelte.js";
 
   // Shared reading surface for forge Markdown (issue descriptions, #2617): renders `source`
   // through the shared sanitizer (#lib/sanitize-html), styled from tokens only. It loads lazily,
@@ -77,6 +78,24 @@
     }, 1500);
   }
 
+  // Colors each tagged fence (marked's `language-<x>` class) in place. Runs after the sanitizer:
+  // the code is re-read as text and re-escaped, and colors come only from our Shiki themes, so
+  // nothing from the source reaches the markup. Shiki loads lazily, off the first-paint path.
+  async function highlightFences(root: HTMLElement, mode: "dark" | "light"): Promise<boolean> {
+    const fences = [...root.querySelectorAll<HTMLElement>("pre > code[class*='language-']")];
+    if (fences.length === 0) return false;
+    const { highlightCode } = await import("#lib/highlight.js");
+    let changed = false;
+    for (const code of fences) {
+      const lang = /(?:^|\s)language-(\S+)/.exec(code.className)?.[1];
+      const html = lang ? await highlightCode(code.textContent ?? "", lang, mode) : null;
+      if (html === null) continue;
+      code.innerHTML = html;
+      changed = true;
+    }
+    return changed;
+  }
+
   let rendered = $state("");
   // A failed load falls back to the plain (escaped) text — never to unsanitized markup.
   let failed = $state(false);
@@ -87,6 +106,7 @@
     const live = sessionDesigs;
     const linkSessions = !!onSessionLink;
     const withCopy = copyCode;
+    const mode = theme.resolved;
     rendered = "";
     failed = false;
     if (!body.trim()) return;
@@ -96,16 +116,18 @@
     renderMarkdown(body)
       .then((html) => {
         if (!alive) return;
-        const linkify = linkSessions && live.size > 0;
-        if (linkify || withCopy) {
-          const root = document.createElement("div");
-          root.innerHTML = html;
-          if (linkify) linkifySessionDesignations(root, live);
-          if (withCopy) addCopyButtons(root);
-          rendered = root.innerHTML;
-        } else {
-          rendered = html;
-        }
+        const root = document.createElement("div");
+        root.innerHTML = html;
+        if (linkSessions && live.size > 0) linkifySessionDesignations(root, live);
+        if (withCopy) addCopyButtons(root);
+        // Plain first, colors once Shiki is ready.
+        rendered = root.innerHTML;
+        return highlightFences(root, mode).then(
+          (changed) => {
+            if (alive && changed) rendered = root.innerHTML;
+          },
+          (e: unknown) => console.warn("Code highlight failed", e),
+        );
       })
       .catch((e) => {
         console.warn("Markdown render failed", e);

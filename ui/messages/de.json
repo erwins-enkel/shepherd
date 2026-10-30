@@ -7947,6 +7947,8 @@
   "markdown_code_copied": "Kopiert",
   "feat_chat_copy_code_title": "Code aus dem Chat kopieren",
   "feat_chat_copy_code_body": "Fahre im Chat über einen Codeblock in der Antwort eines Agenten und klicke auf das Kopiersymbol in seiner Ecke, um den ganzen Block in die Zwischenablage zu legen.",
+  "feat_markdown_code_highlight_title": "Code mit Syntaxhervorhebung",
+  "feat_markdown_code_highlight_body": "Codeblöcke in Chat-Antworten, Plänen und Issue-Beschreibungen werden jetzt nach Sprache eingefärbt, wenn der Block eine angibt (etwa ts oder rust) – im hellen wie im dunklen Design.",
   "feat_start_queue_memory_title": "Neue Sessions warten Speicherdruck ab",
   "feat_start_queue_memory_body": "Solange die Bremse des Prüfslots greift, starten neue Aufgaben und der Auto-Drain nicht mehr mitten in den Speicherdruck. Sie reihen sich ein und starten der Reihe nach, einzeln, sobald wieder genug Speicher frei ist – die wartenden Starts zeigt der Prüfslot. „Jetzt starten“ an einer zurückgehaltenen Aufgabe startet sie weiterhin sofort.",
   "prrow_state_merged": "Gemergt",

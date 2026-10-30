@@ -1,4 +1,5 @@
 import {
+  bundledLanguages,
   createHighlighter,
   type BundledLanguage,
   type Highlighter,
@@ -102,12 +103,43 @@ export async function highlightLines(
       lang: lang as BundledLanguage,
       theme: theme === "light" ? "shepherd-light" : "shepherd-dark",
     });
-    return tokens.map((line) =>
-      line
-        .map((t) => `<span style="color:${t.color ?? "inherit"}">${escapeHtml(t.content)}</span>`)
-        .join(""),
-    );
+    return tokens.map(tokensToHtml);
   } catch {
     return contents.map(escapeHtml); // unknown lang / load failure → plain
+  }
+}
+
+/** One tokenized line → escaped spans colored only by our own theme constants. */
+function tokensToHtml(line: { content: string; color?: string }[]): string {
+  return line
+    .map((t) => `<span style="color:${t.color ?? "inherit"}">${escapeHtml(t.content)}</span>`)
+    .join("");
+}
+
+/** Past this a fence stays plain: tokenizing a giant paste would stall the UI thread. */
+const MAX_CODE_CHARS = 20_000;
+
+/**
+ * Highlight a Markdown fence's code to HTML (lines joined with \n). `lang` is the fence tag —
+ * any Shiki bundled language or alias, its grammar loaded on first use. Unknown tag, oversized
+ * code or a load failure → null (caller keeps the plain text).
+ */
+export async function highlightCode(
+  code: string,
+  lang: string,
+  theme: "dark" | "light" = "dark",
+): Promise<string | null> {
+  const id = lang.toLowerCase();
+  if (!Object.hasOwn(bundledLanguages, id) || code.length > MAX_CODE_CHARS) return null;
+  try {
+    const hl = await getHighlighter();
+    await hl.loadLanguage(id as BundledLanguage);
+    const { tokens } = hl.codeToTokens(code, {
+      lang: id as BundledLanguage,
+      theme: theme === "light" ? "shepherd-light" : "shepherd-dark",
+    });
+    return tokens.map(tokensToHtml).join("\n");
+  } catch {
+    return null;
   }
 }

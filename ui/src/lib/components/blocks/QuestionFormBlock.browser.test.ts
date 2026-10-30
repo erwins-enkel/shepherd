@@ -462,3 +462,34 @@ it("seeds its inputs from a draft and reports edits", async () => {
     ),
   );
 });
+
+describe("QuestionFormBlock — answer rows", () => {
+  it("tags a (Recommended) option instead of showing the suffix, and still sends its index", async () => {
+    const onanswer = vi.fn();
+    const { container } = await render(QuestionFormBlock, {
+      block: {
+        type: "question-form",
+        id: "qrec",
+        questions: [
+          {
+            id: "q1",
+            prompt: "Which?",
+            kind: "single",
+            options: ["Plain", "Online backfill (Recommended)"],
+          },
+        ],
+      },
+      onanswer,
+    });
+    const labels = container.querySelectorAll(".qf-option-label");
+    expect(labels[1]!.textContent).toBe("Online backfill");
+    expect(container.querySelectorAll(".qf-rec")).toHaveLength(1);
+    expect(container.querySelector(".qf-rec .qf-rec-tag")).not.toBeNull();
+    // A click on the row's text, not the radio, picks the answer.
+    await userEvent.click(page.getByText("Online backfill"));
+    await page.getByRole("button", { name: /send/i }).click();
+    expect(onanswer).toHaveBeenCalledWith([
+      { blockId: "qrec", questionId: "q1", optionIndices: [1] },
+    ]);
+  });
+});

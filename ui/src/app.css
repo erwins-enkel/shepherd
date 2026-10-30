@@ -211,6 +211,11 @@
   --wash-assistant-chip: color-mix(in srgb, var(--color-amber) 14%, var(--color-panel));
   /* The operator's own message in the assistant's conversation: a step off the surface. */
   --wash-assistant-bubble: color-mix(in srgb, var(--color-ink) 8%, var(--wash-assistant));
+  /* An agent's recommended answer in a question form: a faint cool tint, kept apart from the
+     amber of the operator's own pick. Mixed from theme tokens like the washes above. */
+  --wash-recommended: color-mix(in srgb, var(--color-blue) 7%, var(--color-panel));
+  --wash-recommended-edge: color-mix(in srgb, var(--color-blue) 35%, var(--color-line));
+  --wash-recommended-ink: color-mix(in srgb, var(--color-blue) 75%, var(--color-ink-bright));
 
   /* Wireframe mockup tokens — themed off the semantic --color-* layer (read as computed
      values by WireframeBlock and injected into its sandboxed iframe, which can't inherit these). */

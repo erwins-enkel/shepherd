@@ -23,6 +23,26 @@ describe("MarkdownBody", () => {
     expect(container.textContent).not.toContain("**");
   });
 
+  it("shows list markers despite Tailwind's preflight reset", async () => {
+    const { container } = await render(MarkdownBody, {
+      source: "- a\n  - b\n\n1. c\n\n- [ ] d",
+    });
+    await expect.poll(() => container.querySelectorAll("li").length).toBe(4);
+    const [a, b, c, d] = [...container.querySelectorAll("li")].map((li) => getComputedStyle(li));
+    expect(a.listStyleType).toBe("disc");
+    expect(b.listStyleType).toBe("circle");
+    expect(c.listStyleType).toBe("decimal");
+    expect(d.listStyleType).toBe("none");
+  });
+
+  it("shows only the checkbox on a loose task list", async () => {
+    const { container } = await render(MarkdownBody, { source: "- [ ] a\n\n- [x] b" });
+    await expect.poll(() => container.querySelectorAll("li > p > input").length).toBe(2);
+    for (const li of container.querySelectorAll("li")) {
+      expect(getComputedStyle(li).listStyleType).toBe("none");
+    }
+  });
+
   it("strips script and inline handlers", async () => {
     const { container } = await render(MarkdownBody, {
       source: 'ok <script>window.__x = 1</script><img src="x" onerror="window.__x = 1">',

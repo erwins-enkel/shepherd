@@ -28,10 +28,10 @@ function git(over: Partial<GitState> = {}): GitState {
 const NONE: CriticChip = { kind: "none" };
 
 describe("prActionRowVisible", () => {
-  it("only an open PR shows the row", () => {
+  it("an open or merged PR shows the row", () => {
     expect(prActionRowVisible(git())).toBe(true);
     expect(prActionRowVisible(git({ state: "none" }))).toBe(false);
-    expect(prActionRowVisible(git({ state: "merged" }))).toBe(false);
+    expect(prActionRowVisible(git({ state: "merged" }))).toBe(true);
     expect(prActionRowVisible(git({ state: "closed" }))).toBe(false);
     expect(prActionRowVisible(null)).toBe(false);
     expect(prActionRowVisible(undefined)).toBe(false);
@@ -39,6 +39,10 @@ describe("prActionRowVisible", () => {
 });
 
 describe("prRowStatus", () => {
+  it("a merged PR is its own state, even mid-merge", () => {
+    expect(prRowStatus(git({ state: "merged" }), false)).toBe("merged");
+    expect(prRowStatus(git({ state: "merged" }), true)).toBe("merged");
+  });
   it("a clean green PR is ready", () => {
     expect(prRowStatus(git(), false)).toBe("ready");
   });

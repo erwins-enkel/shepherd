@@ -7,12 +7,21 @@ import type { CriticChip } from "../critic-badge";
 /** The merge row's one state: the label it shows and whether its Merge is free (`ready`).
  *  Every kind but `ready` locks Merge and names its reason (see {@link mergeBlockedText}). */
 export type PrRowKind =
-  "merging" | "draft" | "conflict" | "behind" | "ci_failed" | "ci_running" | "protected" | "ready";
+  | "merging"
+  | "draft"
+  | "conflict"
+  | "behind"
+  | "ci_failed"
+  | "ci_running"
+  | "protected"
+  | "ready"
+  | "merged";
 
-/** The merge row exists only while the session's PR is open (#3540). Viewport gates the mount
- *  and the recap's headline on this; the row re-checks it so it can never render empty. */
+/** The merge row exists while the session's PR is open (#3540), or merged and the session still
+ *  stands (#3541: its one action is Stilllegen). Viewport gates the mount and the recap's
+ *  headline on this; the row re-checks it so it can never render empty. */
 export function prActionRowVisible(git: GitState | null | undefined): git is GitState {
-  return git?.state === "open";
+  return git?.state === "open" || git?.state === "merged";
 }
 
 /** Which state the merge row is in. `merging` (a merge in flight, or the PR sits in its base's
@@ -24,6 +33,7 @@ export function prActionRowVisible(git: GitState | null | undefined): git is Git
  *  Stricter than the merge gate elsewhere: ANY failing or pending check locks Merge here, even
  *  a non-required one GitHub reports as `unstable` (operator decision on #3540). */
 export function prRowStatus(git: GitState, merging: boolean): PrRowKind {
+  if (git.state === "merged") return "merged";
   if (merging) return "merging";
   const block = prReadinessBlock(git);
   if (block === "draft" || block === "conflict" || block === "behind") return block;
@@ -51,6 +61,7 @@ export function mergeBlockedText(kind: PrRowKind): string | null {
     case "protected":
       return m.gitrail_merge_blocked_protected();
     case "ready":
+    case "merged":
       return null;
   }
 }
@@ -74,6 +85,8 @@ export function prRowLabel(kind: PrRowKind, base: string): string {
       return m.prrow_state_protected();
     case "ready":
       return m.gitrail_ready_to_merge();
+    case "merged":
+      return m.prrow_state_merged();
   }
 }
 
@@ -147,6 +160,7 @@ export function prRowFacts(input: {
   base: string;
 }): PrRowFact[] {
   const { git, chip, criticOn, base } = input;
+  if (git.state === "merged") return [];
   return [
     ciFact(git.checks),
     criticFact(chip, criticOn),

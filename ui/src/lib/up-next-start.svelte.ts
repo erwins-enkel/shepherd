@@ -150,7 +150,11 @@ export class UpNextStarter {
         toasts.info(m.upnext_started({ count: res.created.length }), { key: "upnext-started" });
       }
       if (res.held.length > 0) {
-        toasts.info(m.upnext_held({ count: res.held.length }), { key: "upnext-held" });
+        const count = res.held.length;
+        const memory = res.held.every((h) => h.reason === "memory");
+        toasts.info(memory ? m.upnext_held_memory({ count }) : m.upnext_held({ count }), {
+          key: "upnext-held",
+        });
       }
       if (res.errors.length > 0) {
         // Failure surfaced as a 12s alert — tone-namespaced dedupe key so repeats collapse.

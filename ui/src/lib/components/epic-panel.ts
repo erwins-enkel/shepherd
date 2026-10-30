@@ -97,6 +97,7 @@ export function epicHoldLine(
       return m.epic_hold_error({ desig });
     case "usage":
     case "credits":
+    case "memory_pressure":
       return pausedText(drain);
     case "cap":
       return m.epic_hold_cap({ inFlight: drain.inFlight, max: drain.max });
@@ -198,6 +199,7 @@ const HALT_REASONS = new Set([
   "error",
   "usage",
   "credits",
+  "memory_pressure",
   "epic_base_unavailable",
   "epic_base_stale",
   "epic_base_conflict",

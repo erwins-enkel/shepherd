@@ -62,6 +62,12 @@ describe("queueOpenable", () => {
 describe("pausedText", () => {
   // #1757: this switch IS reached (the code is `paused`), so without a case the generic
   // "paused" copy would hide a nameable, actionable cause.
+  it("names memory pressure, which queues the next spawn", () => {
+    expect(pausedText(drain({ paused: true, reason: "memory_pressure", detail: null }))).toBe(
+      m.drain_paused_memory(),
+    );
+  });
+
   it("maps epic_base_unavailable with its branch", () => {
     expect(
       pausedText(drain({ paused: true, reason: "epic_base_unavailable", detail: "epic/9-x" })),

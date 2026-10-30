@@ -240,6 +240,9 @@ export function pausedText(d: DrainStatus): string {
         : m.drain_paused_usage({ pct: desig });
     case "credits":
       return m.drain_paused_credits();
+    // The host is short on memory: the next spawn waits its turn in the start queue.
+    case "memory_pressure":
+      return m.drain_paused_memory();
     // #1757: the epic's integration branch could not be ensured on the forge — detail carries the
     // branch. Without this case the generic "paused" copy would hide an actionable, nameable cause.
     case "epic_base_unavailable":

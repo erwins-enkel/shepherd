@@ -6,6 +6,8 @@ import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
 import type { UsageLimits } from "../src/usage-limits";
+import { DISABLED_HEAVY_SLOT } from "../src/heavy-slot-snapshot";
+import type { StartEntry } from "../src/start-queue-core";
 
 let tmpRoot: string;
 let repoDir: string;
@@ -36,7 +38,26 @@ interface FakeSession {
   [k: string]: unknown;
 }
 
-function harness(limitsOverride?: Partial<UsageLimits>): {
+/** A stand-in for the heavy slot's start gate: `blocked` is the pressure brake. */
+function pressureGate(blocked: boolean) {
+  const asked: StartEntry[] = [];
+  const forgot: string[] = [];
+  const gate = {
+    snapshot: () => DISABLED_HEAVY_SLOT,
+    release: () => false,
+    admitStart: async (entry: StartEntry) => {
+      asked.push(entry);
+      return !blocked;
+    },
+    forgetStart: (key: string) => void forgot.push(key),
+  };
+  return { gate, asked, forgot };
+}
+
+function harness(
+  limitsOverride?: Partial<UsageLimits>,
+  heavySlot?: AppDeps["heavySlot"],
+): {
   app: ReturnType<typeof makeApp>;
   store: SessionStore;
   emitted: { event: string; data: unknown }[];
@@ -79,6 +100,7 @@ function harness(limitsOverride?: Partial<UsageLimits>): {
     service: fakeService as any,
     events: hub,
     usageLimits: { limits: () => defaultLimits } as any,
+    heavySlot,
     resolveForge: () =>
       ({
         async addIssueLabel(n: number) {
@@ -365,6 +387,71 @@ test("DELETE /api/held/:id → removes row, returns {ok:true}", async () => {
   expect(body.ok).toBe(true);
   expect(store.countHeldTasks()).toBe(0);
   expect(emitted.some((e) => e.event === "held:changed")).toBe(true);
+});
+
+// ── memory-pressure start gate ───────────────────────────────────────────────
+
+test("brake engaged → held with reason memory under the id the start queue knows", async () => {
+  const { gate, asked } = pressureGate(true);
+  const { app, store, creates } = harness(undefined, gate);
+  const res = await postSession(app, { prompt: "\n  Fix   the login\nmore" });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body).toMatchObject({ held: true, reason: "memory", count: 1 });
+  expect(creates).toHaveLength(0);
+  expect(store.getHeldTask(body.id)?.reason).toBe("memory");
+  expect(asked).toEqual([
+    {
+      key: `task:${body.id}`,
+      kind: "task",
+      repoPath: repoDir,
+      issueNumber: null,
+      label: "Fix the login",
+    },
+  ]);
+});
+
+test("brake engaged + force:true → spawns without asking the gate", async () => {
+  const { gate, asked } = pressureGate(true);
+  const { app, creates } = harness(undefined, gate);
+  const res = await postSession(app, { force: true });
+  expect(res.status).toBe(201);
+  expect(creates).toHaveLength(1);
+  expect(asked).toHaveLength(0);
+});
+
+test("brake off → spawns after one ask; a usage hold wins without asking", async () => {
+  const off = pressureGate(false);
+  const a = harness(undefined, off.gate);
+  expect((await postSession(a.app)).status).toBe(201);
+  expect(off.asked).toHaveLength(1);
+
+  config.usageHoldEnabled = true;
+  config.usageHoldPct = 80;
+  const on = pressureGate(true);
+  const b = harness({ session5h: { pct: 85, resetAt: 0 } } as Partial<UsageLimits>, on.gate);
+  expect(await (await postSession(b.app)).json()).toMatchObject({ held: true, reason: "usage" });
+  expect(on.asked).toHaveLength(0);
+});
+
+test("starting or discarding a held task by hand withdraws its waiting start", async () => {
+  const { gate, forgot } = pressureGate(true);
+  const { app, store } = harness(undefined, gate);
+  for (const id of ["m1", "m2"])
+    store.addHeldTask({
+      id,
+      repoPath: repoDir,
+      input: { repoPath: repoDir, baseBranch: "main", prompt: id, model: null, images: [] },
+      createdAt: 1000,
+      reason: "memory",
+    });
+  expect(
+    (await app.fetch(new Request("http://x/api/held/m1/spawn", { method: "POST" }))).status,
+  ).toBe(201);
+  expect((await app.fetch(new Request("http://x/api/held/m2", { method: "DELETE" }))).status).toBe(
+    200,
+  );
+  expect(forgot).toEqual(["task:m1", "task:m2"]);
 });
 
 function patchHeld(

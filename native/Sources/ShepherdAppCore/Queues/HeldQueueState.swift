@@ -10,6 +10,7 @@ public enum HeldQueuePresentation {
         case .usage: "native_held_reason_usage"
         case .capacity: "native_held_reason_capacity"
         case .after: "native_held_reason_after"
+        case .memory: "native_held_reason_memory"
         case nil: "native_held_reason_unknown"
         }
     }

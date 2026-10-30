@@ -3071,6 +3071,7 @@ function onBootstrapAdvance(repoPath: string, phase: number, sessionId: string):
 // core (computeNext) with side effects here; driven off the same poller events.
 const drain = new DrainService({
   capacity: capacityCheck,
+  startGate: heavySlot,
   bootstrapMustHaves: (repoPath) => greenfield.mustHavesMissing(repoPath),
   store,
   readCodexAuthMode,
@@ -3611,6 +3612,7 @@ deferredStarts.push(() => {
             resolveForge,
             codexCapacity: codexReady,
             taskDeps: { store, prGit: (id) => prPoller.get(id) },
+            startGate: heavySlot,
           },
           {
             enabled: config.usageHoldEnabled,

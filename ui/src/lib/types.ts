@@ -3693,17 +3693,22 @@ export interface HeldTask {
   repoPath: string;
   input: StandardCreateInput;
   createdAt: number;
-  /** `after` = waiting for a predecessor's PR to land (#2589). */
-  reason?: "usage" | "capacity" | "after";
+  /** `after` = waiting for a predecessor's PR to land (#2589); `memory` = waiting for the
+   *  heavy-slot pressure brake to let go, then starting in order. */
+  reason?: HeldReason;
   /** The predecessor's designation for an `after` hold; null once it is gone. */
   afterDesig?: string | null;
 }
+
+/** Why a task is held. Mirrors `HeldReason` in contracts/openapi.yaml. */
+export type HeldReason = "usage" | "capacity" | "after" | "memory";
 
 /** Returned by POST /api/sessions when the task is held instead of spawned immediately. */
 export interface HeldResult {
   held: true;
   id: string;
   count: number;
+  reason?: HeldReason;
   /** Set when the task was held on a connected machine (#2763) — `id`/`count` are that machine's. */
   host?: SessionHost;
   /** The task waits here for `host`, which is out of reach (#2775); `dispatch` is that wait. */
@@ -4014,6 +4019,19 @@ export interface HeavySlotSnapshot {
   };
   /** Each session's latest finished slot job, bound to the revision it ran on (#3554). */
   lastResults: HeavySlotLastResult[];
+  /** New sessions waiting for the brake to let go, in start order; absent from older servers. */
+  startQueue?: HeavySlotStartWaiter[];
+}
+
+/** A new session (a held task or a repo's auto-drain) waiting to start under memory pressure. */
+export interface HeavySlotStartWaiter {
+  kind: "task" | "drain";
+  repoPath: string;
+  issueNumber: number | null;
+  /** An issue title or the prompt's first line, verbatim. */
+  label: string | null;
+  since: number;
+  position: number;
 }
 
 /** `stale`: the worktree no longer matches `head` + `treeHash` — never shown as a pass. */

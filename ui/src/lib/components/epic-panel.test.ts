@@ -321,6 +321,11 @@ describe("epicRunState", () => {
     expect(s.note).toContain("TASK-07");
   });
 
+  it("memory pressure halts the run with the drain's paused line", () => {
+    const s = epicRunState(epicB(), B, capDrain({ reason: "memory_pressure", paused: true }));
+    expect(s).toMatchObject({ kind: "halted", tone: "halt", note: m.drain_paused_memory() });
+  });
+
   it("a spawn gate halts the run with its hold line, never 'running' (#3452)", () => {
     for (const reason of [
       "sandbox_interactive",

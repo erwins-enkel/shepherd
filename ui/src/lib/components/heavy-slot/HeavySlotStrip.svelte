@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { HeavySlotSnapshot, Session } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { chipModel, commandLabel, orderedWaiters, slotActive } from "./heavy-slot";
+  import { brakeLine, chipModel, commandLabel, orderedWaiters, slotActive } from "./heavy-slot";
 
   let {
     heavySlot = null,
@@ -18,6 +18,7 @@
 
   const nameOf = (id: string) =>
     sessions.find((s) => s.id === id)?.name ?? m.heavyslot_unknown_session();
+  const brake = $derived(heavySlot ? brakeLine(heavySlot) : null);
 </script>
 
 {#if slotActive(heavySlot) && heavySlot}
@@ -69,8 +70,8 @@
           </button>
         </li>
       {/each}
-      {#if heavySlot.brake.active}
-        <li class="hs-brake">{m.heavyslot_strip_brake()}</li>
+      {#if brake}
+        <li class="hs-brake" class:hs-pacing={!heavySlot.brake.active}>{brake}</li>
       {/if}
     </ul>
   </div>
@@ -178,6 +179,10 @@
     font-size: var(--fs-micro);
     letter-spacing: 0.04em;
     color: var(--color-red);
+  }
+  /* Brake let go, waiting starts follow one by one: still waiting, no longer red. */
+  .hs-brake.hs-pacing {
+    color: var(--color-amber);
   }
   @media (pointer: coarse) {
     .hs-row {

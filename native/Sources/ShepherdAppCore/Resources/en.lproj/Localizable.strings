@@ -938,6 +938,7 @@
 "native_held_discard_confirm" = "Discard this held task?";
 "native_held_reason_after" = "Held until its predecessor's PR lands.";
 "native_held_reason_capacity" = "Held because no account has capacity.";
+"native_held_reason_memory" = "Held because of memory pressure. Starts in order once it eases.";
 "native_held_reason_unknown" = "Held — reason unavailable.";
 "native_held_reason_usage" = "Held because usage is high.";
 "native_herd_counter_active" = "Active";

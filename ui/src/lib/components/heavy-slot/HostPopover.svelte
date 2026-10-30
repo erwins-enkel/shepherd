@@ -5,7 +5,9 @@
   import { portal } from "#lib/portal.js";
   import { dialog } from "#lib/a11yDialog.js";
   import { swipeBack } from "../swipe-back";
+  import StartQueueSection from "./StartQueueSection.svelte";
   import {
+    brakeLine,
     commandLabel,
     formatBytes,
     formatRuntime,
@@ -59,6 +61,9 @@
   const ram = $derived(ramUsedPct(heavySlot));
   const p = $derived(heavySlot.pressure);
   const src = $derived(heavySlot.memoryBySource);
+  const brake = $derived(brakeLine(heavySlot));
+  // The brake let go and waiting starts follow one by one: amber, no longer red.
+  const pacing = $derived(!heavySlot.brake.active);
   let showAllResults = $state(false);
   const results = $derived(recentResults(heavySlot, showAllResults));
   const anyStale = $derived(results.rows.some((r) => r.stale));
@@ -152,8 +157,12 @@
     {:else}
       <p class="hp-dim">{m.heavyslot_queue_empty()}</p>
     {/each}
-    {#if heavySlot.brake.active}<p class="hp-brake">{m.heavyslot_strip_brake()}</p>{/if}
+    {#if brake}
+      <p class="hp-brake" class:hp-pacing={pacing}>{brake}</p>
+    {/if}
   </section>
+
+  <StartQueueSection starts={heavySlot.startQueue} />
 
   <section>
     <h3>{m.heavyslot_pressure()}</h3>
@@ -420,6 +429,10 @@
   .hp-err {
     color: var(--color-red);
     margin: 4px 0 0;
+  }
+  /* Brake let go, waiting starts follow one by one: still waiting, no longer red. */
+  .hp-brake.hp-pacing {
+    color: var(--color-amber);
   }
   .hp-note {
     margin-bottom: 4px;

@@ -175,6 +175,70 @@ describe("HeavySlotStrip", () => {
     });
     await expect.element(page.getByText(/Brake on/)).toBeVisible();
   });
+
+  it("counts the new sessions the brake holds, and stays up while they follow one by one", async () => {
+    const startQueue = [
+      {
+        kind: "task" as const,
+        repoPath: "/r",
+        issueNumber: null,
+        label: "x",
+        since: 0,
+        position: 1,
+      },
+    ];
+    const idle = { holders: [], waiters: [] };
+    render(HeavySlotStrip, {
+      heavySlot: snap({ ...idle, brake: { active: true, reason: "memory" }, startQueue }),
+      sessions,
+    });
+    await expect.element(page.getByText(/Brake on: .* · 1 waiting/)).toBeVisible();
+    document.body.innerHTML = "";
+    render(HeavySlotStrip, { heavySlot: snap({ ...idle, startQueue }), sessions });
+    await expect.element(page.getByText(/1 waiting starts follow one by one/)).toBeVisible();
+  });
+});
+
+describe("HostPopover — waiting starts", () => {
+  it("lists new sessions in start order after the queue, only while any wait", async () => {
+    const props = (startQueue: HeavySlotSnapshot["startQueue"]) => ({
+      heavySlot: snap({ brake: { active: true, reason: "memory" }, startQueue }),
+      sessions,
+      nowMs: 0,
+      onrelease: vi.fn(),
+      onClose: vi.fn(),
+    });
+    render(HostPopover, props([]));
+    expect(document.body.textContent).not.toContain("Waiting starts");
+    document.body.innerHTML = "";
+    render(
+      HostPopover,
+      props([
+        {
+          kind: "drain",
+          repoPath: "/x/shepherd",
+          issueNumber: 42,
+          label: "Fix login",
+          since: 1,
+          position: 1,
+        },
+        {
+          kind: "task",
+          repoPath: "/x/bartab",
+          issueNumber: null,
+          label: "Tidy up",
+          since: 2,
+          position: 2,
+        },
+      ]),
+    );
+    const heads = [...document.querySelectorAll("h3")].map((h) => h.textContent);
+    expect(heads.indexOf("Waiting starts")).toBe(heads.indexOf("Queue") + 1);
+    const rows = [...document.querySelectorAll("section:nth-of-type(3) .sq-row")].map((r) =>
+      r.textContent?.replace(/\s+/g, " ").trim(),
+    );
+    expect(rows).toEqual(["1. shepherd #42 Fix login Auto-drain", "2. bartab Tidy up Task"]);
+  });
 });
 
 describe("HostPopover — phone sheet", () => {

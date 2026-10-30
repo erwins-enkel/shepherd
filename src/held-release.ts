@@ -6,6 +6,9 @@ import { config } from "./config";
  * dropped below the configured threshold. If disabled, tasks are released
  * regardless of current usage (they were held while enabled; disabled means
  * the operator no longer wants the gate — release everything).
+ *
+ * Every release is a new session, so it also passes the heavy slot's start gate: under memory
+ * pressure it stays held and waits its turn in the start queue (src/start-queue-core.ts).
  */
 import type { GitForge } from "./forge/types";
 import { claimLinkedIssue } from "./server";
@@ -13,6 +16,7 @@ import type { SessionStore } from "./store";
 import type { CreateSessionInput, Session } from "./types";
 import type { UsageLimits } from "./usage-limits";
 import { afterGateOpen, type PrSnapshot, type TaskDepsStore } from "./task-deps";
+import { taskStartEntry, type StartEntry } from "./start-queue-core";
 
 export interface HeldReleaseDeps {
   codexCapacity?: (taskId?: string) => Promise<boolean>;
@@ -28,6 +32,8 @@ export interface HeldReleaseDeps {
   /** `--after` gate (#2589): session reads + live PR snapshot. Absent → predecessors never land,
    *  so an `after` task only leaves via the operator's spawn/discard. */
   taskDeps?: { store: TaskDepsStore; prGit: PrSnapshot };
+  /** The memory-pressure start gate (HeavySlotService); absent → never holds. */
+  startGate?: { admitStart(entry: StartEntry, queued?: boolean): Promise<boolean> };
 }
 
 async function heldCapacityAvailable(
@@ -39,11 +45,21 @@ async function heldCapacityAvailable(
   if ((task.input.agentProvider ?? config.defaultAgentProvider) === "codex")
     return deps.codexCapacity?.(task.id) ?? true;
   if (!cfg.enabled) return true;
-  // A dependency hold is not the operator's manual-release queue: once its predecessor landed it
-  // only waits for usage headroom.
-  if (!cfg.autoRelease && task.reason !== "after") return false;
+  // A dependency or memory hold is not the operator's manual-release queue: once its predecessor
+  // landed or the pressure eased it only waits for usage headroom.
+  if (!cfg.autoRelease && task.reason !== "after" && task.reason !== "memory") return false;
   const lim = deps.usageLimits.limits(now);
   return Math.max(lim.session5h?.pct ?? 0, lim.week?.pct ?? 0) < cfg.holdPct;
+}
+
+/** The host-wide start gate. A refusal holds every task behind this one too, which queues them in
+ *  held order. */
+async function startAdmitted(
+  deps: HeldReleaseDeps,
+  task: ReturnType<HeldReleaseDeps["store"]["listHeldTasks"]>[number],
+): Promise<boolean> {
+  if (!deps.startGate) return true;
+  return deps.startGate.admitStart(taskStartEntry(task.id, task.input), task.reason === "memory");
 }
 
 function predecessorReady(deps: HeldReleaseDeps, afterSessionId: string | undefined): boolean {
@@ -64,7 +80,7 @@ function predecessorReady(deps: HeldReleaseDeps, afterSessionId: string | undefi
  *
  * `after` holds (#2589) are a dependency, not that manual queue: each is skipped until its
  * predecessor's PR has landed, then released once usage is below holdPct — whatever
- * `autoRelease` says.
+ * `autoRelease` says. `memory` holds likewise ignore `autoRelease`: the start gate decides.
  */
 export async function releaseHeldTasks(
   deps: HeldReleaseDeps,
@@ -80,6 +96,7 @@ export async function releaseHeldTasks(
     // Waiting on a predecessor: skip, never block the tasks behind it.
     if (task.reason === "after" && !predecessorReady(deps, task.input.afterSessionId)) continue;
     if (!(await heldCapacityAvailable(deps, task, cfg, now))) continue;
+    if (!(await startAdmitted(deps, task))) continue;
     try {
       const s = await deps.service.create(task.input);
       // service.create does not emit session:new — emit it so the released session

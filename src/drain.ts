@@ -107,6 +107,7 @@ import { rebaseLandingBranch, isUnionDriverReady, branchBehindDefault } from "./
 import { LandingPrReads } from "./landing-pr-reads";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import type { NotifyInput } from "./push";
+import type { StartEntry } from "./start-queue-core";
 
 /** #645 (c): re-scan the host for stray `epic/*` branches at most this often per epic. The
  *  scan is an advisory divergence warning, not gating — a 5-minute staleness is harmless and
@@ -502,7 +503,18 @@ export interface DrainDeps {
    *  #3238: also tells whether an archived session's branch still has an open PR. Absent →
    *  per-head reads only, and archived sessions stay mapped. */
   openPrSnapshot?: Pick<OpenPrSnapshotService, "peekCurrent" | "get">;
+  /** The memory-pressure start gate (HeavySlotService): a backlog spawn waits in the host's start
+   *  queue while the brake holds and starts in order after it. Absent → never holds. */
+  startGate?: {
+    admitStart(entry: StartEntry): Promise<boolean>;
+    forgetStart(key: string): void;
+    waitingStart(key: string): boolean;
+  };
 }
+
+/** The start-queue key of a repo's next backlog spawn. */
+const drainStartKey = (repoPath: string) => `drain:${repoPath}`;
+const MEMORY_HOLD: DrainDecision = { kind: "hold", reason: { code: "memory_pressure" } };
 
 /** A forge that implements the whole stacked-PR surface (#2068). `unstack` is part of it because
  *  #2070's mid-stack repair has no other primitive — GitHub cannot reorder or drop one layer. */
@@ -2240,6 +2252,8 @@ export class DrainService {
         "sandbox_backend_unavailable",
         "sandbox_egress_unavailable",
         "target_repo_drain_off",
+        // The host is short on memory: the spawn waits its turn in the start queue.
+        "memory_pressure",
       ].includes(hold.code);
     const queued = state.candidates.filter((c) => !state.mappedIssueNumbers.has(c.number)).length;
     return {
@@ -4581,7 +4595,7 @@ export class DrainService {
         if (epicRun) epicAutoCompleted = this.handleEpicSideEffects(repoPath, epicRun, epic);
       }
       if (epicAutoCompleted && epic) await this.afterEpicCompleted(repoPath, epic);
-      decision = computeNext(state);
+      decision = await this.gateStart(repoPath, computeNext(state));
       // When the epic just auto-completed (running→idle), the state we built still
       // carries epicParent from the now-idle run. Emit a corrected status built from
       // the post-transition state (epicParent=null) so the AutomationPanel banner
@@ -4627,6 +4641,30 @@ export class DrainService {
         err,
       );
     }
+  }
+
+  /**
+   * The start gate between a spawn decision and the spawn: under memory pressure the repo waits in
+   * the host's start queue (as a `memory_pressure` hold) and spawns when its turn comes. Any other
+   * decision means the repo no longer waits to start.
+   */
+  private async gateStart(repoPath: string, decision: DrainDecision): Promise<DrainDecision> {
+    const gate = this.deps.startGate;
+    if (!gate) return decision;
+    const key = drainStartKey(repoPath);
+    if (decision.kind !== "spawn") {
+      gate.forgetStart(key);
+      return decision;
+    }
+    const { number, title } = decision.issue;
+    const entry: StartEntry = { key, kind: "drain", repoPath, issueNumber: number, label: title };
+    return (await gate.admitStart(entry)) ? decision : MEMORY_HOLD;
+  }
+
+  /** {@link gateStart} for a status built without side effects: a waiting repo reads as held. */
+  private presentGate(repoPath: string, decision: DrainDecision): DrainDecision {
+    const waiting = this.deps.startGate?.waitingStart(drainStartKey(repoPath));
+    return decision.kind === "spawn" && waiting ? MEMORY_HOLD : decision;
   }
 
   /** Drain `repoPath`: build state → computeNext → apply, until the core holds.
@@ -5687,7 +5725,9 @@ export class DrainService {
   private async refreshRunPicture(repoPath: string): Promise<void> {
     try {
       const { state } = await this.buildState(repoPath);
-      this.emitStatus(this.toStatus(repoPath, state, computeNext(state)));
+      this.emitStatus(
+        this.toStatus(repoPath, state, this.presentGate(repoPath, computeNext(state))),
+      );
     } catch (err) {
       console.warn(`[drain] run-picture refresh failed for ${repoPath}:`, err);
     }
@@ -5743,8 +5783,12 @@ export class DrainService {
       const cfg = this.deps.store.getRepoConfig(repoPath);
       const er = this.deps.store.getEpicRun(repoPath);
       if (cfg.autoDrainEnabled || er?.status === "running") await this.pump(repoPath);
-      else if (this.owesRunPicture(repoPath, er, epicChildRepos))
-        await this.refreshRunPicture(repoPath);
+      else {
+        // Switched off while it waited to start: it no longer holds a place in the queue.
+        this.deps.startGate?.forgetStart(drainStartKey(repoPath));
+        if (this.owesRunPicture(repoPath, er, epicChildRepos))
+          await this.refreshRunPicture(repoPath);
+      }
     }
   }
 
@@ -5766,7 +5810,7 @@ export class DrainService {
       )
         continue;
       const { state } = await this.buildState(repoPath);
-      out.push(this.toStatus(repoPath, state, computeNext(state)));
+      out.push(this.toStatus(repoPath, state, this.presentGate(repoPath, computeNext(state))));
     }
     return out;
   }

@@ -344,6 +344,98 @@ describe("HeavySlotService", () => {
   });
 });
 
+describe("start queue (new sessions under memory pressure)", () => {
+  const start = (key: string, kind: "task" | "drain" = "task") => ({
+    key,
+    kind,
+    repoPath: "/repo",
+    issueNumber: kind === "drain" ? 7 : null,
+    label: key,
+  });
+  const PRESSURE = { availableBytes: 2 * GIB, psiFullAvg10: 50 };
+
+  test("switched off, every start is let through", async () => {
+    const h = harness({ enabled: false });
+    h.memory.sample = PRESSURE;
+    expect(await h.svc.admitStart(start("task:a"))).toBe(true);
+  });
+
+  test("a stale sample is retaken, the brake queues the start and the snapshot shows it", async () => {
+    const h = harness();
+    await h.svc.start();
+    h.memory.sample = PRESSURE;
+    h.clock.t += 6_000;
+    expect(await h.svc.admitStart(start("task:a"))).toBe(false);
+    expect(await h.svc.admitStart(start("drain:/repo", "drain"))).toBe(false);
+    expect(h.svc.waitingStart("task:a")).toBe(true);
+    expect(h.emitted.at(-1)?.startQueue).toMatchObject([
+      { kind: "task", label: "task:a", position: 1 },
+      { kind: "drain", issueNumber: 7, position: 2 },
+    ]);
+    expect(h.emitted.at(-1)?.brake.active).toBe(true);
+  });
+
+  test("once the brake lets go the head starts and the next waits a pace", async () => {
+    const h = harness();
+    await h.svc.start();
+    h.memory.sample = PRESSURE;
+    h.clock.t += 6_000;
+    await h.svc.admitStart(start("task:a"));
+    await h.svc.admitStart(start("task:b"));
+    h.memory.sample = { ...HEALTHY };
+    await advance(h, 5_000);
+    await advance(h, 30_000); // the brake's release hold
+    expect(h.svc.snapshot().brake.active).toBe(false);
+    expect(await h.svc.admitStart(start("task:b"))).toBe(false);
+    expect(await h.svc.admitStart(start("task:a"))).toBe(true);
+    expect(await h.svc.admitStart(start("task:b"))).toBe(false);
+    h.clock.t += 30_000;
+    expect(await h.svc.admitStart(start("task:b"))).toBe(true);
+    expect(h.svc.snapshot().startQueue).toEqual([]);
+  });
+
+  test("two starts racing across the sample during the pace: only one gets through", async () => {
+    const h = harness();
+    await h.svc.start();
+    h.memory.sample = PRESSURE;
+    h.clock.t += 6_000;
+    await h.svc.admitStart(start("task:a"));
+    await h.svc.admitStart(start("task:b"));
+    h.memory.sample = { ...HEALTHY };
+    await advance(h, 5_000);
+    await advance(h, 30_000);
+    h.clock.t += 6_000; // both callers find the sample stale and await a new one
+    const out = await Promise.all([
+      h.svc.admitStart(start("task:a")),
+      h.svc.admitStart(start("task:b")),
+    ]);
+    expect(out).toEqual([true, false]);
+  });
+
+  test("forgetStart and switching off empty the queue", async () => {
+    const h = harness();
+    await h.svc.start();
+    h.memory.sample = PRESSURE;
+    h.clock.t += 6_000;
+    await h.svc.admitStart(start("task:a"));
+    await h.svc.admitStart(start("task:b"));
+    h.svc.forgetStart("task:a");
+    expect(h.svc.snapshot().startQueue.map((w) => w.label)).toEqual(["task:b"]);
+    await h.svc.applyConfig({ enabled: false, budget: BUDGET });
+    expect(h.svc.snapshot().startQueue).toEqual([]);
+  });
+
+  test("the sweep drops a waiter nobody asked about for two minutes", async () => {
+    const h = harness();
+    await h.svc.start();
+    h.memory.sample = PRESSURE;
+    h.clock.t += 6_000;
+    await h.svc.admitStart(start("task:gone"));
+    await advance(h, 121_000);
+    expect(h.svc.snapshot().startQueue).toEqual([]);
+  });
+});
+
 describe("marker scan", () => {
   test("environValue reads one entry of a NUL-separated block", () => {
     expect(environValue("A=1\0SHEPHERD_HEAVY_JOB=abc\0B=2", "SHEPHERD_HEAVY_JOB")).toBe("abc");

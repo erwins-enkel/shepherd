@@ -17,7 +17,7 @@
   import {
     assistantChatMessage,
     chatEntries,
-    unsettled,
+    settle,
     yesNoQuestions,
     type PendingSend,
   } from "#lib/assistant-chat.js";
@@ -161,7 +161,12 @@
   }
 
   const entries = $derived(chatEntries(data?.messages ?? []));
-  const waiting = $derived(unsettled(pending, entries));
+  // Settled sends stay settled: the window drops old rows, and their echoes must not come back.
+  $effect(() => {
+    const next = settle(pending, entries);
+    if (next !== pending) pending = next;
+  });
+  const waiting = $derived(pending.filter((p) => p.echoTs === undefined));
   const rows = $derived(chatTimeline(entries, tools ? (data?.tools ?? []) : []));
   const marks = $derived(ledger(rows));
   const lastRow = $derived(rows.at(-1));

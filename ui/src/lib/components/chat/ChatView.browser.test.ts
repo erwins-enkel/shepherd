@@ -217,6 +217,27 @@ describe("ChatView steers", () => {
     await expect.element(page.getByText(m.session_chat_send_failed())).toBeVisible();
     expect(page.getByText("Run the tests again").query()).toBeNull();
   });
+
+  it("a settled echo stays gone once its row leaves the message window", async () => {
+    const view = await render(ChatView, props({ status: "idle" }));
+    view.component.echo("so we need to upgrade?", Promise.resolve(true));
+    await expect.element(page.getByText(m.assistant_chat_sent())).toBeVisible();
+    const window = (text: string) => ({
+      messages: [{ role: "user" as const, text, ts: Date.now() + 1000 }],
+      awaitingInput: false,
+      pendingQuestion: null,
+      unavailable: null,
+    });
+    mockMessages.mockResolvedValue(window("so we need to upgrade?"));
+    await view.rerender({ status: "running" });
+    await expect.poll(() => page.getByText(m.assistant_chat_sent()).query()).toBeNull();
+    // Newer messages pushed the echo's row out of the window the server returns.
+    mockMessages.mockResolvedValue(window("a later message"));
+    await view.rerender({ status: "idle" });
+    await expect.element(page.getByText("a later message")).toBeVisible();
+    expect(page.getByText("so we need to upgrade?").query()).toBeNull();
+    expect(page.getByText(m.assistant_chat_sent()).query()).toBeNull();
+  });
 });
 
 describe("HUD asynchronous delivery", () => {

@@ -393,3 +393,44 @@ test("Codex messages include live structured questions while the agent keeps wor
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+describe("sessionMessages tail growth", () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-messages-tail-"));
+  const s = { status: "idle" as const, agentProvider: "claude" as const };
+  // A ~1 MB screenshot tool result, like a base64 image in the transcript.
+  const big = (id: string) => ({
+    type: "user",
+    timestamp: TS,
+    message: {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: id, content: "x".repeat(1024 * 1024) }],
+    },
+  });
+
+  test("reads further back until the limit's messages are in", async () => {
+    const path = join(dir, "grow.jsonl");
+    writeFileSync(
+      path,
+      jsonl(userText("early"), big("a"), big("b"), big("c"), assistantText("late", "m2")),
+    );
+    const r = await sessionMessages(s, path, { limit: 50, includeUser: true });
+    expect(r.messages.map((m) => m.text)).toEqual(["early", "late"]);
+  });
+
+  test("stops at the limit without reading further back", async () => {
+    const path = join(dir, "enough.jsonl");
+    writeFileSync(path, jsonl(userText("early"), big("a"), big("b"), big("c"), userText("late")));
+    const r = await sessionMessages(s, path, { limit: 1, includeUser: true });
+    expect(r.messages.map((m) => m.text)).toEqual(["late"]);
+  });
+
+  test("caps the read: messages beyond 16 MB stay out", async () => {
+    const path = join(dir, "cap.jsonl");
+    const pad = Array.from({ length: 17 }, (_, i) => big(`p${i}`));
+    writeFileSync(path, jsonl(userText("too old"), ...pad, userText("late")));
+    const r = await sessionMessages(s, path, { limit: 50, includeUser: true });
+    expect(r.messages.map((m) => m.text)).toEqual(["late"]);
+  });
+
+  test("cleanup", () => rmSync(dir, { recursive: true, force: true }));
+});

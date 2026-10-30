@@ -88,18 +88,23 @@ export interface PendingSend {
   /** Set when images rode along: Claude may rewrite their pasted paths, so the echo only has to
    *  contain these typed words (any user row when empty), not equal `text`. */
   match?: string;
+  /** Stamp of the transcript row that settled it. A settled send stays settled once that row
+   *  scrolls out of the message window, rather than reappearing as unsent. */
+  echoTs?: number;
 }
 
 /** Browser and server clocks may disagree; a logged echo may carry a slightly earlier stamp. */
 const ECHO_SKEW_MS = 60_000;
 
-/** The sends the transcript has not logged yet: no user (or steer — a send can open with Shepherd's
- *  steer wording, e.g. "Plan approved.") row with the same text, stamped no
- *  earlier than the skew window before the send (an older identical message is not the echo).
- *  Each row settles one send, so a repeated answer ("Yes", then "Yes") waits for its own echo. */
-export function unsettled(pending: PendingSend[], entries: ChatEntry[]): PendingSend[] {
+/** The sends with the transcript's echo stamped on: a user (or steer — a send can open with
+ *  Shepherd's steer wording, e.g. "Plan approved.") row with the same text, stamped no earlier
+ *  than the skew window before the send (an older identical message is not the echo). Each row
+ *  settles one send, so a repeated answer ("Yes", then "Yes") waits for its own echo; a settled
+ *  send only ever holds its own row. The same array when nothing new settled. */
+export function settle(pending: PendingSend[], entries: ChatEntry[]): PendingSend[] {
   const used = new Set<number>();
-  return pending.filter((p) => {
+  let changed = false;
+  const next = pending.map((p) => {
     const i = entries.findIndex(
       (e, j) =>
         !used.has(j) &&
@@ -107,12 +112,20 @@ export function unsettled(pending: PendingSend[], entries: ChatEntry[]): Pending
         (p.match === undefined
           ? e.text.trim() === p.text.trim()
           : e.text.includes(p.match.trim())) &&
-        e.ts >= p.at - ECHO_SKEW_MS,
+        (p.echoTs === undefined ? e.ts >= p.at - ECHO_SKEW_MS : e.ts === p.echoTs),
     );
-    if (i < 0) return true;
+    if (i < 0) return p;
     used.add(i);
-    return false;
+    if (p.echoTs !== undefined) return p;
+    changed = true;
+    return { ...p, echoTs: entries[i].ts };
   });
+  return changed ? next : pending;
+}
+
+/** The sends the transcript has not logged yet ({@link settle}). */
+export function unsettled(pending: PendingSend[], entries: ChatEntry[]): PendingSend[] {
+  return settle(pending, entries).filter((p) => p.echoTs === undefined);
 }
 
 /** What the assistant sees of the operator's window, for the panel's context line. Null when no

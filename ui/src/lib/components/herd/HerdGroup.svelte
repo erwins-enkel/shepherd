@@ -7,7 +7,9 @@
     LivenessState,
     Epic,
     HeavySlotSnapshot,
+    RemoteInstance,
   } from "#lib/types.js";
+  import { machineHeavySlot } from "#lib/remote-sessions.js";
   import UnitRow from "../UnitRow.svelte";
   import InfoTip from "../InfoTip.svelte";
 
@@ -24,6 +26,8 @@
     previewServe: Record<string, "ok" | "failed">;
     /** The host-wide heavy-check slot (#3181) — each card shows its session's part in it. */
     heavySlot: HeavySlotSnapshot | null;
+    /** The connected machines (machines.list) — a mirrored card reads its machine's slot. */
+    machines: readonly RemoteInstance[];
     onpreview?: (id: string, target?: "inline" | "tab") => void;
     onopenbrowser?: (id: string) => void;
     ondecommission?: (id: string) => void;
@@ -169,7 +173,7 @@
             : undefined}
           showModel={ctx.showModel}
           showCli={ctx.showCli}
-          heavySlot={ctx.heavySlot}
+          heavySlot={machineHeavySlot(session.host.instanceId, ctx.machines)}
         />
       {:else}
         <UnitRow

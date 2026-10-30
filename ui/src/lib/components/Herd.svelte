@@ -514,6 +514,7 @@
     preview,
     previewServe,
     heavySlot,
+    machines: machines.list,
     onpreview,
     onopenbrowser,
     ondecommission,

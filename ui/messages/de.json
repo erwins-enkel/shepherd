@@ -7952,5 +7952,6 @@
   "prrow_locked_not_live": "Der Agent läuft nicht, es gibt nichts zu steuern. Setze ihn zuerst fort.",
   "prrow_tip_fix_ci": "Steuert den Agenten einmal: Logs der fehlschlagenden Checks lesen, Ursache beheben, pushen.",
   "prrow_tip_rebase": "Steuert den Agenten einmal: Branch auf die Base rebasen und pushen.",
-  "prrow_tip_decommission": "Öffnet die Stilllegen-Bestätigung. Es wird nichts an den Agenten gesendet."
+  "prrow_tip_decommission": "Öffnet die Stilllegen-Bestätigung. Es wird nichts an den Agenten gesendet.",
+  "qform_recommended": "Empfohlen"
 }

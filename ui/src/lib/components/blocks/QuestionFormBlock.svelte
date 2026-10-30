@@ -74,6 +74,10 @@
   const otherOn = (q: { id: string; kind: string }) =>
     q.kind === "single" ? single[q.id] === OTHER : !!otherChecked[q.id];
   const otherFilled = (id: string) => !!otherText[id]?.trim();
+  // AskUserQuestion marks its suggested choice with a trailing "(Recommended)": shown as a tag
+  // instead. Answers go by option index, so trimming the label changes nothing that is sent.
+  const RECOMMENDED = /\s*\(recommended\)\s*$/i;
+  const optionLabel = (option: string) => option.replace(RECOMMENDED, "");
 
   let submitting = $state(false);
   let submitted = $state(false);
@@ -199,8 +203,9 @@
       {#if (q.kind === "single" || q.kind === "multi") && q.options}
         <ul class="qf-options">
           {#each q.options as option, i (i)}
+            {@const recommended = RECOMMENDED.test(option)}
             <li class="qf-option">
-              <label class="qf-label" class:qf-label-live={interactive}>
+              <label class="qf-label" class:qf-label-live={interactive} class:qf-rec={recommended}>
                 {#if q.kind === "single"}
                   <input
                     type="radio"
@@ -219,11 +224,14 @@
                   />
                 {/if}
                 <span class="qf-option-text">
-                  <span>{option}</span>
+                  <span class="qf-option-label">{optionLabel(option)}</span>
                   {#if q.optionDescriptions?.[i] && q.optionDescriptions[i] !== option}
                     <span class="qf-option-desc">{@render linked(q.optionDescriptions[i])}</span>
                   {/if}
                 </span>
+                {#if recommended}
+                  <span class="qf-rec-tag">{m.qform_recommended()}</span>
+                {/if}
               </label>
             </li>
           {/each}
@@ -246,7 +254,7 @@
                     disabled={inputsDisabled}
                   />
                 {/if}
-                <span>{m.qform_other()}</span>
+                <span class="qf-option-text">{m.qform_other()}</span>
               </label>
             </li>
             {#if otherOn(q)}
@@ -334,38 +342,95 @@
     color: var(--color-amber);
   }
   .qf-option-text {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
+    gap: 2px;
+  }
+  .qf-option-label {
+    font-weight: 500;
+    color: var(--color-ink-bright);
   }
   .qf-option-desc {
     font-size: var(--fs-meta);
+    line-height: 1.45;
     color: var(--color-muted);
   }
   .qf-options {
-    margin: 4px 0 0 0;
+    margin: 8px 0 0 0;
     padding: 0;
     list-style: none;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
   }
-  .qf-option {
-    display: flex;
-    align-items: center;
-  }
+  /* Each answer is its own full-width row: the whole row is the label, so a click anywhere on
+     it picks the answer, not only the control at its start. */
   .qf-label {
     display: flex;
-    align-items: center;
-    gap: 6px;
+    align-items: flex-start;
+    gap: 10px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 12px;
+    border: 1px solid var(--color-line);
+    border-radius: 3px;
+    background: var(--color-inset);
     font-size: var(--fs-base);
     color: var(--color-ink);
     opacity: 0.7;
     cursor: default;
+    transition:
+      border-color 0.12s,
+      background-color 0.12s;
+  }
+  .qf-label input {
+    flex: none;
+    margin: 2px 0 0;
+    accent-color: var(--color-amber);
+  }
+  .qf-rec {
+    border-color: var(--wash-recommended-edge);
+    background: var(--wash-recommended);
+  }
+  .qf-rec-tag {
+    flex: none;
+    align-self: center;
+    font-size: var(--fs-meta);
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--wash-recommended-ink);
+    border: 1px solid var(--wash-recommended-edge);
+    border-radius: 2px;
+    padding: 1px 6px;
   }
   /* Interactive: full opacity + pointer affordance. */
   .qf-label-live {
     opacity: 1;
     cursor: pointer;
+  }
+  .qf-label-live:hover {
+    border-color: var(--color-line-bright);
+    background: var(--color-hover);
+  }
+  .qf-label-live.qf-rec:hover {
+    border-color: var(--color-blue);
+    background: var(--wash-recommended);
+  }
+  /* The operator's pick wins over the recommendation tint; the tag still names it. */
+  .qf-label:has(input:checked) {
+    border-color: var(--color-amber);
+    background: var(--color-sel);
+  }
+  .qf-label:has(input:focus-visible) {
+    box-shadow: 0 0 0 1px var(--color-amber);
+  }
+  @media (pointer: coarse) {
+    .qf-label {
+      min-height: 44px;
+    }
   }
   .qf-freeform {
     margin-top: 4px;

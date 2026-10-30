@@ -7952,5 +7952,6 @@
   "prrow_locked_not_live": "The agent is not running, so there is nothing to steer. Resume it first.",
   "prrow_tip_fix_ci": "Steers the agent once to read the failing checks' logs, fix the cause and push.",
   "prrow_tip_rebase": "Steers the agent once to rebase its branch onto the base branch and push.",
-  "prrow_tip_decommission": "Opens the decommission confirmation. Nothing is sent to the agent."
+  "prrow_tip_decommission": "Opens the decommission confirmation. Nothing is sent to the agent.",
+  "qform_recommended": "Recommended"
 }

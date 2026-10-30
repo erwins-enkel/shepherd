@@ -11,9 +11,11 @@
   import { findUpNextItem, upNextKey, upNextUi } from "#lib/up-next-ui.svelte.js";
   import { UpNextStarter, type UpNextLaunchContext } from "#lib/up-next-start.svelte.js";
   import { LazyBody } from "#lib/lazy-body.svelte.js";
+  import { quickStartChips, quickStartTip, type QuickStartChip } from "#lib/up-next-quick-start.js";
   import IssueDetailHead from "./issues-panel/IssueDetailHead.svelte";
   import UpNextPreviewBody from "./UpNextPreviewBody.svelte";
   import UpNextPreviewFrame from "./UpNextPreviewFrame.svelte";
+  import UpNextQuickStartChip from "./UpNextQuickStartChip.svelte";
   import UpNextStartPicker from "./UpNextStartPicker.svelte";
   import UpNextSteerMenu from "./UpNextSteerMenu.svelte";
 
@@ -52,41 +54,67 @@
       : [],
   );
 
-  // As many steers as fit sit inline after Start (in Settings order); once one doesn't, a ▾
-  // joins Start and opens all of them. Clipped buttons stay laid out (visibility: hidden) so
+  // Quick-start chips (Settings › Coding CLI): one per CLI whose preset is on, on the Start row.
+  const chips = $derived(
+    quickStartChips({
+      quickStarts: starter.quickStarts,
+      diagnostics: starter.diagnostics,
+      limits: starter.usageLimits,
+      holdLikely: starter.holdLikely,
+      holdPct: starter.holdPct,
+      nowMs: starter.nowMs,
+    }),
+  );
+
+  // As many chips / steers as fit sit inline (in Settings order); once one of either doesn't, a
+  // ▾ joins Start and opens all of them. Clipped buttons stay laid out (visibility: hidden) so
   // every re-measure can read their widths. The ▾ only ever narrows the row, so showing it
   // can't make everything fit again — no flip-flop.
-  let steerRow = $state<HTMLElement>();
-  let fitCount = $state(Infinity);
-  const overflow = $derived(fitCount < issueSteers.length);
-  $effect(() => {
-    const row = steerRow;
-    void issueSteers; // re-measure when stepping to a row with other steers
-    if (!row) return;
-    const buttons = Array.from(row.querySelectorAll<HTMLElement>(".unp-steer"));
+  let chipFit = $state(Infinity);
+  let steerFit = $state(Infinity);
+  const overflow = $derived(chipFit < chips.length || steerFit < issueSteers.length);
+
+  /** Counts the leading `selector` buttons of `row` that fit its width. The buttons too are
+   *  observed: a late web font widens them without resizing the row. Measured on the next
+   *  frame: the ▾ a measure adds resizes the row, which inside the observer's own delivery
+   *  would trip "ResizeObserver loop completed with undelivered notifications". */
+  function fit(
+    row: HTMLElement,
+    opts: { selector: string; items: readonly unknown[]; onfit: (n: number) => void },
+  ) {
+    let o = opts;
+    let frame = 0;
+    const buttons = () => Array.from(row.querySelectorAll<HTMLElement>(o.selector));
     const measure = () => {
       let n = 0;
-      for (const b of buttons) {
+      for (const b of buttons()) {
         if (b.offsetLeft + b.offsetWidth > row.clientWidth) break;
         n++;
       }
-      fitCount = n;
+      o.onfit(n);
     };
-    measure();
-    // The buttons too: a late web font widens them without resizing the row. Measured on the
-    // next frame: the ▾ a measure adds resizes the row, which inside the observer's own
-    // delivery would trip "ResizeObserver loop completed with undelivered notifications".
-    let frame = 0;
     const ro = new ResizeObserver(() => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(measure);
     });
-    for (const el of [row, ...buttons]) ro.observe(el);
-    return () => {
-      cancelAnimationFrame(frame);
+    const observe = () => {
       ro.disconnect();
+      for (const el of [row, ...buttons()]) ro.observe(el);
     };
-  });
+    observe();
+    measure();
+    return {
+      update(next: typeof opts) {
+        o = next;
+        observe();
+        measure();
+      },
+      destroy() {
+        cancelAnimationFrame(frame);
+        ro.disconnect();
+      },
+    };
+  }
 
   let startGroup = $state<HTMLElement>();
   let startBtn = $state<HTMLButtonElement>();
@@ -99,6 +127,13 @@
     menuOpen = false;
     if (item) void starter.startWithSteer(item, steer);
   }
+
+  function startQuick(chip: QuickStartChip) {
+    menuOpen = false;
+    if (item && chip.state !== "blocked") void starter.startQuick(item, chip.provider, chip.preset);
+  }
+  const chipTip = (chip: QuickStartChip, number: number) =>
+    quickStartTip(chip, number, starter.usageLimits, starter.nowMs);
 
   function steerTip(s: Steer, number: number): TooltipExplanation {
     const prompt = s.text.trim();
@@ -144,67 +179,115 @@
       author={item.author ?? loader.author ?? undefined}
       createdAt={item.createdAt}
     />
-    <div class="unp-actions">
-      <span class="unp-start" bind:this={startGroup}>
-        <button
-          type="button"
-          class="gbtn primary"
-          class:split={overflow}
-          bind:this={startBtn}
-          disabled={starter.starting}
-          onclick={(e) => starter.request([item], e.currentTarget)}>{m.upnext_start()}</button
-        >
-        {#if overflow}
+    <div class="unp-actions" class:two-line={chips.length > 0}>
+      <div class="unp-line">
+        <span class="unp-start" bind:this={startGroup}>
           <button
             type="button"
-            class="gbtn primary unp-more"
-            class:open={menuOpen}
-            aria-label={m.upnext_preview_more()}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
+            class="gbtn primary"
+            class:split={overflow}
+            bind:this={startBtn}
             disabled={starter.starting}
-            onclick={() => (menuOpen = !menuOpen)}>▾</button
+            onclick={(e) => starter.request([item], e.currentTarget)}
+            >{chips.length > 0 ? m.upnext_start_ellipsis() : m.upnext_start()}</button
           >
-        {/if}
-      </span>
-      {#if issueSteers.length > 0}
-        <div class="unp-steers" bind:this={steerRow}>
-          <span class="unp-steers-label" class:clipped={fitCount === 0}
-            >{m.upnext_preview_steers_label()}</span
-          >
-          {#each issueSteers as s, i (s.id)}
+          {#if overflow}
             <button
               type="button"
-              class="gbtn unp-steer"
-              class:clipped={i >= fitCount}
-              aria-label={m.issuespanel_action_aria({ label: s.label })}
+              class="gbtn primary unp-more"
+              class:open={menuOpen}
+              aria-label={m.upnext_preview_more()}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
               disabled={starter.starting}
-              use:statusTip={{
-                text: steerTip(s, item.number),
-                wide: true,
-                stopClickPropagation: false,
-                pinOnClick: false,
-              }}
-              onclick={() => startWith(s)}
-              ><span class="unp-steer-icon" class:glyph={!s.emoji} aria-hidden="true"
-                >{s.emoji || "⇥"}</span
-              ><span>{s.label}</span></button
+              onclick={() => (menuOpen = !menuOpen)}>▾</button
             >
-          {/each}
+          {/if}
+        </span>
+        {#if chips.length > 0}
+          <div
+            class="unp-fit unp-chips"
+            use:fit={{
+              selector: ".unp-chip",
+              items: chips,
+              onfit: (n) => (chipFit = n),
+            }}
+          >
+            <span class="unp-fit-label" class:clipped={chipFit === 0}
+              >{m.upnext_quickstart_label()}</span
+            >
+            {#each chips as chip, i (chip.provider)}
+              <UpNextQuickStartChip
+                {chip}
+                tip={chipTip(chip, item.number)}
+                nowMs={starter.nowMs}
+                starting={starter.starting}
+                onstart={() => startQuick(chip)}
+                clipped={i >= chipFit}
+              />
+            {/each}
+          </div>
+        {/if}
+        {#if chips.length === 0}
+          {@render steerRow()}
+          {@render pick()}
+        {/if}
+      </div>
+      {#if chips.length > 0}
+        <div class="unp-line">
+          {@render steerRow()}
+          {@render pick()}
         </div>
       {/if}
-      <label class="unp-pick">
-        <input
-          type="checkbox"
-          checked={upNextUi.selected.has(key)}
-          onchange={() => upNextUi.toggle(key)}
-        />
-        <span>{m.upnext_preview_select()}</span>
-      </label>
     </div>
     <UpNextPreviewBody {loader} unavailable={m.issuepeek_unavailable()} />
   {/if}
 </UpNextPreviewFrame>
+
+{#snippet steerRow()}
+  {#if item && key && issueSteers.length > 0}
+    <div
+      class="unp-fit unp-steers"
+      use:fit={{ selector: ".unp-steer", items: issueSteers, onfit: (n) => (steerFit = n) }}
+    >
+      <span class="unp-fit-label" class:clipped={steerFit === 0}
+        >{m.upnext_preview_steers_label()}</span
+      >
+      {#each issueSteers as s, i (s.id)}
+        <button
+          type="button"
+          class="gbtn unp-steer"
+          class:clipped={i >= steerFit}
+          aria-label={m.issuespanel_action_aria({ label: s.label })}
+          disabled={starter.starting}
+          use:statusTip={{
+            text: steerTip(s, item.number),
+            wide: true,
+            stopClickPropagation: false,
+            pinOnClick: false,
+          }}
+          onclick={() => startWith(s)}
+          ><span class="unp-steer-icon" class:glyph={!s.emoji} aria-hidden="true"
+            >{s.emoji || "⇥"}</span
+          ><span>{s.label}</span></button
+        >
+      {/each}
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet pick()}
+  {#if key}
+    <label class="unp-pick">
+      <input
+        type="checkbox"
+        checked={upNextUi.selected.has(key)}
+        onchange={() => upNextUi.toggle(key)}
+      />
+      <span>{m.upnext_preview_select()}</span>
+    </label>
+  {/if}
+{/snippet}
 
 <UpNextStartPicker {starter} />
 {#if menuOpen && item && startGroup}
@@ -212,6 +295,17 @@
     anchor={startGroup}
     number={item.number}
     steers={issueSteers}
+    startLabel={chips.length > 0 ? m.upnext_start_ellipsis() : undefined}
+    startHint={chips.length > 0 ? m.upnext_quickstart_menu_start_hint() : undefined}
+    quickStarts={chips}
+    onquick={startQuick}
+    nowMs={starter.nowMs}
+    onmanagequickstarts={launchContext?.onmanagequickstarts
+      ? () => {
+          menuOpen = false;
+          launchContext?.onmanagequickstarts?.();
+        }
+      : undefined}
     onstart={() => {
       menuOpen = false;
       if (startBtn) starter.request([item], startBtn);
@@ -228,8 +322,19 @@
 {/if}
 
 <style>
+  /* One line of the action row: Start (+ chips) on the first, steers + tick on the second. */
+  .two-line {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .unp-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
   /* Basis 0: the row takes what Start and the tick leave, and never wraps onto its own line. */
-  .unp-steers {
+  .unp-fit {
     position: relative;
     flex: 1 1 0;
     min-width: 0;
@@ -238,7 +343,7 @@
     gap: 6px;
     overflow: hidden;
   }
-  .unp-steers-label {
+  .unp-fit-label {
     flex: none;
     padding-left: 10px;
     border-left: 1px solid var(--color-line-bright);
@@ -260,6 +365,9 @@
     border-color: var(--color-amber);
     color: var(--color-amber);
   }
+  .unp-line > :global(.unp-pick) {
+    margin-left: auto;
+  }
   .unp-steer-icon {
     line-height: 1;
   }
@@ -269,5 +377,32 @@
   /* Out of view and out of the tab order, but still measured. */
   .clipped {
     visibility: hidden;
+  }
+
+  /* Phone: Start spans the row and chips sit two to a row (so none is clipped). Steers that
+     don't fit still fold into the ▾, as before. */
+  @media (max-width: 768px), (pointer: coarse) {
+    .unp-line {
+      flex-wrap: wrap;
+    }
+    .unp-line > :global(.unp-start) {
+      flex: 1 0 100%;
+    }
+    .unp-line > :global(.unp-start > :first-child) {
+      flex: 1;
+      justify-content: center;
+      min-height: 44px;
+    }
+    .unp-chips {
+      flex: 1 0 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      overflow: visible;
+    }
+    .unp-chips .unp-fit-label {
+      grid-column: 1 / -1;
+      padding-left: 0;
+      border-left: 0;
+    }
   }
 </style>

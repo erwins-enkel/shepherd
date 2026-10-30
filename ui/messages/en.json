@@ -7947,6 +7947,8 @@
   "markdown_code_copied": "Copied",
   "feat_chat_copy_code_title": "Copy code from chat",
   "feat_chat_copy_code_body": "Hover a code block in an agent's chat reply and click the copy icon in its corner to put the whole block on your clipboard.",
+  "feat_markdown_code_highlight_title": "Syntax-highlighted code",
+  "feat_markdown_code_highlight_body": "Code blocks in chat replies, plans and issue descriptions are now colored by language when the block names one (such as ts or rust), in both light and dark themes.",
   "feat_start_queue_memory_title": "New sessions wait out memory pressure",
   "feat_start_queue_memory_body": "While the check slot's pressure brake is on, new tasks and the auto-drain no longer start into the memory storm. They queue and start in order, one at a time, once memory recovers — the waiting starts show in the check slot. Spawn now on a held task still starts it right away.",
   "prrow_state_merged": "Merged",

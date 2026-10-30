@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import { m } from "#lib/paraglide/messages.js";
+import { theme } from "#lib/theme.svelte.js";
 import { toasts } from "#lib/toasts.svelte.js";
 import MarkdownBody from "./MarkdownBody.svelte";
 
@@ -168,5 +169,76 @@ describe("MarkdownBody code copy", () => {
     await expect.poll(() => container.querySelector(".md-copy")).not.toBeNull();
     (container.querySelector(".md-copy") as HTMLButtonElement).click();
     await expect.poll(() => toasts.items.map((t) => t.text)).toContain(m.clipboard_copy_failed());
+  });
+});
+
+describe("MarkdownBody code highlighting", () => {
+  const spans = (el: Element) => el.querySelectorAll("pre code span[style*='color']");
+  const colorOf = (el: Element, text: string) =>
+    [...spans(el)].find((s) => s.textContent === text)?.getAttribute("style");
+
+  afterEach(() => theme.setPref("dark"));
+
+  it("colors a tagged fence and keeps its exact text", async () => {
+    const code = "const n: number = 1; // one\n";
+    const { container } = await render(MarkdownBody, { source: "```ts\n" + code + "```" });
+    await expect.poll(() => spans(container).length, { timeout: 5000 }).toBeGreaterThan(1);
+    expect(container.querySelector("pre code")!.textContent).toBe(code);
+  });
+
+  it("resolves language aliases", async () => {
+    const { container } = await render(MarkdownBody, { source: "```sh\necho hi\n```" });
+    await expect.poll(() => spans(container).length, { timeout: 5000 }).toBeGreaterThan(0);
+  });
+
+  it("leaves untagged and unknown fences plain", async () => {
+    const { container } = await render(MarkdownBody, {
+      source: "```\nconst a = 1\n```\n\n```nosuchlang\nconst b = 2\n```\n\n```ts\nlet c\n```",
+    });
+    // The ts fence colors last, so once it has spans the others have been tried too.
+    await expect
+      .poll(() => container.querySelectorAll("pre")[2]?.querySelector("span"), { timeout: 5000 })
+      .not.toBeNull();
+    const [plain, unknown] = container.querySelectorAll("pre code");
+    expect(plain.querySelector("span")).toBeNull();
+    expect(unknown.querySelector("span")).toBeNull();
+    expect(unknown.textContent).toBe("const b = 2\n");
+  });
+
+  it("shows markup inside a fence as text, never as elements", async () => {
+    const code = '<script>alert(1)</script><img src=x onerror="alert(2)">\n';
+    const { container } = await render(MarkdownBody, { source: "```html\n" + code + "```" });
+    await expect.poll(() => spans(container).length, { timeout: 5000 }).toBeGreaterThan(0);
+    const el = container.querySelector("pre code")!;
+    expect(el.querySelector("script, img")).toBeNull();
+    expect(el.textContent).toBe(code);
+  });
+
+  it("recolors when the theme changes", async () => {
+    theme.setPref("dark");
+    const { container } = await render(MarkdownBody, { source: "```ts\nconst x = 1\n```" });
+    await expect.poll(() => colorOf(container, "const"), { timeout: 5000 }).toBeTruthy();
+    const dark = colorOf(container, "const");
+    theme.setPref("light");
+    await expect
+      .poll(
+        () => {
+          const now = colorOf(container, "const");
+          return !!now && now !== dark;
+        },
+        { timeout: 5000 },
+      )
+      .toBe(true);
+  });
+
+  it("copies a highlighted block's exact source", async () => {
+    const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const { container } = await render(MarkdownBody, {
+      source: "```ts\nconst a = '<b>';\n```",
+      copyCode: true,
+    });
+    await expect.poll(() => spans(container).length, { timeout: 5000 }).toBeGreaterThan(0);
+    (container.querySelector(".md-copy") as HTMLButtonElement).click();
+    await expect.poll(() => write.mock.calls[0]?.[0]).toBe("const a = '<b>';\n");
   });
 });

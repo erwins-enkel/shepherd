@@ -2808,7 +2808,7 @@ describe("Viewport — merge row above the steer bar", () => {
     expect(follows(row, container.querySelector(".ctrl-row")!)).toBe(true);
   });
 
-  it("no row off the steering tabs, without a PR, or once merged", async () => {
+  it("no row off the steering tabs, without a PR, or once closed; merged keeps it (Stilllegen)", async () => {
     const { container, rerender } = await render(Viewport, {
       session: session({ id: "mr-hide" }),
       git: openGit,
@@ -2823,6 +2823,13 @@ describe("Viewport — merge row above the steer bar", () => {
     await rerender({
       session: session({ id: "mr-hide" }),
       git: { ...openGit, state: "merged" },
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(container.querySelector("section.pr-row.merged")).not.toBeNull());
+    await rerender({
+      session: session({ id: "mr-hide" }),
+      git: { ...openGit, state: "closed" },
       previewPort: null,
       openPreviewTick: 0,
     });

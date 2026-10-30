@@ -3642,7 +3642,9 @@
       {drain}
       {mobile}
       {touch}
+      {liveness}
       ondecommission={confirmDecommission}
+      onsent={(text, sent) => chatView?.echo(text, sent)}
       onsummary={() => (recapOpen = !recapOpen)}
     />
   {/if}

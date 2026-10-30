@@ -9,6 +9,7 @@ import { m } from "#lib/paraglide/messages.js";
 const mergePrFn = vi.fn();
 const reviewPrFn = vi.fn(async () => "started" as "started" | "skipped" | "error");
 const setReadyToMergeFn = vi.fn(async () => {});
+const replySessionFn = vi.fn<(id: string, text: string) => Promise<void>>(async () => {});
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
@@ -16,6 +17,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     mergePr: mergePrFn,
     reviewPr: reviewPrFn,
     setReadyToMerge: setReadyToMergeFn,
+    replySession: replySessionFn,
   };
 });
 const toastsInfo = vi.fn();
@@ -126,6 +128,7 @@ beforeEach(() => {
   mergePrFn.mockReset();
   reviewPrFn.mockReset().mockResolvedValue("started");
   setReadyToMergeFn.mockClear();
+  replySessionFn.mockReset().mockResolvedValue(undefined);
   toastsInfo.mockClear();
   (pullMainAndToast as ReturnType<typeof vi.fn>).mockClear();
   repoConfig.enabled = { ...repoConfig.enabled, "/repo": false };
@@ -142,6 +145,7 @@ afterEach(async () => {
   const next = { ...repoConfig.enabled };
   delete next["/repo"];
   repoConfig.enabled = next;
+  repoConfig.autopilot = {};
   fontStyle.remove();
   document.body.innerHTML = "";
   await page.viewport(1280, 900);
@@ -151,7 +155,6 @@ describe("PrActionRow — visibility", () => {
   for (const git of [
     null,
     { ...readyGit, state: "none" as const },
-    { ...readyGit, state: "merged" as const },
     { ...readyGit, state: "closed" as const },
   ]) {
     it(`renders nothing for ${git?.state ?? "no git"}`, async () => {
@@ -161,6 +164,29 @@ describe("PrActionRow — visibility", () => {
       expect(h.querySelector("button")).toBeNull();
     });
   }
+});
+
+describe("PrActionRow — merged", () => {
+  const mergedGit: GitState = { ...readyGit, state: "merged" };
+  it("offers only Stilllegen: opens the confirmation, sends nothing, no Merge/Ready/Re-review", async () => {
+    const h = host();
+    const ondecommission = vi.fn();
+    repoConfig.enabled = { ...repoConfig.enabled, "/repo": true };
+    await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: mergedGit, status: "idle", ondecommission },
+    });
+    expect(row(h)!.classList.contains("merged")).toBe(true);
+    expect(row(h)!.textContent).toContain(m.prrow_state_merged());
+    expect(h.querySelector("button.merge")).toBeNull();
+    expect(h.querySelectorAll(".primary")).toHaveLength(1);
+    const b = h.querySelector<HTMLButtonElement>("button.primary")!;
+    expect(b.textContent?.trim()).toBe(m.gitrail_decommission_action());
+    expect(row(h)!.textContent).not.toContain(m.gitrail_rereview());
+    b.click();
+    expect(ondecommission).toHaveBeenCalledExactlyOnceWith("sess-A");
+    expect(replySessionFn).not.toHaveBeenCalled();
+  });
 });
 
 describe("PrActionRow — ready", () => {
@@ -266,24 +292,6 @@ describe("PrActionRow — locked states", () => {
       { checks: "pending", mergeStateStatus: "unstable" },
       m.prrow_state_ci_running(),
       m.gitrail_merge_blocked_pending(),
-    ],
-    [
-      "ci_failed",
-      { checks: "failure", mergeStateStatus: "unstable" },
-      m.prrow_state_ci_failed(),
-      m.gitrail_merge_blocked_checks(),
-    ],
-    [
-      "behind",
-      { mergeStateStatus: "behind" },
-      m.prrow_state_behind({ base: "main" }),
-      m.gitrail_merge_blocked_behind(),
-    ],
-    [
-      "conflict",
-      { mergeStateStatus: "dirty", mergeable: false },
-      m.prrow_state_conflict(),
-      m.gitrail_merge_blocked_conflict(),
     ],
     [
       "draft",
@@ -664,5 +672,190 @@ describe("PrActionRow — phone", () => {
     await screen.getByRole("button", { name: m.prrow_more_aria() }).click();
     await page.getByRole("menuitem", { name: m.gitrail_review() }).click();
     await vi.waitFor(() => expect(reviewPrFn).toHaveBeenCalledWith("sess-A"));
+  });
+});
+
+describe("PrActionRow — next step (#3541)", () => {
+  const red: GitState = {
+    ...readyGit,
+    checks: "failure",
+    mergeStateStatus: "unstable",
+    jobs: [
+      { name: "lint", state: "failure", url: "https://github.com/acme/shepherd/actions/runs/9" },
+      { name: "test (1/2)", state: "failure" },
+      { name: "build", state: "success" },
+    ],
+  };
+  const behind: GitState = { ...readyGit, mergeStateStatus: "behind" };
+  const conflict: GitState = { ...readyGit, mergeStateStatus: "dirty", mergeable: false };
+  const primary = (h: HTMLElement) => h.querySelector<HTMLButtonElement>("button.primary")!;
+  const setAutopilot = (on: boolean) => {
+    repoConfig.autopilot = { ...repoConfig.autopilot, "/repo": on };
+  };
+
+  it("red CI: one click steers the live agent once with the failing checks, then shows Sent", async () => {
+    const h = host();
+    const onsent = vi.fn();
+    await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: red, status: "idle", liveness: "alive", onsent },
+    });
+    expect(row(h)!.classList.contains("ci_failed")).toBe(true);
+    expect(h.querySelector("button.merge")).toBeNull();
+    expect(primary(h).textContent?.trim()).toBe(m.prrow_fix_ci());
+    primary(h).click();
+    primary(h).click(); // double click: still one steer
+    await expect.poll(() => primary(h).textContent?.trim()).toBe(m.prrow_sent());
+    expect(replySessionFn).toHaveBeenCalledExactlyOnceWith("sess-A", expect.any(String));
+    const text = replySessionFn.mock.calls[0][1];
+    expect(text).toContain("lint, test (1/2)");
+    expect(text).not.toContain("build");
+    expect(onsent).toHaveBeenCalledExactlyOnceWith(text, expect.any(Promise));
+    expect(primary(h).getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("red CI: Logs ↗ links the failing check; without a job URL, the PR's checks tab", async () => {
+    const h = host();
+    const screen = await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: red, status: "idle" },
+    });
+    await expect
+      .element(screen.getByRole("link", { name: m.prrow_logs_aria() }))
+      .toHaveAttribute("href", "https://github.com/acme/shepherd/actions/runs/9");
+    expect(h.textContent).not.toContain(m.prrow_pr_link());
+    await screen.unmount();
+    const h2 = host();
+    const s2 = await render(PrActionRow, {
+      target: h2,
+      props: { session: session(), git: { ...red, jobs: [] }, status: "idle" },
+    });
+    await expect
+      .element(s2.getByRole("link", { name: m.prrow_logs_aria() }))
+      .toHaveAttribute("href", `${readyGit.url}/checks`);
+  });
+
+  it("behind and conflict: Rebase steers the rebase", async () => {
+    for (const [git, needle] of [
+      [behind, "behind main"],
+      [conflict, "resolve the conflicts"],
+    ] as const) {
+      replySessionFn.mockClear();
+      const h = host();
+      const screen = await render(PrActionRow, {
+        target: h,
+        props: { session: session(), git, status: "idle" },
+      });
+      expect(primary(h).textContent?.trim()).toBe(m.prrow_rebase());
+      primary(h).click();
+      await expect.poll(() => replySessionFn.mock.calls.length).toBe(1);
+      expect(replySessionFn.mock.calls[0][1]).toContain(needle);
+      expect(replySessionFn.mock.calls[0][1]).toContain("origin/main");
+      await screen.unmount();
+    }
+  });
+
+  it("effective autopilot (repo default or override): a hint, no button, no steer", async () => {
+    for (const git of [red, behind, conflict]) {
+      setAutopilot(true);
+      const h = host();
+      const screen = await render(PrActionRow, {
+        target: h,
+        props: { session: session(), git, status: "idle" },
+      });
+      expect(h.querySelector("button.primary")).toBeNull();
+      const hint = h.querySelector<HTMLElement>(".pr-passive")!;
+      expect(hint.textContent).toBe(git === red ? m.prrow_passive_ci() : m.prrow_passive_rebase());
+      hint.click();
+      expect(replySessionFn).not.toHaveBeenCalled();
+      await screen.unmount();
+    }
+    // an explicit per-session opt-out beats the repo default
+    setAutopilot(true);
+    const h = host();
+    await render(PrActionRow, {
+      target: h,
+      props: { session: session({ autopilotEnabled: false }), git: red, status: "idle" },
+    });
+    expect(primary(h).textContent?.trim()).toBe(m.prrow_fix_ci());
+  });
+
+  it("a reviewing critic holds the CI fix, with its reason; the rebase stays free", async () => {
+    reviews.setReviewing("sess-A", true);
+    const h = host();
+    const screen = await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: red, status: "idle" },
+    });
+    const b = primary(h);
+    expect(b.getAttribute("aria-disabled")).toBe("true");
+    expect(b.disabled).toBe(false);
+    expect(b.getAttribute("aria-description") ?? "").toContain(m.prrow_locked_critic());
+    b.click();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(replySessionFn).not.toHaveBeenCalled();
+    await screen.unmount();
+    const h2 = host();
+    await render(PrActionRow, {
+      target: h2,
+      props: { session: session(), git: behind, status: "idle" },
+    });
+    expect(primary(h2).getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("agent not live (husk, shelved, done): locked with its reason, nothing sent", async () => {
+    for (const [s, liveness] of [
+      [session(), "husk"],
+      [session({ shelved: true }), undefined],
+      [session({ status: "done" }), undefined],
+    ] as const) {
+      const h = host();
+      const screen = await render(PrActionRow, {
+        target: h,
+        props: { session: s, git: red, status: s.status, liveness },
+      });
+      const b = primary(h);
+      expect(b.getAttribute("aria-disabled")).toBe("true");
+      expect(b.getAttribute("aria-description") ?? "").toContain(m.prrow_locked_not_live());
+      b.click();
+      await new Promise((r) => setTimeout(r, 30));
+      expect(replySessionFn).not.toHaveBeenCalled();
+      await screen.unmount();
+    }
+  });
+
+  it("a failed send toasts with Retry and re-enables the button", async () => {
+    replySessionFn.mockRejectedValueOnce(new Error("boom"));
+    const h = host();
+    await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: behind, status: "idle" },
+    });
+    primary(h).click();
+    await expect.poll(() => toastsInfo.mock.calls.length).toBe(1);
+    const [msg, opts] = toastsInfo.mock.calls[0];
+    expect(msg).toBe(m.steerbar_send_failed());
+    expect(opts.action?.label).toBe(m.common_retry());
+    expect(primary(h).textContent?.trim()).toBe(m.prrow_rebase());
+    expect(primary(h).getAttribute("aria-disabled")).toBeNull();
+    opts.action.run();
+    await expect.poll(() => replySessionFn.mock.calls.length).toBe(2);
+  });
+
+  it("Sent ✓ gives way to the git state again", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      const h = host();
+      await render(PrActionRow, {
+        target: h,
+        props: { session: session(), git: behind, status: "idle" },
+      });
+      primary(h).click();
+      await vi.waitFor(() => expect(primary(h).textContent?.trim()).toBe(m.prrow_sent()));
+      vi.advanceTimersByTime(2600);
+      await vi.waitFor(() => expect(primary(h).textContent?.trim()).toBe(m.prrow_rebase()));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

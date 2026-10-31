@@ -16,6 +16,9 @@ enum IOSMergedSessionPresentation {
         var instanceID: String? = nil
         /// Sessions this server mirrors from its connected machines (#2768).
         var remote: [Session] = []
+        /// This server's repo index (`GET /api/repos`): a repo filter keeps mirrored sessions by
+        /// the project slug of the repos it names (#3083).
+        var repos: [Repo] = []
     }
     struct Row: Identifiable {
         let profile: ServerProfile
@@ -141,12 +144,13 @@ enum IOSMergedSessionPresentation {
             }
         }
         // Sessions of connected machines join the lifecycle groups in the All lens (#3055), placed
-        // by the PR state their machine reports. Never narrowed by the repo filter: its chips name
-        // checkouts of the connected servers, not of the machines they mirror.
+        // by the PR state their machine reports. The repo filter's chips name checkouts of the
+        // connected servers, so it keeps the mirrored sessions of the same project by slug (#3083).
         var mirrored: [HerdStage: [Row]] = [:]
         var seenMirrored: Set<String> = []
+        let index = sources.flatMap(\.repos)
         for source in sources where lens == .all {
-            for session in source.remote {
+            for session in MirroredRepoFilter.kept(source.remote, selected: repos, repos: index) {
                 guard let host = session.host, session.connection != nil, !ownership.ownedDirectly(session),
                       seenMirrored.insert("\(host.instanceId)\u{1}\(session.id)").inserted else { continue }
                 mirrored[HerdClassifier.mirroredStage(session, now: now), default: []]
@@ -286,7 +290,7 @@ enum IOSMergedSessionPresentation {
                 finished: app.extension(QueuesModel.self)?.finishedSessions ?? [],
                 owed: app.extension(MergeModel.self)?.snapshot.owed ?? [],
                 instanceID: app.extension(IOSInstanceIdentity.self)?.instanceID,
-                remote: app.store?.remoteSessions ?? [])
+                remote: app.store?.remoteSessions ?? [], repos: app.store?.repos ?? [])
         }
     }
 }

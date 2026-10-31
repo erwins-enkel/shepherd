@@ -36,14 +36,21 @@ struct RemoteSessionsTests {
 
     private func mirrored(
         _ id: String, machine: String = "mac", name: String = "MacBook", desig: String = "TASK-07",
-        connected: Bool = true, since: Int = 1_790_000_000_000
+        connected: Bool = true, since: Int = 1_790_000_000_000, slug: String? = nil
     ) -> Session {
         var session = PreviewData.session(id: id, desig: desig)
         session.host = SessionHost(
             instanceId: machine, name: name, platform: InstancePlatform(known: .macos))
         session.connection = SessionConnection(
             state: .init(known: connected ? .connected : .disconnected), since: since)
+        session.remoteSlug = slug
         return session
+    }
+
+    private func repo(_ path: String, realPath: String? = nil, slug: String?) -> Repo {
+        let name = (path as NSString).lastPathComponent
+        return Repo(name: name, path: path, display: name, realPath: realPath ?? path, isFork: false,
+                    remoteSlug: slug, hidden: false)
     }
 
     @Test func aMirroredSessionIsLabelledWithItsMachine() {
@@ -110,11 +117,45 @@ struct RemoteSessionsTests {
         model.install(remoteSessions: [mirrored("r")])
         #expect(model.machineGroups.map(\.id) == ["mac"])
         #expect(!model.sessions.contains { $0.id == "r" })
-        // The repo filter names this server's checkouts and never hides another machine's work.
+        // A selection naming no repo of this server's herd is no filter.
         model.selectedRepos = ["/somewhere/else"]
         #expect(model.machineGroups.map(\.id) == ["mac"])
         model.lens = .ready
         #expect(model.machineGroups.isEmpty)
+    }
+
+    /// `inRepoFilter` (`ui/src/lib/remote-sessions.ts`, #3083): the filter names this server's
+    /// checkouts by path, so another machine's session stays only by its project slug.
+    @Test func aRepoFilterKeepsOtherMachinesSessionsOfTheSameProjectBySlug() {
+        let repos = [repo("/repos/app", realPath: "/srv/app", slug: "Owner/App"),
+                     repo("/repos/other", slug: "owner/other"), repo("/repos/unindexed", slug: nil)]
+        var same = mirrored("same", slug: "owner/app")
+        same.repoPath = "/Users/me/app"
+        // A path that happens to equal a selected checkout is no match: only the slug is.
+        var samePath = mirrored("samePath", slug: "someone/else")
+        samePath.repoPath = "/repos/app"
+        let remote = [same, mirrored("other", slug: "owner/other"), mirrored("unknown"), samePath]
+
+        #expect(MirroredRepoFilter.kept(remote, selected: [], repos: repos).map(\.id)
+            == ["same", "other", "unknown", "samePath"])
+        #expect(MirroredRepoFilter.kept(remote, selected: ["/repos/app"], repos: repos).map(\.id) == ["same"])
+        #expect(MirroredRepoFilter.kept(remote, selected: ["/srv/app"], repos: repos).map(\.id) == ["same"])
+        #expect(MirroredRepoFilter.kept(remote, selected: ["/repos/app", "/repos/other"], repos: repos)
+            .map(\.id) == ["same", "other"])
+        #expect(MirroredRepoFilter.kept(remote, selected: ["/repos/unindexed"], repos: repos).isEmpty)
+    }
+
+    @Test func theSidebarNarrowsMachineGroupsToTheFilteredProject() {
+        let model = SidebarModel(reads: .stub, now: { 1_800_000_000_000 })
+        let local = PreviewData.session(id: "local")
+        model.install(sessions: [local])
+        model.install(repos: [repo(local.repoPath, slug: "owner/demo")])
+        model.install(remoteSessions: [mirrored("same", slug: "Owner/Demo"),
+            mirrored("other", machine: "box", name: "Box", slug: "owner/other")])
+        #expect(model.machineGroups.map(\.id) == ["mac", "box"])
+        model.selectedRepos = [local.repoPath]
+        #expect(model.machineGroups.map(\.id) == ["mac"])
+        #expect(model.machineGroups.first?.sessions.map(\.id) == ["same"])
     }
 
     @Test func aTerminalWhoseMachineWasUnreachableReattachesOnlyWhenItIsBack() async {

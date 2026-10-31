@@ -141,11 +141,16 @@ final class IOSMergedServerPresentationTests: XCTestCase {
     // MARK: - Sessions mirrored from connected machines (#2768)
 
     private func mirrored(_ id: String, machine: String = "mac-id", name: String = "MacBook",
-                          repo: String = "/repos/app", connected: Bool = true) -> Session {
+                          repo: String = "/repos/app", connected: Bool = true, slug: String? = nil) -> Session {
         var copy = session(id, created: 5, repo: repo)
         copy.host = SessionHost(instanceId: machine, name: name, platform: InstancePlatform(known: .macos))
         copy.connection = SessionConnection(state: .init(known: connected ? .connected : .disconnected), since: 1)
+        copy.remoteSlug = slug
         return copy
+    }
+    private func repo(_ path: String, slug: String?) -> Repo {
+        let name = (path as NSString).lastPathComponent
+        return Repo(name: name, path: path, display: name, realPath: path, isFork: false, remoteSlug: slug, hidden: false)
     }
     private func shownIDs(_ merged: IOSMergedSessionPresentation.Snapshot) -> [String] {
         (merged.epicGroups.flatMap(\.rows) + merged.groups.flatMap(\.rows)).map(\.session.id)
@@ -180,9 +185,11 @@ final class IOSMergedServerPresentationTests: XCTestCase {
         let linux = profile("coordinator")
         var coordinator = source(linux, sessions: [session("l1", created: 10, repo: "/repos/app")])
         coordinator.instanceID = "linux-id"
-        coordinator.remote = [mirrored("m1", repo: "/Users/me/app"),
-            mirrored("b1", machine: "box-id", name: "Box", connected: false)]
-        // The repo filter names this server's checkouts; it never hides another machine's work.
+        coordinator.repos = [repo("/repos/app", slug: "owner/app")]
+        coordinator.remote = [mirrored("m1", repo: "/Users/me/app", slug: "Owner/App"),
+            mirrored("b1", machine: "box-id", name: "Box", connected: false, slug: "owner/app")]
+        // The repo filter names this server's checkouts; another machine's sessions of the same
+        // project stay by their slug (#3083), whatever their path.
         let merged = IOSMergedSessionPresentation.merge([coordinator], selectedRepos: ["/repos/app"])
         // No group per machine (#3055): interleaved by start time among the server's own.
         XCTAssertEqual(merged.groups.map(\.stage), [.active])
@@ -209,6 +216,31 @@ final class IOSMergedServerPresentationTests: XCTestCase {
         XCTAssertEqual(merged.groups.map { $0.rows.map(\.session.id) }, [["m3", "l1"], ["m2"], ["m1"]])
         let ready = IOSMergedSessionPresentation.merge([coordinator], selectedRepos: [], lens: .ready)
         XCTAssertTrue(mirroredRows(ready).isEmpty)
+    }
+
+    func testARepoFilterHidesOtherMachinesSessionsOfAnotherProjectInEveryStage() {
+        var coordinator = source(profile("coordinator"), sessions: [session("app", created: 10, repo: "/repos/app"),
+            session("dogs", created: 11, repo: "/repos/hundesport")])
+        coordinator.instanceID = "linux-id"
+        coordinator.repos = [repo("/repos/app", slug: "owner/app"), repo("/repos/hundesport", slug: "owner/hundesport")]
+        var landed = mirrored("landed", repo: "/Users/me/app", connected: false, slug: "owner/app")
+        landed.status = .init(known: .done)
+        landed.git = GitState(state: .init(known: .merged), checks: .init(known: .success), deployConfigured: false)
+        coordinator.remote = [mirrored("working", repo: "/Users/me/app", slug: "owner/app"), landed,
+            mirrored("unslugged", repo: "/repos/hundesport")]
+
+        let all = IOSMergedSessionPresentation.merge([coordinator], selectedRepos: [])
+        XCTAssertEqual(Set(mirroredRows(all).map(\.session.id)), ["working", "landed", "unslugged"])
+        XCTAssertEqual(all.groups.first { $0.stage == .merged }?.rows.map(\.session.id), ["landed"])
+
+        let dogs = IOSMergedSessionPresentation.merge([coordinator], selectedRepos: ["/repos/hundesport"])
+        XCTAssertTrue(mirroredRows(dogs).isEmpty)
+        XCTAssertEqual(shownIDs(dogs), ["dogs"])
+        XCTAssertEqual(dogs.tallies.total, 1)
+        XCTAssertEqual(dogs.chips.map(\.name), ["app", "hundesport"])
+
+        let app = IOSMergedSessionPresentation.merge([coordinator], selectedRepos: ["/repos/app"])
+        XCTAssertEqual(Set(mirroredRows(app).map(\.session.id)), ["working", "landed"])
     }
 
     func testOneSessionMirroredByTwoCoordinatorsOrServedUnderTwoProfilesAppearsOnce() {

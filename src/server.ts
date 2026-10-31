@@ -378,6 +378,7 @@ import type {
 import {
   DEPENDABOT_REBASE_COMMAND,
   EmptyDiffError,
+  MergeEnqueuedError,
   MergeNotCompletedError,
   StackUntestedError,
 } from "./forge/types";
@@ -8059,6 +8060,20 @@ function invalidMergeMethod(method: unknown): Response | null {
   return json({ error: "invalid merge method" }, 400);
 }
 
+/** {@link manualMergeFailure} for a session's PR, rethrowing an unclassified failure. A merge queue
+ *  that took the PR stamps it queued now, so the session leaves "Your turn" (#3223). */
+function sessionMergeFailure(
+  err: unknown,
+  sessionId: string,
+  headSha: string | undefined,
+  deps: AppDeps,
+): Response {
+  if (err instanceof MergeEnqueuedError) deps.prCache?.noteEnqueued?.(sessionId, headSha);
+  const failure = manualMergeFailure(err);
+  if (failure) return failure;
+  throw err;
+}
+
 async function forgeMerge(
   forge: GitForge,
   session: Session,
@@ -8099,9 +8114,7 @@ async function forgeMerge(
     });
   } catch (err) {
     // A classified failure means nothing merged — return WITHOUT the settle/teardown below.
-    const failure = manualMergeFailure(err);
-    if (failure) return failure;
-    throw err;
+    return sessionMergeFailure(err, session.id, cur.headSha, deps);
   }
   // Evict the repo's open-PR snapshot so the backlog PRs panel for this repo can't
   // re-list this merged PR from a still-TTL-fresh cache. No-op for incapable forges

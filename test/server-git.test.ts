@@ -5,7 +5,7 @@ import type { SessionService } from "../src/service";
 import type { EventHub } from "../src/events";
 import type { Session } from "../src/types";
 import type { GitForge, GitState, MergeMethod, PrStatus } from "../src/forge/types";
-import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
+import { EMPTY_BACKLOG_COUNTS, MergeEnqueuedError } from "../src/forge/types";
 import { PrPoller, type PrCache } from "../src/pr-poller";
 import type { RepoRoles } from "../src/repo-roles";
 
@@ -366,6 +366,23 @@ test("POST git/merge uses forge-default method + deletes branch, returns refresh
   expect(res.status).toBe(200);
   expect(f.log).toContain("merge:5:squash:true");
   expect(f.log[f.log.length - 1]).toBe("status:shepherd/add-feature"); // refreshed after merge
+});
+
+test("POST git/merge that a merge queue took marks the session's PR enqueued, nothing settled", async () => {
+  const f = fakeForge({
+    prStatus: async () =>
+      ({ state: "open", number: 5, checks: "success", headSha: "h5" }) as PrStatus,
+    merge: async () => {
+      throw new MergeEnqueuedError(5);
+    },
+  });
+  const deps = makeDeps(f);
+  const noted: unknown[] = [];
+  deps.prCache!.noteEnqueued = (id, head) => noted.push([id, head]);
+  const res = await makeApp(deps).fetch(post("/api/sessions/s1/git/merge", {}));
+  expect(res.status).toBe(502);
+  expect((await res.json()).code).toBe("merge_enqueued");
+  expect(noted).toEqual([["s1", "h5"]]);
 });
 
 test("POST git/merge honors explicit method override", async () => {

@@ -1095,7 +1095,14 @@ test("an in-flight async merge neither settles the session nor records a failure
   });
   const archive = mock(() => 1);
   const emitStatus = mock(() => {});
+  const noteEnqueued = mock(() => {});
   const d = deps({
+    prCache: {
+      snapshot: () => ({
+        s1: { state: "open", checks: "success", mergeable: true, number: 7, headSha: "h1" },
+      }),
+      noteEnqueued,
+    } as any,
     resolveForge: () =>
       ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
     service: {
@@ -1109,6 +1116,8 @@ test("an in-flight async merge neither settles the session nor records a failure
   const svc = new AutoMergeService(d);
   await svc.pump("/r");
   expect(archive.mock.calls.length).toBe(0); // enqueued ≠ merged — must NOT archive
+  // The poller stamps it queued now — the enqueue moves no PR fingerprint.
+  expect(noteEnqueued.mock.calls as unknown[]).toEqual([["s1", "h1"]]);
   expect((emitStatus as any).mock.calls.map((c: any[]) => c[0]?.state)).not.toContain(
     "merge_error",
   );

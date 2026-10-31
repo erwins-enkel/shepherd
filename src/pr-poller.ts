@@ -25,6 +25,9 @@ const SESSION_CALLER = "pr-poller:session";
 type QueueRead = number[] | null | "unknown";
 /** How long one (repo, base) merge-queue read is reused across polls. */
 const MERGE_QUEUE_TTL_MS = 30_000;
+/** How long a PR Shepherd enqueued counts as queued while a readable queue does not list it yet
+ *  (read lag). Mirrors automerge's ENQUEUE_GRACE_MS. */
+const ENQUEUE_GRACE_MS = 60_000;
 
 interface ReadProvenance {
   contentKey: string | null;
@@ -56,6 +59,9 @@ export interface PrCache {
   get(id: string): GitState | undefined;
   set(id: string, git: GitState): void;
   drop(id: string): void;
+  /** Shepherd just handed this session's PR (at `headSha`) to a merge queue: stamp it queued now.
+   *  The enqueue moves no PR fingerprint, so no poll would otherwise notice it. */
+  noteEnqueued?(id: string, headSha?: string | null): void;
 }
 
 /** `gh pr list --head <branch>` matches by branch NAME only and `--state all`
@@ -260,6 +266,10 @@ export class PrPoller implements PrCache {
   /** Per (repo, base) merge-queue read, cached for {@link MERGE_QUEUE_TTL_MS}. The promise is
    *  cached so the sessions of one sweep share a single forge read. */
   private readonly queueCache = new Map<string, { read: Promise<QueueRead>; at: number }>();
+  /** Per (repo, base): did its last readable queue read find a merge queue? Absent = never read. */
+  private readonly queueExists = new Map<string, boolean>();
+  /** PRs Shepherd enqueued, keyed by session — queued through the queue read's lag. */
+  private readonly enqueuedMarks = new Map<string, { number: number; head: string; at: number }>();
   /** Epoch-ms of each session's last poll — gates {@link terminalPollMs}. */
   private readonly lastPolledAt = new Map<string, number>();
   /** Epoch-ms of each session's last poll that did NOT read the repo batch (head lookup or
@@ -463,6 +473,7 @@ export class PrPoller implements PrCache {
           this.shouldPoll(s, recheckNone) &&
           !(graphqlLimited && this.terminalUnderBackoff(s)),
       );
+      due.push(...(await this.queueMoved(sessions, due)));
       const batches = graphqlLimited
         ? new Map<string, PrBatch | null>()
         : await this.buildBatches(due, !this.repoFreshness);
@@ -488,6 +499,30 @@ export class PrPoller implements PrCache {
     } finally {
       this.sweeping = false;
     }
+  }
+
+  /** Settled open-PR sessions (not already `due`) whose PR entered or left its base's merge
+   *  queue. Enqueuing does not bump the PR's `updatedAt`, so the fingerprint never re-polls them.
+   *  Skipped under the same GraphQL limits as the sweep's other GitHub work. */
+  private async queueMoved(sessions: Session[], due: Session[]): Promise<Session[]> {
+    if (this.rateLimited() || this.budgetPaused()) return [];
+    const moved: Session[] = [];
+    for (const s of sessions) if (!due.includes(s) && (await this.queueFlipped(s))) moved.push(s);
+    return moved;
+  }
+
+  /** Does the base's queue disagree with `s`'s cached `inMergeQueue`? Bases known to have no
+   *  queue are not read; an unreadable queue disagrees with nothing. */
+  private async queueFlipped(s: Session): Promise<boolean> {
+    const git = this.cache.get(s.id);
+    const forge = this.resolveForge(s.repoPath);
+    if (git?.state !== "open" || !git.number || !git.baseRefName || !forge?.mergeQueueEntries)
+      return false;
+    const base = git.baseRefName;
+    if (this.queueExists.get(`${s.repoPath}\0${base}`) === false) return false;
+    const queue = await this.withGh(() => this.cachedQueue(s.repoPath, forge, base));
+    if (queue === "unknown") return false;
+    return (Array.isArray(queue) && queue.includes(git.number)) !== !!git.inMergeQueue;
   }
 
   /** A session whose PR state can't move without an event Shepherd sees anyway — a merged or
@@ -824,7 +859,7 @@ export class PrPoller implements PrCache {
     // Who's up (open+green): computed from .shepherd/roles.json + the operator's
     // login, so the herd can show "waiting on scoop" instead of "your turn".
     const git = await this.stampMergeQueue(
-      s.repoPath,
+      s,
       forge,
       annotateHandoff(typed, s.repoPath, me, prev),
       prev,
@@ -879,18 +914,25 @@ export class PrPoller implements PrCache {
     const key = `${repoPath}\0${base}`;
     const hit = this.queueCache.get(key);
     if (hit && this.now() - hit.at < MERGE_QUEUE_TTL_MS) return hit.read;
-    const read = forge.mergeQueueEntries!(base).catch((err: unknown): QueueRead => {
-      console.warn(`[pr-poller] merge-queue read for ${base} failed; keeping last value:`, err);
-      return "unknown";
-    });
+    const read = forge.mergeQueueEntries!(base).then(
+      (queue): QueueRead => {
+        this.queueExists.set(key, queue !== null);
+        return queue;
+      },
+      (err: unknown): QueueRead => {
+        console.warn(`[pr-poller] merge-queue read for ${base} failed; keeping last value:`, err);
+        return "unknown";
+      },
+    );
     this.queueCache.set(key, { read, at: this.now() });
     return read;
   }
 
   /** Stamp `inMergeQueue` on an open PR from its base's merge queue, so a queued session leaves
-   *  "Your turn". An unreadable queue keeps the previous stamp rather than flicker. */
+   *  "Your turn". An unreadable queue keeps the previous stamp rather than flicker; a PR Shepherd
+   *  enqueued on this head counts as queued through the grace. */
   private async stampMergeQueue(
-    repoPath: string,
+    s: Session,
     forge: GitForge,
     git: GitState,
     prev: GitState | undefined,
@@ -899,12 +941,39 @@ export class PrPoller implements PrCache {
     delete rest.inMergeQueue;
     if (git.state !== "open" || !git.number || !git.baseRefName || !forge.mergeQueueEntries)
       return rest;
-    const queue = await this.cachedQueue(repoPath, forge, git.baseRefName);
+    const queue = await this.cachedQueue(s.repoPath, forge, git.baseRefName);
+    // After the await: an enqueue noted while this read was in flight must still count.
     const queued =
-      queue === "unknown"
+      this.liveEnqueueMark(s.id, git) ||
+      (queue === "unknown"
         ? !!prev?.inMergeQueue && prev.number === git.number && prev.headSha === git.headSha
-        : Array.isArray(queue) && queue.includes(git.number);
+        : Array.isArray(queue) && queue.includes(git.number));
     return queued ? { ...rest, inMergeQueue: true } : rest;
+  }
+
+  /** Is `id`'s enqueue mark for this open PR and head, inside the grace? Drops a mark that isn't. */
+  private liveEnqueueMark(id: string, git: GitState): boolean {
+    const mark = this.enqueuedMarks.get(id);
+    if (!mark) return false;
+    const live =
+      git.state === "open" &&
+      mark.number === git.number &&
+      mark.head === git.headSha &&
+      this.now() - mark.at < ENQUEUE_GRACE_MS;
+    if (!live) this.enqueuedMarks.delete(id);
+    return live;
+  }
+
+  noteEnqueued(id: string, headSha?: string | null): void {
+    const git = this.cache.get(id);
+    const s = this.store.get(id);
+    if (!s || git?.state !== "open" || !git.number || !headSha || git.headSha !== headSha) return;
+    this.enqueuedMarks.set(id, { number: git.number, head: headSha, at: this.now() });
+    // The next read must be fresh: a cached pre-enqueue read would clear the stamp after the grace.
+    if (git.baseRefName) this.queueCache.delete(`${s.repoPath}\0${git.baseRefName}`);
+    if (git.inMergeQueue) return;
+    const queued: GitState = { ...git, inMergeQueue: true };
+    if (this.set(id, queued)) this.onChange(id, queued);
   }
 
   private readProvenance(forge: GitForge): ReadProvenance {
@@ -1108,6 +1177,7 @@ export class PrPoller implements PrCache {
     return true;
   }
   drop(id: string): void {
+    this.enqueuedMarks.delete(id);
     this.forgetFreshness(id);
     this.lastPolledAt.delete(id);
     this.directReadAt.delete(id);

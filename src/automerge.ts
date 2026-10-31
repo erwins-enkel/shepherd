@@ -8,6 +8,7 @@ import {
 } from "./forge/types";
 import type { ReviewVerdict, Session, SessionArchiveReason } from "./types";
 import type { WorktreeMgr } from "./worktree";
+import type { PrCache } from "./pr-poller";
 import {
   CHECKS_ABSENT_MS,
   computeMerge,
@@ -111,7 +112,7 @@ export interface AutoMergeDeps {
   };
   resolveForge: (repoPath: string) => GitForge | null;
   worktree: Pick<WorktreeMgr, "behindBase">;
-  prCache: { snapshot(): Record<string, GitState> };
+  prCache: Pick<PrCache, "snapshot" | "noteEnqueued">;
   /** Whether the session's herdr pane is live (so a steer lands). */
   paneAlive: (id: string) => Promise<boolean>;
   /** Defer steering while a herdr-restored account pane still needs a re-drive (SessionService.shouldDeferSteer). */
@@ -709,6 +710,7 @@ export class AutoMergeService {
       // re-merging it and moves on; the PR poller reconciles the eventual merge.
       console.warn(`[automerge] pr#${prNumber} enqueued in the merge queue`);
       this.enqueued.set(sessionId, { head: headSha ?? "", at: this.now() });
+      this.deps.prCache.noteEnqueued?.(sessionId, headSha);
       return "enqueued";
     }
     if (err instanceof MergeNotCompletedError) {

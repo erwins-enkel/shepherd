@@ -3361,6 +3361,144 @@ test("never reads the merge queue for a PR that is not open", async () => {
   expect(forge.queueReads).toBe(0);
 });
 
+const QUEUE_READY: PrStatus = { ...GREEN, mergeable: true, mergeStateStatus: "clean" };
+
+test("noteEnqueued stamps a cached open PR as queued at once, without a forge read", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const emitted: GitState[] = [];
+  const forge = queueForge(
+    () => QUEUE_READY,
+    async () => [],
+  );
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    (_id, git) => emitted.push(git),
+  );
+  poller.set(s.id, { kind: "github", ...QUEUE_READY });
+  poller.noteEnqueued(s.id, "h1");
+  expect(forge.queueReads).toBe(0);
+  expect(emitted.at(-1)!.inMergeQueue).toBe(true);
+  expect(poller.get(s.id)!.inMergeQueue).toBe(true);
+  // A different head than the cached one is not this PR's enqueue.
+  const other = store.create({ ...baseSession, herdrAgentId: "term_b", branch: "b" });
+  poller.set(other.id, { kind: "github", ...QUEUE_READY });
+  poller.noteEnqueued(other.id, "h2");
+  expect(poller.get(other.id)!.inMergeQueue).toBeUndefined();
+});
+
+test("an enqueue mark covers the queue read's lag, then a readable queue decides", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  let status: PrStatus = QUEUE_READY;
+  const forge = queueForge(
+    () => status,
+    async () => [], // GitHub has not listed it yet
+  );
+  let now = 1_000_000;
+  const realNow = Date.now;
+  Date.now = () => now;
+  try {
+    const poller = new PrPoller(
+      store,
+      () => forge,
+      () => {},
+    );
+    poller.set(s.id, { kind: "github", ...QUEUE_READY });
+    poller.noteEnqueued(s.id, "h1");
+    now += 30_000;
+    await poller.tick();
+    expect(poller.get(s.id)!.inMergeQueue).toBe(true); // inside the grace
+    now += 31_000;
+    await poller.tick();
+    expect(poller.get(s.id)!.inMergeQueue).toBeUndefined(); // past it, unlisted → not queued
+    // A new head drops the mark even inside the grace.
+    poller.noteEnqueued(s.id, "h1");
+    status = { ...QUEUE_READY, headSha: "h2" };
+    await poller.tick();
+    expect(poller.get(s.id)!.inMergeQueue).toBeUndefined();
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+/** A poller whose fingerprint never moves, over one settled session already read under it. */
+function settledQueuePoller(queue: () => Promise<number[] | null>) {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const settled: GitState = { kind: "github", ...QUEUE_READY };
+  store.putSessionGitCache(s.id, settled);
+  let now = 1_000_000;
+  const cache = new GithubReadCache(store, { now: () => now });
+  cache.put("fingerprint", "o/r", null, {
+    openIssues: 0,
+    issuesUpdatedAt: "",
+    openPrs: 1,
+    prsUpdatedAt: "unchanged",
+    ciState: "",
+  });
+  const key = "1|unchanged|";
+  cache.put("session", "o/r", key, s.branch!, s.id);
+  let polls = 0;
+  const emitted: GitState[] = [];
+  const forge = queueForge(() => {
+    polls++;
+    return QUEUE_READY;
+  }, queue);
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    (_id, git) => emitted.push(git),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => key,
+    cache,
+  );
+  return {
+    forge,
+    emitted,
+    polls: () => polls,
+    tick: async (advanceMs: number) => {
+      now += advanceMs;
+      await poller.tick();
+    },
+  };
+}
+
+test("the full sweep re-polls a settled PR that entered or left the merge queue out of band", async () => {
+  let queue: number[] = [];
+  const p = settledQueuePoller(async () => queue);
+  await p.tick(0);
+  expect(p.polls()).toBe(0); // unchanged fingerprint, unqueued → skipped
+  queue = [7]; // enqueued on github.com: no fingerprint move
+  await p.tick(31_000);
+  expect(p.polls()).toBe(1);
+  expect(p.emitted.at(-1)!.inMergeQueue).toBe(true);
+  queue = []; // ejected
+  await p.tick(31_000);
+  expect(p.emitted.at(-1)!.inMergeQueue).toBeUndefined();
+});
+
+test("the full sweep stops reading the queue of a base known to have none", async () => {
+  const p = settledQueuePoller(async () => null);
+  await p.tick(0);
+  await p.tick(31_000);
+  await p.tick(31_000);
+  expect(p.forge.queueReads).toBe(1);
+  expect(p.polls()).toBe(0);
+});
+
 test("fastTick keeps re-polling an idle session whose PR is merge-queued", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);

@@ -939,12 +939,12 @@ export class PrPoller implements PrCache {
   ): Promise<GitState> {
     const rest: GitState = { ...git };
     delete rest.inMergeQueue;
-    const marked = this.liveEnqueueMark(s.id, git);
     if (git.state !== "open" || !git.number || !git.baseRefName || !forge.mergeQueueEntries)
       return rest;
     const queue = await this.cachedQueue(s.repoPath, forge, git.baseRefName);
+    // After the await: an enqueue noted while this read was in flight must still count.
     const queued =
-      marked ||
+      this.liveEnqueueMark(s.id, git) ||
       (queue === "unknown"
         ? !!prev?.inMergeQueue && prev.number === git.number && prev.headSha === git.headSha
         : Array.isArray(queue) && queue.includes(git.number));

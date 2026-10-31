@@ -3423,6 +3423,30 @@ test("an enqueue mark covers the queue read's lag, then a readable queue decides
   }
 });
 
+test("an enqueue noted while a poll's queue read is in flight survives that poll", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  let release!: (q: number[]) => void;
+  const forge = queueForge(
+    () => QUEUE_READY,
+    () => new Promise<number[]>((r) => (release = r)),
+  );
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+  );
+  // Cached without mergeability: the in-flight poll's result differs, so it is written.
+  poller.set(s.id, { kind: "github", ...GREEN });
+  const tick = poller.tick();
+  while (forge.queueReads === 0) await Bun.sleep(1);
+  poller.noteEnqueued(s.id, "h1");
+  release([]); // read taken before the enqueue
+  await tick;
+  expect(poller.get(s.id)!.mergeable).toBe(true);
+  expect(poller.get(s.id)!.inMergeQueue).toBe(true);
+});
+
 /** A poller whose fingerprint never moves, over one settled session already read under it. */
 function settledQueuePoller(queue: () => Promise<number[] | null>) {
   const store = new SessionStore(":memory:");

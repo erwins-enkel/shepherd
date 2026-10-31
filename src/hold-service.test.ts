@@ -262,6 +262,16 @@ describe("HoldReasonService", () => {
     expect(svc.snapshot()["s1"]?.params?.resetAt).toBe(resetAt);
   });
 
+  // 6b. no 5h window (Ultra plans) → no resetAt: the copy renders time-only, a weekly reset is days out
+  it("usage:limits without a 5h window leaves resetAt unset", () => {
+    const session = makeSession({ id: "s1", haltReason: "usage_limit", haltedAt: 1000 });
+    const { events, svc } = makeHarness([session]);
+
+    events.emit("usage:limits", { session5h: null, week: { pct: 90, resetAt: 7_777_777 } });
+
+    expect(svc.snapshot()["s1"]?.params?.resetAt).toBeUndefined();
+  });
+
   // 7. session:archived drops session from snapshot
   it("session:archived drops session from snapshot", () => {
     const session = makeSession({ id: "s1", haltReason: "error", haltedAt: 1000 });

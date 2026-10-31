@@ -52,6 +52,12 @@ export function claudeDisplayGauges(limits: UsageLimits | null): Gauge[] {
   return out;
 }
 
+/** The observed rows to draw, in display order. Unconfirmed windows still get a row (it says so),
+ * but a plan without a 5-hour window gets none for it. */
+export function observedRowKeys(observed: ObservedLimitWindows): GaugeKey[] {
+  return observed.session5hAbsent ? ["WK"] : ["5H", "WK"];
+}
+
 /** Match the server cadence when opening the popover. This checks every main window so one fresh
  * sample cannot hide another window whose provider-confirmed value is missing or old. */
 export function shouldRefreshObservedOnOpen(limits: UsageLimits | null, nowMs: number): boolean {

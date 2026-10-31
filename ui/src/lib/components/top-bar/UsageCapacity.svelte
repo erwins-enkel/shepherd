@@ -11,6 +11,7 @@
   import {
     codexGaugeList,
     modelDisplayName,
+    observedRowKeys,
     windowResetPending,
     type GaugeKey,
     type Gauge,
@@ -133,8 +134,9 @@
     {#if observedEmpty}
       <div class="usage-empty">{m.topbar_usage_no_observation()}</div>
     {:else if observed !== undefined}
-      {@render observedRow("5H", observed.session5h)}
-      {@render observedRow("WK", observed.week)}
+      {#each observedRowKeys(observed) as key (key)}
+        {@render observedRow(key, key === "5H" ? observed.session5h : observed.week)}
+      {/each}
     {:else}
       {#each gauges as g (g.label)}
         {@render windowRow(shortPeriod(g.label), g, holdPct)}

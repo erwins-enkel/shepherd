@@ -10,7 +10,12 @@
     ObservedLimitWindows,
     UsageProviderSnapshot,
   } from "#lib/types.js";
-  import { type GaugeKey, type Gauge, type HottestCapacityWindow } from "../usage-gauges";
+  import {
+    observedRowKeys,
+    type GaugeKey,
+    type Gauge,
+    type HottestCapacityWindow,
+  } from "../usage-gauges";
   import type { ProviderFailoverOffer } from "#lib/provider-capacity.js";
   import type { ProviderFailoverStatus } from "#lib/types.js";
   import UsageFailoverAction from "./UsageFailoverAction.svelte";
@@ -110,9 +115,13 @@
   // buys the layout four lines back — but it is only honest when every main window actually shares
   // that age. A window with no sample, or an older one, must never borrow a fresher sibling's
   // timestamp, so in that case the stamp is dropped and each row carries its own age instead.
-  const observedWindows = $derived(
-    observed === undefined ? [] : [observed.session5h, observed.week],
-  );
+  // A plan without a 5-hour window has one main window, so only that one's age counts.
+  const observedWindows = $derived.by(() => {
+    const o = observed;
+    return o === undefined
+      ? []
+      : observedRowKeys(o).map((k) => (k === "5H" ? o.session5h : o.week));
+  });
   const windowAges = $derived(
     observedWindows.map((w) => (w ? relativeAge(w.scrapedAt, nowMs) : null)),
   );

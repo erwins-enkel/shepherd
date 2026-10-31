@@ -25,6 +25,15 @@ const creditRow = (over: Partial<CreditSnapshot> = {}): CreditSnapshot => ({
   ...over,
 });
 
+test("deleteCap: removes only that window's cap row; history is kept", () => {
+  const s = mk();
+  s.putCap(capRow({ window: "session5h" }));
+  s.putCap(capRow({ window: "week", resetAt: 9_000_000 }));
+  s.deleteCap("session5h");
+  expect(s.getCaps().map((c) => c.window)).toEqual(["week"]);
+  expect(s.getCapsHistory(0).map((h) => h.window)).toContain("session5h");
+});
+
 // ── putCap / history append ──────────────────────────────────────────────────
 
 test("putCap: appends a history row; usage_caps holds one row after one call", () => {

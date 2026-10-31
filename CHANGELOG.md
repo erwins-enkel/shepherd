@@ -1,5 +1,33 @@
 # Changelog
 
+## [2.7.0](https://github.com/erwins-enkel/shepherd/compare/v2.6.0...v2.7.0) (2026-10-31)
+
+
+### Features
+
+* **heavy-slot:** queue new sessions under memory pressure, start them in order ([#3632](https://github.com/erwins-enkel/shepherd/issues/3632)) ([d469968](https://github.com/erwins-enkel/shepherd/commit/d469968ad989d8e8ae27c6046663d20f3bf1f940))
+* **ui:** hover copy button on chat code blocks ([#3618](https://github.com/erwins-enkel/shepherd/issues/3618)) ([4da3597](https://github.com/erwins-enkel/shepherd/commit/4da35974ab190559ae396cb88e72bc37377724f2))
+* **ui:** merge row offers the next step (fix CI, rebase, decommission) ([#3628](https://github.com/erwins-enkel/shepherd/issues/3628)) ([53ad0d1](https://github.com/erwins-enkel/shepherd/commit/53ad0d1cf12b0511f58f03087a440ce805c40d8d))
+* **ui:** show issue author in Up Next preview ([#3625](https://github.com/erwins-enkel/shepherd/issues/3625)) ([86494a7](https://github.com/erwins-enkel/shepherd/commit/86494a73d91c9175458fb9d22a3d60e8f38eaf9b))
+* **ui:** syntax highlighting for Markdown code blocks ([#3635](https://github.com/erwins-enkel/shepherd/issues/3635)) ([4d63e38](https://github.com/erwins-enkel/shepherd/commit/4d63e388d5a47dc0aaed9cd3012ad38ea2771d9d))
+* **up-next:** quick-start chips beside Start… in the issue preview ([#3508](https://github.com/erwins-enkel/shepherd/issues/3508)) ([#3630](https://github.com/erwins-enkel/shepherd/issues/3630)) ([ece2716](https://github.com/erwins-enkel/shepherd/commit/ece27168137ff11daf7253c0b205b9ef48953277))
+
+
+### Bug Fixes
+
+* **chat:** keep settled sent echoes gone; widen transcript tail to fill message limit ([#3634](https://github.com/erwins-enkel/shepherd/issues/3634)) ([59a75dd](https://github.com/erwins-enkel/shepherd/commit/59a75ddc98f354d7f0f683635f4ab49e625d8271))
+* **chat:** render session's initial prompt as Markdown ([#3645](https://github.com/erwins-enkel/shepherd/issues/3645)) ([9dcac49](https://github.com/erwins-enkel/shepherd/commit/9dcac49e84f54d23ff410fc3e9658340f23e0f23))
+* **herd:** merge-queued PRs leave Your turn promptly ([#3642](https://github.com/erwins-enkel/shepherd/issues/3642)) ([0fcc4d8](https://github.com/erwins-enkel/shepherd/commit/0fcc4d840ad74ba2147b9bd1e55efca94488afab))
+* **ui:** finer answer rows in question forms, tinted recommendation ([#3629](https://github.com/erwins-enkel/shepherd/issues/3629)) ([e0023ff](https://github.com/erwins-enkel/shepherd/commit/e0023ff3988d22fe584572bb78bde9e21fdfd24a))
+* **ui:** restore list markers in Markdown bodies ([#3636](https://github.com/erwins-enkel/shepherd/issues/3636)) ([b0988f4](https://github.com/erwins-enkel/shepherd/commit/b0988f4b298221ac94c66b6548486e1a8982a607))
+* **ui:** show a mirrored session's own machine check slot on its card ([#3627](https://github.com/erwins-enkel/shepherd/issues/3627)) ([5c597de](https://github.com/erwins-enkel/shepherd/commit/5c597de2f964c980200d200d8bff5851893a8b29))
+
+
+### Documentation
+
+* **site:** refresh hero screenshot with current desktop UI; fresh demo clock ([#3644](https://github.com/erwins-enkel/shepherd/issues/3644)) ([c78df1d](https://github.com/erwins-enkel/shepherd/commit/c78df1dd3a3f87f86659ddf2737d9ee71f46ff3f))
+* sync docs to recent source changes ([#3624](https://github.com/erwins-enkel/shepherd/issues/3624)) ([8dddabb](https://github.com/erwins-enkel/shepherd/commit/8dddabb7c38f0e21fbd06df4823c707a767b9109))
+
 ## [2.6.0](https://github.com/erwins-enkel/shepherd/compare/v2.5.0...v2.6.0) (2026-10-29)
 
 

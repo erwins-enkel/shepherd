@@ -7614,7 +7614,7 @@
   "capacity_drain_title": "Auto-Drain",
   "capacity_held_title": "Held · {count}",
   "capacity_nothing_waiting": "Nothing is waiting.",
-  "capacity_nothing_waiting_body": "From {pct}% in Claude Code's 5-hour or weekly window, new tasks are held here — right next to the numbers holding them back.",
+  "capacity_nothing_waiting_body": "From {pct}% in any of Claude Code's usage windows, new tasks are held here — right next to the numbers holding them back.",
   "capacity_hold_off": "Holding is off: new tasks start regardless of usage.",
   "capacity_cli_option": "{provider} · {pct}%",
   "feat_capacity_panel_title": "Usage and held work on one screen",
@@ -7992,5 +7992,7 @@
   "upnext_quickstart_menu_start_hint": "pick CLI, model and effort",
   "upnext_quickstart_manage": "Manage quick starts",
   "feat_upnext_quickstart_title": "Up Next: quick start per CLI",
-  "feat_upnext_quickstart_body": "Once you save a quick start for a CLI in Settings → Coding CLI, the Up Next preview shows a chip for it beside Start…. One click starts the issue with that CLI, model and effort — no picker."
+  "feat_upnext_quickstart_body": "Once you save a quick start for a CLI in Settings → Coding CLI, the Up Next preview shows a chip for it beside Start…. One click starts the issue with that CLI, model and effort — no picker.",
+  "feat_weekly_usage_push_title": "Weekly usage warning",
+  "feat_weekly_usage_push_body": "Shepherd now also sends a push when the weekly Claude usage window crosses 80%, once per week. Plans without a 5-hour window (Ultra) work too: the 5-hour gauge disappears instead of showing a stale value, and holds and downgrades follow the weekly window."
 }

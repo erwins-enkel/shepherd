@@ -7614,7 +7614,7 @@
   "capacity_drain_title": "Backlog-Abarbeitung",
   "capacity_held_title": "Zurückgehalten · {count}",
   "capacity_nothing_waiting": "Nichts wartet.",
-  "capacity_nothing_waiting_body": "Ab {pct} % im 5-Stunden- oder Wochenfenster von Claude Code werden neue Aufgaben hier zurückgehalten – direkt neben den Prozenten, die sie bremsen.",
+  "capacity_nothing_waiting_body": "Ab {pct} % in einem der Nutzungsfenster von Claude Code werden neue Aufgaben hier zurückgehalten – direkt neben den Prozenten, die sie bremsen.",
   "capacity_hold_off": "Zurückhalten ist aus: Neue Aufgaben starten unabhängig von der Auslastung.",
   "capacity_cli_option": "{provider} · {pct} %",
   "feat_capacity_panel_title": "Auslastung und Wartendes auf einem Screen",
@@ -7992,5 +7992,7 @@
   "upnext_quickstart_menu_start_hint": "CLI, Modell und Aufwand wählen",
   "upnext_quickstart_manage": "Schnellstarts verwalten",
   "feat_upnext_quickstart_title": "Up Next: Schnellstart je CLI",
-  "feat_upnext_quickstart_body": "Sobald du in den Einstellungen unter Coding-CLI einen Schnellstart für eine CLI speicherst, zeigt die Up-Next-Vorschau neben „Starten…“ einen Chip dafür. Ein Klick startet das Issue mit dieser CLI, diesem Modell und Aufwand — ohne Picker."
+  "feat_upnext_quickstart_body": "Sobald du in den Einstellungen unter Coding-CLI einen Schnellstart für eine CLI speicherst, zeigt die Up-Next-Vorschau neben „Starten…“ einen Chip dafür. Ein Klick startet das Issue mit dieser CLI, diesem Modell und Aufwand — ohne Picker.",
+  "feat_weekly_usage_push_title": "Warnung zum Wochenlimit",
+  "feat_weekly_usage_push_body": "Shepherd schickt jetzt auch eine Push-Benachrichtigung, sobald das wöchentliche Claude-Nutzungsfenster 80 % überschreitet, einmal pro Woche. Pläne ohne 5-Stunden-Fenster (Ultra) funktionieren ebenfalls: Die 5-Stunden-Anzeige verschwindet, statt einen veralteten Wert zu zeigen, und Zurückhalten und Herabstufen richten sich nach dem Wochenfenster."
 }

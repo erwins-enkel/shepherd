@@ -178,8 +178,10 @@ export class HoldReasonService {
       }
 
       case "usage:limits": {
-        const limits = d as { session5h?: { pct: number; resetAt: number } | null };
-        this.resetAt = limits.session5h?.resetAt;
+        type Win = { pct: number; resetAt: number } | null;
+        const limits = d as { session5h?: Win; week?: Win };
+        // Plans without a 5h window (Ultra) halt on the weekly limit.
+        this.resetAt = limits.session5h?.resetAt ?? limits.week?.resetAt;
         // Recompute ALL active sessions — bounded; dedup guard suppresses no-ops.
         for (const session of this.deps.store.list({ activeOnly: true })) {
           this.recompute(session.id);

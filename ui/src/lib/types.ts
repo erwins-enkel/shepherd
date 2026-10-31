@@ -2254,6 +2254,8 @@ export interface ObservedLimitWindow extends LimitWindow {
 export interface ObservedLimitWindows {
   session5h: ObservedLimitWindow | null;
   week: ObservedLimitWindow | null;
+  /** The plan has no 5-hour window (Ultra): `session5h` is null by design, not unconfirmed. */
+  session5hAbsent?: true;
 }
 export interface UsageRefreshStatus {
   inProgress: boolean;

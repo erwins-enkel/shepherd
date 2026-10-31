@@ -487,7 +487,18 @@
             <div class="ac-msg ac-mine">
               <div class="ac-bubble">
                 {@render caret()}
-                <p>{e.text}</p>
+                {#if e.initial}
+                  <!-- The session's initial prompt (often a composed issue body) reads as Markdown. -->
+                  <MarkdownBody
+                    source={e.text}
+                    breaks
+                    sessionDesigs={herdDesigs}
+                    onSessionLink={onnavigate}
+                    copyCode
+                  />
+                {:else}
+                  <p>{e.text}</p>
+                {/if}
               </div>
               <span class="ac-meta"
                 >{[m.assistant_chat_you(), chipOf(e.text)].filter(Boolean).join(" · ")}</span
@@ -696,6 +707,10 @@
     line-height: 1.55;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+  .ac-bubble :global(.md-body) {
+    flex: 1;
+    color: var(--color-ink-bright);
   }
   .ac-caret {
     flex: none;

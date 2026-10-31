@@ -394,6 +394,50 @@ test("Codex messages include live structured questions while the agent keeps wor
   }
 });
 
+describe("sessionMessages initial prompt", () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-messages-initial-"));
+  const s = { status: "idle" as const, agentProvider: "claude" as const };
+  const write = (name: string, ...rows: unknown[]) => {
+    const p = join(dir, name);
+    writeFileSync(p, jsonl(...rows));
+    return p;
+  };
+
+  test("flags the transcript's first message when it is the operator's", async () => {
+    const p = write("first.jsonl", userText("## Task"), assistantText("ok"), userText("more"));
+    const r = await sessionMessages(s, p, { limit: 5, includeUser: true });
+    expect(r.messages.map((m) => m.initial)).toEqual([true, undefined, undefined]);
+  });
+  test("not flagged once the limit cuts it out of the window", async () => {
+    const p = write("cut.jsonl", userText("## Task"), assistantText("ok"), userText("more"));
+    const r = await sessionMessages(s, p, { limit: 2, includeUser: true });
+    expect(r.messages.some((m) => m.initial)).toBe(false);
+  });
+  test("not flagged when the transcript starts with the agent", async () => {
+    const p = write("agent.jsonl", assistantText("hi"), userText("more"));
+    const r = await sessionMessages(s, p, { limit: 5, includeUser: true });
+    expect(r.messages.some((m) => m.initial)).toBe(false);
+  });
+  test("not flagged when the first message is a Shepherd steer", async () => {
+    const p = write("steer.jsonl", userText("Plan approved. Execute `.shepherd-plan.md` now"));
+    const r = await sessionMessages(s, p, { limit: 5, includeUser: true });
+    expect(r.messages[0]?.steer).toBe("go");
+    expect(r.messages[0]?.initial).toBeUndefined();
+  });
+  test("not flagged when the read window misses the file's start", async () => {
+    const p = write(
+      "far.jsonl",
+      userText("## Task"),
+      assistantText("x".repeat(17 << 20)),
+      userText("late"),
+    );
+    const r = await sessionMessages(s, p, { limit: 50, includeUser: true });
+    expect(r.messages.some((m) => m.initial)).toBe(false);
+  });
+
+  test("cleanup", () => rmSync(dir, { recursive: true, force: true }));
+});
+
 describe("sessionMessages tail growth", () => {
   const dir = mkdtempSync(join(tmpdir(), "agent-messages-tail-"));
   const s = { status: "idle" as const, agentProvider: "claude" as const };

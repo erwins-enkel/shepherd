@@ -2218,6 +2218,8 @@ export interface AgentMessage {
   ts: number;
   /** On a user message Shepherd typed: which steer it is. Absent on the operator's own. */
   steer?: SteerKind;
+  /** On the session's initial prompt (the transcript's first message, the operator's). */
+  initial?: true;
 }
 
 /** Mirrors server `SessionMessages` (GET /api/sessions/:id/messages). */

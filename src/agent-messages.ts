@@ -25,6 +25,9 @@ export interface AgentMessage {
   ts: number;
   /** On a user message Shepherd typed: which steer it is (src/steer-log.ts). Absent otherwise. */
   steer?: SteerKind;
+  /** On the transcript's first message, when it is the operator's (the session's initial prompt)
+   *  and the read window reached the file's start. Absent otherwise. */
+  initial?: true;
 }
 
 /** Why no transcript could be read. `no-transcript`: nothing to resolve (no pinned agent session
@@ -335,7 +338,7 @@ async function readMessagesWindow(
   provider: AgentProvider | null | undefined,
   path: string,
   q: MessagesQuery,
-): Promise<{ objs: unknown[]; parsed: ParsedMessages } | null> {
+): Promise<{ objs: unknown[]; parsed: ParsedMessages; whole: boolean } | null> {
   for (let bytes = TAIL_BYTES; ; bytes *= 2) {
     let text: string;
     let size: number;
@@ -350,7 +353,8 @@ async function readMessagesWindow(
       ? parseCodexMessageObjects(objs)
       : parseClaudeMessageObjects(objs);
     const full = keptMessages(parsed, q).length >= q.limit;
-    if (full || size <= bytes || bytes >= MESSAGES_TAIL_MAX_BYTES) return { objs, parsed };
+    const whole = size <= bytes;
+    if (full || whole || bytes >= MESSAGES_TAIL_MAX_BYTES) return { objs, parsed, whole };
   }
 }
 
@@ -368,13 +372,17 @@ export async function sessionMessages(
   if (!path) return unavailable("no-transcript");
   const tail = await readMessagesWindow(s.agentProvider, path, q);
   if (!tail) return unavailable("file-missing");
-  const { objs, parsed } = tail;
+  const { objs, parsed, whole } = tail;
   const structured = pendingAsks
     .flatMap((ask) => ask.questions.map((q) => q.question))
     .join("\n\n");
   const question = structured || (AT_REST.has(s.status) ? parsed.question : null);
   const kept = keptMessages(parsed, q);
   const messages = q.limit > 0 ? kept.slice(-q.limit).map(withSteer) : [];
+  // The session's initial prompt: the transcript's first message, the operator's, still in view.
+  const first = messages[0];
+  if (whole && kept.length <= q.limit && first?.role === "user" && !first.steer)
+    messages[0] = { ...first, initial: true };
   const result: SessionMessages = {
     messages,
     awaitingInput: question !== null,

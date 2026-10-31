@@ -4,7 +4,8 @@ import type { AgentMessage, Session, SteerKind } from "./types";
 /** One row of the Operator Assistant's conversation view. */
 export type ChatEntry =
   | { kind: "assistant"; text: string; ts: number }
-  | { kind: "user"; text: string; ts: number }
+  /** `initial`: the session's initial prompt, shown as Markdown with its fence markers hidden. */
+  | { kind: "user"; text: string; ts: number; initial?: true }
   /** Harness traffic logged as user input (a background task's notice): not the operator's words. */
   | { kind: "event"; text: string; ts: number }
   /** A steer Shepherd typed into the session (CI fix, rebase, critic findings…). */
@@ -29,6 +30,14 @@ const HARNESS_TAGS = new Set([
 
 const LEADING_TAG_RE = /^<([a-z][a-z0-9-]*)>/;
 
+/** A line holding only an untrusted-data fence marker (src/untrusted.ts `fenceUntrusted`). */
+const FENCE_MARKER_LINE_RE = /^⟦\/?UNTRUSTED:[^⟧⟦\n]*⟧[ \t]*(?:\n|$)/gm;
+
+/** The text without its fence-marker lines: the fenced data reads as plain prose. */
+export function stripFenceMarkers(text: string): string {
+  return text.replace(FENCE_MARKER_LINE_RE, "").trim();
+}
+
 /** Claude Code logs a long or multi-line paste as
  *  `\n\n<pasted_content id="X">\nBODY\n</pasted_content id="X">\n` (older records close with a
  *  bare `</pasted_content>`): show the body. Mirrors server `unwrapPasted()` (src/steer-log.ts). */
@@ -48,21 +57,27 @@ function tagText(text: string, tag: string): string | null {
  * records too: a background task's `<task-notification>` becomes a quiet event row (its summary),
  * a slash command the `/name args` line the operator typed, and any other harness record (command
  * output, caveats) is dropped — the Terminal view still shows all of it verbatim. A pasted message
- * shows its body, and a steer Shepherd typed (server-tagged `steer`) becomes a steer row.
+ * shows its body, a steer Shepherd typed (server-tagged `steer`) becomes a steer row, and the
+ * session's initial prompt (server-tagged `initial`) loses its fence-marker lines.
  */
 export function chatEntries(messages: AgentMessage[]): ChatEntry[] {
-  return messages.flatMap(({ role, text, ts, steer }) => {
+  return messages.flatMap(({ role, text, ts, steer, initial }) => {
     if (role === "assistant") return [{ kind: role, text, ts }];
     const body = unwrapPasted(text);
     if (steer) return [{ kind: "steer", steer, text: body, ts }];
-    return userEntry(body, ts);
+    return userEntry(body, ts, initial);
   });
 }
 
 /** A user record as rows: the operator's words, or the harness traffic it carries. */
-function userEntry(text: string, ts: number): ChatEntry[] {
+function userEntry(text: string, ts: number, initial?: true): ChatEntry[] {
   const tag = LEADING_TAG_RE.exec(text)?.[1];
-  if (!tag || !HARNESS_TAGS.has(tag)) return [{ kind: "user", text, ts }];
+  if (!tag || !HARNESS_TAGS.has(tag))
+    return [
+      initial
+        ? { kind: "user", text: stripFenceMarkers(text), ts, initial }
+        : { kind: "user", text, ts },
+    ];
   const command = tagText(text, "command-name");
   if (command) {
     const args = tagText(text, "command-args");

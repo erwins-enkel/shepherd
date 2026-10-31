@@ -31,7 +31,7 @@ const MARKDOWN_CONFIG = {
   ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
 };
 
-type Markdown = { parse(src: string): string; purify: Purifier };
+type Markdown = { parse(src: string, breaks: boolean): string; purify: Purifier };
 let markdown: Promise<Markdown> | null = null;
 
 function loadMarkdown(): Promise<Markdown> {
@@ -46,7 +46,10 @@ function loadMarkdown(): Promise<Markdown> {
         node.setAttribute("target", "_blank");
         node.setAttribute("rel", "noopener noreferrer");
       });
-      return { parse: (src) => marked.parse(src, { async: false }) as string, purify };
+      return {
+        parse: (src, breaks) => marked.parse(src, { async: false, breaks }) as string,
+        purify,
+      };
     },
   );
   return markdown;
@@ -93,10 +96,14 @@ function defuseExternalImages(root: DocumentFragment): void {
   }
 }
 
-/** Markdown → sanitized HTML string, ready for `{@html}`. */
-export async function renderMarkdown(md: string): Promise<string> {
+/** Markdown → sanitized HTML string, ready for `{@html}`. `breaks`: a single newline is a line
+ *  break (GitHub issue/comment semantics). */
+export async function renderMarkdown(md: string, { breaks = false } = {}): Promise<string> {
   const { parse, purify } = await loadMarkdown();
-  const fragment = purify.sanitize(parse(md), { ...MARKDOWN_CONFIG, RETURN_DOM_FRAGMENT: true });
+  const fragment = purify.sanitize(parse(md, breaks), {
+    ...MARKDOWN_CONFIG,
+    RETURN_DOM_FRAGMENT: true,
+  });
   defuseExternalImages(fragment);
   const host = document.createElement("div");
   host.append(fragment);

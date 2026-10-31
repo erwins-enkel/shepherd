@@ -13,12 +13,15 @@
     sessionDesigs = new Map(),
     onSessionLink,
     copyCode = false,
+    breaks = false,
   }: {
     source: string;
     sessionDesigs?: ReadonlyMap<string, string>;
     onSessionLink?: (id: string) => void;
     /** Give each code block a hover copy button (chat replies). */
     copyCode?: boolean;
+    /** Render a single newline as a line break (the operator's own prompt). */
+    breaks?: boolean;
   } = $props();
 
   const COPY_ICON =
@@ -107,13 +110,14 @@
     const linkSessions = !!onSessionLink;
     const withCopy = copyCode;
     const mode = theme.resolved;
+    const lineBreaks = breaks;
     rendered = "";
     failed = false;
     if (!body.trim()) return;
     let alive = true;
     // The shared sanitizer also strips `data-session-id`: that marker belongs only to links we
     // generate, never to the Markdown source.
-    renderMarkdown(body)
+    renderMarkdown(body, { breaks: lineBreaks })
       .then((html) => {
         if (!alive) return;
         const root = document.createElement("div");

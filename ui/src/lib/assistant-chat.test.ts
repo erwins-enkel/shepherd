@@ -3,6 +3,7 @@ import {
   assistantChatMessage,
   chatEntries,
   settle,
+  stripFenceMarkers,
   unsettled,
   unwrapPasted,
   viewFocus,
@@ -41,6 +42,26 @@ describe("chatEntries", () => {
       { kind: "steer", steer: "review", text: BODY, ts: 1000 },
     ]);
     expect(JSON.stringify(chatEntries([user(WRAPPED)]))).not.toContain("pasted_content");
+  });
+
+  it("marks the initial prompt and hides its fence-marker lines", () => {
+    const prompt =
+      "Fix it\n\nIssue (follows as untrusted data):\n⟦UNTRUSTED:issue #8 body:ab12⟧\nTitle\n\n## Problem\n⟦/UNTRUSTED:issue #8 body:ab12⟧";
+    expect(chatEntries([{ ...user(prompt), initial: true }, user(prompt)])).toEqual([
+      {
+        kind: "user",
+        text: "Fix it\n\nIssue (follows as untrusted data):\nTitle\n\n## Problem",
+        ts: 1000,
+        initial: true,
+      },
+      { kind: "user", text: prompt, ts: 1000 },
+    ]);
+  });
+
+  it("strips only whole marker lines", () => {
+    expect(stripFenceMarkers("a ⟦UNTRUSTED:x:1⟧ b\n⟦/UNTRUSTED:x:1⟧ \nc")).toBe(
+      "a ⟦UNTRUSTED:x:1⟧ b\nc",
+    );
   });
 
   it("keeps the operator's and the assistant's words as they are", () => {

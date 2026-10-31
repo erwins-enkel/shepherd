@@ -2095,6 +2095,11 @@ components:
             On a user message Shepherd typed, which steer it is (src/steer-log.ts) — go,
             plan_review, ci_fix, rebase, open_pr, nudge, review, queue or api_retry. Absent on the
             operator's own messages. Treat an unknown value as a Shepherd steer.
+        initial:
+          type: boolean
+          description: >-
+            True on the transcript's first message when it is the operator's (the session's
+            initial prompt) and the read window reached the file's start. Absent otherwise.
     SessionMessages:
       type: object
       additionalProperties: true

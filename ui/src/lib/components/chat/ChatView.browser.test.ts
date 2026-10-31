@@ -192,6 +192,29 @@ describe("ChatView steers", () => {
     expect(document.querySelector(".ac-mine")).toBeNull();
   });
 
+  it("the initial prompt reads as Markdown without fence markers; later messages stay plain", async () => {
+    const prompt =
+      "Fix it\n⟦UNTRUSTED:issue #8 body:ab12⟧\n## Problem\n\nOn `/settings/staff` it fails.\n⟦/UNTRUSTED:issue #8 body:ab12⟧";
+    mockMessages.mockResolvedValue({
+      messages: [
+        { role: "user", text: prompt, ts: 1000, initial: true },
+        { role: "user", text: "## not a heading", ts: 2000 },
+      ],
+      awaitingInput: false,
+      pendingQuestion: null,
+      unavailable: null,
+    });
+    render(ChatView, props({ status: "idle" }));
+    await expect
+      .poll(() => document.querySelector(".ac-bubble .md-body h2")?.textContent)
+      .toBe("Problem");
+    expect(document.querySelector(".ac-bubble .md-body code")?.textContent).toBe("/settings/staff");
+    expect(document.body.textContent).not.toContain("UNTRUSTED");
+    const bubbles = document.querySelectorAll(".ac-bubble");
+    expect(bubbles[1]?.querySelector(".md-body")).toBeNull();
+    expect(bubbles[1]?.querySelector("p")?.textContent).toBe("## not a heading");
+  });
+
   it("a message that is a saved steer names its chip, in a session only", async () => {
     mockMessages.mockResolvedValue({
       messages: [{ role: "user", text: "Run the tests again", ts: 0 }],

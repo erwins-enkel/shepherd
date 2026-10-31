@@ -9,9 +9,11 @@ export const STOREFRONT = "/demo/acme/storefront";
 export const API = "/demo/acme/api";
 export const EPIC_PARENT = 100;
 
-// A fixed clock anchor so the seed is deterministic (the director advances live
-// timestamps at runtime). Every seeded offset is relative to this — never `Date.now()`.
-export const NOW = Date.UTC(2026, 5, 30, 12, 0, 0);
+// The clock anchor: page-load time, floored to the minute, so seeded ages stay fresh
+// ("40m ago", not "122d ago") however long the demo has been deployed (the director
+// advances live timestamps at runtime). Every seeded offset is relative to this — never
+// call `Date.now()` in a seed module.
+export const NOW = Math.floor(Date.now() / 60_000) * 60_000;
 export const SEC = 1_000;
 export const MIN = 60_000;
 export const HOUR = 60 * MIN;

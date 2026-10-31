@@ -12,12 +12,10 @@ const DEMO_URL = "https://demo.shepherd.run";
 
 <section class="hero">
   <!--
-    DOM source order is content/mobile order: banner → copy → install → visual.
-    grid-template-areas reorders these VISUALLY per breakpoint, but tab and
-    screen-reader order follow this DOM order (WCAG 2.4.3 / 1.3.2). The
-    install-vs-screenshot order flips between breakpoints, so we author the
-    logical/mobile-matching sequence and let the desktop screenshot (a
-    supplementary demo link) trail in DOM.
+    One column at every width, in DOM order: banner → copy → install → visual.
+    The wide desktop screenshot needs the full hero width to stay legible, so
+    it trails the copy and install block; tab and screen-reader order match
+    the visual order (WCAG 2.4.3 / 1.3.2).
   -->
   <p class="announce" role="status">
     <span class="pulse" aria-hidden="true"></span>
@@ -243,18 +241,6 @@ const DEMO_URL = "https://demo.shepherd.run";
   .visual {
     grid-area: visual;
     width: 100%;
-  }
-
-  @media (min-width: 900px) {
-    .hero {
-      grid-template-columns: 1.05fr 0.95fr;
-      grid-template-areas:
-        "banner  banner"
-        "copy    visual"
-        "install install";
-      column-gap: 3.5rem;
-      row-gap: 2rem;
-    }
   }
 
   @media (prefers-reduced-motion: reduce) {

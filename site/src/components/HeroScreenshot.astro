@@ -1,17 +1,18 @@
 ---
-// Hero visual: a real screenshot of Shepherd's mission-control overview,
-// captured from the live demo (demo.shepherd.run), framed in a browser-style
-// window (rounded panel + traffic-light titlebar + drop shadow) and linked to
-// the demo. Replaces the older hand-built CSS mock, which didn't match the
-// real product.
+// Hero visual: a real desktop screenshot of Shepherd's mission control,
+// captured from the demo build (`bun run dev:demo` in ui/, 1440x900 at DPR 2,
+// cropped to the app frame), framed in a browser-style window (rounded panel
+// + traffic-light titlebar + drop shadow) and linked to the demo. Replaces
+// the older hand-built CSS mock, which didn't match the real product.
 //
 // The captured image already includes the app's OWN header (the SHEPHERD
-// wordmark + herd counts), so the frame only adds browser/OS chrome (the three
-// dots) — no app controls are duplicated.
+// wordmark, herd counts and usage gauges), so the frame only adds browser/OS
+// chrome (the three dots) — no app controls are duplicated.
 //
-// Image is the LCP element: eager load, no lazy, fetchpriority="high" to pull
-// it forward in the request queue, and explicit intrinsic width/height
-// (1094x936) so the browser reserves the box and there is no CLS.
+// It spans the full hero width below the copy. Eager load, no lazy,
+// fetchpriority="high" to pull it forward in the request queue, and explicit
+// intrinsic width/height (2208x1361) so the browser reserves the box and
+// there is no CLS.
 const DEMO_URL = "https://demo.shepherd.run";
 ---
 
@@ -29,11 +30,11 @@ const DEMO_URL = "https://demo.shepherd.run";
   </span>
   <img
     src="/app-screenshot.webp"
-    width="1094"
-    height="936"
+    width="2208"
+    height="1361"
     fetchpriority="high"
     decoding="async"
-    alt="Shepherd's mission-control overview: coding-agent sessions grouped under an epic, each with its status (preview, sandboxed), build-queue progress and elapsed time."
+    alt="Shepherd's mission control: coding-agent sessions grouped under an epic beside the selected session's build queue, live terminal and steer buttons, with usage gauges in the header."
   />
 </a>
 
@@ -41,7 +42,6 @@ const DEMO_URL = "https://demo.shepherd.run";
   .frame {
     display: block;
     width: 100%;
-    max-width: 40rem;
     overflow: hidden;
     background: var(--panel);
     border: 1px solid var(--panel-2);

@@ -56,6 +56,10 @@ function session(sessions: Session[], sessionId: string): Session {
  *  headers render. Derived, so it cannot disagree with the session's own `repoPath`. */
 const repoName = (repoPath: string): string => repoPath.split("/").pop() ?? repoPath;
 
+/** UTC `YYYY-MM-DD` of the day `daysAgo` days before the clock anchor. */
+const dayKey = (daysAgo: number): string =>
+  new Date(NOW - daysAgo * DAY).toISOString().slice(0, 10);
+
 /** The demo's one weighted-unit → token conversion. `task()` already splits a row's token
  *  detail off `authoringUnits` at this rate; the models block below folds the same rate, so
  *  the two sides of the breakdown are expressed in ONE unit rather than two that look alike. */
@@ -370,13 +374,13 @@ export function buildDeliveryMetrics(
       { kind: "critic_error", occurrences: 1, sessions: 1 },
     ],
     trend: [
-      { dayKey: "2026-06-24", mergedTasks: 2, firstPassRate: 0.5, leadTimeMedianMs: 4.4 * HOUR },
-      { dayKey: "2026-06-25", mergedTasks: 4, firstPassRate: 0.75, leadTimeMedianMs: 3.1 * HOUR },
-      { dayKey: "2026-06-26", mergedTasks: 1, firstPassRate: 0, leadTimeMedianMs: 6.8 * HOUR },
-      { dayKey: "2026-06-27", mergedTasks: 3, firstPassRate: 0.67, leadTimeMedianMs: 3.5 * HOUR },
-      { dayKey: "2026-06-28", mergedTasks: 0, firstPassRate: null, leadTimeMedianMs: null },
-      { dayKey: "2026-06-29", mergedTasks: 5, firstPassRate: 0.6, leadTimeMedianMs: 2.9 * HOUR },
-      { dayKey: "2026-06-30", mergedTasks: 4, firstPassRate: 0.5, leadTimeMedianMs: 3.4 * HOUR },
+      { dayKey: dayKey(6), mergedTasks: 2, firstPassRate: 0.5, leadTimeMedianMs: 4.4 * HOUR },
+      { dayKey: dayKey(5), mergedTasks: 4, firstPassRate: 0.75, leadTimeMedianMs: 3.1 * HOUR },
+      { dayKey: dayKey(4), mergedTasks: 1, firstPassRate: 0, leadTimeMedianMs: 6.8 * HOUR },
+      { dayKey: dayKey(3), mergedTasks: 3, firstPassRate: 0.67, leadTimeMedianMs: 3.5 * HOUR },
+      { dayKey: dayKey(2), mergedTasks: 0, firstPassRate: null, leadTimeMedianMs: null },
+      { dayKey: dayKey(1), mergedTasks: 5, firstPassRate: 0.6, leadTimeMedianMs: 2.9 * HOUR },
+      { dayKey: dayKey(0), mergedTasks: 4, firstPassRate: 0.5, leadTimeMedianMs: 3.4 * HOUR },
     ],
     // Newest-merged first, and every row is a session the herd actually shows as merged
     // or archived — so a visitor can follow any row back to the card it came from.

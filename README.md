@@ -17,7 +17,7 @@ what needs you and what's ready to ship — from your browser, phone, or the new
   <a href="https://shepherd.run">
     <img
       src="site/public/app-screenshot.webp"
-      alt="Shepherd mission-control overview showing an epic with multiple coding-agent sessions, status badges, review state, preview state, and elapsed time."
+      alt="Shepherd mission control: coding-agent sessions grouped under an epic beside the selected session's build queue, live terminal and steer buttons, with usage gauges in the header."
       width="920"
     >
   </a>

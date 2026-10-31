@@ -126,7 +126,9 @@ export interface NotifyInput {
   mergeState?: "merge_error" | "rebase_cap";
   /** For kind "merge_attention": the desig of the session that needs attention. */
   desig?: string;
-  /** For kind "usage_limit": percent of the 5-hour window already used. */
+  /** For kind "usage_limit": which window crossed the threshold (default "5h"). */
+  window?: "5h" | "week";
+  /** For kind "usage_limit": percent of the window already used. */
   pct?: number;
   /** For kind "usage_limit": epoch ms when the window resets. */
   resetAt?: number;
@@ -211,6 +213,9 @@ const NOTIFY_TEXT = {
     usageLimitTitle: (pct: number) => `5-hour limit at ${pct}%`,
     usageLimitBody: (time: string | null) =>
       time ? `Approaching the usage cap — resets at ${time}.` : "Approaching the usage cap.",
+    usageLimitWeekTitle: (pct: number) => `Weekly limit at ${pct}%`,
+    usageLimitWeekBody: (day: string | null) =>
+      day ? `Approaching the weekly cap — resets ${day}.` : "Approaching the weekly cap.",
     extraCreditsTitle: "Extra credits in use",
     extraCreditsBody: (amount: string) => `Now spending paid extra usage — ${amount} this period.`,
     readyTitle: (name: string) => `${name} — your turn`,
@@ -285,6 +290,9 @@ const NOTIFY_TEXT = {
     usageLimitTitle: (pct: number) => `5-Stunden-Limit bei ${pct} %`,
     usageLimitBody: (time: string | null) =>
       time ? `Limit fast erreicht — Reset um ${time}.` : "Limit fast erreicht.",
+    usageLimitWeekTitle: (pct: number) => `Wochenlimit bei ${pct} %`,
+    usageLimitWeekBody: (day: string | null) =>
+      day ? `Wochenlimit fast erreicht — Reset ${day}.` : "Wochenlimit fast erreicht.",
     extraCreditsTitle: "Zusatzguthaben aktiv",
     extraCreditsBody: (amount: string) =>
       `Kostenpflichtige Zusatznutzung läuft — ${amount} in diesem Zeitraum.`,
@@ -426,6 +434,31 @@ function resetTimeLabel(resetAt: number | undefined, locale: NotifyLocale): stri
   }).format(new Date(resetAt));
 }
 
+/** Weekday + clock time of a reset days away ("Tue 9:30 PM"), or null without an anchor. */
+function resetDayLabel(resetAt: number | undefined, locale: NotifyLocale): string | null {
+  if (resetAt === undefined) return null;
+  return new Intl.DateTimeFormat(locale === "de" ? "de-DE" : "en-US", {
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(resetAt));
+}
+
+/** Usage-warning title/body: the weekly window resets days away, so its label names the day. */
+function usageLimitParts(t: NotifyText, input: NotifyInput, locale: NotifyLocale) {
+  const pct = input.pct ?? 0;
+  if (input.window === "week") {
+    return {
+      title: t.usageLimitWeekTitle(pct),
+      body: t.usageLimitWeekBody(resetDayLabel(input.resetAt, locale)),
+    };
+  }
+  return {
+    title: t.usageLimitTitle(pct),
+    body: t.usageLimitBody(resetTimeLabel(input.resetAt, locale)),
+  };
+}
+
 /**
  * Kinds whose whole payload is `{title, body}` built from the input by one helper. Collected into a
  * lookup rather than left as seven identical `case` arms — the arms carried no information beyond
@@ -501,11 +534,7 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
         body: autopilotBody(input.summary, t.autopilotDoneFallback),
       };
     case "usage_limit":
-      return {
-        ...base,
-        title: t.usageLimitTitle(input.pct ?? 0),
-        body: t.usageLimitBody(resetTimeLabel(input.resetAt, asLocale(locale))),
-      };
+      return { ...base, ...usageLimitParts(t, input, asLocale(locale)) };
     case "extra_credits":
       return { ...base, title: t.extraCreditsTitle, body: extraCreditsBody(t, input) };
     case "ready":
@@ -999,52 +1028,61 @@ export function attachMergePush(events: EventHub, push: PushService): void {
   });
 }
 
-/** Warn when the 5-hour usage window crosses this percentage. */
+/** Warn when a usage window (5-hour or weekly) crosses this percentage. */
 export const USAGE_WARN_PCT = 80;
-/** Setting key holding the resetAt of the 5h window already warned about. */
-const USAGE_WARNED_KEY = "usageWarnedResetAt5h";
 
-/** Push once per 5-hour window when usage crosses the warning threshold. */
+type UsageWindow = { pct: number; resetAt: number } | null | undefined;
+
+/** Per-window warning identity; the 5h marker key predates the weekly warning and stays as is. */
+const USAGE_WARN_WINDOWS = [
+  { field: "session5h", window: "5h", warnedKey: "usageWarnedResetAt5h", tag: "usage-5h" },
+  { field: "week", window: "week", warnedKey: "usageWarnedResetAtWk", tag: "usage-wk" },
+] as const;
+
+/** Push once per window (5-hour and weekly, independently) when usage crosses the threshold. */
 export function attachUsagePush(
   events: EventHub,
   store: SessionStore,
   push: PushService,
   now: () => number = () => Date.now(),
 ): void {
-  // The warned marker is read sync but persisted in notify's .then, so an emit
-  // landing while a notify is still in flight would re-read the stale marker and
-  // could double-warn the same window. Emits are ~30s apart, far wider than push
-  // delivery — but don't rely on that spacing: skip while one is pending.
-  let inFlight = false;
-  events.subscribe((event, data) => {
-    if (event !== "usage:limits") return;
-    const { session5h } = data as { session5h: { pct: number; resetAt: number } | null };
-    if (!session5h || session5h.pct < USAGE_WARN_PCT) return;
-    // One warning per window: the stored resetAt marks the window already warned.
-    // Persisted (not in-memory) so the post-merge redeploys don't re-announce it.
-    const warned = Number(store.getSetting(USAGE_WARNED_KEY) ?? 0);
-    if (inFlight || now() < warned) return;
-    inFlight = true;
-    void push
-      .notify({
-        kind: "usage_limit",
-        sessionId: "",
-        tag: "usage-5h",
-        name: "5h",
-        pct: session5h.pct,
-        resetAt: session5h.resetAt,
-        cooldownKey: "usage_limit:5h",
-      })
-      .then((sent) => {
-        // Only mark the window once a device heard it: a push suppressed while
-        // the app is active retries next tick and fires when the user steps away.
-        if (sent) store.setSetting(USAGE_WARNED_KEY, String(session5h.resetAt));
-      })
-      .catch((err) => console.warn("[push] usage_limit notify failed:", err))
-      .finally(() => {
-        inFlight = false;
-      });
-  });
+  for (const spec of USAGE_WARN_WINDOWS) {
+    // The warned marker is read sync but persisted in notify's .then, so an emit
+    // landing while a notify is still in flight would re-read the stale marker and
+    // could double-warn the same window. Emits are ~30s apart, far wider than push
+    // delivery — but don't rely on that spacing: skip while one is pending.
+    let inFlight = false;
+    events.subscribe((event, data) => {
+      if (event !== "usage:limits") return;
+      const w = (data as Record<string, UsageWindow>)[spec.field];
+      if (!w || w.pct < USAGE_WARN_PCT) return;
+      // One warning per window: the stored resetAt marks the window already warned.
+      // Persisted (not in-memory) so the post-merge redeploys don't re-announce it.
+      const warned = Number(store.getSetting(spec.warnedKey) ?? 0);
+      if (inFlight || now() < warned) return;
+      inFlight = true;
+      void push
+        .notify({
+          kind: "usage_limit",
+          sessionId: "",
+          tag: spec.tag,
+          name: spec.window,
+          window: spec.window,
+          pct: w.pct,
+          resetAt: w.resetAt,
+          cooldownKey: `usage_limit:${spec.window}`,
+        })
+        .then((sent) => {
+          // Only mark the window once a device heard it: a push suppressed while
+          // the app is active retries next tick and fires when the user steps away.
+          if (sent) store.setSetting(spec.warnedKey, String(w.resetAt));
+        })
+        .catch((err) => console.warn("[push] usage_limit notify failed:", err))
+        .finally(() => {
+          inFlight = false;
+        });
+    });
+  }
 }
 
 /** Setting key holding the year-month bucket of the credit window already warned about. */

@@ -567,7 +567,7 @@ A submission is held only when **all** of these hold (`src/usage-hold.ts`,
   one, else the operator's default provider. A Codex submission is never held,
   because the hold gate reads Claude's usage windows; and
 - the gate is enabled, and the request did not set `force: true`; and
-- the higher of the 5-hour and weekly usage windows is at or above
+- the higher of the 5-hour (if the plan has one) and weekly usage windows is at or above
   `SHEPHERD_USAGE_HOLD_PCT`.
 
 That first condition interacts with **capacity failover**

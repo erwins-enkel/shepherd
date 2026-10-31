@@ -1696,6 +1696,11 @@ components:
           oneOf:
             - $ref: "#/components/schemas/ObservedLimitWindow"
             - type: "null"
+        session5hAbsent:
+          type: boolean
+          description: >-
+            Present (true) when the latest probe rendered the weekly window but no 5-hour window — the
+            plan has none (Ultra). session5h is then null by design, not unconfirmed.
     IssueRef:
       type: object
       additionalProperties: false

@@ -4855,6 +4855,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     })();
   }
 
+  deleteCap(window: WindowKey): void {
+    this.db.run(`DELETE FROM usage_caps WHERE window = ?`, [window]);
+  }
+
   getCreditSnapshot(): CreditSnapshot | null {
     return (
       (this.db

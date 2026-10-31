@@ -743,6 +743,29 @@ test("buildPayload usage_limit localizes EN+DE and includes the reset time", () 
   expect(bare.body).toBe("Approaching the usage cap.");
 });
 
+test("buildPayload weekly usage_limit names the reset weekday, EN+DE", () => {
+  const n: NotifyInput = {
+    kind: "usage_limit",
+    sessionId: "",
+    tag: "usage-wk",
+    name: "week",
+    window: "week",
+    pct: 82,
+    resetAt: Date.UTC(2026, 5, 9, 19, 30),
+  };
+  const en = buildPayload(n, "en");
+  expect(en.title).toBe("Weekly limit at 82%");
+  // a reset days away must carry its day, never a bare time that reads as "today"
+  expect(en.body).toMatch(
+    /^Approaching the weekly cap — resets (Mon|Tue|Wed|Thu|Fri|Sat|Sun) .+\.$/,
+  );
+  const de = buildPayload(n, "de");
+  expect(de.title).toBe("Wochenlimit bei 82 %");
+  expect(de.body).toMatch(/^Wochenlimit fast erreicht — Reset (Mo|Di|Mi|Do|Fr|Sa|So)\..+\.$/);
+  expect(buildPayload({ ...n, resetAt: undefined }, "en").body).toBe("Approaching the weekly cap.");
+  expect(buildPayload({ ...n, resetAt: undefined }, "de").body).toBe("Wochenlimit fast erreicht.");
+});
+
 test("usage_limit routes to agent category", async () => {
   const sent: string[] = [];
   const send: SendFn = async (s) => {
@@ -870,6 +893,51 @@ test("attachUsagePush does not double-warn when an emit lands mid-delivery", asy
   events.emit("usage:limits", limitsEvent(87, 10_000)); // marked → still no second call
   await tick();
   expect(calls.length).toBe(1);
+});
+
+test("attachUsagePush warns once per weekly window, independent of the 5h window", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => {
+    calls.push(p);
+    return true;
+  };
+  const events = new EventHub();
+  let t = 1_000;
+  attachUsagePush(events, store, push, () => t);
+
+  const week = (pct: number, resetAt: number) => ({ session5h: null, week: { pct, resetAt } });
+  events.emit("usage:limits", week(USAGE_WARN_PCT - 1, 50_000)); // below → no fire
+  events.emit("usage:limits", week(USAGE_WARN_PCT, 50_000));
+  await tick();
+  events.emit("usage:limits", week(95, 50_000)); // same week → suppressed
+  await tick();
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({
+    kind: "usage_limit",
+    tag: "usage-wk",
+    name: "week",
+    window: "week",
+    pct: USAGE_WARN_PCT,
+    resetAt: 50_000,
+    cooldownKey: "usage_limit:week",
+  });
+
+  // a 5h crossing in the same week still warns: the markers are separate
+  events.emit("usage:limits", {
+    session5h: { pct: 85, resetAt: 10_000 },
+    week: { pct: 95, resetAt: 50_000 },
+  });
+  await tick();
+  expect(calls).toHaveLength(2);
+  expect(calls[1]).toMatchObject({ tag: "usage-5h", cooldownKey: "usage_limit:5h" });
+
+  // next week re-arms
+  t = 51_000;
+  events.emit("usage:limits", week(81, 120_000));
+  await tick();
+  expect(calls).toHaveLength(3);
+  expect(calls[2]).toMatchObject({ tag: "usage-wk", pct: 81, resetAt: 120_000 });
 });
 
 // Credits live on usage:limits alongside session5h/week; only `credits` matters here.

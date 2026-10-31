@@ -162,6 +162,8 @@ describe("MarkdownBody code copy", () => {
     const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
     const { container } = await render(MarkdownBody, { source, copyCode: true });
     await expect.poll(() => container.querySelectorAll(".md-code .md-copy")).toHaveLength(1);
+    // Highlighting re-renders the body; clicking before it lands would confirm on a detached button.
+    await expect.poll(() => container.querySelector("pre code span")).not.toBeNull();
     await userEvent.click(page.getByRole("button", { name: m.markdown_copy_code() }));
     expect(write).toHaveBeenCalledWith("bun install\nbun run dev\n");
     await expect

@@ -4446,3 +4446,177 @@ test("hasOpenPrForIssue never turns absent, malformed, partial-error or failed r
     }).hasOpenPrForIssue(42),
   ).rejects.toThrow("offline");
 });
+
+// --- security alerts (ctx.forge.security) ---
+
+/** A `gh api -i` page: status line, headers, blank line, JSON body. */
+function alertPage(body: unknown[], next?: string): string {
+  const link = next ? `Link: <https://api.github.com/${next}>; rel="next"\r\n` : "";
+  return `HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n${link}\r\n${JSON.stringify(body)}`;
+}
+
+function ghError(stderr: string): Error {
+  return Object.assign(new Error("gh failed"), { stderr });
+}
+
+const RAW_CS_ALERT = {
+  number: 120,
+  html_url: "https://github.com/o/r/security/code-scanning/120",
+  created_at: "2026-10-01T00:00:00Z",
+  rule: {
+    id: "js/incomplete-url",
+    description: "Incomplete URL",
+    security_severity_level: "high",
+    tags: ["security", "external/cwe/cwe-020"],
+  },
+  tool: { name: "CodeQL" },
+  most_recent_instance: {
+    message: { text: "may be followed" },
+    classifications: ["test"],
+    location: { path: "test/a.ts", start_line: 5 },
+  },
+};
+
+test("GithubForge.listCodeScanningAlerts: maps fields, default branch, open only", async () => {
+  const calls: string[][] = [];
+  const forge = new GithubForge("o/r", {}, async (args) => {
+    calls.push(args);
+    return alertPage([RAW_CS_ALERT]);
+  });
+  expect(await forge.listCodeScanningAlerts()).toEqual({
+    status: "ok",
+    truncated: false,
+    alerts: [
+      {
+        number: 120,
+        url: "https://github.com/o/r/security/code-scanning/120",
+        ruleId: "js/incomplete-url",
+        ruleDescription: "Incomplete URL",
+        securitySeverity: "high",
+        tool: "CodeQL",
+        cwes: ["CWE-020"],
+        path: "test/a.ts",
+        line: 5,
+        message: "may be followed",
+        classifications: ["test"],
+        createdAt: Date.parse("2026-10-01T00:00:00Z"),
+      },
+    ],
+  });
+  expect(calls).toEqual([["api", "-i", "repos/o/r/code-scanning/alerts?state=open&per_page=100"]]);
+});
+
+test("GithubForge.listDependabotAlerts: follows the cursor Link and maps fields", async () => {
+  const pages: Record<string, string> = {
+    "repos/o/r/dependabot/alerts?state=open&per_page=100": alertPage(
+      [
+        {
+          number: 11,
+          html_url: "https://github.com/o/r/security/dependabot/11",
+          created_at: "2026-10-01T00:00:00Z",
+          dependency: {
+            package: { ecosystem: "rust", name: "rustls" },
+            manifest_path: "cli/Cargo.lock",
+            scope: "runtime",
+          },
+          security_advisory: {
+            ghsa_id: "GHSA-1",
+            cve_id: null,
+            severity: "low",
+            summary: "bad",
+            cwes: [{ cwe_id: "CWE-1" }],
+          },
+          security_vulnerability: { first_patched_version: { identifier: "0.23.46" } },
+        },
+      ],
+      "repositories/9/dependabot/alerts?state=open&after=abc",
+    ),
+    "repositories/9/dependabot/alerts?state=open&after=abc": alertPage([
+      { number: 12, security_vulnerability: { first_patched_version: null } },
+    ]),
+  };
+  const forge = new GithubForge("o/r", {}, async (args) => pages[args[2]!]!);
+  const res = await forge.listDependabotAlerts();
+  if (res.status !== "ok") throw new Error("expected ok");
+  expect(res.truncated).toBe(false);
+  expect(res.alerts.map((a) => a.number)).toEqual([11, 12]);
+  expect(res.alerts[0]).toMatchObject({
+    ecosystem: "rust",
+    package: "rustls",
+    manifest: "cli/Cargo.lock",
+    scope: "runtime",
+    severity: "low",
+    ghsaId: "GHSA-1",
+    cwes: ["CWE-1"],
+    patchedVersion: "0.23.46",
+  });
+  expect(res.alerts[1]?.patchedVersion).toBeNull();
+});
+
+test("GithubForge alert listing: Link pagination stops at 10 pages with truncated", async () => {
+  let reads = 0;
+  const forge = new GithubForge("o/r", {}, async () => {
+    reads++;
+    return alertPage([{ ...RAW_CS_ALERT, number: reads }], `repos/o/r/next?page=${reads + 1}`);
+  });
+  const res = await forge.listCodeScanningAlerts();
+  expect(reads).toBe(10);
+  expect(res).toMatchObject({ status: "ok", truncated: true });
+});
+
+test("GithubForge alert listing: recognized refusals map to a reason", async () => {
+  const cases: [string, string][] = [
+    [
+      "gh: Advanced Security must be enabled for this repository to use code scanning. (HTTP 403)",
+      "disabled",
+    ],
+    ["gh: Dependabot alerts are disabled for this repository. (HTTP 403)", "disabled"],
+    ["gh: Dependabot alerts are not available for archived repositories. (HTTP 403)", "disabled"],
+    ["gh: no analysis found (HTTP 404)", "no-analysis"],
+    ["gh: Not Found (HTTP 404)", "not-found"],
+    ["gh: Resource not accessible by personal access token (HTTP 403)", "forbidden"],
+  ];
+  for (const [stderr, reason] of cases) {
+    const forge = new GithubForge("o/r", {}, async () => {
+      throw ghError(stderr);
+    });
+    expect(await forge.listDependabotAlerts()).toEqual({ status: "unavailable", reason } as never);
+  }
+});
+
+test("GithubForge alert listing: rate limits, 5xx and unknown 403s reject", async () => {
+  for (const stderr of [
+    "gh: API rate limit exceeded for user ID 1. (HTTP 403)",
+    "gh: You have exceeded a secondary rate limit. (HTTP 403)",
+    "gh: Server Error (HTTP 500)",
+    "gh: Something new (HTTP 403)",
+  ]) {
+    const forge = new GithubForge("o/r", {}, async () => {
+      throw ghError(stderr);
+    });
+    await expect(forge.listCodeScanningAlerts()).rejects.toThrow();
+  }
+});
+
+test("GithubForge alert listing: a later page failing rejects, never a partial list", async () => {
+  let reads = 0;
+  const forge = new GithubForge("o/r", {}, async () => {
+    if (++reads === 2) throw ghError("gh: Server Error (HTTP 502)");
+    return alertPage([RAW_CS_ALERT], "repos/o/r/next?page=2");
+  });
+  await expect(forge.listCodeScanningAlerts()).rejects.toThrow();
+});
+
+test("GithubForge.repoVisibility: known values, anything else or a failure is unknown", async () => {
+  const of = async (run: (args: string[]) => Promise<string>) =>
+    new GithubForge("o/r", {}, run).repoVisibility();
+  expect(await of(async () => "public\n")).toBe("public");
+  expect(await of(async () => "private\n")).toBe("private");
+  expect(await of(async () => "internal\n")).toBe("internal");
+  expect(await of(async () => "\n")).toBe("unknown");
+  expect(
+    await of(async () => {
+      throw ghError("gh: Server Error (HTTP 500)");
+    }),
+  ).toBe("unknown");
+});

@@ -72,6 +72,14 @@ export const PAGES = [
   },
   {
     srcDir: "docs",
+    src: "security-watch.md",
+    dest: "reference/security-watch.md",
+    linkBase: GITHUB_DOCS_BASE,
+    title: "Security Watch",
+    description: "Turn GitHub code scanning and Dependabot alerts into triaged issues Shepherd can fix — setup, public repos, redaction.",
+  },
+  {
+    srcDir: "docs",
     src: "external-task-api.md",
     dest: "reference/external-task-api.md",
     linkBase: GITHUB_DOCS_BASE,

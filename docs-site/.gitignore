@@ -4,6 +4,7 @@ src/content/docs/machines.md
 src/content/docs/reference/plugins.md
 src/content/docs/reference/sentry.md
 src/content/docs/reference/ci-watch.md
+src/content/docs/reference/security-watch.md
 src/content/docs/reference/external-task-api.md
 src/content/docs/reference/shepherd-cli.md
 src/content/docs/reference/security.md

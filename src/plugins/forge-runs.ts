@@ -28,9 +28,6 @@ const MAX_LINE_CHARS = 2000;
 /** An in-flight run older than this no longer holds the cursor (GitHub's queue/job ceiling). */
 const STALE_IN_FLIGHT_MS = 24 * 60 * 60 * 1000;
 
-type ForgeMethod =
-  "listDefaultBranchRuns" | "getRunDetail" | "failedRunStepLogs" | "rerunWorkflowRun";
-
 function invalid(message: string): never {
   throw new PluginForgeError("invalid-input", message);
 }
@@ -43,12 +40,13 @@ function checkInt(n: unknown, name: string, min: number, max = Number.MAX_SAFE_I
 }
 
 /** Resolve `repo` to a forge implementing `method`, or throw the typed refusal. */
-function forgeFor(
+export function forgeFor<M extends keyof GitForge>(
   deps: PluginForgeDeps | undefined,
   repo: string,
-  method: ForgeMethod,
-): Required<Pick<GitForge, ForgeMethod>> & GitForge {
-  if (!deps) throw new PluginForgeError("no-forge", "forge runs are not available in this core");
+  method: M,
+): Required<Pick<GitForge, M>> & GitForge {
+  if (!deps)
+    throw new PluginForgeError("no-forge", "forge features are not available in this core");
   const dir = typeof repo === "string" ? safeRepoDir(repo, deps.repoRoot) : null;
   if (!dir) {
     throw new PluginForgeError("invalid-repo", "repo must be a directory under the repo root");
@@ -56,12 +54,12 @@ function forgeFor(
   const forge = deps.resolveForge(dir);
   if (!forge) throw new PluginForgeError("no-forge", "no forge for repo");
   if (forge.isLightweight === true) {
-    throw new PluginForgeError("lightweight", "lightweight repos have no CI runs");
+    throw new PluginForgeError("lightweight", "lightweight repos have no forge");
   }
   if (typeof forge[method] !== "function") {
     throw new PluginForgeError("unsupported", `host does not support ${method}`);
   }
-  return forge as Required<Pick<GitForge, ForgeMethod>> & GitForge;
+  return forge as Required<Pick<GitForge, M>> & GitForge;
 }
 
 /** Completed runs above `sinceId` and below the lowest fresh in-flight run, ascending, capped;

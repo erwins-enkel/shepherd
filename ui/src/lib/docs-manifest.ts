@@ -111,7 +111,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Plugins",
     path: "/reference/plugins/",
     keywords:
-      "write server-side plugins: spawn hooks, routes, status/ui panels, and gear-menu items. location & loading installing from the ui updates — in place, one click manifest (plugin.json) entry contract the ctx capability seam reading sessions (ctx.sessions) filing issues (ctx.issues) ci runs (ctx.forge.runs) read-only diagnosis agents (ctx.agents.runreadonly) decision-model judge (ctx.judge) the onspawn hook failure behavior the single-loop discipline (important) status panel declarative ui panel (publishui) editable settings — input nodes + a submitting button writing config (ctx.setconfig) scheduling (ctx.schedule) secrets (ctx.secrets) gear-menu item (publishgearitem) three action kinds validation & security additive guard http routes a fuller example: spawn-labeler",
+      "write server-side plugins: spawn hooks, routes, status/ui panels, and gear-menu items. location & loading installing from the ui updates — in place, one click manifest (plugin.json) entry contract the ctx capability seam reading sessions (ctx.sessions) filing issues (ctx.issues) ci runs (ctx.forge.runs) security alerts (ctx.forge.security) read-only diagnosis agents (ctx.agents.runreadonly) decision-model judge (ctx.judge) the onspawn hook failure behavior the single-loop discipline (important) status panel declarative ui panel (publishui) editable settings — input nodes + a submitting button writing config (ctx.setconfig) scheduling (ctx.schedule) secrets (ctx.secrets) gear-menu item (publishgearitem) three action kinds validation & security additive guard http routes a fuller example: spawn-labeler",
   },
   {
     title: "Review policy (REVIEW.md)",
@@ -146,6 +146,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     path: "/reference/rules-i18n/",
     keywords:
       "never hardcode user-facing text — paraglide catalogs plus the server-side notification table. server-side notification text (no gate covers this) gates",
+  },
+  {
+    title: "Security Watch",
+    path: "/reference/security-watch/",
+    keywords:
+      "turn github code scanning and dependabot alerts into triaged issues shepherd can fix — setup, public repos, redaction. public repos: read this first 1. enable it 2. watch repositories what gets filed rejected by triage lifecycle sync status",
   },
   {
     title: "Security",

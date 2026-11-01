@@ -384,6 +384,52 @@ export interface WorkflowRun {
   jobs: WorkflowJob[];
 }
 
+export type ForgeRepoVisibility = "public" | "private" | "internal" | "unknown";
+
+/** Why a host can't list a repo's security alerts. Transient failures reject instead. */
+export type ForgeAlertsUnavailable = "disabled" | "no-analysis" | "forbidden" | "not-found";
+
+/** One read of a repo's open alerts. `truncated`: more alerts exist than the page limit. */
+export type ForgeAlertList<T> =
+  | { status: "ok"; alerts: T[]; truncated: boolean }
+  | { status: "unavailable"; reason: ForgeAlertsUnavailable };
+
+/** Open code scanning alert. Rule, message and path text is untrusted. */
+export interface ForgeCodeScanningAlert {
+  number: number;
+  url: string;
+  ruleId: string;
+  ruleDescription: string;
+  /** `critical` … `low`; null for a rule with no security severity (code quality). */
+  securitySeverity: string | null;
+  tool: string;
+  cwes: string[];
+  path: string;
+  line: number | null;
+  message: string;
+  /** `test`, `generated`, `library`, `documentation`. */
+  classifications: string[];
+  createdAt: number;
+}
+
+/** Open Dependabot alert. Advisory text and package names are untrusted. */
+export interface ForgeDependabotAlert {
+  number: number;
+  url: string;
+  ecosystem: string;
+  package: string;
+  manifest: string;
+  /** `runtime`, `development`, or null when the host doesn't know. */
+  scope: string | null;
+  severity: string;
+  ghsaId: string;
+  cveId: string | null;
+  summary: string;
+  cwes: string[];
+  patchedVersion: string | null;
+  createdAt: number;
+}
+
 /** One job of a {@link ForgeRun}, with the host's RAW conclusion (`failure`, `skipped`, …). */
 export interface ForgeRunJob {
   id: number;
@@ -691,6 +737,13 @@ export interface GitForge {
   runJobs?(runId: number): Promise<ForgeRunJob[]>;
   /** Every failed step's full log lines, grouped by job + step in log order. Untrusted text. */
   failedRunStepLogs?(runId: number): Promise<{ job: string; step: string; lines: string[] }[]>;
+  /** Open code scanning alerts on the default branch. Optional: GitHub only. Rejects on a
+   *  rate limit or server error; a failed read is never an empty list. */
+  listCodeScanningAlerts?(): Promise<ForgeAlertList<ForgeCodeScanningAlert>>;
+  /** Open Dependabot alerts. Same contract as {@link listCodeScanningAlerts}. */
+  listDependabotAlerts?(): Promise<ForgeAlertList<ForgeDependabotAlert>>;
+  /** The repo's visibility, read fresh; `unknown` on any failure. Optional: GitHub only. */
+  repoVisibility?(): Promise<ForgeRepoVisibility>;
   prStatus(headBranch: string): Promise<PrStatus>;
   /** {@link prStatus} for many heads in one batched read (#2743). A head missing from the result
    *  is unknown — the caller falls back to `prStatus` for it. Never rejects. */

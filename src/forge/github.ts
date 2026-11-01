@@ -65,6 +65,11 @@ import type {
   CiStatus,
   EpicStructure,
   ForgeConfig,
+  ForgeAlertList,
+  ForgeAlertsUnavailable,
+  ForgeCodeScanningAlert,
+  ForgeDependabotAlert,
+  ForgeRepoVisibility,
   ForgeRun,
   ForgeRunJob,
   GitForge,
@@ -491,6 +496,149 @@ function copyIssues(issues: Issue[]): Issue[] {
 
 /** Runs `gh` with the given args and returns stdout. Injected in tests. */
 export type GhRunner = (args: string[]) => Promise<string>;
+
+/** Alert pages read per list before reporting `truncated` (100 alerts each). */
+const MAX_ALERT_PAGES = 10;
+
+/** The recognized "can't list alerts" responses; anything else (rate limit, 5xx, an unknown 403)
+ *  is null so the caller rethrows: a failed read must never look like an empty list. */
+function alertsUnavailableReason(e: unknown): ForgeAlertsUnavailable | null {
+  const text = String((e as { stderr?: unknown })?.stderr ?? e);
+  if (/rate limit|abuse/i.test(text)) return null;
+  if (/HTTP 404/.test(text)) return /no analysis/i.test(text) ? "no-analysis" : "not-found";
+  if (!/HTTP 403/.test(text)) return null;
+  if (
+    /Advanced Security must be enabled|not enabled|alerts are (disabled|not available)/i.test(text)
+  )
+    return "disabled";
+  if (/not accessible|admin rights|must have|permission|scope/i.test(text)) return "forbidden";
+  return null;
+}
+
+/** Split `gh api -i` output into the `rel="next"` endpoint (host stripped) and the JSON body. */
+function parseAlertPage(out: string): { next: string | null; body: string } {
+  const split = /\r?\n\r?\n/.exec(out);
+  const head = split ? out.slice(0, split.index) : "";
+  const body = split ? out.slice(split.index + split[0].length) : out;
+  const link = /^link:(.*)$/im.exec(head)?.[1] ?? "";
+  const url = /<([^>]+)>;\s*rel="next"/.exec(link)?.[1];
+  if (!url) return { next: null, body };
+  const parsed = new URL(url);
+  return { next: `${parsed.pathname}${parsed.search}`.replace(/^\//, ""), body };
+}
+
+async function listAlertPages<Raw, T>(
+  run: GhRunner,
+  first: string,
+  map: (raw: Raw) => T,
+): Promise<ForgeAlertList<T>> {
+  const alerts: T[] = [];
+  let endpoint: string | null = first;
+  try {
+    for (let page = 0; page < MAX_ALERT_PAGES && endpoint; page++) {
+      const { next, body }: { next: string | null; body: string } = parseAlertPage(
+        await run(["api", "-i", endpoint]),
+      );
+      alerts.push(...(JSON.parse(body || "[]") as Raw[]).map(map));
+      endpoint = next;
+    }
+  } catch (e) {
+    const reason = alertsUnavailableReason(e);
+    if (reason) return { status: "unavailable", reason };
+    throw e;
+  }
+  return { status: "ok", alerts, truncated: endpoint !== null };
+}
+
+/** A CWE id out of GitHub's `external/cwe/cwe-079` rule tags. */
+function cweTags(tags: string[] | undefined): string[] {
+  return (tags ?? []).flatMap((t) => {
+    const m = /^external\/cwe\/(cwe-\d+)$/i.exec(t);
+    return m ? [m[1]!.toUpperCase()] : [];
+  });
+}
+
+interface GhCodeScanningAlert {
+  number: number;
+  html_url?: string;
+  created_at?: string;
+  rule?: {
+    id?: string;
+    description?: string;
+    security_severity_level?: string | null;
+    tags?: string[];
+  };
+  tool?: { name?: string };
+  most_recent_instance?: {
+    message?: { text?: string };
+    classifications?: string[];
+    location?: { path?: string; start_line?: number };
+  };
+}
+
+const str = (v: string | null | undefined): string => v ?? "";
+const epochMs = (v: string | undefined): number => Date.parse(str(v)) || 0;
+
+function mapCodeScanningAlert(a: GhCodeScanningAlert): ForgeCodeScanningAlert {
+  const rule = a.rule ?? {};
+  const instance = a.most_recent_instance ?? {};
+  const location = instance.location ?? {};
+  return {
+    number: a.number,
+    url: str(a.html_url),
+    ruleId: str(rule.id),
+    ruleDescription: str(rule.description),
+    securitySeverity: rule.security_severity_level ?? null,
+    tool: str(a.tool?.name),
+    cwes: cweTags(rule.tags),
+    path: str(location.path),
+    line: location.start_line ?? null,
+    message: str(instance.message?.text),
+    classifications: instance.classifications ?? [],
+    createdAt: epochMs(a.created_at),
+  };
+}
+
+interface GhDependabotAlert {
+  number: number;
+  html_url?: string;
+  created_at?: string;
+  dependency?: {
+    package?: { ecosystem?: string; name?: string };
+    manifest_path?: string;
+    scope?: string | null;
+  };
+  security_advisory?: {
+    ghsa_id?: string;
+    cve_id?: string | null;
+    severity?: string;
+    summary?: string;
+    cwes?: Array<{ cwe_id?: string }>;
+  };
+  security_vulnerability?: { first_patched_version?: { identifier?: string } | null };
+}
+
+function mapDependabotAlert(a: GhDependabotAlert): ForgeDependabotAlert {
+  const dependency = a.dependency ?? {};
+  const pkg = dependency.package ?? {};
+  const advisory = a.security_advisory ?? {};
+  const patched = a.security_vulnerability?.first_patched_version;
+  return {
+    number: a.number,
+    url: str(a.html_url),
+    ecosystem: str(pkg.ecosystem),
+    package: str(pkg.name),
+    manifest: str(dependency.manifest_path),
+    scope: dependency.scope ?? null,
+    severity: str(advisory.severity),
+    ghsaId: str(advisory.ghsa_id),
+    cveId: advisory.cve_id ?? null,
+    summary: str(advisory.summary),
+    cwes: (advisory.cwes ?? []).flatMap((c) => (c.cwe_id ? [c.cwe_id] : [])),
+    patchedVersion: patched?.identifier ?? null,
+    createdAt: epochMs(a.created_at),
+  };
+}
 
 /** A `gh api` rejection for a missing resource (HTTP 404). */
 function isGhNotFound(e: unknown): boolean {
@@ -2134,6 +2282,32 @@ export class GithubForge implements GitForge {
   ): Promise<{ job: string; step: string; lines: string[] }[]> {
     const out = await this.run(["run", "view", String(runId), "--repo", this.slug, "--log-failed"]);
     return parseFailedLog(out);
+  }
+
+  /** Open code scanning alerts on the default branch (the API's default `ref`). */
+  async listCodeScanningAlerts(): Promise<ForgeAlertList<ForgeCodeScanningAlert>> {
+    return listAlertPages(
+      this.run,
+      `repos/${this.slug}/code-scanning/alerts?state=open&per_page=100`,
+      mapCodeScanningAlert,
+    );
+  }
+
+  async listDependabotAlerts(): Promise<ForgeAlertList<ForgeDependabotAlert>> {
+    return listAlertPages(
+      this.run,
+      `repos/${this.slug}/dependabot/alerts?state=open&per_page=100`,
+      mapDependabotAlert,
+    );
+  }
+
+  async repoVisibility(): Promise<ForgeRepoVisibility> {
+    try {
+      const raw = (await this.run(["api", `repos/${this.slug}`, "--jq", ".visibility"])).trim();
+      return raw === "public" || raw === "private" || raw === "internal" ? raw : "unknown";
+    } catch {
+      return "unknown";
+    }
   }
 
   /** Map a raw GhPr node to a PrStatus. Shared by prStatus (single-PR path) and

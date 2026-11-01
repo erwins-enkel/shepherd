@@ -51,10 +51,38 @@ function maximal(locale: "en" | "de" = "en") {
     status: { lastPollAt: 1, lastError: "boom", lastResult: { ok: 2, baseline: 1 } },
     repos: cfgs,
     available: repos,
+    openRepo: repos[0]!.path,
     filedToday: () => 1,
     rejected,
   });
 }
+
+const walk = (n: PluginUINode): PluginUINode[] => [n, ...(n.children ?? []).flatMap(walk)];
+const find = (root: PluginUINode, type: string) => walk(root).find((n) => n.type === type);
+const items = (n: PluginUINode | undefined) =>
+  n?.props?.items as { value: string; label: string; meta: string; current: boolean }[];
+const options = (n: PluginUINode | undefined) =>
+  n?.props?.options as { value: string; label: string }[];
+
+function panel(over: Partial<Parameters<typeof buildView>[0]> = {}) {
+  return buildView({
+    settings: DEFAULT_SETTINGS,
+    status: { lastPollAt: 0, lastError: null, lastResult: {} },
+    repos: {},
+    available: [],
+    openRepo: null,
+    filedToday: () => 0,
+    rejected: [],
+    ...over,
+  });
+}
+const repo = (name: string, slug?: string) => ({
+  path: `/r/${name}`,
+  name,
+  slug,
+  autoLabel: "a",
+  lightweight: false,
+});
 
 function inputNames(n: PluginUINode, out: string[] = []): string[] {
   if (typeof n.props?.name === "string") out.push(n.props.name);
@@ -146,6 +174,7 @@ test("repo picker + headings label by forge slug, dir name as fallback (#2556)",
     settings: DEFAULT_SETTINGS,
     status: { lastPollAt: 0, lastError: null, lastResult: {} },
     repos: { "/r/a": DEFAULT_REPO },
+    openRepo: "/r/a",
     available: [
       { ...base, path: "/r/a", name: "a", slug: "acme/a" },
       { ...base, path: "/r/b", name: "b", slug: "other/b" },
@@ -158,4 +187,82 @@ test("repo picker + headings label by forge slug, dir name as fallback (#2556)",
   expect(json).toContain('"value":"acme/a · ');
   expect(json).toContain('{"value":"/r/b","label":"other/b"}');
   expect(json).toContain('{"value":"/r/c","label":"c"}');
+});
+
+test("picker sorts by visible label, whatever the folder order (case-insensitive, numeric)", () => {
+  const view = panel({
+    available: [
+      repo("a", "zeta/a"),
+      repo("b"),
+      repo("c", "Acme/c"),
+      repo("d", "acme/repo10"),
+      repo("e", "acme/repo2"),
+    ],
+  });
+  expect(options(find(view.root, "multi-select")).map((o) => o.label)).toEqual([
+    "Acme/c",
+    "acme/repo2",
+    "acme/repo10",
+    "b",
+    "zeta/a",
+  ]);
+});
+
+test("watched list: enabled first, then label; every repo reachable, no form until opened", () => {
+  const all = Array.from({ length: 66 }, (_, i) => repo(`r${i}`));
+  const repos = Object.fromEntries(
+    all.map((r, i) => [r.path, { ...DEFAULT_REPO, enabled: i !== 0 }]),
+  );
+  const view = panel({ repos, available: [...all, repo("z", "acme/z"), repo("y", "acme/y")] });
+  const rows = items(find(view.root, "action-list"));
+  expect(rows).toHaveLength(66);
+  expect(rows.at(0)?.label).toBe("r1");
+  expect(rows.at(-1)?.label).toBe("r0");
+  expect(rows.at(-1)?.meta).toContain(STRINGS.en.off);
+  expect(rows.at(0)?.meta).toContain(STRINGS.en.watching);
+  expect(rows.some((r) => r.current)).toBe(false);
+  expect(inputNames(view.root).filter((n) => n.startsWith("thr."))).toEqual([]);
+});
+
+test("opening a repo renders only its form and marks its row", () => {
+  const a = repo("a");
+  const b = repo("b");
+  const repos = { [a.path]: DEFAULT_REPO, [b.path]: DEFAULT_REPO };
+  const view = panel({ repos, available: [a, b], openRepo: b.path });
+  expect(inputNames(view.root).filter((n) => n.startsWith("thr."))).toEqual([
+    `thr.${repoFieldId(b.path)}`,
+  ]);
+  expect(items(find(view.root, "action-list")).find((r) => r.current)?.value).toBe(b.path);
+});
+
+test("add picker keeps its index whether or not a row is open", () => {
+  const a = repo("a");
+  const b = repo("b");
+  const index = (openRepo: string | null) =>
+    panel({
+      repos: { [a.path]: DEFAULT_REPO },
+      available: [a, b],
+      openRepo,
+    }).root.children!.findIndex((n) => n.props?.name === "addRepos");
+  expect(index(null)).toBeGreaterThan(-1);
+  expect(index(a.path)).toBe(index(null));
+});
+
+test("200 long-path repos stay inside the host's limits, with the overflow counted", () => {
+  const long = Array.from({ length: 450 }, (_, i) => ({
+    ...repo(`${"x".repeat(100)}${i}`, `organisation/${"y".repeat(30)}${i}`),
+  }));
+  const half = Object.fromEntries(long.slice(0, 120).map((r) => [r.path, DEFAULT_REPO]));
+  const view = panel({ repos: half, available: long, openRepo: long[0]!.path, rejected });
+  expect(validatePluginUIView(view)).not.toBeNull();
+  expect(items(find(view.root, "action-list"))).toHaveLength(120);
+  expect(options(find(view.root, "multi-select"))).toHaveLength(80);
+  expect(JSON.stringify(view)).toContain(`250 ${STRINGS.en.more}`);
+
+  const full = Object.fromEntries(long.slice(0, 210).map((r) => [r.path, DEFAULT_REPO]));
+  const over = panel({ repos: full, available: long });
+  expect(validatePluginUIView(over)).not.toBeNull();
+  expect(items(find(over.root, "action-list"))).toHaveLength(200);
+  expect(find(over.root, "multi-select")).toBeUndefined();
+  expect(JSON.stringify(over)).toContain(`10 ${STRINGS.en.more}`);
 });

@@ -459,3 +459,61 @@ test("publishUI(undefined): clears list().ui to null and emits (nullish clear)",
   expect(uiEvents.at(-1)).toEqual({ id: "ui-undef", ui: null });
   rmSync(root, { recursive: true, force: true });
 });
+
+test("select: searchable and mono must be booleans when present", () => {
+  const sel = (props: Record<string, unknown>) =>
+    validatePluginUIView(formView({ type: "select", props: { name: "a", ...props } }));
+  const options = [{ value: "q" }];
+  expect(sel({ options, searchable: "yes" })).toBeNull();
+  expect(sel({ options, mono: 1 })).toBeNull();
+  expect(sel({ options, searchable: true, mono: true })).not.toBeNull();
+});
+
+test("multi-select: options required, seed is a string array, names stay unique", () => {
+  const multi = (props: Record<string, unknown>) =>
+    validatePluginUIView(formView({ type: "multi-select", props: { name: "a", ...props } }));
+  const options = [{ value: "q" }];
+  expect(multi({})).toBeNull();
+  expect(multi({ options: [] })).toBeNull();
+  expect(multi({ options, value: "q" })).toBeNull();
+  expect(multi({ options, value: [1] })).toBeNull();
+  expect(multi({ options, mono: "x" })).toBeNull();
+  expect(multi({ options })).not.toBeNull();
+  expect(multi({ options, value: ["q"], mono: true })).not.toBeNull();
+  expect(
+    validatePluginUIView({
+      schemaVersion: 1,
+      slot: "settings-panel",
+      root: {
+        type: "stack",
+        children: [
+          { type: "multi-select", props: { name: "a", options } },
+          { type: "text-input", props: { name: "a" } },
+        ],
+      },
+    }),
+  ).toBeNull();
+});
+
+test("action-list: items, param and route are enforced", () => {
+  const list = (props: Record<string, unknown>) =>
+    validatePluginUIView({
+      schemaVersion: 1,
+      slot: "settings-panel",
+      root: { type: "action-list", props },
+    });
+  const ok = {
+    param: "repo",
+    route: { method: "POST", path: "repo/open" },
+    items: [{ value: "/r/a", label: "a", meta: "on", current: true }],
+  };
+  expect(list(ok)).not.toBeNull();
+  expect(list({ ...ok, items: [] })).toBeNull();
+  expect(list({ ...ok, items: [{ label: "a" }] })).toBeNull();
+  expect(list({ ...ok, items: [{ value: "a", meta: 1 }] })).toBeNull();
+  expect(list({ ...ok, items: [{ value: "a", current: "yes" }] })).toBeNull();
+  expect(list({ ...ok, param: "bad key" })).toBeNull();
+  expect(list({ ...ok, route: { method: "GET", path: "x" } })).toBeNull();
+  expect(list({ ...ok, route: { method: "POST", path: "../x" } })).toBeNull();
+  expect(list({ ...ok, route: undefined })).toBeNull();
+});

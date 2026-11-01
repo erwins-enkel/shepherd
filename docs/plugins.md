@@ -561,8 +561,8 @@ if (typeof ctx.publishUI === "function") {
 
 ### Editable settings — input nodes + a submitting button
 
-Four input nodes let an operator **type** a setting: `text-input`, `select`, `checkbox` and
-`number`. They never POST on their own. Each one contributes a **named field to the body of an
+Five input nodes let an operator **type** a setting: `text-input`, `select`, `multi-select`,
+`checkbox` and `number`. They never POST on their own. Each one contributes a **named field to the body of an
 `action-button` that opts in with `submit: true`** — so "POST a plugin-authored body to your own
 route" stays the only network shape, and the button's namespace scoping applies unchanged.
 
@@ -609,12 +609,13 @@ ctx.route("POST", "config", async (req) => {
 });
 ```
 
-| Node         | Props                                                      | Submits             |
-| ------------ | ---------------------------------------------------------- | ------------------- |
-| `text-input` | `name`, `label?`, `value?`, `placeholder?`, `secret?`      | a string            |
-| `select`     | `name`, `label?`, `value?`, `options: { value, label? }[]` | a string            |
-| `checkbox`   | `name`, `label?`, `value?`                                 | a boolean           |
-| `number`     | `name`, `label?`, `value?`, `placeholder?`                 | a number, or `null` |
+| Node           | Props                                                                              | Submits             |
+| -------------- | ---------------------------------------------------------------------------------- | ------------------- |
+| `text-input`   | `name`, `label?`, `value?`, `placeholder?`, `secret?`                              | a string            |
+| `select`       | `name`, `label?`, `value?`, `searchable?`, `mono?`, `options: { value, label? }[]` | a string            |
+| `multi-select` | `name`, `label?`, `value?: string[]`, `mono?`, `options: { value, label? }[]`      | a `string[]`        |
+| `checkbox`     | `name`, `label?`, `value?`                                                         | a boolean           |
+| `number`       | `name`, `label?`, `value?`, `placeholder?`                                         | a number, or `null` |
 
 Contract details worth knowing before you build a panel:
 
@@ -631,6 +632,20 @@ Contract details worth knowing before you build a panel:
   the panel corrects itself.
 - **`select` always submits a valid option.** An absent or unknown `value` falls back to the
   first entry in `options`.
+- **`searchable: true` is the exception.** It renders a filterable list and posts `""` until the
+  operator picks, and again if the picked option leaves `options`. Validate it in your route.
+- **`multi-select` drops picks that leave `options`.** Publish the panel without the repos you
+  just added and the control clears itself. A failed add leaves the picks in place.
+- **Filterable lists keep your order.** The host never sorts `options`, so sort by the label the
+  operator reads. `mono: true` sets labels in the machine font, for repo names and other
+  identifiers.
+- **`action-list` holds long lists in one node.** It is not an input: a row click POSTs
+  `{ [param]: value }` to `route`. Props are `label?`, `param`, `route`, `mono?` and
+  `items: { value, label?, meta?, current? }[]`. An empty response stays silent; other text
+  toasts. Use it when a row per node would exceed the 256-node limit.
+- **Children keep their place by index.** The host keys a stack's children by position, so a node
+  inserted above an input remounts that input and loses what the operator entered. Wrap
+  conditional content in a stack that is always present.
 - **`number` submits `null`** when the field is empty or not a number — never `NaN`. Range is
   yours to validate in the route handler; the host does not clamp.
 - **`secret` masks, it does not protect.** The value still travels as plaintext JSON to your

@@ -44,6 +44,8 @@ async function load() {
     events: new EventHub(),
     repos: () => [
       { path: "/r/web", name: "web", autoLabel: "shepherd:auto", lightweight: false },
+      { path: "/r/api", name: "api", autoLabel: "shepherd:auto", lightweight: false },
+      { path: "/r/app", name: "app", autoLabel: "shepherd:auto", lightweight: false },
       { path: "/r/local", name: "local", autoLabel: "shepherd:auto", lightweight: true },
     ],
     secretsPath: join(secretsDir, "secrets.json"),
@@ -94,9 +96,9 @@ test("repo routes: add refuses unknown/lightweight; save persists the repo form"
   const { store, post, panel, cleanup } = await load();
   const { repoFieldId } = await import("../src/plugins/bundled/ci-watch/panel");
   try {
-    expect((await post("repo/add", { addRepo: "/r/nope" }))!.status).toBe(400);
-    expect((await post("repo/add", { addRepo: "/r/local" }))!.status).toBe(400);
-    expect((await post("repo/add", { addRepo: "/r/web" }))!.status).toBe(200);
+    expect((await post("repo/add", { addRepos: ["/r/nope"] }))!.status).toBe(400);
+    expect((await post("repo/add", { addRepos: ["/r/local"] }))!.status).toBe(400);
+    expect((await post("repo/add", { addRepos: ["/r/web"] }))!.status).toBe(200);
     const repos = () => JSON.parse(store.getPluginState("ci-watch", "repos")!);
     expect(repos()["/r/web"]).toMatchObject({ enabled: true, autoDrain: false, threshold: 1 });
     expect(panel()).toContain(`thr.${repoFieldId("/r/web")}`);
@@ -118,6 +120,56 @@ test("repo routes: add refuses unknown/lightweight; save persists the repo form"
       threshold: 3,
       overrides: [{ glob: "Eval*", threshold: 5 }],
     });
+  } finally {
+    cleanup();
+  }
+});
+
+test("repo/add takes several repos in one POST and validates all of them first", async () => {
+  const { store, post, panel, cleanup } = await load();
+  const { repoFieldId } = await import("../src/plugins/bundled/ci-watch/panel");
+  const { STRINGS } = await import("../src/plugins/bundled/ci-watch/panel");
+  const repos = () => JSON.parse(store.getPluginState("ci-watch", "repos") ?? "{}");
+  try {
+    for (const addRepos of [[], "/r/web", undefined]) {
+      const res = await post("repo/add", { addRepos });
+      expect(res!.status).toBe(400);
+      expect(await res!.text()).toBe(STRINGS.en.pickRepo);
+    }
+    // One bad path refuses the whole body, including the good one before it.
+    expect((await post("repo/add", { addRepos: ["/r/web", "/r/nope"] }))!.status).toBe(400);
+    expect((await post("repo/add", { addRepos: ["/r/web", 7] }))!.status).toBe(400);
+    expect(repos()).toEqual({});
+
+    const res = await post("repo/add", { addRepos: ["/r/web", "/r/api", "/r/web"] });
+    expect(res!.status).toBe(200);
+    expect(Object.keys(repos()).sort()).toEqual(["/r/api", "/r/web"]);
+    expect(repos()["/r/web"].enabled).toBe(true);
+    // Several added: nothing opens. The added repos have left the picker.
+    expect(panel()).not.toContain(`thr.${repoFieldId("/r/web")}`);
+    expect(panel()).not.toContain('{"value":"/r/web","label":"web"}');
+    expect(panel()).toContain('{"value":"/r/app","label":"app"}');
+  } finally {
+    cleanup();
+  }
+});
+
+test("repo/open toggles one form silently and refuses an unconfigured repo", async () => {
+  const { post, panel, cleanup } = await load();
+  const { repoFieldId } = await import("../src/plugins/bundled/ci-watch/panel");
+  const form = (repo: string) => `thr.${repoFieldId(repo)}`;
+  try {
+    await post("repo/add", { addRepos: ["/r/web", "/r/api"] });
+    expect((await post("repo/open", { repo: "/r/app" }))!.status).toBe(400);
+    const res = await post("repo/open", { repo: "/r/web" });
+    expect(res!.status).toBe(200);
+    expect(await res!.text()).toBe("");
+    expect(panel()).toContain(form("/r/web"));
+    await post("repo/open", { repo: "/r/api" });
+    expect(panel()).toContain(form("/r/api"));
+    expect(panel()).not.toContain(form("/r/web"));
+    await post("repo/open", { repo: "/r/api" });
+    expect(panel()).not.toContain(form("/r/api"));
   } finally {
     cleanup();
   }

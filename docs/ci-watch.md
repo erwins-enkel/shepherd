@@ -37,10 +37,10 @@ Click **Save settings**.
 
 ## 2. Watch repositories
 
-A repo is watched only once you add it **and** its **Watch this repo** box is ticked. Pick it
-under **Add repository** and click **Add and watch**. Local-only (lightweight) repos can't be watched; they have no forge CI.
+A repo is watched only once you add it **and** its **Watch this repo** box is ticked. Under
+**Add repository**, filter the list, tick one or more repos and click **Add and watch**. Local-only (lightweight) repos can't be watched; they have no forge CI.
 
-Each watched repo has its own form:
+Added repos appear in a list showing each one's state. Select a row to open its form:
 
 - **Watch this repo**: untick it to stop watching without losing the settings.
 - **Auto-drain filed issues** (default off): filed issues get only the `ci-failure` label, so you

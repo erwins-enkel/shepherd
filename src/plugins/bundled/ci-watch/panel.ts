@@ -9,10 +9,11 @@ import { DAILY_CAP } from "./rules";
 import type { Locale, PollStatus, RepoConfig, Settings, ThresholdOverride } from "./state";
 
 /** Row caps keep the view under the host's node budget (256). */
-const MAX_REPO_ROWS = 15;
 const MAX_REJECTED_ROWS = 15;
-/** Host cap on any props array is 500. */
-const MAX_REPO_OPTIONS = 400;
+/** Shared by the watched list and the add picker. Each row costs its path, label and meta, so
+ *  this keeps the view well under the host's 64 KB ceiling; an oversized view is silently
+ *  dropped. */
+const MAX_LISTED_REPOS = 200;
 const REASON_MAX = 300;
 
 export const STRINGS = {
@@ -43,6 +44,10 @@ export const STRINGS = {
     saveRepo: "Save repo",
     more: "more not shown",
     add: "Add repository",
+    openHint: "Select a repo to edit its settings",
+    watching: "watching",
+    off: "off",
+    pickRepo: "Pick at least one repository.",
     repo: "Repository",
     addButton: "Add and watch",
     rejected: "Rejected by triage",
@@ -89,6 +94,10 @@ export const STRINGS = {
     saveRepo: "Repo speichern",
     more: "weitere nicht angezeigt",
     add: "Repository hinzufügen",
+    openHint: "Repo auswählen, um seine Einstellungen zu bearbeiten",
+    watching: "beobachtet",
+    off: "aus",
+    pickRepo: "Wähle mindestens ein Repository aus.",
     repo: "Repository",
     addButton: "Hinzufügen und beobachten",
     rejected: "Von der Triage abgelehnt",
@@ -118,6 +127,8 @@ export interface PanelInput {
   repos: Record<string, RepoConfig>;
   /** Forge-backed repos under the repo root. */
   available: PluginRepo[];
+  /** The one repo whose form is rendered; every open form would exceed the node budget. */
+  openRepo: string | null;
   filedToday: (repo: string) => number;
   rejected: ClassifyRecord[];
 }
@@ -210,6 +221,9 @@ function repoLabel(r: PluginRepo): string {
   return r.slug ?? r.name;
 }
 
+/** Filterable lists keep plugin order, so sort by what the operator reads. */
+const labelOrder = new Intl.Collator("en", { sensitivity: "base", numeric: true }).compare;
+
 function repoName(p: PanelInput, path: string): string {
   const r = p.available.find((x) => x.path === path);
   return r ? repoLabel(r) : path;
@@ -240,34 +254,71 @@ function repoForm(p: PanelInput, path: string, cfg: RepoConfig, t: Strings): Plu
   };
 }
 
-function repoRows(p: PanelInput, t: Strings): PluginUINode[] {
+function repoMeta(p: PanelInput, path: string, cfg: RepoConfig, t: Strings): string {
+  return `${cfg.enabled ? t.watching : t.off} · ${p.filedToday(path)}/${DAILY_CAP} ${t.filedToday}`;
+}
+
+function repoRows(p: PanelInput, t: Strings): PluginUINode {
   const entries = Object.entries(p.repos).sort(
-    ([a, x], [b, y]) => Number(y.enabled) - Number(x.enabled) || a.localeCompare(b),
+    ([a, x], [b, y]) =>
+      Number(y.enabled) - Number(x.enabled) || labelOrder(repoName(p, a), repoName(p, b)),
   );
-  const out: PluginUINode[] = [heading(t.repos)];
-  if (entries.length === 0) out.push(text(t.noRepos, { tone: "muted" }));
-  for (const [path, cfg] of entries.slice(0, MAX_REPO_ROWS)) out.push(repoForm(p, path, cfg, t));
-  if (entries.length > MAX_REPO_ROWS)
-    out.push(text(`${entries.length - MAX_REPO_ROWS} ${t.more}`, { tone: "muted" }));
-  return out;
+  const open = p.openRepo === null ? undefined : p.repos[p.openRepo];
+  const hidden = entries.length - MAX_LISTED_REPOS;
+  // Always this one stack: the host keys children by index, so an open form placed beside the
+  // add picker would shift it and remount it, losing the operator's picks.
+  return {
+    type: "stack",
+    children: [
+      heading(t.repos),
+      entries.length === 0
+        ? text(t.noRepos, { tone: "muted" })
+        : {
+            type: "action-list",
+            props: {
+              label: t.openHint,
+              param: "repo",
+              route: { method: "POST", path: "repo/open" },
+              mono: true,
+              items: entries.slice(0, MAX_LISTED_REPOS).map(([path, cfg]) => ({
+                value: path,
+                label: repoName(p, path),
+                meta: repoMeta(p, path, cfg, t),
+                current: path === p.openRepo,
+              })),
+            },
+          },
+      ...(hidden > 0 ? [text(`${hidden} ${t.more}`, { tone: "muted" })] : []),
+      ...(open && p.openRepo !== null ? [repoForm(p, p.openRepo, open, t)] : []),
+    ],
+  };
 }
 
 function addRow(p: PanelInput, t: Strings): PluginUINode[] {
-  const unconfigured = p.available.filter((r) => !p.repos[r.path]);
+  const unconfigured = p.available
+    .filter((r) => !p.repos[r.path])
+    .sort((a, b) => labelOrder(repoLabel(a), repoLabel(b)));
   if (unconfigured.length === 0) return [];
+  const budget = Math.max(0, MAX_LISTED_REPOS - Object.keys(p.repos).length);
+  const listed = unconfigured.slice(0, budget);
+  const hidden = unconfigured.length - listed.length;
   return [
     heading(t.add),
-    {
-      type: "select",
-      props: {
-        name: "addRepo",
-        label: t.repo,
-        options: unconfigured
-          .slice(0, MAX_REPO_OPTIONS)
-          .map((r) => ({ value: r.path, label: repoLabel(r) })),
-      },
-    },
-    button(t.addButton, "repo/add", { submit: true }),
+    ...(listed.length > 0
+      ? [
+          {
+            type: "multi-select",
+            props: {
+              name: "addRepos",
+              label: t.repo,
+              mono: true,
+              options: listed.map((r) => ({ value: r.path, label: repoLabel(r) })),
+            },
+          },
+          button(t.addButton, "repo/add", { submit: true }),
+        ]
+      : []),
+    ...(hidden > 0 ? [text(`${hidden} ${t.more}`, { tone: "muted" })] : []),
   ];
 }
 
@@ -310,7 +361,7 @@ export function buildView(p: PanelInput): PluginUIView {
       children: [
         ...settingsForm(p.settings, t),
         ...status(p.status, t),
-        ...repoRows(p, t),
+        repoRows(p, t),
         ...addRow(p, t),
         ...rejectedRows(p.rejected, t),
       ],

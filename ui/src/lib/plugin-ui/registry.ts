@@ -14,6 +14,8 @@ import PuiTimeline from "./PuiTimeline.svelte";
 import PuiActionButton from "./PuiActionButton.svelte";
 import PuiTextInput from "./PuiTextInput.svelte";
 import PuiSelect from "./PuiSelect.svelte";
+import PuiMultiSelect from "./PuiMultiSelect.svelte";
+import PuiActionList from "./PuiActionList.svelte";
 import PuiCheckbox from "./PuiCheckbox.svelte";
 import PuiNumberInput from "./PuiNumberInput.svelte";
 
@@ -33,10 +35,12 @@ export const PLUGIN_UI_REGISTRY: Record<string, Component<any>> = {
   "bar-chart": PuiBarChart,
   timeline: PuiTimeline,
   "action-button": PuiActionButton,
+  "action-list": PuiActionList,
   // Input nodes (issue #1961) — these contribute named fields to a `submit: true`
   // action-button's body; none of them POSTs on its own.
   "text-input": PuiTextInput,
   select: PuiSelect,
+  "multi-select": PuiMultiSelect,
   checkbox: PuiCheckbox,
   number: PuiNumberInput,
 };

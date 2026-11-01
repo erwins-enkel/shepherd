@@ -274,7 +274,11 @@ function suggestionRows(p: PanelInput, t: Strings): PluginUINode[] {
 }
 
 function addRow(p: PanelInput, t: Strings): PluginUINode[] {
-  const unmapped = p.repos.filter((r) => !p.mappings[r.path]);
+  const unmapped = p.repos
+    .filter((r) => !p.mappings[r.path])
+    .sort((a, b) =>
+      repoLabel(a).localeCompare(repoLabel(b), "en", { sensitivity: "base", numeric: true }),
+    );
   if (unmapped.length === 0) return [];
   return [
     heading(t.add),
@@ -283,6 +287,8 @@ function addRow(p: PanelInput, t: Strings): PluginUINode[] {
       props: {
         name: "mapRepo",
         label: t.repo,
+        searchable: true,
+        mono: true,
         options: unmapped
           .slice(0, MAX_REPO_OPTIONS)
           .map((r) => ({ value: r.path, label: repoLabel(r) })),

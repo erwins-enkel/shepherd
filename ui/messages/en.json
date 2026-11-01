@@ -7996,5 +7996,7 @@
   "upnext_quickstart_menu_start_hint": "pick CLI, model and effort",
   "upnext_quickstart_manage": "Manage quick starts",
   "feat_upnext_quickstart_title": "Up Next: quick start per CLI",
-  "feat_upnext_quickstart_body": "Once you save a quick start for a CLI in Settings → Coding CLI, the Up Next preview shows a chip for it beside Start…. One click starts the issue with that CLI, model and effort — no picker."
+  "feat_upnext_quickstart_body": "Once you save a quick start for a CLI in Settings → Coding CLI, the Up Next preview shows a chip for it beside Start…. One click starts the issue with that CLI, model and effort — no picker.",
+  "feat_security_watch_plugin_title": "Security alerts become fix issues",
+  "feat_security_watch_plugin_body": "The bundled Security Watch plugin (Settings → Plugins, off by default) reads open code scanning and Dependabot alerts in the repos you add, triages them read-only and files a GitHub issue asking for a fix. On a repo that isn't private the issue stays redacted, and nothing is filed until you accept the disclosure notice."
 }

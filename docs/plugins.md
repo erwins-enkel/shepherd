@@ -36,7 +36,7 @@ and documented. Specific plugin **implementations** stay private under
 - **Bundled plugins** ship inside Shepherd (`src/plugins/bundled/`) and load after the
   plugins dir, so an installed plugin with the same `id` wins. They keep their settings in
   `ctx.state` (their folder is the source tree, so `ctx.config` is `{}` and `ctx.setConfig`
-  rejects) and can't be uninstalled. Today: [Sentry](sentry.md) and [CI Watch](ci-watch.md), each off until enabled in its panel.
+  rejects) and can't be uninstalled. Today: [Sentry](sentry.md), [CI Watch](ci-watch.md) and [Security Watch](security-watch.md), each off until enabled in its panel.
 - A **missing or empty** plugins dir is a clean no-op: no hooks and `/api/plugins/<id>/*`
   returns 404 — a fresh clone behaves exactly as a stock Shepherd. The Settings → Plugins
   tab still renders (so you can install the first plugin), just with an empty list.
@@ -174,6 +174,7 @@ permission-scoped / out-of-process) without changing your call sites.
 | `ctx.sessions`                     | Read-only session lookup: `get(id)` / `list()` → a curated `PluginSessionSnapshot`. Resolves the bare ids that `session:*` events carry. Plugins cannot write sessions.                                                                     |
 | `ctx.issues`                       | Create / close / read forge issues: `create(repo, {title, body, labels?, untrusted?})`, `close(repo, n, comment?)`, `get(repo, n)`. Untrusted text is fenced **by core**. Additive.                                                         |
 | `ctx.forge.runs`                   | Default-branch CI runs: `listDefaultBranchRuns(repo, {sinceId?, limit?})`, `getRun(repo, id)`, `failedJobLogs(repo, id, {maxLinesPerStep?})`, `rerunFailed(repo, id)`. Additive.                                                            |
+| `ctx.forge.security`               | Open security alerts on the default branch: `listCodeScanningAlerts(repo)`, `listDependabotAlerts(repo)`, `visibility(repo)`. GitHub only. Additive.                                                                                        |
 | `ctx.judge.choice(opts)`           | Ask the operator's decision model ("JEV") to pick one of N options; returns `{ choice, probabilities }`. Off unless the judge is on; shares its daily ceiling. Additive.                                                                    |
 | `ctx.agents.runReadonly(opts)`     | Run one read-only diagnosis agent over a managed repo and get back its schema-validated JSON result (see below). Capped per plugin. Additive.                                                                                               |
 | `ctx.repos.list()`                 | Read-only list of repos under the repo root: `{ path, name, slug?, autoLabel, lightweight }[]`. `path` is the form `ctx.issues` / `ctx.agents` accept; `slug` is the forge `owner/repo` (absent for lightweight/no-remote repos). Additive. |
@@ -336,6 +337,39 @@ API). Forge failures propagate as ordinary errors.
 
 > **Additive API.** Guard with `typeof ctx.forge?.runs?.listDefaultBranchRuns === "function"`
 > if your plugin must run on older cores.
+
+## Security alerts (`ctx.forge.security`)
+
+Read a repo's open code scanning and Dependabot alerts on its default branch. `repo` is a repo
+path, as on `ctx.repos.list()`.
+
+```ts
+const res = await ctx.forge.security.listCodeScanningAlerts(repo);
+if (res.status === "unavailable") return note(res.reason);
+for (const alert of res.alerts) {
+  // alert: { number, url, ruleId, ruleDescription, securitySeverity, tool, cwes, path, line,
+  //          message, classifications, createdAt }
+}
+```
+
+- **These alerts are not public, even on a public repo.** GitHub shows them only to people with
+  access to the alerts. Read `visibility(repo)` before writing one anywhere that others can read,
+  and treat anything but `"private"` as public. It is read fresh on every call and returns
+  `"unknown"` on any failure.
+- **Result.** `{ status: "ok", alerts, truncated }`, or `{ status: "unavailable", reason }` with
+  `reason` one of `disabled`, `no-analysis`, `forbidden`, `not-found`.
+- **`truncated`.** One read returns at most 10 pages of 100 alerts. When `truncated` is true, an
+  alert missing from `alerts` may still be open, so don't conclude it was fixed.
+- **Failures reject.** A rate limit, a server error or an unrecognized 403 rejects. A failed read
+  is never an empty list.
+- **Untrusted text.** Rule, message and advisory text is masked for secret-shaped values but stays
+  untrusted: pass it as `untrusted` sections, never into a title, body or prompt.
+- **`listDependabotAlerts`** returns `{ number, url, ecosystem, package, manifest, scope, severity,
+ghsaId, cveId, summary, cwes, patchedVersion, createdAt }`.
+- **Gitea** refuses with `unsupported`. Refusals are the same `PluginForgeError` codes as
+  `ctx.forge.runs`.
+
+> **Additive API.** Guard with `typeof ctx.forge?.security?.listCodeScanningAlerts === "function"`.
 
 ## Read-only diagnosis agents (`ctx.agents.runReadonly`)
 

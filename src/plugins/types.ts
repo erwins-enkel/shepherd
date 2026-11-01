@@ -394,6 +394,64 @@ export interface PluginForgeRuns {
   rerunFailed(repo: string, runId: number): Promise<void>;
 }
 
+export type PluginRepoVisibility = "public" | "private" | "internal" | "unknown";
+
+/** Why a repo's security alerts can't be listed. Transient failures reject instead. */
+export type PluginAlertsUnavailable = "disabled" | "no-analysis" | "forbidden" | "not-found";
+
+/** One read of a repo's open alerts. `truncated`: more alerts exist than one read returns, so an
+ *  alert absent from `alerts` may still be open. */
+export type PluginAlertList<T> =
+  | { status: "ok"; alerts: T[]; truncated: boolean }
+  | { status: "unavailable"; reason: PluginAlertsUnavailable };
+
+/** Open code scanning alert. All text is untrusted and must stay fenced. */
+export interface PluginCodeScanningAlert {
+  number: number;
+  url: string;
+  ruleId: string;
+  ruleDescription: string;
+  /** `critical` … `low`; null for a rule with no security severity (code quality). */
+  securitySeverity: string | null;
+  tool: string;
+  cwes: string[];
+  path: string;
+  line: number | null;
+  message: string;
+  /** `test`, `generated`, `library`, `documentation`. */
+  classifications: string[];
+  createdAt: number;
+}
+
+/** Open Dependabot alert. All text is untrusted and must stay fenced. */
+export interface PluginDependabotAlert {
+  number: number;
+  url: string;
+  ecosystem: string;
+  package: string;
+  manifest: string;
+  /** `runtime`, `development`, or null when the host doesn't know. */
+  scope: string | null;
+  severity: string;
+  ghsaId: string;
+  cveId: string | null;
+  summary: string;
+  cwes: string[];
+  patchedVersion: string | null;
+  createdAt: number;
+}
+
+/** Open security alerts on a repo's default branch. `repo` is a repo PATH. These alerts are not
+ *  public even on a public repo: read {@link visibility} before writing them anywhere public.
+ *  Rejects with {@link PluginForgeError} for a repo that can't serve them; a rate limit or forge
+ *  failure propagates, so a failed read is never an empty list. GitHub only. */
+export interface PluginForgeSecurity {
+  listCodeScanningAlerts(repo: string): Promise<PluginAlertList<PluginCodeScanningAlert>>;
+  listDependabotAlerts(repo: string): Promise<PluginAlertList<PluginDependabotAlert>>;
+  /** Read fresh on every call; `unknown` on any failure. Treat anything but `private` as public. */
+  visibility(repo: string): Promise<PluginRepoVisibility>;
+}
+
 /** Why a `ctx.forge` call was refused — same vocabulary as {@link PluginIssuesErrorCode}. */
 export type PluginForgeErrorCode = PluginIssuesErrorCode;
 
@@ -461,7 +519,9 @@ export interface PluginContext {
   agents: PluginAgents;
   /** Forge CI runs on a repo's default branch (#2539). Additive — guard with
    *  `typeof ctx.forge?.runs?.listDefaultBranchRuns === "function"`. */
-  forge: { runs: PluginForgeRuns };
+  /** Open security alerts (additive — guard with
+   *  `typeof ctx.forge?.security?.listCodeScanningAlerts === "function"`). */
+  forge: { runs: PluginForgeRuns; security: PluginForgeSecurity };
   /** The decision-model judge (#2541). Additive — guard with
    *  `typeof ctx.judge?.choice === "function"`. */
   judge: PluginJudge;

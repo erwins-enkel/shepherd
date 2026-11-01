@@ -34,6 +34,7 @@ import { isOperatorAssistant } from "../operator-assistant-core";
 import { browserRepositoryUrl } from "./repository";
 import { makePluginIssues, type PluginIssuesDeps } from "./issues";
 import { makePluginForgeRuns, type PluginForgeDeps } from "./forge-runs";
+import { makePluginForgeSecurity } from "./forge-security";
 import { makePluginJudge, type PluginJudgeDeps } from "./judge";
 import { PluginSecretStore, redactSecrets } from "./secrets";
 import { toPluginSessionSnapshot } from "./session-view";
@@ -535,7 +536,10 @@ export class PluginRegistry {
       state,
       sessions,
       issues,
-      forge: { runs: makePluginForgeRuns(this.deps.forge) },
+      forge: {
+        runs: makePluginForgeRuns(this.deps.forge),
+        security: makePluginForgeSecurity(this.deps.forge),
+      },
       judge: makePluginJudge(this.deps.judge),
       repos: { list: () => this.deps.repos?.() ?? [] },
       agents: {

@@ -1,0 +1,17 @@
+{
+  "id": "security-watch",
+  "name": "Security Watch",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "capabilities": [
+    "schedule",
+    "state",
+    "repos",
+    "forge",
+    "agents",
+    "routes",
+    "issues",
+    "sessions",
+    "ui"
+  ]
+}

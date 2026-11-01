@@ -12989,7 +12989,8 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/HostStatusFormatTests.swift\",\"HostStatusFormatTests\",\"absentMetricsStayUnknownRatherThanZero()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/HostStatusFormatTests.swift\",\"HostStatusFormatTests\",\"ramShowsUsedShareButRetainsSmallPressureReadings()\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientHeavySlotTests.swift\",\"ShepherdClientHeavySlotTests\",\"errorsAreNotPresentedAsAnEmptyHost(_ status: Int) async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientHeavySlotTests.swift\",\"ShepherdClientHeavySlotTests\",\"readsHostSnapshotWithUnavailablePlatformMetrics() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientHeavySlotTests.swift\",\"ShepherdClientHeavySlotTests\",\"readsHostSnapshotWithUnavailablePlatformMetrics() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AskAnswerFlowTests.swift\",\"CoreSeamTests.AskAnswerFlowTests\",\"aPreviewQuestionDropsOtherButEveryMultiStaysRequired()\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

@@ -52,12 +52,53 @@ describe("parseAskInput", () => {
         question: "Pick?",
         header: "Pick",
         multiSelect: false,
+        allowOther: false,
         options: [
-          { label: "A", description: "a" },
+          { label: "A", description: "a", preview: "```x```" },
           { label: "B", description: "b" },
         ],
       },
     ]);
+  });
+
+  test("blank previews and multi-select previews keep the plain layout", () => {
+    const options = (preview: unknown) => [
+      { label: "A", description: "a", preview },
+      { label: "B", description: "b", preview },
+    ];
+    const plain = (multiSelect: boolean, question: string) => ({
+      question,
+      header: "",
+      multiSelect,
+      options: [
+        { label: "A", description: "a" },
+        { label: "B", description: "b" },
+      ],
+    });
+    const parse = (multiSelect: boolean, preview: unknown) =>
+      parseAskInput({
+        questions: [{ question: "Q?", multiSelect, options: options(preview) }],
+      });
+    expect(parse(false, "  \n")).toEqual([plain(false, "Q?")]);
+    expect(parse(false, 7)).toEqual([plain(false, "Q?")]);
+    expect(parse(true, "drawing")).toEqual([plain(true, "Q?")]);
+  });
+
+  test("caps the preview copy; the layout check reads the full value", () => {
+    const parsed = parseAskInput({
+      questions: [
+        {
+          question: "Q?",
+          options: [{ label: "A", preview: "x".repeat(9000) }, { label: "B" }],
+        },
+        {
+          question: "R?",
+          options: [{ label: "A" }, { label: "B", preview: `${" ".repeat(9000)}y` }],
+        },
+      ],
+    });
+    expect(parsed?.[0]?.options[0]?.preview?.length).toBe(8000);
+    expect(parsed?.[1]?.allowOther).toBe(false);
   });
 
   test("rejects shapes the panel cannot type without throwing", () => {
@@ -72,10 +113,10 @@ describe("parseAskInput", () => {
   });
 });
 
-describe("askKeySequence (spike-verified on Claude Code 2.1.301)", () => {
-  test("1 question single → one digit, auto-submits", () => {
+describe("askKeySequence (spike-verified on Claude Code 2.1.316)", () => {
+  test("1 question single → Down×index, Enter, auto-submits", () => {
     const { keys, expected } = keysFor([q("Pet?", false, "Cat", "Dog")], [ans(0, [1])]);
-    expect(keys).toEqual(["2"]);
+    expect(keys).toEqual([D, "\r"]);
     expect(expected).toEqual({ "Pet?": "Dog" });
   });
 
@@ -99,7 +140,7 @@ describe("askKeySequence (spike-verified on Claude Code 2.1.301)", () => {
       [q("Color?", false, "Red", "Blue"), q("Tops?", true, "Cheese", "Ham")],
       [ans(0, [1]), ans(1, [0, 1])],
     );
-    expect(keys).toEqual(["2", "1", "2", D, D, D, "\r", "1"]);
+    expect(keys).toEqual([D, "\r", "1", "2", D, D, D, "\r", "1"]);
     expect(expected).toEqual({ "Color?": "Blue", "Tops?": "Cheese, Ham" });
   });
 
@@ -114,7 +155,8 @@ describe("askKeySequence (spike-verified on Claude Code 2.1.301)", () => {
       [ans(0, [1]), ans(1, [2, 0]), ans(2, [1], "Juice"), ans(3, [0])],
     );
     expect(keys).toEqual([
-      "2",
+      D,
+      "\r",
       "1",
       "3",
       D,
@@ -129,7 +171,7 @@ describe("askKeySequence (spike-verified on Claude Code 2.1.301)", () => {
       "Juice",
       D,
       "\r",
-      "1",
+      "\r",
       "1",
     ]);
     expect(expected).toEqual({
@@ -138,6 +180,61 @@ describe("askKeySequence (spike-verified on Claude Code 2.1.301)", () => {
       "Drinks?": "Water, Juice",
       "Size?": "Small",
     });
+  });
+});
+
+test("preview question typed by index, first option needs Enter only", () => {
+  const parsed = parseAskInput({
+    questions: [
+      q("Plain?", false, "A1", "A2", "A3", "A4"),
+      {
+        question: "Preview?",
+        header: "P",
+        multiSelect: false,
+        options: [
+          { label: "B1", description: "", preview: "one" },
+          { label: "B2", description: "", preview: "two" },
+        ],
+      },
+      q("Third?", false, "C1", "C2"),
+      q("Multi?", true, "D1", "D2"),
+    ],
+  })!;
+  const { keys, expected } = keysFor(parsed, [ans(0, [3]), ans(1, [1]), ans(2, [0]), ans(3, [1])]);
+  expect(keys).toEqual([D, D, D, "\r", D, "\r", "\r", "2", D, D, D, "\r", "1"]);
+  expect(expected).toEqual({
+    "Plain?": "A4",
+    "Preview?": "B2",
+    "Third?": "C1",
+    "Multi?": "D2",
+  });
+});
+
+describe("expectedAskAnswers quoting (measured on Claude Code 2.1.316)", () => {
+  const expectFor = (labels: string[], picked: number[], text?: string) =>
+    expectedAskAnswers(resolveAskAnswers([q("Q?", true, ...labels)], [ans(0, picked, text)])!)[
+      "Q?"
+    ];
+
+  test.each([
+    [["a, b", "c"], [0], undefined, '"a, b"'],
+    [['say "hi"', "plain"], [0, 1], undefined, '"say \\"hi\\"", plain'],
+    [["p\\q, r", "plain\\s"], [0, 1], undefined, '"p\\\\q, r", plain\\s'],
+    [["one", "two"], [0], "x, y", 'one, "x, y"'],
+    [["one", "two"], [], "x, y", '"x, y"'],
+  ] as [string[], number[], string | undefined, string][])(
+    "%j %j %j",
+    (labels, picked, text, measured) => {
+      expect(expectFor(labels, picked, text)).toBe(measured);
+      expect(askAnswersMatch({ "Q?": expectFor(labels, picked, text)! }, { "Q?": measured })).toBe(
+        true,
+      );
+    },
+  );
+
+  test("single-select stays raw", () => {
+    const resolved = resolveAskAnswers([q("Q?", false, "a, b", "c")], [ans(0, [0])])!;
+    expect(expectedAskAnswers(resolved)).toEqual({ "Q?": "a, b" });
   });
 });
 
@@ -152,6 +249,21 @@ describe("resolveAskAnswers", () => {
     expect(resolveAskAnswers(qs, [ans(0, [0]), ans(1, [0, 0])])).toBeNull(); // duplicate
     expect(resolveAskAnswers(qs, [ans(0, [], "  \n ")!, ans(1, [0])])).toBeNull(); // blank other
     expect(resolveAskAnswers(qs, [ans(0, [0]), ans(0, [0]), ans(1, [0])])).toBeNull(); // dup id
+  });
+  test("a preview question rejects Other text", () => {
+    const preview = parseAskInput({
+      questions: [
+        {
+          question: "P?",
+          options: [
+            { label: "x", preview: "drawing" },
+            { label: "y", preview: "drawing" },
+          ],
+        },
+      ],
+    })!;
+    expect(resolveAskAnswers(preview, [ans(0, [], "mine")])).toBeNull();
+    expect(resolveAskAnswers(preview, [ans(0, [1])])?.[0]?.optionIndices).toEqual([1]);
   });
   test("multi may be Other alone", () => {
     expect(resolveAskAnswers(qs, [ans(0, [1]), ans(1, [], "none")])).toEqual([

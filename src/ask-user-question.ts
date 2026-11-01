@@ -5,25 +5,32 @@
 // feature stays inside "steer by typing" (PRD §3). PostToolUse's `tool_response.answers` then
 // verifies what actually arrived.
 //
-// Key sequences below were measured against Claude Code 2.1.301's TUI (tmux spike, verified end to
-// end against `toolUseResult.answers`):
+// Key sequences below were measured against Claude Code's TUI (tmux spikes on 2.1.301 and 2.1.316,
+// verified end to end against `toolUseResult.answers`):
 //  - every key must be its OWN pty write — one coalesced write ("212\x1b[B…") reads as a paste and
 //    breaks the dialog; a 50 ms gap worked, ASK_KEY_GAP_MS leaves headroom;
-//  - the cursor starts on row 1 of each question; digits select/toggle without moving it;
-//  - single: digit N picks option N and advances; Other = digit n+1 focuses the text row, the text,
-//    then Enter;
+//  - the cursor starts on row 1 of each question;
+//  - single: Down×index then Enter picks the option and advances, on both layouts below. Other =
+//    digit n+1 focuses the text row, the text, then Enter;
+//  - a single-select with any non-blank `preview` uses a second layout: digits only move focus and
+//    there is no Other row (Enter then submits the focused option, dropping typed text). A plain
+//    single commits on a digit. Multi-selects ignore `preview`;
+//  - multi: digits toggle without moving the cursor;
 //  - multi: digit N toggles; the Other row is reached with Down×n from row 1, Down once more lands
 //    on the Next/Submit row, Enter there advances;
 //  - more than one question, or any multi, ends on a "Review your answers" screen whose first
 //    option is "Submit answers"; a single-question single-select submits on its own.
 //  - `answers` maps question text → the label; multi joins labels in OPTION order with ", ", the
-//    Other text last; Other alone is the raw text.
+//    Other text last, each part JSON-quoted when it contains a comma or a double quote; a single's
+//    label or Other text is raw.
 
 import type { RawAnswer } from "./plan-gate";
 
 export interface AskOption {
   label: string;
   description: string;
+  /** Text the terminal shows beside the option (ASCII art, a draft); capped copy for the panel. */
+  preview?: string;
 }
 
 export interface AskQuestion {
@@ -57,31 +64,44 @@ export const ASK_KEY_GAP_MS = 120;
 const DOWN = "\x1b[B";
 const ENTER = "\r";
 const OTHER_MAX = 500;
+const PREVIEW_MAX = 8000;
 // eslint-disable-next-line no-control-regex
 const CONTROL_RE = /[\x00-\x1f\x7f-\x9f]/g;
 
 const obj = (v: unknown): Record<string, unknown> | null =>
   typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 
+/** The option's preview when the TUI would show it: a non-blank string on a single-select. */
+function usablePreview(opt: Record<string, unknown>, multiSelect: boolean): string | null {
+  return !multiSelect && typeof opt.preview === "string" && opt.preview.trim() ? opt.preview : null;
+}
+
 function parseQuestion(raw: unknown): AskQuestion | null {
   const q = obj(raw);
   if (!q || typeof q.question !== "string" || !q.question.trim()) return null;
   if (!Array.isArray(q.options) || q.options.length < 2 || q.options.length > 4) return null;
+  const multiSelect = q.multiSelect === true;
   const options: AskOption[] = [];
+  let previewLayout = false;
   for (const o of q.options) {
     const opt = obj(o);
     if (!opt || typeof opt.label !== "string" || !opt.label.trim()) return null;
-    // `preview` and any other field are tolerated and ignored.
+    // Any other field is tolerated and ignored.
+    const preview = usablePreview(opt, multiSelect);
+    previewLayout ||= preview !== null;
     options.push({
       label: opt.label,
       description: typeof opt.description === "string" ? opt.description : "",
+      ...(preview === null ? {} : { preview: preview.slice(0, PREVIEW_MAX) }),
     });
   }
   return {
     question: q.question,
     header: typeof q.header === "string" ? q.header : "",
     options,
-    multiSelect: q.multiSelect === true,
+    multiSelect,
+    // The preview layout has no Other row to type into.
+    ...(previewLayout ? { allowOther: false } : {}),
   };
 }
 
@@ -156,7 +176,7 @@ export function askKeySequence(answers: ResolvedAskAnswer[]): string[] {
     const n = q.options.length;
     if (!q.multiSelect) {
       if (a.other) keys.push(String(n + 1), a.other, ENTER);
-      else keys.push(String((a.optionIndices[0] ?? 0) + 1));
+      else keys.push(...Array<string>(a.optionIndices[0] ?? 0).fill(DOWN), ENTER);
       continue;
     }
     for (const idx of a.optionIndices) keys.push(String(idx + 1));
@@ -171,13 +191,16 @@ export function askKeySequence(answers: ResolvedAskAnswer[]): string[] {
   return keys;
 }
 
+const quoteMultiPart = (part: string) => (/[,"]/.test(part) ? JSON.stringify(part) : part);
+
 /** What `tool_response.answers` must read once the typed answer landed. */
 export function expectedAskAnswers(answers: ResolvedAskAnswer[]): Record<string, string> {
   return Object.fromEntries(
     answers.map((a) => {
       const parts = a.optionIndices.map((idx) => a.question.options[idx]?.label ?? "");
       if (a.other) parts.push(a.other);
-      return [a.question.question, parts.join(", ")];
+      const shown = a.question.multiSelect ? parts.map(quoteMultiPart) : parts;
+      return [a.question.question, shown.join(", ")];
     }),
   );
 }

@@ -83,6 +83,23 @@ struct AskAnswerFlowTests {
         #expect(flow.status == nil)
     }
 
+    @Test func aPreviewQuestionDropsOtherButEveryMultiStaysRequired() {
+        let previewAsk = PendingAsk(toolUseId: "tu3", questions: [
+            .init(allowOther: false, question: "Draft?", header: "Draft", multiSelect: false,
+                  options: [.init(label: "Use", description: ""), .init(label: "Skip", description: "")]),
+            .init(question: "Pick any", header: "Parts", multiSelect: true,
+                  options: [.init(label: "A", description: ""), .init(label: "B", description: "")]),
+        ])
+        let flow = AskAnswerFlow()
+        let form = flow.form(sessionID: "s1", ask: previewAsk)
+        #expect(form.allowsOther == false)
+        #expect(flow.form(sessionID: "s1", ask: ask()).allowsOther == true)
+        form.single["0"] = 0
+        #expect(form.answersComplete == false, "the server rejects an empty multi")
+        form.multi["1"] = [1]
+        #expect(form.answersComplete == true)
+    }
+
     @Test func refusesAnIncompleteFormAndReportsAFailedWrite() async {
         let flow = AskAnswerFlow()
         flow.sync(ask: ask())

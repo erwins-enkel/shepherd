@@ -296,6 +296,45 @@ describe("QuestionFormBlock — allowOther (AskUserQuestion, #3165)", () => {
     expect(container.textContent).not.toContain("(optional)");
   });
 
+  it("shows a preview as literal monospace text, with no Other on that question", async () => {
+    await page.viewport(375, 700);
+    const preview = "<b>+--+</b>\n|  wide ".concat("x".repeat(300));
+    const { container } = await render(QuestionFormBlock, {
+      block: {
+        type: "question-form" as const,
+        id: "toolu_1",
+        questions: [
+          {
+            id: "0",
+            prompt: "Draft?",
+            kind: "single" as const,
+            options: ["Use", "Skip"],
+            optionPreviews: [preview, undefined],
+            allowOther: false,
+          },
+          {
+            id: "1",
+            prompt: "Tops?",
+            kind: "multi" as const,
+            options: ["Cheese", "Ham"],
+            allowOther: true,
+          },
+        ],
+      },
+      onanswer: vi.fn(),
+    });
+    const previews = container.querySelectorAll<HTMLElement>("pre.qf-option-preview");
+    expect(previews).toHaveLength(1);
+    expect(previews[0]!.textContent).toBe(preview);
+    expect(previews[0]!.querySelector("b")).toBeNull();
+    expect(getComputedStyle(previews[0]!).whiteSpace).toBe("pre");
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(375);
+    // Other only on the question that allows it; the multi still counts as required.
+    expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(2);
+    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(3);
+    expect(container.textContent).not.toContain("(optional)");
+  });
+
   it("Other reveals a text input, gates submit on its text, and sends it as `text`", async () => {
     const onanswer = vi.fn();
     const { container } = await render(QuestionFormBlock, { block, onanswer, submitLabel: "Go" });

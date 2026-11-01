@@ -610,7 +610,8 @@ Device → Session opens on**; the choice is saved per device.
   first. A sent message shows as _sent_ until the transcript logs it.
 - **Answer a prompt** with the buttons the Chat shows when the agent waits on you: a permission
   menu's options, a (y/n) question, a plan approval (with **Show plan**), or an AskUserQuestion
-  form. A button types the option's key into the terminal.
+  form. A button types the option's key into the terminal. An option's preview (an ASCII sketch, a
+  draft) appears on the form, and a question with previews has no _Other_ choice.
 - **Steer** with the steer bar under the Chat, the same chips as on the Terminal. A fired steer
   shows as _sent_ at once and, once logged, carries its chip (_You · 🧪 Retest_).
 - **Shepherd's own steers** (a CI fix, a rebase, the critic's findings, a plan go-ahead) fold into

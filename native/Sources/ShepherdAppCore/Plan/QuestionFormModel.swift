@@ -36,8 +36,12 @@ public final class QuestionFormModel {
     public var freeform: [String: String] = [:]
     /// AskUserQuestion forms (#3165) add an "Other…" choice with its own text to every
     /// single/multi question. Single: `single[id] == otherIndex`. Multi: `otherChecked[id]`.
+    /// A form containing a question with `allowOther: false` (a preview question) has no Other.
     /// Plan-gate forms never allow it, so they are unchanged.
     public let allowsOther: Bool
+    /// AskUserQuestion forms need a choice on every multi, with or without Other: the server
+    /// rejects an empty one. Plan-gate forms read an empty multi as the answer "none".
+    public let requiresMultiChoice: Bool
     public static let otherIndex = -1
     public var otherChecked: [String: Bool] = [:]
     public var otherText: [String: String] = [:]
@@ -60,11 +64,12 @@ public final class QuestionFormModel {
     private var pending: (sessionID: String, answers: [RawAnswer])?
 
     public init(block: VisualBlockQuestionForm, answerContext: QuestionAnswerContext?, writer: QuestionFormWriter?,
-                allowsOther: Bool = false) {
+                allowsOther: Bool = false, requiresMultiChoice: Bool = false) {
         self.block = block
         self.answerContext = answerContext
         self.writer = writer
         self.allowsOther = allowsOther
+        self.requiresMultiChoice = requiresMultiChoice || allowsOther
         for question in block.questions {
             switch question.kind.known {
             case .single: single[question.id] = .some(nil)
@@ -90,8 +95,8 @@ public final class QuestionFormModel {
         return block.questions.allSatisfy { question in
             switch question.kind.known {
             case .single: (single[question.id] ?? nil) != nil && otherComplete(question)
-            // Empty is the real answer "none" — except with Other, where "none" goes through Other.
-            case .multi: !allowsOther || (otherComplete(question) && (!(multi[question.id] ?? []).isEmpty || otherOn(question)))
+            // Empty is the real answer "none" — except on AskUserQuestion forms.
+            case .multi: !requiresMultiChoice || (otherComplete(question) && (!(multi[question.id] ?? []).isEmpty || otherOn(question)))
             case .freeform: !(freeform[question.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             case nil: false // A future kind must never send an invented answer.
             }

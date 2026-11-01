@@ -56,7 +56,8 @@ test("verified: typed keys match the spike sequence and PostToolUse agrees", asy
   const r = rig({ reply: { "Color?": "Blue", "Tops?": "Cheese, Kiwi" } });
   expect(await r.svc.answer("s", "toolu_1", ANSWERS)).toEqual({ ok: true, result: "verified" });
   expect(r.typedCalls[0]!.keys).toEqual([
-    "2",
+    "\x1b[B",
+    "\r",
     "1",
     "3",
     "\x1b[B",

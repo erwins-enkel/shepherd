@@ -66,7 +66,7 @@ struct IOSQuestionFormView: View {
     private func kindLabel(_ kind: QuestionKind) -> String {
         switch kind.known {
         case .single: L.t("qform_kind_single")
-        case .multi: L.t(model.interactive && !model.allowsOther ? "qform_kind_multi_optional" : "qform_kind_multi")
+        case .multi: L.t(model.interactive && !model.requiresMultiChoice ? "qform_kind_multi_optional" : "qform_kind_multi")
         case .freeform: L.t("qform_kind_freeform")
         case nil: kind.rawValue
         }

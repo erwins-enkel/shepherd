@@ -1491,6 +1491,9 @@ components:
           type: string
         description:
           type: string
+        preview:
+          type: string
+          description: Text the terminal shows beside the option; capped copy for answer forms.
     AnswerAskRequest:
       type: object
       additionalProperties: false

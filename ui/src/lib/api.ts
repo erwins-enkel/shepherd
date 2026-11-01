@@ -2525,8 +2525,19 @@ export async function invokePluginRoute(
     init.body = JSON.stringify(body);
   }
   const r = await fetch(`/api/plugins/${id}/${path}`, init);
-  if (!r.ok) throw await failed(r, "plugin route");
-  const text = (await r.text()).trim();
+  if (!r.ok) {
+    const plain = r.headers.get("content-type")?.startsWith("text/plain");
+    const text = plain ? cappedText(await r.clone().text()) : "";
+    const err = await failed(r, "plugin route");
+    // A plugin's route replies in plain text, so a refusal's reason isn't a `{error}` body.
+    const unclaimed = err instanceof ApiError && !err.serverAuthored;
+    throw unclaimed && text ? new ApiError(r.status, text, undefined, true) : err;
+  }
+  return cappedText(await r.text());
+}
+
+function cappedText(raw: string): string {
+  const text = raw.trim();
   return text.length > 200 ? text.slice(0, 199) + "…" : text;
 }
 

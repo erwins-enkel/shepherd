@@ -660,14 +660,30 @@ export interface PluginGearItem {
  *  - `select`       — a choice among values the plugin enumerates. When `value` is absent or
  *                     not among `options`, the field seeds to the FIRST option, so the posted
  *                     value is always one the plugin offered.
+ *                     `searchable: true` renders a filterable list for long option sets. It
+ *                     does NOT seed the first option: it posts "" until the operator picks
+ *                     one, and again if the picked option leaves `options`, so validate in
+ *                     your route. `mono: true` sets option labels in the machine font.
  *                     props: { name: string; label?: string; value?: string;
+ *                              searchable?: boolean; mono?: boolean;
  *                              options: { value: string; label?: string }[] } → posts a string
+ *  - `multi-select` — a filterable checklist. Picks that leave `options` are dropped, so a
+ *                     successful "add the picked ones" clears itself. Host keeps plugin order.
+ *                     props: { name: string; label?: string; value?: string[]; mono?: boolean;
+ *                              options: { value: string; label?: string }[] } → posts a string[]
  *  - `checkbox`     — a boolean toggle.
  *                     props: { name: string; label?: string; value?: boolean } → posts a boolean
  *  - `number`       — a numeric field. Posts `null` when empty or unparseable; the plugin
  *                     validates range in its own route handler (the host does not clamp).
  *                     props: { name: string; label?: string; value?: number;
  *                              placeholder?: string }   → posts a number or null
+ *
+ *  `action-list` is not an input: a filterable list whose row click POSTs `{ [param]: value }`
+ *  to the node's route. One node however many rows, so a long list stays clear of the 256-node
+ *  budget. An empty response body stays silent; non-empty text toasts.
+ *  props: { label?: string; param: string; route: { method: "POST"; path: string };
+ *           mono?: boolean;
+ *           items: { value: string; label?: string; meta?: string; current?: boolean }[] }
  */
 export interface PluginUINode {
   type: string;

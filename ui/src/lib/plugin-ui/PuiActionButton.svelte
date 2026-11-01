@@ -11,6 +11,8 @@
   import { dialog } from "#lib/a11yDialog.js";
   import { toneColor } from "./tones";
   import { PLUGIN_FORM_CONTEXT, PLUGIN_ID_CONTEXT, type PluginFormScope } from "./context";
+  import { routeFailureText } from "./route-failure";
+  import { safePath } from "./safe-path";
 
   let { node }: { node: PluginUINode } = $props();
 
@@ -50,14 +52,6 @@
     return isObj(body) ? { ...body, ...fields } : fields;
   }
 
-  // Client-side namespace guard, mirroring the server's validRoutePath (defense in depth):
-  // non-empty, length-capped, safe charset, no leading "/", no ".." segment.
-  function safePath(x: string): boolean {
-    if (x.length === 0 || x.length > 256 || x.startsWith("/")) return false;
-    if (!/^[A-Za-z0-9._/-]+$/.test(x)) return false;
-    return !x.split("/").some((seg) => seg === "..");
-  }
-
   // Actionable only with a plugin id (context present) AND a valid POST route.
   const ready = $derived(!!pluginId && method === "POST" && safePath(path));
 
@@ -80,8 +74,8 @@
     try {
       const text = await invokePluginRoute(pluginId, "POST", path, requestBody());
       toasts.info(text.length > 0 ? text : m.plugin_action_done());
-    } catch {
-      toasts.info(m.plugin_action_failed(), {
+    } catch (e) {
+      toasts.info(routeFailureText(e), {
         alert: true,
         key: `plugin-action:${pluginId}:${path}`,
       });

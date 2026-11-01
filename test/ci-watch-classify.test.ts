@@ -1,6 +1,7 @@
 // ci-watch classification (#2541): flake probe (one rerun per run) → JEV → triage, over fakes.
 
 import { test, expect, beforeEach } from "bun:test";
+import { STRINGS } from "../src/plugins/bundled/ci-watch/panel";
 import {
   createClassifier,
   jevGate,
@@ -414,6 +415,31 @@ test("file anyway: rejected → accepted (overridden); unknown 404, non-rejected
   expect((await post(rec(c).id)).status).toBe(409);
   expect((await post("nope")).status).toBe(404);
   expect((await post(null)).status).toBe(400);
+});
+
+test("file-anyway refusals reply with a localized sentence, never the machine code", async () => {
+  const codes = {
+    unknown: ["fileUnknown", 404],
+    "not-rejected": ["fileNotRejected", 409],
+    busy: ["fileBusy", 409],
+  } as const;
+  for (const locale of ["en", "de"] as const) {
+    for (const [code, [key, status]] of Object.entries(codes)) {
+      const routes = new Map<string, PluginRouteHandler>();
+      const refusing = {
+        rejected: () => [],
+        fileAnyway: async () => ({ ok: false, code }),
+      } as unknown as Parameters<typeof registerClassifyRoutes>[1];
+      registerClassifyRoutes({ route: (m, p, h) => void routes.set(`${m} ${p}`, h) }, refusing, {
+        strings: () => STRINGS[locale],
+      });
+      const res = await routes.get("POST triage/file-anyway")!(
+        new Request("http://x", { method: "POST", body: JSON.stringify({ id: "x" }) }),
+      );
+      expect(res.status).toBe(status);
+      expect(await res.text()).toBe(STRINGS[locale][key]);
+    }
+  }
 });
 
 test("logSections keeps the latest text within budget", () => {

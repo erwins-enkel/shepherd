@@ -294,6 +294,9 @@ export const TRIAGE_STRINGS = {
     fileAnyway: "File anyway",
     confirm: "File this Sentry issue even though triage rejected it?",
     more: "more not shown",
+    fileUnknown: "This one is no longer tracked, so there is nothing to file.",
+    fileNotRejected: "This one is no longer rejected, so there is nothing to file.",
+    fileBusy: "Triage is still working on this one. Try again in a moment.",
   },
   de: {
     heading: "Von der Triage abgelehnt",
@@ -302,6 +305,9 @@ export const TRIAGE_STRINGS = {
     fileAnyway: "Trotzdem anlegen",
     confirm: "Dieses Sentry-Issue trotz Ablehnung durch die Triage anlegen?",
     more: "weitere nicht angezeigt",
+    fileUnknown: "Dieser Eintrag wird nicht mehr verfolgt, es gibt nichts anzulegen.",
+    fileNotRejected: "Dieser Eintrag ist nicht mehr abgelehnt, es gibt nichts anzulegen.",
+    fileBusy: "Die Triage arbeitet noch daran. Versuche es gleich noch einmal.",
   },
 } as const;
 
@@ -359,6 +365,12 @@ export function rejectedPanelNode(
 }
 
 const FILE_ANYWAY_STATUS = { unknown: 404, "not-rejected": 409, busy: 409 } as const;
+/** The host toasts a refusal verbatim, so a code never goes out as the reply text. */
+const FILE_ANYWAY_TEXT = {
+  unknown: "fileUnknown",
+  "not-rejected": "fileNotRejected",
+  busy: "fileBusy",
+} as const;
 
 async function readSentryId(req: Request): Promise<string | null> {
   try {
@@ -375,6 +387,7 @@ export function registerTriageRoutes(
   ctx: Pick<PluginContext, "route" | "log">,
   stage: TriageStage,
   onChange?: () => void,
+  locale: () => TriageLocale = () => "en",
 ): void {
   ctx.route("GET", "triage/rejected", () => Response.json(stage.rejected()));
 
@@ -383,7 +396,10 @@ export function registerTriageRoutes(
     if (!sentryId) return new Response("sentryId required", { status: 400 });
     try {
       const res = await stage.fileAnyway(sentryId);
-      if (!res.ok) return new Response(res.code, { status: FILE_ANYWAY_STATUS[res.code] });
+      if (!res.ok) {
+        const text = TRIAGE_STRINGS[locale()][FILE_ANYWAY_TEXT[res.code]];
+        return new Response(text, { status: FILE_ANYWAY_STATUS[res.code] });
+      }
       onChange?.();
       return new Response(`Filed #${res.record.issue?.number ?? "?"}`);
     } catch (e) {

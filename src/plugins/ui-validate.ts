@@ -34,13 +34,16 @@ function propsWithinBounds(props: Record<string, unknown>): boolean {
 function validActionButtonProps(props: Record<string, unknown>): boolean {
   const label = props["label"];
   if (typeof label !== "string" || label.trim().length === 0) return false;
-  const route = props["route"];
-  if (!isPlainObject(route)) return false;
-  if (route["method"] !== "POST") return false;
-  const path = route["path"];
-  if (typeof path !== "string" || !validRoutePath(path)) return false;
+  if (!validPostRoute(props["route"])) return false;
   // Opt-in to sending the view's input fields (issue #1961).
   return optionalType(props["submit"], "boolean");
+}
+
+/** A node-carried route: POST only, namespace-relative path. */
+function validPostRoute(route: unknown): boolean {
+  if (!isPlainObject(route) || route["method"] !== "POST") return false;
+  const path = route["path"];
+  return typeof path === "string" && validRoutePath(path);
 }
 
 /** True when `value` is absent, or present with the expected primitive type. Optional props
@@ -69,6 +72,36 @@ function validSelectOptions(options: unknown): boolean {
  *  to a safe, bounded charset rather than accepting arbitrary text. */
 const VALID_FIELD_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
 
+/** `action-list`: one node holding many rows, so a long list stays clear of the node budget.
+ *  A row click POSTs `{ [param]: value }` to the node's route, so route and param are held to
+ *  the same rules as `action-button` routes and field names. */
+function validActionListProps(props: Record<string, unknown>): boolean {
+  const items = props["items"];
+  if (!Array.isArray(items) || items.length === 0) return false;
+  const param = props["param"];
+  if (typeof param !== "string" || !VALID_FIELD_NAME.test(param)) return false;
+  return (
+    validPostRoute(props["route"]) &&
+    optionalType(props["label"], "string") &&
+    optionalType(props["mono"], "boolean") &&
+    items.every(
+      (i) =>
+        isPlainObject(i) &&
+        typeof i["value"] === "string" &&
+        optionalType(i["label"], "string") &&
+        optionalType(i["meta"], "string") &&
+        optionalType(i["current"], "boolean"),
+    )
+  );
+}
+
+/** True when a seed is absent or has the type the input node declares. */
+function validSeed(value: unknown, type: "string" | "number" | "boolean" | "strings"): boolean {
+  if (value === undefined) return true;
+  if (type !== "strings") return typeof value === type;
+  return Array.isArray(value) && value.every((v) => typeof v === "string");
+}
+
 /** The input node types (issue #1961). `value` is the JS type that node's seed must have;
  *  `extra` validates only what the type itself owns — the shared `name`/`label`/`value`
  *  contract lives in {@link validInputProps}. Every entry contributes a named field to a
@@ -76,7 +109,7 @@ const VALID_FIELD_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
 const INPUT_ARMS: Record<
   string,
   {
-    value: "string" | "number" | "boolean";
+    value: "string" | "number" | "boolean" | "strings";
     extra: (props: Record<string, unknown>) => boolean;
   }
 > = {
@@ -86,7 +119,14 @@ const INPUT_ARMS: Record<
   },
   select: {
     value: "string",
-    extra: (p) => validSelectOptions(p["options"]),
+    extra: (p) =>
+      validSelectOptions(p["options"]) &&
+      optionalType(p["searchable"], "boolean") &&
+      optionalType(p["mono"], "boolean"),
+  },
+  "multi-select": {
+    value: "strings",
+    extra: (p) => validSelectOptions(p["options"]) && optionalType(p["mono"], "boolean"),
   },
   checkbox: {
     value: "boolean",
@@ -116,8 +156,7 @@ function validInputProps(
   if (names.has(name)) return false;
   names.add(name);
 
-  const value = props["value"];
-  if (value !== undefined && typeof value !== arm.value) return false;
+  if (!validSeed(props["value"], arm.value)) return false;
   return optionalType(props["label"], "string") && arm.extra(props);
 }
 
@@ -126,6 +165,7 @@ function validInputProps(
 function validNodeProps(type: string, props: Record<string, unknown>, names: Set<string>): boolean {
   // Interactive node: its route is security-relevant, so it is validated up front (see helper).
   if (type === "action-button") return validActionButtonProps(props);
+  if (type === "action-list") return validActionListProps(props);
   return validInputProps(type, props, names);
 }
 

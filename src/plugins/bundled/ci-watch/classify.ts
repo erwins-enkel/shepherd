@@ -484,6 +484,12 @@ export function createClassifier(deps: ClassifyDeps): Classifier {
 }
 
 const FILE_ANYWAY_STATUS = { unknown: 404, "not-rejected": 409, busy: 409 } as const;
+/** The host toasts a refusal verbatim, so a code never goes out as the reply text. */
+const FILE_ANYWAY_TEXT = {
+  unknown: "fileUnknown",
+  "not-rejected": "fileNotRejected",
+  busy: "fileBusy",
+} as const;
 
 /** Operator-facing reply for a "file anyway" — the host toasts it verbatim. */
 export function fileAnywayText(filing: Filing | undefined, t: Strings): string {
@@ -518,7 +524,10 @@ export function registerClassifyRoutes(
     }
     if (typeof id !== "string" || !id) return new Response("id required", { status: 400 });
     const res = await stage.fileAnyway(id);
-    if (!res.ok) return new Response(res.code, { status: FILE_ANYWAY_STATUS[res.code] });
+    if (!res.ok) {
+      const t = opts.strings?.() ?? STRINGS.en;
+      return new Response(t[FILE_ANYWAY_TEXT[res.code]], { status: FILE_ANYWAY_STATUS[res.code] });
+    }
     opts.onChange?.();
     return new Response(fileAnywayText(res.record.filing, opts.strings?.() ?? STRINGS.en));
   });

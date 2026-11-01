@@ -402,7 +402,52 @@ input, select, textarea {
     },
   } satisfies PluginUINode;
 
+  const listRepos = [
+    "acme/api",
+    "acme/billing",
+    "acme/docs",
+    "acme/mobile",
+    "acme/web",
+    "labs/agent-sandbox",
+    "labs/prototype",
+    "local-scratch",
+    "ops/terraform",
+  ].map((label) => ({ value: `/r/${label}`, label }));
+  const multiSelectNode = {
+    type: "multi-select",
+    props: { name: "addRepos", label: "Repository", mono: true, options: listRepos },
+  } satisfies PluginUINode;
+  const searchableSelectNode = {
+    type: "select",
+    props: {
+      name: "mapRepo",
+      label: "Repository",
+      searchable: true,
+      mono: true,
+      options: listRepos,
+    },
+  } satisfies PluginUINode;
+  const actionListNode = {
+    type: "action-list",
+    props: {
+      label: "Select a repo to edit its settings",
+      param: "repo",
+      route: { method: "POST", path: "repo/open" },
+      mono: true,
+      items: [
+        { value: "/r/api", label: "acme/api", meta: "watching · 0/5 filed today", current: true },
+        {
+          value: "/r/web",
+          label: "acme/web",
+          meta: "needs acceptance · watching · 0/5 filed today",
+        },
+        { value: "/r/docs", label: "acme/docs", meta: "off · 0/5 filed today" },
+      ],
+    },
+  } satisfies PluginUINode;
+
   // Descriptor strings — the node JSON a plugin would pass to ctx.publishUI().
+  const listDescriptor = JSON.stringify(multiSelectNode.props.options.slice(0, 2), null, 2);
   const gaugeDescriptor = `// Plugin publishUI() descriptor — gauge
 {
   "schemaVersion": 1,
@@ -1375,6 +1420,28 @@ const overview: TooltipExplanation = {
       <PluginUIRenderer node={timelineNode} />
     </div>
     <pre><code>{timelineDescriptor}</code></pre>
+  </section>
+
+  <section class="panel">
+    <h2>Plugin UI · filterable lists</h2>
+    <p class="when">
+      <strong>When:</strong> a choice among more options than a native dropdown handles well, such
+      as repos. <code>multi-select</code> picks several for a <code>submit</code> button, a
+      <code>searchable</code> <code>select</code> picks one, and <code>action-list</code> POSTs on a
+      row click and costs one node however many rows it has. The filter appears from 8 rows, and the
+      host keeps plugin order until a query ranks matches.
+      <strong>When not:</strong> a few fixed values stay a plain <code>select</code>.
+    </p>
+    <div class="demo">
+      <PluginUIRenderer node={multiSelectNode} />
+    </div>
+    <div class="demo">
+      <PluginUIRenderer node={searchableSelectNode} />
+    </div>
+    <div class="demo">
+      <PluginUIRenderer node={actionListNode} />
+    </div>
+    <pre><code>{listDescriptor}</code></pre>
   </section>
 
   <section class="panel">

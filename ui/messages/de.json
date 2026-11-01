@@ -2531,6 +2531,9 @@
   "plugin_ui_barchart_empty": "Keine Daten.",
   "plugin_ui_timeline_label": "Zeitachse",
   "plugin_ui_timeline_empty": "Keine Ereignisse.",
+  "plugin_ui_list_filter": "Filtern…",
+  "plugin_ui_list_no_matches": "Keine Treffer",
+  "plugin_ui_list_picked": "{count} ausgewählt",
   "plugins_raw_json": "Rohdaten",
   "feat_plugin_ui_title": "Plugins zeigen echte Panels",
   "feat_plugin_ui_body": "Plugins können jetzt Kontingentmesser, Status-Badges und Tabellen in Einstellungen → Plugins anzeigen – anstelle eines rohen JSON-Dumps.",
@@ -7998,5 +8001,7 @@
   "feat_upnext_quickstart_title": "Up Next: Schnellstart je CLI",
   "feat_upnext_quickstart_body": "Sobald du in den Einstellungen unter Coding-CLI einen Schnellstart für eine CLI speicherst, zeigt die Up-Next-Vorschau neben „Starten…“ einen Chip dafür. Ein Klick startet das Issue mit dieser CLI, diesem Modell und Aufwand — ohne Picker.",
   "feat_security_watch_plugin_title": "Sicherheits-Alerts werden zu Fix-Issues",
-  "feat_security_watch_plugin_body": "Das mitgelieferte Security-Watch-Plugin (Einstellungen → Plugins, standardmäßig aus) liest offene Code-Scanning- und Dependabot-Alerts der hinzugefügten Repos, prüft sie schreibgeschützt und legt ein GitHub-Issue an, das einen Fix verlangt. Bei nicht privaten Repos bleibt das Issue geschwärzt, und es wird nichts angelegt, bis du den Hinweis zur Veröffentlichung akzeptierst."
+  "feat_security_watch_plugin_body": "Das mitgelieferte Security-Watch-Plugin (Einstellungen → Plugins, standardmäßig aus) liest offene Code-Scanning- und Dependabot-Alerts der hinzugefügten Repos, prüft sie schreibgeschützt und legt ein GitHub-Issue an, das einen Fix verlangt. Bei nicht privaten Repos bleibt das Issue geschwärzt, und es wird nichts angelegt, bis du den Hinweis zur Veröffentlichung akzeptierst.",
+  "feat_plugin_repo_picker_title": "Mehrere Repos auf einmal zu einem Plugin hinzufügen",
+  "feat_plugin_repo_picker_body": "CI Watch und Security Watch (Einstellungen → Plugins) listen Repos jetzt alphabetisch mit Filter. Hake mehrere an und füge sie in einem Schritt hinzu. Jedes beobachtete Repo ist über eine kompakte Liste erreichbar, die jeweils die Einstellungen eines Repos öffnet. Die Repo-Auswahl von Sentry bekommt denselben Filter."
 }

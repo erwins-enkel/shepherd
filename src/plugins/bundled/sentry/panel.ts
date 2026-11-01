@@ -63,6 +63,7 @@ export const STRINGS = {
     invalidOrg: "Organization must be a Sentry slug.",
     invalidProject: "Project must be a Sentry slug.",
     invalidRepo: "Unknown or local-only repository.",
+    pickRepo: "Pick a repository.",
     unknownMapping: "No such mapping.",
     detected: "Detection finished.",
     pollStarted: "Poll started.",
@@ -114,6 +115,7 @@ export const STRINGS = {
     invalidOrg: "Organisation muss ein Sentry-Slug sein.",
     invalidProject: "Projekt muss ein Sentry-Slug sein.",
     invalidRepo: "Unbekanntes oder rein lokales Repository.",
+    pickRepo: "Wähle ein Repository aus.",
     unknownMapping: "Keine solche Zuordnung.",
     detected: "Erkennung abgeschlossen.",
     pollStarted: "Abfrage gestartet.",
@@ -274,7 +276,11 @@ function suggestionRows(p: PanelInput, t: Strings): PluginUINode[] {
 }
 
 function addRow(p: PanelInput, t: Strings): PluginUINode[] {
-  const unmapped = p.repos.filter((r) => !p.mappings[r.path]);
+  const unmapped = p.repos
+    .filter((r) => !p.mappings[r.path])
+    .sort((a, b) =>
+      repoLabel(a).localeCompare(repoLabel(b), "en", { sensitivity: "base", numeric: true }),
+    );
   if (unmapped.length === 0) return [];
   return [
     heading(t.add),
@@ -283,6 +289,8 @@ function addRow(p: PanelInput, t: Strings): PluginUINode[] {
       props: {
         name: "mapRepo",
         label: t.repo,
+        searchable: true,
+        mono: true,
         options: unmapped
           .slice(0, MAX_REPO_OPTIONS)
           .map((r) => ({ value: r.path, label: repoLabel(r) })),

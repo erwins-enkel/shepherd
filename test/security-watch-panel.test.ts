@@ -8,6 +8,7 @@ import {
   type GroupRecord,
 } from "../src/plugins/bundled/security-watch/state";
 import type { PluginRepoVisibility, PluginUINode } from "../src/plugins/types";
+import { validatePluginUIView } from "../src/plugins/ui-validate";
 import { REPO } from "./security-watch-fixture";
 
 function input(visibility: PluginRepoVisibility, locale: "en" | "de" = "en") {
@@ -16,6 +17,7 @@ function input(visibility: PluginRepoVisibility, locale: "en" | "de" = "en") {
     status: { lastPollAt: 0, lastError: null, lastResult: {} },
     repos: { [REPO]: { ...DEFAULT_REPO, enabled: true } },
     available: [{ path: REPO, name: "web", autoLabel: "a", lightweight: false }],
+    openRepo: REPO as string | null,
     filedToday: () => 0,
     visibility: () => visibility,
     availability: () => ({ cs: "ok" }),
@@ -74,6 +76,78 @@ test("a full view stays within the host's node budget", () => {
   );
   const view = buildView({ ...input("public"), repos, rejected: many, closedStillOpen: many });
   expect(countNodes(view.root)).toBeLessThanOrEqual(256);
+});
+
+test("a watched repo that needs acceptance says so while collapsed, in EN and DE", () => {
+  for (const locale of ["en", "de"] as const) {
+    const t = STRINGS[locale];
+    const meta = (v: PluginRepoVisibility, cfg: Partial<typeof DEFAULT_REPO> = {}) => {
+      const view = buildView({
+        ...input(v, locale),
+        openRepo: null,
+        repos: { [REPO]: { ...DEFAULT_REPO, enabled: true, ...cfg } },
+      });
+      expect(JSON.stringify(view)).not.toContain(t.publicNotice);
+      const list = view.root.children
+        ?.flatMap((n) => n.children ?? [])
+        .find((n) => n.type === "action-list");
+      return (list?.props?.items as { meta: string }[])[0]!.meta;
+    };
+    expect(meta("public")).toContain(t.needsAcceptance);
+    expect(meta("unknown")).toContain(t.needsAcceptance);
+    expect(meta("public", { publicRiskAck: true })).not.toContain(t.needsAcceptance);
+    expect(meta("private")).not.toContain(t.needsAcceptance);
+    expect(meta("public", { enabled: false })).not.toContain(t.needsAcceptance);
+  }
+});
+
+test("repo lists sort by visible label; the add picker keeps its index when a row opens", () => {
+  const repo = (name: string, slug?: string) => ({
+    path: `/r/${name}`,
+    name,
+    slug,
+    autoLabel: "a",
+    lightweight: false,
+  });
+  const available = [repo("a", "zeta/a"), repo("b", "Acme/b"), repo("c"), repo("d", "acme/d")];
+  const repos = {
+    "/r/a": { ...DEFAULT_REPO, enabled: true },
+    "/r/b": { ...DEFAULT_REPO, enabled: true },
+  };
+  const view = (openRepo: string | null) =>
+    buildView({ ...input("private"), repos, available, openRepo }).root;
+  const at = (root: PluginUINode) => root.children!.findIndex((n) => n.props?.name === "addRepos");
+  expect(at(view(null))).toBeGreaterThan(-1);
+  expect(at(view("/r/a"))).toBe(at(view(null)));
+
+  const picker = view(null).children![at(view(null))]!;
+  expect((picker.props?.options as { label: string }[]).map((o) => o.label)).toEqual([
+    "acme/d",
+    "c",
+  ]);
+  const list = view(null)
+    .children!.flatMap((n) => n.children ?? [])
+    .find((n) => n.type === "action-list");
+  expect((list?.props?.items as { label: string }[]).map((i) => i.label)).toEqual([
+    "Acme/b",
+    "zeta/a",
+  ]);
+});
+
+test("200 long-path repos stay inside the host's limits", () => {
+  const long = Array.from({ length: 450 }, (_, i) => ({
+    path: `/${"x".repeat(100)}${i}`,
+    name: `n${i}`,
+    slug: `organisation/${"y".repeat(30)}${i}`,
+    autoLabel: "a",
+    lightweight: false,
+  }));
+  const repos = Object.fromEntries(
+    long.slice(0, 120).map((r) => [r.path, { ...DEFAULT_REPO, enabled: true }]),
+  );
+  const view = buildView({ ...input("public"), repos, available: long, openRepo: long[0]!.path });
+  expect(validatePluginUIView(view)).not.toBeNull();
+  expect(JSON.stringify(view)).toContain(`250 ${STRINGS.en.more}`);
 });
 
 test("settings form: values apply, out-of-range clamps, a bad locale is ignored", () => {

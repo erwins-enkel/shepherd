@@ -135,6 +135,9 @@ export default function register(ctx: PluginContext): void {
   const usableRepos = () => ctx.repos.list().filter((r) => !r.lightweight);
   const strings = () => STRINGS[readSettings(state).locale];
 
+  /** Whose form the panel renders. Transient on purpose: nothing but the view depends on it. */
+  let openRepo: string | null = null;
+
   function republish(): void {
     if (typeof ctx.publishUI !== "function") return;
     const day = dayKey(new Date());
@@ -144,6 +147,7 @@ export default function register(ctx: PluginContext): void {
         status: readStatus(state),
         repos: readRepoConfigs(state),
         available: usableRepos(),
+        openRepo,
         filedToday: (repo) => filedToday(state, repo, day),
         rejected: stage.rejected(),
       }),
@@ -166,11 +170,28 @@ export default function register(ctx: PluginContext): void {
   });
 
   ctx.route("POST", "repo/add", async (req) => {
-    const repo = String((await readBody(req)).addRepo ?? "");
-    if (!usableRepos().some((r) => r.path === repo)) return reply(strings().invalidRepo, 400);
-    writeRepoConfig(state, repo, { ...readRepoConfig(state, repo), enabled: true });
+    const picked = (await readBody(req)).addRepos;
+    const t = strings();
+    if (!Array.isArray(picked) || picked.length === 0) return reply(t.pickRepo, 400);
+    // Check every path before writing any, so a bad body can't half-apply.
+    const usable = new Set(usableRepos().map((r) => r.path));
+    if (!picked.every((r) => usable.has(r as string))) return reply(t.invalidRepo, 400);
+    const repos = [...new Set(picked as string[])];
+    for (const repo of repos) {
+      writeRepoConfig(state, repo, { ...readRepoConfig(state, repo), enabled: true });
+    }
+    if (repos.length === 1) openRepo = repos[0] ?? null;
     republish();
-    return reply(strings().saved);
+    return reply(t.saved);
+  });
+
+  ctx.route("POST", "repo/open", async (req) => {
+    const repo = String((await readBody(req)).repo ?? "");
+    // hasOwn: the body is untrusted, and "constructor" would pass a plain index.
+    if (!Object.hasOwn(readRepoConfigs(state), repo)) return reply(strings().invalidRepo, 400);
+    openRepo = openRepo === repo ? null : repo;
+    republish();
+    return reply("");
   });
 
   ctx.route("POST", "repo/save", async (req) => {

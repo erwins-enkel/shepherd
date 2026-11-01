@@ -230,6 +230,34 @@ test("routes: rejected list + file-anyway status codes", async () => {
   expect((await r.post(JSON.stringify({ sentryId: "42" }))).status).toBe(409);
 });
 
+test("file-anyway refusals reply with a localized sentence, never the machine code", async () => {
+  const codes = {
+    unknown: ["fileUnknown", 404],
+    "not-rejected": ["fileNotRejected", 409],
+    busy: ["fileBusy", 409],
+  } as const;
+  for (const locale of ["en", "de"] as const) {
+    for (const [code, [key, status]] of Object.entries(codes)) {
+      const handlers = new Map<string, PluginRouteHandler>();
+      const refusing = {
+        rejected: () => [],
+        fileAnyway: async () => ({ ok: false, code }),
+      } as unknown as Parameters<typeof registerTriageRoutes>[1];
+      registerTriageRoutes(
+        { route: (m, p, fn) => void handlers.set(`${m} ${p}`, fn), log: { log() {}, warn() {} } },
+        refusing,
+        undefined,
+        () => locale,
+      );
+      const res = (await handlers.get("POST triage/file-anyway")!(
+        new Request("http://x/", { method: "POST", body: JSON.stringify({ sentryId: "42" }) }),
+      )) as Response;
+      expect(res.status).toBe(status);
+      expect(await res.text()).toBe(TRIAGE_STRINGS[locale][key]);
+    }
+  }
+});
+
 test("routes: file error → 500, record stays rejected", async () => {
   const h = harness([{ ...HIGH, confidence: "low" }]);
   await h.stage.process(candidate());

@@ -40,6 +40,16 @@ describe("invokePluginRoute", () => {
     await expect(invokePluginRoute("my-plugin", "GET", "boom")).rejects.toThrow();
   });
 
+  it("carries a plain-text refusal as a server-authored message", async () => {
+    globalThis.fetch = (async () =>
+      new Response("Pick at least one repository.", { status: 400 })) as unknown as typeof fetch;
+    await expect(invokePluginRoute("my-plugin", "POST", "add")).rejects.toMatchObject({
+      status: 400,
+      message: "Pick at least one repository.",
+      serverAuthored: true,
+    });
+  });
+
   it("sends the request to the correct URL with the given method", async () => {
     const calls: { url: string; method: string }[] = [];
     globalThis.fetch = vi.fn(async (url: unknown, init?: { method?: string }) => {

@@ -3173,11 +3173,19 @@ export interface DocAgentRun {
  *
  *  - `text-input`   — props: { name: string; label?: string; value?: string; placeholder?: string;
  *                              secret?: boolean }   → posts a string. `secret` MASKS ONLY.
- *  - `select`       — props: { name: string; label?: string; value?: string;
- *                              options: { value: string; label?: string }[] } → posts a string
+ *  - `select`       — props: { name: string; label?: string; value?: string; searchable?: boolean;
+ *                              mono?: boolean; options: { value: string; label?: string }[] }
+ *                     → posts a string. `searchable` posts "" until an option is picked.
+ *  - `multi-select` — props: { name: string; label?: string; value?: string[]; mono?: boolean;
+ *                              options: { value: string; label?: string }[] } → posts a string[]
  *  - `checkbox`     — props: { name: string; label?: string; value?: boolean } → posts a boolean
  *  - `number`       — props: { name: string; label?: string; value?: number; placeholder?: string }
  *                     → posts a number, or null when empty/unparseable
+ *
+ *  `action-list` is not an input: a filterable list whose row click POSTs `{ [param]: value }`.
+ *  props: { label?: string; param: string; route: { method: "POST"; path: string };
+ *           mono?: boolean;
+ *           items: { value: string; label?: string; meta?: string; current?: boolean }[] }
  */
 export interface PluginUINode {
   type: string;

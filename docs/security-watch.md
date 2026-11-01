@@ -54,7 +54,7 @@ Click **Save settings**.
 
 ## 2. Watch repositories
 
-Pick a repo under **Add repository** and click **Add and watch**. Each watched repo has its own form:
+Under **Add repository**, filter the list, tick one or more repos and click **Add and watch**. Added repos appear in a list showing each one's state, including **needs acceptance** when a watched repo files nothing until you accept the notice below. Select a row to open its form:
 
 - **Watch this repo**: untick it to stop watching without losing the settings.
 - **Auto-drain filed issues** (default off): filed issues get only the `security-alert` label, so you

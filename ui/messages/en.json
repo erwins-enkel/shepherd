@@ -2531,6 +2531,9 @@
   "plugin_ui_barchart_empty": "No data.",
   "plugin_ui_timeline_label": "Timeline",
   "plugin_ui_timeline_empty": "No events.",
+  "plugin_ui_list_filter": "Filter…",
+  "plugin_ui_list_no_matches": "No matches",
+  "plugin_ui_list_picked": "{count} picked",
   "plugins_raw_json": "Raw data",
   "feat_plugin_ui_title": "Plugins show real panels",
   "feat_plugin_ui_body": "Plugins can now render quota meters, status badges and tables in Settings → Plugins instead of a raw JSON dump.",
@@ -7998,5 +8001,7 @@
   "feat_upnext_quickstart_title": "Up Next: quick start per CLI",
   "feat_upnext_quickstart_body": "Once you save a quick start for a CLI in Settings → Coding CLI, the Up Next preview shows a chip for it beside Start…. One click starts the issue with that CLI, model and effort — no picker.",
   "feat_security_watch_plugin_title": "Security alerts become fix issues",
-  "feat_security_watch_plugin_body": "The bundled Security Watch plugin (Settings → Plugins, off by default) reads open code scanning and Dependabot alerts in the repos you add, triages them read-only and files a GitHub issue asking for a fix. On a repo that isn't private the issue stays redacted, and nothing is filed until you accept the disclosure notice."
+  "feat_security_watch_plugin_body": "The bundled Security Watch plugin (Settings → Plugins, off by default) reads open code scanning and Dependabot alerts in the repos you add, triages them read-only and files a GitHub issue asking for a fix. On a repo that isn't private the issue stays redacted, and nothing is filed until you accept the disclosure notice.",
+  "feat_plugin_repo_picker_title": "Add several repos to a plugin at once",
+  "feat_plugin_repo_picker_body": "CI Watch and Security Watch (Settings → Plugins) now list repos alphabetically with a filter. Tick several and add them in one go. Every watched repo is reachable from a compact list, which opens one repo's settings at a time. Sentry's repo picker gets the same filter."
 }

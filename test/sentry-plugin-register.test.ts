@@ -219,3 +219,39 @@ test("repo picker + mapping rows label by forge slug, dir name as fallback (#255
   expect(json).toContain('{"value":"/r/b","label":"other/b"}');
   expect(json).toContain('{"value":"/r/c","label":"c"}');
 });
+
+test("add picker: searchable, sorted by visible label, and an empty pick is refused", async () => {
+  const { buildView } = await import("../src/plugins/bundled/sentry/panel");
+  const base = { autoLabel: "shepherd:auto", lightweight: false };
+  const view = buildView({
+    settings: DEFAULT_SETTINGS,
+    hasToken: true,
+    status: { lastPollAt: 0, lastError: null, backoffUntil: 0, strikes: 0, lastResult: {} },
+    mappings: {},
+    suggestions: [],
+    repos: [
+      { ...base, path: "/r/a", name: "a", slug: "zeta/a" },
+      { ...base, path: "/r/b", name: "b" },
+      { ...base, path: "/r/c", name: "c", slug: "Acme/c" },
+    ],
+    filedToday: () => 0,
+    rejected: [],
+  });
+  const picker = view.root.children!.find((n) => n.props?.name === "mapRepo")!;
+  expect(picker.props).toMatchObject({ searchable: true, mono: true });
+  expect(picker.props?.value).toBeUndefined();
+  expect((picker.props?.options as { label: string }[]).map((o) => o.label)).toEqual([
+    "Acme/c",
+    "b",
+    "zeta/a",
+  ]);
+
+  const { post, cleanup } = await load();
+  try {
+    const res = await post("mapping/add", { mapRepo: "", mapProject: "web" });
+    expect(res!.status).toBe(400);
+    expect(await res!.text()).toBe("Pick a repository.");
+  } finally {
+    cleanup();
+  }
+});

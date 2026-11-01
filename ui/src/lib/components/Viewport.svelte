@@ -1083,6 +1083,10 @@
   // the decommission button as a bright "ready to clean up the worktree" nudge so the
   // operator can wrap the session without hunting for the otherwise-faint ✕.
   const prReady = $derived(git?.state === "open" || git?.state === "merged");
+  // The merge row's main action is the one call to action while it shows: no nudge competes with
+  // it, and on a merged PR it IS the decommission, so the ✕ steps aside entirely.
+  const decomNudge = $derived(prReady && !prRowShown);
+  const decomHidden = $derived(prRowShown && git?.state === "merged");
 
   // The PR disclosure toggle's hue tracks merge-readiness — NOT mere PR existence
   // (that's prReady above, which still drives the decommission nudge). This toggle is a
@@ -1104,8 +1108,10 @@
   // success even before the critic posts (latestReview undefined) — "ready to merge" can
   // show a beat early, and stays green when the critic is disabled (no gate to wait on).
   const railHue = $derived(prRailHue({ git, reviewing: reviews.isReviewing(session.id) }));
-  const prAttention = $derived(railHue === "attention");
-  const prClear = $derived(railHue === "clear");
+  // The merge row states the PR's readiness itself and the strip it would open holds no PR action
+  // then, so the toggle neither repeats the verdict nor claims to be about the PR.
+  const prAttention = $derived(!prRowShown && railHue === "attention");
+  const prClear = $derived(!prRowShown && railHue === "clear");
   const planGate = $derived(planGates.map[session.id]);
   // The git strip holds the Review-plan action during planning; flag the collapsed
   // desktop disclosure when the gate is in the stuck state the re-kick is FOR — a
@@ -1127,6 +1133,21 @@
         ? m.viewport_git_actions_state_attention()
         : "",
   );
+  const gitToggleLabel = $derived(
+    prRowShown ? m.viewport_session_controls() : m.viewport_git_actions(),
+  );
+  const gitToggleTitle = $derived.by(() => {
+    if (prRowShown) return m.viewport_session_controls_title();
+    return gitToggleState
+      ? m.viewport_git_actions_title_state({ state: gitToggleState })
+      : m.viewport_git_actions_title();
+  });
+  const gitToggleAria = $derived.by(() => {
+    if (prRowShown) return m.viewport_session_controls_aria();
+    return gitToggleState
+      ? m.viewport_git_actions_aria_state({ state: gitToggleState })
+      : m.viewport_git_actions_aria();
+  });
 
   // Effective autopilot state: the session override when set, otherwise the repo default.
   // The button must reflect THIS (not `=== true`) — a null-override session under an
@@ -3202,15 +3223,11 @@
           type="button"
           aria-expanded={gitOpen}
           onclick={() => (gitOpen = !gitOpen)}
-          title={gitToggleState
-            ? m.viewport_git_actions_title_state({ state: gitToggleState })
-            : m.viewport_git_actions_title()}
-          aria-label={gitToggleState
-            ? m.viewport_git_actions_aria_state({ state: gitToggleState })
-            : m.viewport_git_actions_aria()}
+          title={gitToggleTitle}
+          aria-label={gitToggleAria}
         >
           <span class="gt-dot" aria-hidden="true"></span>
-          <span class="gt-label">{m.viewport_git_actions()}</span>
+          <span class="gt-label">{gitToggleLabel}</span>
           <span class="gt-caret" aria-hidden="true">{gitOpen ? "▴" : "▾"}</span>
         </button>
       {/if}
@@ -3301,7 +3318,8 @@
         {resumable}
         {stranded}
         {resumeSession}
-        {prReady}
+        prReady={decomNudge}
+        hideDecom={decomHidden}
         {armed}
         {decommission}
         {renameNote}
@@ -3335,6 +3353,7 @@
           issueNumber={session.issueNumber}
           baseBranch={session.baseBranch}
           epicParent={session.epicParent ?? null}
+          rowOwnsPr={prRowShown}
           mobile
           phone={mobile}
         />
@@ -3363,11 +3382,13 @@
                 : m.session_autopilot_off_label()}
             {/if}
           </button>
-          {#if compact && !prReady}
+          {#if compact && !decomNudge && !decomHidden}
             <!-- compact only: the rare destructive action, parked at the strip's far
-               edge; once a PR is up it graduates to the identity row as the green
-               ready nudge. Desktop always renders decommission inline in the
-               actions cluster, so it never duplicates here. -->
+               edge. Without the merge row, a PR up graduates it to the identity row as
+               the green ready nudge. With the row, it stays here for an open PR and goes
+               for a merged one, whose decommission is the row's main action. Desktop
+               renders decommission inline in the actions cluster, so it never duplicates
+               here. -->
             <button
               class="decom icon-btn compact"
               class:armed

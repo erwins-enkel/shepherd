@@ -90,7 +90,7 @@ function msgLineCount(msg: HTMLElement): number {
   return range.getClientRects().length;
 }
 
-const LONG_LABEL = m.gitrail_decommission_update_action(); // "Decommission & update local"
+const LONG_LABEL = "Decommission & update local";
 const MERGED = m.toast_merged({ name: "cli-dropdown-alignment" });
 
 async function renderToast(text: string, label?: string, scale?: string) {

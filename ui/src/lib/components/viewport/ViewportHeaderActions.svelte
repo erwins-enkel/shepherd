@@ -21,6 +21,7 @@
     stranded = false,
     resumeSession,
     prReady,
+    hideDecom = false,
     armed,
     decommission,
     renameNote,
@@ -50,6 +51,8 @@
     stranded?: boolean;
     resumeSession: (full?: boolean) => void;
     prReady: boolean;
+    /** The merge row's main action is this session's decommission. */
+    hideDecom?: boolean;
     armed: boolean;
     decommission: () => void;
     renameNote: string | null;
@@ -188,12 +191,14 @@
   {/if}
   <!-- the destructive ✕ (stop agent + remove worktree) gets its own hairline so it
        never reads as one more harmless icon beside the wrench -->
-  {#if !compact}<span class="vp-rule danger" aria-hidden="true"></span>{/if}
+  {#if !compact && !hideDecom}<span class="vp-rule danger" aria-hidden="true"></span>{/if}
   {#if prReady}
     <!-- earned prominence: once a PR exists the work is delivered, so the
          decommission nudge surfaces inline (green, arms red on click) — one
-         obvious click+confirm away. Before that, desktop shows the quiet
-         icon-only ✕ below; compact shows the same icon-only ✕ in the git strip. -->
+         obvious click+confirm away. prReady is false while the merge row holds the
+         call to action. Then, or before a PR, desktop shows the quiet icon-only ✕
+         below (none at all on hideDecom); compact shows the same icon-only ✕ in the
+         git strip. -->
     <button
       class="decom"
       class:armed
@@ -221,8 +226,8 @@
         {armed ? m.viewport_confirm_decommission() : m.viewport_decommission()}
       {/if}
     </button>
-  {:else if !compact}
-    <!-- no PR yet → desktop still keeps decommission one click away, but quiet:
+  {:else if !compact && !hideDecom}
+    <!-- no PR yet, or the merge row holds the call to action → desktop still keeps decommission one click away, but quiet:
          a faint icon-only ✕ (the green nudge is earned by delivering a PR).
          Compact layouts show the same icon-only ✕ in the git strip instead.
          Same armed treatment as above: the square fills solid red (no glyph

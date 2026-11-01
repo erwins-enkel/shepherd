@@ -11,10 +11,17 @@
     opener,
     ready,
     showReady,
+    showRequestReview,
+    draftLabel,
+    prHref,
     issueHref,
+    showFindings,
     showSummary,
     reviewLabel,
     onready,
+    onrequestreview,
+    ontoggledraft,
+    onfindings,
     onsummary,
     onreview,
     onclose,
@@ -24,12 +31,21 @@
     opener?: HTMLElement;
     ready: boolean;
     showReady: boolean;
+    showRequestReview: boolean;
+    /** The draft toggle's label; null hides the item. */
+    draftLabel: string | null;
+    /** The PR's safe URL, only while Logs ↗ displaces PR ↗ in the row; null hides the item. */
+    prHref: string | null;
     /** The linked issue's safe URL; null hides the item. */
     issueHref: string | null;
+    showFindings: boolean;
     showSummary: boolean;
     /** The critic trigger's label; null hides the item (it lives in the row on wide layouts). */
     reviewLabel: string | null;
     onready: () => void;
+    onrequestreview: () => void;
+    ontoggledraft: () => void;
+    onfindings: () => void;
     onsummary: () => void;
     onreview: () => void;
     onclose: () => void;
@@ -126,6 +142,41 @@
       >{m.prrow_menu_mark_ready()}
     </button>
   {/if}
+  {#if showRequestReview}
+    <button
+      class="pm-item"
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      onclick={() => pick(onrequestreview)}
+    >
+      {m.prreview_menu_action()}
+    </button>
+  {/if}
+  {#if draftLabel}
+    <button
+      class="pm-item"
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      onclick={() => pick(ontoggledraft)}
+    >
+      {draftLabel}
+    </button>
+  {/if}
+  {#if prHref}
+    <!-- eslint-disable svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
+    <a
+      class="pm-item"
+      role="menuitem"
+      tabindex="-1"
+      href={prHref}
+      target="_blank"
+      rel="noopener"
+      onclick={onclose}>{m.prbadge_open_pr()}</a
+    >
+    <!-- eslint-enable svelte/no-navigation-without-resolve -->
+  {/if}
   {#if issueHref}
     <!-- eslint-disable svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
     <a
@@ -138,6 +189,17 @@
       onclick={onclose}>{m.gitrail_open_issue()}</a
     >
     <!-- eslint-enable svelte/no-navigation-without-resolve -->
+  {/if}
+  {#if showFindings}
+    <button
+      class="pm-item"
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      onclick={() => pick(onfindings)}
+    >
+      {m.gitrail_review_title()}
+    </button>
   {/if}
   {#if showSummary}
     <button

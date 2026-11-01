@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { m } from "#lib/paraglide/messages.js";
 import type { GitState } from "#lib/types.js";
 import {
   agentLive,
   ciFixSteer,
   failingChecksText,
   logsHref,
+  nextActionLabel,
+  nextActionSummary,
   nextStepSteer,
   prNextStep,
   rebaseSteer,
@@ -121,5 +124,15 @@ describe("logsHref", () => {
     expect(logsHref(git({ jobs: [job("b", "failure", "javascript:alert(1)")] }))).toBe(
       "https://github.com/o/r/pull/12/checks",
     );
+  });
+});
+
+describe("decommission copy", () => {
+  it("names the local update only when the action performs it", () => {
+    expect(nextActionLabel("decommission")).toBe(m.gitrail_decommission_action());
+    expect(nextActionLabel("decommission", true)).toBe(m.prrow_decommission_update());
+    expect(nextActionSummary("decommission")).toBe(m.prrow_tip_decommission());
+    expect(nextActionSummary("decommission", true)).toBe(m.prrow_tip_decommission_update());
+    expect(nextActionLabel("rebase", true)).toBe(m.prrow_rebase());
   });
 });

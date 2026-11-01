@@ -28,6 +28,7 @@
     toggleReview,
     doReviewPlan,
     epicStopped = null,
+    rowOwnsPr = false,
   }: {
     git: GitState;
     issueNumber: number | null;
@@ -50,6 +51,9 @@
     doReviewPlan: () => Promise<void>;
     /** #2735: the epic run that is not integrating this child (null while the drain acts). */
     epicStopped?: RailEpicStopped | null;
+    /** The merge row is on screen and shows this PR's state, links and findings: one owner per
+     *  fact, so the strip drops its copies and keeps what only it has. */
+    rowOwnsPr?: boolean;
   } = $props();
 
   // CI status → short chip label (issue sketch: "CI passing"). Full status stays in title/aria.
@@ -107,6 +111,14 @@
     };
   }
 
+  // The trigger is about to vanish (a tab switch brought the merge row back).
+  $effect(() => {
+    if (rowOwnsPr) {
+      prMenuAnchor = null;
+      reviewPopover = null;
+    }
+  });
+
   $effect(() => {
     if (
       reviewPopover &&
@@ -135,16 +147,16 @@
   // first-child; trailing: double-divider against GitRail's own rail-sep).
 
   // passive readouts (non-interactive <span> chips) — each maps 1:1 to a span:
-  const readyToMerge = $derived(git.state === "open" && local); // "ready to merge #N"
-  const plainPr = $derived(git.state === "open" && !local && !git.url); // no-url plain PR
-  const ciStatus = $derived(git.state === "open" && !local); // CI status
-  const mergedSpan = $derived(git.state === "merged");
+  const readyToMerge = $derived(!rowOwnsPr && git.state === "open" && local); // "ready to merge #N"
+  const plainPr = $derived(!rowOwnsPr && git.state === "open" && !local && !git.url); // no-url plain PR
+  const ciStatus = $derived(!rowOwnsPr && git.state === "open" && !local); // CI status
+  const mergedSpan = $derived(!rowOwnsPr && git.state === "merged");
   // the closed span renders from the template {:else} catch-all, NOT `=== "closed"`;
   // key off the same negation so it can't drift if a 5th GitState.state value appears.
   const closedSpan = $derived(
     git.state !== "none" && git.state !== "open" && git.state !== "merged",
   );
-  const reviewingSpan = $derived(chip.kind === "reviewing" && !chip.hasFindings);
+  const reviewingSpan = $derived(!rowOwnsPr && chip.kind === "reviewing" && !chip.hasFindings);
   const epicStoppedSpan = $derived(!!epicStopped);
   const hasPassive = $derived(
     readyToMerge ||
@@ -157,12 +169,12 @@
   );
   // tappable controls (<a>/<button>) — each maps 1:1 to a control. Merge, Ready and the critic
   // trigger live in the merge row above the steer bar (#3540), not here:
-  const issueChip = $derived(!!git.issueUrl && issueNumber != null);
+  const issueChip = $derived(!rowOwnsPr && !!git.issueUrl && issueNumber != null);
   const openPrBtn = $derived(git.state === "none" && !autopilotOn);
-  const prMenuBtn = $derived(git.state === "open" && !local && !!git.url);
+  const prMenuBtn = $derived(!rowOwnsPr && git.state === "open" && !local && !!git.url);
   const redeployBtn = $derived(git.state === "merged" && git.deployConfigured);
   const verdictBtn = $derived(
-    chip.kind === "verdict" || (chip.kind === "reviewing" && chip.hasFindings),
+    !rowOwnsPr && (chip.kind === "verdict" || (chip.kind === "reviewing" && chip.hasFindings)),
   );
   const hasActions = $derived(
     issueChip || openPrBtn || prMenuBtn || redeployBtn || verdictBtn || canReviewPlan,
@@ -221,7 +233,7 @@
 <!-- Trailing actions zone: 44px tap targets (Issue link, PR menu, Redeploy, verdict, …).
      Each {#if} guard mirrors a `hasActions` term. -->
 {#snippet actionsZone()}
-  {#if git.issueUrl && issueNumber != null}
+  {#if !rowOwnsPr && git.issueUrl && issueNumber != null}
     <!-- guard inline (not the `issueChip` derived) so TS narrows `issueNumber` to non-null;
          `issueChip` mirrors this exact condition for the `hasActions` union above. -->
     <!-- eslint-disable svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
@@ -275,7 +287,7 @@
   <!-- while re-reviewing: keep the prior findings reachable (hasFindings ⇒ verdict body
        exists, so the showReview popover has content). The no-findings variant is a
        non-interactive <span> and lives in the passive zone above instead. -->
-  {#if chip.kind === "reviewing" && chip.hasFindings}
+  {#if verdictBtn && chip.kind === "reviewing" && chip.hasFindings}
     <button
       class={["verdict-chip", "critic-reviewing", { armed: showReview }]}
       type="button"
@@ -286,7 +298,7 @@
     >
       <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
     </button>
-  {:else if chip.kind === "verdict"}
+  {:else if verdictBtn && chip.kind === "verdict"}
     <button
       class={["verdict-chip", `critic-${chip.decision}`, { armed: showReview }]}
       type="button"

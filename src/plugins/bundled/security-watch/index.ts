@@ -96,6 +96,13 @@ export function fileText(filing: FileOutcome | null, t: Strings): string {
 }
 
 const NOT_OK_STATUS = { unknown: 404, "not-rejected": 409, "not-closed": 409, busy: 409 } as const;
+/** The host toasts a refusal verbatim, so a code never goes out as the reply text. */
+const NOT_OK_TEXT = {
+  unknown: "fileUnknown",
+  "not-rejected": "fileNotRejected",
+  "not-closed": "fileNotClosed",
+  busy: "fileBusy",
+} as const;
 
 export default function register(ctx: PluginContext): void {
   const { log, state } = ctx;
@@ -198,7 +205,7 @@ export default function register(ctx: PluginContext): void {
       const id = (await readBody(req)).id;
       if (typeof id !== "string" || !id) return reply("id required", 400);
       const res = await act(id);
-      if (!res.ok) return reply(res.code, NOT_OK_STATUS[res.code]);
+      if (!res.ok) return reply(strings()[NOT_OK_TEXT[res.code]], NOT_OK_STATUS[res.code]);
       republish();
       return reply(fileText(res.filing, strings()));
     });

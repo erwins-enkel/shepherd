@@ -66,6 +66,9 @@ export const STRINGS = {
     fixed: "Not filed: the job is green again.",
     refused: "Not filed: {code}.",
     deferred: "Accepted; filing is retried on the next tick.",
+    fileUnknown: "This one is no longer tracked, so there is nothing to file.",
+    fileNotRejected: "This one is no longer rejected, so there is nothing to file.",
+    fileBusy: "Triage is still working on this one. Try again in a moment.",
   },
   de: {
     title: "CI Watch",
@@ -115,6 +118,9 @@ export const STRINGS = {
     fixed: "Nicht angelegt: der Job ist wieder grün.",
     refused: "Nicht angelegt: {code}.",
     deferred: "Angenommen; das Anlegen wird beim nächsten Durchlauf erneut versucht.",
+    fileUnknown: "Dieser Eintrag wird nicht mehr verfolgt, es gibt nichts anzulegen.",
+    fileNotRejected: "Dieser Eintrag ist nicht mehr abgelehnt, es gibt nichts anzulegen.",
+    fileBusy: "Die Triage arbeitet noch daran. Versuche es gleich noch einmal.",
   },
 } as const satisfies Record<Locale, Record<string, string>>;
 

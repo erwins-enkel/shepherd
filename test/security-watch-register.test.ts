@@ -1,5 +1,6 @@
 // security-watch: loads from the real bundled dir and is inert by default.
 import { test, expect } from "bun:test";
+import { STRINGS } from "../src/plugins/bundled/security-watch/panel";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -94,7 +95,9 @@ test("routes persist settings; adding a repo shows the disclosure notice", async
     expect(await closed?.text()).toBe("");
     expect(JSON.stringify(info()?.ui)).not.toContain("Ich akzeptiere");
     expect((await post("triage/file-anyway", {}))?.status).toBe(400);
-    expect((await post("triage/file-anyway", { id: "map:nope" }))?.status).toBe(404);
+    const refused = await post("triage/file-anyway", { id: "map:nope" });
+    expect(refused?.status).toBe(404);
+    expect(await refused?.text()).toBe(STRINGS.de.fileUnknown);
     expect((await post("triage/file-again", { id: "map:nope" }))?.status).toBe(404);
   } finally {
     cleanup();

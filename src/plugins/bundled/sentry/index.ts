@@ -199,7 +199,7 @@ export default function register(ctx: PluginContext): void {
     return reply(strings().pollStarted);
   });
 
-  registerTriageRoutes(ctx, poller.stage, republish);
+  registerTriageRoutes(ctx, poller.stage, republish, () => readSettings(state).locale);
 
   ctx.schedule(TICK_MS, async () => {
     await poller.tick();

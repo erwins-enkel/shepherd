@@ -10,6 +10,7 @@
 </script>
 
 <script lang="ts">
+  import QuestionOptionPreview from "./QuestionOptionPreview.svelte";
   import type { VisualBlock, RawAnswer } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { answerPlanQuestions } from "#lib/api.js";
@@ -228,6 +229,7 @@
                   {#if q.optionDescriptions?.[i] && q.optionDescriptions[i] !== option}
                     <span class="qf-option-desc">{@render linked(q.optionDescriptions[i])}</span>
                   {/if}
+                  <QuestionOptionPreview text={q.optionPreviews?.[i]} />
                 </span>
                 {#if recommended}
                   <span class="qf-rec-tag">{m.qform_recommended()}</span>

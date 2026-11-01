@@ -17,6 +17,9 @@ export function askToQuestionForm(ask: PendingAsk): QuestionForm {
       kind: q.kind ?? (q.multiSelect ? "multi" : "single"),
       options: q.options.map((o) => o.label),
       optionDescriptions: q.options.map((o) => o.description),
+      ...(q.options.some((o) => o.preview)
+        ? { optionPreviews: q.options.map((o) => o.preview) }
+        : {}),
       header: q.header,
       allowOther: q.kind === "freeform" ? false : (q.allowOther ?? true),
     })),

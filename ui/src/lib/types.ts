@@ -736,7 +736,7 @@ export interface AskQuestion {
   allowOther?: boolean;
   question: string;
   header: string;
-  options: { label: string; description: string }[];
+  options: { label: string; description: string; preview?: string }[];
   multiSelect: boolean;
 }
 
@@ -1142,9 +1142,11 @@ export type VisualBlock =
         kind: "single" | "multi" | "freeform";
         options?: string[];
         /** UI-only (#3165, AskUserQuestion): an extra "Other…" choice with a text input, a muted
-         *  description per option and a short header chip. The plan gate never sets these. */
+         *  description and monospace preview per option and a short header chip. The plan gate
+         *  never sets these. */
         allowOther?: boolean;
         optionDescriptions?: string[];
+        optionPreviews?: (string | undefined)[];
         header?: string;
       }[];
     };

@@ -51,6 +51,28 @@ describe("askToQuestionForm", () => {
   });
 });
 
+it("carries option previews and a disabled Other from the server", () => {
+  const form = askToQuestionForm({
+    toolUseId: "toolu_1",
+    questions: [
+      {
+        question: "Draft?",
+        header: "Draft",
+        multiSelect: false,
+        allowOther: false,
+        options: [
+          { label: "Use", description: "", preview: "+--+\n|  |" },
+          { label: "Skip", description: "" },
+        ],
+      },
+    ],
+  });
+  expect(form.questions[0]).toMatchObject({
+    allowOther: false,
+    optionPreviews: ["+--+\n|  |", undefined],
+  });
+});
+
 it("preserves Codex question IDs after partial answers and renders free text", () => {
   const form = askToQuestionForm({
     toolUseId: "codex",

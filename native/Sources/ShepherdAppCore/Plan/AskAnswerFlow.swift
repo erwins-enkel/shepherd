@@ -88,7 +88,8 @@ public final class AskAnswerFlow {
     public func form(sessionID: String, ask: PendingAsk) -> QuestionFormModel {
         if let form = forms[ask.toolUseId] { return form }
         let form = QuestionFormModel(block: AskForm.block(ask),
-            answerContext: QuestionAnswerContext(sessionID: sessionID, locked: false), writer: nil, allowsOther: true)
+            answerContext: QuestionAnswerContext(sessionID: sessionID, locked: false), writer: nil,
+            allowsOther: ask.questions.allSatisfy { $0.allowOther != false }, requiresMultiChoice: true)
         forms[ask.toolUseId] = form
         return form
     }

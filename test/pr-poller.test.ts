@@ -553,6 +553,42 @@ function forgeReturning(status: () => PrStatus): GitForge {
 const NONE: PrStatus = { state: "none", checks: "none", deployConfigured: false };
 const OPEN: PrStatus = { state: "open", number: 7, checks: "pending", deployConfigured: false };
 
+test("stamps the linked issue's URL on polled state, and only with a web base and an issue", async () => {
+  const store = new SessionStore(":memory:");
+  const linked = store.create({ ...baseSession, issueNumber: 855 });
+  const unlinked = store.create({ ...baseSession, herdrAgentId: "term_b", branch: "other" });
+  const noBase = store.create({
+    ...baseSession,
+    herdrAgentId: "term_c",
+    branch: "third",
+    repoPath: "/local",
+    issueNumber: 856,
+  });
+  const web = { ...forgeReturning(() => OPEN), webUrl: "https://github.com/acme/repo" };
+  const local = { ...forgeReturning(() => OPEN), webUrl: null };
+  const poller = new PrPoller(
+    store,
+    (repoPath) => (repoPath === "/local" ? local : web),
+    () => {},
+  );
+
+  await poller.tick();
+  expect(poller.get(linked.id)?.issueUrl).toBe("https://github.com/acme/repo/issues/855");
+  expect(poller.get(unlinked.id)?.issueUrl).toBeUndefined();
+  expect(poller.get(noBase.id)?.issueUrl).toBeUndefined();
+});
+
+test("a state cached before issueUrl was stamped counts as changed, so the next poll heals it", () => {
+  const prev: GitState = { ...OPEN, kind: "github" };
+  expect(gitStateChanged(prev, { ...prev, issueUrl: "https://x/issues/1" })).toBe(true);
+  expect(
+    gitStateChanged(
+      { ...prev, issueUrl: "https://x/issues/1" },
+      { ...prev, issueUrl: "https://x/issues/1" },
+    ),
+  ).toBe(false);
+});
+
 test("emits session git state on first poll and only again on change", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);

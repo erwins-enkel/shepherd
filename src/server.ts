@@ -390,7 +390,13 @@ import { BaseCheckoutBusyError, MergeConflictError } from "./forge/local";
 import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teardown";
 import { deadBaseSession } from "./dead-base";
 import { predecessorLanded } from "./task-deps";
-import { type PrCache, gitStateChanged, guardStaleTerminal, trustsTerminal } from "./pr-poller";
+import {
+  type PrCache,
+  gitStateChanged,
+  guardStaleTerminal,
+  trustsTerminal,
+  withIssueUrl,
+} from "./pr-poller";
 import {
   readRepoRoles,
   saveRepoRoles,
@@ -7948,11 +7954,10 @@ async function forgeOpenPr(
   }
   const me = (await forge.currentUser?.()) ?? null;
   const prev = deps.prCache?.get(session.id);
-  const git: GitState = annotateHandoff(
-    { kind: forge.kind, ...status },
-    session.repoPath,
-    me,
-    prev,
+  const git: GitState = withIssueUrl(
+    annotateHandoff({ kind: forge.kind, ...status }, session.repoPath, me, prev),
+    forge,
+    session,
   );
   deps.prCache?.set(session.id, git);
   deps.events.emit("session:git", { id: session.id, git });
@@ -8151,11 +8156,10 @@ async function forgeMerge(
   const status = await forge.prStatus(head);
   const me = (await forge.currentUser?.()) ?? null;
   const prev = deps.prCache?.get(session.id);
-  const git: GitState = annotateHandoff(
-    { kind: forge.kind, ...status },
-    session.repoPath,
-    me,
-    prev,
+  const git: GitState = withIssueUrl(
+    annotateHandoff({ kind: forge.kind, ...status }, session.repoPath, me, prev),
+    forge,
+    session,
   );
   deps.prCache?.set(session.id, git);
   deps.events.emit("session:git", { id: session.id, git });

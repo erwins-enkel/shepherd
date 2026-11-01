@@ -993,7 +993,7 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
     expect(chip, "verdict chip present").not.toBeNull();
     chip!.click();
     const dialog = await vi.waitFor(() => {
-      const d = h.querySelector<HTMLElement>(".review-pop");
+      const d = document.querySelector<HTMLElement>(".review-pop");
       expect(d, "review dialog opened").not.toBeNull();
       return d!;
     });
@@ -1046,7 +1046,7 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
     expect(closeBtn, "close button present").not.toBeNull();
     closeBtn!.click();
     await vi.waitFor(() => {
-      expect(h.querySelector(".review-pop"), "dialog closed").toBeNull();
+      expect(document.querySelector(".review-pop"), "dialog closed").toBeNull();
       expect(document.activeElement, "focus restored to opener").toBe(chip);
     });
   });
@@ -1058,10 +1058,10 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
     const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
-    const { chip } = await openReview(h);
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    const { chip, dialog } = await openReview(h);
+    dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await vi.waitFor(() => {
-      expect(h.querySelector(".review-pop"), "dialog closed").toBeNull();
+      expect(document.querySelector(".review-pop"), "dialog closed").toBeNull();
       expect(document.activeElement, "focus restored to opener").toBe(chip);
     });
   });
@@ -1618,7 +1618,7 @@ describe("GitRail — no-verdict error verdict explains itself in the popover", 
     expect(chip, "verdict chip present").not.toBeNull();
     chip!.click();
     return await vi.waitFor(() => {
-      const d = h.querySelector<HTMLElement>(".review-pop");
+      const d = document.querySelector<HTMLElement>(".review-pop");
       expect(d, "review dialog opened").not.toBeNull();
       return d!;
     });
@@ -1655,5 +1655,63 @@ describe("GitRail — no-verdict error verdict explains itself in the popover", 
     expect(dialog.querySelector(".rv-summary")?.textContent?.trim()).toBe(
       "critic did not produce a verdict",
     );
+  });
+});
+
+describe("GitRail — rowOwnsPr (merge row on screen)", () => {
+  const verdict = {
+    decision: "commented",
+    summary: "ok",
+    body: "ok",
+    url: "",
+    updatedAt: 1,
+  } as unknown as ReviewVerdict;
+  afterEach(() => reviews.drop(baseProps.sessionId));
+
+  it("drops every PR chip; the rail and its divider collapse, the ⚙ pill stays", async () => {
+    reviews.apply({ id: baseProps.sessionId, review: verdict });
+    gitStateFn.mockResolvedValue({
+      ...openPrState,
+      issueUrl: "https://github.com/acme/shepherd/issues/1",
+    });
+    await page.viewport(600, 900);
+    const h = host(600);
+    await render(GitRail, {
+      target: h,
+      props: { ...baseProps, issueNumber: 1, mobile: true, rowOwnsPr: true },
+    });
+    await vi.waitFor(() => expect(h.querySelector(".auto-pill")).not.toBeNull());
+    const rail = h.querySelector<HTMLElement>(".rail")!;
+    expect(rail.children).toHaveLength(0);
+    expect(getComputedStyle(rail).display).toBe("none");
+    expect(getComputedStyle(h.querySelector(".cluster-sep")!).display).toBe("none");
+  });
+
+  it("merged: Redeploy stays (only the strip has it), the merged chip goes", async () => {
+    reviews.apply({ id: baseProps.sessionId, review: verdict });
+    gitStateFn.mockResolvedValue({ ...openPrState, state: "merged", deployConfigured: true });
+    await page.viewport(600, 900);
+    const h = host(600);
+    await render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: true, rowOwnsPr: true },
+    });
+    await vi.waitFor(() =>
+      expect(h.querySelector(".rail")!.textContent).toContain(m.gitrail_redeploy()),
+    );
+    expect(h.querySelector(".rail")!.textContent).not.toContain(m.gitrail_merged());
+    expect(h.querySelector("button.verdict-chip")).toBeNull();
+  });
+
+  it("the open PR menu closes when the row takes over", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+    await screen.getByTitle("PR #12345").click();
+    await vi.waitFor(() => expect(document.querySelector("[role='menu']")).not.toBeNull());
+    await screen.rerender({ ...baseProps, mobile: true, rowOwnsPr: true });
+    await vi.waitFor(() => expect(document.querySelector("[role='menu']")).toBeNull());
   });
 });

@@ -74,7 +74,7 @@ import { RemoteDispatcher, waitingAttachments } from "./remote-instances/dispatc
 import { instanceIdentity } from "./remote-instances/identity";
 import { localMachine } from "./remote-instances/placement";
 import { StatusPoller } from "./poller";
-import { PrPoller } from "./pr-poller";
+import { PrPoller, withIssueUrl } from "./pr-poller";
 import { resolveDiffBase } from "./diff-base";
 import { BranchPruner } from "./branch-pruner";
 import { SessionArchiver } from "./session-archiver";
@@ -2942,11 +2942,10 @@ const autopilot = new AutopilotService({
         body: s.prompt,
       });
       const me = (await forge.currentUser?.()) ?? null;
-      const git: GitState = annotateHandoff(
-        { kind: forge.kind, ...status },
-        s.repoPath,
-        me,
-        prPoller.get(s.id),
+      const git: GitState = withIssueUrl(
+        annotateHandoff({ kind: forge.kind, ...status }, s.repoPath, me, prPoller.get(s.id)),
+        forge,
+        s,
       );
       prPoller.set(s.id, git);
       events.emit("session:git", { id: s.id, git });

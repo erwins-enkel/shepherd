@@ -53,10 +53,14 @@ const putBuildQueueFn = vi.fn(
   }),
 );
 
+// Only tests that read the strip's chips set a response; the rest keep the real call.
+const gitStateFn = vi.fn();
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
+    gitState: (id: string) =>
+      gitStateFn.getMockImplementation() ? gitStateFn(id) : actual.gitState(id),
     startPreview: startPreviewFn,
     scratchpadDownloadUrl: scratchpadDownloadUrlFn,
     stopPreview: stopPreviewFn,
@@ -2759,6 +2763,7 @@ describe("Viewport — merge row above the steer bar", () => {
   });
   afterEach(async () => {
     recaps.map = {};
+    gitStateFn.mockReset();
     await page.viewport(1280, 900);
   });
 
@@ -2806,6 +2811,86 @@ describe("Viewport — merge row above the steer bar", () => {
     });
     expect(follows(row, container.querySelector(".steer-row")!)).toBe(true);
     expect(follows(row, container.querySelector(".ctrl-row")!)).toBe(true);
+  });
+
+  it("hands the PR off between row and strip by tab; the decommission nudge follows", async () => {
+    gitStateFn.mockResolvedValue(openGit);
+    const { container } = await render(Viewport, {
+      session: session({ id: "mr-owner" }),
+      git: openGit,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(container.querySelector("section.pr-row")).not.toBeNull());
+    // Row on screen: the green nudge yields to the row's one call to action, the ✕ stays quiet.
+    expect(container.querySelector(".decom.ready")).toBeNull();
+    expect(container.querySelector(".decom.quiet")).not.toBeNull();
+
+    await page.getByRole("tab", { name: "Diff", exact: true }).click();
+    await vi.waitFor(() => expect(container.querySelector("section.pr-row")).toBeNull());
+    await vi.waitFor(() => expect(container.querySelector(".decom.ready")).not.toBeNull());
+    expect(container.querySelector(".decom.quiet")).toBeNull();
+  });
+
+  it("desktop toggle: no PR verdict or PR copy while the row shows; both back on Diff", async () => {
+    gitStateFn.mockResolvedValue(openGit);
+    const { container } = await render(Viewport, {
+      session: session({ id: "mr-toggle" }),
+      git: openGit,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(container.querySelector("section.pr-row")).not.toBeNull());
+    const toggle = container.querySelector<HTMLElement>(".git-toggle")!;
+    expect(toggle.textContent).toContain(m.viewport_session_controls());
+    expect(toggle.getAttribute("title")).toBe(m.viewport_session_controls_title());
+    expect(toggle.getAttribute("aria-label")).toBe(m.viewport_session_controls_aria());
+    expect(toggle.classList.contains("clear")).toBe(false);
+    expect(toggle.classList.contains("attention")).toBe(false);
+
+    await page.getByRole("tab", { name: "Diff", exact: true }).click();
+    await vi.waitFor(() => expect(toggle.textContent).toContain(m.viewport_git_actions()));
+    expect(toggle.getAttribute("title")).toContain(m.viewport_git_actions_title());
+    expect(toggle.classList.contains("clear") || toggle.classList.contains("attention")).toBe(true);
+  });
+
+  it("merged with the row on screen: its action is the only decommission", async () => {
+    const merged = { ...openGit, state: "merged" as const };
+    const { container } = await render(Viewport, {
+      session: session({ id: "mr-merged" }),
+      git: merged,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(container.querySelector("section.pr-row.merged")).not.toBeNull());
+    expect(container.querySelector(".decom")).toBeNull();
+    expect(container.querySelector(".vp-rule.danger")).toBeNull();
+    await page.getByRole("tab", { name: "Diff", exact: true }).click();
+    await vi.waitFor(() => expect(container.querySelector(".decom.ready")).not.toBeNull());
+  });
+
+  it("phone: the strip carries no PR chips beside the row, and has them back on Diff", async () => {
+    gitStateFn.mockResolvedValue(openGit);
+    await page.viewport(390, 844);
+    const { container } = await render(Viewport, {
+      session: session({ id: "mr-strip" }),
+      git: openGit,
+      mobile: true,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(container.querySelector("section.pr-row")).not.toBeNull());
+    const strip = await vi.waitFor(() => {
+      const el = container.querySelector(".vp-git-strip");
+      expect(el?.querySelector(".auto-pill")).toBeTruthy();
+      return el!;
+    });
+    expect(strip.querySelector(".status-chip")).toBeNull();
+    expect(strip.querySelector(".decom"), "quiet ✕ parks in the strip").not.toBeNull();
+    await page.getByRole("tab", { name: "Diff", exact: true }).click();
+    await vi.waitFor(() =>
+      expect(container.querySelector(".vp-git-strip .status-chip")).not.toBeNull(),
+    );
   });
 
   it("no row off the steering tabs, without a PR, or once closed; merged keeps it (Stilllegen)", async () => {

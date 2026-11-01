@@ -105,27 +105,34 @@ export function prNextStep(input: {
   return { action: "merge", mode: "button", reason: null };
 }
 
-/** The button label of a non-merge action. */
-export function nextActionLabel(action: Exclude<NextAction, "merge">): string {
+/** The button label of a non-merge action. `updatesLocal`: decommissioning also fast-forwards the
+ *  repo's local checkout. */
+export function nextActionLabel(
+  action: Exclude<NextAction, "merge">,
+  updatesLocal = false,
+): string {
   switch (action) {
     case "fix-ci":
       return m.prrow_fix_ci();
     case "rebase":
       return m.prrow_rebase();
     case "decommission":
-      return m.gitrail_decommission_action();
+      return updatesLocal ? m.prrow_decommission_update() : m.gitrail_decommission_action();
   }
 }
 
 /** One-line tooltip summary of what a live non-merge action does. */
-export function nextActionSummary(action: Exclude<NextAction, "merge">): string {
+export function nextActionSummary(
+  action: Exclude<NextAction, "merge">,
+  updatesLocal = false,
+): string {
   switch (action) {
     case "fix-ci":
       return m.prrow_tip_fix_ci();
     case "rebase":
       return m.prrow_tip_rebase();
     case "decommission":
-      return m.prrow_tip_decommission();
+      return updatesLocal ? m.prrow_tip_decommission_update() : m.prrow_tip_decommission();
   }
 }
 

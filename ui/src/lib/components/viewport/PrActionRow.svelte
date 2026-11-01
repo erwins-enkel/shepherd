@@ -1,9 +1,10 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { replySession, reviewPr, setReadyToMerge } from "#lib/api.js";
+  import { replySession, reviewPr, setPrDraftState, setReadyToMerge } from "#lib/api.js";
   import { checksCleared } from "#lib/checks-cleared.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { pullMainAndToast } from "#lib/pull-offer.js";
   import { recaps } from "#lib/recaps.svelte.js";
   import { repoConfig, reviews } from "#lib/reviews.svelte.js";
   import { toasts } from "#lib/toasts.svelte.js";
@@ -14,10 +15,12 @@
   import { criticChip } from "../critic-badge";
   import { railEpicChild, railEpicStopped } from "../git-rail/epic-rail";
   import MergeConfirmHost from "../MergeConfirmHost.svelte";
+  import PrFindingsDialog from "../PrFindingsDialog.svelte";
+  import PrReviewRequestPopover from "../PrReviewRequestPopover.svelte";
   import { SessionPrMerge } from "../session-pr-merge.svelte";
   import PrActionMenu from "./PrActionMenu.svelte";
+  import PrRowFacts from "./PrRowFacts.svelte";
   import {
-    FACT_GLYPH,
     mergeActionLabel,
     mergeBlockedText,
     prActionRowVisible,
@@ -36,6 +39,7 @@
 
   // The merge row above the steer bar (#3540): an open PR's state, its merge prerequisites and
   // the ONE amber main action. Merge always opens the confirmation (#2299) — never inline.
+  // While it shows it owns the PR: the git strip drops its PR chips (GitRail's rowOwnsPr).
   let {
     session,
     git,
@@ -60,7 +64,7 @@
     touch?: boolean;
     /** The agent's server-swept liveness: a steer goes only to a live agent. */
     liveness?: LivenessState;
-    /** Called with the merged session's id: from the merged toast and the Stilllegen action. */
+    /** Called with the merged session's id from the Stilllegen action. */
     ondecommission?: (id: string) => void;
     /** A steer went out; `sent` settles false when it failed (the Chat's echo, like the SteerBar). */
     onsent?: (text: string, sent: Promise<boolean>) => void;
@@ -118,6 +122,10 @@
   let sendState = $state<"idle" | "sending" | "sent">("idle");
   let sentTimer: ReturnType<typeof setTimeout> | undefined;
 
+  // An isolated session's merge landed on the base its repo's checkout tracks, so tearing it down
+  // also fast-forwards that checkout. A local forge merged into the checkout itself.
+  const updatesLocal = $derived(session.isolated && !!session.repoPath && !local);
+
   const stepTip = $derived<StatusTipParams | null>(
     step.action === "merge"
       ? mergeTip
@@ -133,7 +141,7 @@
                 ? { title: m.prrow_next_tip_title(), summary: step.reason ?? "", sections: [] }
                 : {
                     title: nextActionLabel(step.action),
-                    summary: nextActionSummary(step.action),
+                    summary: nextActionSummary(step.action, updatesLocal),
                     sections: [],
                   },
           stopClickPropagation: false,
@@ -145,6 +153,7 @@
     if (!git || step.mode !== "button" || step.action === "merge") return;
     if (step.action === "decommission") {
       ondecommission?.(session.id);
+      if (updatesLocal) void pullMainAndToast(session.repoPath, session.baseBranch);
       return;
     }
     if (sendState !== "idle") return;
@@ -183,9 +192,6 @@
       git,
       name: session.name,
       repoPath: session.repoPath,
-      isolated: session.isolated,
-      baseBranch: session.baseBranch,
-      ondecommission,
     });
   }
 
@@ -239,11 +245,76 @@
   );
   const showSummary = $derived(!!onsummary && recaps.map[session.id]?.state === "ready");
   const menuReview = $derived(mobile && canReview);
-  const hasMenu = $derived(readyShown || !!issueHref || showSummary || menuReview);
+  const prHref = $derived(firstSafeHttpUrl(git?.url));
+  // Red CI: the way out is the failing check's log, not the PR page.
+  const logsLink = $derived(git && kind === "ci_failed" ? logsHref(git) : null);
+  // The PR page stays one menu away while Logs ↗ holds its slot.
+  const menuPrHref = $derived(logsLink ? prHref : null);
+  const prOpen = $derived(git?.state === "open");
+  const showRequestReview = $derived(prOpen && git?.kind === "github" && !!git.number);
+  const draftLabel = $derived(
+    prOpen && (git?.kind === "github" || git?.kind === "gitea")
+      ? git.isDraft === true
+        ? m.prbadge_mark_ready()
+        : m.prbadge_mark_draft()
+      : null,
+  );
+  const hasFindings = $derived(
+    !!verdict && (chip.kind === "verdict" || (chip.kind === "reviewing" && chip.hasFindings)),
+  );
+  const hasMenu = $derived(
+    readyShown ||
+      showRequestReview ||
+      !!draftLabel ||
+      !!menuPrHref ||
+      !!issueHref ||
+      hasFindings ||
+      showSummary ||
+      menuReview,
+  );
   let moreBtn = $state<HTMLButtonElement>();
   let menuAnchor = $state<DOMRect | null>(null);
   function toggleMenu() {
     menuAnchor = menuAnchor || !moreBtn ? null : moreBtn.getBoundingClientRect();
+  }
+
+  let findingsOpen = $state(false);
+  // A touch target would grow the fact line to 44px, so touch reads findings from the ⋯ menu.
+  const factOpensFindings = $derived(hasFindings && !touch && !mobile);
+  function openFindings(opener: HTMLElement | undefined) {
+    opener?.focus(); // use:dialog restores focus to what held it at open
+    findingsOpen = true;
+  }
+
+  let reviewRequest = $state<{ anchor: DOMRect; prNumber: number; prUrl?: string } | null>(null);
+  function openReviewRequest() {
+    if (!git?.number || !moreBtn) return;
+    reviewRequest = {
+      anchor: moreBtn.getBoundingClientRect(),
+      prNumber: git.number,
+      prUrl: git.url,
+    };
+  }
+  $effect(() => {
+    if (reviewRequest && reviewRequest.prNumber !== git?.number) reviewRequest = null;
+  });
+
+  async function toggleDraft() {
+    const id = session.id;
+    const draft = git?.isDraft !== true;
+    try {
+      await setPrDraftState(id, draft);
+      toasts.info(draft ? m.prbadge_marked_draft() : m.prbadge_marked_ready(), {
+        key: `pr-draft:${id}`,
+      });
+    } catch (e) {
+      toasts.info(
+        m.prbadge_draft_toggle_failed({
+          reason: e instanceof Error ? e.message : m.prbadge_unknown_error(),
+        }),
+        { alert: true, key: `pr-draft:${id}` },
+      );
+    }
   }
 
   // The Viewport is reused across sessions: an unanswered confirmation, a stale error, an armed
@@ -255,14 +326,12 @@
       clearTimeout(armTimer);
       armed = false;
       menuAnchor = null;
+      findingsOpen = false;
+      reviewRequest = null;
       clearTimeout(sentTimer);
       sendState = "idle";
     });
   });
-
-  const prHref = $derived(firstSafeHttpUrl(git?.url));
-  // Red CI: the way out is the failing check's log, not the PR page.
-  const logsLink = $derived(git && kind === "ci_failed" ? logsHref(git) : null);
 </script>
 
 {#snippet more()}
@@ -295,12 +364,12 @@
       {#if merge.error}
         <p class="pr-error" role="alert">{merge.error}</p>
       {:else if facts.length > 0}
-        <p class="pr-facts">
-          {#each facts as f, i (f.id)}{#if i > 0}<span class="pr-dot" aria-hidden="true">·</span
-              >{/if}<span class={["fact", f.tone]}
-              ><span class="fg" aria-hidden="true">{FACT_GLYPH[f.tone]}</span>{f.text}</span
-            >{/each}
-        </p>
+        <PrRowFacts
+          {facts}
+          opensFindings={factOpensFindings}
+          {findingsOpen}
+          onfindings={openFindings}
+        />
       {/if}
     </div>
     <div class="pr-actions">
@@ -357,7 +426,7 @@
           use:coachTarget={"pr-merge-row"}
           onclick={onStep}
         >
-          {sendState === "sent" ? m.prrow_sent() : nextActionLabel(step.action)}
+          {sendState === "sent" ? m.prrow_sent() : nextActionLabel(step.action, updatesLocal)}
         </button>
       {:else}
         <button
@@ -381,13 +450,39 @@
       opener={moreBtn}
       ready={session.readyToMerge}
       showReady={readyShown}
+      {showRequestReview}
+      {draftLabel}
+      prHref={menuPrHref}
       {issueHref}
+      showFindings={hasFindings}
       {showSummary}
       reviewLabel={menuReview ? reviewLabel : null}
       onready={() => setReadyToMerge(session.id, !session.readyToMerge)}
+      onrequestreview={openReviewRequest}
+      ontoggledraft={toggleDraft}
+      onfindings={() => openFindings(moreBtn)}
       onsummary={() => onsummary?.()}
       onreview={() => doReview(true)}
       onclose={() => (menuAnchor = null)}
+    />
+  {/if}
+  {#if reviewRequest}
+    <PrReviewRequestPopover
+      anchor={reviewRequest.anchor}
+      opener={moreBtn}
+      sessionId={session.id}
+      prNumber={reviewRequest.prNumber}
+      prUrl={reviewRequest.prUrl}
+      onclose={() => (reviewRequest = null)}
+    />
+  {/if}
+  {#if findingsOpen && verdict}
+    <PrFindingsDialog
+      sessionId={session.id}
+      {verdict}
+      {chip}
+      {git}
+      onclose={() => (findingsOpen = false)}
     />
   {/if}
   <MergeConfirmHost flow={merge.flow} />
@@ -489,7 +584,6 @@
     color: var(--color-ink);
     font-size: var(--fs-base);
   }
-  .pr-facts,
   .pr-error {
     margin: 0;
     overflow: hidden;
@@ -497,23 +591,6 @@
     white-space: nowrap;
     font-size: var(--fs-meta);
     letter-spacing: 0.06em;
-  }
-  .pr-facts {
-    color: var(--color-muted);
-  }
-  .pr-error {
-    color: var(--color-red);
-  }
-  .pr-dot {
-    margin: 0 8px;
-  }
-  .fact .fg {
-    margin-right: 5px;
-  }
-  .fact.ok .fg {
-    color: var(--color-green);
-  }
-  .fact.fail .fg {
     color: var(--color-red);
   }
 
@@ -648,9 +725,13 @@
     white-space: normal;
     text-align: right;
   }
+  /* a long label (Decommission & update, in either locale) wraps inside the 44px target */
   .pr-row.mobile .gbtn.primary {
     flex: 1;
     min-width: 0;
     font-size: var(--fs-base);
+    line-height: 1.2;
+    text-align: center;
+    white-space: normal;
   }
 </style>

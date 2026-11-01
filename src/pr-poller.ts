@@ -1,6 +1,7 @@
 import { isEpicChild } from "./epic-branch";
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
+import { buildIssueUrl } from "./forge";
 import type { GitForge, GitState, PrStatus, WorkflowJob } from "./forge/types";
 import { annotateHandoff } from "./repo-roles";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
@@ -199,6 +200,17 @@ function reviewStateChanged(prev: GitState, git: GitState): boolean {
   );
 }
 
+/** The linked issue's URL on a polled state, as `resolveGitState` stamps it on the GET: each
+ *  `session:git` replaces the client's copy, so the merge row's Issue link must survive a poll. */
+export function withIssueUrl(
+  git: GitState,
+  forge: Pick<GitForge, "webUrl">,
+  s: Pick<Session, "issueNumber">,
+): GitState {
+  const issueUrl = buildIssueUrl(forge.webUrl, s.issueNumber);
+  return issueUrl ? { ...git, issueUrl } : git;
+}
+
 export function gitStateChanged(prev: GitState | undefined, git: GitState): boolean {
   return (
     !prev ||
@@ -216,6 +228,7 @@ export function gitStateChanged(prev: GitState | undefined, git: GitState): bool
     prev.headSha !== git.headSha ||
     prev.baseRefName !== git.baseRefName ||
     prev.inMergeQueue !== git.inMergeQueue ||
+    prev.issueUrl !== git.issueUrl ||
     reviewStateChanged(prev, git)
   );
 }
@@ -858,11 +871,10 @@ export class PrPoller implements PrCache {
     const typed = withTypicalDurations(raw, this.store.typicalCiJobDurations(s.repoPath));
     // Who's up (open+green): computed from .shepherd/roles.json + the operator's
     // login, so the herd can show "waiting on scoop" instead of "your turn".
-    const git = await this.stampMergeQueue(
-      s,
+    const git = withIssueUrl(
+      await this.stampMergeQueue(s, forge, annotateHandoff(typed, s.repoPath, me, prev), prev),
       forge,
-      annotateHandoff(typed, s.repoPath, me, prev),
-      prev,
+      s,
     );
     if (provenance.revision !== this.readProvenance(forge).revision) return; // moved during the queue read
     this.trackTransient(s.id, git);

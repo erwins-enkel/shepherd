@@ -1,12 +1,9 @@
 <script lang="ts">
-  import { firstSafeHttpUrl } from "#lib/url.js";
-  import { renderMarkdown } from "#lib/sanitize-html.js";
   import {
     gitState,
     setPrDraftState,
     openPr,
     redeploy,
-    replySession,
     reviewPlan,
     isPlanReviewError,
     planReviewStarted,
@@ -15,10 +12,10 @@
   import { toasts } from "#lib/toasts.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import { reviews, repoConfig, planGates } from "#lib/reviews.svelte.js";
-  import { criticChip, criticBadgeLabel, criticTitle } from "./critic-badge";
+  import { criticChip } from "./critic-badge";
   import { canOfferPlanReview, canTriggerPlanReview } from "./plan-gate-badge";
   import RailStatusActions from "./git-rail/RailStatusActions.svelte";
-  import PlanDriftNote from "./git-rail/PlanDriftNote.svelte";
+  import PrFindingsDialog from "./PrFindingsDialog.svelte";
   import AutomationPanel from "./AutomationPanel.svelte";
   import { automationCount, AUTOMATION_TOTAL } from "./git-rail-automation";
   import { coachTarget, coachTargets } from "#lib/actions/coachTarget.svelte.js";
@@ -42,6 +39,7 @@
     issueNumber = null,
     baseBranch = "",
     epicParent = null,
+    rowOwnsPr = false,
   }: {
     sessionId: string;
     repoPath?: string;
@@ -63,6 +61,8 @@
     baseBranch?: string;
     /** The epic this session is a child of (`Session.epicParent`); null for a non-epic session. */
     epicParent?: number | null;
+    /** The merge row is on screen: it owns the PR's state and links, the rail keeps the rest. */
+    rowOwnsPr?: boolean;
   } = $props();
 
   let git = $state<GitState | null>(null);
@@ -81,15 +81,10 @@
   let prTitle = $state("");
   let prBody = $state("");
 
-  // Critic-findings popover (read the full verdict body without leaving the app)
+  // Critic-findings dialog (PrFindingsDialog); the outside-click dismiss below is the
+  // automation popover's.
   let showReview = $state(false);
   let wrapEl = $state<HTMLElement | null>(null);
-  // The findings popover is modal (a scrim makes it modal on every size), so it
-  // needs real focus semantics: focus moves in on open, restores to the opener on
-  // close, and Tab is trapped inside. reviewPopEl is the dialog container;
-  // reviewOpener is the chip that opened it (so focus can return there).
-  let reviewPopEl = $state<HTMLElement | null>(null);
-  let reviewOpener: HTMLElement | null = null;
 
   // Repo-automation panel (pill-anchored popover; replaces the icon-toggle horde)
   let showAutomation = $state(false);
@@ -184,10 +179,9 @@
   function toggleReview(e?: Event) {
     showReview = !showReview;
     if (showReview) {
-      // remember which chip opened the dialog so focus can be restored on close;
-      // fall back to the active element (e.g. keyboard activation without currentTarget)
-      reviewOpener =
-        (e?.currentTarget as HTMLElement | null) ?? (document.activeElement as HTMLElement | null);
+      // use:dialog restores focus to what held it at open; a tap doesn't focus the chip on every
+      // browser, so focus it explicitly.
+      (e?.currentTarget as HTMLElement | null)?.focus();
       showPr = false; // one popover at a time
       showAutomation = false;
     }
@@ -204,59 +198,15 @@
     }
   }
 
-  // Escape / click-outside dismiss the findings + automation popovers
+  // Escape / click-outside dismiss the automation popover (PrFindingsDialog dismisses itself)
   function onWindowKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") {
-      if (showReview) showReview = false;
       if (showAutomation) showAutomation = false;
     }
   }
   function onWindowPointerdown(e: PointerEvent) {
     if (wrapEl && !wrapEl.contains(e.target as Node)) {
-      if (showReview) showReview = false;
       if (showAutomation) showAutomation = false;
-    }
-  }
-
-  // Modal focus management for the findings dialog, scoped strictly to showReview
-  // (the PR popover + AutomationPanel are unaffected). On open: move focus into the
-  // dialog. On close: restore focus to the opener — guarded so a now-detached opener
-  // (e.g. a session switch reset showReview while the dialog was open) is a no-op.
-  $effect(() => {
-    if (showReview && reviewPopEl) {
-      reviewPopEl.focus();
-    } else if (!showReview) {
-      const opener = reviewOpener;
-      reviewOpener = null;
-      if (opener?.isConnected) opener.focus();
-    }
-  });
-
-  // Minimal Tab focus-trap. Focusable nodes are enumerated DYNAMICALLY at trap time
-  // so links inside the rendered (sanitized markdown) body are included; the dialog
-  // container itself (tabindex="-1") is excluded by the selector.
-  function onReviewKeydown(e: KeyboardEvent) {
-    if (e.key !== "Tab" || !reviewPopEl) return;
-    const nodes = reviewPopEl.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    );
-    if (nodes.length === 0) {
-      e.preventDefault();
-      return;
-    }
-    const first = nodes[0];
-    const last = nodes[nodes.length - 1];
-    const active = document.activeElement;
-    if (e.shiftKey) {
-      if (active === first || active === reviewPopEl) {
-        e.preventDefault();
-        last.focus();
-      }
-    } else {
-      if (active === last || active === reviewPopEl) {
-        e.preventDefault();
-        first.focus();
-      }
     }
   }
 
@@ -363,33 +313,7 @@
           ? m.gitrail_rereview_plan()
           : m.gitrail_review_plan(),
   );
-  // Render the (AI-authored) findings as markdown, sanitized before @html.
-  // renderMarkdown loads marked/DOMPurify lazily, off the first-paint critical path.
-  // Gated on showReview so the browser-only sanitizer never runs during SSR.
-  let renderedBody = $state("");
-  $effect(() => {
-    const body = showReview ? verdict?.body : undefined;
-    if (!body) {
-      renderedBody = "";
-      return;
-    }
-    let alive = true;
-    renderMarkdown(body)
-      .then((html) => {
-        if (alive) renderedBody = html;
-      })
-      .catch((e) => {
-        // Never assigns to renderedBody — a failed load must not leave unsanitized
-        // markup, and the `err` state above is the PR-action error channel, not this.
-        console.warn("Review body markdown render failed", e);
-      });
-    return () => {
-      alive = false;
-    };
-  });
   const autoCount = $derived(automationCount(repoConfig.flags(repoPath)));
-  let reviewFlash = $state<string | null>(null);
-  let reviewFlashErr = $state(false);
 
   // Coachmark: which feature is currently "armed" (popover open on first reveal).
   // armedId is set when the automation pill is first opened while a feature is unseen;
@@ -456,18 +380,6 @@
         alert: true,
         key: `review-plan:${sessionId}`,
       });
-    }
-  }
-
-  async function sendReviewToAgent() {
-    if (!verdict?.body) return;
-    try {
-      await replySession(sessionId, `Address this code review feedback:\n\n${verdict.body}`);
-      showReview = false; // panel closing is the success feedback; dismiss it
-    } catch {
-      reviewFlash = m.gitrail_send_review_failed();
-      reviewFlashErr = true;
-      setTimeout(() => (reviewFlash = null), 1500);
     }
   }
 
@@ -544,13 +456,7 @@
 <svelte:window onkeydown={onWindowKeydown} onpointerdown={onWindowPointerdown} />
 
 {#if git}
-  <!-- dim the rest of the page behind the findings popover (mirrors the compose-bar
-       sheet). Sits OUTSIDE wrapEl so a backdrop click trips the existing
-       click-outside dismiss; Escape closes it too. Purely visual → aria-hidden. -->
-  {#if showReview && verdict}
-    <div class="review-scrim" aria-hidden="true"></div>
-  {/if}
-  <!-- touch-only dim+blur behind the automation sheet. Like .review-scrim it sits
+  <!-- touch-only dim+blur behind the automation sheet. It sits
        OUTSIDE wrapEl so a backdrop tap trips the existing click-outside dismiss.
        Desktop keeps the lightweight anchored popover (non-modal, no scrim); only the
        coarse-pointer layout — where the panel becomes a centered fixed sheet — shows
@@ -581,6 +487,7 @@
         {toggleReview}
         {doReviewPlan}
         {epicStopped}
+        {rowOwnsPr}
       />
 
       {#if err}
@@ -661,73 +568,14 @@
     {/if}
 
     {#if showReview && verdict}
-      <div
-        class="review-pop"
-        role="dialog"
-        aria-modal="true"
-        aria-label={m.gitrail_review_title()}
-        tabindex="-1"
-        bind:this={reviewPopEl}
-        onkeydown={onReviewKeydown}
-      >
-        <div class="review-head">
-          {#if chip.kind === "reviewing"}
-            <span class="rv-label critic-reviewing" title={m.criticbadge_reviewing_title()}>
-              <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
-            </span>
-          {:else}
-            <span class="rv-label critic-{verdict.decision}">{criticBadgeLabel(verdict)}</span>
-          {/if}
-          {#if git.url}
-            <!-- eslint-disable svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
-            <a
-              class="rv-prlink"
-              href={firstSafeHttpUrl(git.url) ?? undefined}
-              target="_blank"
-              rel="noopener">PR #{git.number} ↗</a
-            >
-            <!-- eslint-enable svelte/no-navigation-without-resolve -->
-          {/if}
-          <button
-            class="gbtn"
-            type="button"
-            onclick={() => (showReview = false)}
-            aria-label={m.common_close()}>✕</button
-          >
-        </div>
-        <!-- A no-verdict `error` carries NO prose at all — `summary` is "" and `body` is "" too — so this
-         must render the server-authored reason code, or the popover opens completely empty. Same
-         shape as the plan gate's (PlanPanel); criticTitle resolves code → locale → summary. -->
-        {#if verdict.summaryCode || verdict.summary}
-          <p class="rv-summary">{criticTitle(verdict)}</p>
-        {/if}
-        <!-- #2155: renders nothing unless the critic measured a real departure from the plan. -->
-        <PlanDriftNote {verdict} />
-        {#if verdict.body}
-          <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via renderMarkdown (#lib/sanitize-html) above -->
-          <div class="rv-body">{@html renderedBody}</div>
-        {/if}
-        {#if verdict.decision !== "error" && verdict.body}
-          <div class="review-actions">
-            {#if reviewFlash}<span
-                class:err={reviewFlashErr}
-                class:ok={!reviewFlashErr}
-                title={reviewFlash}>{reviewFlash}</span
-              >{/if}
-            <button
-              class="gbtn"
-              type="button"
-              disabled={busy || chip.kind === "reviewing"}
-              title={chip.kind === "reviewing"
-                ? m.gitrail_send_review_reviewing_title()
-                : undefined}
-              onclick={sendReviewToAgent}
-            >
-              {m.gitrail_send_review()}
-            </button>
-          </div>
-        {/if}
-      </div>
+      <PrFindingsDialog
+        {sessionId}
+        {verdict}
+        {chip}
+        {git}
+        {busy}
+        onclose={() => (showReview = false)}
+      />
     {/if}
   </span>
 {:else if loadFailed}
@@ -748,7 +596,7 @@
 {/if}
 
 <style>
-  /* own positioning context so .pr-pop/.auto-pop/.review-pop anchor here in the
+  /* own positioning context so .pr-pop/.auto-pop anchor here in the
      desktop (non-mobile) mount, not to some far ancestor. On mobile the wrapper
      is narrower than the strip, so it goes position:static and the popovers
      anchor to the wider .vp-git-strip instead — see .git-rail-wrap.mobile. */
@@ -874,7 +722,7 @@
      phones); the rail (.rail.mobile below) scrolls instead. Because the strip
      keeps .strip-controls on this same row, the wrapper is narrower than the
      viewport — so go position:static here and let the popovers
-     (.pr-pop/.auto-pop/.review-pop) anchor to the full-width .vp-git-strip
+     (.pr-pop/.auto-pop) anchor to the full-width .vp-git-strip
      (itself position:relative). Anchored to this narrow wrapper, a right:8px
      popover would shoot off the left screen edge. The ⚙ pill sits after the
      rail (not in it), so it pins right beside the strip's autopilot toggle. */
@@ -996,19 +844,13 @@
     height: 9px;
   }
 
-  .err,
-  .ok {
+  .err {
     font-size: var(--fs-micro);
     max-width: 160px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .err {
     color: var(--color-red);
-  }
-  .ok {
-    color: var(--color-green);
   }
 
   .pr-pop {
@@ -1046,16 +888,6 @@
     gap: 6px;
   }
 
-  /* full-page dim behind the findings popover, matching the compose-bar sheet */
-  .review-scrim {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    background: var(--color-scrim);
-    -webkit-backdrop-filter: blur(3px);
-    backdrop-filter: blur(3px);
-  }
-
   /* backdrop behind the automation sheet — only on touch, where the panel becomes a
      centered fixed sheet (see AutomationPanel's pointer:coarse block). The canonical
      .scrim class supplies fixed/inset/dim/blur (and the reduced-transparency drop);
@@ -1068,230 +900,6 @@
   @media (pointer: coarse) {
     .auto-scrim {
       display: block;
-    }
-  }
-
-  /* findings popover: same anchoring as .pr-pop, wider + scrollable body.
-     Rides above .review-scrim (z-index 50) so it stays lit while the page dims.
-     On touch (@media pointer: coarse, below) this absolute anchor is overridden
-     into a centered fixed modal sheet — anchored to the 44px strip it would hang
-     below and clip the body + action footer out of reach. */
-  .review-pop {
-    position: absolute;
-    top: 100%;
-    right: 8px;
-    z-index: 51;
-    margin-top: 4px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 8px;
-    width: min(480px, 90vw);
-    max-height: 60vh;
-    /* clip to the box so the scrollable body — not the popover — absorbs
-       overflow; without this the action footer escapes below max-height and,
-       on short (unfolded-fold) viewports, lands off-screen + unreachable */
-    overflow: hidden;
-    background: var(--color-inset);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-  }
-
-  .review-head {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    /* head + footer stay pinned; only .rv-body scrolls */
-    flex-shrink: 0;
-  }
-  .rv-label {
-    font-size: var(--fs-micro);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    white-space: nowrap;
-    color: var(--color-muted);
-  }
-  /* pulsing status dot in the popover-head label */
-  .rv-label.critic-reviewing .rev-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--color-amber);
-    /* functional status motion — exempt from the reduced-motion blanket (app.css) */
-    animation: rev-pulse 1.1s ease-in-out infinite !important;
-  }
-  @keyframes rev-pulse {
-    0%,
-    100% {
-      opacity: 0.3;
-    }
-    50% {
-      opacity: 1;
-    }
-  }
-  .rv-label.critic-reviewing {
-    color: var(--color-amber);
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-  }
-  .rv-label.critic-changes_requested {
-    color: var(--color-amber);
-  }
-  .rv-label.critic-commented {
-    color: var(--color-blue);
-  }
-  .rv-label.critic-error {
-    color: var(--color-faint);
-  }
-  .rv-prlink {
-    font-size: var(--fs-meta);
-    color: var(--color-muted);
-    text-decoration: none;
-  }
-  .rv-prlink:hover {
-    color: var(--color-ink-bright);
-  }
-  .review-head .gbtn {
-    margin-left: auto;
-    padding: 0 6px;
-    line-height: 1.6;
-  }
-
-  .rv-summary {
-    margin: 0;
-    font-size: var(--fs-meta);
-    color: var(--color-ink);
-    /* pinned alongside head/footer; only .rv-body scrolls */
-    flex-shrink: 0;
-  }
-  .rv-body {
-    margin: 0;
-    /* the lone scroller: min-height:0 lets it shrink within the flex column
-       (default min-height:auto would refuse, pushing the footer out of view) */
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: auto;
-    background: var(--color-panel);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    color: var(--color-ink);
-    font-size: var(--fs-base);
-    line-height: 1.5;
-    padding: 6px 8px;
-    overflow-wrap: anywhere;
-  }
-  /* markdown rendered via {@html} — children aren't scoped, so target globally */
-  .rv-body :global(> *:first-child) {
-    margin-top: 0;
-  }
-  .rv-body :global(> *:last-child) {
-    margin-bottom: 0;
-  }
-  .rv-body :global(p),
-  .rv-body :global(ul),
-  .rv-body :global(ol) {
-    margin: 0 0 8px;
-  }
-  .rv-body :global(ul),
-  .rv-body :global(ol) {
-    padding-left: 18px;
-  }
-  .rv-body :global(li) {
-    margin: 2px 0;
-  }
-  .rv-body :global(h1),
-  .rv-body :global(h2),
-  .rv-body :global(h3),
-  .rv-body :global(h4) {
-    margin: 12px 0 6px;
-    font-size: var(--fs-base);
-    font-weight: 600;
-    color: var(--color-ink-bright);
-  }
-  .rv-body :global(a) {
-    color: var(--color-blue);
-    text-decoration: underline;
-  }
-  .rv-body :global(code) {
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    background: var(--color-line);
-    border-radius: 2px;
-    padding: 0 3px;
-    overflow-wrap: anywhere;
-  }
-  .rv-body :global(pre) {
-    margin: 0 0 8px;
-    padding: 6px 8px;
-    background: var(--color-bg, var(--color-line));
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    word-break: break-word;
-  }
-  .rv-body :global(pre code) {
-    background: none;
-    padding: 0;
-    overflow-wrap: anywhere;
-  }
-  .rv-body :global(blockquote) {
-    margin: 0 0 8px;
-    padding-left: 8px;
-    border-left: 2px solid var(--color-line);
-    color: var(--color-muted);
-  }
-  .rv-body :global(table) {
-    width: 100%;
-    margin: 0 0 8px;
-    border-collapse: collapse;
-    table-layout: fixed;
-  }
-  .rv-body :global(th),
-  .rv-body :global(td) {
-    padding: 2px 6px;
-    border: 1px solid var(--color-line);
-    text-align: left;
-    overflow-wrap: anywhere;
-    word-break: break-word;
-  }
-
-  .review-actions {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 6px;
-    margin-top: 4px;
-    padding-top: 6px;
-    border-top: 1px solid var(--color-line);
-    /* pinned footer: never compressed away by a tall body */
-    flex-shrink: 0;
-  }
-
-  /* Touch layouts (phones + unfolded folds — the repo's canonical coarse-pointer
-     gate). The strip is position:static here, so the absolute .review-pop hangs
-     below the 44px strip and clips. Override it into a centered fixed modal sheet
-     over the existing .review-scrim. z-index:51 already sits above the scrim's 50;
-     the existing overflow:hidden + .rv-body scroller + pinned head/footer keep the
-     action footer reachable. */
-  @media (pointer: coarse) {
-    .review-pop {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      right: auto;
-      transform: translate(-50%, -50%);
-      margin-top: 0;
-      width: min(480px, 92vw);
-      max-height: 85vh;
-    }
-    /* the rail's 40px tap-target rule is scoped to .rail.mobile, not this popover —
-       give the dialog's own controls a ≥40px touch target too */
-    .review-head .gbtn,
-    .review-actions .gbtn {
-      min-height: 40px;
     }
   }
 </style>

@@ -9,6 +9,7 @@ import { m } from "#lib/paraglide/messages.js";
 const mergePrFn = vi.fn();
 const reviewPrFn = vi.fn(async () => "started" as "started" | "skipped" | "error");
 const setReadyToMergeFn = vi.fn(async () => {});
+const setPrDraftStateFn = vi.fn();
 const replySessionFn = vi.fn<(id: string, text: string) => Promise<void>>(async () => {});
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
@@ -17,6 +18,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     mergePr: mergePrFn,
     reviewPr: reviewPrFn,
     setReadyToMerge: setReadyToMergeFn,
+    setPrDraftState: setPrDraftStateFn,
     replySession: replySessionFn,
   };
 });
@@ -186,6 +188,66 @@ describe("PrActionRow — merged", () => {
     b.click();
     expect(ondecommission).toHaveBeenCalledExactlyOnceWith("sess-A");
     expect(replySessionFn).not.toHaveBeenCalled();
+    expect(pullMainAndToast, "not isolated → no pull").not.toHaveBeenCalled();
+  });
+
+  it("isolated: Decommission & update tears down and fast-forwards the base", async () => {
+    const h = host();
+    const ondecommission = vi.fn();
+    await render(PrActionRow, {
+      target: h,
+      props: {
+        session: session({ isolated: true, baseBranch: "release" }),
+        git: mergedGit,
+        status: "idle",
+        ondecommission,
+      },
+    });
+    const b = h.querySelector<HTMLButtonElement>("button.primary")!;
+    expect(b.textContent?.trim()).toBe(m.prrow_decommission_update());
+    b.click();
+    expect(ondecommission).toHaveBeenCalledExactlyOnceWith("sess-A");
+    expect(pullMainAndToast).toHaveBeenCalledExactlyOnceWith("/repo", "release");
+  });
+
+  it("isolated on a local forge: plain Stilllegen, no pull", async () => {
+    const h = host();
+    await render(PrActionRow, {
+      target: h,
+      props: {
+        session: session({ isolated: true }),
+        git: { ...mergedGit, kind: "local" },
+        status: "idle",
+      },
+    });
+    const b = h.querySelector<HTMLButtonElement>("button.primary")!;
+    expect(b.textContent?.trim()).toBe(m.gitrail_decommission_action());
+    b.click();
+    expect(pullMainAndToast).not.toHaveBeenCalled();
+  });
+
+  it("360px: the long label wraps inside the row instead of overflowing", async () => {
+    await page.viewport(360, 800);
+    const h = host(360);
+    await render(PrActionRow, {
+      target: h,
+      props: {
+        session: session({ isolated: true }),
+        git: mergedGit,
+        status: "idle",
+        mobile: true,
+        touch: true,
+      },
+    });
+    const r = row(h)!;
+    const label = h.querySelector<HTMLButtonElement>("button.primary")!;
+    // Pinned to the longest locale's label so EN and DE are both covered in one run.
+    label.textContent = "Stilllegen & aktualisieren";
+    expect(r.scrollWidth).toBeLessThanOrEqual(r.clientWidth);
+    expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth);
+    expect(label.getBoundingClientRect().right).toBeLessThanOrEqual(
+      r.getBoundingClientRect().right + 1,
+    );
   });
 });
 
@@ -351,83 +413,29 @@ describe("PrActionRow — merge outcome", () => {
     confirm.click();
   }
 
-  it("remote merge offers decommission with the captured session id", async () => {
-    mergePrFn.mockResolvedValue({ ...readyGit, state: "merged" });
-    const ondecommission = vi.fn();
-    const h = host();
-    await render(PrActionRow, {
-      target: h,
-      props: { session: session(), git: readyGit, status: "idle", ondecommission },
+  for (const [label, sess, git] of [
+    ["remote", session(), readyGit],
+    ["isolated", session({ isolated: true }), readyGit],
+    ["local", session(), { ...readyGit, kind: "local" as const }],
+  ] as const) {
+    it(`${label} merge: the toast is a plain note, the row carries the next step`, async () => {
+      mergePrFn.mockResolvedValue({ ...git, state: "merged" });
+      const ondecommission = vi.fn();
+      const h = host();
+      await render(PrActionRow, {
+        target: h,
+        props: { session: sess, git, status: "idle", ondecommission },
+      });
+      await mergeThroughDialog(h);
+      await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
+      const [text, opts] = toastsInfo.mock.calls[0] as [string, { action?: unknown; key?: string }];
+      expect(text).toBe(m.toast_merged({ name: sess.name }));
+      expect(opts.action).toBeUndefined();
+      expect(opts.key).toBe("pr-merge:sess-A");
+      expect(ondecommission).not.toHaveBeenCalled();
+      expect(pullMainAndToast).not.toHaveBeenCalled();
     });
-    await mergeThroughDialog(h);
-    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
-    const [, opts] = toastsInfo.mock.calls[0] as [
-      string,
-      { action?: { label: string; run: () => void }; duration?: number; key?: string },
-    ];
-    expect(opts.action?.label).toBe(m.gitrail_decommission_action());
-    expect(opts.duration).toBe(15_000);
-    expect(opts.key).toBe("decommission-offer:sess-A");
-    opts.action!.run();
-    expect(ondecommission).toHaveBeenCalledWith("sess-A");
-    expect(pullMainAndToast).not.toHaveBeenCalled();
-  });
-
-  it("isolated merge: the combo action keeps the values captured when the dialog opened", async () => {
-    mergePrFn.mockResolvedValue({ ...readyGit, state: "merged" });
-    const ondecommission = vi.fn();
-    const h = host();
-    const screen = await render(PrActionRow, {
-      target: h,
-      props: {
-        session: session({ isolated: true }),
-        git: readyGit,
-        status: "idle",
-        ondecommission,
-      },
-    });
-    await mergeThroughDialog(h);
-    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
-    const [, opts] = toastsInfo.mock.calls[0] as [
-      string,
-      { action?: { label: string; run: () => void } },
-    ];
-    expect(opts.action?.label).toBe(m.gitrail_decommission_update_action());
-    // The Viewport rebinds to another (non-isolated) session before the toast is clicked.
-    await screen.rerender({
-      session: session({
-        id: "sess-B",
-        repoPath: "/other",
-        baseBranch: "release",
-        isolated: false,
-      }),
-      git: readyGit,
-      status: "idle",
-      ondecommission,
-    });
-    opts.action!.run();
-    expect(ondecommission).toHaveBeenCalledWith("sess-A");
-    expect(pullMainAndToast).toHaveBeenCalledWith("/repo", "main");
-  });
-
-  it("local merge confirms without a decommission offer", async () => {
-    mergePrFn.mockResolvedValue({ ...readyGit, kind: "local", state: "merged" });
-    const ondecommission = vi.fn();
-    const h = host();
-    await render(PrActionRow, {
-      target: h,
-      props: {
-        session: session(),
-        git: { ...readyGit, kind: "local" },
-        status: "idle",
-        ondecommission,
-      },
-    });
-    await mergeThroughDialog(h);
-    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
-    const opts = (toastsInfo.mock.calls[0] as [string, { action?: unknown }?])[1];
-    expect(opts?.action).toBeUndefined();
-  });
+  }
 
   it("a failed merge shows its reason in the row instead of the facts", async () => {
     mergePrFn.mockRejectedValue(new Error("host said no"));
@@ -620,9 +628,142 @@ describe("PrActionRow — ⋯ menu", () => {
     const h = host();
     await render(PrActionRow, {
       target: h,
-      props: { session: session(), git: readyGit, status: "running", onsummary: vi.fn() },
+      props: {
+        session: session(),
+        git: { ...readyGit, kind: "local", url: undefined },
+        status: "running",
+        onsummary: vi.fn(),
+      },
     });
     expect(h.querySelector("button.more"), "no menu items → no ⋯").toBeNull();
+  });
+
+  it("carries the PR actions the strip gives up: request review and the draft toggle", async () => {
+    setPrDraftStateFn.mockResolvedValue({ ...readyGit, isDraft: true });
+    const h = host();
+    const screen = await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: readyGit, status: "idle" },
+    });
+    const more = screen.getByRole("button", { name: m.prrow_more_aria() });
+    await more.click();
+    await page.getByRole("menuitem", { name: m.prbadge_mark_draft() }).click();
+    await vi.waitFor(() => expect(setPrDraftStateFn).toHaveBeenCalledWith("sess-A", true));
+    await vi.waitFor(() =>
+      expect(toastsInfo).toHaveBeenCalledWith(m.prbadge_marked_draft(), { key: "pr-draft:sess-A" }),
+    );
+    await more.click();
+    await page.getByRole("menuitem", { name: m.prreview_menu_action() }).click();
+    await vi.waitFor(() => expect(document.querySelector(".review-popover")).not.toBeNull());
+  });
+
+  it("gitea: draft toggle but no request review; merged and local: neither", async () => {
+    const h = host();
+    const screen = await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: { ...readyGit, kind: "gitea" }, status: "idle" },
+    });
+    await screen.getByRole("button", { name: m.prrow_more_aria() }).click();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.prbadge_mark_draft() }))
+      .toBeVisible();
+    expect(page.getByRole("menuitem", { name: m.prreview_menu_action() }).query()).toBeNull();
+    await screen.getByRole("button", { name: m.prrow_more_aria() }).click();
+    await screen.rerender({
+      session: session(),
+      git: { ...readyGit, state: "merged" },
+      status: "idle",
+    });
+    expect(h.querySelector("button.more"), "merged, nothing to offer").toBeNull();
+  });
+
+  it("red CI: Open PR sits in ⋯ while Logs ↗ holds the row's slot; not otherwise", async () => {
+    const h = host();
+    const screen = await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: readyGit, status: "idle" },
+    });
+    const more = screen.getByRole("button", { name: m.prrow_more_aria() });
+    await more.click();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.prbadge_mark_draft() }))
+      .toBeVisible();
+    expect(page.getByRole("menuitem", { name: m.prbadge_open_pr() }).query()).toBeNull();
+    await more.click();
+    await screen.rerender({
+      session: session(),
+      git: { ...readyGit, checks: "failure" },
+      status: "idle",
+    });
+    await more.click();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.prbadge_open_pr() }))
+      .toHaveAttribute("href", readyGit.url!);
+  });
+});
+
+describe("PrActionRow — critic findings", () => {
+  const verdict: ReviewVerdict = {
+    decision: "changes_requested",
+    summary: "needs work",
+    body: "fix **this**",
+    url: "",
+    updatedAt: 1,
+  } as unknown as ReviewVerdict;
+
+  beforeEach(() => {
+    reviews.apply({ id: "sess-A", review: verdict });
+  });
+  afterEach(() => {
+    reviews.drop("sess-A");
+    document.querySelectorAll(".review-pop, .review-scrim").forEach((n) => n.remove());
+  });
+
+  it("the critic fact opens the dialog; focus returns to it on Escape", async () => {
+    const h = host();
+    await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: readyGit, status: "idle" },
+    });
+    const fact = h.querySelector<HTMLButtonElement>("button.fact-btn")!;
+    expect(fact.textContent).toContain(m.prrow_fact_critic_changes());
+    fact.click();
+    const dialog = await vi.waitFor(() => {
+      const d = document.querySelector<HTMLElement>(".review-pop");
+      expect(d).not.toBeNull();
+      return d!;
+    });
+    await vi.waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await vi.waitFor(() => {
+      expect(document.querySelector(".review-pop")).toBeNull();
+      expect(document.activeElement).toBe(fact);
+    });
+  });
+
+  it("touch: the fact stays text, findings open from ⋯", async () => {
+    const h = host();
+    const screen = await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: readyGit, status: "idle", touch: true },
+    });
+    expect(h.querySelector("button.fact-btn")).toBeNull();
+    await screen.getByRole("button", { name: m.prrow_more_aria() }).click();
+    await page.getByRole("menuitem", { name: m.gitrail_review_title() }).click();
+    await vi.waitFor(() => expect(document.querySelector(".review-pop")).not.toBeNull());
+    document.querySelector<HTMLElement>(".review-scrim")!.click();
+    await vi.waitFor(() => expect(document.querySelector(".review-pop")).toBeNull());
+  });
+
+  it("merged: findings stay reachable from ⋯", async () => {
+    const h = host();
+    const screen = await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: { ...readyGit, state: "merged" }, status: "idle" },
+    });
+    await screen.getByRole("button", { name: m.prrow_more_aria() }).click();
+    await page.getByRole("menuitem", { name: m.gitrail_review_title() }).click();
+    await vi.waitFor(() => expect(document.querySelector(".review-pop")).not.toBeNull());
   });
 });
 
@@ -670,7 +811,7 @@ describe("PrActionRow — phone", () => {
       props: { session: session(), git: readyGit, status: "idle", mobile: true, touch: true },
     });
     await screen.getByRole("button", { name: m.prrow_more_aria() }).click();
-    await page.getByRole("menuitem", { name: m.gitrail_review() }).click();
+    await page.getByRole("menuitem", { name: m.gitrail_review(), exact: true }).click();
     await vi.waitFor(() => expect(reviewPrFn).toHaveBeenCalledWith("sess-A"));
   });
 });

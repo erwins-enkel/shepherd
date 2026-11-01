@@ -175,3 +175,28 @@ test("File again that hits a forge error is retried, even after an earlier filin
   expect(w.created).toHaveLength(2);
   expect(w.group().filing).toMatchObject({ number: 42, attempts: 2, sync: "open" });
 });
+
+test("retries stop when the group's source is unticked: no agent run, no filing", async () => {
+  const deferred = world();
+  deferred.w.verdict = agentError("cap-exceeded");
+  deferred.w.setDep([dep(1)]);
+  await deferred.poller.poll();
+  deferred.w.clock += 16 * 60_000;
+  deferred.w.setConfig({ dependabot: false });
+  await deferred.triage.advance();
+  expect(deferred.w.triaged).toHaveLength(1);
+
+  const unfiled = world({ autoDrain: true });
+  unfiled.w.createError = new Error("HTTP 502");
+  unfiled.w.setDep([dep(1)]);
+  await unfiled.poller.poll();
+  expect(unfiled.w.group("npm/lodash").triage).toMatchObject({ outcome: "accepted" });
+  unfiled.w.createError = null;
+  unfiled.w.clock += 16 * 60_000;
+  unfiled.w.setConfig({ autoDrain: true, dependabot: false });
+  await unfiled.triage.advance();
+  expect(unfiled.w.created).toHaveLength(0);
+  unfiled.w.setConfig({ autoDrain: true, dependabot: true });
+  await unfiled.triage.advance();
+  expect(unfiled.w.created).toHaveLength(1);
+});

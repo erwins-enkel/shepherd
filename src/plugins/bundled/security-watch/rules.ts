@@ -151,6 +151,11 @@ export function coveredAlerts(g: Group, cfg: RepoConfig, now: number): number[] 
     .map((a) => a.number);
 }
 
+/** An unticked source isn't read, so its records are frozen and may already be gone. */
+export function sourceEnabled(cfg: RepoConfig, source: Source): boolean {
+  return source === "cs" ? cfg.codeScanning : cfg.dependabot;
+}
+
 /** The opt-in gate: a non-private repo stays untouched until the operator accepted the risk. */
 export function needsAck(visibility: PluginRepoVisibility, cfg: RepoConfig): boolean {
   return visibility !== "private" && !cfg.publicRiskAck;

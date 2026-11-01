@@ -6,7 +6,7 @@
 
 import type { PluginAgents, PluginLogger, PluginState } from "../../types";
 import type { FileFn, FileOutcome } from "./file";
-import { alertSections, candidatesOf, needsAck, refileTriggered } from "./rules";
+import { alertSections, candidatesOf, needsAck, refileTriggered, sourceEnabled } from "./rules";
 import {
   readGroup,
   readGroups,
@@ -224,7 +224,8 @@ export function createTriage(deps: TriageDeps): Triage {
     const t = g.triage;
     if (!t || (t.retryAt ?? 0) > nowMs()) return;
     const cfg = readRepoConfig(state, g.repo);
-    if (!cfg.enabled || needsAck(readVisibility(state, g.repo), cfg)) return;
+    if (!cfg.enabled || !sourceEnabled(cfg, g.source)) return;
+    if (needsAck(readVisibility(state, g.repo), cfg)) return;
     if (t.outcome === "pending") await guarded(g.key, null, () => runTriage(g));
     else if (t.outcome === "accepted" && !t.filing) {
       await guarded(g.key, null, () => fileAccepted(g.key));

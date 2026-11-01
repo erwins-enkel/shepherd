@@ -159,3 +159,19 @@ test("retries stop when the repo is unwatched or loses the opt-in", async () => 
   await triage.advance();
   expect(w.triaged).toHaveLength(1);
 });
+
+test("File again that hits a forge error is retried, even after an earlier filing", async () => {
+  const { w, poller, triage } = world();
+  w.setCs([cs(1)]);
+  await poller.poll();
+  w.closeIssue(41);
+  await poller.poll();
+  w.createError = new Error("HTTP 502");
+  expect(await triage.fileAgain(w.group().key)).toEqual({ ok: true, filing: null });
+  expect(w.group().triage?.filing).toBeUndefined();
+  w.createError = null;
+  w.clock += 16 * 60_000;
+  await triage.advance();
+  expect(w.created).toHaveLength(2);
+  expect(w.group().filing).toMatchObject({ number: 42, attempts: 2, sync: "open" });
+});

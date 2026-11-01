@@ -238,7 +238,10 @@ export function createTriage(deps: TriageDeps): Triage {
     save(key, {
       outcome: "accepted",
       overridden: true,
-      ...(settled(filing) ? { filing } : backoff(readGroup(state, key)?.triage)),
+      // Unsettled: drop any earlier filing result, or `advance()` would never retry this one.
+      ...(settled(filing)
+        ? { filing }
+        : { filing: undefined, ...backoff(readGroup(state, key)?.triage) }),
     });
     return filing;
   }

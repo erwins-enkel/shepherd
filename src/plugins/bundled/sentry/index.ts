@@ -152,8 +152,10 @@ export default function register(ctx: PluginContext): void {
 
   ctx.route("POST", "mapping/add", async (req) => {
     const b = await readBody(req);
+    const repo = String(b.mapRepo ?? "");
+    if (repo === "") return reply(strings().pickRepo, 400);
     const project = typeof b.mapProject === "string" ? b.mapProject.trim() : "";
-    return setMapping(String(b.mapRepo ?? ""), project, "manual");
+    return setMapping(repo, project, "manual");
   });
 
   ctx.route("POST", "mapping/confirm", async (req) => {

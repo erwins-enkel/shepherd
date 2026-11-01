@@ -176,7 +176,8 @@ export default function register(ctx: PluginContext): void {
 
   ctx.route("POST", "repo/open", async (req) => {
     const repo = String((await readBody(req)).repo ?? "");
-    if (!readRepoConfigs(state)[repo]) return reply(strings().invalidRepo, 400);
+    // hasOwn: the body is untrusted, and "constructor" would pass a plain index.
+    if (!Object.hasOwn(readRepoConfigs(state), repo)) return reply(strings().invalidRepo, 400);
     openRepo = openRepo === repo ? null : repo;
     republish();
     return reply("");

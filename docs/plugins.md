@@ -643,6 +643,8 @@ Contract details worth knowing before you build a panel:
   `{ [param]: value }` to `route`. Props are `label?`, `param`, `route`, `mono?` and
   `items: { value, label?, meta?, current? }[]`. An empty response stays silent; other text
   toasts. Use it when a row per node would exceed the 256-node limit.
+- **A 4xx reply says why.** The host toasts your plain-text response on 2xx and 4xx, so refuse with
+  a sentence the operator can act on. A 5xx shows a generic failure instead.
 - **Children keep their place by index.** The host keys a stack's children by position, so a node
   inserted above an input remounts that input and loses what the operator entered. Wrap
   conditional content in a stack that is always present.

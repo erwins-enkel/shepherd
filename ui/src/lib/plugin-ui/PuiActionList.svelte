@@ -5,11 +5,11 @@
   // response stays silent: opening a row needs no toast, the republished panel is the feedback.
   import { getContext } from "svelte";
   import type { PluginUINode } from "#lib/types.js";
-  import { m } from "#lib/paraglide/messages.js";
   import { invokePluginRoute } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { PLUGIN_ID_CONTEXT } from "./context";
   import PuiFilterList, { type FilterListRow } from "./PuiFilterList.svelte";
+  import { routeFailureText } from "./route-failure";
   import { safePath } from "./safe-path";
 
   let { node }: { node: PluginUINode } = $props();
@@ -46,8 +46,8 @@
     try {
       const text = await invokePluginRoute(pluginId, "POST", path, { [param]: value });
       if (text.length > 0) toasts.info(text);
-    } catch {
-      toasts.info(m.plugin_action_failed(), {
+    } catch (e) {
+      toasts.info(routeFailureText(e), {
         alert: true,
         key: `plugin-action:${pluginId}:${path}`,
       });

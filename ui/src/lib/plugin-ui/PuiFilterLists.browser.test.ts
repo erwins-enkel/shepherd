@@ -8,6 +8,7 @@ import { userEvent } from "vitest/browser";
 import { tick } from "svelte";
 import "../../app.css";
 import { m } from "#lib/paraglide/messages.js";
+import { toasts } from "#lib/toasts.svelte.js";
 import PluginUIRoot from "./PluginUIRoot.svelte";
 import type { PluginUINode } from "#lib/types.js";
 
@@ -31,12 +32,15 @@ const view = (...children: PluginUINode[]): PluginUINode => ({
   ],
 });
 
+const clearToasts = () => [...toasts.items].forEach((t) => toasts.close(t.id));
+
 let bodies: unknown[] = [];
 let respond: () => Response = () => new Response("", { status: 200 });
 
 beforeEach(() => {
   bodies = [];
   respond = () => new Response("", { status: 200 });
+  clearToasts();
   globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
     bodies.push(init?.body === undefined ? undefined : JSON.parse(init.body as string));
     return respond();
@@ -66,6 +70,15 @@ function type(el: HTMLInputElement, value: string) {
 }
 
 describe("multi-select", () => {
+  it("shows why when the plugin refuses an Add with nothing picked", async () => {
+    respond = () => new Response("Pick at least one repository.", { status: 400 });
+    const { container } = await render(PluginUIRoot, { pluginId: "p", node: view(multi()) });
+    await save(container);
+    await vi.waitFor(() =>
+      expect(toasts.items.some((t) => t.text === "Pick at least one repository.")).toBe(true),
+    );
+  });
+
   it("submits every picked row as a string[], in one POST", async () => {
     const { container } = await render(PluginUIRoot, { pluginId: "p", node: view(multi()) });
     row(container, "alpha").click();
@@ -162,6 +175,20 @@ describe("multi-select", () => {
     expect(labels(container)).toEqual(["acme/renamed"]);
   });
 
+  it("doesn't match the root every repo path shares", async () => {
+    const options = [...MANY, "old-folder"].map((n) => ({
+      value: `/home/patrick/Work/${n}`,
+      label: `acme/${n === "old-folder" ? "renamed" : n}`,
+    }));
+    const { container } = await render(PluginUIRoot, { pluginId: "p", node: view(multi(options)) });
+    type(filterOf(container), "patrick");
+    await tick();
+    expect(labels(container)).toEqual([]);
+    type(filterOf(container), "old-folder");
+    await tick();
+    expect(labels(container)).toEqual(["acme/renamed"]);
+  });
+
   it("says so when nothing matches", async () => {
     const { container } = await render(PluginUIRoot, { pluginId: "p", node: view(multi()) });
     type(filterOf(container), "zzzzzz");
@@ -252,6 +279,22 @@ describe("action-list", () => {
     expect(row(container, "acme/b").textContent).toContain("off");
     row(container, "acme/b").click();
     await vi.waitFor(() => expect(bodies).toEqual([{ repo: "/r/b" }]));
+  });
+
+  it("toasts a 4xx refusal's own text, and stays generic on a 5xx", async () => {
+    const { container } = await render(PluginUIRoot, { pluginId: "p", node: list() });
+    respond = () => new Response("Unknown repository.", { status: 400 });
+    row(container, "acme/b").click();
+    await vi.waitFor(() =>
+      expect(toasts.items.some((t) => t.text === "Unknown repository.")).toBe(true),
+    );
+    clearToasts();
+    respond = () => new Response("stack trace", { status: 500 });
+    row(container, "acme/b").click();
+    await vi.waitFor(() =>
+      expect(toasts.items.some((t) => t.text === m.plugin_action_failed())).toBe(true),
+    );
+    expect(toasts.items.some((t) => t.text === "stack trace")).toBe(false);
   });
 
   it("stays inert without a plugin id", async () => {

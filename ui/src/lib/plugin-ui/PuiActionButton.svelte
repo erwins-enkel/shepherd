@@ -11,6 +11,7 @@
   import { dialog } from "#lib/a11yDialog.js";
   import { toneColor } from "./tones";
   import { PLUGIN_FORM_CONTEXT, PLUGIN_ID_CONTEXT, type PluginFormScope } from "./context";
+  import { routeFailureText } from "./route-failure";
   import { safePath } from "./safe-path";
 
   let { node }: { node: PluginUINode } = $props();
@@ -73,8 +74,8 @@
     try {
       const text = await invokePluginRoute(pluginId, "POST", path, requestBody());
       toasts.info(text.length > 0 ? text : m.plugin_action_done());
-    } catch {
-      toasts.info(m.plugin_action_failed(), {
+    } catch (e) {
+      toasts.info(routeFailureText(e), {
         alert: true,
         key: `plugin-action:${pluginId}:${path}`,
       });

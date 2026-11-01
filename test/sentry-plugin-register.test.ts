@@ -248,7 +248,9 @@ test("add picker: searchable, sorted by visible label, and an empty pick is refu
 
   const { post, cleanup } = await load();
   try {
-    expect((await post("mapping/add", { mapRepo: "", mapProject: "web" }))!.status).toBe(400);
+    const res = await post("mapping/add", { mapRepo: "", mapProject: "web" });
+    expect(res!.status).toBe(400);
+    expect(await res!.text()).toBe("Pick a repository.");
   } finally {
     cleanup();
   }

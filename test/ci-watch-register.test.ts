@@ -174,3 +174,17 @@ test("repo/open toggles one form silently and refuses an unconfigured repo", asy
     cleanup();
   }
 });
+
+test("repo/open refuses inherited object keys, and the panel keeps publishing", async () => {
+  const { reg, post, panel, cleanup } = await load();
+  try {
+    for (const repo of ["constructor", "__proto__", "toString"]) {
+      expect((await post("repo/open", { repo }))!.status).toBe(400);
+    }
+    await post("repo/add", { addRepos: ["/r/web", "/r/api"] });
+    expect(panel()).toContain("/r/api");
+    expect(reg.list().find((x) => x.id === "ci-watch")?.health).not.toBe("errored");
+  } finally {
+    cleanup();
+  }
+});

@@ -100,3 +100,15 @@ test("routes persist settings; adding a repo shows the disclosure notice", async
     cleanup();
   }
 });
+
+test("repo/open refuses inherited object keys", async () => {
+  const { post, info, cleanup } = await load();
+  try {
+    for (const repo of ["constructor", "__proto__", "toString"]) {
+      expect((await post("repo/open", { repo }))?.status).toBe(400);
+      expect(JSON.stringify(info()?.ui)).not.toContain("Save repo");
+    }
+  } finally {
+    cleanup();
+  }
+});

@@ -52,7 +52,11 @@
 
   const filterable = $derived(rows.length >= FILTER_FROM_ROWS);
   const shown = $derived(
-    searchRepos(filterable ? filter : "", rows, (r) => ({ name: r.label, aliases: [r.value] })),
+    searchRepos(filterable ? filter : "", rows, (r) => ({
+      name: r.label,
+      // Last segment only: a repo path's shared root would otherwise match every row.
+      aliases: [r.value.split("/").findLast(Boolean) ?? r.value],
+    })),
   );
   const activeId = $derived(shown.length > 0 ? `${uid}-opt-${activeIdx}` : undefined);
 

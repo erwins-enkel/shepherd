@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import { flip } from "svelte/animate";
   import { dragHandleZone, dragHandle } from "svelte-dnd-action";
   import type { DndEvent } from "svelte-dnd-action";
@@ -256,8 +256,14 @@
     focusRow(s.id);
   }
 
-  function requestRemove(id: string) {
+  // Move focus into the confirm once it renders: click-away is detected by focus leaving its
+  // controls, so focus has to start there. Cancel is the safe default for a destructive prompt.
+  async function requestRemove(id: string) {
     confirmRemoveId = id;
+    await tick();
+    rootEl
+      ?.querySelector<HTMLElement>(`.srow[data-steer-id="${CSS.escape(id)}"] .rc-no`)
+      ?.focus({ preventScroll: true });
   }
   function cancelRemove() {
     confirmRemoveId = null;
@@ -270,7 +276,9 @@
     saveNow();
   }
   // cancel the confirm when focus leaves its controls (its buttons preventDefault on
-  // mousedown, so clicking ✓/✕ keeps focus and the gesture completes before this fires)
+  // mousedown, so clicking ✓/✕ keeps focus and the gesture completes before this fires).
+  // Bound to the confirm's own wrapper, not .remove-wrap: opening the confirm by keyboard
+  // removes the focused "Remove…" button, whose focusout would otherwise close it at once.
   function onConfirmFocusout(e: FocusEvent) {
     const next = e.relatedTarget as Node | null;
     if (next && (e.currentTarget as HTMLElement).contains(next)) return;
@@ -539,26 +547,31 @@
                   <span class="cbx-txt">{m.steerseditor_placement_issues()}</span>
                 </label>
 
-                <span class="remove-wrap" onfocusout={onConfirmFocusout}>
+                <span class="remove-wrap">
                   {#if confirmRemoveId === s.id}
-                    <span class="rc-q">{m.steerseditor_remove_confirm()}</span>
-                    <button
-                      type="button"
-                      class="rc-yes"
-                      aria-label={m.steerseditor_remove_yes_aria()}
-                      onmousedown={preventDefault}
-                      onclick={() => confirmRemove(s.id)}>✓</button
-                    >
-                    <button
-                      type="button"
-                      class="rc-no"
-                      aria-label={m.steerseditor_remove_no_aria()}
-                      onmousedown={preventDefault}
-                      onclick={cancelRemove}>✕</button
-                    >
+                    <span class="rc-confirm" onfocusout={onConfirmFocusout}>
+                      <span class="rc-q">{m.steerseditor_remove_confirm()}</span>
+                      <button
+                        type="button"
+                        class="rc-yes"
+                        aria-label={m.steerseditor_remove_yes_aria()}
+                        onmousedown={preventDefault}
+                        onclick={() => confirmRemove(s.id)}>✓</button
+                      >
+                      <button
+                        type="button"
+                        class="rc-no"
+                        aria-label={m.steerseditor_remove_no_aria()}
+                        onmousedown={preventDefault}
+                        onclick={cancelRemove}>✕</button
+                      >
+                    </span>
                   {:else}
-                    <button type="button" class="rc-open" onclick={() => requestRemove(s.id)}
-                      >{m.steerseditor_remove()}</button
+                    <button
+                      type="button"
+                      class="rc-open"
+                      onmousedown={preventDefault}
+                      onclick={() => requestRemove(s.id)}>{m.steerseditor_remove()}</button
                     >
                   {/if}
                 </span>
@@ -903,6 +916,9 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
+  }
+  .rc-confirm {
+    display: contents;
   }
   .rc-open,
   .rc-q {

@@ -14,6 +14,7 @@ import {
   shouldRefreshObservedOnOpen,
   hottestCapacityWindow,
   modelDisplayName,
+  observedRowKeys,
 } from "./usage-gauges";
 import type { UsageLimits, LimitWindow, CreditWindow } from "../types";
 
@@ -671,5 +672,14 @@ describe("hottestCapacityWindow", () => {
       row("codex", [{ key: "WK", usedPct: 40 }], true),
     ];
     expect(hottestCapacityWindow(rows)).toMatchObject({ provider: "claude", stale: false });
+  });
+});
+
+describe("observedRowKeys", () => {
+  it("lists both windows, even unconfirmed ones", () => {
+    expect(observedRowKeys({ session5h: null, week: null })).toEqual(["5H", "WK"]);
+  });
+  it("drops the 5H row when the plan has no 5-hour window", () => {
+    expect(observedRowKeys({ session5h: null, week: null, session5hAbsent: true })).toEqual(["WK"]);
   });
 });

@@ -2142,13 +2142,16 @@ components:
     ObservedLimitWindows:
       type: object
       additionalProperties: true
-      description: UsageLimits.observed (src/usage-limits.ts:288-291). The measured counterpart to session5h/week, which remain local budget estimates. The web meter PREFERS these when present (ui/src/lib/components/usage-gauges.ts:21-53), so a client that ignores them shows different numbers from the web for the same server.
+      description: UsageLimits.observed (src/usage-limits.ts:288-294). The measured counterpart to session5h/week, which remain local budget estimates. The web meter PREFERS these when present (ui/src/lib/components/usage-gauges.ts:21-53), so a client that ignores them shows different numbers from the web for the same server.
       required: []
       properties:
         session5h:
           $ref: "#/components/schemas/ObservedLimitWindow"
         week:
           $ref: "#/components/schemas/ObservedLimitWindow"
+        session5hAbsent:
+          type: boolean
+          description: Present (true) when the latest probe rendered the weekly window but no 5-hour window — the plan has none (Ultra). session5h is then null by design, not unconfirmed.
     IssueRef:
       type: object
       additionalProperties: false

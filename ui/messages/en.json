@@ -7624,7 +7624,7 @@
   "capacity_drain_title": "Auto-Drain",
   "capacity_held_title": "Held · {count}",
   "capacity_nothing_waiting": "Nothing is waiting.",
-  "capacity_nothing_waiting_body": "From {pct}% in Claude Code's 5-hour or weekly window, new tasks are held here — right next to the numbers holding them back.",
+  "capacity_nothing_waiting_body": "From {pct}% in Claude Code's weekly or 5-hour window, new tasks are held here — right next to the numbers holding them back.",
   "capacity_hold_off": "Holding is off: new tasks start regardless of usage.",
   "capacity_cli_option": "{provider} · {pct}%",
   "feat_capacity_panel_title": "Usage and held work on one screen",
@@ -8037,5 +8037,7 @@
   "depcmd_ignore_asked": "Asked Dependabot to ignore this version and close PR #{number}",
   "depcmd_failed": "Couldn't post the Dependabot command on PR #{number}",
   "feat_upnext_dep_commands_title": "Dependabot commands in the PR preview",
-  "feat_upnext_dep_commands_body": "Open a Dependabot PR from Up Next and use Dependabot ▾ to rebase it, recreate it, or ignore a major, minor or patch version. On grouped PRs, you choose which dependency to ignore."
+  "feat_upnext_dep_commands_body": "Open a Dependabot PR from Up Next and use Dependabot ▾ to rebase it, recreate it, or ignore a major, minor or patch version. On grouped PRs, you choose which dependency to ignore.",
+  "feat_weekly_usage_push_title": "Weekly usage warning",
+  "feat_weekly_usage_push_body": "Shepherd now also sends a push when the weekly Claude usage window crosses 80%, once per week. Plans without a 5-hour window (Ultra) work too: the 5-hour gauge disappears instead of showing a stale value, and holds and downgrades follow the weekly window."
 }

@@ -294,6 +294,9 @@ class MemCaps implements CapStore {
   putCap(row: CapRow): void {
     this.rows.set(row.window, row);
   }
+  deleteCap(window: CapRow["window"]): void {
+    this.rows.delete(window);
+  }
 }
 
 class MemCredits implements CreditStore {
@@ -918,6 +921,54 @@ test("partial or failed scrapes cannot refresh another window or confirm a guess
     failed: true,
     lastAttemptAt: NOW + 2000,
   });
+});
+
+// Ultra plans have no 5h window: `/usage` renders only the weekly section.
+test("a week-only frame retires the 5h window instead of projecting a stale cap", async () => {
+  let raw =
+    "Current session\n40% used\nResets 9:30pm (x)\nCurrent week\n20% used\nResets Jun 6 (x)";
+  const caps = new MemCaps();
+  const svc = new UsageLimitsService(
+    fakeIndex(100),
+    caps,
+    { scrape: async () => raw },
+    new MemCredits(),
+  );
+  await svc.calibrate(NOW);
+  expect(svc.limits(NOW).session5h).not.toBeNull();
+  raw = "Current week (all models)\n20% used\nResets Jun 6 (x)";
+  expect(await svc.calibrate(NOW + 1000)).toBe(true);
+  const l = svc.limits(NOW + 1000);
+  expect(caps.rows.has("session5h")).toBe(false);
+  expect(l.session5h).toBeNull();
+  expect(l.week).not.toBeNull();
+  expect(svc.projections(NOW + 1000).map((p) => p.window)).toEqual(["WK"]);
+  expect(l.observed?.session5h).toBeNull();
+  expect(l.observed?.session5hAbsent).toBe(true);
+  expect(l.refresh?.failed).toBe(false);
+
+  // The window comes back (or the frame was misread): recalibrate as usual.
+  raw = "Current session\n40% used\nResets 9:30pm (x)\nCurrent week\n20% used\nResets Jun 6 (x)";
+  await svc.calibrate(NOW + 2000);
+  const back = svc.limits(NOW + 2000);
+  expect(caps.rows.has("session5h")).toBe(true);
+  expect(back.observed?.session5hAbsent).toBeUndefined();
+  expect(back.observed?.session5h?.pct).toBe(40);
+});
+
+test("a frame with neither window is a failed probe, not a missing 5h window", async () => {
+  const caps = new MemCaps();
+  caps.putCap({ window: "session5h", cap: 1000, resetAt: NOW + 1000, pct: 40, scrapedAt: NOW - 1 });
+  const svc = new UsageLimitsService(
+    fakeIndex(100),
+    caps,
+    new StubProbe("Refreshing…"),
+    new MemCredits(),
+  );
+  await svc.calibrate(NOW);
+  expect(caps.rows.has("session5h")).toBe(true);
+  expect(svc.limits(NOW).observed?.session5hAbsent).toBeUndefined();
+  expect(svc.limits(NOW).refresh?.failed).toBe(true);
 });
 
 test("refresh status remains busy until the probe finishes", async () => {

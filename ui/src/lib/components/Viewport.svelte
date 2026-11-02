@@ -3564,6 +3564,8 @@
             {ask}
             {mobile}
             {touch}
+            repoPath={session.repoPath}
+            agentProvider={effectiveAgentProvider}
             onsend={chatSend}
             onkeys={sendKeys}
             oninterrupt={sendInterrupt}

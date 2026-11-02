@@ -107,7 +107,8 @@
     list-style: none;
     margin: 0;
     padding: 0;
-    max-height: 260px;
+    /* A host inside a clipping pane sets --sc-list-max to the room it has. */
+    max-height: min(260px, var(--sc-list-max, 260px));
     overflow-y: auto;
     overflow-x: hidden;
   }

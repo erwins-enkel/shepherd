@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  matchChatTrigger,
   matchSlashTrigger,
   filterCommands,
   applyCommandPick,
@@ -21,6 +22,26 @@ const cmd = (name: string, providers: SlashCommand["providers"] = ["claude"]): S
   invocations: Object.fromEntries(
     providers.map((p) => [p, p === "codex" ? `$${name}` : `/${name}`]),
   ) as SlashCommand["invocations"],
+});
+
+describe("matchChatTrigger", () => {
+  const at = (text: string, provider: "claude" | "codex") =>
+    matchChatTrigger(text, text.length, provider);
+
+  it("Claude: only a leading / opens the menu", () => {
+    expect(at("/cre", "claude")).toEqual({ query: "cre", start: 0, trigger: "/" });
+    expect(at("  /cre", "claude")).toEqual({ query: "cre", start: 2, trigger: "/" });
+    expect(at("see /etc", "claude")).toBeNull();
+    expect(at("$foo", "claude")).toBeNull();
+    expect(at("@", "claude")).toBeNull();
+  });
+
+  it("Codex: $ or a bare @ anywhere, never /", () => {
+    expect(at("use $cod", "codex")).toEqual({ query: "cod", start: 4, trigger: "$" });
+    expect(at("@", "codex")).toEqual({ query: "", start: 0, trigger: "@" });
+    expect(at("/foo", "codex")).toBeNull();
+    expect(at("$HOME", "codex")).toBeNull();
+  });
 });
 
 describe("matchSlashTrigger", () => {

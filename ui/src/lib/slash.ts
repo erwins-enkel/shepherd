@@ -64,6 +64,22 @@ export function matchSlashTrigger(
   return { query, start: m.index + m[1]!.length, trigger };
 }
 
+/**
+ * The trigger a session's Chat composer acts on, where Enter sends the message. Claude only runs
+ * a leading command, so a mid-text `/` (a path) never opens the menu and never takes over Enter.
+ * Codex takes `$name` mentions anywhere and has no `/` commands to offer.
+ */
+export function matchChatTrigger(
+  text: string,
+  caret: number,
+  provider: "claude" | "codex",
+): ReturnType<typeof matchSlashTrigger> {
+  const match = matchSlashTrigger(text, caret);
+  if (!match) return null;
+  if (provider === "codex") return match.trigger === "/" ? null : match;
+  return match.trigger === "/" && !text.slice(0, match.start).trim() ? match : null;
+}
+
 function isShellVariableToken(query: string): boolean {
   if (query === "") return false;
   if (query.startsWith("{")) return true;

@@ -1,6 +1,6 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GitignoreAdopter } from "../src/gitignore-adopt";
@@ -220,6 +220,50 @@ describe("GitignoreAdopter", () => {
     const res = await a.adopt(repo);
     expect(res).toEqual({ ok: true, status: "already" });
     expect(openPrCalls.length).toBe(0);
+  });
+
+  test("symlinked .gitignore on base → refused; link target untouched; no PR", async () => {
+    const target = join(root, "outside.txt");
+    writeFileSync(target, "sentinel\n");
+    symlinkSync(target, join(seed, ".gitignore"));
+    git(seed, "add", ".gitignore");
+    git(seed, "commit", "-m", "seed symlink");
+    git(seed, "push", "origin", "main");
+
+    const openPrCalls: OpenPrCall[] = [];
+    const wt = new WorktreeMgr();
+    const a = new GitignoreAdopter({
+      worktree: { create: (...args) => wt.create(...args), remove: (p) => wt.remove(p) },
+      resolveForge: () => fakeForge({}, openPrCalls),
+    });
+
+    const res = await a.adopt(repo);
+    expect(res).toEqual({ ok: false, error: "adopt failed", status: 500 });
+    expect(openPrCalls.length).toBe(0);
+    expect(readFileSync(target, "utf8")).toBe("sentinel\n");
+  });
+
+  test("rewrite shorter than the existing file → pushed blob has no stale tail", async () => {
+    const block = `${SHEPHERD_EXCLUDE_START}\n${SHEPHERD_IGNORE_GLOB}\n${SHEPHERD_EXCLUDE_END}`;
+    const stale = `${SHEPHERD_EXCLUDE_START}\nold-entry-one\nold-entry-two\n${SHEPHERD_EXCLUDE_END}`;
+    seedOnBase(".gitignore", `node_modules\n${stale}\n`);
+
+    const openPrCalls: OpenPrCall[] = [];
+    const wt = new WorktreeMgr();
+    const a = new GitignoreAdopter({
+      worktree: { create: (...args) => wt.create(...args), remove: (p) => wt.remove(p) },
+      resolveForge: () => fakeForge({}, openPrCalls),
+    });
+
+    const res = await a.adopt(repo);
+    expect(res).toEqual({ ok: true, status: "applied", url: "https://pr/7" });
+    // Raw blob, not the fixture's trimmed helper: a stale tail or leading hole must show.
+    const pushed = execFileSync("git", ["show", `${openPrCalls[0]!.head}:.gitignore`], {
+      cwd: origin,
+      env: GIT_ENV,
+      encoding: "utf8",
+    });
+    expect(pushed).toBe(`node_modules\n${block}\n`);
   });
 
   test("concurrent double-click → one returns 409", async () => {

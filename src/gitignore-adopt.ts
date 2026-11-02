@@ -1,6 +1,6 @@
 import { execGit } from "./safe-git";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, constants, ftruncateSync, openSync, readFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import type { WorktreeMgr, WorktreeResult } from "./worktree";
 import type { GitForge } from "./forge/types";
@@ -10,6 +10,25 @@ import { upsertShepherdIgnoreBlock } from "./shepherd-exclude";
  *  fetch/commit/push (house rule: no blocking subprocess in request handlers). */
 async function defaultGit(cwd: string, args: string[]): Promise<void> {
   await execGit(args, { cwd });
+}
+
+/** Upsert the managed block into `path`, returning whether the file changed. One descriptor
+ *  serves the read and the write, so the file cannot be swapped between them, and `O_NOFOLLOW`
+ *  refuses a symlink (the file comes from the repo's base branch). The write is positional
+ *  because the read left the file position at the old EOF. */
+function upsertIgnoreBlockInFile(path: string): boolean {
+  const fd = openSync(path, constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW, 0o666);
+  try {
+    const { content, changed } = upsertShepherdIgnoreBlock(readFileSync(fd, "utf8"));
+    if (changed) {
+      const data = Buffer.from(content, "utf8");
+      ftruncateSync(fd, 0);
+      if (writeSync(fd, data, 0, data.length, 0) !== data.length) throw new Error("short write");
+    }
+    return changed;
+  } finally {
+    closeSync(fd);
+  }
 }
 
 export interface GitignoreAdopterDeps {
@@ -174,19 +193,16 @@ export class GitignoreAdopter {
     worktreePath: string,
     branch: string,
   ): Promise<AdoptResult> {
-    const gitignorePath = join(worktreePath, ".gitignore");
-    const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf8") : "";
-    const { content, changed } = upsertShepherdIgnoreBlock(existing);
-
     // The block is already in the default branch's .gitignore — nothing to do. This is
     // the post-merge re-click guard: once a prior adopt PR has merged, a fresh worktree
     // off the base already carries the block, so we return "already" with NO new PR.
     // (A deliberate re-click while a prior adopt PR is still OPEN — block not yet on the
     // base — would open a second PR. Acceptable for an explicit, infrequent action; we
     // deliberately do NOT engineer open-PR de-duplication here.)
-    if (!changed) return { ok: true, status: "already" };
+    if (!upsertIgnoreBlockInFile(join(worktreePath, ".gitignore"))) {
+      return { ok: true, status: "already" };
+    }
 
-    writeFileSync(gitignorePath, content);
     await this.git(worktreePath, ["add", ".gitignore"]);
     await this.git(worktreePath, [
       "commit",

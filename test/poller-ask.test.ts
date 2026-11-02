@@ -2,6 +2,8 @@
 // `ask`, re-emits on ask arrival / end, and exposes it only while a block is announced.
 // #2779: the same for ExitPlanMode's `plan`, plus the PreToolUse early block edge.
 import { test, expect } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { SessionStore } from "../src/store";
 import { StatusPoller } from "../src/poller";
 import { classifyBlocked, type BlockReason } from "../src/blocked";
@@ -364,3 +366,30 @@ test("a held dialog moving to its next question re-emits the menu with the ask",
     expect(r.blocks.at(-1)?.options.map((o) => o.label)).toEqual(["Small", "Large"]);
     expect(r.blocks.at(-1)?.ask).toEqual(ASK);
   }));
+
+// A dialog taller than classifyBlocked's window loses option 1 from the tail, so it reads as
+// `awaiting-input` despite its footer. The hook is what proves the dialog.
+const TALL_DIALOG = readFileSync(
+  join(import.meta.dir, "fixtures", "fullscreen", "tall-ask-dialog.txt"),
+  "utf8",
+);
+
+test("a dialog taller than the tail still carries its ask", async () => {
+  const r = rig(TALL_DIALOG);
+  r.poller.ingestAsk(r.id, ASK);
+  await r.tick();
+  expect(r.blocks.at(-1)?.shape).toBe("menu");
+  expect(r.blocks.at(-1)?.ask).toEqual(ASK);
+  expect(r.poller.currentAsk(r.id)).toEqual(ASK);
+
+  r.poller.resolveAsk(r.id, "toolu_1");
+  expect(r.blocks.at(-1)?.ask).toBeUndefined();
+  expect(r.poller.currentAsk(r.id)).toBeNull();
+});
+
+test("the same tall pane with no hooked ask stays awaiting-input", async () => {
+  const r = rig(TALL_DIALOG);
+  await r.tick();
+  expect(r.blocks.at(-1)?.shape).toBe("awaiting-input");
+  expect(r.blocks.at(-1)?.ask).toBeUndefined();
+});

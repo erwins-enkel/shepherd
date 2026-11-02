@@ -433,6 +433,22 @@ test("promoteDemotedMenu leaves everything that is not a demoted run untouched",
   for (const reason of [rendered, bare, yesNo]) expect(promoteDemotedMenu(reason)).toBe(reason);
 });
 
+test("promoteDemotedMenu treats dialog chrome as proof when the option run left the tail", () => {
+  const pane = readFileSync(join(fixturesDir, "tall-ask-dialog.txt"), "utf8");
+  const tall = classifyBlocked(pane);
+  expect(tall.shape).toBe("awaiting-input"); // `❯ 1.` is outside the 15-line tail
+  expect(promoteDemotedMenu(tall)).toEqual({ shape: "menu", options: [], tail: tall.tail });
+
+  // Clipped by the pane itself: options 1 and 2 are not even on screen.
+  const lines = pane.split("\n");
+  const clipped = lines
+    .slice(lines.findIndex((l) => l.includes("3. Enter should send")))
+    .join("\n");
+  const promoted = promoteDemotedMenu(classifyBlocked(clipped));
+  expect(promoted.shape).toBe("menu");
+  expect(promoted.options).toEqual([]);
+});
+
 test("real #2282 panes: both were mid-turn and now read as working", () => {
   for (const name of ["spinner-untimed.txt", "spinner-inline-parenthetical.txt"]) {
     const pane = readFileSync(join(fixturesDir, name), "utf8");

@@ -1,0 +1,23 @@
+│ Chat composer: what is wrong with Enter when images are attached? Today, with
+│ no text and uploaded images, Enter sends a message holding only the image
+│ paths. A test covers this via the Send button, so it looks deliberate. While
+│ an upload is running, Enter silently does nothing. Typed text was not lost
+│ anywhere I traced in the code.
+
+❯ 1. Block image-only send
+     Images alone must not send: Enter and the Send button both require typed
+     text. Reverses the current image-only behavior and its test.
+  2. Block on Enter only
+     Enter does nothing with an empty prompt, so a stray Enter can't send. The
+     Send button can still send images alone.
+  3. Enter should send, doesn't
+     You pressed Enter with images and an empty prompt and nothing was sent.
+     Fix: queue the send until uploads finish, or show why it was held.
+  4. Sent, but text/images lost
+     The message went out but the agent got an empty prompt or no images, even
+     though you typed text or attached them. I'd trace the send/paste path.
+  5. Type something.
+────────────────────────────────────────────────────────────────────────────────
+  6. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

@@ -1605,7 +1605,8 @@ export class StatusPoller {
     return true;
   }
 
-  /** `classify`, plus #2779: a hooked dialog is the chrome a mid-paint menu is still missing. */
+  /** `classify`, plus #2779: a hooked dialog is the chrome a mid-paint menu is still missing, and
+   *  the option run a dialog taller than the tail has lost. */
   private classifyPane(id: string, visible: string): BlockReason {
     const reason = this.classify(visible);
     return this.pendingAsk.has(id) || this.pendingPlan.has(id)

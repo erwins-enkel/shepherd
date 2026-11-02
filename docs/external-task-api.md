@@ -23,6 +23,8 @@ A `201` returns the full session, including its designation (`TASK-07`) and
 default usage-aware hold gate is active and account usage is high, the
 submission is instead **queued** and answered `200 { "held": true, … }`
 rather than spawned — see [Usage-aware hold gate](#usage-aware-hold-gate) below.
+The same answer comes back while the host is short on memory — see
+[Memory-pressure hold](#memory-pressure-hold).
 
 ## Why no new endpoint is needed
 
@@ -564,8 +566,8 @@ A submission is held only when **all** of these hold (`src/usage-hold.ts`,
 `src/server.ts`):
 
 - the resolved coding CLI is **Claude** — the request's `agentProvider` if it set
-  one, else the operator's default provider. A Codex submission is never held,
-  because the hold gate reads Claude's usage windows; and
+  one, else the operator's default provider. This gate never holds a Codex
+  submission, because it reads Claude's usage windows; and
 - the gate is enabled, and the request did not set `force: true`; and
 - the higher of the 5-hour and weekly usage windows is at or above
   `SHEPHERD_USAGE_HOLD_PCT`.
@@ -577,13 +579,23 @@ Shepherd switches back on its own once capacity returns. While the default is
 Codex, submissions that don't name a provider are spawned rather than held.
 
 When usage can't be measured (api-key auth, or caps not yet calibrated) the windows
-read `0`, so a task is **never** held — Shepherd won't freeze work it can't measure.
+read `0`, so this gate **never** holds a task — Shepherd won't freeze work it can't measure.
 
 A held submission returns **`200 { "held": true, "id", "count" }`** (not `201`) and no
 agent spawns yet. Held tasks are released **FIFO automatically** by a ~30 s sweeper once
 usage drops back below the threshold; an operator can also list, release, or drop them via
 `GET /api/held`, `POST /api/held/:id/spawn`, and `DELETE /api/held/:id`. To bypass the gate
 for a single submission, send `"force": true` in the create body.
+
+### Memory-pressure hold
+
+While the check slot's pressure brake holds, a new submission for either coding CLI is
+held too, with the same `200 { "held": true, … }` answer (`src/server.ts`,
+`src/start-queue-core.ts`). Its held task carries the reason `memory`. Once the brake lets
+go, held tasks start in arrival order, one at a time and at least 30 seconds apart, and
+each still needs usage headroom. `"force": true` and `POST /api/held/:id/spawn` start a
+task at once. The master switch in **Settings → Resources** turns this gate off together
+with the check slot.
 
 ## Steering and ending a task
 

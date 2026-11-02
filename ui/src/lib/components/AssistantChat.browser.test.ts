@@ -823,6 +823,125 @@ describe("AssistantChat attachments", () => {
     );
   });
 
+  const IMAGE_ONLY = "Attached image: `/a/.shepherd-uploads/u1.png`";
+
+  /** Paste an image whose upload stays open, then press Enter with the composer focused. */
+  async function enterDuringUpload(p: ReturnType<typeof props>) {
+    let finish!: (path: string) => void;
+    let fail!: (e: Error) => void;
+    mockUpload.mockImplementationOnce(
+      () =>
+        new Promise((resolve, reject) => {
+          finish = resolve;
+          fail = reject;
+        }),
+    );
+    render(AssistantChat, p);
+    await expect.element(composer()).toBeVisible();
+    await composer().click();
+    paste(transfer(png()));
+    await expect.element(page.getByText(m.assistant_chat_attachment_uploading())).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByText(m.assistant_chat_send_queued())).toBeVisible();
+    expect(p.onsend).not.toHaveBeenCalled();
+    return { finish, fail };
+  }
+  const settled = () => new Promise((resolve) => setTimeout(resolve, 50));
+
+  it("Enter sends an uploaded image with an empty prompt", async () => {
+    const p = props();
+    render(AssistantChat, p);
+    await expect.element(composer()).toBeVisible();
+    await composer().click();
+    paste(transfer(png()));
+    await expect.element(sendButton()).toBeEnabled();
+    await userEvent.keyboard("{Enter}");
+    expect(p.onsend).toHaveBeenCalledExactlyOnceWith(IMAGE_ONLY);
+  });
+
+  it("Enter during an upload sends once when the upload finishes", async () => {
+    const p = props();
+    const { finish } = await enterDuringUpload(p);
+    finish("/a/.shepherd-uploads/u1.png");
+    await expect.poll(() => p.onsend.mock.calls.length).toBe(1);
+    expect(p.onsend).toHaveBeenCalledExactlyOnceWith(IMAGE_ONLY);
+    await expect.element(page.getByText(m.assistant_chat_send_queued())).not.toBeInTheDocument();
+    await settled();
+    expect(p.onsend).toHaveBeenCalledOnce();
+  });
+
+  it("a queued send stops when the upload fails, keeping the chip", async () => {
+    const p = props();
+    const { fail } = await enterDuringUpload(p);
+    fail(new Error("413"));
+    await expect
+      .element(page.getByRole("alert"))
+      .toHaveTextContent(m.assistant_chat_attachment_failed());
+    await expect.element(remove()).toBeVisible();
+    expect(p.onsend).not.toHaveBeenCalled();
+    await expect.element(page.getByText(m.assistant_chat_send_queued())).not.toBeInTheDocument();
+  });
+
+  it("removing the image cancels a queued send", async () => {
+    const p = props();
+    const { finish } = await enterDuringUpload(p);
+    await composer().fill("look");
+    await userEvent.keyboard("{Enter}");
+    await remove().click();
+    await expect.element(page.getByText(m.assistant_chat_send_queued())).not.toBeInTheDocument();
+    finish("/a/.shepherd-uploads/u1.png");
+    await settled();
+    expect(p.onsend).not.toHaveBeenCalled();
+    await expect.element(composer()).toHaveValue("look");
+  });
+
+  it("editing the draft cancels a queued send when the upload finishes", async () => {
+    const p = props();
+    const { finish } = await enterDuringUpload(p);
+    await composer().fill("more words");
+    await expect.element(page.getByText(m.assistant_chat_send_queued())).not.toBeInTheDocument();
+    finish("/a/.shepherd-uploads/u1.png");
+    await expect.element(sendButton()).toBeEnabled();
+    await settled();
+    expect(p.onsend).not.toHaveBeenCalled();
+    await expect.element(composer()).toHaveValue("more words");
+  });
+
+  it("a dropped or picked image hands the keyboard to the composer, so Enter sends", async () => {
+    const p = props();
+    render(AssistantChat, p);
+    await expect.element(composer()).toBeVisible();
+    dropOnThread(transfer(png()));
+    expect(document.activeElement).toBe(textarea());
+    await expect.element(sendButton()).toBeEnabled();
+    await userEvent.keyboard("{Enter}");
+    expect(p.onsend).toHaveBeenCalledExactlyOnceWith(IMAGE_ONLY);
+    await expect.element(remove()).not.toBeInTheDocument();
+
+    const attachButton = page.getByRole("button", { name: m.assistant_chat_attach() });
+    (attachButton.element() as HTMLElement).focus();
+    const picker = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    picker.files = transfer(png()).files;
+    picker.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(document.activeElement).toBe(textarea());
+    await expect.element(sendButton()).toBeEnabled();
+    await userEvent.keyboard("{Enter}");
+    expect(p.onsend).toHaveBeenCalledTimes(2);
+  });
+
+  it("on touch, Enter never sends and attaching leaves focus alone", async () => {
+    const p = props({ touch: true });
+    render(AssistantChat, p);
+    await expect.element(composer()).toBeVisible();
+    dropOnThread(transfer(png()));
+    expect(document.activeElement).not.toBe(textarea());
+    await expect.element(sendButton()).toBeEnabled();
+    await composer().click();
+    await userEvent.keyboard("{Enter}");
+    await settled();
+    expect(p.onsend).not.toHaveBeenCalled();
+  });
+
   it("ignores a thread drop while a question locks the composer", async () => {
     render(AssistantChat, props({ status: "blocked", ask }));
     await expect.element(page.getByText(ask.questions[0].question)).toBeVisible();

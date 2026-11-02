@@ -861,7 +861,7 @@
   "prspanel_rebase_failed": "rebase failed",
   "prspanel_jobs_show": "show CI jobs",
   "prspanel_jobs_hide": "hide CI jobs",
-  "newtask_pr_review_template": "Review PR #{number} as described.\n{url}",
+  "newtask_pr_review_template": "Review PR #{number} as described. Also fix any failing CI and merge conflicts.\n{url}",
   "backlog_loading": "Loading repos…",
   "backlog_no_forge_repos": "No forge-backed projects",
   "backlog_filter_has_issues": "Has issues",

@@ -204,12 +204,16 @@ export function looksLikeDemotedMenu(tail: string[]): boolean {
 /**
  * #2779: undo the #2281 demotion when a PreToolUse hook says an AskUserQuestion / ExitPlanMode dialog
  * is open — the hook is the evidence the missing chrome would have been, so a chrome-less numbered
- * run is that dialog caught mid-paint, not prose. Anything else is returned unchanged. The caller
+ * run is that dialog caught mid-paint, not prose. Likewise chrome without a run: a dialog taller
+ * than the tail (or the pane) has lost option 1, so no run can start; it promotes with no options
+ * and the hook's data or the terminal answers it. Anything else is returned unchanged. The caller
  * decides whether a hooked dialog is pending; this only reshapes.
  */
 export function promoteDemotedMenu(reason: BlockReason): BlockReason {
-  if (reason.shape !== "awaiting-input" || !looksLikeDemotedMenu(reason.tail)) return reason;
-  return { ...reason, shape: "menu", options: captureOptionRun(reason.tail) };
+  if (reason.shape !== "awaiting-input") return reason;
+  const run = captureOptionRun(reason.tail);
+  if (run.length >= 2) return { ...reason, shape: "menu", options: run };
+  return hasDialogChrome(reason.tail) ? { ...reason, shape: "menu", options: [] } : reason;
 }
 
 /**

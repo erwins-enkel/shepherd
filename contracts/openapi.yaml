@@ -1278,6 +1278,12 @@ components:
         tail:
           type: array
           items: { type: string }
+        context:
+          type: array
+          description: >-
+            The terminal lines above option 1 when a tall dialog pushed it out of tail, i.e. its
+            question. Absent otherwise. Untrusted terminal text.
+          items: { type: string }
         quotaKind:
           type: string
           enum: [rework, review, error, plan]

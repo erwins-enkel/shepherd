@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { stuckOnPrompt } from "../src/critic-stuck";
 
 /** The real thing: captured verbatim from a wedged PR-critic pane (shepherd.log, PR #836).
@@ -66,6 +68,15 @@ test("does NOT fire on an empty or whitespace-only pane", () => {
   expect(stuckOnPrompt("   \n\n  ", "   \n\n  ")).toBeNull();
 });
 
+test("fires on a frozen dialog taller than the tail, not on one still advancing (#3654)", () => {
+  const tall = readFileSync(
+    join(import.meta.dir, "fixtures", "fullscreen", "tall-ask-dialog.txt"),
+    "utf8",
+  );
+  expect(stuckOnPrompt(tall, tall)).toBe("menu");
+  expect(stuckOnPrompt(tall, `${tall}\n`)).toBeNull();
+});
+
 test("a single numbered option is not a menu", () => {
   const pane = "Choose:\n1. Only one option";
   expect(stuckOnPrompt(pane, pane)).toBeNull();
@@ -76,7 +87,10 @@ test("a single numbered option is not a menu", () => {
 // the raw "visible" buffer. Every other test here feeds raw buffers and would keep passing, so
 // without this the detector could be silently dead in production.
 test("returns null on a readPaneTail-shaped one-liner — the raw buffer is required", () => {
-  const flattened = UPSELL_PANE.replace(/\s+/g, " ").trim();
+  // A permission footer, since a selecting footer alone proves a dialog (#3654) even flattened.
+  const flattened = UPSELL_PANE.replace("Enter to confirm · Esc to cancel", "Esc to cancel")
+    .replace(/\s+/g, " ")
+    .trim();
   expect(flattened).toContain("1. Yes, try it"); // the option text survives…
   expect(stuckOnPrompt(flattened, flattened)).toBeNull(); // …but it can never anchor to a line
 });

@@ -16,6 +16,9 @@ export interface BlockReason {
   options: BlockOption[];
   /** Last non-empty terminal lines for context; most recent last. */
   tail: string[];
+  /** #3654: the terminal lines above option 1 when a tall dialog pushed it out of `tail`, i.e. its
+   *  real question. Absent otherwise: the lines above the first option in `tail` are the question. */
+  context?: string[];
   /** Discriminator for quota blocks: which sub-kind of quota exhaustion triggered this. */
   quotaKind?: "rework" | "review" | "error" | "plan";
   /** Full OAuth authorization URL an awaiting-input block is waiting on the operator to
@@ -62,6 +65,20 @@ const CARET_OPTION_RE = /^[\s│|]*[❯>]\s*\d+[.)]/;
 // navigate · n to add notes · Tab to").
 const DIALOG_FOOTER_RE =
   /enter to (?:select|confirm)|esc to cancel|(?:↑\/↓|arrow keys) to navigate/i;
+// ── A dialog taller than the tail (#3654) ──
+// It loses option 1, so no run can start in the tail, and only its footer is left to prove it. These
+// are the footer's fragments that offer a choice. A bare "Esc to cancel" doesn't: the /login modal
+// has it too, and that modal must stay `awaiting-input`, the only path that attaches its `authUrl`.
+const SELECTING_FOOTER_RE = /enter to (?:select|confirm)|(?:↑\/↓|arrow keys) to navigate/i;
+// A rendered dialog's footer is the pane's last line, or its last two when wrapped. Three would
+// reach the at-rest input box, where typed text could forge it. Measured over the live corpus:
+// widening to three catches no further rows.
+const FOOTER_ANCHOR_LINES = 2;
+// A dialog's last option sits just above its footer. Measured over the live corpus: within these
+// lines in 2219 of 2344 footer-anchored tails; the rest sampled are preview layouts, whose digits
+// don't answer anyway (#3651). A printed list straddling the tail's top edge ends far higher.
+const LAST_OPTION_LINES = 5;
+const CONTEXT_LINES = 6;
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
 
@@ -185,6 +202,28 @@ function hasDialogChrome(tail: string[]): boolean {
   return tail.some((l) => CARET_OPTION_RE.test(l) || DIALOG_FOOTER_RE.test(l));
 }
 
+/** A tall dialog's options and question, recovered from the whole pane: `tail` lost option 1. Null
+ *  unless the run ends just above the footer, since a run ending higher is a list that scrolled
+ *  past, not this dialog's options. */
+function recoverTallDialog(
+  text: string,
+  tail: string[],
+): { options: BlockOption[]; context?: string[] } | null {
+  const lines = tailLines(text, Infinity);
+  const options = captureOptionRun(lines);
+  if (options.length < 2) return null;
+  const renders = ({ send, label }: BlockOption) => {
+    return (l: string) => {
+      const m = OPTION_RE.exec(l);
+      return m?.[1] === send && m[3] === label;
+    };
+  };
+  if (!tail.slice(-LAST_OPTION_LINES).some(renders(options.at(-1)!))) return null;
+  const first = lines.findLastIndex(renders(options[0]!));
+  const context = lines.slice(Math.max(0, first - CONTEXT_LINES), first);
+  return context.length > 0 ? { options, context } : { options };
+}
+
 /**
  * True when `tail` is the shape `classifyBlocked` DEMOTED: a numbered option run with no dialog
  * chrome, classified `awaiting-input` rather than `menu` (#2281).
@@ -228,12 +267,27 @@ export function promoteDemotedMenu(reason: BlockReason): BlockReason {
  * The cost is bounded and self-correcting: a real dialog read MID-PAINT, before its caret or
  * footer has landed, shows as `awaiting-input` for one `reclassifyMs` cadence and upgrades to a
  * `menu` with its options on the next read.
+ *
+ * A footer ANCHORED to the pane's bottom is a dialog even without a run in the tail (#3654): one
+ * taller than the tail has lost option 1. Prose can't sit there, because the input box renders
+ * below it. With a run recovered from the whole pane, any footer qualifies. Without one, only a
+ * selecting footer does, and the `menu` has no options: a dialog with unnumbered choices, or one
+ * whose option 1 is off the pane, is answered in the terminal.
  */
 export function classifyBlocked(text: string): BlockReason {
   const tail = tailLines(text);
 
   const run = captureOptionRun(tail);
   if (run.length >= 2 && hasDialogChrome(tail)) return { shape: "menu", options: run, tail };
+
+  const anchored = tail.slice(-FOOTER_ANCHOR_LINES);
+  if (anchored.some((l) => DIALOG_FOOTER_RE.test(l))) {
+    const tall = recoverTallDialog(text, tail);
+    if (tall) return { shape: "menu", ...tall, tail };
+    if (anchored.some((l) => SELECTING_FOOTER_RE.test(l))) {
+      return { shape: "menu", options: [], tail };
+    }
+  }
 
   if (tail.some((l) => YES_NO_RE.test(l))) {
     return {

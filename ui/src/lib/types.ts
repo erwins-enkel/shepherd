@@ -714,6 +714,9 @@ export interface BlockReason {
   shape: BlockShape;
   options: BlockOption[];
   tail: string[];
+  /** The terminal lines above option 1 when a tall dialog pushed it out of `tail`. Mirrors server
+   *  `BlockReason.context`. */
+  context?: string[];
   /** Discriminator for quota blocks: which sub-kind of quota exhaustion triggered this. */
   quotaKind?: "rework" | "review" | "error" | "plan";
   /** Full OAuth authorization URL an awaiting-input block is waiting on the operator to

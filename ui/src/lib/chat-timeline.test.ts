@@ -66,14 +66,14 @@ describe("blockContext", () => {
       "  2. No",
       "Esc to cancel",
     ];
-    expect(blockContext(tail)).toEqual(["● Bash(touch x)", "Do you want to proceed?"]);
+    expect(blockContext({ tail })).toEqual(["● Bash(touch x)", "Do you want to proceed?"]);
   });
 
   it("takes the last lines when there is no option run", () => {
     const tail = ["1", "2", "3", "4", "5", "6", "7", "Overwrite? (y/n)"].map((l, i) =>
       i < 7 ? `line ${l}` : l,
     );
-    expect(blockContext(tail)).toEqual([
+    expect(blockContext({ tail })).toEqual([
       "line 3",
       "line 4",
       "line 5",
@@ -81,6 +81,11 @@ describe("blockContext", () => {
       "line 7",
       "Overwrite? (y/n)",
     ]);
+  });
+
+  it("prefers the question the server recovered above a tail that lost option 1", () => {
+    const tail = ["Images alone must not send.", "  2. Block on Enter only", "Esc to cancel"];
+    expect(blockContext({ tail, context: ["Which send rule?"] })).toEqual(["Which send rule?"]);
   });
 });
 

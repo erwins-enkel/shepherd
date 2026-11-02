@@ -1,8 +1,10 @@
 import {
   ApiError,
   MergeRefusedError,
+  type DependabotCommand,
   mergeBacklogPr,
   refreshUpNext,
+  requestDependabotCommand,
   requestDependabotRebase,
   startUpNextPrFix,
 } from "./api";
@@ -111,6 +113,30 @@ export class UpNextPrActions {
       toasts.info(m.prspanel_rebase_requested(), { key: "upnext-pr-rebase" });
     } catch {
       toasts.info(m.prspanel_rebase_failed(), { key: "upnext-pr-rebase", alert: true });
+    } finally {
+      this.busy = null;
+    }
+  }
+
+  /** Post a confirmed Dependabot command. An ignore makes Dependabot close the PR, so its row hides
+   *  as a merged one does, and returns if the PR stays open. */
+  async dependabotCommand(pr: UpNextPr, command: DependabotCommand, dependency?: string) {
+    if (this.busy) return;
+    const key = upNextPrKey(pr);
+    this.busy = key;
+    try {
+      await requestDependabotCommand(pr.repoPath, pr.number, command, dependency);
+      if (command === "recreate") {
+        toasts.info(m.depcmd_recreate_asked({ number: pr.number }), { key: "upnext-pr-depcmd" });
+      } else {
+        upNextUi.markActed(key);
+        toasts.info(m.depcmd_ignore_asked({ number: pr.number }), { key: "upnext-pr-depcmd" });
+      }
+    } catch {
+      toasts.info(m.depcmd_failed({ number: pr.number }), {
+        key: "upnext-pr-depcmd",
+        alert: true,
+      });
     } finally {
       this.busy = null;
     }

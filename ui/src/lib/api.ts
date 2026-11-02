@@ -2040,6 +2040,27 @@ export async function requestDependabotRebase(repoPath: string, number: number):
   }
 }
 
+/** A Dependabot command the server turns into a PR comment, besides the rebase above. */
+export type DependabotCommand = "recreate" | "ignore_major" | "ignore_minor" | "ignore_patch";
+
+/** Post a Dependabot command on its PR by repo + number. `dependency` names what an ignore applies
+ *  to on a grouped PR. Resolves on success. */
+export async function requestDependabotCommand(
+  repoPath: string,
+  number: number,
+  command: DependabotCommand,
+  dependency?: string,
+): Promise<void> {
+  const r = await fetch(
+    "/api/prs/dependabot-command",
+    JSON_POST({ repo: repoPath, number, command, dependency }),
+  );
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
+  }
+}
+
 /** Re-run a GitHub Actions run by repo + runId. `failedOnly` retries just the
  *  failed jobs (set when the run failed); else the whole run. Resolves on success. */
 export async function rerunWorkflowRun(

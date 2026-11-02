@@ -377,6 +377,7 @@ import type {
 } from "./forge/types";
 import {
   DEPENDABOT_REBASE_COMMAND,
+  dependabotCommandText,
   EmptyDiffError,
   MergeEnqueuedError,
   MergeNotCompletedError,
@@ -11330,6 +11331,38 @@ async function handleDependabotRebase({ req, parts, deps }: Ctx): Promise<Respon
   }
 }
 
+// POST /api/prs/dependabot-command — post a Dependabot recreate / ignore-version command on a PR
+// by repo + number. The comment is built server-side from the closed command list and a validated
+// dependency name. GitHub only, like the rebase above.
+async function handleDependabotCommand({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (
+    req.method !== "POST" ||
+    parts[0] !== "api" ||
+    parts[1] !== "prs" ||
+    parts[2] !== "dependabot-command"
+  )
+    return null;
+  const body = (await req.json().catch(() => ({}))) as {
+    repo?: string;
+    number?: number;
+    command?: unknown;
+    dependency?: unknown;
+  };
+  const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  if (typeof body.number !== "number") return json({ error: "number required" }, 400);
+  const text = dependabotCommandText(body.command, body.dependency);
+  if (!text) return json({ error: "invalid command" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge?.comment) return json({ error: "no comment support" }, 400);
+  try {
+    await forge.comment(body.number, text);
+    return json({ ok: true });
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "comment failed" }, 502);
+  }
+}
+
 /** Per-repo row in the backlog overview. */
 export interface BacklogProject {
   path: string;
@@ -13561,6 +13594,7 @@ const ROUTE_HANDLERS = [
   handleRepoPull,
   handleSyncFork,
   handleDependabotRebase,
+  handleDependabotCommand,
   handleShape,
   handleShapeBrief,
   handleReadiness,

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { getUpNextPrBody } from "#lib/api.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { type DependabotCommand, getUpNextPrBody } from "#lib/api.js";
   import { basename } from "#lib/basename.js";
   import { LazyBody } from "#lib/lazy-body.svelte.js";
   import { clock } from "#lib/now.svelte.js";
@@ -15,6 +16,8 @@
   import { UpNextPrActions } from "#lib/up-next-pr-actions.svelte.js";
   import type { UpNextLaunchContext } from "#lib/up-next-start.svelte.js";
   import { findUpNextPr, upNextPrKey, upNextUi } from "#lib/up-next-ui.svelte.js";
+  import DependabotCommandConfirm from "./DependabotCommandConfirm.svelte";
+  import DependabotCommandsMenu from "./DependabotCommandsMenu.svelte";
   import IssueDetailHead from "./issues-panel/IssueDetailHead.svelte";
   import MergeConfirmHost from "./MergeConfirmHost.svelte";
   import MergeMethodMenu from "./MergeMethodMenu.svelte";
@@ -23,7 +26,7 @@
   import UpNextPrFacts from "./UpNextPrFacts.svelte";
   import UpNextSteerMenu from "./UpNextSteerMenu.svelte";
   import { actionLabel, actionTip, fixSummary, mergeBlockLine } from "./up-next-pr-copy";
-  import { buttonAction, mergeMethodChoices } from "./up-next-prs";
+  import { buttonAction, dependabotIgnoreTargets, mergeMethodChoices } from "./up-next-prs";
 
   // Reading view for the Up Next PR whose title was clicked, built like the issue preview: its
   // head, the one next action (split with ▾ for steers when it starts a fix session, or for the
@@ -83,6 +86,32 @@
     if (!hasMenu) menuOpen = false;
   });
 
+  // Dependabot's comment commands, on its own PRs. Not bound to `locked`: a PR waiting on CI has no
+  // next action but still takes them.
+  let dependabotButton = $state<HTMLElement>();
+  let dependabotOpen = $state(false);
+  let dependabotAsk = $state<{
+    pr: UpNextPr;
+    command: DependabotCommand;
+    dependency?: string;
+  } | null>(null);
+  const dependabotTargets = $derived.by(() => {
+    if (loader.error) return [];
+    return loader.body === null ? null : dependabotIgnoreTargets(loader.body);
+  });
+  // Stepping to another PR closes the menu: it reads the PR it opened on.
+  $effect(() => {
+    void key;
+    dependabotOpen = false;
+  });
+
+  function confirmDependabot() {
+    const ask = dependabotAsk;
+    if (!ask) return;
+    dependabotAsk = null;
+    void actions.dependabotCommand(ask.pr, ask.command, ask.dependency);
+  }
+
   function run(pr: UpNextPr, action: UpNextPrAction) {
     if (!locked) actions.run(pr, action);
   }
@@ -90,7 +119,11 @@
   // Esc closes the preview (UpNextPreviewFrame) — unless the merge confirmation or the steer
   // menu has it.
   function onescape(): boolean {
-    if (actions.mergeFlow.ctx) return true;
+    if (actions.mergeFlow.ctx || dependabotAsk) return true;
+    if (dependabotOpen) {
+      dependabotOpen = false;
+      return true;
+    }
     if (!menuOpen) return false;
     menuOpen = false;
     return true;
@@ -167,6 +200,18 @@
       {#if action !== "merge"}
         <button type="button" class="gbtn" disabled>{m.prspanel_merge_button()}</button>
       {/if}
+      {#if pr.kind === "dependabot"}
+        <button
+          bind:this={dependabotButton}
+          type="button"
+          class="gbtn"
+          aria-haspopup="menu"
+          aria-expanded={dependabotOpen}
+          disabled={!!actions.busy || syncing}
+          use:coachTarget={"upnext-dep-commands"}
+          onclick={() => (dependabotOpen = !dependabotOpen)}>{m.depcmd_button()} ▾</button
+        >
+      {/if}
       <label class="unp-pick unpr-pick">
         <input
           type="checkbox"
@@ -188,6 +233,33 @@
 </UpNextPreviewFrame>
 
 <MergeConfirmHost flow={actions.mergeFlow} />
+{#if dependabotOpen && pr && key && dependabotButton}
+  <DependabotCommandsMenu
+    anchor={dependabotButton}
+    number={pr.number}
+    showRebase={action !== "dependabot_rebase"}
+    rebaseRequested={upNextUi.rebaseRequested.has(key)}
+    targets={dependabotTargets}
+    onrebase={() => {
+      dependabotOpen = false;
+      void actions.rebase(pr);
+    }}
+    onpick={(command, dependency) => {
+      dependabotOpen = false;
+      dependabotAsk = { pr, command, dependency };
+    }}
+    onclose={() => (dependabotOpen = false)}
+  />
+{/if}
+{#if dependabotAsk}
+  <DependabotCommandConfirm
+    number={dependabotAsk.pr.number}
+    command={dependabotAsk.command}
+    dependency={dependabotAsk.dependency}
+    onconfirm={confirmDependabot}
+    onclose={() => (dependabotAsk = null)}
+  />
+{/if}
 {#if menuOpen && pr && startGroup && methods}
   <MergeMethodMenu
     anchor={startGroup}

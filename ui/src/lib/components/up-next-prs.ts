@@ -43,6 +43,20 @@ export function mergeMethodChoices(pr: UpNextPr): MergeMethod[] | null {
   return allowed?.some((method) => method !== pr.mergeMethod) ? allowed : null;
 }
 
+/** A grouped PR's line for one dependency. The name follows the server's rule for what a command
+ *  may name (`dependabotCommandText`), so a row never offers a command the server would refuse. */
+const DEPENDABOT_UPDATE_LINE = /^Updates `([@A-Za-z0-9][@A-Za-z0-9._/:+[\],-]{0,213})` from /gm;
+
+/** What a Dependabot PR's ignore commands can name, read off its description. A single-dependency
+ *  PR answers `[null]` (its commands say "ignore this … version"). A grouped PR, whose description
+ *  opens "Bumps the … group", answers its dependencies (commands name one), or `[]` when none
+ *  parse, since a grouped PR doesn't take the "this" form. */
+export function dependabotIgnoreTargets(body: string): (string | null)[] {
+  if (!/^\s*Bumps the .+ group\b/.test(body)) return [null];
+  const names = Array.from(body.matchAll(DEPENDABOT_UPDATE_LINE), (match) => match[1]!);
+  return Array.from(new Set(names));
+}
+
 /** Why a PR cannot merge right now, or null when merging is its next action. */
 export type MergeBlock = UpNextPrBlockReason | "review" | "ci_running" | "mergeability";
 export function mergeBlock(pr: UpNextPr): MergeBlock | null {

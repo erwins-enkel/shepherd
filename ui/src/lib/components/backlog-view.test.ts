@@ -553,6 +553,9 @@ describe("BacklogView display logic — integration of helpers", () => {
     const text = newtask_pr_review_template({ number: 142, url: "https://example/pr/142" });
     expect(text).toContain("142");
     expect(text).toContain("https://example/pr/142");
+    expect(text).toContain("failing CI");
+    expect(text).toContain("merge conflicts");
+    expect(text.split("\n").at(-1)).toBe("https://example/pr/142");
   });
 });
 

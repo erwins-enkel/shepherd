@@ -861,7 +861,7 @@
   "prspanel_rebase_failed": "Rebase fehlgeschlagen",
   "prspanel_jobs_show": "CI-Jobs anzeigen",
   "prspanel_jobs_hide": "CI-Jobs ausblenden",
-  "newtask_pr_review_template": "Prüfe PR #{number} wie beschrieben.\n{url}",
+  "newtask_pr_review_template": "Prüfe PR #{number} wie beschrieben. Behebe außerdem fehlgeschlagene CI-Checks und Merge-Konflikte.\n{url}",
   "backlog_loading": "Repos werden geladen…",
   "backlog_no_forge_repos": "Keine Forge-Projekte",
   "backlog_filter_has_issues": "Hat Issues",

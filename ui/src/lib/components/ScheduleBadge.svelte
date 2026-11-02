@@ -12,6 +12,11 @@
       ? m.schedule_badge_label_named({ name: session.scheduleName })
       : m.schedule_badge_label(),
   );
+  const title = $derived(
+    session.scheduleName
+      ? m.schedule_badge_title_named({ name: session.scheduleName })
+      : m.schedule_badge_title(),
+  );
 </script>
 
 {#if session.scheduleId}
@@ -19,10 +24,11 @@
     class="schedule-badge"
     role="img"
     aria-label={label}
-    title={tip ? undefined : m.schedule_badge_title()}
-    use:statusTip={tip ? { text: m.schedule_badge_title() } : null}
+    title={tip ? undefined : title}
+    use:statusTip={tip ? { text: title } : null}
   >
-    {label}
+    <span class="full">{label}</span>
+    <span class="short">{m.schedule_badge_label()}</span>
   </span>
 {/if}
 
@@ -37,9 +43,24 @@
     border-radius: 2px;
     color: var(--color-slate);
     white-space: nowrap;
-    max-width: 18ch;
+    font-weight: 600;
+    /* A flex item in the strip: lets a narrow strip shrink it so .full can ellipsize. */
+    min-width: 0;
+  }
+  .full {
+    display: block;
+    max-width: 36ch;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-weight: 600;
+  }
+  .short {
+    display: none;
+  }
+  /* The phone rail takes its width from the prompt, so the name stays in the tooltip there. */
+  :global(.units.flow) .full {
+    display: none;
+  }
+  :global(.units.flow) .short {
+    display: inline;
   }
 </style>

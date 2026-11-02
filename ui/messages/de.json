@@ -7370,6 +7370,7 @@
   "schedule_badge_label": "Geplant",
   "schedule_badge_label_named": "Geplant · {name}",
   "schedule_badge_title": "Von einem Repo-Zeitplan gestartet",
+  "schedule_badge_title_named": "Vom Repo-Zeitplan „{name}“ gestartet",
   "tooltip_schedules_title": "Zeitpläne",
   "tooltip_schedules_summary": "Führe in diesem Repo einen Prompt oder /skill an gewählten Wochentagen und Uhrzeiten aus. Jeder Lauf startet eine neue, normale Session.",
   "tooltip_schedules_catchup": "Verpasste Läufe",

@@ -7231,6 +7231,7 @@
   "assistant_chat_attachment_image": "image",
   "assistant_chat_attachment_uploading": "uploading…",
   "assistant_chat_attachment_failed": "An image didn't upload. Remove it to send.",
+  "assistant_chat_send_queued": "Sends when the upload finishes",
   "feat_assistant_image_attachments_title": "Show the assistant a screenshot",
   "feat_assistant_image_attachments_body": "Paste an image into the Operator Assistant's message field, drop it there, or pick it with the paperclip. It goes along with your next message, so the assistant can look at it.",
   "epicdraft_overlap_hint": "Children {a} and {b} both touch {anchors}, and no dependency orders them: they can run in parallel and conflict on merge. Ask the session to add an edge between them.",

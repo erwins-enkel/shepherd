@@ -135,6 +135,17 @@
   const canSend = $derived(
     (!!draft.trim() || attachments.length > 0) && !uploadingAny && !failedAny && !composerLocked,
   );
+  // Enter during an upload: the draft to send once uploads finish. A different draft by then means
+  // the operator kept writing, and a failed upload is caught by submit()'s canSend.
+  let queuedDraft = $state<string | null>(null);
+  $effect(() => {
+    if (queuedDraft === null || uploadingAny) return;
+    const queued = queuedDraft;
+    untrack(() => {
+      queuedDraft = null;
+      if (draft === queued) submit();
+    });
+  });
   const answerText = $derived(
     answer
       ? {
@@ -255,6 +266,7 @@
       stick = true;
       data = null;
       pending = [];
+      queuedDraft = null;
       if (variant !== "assistant") untrack(() => (attachments = []));
     }
     let alive = true;
@@ -363,8 +375,10 @@
 
   function attach(files: Iterable<File>) {
     const id = sessionId;
+    let accepted = false;
     for (const file of files) {
       if (!file.type.startsWith("image/")) continue;
+      accepted = true;
       const a: Attachment = { id: nextAttachmentId++, file, path: null, failed: false };
       attachments = [...attachments, a];
       uploadFile(file, id).then(
@@ -372,6 +386,8 @@
         () => setAttachment(a.id, { failed: true }),
       );
     }
+    // A drop or the paperclip leaves focus elsewhere, where Enter would never reach the composer.
+    if (accepted && !mobile && !touch) input?.focus();
   }
 
   // Matched by id: a chip removed (or a session switched) while uploading is not brought back.
@@ -380,6 +396,7 @@
   }
 
   function removeAttachment(id: number) {
+    queuedDraft = null;
     attachments = attachments.filter((a) => a.id !== id);
   }
 
@@ -396,7 +413,8 @@
     // newline; the Send button sends there.
     if (e.key === "Enter" && !e.shiftKey && !mobile && !touch) {
       e.preventDefault();
-      submit();
+      if (uploadingAny && !failedAny && !composerLocked) queuedDraft = draft;
+      else submit();
     } else if (e.key === "Escape" && working) {
       e.preventDefault();
       e.stopPropagation();
@@ -602,6 +620,8 @@
       <p class="ac-error" role="alert">{m.assistant_chat_attachment_failed()}</p>
     {:else if sendFailed}
       <p class="ac-error" role="alert">{copy.sendFailed()}</p>
+    {:else if queuedDraft === draft}
+      <p class="ac-hint" role="status">{m.assistant_chat_send_queued()}</p>
     {:else if !mobile && !touch}
       <p class="ac-hint">{m.assistant_chat_keys()}</p>
     {/if}

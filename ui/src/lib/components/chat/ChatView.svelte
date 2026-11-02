@@ -9,9 +9,18 @@
     RawAnswer,
     SessionMessages,
     SessionStatus,
+    SlashCommand,
   } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { answerAsk, getSessionMessages, uploadFile } from "#lib/api.js";
+  import { answerAsk, getCommands, getSessionMessages, uploadFile } from "#lib/api.js";
+  import {
+    applyCommandPick,
+    applyMentionPick,
+    commandInvocationName,
+    commandProviders,
+    filterCommands,
+    matchChatTrigger,
+  } from "#lib/slash.js";
   import { handleImagePaste } from "#lib/clipboard.js";
   import { pollWhileVisible } from "#lib/visibility.js";
   import {
@@ -29,6 +38,7 @@
   import AttachmentChips, { type Attachment } from "../assistant-chat/AttachmentChips.svelte";
   import AttachButton from "../assistant-chat/AttachButton.svelte";
   import BlockAnswer from "./BlockAnswer.svelte";
+  import ChatCommandMenu from "./ChatCommandMenu.svelte";
   import ToolRun from "./ToolRun.svelte";
   import NoteRow from "./NoteRow.svelte";
   import QuickReplies from "./QuickReplies.svelte";
@@ -54,6 +64,8 @@
     prefill = null,
     onprefilled,
     consumeAutoFocus,
+    repoPath,
+    agentProvider = "claude",
     onsend,
     onkeys,
     oninterrupt,
@@ -81,6 +93,10 @@
     onprefilled?: (tick: number) => void;
     /** One-shot: whether the composer may take the keyboard when it mounts. */
     consumeAutoFocus?: () => boolean;
+    /** The repo whose commands the composer's menu offers; without one there is no menu. */
+    repoPath?: string;
+    /** Whose commands the menu offers and how a pick is written. */
+    agentProvider?: "claude" | "codex";
     /** Submit a message at the agent's prompt; false (now or once settled) when it could not be
      *  sent. */
     onsend: (text: string) => boolean | Promise<boolean>;
@@ -311,6 +327,115 @@
     input.style.height = `${Math.min(input.scrollHeight, MAX_INPUT_PX)}px`;
   }
 
+  // The composer's command menu. It reloads on every open: this view stays mounted for hours while
+  // skills come and go. `/compact` only makes sense in a live session, so the server's list, built
+  // for first prompts, leaves it out; a repo or user command of that name wins over this one.
+  let commands = $state<SlashCommand[]>([]);
+  let commandsLoaded = $state(false);
+  let commandsRequest = 0;
+  let slashOpen = $state(false);
+  let slashQuery = $state("");
+  let slashIndex = $state(0);
+  let slashAnchor = $state({ top: 0, left: 0, width: 0 });
+  let field: HTMLDivElement | undefined = $state();
+  const menuCommands = $derived.by(() => {
+    const own = commands.some(
+      (c) => c.name === "compact" && commandProviders(c).includes("claude"),
+    );
+    if (agentProvider !== "claude" || own) return commands;
+    const compact: SlashCommand = {
+      id: "claude:builtin:compact",
+      name: "compact",
+      description: m.session_chat_cmd_compact(),
+      scope: "builtin",
+      kind: "command",
+      invocationName: "compact",
+      providers: ["claude"],
+      invocations: { claude: "/compact" },
+    };
+    return [...commands, compact].sort((a, b) => a.name.localeCompare(b.name));
+  });
+  const slashMatches = $derived(
+    slashOpen ? filterCommands(menuCommands, slashQuery, agentProvider) : [],
+  );
+  // A reload can shorten the list under the highlight.
+  const slashActive = $derived(Math.min(slashIndex, Math.max(0, slashMatches.length - 1)));
+  // `/clear` stays off the menu but still sends when typed in full, so a longer match like
+  // `/clear-cache` only takes Enter once the operator has moved the highlight to it.
+  const typedClear = $derived(agentProvider === "claude" && slashQuery === "clear" && !slashActive);
+  // Nothing shows until the first load settles, so "no matching commands" can't flash.
+  const slashShown = $derived(slashOpen && commandsLoaded);
+
+  function loadCommands(repo: string) {
+    const request = ++commandsRequest;
+    getCommands(repo, { provider: agentProvider })
+      .then((r) => {
+        if (request === commandsRequest) commands = r.commands;
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (request === commandsRequest) commandsLoaded = true;
+      });
+  }
+
+  function placeSlashMenu() {
+    if (!field) return;
+    const { top, left, width } = field.getBoundingClientRect();
+    slashAnchor = { top, left, width };
+  }
+
+  function refreshSlash() {
+    const trigger = input && matchChatTrigger(draft, input.selectionStart, agentProvider);
+    if (!repoPath || !trigger) {
+      slashOpen = false;
+      return;
+    }
+    if (!slashOpen) loadCommands(repoPath);
+    placeSlashMenu();
+    slashOpen = true;
+    slashQuery = trigger.query;
+    slashIndex = 0;
+  }
+
+  function pickCommand(cmd: SlashCommand) {
+    const caret = input?.selectionStart ?? draft.length;
+    const trigger = matchChatTrigger(draft, caret, agentProvider);
+    slashOpen = false;
+    if (!trigger) return;
+    const apply = agentProvider === "codex" ? applyMentionPick : applyCommandPick;
+    const next = apply(draft, trigger.start, caret, commandInvocationName(cmd));
+    draft = next.value;
+    queueMicrotask(() => {
+      autosize();
+      input?.focus();
+      input?.setSelectionRange(next.caret, next.caret);
+    });
+  }
+
+  /** The menu's keys; true when it took this one. With no match, Enter still sends. */
+  function slashKey(e: KeyboardEvent): boolean {
+    if (!slashShown) return false;
+    const count = slashMatches.length;
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      slashOpen = false;
+    } else if (count === 0) {
+      return false;
+    } else if (e.key === "ArrowDown") {
+      slashIndex = (slashActive + 1) % count;
+    } else if (e.key === "ArrowUp") {
+      slashIndex = (slashActive - 1 + count) % count;
+    } else if (e.key === "Enter" && typedClear) {
+      return false;
+    } else if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
+      pickCommand(slashMatches[slashActive]!);
+    } else {
+      return false;
+    }
+    e.preventDefault();
+    return true;
+  }
+
   function send(text: string, match?: string): boolean {
     return track(text, onsend(text), match);
   }
@@ -338,6 +463,7 @@
 
   async function submit() {
     if (!canSend) return;
+    slashOpen = false;
     const originalDraft = draft;
     const sentAttachments = attachments.map((a) => a.id);
     const typed = draft.trim();
@@ -391,7 +517,7 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
-    if (e.isComposing) return;
+    if (e.isComposing || slashKey(e)) return;
     // Desktop: Enter sends, Shift+Enter breaks the line. Touch keyboards keep Enter for the
     // newline; the Send button sends there.
     if (e.key === "Enter" && !e.shiftKey && !mobile && !touch) {
@@ -431,6 +557,8 @@
     input?.focus();
   }
 </script>
+
+<svelte:window onresize={() => slashOpen && placeSlashMenu()} />
 
 {#snippet caret()}
   <!-- The prompt caret: the operator's words, as typed into the live pane. -->
@@ -572,7 +700,7 @@
     {#if attachments.length > 0}
       <AttachmentChips {attachments} coarse={touch || mobile} onremove={removeAttachment} />
     {/if}
-    <div class="ac-field">
+    <div class="ac-field" bind:this={field}>
       {@render caret()}
       <textarea
         bind:this={input}
@@ -583,10 +711,12 @@
         oninput={() => {
           sendFailed = false;
           autosize();
+          refreshSlash();
         }}
         onpaste={(e) => {
           if (!composerLocked) handleImagePaste(e, attach);
         }}
+        onblur={() => (slashOpen = false)}
         {onkeydown}></textarea>
       <AttachButton disabled={composerLocked} onfiles={attach} />
       {#if working}
@@ -596,6 +726,15 @@
         >{m.assistant_chat_send()}</button
       >
     </div>
+    <ChatCommandMenu
+      open={slashShown}
+      anchor={slashAnchor}
+      commands={slashMatches}
+      activeIndex={slashActive}
+      provider={agentProvider}
+      onpick={pickCommand}
+      onhover={(i) => (slashIndex = i)}
+    />
     {#if composerLocked}
       <p class="ac-hint">{m.assistant_chat_answer_question()}</p>
     {:else if failedAny}

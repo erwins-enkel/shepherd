@@ -608,6 +608,10 @@ Device → Session opens on**; the choice is saved per device.
   terminal, or goes through the reply route when no terminal is connected. A Codex session's
   message always takes the reply route: Codex exits after each turn, and the route resumes it
   first. A sent message shows as _sent_ until the transcript logs it.
+- **Pick a command** by typing `/` at the start of a message; a Codex session uses `$` or `@`,
+  anywhere in the message. The menu lists the repo's commands for that agent, and Claude's also
+  has `/compact`. Enter or Tab fills the highlighted one in so you can add arguments, and Esc
+  closes the menu. `/clear` isn't listed, but typed in full, Enter sends it.
 - **Answer a prompt** with the buttons the Chat shows when the agent waits on you: a permission
   menu's options, a (y/n) question, a plan approval (with **Show plan**), or an AskUserQuestion
   form. A button types the option's key into the terminal. An option's preview (an ASCII sketch, a
@@ -616,7 +620,7 @@ Device → Session opens on**; the choice is saved per device.
   shows as _sent_ at once and, once logged, carries its chip (_You · 🧪 Retest_).
 - **Shepherd's own steers** (a CI fix, a rebase, the critic's findings, a plan go-ahead) fold into
   one row, _Shepherd · Critic findings_; open it to read the full text.
-- **Everything else** stays in the terminal: slash-command pickers, trust and upsell dialogs,
+- **Everything else** stays in the terminal: pickers a slash command opens, trust and upsell dialogs,
   rewind and compaction output. When the agent waits on one of those, the Chat says so and
   **Open terminal** switches to it.
 

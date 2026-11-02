@@ -7306,6 +7306,7 @@
   "session_chat_empty": "Noch keine Nachrichten. Schreib dem Agenten unten.",
   "session_chat_blocked": "Der Agent wartet im Terminal auf dich.",
   "session_chat_input_label": "Nachricht an den Agenten",
+  "session_chat_cmd_compact": "Fasst das bisherige Gespräch zusammen, um Kontext freizugeben",
   "session_chat_placeholder": "Nachricht an den Agenten…",
   "session_chat_send_failed": "Nicht gesendet: Das Terminal der Session ist nicht verbunden.",
   "session_chat_steer_by": "Shepherd · {kind}",
@@ -8002,6 +8003,8 @@
   "feat_upnext_quickstart_body": "Sobald du in den Einstellungen unter Coding-CLI einen Schnellstart für eine CLI speicherst, zeigt die Up-Next-Vorschau neben „Starten…“ einen Chip dafür. Ein Klick startet das Issue mit dieser CLI, diesem Modell und Aufwand — ohne Picker.",
   "feat_security_watch_plugin_title": "Sicherheits-Alerts werden zu Fix-Issues",
   "feat_security_watch_plugin_body": "Das mitgelieferte Security-Watch-Plugin (Einstellungen → Plugins, standardmäßig aus) liest offene Code-Scanning- und Dependabot-Alerts der hinzugefügten Repos, prüft sie schreibgeschützt und legt ein GitHub-Issue an, das einen Fix verlangt. Bei nicht privaten Repos bleibt das Issue geschwärzt, und es wird nichts angelegt, bis du den Hinweis zur Veröffentlichung akzeptierst.",
+  "feat_chat_slash_commands_title": "Slash-Befehle im Chat",
+  "feat_chat_slash_commands_body": "Tippe im Chat-Tab einer Session am Nachrichtenanfang /, um einen Befehl auszuwählen. In Codex-Sessions nutzt du stattdessen $ oder @. Enter oder Tab fügt ihn ein, sodass du vor dem Senden noch Argumente ergänzen kannst.",
   "feat_plugin_repo_picker_title": "Mehrere Repos auf einmal zu einem Plugin hinzufügen",
   "feat_plugin_repo_picker_body": "CI Watch und Security Watch (Einstellungen → Plugins) listen Repos jetzt alphabetisch mit Filter. Hake mehrere an und füge sie in einem Schritt hinzu. Jedes beobachtete Repo ist über eine kompakte Liste erreichbar, die jeweils die Einstellungen eines Repos öffnet. Die Repo-Auswahl von Sentry bekommt denselben Filter."
 }

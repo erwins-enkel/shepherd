@@ -7306,6 +7306,7 @@
   "session_chat_empty": "No messages yet. Write to the agent below.",
   "session_chat_blocked": "The agent is waiting for you in the terminal.",
   "session_chat_input_label": "Message to the agent",
+  "session_chat_cmd_compact": "Summarize the conversation so far to free up context",
   "session_chat_placeholder": "Message the agent…",
   "session_chat_send_failed": "Not sent: the session's terminal isn't connected.",
   "session_chat_steer_by": "Shepherd · {kind}",
@@ -8002,6 +8003,8 @@
   "feat_upnext_quickstart_body": "Once you save a quick start for a CLI in Settings → Coding CLI, the Up Next preview shows a chip for it beside Start…. One click starts the issue with that CLI, model and effort — no picker.",
   "feat_security_watch_plugin_title": "Security alerts become fix issues",
   "feat_security_watch_plugin_body": "The bundled Security Watch plugin (Settings → Plugins, off by default) reads open code scanning and Dependabot alerts in the repos you add, triages them read-only and files a GitHub issue asking for a fix. On a repo that isn't private the issue stays redacted, and nothing is filed until you accept the disclosure notice.",
+  "feat_chat_slash_commands_title": "Slash commands in Chat",
+  "feat_chat_slash_commands_body": "Type / at the start of a message in a session's Chat tab to pick a command. Codex sessions use $ or @ instead. Enter or Tab fills it in, so you can add arguments before sending.",
   "feat_plugin_repo_picker_title": "Add several repos to a plugin at once",
   "feat_plugin_repo_picker_body": "CI Watch and Security Watch (Settings → Plugins) now list repos alphabetically with a filter. Tick several and add them in one go. Every watched repo is reachable from a compact list, which opens one repo's settings at a time. Sentry's repo picker gets the same filter."
 }

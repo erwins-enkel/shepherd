@@ -311,6 +311,49 @@ describe("mobile list: every tap target clears the iOS HIG 44x44 floor", () => {
   }
 });
 
+describe("hold CTA spacing on touch", () => {
+  it("leaves breathing room between the 44px CTA and the row below it", async () => {
+    const host = unitsFlow(393);
+    // The phone list layout: without it a `right` track sits between the CTA and the footer.
+    host.className = "units flow";
+    render(UnitRow, {
+      target: host,
+      props: {
+        session: session({ id: ID, planPhase: "executing" }),
+        selected: false,
+        nowMs: Date.now(),
+        onselect: () => {},
+        hold: { code: "autopilot-paused" },
+      },
+    });
+    await frame();
+
+    const cta = host.querySelector<HTMLElement>(".hold-cta")!.getBoundingClientRect();
+    const meta = host.querySelector<HTMLElement>(".meta")!.getBoundingClientRect();
+    expect(cta.height).toBeGreaterThanOrEqual(HIG - SLACK);
+    expect(meta.top - cta.bottom).toBeGreaterThanOrEqual(8);
+  });
+
+  it("adds no space below a text-only hold line", async () => {
+    const host = unitsFlow(393);
+    host.className = "units flow";
+    render(UnitRow, {
+      target: host,
+      props: {
+        session: session({ id: ID }),
+        selected: false,
+        nowMs: Date.now(),
+        onselect: () => {},
+        hold: { code: "autopilot-paused" },
+      },
+    });
+    await frame();
+
+    expect(host.querySelector(".hold-cta")).toBeNull();
+    expect(getComputedStyle(host.querySelector<HTMLElement>(".u-hold")!).marginBottom).toBe("0px");
+  });
+});
+
 describe("D4/D5: the undersized card controls are readouts on touch, not tap targets", () => {
   it("badges and the repo emoji render, but none of them is interactive", async () => {
     const host = unitsFlow(393);

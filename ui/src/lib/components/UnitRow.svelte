@@ -2132,9 +2132,13 @@
        reach 44px on its own: the button itself has to grow. It is one button per card, and only on
        the cards that carry a hold, so the height is affordable here in a way five stacked badges
        (D4) were not. Baseline alignment is dropped to center so the taller button doesn't drag the
-       subline's text off its own baseline. */
+       subline's text off its own baseline. The margin keeps the taller button off the next row,
+       which the 3px row-gap alone leaves it nearly touching. */
     .u-hold {
       align-items: center;
+    }
+    .u-hold:has(.hold-cta) {
+      margin-bottom: 8px;
     }
     .hold-cta {
       min-height: 44px;

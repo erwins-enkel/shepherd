@@ -10,9 +10,11 @@ name: CodeQL
 # is read-only). Advanced setup runs the same queries via the `security-and-quality`
 # suite while honoring `paths-ignore` in .github/codeql/codeql-config.yml.
 #
-# MANUAL STEP: default setup must be turned off (Settings > Code security > CodeQL
-# analysis, and Settings > Code quality), otherwise it conflicts with this workflow.
-# Findings now appear under Security > Code scanning alerts, not the Code Quality tab.
+# Default setup must stay off (Settings > Code security > CodeQL analysis, and Settings >
+# Code quality): while it is on, GitHub rejects this workflow's SARIF uploads. It also has
+# no path filter, so it ran a macOS Swift scan on every PR. Swift lives in
+# codeql-swift.yml, filtered to native/.
+# Findings appear under Security > Code scanning alerts, not the Code Quality tab.
 
 on:
   push:
@@ -44,8 +46,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Mirrors the languages the prior default setup analyzed.
-        language: [javascript-typescript, actions]
+        # Every scanned language but Swift, which needs macOS (codeql-swift.yml).
+        language: [javascript-typescript, actions, python, rust]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,7 +56,7 @@ jobs:
         uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           languages: ${{ matrix.language }}
-          # No build required — JS/TS and actions use build-less extraction.
+          # No build required — all of these use build-less extraction.
           build-mode: none
           config-file: ./.github/codeql/codeql-config.yml
 

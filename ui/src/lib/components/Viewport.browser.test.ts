@@ -1392,7 +1392,7 @@ describe("Viewport mobile page-swipe scoping", () => {
   // the module-scope `fakeTouch` carries our chosen target up to that root listener.
 
   // A leftward drag with a large dx clears the axis slop and the commit threshold
-  // (Math.min(90, width*0.33)), committing to "next" → onnavigate(switchOrder[1]).
+  // (Math.min(90, width*0.33)), committing to "next" → onnavigate(nextSession()).
   function leftwardDrag(el: Element) {
     el.dispatchEvent(fakeTouch("touchstart", 300, 100));
     el.dispatchEvent(fakeTouch("touchmove", 0, 100));
@@ -1409,7 +1409,7 @@ describe("Viewport mobile page-swipe scoping", () => {
     return render(Viewport, {
       session: session({ id: "v1" }),
       mobile: true,
-      switchOrder: ["v1", "v2"],
+      nextSession: () => "v2",
       onnavigate,
       buildQueue: oneStepQueue("v1"),
       previewPort: null,
@@ -1431,13 +1431,36 @@ describe("Viewport mobile page-swipe scoping", () => {
     expect(onnavigate).toHaveBeenCalledWith("v2");
   });
 
+  it("leaves a leftward drag alone when there is no session to page to", async () => {
+    const onnavigate = vi.fn();
+    const { container } = await render(Viewport, {
+      session: session({ id: "v1" }),
+      mobile: true,
+      nextSession: () => null,
+      onnavigate,
+      onback: vi.fn(),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    const body = container.querySelector(".vp-body")!;
+    const mount = body.querySelector(".term-mount") ?? body;
+    mount.dispatchEvent(fakeTouch("touchstart", 300, 100));
+    mount.dispatchEvent(fakeTouch("touchmove", 0, 100));
+    await tick();
+    expect(container.querySelector(".swipe-reveal"), "no reveal mid-drag").toBeNull();
+    mount.dispatchEvent(fakeTouch("touchend", 0, 100));
+    await tick();
+
+    expect(onnavigate).not.toHaveBeenCalled();
+  });
+
   it("returns to the list on a rightward drag, even mid switch order (iOS parity)", async () => {
     const onnavigate = vi.fn();
     const onback = vi.fn();
     const { container } = await render(Viewport, {
       session: session({ id: "v2" }),
       mobile: true,
-      switchOrder: ["v1", "v2", "v3"],
+      nextSession: () => "v3",
       onnavigate,
       onback,
       previewPort: null,
@@ -1986,9 +2009,10 @@ describe("Viewport epic-draft review dialog", () => {
     const r = await render(Viewport, {
       session: session({ id: sessionId, epicAuthoring: true }),
       mobile,
-      // onnavigate is what makes canSwitch true — without it the swipe listeners never bind and
-      // the transform never appears, which would quietly hollow out the mid-drag test below.
-      switchOrder: [sessionId, "other"],
+      // onnavigate + nextSession are what make paging possible — without them the swipe listeners
+      // never bind and the transform never appears, which would quietly hollow out the mid-drag
+      // test below.
+      nextSession: () => "other",
       onnavigate: vi.fn(),
       previewPort: null,
       openPreviewTick: 0,

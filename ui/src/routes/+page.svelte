@@ -138,6 +138,7 @@
     isCommandBarChord,
     isAssistantChord,
     cycleId,
+    nextBelow,
     nthId,
     altComboKey,
   } from "#lib/components/herd-keynav.js";
@@ -2125,6 +2126,10 @@
     // so j/k/1-9 walk the done list and select via doneSelectedId — never the hidden
     // live partition.
     if (herdFilter === "done") return doneRailIds(shownDoneSessions);
+    return railOrderFor(collapsedStages, byMachine(herdRemoteSessions, machineFilter));
+  }
+
+  function railOrderFor(collapsedStageKeys: ReadonlySet<string>, mirrored: Session[]): string[] {
     return railOrder(
       byMachine(herdSessions, machineFilter),
       store.git,
@@ -2146,10 +2151,32 @@
       store.epics,
       activeEpicKeys,
       collapsedEpics,
-      collapsedStages,
+      collapsedStageKeys,
       store.backgroundBusy,
-      byMachine(herdRemoteSessions, machineFilter),
+      mirrored,
     );
+  }
+
+  // The phone's swipe-to-next space: the rail under the active lens + filters, computed on
+  // demand like railIds. Every lifecycle group counts: collapsedStages is desktop state (Shelved
+  // starts folded) and the phone accordion folds rows without taking them off the list. Mirrored
+  // sessions are out: their read-only detail has no swipe, so paging into one is a dead end.
+  function swipeOrder(): string[] {
+    return railOrderFor(new Set(), []);
+  }
+
+  // The swipe order as of opening the session on a phone, so nextBelow can continue from where
+  // the row was if it leaves the list while being viewed. Re-entering detail on the same row
+  // refreshes it, which picks up a lens or filter changed in the list. An order without the row
+  // is kept out: coming back from the assistant after the row left must not lose its position.
+  let swipeOpenedOrder: string[] = [];
+  $effect(() => {
+    if (!mobile.current || mobileScreen !== "detail" || !selectedId) return;
+    const order = untrack(swipeOrder);
+    if (order.includes(selectedId)) swipeOpenedOrder = order;
+  });
+  function nextSessionBelow(): string | null {
+    return nextBelow(swipeOrder(), selectedId, swipeOpenedOrder);
   }
 
   // Keyboard-driven selection: route through the same selectUnit a rail click
@@ -4060,7 +4087,7 @@
             buildQueue={store.buildQueues[selected.id] ?? null}
             onSeedBuildQueue={(q) => store.setBuildQueue(q)}
             queue={blockedEntries.map((e) => e.session.id)}
-            switchOrder={store.sessions.map((s) => s.id)}
+            nextSession={nextSessionBelow}
             onnavigate={(id) => void jumpHandlers.navigateFromViewport(id)}
             {consumeAutoFocusTerm}
             {onarchive}
@@ -4296,7 +4323,6 @@
               buildQueue={store.buildQueues[selected.id] ?? null}
               onSeedBuildQueue={(q) => store.setBuildQueue(q)}
               queue={blockedEntries.map((e) => e.session.id)}
-              switchOrder={store.sessions.map((s) => s.id)}
               onnavigate={(id) => void jumpHandlers.navigateFromViewport(id)}
               {consumeAutoFocusTerm}
               {onarchive}

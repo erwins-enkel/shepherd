@@ -779,6 +779,10 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     touch-action: pan-y;
+    /* Containing block for each row's absolute .bqp-sr. Without it their containing
+       block is the page, so this scroller can't clip them, and a long queue's
+       off-screen status words make the whole document scroll past the app. */
+    position: relative;
   }
 
   .bqp-row {

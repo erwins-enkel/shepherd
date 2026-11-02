@@ -368,6 +368,55 @@ describe("ChatView command menu", () => {
     expect(onsend).toHaveBeenCalledWith("/unknown");
   });
 
+  it("/clear typed in full sends, even with a longer command matching it", async () => {
+    mockCommands.mockResolvedValue({ commands: [command("clear-cache")] });
+    const onsend = vi.fn(() => true);
+    render(ChatView, typed({ onsend }));
+    await input().fill("/clear");
+    await menuOpen();
+    await userEvent.keyboard("{Enter}");
+    expect(onsend).toHaveBeenCalledWith("/clear");
+  });
+
+  it("/clear still fills a command the operator chose from the menu", async () => {
+    mockCommands.mockResolvedValue({ commands: [command("clear"), command("clear-cache")] });
+    const onsend = vi.fn(() => true);
+    render(ChatView, typed({ onsend }));
+    await input().fill("/clear");
+    await menuOpen();
+    await userEvent.keyboard("{ArrowDown}");
+    await userEvent.keyboard("{Enter}");
+    await expect.element(input()).toHaveValue("/clear-cache ");
+    expect(onsend).not.toHaveBeenCalled();
+  });
+
+  it("a shorter reload keeps the highlight on a real row", async () => {
+    mockCommands.mockResolvedValueOnce({
+      commands: ["a", "b", "c", "d"].map((n) => command(`cmd-${n}`)),
+    });
+    render(ChatView, typed());
+    await input().fill("/");
+    await menuOpen();
+    await input().fill("");
+    await expect.poll(() => rows()).toEqual([]);
+
+    let reload!: (value: { commands: SlashCommand[] }) => void;
+    mockCommands.mockReturnValueOnce(new Promise((resolve) => (reload = resolve)));
+    await input().fill("/");
+    await menuOpen();
+    await userEvent.keyboard("{ArrowUp}");
+    await expect
+      .poll(() => document.querySelector(".sc-row.active .sc-name")?.textContent)
+      .toBe("/compact");
+    reload({ commands: [command("review")] });
+    await expect.poll(() => rows()).toEqual(["/compact", "/review"]);
+    await expect
+      .poll(() => document.querySelector(".sc-row.active .sc-name")?.textContent)
+      .toBe("/review");
+    await userEvent.keyboard("{Enter}");
+    await expect.element(input()).toHaveValue("/review ");
+  });
+
   it("a failed load still offers /compact and never blocks sending", async () => {
     mockCommands.mockRejectedValue(new Error("down"));
     render(ChatView, typed());

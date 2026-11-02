@@ -358,6 +358,11 @@
   const slashMatches = $derived(
     slashOpen ? filterCommands(menuCommands, slashQuery, agentProvider) : [],
   );
+  // A reload can shorten the list under the highlight.
+  const slashActive = $derived(Math.min(slashIndex, Math.max(0, slashMatches.length - 1)));
+  // `/clear` stays off the menu but still sends when typed in full, so a longer match like
+  // `/clear-cache` only takes Enter once the operator has moved the highlight to it.
+  const typedClear = $derived(agentProvider === "claude" && slashQuery === "clear" && !slashActive);
   // Nothing shows until the first load settles, so "no matching commands" can't flash.
   const slashShown = $derived(slashOpen && commandsLoaded);
 
@@ -417,11 +422,13 @@
     } else if (count === 0) {
       return false;
     } else if (e.key === "ArrowDown") {
-      slashIndex = (slashIndex + 1) % count;
+      slashIndex = (slashActive + 1) % count;
     } else if (e.key === "ArrowUp") {
-      slashIndex = (slashIndex - 1 + count) % count;
+      slashIndex = (slashActive - 1 + count) % count;
+    } else if (e.key === "Enter" && typedClear) {
+      return false;
     } else if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
-      pickCommand(slashMatches[slashIndex]!);
+      pickCommand(slashMatches[slashActive]!);
     } else {
       return false;
     }
@@ -723,7 +730,7 @@
       open={slashShown}
       anchor={slashAnchor}
       commands={slashMatches}
-      activeIndex={slashIndex}
+      activeIndex={slashActive}
       provider={agentProvider}
       onpick={pickCommand}
       onhover={(i) => (slashIndex = i)}

@@ -434,19 +434,117 @@ test("promoteDemotedMenu leaves everything that is not a demoted run untouched",
 });
 
 test("promoteDemotedMenu treats dialog chrome as proof when the option run left the tail", () => {
-  const pane = readFileSync(join(fixturesDir, "tall-ask-dialog.txt"), "utf8");
+  // Footer no longer anchored to the bottom, so only a hooked dialog can vouch for this pane.
+  const pane = `${readFileSync(join(fixturesDir, "tall-ask-dialog.txt"), "utf8")}\n  below\n  below`;
   const tall = classifyBlocked(pane);
-  expect(tall.shape).toBe("awaiting-input"); // `❯ 1.` is outside the 15-line tail
+  expect(tall.shape).toBe("awaiting-input");
   expect(promoteDemotedMenu(tall)).toEqual({ shape: "menu", options: [], tail: tall.tail });
+});
 
-  // Clipped by the pane itself: options 1 and 2 are not even on screen.
-  const lines = pane.split("\n");
+// ── #3654: a dialog taller than the tail is still a dialog, hook or no hook ───
+
+const TALL_PANE = readFileSync(join(fixturesDir, "tall-ask-dialog.txt"), "utf8");
+const TALL_FOOTER = "Enter to select · ↑/↓ to navigate · Esc to cancel";
+const SCROLLED_OFF = Array.from({ length: 20 }, (_, i) => `filler ${i}`);
+
+test("a dialog taller than the tail is a menu with its whole run and real question", () => {
+  const r = classifyBlocked(TALL_PANE);
+  expect(r.shape).toBe("menu");
+  expect(r.options.map((o) => o.send)).toEqual(["1", "2", "3", "4", "5", "6"]);
+  expect(r.options[0]?.label).toBe("Block image-only send");
+  expect(r.tail).toHaveLength(15);
+  expect(r.context?.[0]).toStartWith("│ Chat composer: what is wrong");
+  expect(r.context?.at(-1)).toBe("│ anywhere I traced in the code.");
+  expect(r.context?.join("\n")).not.toContain("Images alone must not send");
+  expect(r.context).toHaveLength(5);
+  expect(classifyBlocked(`${SCROLLED_OFF.join("\n")}\n${TALL_PANE}`).context).toHaveLength(6);
+});
+
+test("the pane clipping option 1 still reads as a menu, with no options to offer", () => {
+  const lines = TALL_PANE.split("\n");
   const clipped = lines
     .slice(lines.findIndex((l) => l.includes("3. Enter should send")))
     .join("\n");
-  const promoted = promoteDemotedMenu(classifyBlocked(clipped));
-  expect(promoted.shape).toBe("menu");
-  expect(promoted.options).toEqual([]);
+  const r = classifyBlocked(clipped);
+  expect(r.shape).toBe("menu");
+  expect(r.options).toEqual([]);
+  expect(r.context).toBeUndefined();
+});
+
+test("a long permission prompt's non-selecting footer still yields a menu via its pane run", () => {
+  const r = classifyBlocked(TALL_PANE.replace(TALL_FOOTER, "Esc to cancel · Tab to amend"));
+  expect(r.shape).toBe("menu");
+  expect(r.options.map((o) => o.send)).toEqual(["1", "2", "3", "4", "5", "6"]);
+});
+
+test("an unnumbered dialog with a selecting footer is a menu with no options", () => {
+  const trust = [
+    " Quick safety check: Is this a project you created or one you trust?",
+    " ❯ No, exit",
+    "   Yes, I trust this folder",
+    " Enter to confirm · Esc to cancel",
+  ].join("\n");
+  expect(classifyBlocked(trust)).toMatchObject({ shape: "menu", options: [] });
+});
+
+test("a list scrolled above the tail is not an unnumbered dialog's options", () => {
+  const pane = [
+    "1. First finding",
+    "2. Second finding",
+    ...SCROLLED_OFF,
+    " ❯ Use this MCP server",
+    "   Continue without using this MCP server",
+    " Enter to confirm · Esc to cancel",
+  ].join("\n");
+  expect(classifyBlocked(pane)).toMatchObject({ shape: "menu", options: [] });
+});
+
+test("a list straddling the tail's top edge is not a dialog's options", () => {
+  const straddling = (dialog: string[]) =>
+    classifyBlocked(
+      [
+        "1. First finding",
+        "2. Second finding",
+        "3. Third finding",
+        ...SCROLLED_OFF.slice(0, 14 - dialog.length),
+        ...dialog,
+      ].join("\n"),
+    );
+
+  const unnumbered = straddling([
+    " ❯ Use this MCP server",
+    "   Continue without using this MCP server",
+    " Enter to confirm · Esc to cancel",
+  ]);
+  expect(unnumbered.tail[0]).toBe("3. Third finding");
+  expect(unnumbered).toMatchObject({ shape: "menu", options: [] });
+
+  const login = straddling(["  Login", "  Paste code here if prompted >", "  Esc to cancel"]);
+  expect(login.tail[0]).toBe("3. Third finding");
+  expect(login.shape).toBe("awaiting-input");
+});
+
+test("a (y/n) quoted in a tall dialog's description does not make y/n buttons", () => {
+  const pane = TALL_PANE.replace("Fix: queue the send", "Overwrite? (y/n) Fix: queue the send");
+  expect(classifyBlocked(pane).shape).toBe("menu");
+});
+
+test("the login modal stays awaiting-input, even under a list scrolled above the tail", () => {
+  const modal = ["  Login", "  Paste code here if prompted >", "  Esc to cancel"];
+  expect(classifyBlocked(modal.join("\n")).shape).toBe("awaiting-input");
+  const below = ["1. First finding", "2. Second finding", ...SCROLLED_OFF, ...modal].join("\n");
+  expect(classifyBlocked(below).shape).toBe("awaiting-input");
+});
+
+test("prose quoting a selecting footer above the at-rest input box stays awaiting-input", () => {
+  const pane = [
+    "The dialog says Enter to select · ↑/↓ to navigate · Esc to cancel.",
+    "──────────",
+    "❯",
+    "──────────",
+    "  ⏵⏵ bypass permissions on",
+  ].join("\n");
+  expect(classifyBlocked(pane).shape).toBe("awaiting-input");
 });
 
 test("real #2282 panes: both were mid-turn and now read as working", () => {

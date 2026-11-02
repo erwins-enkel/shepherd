@@ -18,11 +18,11 @@ import { classifyBlocked, type BlockShape } from "./blocked";
  * spinner suppression.
  *
  * Since #2281 shape carries weight too: `classifyBlocked` reports `menu` only for a numbered run
- * that also renders dialog chrome (a caret on an option, or the key-hint footer), which a printed
- * findings list never has. Real prompts — the captured upsell pane in this module's tests
- * included — all carry it, so every wedge this exists for is still caught; what it no longer
- * reports is a critic frozen on its own findings render, previously an accepted false positive
- * costing an early finalize.
+ * that also renders dialog chrome (a caret on an option, or the key-hint footer), or for a key-hint
+ * footer anchored to the pane's bottom (#3654). A printed findings list has neither. Real prompts —
+ * the captured upsell pane in this module's tests included — all carry one, so every wedge this
+ * exists for is still caught; what it no longer reports is a critic frozen on its own findings
+ * render, previously an accepted false positive costing an early finalize.
  *
  * `awaiting-input` / `stall` / `quota` shapes are deliberately NOT treated as stuck: they are
  * either legitimately mid-turn or already have their own dedicated handling, and killing a run on
@@ -31,12 +31,13 @@ import { classifyBlocked, type BlockShape } from "./blocked";
  * ── The input MUST be the raw pane buffer ────────────────────────────────────────────────────────
  * Pass `herdr.readAsync(terminalId, "visible")` VERBATIM — the same shape src/poller.ts feeds its
  * own classifyBlocked call. `classifyBlocked` splits on newlines and its option regex is
- * line-anchored, so a pre-flattened string can never match.
+ * line-anchored, so a pre-flattened string can never match an option.
  *
  * In particular do NOT pass `ReviewService.readPaneTail()`: it reads "recent", collapses runs of
  * whitespace to single spaces, truncates to ~300 chars and sanitizes. Feeding that here yields a
- * detector that SILENTLY NEVER FIRES — the failure is invisible to this module's own unit tests,
- * which supply raw captured buffers, so the caller-side wiring is asserted separately.
+ * detector that SILENTLY MISSES every prompt without a selecting footer — the failure is invisible
+ * to this module's own unit tests, which supply raw captured buffers, so the caller-side wiring is
+ * asserted separately.
  */
 export function stuckOnPrompt(visible: string, prevVisible: string | null): BlockShape | null {
   if (prevVisible === null || visible !== prevVisible) return null;

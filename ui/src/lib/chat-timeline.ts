@@ -60,9 +60,11 @@ export function ledger(rows: readonly Pick<TimelineRow, "kind" | "ts">[]): Ledge
 const OPTION_LINE_RE = /^[\s│|]*[❯>*]?\s*\d+[.)]/;
 const CONTEXT_LINES = 6;
 
-/** The terminal lines a blocked prompt asks with: those above its option run (all of the tail
- *  when it has none, as with a (y/n) prompt), the last few. */
-export function blockContext(tail: readonly string[]): string[] {
+/** The terminal lines a blocked prompt asks with: what the server recovered above a tail that lost
+ *  option 1, else those above its option run (all of the tail when it has none, as with a (y/n)
+ *  prompt), the last few. */
+export function blockContext({ tail, context }: Pick<BlockReason, "tail" | "context">): string[] {
+  if (context) return context;
   const first = tail.findIndex((l) => OPTION_LINE_RE.test(l));
   return (first < 0 ? tail : tail.slice(0, first)).slice(-CONTEXT_LINES);
 }

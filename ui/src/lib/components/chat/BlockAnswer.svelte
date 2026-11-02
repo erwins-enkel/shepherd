@@ -28,7 +28,7 @@
   let planOpenFor = $state<string | null>(null);
   const planOpen = $derived(!!block.plan && planOpenFor === block.plan.toolUseId);
 
-  const context = $derived(blockContext(block.tail));
+  const context = $derived(blockContext(block));
   const choices = $derived(
     card === "menu"
       ? block.options.map((o) => ({ label: o.label, keys: o.send }))

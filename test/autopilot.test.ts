@@ -1,4 +1,6 @@
 import { test, expect, mock } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { SessionService } from "../src/service";
 import {
   AutopilotService,
@@ -19,7 +21,7 @@ import { DRAFT_PR_NOTE } from "../src/service";
 // The open-PR steer for sess()'s default base branch ("main"), no draft note.
 const OPEN_PR_STEER_MAIN = openPrSteer(false, "main");
 import type { AutopilotVerdict, Session, ReviewVerdict } from "../src/types";
-import type { BlockReason } from "../src/blocked";
+import { classifyBlocked, type BlockReason } from "../src/blocked";
 import type { GitState } from "../src/forge/types";
 import { OWNERSHIP_TTL_MS } from "../src/automerge-core";
 
@@ -569,6 +571,24 @@ test("a demoted menu never classifies or steers (#2281)", async () => {
   expect(h.classified).toHaveLength(0);
   expect(h.events.length).toBe(0);
   expect(h.state().autopilotStepCount).toBe(0);
+});
+
+test("a dialog taller than the tail never classifies or steers without a hook (#3654)", async () => {
+  const tall = readFileSync(
+    join(import.meta.dir, "fixtures", "fullscreen", "tall-ask-dialog.txt"),
+    "utf8",
+  );
+  const permission = tall.replace(
+    "Enter to select · ↑/↓ to navigate · Esc to cancel",
+    "Esc to cancel · Tab to amend",
+  );
+  for (const pane of [tall, permission]) {
+    const h = harness({ session: sess(), verdict: { kind: "gate", summary: "x" } });
+    await h.svc.onBlock("s1", classifyBlocked(pane));
+    expect(h.classified).toHaveLength(0);
+    expect(h.events.length).toBe(0);
+    expect(h.state().autopilotStepCount).toBe(0);
+  }
 });
 
 test("an awaiting-input tail with no numbered run still steers (#2281 guard is narrow)", async () => {

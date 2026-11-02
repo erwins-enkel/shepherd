@@ -367,8 +367,8 @@ test("a held dialog moving to its next question re-emits the menu with the ask",
     expect(r.blocks.at(-1)?.ask).toEqual(ASK);
   }));
 
-// A dialog taller than classifyBlocked's window loses option 1 from the tail, so it reads as
-// `awaiting-input` despite its footer. The hook is what proves the dialog.
+// A dialog taller than classifyBlocked's window loses option 1 from the tail. Its anchored footer
+// proves the dialog, hook or no hook (#3654).
 const TALL_DIALOG = readFileSync(
   join(import.meta.dir, "fixtures", "fullscreen", "tall-ask-dialog.txt"),
   "utf8",
@@ -387,9 +387,10 @@ test("a dialog taller than the tail still carries its ask", async () => {
   expect(r.poller.currentAsk(r.id)).toBeNull();
 });
 
-test("the same tall pane with no hooked ask stays awaiting-input", async () => {
+test("the same tall pane with no hooked ask is a menu with its options", async () => {
   const r = rig(TALL_DIALOG);
   await r.tick();
-  expect(r.blocks.at(-1)?.shape).toBe("awaiting-input");
+  expect(r.blocks.at(-1)?.shape).toBe("menu");
+  expect(r.blocks.at(-1)?.options.map((o) => o.send)).toEqual(["1", "2", "3", "4", "5", "6"]);
   expect(r.blocks.at(-1)?.ask).toBeUndefined();
 });

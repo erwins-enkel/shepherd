@@ -7370,6 +7370,7 @@
   "schedule_badge_label": "Scheduled",
   "schedule_badge_label_named": "Scheduled · {name}",
   "schedule_badge_title": "Started by a repo schedule",
+  "schedule_badge_title_named": "Started by repo schedule “{name}”",
   "tooltip_schedules_title": "Schedules",
   "tooltip_schedules_summary": "Run a prompt or /skill in this repo on chosen weekdays and times. Each run starts a fresh, normal session.",
   "tooltip_schedules_catchup": "Missed runs",

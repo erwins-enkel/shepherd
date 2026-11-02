@@ -14,7 +14,7 @@
 //    label is DERIVED from it in code, so the model can never introduce an arbitrary
 //    label (any `labels` field it emits is ignored).
 
-import { appendFileSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -85,15 +85,19 @@ export function gateBody(body: string, minLen = MIN_BODY_LENGTH): { ok: boolean;
   return { ok: true };
 }
 
-/** Read + concatenate the public docs (md/mdx). README is intentionally excluded. */
+/** Read + concatenate the public docs (md/mdx). README is intentionally excluded.
+ *  Entry types come from the listing itself; symlinks are skipped. */
 export function readDocs(dir: string): string {
   const parts: string[] = [];
   const walk = (d: string): void => {
-    for (const entry of readdirSync(d).sort()) {
-      const p = join(d, entry);
-      if (statSync(p).isDirectory()) {
+    const entries = readdirSync(d, { withFileTypes: true }).sort((a, b) =>
+      a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+    );
+    for (const entry of entries) {
+      const p = join(d, entry.name);
+      if (entry.isDirectory()) {
         walk(p);
-      } else if (entry.endsWith(".md") || entry.endsWith(".mdx")) {
+      } else if (entry.isFile() && (entry.name.endsWith(".md") || entry.name.endsWith(".mdx"))) {
         parts.push(`# FILE: ${p}\n\n${readFileSync(p, "utf8")}`);
       }
     }

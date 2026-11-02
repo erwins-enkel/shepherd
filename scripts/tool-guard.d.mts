@@ -39,6 +39,7 @@ export const RATE_LIMIT_REASON: string;
 export const CI_WATCH_REASON: string;
 export const CI_POLL_CONTEXT: string;
 export const DEPLOY_WATCH_CONTEXT: string;
+export const TRAIN_WATCH_CONTEXT: string;
 export const PR_CREATE_CONTEXT: string;
 export const PUSH_CONTEXT: string;
 export const BACKGROUND_CONTEXT: string;
@@ -72,6 +73,8 @@ export interface ToolGuardDeps {
   /** The operator's edits to the built-in heavy list (#3552), or null. Default: the JSON file
    *  `SHEPHERD_HEAVY_LIST_FILE` names. */
   heavyList?: () => HeavyListOverride | null;
+  /** A merge train session (`--ci-watch-allowed`): CI watchers are allowed, one-shot reads unhinted. */
+  ciWatchAllowed?: boolean;
 }
 
 /** Operator edits to the built-in "counts as heavy" list (Settings → Resources). */

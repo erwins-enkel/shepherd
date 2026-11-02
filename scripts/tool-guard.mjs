@@ -165,6 +165,11 @@ export const DEPLOY_WATCH_CONTEXT =
   "Shepherd doesn't track this run, so watching it is fine. Pass `--interval 30` or more: the 3s " +
   "default costs ~3,600 GitHub REST requests/h.";
 
+/** Injected on a CI watch in a merge train session polling faster than every 30 s. */
+export const TRAIN_WATCH_CONTEXT =
+  "Shepherd: this merge train session may watch CI. Pass `--interval 30` or more: faster polling " +
+  "spends GitHub budget (`gh run watch` defaults to 3 s, `gh pr checks --watch` to 10 s).";
+
 /** Injected (not denied) on a one-shot CI read (#2852): allowed, but a loop of them is the same
  *  polling the watch denial stops. */
 export const CI_POLL_CONTEXT =
@@ -723,7 +728,7 @@ export function decideToolGuard(event, deps = {}) {
   if (decided) return decided;
   if (opensPullRequest(command)) return { additionalContext: PR_CREATE_CONTEXT };
   if (pushesBranch(command)) return { additionalContext: PUSH_CONTEXT };
-  if (readsCi(command)) return { additionalContext: CI_POLL_CONTEXT };
+  if (!deps.ciWatchAllowed && readsCi(command)) return { additionalContext: CI_POLL_CONTEXT };
   if (isBackgrounded(input, command)) return { additionalContext: BACKGROUND_CONTEXT };
   return null;
 }
@@ -838,13 +843,18 @@ function isPrCiRun(run, cwd, deps) {
  * session's own PR CI or of a run it can't name (no id, or `$ID`). A run Shepherd doesn't track (a
  * deploy, a release, `workflow_dispatch`) is allowed, with a hint unless it already polls ≥ 30 s.
  * Returns `undefined` when `w` is no watcher, `null` for an allowed watch that needs no hint.
+ *
+ * `deps.ciWatchAllowed` marks a merge train session, which Shepherd doesn't steer about the CI of
+ * the PRs it lands: every watcher is allowed there, with no lookup.
  */
 function ciWatchDecision(w, cwd, deps) {
   const sub = ghSubcommand(w);
-  if (sub === "pr checks")
-    return w.some((a) => /^--watch(=|$)/.test(a)) ? CI_WATCH_DENIAL : undefined;
-  if (sub !== "run watch") return undefined;
+  if (sub !== "run watch" && !(sub === "pr checks" && w.some((a) => /^--watch(=|$)/.test(a))))
+    return undefined;
   const { id, repo, interval } = runWatchArgs(w);
+  if (deps.ciWatchAllowed)
+    return interval >= 30 ? null : { additionalContext: TRAIN_WATCH_CONTEXT };
+  if (sub === "pr checks") return CI_WATCH_DENIAL;
   if (!id || !/^\d+$/.test(id)) return CI_WATCH_DENIAL;
   if (isPrCiRun(deps.runInfo(id, repo, cwd), cwd, deps)) return CI_WATCH_DENIAL;
   return interval >= 30 ? null : { additionalContext: DEPLOY_WATCH_CONTEXT };
@@ -1050,7 +1060,8 @@ async function main() {
   if (at > 0 && process.argv[at + 1]) process.env.SHEPHERD_HEAVY_LIST_FILE = process.argv[at + 1];
   let out = null;
   try {
-    out = hookOutput(decideToolGuard(JSON.parse(await readStdin())));
+    const ciWatchAllowed = process.argv.includes("--ci-watch-allowed");
+    out = hookOutput(decideToolGuard(JSON.parse(await readStdin()), { ciWatchAllowed }));
   } catch {
     out = null; // fail open on malformed input — never block on a parse error
   }

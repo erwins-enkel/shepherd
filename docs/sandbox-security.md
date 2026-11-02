@@ -336,7 +336,9 @@ still stand.
   the agent when its checks finish (#2852). A `gh run watch <run-id>` of a run
   Shepherd doesn't track — a deploy after merge, `workflow_dispatch`, a release —
   is allowed, with a hint to poll every 30 s or slower; the guard tells the two
-  apart with one `gh run view <run-id> --json event,headBranch` lookup. It is a **local `command` hook**, not the fail-open HTTP ingest
+  apart with one `gh run view <run-id> --json event,headBranch` lookup. A session
+  launched as a merge train is exempt from the CI rules, because nothing steers it
+  about the PRs it lands: every watcher is allowed there, with the same 30 s hint. It is a **local `command` hook**, not the fail-open HTTP ingest
   transport, precisely so the deny still holds for unattended sessions whose
   `--clearenv` membrane 401s the restricted ingress. Its script is bound RO into
   the membrane (`agentSupportPaths` → `agentSupportFlags`, `src/sandbox.ts`),

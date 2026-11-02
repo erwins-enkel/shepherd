@@ -342,6 +342,26 @@ test("readCodexRateLimits skips a foreign bucket file and uses the first Codex r
   });
 });
 
+test("readCodexRateLimits only reads the tail of a large rollout file", () => {
+  const dir = tempDir();
+  const resetSec = Math.floor(NOW / 1000) + 3600;
+  const padding = `${"x".repeat(1_100_000)}\n`;
+  const newestAtEnd = join(dir, "newest-at-end.jsonl");
+  const onlyInHead = join(dir, "only-in-head.jsonl");
+  writeFileSync(
+    newestAtEnd,
+    `${rolloutLine(1, 1, resetSec - 60)}\n${padding}${rolloutLine(43, 9, resetSec)}\n`,
+  );
+  writeFileSync(onlyInHead, `${rolloutLine(1, 1, resetSec - 60)}\n${padding}`);
+
+  expect(readCodexRateLimits([newestAtEnd], NOW)).toMatchObject({
+    session5h: { pct: 43, resetAt: resetSec * 1000 },
+    week: { pct: 9, resetAt: (resetSec + 600) * 1000 },
+    filesScanned: 1,
+  });
+  expect(readCodexRateLimits([onlyInHead], NOW)).toBeNull();
+});
+
 test("recentCodexRolloutPaths lists newest rollout files under CODEX_HOME sessions", () => {
   const dir = tempDir();
   const sessions = join(dir, "sessions", "2026", "06", "25");

@@ -1,6 +1,7 @@
 import {
   closeSync,
   existsSync,
+  fstatSync,
   openSync,
   readSync,
   readdirSync,
@@ -317,17 +318,17 @@ function assignLimitWindow(
 }
 
 function readFileTail(path: string, maxBytes: number): string {
-  const st = statSync(path);
-  const start = Math.max(0, st.size - maxBytes);
-  const length = st.size - start;
-  const buf = Buffer.alloc(length);
   const fd = openSync(path, "r");
   try {
-    readSync(fd, buf, 0, length, start);
+    const { size } = fstatSync(fd);
+    const start = Math.max(0, size - maxBytes);
+    const length = size - start;
+    const buf = Buffer.alloc(length);
+    const bytesRead = readSync(fd, buf, 0, length, start);
+    return buf.toString("utf8", 0, bytesRead);
   } finally {
     closeSync(fd);
   }
-  return buf.toString("utf8");
 }
 
 function parseRolloutLine(line: string): RolloutTokenCountEvent | null {

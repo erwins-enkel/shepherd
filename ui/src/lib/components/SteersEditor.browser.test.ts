@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { tick } from "svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import type { Steer } from "#lib/types.js";
 
@@ -301,14 +301,98 @@ describe("SteersEditor — two-step remove", () => {
 
     (row("a")!.querySelector(".rc-open") as HTMLButtonElement).click();
     await tick();
-    const wrap = row("a")!.querySelector(".remove-wrap") as HTMLElement;
-    wrap.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: document.body }));
+    const cancel = row("a")!.querySelector(".rc-no") as HTMLElement;
+    cancel.dispatchEvent(
+      new FocusEvent("focusout", { bubbles: true, relatedTarget: document.body }),
+    );
     await tick();
 
     expect(row("a")!.querySelector(".rc-yes"), "confirm dismissed").toBeNull();
     expect(row("a")!.querySelector(".rc-open"), "reverted to Remove…").not.toBeNull();
     expect(putSpy).not.toHaveBeenCalled();
     expect(row("a"), "row not deleted").not.toBeNull();
+  });
+
+  // Keyboard activation is the case that leaves "Remove…" focused (a mouse press is
+  // prevented from focusing it), so the swap to the confirm removes the focused button.
+  it("Enter on a focused Remove… keeps the confirm open, focused on cancel", async () => {
+    render(SteersEditor, {});
+    await tick();
+    (row("a")!.querySelector(".rtitle") as HTMLButtonElement).click();
+    await tick();
+    putSpy.mockClear();
+
+    (row("a")!.querySelector(".rc-open") as HTMLButtonElement).focus();
+    await userEvent.keyboard("{Enter}");
+    await settle();
+
+    expect(row("a")!.querySelector(".rc-yes"), "confirm shown").not.toBeNull();
+    expect(document.activeElement).toBe(row("a")!.querySelector(".rc-no"));
+    expect(putSpy).not.toHaveBeenCalled();
+  });
+
+  // Real clicks exercise the pointer path: mousedown layout shifts and focus handling that
+  // programmatic .click() skips.
+  async function openConfirmWithRealClick() {
+    render(SteersEditor, {});
+    await tick();
+    await page.elementLocator(row("a")!.querySelector(".rtitle")!).click();
+    await tick();
+    putSpy.mockClear();
+    await page.elementLocator(row("a")!.querySelector(".rc-open")!).click();
+    await settle();
+  }
+
+  it("a real click on Remove… opens the confirm, focused on cancel, and ✓ deletes", async () => {
+    await openConfirmWithRealClick();
+    const yes = row("a")!.querySelector(".rc-yes");
+    expect(yes, "confirm shown").not.toBeNull();
+    expect(document.activeElement).toBe(row("a")!.querySelector(".rc-no"));
+
+    await page.elementLocator(yes!).click();
+    await settle();
+
+    expect(row("a"), "row removed").toBeNull();
+    expect(putSpy).toHaveBeenCalledTimes(1);
+    expect(putSpy.mock.calls[0]![0].map((s) => s.id)).toEqual(["b"]);
+  });
+
+  // Blurring a focused, autogrown prompt shrinks it on mousedown, so without a focus-keeping
+  // mousedown the button moves up from under the pointer and the click never lands on it.
+  it("a real click on Remove… opens the confirm while a tall prompt is focused", async () => {
+    steers.list = [steer({ id: "a", label: "Alpha", text: "long line\n".repeat(30) })];
+    render(SteersEditor, {});
+    await tick();
+    await page.elementLocator(row("a")!.querySelector(".rtitle")!).click();
+    await tick();
+    (row("a")!.querySelector("textarea.ptext") as HTMLTextAreaElement).focus();
+    await settle();
+
+    await page.elementLocator(row("a")!.querySelector(".rc-open")!).click();
+    await settle();
+
+    expect(row("a")!.querySelector(".rc-yes"), "confirm shown").not.toBeNull();
+    expect(document.activeElement).toBe(row("a")!.querySelector(".rc-no"));
+  });
+
+  it("clicking away from the open confirm dismisses it, with no delete", async () => {
+    await openConfirmWithRealClick();
+    await page.elementLocator(document.querySelector(".hint")!).click();
+    await settle();
+
+    expect(row("a")!.querySelector(".rc-yes"), "confirm dismissed").toBeNull();
+    expect(row("a")!.querySelector(".rc-open"), "reverted to Remove…").not.toBeNull();
+    expect(putSpy).not.toHaveBeenCalled();
+  });
+
+  it("a real click on ✕ cancels, with no delete", async () => {
+    await openConfirmWithRealClick();
+    await page.elementLocator(row("a")!.querySelector(".rc-no")!).click();
+    await settle();
+
+    expect(row("a")!.querySelector(".rc-yes"), "confirm dismissed").toBeNull();
+    expect(row("a")!.querySelector(".rc-open"), "reverted to Remove…").not.toBeNull();
+    expect(putSpy).not.toHaveBeenCalled();
   });
 });
 

@@ -3,6 +3,7 @@ import {
   railOrder as railOrderRaw,
   railLocationsOf,
   cycleId,
+  nextBelow,
   nthId,
   nextNeedsYou,
   altComboKey,
@@ -313,6 +314,38 @@ test("railOrder places reviewing → rework above CI running → CI failed, befo
   );
 
   expect(order).toEqual(["active", "review", "rework", "ci", "fail", "needs", "branch", "wait"]);
+});
+
+test("nextBelow follows the live order and wraps at the bottom", () => {
+  const live = ["a", "b", "c"];
+  expect(nextBelow(live, "a", live)).toBe("b");
+  expect(nextBelow(live, "c", live)).toBe("a");
+});
+
+test("nextBelow prefers the live position over where the row was when opened", () => {
+  expect(nextBelow(["b", "a", "c"], "b", ["a", "b", "c"])).toBe("a");
+});
+
+test("nextBelow continues below a row that left the list", () => {
+  expect(nextBelow(["a", "c"], "b", ["a", "b", "c"])).toBe("c");
+  // the row directly below left too: skip to the next one still listed
+  expect(nextBelow(["a", "d"], "b", ["a", "b", "c", "d"])).toBe("d");
+});
+
+test("nextBelow wraps to the top when nothing below a departed row is left", () => {
+  expect(nextBelow(["a", "b"], "c", ["a", "b", "c"])).toBe("a");
+});
+
+test("nextBelow starts at the top for a session that was never listed", () => {
+  expect(nextBelow(["a", "b"], "x", ["a", "b"])).toBe("a");
+  expect(nextBelow(["a"], "x", [])).toBe("a");
+  expect(nextBelow(["a", "b"], "x", ["b", "a"])).toBe("a");
+  expect(nextBelow(["a", "b"], null, [])).toBe("a");
+});
+
+test("nextBelow has nowhere to go from the only row or an empty list", () => {
+  expect(nextBelow(["a"], "a", ["a"])).toBeNull();
+  expect(nextBelow([], "a", ["a", "b"])).toBeNull();
 });
 
 test("cycleId steps down and up through the order", () => {

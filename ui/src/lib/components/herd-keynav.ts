@@ -152,6 +152,21 @@ export function cycleId(order: string[], currentId: string | null, step: 1 | -1)
   return order[(idx + step + order.length) % order.length];
 }
 
+/** The session below `currentId` in the `live` list, wrapping at the bottom. A row that left
+ *  the list since it was opened (reply in the Ready lens → it runs and drops out) continues
+ *  from where it was: the first row after it in `opened`, the list as of opening, that is still
+ *  live. Null when there is nowhere else to go. */
+export function nextBelow(
+  live: string[],
+  currentId: string | null,
+  opened: readonly string[],
+): string | null {
+  const from = currentId && !live.includes(currentId) ? opened.indexOf(currentId) : -1;
+  const below = from === -1 ? undefined : opened.slice(from + 1).find((id) => live.includes(id));
+  const target = below ?? cycleId(live, currentId, 1);
+  return target === currentId ? null : target;
+}
+
 /** The Nth (1-based) id in rail order, or null when out of range. */
 export function nthId(order: string[], n: number): string | null {
   return Number.isInteger(n) && n >= 1 && n <= order.length ? order[n - 1] : null;

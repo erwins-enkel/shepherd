@@ -145,7 +145,7 @@
     mobile = false,
     touch = false,
     queue = [],
-    switchOrder = [],
+    nextSession,
     onnavigate,
     limits = null,
     connected = true,
@@ -199,9 +199,11 @@
     // ordered ids of sessions currently waiting on the operator ("needs you"),
     // so the console can page through that queue without a trip back to the list
     queue?: string[];
-    // ordered ids of *all* live sessions (list order) for swipe-to-switch paging,
-    // distinct from `queue` (needs-you only) which drives the ‹/› header buttons
-    switchOrder?: string[];
+    // the session a leftward swipe pages to: the one below this one in the list the
+    // operator is viewing, distinct from `queue` (needs-you only) which drives the ‹/›
+    // header buttons. A getter, read during the gesture, so the list isn't re-derived
+    // while nobody is swiping. Null when there's nowhere to go.
+    nextSession?: () => string | null;
     onnavigate?: (id: string) => void;
     // phone-only header extras: the merged header subsumes the (now hidden) top bar,
     // so it surfaces the usage gauge (only when hot) and the connection state itself
@@ -833,16 +835,11 @@
     onnavigate?.(queue[next]);
   }
 
-  // Swipe-to-switch pages through *all* live agents in list order, not just the
-  // needs-you queue above — the operator wants to flick between any running agents
-  // without a detour back to the list. Wraps around like gotoQueue.
-  const switchIdx = $derived(switchOrder.indexOf(session.id));
-  const canSwitch = $derived(switchOrder.length > 1 && !!onnavigate);
-  function gotoSwitch(step: number) {
-    if (switchOrder.length === 0) return;
-    const base = switchIdx === -1 ? (step > 0 ? -1 : 0) : switchIdx;
-    const next = (base + step + switchOrder.length) % switchOrder.length;
-    onnavigate?.(switchOrder[next]);
+  // Swipe-to-switch pages through the operator's list, not just the needs-you queue
+  // above — they want to flick between sessions without a detour back to the list.
+  // A plain function, called only from touch handlers, so nextSession stays untracked.
+  function canSwitch(): boolean {
+    return !!onnavigate && nextSession?.() != null;
   }
 
   const launch = $derived(session.launchMetadata ?? null);
@@ -2673,8 +2670,8 @@
     Math.min(PANE_SWIPE_THRESHOLD, root.clientWidth * 0.33);
 
   // Phone: horizontal swipe over the pane, mirroring the iOS app — right always
-  // returns to the session list, left pages to the next live agent (wraps) so the
-  // operator can still reach every agent without the list. A reveal panel behind the
+  // returns to the session list, left pages to the session below in the list the
+  // operator is viewing (wraps). A reveal panel behind the
   // sliding pane names the destination; past the threshold (or on a fast flick) a
   // release commits, and the pane rubber-bands past a soft limit. Capture-phase so a
   // recognised horizontal drag can stop the terminal's own touch-scroll handler (on a
@@ -2685,10 +2682,10 @@
   // commitment threshold across every swipe gesture).
   $effect(() => {
     const root = viewportEl;
-    // read switchOrder/onnavigate here (via canSwitch) so the listeners re-bind when
-    // switching (un)becomes available; switchIdx/gotoSwitch read fresh at commit time.
+    // Bind on the props alone: calling nextSession here would subscribe this effect to the
+    // list behind it. The handlers read it fresh, so the target is current at commit time.
     // The assistant has no herd to page through, and its pane sits beside the session's.
-    if (!root || !mobile || assistant || (!onback && !canSwitch)) return;
+    if (!root || !mobile || assistant || (!onback && !(onnavigate && nextSession))) return;
     let startX = 0;
     let startY = 0;
     let armed = false; // a single-finger touch is in progress and eligible
@@ -2745,7 +2742,7 @@
         if (axis === null) return; // still within slop — keep waiting
         // rightward needs the list to return to, leftward an agent to page to.
         // Non-actionable horizontal drags stay with the terminal.
-        const actionable = axis === "x" && (dx > 0 ? !!onback : canSwitch);
+        const actionable = axis === "x" && (dx > 0 ? !!onback : canSwitch());
         if (actionable) {
           locked = true;
           swiping = true;
@@ -2763,12 +2760,14 @@
       if (locked) {
         // a finger that paused before lifting isn't flicking: drop the stale velocity
         if (e.timeStamp - lastT > 100) velocity = 0;
-        const action = paneSwipeOutcome(dx, velocity, swipeThreshold(root), !!onback, canSwitch);
+        const target = nextSession?.() ?? null;
+        const canNext = !!onnavigate && target != null;
+        const action = paneSwipeOutcome(dx, velocity, swipeThreshold(root), !!onback, canNext);
         swiping = false;
         swipeX = 0;
         swipeArmed = false;
-        if (action === "next")
-          gotoSwitch(1); // leftward: next agent (wraps)
+        if (action === "next" && target != null)
+          onnavigate?.(target); // leftward: session below (wraps)
         else if (action === "back") onback?.(); // rightward: to list
         if (action !== "none") return;
       }

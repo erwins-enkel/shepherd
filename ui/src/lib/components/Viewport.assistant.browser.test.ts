@@ -270,7 +270,7 @@ describe("Viewport — Operator Assistant variant", () => {
       touch: true,
       onnavigate,
       onback,
-      switchOrder: ["oa", "s2"],
+      nextSession: () => "s2",
     });
     expect(container.querySelector(".ctrl-row")).not.toBeNull();
     const c = clientFor("oa");

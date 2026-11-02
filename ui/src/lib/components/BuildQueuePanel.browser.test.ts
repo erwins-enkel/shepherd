@@ -465,6 +465,37 @@ describe("BuildQueuePanel — real themes and mobile layout", () => {
   }
 });
 
+describe("BuildQueuePanel — a long queue stays inside its own scroller", () => {
+  // Each row's .bqp-sr status word is position:absolute. Without a positioned
+  // ancestor inside the 40vh-capped list, the list could not clip it: the words of
+  // off-screen rows extended the document and the whole app scrolled past its
+  // bottom bar into empty space.
+  it.each([
+    ["curation", { approved: false }],
+    ["read-only", { approved: true, approvalKind: "auto" }],
+  ] as const)("does not extend the document (%s list)", async (_, state) => {
+    await page.viewport(1280, 900);
+    const queue: BuildQueue = {
+      sessionId: "s1",
+      ...state,
+      steps: Array.from({ length: 60 }, (_, i) => ({
+        id: String(i),
+        title: `Step ${i + 1}: check the plan against the requirements`,
+        detail: "Prepare and verify the changes.",
+        status: "pending",
+        position: i,
+      })),
+    };
+    render(BuildQueuePanel, { sessionId: "s1", enabled: true, queue, onbootstrap: noop });
+    await expect.poll(() => document.querySelectorAll(".bqp-row").length).toBe(60);
+
+    const list = document.querySelector<HTMLElement>(".bqp-list")!;
+    expect(list.scrollHeight).toBeGreaterThan(list.clientHeight);
+    const root = document.documentElement;
+    expect(root.scrollHeight).toBeLessThanOrEqual(root.clientHeight);
+  });
+});
+
 describe("BuildQueuePanel — empty state", () => {
   it("renders the empty message when flag is on but no steps", async () => {
     render(BuildQueuePanel, {

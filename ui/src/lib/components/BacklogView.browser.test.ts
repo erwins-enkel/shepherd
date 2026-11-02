@@ -290,3 +290,49 @@ describe("desktop entry", () => {
     expect(document.querySelector(".rg")).not.toBeNull();
   });
 });
+
+describe("BacklogView handleTabKey (the page mount, no dialog around it)", () => {
+  const press = (key: string) => new KeyboardEvent("keydown", { key, cancelable: true });
+  const activeLabels = () =>
+    [...document.querySelectorAll(".tab-bar .tab-btn.active")].map((b) => b.textContent?.trim());
+
+  it("switches tabs with a repo open and consumes the key", async () => {
+    const { component } = await render(BacklogView, {
+      ...props(2),
+      mobile: false,
+      selectPath: "/repo-0",
+    });
+    await vi.waitFor(() => expect(document.querySelector(".tab-bar")).not.toBeNull());
+    const e = press("2");
+    expect(component.handleTabKey(e)).toBe(true);
+    expect(e.defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect(activeLabels()).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll(".tab-bar .tab-btn")[1].classList.contains("active")).toBe(
+        true,
+      ),
+    );
+    expect(component.handleTabKey(press("7"))).toBe(false);
+  });
+
+  it("leaves the key alone while the switcher is open, with no focus target", async () => {
+    const { component } = await render(BacklogView, {
+      ...props(2),
+      mobile: false,
+      selectPath: "/repo-0",
+    });
+    await vi.waitFor(() => expect(document.querySelector(".tab-bar")).not.toBeNull());
+    component.openSwitcher();
+    await vi.waitFor(() => expect(document.querySelector(".rs-pop:popover-open")).not.toBeNull());
+    const e = press("2");
+    expect(component.handleTabKey(e)).toBe(false);
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  it("leaves the key alone with no repo open", async () => {
+    const { component } = await render(BacklogView, { ...props(2), mobile: false });
+    const e = press("2");
+    expect(component.handleTabKey(e)).toBe(false);
+    expect(e.defaultPrevented).toBe(false);
+  });
+});

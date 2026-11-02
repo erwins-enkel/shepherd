@@ -187,6 +187,7 @@
     followRepoFilter,
   } from "#lib/components/queue-strip.js";
   import BacklogView from "#lib/components/BacklogView.svelte";
+  import { routePageTabKey } from "#lib/components/backlog-view.js";
   import AppOverlays from "#lib/components/page/AppOverlays.svelte";
   import ExperimentPicker from "#lib/components/ExperimentPicker.svelte";
   import type { ExperimentPickerState } from "#lib/components/ExperimentPicker.svelte";
@@ -2310,6 +2311,9 @@
     return true;
   }
 
+  // The desktop no-sessions BacklogView, when it is the page: `1`–`5` switch its tabs.
+  let emptyBacklog = $state<ReturnType<typeof BacklogView>>();
+
   // Global shortcuts, two tiers: the Alt combos (handleAltCombo) and plain
   // single keys (n/b + keynav), which are suppressed while typing — they must
   // never eat a keystroke meant for an input or the terminal. Desktop only,
@@ -2337,7 +2341,13 @@
     }
     if (handleAltCombo(e)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    handlePlainKey(e);
+  }
+
+  // The plain-key tier of onShortcut.
+  function handlePlainKey(e: KeyboardEvent) {
     if (isTyping(e.target)) return;
+    if (routePageTabKey(e, emptyBacklog, railIds)) return;
     const key = e.key.toLowerCase();
     switch (key) {
       case "n":
@@ -4242,6 +4252,7 @@
             </LazyMount>
           {:else if store.sessions.length === 0}
             <BacklogView
+              bind:this={emptyBacklog}
               payload={backlog}
               mobile={false}
               {onissue}

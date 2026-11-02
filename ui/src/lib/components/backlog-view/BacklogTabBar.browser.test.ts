@@ -151,3 +151,18 @@ describe("BacklogTabBar Automation halt count (#3455)", () => {
     expect(count()).toBeUndefined();
   });
 });
+
+describe("BacklogTabBar keyboard shortcuts", () => {
+  const shortcuts = () =>
+    [...document.querySelectorAll(".tab-btn")].map((b) => b.getAttribute("aria-keyshortcuts"));
+
+  it("exposes 1-5 on the desktop tabs", async () => {
+    mount();
+    await expect.poll(shortcuts).toEqual(["1", "2", "3", "4", "5"]);
+  });
+
+  it("exposes none on the mobile tabs", async () => {
+    mount({ variant: "mobile" });
+    await expect.poll(shortcuts).toEqual([null, null, null, null, null]);
+  });
+});

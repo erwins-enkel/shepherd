@@ -38,7 +38,7 @@
       </div>
 
       <div class="body">
-        <div class="overlay" aria-hidden="true">
+        <div class="gantt-overlay" aria-hidden="true">
           {#each gantt.ticks as t (t.at)}
             <span class="grid" style:left={pct(t.at)}></span>
           {/each}
@@ -212,7 +212,7 @@
     position: relative;
   }
 
-  .overlay {
+  .gantt-overlay {
     position: absolute;
     top: 0;
     bottom: 0;

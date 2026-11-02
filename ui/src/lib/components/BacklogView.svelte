@@ -33,6 +33,7 @@
     partitionRecents,
     splitHidden,
     tabForFilters,
+    tabForShortcutKey,
   } from "./backlog-view";
   import { repoConfig } from "#lib/reviews.svelte.js";
   import { epicAutoFix } from "#lib/epic-auto-fix.svelte.js";
@@ -395,6 +396,30 @@
     switcher?.openPanel();
   }
 
+  let rootEl = $state<HTMLElement>();
+
+  /** Plain `1`–`5` select a tab (desktop, repo open). Callers rule out typing, repeats and
+   *  IME; this rules out a surface that owns the keyboard on top of the view: an open switcher
+   *  or filter wherever focus is (the switcher's trigger, or <body> once a row unmounted), or
+   *  a surface holding focus — the dialog card around the view contains it, so it doesn't
+   *  count. True when the key was consumed. */
+  export function handleTabKey(e: KeyboardEvent): boolean {
+    if (mobile || selectedPath === null) return false;
+    if (rootEl?.querySelector('[role="dialog"]:popover-open, [role="menu"]:popover-open')) {
+      return false;
+    }
+    const owner =
+      e.target instanceof Element
+        ? e.target.closest('[role="menu"], [role="dialog"], [aria-modal="true"], [popover]')
+        : null;
+    if (owner && !owner.contains(rootEl ?? null)) return false;
+    const tab = tabForShortcutKey(e);
+    if (!tab) return false;
+    e.preventDefault();
+    activeTab = tab;
+    return true;
+  }
+
   // On mobile, a set selectedPath means the detail overlay is open.
   // Clearing it goes back to the project list.
   function dismissDetail() {
@@ -407,7 +432,7 @@
   const detailSwipe = swipeBack({ onback: dismissDetail, onoffset: (px) => (detailX = px) });
 </script>
 
-<div class="backlog-view" class:mobile class:flow>
+<div class="backlog-view" class:mobile class:flow bind:this={rootEl}>
   {#if !mobile}
     <!-- desktop header: the repo switcher + recents + Fast-forward + close, replacing
          the dialog's old "REPOS" title bar and the repo sidebar (mobile keeps both). -->

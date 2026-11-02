@@ -199,6 +199,10 @@ describe("EpicTimingDetail — ZEITLEISTE", () => {
 
     await expect.element(page.getByText("Remaining from resume")).toBeVisible();
     expect(q(".pause")).not.toBeNull();
+    // `.overlay` is reserved for surfaces that seize the app: +page's anyOverlayOpen and the
+    // Repos dialog's topmost test read it, so the chart's grid layer must not carry it.
+    expect(q(".gantt-overlay")).not.toBeNull();
+    expect(q(".overlay")).toBeNull();
     expect(q(".bar.projected")).toBeNull();
     expect(q('[data-row="finish"]')).toBeNull();
   });

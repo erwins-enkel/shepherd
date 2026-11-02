@@ -116,19 +116,38 @@
   let modalResizing = $state(false);
   let view = $state<ReturnType<typeof BacklogView>>();
 
-  // `R` opens the repo switcher (desktop). Scoped to the card, not `window`: the page's
-  // global `r` (open Repos) stands down while any overlay is open, and a New Task opened
-  // over this dialog must not see the key. Plain key only, never mid-typing / mid-IME.
+  // `R` opens the repo switcher and `1`–`5` switch tabs (desktop). Scoped to the card, not
+  // `window`: the page's global `r` (open Repos) and `1`–`9` (select session) stand down while
+  // any overlay is open, and a New Task opened over this dialog must not see the key. Plain
+  // key only, never mid-typing / mid-IME.
   function onCardKeydown(e: KeyboardEvent) {
     if (mobile || e.repeat || e.isComposing || e.defaultPrevented) return;
-    if (e.ctrlKey || e.metaKey || e.altKey || e.key.toLowerCase() !== "r") return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (isTyping(e.target)) return;
     // A modal nested in the card (epic diagnosis, supersede confirm — rendered inline,
     // not portaled) owns the keyboard: its key must not open the switcher over it.
     const modal = e.target instanceof Element ? e.target.closest('[aria-modal="true"]') : null;
     if (modal && modal !== cardEl) return;
-    e.preventDefault();
-    view?.openSwitcher();
+    if (e.key.toLowerCase() === "r") {
+      e.preventDefault();
+      view?.openSwitcher();
+      return;
+    }
+    view?.handleTabKey(e);
+  }
+
+  // The focused control can unmount under the operator (a grid tile opening its repo, a tab
+  // panel swapping out), dropping focus to <body> where the card never sees the key. Accept
+  // that target while nothing else seizes the app: the wrapping .overlay and the card itself
+  // contain the card; any other modal surface doesn't. Open popovers are BacklogView's check.
+  function dialogIsTopmost(): boolean {
+    if (!cardEl) return false;
+    const surfaces = document.querySelectorAll('[aria-modal="true"], .overlay, .drawer');
+    return [...surfaces].every((el) => el.contains(cardEl!));
+  }
+
+  function onWindowKeydown(e: KeyboardEvent) {
+    if (e.target === document.body && dialogIsTopmost()) onCardKeydown(e);
   }
 
   // Phone: a rightward swipe over the repo list closes Backlog, back to the sessions (see
@@ -153,6 +172,8 @@
     onReset: () => backlogLayout.resetModal(),
   });
 </script>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 <div
   class="overlay"

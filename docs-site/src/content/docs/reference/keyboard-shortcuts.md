@@ -40,6 +40,7 @@ Inside the Repos dialog on desktop (opened with `r` above), the repo name in the
 | Keys | Action |
 | --- | --- |
 | `r` | Open the repo switcher (not while typing in a field) |
+| `1`–`5` | With a repo open, switch tab: Issues, PRs, Actions, Readiness, Automation (not while typing in a field). Also works on the backlog page shown when you have no sessions, unless the herd lists sessions from a connected machine or the Done lens, where the digits select sessions. |
 | `↓` / `↑` | In the switcher: move from the search into the list and between repos |
 | `Enter` | Open the first match from the search, or the focused repo |
 | `Esc` | Close the switcher (clears the search first, if it has text) — the dialog stays open |

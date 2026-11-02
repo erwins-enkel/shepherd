@@ -76,6 +76,7 @@
   <button
     class="tab-btn"
     class:active={activeTab === "issues"}
+    aria-keyshortcuts={variant === "desktop" ? "1" : undefined}
     type="button"
     onclick={() => onselecttab("issues")}
   >
@@ -86,6 +87,7 @@
   <button
     class="tab-btn"
     class:active={activeTab === "prs"}
+    aria-keyshortcuts={variant === "desktop" ? "2" : undefined}
     type="button"
     onclick={() => onselecttab("prs")}
   >
@@ -96,6 +98,7 @@
   <button
     class="tab-btn"
     class:active={activeTab === "actions"}
+    aria-keyshortcuts={variant === "desktop" ? "3" : undefined}
     class:failing={actionsState.kind === "failing"}
     type="button"
     onclick={() => onselecttab("actions")}
@@ -111,6 +114,7 @@
   <button
     class="tab-btn"
     class:active={activeTab === "readiness"}
+    aria-keyshortcuts={variant === "desktop" ? "4" : undefined}
     type="button"
     onclick={() => onselecttab("readiness")}
   >
@@ -119,6 +123,7 @@
   <button
     class="tab-btn"
     class:active={activeTab === "automation"}
+    aria-keyshortcuts={variant === "desktop" ? "5" : undefined}
     type="button"
     aria-label={noPrCiHold ? m.backlog_tab_automation_no_pr_ci() : undefined}
     onclick={() => onselecttab("automation")}

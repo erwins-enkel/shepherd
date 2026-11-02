@@ -467,8 +467,13 @@ describe("R shortcut", () => {
 
   it("stays on the card: a key aimed at another overlay never opens it", async () => {
     await render(BacklogOverlay, props());
-    key(document.body, "r");
+    const other = document.createElement("div");
+    other.className = "overlay";
+    document.body.append(other);
+    key(other, "r");
+    key(document.body, "r"); // focus lost to <body> with that overlay up
     await tick();
     expect(q(".rs-pop")).toBeNull();
+    other.remove();
   });
 });

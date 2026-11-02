@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { tick } from "svelte";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import BacklogOverlay from "./BacklogOverlay.svelte";
 import { m } from "#lib/paraglide/messages.js";
@@ -604,5 +604,178 @@ describe("BacklogOverlay (Repos) filter scope vs the open repo", () => {
     await tick();
     expect(triggerName()).toBe("pinned");
     expect(document.querySelector(".detail-empty")).toBeNull();
+  });
+});
+
+describe("BacklogOverlay tab shortcuts", () => {
+  const STRIP = ["issues", "prs", "actions", "readiness", "automation"];
+
+  /** The active tab's strip position → its name. */
+  function activeTab(): string {
+    const btns = [...document.querySelectorAll(".tab-bar .tab-btn")];
+    return STRIP[btns.findIndex((b) => b.classList.contains("active"))];
+  }
+
+  function press(target: Element, init: KeyboardEventInit) {
+    target.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }),
+    );
+  }
+
+  /** Open the dialog on a repo (a one-repo filter skips the grid), focus inside the card. */
+  async function openRepo(over: Partial<Record<string, unknown>> = {}) {
+    await render(
+      BacklogOverlay,
+      props({ payload: seedPayload(), filterPaths: ["/r/third"], ...over }),
+    );
+    await vi.waitFor(() => expect(document.querySelector(".tab-bar")).not.toBeNull());
+    const card = document.querySelector<HTMLElement>(".card")!;
+    card.focus();
+    return card;
+  }
+
+  /** Put focus on a control inside the card, then remove it: focus falls to <body>. */
+  function dropFocusToBody(card: HTMLElement) {
+    const btn = document.createElement("button");
+    card.append(btn);
+    btn.focus();
+    btn.remove();
+    expect(document.activeElement).toBe(document.body);
+  }
+
+  it("each digit selects its tab, in strip order", async () => {
+    const card = await openRepo();
+    for (const [i, name] of [...STRIP.entries()].reverse()) {
+      press(card, { key: String(i + 1) });
+      await tick();
+      expect(activeTab()).toBe(name);
+    }
+  });
+
+  it("stands down for typing, chords and auto-repeat", async () => {
+    const card = await openRepo();
+    const input = document.createElement("input");
+    card.append(input);
+    press(input, { key: "3" });
+    press(card, { key: "3", ctrlKey: true });
+    press(card, { key: "3", repeat: true });
+    await tick();
+    expect(activeTab()).toBe("issues");
+    input.remove();
+  });
+
+  it("stands down under the switcher popover and a nested modal", async () => {
+    const card = await openRepo();
+    await openSwitcher();
+    press(document.querySelector(".rs-pop")!, { key: "3" });
+    await tick();
+    expect(activeTab()).toBe("issues");
+    const modal = document.createElement("div");
+    modal.setAttribute("aria-modal", "true");
+    card.append(modal);
+    press(modal, { key: "3" });
+    await tick();
+    expect(activeTab()).toBe("issues");
+    modal.remove();
+  });
+
+  it("stands down with focus back on the switcher's trigger, popover still open", async () => {
+    await openRepo();
+    await openSwitcher();
+    const trigger = document.querySelector<HTMLElement>(".rs-trigger")!;
+    trigger.focus();
+    press(trigger, { key: "3" });
+    await tick();
+    expect(document.querySelector(".rs-pop:popover-open")).not.toBeNull();
+    expect(activeTab()).toBe("issues");
+  });
+
+  it("does nothing on mobile", async () => {
+    await render(
+      BacklogOverlay,
+      props({ payload: seedPayload(), filterPaths: ["/r/third"], mobile: true }),
+    );
+    const before = document.querySelector(".overlay-tabs .tab-btn.active");
+    press(document.querySelector(".card")!, { key: "3" });
+    await tick();
+    expect(document.querySelector(".overlay-tabs .tab-btn.active")).toBe(before);
+  });
+
+  it("with the grid up a digit keeps the tab the opened repo then shows", async () => {
+    await render(BacklogOverlay, props({ payload: seedPayload() }));
+    press(document.querySelector(".card")!, { key: "3" });
+    await tick();
+    await click(
+      [...document.querySelectorAll<HTMLElement>(".rg-tile")].find((t) =>
+        t.textContent?.includes("third"),
+      )!,
+    );
+    await tick();
+    expect(activeTab()).toBe("issues");
+  });
+
+  it("`r` still opens the switcher", async () => {
+    const card = await openRepo();
+    press(card, { key: "r" });
+    await vi.waitFor(() => expect(document.querySelector(".rs-pop:popover-open")).not.toBeNull());
+  });
+
+  // Real key presses, wherever the browser routes them — never dispatched inside the card.
+  it("the first digit after opening a repo from the grid lands, and so do the next", async () => {
+    await render(BacklogOverlay, props({ payload: seedPayload() }));
+    const tile = [...document.querySelectorAll<HTMLElement>(".rg-tile")].find((t) =>
+      t.textContent?.includes("third"),
+    )!;
+    tile.focus();
+    tile.click();
+    await vi.waitFor(() => expect(document.querySelector(".tab-bar")).not.toBeNull());
+    expect(document.activeElement).toBe(document.body);
+    await userEvent.keyboard("2");
+    await vi.waitFor(() => expect(activeTab()).toBe("prs"));
+    await userEvent.keyboard("3");
+    await vi.waitFor(() => expect(activeTab()).toBe("actions"));
+  });
+
+  it("keeps working after the focused control unmounts", async () => {
+    const card = await openRepo();
+    dropFocusToBody(card);
+    await userEvent.keyboard("4");
+    await vi.waitFor(() => expect(activeTab()).toBe("readiness"));
+    await userEvent.keyboard("5");
+    await vi.waitFor(() => expect(activeTab()).toBe("automation"));
+  });
+
+  it("with focus on <body>, stands down under a foreign overlay", async () => {
+    const card = await openRepo();
+    dropFocusToBody(card);
+    const newTask = document.createElement("div");
+    newTask.className = "overlay";
+    document.body.append(newTask);
+    await userEvent.keyboard("3");
+    await tick();
+    newTask.remove();
+    expect(activeTab()).toBe("issues");
+  });
+
+  it("with focus on <body>, stands down under a nested modal", async () => {
+    const card = await openRepo();
+    const modal = document.createElement("div");
+    modal.setAttribute("aria-modal", "true");
+    card.append(modal);
+    dropFocusToBody(card);
+    await userEvent.keyboard("3");
+    await tick();
+    modal.remove();
+    expect(activeTab()).toBe("issues");
+  });
+
+  it("with focus on <body>, stands down under the open switcher", async () => {
+    await openRepo();
+    await openSwitcher();
+    (document.activeElement as HTMLElement).blur();
+    expect(document.activeElement).toBe(document.body);
+    await userEvent.keyboard("3");
+    await tick();
+    expect(activeTab()).toBe("issues");
   });
 });

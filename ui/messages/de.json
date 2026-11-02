@@ -1779,6 +1779,8 @@
   "topbar_sheet_usage": "Auslastung",
   "feat_repo_shortcuts_title": "Repo-Wechsel per Tastatur",
   "feat_repo_shortcuts_body": "Im Bereich „Neue Aufgabe“ kannst du das Repository jetzt per Tastatur wechseln, ohne das Eingabefeld zu verlassen: Alt+[ und Alt+] blättern durch alle Repos, Alt+1–3 springen zu deinen zuletzt genutzten Repos und Alt+R öffnet die Repo-Auswahl. Auf dem Mac die Wahltaste (⌥) verwenden.",
+  "feat_backlog_tab_shortcuts_title": "Repo-Tabs mit 1–5 wechseln",
+  "feat_backlog_tab_shortcuts_body": "Im Repos-Dialog wechselst du mit 1–5 beim geöffneten Repo zwischen Issues, PRs, Actions, Reife und Automatisierung.",
   "newtask_upstream_checking": "Upstream wird geprüft…",
   "newtask_upstream_behind": "{count} hinter origin — Aufgabe startet vom neuesten Stand",
   "newtask_upstream_diverged": "Von origin abgewichen ({behind} hinter, {ahead} voraus) — Aufgabe startet von lokal {base}",

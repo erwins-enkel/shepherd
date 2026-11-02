@@ -270,6 +270,42 @@ export function tabForFilters(opts: {
   return null;
 }
 
+const SHORTCUT_TABS = {
+  "1": "issues",
+  "2": "prs",
+  "3": "actions",
+  "4": "readiness",
+  "5": "automation",
+} as const;
+
+/**
+ * The detail tab a plain `1`–`5` selects, in tab-strip order; null for any other key or a
+ * Ctrl/Meta/Alt chord (which also rules out AltGr). Matches `key`, not `code`: numpad digits
+ * and AZERTY's Shift+digit produce the character, and US Shift+1 is `!`, so Shift needs no check.
+ */
+export function tabForShortcutKey(
+  e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey">,
+): (typeof SHORTCUT_TABS)[keyof typeof SHORTCUT_TABS] | null {
+  if (e.ctrlKey || e.metaKey || e.altKey) return null;
+  return Object.hasOwn(SHORTCUT_TABS, e.key)
+    ? SHORTCUT_TABS[e.key as keyof typeof SHORTCUT_TABS]
+    : null;
+}
+
+/**
+ * The page's `1`–`5` on the no-sessions backlog: session select wins whenever the rail lists
+ * anything (mirrored remote sessions, the Done lens), for every digit. `railIds` is a getter so
+ * the page never computes the rail while that backlog isn't mounted.
+ */
+export function routePageTabKey(
+  e: KeyboardEvent,
+  view: { handleTabKey: (e: KeyboardEvent) => boolean } | null | undefined,
+  railIds: () => string[],
+): boolean {
+  if (!view || railIds().length > 0) return false;
+  return view.handleTabKey(e);
+}
+
 /**
  * The dashboard's repo filter as backlog project paths. The filter holds session real
  * paths while a backlog project's `path` is the raw `repoRoot/name` form, so a repo

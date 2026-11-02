@@ -11,7 +11,7 @@
  * logic (null → "—", pinned detection, tab label strings) that the template
  * delegates to these functions.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { newtask_pr_review_template } from "#lib/paraglide/messages.js";
 import {
   formatCount,
@@ -23,6 +23,8 @@ import {
   actionsTabState,
   filterProjects,
   tabForFilters,
+  tabForShortcutKey,
+  routePageTabKey,
   partitionRecents,
   repoOwnerName,
   effectiveHidden,
@@ -261,6 +263,55 @@ describe("filterProjects", () => {
   it("returns an empty array when every project is excluded", () => {
     const allEmpty = [project("/repos/a", 0, 0), project("/repos/b", null, null)];
     expect(filterProjects(allEmpty, { hasIssues: true, hasPRs: true })).toEqual([]);
+  });
+});
+
+describe("tabForShortcutKey", () => {
+  const key = (key: string, mods: Partial<KeyboardEvent> = {}) =>
+    tabForShortcutKey({ key, ctrlKey: false, metaKey: false, altKey: false, ...mods });
+
+  it("maps 1-5 to the tabs in strip order", () => {
+    expect(["1", "2", "3", "4", "5"].map((k) => key(k))).toEqual([
+      "issues",
+      "prs",
+      "actions",
+      "readiness",
+      "automation",
+    ]);
+  });
+
+  it("ignores any other key", () => {
+    for (const k of ["0", "6", "9", "r", "!", "Enter"]) expect(key(k)).toBeNull();
+  });
+
+  it("ignores Ctrl, Meta and Alt chords", () => {
+    expect(key("1", { ctrlKey: true })).toBeNull();
+    expect(key("1", { metaKey: true })).toBeNull();
+    expect(key("1", { altKey: true })).toBeNull();
+  });
+});
+
+describe("routePageTabKey", () => {
+  const event = { key: "1" } as KeyboardEvent;
+
+  it("is false without a mounted backlog, and never reads the rail", () => {
+    const railIds = vi.fn(() => []);
+    expect(routePageTabKey(event, null, railIds)).toBe(false);
+    expect(railIds).not.toHaveBeenCalled();
+  });
+
+  it("leaves the key to session select while the rail lists sessions", () => {
+    const handleTabKey = vi.fn(() => true);
+    expect(routePageTabKey(event, { handleTabKey }, () => ["remote-1"])).toBe(false);
+    expect(handleTabKey).not.toHaveBeenCalled();
+  });
+
+  it("delegates to the backlog on an empty rail and returns its result", () => {
+    const handleTabKey = vi.fn(() => false);
+    expect(routePageTabKey(event, { handleTabKey }, () => [])).toBe(false);
+    handleTabKey.mockReturnValue(true);
+    expect(routePageTabKey(event, { handleTabKey }, () => [])).toBe(true);
+    expect(handleTabKey).toHaveBeenCalledWith(event);
   });
 });
 

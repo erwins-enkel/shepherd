@@ -90,6 +90,23 @@ public struct RemoteExplanation: Equatable, Sendable {
     public let sections: [Section]
 }
 
+/// The mirrored sessions a repo filter keeps (#3083): those whose project (`remoteSlug`, as their
+/// machine's repo index names it) is the project of a selected repo. The filter names this server's
+/// checkouts by path or real path, which a session on another machine never shares, so the match
+/// is by slug, ignoring case; a mirrored session without one falls out. Every session while no repo
+/// is selected. DRIFT: mirrors `inRepoFilter` in `ui/src/lib/remote-sessions.ts`.
+public enum MirroredRepoFilter {
+    public static func kept(_ remote: [Session], selected: Set<String>, repos: [Repo]) -> [Session] {
+        guard !selected.isEmpty else { return remote }
+        let slugs = Set(repos.compactMap { repo -> String? in
+            guard let slug = repo.remoteSlug, !slug.isEmpty,
+                  selected.contains(repo.path) || selected.contains(repo.realPath) else { return nil }
+            return slug.lowercased()
+        })
+        return remote.filter { session in session.remoteSlug.map { slugs.contains($0.lowercased()) } ?? false }
+    }
+}
+
 /// One connected machine's mirrored sessions, shown as its own read-only group after the local
 /// lifecycle groups, with its tasks that are not settled at the top (#2774, #2775).
 public struct HerdMachineGroup: Identifiable, Equatable {

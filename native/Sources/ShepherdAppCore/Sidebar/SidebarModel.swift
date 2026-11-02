@@ -57,6 +57,7 @@ public final class SidebarModel: AppExtension {
     @ObservationIgnored private var offlineSessions: [Session] = []
     @ObservationIgnored private var offlineRemoteSessions: [Session] = []
     @ObservationIgnored private var offlineRemoteDispatches: [RemoteDispatch] = []
+    @ObservationIgnored private var offlineRepos: [Repo] = []
     /// Bumped by every `refresh()`; a snapshot whose generation is no longer the newest is dropped
     /// rather than installed — the rule `SessionStore.refresh()` already uses. This guards races
     /// BETWEEN this model's own refreshes; `app.activationGeneration` (checked in `refresh()`)
@@ -203,7 +204,11 @@ public final class SidebarModel: AppExtension {
         // repos, as on the web.
         let dispatches = activeRepos.isEmpty
             ? (app?.extension(RemoteDispatchesModel.self)?.dispatches ?? offlineRemoteDispatches) : []
-        return HerdMachineGroup.groups(store?.visibleSessions.filter { $0.host != nil } ?? offlineRemoteSessions, dispatches: dispatches)
+        // A repo filter keeps the machines' sessions of the same project, matched by slug (#3083).
+        let remote = store?.visibleSessions.filter { $0.host != nil } ?? offlineRemoteSessions
+        return HerdMachineGroup.groups(
+            MirroredRepoFilter.kept(remote, selected: activeRepos, repos: store?.repos ?? offlineRepos),
+            dispatches: dispatches)
     }
 
     public var tallies: HerdTallies {
@@ -494,6 +499,8 @@ public final class SidebarModel: AppExtension {
         func install(remoteSessions: [Session]) { offlineRemoteSessions = remoteSessions }
         /// Stands in for the herd's tasks for machines that are not settled.
         func install(remoteDispatches: [RemoteDispatch]) { offlineRemoteDispatches = remoteDispatches }
+        /// Stands in for the store's repo index when the model was built without one.
+        func install(repos: [Repo]) { offlineRepos = repos }
         /// Arms a one-shot "a newer refresh landed while yours was in flight".
         func armStaleGeneration() { staleOnce = true }
     #endif

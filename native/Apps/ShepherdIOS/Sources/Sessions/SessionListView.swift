@@ -156,7 +156,7 @@ struct SessionListView: View {
         return IOSMergedSessionPresentation.merge([.init(profile: profile, groups: model.groups,
             sessions: app.store?.sessions ?? model.sessions, rendered: (app.store?.sessions ?? model.sessions).map(model.rendered),
             git: herd?.git ?? [:], finished: queues?.finishedSessions ?? [], owed: merge?.snapshot.owed ?? [],
-            remote: app.store?.remoteSessions ?? [])], selectedRepos: model.activeRepos, lens: model.lens)
+            remote: app.store?.remoteSessions ?? [], repos: app.store?.repos ?? [])], selectedRepos: model.activeRepos, lens: model.lens)
     }
     private func setLens(_ value: HerdLens) { if let hub { hub.setLens(value) } else { model.lens = value } }
     private func toggleRepo(_ paths: Set<String>) {

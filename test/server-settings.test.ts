@@ -1573,6 +1573,7 @@ test("PUT upNextReadiness accepts a boolean, persists, kicks an Up Next refresh;
       recomputeUntilCleared: async () => {},
       hiddenRepoPathsRaw: () => new Set(),
       refilter: () => {},
+      syncPr: async () => true,
     },
   });
   const prev = config.upNextReadiness;
@@ -1746,6 +1747,7 @@ test("issueFilter: default on GET, partial PATCH merges + persists, emits, refil
       refilter: () => {
         refilters++;
       },
+      syncPr: async () => true,
     },
   });
   const get = async () => await (await app.fetch(new Request("http://x/api/settings"))).json();

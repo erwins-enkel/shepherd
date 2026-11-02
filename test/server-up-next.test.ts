@@ -72,6 +72,7 @@ function harness(
     slugOf?: (repoPath: string) => string | null;
     prReviewMeta?: (number: number) => Promise<PrReviewMeta | null>;
     heavySlot?: AppDeps["heavySlot"];
+    syncPr?: (repoPath: string, number: number) => Promise<boolean>;
   } = {},
 ) {
   const store = new SessionStore(":memory:");
@@ -141,6 +142,7 @@ function harness(
       refilter: () => {
         refilterCalls++;
       },
+      syncPr: opts.syncPr ?? (async () => true),
     },
   };
   return {
@@ -169,6 +171,40 @@ test("GET /api/up-next returns the cached snapshot and kicks a 60s-gated recompu
   expect(await res.json()).toEqual(SNAP);
   expect(staleRefreshCalls).toEqual([60_000]); // lens-open reuses a <60s-old snapshot (#2658)
   expect(refreshCalls()).toBe(0);
+});
+
+const syncReq = (number: number) =>
+  new Request("http://x/api/up-next/pr-sync", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ repo: repoDir, number }),
+  });
+
+test("POST /api/up-next/pr-sync re-reads the PR and answers its republished row", async () => {
+  const calls: Array<[string, number]> = [];
+  const row = { number: 7, repoPath: repoDir } as UpNextPr;
+  const { app } = harness({
+    snapshot: { ...SNAP, pullRequests: [row] },
+    syncPr: async (dir, number) => {
+      calls.push([dir, number]);
+      return true;
+    },
+  });
+  const res = await app.fetch(syncReq(7));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ pr: row });
+  expect(calls.map(([, number]) => number)).toEqual([7]);
+});
+
+test("POST /api/up-next/pr-sync answers 503 when reads are unavailable, 502 when one fails", async () => {
+  const unavailable = harness({ syncPr: async () => false });
+  expect((await unavailable.app.fetch(syncReq(7))).status).toBe(503);
+  const failing = harness({
+    syncPr: async () => {
+      throw new Error("gh failed");
+    },
+  });
+  expect((await failing.app.fetch(syncReq(7))).status).toBe(502);
 });
 
 test("GET /api/up-next?peek paints cached only (no recompute)", async () => {

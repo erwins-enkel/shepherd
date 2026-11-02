@@ -4,7 +4,14 @@
  * Uses a fake GitForge-shaped object with a controllable clock seam.
  */
 import { test, expect } from "bun:test";
-import { OpenPrSnapshotService, SETTLE_DELAYS_MS, SNAPSHOT_TTL_MS } from "../src/open-pr-snapshot";
+import {
+  CHECKS_RECHECK_MAX,
+  CHECKS_RECHECK_MS,
+  NO_CHECKS_RECHECK_MAX,
+  OpenPrSnapshotService,
+  SETTLE_DELAYS_MS,
+  SNAPSHOT_TTL_MS,
+} from "../src/open-pr-snapshot";
 import { graphRateLimit } from "../src/forge/rate-limit";
 import { withGhCaller } from "../src/forge/gh-caller";
 import { GithubReadCache } from "../src/github-read-cache";
@@ -635,7 +642,10 @@ function settleForge(seq: Array<boolean | null>, source?: OpenPrSnapshot["source
   (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = async () => {
     const snap = makeSnapshot(1, source);
     const mergeable = seq[Math.min(i++, seq.length - 1)]!;
-    return { ...snap, prs: [{ ...snap.prs[0]!, mergeable, headSha: "h1" }] };
+    return {
+      ...snap,
+      prs: [{ ...snap.prs[0]!, mergeable, headSha: "h1", checks: "success" as const }],
+    };
   };
   return { forge, fetches: () => i };
 }
@@ -741,6 +751,186 @@ test("settle: the re-read is skipped while GraphQL is limited or the background 
   canRefresh = false;
   await timers.fire();
   expect(fetches()).toBe(2);
+});
+
+// ── pending-CI recheck ─────────────────────────────────────────────────────
+
+/** A forge whose listings read the mutable `ci.checks`/`ci.head` for PR #1. */
+function ciForge(source?: OpenPrSnapshot["source"]) {
+  const forge = makeForge();
+  const ci = { checks: "pending" as PrStatus["checks"], head: "h1" };
+  let fetches = 0;
+  (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = async () => {
+    fetches++;
+    const snap = makeSnapshot(1, source);
+    return {
+      ...snap,
+      prs: [{ ...snap.prs[0]!, checks: ci.checks, headSha: ci.head }],
+    };
+  };
+  return { forge, ci, fetches: () => fetches };
+}
+
+/** A read cache with a fingerprint covering the repo; `move` shifts its prs content key. */
+function coveredCache(opts: { canRefresh?: () => boolean } = {}) {
+  const cache = new GithubReadCache(new SessionStore(":memory:"), { now: () => 0, ...opts });
+  const move = (prsUpdatedAt: string) =>
+    cache.put("fingerprint", "org/repo", null, {
+      openIssues: 0,
+      issuesUpdatedAt: "",
+      openPrs: 1,
+      prsUpdatedAt,
+      ciState: "",
+      defaultHeadOid: "base",
+    });
+  move("t1");
+  return { cache, move };
+}
+
+test("recheck: CI finishing under an unchanged fingerprint lands and notifies", async () => {
+  const timers = fakeTimers();
+  const { cache } = coveredCache();
+  const svc = new OpenPrSnapshotService(() => 0, 6, cache, timers.schedule);
+  const { forge, ci, fetches } = ciForge();
+  const updates: string[] = [];
+  svc.onUpdate((slug) => updates.push(slug));
+  await svc.get(forge);
+  expect(timers.queued.map((t) => t.ms)).toEqual([CHECKS_RECHECK_MS]);
+  ci.checks = "success"; // CI moves neither the PR's updatedAt nor the fingerprint
+  await svc.get(forge);
+  expect(fetches()).toBe(1);
+  await timers.fire();
+  expect(fetches()).toBe(2);
+  expect(svc.peek(forge)!.prs[0]!.checks).toBe("success");
+  expect(updates).toEqual(["org/repo", "org/repo"]);
+  expect(timers.queued).toHaveLength(0);
+});
+
+test("recheck: a stuck check stops after CHECKS_RECHECK_MAX; a moved key doesn't restart it, a new head does", async () => {
+  const timers = fakeTimers();
+  const { cache, move } = coveredCache();
+  const svc = new OpenPrSnapshotService(() => 0, 6, cache, timers.schedule);
+  const { forge, ci, fetches } = ciForge();
+  await svc.get(forge);
+  for (let i = 0; i < CHECKS_RECHECK_MAX; i++) await timers.fire();
+  expect(fetches()).toBe(1 + CHECKS_RECHECK_MAX);
+  expect(timers.queued).toHaveLength(0);
+  await svc.get(forge); // a reader doesn't re-arm the spent head
+  expect(timers.queued).toHaveLength(0);
+  move("t2");
+  await svc.get(forge);
+  expect(timers.queued).toHaveLength(0);
+  ci.head = "h2";
+  await svc.refresh(forge);
+  expect(timers.queued.map((t) => t.ms)).toEqual([CHECKS_RECHECK_MS]);
+});
+
+test("recheck: a head with no checks gets the small budget, whether or not CI ever registers", async () => {
+  const timers = fakeTimers();
+  const { cache } = coveredCache();
+  const svc = new OpenPrSnapshotService(() => 0, 6, cache, timers.schedule);
+  const { forge, ci, fetches } = ciForge();
+  ci.checks = "none";
+  await svc.get(forge);
+  for (let i = 0; i < NO_CHECKS_RECHECK_MAX; i++) await timers.fire();
+  expect(fetches()).toBe(1 + NO_CHECKS_RECHECK_MAX); // a repo without CI stops here
+  expect(timers.queued).toHaveLength(0);
+  ci.checks = "pending"; // checks registered late: the read that sees it opens the full budget
+  await svc.refresh(forge);
+  ci.checks = "success";
+  await timers.fire();
+  expect(svc.peek(forge)!.prs[0]!.checks).toBe("success");
+  expect(timers.queued).toHaveLength(0);
+});
+
+test("recheck: a neighbour's re-reads don't spend past a no-checks head's budget", async () => {
+  const timers = fakeTimers();
+  const { cache } = coveredCache();
+  const svc = new OpenPrSnapshotService(() => 0, 6, cache, timers.schedule);
+  const forge = makeForge();
+  let late: PrStatus["checks"] = "none";
+  let fetches = 0;
+  (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = async () => {
+    fetches++;
+    const pr = makeSnapshot(1).prs[0]!;
+    return {
+      ...makeSnapshot(1),
+      prs: [
+        { ...pr, number: 1, headSha: "a", checks: "pending" as const },
+        { ...pr, number: 2, headSha: "b", checks: late },
+      ],
+    };
+  };
+  await svc.get(forge);
+  for (let i = 0; i < NO_CHECKS_RECHECK_MAX + 5; i++) await timers.fire();
+  late = "pending";
+  await timers.fire(); // this read sees PR 2 pending, spending nothing on its capped no-checks budget
+  // PR 2 kept its unspent tries through PR 1's re-reads, so it has its full remainder left.
+  while (timers.queued.length > 0) await timers.fire();
+  expect(fetches).toBe(
+    1 + NO_CHECKS_RECHECK_MAX + 5 + 1 + (CHECKS_RECHECK_MAX - NO_CHECKS_RECHECK_MAX),
+  );
+});
+
+test("recheck: a persisted pending row re-arms after a restart without an immediate fetch", async () => {
+  const timers = fakeTimers();
+  const { cache } = coveredCache();
+  const { forge, ci, fetches } = ciForge();
+  await new OpenPrSnapshotService(() => 0, 6, cache).get(forge);
+  expect(fetches()).toBe(1);
+  const svc = new OpenPrSnapshotService(() => 0, 6, cache, timers.schedule);
+  ci.checks = "success";
+  expect((await svc.get(forge))!.prs[0]!.checks).toBe("pending");
+  expect(fetches()).toBe(1);
+  await timers.fire();
+  expect(svc.peek(forge)!.prs[0]!.checks).toBe("success");
+});
+
+test("recheck: a read skipped while limited consumes no try, and the next get re-arms", async () => {
+  const timers = fakeTimers();
+  let canRefresh = true;
+  const { cache } = coveredCache({ canRefresh: () => canRefresh });
+  const svc = new OpenPrSnapshotService(() => 0, 6, cache, timers.schedule);
+  const { forge, fetches } = ciForge();
+  await svc.get(forge);
+  blockGraphql();
+  try {
+    await timers.fire();
+  } finally {
+    unblockGraphql();
+  }
+  canRefresh = false;
+  await svc.get(forge);
+  await timers.fire();
+  canRefresh = true;
+  expect(fetches()).toBe(1);
+  await svc.get(forge);
+  for (let i = 0; i < CHECKS_RECHECK_MAX; i++) await timers.fire();
+  expect(fetches()).toBe(1 + CHECKS_RECHECK_MAX); // the skipped ticks cost nothing
+  expect(timers.queued).toHaveLength(0);
+});
+
+test("recheck: repeat gets queue one timer; a settled snapshot queues none; a REST row arms it", async () => {
+  const timers = fakeTimers();
+  const { cache } = coveredCache();
+  const svc = new OpenPrSnapshotService(() => 0, 6, cache, timers.schedule);
+  const { forge } = ciForge();
+  await svc.get(forge);
+  await svc.get(forge);
+  await svc.get(forge);
+  expect(timers.queued).toHaveLength(1);
+
+  const settled = fakeTimers();
+  const svc2 = new OpenPrSnapshotService(() => 0, 6, undefined, settled.schedule);
+  const green = ciForge();
+  green.ci.checks = "success";
+  await svc2.get(green.forge);
+  expect(settled.queued).toHaveLength(0);
+
+  const rest = fakeTimers();
+  const svc3 = new OpenPrSnapshotService(() => 0, 6, undefined, rest.schedule);
+  await svc3.get(ciForge("rest").forge);
+  expect(rest.queued.map((t) => t.ms)).toEqual([CHECKS_RECHECK_MS]);
 });
 
 test("patchPr: replaces the PR's row and status in place, keeps fetch time, notifies", async () => {

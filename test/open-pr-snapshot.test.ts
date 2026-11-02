@@ -7,6 +7,7 @@ import { test, expect } from "bun:test";
 import {
   CHECKS_RECHECK_MAX,
   CHECKS_RECHECK_MS,
+  NO_CHECKS_RECHECK_MAX,
   OpenPrSnapshotService,
   SETTLE_DELAYS_MS,
   SNAPSHOT_TTL_MS,
@@ -641,7 +642,10 @@ function settleForge(seq: Array<boolean | null>, source?: OpenPrSnapshot["source
   (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = async () => {
     const snap = makeSnapshot(1, source);
     const mergeable = seq[Math.min(i++, seq.length - 1)]!;
-    return { ...snap, prs: [{ ...snap.prs[0]!, mergeable, headSha: "h1" }] };
+    return {
+      ...snap,
+      prs: [{ ...snap.prs[0]!, mergeable, headSha: "h1", checks: "success" as const }],
+    };
   };
   return { forge, fetches: () => i };
 }
@@ -819,6 +823,53 @@ test("recheck: a stuck check stops after CHECKS_RECHECK_MAX; a moved key doesn't
   ci.head = "h2";
   await svc.refresh(forge);
   expect(timers.queued.map((t) => t.ms)).toEqual([CHECKS_RECHECK_MS]);
+});
+
+test("recheck: a head with no checks gets the small budget, whether or not CI ever registers", async () => {
+  const timers = fakeTimers();
+  const { cache } = coveredCache();
+  const svc = new OpenPrSnapshotService(() => 0, 6, cache, timers.schedule);
+  const { forge, ci, fetches } = ciForge();
+  ci.checks = "none";
+  await svc.get(forge);
+  for (let i = 0; i < NO_CHECKS_RECHECK_MAX; i++) await timers.fire();
+  expect(fetches()).toBe(1 + NO_CHECKS_RECHECK_MAX); // a repo without CI stops here
+  expect(timers.queued).toHaveLength(0);
+  ci.checks = "pending"; // checks registered late: the read that sees it opens the full budget
+  await svc.refresh(forge);
+  ci.checks = "success";
+  await timers.fire();
+  expect(svc.peek(forge)!.prs[0]!.checks).toBe("success");
+  expect(timers.queued).toHaveLength(0);
+});
+
+test("recheck: a neighbour's re-reads don't spend past a no-checks head's budget", async () => {
+  const timers = fakeTimers();
+  const { cache } = coveredCache();
+  const svc = new OpenPrSnapshotService(() => 0, 6, cache, timers.schedule);
+  const forge = makeForge();
+  let late: PrStatus["checks"] = "none";
+  let fetches = 0;
+  (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = async () => {
+    fetches++;
+    const pr = makeSnapshot(1).prs[0]!;
+    return {
+      ...makeSnapshot(1),
+      prs: [
+        { ...pr, number: 1, headSha: "a", checks: "pending" as const },
+        { ...pr, number: 2, headSha: "b", checks: late },
+      ],
+    };
+  };
+  await svc.get(forge);
+  for (let i = 0; i < NO_CHECKS_RECHECK_MAX + 5; i++) await timers.fire();
+  late = "pending";
+  await timers.fire(); // this read sees PR 2 pending, spending nothing on its capped no-checks budget
+  // PR 2 kept its unspent tries through PR 1's re-reads, so it has its full remainder left.
+  while (timers.queued.length > 0) await timers.fire();
+  expect(fetches).toBe(
+    1 + NO_CHECKS_RECHECK_MAX + 5 + 1 + (CHECKS_RECHECK_MAX - NO_CHECKS_RECHECK_MAX),
+  );
 });
 
 test("recheck: a persisted pending row re-arms after a restart without an immediate fetch", async () => {

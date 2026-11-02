@@ -16,6 +16,9 @@ export const SETTLE_DELAYS_MS = [5_000, 30_000];
  *  moves no fingerprint, and repos without a session get no poller catch-up. */
 export const CHECKS_RECHECK_MS = 120_000;
 export const CHECKS_RECHECK_MAX = 30;
+/** Re-reads for a head with no checks yet: CI may still register, but a repo without CI never
+ *  does, and the service can't tell them apart. */
+export const NO_CHECKS_RECHECK_MAX = 3;
 
 type CacheEntry = GithubCacheEntry<OpenPrSnapshot>;
 type Schedule = (fn: () => void, ms: number) => void;
@@ -62,8 +65,8 @@ export class OpenPrSnapshotService {
   >();
   /** Slugs with a settle re-read scheduled. */
   private readonly settlePending = new Set<string>();
-  /** slug → `number:headSha` of its pending PRs → re-reads spent on that head. */
-  private readonly checksTries = new Map<string, Map<string, number>>();
+  /** slug → `number:headSha` of its PRs awaiting CI → re-reads spent on that head, and its budget. */
+  private readonly checksTries = new Map<string, Map<string, { spent: number; budget: number }>>();
   /** Slugs with a pending-CI re-read scheduled. */
   private readonly checksPending = new Set<string>();
   private readonly listeners = new Set<(slug: string) => void>();
@@ -313,29 +316,31 @@ export class OpenPrSnapshotService {
   }
 
   /**
-   * Re-read a snapshot holding pending CI every {@link CHECKS_RECHECK_MS}, at most
-   * {@link CHECKS_RECHECK_MAX} times per PR head. Tries survive a moved content key, so a busy repo
-   * can't keep a stuck check polling; a re-read skipped for budget costs no try.
+   * Re-read a snapshot holding a PR awaiting CI every {@link CHECKS_RECHECK_MS}, at most
+   * {@link CHECKS_RECHECK_MAX} times per pending PR head and {@link NO_CHECKS_RECHECK_MAX} per head
+   * with no checks yet. Tries survive a moved content key, so a busy repo can't keep a stuck check
+   * polling; a re-read skipped for budget costs no try.
    */
   private scheduleChecksRecheck(slug: string, forge: GitForge, snap: OpenPrSnapshot): void {
     if (forge.kind !== "github") return;
     const prev = this.checksTries.get(slug);
-    const tries = new Map<string, number>();
+    const tries = new Map<string, { spent: number; budget: number }>();
     for (const pr of snap.prs) {
-      if (pr.checks !== "pending") continue;
+      if (pr.checks !== "pending" && pr.checks !== "none") continue;
       const id = `${pr.number}:${pr.headSha ?? ""}`;
-      tries.set(id, prev?.get(id) ?? 0);
+      const budget = pr.checks === "pending" ? CHECKS_RECHECK_MAX : NO_CHECKS_RECHECK_MAX;
+      tries.set(id, { spent: prev?.get(id)?.spent ?? 0, budget });
     }
     this.checksTries.set(slug, tries);
     if (this.checksPending.has(slug)) return;
-    if (![...tries.values()].some((n) => n < CHECKS_RECHECK_MAX)) return;
+    if (![...tries.values()].some((t) => t.spent < t.budget)) return;
     this.checksPending.add(slug);
     this.schedule(() => {
       this.checksPending.delete(slug);
       if (graphRateLimit.blocked() || (this.readCache && !this.readCache.canRefresh())) return;
       const current = this.checksTries.get(slug);
       if (!current?.size) return; // another read already saw CI finish
-      for (const [id, n] of current) current.set(id, n + 1);
+      for (const t of current.values()) if (t.spent < t.budget) t.spent++;
       void this.refresh(forge);
     }, CHECKS_RECHECK_MS);
   }

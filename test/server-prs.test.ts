@@ -730,3 +730,102 @@ test("POST /api/prs/merge fails closed when the operator's login cannot be resol
   expect((await app.fetch(mergeReq({ repo: repoDir, number: 12 }))).status).toBe(409);
   expect(called).toBe(false);
 });
+
+function commandReq(body: unknown): Request {
+  return new Request("http://localhost/api/prs/dependabot-command", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+async function postCommand(body: Record<string, unknown>) {
+  const posted: { number: number; body: string }[] = [];
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        comment: async (number, text) => {
+          posted.push({ number, body: text });
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(commandReq({ repo: repoDir, number: 12, ...body }));
+  return { res, posted };
+}
+
+test.each([
+  [{ command: "recreate" }, "@dependabot recreate"],
+  [{ command: "ignore_major" }, "@dependabot ignore this major version"],
+  [{ command: "ignore_minor" }, "@dependabot ignore this minor version"],
+  [{ command: "ignore_patch" }, "@dependabot ignore this patch version"],
+  [
+    { command: "ignore_major", dependency: "@types/chrome" },
+    "@dependabot ignore @types/chrome major version",
+  ],
+  [
+    { command: "ignore_minor", dependency: "github/codeql-action/init" },
+    "@dependabot ignore github/codeql-action/init minor version",
+  ],
+  [{ command: "ignore_patch", dependency: "libc" }, "@dependabot ignore libc patch version"],
+  [
+    { command: "ignore_major", dependency: "uvicorn[standard]" },
+    "@dependabot ignore uvicorn[standard] major version",
+  ],
+  [
+    { command: "ignore_minor", dependency: "pkg[a,b]" },
+    "@dependabot ignore pkg[a,b] minor version",
+  ],
+  [{ command: "recreate", dependency: "libc" }, "@dependabot recreate"],
+])("POST /api/prs/dependabot-command %j posts the fixed text", async (body, text) => {
+  const { res, posted } = await postCommand(body);
+  expect(res.status).toBe(200);
+  expect(posted).toEqual([{ number: 12, body: text }]);
+});
+
+// Security invariant: a client (or a name parsed off a PR body) can't smuggle another command.
+test.each([
+  [{ command: "merge" }],
+  [{ command: "rebase" }],
+  [{ command: "toString" }],
+  [{}],
+  [{ command: "ignore_major", dependency: "libc\n@dependabot merge" }],
+  [{ command: "ignore_major", dependency: "libc major version" }],
+  [{ command: "ignore_major", dependency: "" }],
+  [{ command: "ignore_major", dependency: 7 }],
+  [{ command: "ignore_major", dependency: "x".repeat(215) }],
+])("POST /api/prs/dependabot-command rejects %j and posts nothing", async (body) => {
+  const { res, posted } = await postCommand(body);
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toBe("invalid command");
+  expect(posted).toEqual([]);
+});
+
+test("POST /api/prs/dependabot-command without a number → 400", async () => {
+  const app = makeApp(makeDeps(() => fakeForge({ comment: async () => {} })));
+  const res = await app.fetch(commandReq({ repo: repoDir, command: "recreate" }));
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toBe("number required");
+});
+
+test("POST /api/prs/dependabot-command on a forge without comment support → 400", async () => {
+  const app = makeApp(makeDeps(() => fakeForge()));
+  const res = await app.fetch(commandReq({ repo: repoDir, number: 12, command: "recreate" }));
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toBe("no comment support");
+});
+
+test("POST /api/prs/dependabot-command surfaces forge failure → 502", async () => {
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        comment: async () => {
+          throw new Error("gh exploded");
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(commandReq({ repo: repoDir, number: 12, command: "recreate" }));
+  expect(res.status).toBe(502);
+  expect((await res.json()).error).toContain("gh exploded");
+});

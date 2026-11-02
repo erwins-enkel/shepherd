@@ -129,6 +129,30 @@ export const AUTHOR_RESPONSE_MARKER = "<!-- shepherd-author-note -->";
  *  rebase it onto the base branch. Posted by the dependabot-rebase endpoint. */
 export const DEPENDABOT_REBASE_COMMAND = "@dependabot rebase";
 
+const DEPENDABOT_IGNORE_LEVEL: Record<string, string> = {
+  ignore_major: "major",
+  ignore_minor: "minor",
+  ignore_patch: "patch",
+};
+
+/** A package name as ecosystems spell it (`@types/chrome`, `github/codeql-action/init`,
+ *  `com.acme:lib`, `uvicorn[standard]`). No whitespace, so a name read off a PR body can't carry a
+ *  second command. `dependabotIgnoreTargets` in the UI offers only names this accepts: keep both
+ *  in step. */
+const DEPENDABOT_DEPENDENCY = /^[@A-Za-z0-9][@A-Za-z0-9._/:+[\],-]{0,213}$/;
+
+/** The comment that runs `command`, or null for an unknown command or an unsafe dependency. The
+ *  text is authored here, never by the client. A dependency selects the grouped PR form
+ *  (`ignore DEP major version`); without one, the single-dependency form (`ignore this …`). */
+export function dependabotCommandText(command: unknown, dependency?: unknown): string | null {
+  if (command === "recreate") return "@dependabot recreate";
+  if (typeof command !== "string" || !Object.hasOwn(DEPENDABOT_IGNORE_LEVEL, command)) return null;
+  const level = DEPENDABOT_IGNORE_LEVEL[command];
+  if (dependency === undefined) return `@dependabot ignore this ${level} version`;
+  if (typeof dependency !== "string" || !DEPENDABOT_DEPENDENCY.test(dependency)) return null;
+  return `@dependabot ignore ${dependency} ${level} version`;
+}
+
 /** Invisible marker appended to every issue-log comment Shepherd authors (the
  *  ⏸️ waiting / ✅ merged workflow notes). Lets a task spawned from that issue
  *  filter Shepherd's own machine chatter back out of the comment thread it feeds

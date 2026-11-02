@@ -6148,6 +6148,28 @@ components:
           type: string
         number:
           type: integer
+    DependabotCommandBody:
+      type: object
+      additionalProperties: false
+      required:
+        - repo
+        - number
+        - command
+      properties:
+        repo:
+          type: string
+        number:
+          type: integer
+        command:
+          type: string
+          enum:
+            - recreate
+            - ignore_major
+            - ignore_minor
+            - ignore_patch
+        dependency:
+          type: string
+          description: The dependency an ignore command names on a grouped PR; omitted, an ignore posts the single-dependency "ignore this ..." form.
     MergeConfirmRefusal:
       type: object
       additionalProperties: true
@@ -13670,6 +13692,37 @@ paths:
                 $ref: "#/components/schemas/Ok"
         "400":
           description: error is "invalid repo", "number required" or "no comment support".
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          description: The forge rejected the comment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/prs/dependabot-command:
+    post:
+      operationId: requestDependabotCommand
+      description: Post a server-built Dependabot recreate or ignore-version comment on a Dependabot PR (Up Next's PR preview).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DependabotCommandBody"
+      responses:
+        "200":
+          description: The comment was posted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: error is "invalid repo", "number required", "invalid command" or "no comment support".
           content:
             application/json:
               schema:

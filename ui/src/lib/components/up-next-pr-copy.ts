@@ -1,3 +1,4 @@
+import type { DependabotCommand } from "#lib/api.js";
 import { m } from "#lib/paraglide/messages.js";
 import type { TooltipExplanation } from "#lib/tooltips/content.js";
 import type { UpNextPr, UpNextPrAction, UpNextPrBand } from "#lib/types.js";
@@ -77,4 +78,40 @@ export function actionTip(pr: UpNextPr, mergeFailed = false, syncing = false): T
             ? [m.upnext_pr_tip_rebase_summary({ number }), m.upnext_pr_tip_rebase_then()]
             : [m.upnext_pr_tip_approve_summary({ number }), m.upnext_pr_tip_approve_then()];
   return { title, summary, sections: [{ label: m.upnext_pr_tip_then(), text: then }] };
+}
+
+export const DEPENDABOT_IGNORE_COMMANDS = [
+  "ignore_major",
+  "ignore_minor",
+  "ignore_patch",
+] as const satisfies DependabotCommand[];
+
+export function dependabotLevel(command: (typeof DEPENDABOT_IGNORE_COMMANDS)[number]): string {
+  if (command === "ignore_major") return m.depcmd_level_major();
+  if (command === "ignore_minor") return m.depcmd_level_minor();
+  return m.depcmd_level_patch();
+}
+
+export function dependabotConfirmTitle(
+  number: number,
+  command: DependabotCommand,
+  dependency?: string,
+): string {
+  if (command === "recreate") return m.depcmd_confirm_recreate_title({ number });
+  const level = dependabotLevel(command);
+  return dependency
+    ? m.depcmd_confirm_ignore_title_dep({ level, name: dependency })
+    : m.depcmd_confirm_ignore_title_this({ level });
+}
+
+export function dependabotConfirmBody(
+  number: number,
+  command: DependabotCommand,
+  dependency?: string,
+): string {
+  if (command === "recreate") return m.depcmd_confirm_recreate_body();
+  const level = dependabotLevel(command);
+  return dependency
+    ? m.depcmd_confirm_ignore_body_dep({ number, level, name: dependency })
+    : m.depcmd_confirm_ignore_body_this({ number, level });
 }

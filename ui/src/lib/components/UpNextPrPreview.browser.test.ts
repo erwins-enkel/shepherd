@@ -13,6 +13,7 @@ import {
   ApiError,
   getUpNextPrBody,
   mergeBacklogPr,
+  requestDependabotCommand,
   requestDependabotRebase,
   startUpNextPrFix,
   syncUpNextPr,
@@ -26,6 +27,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     mergeBacklogPr: vi.fn(async () => {}),
     startUpNextPrFix: vi.fn(async () => ({ session: { id: "fix" } })),
     requestDependabotRebase: vi.fn(async () => {}),
+    requestDependabotCommand: vi.fn(async () => {}),
     refreshUpNext: vi.fn(async () => ({ ok: true })),
     syncUpNextPr: vi.fn(async () => ({ pr: null })),
   };
@@ -252,6 +254,125 @@ describe("UpNextPrPreview", () => {
     render(UpNextPrPreview, { launchContext: ctx() });
     await expect.element(page.getByRole("heading", { name: "pr 914" })).toBeVisible();
     expect(document.querySelector(".unp-more")).toBeNull();
+  });
+
+  describe("Dependabot commands", () => {
+    const DEP = pr(950, {
+      kind: "dependabot",
+      band: "dependabot",
+      author: "dependabot[bot]",
+      action: null,
+    });
+    const SINGLE = "Bumps [rustls](https://x.test) from 0.23.45 to 0.23.46.\n";
+    const GROUPED =
+      "Bumps the dev group with 1 update in the /ui directory: x.\n\n" +
+      "Updates `@types/chrome` from 0.3.6 to 0.3.7\n" +
+      "Updates `magic-string` from 1.4.4 to 1.4.5\n";
+    const openMenu = async (body: string) => {
+      vi.mocked(getUpNextPrBody).mockResolvedValue({ body });
+      upNext.snapshot = snapshot([DEP]);
+      open(DEP);
+      render(UpNextPrPreview, { launchContext: ctx() });
+      const button = page.getByRole("button", { name: `${m.depcmd_button()} ▾` });
+      await expect.element(button).toBeEnabled();
+      await button.click();
+      await expect.element(page.getByRole("menu")).toBeVisible();
+    };
+    const item = (name: string) => page.getByRole("menuitem", { name });
+    const major = (name: string) =>
+      item(m.depcmd_ignore_aria({ level: m.depcmd_level_major(), name }));
+
+    it("is offered on a Dependabot PR waiting on CI", async () => {
+      await openMenu(SINGLE);
+      await expect.element(item(m.depcmd_recreate())).toBeVisible();
+    });
+
+    it("isn't offered on a regular PR", async () => {
+      open(PRS[0]!);
+      render(UpNextPrPreview, { launchContext: ctx() });
+      await expect.element(page.getByRole("heading", { name: "pr 911" })).toBeVisible();
+      await expect
+        .element(page.getByRole("button", { name: `${m.depcmd_button()} ▾` }))
+        .not.toBeInTheDocument();
+    });
+
+    it("ignores on a single-dependency PR after confirming, and hides the row", async () => {
+      await openMenu(SINGLE);
+      await major(m.depcmd_this_update()).click();
+      expect(vi.mocked(requestDependabotCommand)).not.toHaveBeenCalled();
+      await page.getByRole("button", { name: m.depcmd_confirm_ignore() }).click();
+      await expect
+        .poll(() => vi.mocked(requestDependabotCommand).mock.calls[0])
+        .toEqual([REPO, 950, "ignore_major", undefined]);
+      await expect.poll(() => upNextUi.hidesActed(upNextPrKey(DEP), Date.now())).toBe(true);
+    });
+
+    it("names the chosen dependency on a grouped PR", async () => {
+      await openMenu(GROUPED);
+      await expect.element(major("@types/chrome")).toBeVisible();
+      await major("magic-string").click();
+      await page.getByRole("button", { name: m.depcmd_confirm_ignore() }).click();
+      await expect
+        .poll(() => vi.mocked(requestDependabotCommand).mock.calls[0])
+        .toEqual([REPO, 950, "ignore_major", "magic-string"]);
+    });
+
+    it("says so when a grouped PR's dependencies can't be read", async () => {
+      await openMenu("Bumps the dev group with 2 updates.\n");
+      await expect.element(page.getByText(m.depcmd_unavailable())).toBeVisible();
+    });
+
+    it("cancelling a confirm posts nothing", async () => {
+      await openMenu(SINGLE);
+      await item(m.depcmd_recreate()).click();
+      await page.getByRole("button", { name: m.common_cancel() }).click();
+      await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+      expect(vi.mocked(requestDependabotCommand)).not.toHaveBeenCalled();
+    });
+
+    it("recreates after confirming and keeps the row", async () => {
+      await openMenu(SINGLE);
+      await item(m.depcmd_recreate()).click();
+      await page.getByRole("button", { name: m.depcmd_confirm_recreate() }).click();
+      await expect
+        .poll(() => vi.mocked(requestDependabotCommand).mock.calls[0])
+        .toEqual([REPO, 950, "recreate", undefined]);
+      expect(upNextUi.hidesActed(upNextPrKey(DEP), Date.now())).toBe(false);
+    });
+
+    it("rebases at once, without a confirm", async () => {
+      await openMenu(SINGLE);
+      await page.getByRole("menuitem", { name: m.depcmd_rebase_hint() }).click();
+      await expect
+        .poll(() => vi.mocked(requestDependabotRebase).mock.calls[0])
+        .toEqual([REPO, 950]);
+      expect(document.querySelector("[role=dialog]")).toBeNull();
+    });
+
+    it("hides Rebase in the menu while it is the primary action", async () => {
+      vi.mocked(getUpNextPrBody).mockResolvedValue({ body: SINGLE });
+      const row = { ...DEP, action: "dependabot_rebase" as const, blockReason: "behind" as const };
+      upNext.snapshot = snapshot([row]);
+      open(row);
+      render(UpNextPrPreview, { launchContext: ctx() });
+      const button = page.getByRole("button", { name: `${m.depcmd_button()} ▾` });
+      await expect.element(button).toBeEnabled();
+      await button.click();
+      await expect.element(item(m.depcmd_recreate())).toBeVisible();
+      expect(document.querySelector("[role=menu]")?.textContent).not.toContain(
+        m.depcmd_rebase_hint(),
+      );
+    });
+
+    it("keeps the row when posting fails", async () => {
+      vi.mocked(requestDependabotCommand).mockRejectedValueOnce(new ApiError(502, "nope"));
+      await openMenu(SINGLE);
+      await major(m.depcmd_this_update()).click();
+      await page.getByRole("button", { name: m.depcmd_confirm_ignore() }).click();
+      await expect.poll(() => vi.mocked(requestDependabotCommand).mock.calls.length).toBe(1);
+      await expect.element(page.getByRole("heading", { name: DEP.title })).toBeVisible();
+      expect(upNextUi.hidesActed(upNextPrKey(DEP), Date.now())).toBe(false);
+    });
   });
 
   describe("after a failed merge", () => {

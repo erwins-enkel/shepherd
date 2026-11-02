@@ -397,6 +397,7 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/up-next/pr-fix",
     "/api/prs/merge",
     "/api/prs/dependabot-rebase",
+    "/api/prs/dependabot-command",
     "/api/actions/rerun",
     "/api/actions/cancel",
     "/api/actions/retry-ci",

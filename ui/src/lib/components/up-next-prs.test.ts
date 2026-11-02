@@ -5,6 +5,7 @@ import { actionTip } from "./up-next-pr-copy";
 import {
   buttonAction,
   ciShown,
+  dependabotIgnoreTargets,
   mergeBlock,
   prBandGroups,
   prsInRepos,
@@ -124,4 +125,60 @@ test("while the live re-read runs, the tip says what the action waits for", () =
   expect(tip.title).toBe(m.prspanel_merge_button());
   expect(tip.summary).toBe(m.upnext_pr_syncing());
   expect(tip.sections).toEqual([]);
+});
+
+describe("dependabotIgnoreTargets", () => {
+  test("a single-dependency PR takes the 'this' form", () => {
+    const body = "Bumps [rustls](https://x.test) from 0.23.45 to 0.23.46.\n";
+    expect(dependabotIgnoreTargets(body)).toEqual([null]);
+  });
+
+  test("a release note quoting 'Bumps the … group' doesn't make it grouped", () => {
+    const body = "Bumps [a](https://x.test) from 1 to 2.\nBumps the build group\n";
+    expect(dependabotIgnoreTargets(body)).toEqual([null]);
+  });
+
+  test("a grouped PR with one dependency names it", () => {
+    const body =
+      "Bumps the production-dependencies group with 1 update in the /ui directory: @pierre/diffs.\n\n" +
+      "Updates `@pierre/diffs` from 1.6.1 to 1.6.2\n";
+    expect(dependabotIgnoreTargets(body)).toEqual(["@pierre/diffs"]);
+  });
+
+  test("a grouped PR in /cli reads the same", () => {
+    const body =
+      "Bumps the cargo-minor-patch group in /cli with 1 update: [libc](https://x.test).\n\n" +
+      "Updates `libc` from 0.2.189 to 0.2.191\n";
+    expect(dependabotIgnoreTargets(body)).toEqual(["libc"]);
+  });
+
+  test("a group across directories lists each dependency once", () => {
+    const body =
+      "Bumps the development-dependencies group with 1 update in the /extension directory: x.\n" +
+      "Bumps the development-dependencies group with 1 update in the /ui directory: y.\n\n" +
+      "Updates `@types/chrome` from 0.3.6 to 0.3.7\n<details></details>\n" +
+      "Updates `magic-string` from 1.4.4 to 1.4.5\n" +
+      "Updates `magic-string` from 1.4.3 to 1.4.5\n";
+    expect(dependabotIgnoreTargets(body)).toEqual(["@types/chrome", "magic-string"]);
+  });
+
+  test("keeps extras in a name, as the server accepts them", () => {
+    const body =
+      "Bumps the python group with 2 updates: x.\n\n" +
+      "Updates `uvicorn[standard]` from 0.30 to 0.31\n" +
+      "Updates `pkg[a,b]` from 1 to 2\n";
+    expect(dependabotIgnoreTargets(body)).toEqual(["uvicorn[standard]", "pkg[a,b]"]);
+  });
+
+  test("omits a name the server would refuse", () => {
+    const body =
+      "Bumps the python group with 2 updates: x.\n\n" +
+      "Updates `not a name` from 1 to 2\n" +
+      "Updates `libc` from 1 to 2\n";
+    expect(dependabotIgnoreTargets(body)).toEqual(["libc"]);
+  });
+
+  test("a grouped PR with no readable dependency offers nothing", () => {
+    expect(dependabotIgnoreTargets("Bumps the actions group with 2 updates.\n")).toEqual([]);
+  });
 });

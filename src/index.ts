@@ -4410,6 +4410,7 @@ const appDeps: AppDeps = {
     refreshIfStale: (maxAgeMs) => upNext.refreshIfStale(maxAgeMs),
     recomputeUntilCleared: (started) => upNext.recomputeUntilCleared(started),
     refilter: () => upNext.refilter(),
+    syncPr: (repoPath, number) => upNext.syncPr(repoPath, number),
     hiddenRepoPathsRaw: () =>
       reconcileRealPathsToRaw(store.hiddenRepoPaths(), listRepos(config.repoRoot)),
   },

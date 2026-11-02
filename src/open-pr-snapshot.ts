@@ -12,6 +12,11 @@ export const SNAPSHOT_TTL_MS = 120_000;
  *  so at most this many per PR head and prs content key. */
 export const SETTLE_DELAYS_MS = [5_000, 30_000];
 
+/** How often a snapshot holding pending CI is re-read, and how many times per PR head: CI finishing
+ *  moves no fingerprint, and repos without a session get no poller catch-up. */
+export const CHECKS_RECHECK_MS = 120_000;
+export const CHECKS_RECHECK_MAX = 30;
+
 type CacheEntry = GithubCacheEntry<OpenPrSnapshot>;
 type Schedule = (fn: () => void, ms: number) => void;
 
@@ -57,6 +62,10 @@ export class OpenPrSnapshotService {
   >();
   /** Slugs with a settle re-read scheduled. */
   private readonly settlePending = new Set<string>();
+  /** slug → `number:headSha` of its pending PRs → re-reads spent on that head. */
+  private readonly checksTries = new Map<string, Map<string, number>>();
+  /** Slugs with a pending-CI re-read scheduled. */
+  private readonly checksPending = new Set<string>();
   private readonly listeners = new Set<(slug: string) => void>();
 
   constructor(
@@ -91,6 +100,8 @@ export class OpenPrSnapshotService {
     ) {
       if (this.readCache.expired(entry) && this.readCache.canRefresh())
         void this.load(slug, forge, true);
+      // Also picks up a row persisted before a restart, or left by a skipped or failed re-read.
+      this.scheduleChecksRecheck(slug, forge, entry.value);
       return entry.value;
     }
     if (entry && fpKey == null && this.now() - entry.at < SNAPSHOT_TTL_MS) {
@@ -301,6 +312,34 @@ export class OpenPrSnapshotService {
     }, SETTLE_DELAYS_MS[attempt]!);
   }
 
+  /**
+   * Re-read a snapshot holding pending CI every {@link CHECKS_RECHECK_MS}, at most
+   * {@link CHECKS_RECHECK_MAX} times per PR head. Tries survive a moved content key, so a busy repo
+   * can't keep a stuck check polling; a re-read skipped for budget costs no try.
+   */
+  private scheduleChecksRecheck(slug: string, forge: GitForge, snap: OpenPrSnapshot): void {
+    if (forge.kind !== "github") return;
+    const prev = this.checksTries.get(slug);
+    const tries = new Map<string, number>();
+    for (const pr of snap.prs) {
+      if (pr.checks !== "pending") continue;
+      const id = `${pr.number}:${pr.headSha ?? ""}`;
+      tries.set(id, prev?.get(id) ?? 0);
+    }
+    this.checksTries.set(slug, tries);
+    if (this.checksPending.has(slug)) return;
+    if (![...tries.values()].some((n) => n < CHECKS_RECHECK_MAX)) return;
+    this.checksPending.add(slug);
+    this.schedule(() => {
+      this.checksPending.delete(slug);
+      if (graphRateLimit.blocked() || (this.readCache && !this.readCache.canRefresh())) return;
+      const current = this.checksTries.get(slug);
+      if (!current?.size) return; // another read already saw CI finish
+      for (const [id, n] of current) current.set(id, n + 1);
+      void this.refresh(forge);
+    }, CHECKS_RECHECK_MS);
+  }
+
   /** True when the forge can supply a snapshot (non-null slug + method present). */
   private isCapable(forge: GitForge): boolean {
     return forge.slug != null && forge.listOpenPrSnapshot !== undefined;
@@ -342,6 +381,7 @@ export class OpenPrSnapshotService {
               this.inflight.delete(slug);
               this.notify(slug);
               this.scheduleSettle(slug, forge, v, fpKey);
+              this.scheduleChecksRecheck(slug, forge, v);
             }
             return v;
           },

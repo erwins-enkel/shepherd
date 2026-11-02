@@ -977,7 +977,7 @@ export interface AppDeps {
     refilter(): void;
     /** Re-read one PR live and republish (the PR preview's sync). False when the repo can't read
      *  single PRs right now; a failing read rejects. */
-    syncPr?(repoPath: string, number: number): Promise<boolean>;
+    syncPr(repoPath: string, number: number): Promise<boolean>;
   };
   /** Verify the configured api-key authenticates end-to-end (the /settings/verify-key route);
    *  absent in environments where it isn't wired. Returns only {ok,reason?,detail?} — no key/path. */
@@ -2580,7 +2580,7 @@ async function handleUpNextPrSync(req: Request, deps: AppDeps): Promise<Response
   const { number } = body;
   if (!dir || !Number.isSafeInteger(number) || (number as number) <= 0)
     return json({ error: "repo and a positive pull request number are required" }, 400);
-  if (!deps.upNext?.syncPr) return json({ error: "up-next unavailable" }, 503);
+  if (!deps.upNext) return json({ error: "up-next unavailable" }, 503);
   try {
     if (!(await deps.upNext.syncPr(dir, number as number)))
       return json({ error: "pull request reads unavailable for repo" }, 503);

@@ -320,6 +320,7 @@ describe("Up Next", () => {
       refreshIfStale: () => {},
       recomputeUntilCleared: async () => {},
       hiddenRepoPathsRaw: () => new Set(),
+      syncPr: async () => true,
       refilter: () => {
         refilters += 1;
       },
@@ -370,6 +371,7 @@ describe("Up Next", () => {
       refreshIfStale: () => {},
       recomputeUntilCleared: async () => {},
       hiddenRepoPathsRaw: () => new Set(),
+      syncPr: async () => true,
       refilter: () => {},
     };
     try {
@@ -391,6 +393,7 @@ describe("Up Next", () => {
       refreshIfStale: () => {},
       recomputeUntilCleared: async () => {},
       hiddenRepoPathsRaw: () => new Set(),
+      syncPr: async () => true,
       refilter: () => {},
     };
     try {
@@ -664,6 +667,7 @@ test("Up Next publication stays below 64 KB and the full snapshot is read condit
     refreshIfStale: (age) => service.refreshIfStale(age),
     recomputeUntilCleared: (items) => service.recomputeUntilCleared(items),
     hiddenRepoPathsRaw: () => new Set(),
+    syncPr: async () => true,
     refilter: () => {},
   };
   try {
@@ -724,6 +728,7 @@ test("1,319 items across 42 repos stay below 1 MiB over HTTP and WebSocket", asy
     refreshIfStale: () => {},
     recomputeUntilCleared: async () => {},
     hiddenRepoPathsRaw: () => new Set(),
+    syncPr: async () => true,
     refilter: () => {},
   };
   try {

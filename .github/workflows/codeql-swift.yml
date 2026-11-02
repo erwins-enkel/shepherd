@@ -1,0 +1,59 @@
+name: CodeQL (Swift)
+
+# Swift analysis, split from codeql.yml because it needs a macOS runner and a full build
+# (16-48 min), so a PR that doesn't touch native/ must not pay for it. Safe to path-filter
+# because CodeQL is not a required check. Default setup must stay off: see codeql.yml.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "native/**"
+      - ".github/workflows/codeql-swift.yml"
+      - "!native/docs/**"
+      - "!native/**/*.md"
+  pull_request:
+    branches: [main]
+    paths:
+      - "native/**"
+      - ".github/workflows/codeql-swift.yml"
+      - "!native/docs/**"
+      - "!native/**/*.md"
+  schedule:
+    # Weekly, as in codeql.yml.
+    - cron: "27 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: analyze (swift)
+    # Pinned, not macos-latest: CodeQL CLI 2.27.3 drops autobuild on macOS 27.
+    runs-on: macos-26
+    permissions:
+      security-events: write # upload SARIF results
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: swift
+          build-mode: autobuild
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          category: "/language:swift"

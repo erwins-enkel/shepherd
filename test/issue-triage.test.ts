@@ -1,9 +1,13 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   assembleComment,
   gateBody,
   mapCategoryToLabels,
   parseModelJson,
+  readDocs,
   sanitizeComment,
   validateDecision,
   type ValidatedDecision,
@@ -11,6 +15,58 @@ import {
 
 // These tests exercise only the pure, network-free logic. No Anthropic API call
 // is ever made — the classify()/fetch path is deliberately not imported here.
+
+describe("readDocs", () => {
+  const dirs: string[] = [];
+  const makeDir = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), "issue-triage-docs-"));
+    dirs.push(dir);
+    return dir;
+  };
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("recurses and keeps only md/mdx files, in byte order", () => {
+    const dir = makeDir();
+    mkdirSync(join(dir, "guide"));
+    writeFileSync(join(dir, "b.md"), "lower");
+    writeFileSync(join(dir, "Z.mdx"), "upper");
+    writeFileSync(join(dir, "notes.txt"), "ignored");
+    writeFileSync(join(dir, "guide", "start.md"), "nested");
+
+    expect(readDocs(dir)).toBe(
+      [
+        `# FILE: ${join(dir, "Z.mdx")}\n\nupper`,
+        `# FILE: ${join(dir, "b.md")}\n\nlower`,
+        `# FILE: ${join(dir, "guide", "start.md")}\n\nnested`,
+      ].join("\n\n---\n\n"),
+    );
+  });
+
+  it("skips symlinks to files and directories", () => {
+    const outside = makeDir();
+    mkdirSync(join(outside, "sub"));
+    writeFileSync(join(outside, "secret.md"), "outside");
+    writeFileSync(join(outside, "sub", "nested.md"), "outside nested");
+
+    const dir = makeDir();
+    writeFileSync(join(dir, "real.md"), "inside");
+    symlinkSync(join(outside, "secret.md"), join(dir, "link.md"));
+    symlinkSync(join(outside, "sub"), join(dir, "linked-dir"));
+
+    expect(readDocs(dir)).toBe(`# FILE: ${join(dir, "real.md")}\n\ninside`);
+  });
+
+  it("returns an empty string for an empty directory", () => {
+    expect(readDocs(makeDir())).toBe("");
+  });
+
+  it("throws on a missing directory so the caller can degrade", () => {
+    expect(() => readDocs(join(makeDir(), "missing"))).toThrow();
+  });
+});
 
 describe("gateBody", () => {
   it("rejects empty and too-short bodies before any paid call", () => {

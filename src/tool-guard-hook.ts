@@ -43,6 +43,8 @@ export function buildToolGuardFragment(
     scriptPath?: string;
     enabled?: boolean;
     heavyListPath?: string;
+    /** A merge train session may watch CI: the guard's CI watch denial is lifted for it. */
+    ciWatchAllowed?: boolean;
   } = {},
 ): Record<string, unknown> {
   if (!(opts.enabled ?? config.toolGuard)) return {};
@@ -58,7 +60,9 @@ export function buildToolGuardFragment(
         hooks: [
           {
             type: "command",
-            command: `${shellQuote(interpreter)} ${shellQuote(script)} --heavy-list ${shellQuote(heavyList)}`,
+            command:
+              `${shellQuote(interpreter)} ${shellQuote(script)} --heavy-list ${shellQuote(heavyList)}` +
+              (opts.ciWatchAllowed ? " --ci-watch-allowed" : ""),
             timeout: 10,
           },
         ],

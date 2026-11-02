@@ -9,6 +9,7 @@ import {
   CI_WATCH_REASON,
   DEPLOY_WATCH_CONTEXT,
   RATE_LIMIT_REASON,
+  TRAIN_WATCH_CONTEXT,
   type ToolGuardContext,
   type ToolGuardDenial,
   type ToolGuardEvent,
@@ -457,6 +458,46 @@ describe("#2852 CI polling rule (Shepherd already tracks the PR's checks)", () =
   });
 });
 
+describe("merge train sessions may watch CI", () => {
+  // DEPS.runInfo throws, so these also prove the exemption spends no `gh run view` lookup.
+  const TRAIN = { ...DEPS, ciWatchAllowed: true };
+
+  it("allows every watcher, hinting below a 30 s interval", () => {
+    for (const cmd of [
+      "gh pr checks 5 --watch",
+      "gh pr checks --watch=true",
+      "gh pr checks 5 --watch -i 10",
+      "gh run watch 7",
+      "gh run watch",
+      "gh run watch $ID",
+    ]) {
+      const d = decideToolGuard(bash(cmd), TRAIN) as ToolGuardContext | null;
+      expect(`${cmd}: ${d?.additionalContext}`).toBe(`${cmd}: ${TRAIN_WATCH_CONTEXT}`);
+    }
+    expect(TRAIN_WATCH_CONTEXT).toContain("--interval 30");
+  });
+
+  it("has nothing to say about a slow watch or a one-shot CI read", () => {
+    for (const cmd of [
+      "gh pr checks 5 --watch -i 30",
+      "gh pr checks 5 --watch --interval=60",
+      "gh run watch 7 --interval 30",
+      "gh pr checks 5",
+      "gh run view 7 --json status",
+      "gh api repos/o/r/commits/abc/check-runs",
+    ]) {
+      expect(`${cmd}: ${decideToolGuard(bash(cmd), TRAIN)}`).toBe(`${cmd}: null`);
+    }
+  });
+
+  it("keeps every other rule", () => {
+    for (const cmd of ["git stash", "gh api rate_limit", "gh pr checks 5 --watch; git stash"]) {
+      const d = decideToolGuard(bash(cmd), TRAIN) as ToolGuardDenial | null;
+      expect(`${cmd}: ${d?.permissionDecision}`).toBe(`${cmd}: deny`);
+    }
+  });
+});
+
 describe("#2002 deterministic backstops for the moved notices", () => {
   it("carries the one-PR + manual-steps rules at `gh pr create`", () => {
     // The skill is model-invoked; this fires on the exact call that matters, so the two invariants
@@ -691,6 +732,22 @@ describe("#2002 settings fragment", () => {
     );
   });
 
+  it("adds --ci-watch-allowed only when asked", () => {
+    const command = (ciWatchAllowed?: boolean) =>
+      (
+        buildToolGuardFragment({
+          enabled: true,
+          interpreter: "/n",
+          scriptPath: "/s",
+          heavyListPath: "/h",
+          ciWatchAllowed,
+        }) as { PreToolUse: { hooks: { command: string }[] }[] }
+      ).PreToolUse[0]!.hooks[0]!.command;
+    expect(command()).toBe("'/n' '/s' --heavy-list '/h'");
+    expect(command(false)).toBe("'/n' '/s' --heavy-list '/h'");
+    expect(command(true)).toBe("'/n' '/s' --heavy-list '/h' --ci-watch-allowed");
+  });
+
   it("emits nothing at all when the kill switch is off", () => {
     expect(buildToolGuardFragment({ enabled: false })).toEqual({});
     expect(toolGuardMembranePaths(false)).toEqual([]);
@@ -742,8 +799,8 @@ describe("#2002 CLI entry (stdin → stdout)", () => {
   const NODE = "node";
 
   /** Run the guard exactly as the hook does: body on stdin, decision on stdout. */
-  const run = async (event: unknown, path = SCRIPT) => {
-    const p = Bun.spawn([NODE, path], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const run = async (event: unknown, path = SCRIPT, args: string[] = []) => {
+    const p = Bun.spawn([NODE, path, ...args], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
     p.stdin.write(typeof event === "string" ? event : JSON.stringify(event));
     await p.stdin.end();
     const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
@@ -760,6 +817,17 @@ describe("#2002 CLI entry (stdin → stdout)", () => {
         permissionDecisionReason: expect.stringContaining("refs/stash"),
       },
     });
+  });
+
+  it("--ci-watch-allowed lifts the CI watch denial", async () => {
+    const event = bash("gh pr checks 5 --watch --interval 30");
+    const denied = await run(event);
+    expect(JSON.parse(denied.out).hookSpecificOutput.permissionDecisionReason).toBe(
+      CI_WATCH_REASON,
+    );
+    const allowed = await run(event, SCRIPT, ["--ci-watch-allowed"]);
+    expect(allowed.out).toBe("");
+    expect(allowed.code).toBe(0);
   });
 
   it("stays silent — exit 0, no output — when it has no opinion", async () => {

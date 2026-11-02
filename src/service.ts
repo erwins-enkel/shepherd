@@ -685,6 +685,8 @@ export function spawnSettingsOverlay(
     hooks?: HookTarget;
     permissions?: { defaultMode: string; allow: string[]; ask: string[]; deny: string[] };
     assistantView?: HookTarget;
+    /** A merge train session (see {@link isMergeTrainDriver}): the tool guard lets it watch CI. */
+    ciWatchAllowed?: boolean;
   } = {},
 ): string {
   const settings: Record<string, unknown> = {
@@ -704,7 +706,7 @@ export function spawnSettingsOverlay(
   // `PreToolUse(AskUserQuestion)` (#3165); the assistant's view hook owns `UserPromptSubmit`.
   // Merged key-wise, with the one shared key — `PreToolUse` — concatenated so neither matcher
   // entry overwrites the other.
-  const guard = buildToolGuardFragment();
+  const guard = buildToolGuardFragment({ ciWatchAllowed: opts.ciWatchAllowed });
   const ingest = config.hooksIngest && opts.hooks ? buildHooksFragment(opts.hooks) : {};
   const hooks: Record<string, unknown> = {
     ...guard,
@@ -1133,6 +1135,21 @@ const CI_WAIT_NOTICE =
   "checks finish — end your turn and wait. Use `gh run view <id> --log-failed` only to read an " +
   "already failed run. Runs Shepherd doesn't track (deploys, releases, `workflow_dispatch`) may be " +
   "watched: `gh run watch <run-id> --interval 30`.";
+
+/**
+ * Replaces {@link CI_WAIT_NOTICE} on a merge train session: the PRs it lands aren't its own, so
+ * nothing steers it when their checks finish (src/ci-steer.ts skips marked participants).
+ */
+const MERGE_TRAIN_CI_NOTICE =
+  "You are driving a merge train. Shepherd doesn't steer you when the PRs you land finish CI, and " +
+  "`self_status` covers only this session's own PR, so don't end your turn to wait for it. Watch " +
+  "their CI yourself: `gh pr checks <n> --watch --interval 30` or " +
+  "`gh run watch <run-id> --interval 30`. Use `gh run view <id> --log-failed` to read a failed run.";
+
+/** Was this session launched as a merge train? Decides the CI watch exemption on spawn and resume. */
+function isMergeTrainDriver(s: { mergeTrainPrs?: number[] | null }): boolean {
+  return (s.mergeTrainPrs?.length ?? 0) > 0;
+}
 
 /**
  * Rides a schedule-fired session (#3469), Claude family and non-plain only — exactly the sessions
@@ -2252,6 +2269,8 @@ export interface ComposeSystemPromptOptions {
   /** Pre-baked bootstrap directive text (resolved pins, #3109), or null/absent when off. A CODE
    *  mode (it opens a PR), so unlike the kinds above it suppresses only plan-gate/autopilot. */
   bootstrap?: string | null;
+  /** A merge train session: `<ci-wait-notice>` tells it to watch CI instead of waiting. */
+  mergeTrain?: boolean;
   planGate?: "interactive" | "auto";
   buildQueue?: string | null;
   previewHint?: boolean;
@@ -2370,7 +2389,9 @@ export function composeSystemPromptBlocks(
   // #2860: only where `self_status` exists — Codex has no MCP wiring, a plain session no read tools.
   if (claudeFamily && !opts.plain) {
     blocks.push(taggedBlock("github-rate-limit-notice", GITHUB_RATE_LIMIT_NOTICE));
-    blocks.push(taggedBlock("ci-wait-notice", CI_WAIT_NOTICE));
+    blocks.push(
+      taggedBlock("ci-wait-notice", opts.mergeTrain ? MERGE_TRAIN_CI_NOTICE : CI_WAIT_NOTICE),
+    );
   }
   blocks.push(...situationalBlocks(agentProvider, guard, opts.branchRename === true));
   // One-session-one-PR invariant (issue #839): rides every code spawn, suppressed for a research
@@ -3910,7 +3931,7 @@ export class SessionService {
       | "bootstrapStack"
       | "bootstrapPhase"
       | "scheduleId"
-    >,
+    > & { mergeTrainPrs?: number[] | null },
     ctx: {
       sessionId: string;
       baseUrl: string;
@@ -3969,6 +3990,7 @@ export class SessionService {
       landingRepair: input.landingRepair,
       plain: input.plain,
       scheduled: Boolean(input.scheduleId),
+      mergeTrain: isMergeTrainDriver(input),
       planGate,
       buildQueue,
       previewHint: ctx.isolated,
@@ -4055,7 +4077,11 @@ export class SessionService {
       ...(await this.sessionSpawnFileArgs(
         sessionId,
         baseUrl,
-        { ...trim.overlayOpts, claudeAiConnectors: repoConfig.claudeAiConnectorsEnabled },
+        {
+          ...trim.overlayOpts,
+          claudeAiConnectors: repoConfig.claudeAiConnectorsEnabled,
+          ciWatchAllowed: isMergeTrainDriver(input),
+        },
         caps,
       )),
     );
@@ -4189,7 +4215,11 @@ export class SessionService {
       ...(await this.sessionSpawnFileArgs(
         s.id,
         baseUrl,
-        { ...trim.overlayOpts, claudeAiConnectors: connectors },
+        {
+          ...trim.overlayOpts,
+          claudeAiConnectors: connectors,
+          ciWatchAllowed: isMergeTrainDriver(s),
+        },
         sessionCapabilities(this.deps, s.id),
       )),
     ];
@@ -7992,8 +8022,8 @@ export class SessionService {
    * (reconcileTrainMarks runs inside registerTrain). Empty/absent → no train.
    */
   #maybeRegisterTrain(session: Session, input: StandardCreateInput): void {
-    if (input.mergeTrainPrs && input.mergeTrainPrs.length > 0)
-      this.registerTrain(session.id, session.repoPath, input.mergeTrainPrs);
+    if (isMergeTrainDriver(input))
+      this.registerTrain(session.id, session.repoPath, input.mergeTrainPrs!);
   }
 
   registerTrain(

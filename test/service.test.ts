@@ -1,6 +1,6 @@
 import { ingressConfig } from "../scripts/heavy-slot.mjs";
 import { codexLaunchMarker } from "../src/codex-session-id";
-import { test, expect, spyOn } from "bun:test";
+import { describe, test, expect, spyOn } from "bun:test";
 import {
   mkdtempSync,
   mkdirSync,
@@ -5931,6 +5931,100 @@ test("create() with mergeTrainPrs registers the train and marks an already-open 
   expect(store.get(train.id)!.mergingSince).toBeNull();
   // the train's selected PRs are persisted on its row
   expect(store.get(train.id)!.mergeTrainPrs).toEqual([51]);
+});
+
+describe("merge train sessions may watch CI", () => {
+  const TRAIN_NOTICE = "You are driving a merge train.";
+  const WAIT_NOTICE = "Never poll your PR's CI";
+
+  /** The Bash guard's hook command in a `--settings` payload. */
+  const guardCommand = (argv: string[]): string =>
+    settingsOverlay(argv).hooks.PreToolUse.find((e: any) => e.matcher === "Bash").hooks[0].command;
+  const systemPrompt = (argv: string[]) => argv[argv.indexOf("--append-system-prompt") + 1]!;
+
+  const spawnArgv = async (mergeTrainPrs?: number[]) => {
+    const captured: { argv?: string[] } = {};
+    const svc = new SessionService(injectDeps(new SessionStore(":memory:"), captured) as any);
+    await svc.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "train",
+      model: null,
+      images: [],
+      mergeTrainPrs,
+    });
+    return captured.argv!;
+  };
+
+  const resumeArgv = async (mergeTrainPrs?: number[]) => {
+    const store = new SessionStore(":memory:");
+    let argv: string[] = [];
+    const svc = new SessionService({
+      transcriptExists: () => true,
+      store,
+      namer: async () => "x",
+      worktree: {
+        create: () => ({}) as any,
+        ensureBaseRef: async () => {},
+        remove: () => {},
+        branchExists: () => false,
+      } as any,
+      herdr: {
+        start: async (_name: string, cwd: string, a: string[]) => {
+          argv = inlineSpawnFiles(a);
+          return { terminalId: "term_new", cwd, agentStatus: "working" } as any;
+        },
+        listAsync: async () => [],
+        stop: async () => {},
+        send: () => {},
+      } as any,
+    });
+    await svc.resume(resumable(store, { mergeTrainPrs }).id);
+    return argv;
+  };
+
+  const withGuard = async (fn: () => Promise<void>) => {
+    const prev = config.toolGuard;
+    config.toolGuard = true;
+    try {
+      await fn();
+    } finally {
+      config.toolGuard = prev;
+    }
+  };
+
+  test("a train carries the flag and notice on spawn and resume", () =>
+    withGuard(async () => {
+      for (const argv of [await spawnArgv([51]), await resumeArgv([51])]) {
+        expect(guardCommand(argv)).toEndWith(" --ci-watch-allowed");
+        expect(systemPrompt(argv)).toContain(TRAIN_NOTICE);
+        expect(systemPrompt(argv)).not.toContain(WAIT_NOTICE);
+      }
+    }));
+
+  test("any other session keeps the ban", () =>
+    withGuard(async () => {
+      for (const argv of [
+        await spawnArgv(),
+        await spawnArgv([]),
+        await resumeArgv(),
+        await resumeArgv([]),
+      ]) {
+        expect(guardCommand(argv)).not.toContain("--ci-watch-allowed");
+        expect(systemPrompt(argv)).toContain(WAIT_NOTICE);
+        expect(systemPrompt(argv)).not.toContain(TRAIN_NOTICE);
+      }
+    }));
+
+  test("the train notice takes the wait notice's place", () => {
+    const blocks = composeSystemPromptBlocks(false, { mergeTrain: true });
+    const names = blocks.map((b) => b.name);
+    expect(names.indexOf("ci-wait-notice")).toBe(names.indexOf("github-rate-limit-notice") + 1);
+    const ci = blocks.find((b) => b.name === "ci-wait-notice")!.text;
+    expect(ci).toContain(TRAIN_NOTICE);
+    expect(ci).toContain("`gh pr checks <n> --watch --interval 30`");
+    expect(ci).toContain("--log-failed");
+  });
 });
 
 test("a participant already merged at launch (never open) is never marked", async () => {

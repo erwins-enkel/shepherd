@@ -1,7 +1,16 @@
 import { test, expect, afterAll } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  readFileSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+  mkdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import {
   SHEPHERD_IGNORE_GLOB,
@@ -167,6 +176,58 @@ test("ensureShepherdExclude is idempotent when called twice", () => {
   ensureShepherdExclude(mainRepo);
   const after2 = readFileSync(excludePath(mainRepo), "utf8");
   expect(after2).toBe(after1);
+});
+
+const MANAGED_BLOCK = `${SHEPHERD_EXCLUDE_START}\n${SHEPHERD_IGNORE_GLOB}\n${SHEPHERD_EXCLUDE_END}`;
+
+test("ensureShepherdExclude rewrites a longer block to the exact expected bytes", () => {
+  const mainRepo = makeGitRepo();
+  const file = excludePath(mainRepo);
+  mkdirSync(dirname(file), { recursive: true });
+  const oversized = `${SHEPHERD_EXCLUDE_START}\n${"stale-line\n".repeat(50)}${SHEPHERD_EXCLUDE_END}`;
+  writeFileSync(file, `# before\n${oversized}\n# after\n`);
+
+  ensureShepherdExclude(mainRepo);
+
+  // Exact match: a leftover tail or a NUL gap from a misplaced write would fail here.
+  expect(readFileSync(file, "utf8")).toBe(`# before\n${MANAGED_BLOCK}\n# after\n`);
+});
+
+test("ensureShepherdExclude keeps existing lines and appends the block once", () => {
+  const mainRepo = makeGitRepo();
+  const file = excludePath(mainRepo);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, "user-pattern\n");
+
+  ensureShepherdExclude(mainRepo);
+  ensureShepherdExclude(mainRepo);
+
+  expect(readFileSync(file, "utf8")).toBe(`user-pattern\n\n${MANAGED_BLOCK}\n`);
+});
+
+test("ensureShepherdExclude creates a missing info dir", () => {
+  const mainRepo = makeGitRepo();
+  const file = excludePath(mainRepo);
+  rmSync(dirname(file), { recursive: true, force: true });
+
+  ensureShepherdExclude(mainRepo);
+
+  expect(readFileSync(file, "utf8")).toBe(`${MANAGED_BLOCK}\n`);
+});
+
+test("ensureShepherdExclude leaves an up-to-date file untouched", () => {
+  const mainRepo = makeGitRepo();
+  ensureShepherdExclude(mainRepo);
+  const file = excludePath(mainRepo);
+  const before = readFileSync(file, "utf8");
+  // Backdate to a whole second so any write shows up, regardless of timestamp granularity.
+  const past = new Date(1_000_000_000_000);
+  utimesSync(file, past, past);
+
+  ensureShepherdExclude(mainRepo);
+
+  expect(readFileSync(file, "utf8")).toBe(before);
+  expect(statSync(file).mtimeMs).toBe(past.getTime());
 });
 
 test("ensureShepherdExclude does not throw on a non-git path (best-effort)", () => {

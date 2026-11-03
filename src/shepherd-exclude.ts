@@ -12,7 +12,14 @@
  * (including push-able ones) without surprise commits.
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+  closeSync,
+  ftruncateSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { execGitSync } from "./safe-git";
 
@@ -92,11 +99,20 @@ export function excludePath(repoPath: string): string {
 export function ensureShepherdExclude(repoPath: string): void {
   try {
     const p = excludePath(repoPath);
-    const existing = existsSync(p) ? readFileSync(p, "utf8") : "";
-    const { content, changed } = upsertShepherdIgnoreBlock(existing);
-    if (changed) {
-      mkdirSync(dirname(p), { recursive: true });
-      writeFileSync(p, content);
+    mkdirSync(dirname(p), { recursive: true });
+    // One descriptor for the read and the write, so both act on the same file.
+    // Append mode because the read leaves the position at the old EOF and
+    // writeFileSync on a descriptor takes no position: appending starts at the
+    // new EOF, which is offset 0 after the truncate.
+    const fd = openSync(p, "a+");
+    try {
+      const { content, changed } = upsertShepherdIgnoreBlock(readFileSync(fd, "utf8"));
+      if (changed) {
+        ftruncateSync(fd, 0);
+        writeFileSync(fd, content);
+      }
+    } finally {
+      closeSync(fd);
     }
   } catch (e) {
     console.warn(`[shepherd-exclude] best-effort exclude failed for ${repoPath}:`, e);

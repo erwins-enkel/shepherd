@@ -6,7 +6,7 @@
 // we enforce inward. Detection is cheap, deterministic file/script inspection;
 // it never executes the target repo's code.
 //
-// Scope: two ecosystem profiles, selected per repo. `js-ts` — the JS/TS baseline we
+// Scope: three ecosystem profiles, selected per repo. `js-ts` — the JS/TS baseline we
 // dogfood (a package.json at the root or one directory level down gates
 // applicability; two levels down as a fallback). `rust` — Cargo crates (same depth rule),
 // whose rustfmt/clippy live as rustup components rather than manifest deps, so its
@@ -15,7 +15,9 @@
 // applicable repo scores exactly as before. Second-level layouts (`apps/web/package.json`,
 // `crates/foo/Cargo.toml`) are searched only when NEITHER ecosystem has a manifest at the root or
 // first level (#3107), so the deeper search never changes a repo's profile. A repo with neither
-// manifest is N/A here; the greenfield profile (`greenfield-core.ts`) covers it.
+// manifest is N/A here; the greenfield profile (`greenfield-core.ts`) covers it. `swift` — SwiftPM
+// packages (`Package.swift`, same depth rule) — is tried only after js-ts and rust missed at both
+// depths, so adding it never changed the profile of a repo that already had one.
 
 import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { join } from "node:path";
@@ -41,7 +43,7 @@ export type GuardrailId =
 export type PackageManager = "bun" | "pnpm" | "yarn" | "npm";
 
 /** Which stack a repo was matched to, or null when it matches no supported ecosystem. */
-export type Ecosystem = "js-ts" | "rust";
+export type Ecosystem = "js-ts" | "rust" | "swift";
 
 export interface GuardrailCheck {
   id: GuardrailId;
@@ -54,7 +56,7 @@ export interface GuardrailCheck {
 }
 
 export interface ReadinessReport {
-  /** False when the repo matches no supported ecosystem (no package.json or Cargo.toml within two levels) — baseline N/A. */
+  /** False when the repo matches no supported ecosystem (no package.json, Cargo.toml or Package.swift within two levels) — baseline N/A. */
   applicable: boolean;
   /** The matched ecosystem, or `null` on the not-applicable path (a defined value, never undefined). */
   ecosystem: Ecosystem | null;
@@ -112,7 +114,7 @@ interface EcosystemProfile<Ctx extends FileScan> {
   prescriptionNote: (ctx: Ctx, id: GuardrailId) => string[];
   /** Extra section appended after the adopt-list (JS: the .prettierignore note; Rust: none). */
   trailingNote: (ctx: Ctx) => string;
-  /** Toolchain pins the repo commits (JS: packageManager/engines; Rust: rust-toolchain) — read by
+  /** Toolchain pins the repo commits (JS: packageManager/engines; Rust: rust-toolchain; Swift: .swift-version) — read by
    *  the greenfield profile (#3107), not scored here. */
   toolchainPins: (ctx: Ctx) => string[];
 }
@@ -486,12 +488,17 @@ function readFileSafe(file: string): string {
  * rustup components (not manifest deps), so tool usage is proven by scanning these.
  */
 function rustCorpusPaths(base: string): string[] {
+  return [...commandCorpusPaths(base), join(base, "Cargo.toml")];
+}
+
+/** The stack-independent command corpus: hook scripts, CI workflows, Makefile/justfile, lefthook. */
+function commandCorpusPaths(base: string): string[] {
   const paths: string[] = [];
   for (const hookDir of [".githooks", ".husky"])
     for (const n of safeReaddir(join(base, hookDir))) paths.push(join(base, hookDir, n));
   for (const n of safeReaddir(join(base, ".github/workflows")))
     if (n.endsWith(".yml") || n.endsWith(".yaml")) paths.push(join(base, ".github/workflows", n));
-  for (const f of ["Makefile", "justfile", "lefthook.yml", "lefthook.yaml", "Cargo.toml"])
+  for (const f of ["Makefile", "justfile", "lefthook.yml", "lefthook.yaml"])
     paths.push(join(base, f));
   return paths;
 }
@@ -632,6 +639,147 @@ const rustProfile: EcosystemProfile<RustScan> = {
     ["rust-toolchain.toml", "rust-toolchain"].filter((f) => s.has(f)).slice(0, 1),
 };
 
+// ══ Swift profile ══════════════════════════════════════════════════════════════
+
+/** The Swift guardrail subset — swiftc is the always-present type-checker and Swift has no lint-staged norm. */
+type SwiftGuardrailId = Exclude<GuardrailId, "type_checker" | "lint_staged" | "env_schema">;
+
+/** Swift inspection context. swift-format ships in the toolchain (not a manifest dep), so tool
+ *  usage is proven by the bounded command corpus. `Package.swift` stays out of it: a dependency
+ *  named `swift-format` doesn't prove the tool runs. */
+interface SwiftScan extends FileScan {
+  dir: string;
+  corpus: (re: RegExp) => boolean;
+}
+
+function findSwiftRoots(dir: string, deep: boolean): string[] {
+  return findManifestRoots(dir, "Package.swift", (n) => n !== "node_modules" && n !== "Pods", deep);
+}
+
+function buildSwiftContext(dir: string, packageRoots: string[]): SwiftScan {
+  const { has, glob, roots } = rootAwareProbes(dir, packageRoots);
+  const text = roots
+    .flatMap((root) => commandCorpusPaths(join(dir, root)))
+    .map(readFileSafe)
+    .join("\n");
+  return { dir, has, glob, corpus: (re) => re.test(text) };
+}
+
+/** Swift guardrails. Weights match the other profiles for the same ids, so scores are comparable. */
+export const SWIFT_GUARDRAILS: GuardrailDef<SwiftScan>[] = [
+  {
+    id: "pre_push_ci",
+    weight: 10,
+    detect: (s) => {
+      const ev: string[] = [];
+      if (s.has(".githooks/pre-push")) ev.push(".githooks/pre-push");
+      if (s.has(".husky/pre-push")) ev.push(".husky/pre-push");
+      if ((s.has("lefthook.yml") || s.has("lefthook.yaml")) && s.corpus(/pre-push/))
+        ev.push("lefthook (pre-push)");
+      return ev;
+    },
+  },
+  {
+    id: "git_hooks",
+    weight: 9,
+    detect: (s) => {
+      const ev: string[] = [];
+      if (s.has(".githooks")) ev.push(".githooks/");
+      if (s.has(".husky")) ev.push(".husky/");
+      if (s.has("lefthook.yml") || s.has("lefthook.yaml")) ev.push("lefthook");
+      if (s.has(".pre-commit-config.yaml")) ev.push("pre-commit");
+      return ev;
+    },
+  },
+  {
+    id: "linter",
+    weight: 8,
+    detect: (s) => {
+      const ev: string[] = [];
+      if (s.has(".swiftlint.yml") || s.has(".swiftlint.yaml")) ev.push("swiftlint config");
+      if (s.corpus(/swiftlint/)) ev.push("swiftlint");
+      if (s.corpus(/swift[- ]format lint/)) ev.push("swift-format lint");
+      return ev;
+    },
+  },
+  {
+    id: "formatter",
+    weight: 8,
+    detect: (s) => {
+      const ev: string[] = [];
+      if (s.has(".swift-format")) ev.push("swift-format config");
+      if (s.has(".swiftformat")) ev.push("SwiftFormat config");
+      if (s.corpus(/swift[- ]format|swiftformat/)) ev.push("swift-format");
+      return ev;
+    },
+  },
+  {
+    id: "test_runner",
+    weight: 8,
+    detect: (s) => {
+      if (s.corpus(/swift test|xcodebuild\b[^\n]{0,500}\btest\b/)) return ["swift test"];
+      return s.has("Tests") ? ["Tests/"] : [];
+    },
+  },
+  {
+    id: "agent_instructions",
+    weight: 8,
+    detect: detectAgentInstructions,
+  },
+  {
+    id: "ci",
+    weight: 6,
+    detect: detectCi,
+  },
+  {
+    id: "dependency_automation",
+    weight: 5,
+    detect: detectDependencyAutomation,
+  },
+  {
+    id: "commit_lint",
+    weight: 4,
+    detect: (s) => {
+      const ev: string[] = [];
+      if (s.has("cog.toml")) ev.push("cog.toml");
+      if (s.has(".githooks/commit-msg") || s.has(".husky/commit-msg")) ev.push("commit-msg hook");
+      if (s.corpus(/commitlint|cocogitto|\bcog\b/)) ev.push("commit-lint tool");
+      return ev;
+    },
+  },
+  {
+    id: "issue_templates",
+    weight: 4,
+    detect: detectIssueTemplates,
+  },
+  {
+    id: "dead_code_audit",
+    weight: 3,
+    detect: (s) => {
+      const ev: string[] = [];
+      if (s.has(".periphery.yml")) ev.push("periphery config");
+      if (s.corpus(/periphery scan/)) ev.push("periphery");
+      return ev;
+    },
+  },
+];
+
+const swiftProfile: EcosystemProfile<SwiftScan> = {
+  id: "swift",
+  detectRoots: findSwiftRoots,
+  buildContext: buildSwiftContext,
+  guardrails: SWIFT_GUARDRAILS,
+  stackLabel: () => "Swift",
+  toolingLabel: (id) => SWIFT_TOOLING_LABEL[id as SwiftGuardrailId],
+  churnPlain: (id) => SWIFT_CHURN_PLAIN[id as SwiftGuardrailId],
+  installSteps: (_s, id) => SWIFT_INSTALL_STEPS[id as SwiftGuardrailId](),
+  prescriptionNote: (_s, id) => SWIFT_PRESCRIPTION_NOTE[id as SwiftGuardrailId]?.() ?? [],
+  // swift-format only touches .swift files, so Shepherd's scratch files are never reformatted.
+  trailingNote: () => "",
+  // `// swift-tools-version` is a required minimum every package has, so it pins nothing.
+  toolchainPins: (s) => (s.has(".swift-version") ? [".swift-version"] : []),
+};
+
 // ══ Shared detection / scoring plumbing ════════════════════════════════════════════
 
 /** readdirSync that yields [] for a missing/unreadable dir. */
@@ -741,13 +889,18 @@ function runProfile<Ctx extends FileScan>(
   };
 }
 
-/** Profile precedence: every profile shallow (js-ts first), then every profile deep. */
+/** Profile precedence: js-ts then rust, shallow then deep; swift (shallow, deep) only after both
+ *  missed, so a repo with an older profile keeps it even beside a nearer `Package.swift`. */
 function firstProfile<T>(
   dir: string,
   run: <Ctx extends FileScan>(p: EcosystemProfile<Ctx>, dir: string, deep: boolean) => T | null,
 ): T | null {
   for (const deep of [false, true]) {
     const hit = run(jsProfile, dir, deep) ?? run(rustProfile, dir, deep);
+    if (hit) return hit;
+  }
+  for (const deep of [false, true]) {
+    const hit = run(swiftProfile, dir, deep);
     if (hit) return hit;
   }
   return null;
@@ -852,6 +1005,10 @@ const emptyScan = { dir: "", has: () => false, glob: () => [] };
  * one — so the bootstrap directive and the Readiness artifact share one set of install steps.
  */
 export function bootstrapGuardrailChecklist(ecosystem: Ecosystem, pm: PackageManager): string {
+  if (ecosystem === "swift") {
+    const ctx: SwiftScan = { ...emptyScan, corpus: () => false };
+    return SWIFT_GUARDRAILS.map((g) => adoptLine(swiftProfile, ctx, g.id)).join("\n");
+  }
   if (ecosystem === "rust") {
     const ctx: RustScan = { ...emptyScan, corpus: () => false, devDeps: new Set() };
     return RUST_GUARDRAILS.map((g) => adoptLine(rustProfile, ctx, g.id)).join("\n");
@@ -1095,6 +1252,89 @@ const RUST_INSTALL_STEPS: Record<RustGuardrailId, () => string[]> = {
   formatter: () => ["rustup component add rustfmt"],
   dead_code_audit: () => ["cargo install cargo-machete"],
   commit_lint: () => ["cargo install cocogitto"],
+  pre_push_ci: () => [],
+  git_hooks: () => ["git config core.hooksPath .githooks"],
+  test_runner: () => [],
+  agent_instructions: () => [],
+  ci: () => [],
+  dependency_automation: () => [],
+  issue_templates: () => [],
+};
+
+// ── Swift prescription tables (consumed by the swift profile) ───────────────────────
+
+/** Short tool name per Swift guardrail, used in the generated prescription (verbatim artifact). */
+const SWIFT_TOOLING_LABEL: Record<SwiftGuardrailId, string> = {
+  pre_push_ci: "A pre-push hook that mirrors CI (format lint + build + test)",
+  git_hooks: "A git-hook manager (core.hooksPath/.githooks)",
+  linter: "A linter (swift format lint or SwiftLint)",
+  formatter: "A formatter (swift format)",
+  test_runner: "swift test wired into the hook",
+  agent_instructions: "A CLAUDE.md/AGENTS.md house-rules file",
+  ci: "A CI workflow",
+  dependency_automation: "Dependency automation (Dependabot/Renovate)",
+  commit_lint: "Conventional-commit lint (a commit-msg hook)",
+  dead_code_audit: "A dead-code audit (Periphery)",
+  issue_templates: "Intent-shaped issue templates",
+};
+
+/** Plain-text "back-and-forth this removes" per Swift guardrail (verbatim artifact). */
+const SWIFT_CHURN_PLAIN: Record<SwiftGuardrailId, string> = {
+  pre_push_ci:
+    "without it the agent pushes red and waits on a human CI round-trip to learn what broke.",
+  git_hooks: "without a hook manager, none of the checks below run automatically before a push.",
+  linter: "without it you flag lint nits by hand instead of letting the gate do it.",
+  formatter: "without it you hand-fix style in review; adopt swift format.",
+  test_runner:
+    "without tests in the hook, regressions reach you instead of failing the agent first.",
+  agent_instructions: "without house rules, you re-explain the same posture in chat every task.",
+  ci: "without CI, nothing independently re-checks what the agent self-reported.",
+  dependency_automation:
+    "without it dependency bumps pile up as manual busywork and stale-dep bugs reach you instead of an automated PR.",
+  commit_lint: "without it you correct commit message format by hand.",
+  dead_code_audit: "without it unused declarations accrete and you spot them by eye.",
+  issue_templates:
+    "without them an issue reaches the agent as a one-liner and the session burns its first turns asking what you meant.",
+};
+
+/** Extra prose guidance per Swift guardrail (no `$ ` prefix): file-creation the agent would
+ *  otherwise guess wrong — there is no package to install for hooks or CI. */
+const SWIFT_PRESCRIPTION_NOTE: Partial<Record<SwiftGuardrailId, () => string[]>> = {
+  pre_push_ci: () => [
+    "Add `.githooks/pre-push` running `swift format lint --strict -r Sources Tests && swift build && swift test` (the CI mirror), then point Git at it with `git config core.hooksPath .githooks`.",
+  ],
+  git_hooks: () => [
+    "Use a committed hooks dir — `git config core.hooksPath .githooks` — no extra dependency needed.",
+  ],
+  linter: () => [
+    "`swift format lint --strict -r Sources Tests` ships in the toolchain since Swift 6; run it in the hook and CI.",
+  ],
+  formatter: () => [
+    "`swift format` ships in the toolchain since Swift 6; commit a `.swift-format`.",
+  ],
+  test_runner: () => [
+    "Wire `swift test` into the pre-push hook and CI so regressions fail the agent, not you.",
+  ],
+  ci: () => [
+    "Create `.github/workflows/ci.yml` running `swift format lint --strict -r Sources Tests`, `swift build` and `swift test` — on a macOS runner when the package targets Apple platforms.",
+  ],
+  dependency_automation: () => [
+    'Create `.github/dependabot.yml` with `package-ecosystem: "swift"` — Dependabot then updates Package.swift/Package.resolved.',
+  ],
+  commit_lint: () => [
+    "Add `.githooks/commit-msg` rejecting subjects that aren't conventional commits.",
+  ],
+  dead_code_audit: () => ["Run `periphery scan` in CI on a macOS runner to catch unused code."],
+  issue_templates: () => ISSUE_TEMPLATE_NOTE,
+};
+
+/** Concrete install steps per Swift guardrail. Most are in the toolchain or pure file-creation
+ *  (empty array — the prose note carries the guidance). Exhaustive over the Swift subset. */
+const SWIFT_INSTALL_STEPS: Record<SwiftGuardrailId, () => string[]> = {
+  linter: () => [],
+  formatter: () => ["swift format dump-configuration > .swift-format"],
+  dead_code_audit: () => ["brew install periphery"],
+  commit_lint: () => [],
   pre_push_ci: () => [],
   git_hooks: () => ["git config core.hooksPath .githooks"],
   test_runner: () => [],

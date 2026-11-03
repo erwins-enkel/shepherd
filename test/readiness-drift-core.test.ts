@@ -14,6 +14,7 @@ import {
   trackedDeclared,
   trackedKeys,
   UPGRADE_STORY_MARKER,
+  parsePackageSwift,
 } from "../src/readiness-drift-core";
 import { DEFAULT_HOUSE_STACK, renderHouseStackRules } from "../src/house-stack";
 
@@ -164,14 +165,25 @@ describe("claudeMdPins", () => {
       ],
       crates: [{ name: "serde", version: "1.0.200" }],
       rustToolchain: "1.90.0",
+      swift: [{ name: "apple/swift-nio", version: "2.70.1" }],
+      swiftToolchain: "6.4.2",
     });
-    expect(claudeMdPins(claudeMd)).toEqual({ npm: ["@sveltejs/kit", "svelte"], crates: ["serde"] });
+    expect(claudeMdPins(claudeMd)).toEqual({
+      npm: ["@sveltejs/kit", "svelte"],
+      crates: ["serde"],
+      swift: ["apple/swift-nio"],
+    });
+  });
+
+  test("drops a Swift pin that isn't a github.com package", () => {
+    const text = "Use Swift package `https://evil.example/a/b`\nUse Swift package `../x`\n";
+    expect(claudeMdPins(text).swift).toEqual([]);
   });
 });
 
 describe("trackedDeclared", () => {
   test("keeps tracked packages only, grouped, sorted", () => {
-    const tracked = trackedKeys(DEFAULT_HOUSE_STACK, { npm: ["zod"], crates: [] });
+    const tracked = trackedKeys(DEFAULT_HOUSE_STACK, { npm: ["zod"], crates: [], swift: [] });
     const out = trackedDeclared(
       [
         { ecosystem: "npm", name: "svelte", line: "4", spec: "^4", manifest: "a" },
@@ -280,7 +292,7 @@ describe("driftRows", () => {
       { ecosystem: "npm", name: "svelte", line: "5", spec: "^5", manifest: "ui/package.json" },
       { ecosystem: "npm", name: "vite", line: "6", spec: "^6", manifest: "ui/package.json" },
     ],
-    trackedKeys(DEFAULT_HOUSE_STACK, { npm: [], crates: [] }),
+    trackedKeys(DEFAULT_HOUSE_STACK, { npm: [], crates: [], swift: [] }),
   );
 
   test("behind / ok / unknown; behind lists lagging manifests", () => {
@@ -312,7 +324,7 @@ describe("driftRows", () => {
           manifest: "package.json",
         },
       ],
-      trackedKeys(DEFAULT_HOUSE_STACK, { npm: [], crates: [] }),
+      trackedKeys(DEFAULT_HOUSE_STACK, { npm: [], crates: [], swift: [] }),
     );
     const rows = driftRows(pkgs, new Map([["npm:@sveltejs/kit", "2.70.0"]]), new Map());
     expect(rows[0]).toMatchObject({ state: "ok", installed: "3", target: "2" });
@@ -326,7 +338,7 @@ describe("driftRows", () => {
       spec,
       manifest,
     });
-    const tracked = trackedKeys(DEFAULT_HOUSE_STACK, { npm: [], crates: [] });
+    const tracked = trackedKeys(DEFAULT_HOUSE_STACK, { npm: [], crates: [], swift: [] });
     const latest = new Map([["npm:vite", "9.1.0"]]);
     const peers = trackedDeclared(
       [decl("^8.57.0 || ^9.0.0", "8", "package.json"), decl("^9", "9", "package.json")],
@@ -347,7 +359,11 @@ describe("driftRows", () => {
   });
 
   describe("intentional holds", () => {
-    const tracked = trackedKeys(DEFAULT_HOUSE_STACK, { npm: ["typescript"], crates: [] });
+    const tracked = trackedKeys(DEFAULT_HOUSE_STACK, {
+      npm: ["typescript"],
+      crates: [],
+      swift: [],
+    });
     const manifest = (deps: Record<string, string>, path = "package.json") =>
       parsePackageJson(JSON.stringify({ devDependencies: deps }), path);
     const bridge = { typescript: "~6.0.3", "@typescript/native": "npm:typescript@^7.0.2" };
@@ -525,5 +541,124 @@ describe("renderUpgradeStory", () => {
     const many = renderUpgradeStory([row, row, row, row], []);
     expect(many.title.endsWith(", …")).toBe(true);
     expect(many.body).not.toContain("epic branches");
+  });
+});
+
+describe("parsePackageSwift", () => {
+  const url = "https://github.com/acme/kit";
+  test.each([
+    [`from: "1.2.3"`, ">=1.2.3 <2.0.0", "1"],
+    [`.upToNextMajor(from: "1.2.3")`, ">=1.2.3 <2.0.0", "1"],
+    [`from: "0.18.2"`, ">=0.18.2 <1.0.0", "0.18"],
+    [`.upToNextMinor(from: "1.2.3")`, ">=1.2.3 <1.3.0", "1"],
+    [`exact: "1.2.3"`, "=1.2.3", "1"],
+    [`.exact("0.18.2")`, "=0.18.2", "0.18"],
+    [`"1.0.0"..<"2.0.0"`, ">=1.0.0 <2.0.0", "1"],
+    [`"1.0.0"..."2.5.0"`, ">=1.0.0 <=2.5.0", "1"],
+  ])("%s → %s", (requirement, spec, line) => {
+    expect(parsePackageSwift(`.package(url: "${url}", ${requirement})`, "Package.swift")).toEqual([
+      { ecosystem: "swift", name: "acme/kit", line, spec, manifest: "Package.swift" },
+    ]);
+  });
+
+  test("skips what names no github.com version, and comments", () => {
+    const text = `
+      // .package(url: "${url}/commented", from: "1.0.0"),
+      /* .package(url: "${url}/block", from: "1.0.0"), */
+      .package(path: "../local"),
+      .package(url: "${url}", branch: "main"),
+      .package(url: "${url}", revision: "abc"),
+      .package(url: "https://gitlab.com/a/b", from: "1.0.0"),
+      .package(url: "http://github.com/a/insecure", from: "1.0.0"),
+      .package(url: "git@github.com:a/b.git", from: "1.0.0"),
+    `;
+    expect(parsePackageSwift(text, "Package.swift")).toEqual([]);
+  });
+
+  test("reads a multi-line call with traits, and normalizes the name", () => {
+    const text = `
+      dependencies: [
+        .package(
+          url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.18.2",
+          traits: [.trait(name: "Diarizer", condition: .when(traits: ["x"]))]),
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm", from: "3.32.3"),
+      ],
+      targets: [.target(name: "A", dependencies: [.product(name: "B", package: "b")])]
+    `;
+    expect(parsePackageSwift(text, "P").map((d) => d.name)).toEqual([
+      "fluidinference/fluidaudio",
+      "ml-explore/mlx-swift-lm",
+    ]);
+  });
+
+  test("block comments are stripped, an unterminated one to the end of the file", () => {
+    const pkg = (name: string) => `.package(url: "https://github.com/acme/${name}", from: "1.0.0")`;
+    const text = `${pkg("a")} /* ${pkg("b")} */ ${pkg("c")} /* ${pkg("d")}`;
+    expect(parsePackageSwift(text, "P").map((d) => d.name)).toEqual(["acme/a", "acme/c"]);
+  });
+
+  test("a hostile file can't stall the server loop", () => {
+    const n = 200_000;
+    const hostile = [
+      "\n".repeat(n),
+      "/* ".repeat(n / 3),
+      "/*".repeat(n / 2),
+      ".package(" + "a".repeat(n),
+      ".package((( ".repeat(n / 12),
+      ".package(" + ".package(x)".repeat(n / 11),
+      `.package(${'"a" '.repeat(n / 4)})`,
+      `.package(${"url: ".repeat(n / 5)})`,
+    ];
+    for (const text of hostile) {
+      const start = performance.now();
+      expect(parsePackageSwift(text, "P")).toEqual([]);
+      expect(performance.now() - start).toBeLessThan(1000);
+    }
+  });
+
+  test("a range drives the drift state with SwiftPM's meaning", () => {
+    const state = (requirement: string, target: string) =>
+      driftRows(
+        trackedDeclared(
+          parsePackageSwift(`.package(url: "${url}", ${requirement})`, "Package.swift"),
+          new Set(["swift:acme/kit"]),
+        ),
+        new Map([["swift:acme/kit", target]]),
+        new Map(),
+      )[0]!.state;
+    expect(state(`from: "1.2.3"`, "2.0.0")).toBe("behind");
+    expect(state(`from: "1.2.3"`, "1.9.0")).toBe("ok");
+    // `from:` on 0.x runs to the next major, so a later 0.x line is admitted.
+    expect(state(`from: "0.18.0"`, "0.20.0")).toBe("ok");
+    expect(state(`exact: "0.18.0"`, "0.20.0")).toBe("behind");
+    expect(state(`"1.0.0"..<"3.0.0"`, "2.0.0")).toBe("ok");
+  });
+});
+
+describe("Dependabot Swift names", () => {
+  test("an ignore entry holds the normalized package", () => {
+    const config = `
+version: 2
+updates:
+  - package-ecosystem: swift
+    directory: /
+    ignore:
+      - dependency-name: github.com/Acme/Kit
+        update-types: ["version-update:semver-major"]
+      - dependency-name: acme/other
+`;
+    expect([...dependabotMajorHolds(config)].sort()).toEqual([
+      "swift:acme/kit",
+      "swift:acme/other",
+    ]);
+  });
+
+  test("a bump PR is keyed by owner/repo; npm names stay as they are", () => {
+    const pr = (number: number, title: string) => ({ number, url: "u", title, kind: "dependabot" });
+    const bumps = dependabotBumps([
+      pr(1, "Bump github.com/Acme/Kit from 1.0.0 to 2.0.0"),
+      pr(2, "Bump @sveltejs/kit from 2.0.0 to 3.0.0"),
+    ]);
+    expect([...bumps.keys()]).toEqual(["acme/kit", "@sveltejs/kit"]);
   });
 });

@@ -139,16 +139,19 @@ describe("bootstrapExitReached", () => {
 });
 
 describe("hasProjectManifest", () => {
-  test("detects package.json / Cargo.toml, else false", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "bootstrap-manifest-"));
-    try {
-      expect(await hasProjectManifest(dir)).toBe(false);
-      writeFileSync(join(dir, "Cargo.toml"), "");
-      expect(await hasProjectManifest(dir)).toBe(true);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+  test.each(["package.json", "Cargo.toml", "Package.swift"])(
+    "detects %s, else false",
+    async (manifest) => {
+      const dir = mkdtempSync(join(tmpdir(), "bootstrap-manifest-"));
+      try {
+        expect(await hasProjectManifest(dir)).toBe(false);
+        writeFileSync(join(dir, manifest), "");
+        expect(await hasProjectManifest(dir)).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe("SessionStore repo bootstrap", () => {

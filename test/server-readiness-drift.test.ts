@@ -34,6 +34,8 @@ function resolverFor(version: string | null): AppDeps["houseStackResolver"] {
         npm: [{ name, version }],
         crates: [],
         rustToolchain: null,
+        swift: [],
+        swiftToolchain: null,
       };
     },
   };

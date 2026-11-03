@@ -1675,6 +1675,8 @@ test("houseStack: default on GET, PATCH validates + persists, resolve route repo
     npm: [{ name: "svelte", version: "5.40.1" }],
     crates: [],
     rustToolchain: null,
+    swift: [],
+    swiftToolchain: null,
   };
   const seen: HouseStack[] = [];
   const app = makeApp({
@@ -1699,10 +1701,22 @@ test("houseStack: default on GET, PATCH validates + persists, resolve route repo
   expect(bad.status).toBe(400);
   expect(store.getSetting("houseStack")).toBeNull();
 
-  const value = { npm: ["svelte", " svelte "], crates: ["serde"], rustToolchain: false };
+  const value = {
+    npm: ["svelte", " svelte "],
+    crates: ["serde"],
+    rustToolchain: false,
+    swift: [" Apple/Swift-NIO "],
+    swiftToolchain: false,
+  };
   const ok = await patch(app, { houseStack: value });
   expect(ok.status).toBe(200);
-  const normalized = { npm: ["svelte"], crates: ["serde"], rustToolchain: false };
+  const normalized = {
+    npm: ["svelte"],
+    crates: ["serde"],
+    rustToolchain: false,
+    swift: ["apple/swift-nio"],
+    swiftToolchain: false,
+  };
   expect(await ok.json()).toEqual({ houseStack: normalized });
   expect(JSON.parse(store.getSetting("houseStack")!)).toEqual(normalized);
   expect((await (await app.fetch(new Request("http://x/api/settings"))).json()).houseStack).toEqual(

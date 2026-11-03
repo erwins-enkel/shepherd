@@ -6,7 +6,13 @@ import SettingsHouseStackBlock from "./SettingsHouseStackBlock.svelte";
 import type { HouseStack, HouseStackResolution, Settings } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 
-const STACK: HouseStack = { npm: ["svelte", "@sveltejs/kit"], crates: [], rustToolchain: true };
+const STACK: HouseStack = {
+  npm: ["svelte", "@sveltejs/kit"],
+  crates: [],
+  rustToolchain: true,
+  swift: ["apple/swift-nio"],
+  swiftToolchain: true,
+};
 
 const jsonRes = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -47,7 +53,13 @@ describe("SettingsHouseStackBlock", () => {
     await expect.element(saveBtn()).toBeDisabled();
     const put = calls.find((c) => c.method === "PUT")!;
     expect(JSON.parse(put.body)).toEqual({
-      houseStack: { npm: ["svelte", "vite"], crates: [], rustToolchain: true },
+      houseStack: {
+        npm: ["svelte", "vite"],
+        crates: [],
+        rustToolchain: true,
+        swift: ["apple/swift-nio"],
+        swiftToolchain: true,
+      },
     });
     await expect.element(checkBtn()).toBeEnabled();
   });
@@ -59,6 +71,8 @@ describe("SettingsHouseStackBlock", () => {
       npm: [{ name: "svelte", version: "5.40.1" }],
       crates: [],
       rustToolchain: "1.99.0",
+      swift: [{ name: "apple/swift-nio", version: "2.70.1" }],
+      swiftToolchain: "6.4.2",
     });
     render(SettingsHouseStackBlock, { payload });
     await checkBtn().click();
@@ -67,6 +81,8 @@ describe("SettingsHouseStackBlock", () => {
       .toBeVisible();
     await expect.element(page.getByText("5.40.1")).toBeVisible();
     await expect.element(page.getByText("1.99.0")).toBeVisible();
+    await expect.element(page.getByText("2.70.1")).toBeVisible();
+    await expect.element(page.getByText("6.4.2")).toBeVisible();
   });
 
   it("shows per-package errors when resolution fails", async () => {

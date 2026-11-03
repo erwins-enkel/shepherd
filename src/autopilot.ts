@@ -318,6 +318,36 @@ export const NUDGE_STALL_MESSAGE =
 const SURFACE_MESSAGE = "Autopilot paused for your input.";
 /** Non-alarming hand-back text when a `complete` verdict carries no summary of its own. */
 const COMPLETE_MESSAGE = "Autopilot finished — task complete, nothing to open as a PR.";
+/** Hand-backs from a runaway guard rather than the stop classifier. They stay with the operator
+ *  when CI goes red: steering past one would refresh the budget that tripped it. */
+const GUARD_PAUSE_MESSAGES: ReadonlySet<string> = new Set([
+  CAP_MESSAGE,
+  CI_CAP_MESSAGE,
+  REBASE_CAP_MESSAGE,
+  NUDGE_STALL_MESSAGE,
+  EMPTY_COMPLETION_MESSAGE,
+]);
+
+/** A classifier pause or `complete` that red CI re-engages: it was judged from a stop's tail, often
+ *  a mere status report, before that red result existed. Never a landing repair: steering one sets
+ *  it running, and isLiveRepairSession then re-holds the branch fence its completion released. */
+function ciReclaimable(
+  s: Pick<Session, "landingRepair" | "autopilotPaused" | "autopilotComplete" | "autopilotQuestion">,
+): boolean {
+  if (s.landingRepair) return false;
+  if (s.autopilotPaused) return !GUARD_PAUSE_MESSAGES.has(s.autopilotQuestion ?? "");
+  return s.autopilotComplete;
+}
+
+/** Handed back in a way red CI must not disturb: the CI-fix loop stands down. */
+function ciHandedBack(s: Session): boolean {
+  return (s.autopilotPaused || s.autopilotComplete) && !ciReclaimable(s);
+}
+
+/** The `ci-red skip` reason for a session parked on a pause or completion. */
+function parkedReason(s: Session): CiSkipReason {
+  return s.autopilotPaused ? "paused" : "complete";
+}
 
 export class AutopilotService {
   // Re-entrancy guard: classify() is async, so a second event for the same session must
@@ -402,7 +432,8 @@ export class AutopilotService {
    *  right fallback — CAP_MESSAGE for the runaway guard, SURFACE_MESSAGE for a summary-less
    *  classifier verdict). */
   private pause(s: Session, question: string): void {
-    this.deps.store.setAutopilotState(s.id, { paused: true, question });
+    // complete: false — a guard pause can overtake a reclaimable completion, and it needs a human.
+    this.deps.store.setAutopilotState(s.id, { paused: true, complete: false, question });
     this.deps.onPause(s.id, question);
     this.deps.onState?.(s.id);
   }
@@ -571,11 +602,19 @@ export class AutopilotService {
         await this.handleFinished(s, v.summary);
         return;
       case "complete":
+        // An open PR is the deliverable and CI, the critic and the train are still driving it.
+        if (this.prOpen(s.id) && !s.landingRepair) return;
         await this.verifyAndComplete(s, v.summary || COMPLETE_MESSAGE);
         return;
       default: // "question" | "unknown" → bias to surface
+        // Past the PR only full-auto gets here, and "can't tell" is mostly a status report.
+        if (v.kind === "unknown" && this.prOpen(s.id)) return;
         this.pause(s, v.summary || SURFACE_MESSAGE);
     }
+  }
+
+  private prOpen(id: string): boolean {
+    return this.deps.prGit(id)?.state === "open";
   }
 
   /** Core: classify a settled session's tail and act. `tail` is the terminal context. */
@@ -601,6 +640,9 @@ export class AutopilotService {
     // during the classify await.
     const cur = this.eligible(id);
     if (!cur) return;
+    console.log(
+      `[autopilot] verdict ${cur.desig} kind=${v.kind} pr=${this.deps.prGit(id)?.state ?? "none"}`,
+    );
     if (await this.deps.pendingQuestions?.(id)) return;
     // A done-edge auth URL may have been unflushed when onDone read it; by now (post-classify)
     // it has landed. Re-read fresh and stand down before applying any terminal verdict, so a
@@ -680,8 +722,8 @@ export class AutopilotService {
     // opened earlier in the turn should still land in the snapshot).
     if (this.isBackgroundBusy(id)) return;
     // Stuck-red PR: re-engage the CI-fix loop and stand down BEFORE classifying. The LLM
-    // classifier could otherwise mark this idle red session complete/finished (silencing it AND
-    // making the tick skip it, since complete/paused sessions are ineligible). Lower latency than
+    // classifier could otherwise mark this idle red session complete/finished (silencing it, and
+    // making the tick skip it if that is a guard hand-back or a landing repair). Lower latency than
     // waiting for the next tick. reEngageCi returns true when it owned the session (steered/paused).
     const candidate = this.deps.store.get(id);
     if (
@@ -806,7 +848,7 @@ export class AutopilotService {
   private edgeCiFix(s: Session, git: GitState): void {
     if (
       s.mergingSince !== null ||
-      s.autopilotPaused ||
+      ciHandedBack(s) ||
       this.pending.has(s.id) ||
       !git.headSha ||
       this.ciNudged.get(s.id) === git.headSha ||
@@ -815,6 +857,8 @@ export class AutopilotService {
       return;
     // Before the capacity call: a held head must not record codex capacity demand.
     if (this.criticHolds(s, git)) return void this.skipCi(s, git, "critic-reviewing", false);
+    // Likewise a reclaimable session that isn't resting: tick() steers once it is.
+    if (ciReclaimable(s) && this.working(s)) return void this.skipWorking(s, git);
     if (!this.deps.capacity) this.considerCi(s, git);
     else
       void this.deps
@@ -887,7 +931,7 @@ export class AutopilotService {
   private considerCi(s: Session, git: GitState): void {
     const skip = (reason: CiSkipReason) => void this.skipCi(s, git, reason, false);
     if (s.mergingSince !== null) return skip("merging"); // merge train owns this session; don't double-steer its rebase
-    if (s.autopilotPaused) return skip("paused"); // already handed back; waits for operator
+    if (ciHandedBack(s)) return skip(parkedReason(s)); // already handed back; waits for operator
     if (this.pending.has(s.id)) return skip("pending-classify"); // a classify (gate/done path) is mid-flight
     // Cap gate FIRST, matching reEngageCi where that order is load-bearing (there the stand-down
     // claims-without-acting, so evaluating it first would make the pause unreachable). Here both
@@ -936,6 +980,7 @@ export class AutopilotService {
       this.pause(s, CI_CAP_MESSAGE); // runaway guard — stop thrashing CI, surface to operator
       return;
     }
+    if (ciReclaimable(s)) return this.startReclaim(s, git);
     this.ciNudged.set(s.id, git.headSha);
     // Fire-and-forget (the caller chain onGit→considerCi is sync). driveSteer's best-effort
     // only covers falsy returns, not throws — resume() can reject (herdr down on the
@@ -951,15 +996,16 @@ export class AutopilotService {
    *  This is the event-INDEPENDENT recovery: it reads the cached PR snapshot directly (prGit),
    *  so it works even when no `session:git` re-emits (unchanged red head). Returns true when it
    *  OWNED the session (re-engaged or paused), so onDone can short-circuit before classifying.
-   *  Returns false for any ineligible session (no PR / green / pending / paused / complete /
-   *  autopilot-off, or non-full-auto with a rebase actor owning it), leaving it untouched.
+   *  Returns false for any ineligible session (no PR / green / pending / handed back /
+   *  autopilot-off, or non-full-auto with a rebase actor owning it), leaving it untouched. A
+   *  reclaimable pause or completion with a red PR is re-engaged via steerCiFix.
    *  Merge-train stand-down: while the session is merge-train-marked (`mergingSince !== null`) the
    *  train owns it and steers its own rebase. We CLAIM ownership (return true) so onDone
    *  short-circuits BEFORE classify — but we do NOT steer/bump/pause. Returning true (not false) is
    *  load-bearing: a false return would let the LLM classifier run on a marked, stuck-red full-auto
-   *  session and possibly mark it complete/paused, a terminal state that would SURVIVE the mark
-   *  clearing (reEngageCi/considerCi/eligible all reject complete/paused), wedging the CI-fix loop
-   *  shut. Claiming-but-not-acting leaves no state that outlives the mark, so the loop auto-resumes
+   *  session and possibly mark it complete/paused, state that would SURVIVE the mark clearing. On a
+   *  landing repair that wedges the CI-fix loop shut (reEngageCi/considerCi reject guard hand-backs
+   *  and landing repairs). Claiming-but-not-acting leaves no state that outlives the mark, so the loop auto-resumes
    *  once the train clears it. The guard sits before the step-cap branch (which calls pause()) so a
    *  marked session is never paused either. The mark is kept fresh by the 60s sweepStaleMerging. */
   private reEngageCi(id: string): boolean {
@@ -969,8 +1015,7 @@ export class AutopilotService {
     if (s.mergingSince !== null) return this.skipCi(s, git, "merging", true); // merge train owns this session: claim it so onDone short-circuits BEFORE classify, but don't steer/bump/pause — that state must not survive mark-clear
     if (this.authPending.has(id)) return this.skipCi(s, git, "auth", false); // human-only MCP OAuth pending — don't steer even an open+red PR
     if (!this.enabled(s)) return false;
-    if (s.autopilotPaused) return this.skipCi(s, git, "paused", false); // already handed back; waits for operator
-    if (s.autopilotComplete) return this.skipCi(s, git, "complete", false); // terminal
+    if (ciHandedBack(s)) return this.skipCi(s, git, parkedReason(s), false); // already handed back; waits for operator
     if (this.pending.has(id)) return this.skipCi(s, git, "pending-classify", false); // a classify (onDone/onBlock) is mid-flight — its dispatch will act; don't race it
     if (!git) return false;
     // Non-full-auto: the merge train never touches it, so this idle backstop is the only actor
@@ -1022,6 +1067,10 @@ export class AutopilotService {
       this.pause(s, CI_CAP_MESSAGE);
       return true;
     }
+    if (ciReclaimable(s)) {
+      this.startReclaim(s, git);
+      return true;
+    }
     // Count the attempt toward the cap regardless of whether the steer lands, so a
     // dead/unresumable pane still marches to the cap → guaranteed clean hand-back.
     // The only "agent is working" guard is the caller's status filter (tick's working()
@@ -1039,12 +1088,80 @@ export class AutopilotService {
     return true;
   }
 
+  /** Fire-and-forget entry to reclaimAndSteer for the sync CI paths. */
+  private startReclaim(s: Session, git: GitState): void {
+    void this.reclaimAndSteer(s, git).catch((err) =>
+      console.warn("[autopilot] ci reclaim steer:", err),
+    );
+  }
+
+  /** Re-engage a classifier hand-back on red CI. A landed steer is what spends the head: anything
+   *  else leaves it for a later tick. `pending` is held throughout, so nothing double-steers while
+   *  the pause is cleared. */
+  private async reclaimAndSteer(s: Session, git: GitState): Promise<void> {
+    // A pause is otherwise what protects a session blocked on a yes-no prompt: a steer's CR would
+    // answer its highlighted option (#2281).
+    if (this.working(s)) return void this.skipWorking(s, git);
+    if (!git.headSha) return void this.skipCi(s, git, "no-head", false);
+    if (this.ciNudged.get(s.id) === git.headSha) {
+      return void this.skipCi(s, git, parkedReason(s), false);
+    }
+    this.pending.add(s.id);
+    try {
+      if (await this.deps.pendingQuestions?.(s.id)) {
+        return void this.skipCi(s, git, "not-delivered", false);
+      }
+      const cur = this.deps.store.get(s.id);
+      if (!cur || cur.status === "archived" || !ciReclaimable(cur)) return;
+      if (this.working(cur)) return void this.skipWorking(cur, git);
+      await this.steerReclaimed(cur, git);
+    } finally {
+      this.pending.delete(s.id);
+    }
+  }
+
+  /** Clear the hand-back, then steer. Clearing FIRST is load-bearing: otherwise the steer's
+   *  `running` edge hits onStatus, which zeroes the step budget, and the CI loop never caps. A
+   *  failed steer restores the hand-back and, like steerCiFix, counts toward the cap, so a dead
+   *  pane ends in CI_CAP_MESSAGE rather than silence. */
+  private async steerReclaimed(s: Session, git: GitState): Promise<void> {
+    const prior = {
+      paused: s.autopilotPaused,
+      complete: s.autopilotComplete,
+      question: s.autopilotQuestion,
+    };
+    this.deps.store.setAutopilotState(s.id, { paused: false, complete: false, question: null });
+    this.deps.onState?.(s.id);
+    const landed = await this.sendSteer(s, CI_FIX_STEER).catch((err) => {
+      console.warn("[autopilot] ci reclaim steer:", err);
+      return false;
+    });
+    const cur = this.deps.store.get(s.id);
+    if (!cur || cur.status === "archived") return;
+    if (landed) {
+      this.ciNudged.set(s.id, git.headSha!);
+      this.bump(cur);
+      return;
+    }
+    if (this.working(cur)) return; // the operator re-engaged it meanwhile: no longer handed back
+    this.deps.store.setAutopilotState(s.id, prior);
+    this.deps.onState?.(s.id);
+    this.skipCi(cur, git, "not-delivered", false);
+    // A native question blocked the steer: waiting on it is not a failed attempt.
+    const asked = await this.deps.pendingQuestions?.(s.id)?.catch(() => false);
+    if (!asked) this.bump(this.deps.store.get(s.id) ?? cur);
+  }
+
   /** Log a red PR the tick skipped because its agent is working — a lingering background shell
    *  would otherwise hold it silently forever. */
   private skipWorkingCi(s: Session): void {
     if (!this.enabled(s)) return;
+    this.skipWorking(s, this.redPr(s.id));
+  }
+
+  private skipWorking(s: Session, git: GitState | null): void {
     const reason = this.isBackgroundBusy(s.id) ? "background-busy" : "working";
-    this.skipCi(s, this.redPr(s.id), reason, false);
+    this.skipCi(s, git, reason, false);
   }
 
   /** The cached PR when it is open and red, else null. */
@@ -1062,9 +1179,9 @@ export class AutopilotService {
    *  CI-fix steer: the onGit edge won't repeat it, and it spends one attempt of the step budget. */
   noteCiSteered(id: string, headSha: string): void {
     const s = this.deps.store.get(id);
-    if (!s || !this.enabled(s) || s.autopilotPaused || s.autopilotComplete) return;
+    if (!s || !this.enabled(s) || ciHandedBack(s)) return;
     this.ciNudged.set(id, headSha);
-    this.bump(s);
+    if (!ciReclaimable(s)) this.bump(s);
   }
 
   /** Log why an open+red PR was NOT steered — once per (session, head, reason), so a session left
@@ -1283,11 +1400,12 @@ export class AutopilotService {
       s.mergingSince !== null ||
       this.authPending.has(s.id) ||
       !this.enabled(s) ||
-      s.autopilotPaused ||
-      s.autopilotComplete ||
+      ciHandedBack(s) ||
       this.pending.has(s.id)
     )
       return false;
+    // A reclaim already landed on this head: nothing will steer, so don't record capacity demand.
+    if (ciReclaimable(s) && this.ciNudged.get(s.id) === this.redPr(s.id)?.headSha) return false;
     if (this.deps.fullAuto(s.id)) {
       const git = this.deps.prGit(s.id);
       return (

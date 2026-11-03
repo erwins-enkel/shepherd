@@ -1030,8 +1030,11 @@ test("CI-fix recovery is gated by autopilot enablement", () => {
   expect(h.events.length).toBe(0);
 });
 
-test("a paused session is not CI-steered (already handed to the operator)", () => {
-  const h = harness({ session: sess({ autopilotPaused: true }), repoEnabled: true });
+test("a guard-paused session is not CI-steered (already handed to the operator)", () => {
+  const h = harness({
+    session: sess({ status: "done", autopilotPaused: true, autopilotQuestion: CI_CAP_MESSAGE }),
+    repoEnabled: true,
+  });
   h.svc.onGit("s1", git());
   expect(h.events.some((e) => "steer" in e)).toBe(false);
 });
@@ -1450,14 +1453,14 @@ test("negative: tick() ignores a closed PR even when red", () => {
   expect(h.events.length).toBe(0);
 });
 
-test("negative: tick() ignores a paused session", () => {
-  const h = stuckRed({ autopilotPaused: true });
+test("negative: tick() ignores a guard-paused session", () => {
+  const h = stuckRed({ autopilotPaused: true, autopilotQuestion: CI_CAP_MESSAGE });
   h.svc.tick();
   expect(h.events.length).toBe(0);
 });
 
-test("negative: tick() ignores a complete session", () => {
-  const h = stuckRed({ autopilotComplete: true });
+test("negative: tick() ignores a complete landing-repair session", () => {
+  const h = stuckRed({ autopilotComplete: true, landingRepair: true });
   h.svc.tick();
   expect(h.events.length).toBe(0);
 });
@@ -1531,10 +1534,10 @@ async function ciSkipLogs(fn: () => Promise<void>): Promise<string[]> {
   return lines;
 }
 
-test("ci-red skip: a paused red session logs its reason once per head", async () => {
+test("ci-red skip: a guard-paused red session logs its reason once per head", async () => {
   let pr = git({ headSha: "aaaaaaa1" });
   const h = harness({
-    session: sess({ status: "done", autopilotPaused: true }),
+    session: sess({ status: "done", autopilotPaused: true, autopilotQuestion: CI_CAP_MESSAGE }),
     repoEnabled: true,
     get prGit() {
       return pr;
@@ -3086,4 +3089,446 @@ test("Codex question guard is rechecked after pane discovery before typing", asy
   await h.svc.onBlock("s1", block());
   expect(reads).toBe(4);
   expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+// ─────────────── Red CI re-engages a classifier hand-back (TASK-5045) ───────────────
+// The stop classifier paused a full-auto session on a status report while CI was still running.
+// CI then went red and every CI actor stood down on the pause, leaving the PR unsteered for hours.
+const STATUS_TAIL = "The fix is pushed to PR #929. CI and the critic will re-run on this push.";
+const GUARD_MESSAGES = [
+  "Autopilot reached its step limit without opening a PR — over to you.",
+  CI_CAP_MESSAGE,
+  REBASE_CAP_MESSAGE,
+  NUDGE_STALL_MESSAGE,
+  EMPTY_COMPLETION_MESSAGE,
+];
+const softPaused = (over: Partial<Session> = {}) =>
+  sess({
+    status: "done",
+    autopilotPaused: true,
+    autopilotQuestion: STATUS_TAIL,
+    autopilotStepCount: 3,
+    ...over,
+  });
+const ciSteers = (events: any[]) => events.filter((e) => e.steer === CI_FIX_STEER);
+
+for (const [entry, fire] of [
+  ["onGit", (h: ReturnType<typeof harness>) => h.svc.onGit("s1", git())],
+  ["tick", (h: ReturnType<typeof harness>) => void h.svc.tick()],
+] as const) {
+  test(`classifier pause + red head: ${entry} steers once, clears the pause, keeps the budget`, async () => {
+    const h = harness({
+      session: softPaused(),
+      repoEnabled: true,
+      fullAuto: true,
+      openPr: true,
+      prGit: git(),
+    });
+    fire(h);
+    await flush();
+    expect(ciSteers(h.events)).toHaveLength(1);
+    expect(h.state().autopilotPaused).toBe(false);
+    expect(h.state().autopilotQuestion).toBeNull();
+    expect(h.state().autopilotStepCount).toBe(4);
+    // The steer's own `running` edge must not refresh the budget, or the CI loop never caps.
+    h.svc.onStatus("s1", "running");
+    expect(h.state().autopilotStepCount).toBe(4);
+  });
+
+  test(`guard pauses + red head: ${entry} never steers and leaves the hand-back alone`, async () => {
+    for (const question of GUARD_MESSAGES) {
+      const h = harness({
+        session: softPaused({ autopilotQuestion: question }),
+        repoEnabled: true,
+        fullAuto: true,
+        prGit: git(),
+      });
+      fire(h);
+      await flush();
+      expect(h.events.some((e) => "steer" in e)).toBe(false);
+      expect(h.state().autopilotPaused).toBe(true);
+      expect(h.state().autopilotQuestion).toBe(question);
+    }
+  });
+
+  test(`landing repair handed back + red head: ${entry} never steers, flags unchanged`, async () => {
+    for (const over of [
+      { autopilotPaused: false, autopilotComplete: true, autopilotQuestion: "done" },
+      { autopilotPaused: true, autopilotComplete: false, autopilotQuestion: STATUS_TAIL },
+    ]) {
+      const h = harness({
+        session: softPaused({ landingRepair: true, ...over }),
+        repoEnabled: true,
+        fullAuto: true,
+        prGit: git(),
+      });
+      fire(h);
+      await flush();
+      expect(h.events.some((e) => "steer" in e)).toBe(false);
+      expect(h.state().autopilotPaused).toBe(over.autopilotPaused);
+      expect(h.state().autopilotComplete).toBe(over.autopilotComplete);
+      expect(h.state().autopilotQuestion).toBe(over.autopilotQuestion);
+    }
+  });
+}
+
+test("complete + red head held by the critic: the tick after the hold lifts steers", async () => {
+  let held = true;
+  const h = harness({
+    session: softPaused({ autopilotPaused: false, autopilotComplete: true }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+    criticReviewing: () => held,
+  });
+  h.svc.onGit("s1", git());
+  await h.svc.tick();
+  await flush();
+  expect(ciSteers(h.events)).toHaveLength(0);
+  expect(h.state().autopilotComplete).toBe(true);
+  held = false;
+  await h.svc.tick();
+  await flush();
+  expect(ciSteers(h.events)).toHaveLength(1);
+  expect(h.state().autopilotComplete).toBe(false);
+});
+
+test("classifier pause at the step cap + red head: no steer, becomes a guard pause", async () => {
+  const h = harness({
+    session: softPaused({ autopilotStepCount: 10 }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+  });
+  await h.svc.tick();
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.state().autopilotQuestion).toBe(CI_CAP_MESSAGE);
+});
+
+test("pending native question: no steer, still paused, steers on a later tick", async () => {
+  let asked = true;
+  const h = harness({
+    session: softPaused(),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+    pendingQuestions: async () => asked,
+  });
+  await h.svc.tick();
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.state().autopilotPaused).toBe(true);
+  expect(h.state().autopilotStepCount).toBe(3);
+  asked = false;
+  await h.svc.tick();
+  await flush();
+  expect(ciSteers(h.events)).toHaveLength(1);
+});
+
+test("blocked or background-busy classifier pause + red edge: no steer, then tick steers", async () => {
+  // A steer's CR would answer the highlighted option of a yes-no prompt (#2281).
+  const blocked = harness({
+    session: softPaused({ status: "blocked" }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+    capacity: async () => {
+      throw new Error("a blocked session must not reach the capacity gate");
+    },
+  });
+  blocked.svc.onGit("s1", git());
+  await flush();
+  expect(blocked.events.some((e) => "steer" in e)).toBe(false);
+  expect(blocked.state().autopilotPaused).toBe(true);
+  expect(blocked.state().autopilotQuestion).toBe(STATUS_TAIL);
+
+  let busy = true;
+  const shell = harness({
+    session: softPaused(),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+    backgroundBusy: () => busy,
+  });
+  shell.svc.onGit("s1", git());
+  await flush();
+  expect(shell.events.some((e) => "steer" in e)).toBe(false);
+  expect(shell.state().autopilotPaused).toBe(true);
+  busy = false;
+  await shell.svc.tick();
+  await flush();
+  expect(ciSteers(shell.events)).toHaveLength(1);
+});
+
+test("steer not landed: hand-back restored, attempt counted, retries until CI_CAP_MESSAGE", async () => {
+  const h = harness({
+    session: softPaused({ autopilotStepCount: 8 }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+    steerOk: false,
+  });
+  await h.svc.tick();
+  await flush();
+  expect(h.state().autopilotPaused).toBe(true);
+  expect(h.state().autopilotQuestion).toBe(STATUS_TAIL);
+  expect(h.state().autopilotStepCount).toBe(9);
+  await h.svc.tick();
+  await flush();
+  expect(ciSteers(h.events)).toHaveLength(2);
+  expect(h.state().autopilotStepCount).toBe(10);
+  await h.svc.tick();
+  await flush();
+  expect(ciSteers(h.events)).toHaveLength(2);
+  expect(h.state().autopilotQuestion).toBe(CI_CAP_MESSAGE);
+});
+
+test("complete session reaching a cap: the guard pause replaces the completion", async () => {
+  const ciCap = harness({
+    session: softPaused({
+      autopilotPaused: false,
+      autopilotComplete: true,
+      autopilotStepCount: 9,
+    }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+    steerOk: false,
+  });
+  await ciCap.svc.tick();
+  await flush();
+  expect(ciCap.state().autopilotComplete).toBe(true); // failed attempt restored the completion
+  expect(ciCap.state().autopilotStepCount).toBe(10);
+  await ciCap.svc.tick();
+  await flush();
+  expect(ciCap.state().autopilotPaused).toBe(true);
+  expect(ciCap.state().autopilotComplete).toBe(false);
+  expect(ciCap.state().autopilotQuestion).toBe(CI_CAP_MESSAGE);
+
+  const rebaseCap = harness({
+    session: softPaused({
+      autopilotPaused: false,
+      autopilotComplete: true,
+      autoMergeRebaseCount: 5,
+    }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git({ mergeStateStatus: "behind" }),
+  });
+  await rebaseCap.svc.tick();
+  await flush();
+  expect(rebaseCap.state().autopilotPaused).toBe(true);
+  expect(rebaseCap.state().autopilotComplete).toBe(false);
+  expect(rebaseCap.state().autopilotQuestion).toBe(REBASE_CAP_MESSAGE);
+});
+
+test("steer rejected: hand-back restored and the attempt counted", async () => {
+  const h = harness({
+    session: softPaused(),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+    paneAlive: false,
+  });
+  (h.svc as any).deps.resume = async () => {
+    throw new Error("herdr down");
+  };
+  await h.svc.tick();
+  await flush();
+  expect(h.state().autopilotPaused).toBe(true);
+  expect(h.state().autopilotQuestion).toBe(STATUS_TAIL);
+  expect(h.state().autopilotStepCount).toBe(4);
+});
+
+test("native question arriving during a failed steer: restored, attempt not counted", async () => {
+  let calls = 0;
+  const h = harness({
+    session: softPaused(),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+    // Preflight and the re-reads inside sendSteer see none; only the post-failure read sees it.
+    pendingQuestions: async () => ++calls > 3,
+    steerOk: false,
+  });
+  await h.svc.tick();
+  await flush();
+  expect(h.state().autopilotPaused).toBe(true);
+  expect(h.state().autopilotStepCount).toBe(3);
+});
+
+test("operator re-engaging during a failed steer keeps the pause cleared", async () => {
+  const h = harness({
+    session: softPaused(),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+  });
+  (h.svc as any).deps.steer = async () => {
+    h.svc["deps"].store.setAutopilotState("s1", {});
+    (h.svc as any).isBackgroundBusy = () => true;
+    return false;
+  };
+  await h.svc.tick();
+  await flush();
+  expect(h.state().autopilotPaused).toBe(false);
+});
+
+test("a tick during an in-flight reclaim does not double-steer", async () => {
+  let release!: (ok: boolean) => void;
+  const h = harness({
+    session: softPaused(),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+  });
+  let steers = 0;
+  (h.svc as any).deps.steer = () => {
+    steers++;
+    return new Promise<boolean>((r) => (release = r));
+  };
+  await h.svc.tick();
+  await flush();
+  await h.svc.tick();
+  await flush();
+  expect(steers).toBe(1);
+  release(true);
+  await flush();
+  expect(h.state().autopilotStepCount).toBe(4);
+});
+
+test("landed steer, re-paused on the same red head: no repeat until a rerun or new head", async () => {
+  const h = harness({
+    session: softPaused(),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+  });
+  await h.svc.tick();
+  await flush();
+  h.svc["deps"].store.setAutopilotState("s1", { paused: true, question: STATUS_TAIL });
+  await h.svc.tick();
+  await flush();
+  expect(ciSteers(h.events)).toHaveLength(1);
+  expect(h.state().autopilotPaused).toBe(true);
+  h.svc.onGit("s1", git({ checks: "pending" })); // rerun on the same head
+  h.svc.onGit("s1", git());
+  await flush();
+  expect(ciSteers(h.events)).toHaveLength(2);
+});
+
+test("re-paused on a head already reclaimed: tick records no capacity demand", async () => {
+  let capacityCalls = 0;
+  const h = harness({
+    session: softPaused(),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+    capacity: async () => {
+      capacityCalls++;
+      return true;
+    },
+  });
+  await h.svc.tick();
+  await flush();
+  h.svc["deps"].store.setAutopilotState("s1", { paused: true, question: STATUS_TAIL });
+  capacityCalls = 0;
+  await h.svc.tick();
+  await flush();
+  expect(capacityCalls).toBe(0);
+});
+
+test("noteCiSteered on a classifier pause: no duplicate steer, attempt not counted", async () => {
+  const h = harness({
+    session: softPaused(),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+  });
+  h.svc.noteCiSteered("s1", "sha1");
+  expect(h.state().autopilotStepCount).toBe(3);
+  await h.svc.tick();
+  await flush();
+  expect(ciSteers(h.events)).toHaveLength(0);
+});
+
+test("full-auto open PR: unknown does not pause, question does", async () => {
+  const unknown = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: true,
+    openPr: true,
+    prGit: git({ checks: "pending" }),
+    verdict: { kind: "unknown", summary: STATUS_TAIL },
+  });
+  await unknown.svc.onDone("s1");
+  expect(unknown.state().autopilotPaused).toBe(false);
+  expect(unknown.state().autopilotQuestion).toBeNull();
+
+  const question = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: true,
+    openPr: true,
+    prGit: git({ checks: "pending" }),
+    verdict: { kind: "question", summary: "Which one?" },
+  });
+  await question.svc.onDone("s1");
+  expect(question.state().autopilotPaused).toBe(true);
+  expect(question.state().autopilotQuestion).toBe("Which one?");
+});
+
+test("full-auto open PR: complete does not mark complete, except a landing repair", async () => {
+  const task = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: true,
+    openPr: true,
+    prGit: git({ checks: "pending" }),
+    verdict: { kind: "complete", summary: "Delivered" },
+  });
+  await task.svc.onDone("s1");
+  expect(task.state().autopilotComplete).toBe(false);
+
+  const repair = harness({
+    session: sess({ status: "done", landingRepair: true }),
+    repoEnabled: true,
+    fullAuto: true,
+    openPr: true,
+    prGit: git({ checks: "pending" }),
+    verdict: { kind: "complete", summary: "Delivered" },
+  });
+  await repair.svc.onDone("s1");
+  expect(repair.state().autopilotComplete).toBe(true);
+});
+
+test("no PR: unknown still pauses", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    verdict: { kind: "unknown", summary: STATUS_TAIL },
+  });
+  await h.svc.onDone("s1");
+  expect(h.state().autopilotPaused).toBe(true);
+});
+
+test("every classified stop logs its verdict and PR state", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: true,
+    openPr: true,
+    prGit: git({ checks: "pending" }),
+    verdict: { kind: "unknown", summary: "" },
+  });
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (...args: unknown[]) => void lines.push(args.map(String).join(" "));
+  try {
+    await h.svc.onDone("s1");
+  } finally {
+    console.log = orig;
+  }
+  expect(lines).toContain("[autopilot] verdict TASK-01 kind=unknown pr=open");
 });

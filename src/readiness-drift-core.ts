@@ -4,9 +4,9 @@
  * line and renders the upgrade story. I/O (files, registries, forge) lives in
  * `readiness-drift.ts`; this file only parses and decides.
  */
-import { pinOf, type HouseStack } from "./house-stack";
+import { pinOf, swiftPackageName, type HouseStack } from "./house-stack";
 
-export type DriftEcosystem = "npm" | "crates";
+export type DriftEcosystem = "npm" | "crates" | "swift";
 
 /** One package declaration found in one manifest. `line` = the lowest line (major, or `0.minor`
  *  for 0.x) the declared `spec` admits. */
@@ -256,14 +256,76 @@ export function parseCargoToml(text: string, manifest: string): DeclaredDep[] {
   return out;
 }
 
+/** The `.package(...)` calls of a manifest, tolerating two levels of nested parens (traits,
+ *  `.upToNextMajor(from:)`). Deeper nesting goes unseen, which under-reports, never over-reports. */
+const SWIFT_PACKAGE_CALL_RE = /\.package\s*\(((?:[^()]|\((?:[^()]|\([^()]*\))*\))*)\)/g;
+const SWIFT_URL_RE = /\burl:\s*"([^"]+)"/;
+const SWIFT_FROM_RE = /\bfrom:\s*"((\d+)\.(\d+)[^"]*)"/;
+const SWIFT_EXACT_RE = /(?:\bexact:\s*|\.exact\s*\(\s*)"([^"]+)"/;
+const SWIFT_RANGE_RE = /"([^"]+)"\s*\.\.(<|\.)\s*"([^"]+)"/;
+
+/** A `.package(...)` requirement as a semver range with SwiftPM's meaning. `from:` runs to the next
+ *  major even on 0.x. Null for `branch:`/`revision:`, which name no version. */
+function swiftRequirementRange(args: string): string | null {
+  const from = SWIFT_FROM_RE.exec(args);
+  if (from) {
+    const [, lower, major, minor] = from;
+    return /\.upToNextMinor\b/.test(args)
+      ? `>=${lower} <${major}.${Number(minor) + 1}.0`
+      : `>=${lower} <${Number(major) + 1}.0.0`;
+  }
+  const exact = SWIFT_EXACT_RE.exec(args);
+  if (exact) return `=${exact[1]}`;
+  const range = SWIFT_RANGE_RE.exec(args);
+  if (!range) return null;
+  return `>=${range[1]} ${range[2] === "<" ? "<" : "<="}${range[3]}`;
+}
+
+/** `text` without its block comments; an unterminated one runs to the end, as in Swift. Not a regex:
+ *  the file is repo-controlled, and a lazy match is quadratic on many unterminated openers. */
+function stripBlockComments(text: string): string {
+  const kept: string[] = [];
+  let at = 0;
+  for (;;) {
+    const open = text.indexOf("/*", at);
+    if (open === -1) {
+      kept.push(text.slice(at));
+      return kept.join("");
+    }
+    kept.push(text.slice(at, open));
+    const close = text.indexOf("*/", open + 2);
+    if (close === -1) return kept.join("");
+    at = close + 2;
+  }
+}
+
+/** Declarations in one Package.swift. A plain text read, never executed: it is repo-controlled
+ *  Swift source, so dependencies built from variables or conditionals are not seen. */
+export function parsePackageSwift(text: string, manifest: string): DeclaredDep[] {
+  const source = stripBlockComments(text).replace(/^[ \t]*\/\/.*$/gm, "");
+  const out: DeclaredDep[] = [];
+  for (const [, args] of source.matchAll(SWIFT_PACKAGE_CALL_RE)) {
+    const url = SWIFT_URL_RE.exec(args!)?.[1];
+    const name = url?.startsWith("https://") ? swiftPackageName(url) : null;
+    const spec = swiftRequirementRange(args!);
+    const line = spec ? lowestLine(spec) : null;
+    if (name && spec && line) out.push({ ecosystem: "swift", name, line, spec, manifest });
+  }
+  return out;
+}
+
 const NPM_PIN_RE = /Use `((?:@[^/`\s]+\/)?[^@`\s]+)@[^`\s]+`/g;
 const CRATE_PIN_RE = /Use crate `([A-Za-z][\w-]*) = "/g;
+const SWIFT_PIN_RE = /Use Swift package `([^`\s]+)`/g;
 
 /** Package names pinned in a CLAUDE.md in the format `renderHouseStackRules` writes. */
-export function claudeMdPins(text: string): { npm: string[]; crates: string[] } {
+export function claudeMdPins(text: string): { npm: string[]; crates: string[]; swift: string[] } {
   return {
     npm: [...text.matchAll(NPM_PIN_RE)].map((m) => m[1]!),
     crates: [...text.matchAll(CRATE_PIN_RE)].map((m) => m[1]!),
+    swift: [...text.matchAll(SWIFT_PIN_RE)]
+      .map((m) => swiftPackageName(m[1]!))
+      .filter((n): n is string => n !== null),
   };
 }
 
@@ -272,11 +334,12 @@ export const driftKey = (ecosystem: DriftEcosystem, name: string) => `${ecosyste
 /** Keys of the tracked packages: the House Stack plus the repo's CLAUDE.md pins. */
 export function trackedKeys(
   stack: HouseStack,
-  pins: { npm: string[]; crates: string[] },
+  pins: { npm: string[]; crates: string[]; swift: string[] },
 ): Set<string> {
   return new Set([
     ...[...stack.npm, ...pins.npm].map((n) => driftKey("npm", n)),
     ...[...stack.crates, ...pins.crates].map((n) => driftKey("crates", n)),
+    ...[...stack.swift, ...pins.swift].map((n) => driftKey("swift", n)),
   ]);
 }
 
@@ -320,9 +383,11 @@ export function dependabotBumps(
     const fromLine = lowestLine(from!);
     const toLine = lowestLine(to!);
     if (!fromLine || !toLine || compareLine(toLine, fromLine) <= 0) continue;
-    const list = out.get(name!) ?? [];
+    // Dependabot names a Swift package by its normalized URL; rows key it as `owner/repo`.
+    const key = swiftPackageName(name!) ?? name!;
+    const list = out.get(key) ?? [];
     list.push({ number: pr.number, url: pr.url, from: from!, to: to! });
-    out.set(name!, list);
+    out.set(key, list);
   }
   return out;
 }
@@ -331,6 +396,7 @@ const DEPENDABOT_ECOSYSTEMS = new Map<unknown, DriftEcosystem>([
   ["npm", "npm"],
   ["bun", "npm"],
   ["cargo", "crates"],
+  ["swift", "swift"],
 ]);
 
 const SEMVER_MAJOR = "version-update:semver-major";
@@ -365,7 +431,8 @@ export function dependabotMajorHolds(text: string): Set<string> {
     const ecosystem = DEPENDABOT_ECOSYSTEMS.get(update?.["package-ecosystem"]);
     if (!ecosystem || !Array.isArray(update?.ignore)) continue;
     for (const entry of update.ignore) {
-      const name = heldPackageName(entry);
+      const held = heldPackageName(entry);
+      const name = held && ecosystem === "swift" ? swiftPackageName(held) : held;
       if (name) holds.add(driftKey(ecosystem, name));
     }
   }

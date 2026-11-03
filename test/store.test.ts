@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { SessionStore, REVIEWER_SPAWNS_DDL } from "../src/store";
+import { renderHouseStackRules } from "../src/house-stack";
 import { isEpicChild } from "../src/epic-branch";
 import type {
   CriticFinding,
@@ -3025,6 +3026,8 @@ test("session: bootstrap derives from the persisted resolved stack (#3109)", () 
     npm: [{ name: "svelte", version: "5.1.0" }],
     crates: [],
     rustToolchain: null,
+    swift: [{ name: "apple/swift-nio", version: "2.70.1" }],
+    swiftToolchain: "6.4.2",
   };
   const b = s.create({ ...base, herdrAgentId: "t2", bootstrapStack: stack });
   expect(b.bootstrap).toBe(true);
@@ -3032,6 +3035,27 @@ test("session: bootstrap derives from the persisted resolved stack (#3109)", () 
   expect(got?.bootstrap).toBe(true);
   expect(got && "bootstrapStackJson" in got).toBe(false);
   expect(s.getBootstrapStack(b.id)).toEqual(stack);
+});
+
+test("session: a bootstrap stack stored before Swift reads with empty Swift fields", () => {
+  const dir = mkdtempSync(join(tmpdir(), "store-legacy-stack-"));
+  try {
+    const dbPath = join(dir, "test.db");
+    const store = new SessionStore(dbPath);
+    const a = store.create(base);
+    const db = new Database(dbPath);
+    db.run(`UPDATE sessions SET bootstrapStackJson = ? WHERE id = ?`, [
+      JSON.stringify({ ok: true, resolvedAt: "x", npm: [], crates: [], rustToolchain: "1.99.0" }),
+      a.id,
+    ]);
+    db.close();
+    const got = store.getBootstrapStack(a.id)!;
+    expect(got.swift).toEqual([]);
+    expect(got.swiftToolchain).toBeNull();
+    expect(renderHouseStackRules(got).claudeMd).toContain("Rust toolchain `1.99.0`");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("session: a P3 bootstrap row has no stack but is bootstrap (#3110)", () => {
@@ -3047,7 +3071,15 @@ test("session: a P3 bootstrap row has no stack but is bootstrap (#3110)", () => 
   const legacy = s.create({
     ...base,
     herdrAgentId: "t3",
-    bootstrapStack: { ok: true, resolvedAt: "x", npm: [], crates: [], rustToolchain: null },
+    bootstrapStack: {
+      ok: true,
+      resolvedAt: "x",
+      npm: [],
+      crates: [],
+      rustToolchain: null,
+      swift: [],
+      swiftToolchain: null,
+    },
   });
   expect(s.getBootstrapPhase(legacy.id)).toBe(1);
 });

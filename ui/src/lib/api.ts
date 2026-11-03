@@ -3255,7 +3255,7 @@ export interface RepoBootstrapView {
   overrideAt: number | null;
   /** What still holds the drain (phases `P<n>`, then must-haves), even while overridden. */
   missing: string[];
-  /** Off and the repo root has no package.json / Cargo.toml — offer bootstrap mode. */
+  /** Off and the repo root has no package.json / Cargo.toml / Package.swift — offer bootstrap mode. */
   suggested: boolean;
   /** The proposed next attended step (#3112); null when off or done. Absent on old servers. */
   next?: RepoBootstrapNextStep | null;

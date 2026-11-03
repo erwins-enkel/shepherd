@@ -3012,9 +3012,9 @@ export interface GuardrailCheck {
   evidence: string[];
 }
 /** Which stack the repo matched, or null when it matches no supported ecosystem. */
-export type Ecosystem = "js-ts" | "rust";
+export type Ecosystem = "js-ts" | "rust" | "swift";
 export interface ReadinessReport {
-  /** False when the repo matches no supported ecosystem (no package.json or Cargo.toml within two levels) — the baseline is N/A. */
+  /** False when the repo matches no supported ecosystem (no package.json, Cargo.toml or Package.swift within two levels) — the baseline is N/A. */
   applicable: boolean;
   /** The matched ecosystem, or null on the not-applicable path. */
   ecosystem: Ecosystem | null;
@@ -3093,7 +3093,7 @@ export interface DependabotBump {
   to: string;
 }
 export interface DriftRow {
-  ecosystem: "npm" | "crates";
+  ecosystem: "npm" | "crates" | "swift";
   name: string;
   /** Lowest declared line (major, or `0.minor`) across the repo's manifests. */
   installed: string;
@@ -3949,6 +3949,9 @@ export interface HouseStack {
   npm: string[];
   crates: string[];
   rustToolchain: boolean;
+  /** Swift packages on github.com, as `owner/repo`. */
+  swift: string[];
+  swiftToolchain: boolean;
 }
 
 /** GET /api/house-stack/resolve — all-or-nothing: versions for every entry, or per-entry errors. */
@@ -3959,8 +3962,17 @@ export type HouseStackResolution =
       npm: { name: string; version: string }[];
       crates: { name: string; version: string }[];
       rustToolchain: string | null;
+      swift: { name: string; version: string }[];
+      swiftToolchain: string | null;
     }
-  | { ok: false; errors: { ecosystem: "npm" | "crates" | "rust"; name: string; reason: string }[] };
+  | {
+      ok: false;
+      errors: {
+        ecosystem: "npm" | "crates" | "rust" | "swift" | "swift-toolchain";
+        name: string;
+        reason: string;
+      }[];
+    };
 
 // ── Operator schedules (#3469) — mirrors src/schedules-core.ts ──
 

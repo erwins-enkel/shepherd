@@ -44,6 +44,8 @@ function resolver(versions: Record<string, string>): DriftDeps["resolver"] {
         npm: eco === "npm" ? [{ name, version }] : [],
         crates: eco === "crates" ? [{ name, version }] : [],
         rustToolchain: null,
+        swift: [],
+        swiftToolchain: null,
       };
     },
   };
@@ -290,4 +292,65 @@ describe("createUpgradeStory", () => {
     );
     expect(f.created).toHaveLength(0);
   });
+});
+
+test("Package.swift: a tracked package a major behind is reported, untracked ones aren't", async () => {
+  write(
+    "Package.swift",
+    `.package(url: "https://github.com/Acme/Kit.git", from: "1.0.0"),
+     .package(url: "https://github.com/acme/other", from: "1.0.0"),`,
+  );
+  write(
+    ".build/checkouts/dep/Package.swift",
+    `.package(url: "https://github.com/a/b", from: "1.0.0")`,
+  );
+  const seen: HouseStack[] = [];
+  const drift = await frameworkDrift(
+    dir,
+    deps({
+      houseStack: { ...DEFAULT_HOUSE_STACK, swift: ["acme/kit"] },
+      resolver: {
+        resolve: async (stack) => {
+          seen.push(stack);
+          return {
+            ok: true,
+            resolvedAt: "x",
+            npm: [],
+            crates: [],
+            rustToolchain: null,
+            swift: stack.swift.map((name) => ({ name, version: "2.1.0" })),
+            swiftToolchain: null,
+          };
+        },
+      },
+    }),
+  );
+  expect(drift.rows.map((r) => [r.ecosystem, r.name, r.installed, r.target, r.state])).toEqual([
+    ["swift", "acme/kit", "1", "2", "behind"],
+  ]);
+  expect(seen).toHaveLength(1);
+  expect(seen[0]!.swift).toEqual(["acme/kit"]);
+  expect(seen[0]!.swiftToolchain).toBe(false);
+});
+
+test("Package.swift: a repo's CLAUDE.md pin tracks the package it also declares", async () => {
+  write("Package.swift", `.package(url: "https://github.com/acme/kit", from: "1.0.0")`);
+  write(
+    "CLAUDE.md",
+    "- Use Swift package `acme/kit` (x), NEVER an older version.\n- Use Swift package `acme/undeclared` (x)\n",
+  );
+  const seen: string[] = [];
+  const drift = await frameworkDrift(
+    dir,
+    deps({
+      resolver: {
+        resolve: async (stack) => {
+          seen.push(...stack.swift);
+          return { ok: false, errors: [] };
+        },
+      },
+    }),
+  );
+  expect(drift.rows.map((r) => r.name)).toEqual(["acme/kit"]);
+  expect(seen).toEqual(["acme/kit"]);
 });

@@ -17,6 +17,8 @@
   let npmText = $state("");
   let cratesText = $state("");
   let rustToolchain = $state(true);
+  let swiftText = $state("");
+  let swiftToolchain = $state(true);
   let saving = $state(false);
   let checking = $state(false);
   let error = $state<string | null>(null);
@@ -33,6 +35,8 @@
     npmText = stack.npm.join("\n");
     cratesText = stack.crates.join("\n");
     rustToolchain = stack.rustToolchain;
+    swiftText = stack.swift.join("\n");
+    swiftToolchain = stack.swiftToolchain;
   }
 
   $effect(() => {
@@ -44,6 +48,8 @@
     npm: lines(npmText),
     crates: lines(cratesText),
     rustToolchain,
+    swift: lines(swiftText),
+    swiftToolchain,
   });
   const dirty = $derived(saved !== null && JSON.stringify(draft) !== JSON.stringify(saved));
 
@@ -100,6 +106,18 @@
             onchange={() => (rustToolchain = !rustToolchain)}
           />
         </div>
+        <label class="field">
+          <span class="lbl">{m.settings_house_stack_swift_label()}</span>
+          <textarea rows="3" spellcheck="false" bind:value={swiftText}></textarea>
+        </label>
+        <div class="toggle">
+          <span class="lbl">{m.settings_house_stack_swift_toolchain()}</span>
+          <SettingToggle
+            checked={swiftToolchain}
+            label={m.settings_house_stack_swift_toolchain()}
+            onchange={() => (swiftToolchain = !swiftToolchain)}
+          />
+        </div>
         <div class="actions">
           <button type="button" class="set-gbtn" disabled={!dirty || saving} onclick={save}>
             {saving ? m.settings_saving() : m.settings_house_stack_save()}
@@ -125,6 +143,15 @@
                 <li>
                   <code>{m.settings_house_stack_rust_label()}</code>
                   <span class="ver">{result.rustToolchain}</span>
+                </li>
+              {/if}
+              {#each result.swift as p (p.name)}
+                <li><code>{p.name}</code> <span class="ver">{p.version}</span></li>
+              {/each}
+              {#if result.swiftToolchain}
+                <li>
+                  <code>{m.settings_house_stack_swift_toolchain_label()}</code>
+                  <span class="ver">{result.swiftToolchain}</span>
                 </li>
               {/if}
             </ul>

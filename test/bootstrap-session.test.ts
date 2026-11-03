@@ -15,6 +15,8 @@ const RESOLVED: HouseStackResolution = {
   ],
   crates: [],
   rustToolchain: "1.99.0",
+  swift: [],
+  swiftToolchain: null,
 };
 
 function deps(
@@ -340,4 +342,29 @@ test("bootstrapP3Directive: gap sweep, one numbered grill, no orphans, design op
   );
   expect(text).not.toMatch(/\d+\.\d+\.\d+/);
   expect(bootstrapP3Directive({ agentProvider: "codex" })).toContain("ask the operator in chat");
+});
+
+test("bootstrapDirective: a Swift stack carries its pins, .swift-version and checklist", () => {
+  const text = bootstrapDirective({
+    stack: {
+      ...(RESOLVED as Extract<HouseStackResolution, { ok: true }>),
+      swift: [{ name: "apple/swift-nio", version: "2.70.1" }],
+      swiftToolchain: "6.4.2",
+    },
+    agentProvider: "claude",
+  });
+  expect(text).toContain("Use Swift package `apple/swift-nio`");
+  expect(text).toContain("Use Swift toolchain `6.4.2`");
+  expect(text).toContain("write `.swift-version`:\n    6.4.2");
+  expect(text).toContain("Swift:\n    - A pre-push hook that mirrors CI");
+  expect(text).toContain("git ls-remote --tags --refs");
+});
+
+test("bootstrapDirective: no Swift stack, no Swift checklist", () => {
+  const text = bootstrapDirective({
+    stack: RESOLVED as Extract<HouseStackResolution, { ok: true }>,
+    agentProvider: "claude",
+  });
+  expect(text).not.toContain("Swift:\n");
+  expect(text).not.toContain(".swift-version");
 });

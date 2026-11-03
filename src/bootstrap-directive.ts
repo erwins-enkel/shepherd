@@ -52,10 +52,17 @@ function pinsSection(stack: ResolvedHouseStack): string {
       indent(rules.rustToolchainToml),
     );
   }
+  if (rules.swiftVersionFile) {
+    lines.push(
+      "When the project has Swift, write `.swift-version`:",
+      indent(rules.swiftVersionFile),
+    );
+  }
   lines.push(
     "Apply only the pins for the ecosystems the PRD needs. ANY package not listed above: query its " +
       "current stable version from the registry first (`npm view <pkg> version`, " +
-      "`cargo search <crate> --limit 1`) and use that — never a version from memory, and never an " +
+      "`cargo search <crate> --limit 1`, `git ls-remote --tags --refs <repo-url>` for a Swift " +
+      "package) and use that — never a version from memory, and never an " +
       "older major than the registry's current stable.",
   );
   return lines.join("\n");
@@ -70,6 +77,9 @@ function checklistSection(stack: ResolvedHouseStack): string {
   }
   if (stack.crates.length > 0 || stack.rustToolchain) {
     parts.push(`Rust:\n${bootstrapGuardrailChecklist("rust", "npm")}`);
+  }
+  if (stack.swift.length > 0 || stack.swiftToolchain) {
+    parts.push(`Swift:\n${bootstrapGuardrailChecklist("swift", "npm")}`);
   }
   return parts.join("\n\n");
 }
@@ -115,7 +125,8 @@ export function bootstrapDirective(args: {
     "",
     "## P2 — scaffold",
     "- The framework on the pinned versions; it must build and its checks must pass.",
-    "- Design tokens and `app.css` taken from `docs/design` (not reinvented); the app shell from P1.",
+    "- Design tokens (for a web UI, in `app.css`) taken from `docs/design` (not reinvented); the " +
+      "app shell from P1.",
     "- When the PRD describes a web UI: a favicon set from the logo/mark in `docs/design` (like the " +
       `tokens — never invented; if the design has no mark, ${ask}): \`favicon.svg\`, a PNG ` +
       "fallback and `apple-touch-icon`, plus `theme-color` for light AND dark matching the tokens. " +

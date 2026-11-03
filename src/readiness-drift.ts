@@ -18,6 +18,7 @@ import {
   driftRows,
   parseCargoToml,
   parsePackageJson,
+  parsePackageSwift,
   renderUpgradeStory,
   resolverState,
   trackedDeclared,
@@ -31,7 +32,8 @@ import {
 /** Manifests read per scan; directories below the repo root searched. */
 const MAX_MANIFESTS = 50;
 const MAX_DEPTH = 2;
-const SKIP_DIRS = new Set(["node_modules", "target", "dist", "build", "vendor"]);
+const SKIP_DIRS = new Set(["node_modules", "target", "dist", "build", "vendor", "Pods"]);
+const MANIFESTS = new Set(["package.json", "Cargo.toml", "Package.swift"]);
 const RESOLVE_CONCURRENCY = 6;
 const LS_REMOTE_TIMEOUT_MS = 5_000;
 
@@ -50,7 +52,7 @@ export interface DriftDeps {
 async function scanDir(root: string, d: string, out: string[]): Promise<string[]> {
   const subdirs: string[] = [];
   for (const e of await readdir(d, { withFileTypes: true }).catch(() => [])) {
-    if (e.isFile() && (e.name === "package.json" || e.name === "Cargo.toml")) {
+    if (e.isFile() && MANIFESTS.has(e.name)) {
       out.push(relative(root, join(d, e.name)));
     } else if (e.isDirectory() && !e.name.startsWith(".") && !SKIP_DIRS.has(e.name)) {
       subdirs.push(join(d, e.name));
@@ -79,7 +81,9 @@ async function readDeclared(dir: string): Promise<DeclaredDep[]> {
   const parsed = await Promise.all(
     manifests.map(async (m) => {
       const text = await readFile(join(dir, m), "utf8").catch(() => "");
-      return m.endsWith("Cargo.toml") ? parseCargoToml(text, m) : parsePackageJson(text, m);
+      if (m.endsWith("Cargo.toml")) return parseCargoToml(text, m);
+      if (m.endsWith("Package.swift")) return parsePackageSwift(text, m);
+      return parsePackageJson(text, m);
     }),
   );
   return parsed.flat();
@@ -97,6 +101,8 @@ async function lookupLatest(
         npm: p.ecosystem === "npm" ? [p.name] : [],
         crates: p.ecosystem === "crates" ? [p.name] : [],
         rustToolchain: false,
+        swift: p.ecosystem === "swift" ? [p.name] : [],
+        swiftToolchain: false,
       })
       .catch(() => null);
     const version = res?.ok ? (res[p.ecosystem][0]?.version ?? null) : null;

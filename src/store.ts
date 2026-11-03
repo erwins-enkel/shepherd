@@ -4176,7 +4176,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     } | null;
     if (!r?.bootstrapStackJson) return null;
     try {
-      return JSON.parse(r.bootstrapStackJson) as ResolvedHouseStack;
+      // A session spawned before Swift joined the House Stack stored neither Swift field.
+      return { swift: [], swiftToolchain: null, ...JSON.parse(r.bootstrapStackJson) };
     } catch {
       return null;
     }

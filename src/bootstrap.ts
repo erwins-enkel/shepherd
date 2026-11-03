@@ -100,10 +100,10 @@ export function postMergeCi(runs: readonly ForgeRun[], headSha: string | null): 
 }
 
 /** True when the repo root carries a manifest of a supported ecosystem (package.json /
- *  Cargo.toml). A repo without one is SUGGESTED for bootstrap mode, never switched on. Async so
- *  it never blocks the server loop. */
+ *  Cargo.toml / Package.swift). A repo without one is SUGGESTED for bootstrap mode, never switched
+ *  on. Async so it never blocks the server loop. */
 export async function hasProjectManifest(dir: string): Promise<boolean> {
-  for (const f of ["package.json", "Cargo.toml"]) {
+  for (const f of ["package.json", "Cargo.toml", "Package.swift"]) {
     try {
       await access(join(dir, f));
       return true;

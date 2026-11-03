@@ -80,8 +80,8 @@ Running many agents is the easy half; keeping their output shippable is the actu
 Shepherd institutionalizes the practices a careful team would otherwise have to enforce by hand,
 as per-repo automation:
 
-- **Readiness** — Shepherd scores a JS/TS repo's guardrails (typecheck, lint, tests, CI, house
-  rules) before you point agents at it, and prescribes the gaps as setup tasks you seed with a click.
+- **Readiness** — Shepherd scores a JS/TS, Rust or Swift repo's guardrails (typecheck, lint, tests,
+  CI, house rules) before you point agents at it, and prescribes the gaps as setup tasks you seed with a click.
   A repo with no manifest yet gets a greenfield bootstrap checklist instead; its must-haves are the
   exit gate of project-bootstrap mode. A **Bootstrap** task (New Task → Bootstrap) builds that
   scaffold: one attended session pins the House Stack versions resolved from the registries, asks

@@ -36,6 +36,8 @@ import {
   probeRemote,
 } from "./client";
 import { type MachineSelfUpdate, parseSelfUpdate } from "./self-update";
+import { RELAY_USER_AGENT_PREFIX } from "../update-call";
+import { SHEPHERD_VERSION } from "../version";
 import { type HeavySlotSnapshot, parseHeavySlotSnapshot } from "../heavy-slot-snapshot";
 
 import {
@@ -429,7 +431,10 @@ export class RemoteInstanceService {
         : { ok: false, failure: res.failure };
     }
     const body = JSON.stringify(call.discard ? { discard: true, sig: call.sig } : {});
-    const res = await postRemoteJson(row, "/api/update", body, opts);
+    const res = await postRemoteJson(row, "/api/update", body, {
+      ...opts,
+      headers: { "user-agent": `${RELAY_USER_AGENT_PREFIX}${SHEPHERD_VERSION}` },
+    });
     if (res.kind === "no_answer") {
       return { ok: false, failure: { status: "unreachable", reason: res.reason } };
     }

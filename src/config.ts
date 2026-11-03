@@ -41,6 +41,9 @@ const codexUpdateLogPath =
 // shepherd-logrotate.timer rotates it (deploy/rotate-shepherd-log.sh reads the same
 // SHEPHERD_LOG). Read by the Operator Assistant's log tool (#1446).
 const shepherdLogPath = process.env.SHEPHERD_LOG ?? join(dirname(dbPath), "shepherd.log");
+// Where deploy/update.sh leaves its run lines for the server to take over (#3623). The script
+// resolves the same dirname of SHEPHERD_DB; keep the two in step.
+const updateJournalPath = join(dirname(dbPath), "update-journal.jsonl");
 // The Operator Assistant's working dir (#1446): its claude session's cwd, created 0700 on first
 // spawn. Beside the db so it survives `bun run update`; SHEPHERD_ASSISTANT_DIR overrides.
 const operatorAssistantDir =
@@ -708,6 +711,7 @@ export const config = {
   pluginSecretsPath,
   herdrBin: process.env.HERDR_BIN ?? "herdr",
   herdrUpdateLogPath,
+  updateJournalPath,
   codexBin: process.env.CODEX_BIN ?? "codex",
   codexUpdateLogPath,
   shepherdLogPath,

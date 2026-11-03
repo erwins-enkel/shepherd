@@ -388,7 +388,20 @@ describe("connected machines", () => {
 
     const started = await call(a, "POST", `/api/remote-instances/${id}/update`, {});
     expect([started.status, started.body]).toEqual([202, { ok: true }]);
-    expect(applied).toEqual([null]);
+    expect(applied).toEqual([{ requestId: expect.any(String) }]);
+    // #3623: this Shepherd records its caller and the machine; the machine records the token.
+    const recordsOn = (i: Instance) =>
+      i.deps.store.listSignalsByKind("update_call", 0, 10).map((s) => JSON.parse(s.payload));
+    expect(recordsOn(a)[0]).toMatchObject({
+      outcome: "started",
+      caller: { kind: "surface" },
+      machine: { id, name: expect.any(String) },
+    });
+    expect(recordsOn(b)[0]).toMatchObject({
+      outcome: "started",
+      caller: { kind: "token", name: "machine", client: "relay" },
+      machine: null,
+    });
     const log = await call(a, "GET", `/api/remote-instances/${id}/update/log`);
     expect(log.body).toEqual({ phase: "running", exitCode: null, log: "bun install" });
     const dirty = await call(a, "GET", `/api/remote-instances/${id}/update/dirty`);

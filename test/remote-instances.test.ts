@@ -650,6 +650,10 @@ describe("RemoteInstanceService", () => {
       "{}",
     ]);
     expect((sent.init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
+    // The machine's own record of this call names it as a relay (#3623).
+    expect((sent.init.headers as Record<string, string>)["user-agent"]).toStartWith(
+      "shepherd-relay/",
+    );
 
     remote.status["/api/update"] = 403;
     expect(

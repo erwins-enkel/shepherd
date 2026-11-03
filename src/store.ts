@@ -6585,7 +6585,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return this.db
       .query(
         `SELECT id, repoPath, sessionId, kind, payload, ts FROM signals
-         WHERE kind = ? AND ts >= ? ORDER BY ts DESC LIMIT ?`,
+         WHERE kind = ? AND ts >= ? ORDER BY ts DESC, rowid DESC LIMIT ?`,
       )
       .all(kind, sinceTs, limit) as Signal[];
   }

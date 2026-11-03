@@ -252,7 +252,10 @@ function taskRows(tasks: TaskView[]): DeliveryTaskRow[] {
 function incidents(
   rows: { kind: DeliveryIncidentRow["kind"]; occurrences: number; sessions: number }[],
 ): DeliveryIncidentRow[] {
-  return rows.map((r) => ({ kind: r.kind, occurrences: r.occurrences, sessions: r.sessions }));
+  // An update_call is an audit record of a self-update (#3623), not an incident.
+  return rows
+    .filter((r) => r.kind !== "update_call")
+    .map((r) => ({ kind: r.kind, occurrences: r.occurrences, sessions: r.sessions }));
 }
 
 /** One repo's lead times over the `30d` window — what the epic forecast (src/epic-forecast.ts)

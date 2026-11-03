@@ -125,6 +125,12 @@ PTYs). It also refreshes the prebuilt `shepherd` CLI to the server's version (sk
 when already current or when `SHEPHERD_NO_CLI=1`; a missing binary only warns). UI-only changes don't strictly need it: a fresh `cd ui && bun run build` is
 served on the next request, since the core reads `ui/build` from disk per request.
 
+Every run, and every update started from the app, a token, the CLI or another machine, is recorded
+with its origin. **Settings → Update** shows the last one; the rest stay in `shepherd.log` and for 60
+days as `update_call` signals. An agent session is recognized by the `SHEPHERD_SESSION_ID` its
+processes inherit. Socket attribution is Linux-only, and this is no security control, since a process
+can drop the marker.
+
 ## Backups & restore
 
 On Linux the installer/provision step also enables a **second** systemd user

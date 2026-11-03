@@ -36,6 +36,7 @@ import type {
   DirListing,
   ScratchListing,
   UpdateStatus,
+  UpdateCallRecord,
   DeployState,
   DirtyStatus,
   HerdrUpdateStatus,
@@ -2341,6 +2342,13 @@ export async function getUpdate(): Promise<UpdateStatus> {
   const r = await fetch("/api/update");
   if (!r.ok) throw await failed(r, "update status");
   return r.json();
+}
+
+/** Who last updated this Shepherd (#3623); null when nothing is on record. */
+export async function getLastUpdate(): Promise<UpdateCallRecord | null> {
+  const r = await fetch("/api/update/last");
+  if (!r.ok) throw await failed(r, "last update");
+  return ((await r.json()) as { last: UpdateCallRecord | null }).last;
 }
 
 /** Live state of the detached deploy (running / done / failed + captured log),

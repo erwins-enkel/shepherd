@@ -1656,7 +1656,8 @@ export type SignalKind =
   | "injection_detected"
   | "untrusted_author"
   | "evidence_repo_mismatch"
-  | "target_repo_unregistered";
+  | "target_repo_unregistered"
+  | "update_call";
 
 export interface Signal {
   id: string;

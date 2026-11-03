@@ -3,6 +3,9 @@ import type { SessionStore } from "./store";
 import type { BlockReason } from "./blocked";
 import type { SignalKind } from "./types";
 
+/** Sentinel repoPath for host-global (non-repo) signals. */
+export const HOST_SIGNAL_REPO = "__host__";
+
 /**
  * How long after an observed block event the same session+kind stays inside one EPISODE (#2242).
  *

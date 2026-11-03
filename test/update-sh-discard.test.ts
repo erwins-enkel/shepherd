@@ -83,6 +83,8 @@ function run(bin: string, opts: RunOpts = {}): { code: number; git: string } {
   const env: Record<string, string> = {
     ...process.env,
     PATH: `${bin}:${process.env.PATH}`,
+    // the run's journal line and state dir stay out of the host's ~/.shepherd
+    HOME: bin,
     STUB_BRANCH: opts.branch ?? "main",
     // never install the real CLI into the host's ~/.local/bin
     SHEPHERD_NO_CLI: "1",

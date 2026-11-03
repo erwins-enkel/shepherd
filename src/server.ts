@@ -135,7 +135,18 @@ import {
   verifyPassword,
   SESSION_COOKIE,
 } from "./operator-auth";
-import { loopbackPeerUid } from "./peer-uid";
+import { loopbackPeerSessionId, loopbackPeerUid } from "./peer-uid";
+import {
+  lastUpdateCall,
+  recordUpdateCall,
+  resolveUpdateCaller,
+  resolveUpdateSession,
+  type UpdateCallOutcome,
+  type UpdateCallReason,
+  type UpdateCallRecord,
+  type UpdateCallSession,
+  type UpdateCaller,
+} from "./update-call";
 import {
   normalizeRepositoryPaths,
   repositoryAllows,
@@ -338,7 +349,7 @@ import { SessionPhaseService } from "./session-phase";
 import { firstRun } from "./first-run";
 import { handleUpload, parseUploadFile, MAX_UPLOAD_BYTES, MAX_REQUEST_BODY_BYTES } from "./uploads";
 import type { UsageLimits, UsageLimitsService } from "./usage-limits";
-import type { UpdateService } from "./update";
+import type { UpdateRefusal, UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
 import type { CodexUpdateService } from "./codex-update";
 import type { PluginUpdateService } from "./plugin-update";
@@ -664,6 +675,8 @@ export interface AppDeps {
   /** Is this loopback connection the trusted proxy (#3368)? Absent ⇒ {@link defaultProxyTrust}
    *  (kernel socket owner vs `config.trustedProxyUid`). Test seam. */
   proxyTrust?: (sock: RequestSocket) => Promise<ProxyTrust>;
+  /** Test seam: the agent session behind a request's connection (#3623). */
+  peerSessionId?: (req: Request) => Promise<string | null>;
   /** Connected machines (#2759). Same memo-slot contract as `accessTokens`: the
    *  `remoteInstances(deps)` accessor lazily builds an unstarted one from `store`; `index.ts`
    *  injects the started singleton that runs the periodic probe. */
@@ -2017,7 +2030,8 @@ function remoteInstanceRoute(method: string, parts: string[]): RemoteInstanceRou
   return REMOTE_INSTANCE_ROUTES[`${method} ${shape}`] ?? null;
 }
 
-async function handleRemoteInstances({ req, parts, deps }: Ctx): Promise<Response | null> {
+async function handleRemoteInstances(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, deps } = ctx;
   const route = remoteInstanceRoute(req.method, parts);
   if (!route) return null;
   const sessErr = requireOperatorSession(req);
@@ -2038,12 +2052,68 @@ async function handleRemoteInstances({ req, parts, deps }: Ctx): Promise<Respons
     case "updates":
       return json({ machines: svc.updates() });
     case "update":
-      return applyMachineUpdate(req, svc, id);
+      return recordedMachineUpdate(ctx, svc, id);
     case "update-log":
       return relayMachineUpdate(svc, id, { kind: "log" });
     case "update-dirty":
       return relayMachineUpdate(svc, id, { kind: "dirty" });
   }
+}
+
+/** A relayed update's record on THIS machine (#3623): the caller here and what the machine answered.
+ *  The machine keeps its own record, naming the token this Shepherd holds for it. */
+async function recordedMachineUpdate(
+  { req, deps, token }: Ctx,
+  svc: RemoteInstanceService,
+  id: string,
+): Promise<Response> {
+  const session = await updateCallSession(req, deps);
+  const caller = callerOfUpdate(req, token, deps);
+  const discard = await req
+    .clone()
+    .json()
+    .then((b: { discard?: unknown } | null) => b?.discard === true)
+    .catch(() => false);
+  const res = await applyMachineUpdate(req, svc, id);
+  const { outcome, reason } = await relayOutcome(res);
+  const machine = svc.get(id);
+  noteUpdateCall(deps, {
+    v: 1,
+    requestId: randomUUID(),
+    at: Date.now(),
+    outcome,
+    reason,
+    from: null,
+    to: null,
+    discard,
+    caller,
+    session,
+    machine: { id, name: machine ? (machine.label ?? machine.reportedName) : null },
+  });
+  return res;
+}
+
+/** How a relay answered, read off the response it serves. */
+async function relayOutcome(
+  res: Response,
+): Promise<{ outcome: UpdateCallOutcome; reason: UpdateCallReason | null }> {
+  if (res.status === 202) return { outcome: "started", reason: null };
+  if (res.status === 404) return { outcome: "rejected", reason: "not_found" };
+  if (res.status === 400 || res.status === 415)
+    return { outcome: "rejected", reason: "bad_request" };
+  const body = (await res
+    .clone()
+    .json()
+    .catch(() => null)) as { error?: unknown } | null;
+  const error = body?.error;
+  if (res.status === 409 && error === "no update available")
+    return { outcome: "nothing_to_do", reason: "no_update" };
+  // Only the relay's own codes pass through; a machine's error text never enters a record.
+  const reason: UpdateCallReason =
+    res.status === 502 && typeof error === "string" && /^remote_[a-z_]+$/.test(error)
+      ? (error as UpdateCallReason)
+      : `remote_${res.status}`;
+  return { outcome: "rejected", reason };
 }
 
 /** A machine's self-update, started from here: the same body `POST /api/update` takes locally,
@@ -8762,21 +8832,29 @@ async function updateDirty(deps: AppDeps): Promise<Response> {
  *  Writes the pathspecs symlink-safely (private 0700 dir + exclusive wx/0600 files)
  *  and cleans the dir up on any non-launch outcome (success leaves it for the
  *  detached update.sh trap). */
-async function updateDiscardApply(updates: NonNullable<AppDeps["updates"]>, sig?: string) {
-  if (!updates.dirtyStatus) return json({ error: "updates not available" }, 503);
+async function updateDiscardApply(
+  updates: NonNullable<AppDeps["updates"]>,
+  requestId: string,
+  sig?: string,
+): Promise<UpdateAttempt> {
+  if (!updates.dirtyStatus)
+    return refusedUpdate(json({ error: "updates not available" }, 503), "unavailable");
   const fresh = await updates.dirtyStatus();
   if (!fresh.dirty || fresh.sig == null || fresh.sig !== sig)
-    return json(
-      {
-        error: "stale",
-        dirty: {
-          dirty: fresh.dirty,
-          dirtyFiles: fresh.dirtyFiles,
-          dirtyCount: fresh.dirtyCount,
-          sig: fresh.sig,
+    return refusedUpdate(
+      json(
+        {
+          error: "stale",
+          dirty: {
+            dirty: fresh.dirty,
+            dirtyFiles: fresh.dirtyFiles,
+            dirtyCount: fresh.dirtyCount,
+            sig: fresh.sig,
+          },
         },
-      },
-      409,
+        409,
+      ),
+      "stale",
     );
   const dir = mkdtempSync(join(tmpdir(), "shepherd-discard-"));
   try {
@@ -8786,67 +8864,156 @@ async function updateDiscardApply(updates: NonNullable<AppDeps["updates"]>, sig?
     writeFileSync(pathspecWtFile, fresh.pathspecWorktree, { flag: "wx", mode: 0o600 });
     const r = updates.apply({
       discard: true,
+      requestId,
       sig: fresh.sig,
       dir,
       pathspecAllFile,
       pathspecWtFile,
     });
-    if (r.started) return json({ ok: true }, 202); // update.sh's trap removes `dir`
+    if (r.started) return startedUpdate(); // update.sh's trap removes `dir`
     rmSync(dir, { recursive: true, force: true });
-    return json({ error: r.error ?? "could not start the update" }, 409);
+    return applyRefused(r);
   } catch (e) {
     rmSync(dir, { recursive: true, force: true });
-    return json({ error: e instanceof Error ? e.message : "could not start the update" }, 500);
+    return refusedUpdate(
+      json({ error: e instanceof Error ? e.message : "could not start the update" }, 500),
+      "launch_failed",
+    );
   }
 }
 
-async function updateApply(req: Request, deps: AppDeps): Promise<Response> {
-  if (!deps.updates) return json({ error: "updates not available" }, 503);
-  const body = (await req.json().catch(() => ({}))) as { discard?: unknown; sig?: unknown };
+/** What one `POST /api/update` answers, and how the record of that call (#3623) reads it. */
+type UpdateAttempt = {
+  res: Response;
+  outcome: UpdateCallOutcome;
+  reason: UpdateCallReason | null;
+};
+
+const refusedUpdate = (res: Response, reason: UpdateCallReason): UpdateAttempt => ({
+  res,
+  outcome: "rejected",
+  reason,
+});
+
+const startedUpdate = (): UpdateAttempt => ({
+  res: json({ ok: true }, 202),
+  outcome: "started",
+  reason: null,
+});
+
+/** never a bare status: carry the real reason so the UI can show it */
+function applyRefused(r: { error?: string; code?: UpdateRefusal }): UpdateAttempt {
+  const res = json({ error: r.error ?? "could not start the update" }, 409);
+  if (r.code === "already_running") return refusedUpdate(res, "already_running");
+  return refusedUpdate(res, r.code === "unsupported_discard" ? "bad_request" : "launch_failed");
+}
+
+async function attemptUpdate(
+  body: { discard?: unknown; sig?: unknown },
+  deps: AppDeps,
+  requestId: string,
+): Promise<UpdateAttempt> {
+  if (!deps.updates)
+    return refusedUpdate(json({ error: "updates not available" }, 503), "unavailable");
   if (body.discard !== undefined && typeof body.discard !== "boolean")
-    return json({ error: "body.discard must be a boolean" }, 400);
+    return refusedUpdate(json({ error: "body.discard must be a boolean" }, 400), "bad_request");
   if (body.sig !== undefined && typeof body.sig !== "string")
-    return json({ error: "body.sig must be a string" }, 400);
+    return refusedUpdate(json({ error: "body.sig must be a string" }, 400), "bad_request");
 
   // Existing no-update guard runs FIRST — before any dirty probe, tempfile, or
   // apply — so a discard request with nothing to update has zero side effects.
   const status = deps.updates.current();
-  if (!status || status.behind <= 0) return json({ error: "no update available" }, 409);
+  if (!status || status.behind <= 0)
+    return {
+      res: json({ error: "no update available" }, 409),
+      outcome: "nothing_to_do",
+      reason: "no_update",
+    };
 
-  if (body.discard === true) return updateDiscardApply(deps.updates, body.sig);
+  if (body.discard === true)
+    return updateDiscardApply(deps.updates, requestId, body.sig as string | undefined);
 
-  const r = deps.updates.apply();
-  if (r.started) return json({ ok: true }, 202);
-  // never a bare status: carry the real reason so the UI can show it
-  return json({ error: r.error ?? "could not start the update" }, 409);
+  const r = deps.updates.apply({ requestId });
+  return r.started ? startedUpdate() : applyRefused(r);
 }
 
-async function handleUpdate({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (parts[0] === "api" && parts[1] === "update" && !parts[2]) {
-    if (req.method === "GET") return updateStatus(deps);
-    if (req.method === "POST") return updateApply(req, deps);
+/** The session behind this connection, read before the update starts: the client still holds its
+ *  socket then. Never fails the request it describes. */
+async function updateCallSession(req: Request, deps: AppDeps): Promise<UpdateCallSession | null> {
+  const lookup = deps.peerSessionId ?? defaultPeerSessionId;
+  const id = await lookup(req).catch(() => null);
+  return resolveUpdateSession(deps.store, id);
+}
+
+function defaultPeerSessionId(req: Request): Promise<string | null> {
+  const sock = requestSockets.get(req);
+  if (!sock) return Promise.resolve(null);
+  return loopbackPeerSessionId(sock.address, sock.port, sock.serverPort);
+}
+
+function callerOfUpdate(req: Request, token: Ctx["token"], deps: AppDeps): UpdateCaller {
+  return resolveUpdateCaller(
+    req,
+    token,
+    (id) =>
+      accessTokens(deps)
+        .list()
+        .find((t) => t.id === id)?.name ?? null,
+  );
+}
+
+/** A record that cannot be written must not stop the update it describes. */
+function noteUpdateCall(deps: AppDeps, record: UpdateCallRecord): void {
+  try {
+    recordUpdateCall(deps.store, record);
+  } catch (err) {
+    console.warn("[update] could not record the call:", err);
   }
-  // fresh dirty snapshot of the running deployment (never cached)
-  if (
-    req.method === "GET" &&
-    parts[0] === "api" &&
-    parts[1] === "update" &&
-    parts[2] === "dirty" &&
-    !parts[3]
-  ) {
-    return updateDirty(deps);
+}
+
+async function updateApply({ req, deps, token }: Ctx): Promise<Response> {
+  const requestId = randomUUID();
+  const session = await updateCallSession(req, deps);
+  const caller = callerOfUpdate(req, token, deps);
+  const body = (await req.json().catch(() => ({}))) as { discard?: unknown; sig?: unknown };
+  const status = deps.updates?.current();
+  const { res, outcome, reason } = await attemptUpdate(body, deps, requestId);
+  noteUpdateCall(deps, {
+    v: 1,
+    requestId,
+    at: Date.now(),
+    outcome,
+    reason,
+    from: status?.current ?? null,
+    to: status?.latest ?? null,
+    discard: body.discard === true,
+    caller,
+    session,
+    machine: null,
+  });
+  return res;
+}
+
+async function handleUpdate(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, deps } = ctx;
+  if (parts[0] !== "api" || parts[1] !== "update" || parts[3]) return null;
+  if (!parts[2] && req.method === "POST") return updateApply(ctx);
+  if (req.method !== "GET") return null;
+  switch (parts[2]) {
+    case undefined:
+      return updateStatus(deps);
+    // fresh dirty snapshot of the running deployment (never cached)
+    case "dirty":
+      return updateDirty(deps);
+    // live state of an in-flight/failed deploy so the modal can show why it failed
+    case "log":
+      return json(deps.updates?.applyState?.() ?? { phase: "idle", exitCode: null, log: "" });
+    // who last updated this Shepherd (#3623)
+    case "last":
+      return json({ last: lastUpdateCall(deps.store) });
+    default:
+      return null;
   }
-  // live state of an in-flight/failed deploy so the modal can show why it failed
-  if (
-    req.method === "GET" &&
-    parts[0] === "api" &&
-    parts[1] === "update" &&
-    parts[2] === "log" &&
-    !parts[3]
-  ) {
-    return json(deps.updates?.applyState?.() ?? { phase: "idle", exitCode: null, log: "" });
-  }
-  return null;
 }
 
 const HERDR_UPDATE_IDLE = {

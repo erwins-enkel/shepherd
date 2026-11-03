@@ -466,6 +466,7 @@ test("unmanaged Mac explains the manual update path without launching systemd", 
   const svc = new UpdateService({ appUpdateDir: "", platform: "darwin", logPath });
   expect(svc.apply()).toEqual({
     started: false,
+    code: "launch_failed",
     error:
       "this Mac's Shepherd server is not managed by the Shepherd app — update it with deploy/update.sh",
   });
@@ -484,4 +485,25 @@ test("failed app request publication does not leave a running log blocking retry
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("apply hands the request id to the launch and classifies a refused double start (#3623)", () => {
+  const logPath = freshLog();
+  const launched: (string | undefined)[] = [];
+  const svc = new UpdateService({
+    appUpdateDir: "",
+    platform: "linux",
+    logPath,
+    launch: (_discard, requestId) => {
+      launched.push(requestId);
+      writeFileSync(logPath, "building…");
+    },
+  });
+  expect(svc.apply({ requestId: "r1" })).toEqual({ started: true });
+  expect(launched).toEqual(["r1"]);
+  expect(svc.apply({ requestId: "r2" })).toMatchObject({
+    started: false,
+    code: "already_running",
+  });
+  expect(launched).toEqual(["r1"]);
 });

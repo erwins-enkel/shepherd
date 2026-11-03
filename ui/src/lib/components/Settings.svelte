@@ -36,6 +36,7 @@
   import SettingsAssistantPanel from "#lib/components/settings/SettingsAssistantPanel.svelte";
   import SettingsDecisionModelPanel from "#lib/components/settings/SettingsDecisionModelPanel.svelte";
   import SettingsDevicePanel from "#lib/components/settings/SettingsDevicePanel.svelte";
+  import SettingsUpdatePanel from "#lib/components/settings/SettingsUpdatePanel.svelte";
   import SettingsNotificationsPanel from "#lib/components/settings/SettingsNotificationsPanel.svelte";
   import SettingsAccessPanel from "#lib/components/settings/SettingsAccessPanel.svelte";
   import SettingsMachinesPanel from "#lib/components/settings/SettingsMachinesPanel.svelte";
@@ -382,6 +383,8 @@
         return m.settings_tab_access();
       case "machines":
         return m.settings_tab_machines();
+      case "update":
+        return m.settings_tab_update();
       case "resources":
         return m.resources_title();
       case "diagnose":
@@ -671,6 +674,16 @@
         {#if active === "machines" && (!isNarrow || !mobileList)}
           <SettingsMachinesPanel {query} {remoteSessions} />
         {/if}
+      </div>
+
+      <div
+        class="panel"
+        use:panelShape={isNarrow}
+        id="settings-panel-update"
+        aria-label={m.settings_tab_update()}
+        hidden={active !== "update"}
+      >
+        {#if active === "update" && (!isNarrow || !mobileList)}<SettingsUpdatePanel {query} />{/if}
       </div>
 
       <div

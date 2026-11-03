@@ -2768,6 +2768,29 @@ export interface UpdateStatus {
   error?: string;
 }
 
+type UpdateClient = "cli" | "relay" | "other";
+
+/** One self-update call on record (#3623). Mirrors `UpdateCallRecord` in src/update-call.ts. */
+export interface UpdateCallRecord {
+  v: 1;
+  requestId: string | null;
+  at: number;
+  outcome: "started" | "nothing_to_do" | "rejected" | "applied";
+  reason: string | null;
+  from: string | null;
+  to: string | null;
+  discard: boolean;
+  caller:
+    | { kind: "surface"; ua: string | null }
+    | { kind: "token"; name: string; client: UpdateClient; ua: string | null }
+    | { kind: "env_token"; client: UpdateClient; ua: string | null }
+    | { kind: "script"; tty: boolean }
+    | { kind: "app" }
+    | { kind: "unknown" };
+  session: { id: string; desig: string | null } | null;
+  machine: { id: string; name: string | null } | null;
+}
+
 /** Live state of the detached deploy launched by an update apply. */
 export type DeployPhase = "idle" | "running" | "done" | "failed";
 

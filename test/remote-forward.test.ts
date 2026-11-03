@@ -111,6 +111,7 @@ describe("allowlist", () => {
     ["POST", "go"],
     ["POST", "answer-plan-questions"],
     ["GET", "plan"],
+    ["GET", "plan/revisions"],
     ["POST", "plan-edits"],
     ["POST", "rename"],
     ["POST", "amendments"],

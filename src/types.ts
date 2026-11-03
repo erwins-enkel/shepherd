@@ -973,6 +973,12 @@ export interface PlanGate {
    *  Go; `restore_skipped`/`restore_unconfirmed` mean a re-gate kept the execution effort. Cleared
    *  by a successful Go/skip/restore or any respawn. Absent/null ⇒ no problem. */
   effortSwitchError?: EffortSwitchError | null;
+  /** Set when the operator released this plan with edits and no new review (#3518, `mode: "go"`):
+   *  `plan` and `planHash` then hold that revision, which no plan reviewer saw. `fromRevision` is the
+   *  first operator revision the agent has not been told about: a Go that failed to deliver leaves
+   *  its edits pending for the next delivery. A new verdict or a withdrawn approval clears it.
+   *  Absent/null ⇒ the approval is the reviewer's alone. */
+  operatorRelease?: { revision: number; fromRevision: number; at: number } | null;
   updatedAt: number;
 }
 
@@ -1004,6 +1010,15 @@ export interface PlanRevision {
   plan: string;
   edits: PlanEdit[];
   createdAt: number;
+}
+
+/** One operator edit that still stands (#3518): where it came from and whether the plan it is read
+ *  against still holds its text. `inPlan` only says something for `replace`/`insert`; a deleted
+ *  phrase may legitimately occur elsewhere and a comment changes no text, so both read as true. */
+export interface OperatorPassage extends PlanEdit {
+  revision: number;
+  createdAt: number;
+  inPlan: boolean;
 }
 
 // ── critic-on-PR review verdict ─────────────────────────────────────────────

@@ -6,6 +6,7 @@ import {
   PLAN_VERDICT_FILE,
 } from "../src/plan-gate";
 import { CODEX_ROLE_OUTPUT_SCHEMAS } from "../src/codex-role-output-schema";
+import type { OperatorPassage } from "../src/types";
 
 test("prompt embeds task + plan + prior findings + verdict file + read-only", () => {
   const p = planReviewPrompt("do X", "PLAN TEXT", ["earlier nit"]);
@@ -535,4 +536,46 @@ test("the plan reviewer does NOT get the critic's prior-findings drop rule", () 
     ],
   });
   expect(p).not.toContain("an amendment has since authorized is DROPPED");
+});
+
+// ── #3518: operator edits bind the reviewer ─────────────────────────────────────────────────────
+
+const operatorPassage = (over: Partial<OperatorPassage> = {}): OperatorPassage => ({
+  id: "e1",
+  kind: "replace",
+  section: "Approach",
+  before: "use SQLite",
+  after: "use Postgres at `src/db.ts:12`",
+  reason: "ops runs Postgres",
+  revision: 3,
+  createdAt: 1,
+  inPlan: true,
+  ...over,
+});
+
+test("no operator edits ⇒ the prompt is byte-identical (#3518)", () => {
+  const stable = (s: string) => s.replace(/UNTRUSTED:([^:⟧]+):[0-9a-f]+/g, "UNTRUSTED:$1:N");
+  const prompt = (opts: object) =>
+    stable(planReviewPrompt("t", "plan", ["prior"], "issue", "en", undefined, undefined, opts));
+  expect(prompt({ operatorEdits: [] })).toBe(prompt({}));
+  expect(prompt({})).not.toContain("OPERATOR EDITS");
+});
+
+test("OPERATOR EDITS (binding) sits between the plan and the re-review, fenced (#3518)", () => {
+  const p = planReviewPrompt("t", "PLAN TEXT", ["prior"], null, "en", undefined, undefined, {
+    operatorEdits: [operatorPassage()],
+  });
+  const plan = p.indexOf("PLAN TEXT");
+  const block = p.indexOf("OPERATOR EDITS (binding)");
+  const fence = p.indexOf("⟦UNTRUSTED:operator edits");
+  const reReview = p.indexOf("This is a RE-REVIEW");
+  expect(plan).toBeLessThan(block);
+  expect(block).toBeLessThan(fence);
+  expect(fence).toBeLessThan(reReview);
+  expect(p).toContain("Do NOT report an operator entry as a finding");
+  expect(p).toContain("Report only a CONTRADICTION");
+  expect(p).toContain("A prior point below that asks to change an operator entry is DROPPED");
+  // Quoted like the plan above: no line number to argue about.
+  expect(p).toContain("+ use Postgres at `src/db.ts`\nwhy: ops runs Postgres");
+  expect(p.slice(fence)).not.toContain("src/db.ts:12");
 });

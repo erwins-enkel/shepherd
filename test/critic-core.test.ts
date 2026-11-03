@@ -285,6 +285,40 @@ test("prReviewPrompt (standalone critic) never carries a plan block — it has n
 // post-approval rewrite could be laundered through that label. The caller now says which text this
 // is; these tests pin that the wording follows.
 
+test("the critic separates operator edits from agent changes, and only with a plan (#3518)", () => {
+  const planProvenance = {
+    passages: [
+      {
+        id: "e1",
+        kind: "replace" as const,
+        section: "Approach",
+        before: "SQLite",
+        after: "Postgres",
+        revision: 2,
+        createdAt: 1,
+        inPlan: true,
+      },
+    ],
+    agentChanges: { removed: [], added: ["agent line"] },
+    operatorReleasedRevision: null,
+  };
+  const stable = stableNonce_1944;
+  const prompt = (o: Record<string, unknown>) =>
+    stable(reviewPrompt("BASE", "task", [], [], null, null, o));
+  const p = prompt({ plan: "P", planCurrent: "Q", planProvenance });
+  const approved = p.indexOf("APPROVED PLAN");
+  const block = p.indexOf("PLAN PROVENANCE");
+  const current = p.indexOf("CURRENT PLAN FILE (");
+  expect(approved).toBeLessThan(current);
+  expect(current).toBeLessThan(block);
+  expect(p).toContain("origin: operator] Approach");
+  expect(p).toContain("+ agent line");
+  expect(p).toContain("never reviewed or approved by anyone");
+  // No operator edits, or no plan to talk about: nothing changes.
+  expect(prompt({ plan: "P", planProvenance: null })).toBe(prompt({ plan: "P" }));
+  expect(prompt({ planProvenance })).toBe(prompt({}));
+});
+
 test("provenance defaults to approved — omitting the new opts is byte-identical", () => {
   // `stableNonce_1944` (declared below, with the #1944 tests) normalises the per-call fence nonce
   // so two whole prompts can be compared byte-for-byte.

@@ -171,9 +171,16 @@ function makeDeps(
     criticAgentStatus?: string;
     /** Plan-gate row the critic reads provenance from. Omitted ⇒ an approved gate matching the
      *  injected `readPlan`; `null` ⇒ no gate ever ran. */
-    planGate?: { sessionId: string; approved: boolean; plan: string } | null;
+    planGate?: {
+      sessionId: string;
+      approved: boolean;
+      plan: string;
+      operatorRelease?: { revision: number; at: number } | null;
+    } | null;
     /** #2225: standing operator task amendments for the session under review. */
     amendments?: TaskAmendment[];
+    /** #3518: the session's stored plan revisions. */
+    planRevisions?: any[];
     /**
      * Foreground processes returned by herdr.paneForegroundProcs for the critic pane.
      * Default ['zsh'] (shell-only husk → isSpawnAlive returns false for non-working agents).
@@ -232,6 +239,8 @@ function makeDeps(
       // #2225: the operator's standing task amendments. Default none — an un-amended session is
       // the ordinary case and keeps every prompt assertion here byte-identical.
       listActiveTaskAmendments: () => opts.amendments ?? [],
+      // #3518: no operator plan edits by default.
+      listPlanRevisions: () => opts.planRevisions ?? [],
       getReview: (id: string) => reviews[id] ?? null,
       putReview: (v: ReviewVerdict) => {
         reviews[v.sessionId] = v;
@@ -900,6 +909,56 @@ test("a plan edited AFTER approval is shown as a second block, and the snapshot 
   // …and the rewrite is present but stripped of any claim to authorization.
   expect(prompt).toContain("ship the runtime");
   expect(prompt).toContain("never reviewed or approved by anyone");
+});
+
+const operatorRevisions = (plan: string) => [
+  {
+    sessionId: "s1",
+    revision: 2,
+    author: "operator",
+    planHash: "h2",
+    plan,
+    edits: [{ id: "e1", kind: "replace", section: "Goal", before: "old", after: "op decision" }],
+    createdAt: 1,
+  },
+];
+
+test("the critic is told who wrote what, from the stored revisions (#3518)", async () => {
+  const approved = "## Goal\nop decision\nagent line";
+  const { deps: d, started } = makeDeps(
+    { readPlan: () => approved },
+    {
+      planGate: {
+        sessionId: "s1",
+        approved: true,
+        plan: approved,
+        operatorRelease: { revision: 2, at: 1 },
+      },
+      planRevisions: operatorRevisions("## Goal\nop decision"),
+    },
+  );
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("[replace · revision 2 · origin: operator] Goal");
+  expect(prompt).toContain("+ agent line");
+  expect(prompt).toContain("The operator released revision 2 directly");
+});
+
+test("operator edits stay authorized on a plan no gate approved (#3518)", async () => {
+  const { deps: d, started } = makeDeps(
+    { readPlan: () => "op decision" },
+    { planGate: null, planRevisions: operatorRevisions("op decision") },
+  );
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("NO plan reviewer approved this text");
+  expect(prompt).toContain("they ARE authorized");
+});
+
+test("a review of an unedited plan carries no provenance block (#3518)", async () => {
+  const { deps: d, started } = makeDeps({ readPlan: () => "## Goal\nship it" });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  expect(started[0]!.argv.at(-1)!).not.toContain("PLAN PROVENANCE");
 });
 
 test("a plan file with no approved gate claims no approval and asks for no drift", async () => {

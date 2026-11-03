@@ -72,6 +72,7 @@ const FORWARDED: ReadonlySet<string> = new Set([
   "POST go",
   "POST answer-plan-questions",
   "GET plan",
+  "GET plan/revisions",
   "POST plan-edits",
   "POST answer-ask",
   "POST rename",

@@ -100,6 +100,7 @@ import type {
   SessionArchiveReason,
   SessionLaunchMetadata,
   EffortSwitchError,
+  PlanGate,
 } from "./types";
 import {
   copyStagedIntoWorktree,
@@ -160,6 +161,8 @@ import type { PreviewService } from "./preview";
 import type { TelemetryService } from "./telemetry";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { amendmentBlock, type TaskAmendment } from "./task-amendments";
+import { planEditGoText } from "./plan-gate";
+import { operatorEditsBetween } from "./plan-provenance";
 import type { CodexQuestionTerminal } from "./codex-question-answer";
 import type { AnswerAskOutcome } from "./ask-answer-service";
 import { SHELLS } from "./json-tolerant";
@@ -2044,13 +2047,19 @@ export function replacedEffortFields(
 }
 
 /** Returns the plan-go steer: base text, then the build-queue clause when `queue` is given (the
- *  session has a queue), then the draft-mode note when `draftMode` is true. */
-export function planGoSteer(draftMode: boolean, queue?: { agentProvider: AgentProvider }): string {
+ *  session has a queue), then the draft-mode note when `draftMode` is true, then the edits the
+ *  operator released the plan with (#3518) when `operatorEdits` is given. */
+export function planGoSteer(
+  draftMode: boolean,
+  queue?: { agentProvider: AgentProvider },
+  operatorEdits?: string,
+): string {
   const parts = [PLAN_GO_STEER_BASE];
   if (queue)
     parts.push(queue.agentProvider === "codex" ? PLAN_GO_QUEUE_CODEX : PLAN_GO_QUEUE_CLAUDE);
   if (draftMode) parts.push(DRAFT_PR_NOTE);
-  return parts.join(" ");
+  const steer = parts.join(" ");
+  return operatorEdits ? `${steer}\n\n${operatorEdits}` : steer;
 }
 
 /** The inverse of {@link PLAN_GO_STEER_BASE}: sent when a re-review of an edited plan requests
@@ -7756,7 +7765,7 @@ export class SessionService {
     // Same predicate as agent-control's sessionCapabilities: the session holds the queue tools.
     const hasQueue = buildQueueEnabled && !isNonCodeMode(s);
     const queue = hasQueue ? { agentProvider: s.agentProvider ?? "claude" } : undefined;
-    const steer = planGoSteer(draftMode, queue);
+    const steer = planGoSteer(draftMode, queue, this.#releasedPlanEdits(gate));
     const effortSwitch = this.#goEffortSwitch(s);
     const delivered = await this.resumeAndReply(id, steer, {
       automatic: opts.automatic,
@@ -7780,6 +7789,24 @@ export class SessionService {
     this.#enterExecution(id);
     if (hasQueue) this.#approveQueueOnGo(id, opts.automatic ? "auto" : "operator");
     return true;
+  }
+
+  /** The edits a gate was released with (#3518), for the Go steer. Read here, not in the route, so a
+   *  delivery that failed and a retry through plain Go still hand them to the agent. */
+  #releasedPlanEdits(gate: PlanGate): string | undefined {
+    const release = gate.operatorRelease;
+    if (!release) return undefined;
+    const edits = operatorEditsBetween(
+      this.deps.store.listPlanRevisions(gate.sessionId),
+      release.fromRevision,
+      release.revision,
+    );
+    return planEditGoText({ from: release.fromRevision - 1, to: release.revision, edits });
+  }
+
+  /** A Go steer is on its way to the agent: an edit landing now would race it. */
+  isPlanReleaseInFlight(id: string): boolean {
+    return this.planReleaseInFlight.has(id);
   }
 
   /** Go approves the session's build queue — the approved plan is the reviewed artifact, and

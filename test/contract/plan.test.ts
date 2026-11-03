@@ -397,6 +397,71 @@ describe("plan edits (#3514)", () => {
     await validateResponse("GET", "/api/sessions/{id}/plan", anon);
   });
 
+  test("GET plan/revisions: 200 (empty, then with an edit), 404, 401", async () => {
+    const path = "/api/sessions/{id}/plan/revisions";
+    const id = planningSession("provenance");
+    const at = `/api/sessions/${id}/plan/revisions`;
+    const empty = await get(at);
+    expect(empty.status).toBe(200);
+    expect(await validateResponse("GET", path, empty)).toEqual({
+      revisions: [],
+      operatorEdits: [],
+    });
+
+    const snap = (await (await get(`/api/sessions/${id}/plan`)).json()) as { planHash: string };
+    const body = { baseHash: snap.planHash, plan: EDITED, edits: [replace] };
+    expect((await postJson(`/api/sessions/${id}/plan-edits`, body)).status).toBe(200);
+    const ok = await get(at);
+    expect(ok.status).toBe(200);
+    const out = (await validateResponse("GET", path, ok)) as {
+      revisions: { revision: number; author: string }[];
+      operatorEdits: { id: string; revision: number; inPlan: boolean }[];
+    };
+    expect(out.revisions.map((r) => [r.revision, r.author])).toEqual([
+      [1, "agent"],
+      [2, "operator"],
+    ]);
+    expect(out.operatorEdits).toMatchObject([{ id: "e1", revision: 2, inPlan: true }]);
+
+    const unknown = await get("/api/sessions/nope/plan/revisions");
+    expect(unknown.status).toBe(404);
+    await validateResponse("GET", path, unknown);
+    const anon = await get(at, false);
+    expect(anon.status).toBe(401);
+    await validateResponse("GET", path, anon);
+  });
+
+  test("POST plan-edits mode go: 409 not_releasable, then a released gate", async () => {
+    const path = "/api/sessions/{id}/plan-edits";
+    const id = planningSession("go");
+    const at = `/api/sessions/${id}/plan-edits`;
+    const snap = (await (await get(`/api/sessions/${id}/plan`)).json()) as { planHash: string };
+    const body = { baseHash: snap.planHash, plan: EDITED, edits: [replace], mode: "go" };
+
+    const refused = await postJson(at, body);
+    expect(refused.status).toBe(409);
+    expect(((await validateResponse("POST", path, refused)) as { code: string }).code).toBe(
+      "not_releasable",
+    );
+
+    s.deps.store.putPlanGate({
+      ...fx.gate,
+      sessionId: id,
+      approved: true,
+      plan: PLAN.trim(),
+      planHash: snap.planHash,
+    });
+    const ok = await postJson(at, body);
+    expect(ok.status).toBe(200);
+    await validateResponse("POST", path, ok);
+    const gate = s.deps.store.getPlanGate(id);
+    expect(gate?.operatorRelease?.revision).toBe(2);
+    s.stubs.planGateCache.rows[id] = gate;
+    const map = await get("/api/plan-gates");
+    const gates = (await validateResponse("GET", "/api/plan-gates", map)) as Record<string, any>;
+    expect(gates[id].operatorRelease.revision).toBe(2);
+  });
+
   test("POST plan-edits walks 415, 400, 404, 409 (three codes), 401, then 200", async () => {
     const path = "/api/sessions/{id}/plan-edits";
     const id = planningSession("edit");

@@ -10,6 +10,7 @@ const row = (o: Partial<DriftRow>): DriftRow => ({
   target: "3",
   state: "behind",
   manifests: ["package.json"],
+  hold: null,
   dependabot: [],
   ...o,
 });
@@ -30,6 +31,10 @@ describe("lineLabel", () => {
     expect(lineLabel(row({ installed: "3", state: "ok" }), "?")).toBe("3 (3.0.1)");
     expect(lineLabel(row({ latest: null, target: null, state: "unknown" }), "?")).toBe("2 · ?");
   });
+
+  it("keeps the gap visible on a held row", () => {
+    expect(lineLabel(row({ state: "held", hold: "alias" }), "?")).toBe("2 → 3 (3.0.1)");
+  });
 });
 
 describe("behindRows / hasEpicWork", () => {
@@ -37,6 +42,11 @@ describe("behindRows / hasEpicWork", () => {
     const d = drift({ rows: [row({}), row({ state: "ok" }), row({ state: "unknown" })] });
     expect(behindRows(d)).toHaveLength(1);
     expect(behindRows(drift({ rows: [row({ state: "unknown" })] }))).toEqual([]);
+  });
+
+  it("an intentional hold never counts as behind", () => {
+    const d = drift({ rows: [row({ state: "held", hold: "dependabot" })] });
+    expect(behindRows(d)).toEqual([]);
   });
 
   it("epic work = a running epic or open epic branches", () => {

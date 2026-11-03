@@ -6573,6 +6573,8 @@
   "readiness_drift_story_error": "Couldn't create the upgrade story. Check your access to the repository and try again.",
   "readiness_drift_view_story": "View story",
   "readiness_drift_unknown": "unknown",
+  "readiness_drift_held_alias": "Intentional hold: an npm alias keeps an older and the current major side by side in this manifest.",
+  "readiness_drift_held_dependabot": "Intentional hold: dependabot.yml ignores major updates for this package.",
   "readiness_drift_dependabot": "Dependabot #{number} → {to}",
   "feat_readiness_drift_title": "Framework drift in Readiness",
   "feat_readiness_drift_body": "Readiness now warns when a pinned-stack package is a major version behind the registry — and files a prioritized upgrade story with one click, listing the epic branches to re-sync.",

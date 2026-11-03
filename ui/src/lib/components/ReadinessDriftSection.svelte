@@ -137,6 +137,11 @@
                 <span>{r.manifests.join(", ")}</span>
               {/if}
             </div>
+            {#if r.hold === "alias"}
+              <div class="row-hint">{m.readiness_drift_held_alias()}</div>
+            {:else if r.hold === "dependabot"}
+              <div class="row-hint">{m.readiness_drift_held_dependabot()}</div>
+            {/if}
             {#each r.dependabot as b (b.number)}
               <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
               <a
@@ -225,6 +230,9 @@
   }
   .dot.behind {
     color: var(--color-amber);
+  }
+  .dot.held {
+    color: var(--status-done);
   }
   .row-body {
     flex: 1;

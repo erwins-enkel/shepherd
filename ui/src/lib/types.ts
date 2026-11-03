@@ -3061,7 +3061,8 @@ export type ForgeReadiness =
   | { supported: true; defaultBranch: string; autoLabel: string; checks: ForgeCheck[] };
 
 // ── Readiness → Framework majors (#3113); mirrors src/readiness-drift-core.ts ──
-export type DriftState = "ok" | "behind" | "unknown";
+export type DriftState = "ok" | "behind" | "held" | "unknown";
+export type DriftHold = "alias" | "dependabot";
 export interface DependabotBump {
   number: number;
   url: string;
@@ -3078,6 +3079,8 @@ export interface DriftRow {
   target: string | null;
   state: DriftState;
   manifests: string[];
+  /** Set exactly when `state` is `held`. */
+  hold: DriftHold | null;
   dependabot: DependabotBump[];
 }
 export interface FrameworkDrift {

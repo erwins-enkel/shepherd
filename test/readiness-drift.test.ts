@@ -172,6 +172,77 @@ describe("frameworkDrift", () => {
     ]);
   });
 
+  describe("intentional holds", () => {
+    const pinTypescript = () =>
+      write(
+        "CLAUDE.md",
+        "## Pinned stack\n\n- Use `typescript@7` (npm, resolved 7.0.2 on 2026-11-02), NEVER an older version.\n",
+      );
+    const tsDeps = () => deps({ resolver: resolver({ typescript: "7.0.2" }) });
+    const stateOf = async () =>
+      (await frameworkDrift(dir, tsDeps())).rows.map((r) => [r.state, r.hold]);
+    const ignore = (entry: string, ecosystem = "npm") =>
+      `version: 2\nupdates:\n  - package-ecosystem: "${ecosystem}"\n    directory: "/"\n    schedule:\n      interval: "daily"\n    ignore:\n      - ${entry}\n`;
+    const majorEntry =
+      'dependency-name: "typescript"\n        update-types: ["version-update:semver-major"]';
+
+    beforeEach(pinTypescript);
+
+    test("hundesport: TypeScript API bridge + npm-aliased TypeScript 7 → held", async () => {
+      write("package.json", {
+        devDependencies: {
+          typescript: "~6.0.3",
+          "@typescript/native": "npm:typescript@^7.0.2",
+        },
+      });
+      expect(await stateOf()).toEqual([["held", "alias"]]);
+    });
+
+    test.each(["dependabot.yml", "dependabot.yaml"])(
+      "%s semver-major ignore → held",
+      async (file) => {
+        write("package.json", { devDependencies: { typescript: "~6.0.3" } });
+        write(`.github/${file}`, ignore(majorEntry));
+        expect(await stateOf()).toEqual([["held", "dependabot"]]);
+      },
+    );
+
+    test("blanket, minor-only, versions-only and foreign-ecosystem ignores stay behind", async () => {
+      write("package.json", { devDependencies: { typescript: "~6.0.3" } });
+      for (const config of [
+        ignore('dependency-name: "*"\n        update-types: ["version-update:semver-major"]'),
+        ignore(
+          'dependency-name: "typescript"\n        update-types: ["version-update:semver-minor"]',
+        ),
+        ignore('dependency-name: "typescript"\n        versions: ["7.x"]'),
+        ignore(majorEntry, "github-actions"),
+      ]) {
+        write(".github/dependabot.yml", config);
+        expect(await stateOf()).toEqual([["behind", null]]);
+      }
+    });
+
+    test("malformed dependabot.yml → still behind, no throw", async () => {
+      write("package.json", { devDependencies: { typescript: "~6.0.3" } });
+      write(".github/dependabot.yml", "updates: [");
+      expect(await stateOf()).toEqual([["behind", null]]);
+    });
+
+    test("only held rows → no upgrade story", async () => {
+      write("package.json", {
+        devDependencies: {
+          typescript: "~6.0.3",
+          "@typescript/native": "npm:typescript@^7.0.2",
+        },
+      });
+      const f = fakeForge();
+      await expect(createUpgradeStory(dir, { ...tsDeps(), forge: f.forge })).rejects.toThrow(
+        new UpgradeStoryNotApplicableError("no_drift"),
+      );
+      expect(f.created).toEqual([]);
+    });
+  });
+
   test("no tracked packages → resolver none", async () => {
     const out = await frameworkDrift(dir, deps());
     expect(out.rows).toEqual([]);

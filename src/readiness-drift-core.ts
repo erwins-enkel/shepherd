@@ -16,6 +16,8 @@ export interface DeclaredDep {
   line: string;
   spec: string;
   manifest: string;
+  /** Declared through an npm alias (`"x": "npm:<name>@<range>"`). */
+  aliased?: boolean;
 }
 
 /** An open Dependabot PR that bumps a tracked package across a line. */
@@ -26,21 +28,29 @@ export interface DependabotBump {
   to: string;
 }
 
-export type DriftState = "ok" | "behind" | "unknown";
+/** `held`: below the target on purpose (see {@link DriftHold}), so neither a warning nor a story. */
+export type DriftState = "ok" | "behind" | "held" | "unknown";
+
+/** Why a package is held: an npm alias keeps an older line beside the current one in the same
+ *  manifest, or `dependabot.yml` ignores the package's major updates. */
+export type DriftHold = "alias" | "dependabot";
 
 export interface DriftRow {
   ecosystem: DriftEcosystem;
   name: string;
-  /** Behind: the lowest line among declarations that don't admit `target`. Otherwise the lowest
-   *  declared line. */
+  /** Behind/held: the lowest line among the declarations that count (see `manifests`). Otherwise
+   *  the lowest declared line. */
   installed: string;
   /** Registry's current stable version; null when the lookup failed. */
   latest: string | null;
   /** Line of `latest`; null when the lookup failed. */
   target: string | null;
   state: DriftState;
-  /** Manifests below `target` when behind; otherwise every manifest declaring the package. */
+  /** Behind: manifests below `target` and not held. Held: manifests below `target`. Otherwise
+   *  every manifest declaring the package. */
   manifests: string[];
+  /** Set exactly when `state` is `held`. */
+  hold: DriftHold | null;
   dependabot: DependabotBump[];
 }
 
@@ -165,6 +175,8 @@ export function lowestLine(range: string): string | null {
   return lowest;
 }
 
+const NPM_ALIAS_RE = /^npm:((?:@[^/@\s]+\/)?[^/@\s]+)@(.+)$/;
+
 const NPM_SECTIONS = [
   "dependencies",
   "devDependencies",
@@ -184,8 +196,19 @@ export function parsePackageJson(text: string, manifest: string): DeclaredDep[] 
   const d = doc as Record<string, unknown>;
   const out: DeclaredDep[] = [];
   const add = (name: string, spec: unknown) => {
-    const line = typeof spec === "string" ? lowestLine(spec) : null;
-    if (line) out.push({ ecosystem: "npm", name, line, spec: spec as string, manifest });
+    if (typeof spec !== "string") return;
+    const alias = NPM_ALIAS_RE.exec(spec);
+    const range = alias ? alias[2]! : spec;
+    const line = lowestLine(range);
+    if (!line) return;
+    out.push({
+      ecosystem: "npm",
+      name: alias?.[1] ?? name,
+      line,
+      spec: range,
+      manifest,
+      ...(alias ? { aliased: true } : {}),
+    });
   };
   for (const section of NPM_SECTIONS) {
     const deps = d[section];
@@ -260,7 +283,7 @@ export function trackedKeys(
 export interface DeclaredPackage {
   ecosystem: DriftEcosystem;
   name: string;
-  declarations: { manifest: string; line: string; spec: string }[];
+  declarations: { manifest: string; line: string; spec: string; aliased?: boolean }[];
 }
 
 /** Tracked packages the repo declares, grouped per package, sorted by name. */
@@ -270,7 +293,12 @@ export function trackedDeclared(declared: DeclaredDep[], tracked: Set<string>): 
     const key = driftKey(d.ecosystem, d.name);
     if (!tracked.has(key)) continue;
     const g = groups.get(key) ?? { ecosystem: d.ecosystem, name: d.name, declarations: [] };
-    g.declarations.push({ manifest: d.manifest, line: d.line, spec: d.spec });
+    g.declarations.push({
+      manifest: d.manifest,
+      line: d.line,
+      spec: d.spec,
+      ...(d.aliased ? { aliased: true } : {}),
+    });
     groups.set(key, g);
   }
   return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -299,37 +327,123 @@ export function dependabotBumps(
   return out;
 }
 
+const DEPENDABOT_ECOSYSTEMS = new Map<unknown, DriftEcosystem>([
+  ["npm", "npm"],
+  ["bun", "npm"],
+  ["cargo", "crates"],
+]);
+
+const SEMVER_MAJOR = "version-update:semver-major";
+
+/** The package an `ignore` entry holds at its major: named exactly (a blanket `*` or a glob says
+ *  nothing about one package), and either ignoring majors or, with neither `update-types` nor
+ *  `versions` narrowing it, ignoring every update. */
+function heldPackageName(entry: unknown): string | null {
+  if (!entry || typeof entry !== "object") return null;
+  const e = entry as Record<string, unknown>;
+  const name = e["dependency-name"];
+  if (typeof name !== "string" || name.includes("*")) return null;
+  const types = e["update-types"];
+  if (types !== undefined)
+    return Array.isArray(types) && types.includes(SEMVER_MAJOR) ? name : null;
+  return e.versions === undefined ? name : null;
+}
+
+/** Keys of the packages a `dependabot.yml` deliberately keeps off new majors. Matches the whole
+ *  repo rather than the entry's directories: a root entry also covers workspace members. */
+export function dependabotMajorHolds(text: string): Set<string> {
+  const holds = new Set<string>();
+  let doc: unknown;
+  try {
+    doc = Bun.YAML.parse(text);
+  } catch {
+    return holds;
+  }
+  const updates = (doc as { updates?: unknown } | null)?.updates;
+  if (!Array.isArray(updates)) return holds;
+  for (const update of updates as ({ "package-ecosystem"?: unknown; ignore?: unknown } | null)[]) {
+    const ecosystem = DEPENDABOT_ECOSYSTEMS.get(update?.["package-ecosystem"]);
+    if (!ecosystem || !Array.isArray(update?.ignore)) continue;
+    for (const entry of update.ignore) {
+      const name = heldPackageName(entry);
+      if (name) holds.add(driftKey(ecosystem, name));
+    }
+  }
+  return holds;
+}
+
 function lowestOf(lines: string[]): string {
   return lines.reduce((a, b) => (compareLine(b, a) < 0 ? b : a));
+}
+
+type Declaration = DeclaredPackage["declarations"][number];
+
+/** Lagging declarations an npm alias bridges, within one manifest that also has a declaration of
+ *  the package that isn't lagging. An alias past the lag holds its lagging siblings (the bridge
+ *  they exist for); a lagging alias holds only itself (a deliberately kept older copy). */
+function aliasBridged(declarations: Declaration[], lagging: Declaration[]): Declaration[] {
+  return lagging.filter((d) => {
+    const current = declarations.filter((o) => o.manifest === d.manifest && !lagging.includes(o));
+    return current.length > 0 && (d.aliased || current.some((o) => o.aliased));
+  });
+}
+
+/** Split a package's lagging declarations into the ones still counting as drift and the reason
+ *  the rest are held. A Dependabot hold covers the whole package. */
+function classifyLagging(
+  declarations: Declaration[],
+  lagging: Declaration[],
+  majorHold: boolean,
+): { drifting: Declaration[]; hold: DriftHold | null } {
+  if (!lagging.length) return { drifting: [], hold: null };
+  const bridged = aliasBridged(declarations, lagging);
+  if (bridged.length === lagging.length) return { drifting: [], hold: "alias" };
+  if (majorHold) return { drifting: [], hold: "dependabot" };
+  return { drifting: lagging.filter((d) => !bridged.includes(d)), hold: null };
+}
+
+function rowState(
+  target: string | null,
+  drifting: Declaration[],
+  hold: DriftHold | null,
+): DriftState {
+  if (target === null) return "unknown";
+  if (drifting.length) return "behind";
+  return hold ? "held" : "ok";
 }
 
 /** One row per declared tracked package. `latest` maps a {@link driftKey} to the registry
  *  version, or null when the lookup failed (→ `unknown`, never `behind`). A declaration is behind
  *  only when its lowest line is below the target AND its range admits no version on the target
  *  line — a range like `^8 || ^9` or `>=5` already covers the current major, and narrowing it
- *  would drop support for the older one. */
+ *  would drop support for the older one. `majorHolds` holds {@link driftKey}s from
+ *  {@link dependabotMajorHolds}. */
 export function driftRows(
   packages: DeclaredPackage[],
   latest: Map<string, string | null>,
   bumps: Map<string, DependabotBump[]>,
+  majorHolds: Set<string> = new Set(),
 ): DriftRow[] {
   return packages.map((p) => {
-    const version = latest.get(driftKey(p.ecosystem, p.name)) ?? null;
+    const key = driftKey(p.ecosystem, p.name);
+    const version = latest.get(key) ?? null;
     const target = version ? pinOf(version) : null;
     // Below the target AND not admitting it: a declaration ahead of stable (a prerelease major
     // like `^3.0.0-next.4` while stable is 2.x) is never behind.
     const lagging = target
       ? p.declarations.filter((d) => compareLine(d.line, target) < 0 && !admitsLine(d.spec, target))
       : [];
-    const shown = lagging.length ? lagging : p.declarations;
+    const { drifting, hold } = classifyLagging(p.declarations, lagging, majorHolds.has(key));
+    const shown = drifting.length ? drifting : lagging.length ? lagging : p.declarations;
     return {
       ecosystem: p.ecosystem,
       name: p.name,
       installed: lowestOf(shown.map((d) => d.line)),
       latest: version,
       target,
-      state: target === null ? "unknown" : lagging.length ? "behind" : "ok",
+      state: rowState(target, drifting, hold),
       manifests: [...new Set(shown.map((d) => d.manifest))],
+      hold,
       dependabot: bumps.get(p.name) ?? [],
     };
   });

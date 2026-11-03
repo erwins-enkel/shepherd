@@ -266,6 +266,75 @@ test("nothing to do, a running deploy, a bad body, no updater and a stale discar
   }
 });
 
+test("a body that is no object answers 400 and stays on record", async () => {
+  for (const body of [null, 5, "x", []]) {
+    let applied = 0;
+    const deps = makeDeps({
+      updates: behind(() => {
+        applied++;
+        return { started: true };
+      }),
+    });
+    const res = await makeApp(deps).fetch(post({ cookie: cookie() }, body));
+    expect(res.status).toBe(400);
+    expect(applied).toBe(0);
+    expect(recordsOf(deps)[0]).toMatchObject({
+      outcome: "rejected",
+      reason: "bad_request",
+      discard: false,
+    });
+  }
+});
+
+test("a request with no body at all is still a plain update", async () => {
+  const deps = makeDeps({ updates: behind() });
+  const res = await makeApp(deps).fetch(
+    new Request("http://localhost:7330/api/update", {
+      method: "POST",
+      headers: { cookie: cookie() },
+    }),
+  );
+  expect(res.status).toBe(202);
+  expect(recordsOf(deps)[0]!.outcome).toBe("started");
+});
+
+test("a call that throws answers 500 and stays on record with a fixed reason", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  const deps = makeDeps({
+    updates: {
+      ...behind(),
+      dirtyStatus: async () => {
+        throw new Error("git said something private");
+      },
+    },
+  });
+  const res = await makeApp(deps).fetch(
+    post({ cookie: cookie() }, { discard: true, sig: "confirmed" }),
+  );
+  expect(res.status).toBe(500);
+  expect(await res.json()).toEqual({ error: "could not start the update" });
+  expect(recordsOf(deps)[0]).toMatchObject({
+    outcome: "rejected",
+    reason: "internal_error",
+    discard: true,
+    caller: { kind: "surface" },
+  });
+  expect(deps.store.listSignalsByKind("update_call", 0, 1)[0]!.payload).not.toContain("private");
+  warn.mockRestore();
+});
+
+test("attribution that throws never fails the update", async () => {
+  const deps = makeDeps({
+    updates: behind(),
+    peerSessionId: () => {
+      throw new Error("sync failure");
+    },
+  });
+  const res = await makeApp(deps).fetch(post({ cookie: cookie() }));
+  expect(res.status).toBe(202);
+  expect(recordsOf(deps)[0]!.session).toBeNull();
+});
+
 test("a store that cannot record never stops the update", async () => {
   const warn = spyOn(console, "warn").mockImplementation(() => {});
   const applied: unknown[] = [];

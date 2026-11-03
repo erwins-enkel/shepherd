@@ -40,6 +40,7 @@ export type UpdateCallReason =
   | "unavailable"
   | "bad_request"
   | "not_found"
+  | "internal_error"
   | `remote_${string}`;
 
 export interface UpdateCallSession {

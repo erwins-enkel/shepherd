@@ -2074,8 +2074,10 @@ async function recordedMachineUpdate(
     .json()
     .then((b: { discard?: unknown } | null) => b?.discard === true)
     .catch(() => false);
-  const res = await applyMachineUpdate(req, svc, id);
-  const { outcome, reason } = await relayOutcome(res);
+  const { res, outcome, reason } = await guardedUpdate(async () => {
+    const res = await applyMachineUpdate(req, svc, id);
+    return { res, ...(await relayOutcome(res)) };
+  });
   const machine = svc.get(id);
   noteUpdateCall(deps, {
     v: 1,
@@ -8909,12 +8911,13 @@ function applyRefused(r: { error?: string; code?: UpdateRefusal }): UpdateAttemp
 }
 
 async function attemptUpdate(
-  body: { discard?: unknown; sig?: unknown },
+  body: unknown,
   deps: AppDeps,
   requestId: string,
 ): Promise<UpdateAttempt> {
   if (!deps.updates)
     return refusedUpdate(json({ error: "updates not available" }, 503), "unavailable");
+  if (!isRecord(body)) return refusedUpdate(json({ error: "invalid_body" }, 400), "bad_request");
   if (body.discard !== undefined && typeof body.discard !== "boolean")
     return refusedUpdate(json({ error: "body.discard must be a boolean" }, 400), "bad_request");
   if (body.sig !== undefined && typeof body.sig !== "string")
@@ -8937,12 +8940,25 @@ async function attemptUpdate(
   return r.started ? startedUpdate() : applyRefused(r);
 }
 
+/** A call that throws still answers and stays on record, with a fixed reason. */
+async function guardedUpdate(run: () => Promise<UpdateAttempt>): Promise<UpdateAttempt> {
+  try {
+    return await run();
+  } catch (err) {
+    console.warn("[update] call failed:", err);
+    return refusedUpdate(json({ error: "could not start the update" }, 500), "internal_error");
+  }
+}
+
 /** The session behind this connection, read before the update starts: the client still holds its
  *  socket then. Never fails the request it describes. */
 async function updateCallSession(req: Request, deps: AppDeps): Promise<UpdateCallSession | null> {
-  const lookup = deps.peerSessionId ?? defaultPeerSessionId;
-  const id = await lookup(req).catch(() => null);
-  return resolveUpdateSession(deps.store, id);
+  try {
+    const id = await (deps.peerSessionId ?? defaultPeerSessionId)(req);
+    return resolveUpdateSession(deps.store, id);
+  } catch {
+    return null;
+  }
 }
 
 function defaultPeerSessionId(req: Request): Promise<string | null> {
@@ -8952,14 +8968,18 @@ function defaultPeerSessionId(req: Request): Promise<string | null> {
 }
 
 function callerOfUpdate(req: Request, token: Ctx["token"], deps: AppDeps): UpdateCaller {
-  return resolveUpdateCaller(
-    req,
-    token,
-    (id) =>
-      accessTokens(deps)
-        .list()
-        .find((t) => t.id === id)?.name ?? null,
-  );
+  return resolveUpdateCaller(req, token, (id) => {
+    // A name that cannot be read leaves the token's id, not a failed update.
+    try {
+      return (
+        accessTokens(deps)
+          .list()
+          .find((t) => t.id === id)?.name ?? null
+      );
+    } catch {
+      return null;
+    }
+  });
 }
 
 /** A record that cannot be written must not stop the update it describes. */
@@ -8975,9 +8995,10 @@ async function updateApply({ req, deps, token }: Ctx): Promise<Response> {
   const requestId = randomUUID();
   const session = await updateCallSession(req, deps);
   const caller = callerOfUpdate(req, token, deps);
-  const body = (await req.json().catch(() => ({}))) as { discard?: unknown; sig?: unknown };
+  // No body at all stays what it always was: a plain update.
+  const body: unknown = await req.json().catch(() => ({}));
   const status = deps.updates?.current();
-  const { res, outcome, reason } = await attemptUpdate(body, deps, requestId);
+  const { res, outcome, reason } = await guardedUpdate(() => attemptUpdate(body, deps, requestId));
   noteUpdateCall(deps, {
     v: 1,
     requestId,
@@ -8986,7 +9007,7 @@ async function updateApply({ req, deps, token }: Ctx): Promise<Response> {
     reason,
     from: status?.current ?? null,
     to: status?.latest ?? null,
-    discard: body.discard === true,
+    discard: isRecord(body) && body.discard === true,
     caller,
     session,
     machine: null,

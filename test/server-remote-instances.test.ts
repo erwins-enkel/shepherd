@@ -419,6 +419,20 @@ describe("connected machines", () => {
     const badBody = { discard: "yes" };
     expect((await call(a, "POST", `/api/remote-instances/${id}/update`, badBody)).status).toBe(400);
     expect((await call(a, "POST", "/api/remote-instances/nope/update", {})).status).toBe(404);
+    // A relay that throws still answers and stays on this machine's record (#3623).
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const relay = spyOn(a.deps.remoteInstances!, "relaySelfUpdate").mockImplementationOnce(() =>
+      Promise.reject(new Error("boom")),
+    );
+    const thrown = await call(a, "POST", `/api/remote-instances/${id}/update`, {});
+    expect(thrown.status).toBe(500);
+    expect(recordsOn(a)[0]).toMatchObject({
+      outcome: "rejected",
+      reason: "internal_error",
+      machine: { id },
+    });
+    relay.mockRestore();
+    warn.mockRestore();
     expect((await call(a, "GET", "/api/remote-instances/nope/update/log")).status).toBe(404);
 
     // An answer the machine's update route never gives is not passed on as one.

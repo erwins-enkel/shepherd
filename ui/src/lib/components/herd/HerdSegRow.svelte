@@ -2,6 +2,7 @@
   import type { HerdFilter } from "#lib/components/herd-partition.js";
   import { m } from "#lib/paraglide/messages.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { upNextUi } from "#lib/up-next-ui.svelte.js";
   import ReadyPrBadge from "./ReadyPrBadge.svelte";
 
   let {
@@ -18,6 +19,18 @@
      *  edge and read as detached — so the marker moves to the top edge there. */
     placement?: "top" | "bottom";
   } = $props();
+
+  // A tap on the lens already showing behaves like a re-tapped tab: back to the top of the list,
+  // closing the preview that replaced it on the phone (UpNextPanel's `flow`). Arriving from
+  // elsewhere keeps an open preview. The phone list scrolls the document, not an inner region.
+  function tapNext() {
+    const already = statusFilter == null && filter === "next";
+    filter = "next";
+    onstatusfilter?.(null);
+    if (!already) return;
+    upNextUi.previewKey = null;
+    window.scrollTo({ top: 0 });
+  }
 </script>
 
 <!-- Mobile-only segmented control. It lives in the BOTTOM navigation bar (ActionBar) on a
@@ -49,10 +62,7 @@
     title={m.herd_next_title()}
     aria-pressed={statusFilter == null && filter === "next"}
     use:coachTarget={"up-next-lens"}
-    onclick={() => {
-      filter = "next";
-      onstatusfilter?.(null);
-    }}>{m.herd_seg_next()}<ReadyPrBadge /></button
+    onclick={tapNext}>{m.herd_seg_next()}<ReadyPrBadge /></button
   >
   <button
     type="button"

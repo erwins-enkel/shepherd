@@ -8039,5 +8039,7 @@
   "feat_upnext_dep_commands_title": "Dependabot-Befehle in der PR-Vorschau",
   "feat_upnext_dep_commands_body": "Öffne einen Dependabot-PR aus Up Next und nutze Dependabot ▾, um ihn zu rebasen, neu zu erstellen oder eine Major-, Minor- oder Patch-Version zu ignorieren. Bei gruppierten PRs wählst du, welche Abhängigkeit ignoriert wird.",
   "feat_weekly_usage_push_title": "Warnung zum Wochenlimit",
-  "feat_weekly_usage_push_body": "Shepherd schickt jetzt auch eine Push-Benachrichtigung, sobald das wöchentliche Claude-Nutzungsfenster 80 % überschreitet, einmal pro Woche. Pläne ohne 5-Stunden-Fenster (Ultra) funktionieren ebenfalls: Die 5-Stunden-Anzeige verschwindet, statt einen veralteten Wert zu zeigen, und Zurückhalten und Herabstufen richten sich nach dem Wochenfenster."
+  "feat_weekly_usage_push_body": "Shepherd schickt jetzt auch eine Push-Benachrichtigung, sobald das wöchentliche Claude-Nutzungsfenster 80 % überschreitet, einmal pro Woche. Pläne ohne 5-Stunden-Fenster (Ultra) funktionieren ebenfalls: Die 5-Stunden-Anzeige verschwindet, statt einen veralteten Wert zu zeigen, und Zurückhalten und Herabstufen richten sich nach dem Wochenfenster.",
+  "feat_upnext_tab_top_title": "Up Next: Tipp auf Nächstes führt nach oben",
+  "feat_upnext_tab_top_body": "Tippe auf dem Handy in der unteren Leiste auf Nächstes, während du ein Issue oder einen Pull Request liest, um zum Anfang der Liste zurückzukehren. Bist du in der Liste nach unten gescrollt, bringt dich der Tipp ebenfalls nach oben."
 }

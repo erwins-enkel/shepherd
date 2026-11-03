@@ -3687,7 +3687,28 @@ components:
             description: The cap THIS run used. Read it; never mirror a config value.,
           }
         approved: { type: boolean }
-        plan: { type: string, description: Snapshot of the reviewed plan text. }
+        plan:
+          {
+            type: string,
+            description: "Snapshot of the reviewed plan text, or of the operator's revision when operatorRelease is set.",
+          }
+        operatorRelease:
+          type: [object, "null"]
+          additionalProperties: true
+          description: >-
+            Set when the operator released this plan with edits and no new review (`mode: go` on
+            plan-edits): `plan` and `planHash` then hold that revision, which no plan reviewer saw. A new
+            verdict or a withdrawn approval clears it. Absent or null means the approval is the
+            reviewer's alone.
+          required: [revision, fromRevision, at]
+          properties:
+            revision: { type: integer, description: The plan revision the operator released. }
+            fromRevision:
+              type: integer
+              description: >-
+                The first operator revision this release's delivery carries. Earlier than `revision`
+                when an earlier release never reached the agent.
+            at: { type: integer, description: "When, in ms since the epoch." }
         livePlanHash:
           type: [string, "null"]
           description: >-
@@ -3868,6 +3889,56 @@ components:
         reason:
           type: string
           description: Why — handed to the agent with the edit. For a comment, the note itself.
+    PlanRevision:
+      type: object
+      additionalProperties: true
+      description: >-
+        A recorded plan text. The agent's text gets a revision when a review starts on it, an operator
+        edit gets one carrying its `edits`. Numbered from 1 per session.
+      required: [sessionId, revision, author, planHash, plan, edits, createdAt]
+      properties:
+        sessionId: { type: string }
+        revision: { type: integer }
+        author: { type: string, enum: [agent, operator] }
+        planHash: { type: string, description: The same digest as PlanGate.planHash. }
+        plan: { type: string, description: The trimmed plan text. }
+        edits: { type: array, items: { $ref: "#/components/schemas/PlanEdit" } }
+        createdAt: { type: integer }
+    OperatorPassage:
+      type: object
+      additionalProperties: true
+      description: >-
+        An operator edit that still stands: a later operator edit of the same text supersedes it, the
+        agent's changes cannot.
+      required: [id, kind, section, revision, createdAt, inPlan]
+      properties:
+        id: { type: string }
+        kind: { $ref: "#/components/schemas/PlanEditKind" }
+        section: { type: string, description: The heading the change sits under; "" for none. }
+        before: { type: string }
+        after: { type: string }
+        reason: { type: string, description: Why. For a comment, the note itself. }
+        revision: { type: integer, description: The revision that made this edit. }
+        createdAt: { type: integer }
+        inPlan:
+          type: boolean
+          description: >-
+            Whether the live plan still holds the `after` text verbatim. Always true for a `delete` or
+            `comment`, which leave no text to look for.
+    PlanRevisions:
+      type: object
+      additionalProperties: true
+      description: GET /api/sessions/{id}/plan/revisions — who wrote what in a session's plan.
+      required: [revisions, operatorEdits]
+      properties:
+        revisions:
+          type: array
+          description: Oldest first.
+          items: { $ref: "#/components/schemas/PlanRevision" }
+        operatorEdits:
+          type: array
+          description: Oldest first, read against the live plan.
+          items: { $ref: "#/components/schemas/OperatorPassage" }
     PlanEditsRequest:
       type: object
       additionalProperties: false
@@ -3882,9 +3953,12 @@ components:
         edits: { type: array, items: { $ref: "#/components/schemas/PlanEdit" } }
         mode:
           type: string
-          enum: [resubmit]
+          enum: [resubmit, go]
           description: >-
             `resubmit` (the default): the agent incorporates the edits and the plan is re-reviewed.
+            `go`: release the plan with the edits and start execution, with no new review. Allowed only
+            where Go is (planning phase, approved plan, a conversation to continue) and only on the text
+            the reviewer approved; otherwise 409 `not_releasable`.
     PlanEditsResult:
       type: object
       additionalProperties: true
@@ -3895,19 +3969,21 @@ components:
           type: boolean
           description: >-
             Whether the steer reached the planning agent (an exited one is resumed first). False is
-            NOT an error — the edit has landed — but the operator must be told.
+            NOT an error — the edit has landed — but the operator must be told. In `go` mode, whether
+            execution started; when false the plan stays released and the next delivery (POST go, or
+            another edit) carries these edits too.
         planHash: { type: string, description: The new plan's hash. }
         revision: { type: integer, description: The operator's new plan revision. }
     PlanEditsConflictCode:
       type: string
       x-shepherd-open-enum: true
-      enum: [plan_changed, planner_busy, not_editable]
+      enum: [plan_changed, planner_busy, not_editable, not_releasable]
     PlanEditsConflict:
       type: object
       additionalProperties: true
       description: >-
-        Why an edit cannot land now. `plan_changed` also carries the current plan, hash and revision
-        (PlanSnapshot's fields) so the client can rebase the edits.
+        Why an edit cannot land now, `error` saying so in words. `plan_changed` also carries the current
+        plan, hash and revision (PlanSnapshot's fields) so the client can rebase the edits.
       required: [error, code]
       properties:
         error: { type: string }
@@ -10354,6 +10430,30 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+  /api/sessions/{id}/plan/revisions:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: listSessionPlanRevisions
+      description: >-
+        Who wrote what in the session's plan (#3518): every recorded revision, and the operator edits
+        that still stand with their revision, section, text and reason. Empty lists before the first
+        revision.
+      responses:
+        "200":
+          description: The revisions and the standing operator edits.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanRevisions" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/sessions/{id}/plan-edits:
     parameters:
       - name: id
@@ -10367,7 +10467,8 @@ paths:
         revision n+1 with the edits, cancel a plan review in flight, withdraw an approval and hand
         every edit, comment and reason to the planning agent — Claude Code or Codex alike — in ONE
         steer as binding operator decisions. An executing session returns to the planning phase.
-        The normal plan review runs once the agent stops.
+        The normal plan review runs once the agent stops. With `mode: go` (#3518) the edits instead
+        travel with the Go instruction: the gate is released at the new revision, no reviewer runs.
       requestBody:
         required: true
         content:
@@ -10396,9 +10497,11 @@ paths:
         "409":
           description: >-
             Nothing was written. `plan_changed` — the plan is no longer the one `baseHash` names (the
-            current one comes along); `planner_busy` — the agent is working, waiting on a prompt, or a
-            review verdict is landing; `not_editable` — no plan gate, archived, no plan written yet,
-            or an executing session without an approved plan.
+            current one comes along); `planner_busy` — the agent is working, waiting on a prompt, a
+            review verdict is landing, or a Go is being delivered; `not_editable` — no plan gate,
+            archived, no plan written yet, or an executing session without an approved plan;
+            `not_releasable` — `mode: go` where Go is not allowed, or on a plan the agent edited after
+            approval.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PlanEditsConflict" }

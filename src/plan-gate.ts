@@ -17,6 +17,7 @@ import type {
   PlanDecision,
   PlanEdit,
   PlanEditKind,
+  OperatorPassage,
   PlanSummaryCode,
   AgentProvider,
   ReviewerEnv,
@@ -54,6 +55,7 @@ import {
 } from "./prompt-fit";
 import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
 import { amendmentBlock, type TaskAmendment } from "./task-amendments";
+import { diffLines, operatorEditsReviewerBlock, standingOperatorEdits } from "./plan-provenance";
 import { type OperatorLanguage } from "./operator-language";
 import { resumeThenSteer } from "./resume-then-steer";
 // The ROUND block + effective-round arithmetic are shared verbatim with the PR critic (#1948) so the
@@ -272,6 +274,8 @@ export function planReviewPrompt(
     /** #2225: the operator's standing task amendments. Absent/empty ⇒ no block, so an un-amended
      *  session's plan-review prompt stays byte-identical. */
     amendments?: readonly TaskAmendment[];
+    /** #3518: the operator's standing plan edits. Absent/empty ⇒ no block, byte-identical prompt. */
+    operatorEdits?: readonly OperatorPassage[];
   } = {},
 ): string {
   const lines = [
@@ -333,6 +337,17 @@ export function planReviewPrompt(
   // Line refs are stripped from the PLAN only — never from `task`/`issueBody` above (human-authored
   // ground truth) nor from the prior findings below (re-raised verbatim). See stripPlanLineRefs.
   lines.push("PLAN (.shepherd-plan.md):", stripPlanLineRefs(plan), "");
+  // #3518: the passages quote the plan, so they read as the plan above does, line refs stripped.
+  lines.push(
+    ...operatorEditsReviewerBlock(
+      (opts.operatorEdits ?? []).map((p) => ({
+        ...p,
+        before: stripPlanLineRefs(p.before),
+        after: stripPlanLineRefs(p.after),
+      })),
+      { priorFindings: priorFindings.length > 0 },
+    ),
+  );
   if (priorFindings.length) {
     lines.push(
       "This is a RE-REVIEW. For EACH prior point, confirm the revised plan addresses it; if it does not, re-raise it verbatim:",
@@ -553,6 +568,7 @@ export interface PlanGateServiceDeps extends MembraneSeams {
     | "putPlanGate"
     | "dropPlanGate"
     | "recordAgentPlanRevision"
+    | "listPlanRevisions"
     | "dropPlanRevisions"
     | "snapshotPlanGates"
     | "getRepoConfig"
@@ -1003,6 +1019,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     prior: PlanGate | null,
     issueBody: string | null | undefined,
     anchor: PlanAnchorResolution,
+    fullPlan: string,
   ): (plan: string, planClamped?: boolean) => string {
     // Everything that costs a git call or reads a live setting is resolved ONCE, here, and closed
     // over — the returned composer is pure and cheap. #1944's clamp ladder re-composes the prompt
@@ -1034,6 +1051,11 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     // #2225: resolved ONCE here with the rest of the per-run context — the clamp ladder re-composes
     // this prompt many times while binary-searching, and this is a store read.
     const amendments = this.deps.store.listActiveTaskAmendments(session.id);
+    // #3518: resolved ONCE, against the WHOLE plan: a clamp's elision must not read as a revert.
+    const operatorEdits = standingOperatorEdits(
+      this.deps.store.listPlanRevisions(session.id),
+      fullPlan,
+    );
     return (plan, planClamped = false) =>
       planReviewPrompt(
         taskPrompt,
@@ -1043,7 +1065,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
         language,
         anchor.anchored ? { sha: anchor.sha, ahead: anchor.ahead } : undefined,
         staleness && staleness.behind > 0 ? staleness : undefined,
-        { round, cap: this.cap, planClamped, amendments },
+        { round, cap: this.cap, planClamped, amendments, operatorEdits },
       );
   }
 
@@ -1201,11 +1223,14 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     const taskPrompt = prepareReviewerTaskPrompt(session.prompt, wt.worktreePath, (path) =>
       this.deps.worktree.remove(path),
     );
-    const composePrompt = this.composeReviewerPrompt(session, taskPrompt, prior, issueBody, {
-      sha,
-      anchored,
-      ahead,
-    });
+    const composePrompt = this.composeReviewerPrompt(
+      session,
+      taskPrompt,
+      prior,
+      issueBody,
+      { sha, anchored, ahead },
+      plan,
+    );
     const prompt = composePrompt(plan);
     // ONE pinned reviewer session id for every argv this spawn builds (#1944). reviewerArgv mints
     // `opts.sessionId ?? randomUUID()`, so an argv rebuilt for the budget probe or for a clamped
@@ -2329,6 +2354,8 @@ export interface PlanEditsRequest {
   baseHash: string;
   plan: string;
   edits: PlanEdit[];
+  /** `resubmit` hands the edits to the agent for a new review; `go` releases the plan with them (#3518). */
+  mode: "resubmit" | "go";
 }
 
 const PLAN_EDIT_KINDS: ReadonlySet<string> = new Set(["replace", "insert", "delete", "comment"]);
@@ -2337,14 +2364,15 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** Shape-check a plan-edits body. Returns the request, or the 400 message. `mode` may only be
- *  `"resubmit"` (the default); #3518 adds `"go"`. Edit ids must be unique — a mismatch names one. */
+/** Shape-check a plan-edits body. Returns the request, or the 400 message. `mode` defaults to
+ *  `"resubmit"`. Edit ids must be unique — a mismatch names one. */
 export function parsePlanEditsRequest(body: unknown): PlanEditsRequest | { error: string } {
   if (!isRecord(body)) return { error: "body must be an object" };
   const { baseHash, plan, edits, mode } = body;
   if (typeof baseHash !== "string" || !baseHash) return { error: "baseHash must be a string" };
   if (typeof plan !== "string" || !plan.trim()) return { error: "plan must be a non-blank string" };
-  if (mode !== undefined && mode !== "resubmit") return { error: 'mode must be "resubmit"' };
+  if (mode !== undefined && mode !== "resubmit" && mode !== "go")
+    return { error: 'mode must be "resubmit" or "go"' };
   if (!Array.isArray(edits) || edits.length === 0) return { error: "edits must not be empty" };
   const out: PlanEdit[] = [];
   for (const raw of edits) {
@@ -2353,7 +2381,7 @@ export function parsePlanEditsRequest(body: unknown): PlanEditsRequest | { error
     if (out.some((e) => e.id === edit.id)) return { error: `duplicate edit id ${edit.id}` };
     out.push(edit);
   }
-  return { baseHash, plan, edits: out };
+  return { baseHash, plan, edits: out, mode: mode ?? "resubmit" };
 }
 
 /** One edit, or its 400 message. `before`/`after` default to "", a blank `reason` is dropped. */
@@ -2416,14 +2444,10 @@ export function checkPlanEdits(
 const countOf = (n: number, noun: string): string =>
   n === 0 ? "" : `${n} ${noun}${n === 1 ? "" : "s"}`;
 
-/** `- `/`+ ` diff lines for one side of an edit; an empty side contributes nothing. */
-const diffLines = (text: string, sign: "-" | "+"): string[] =>
-  text ? text.split("\n").map((line) => (line ? `${sign} ${line}` : sign)) : [];
-
-function planEditItem(e: PlanEdit, n: number): string {
+function planEditItem(e: PlanEdit, n: number, commentClose: string): string {
   if (e.kind === "comment") {
     const where = e.section ? ` (${e.section})` : "";
-    return `[comment ${n}] on "${e.before}"${where}\n${e.reason ?? ""}\n→ rewrite this passage yourself.`;
+    return `[comment ${n}] on "${e.before}"${where}\n${e.reason ?? ""}\n${commentClose}`;
   }
   const lines = [
     `[edit ${n}]${e.section ? ` ${e.section}` : ""}`,
@@ -2432,6 +2456,26 @@ function planEditItem(e: PlanEdit, n: number): string {
   ];
   if (e.reason) lines.push(`why: ${e.reason}`);
   return lines.join("\n");
+}
+
+/** Every edit and comment as numbered items (per kind, in the order sent), with their counts. */
+function planEditItems(
+  edits: PlanEdit[],
+  commentClose: string,
+): { items: string; counts: string; textEdits: number; comments: number } {
+  const counters = { edit: 0, comment: 0 };
+  const items = edits.map((e) =>
+    planEditItem(e, e.kind === "comment" ? ++counters.comment : ++counters.edit, commentClose),
+  );
+  const counts = [countOf(counters.edit, "edit"), countOf(counters.comment, "comment")]
+    .filter(Boolean)
+    .join(", ");
+  return {
+    items: items.join("\n\n"),
+    counts,
+    textEdits: counters.edit,
+    comments: counters.comment,
+  };
 }
 
 /** Agent-facing steer that hands the operator's plan edits to the planning agent as binding
@@ -2445,13 +2489,10 @@ export function planEditSteerText(opts: {
   edits: PlanEdit[];
   executing: boolean;
 }): string {
-  const counters = { edit: 0, comment: 0 };
-  const items = opts.edits.map((e) =>
-    planEditItem(e, e.kind === "comment" ? ++counters.comment : ++counters.edit),
+  const { items, counts, textEdits, comments } = planEditItems(
+    opts.edits,
+    "→ rewrite this passage yourself.",
   );
-  const counts = [countOf(counters.edit, "edit"), countOf(counters.comment, "comment")]
-    .filter(Boolean)
-    .join(", ");
   const sentences = [
     `The operator edited \`.shepherd-plan.md\` directly (revision ${opts.from} → ${opts.to}: ${counts}).`,
   ];
@@ -2461,15 +2502,36 @@ export function planEditSteerText(opts: {
         "approval is withdrawn; do not write or modify any further product code and leave what " +
         "you have already committed in place.",
     );
-  if (counters.edit > 0)
+  if (textEdits > 0)
     sentences.push(
       "These edits are the operator's decisions. Keep them: do not revert, soften or re-argue " +
         "them. Update every part of the plan that depends on them so it stays consistent.",
     );
-  if (counters.comment > 0)
-    sentences.push("Rewrite each commented passage yourself, as its comment asks.");
+  if (comments > 0) sentences.push("Rewrite each commented passage yourself, as its comment asks.");
   sentences.push("Then stop so it can be re-reviewed. Don't start implementing yet.");
-  return `${sentences.join(" ")}\n\n${fenceUntrusted("operator plan edits", items.join("\n\n"))}`;
+  return `${sentences.join(" ")}\n\n${fenceUntrusted("operator plan edits", items)}`;
+}
+
+/** The part of a Go steer that carries the edits the operator released the plan with (#3518,
+ *  `mode: "go"`). NOT i18n'd. No review follows, and an agent's later plan edit authorizes nothing,
+ *  so the agent implements the edits as written instead of adapting the plan around them. */
+export function planEditGoText(opts: { from: number; to: number; edits: PlanEdit[] }): string {
+  const { items, counts, textEdits, comments } = planEditItems(
+    opts.edits,
+    "→ follow this while implementing.",
+  );
+  const sentences = [
+    `The operator edited \`.shepherd-plan.md\` directly and released it without another review (revision ${opts.from} → ${opts.to}: ${counts}).`,
+  ];
+  if (textEdits > 0)
+    sentences.push(
+      "The file already holds these edits, and they are the operator's decisions. Keep them: do " +
+        "not revert, soften or re-argue them. Where other plan text conflicts with an edit, the " +
+        "edit wins.",
+    );
+  if (comments > 0) sentences.push("Follow each comment while implementing.");
+  sentences.push("Do not edit `.shepherd-plan.md` yourself.");
+  return `${sentences.join(" ")}\n\n${fenceUntrusted("operator plan edits", items)}`;
 }
 
 /** Map the reviewer's raw decision string onto a PlanDecision; null = unrecognized (→ error). */

@@ -10,6 +10,7 @@ import {
 import { API_RETRY_STEER } from "../src/api-error-retry-core";
 import { RECONCILE_STEER } from "../src/build-queue-reminder";
 import { planAnswerSteerText, planEditSteerText } from "../src/plan-gate";
+import { planGoSteer } from "../src/service";
 import { amendmentSteerText } from "../src/task-amendments";
 import { classifySteer, steerLog, transcriptSteer, unwrapPasted } from "../src/steer-log";
 import { SessionStore } from "../src/store";
@@ -30,6 +31,10 @@ test("classifySteer reads the channel off Shepherd's own steer texts", () => {
     expect(classifySteer(planEditSteerText({ from: 1, to: 2, edits, executing }))).toBe(
       "plan_review",
     );
+});
+
+test("a Go carrying operator edits stays a go (#3518)", () => {
+  expect(classifySteer(planGoSteer(false, undefined, "The operator edited …"))).toBe("go");
 });
 
 test("classifySteer covers the steers whose builders are module-private", () => {

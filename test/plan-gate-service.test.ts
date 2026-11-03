@@ -92,6 +92,7 @@ function harness(over: any = {}) {
     completeReviewerSpawn: (id: any, u: any, at: any) => completedSpawns.push({ id, u, at }),
     listReviewerSpawns: () => [],
     recordAgentPlanRevision: (...args: any[]) => revisions.push(args),
+    listPlanRevisions: () => [],
     dropPlanRevisions() {},
     ...(over.store ?? {}),
   };
@@ -872,6 +873,28 @@ test("a started review records its plan text as an agent revision (#3514)", asyn
   const h = harness();
   expect(await h.svc.consider(planningSession() as any)).toBe("started");
   expect(h.revisions).toEqual([["s1", await PlanGateService.hashPlan("PLAN TEXT"), "PLAN TEXT"]]);
+});
+test("a review after an operator edit briefs the reviewer, measured on the whole plan (#3518)", async () => {
+  const revisions = [
+    {
+      sessionId: "s1",
+      revision: 2,
+      author: "operator",
+      planHash: "h",
+      plan: "PLAN TEXT",
+      edits: [
+        { id: "kept", kind: "replace", section: "A", before: "x", after: "PLAN TEXT" },
+        { id: "lost", kind: "replace", section: "B", before: "y", after: "reverted text" },
+      ],
+      createdAt: 1,
+    },
+  ];
+  const h = harness({ store: { listPlanRevisions: () => revisions } });
+  expect(await h.svc.consider(planningSession() as any)).toBe("started");
+  const prompt = h.started[0].argv.at(-1);
+  expect(prompt).toContain("OPERATOR EDITS (binding)");
+  expect(prompt).toContain("[replace · revision 2 · origin: operator] A");
+  expect(prompt).toContain("[replace · revision 2 · origin: operator NOT FOUND VERBATIM] B");
 });
 test("forget drops the session's plan revisions with its gate (#3514)", () => {
   const dropped: string[] = [];

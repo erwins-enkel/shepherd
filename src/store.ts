@@ -995,7 +995,22 @@ type PlanGateRow = {
   livePlanHash: string | null;
   approvedAt: number | null;
   effortSwitchError: string | null;
+  operatorReleaseRevision: number | null;
+  operatorReleaseFrom: number | null;
+  operatorReleaseAt: number | null;
 };
+
+function hydrateOperatorRelease(r: PlanGateRow): PlanGate["operatorRelease"] {
+  const { operatorReleaseRevision: revision, operatorReleaseFrom: fromRevision } = r;
+  const at = r.operatorReleaseAt;
+  return revision !== null && fromRevision !== null && at !== null
+    ? { revision, fromRevision, at }
+    : null;
+}
+
+function operatorReleaseColumns(release: PlanGate["operatorRelease"]): (number | null)[] {
+  return release ? [release.revision, release.fromRevision, release.at] : [null, null, null];
+}
 
 /** SQLite row shape for the recaps table. */
 type RecapRow = {
@@ -5114,13 +5129,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       livePlanHash: r.livePlanHash,
       approvedAt: r.approvedAt,
       effortSwitchError: coerceEffortSwitchError(r.effortSwitchError),
+      operatorRelease: hydrateOperatorRelease(r),
     } as PlanGate;
   }
 
   getPlanGate(sessionId: string): PlanGate | null {
     const r = this.db
       .query(
-        `SELECT sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed, livePlanHash, approvedAt, effortSwitchError
+        `SELECT sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed, livePlanHash, approvedAt, effortSwitchError, operatorReleaseRevision, operatorReleaseFrom, operatorReleaseAt
               FROM plan_gates WHERE sessionId = ?`,
       )
       .get(sessionId) as PlanGateRow | null;
@@ -5129,8 +5145,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   putPlanGate(g: PlanGate): void {
     this.db.run(
-      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed, livePlanHash, approvedAt, effortSwitchError)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed, livePlanHash, approvedAt, effortSwitchError, operatorReleaseRevision, operatorReleaseFrom, operatorReleaseAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET planHash=excluded.planHash, decision=excluded.decision,
          summary=excluded.summary, summaryCode=excluded.summaryCode, body=excluded.body, findings=excluded.findings,
          round=excluded.round, cap=excluded.cap, approved=excluded.approved,
@@ -5140,7 +5156,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          reviewerEffort=excluded.reviewerEffort,
          finalRoundPending=excluded.finalRoundPending, dismissed=excluded.dismissed,
          livePlanHash=excluded.livePlanHash, approvedAt=excluded.approvedAt,
-         effortSwitchError=excluded.effortSwitchError`,
+         effortSwitchError=excluded.effortSwitchError,
+         operatorReleaseRevision=excluded.operatorReleaseRevision,
+         operatorReleaseFrom=excluded.operatorReleaseFrom,
+         operatorReleaseAt=excluded.operatorReleaseAt`,
       [
         g.sessionId,
         g.planHash ?? "",
@@ -5164,6 +5183,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         orNull(g.livePlanHash),
         orNull(g.approvedAt),
         orNull(g.effortSwitchError),
+        ...operatorReleaseColumns(g.operatorRelease),
       ],
     );
   }
@@ -5544,7 +5564,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   snapshotPlanGates(): Record<string, PlanGate> {
     const rows = this.db
       .query(
-        `SELECT sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed, livePlanHash, approvedAt, effortSwitchError FROM plan_gates`,
+        `SELECT sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed, livePlanHash, approvedAt, effortSwitchError, operatorReleaseRevision, operatorReleaseFrom, operatorReleaseAt FROM plan_gates`,
       )
       .all() as PlanGateRow[];
     const out: Record<string, PlanGate> = {};
@@ -7423,6 +7443,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("approvedAt", `approvedAt INTEGER`);
     // effortSwitchError (#3434): why the last mid-session effort switch didn't happen; NULL = none.
     add("effortSwitchError", `effortSwitchError TEXT`);
+    // operatorRelease (#3518): the operator released this plan with edits; NULL = a reviewer's plain approval.
+    add("operatorReleaseRevision", `operatorReleaseRevision INTEGER`);
+    add("operatorReleaseFrom", `operatorReleaseFrom INTEGER`);
+    add("operatorReleaseAt", `operatorReleaseAt INTEGER`);
     // Migrate legacy `error` rows that baked the English summary in: flip the exact known prose to the
     // sentinel code + clear the summary so the UI localizes it. Idempotent (after the flip the WHERE
     // no longer matches) and no-clobber (only the exact prose string, only `error` rows).

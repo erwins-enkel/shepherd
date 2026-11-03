@@ -111,6 +111,8 @@ function harness(
   const agents: HerdrAgent[] = opts.paneLive ? [agent("target-pane")] : [];
   const starts: string[][] = [];
   const sent: { terminal: string; text: string }[] = [];
+  const sendControl: { fail: boolean; hold: Promise<void> | null } = { fail: false, hold: null };
+  const considered: string[] = [];
   const service = new SessionService({
     transcriptExists: () => true,
     store,
@@ -129,6 +131,8 @@ function harness(
       stop: async () => {},
       paneForegroundProcs: async () => [provider],
       send: async (terminal: string, text: string) => {
+        if (sendControl.fail) throw new Error("pane gone");
+        await sendControl.hold;
         sent.push({ terminal, text });
       },
     } as any,
@@ -141,7 +145,10 @@ function harness(
     events,
     usageLimits: { limits: () => ({}) } as any,
     planGate: {
-      consider: (async () => "skipped") as any,
+      consider: (async (session: Session) => {
+        considered.push(session.id);
+        return "skipped";
+      }) as any,
       cancel: async (id: string) => {
         cancels.push(id);
         return opts.cancel ?? "none";
@@ -159,7 +166,20 @@ function harness(
     );
   const steers = () => sent.filter((m) => m.text.includes("The operator edited"));
   const planOnDisk = () => readFileSync(join(wt, ".shepherd-plan.md"), "utf8");
-  return { app, store, s, wt, starts, steers, cancels, post, planOnDisk };
+  return {
+    app,
+    store,
+    service,
+    s,
+    wt,
+    starts,
+    steers,
+    cancels,
+    post,
+    planOnDisk,
+    sendControl,
+    considered,
+  };
 }
 
 const edit = (over: Record<string, unknown> = {}) => ({
@@ -319,6 +339,255 @@ describe("POST plan-edits refuses without touching the plan", () => {
       }),
     );
     expect(res.status).toBe(404);
+  });
+});
+
+describe('POST plan-edits with mode "go" releases the plan with the edits (#3518)', () => {
+  const go = (over: Record<string, unknown> = {}) => edit({ mode: "go", ...over });
+  const EDITED_HASH = planHashOf(EDITED.trim());
+
+  for (const provider of ["claude", "codex"] as const) {
+    test(`${provider}: exactly one Go carrying every edit, at revision n+1, no review`, async () => {
+      const h = harness(provider, { paneLive: provider === "claude" });
+      const res = await h.post(go());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        ok: true,
+        delivered: true,
+        planHash: EDITED_HASH,
+        revision: 2,
+      });
+      expect(h.planOnDisk()).toBe(EDITED);
+      expect(h.store.get(h.s.id)?.planPhase).toBe("executing");
+      expect(h.store.getPlanGate(h.s.id)).toMatchObject({
+        approved: true,
+        decision: "approved",
+        approvedAt: 1,
+        updatedAt: 1,
+        plan: EDITED.trim(),
+        planHash: EDITED_HASH,
+        livePlanHash: EDITED_HASH,
+        operatorRelease: { revision: 2, fromRevision: 2, at: expect.any(Number) },
+      });
+      expect(h.store.listPlanRevisions(h.s.id).map((r) => [r.revision, r.author])).toEqual([
+        [1, "agent"],
+        [2, "operator"],
+      ]);
+      expect(h.steers()).toHaveLength(1);
+      const steer = h.steers()[0]!.text;
+      expect(steer).toContain("Plan approved. Execute `.shepherd-plan.md` now");
+      expect(steer).toContain("(revision 1 → 2: 1 edit, 1 comment)");
+      expect(steer).toContain("- Use a new table.\n+ Reuse the column.");
+      expect(steer).toContain("→ follow this while implementing.");
+      expect(steer).not.toContain("re-reviewed");
+      expect(h.considered).toEqual([]);
+    });
+  }
+
+  test("a second request while the first is delivering is refused: one Go, one revision", async () => {
+    const h = harness("claude", { paneLive: true });
+    const comment = { ...EDITS[1] };
+    // Comment-only keeps the hash, so only the in-flight guard can stop the second one.
+    const body = go({ plan: PLAN, edits: [comment] });
+    const [a, b] = await Promise.all([h.post(body), h.post(body)]);
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    expect(((await (a.status === 409 ? a : b).json()) as { code: string }).code).toBe(
+      "planner_busy",
+    );
+    expect(h.steers()).toHaveLength(1);
+    expect(h.store.listPlanRevisions(h.s.id).map((r) => r.revision)).toEqual([1, 2]);
+    expect(h.store.get(h.s.id)?.planPhase).toBe("executing");
+  });
+
+  test("once released, a repeat is refused", async () => {
+    const h = harness("claude", { paneLive: true });
+    const body = go({ plan: PLAN, edits: [{ ...EDITS[1] }] });
+    expect((await h.post(body)).status).toBe(200);
+    const again = await h.post(body);
+    expect(again.status).toBe(409);
+    expect(((await again.json()) as { code: string }).code).toBe("not_releasable");
+    expect(h.steers()).toHaveLength(1);
+  });
+
+  async function notReleasable(h: ReturnType<typeof harness>, why: string): Promise<void> {
+    const gate = h.store.getPlanGate(h.s.id);
+    const res = await h.post(go());
+    expect(res.status).toBe(409);
+    const out = (await res.json()) as { code: string; error: string };
+    expect(out.code).toBe("not_releasable");
+    expect(out.error).toContain(why);
+    expect(h.planOnDisk()).toBe(PLAN);
+    expect(h.store.listPlanRevisions(h.s.id)).toEqual([]);
+    expect(h.store.getPlanGate(h.s.id)).toEqual(gate);
+    expect(h.steers()).toEqual([]);
+    expect(h.cancels).toEqual([]);
+  }
+
+  test("409 not_releasable: not approved", async () => {
+    const gate = { approved: false, decision: "changes_requested" as const };
+    await notReleasable(harness("claude", { paneLive: true, gate }), "not approved");
+  });
+
+  test("409 not_releasable: no verdict yet", async () => {
+    await notReleasable(harness("claude", { paneLive: true, gate: null }), "not approved");
+  });
+
+  test("409 not_releasable: already executing", async () => {
+    await notReleasable(harness("claude", { paneLive: true, phase: "executing" }), "planning");
+  });
+
+  test("409 not_releasable: no conversation to continue", async () => {
+    const h = harness("claude", { paneLive: true });
+    h.store.update(h.s.id, { claudeSessionId: "" });
+    h.service.hasConversation = () => false;
+    await notReleasable(h, "conversation");
+  });
+
+  test("409 not_releasable: the agent edited the plan after approval", async () => {
+    const gate = { planHash: planHashOf("reviewed"), plan: "reviewed" };
+    await notReleasable(harness("claude", { paneLive: true, gate }), "after it was approved");
+  });
+
+  test("a failed delivery keeps the release, and plain Go hands the edits over once", async () => {
+    const h = harness("claude", { paneLive: true });
+    h.sendControl.fail = true;
+    const res = await h.post(go());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, delivered: false, revision: 2 });
+    expect(h.store.get(h.s.id)?.planPhase).toBe("planning");
+    expect(h.store.getPlanGate(h.s.id)).toMatchObject({ approved: true, planHash: EDITED_HASH });
+    h.sendControl.fail = false;
+    const retry = await h.app.fetch(
+      new Request(`http://x/api/sessions/${h.s.id}/go`, { method: "POST" }),
+    );
+    expect(retry.status).toBe(200);
+    expect(h.store.get(h.s.id)?.planPhase).toBe("executing");
+    expect(h.steers()).toHaveLength(1);
+    expect(h.steers()[0]!.text).toContain("+ Reuse the column.");
+  });
+
+  describe("a Go that never reached the agent leaves its edits pending", () => {
+    const SECOND = EDITED.replace("Races are rare.", "Races are handled.");
+    const second = {
+      id: "e2",
+      kind: "replace",
+      section: "Risks",
+      before: "Races are rare.",
+      after: "Races are handled.",
+    };
+    const secondBody = { baseHash: planHashOf(EDITED.trim()), plan: SECOND, edits: [second] };
+    async function failedGo(): Promise<ReturnType<typeof harness>> {
+      const h = harness("claude", { paneLive: true });
+      h.sendControl.fail = true;
+      expect(await (await h.post(go())).json()).toMatchObject({ delivered: false, revision: 2 });
+      h.sendControl.fail = false;
+      return h;
+    }
+
+    test("the next Go carries both revisions, comment included", async () => {
+      const h = await failedGo();
+      const res = await h.post({ ...secondBody, mode: "go" });
+      expect(await res.json()).toMatchObject({ delivered: true, revision: 3 });
+      expect(h.store.getPlanGate(h.s.id)?.operatorRelease).toMatchObject({
+        revision: 3,
+        fromRevision: 2,
+      });
+      expect(h.steers()).toHaveLength(1);
+      const steer = h.steers()[0]!.text;
+      expect(steer).toContain("(revision 1 → 3: 2 edits, 1 comment)");
+      expect(steer).toContain("+ Reuse the column.");
+      expect(steer).toContain("Name it.\n→ follow this while implementing.");
+      expect(steer).toContain("+ Races are handled.");
+    });
+
+    test("a resubmit carries them too, and withdraws the release", async () => {
+      const h = await failedGo();
+      expect((await h.post(secondBody)).status).toBe(200);
+      expect(h.store.getPlanGate(h.s.id)).toMatchObject({ approved: false, operatorRelease: null });
+      expect(h.steers()).toHaveLength(1);
+      const steer = h.steers()[0]!.text;
+      expect(steer).toContain("(revision 1 → 3: 2 edits, 1 comment)");
+      expect(steer).toContain("Name it.\n→ rewrite this passage yourself.");
+    });
+
+    test("after a delivered Go, an edit carries only its own revision", async () => {
+      const h = harness("claude", { paneLive: true });
+      expect(await (await h.post(go())).json()).toMatchObject({ delivered: true });
+      expect((await h.post(secondBody)).status).toBe(200);
+      const steer = h.steers().at(-1)!.text;
+      expect(steer).toContain("(revision 2 → 3: 1 edit)");
+      expect(steer).not.toContain("Reuse the column.");
+    });
+  });
+
+  test("a resubmit withdraws an operator release", async () => {
+    const h = harness("claude", {
+      paneLive: true,
+      phase: "executing",
+      gate: { operatorRelease: { revision: 1, fromRevision: 1, at: 5 } },
+    });
+    expect((await h.post(edit())).status).toBe(200);
+    expect(h.store.getPlanGate(h.s.id)).toMatchObject({ approved: false, operatorRelease: null });
+  });
+
+  test("an edit while a plain Go is on its way is refused, in either mode", async () => {
+    const h = harness("claude", { paneLive: true });
+    let release = () => {};
+    h.sendControl.hold = new Promise((resolve) => (release = resolve));
+    const going = h.service.releasePlanGate(h.s.id);
+    for (const body of [edit(), go()]) {
+      const res = await h.post(body);
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { code: string }).code).toBe("planner_busy");
+    }
+    release();
+    expect(await going).toBe(true);
+    expect(h.planOnDisk()).toBe(PLAN);
+    expect(h.store.listPlanRevisions(h.s.id)).toEqual([]);
+  });
+});
+
+describe("GET plan/revisions (#3518)", () => {
+  const read = (h: ReturnType<typeof harness>, id = h.s.id) =>
+    h.app.fetch(new Request(`http://x/api/sessions/${id}/plan/revisions`));
+
+  test("empty lists before any revision; 404 for an unknown session", async () => {
+    const h = harness("claude");
+    expect(await (await read(h)).json()).toEqual({ revisions: [], operatorEdits: [] });
+    expect((await read(h, "nope")).status).toBe(404);
+  });
+
+  test("names each edit's revision, section, text and reason, against the live plan", async () => {
+    const h = harness("claude", { paneLive: true });
+    expect((await h.post(edit())).status).toBe(200);
+    const body = (await (await read(h)).json()) as any;
+    expect(body.revisions.map((r: any) => [r.revision, r.author, r.plan])).toEqual([
+      [1, "agent", PLAN.trim()],
+      [2, "operator", EDITED.trim()],
+    ]);
+    expect(body.operatorEdits).toMatchObject([
+      {
+        id: "e1",
+        revision: 2,
+        section: EDITS[0]!.section,
+        after: "Reuse the column.",
+        reason: "Less migration risk",
+        inPlan: true,
+      },
+      { id: "c1", kind: "comment", revision: 2, reason: "Name it.", inPlan: true },
+    ]);
+    // The agent reverts the edit: it stays listed, marked as gone from the live plan.
+    writeFileSync(join(h.wt, ".shepherd-plan.md"), PLAN);
+    const reverted = (await (await read(h)).json()) as any;
+    expect(reverted.operatorEdits[0]).toMatchObject({ id: "e1", inPlan: false });
+  });
+
+  test("falls back to the latest revision when the plan file is gone", async () => {
+    const h = harness("claude", { paneLive: true });
+    expect((await h.post(edit())).status).toBe(200);
+    rmSync(join(h.wt, ".shepherd-plan.md"));
+    const body = (await (await read(h)).json()) as any;
+    expect(body.operatorEdits[0]).toMatchObject({ id: "e1", inPlan: true });
   });
 });
 

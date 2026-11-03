@@ -69,6 +69,7 @@ const SESSION_READS = new Set([
   "worktree",
   "worktree/download",
   "plan",
+  "plan/revisions",
   "worktree/status",
   "queue",
   "git",

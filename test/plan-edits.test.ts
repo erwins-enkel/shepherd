@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { checkPlanEdits, parsePlanEditsRequest, planEditSteerText } from "../src/plan-gate";
+import {
+  checkPlanEdits,
+  parsePlanEditsRequest,
+  planEditGoText,
+  planEditSteerText,
+} from "../src/plan-gate";
+import { planGoSteer } from "../src/service";
 import type { PlanEdit } from "../src/types";
 
 const replace: PlanEdit = {
@@ -37,6 +43,12 @@ describe("parsePlanEditsRequest", () => {
       baseHash: "h",
       plan: "# Plan\nReuse the column.\n",
       edits: [{ id: "i1", kind: "insert", section: "", before: "", after: "New line" }],
+      mode: "resubmit",
+    });
+    expect(parsePlanEditsRequest(body({ mode: "go" }))).toMatchObject({ mode: "go" });
+    expect(parsePlanEditsRequest(body({ mode: undefined }))).toMatchObject({ mode: "resubmit" });
+    expect(parsePlanEditsRequest(body({ mode: "later" }))).toEqual({
+      error: 'mode must be "resubmit" or "go"',
     });
   });
 
@@ -44,7 +56,7 @@ describe("parsePlanEditsRequest", () => {
     ["not an object", "nope"],
     ["missing baseHash", body({ baseHash: undefined })],
     ["blank plan", body({ plan: "  \n" })],
-    ["unknown mode", body({ mode: "go" })],
+    ["unknown mode", body({ mode: "later" })],
     ["empty edits", body({ edits: [] })],
     ["edit without id", body({ edits: [{ ...replace, id: "" }] })],
     ["unknown kind", body({ edits: [{ ...replace, kind: "move" }] })],
@@ -86,6 +98,34 @@ describe("checkPlanEdits", () => {
     expect(checkPlanEdits(current, next, [replace, { ...comment, before: "Gone." }])?.editId).toBe(
       "c1",
     );
+  });
+});
+
+describe("planEditGoText (#3518)", () => {
+  test("hands over every edit and comment, keeps the plan file out of it", () => {
+    const text = planEditGoText({ from: 2, to: 3, edits: [replace, comment] });
+    expect(text).toStartWith(
+      "The operator edited `.shepherd-plan.md` directly and released it without another review (revision 2 → 3: 1 edit, 1 comment).",
+    );
+    expect(text).toContain("the edit wins");
+    expect(text).toContain("Follow each comment while implementing.");
+    expect(text).toContain("Do not edit `.shepherd-plan.md` yourself.");
+    expect(text).toContain("[edit 1] Approach\n- Use a new table.\n+ Reuse the column.");
+    expect(text).toContain("Name the race.\n→ follow this while implementing.");
+    expect(text.indexOf("⟦UNTRUSTED")).toBeGreaterThan(text.indexOf("Do not edit"));
+  });
+
+  test("comments only: no decisions claimed, no text said to be in the file", () => {
+    const text = planEditGoText({ from: 1, to: 2, edits: [comment] });
+    expect(text).toContain("(revision 1 → 2: 1 comment)");
+    expect(text).not.toContain("the operator's decisions");
+  });
+
+  test("rides after the whole Go steer, which is unchanged without it", () => {
+    const edits = planEditGoText({ from: 1, to: 2, edits: [replace] });
+    const steer = planGoSteer(false, undefined, edits);
+    expect(steer.startsWith(`${planGoSteer(false)}\n\nThe operator edited`)).toBe(true);
+    expect(planGoSteer(false, undefined, undefined)).toBe(planGoSteer(false));
   });
 });
 

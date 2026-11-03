@@ -227,6 +227,18 @@ const edit = {
   reason: "simpler",
 };
 
+test("an operator release round-trips, and reads as null when absent (#3518)", () => {
+  const s = new SessionStore(":memory:");
+  s.putPlanGate(g());
+  expect(s.getPlanGate("s1")?.operatorRelease).toBeNull();
+  const release = { revision: 3, fromRevision: 2, at: 42 };
+  s.putPlanGate(g({ operatorRelease: release }));
+  expect(s.getPlanGate("s1")?.operatorRelease).toEqual(release);
+  expect(s.snapshotPlanGates().s1?.operatorRelease).toEqual(release);
+  s.putPlanGate(g({ operatorRelease: null }));
+  expect(s.getPlanGate("s1")?.operatorRelease).toBeNull();
+});
+
 test("recordAgentPlanRevision numbers from 1 and skips a text the latest revision holds", () => {
   const s = new SessionStore(":memory:");
   expect(s.latestPlanRevision("s1")).toBeNull();

@@ -249,6 +249,7 @@ import {
   type PlanEditsRequest,
   type RawAnswer,
 } from "./plan-gate";
+import { operatorEditsBetween, standingOperatorEdits } from "./plan-provenance";
 import type { AnswerAskOutcome } from "./ask-answer-service";
 import { slugifyManual } from "./namer";
 import {
@@ -6005,6 +6006,19 @@ async function handleSessionPlan({ req, parts, deps }: Ctx): Promise<Response | 
   return live ? json(live) : json({ error: "no plan written yet", code: "no_plan" }, 404);
 }
 
+// GET /api/sessions/:id/plan/revisions — who wrote what (#3518): the plan revisions, and the operator
+// edits that still stand, read against the live plan (the latest revision's text when no file is
+// left to read). Empty lists for a session without revisions.
+async function handleSessionPlanRevisions({ req, parts, deps }: Ctx): Promise<Response | null> {
+  const route = req.method === "GET" && parts[3] === "plan" && parts[4] === "revisions";
+  if (!(route && parts[2] && !parts[5])) return null;
+  const s = deps.store.get(parts[2]);
+  if (!s) return json({ error: "not found" }, 404);
+  const revisions = deps.store.listPlanRevisions(s.id);
+  const plan = readPlanFile(s.worktreePath)?.trim() || (revisions.at(-1)?.plan ?? "");
+  return json({ revisions, operatorEdits: standingOperatorEdits(revisions, plan) });
+}
+
 const plannerBusy = () =>
   json({ error: "the planning agent is working", code: "planner_busy" }, 409);
 
@@ -6031,41 +6045,126 @@ function planEditBase(
   return live;
 }
 
-/** Land an edit: write the file, record the revision and withdraw an approval. No await — see
- *  handleSessionPlanEdits. A withdrawn gate keeps `approvedAt` (it holds advanceToExecutionOnPr
- *  off) and `updatedAt` (it dates the verdict). Returns the steer and what the response reports. */
+/** Why `mode: "go"` may not release this plan (#3518), or null. The server-side Go rules, plus one
+ *  Go does not need: the base must be the text a reviewer approved, or the agent's own edits since
+ *  would be released as part of the operator's revision. */
+function goRefusal(
+  s: Session,
+  deps: AppDeps,
+  base: NonNullable<ReturnType<typeof livePlan>>,
+): string | null {
+  const gate = deps.store.getPlanGate(s.id);
+  if (s.planPhase !== "planning") return "the session is not in the planning phase";
+  if (!gate?.approved) return "the plan is not approved";
+  if (!deps.service.hasConversation(s)) return "the agent has no conversation to continue";
+  if (base.planHash !== gate.planHash) return "the agent edited the plan after it was approved";
+  return null;
+}
+
+/** The live plan this request may land on, or the 409 that says why not. Synchronous, for the same
+ *  reason as livePlan. A Go on its way to the agent refuses every mode: the agent would start on it
+ *  without this edit. */
+function planEditLanding(
+  s: Session,
+  deps: AppDeps,
+  req: PlanEditsRequest,
+): NonNullable<ReturnType<typeof livePlan>> | Response {
+  if (deps.service.isPlanReleaseInFlight(s.id)) return plannerBusy();
+  const base = planEditBase(s, deps.store, req.baseHash);
+  if (base instanceof Response || req.mode !== "go") return base;
+  const refusal = goRefusal(s, deps, base);
+  return refusal ? json({ error: refusal, code: "not_releasable" }, 409) : base;
+}
+
+/** The gate after an edit, null when it stays as it is. `go` moves the approval onto the operator's
+ *  revision and names who released it; `updatedAt` keeps dating the reviewer's verdict. `resubmit`
+ *  withdraws an approval, keeping `approvedAt` (it holds advanceToExecutionOnPr off). */
+function gateAfterPlanEdit(
+  gate: PlanGate | null,
+  mode: PlanEditsRequest["mode"],
+  next: { plan: string; planHash: string; revision: number },
+): PlanGate | null {
+  if (!gate?.approved) return null;
+  if (mode === "resubmit") return { ...gate, approved: false, operatorRelease: null };
+  return {
+    ...gate,
+    plan: next.plan,
+    planHash: next.planHash,
+    livePlanHash: next.planHash,
+    operatorRelease: {
+      revision: next.revision,
+      // Still set here means an earlier Go never reached the agent: its edits ride along.
+      fromRevision: gate.operatorRelease?.fromRevision ?? next.revision,
+      at: Date.now(),
+    },
+  };
+}
+
+/** Land an edit: write the file, record the revision and update the gate. No await — see
+ *  handleSessionPlanEdits. Returns what the delivery and the response need. */
 function applyPlanEdit(
   s: Session,
   deps: AppDeps,
   req: PlanEditsRequest,
   base: { plan: string; planHash: string },
-): { steer: string; executing: boolean; planHash: string; revision: number } {
+): { fromRevision: number; revision: number; planHash: string } {
   writeFileSync(join(s.worktreePath, PLAN_FILE), req.plan);
   const plan = req.plan.trim();
   const planHash = planHashOf(plan);
-  const { from, to } = deps.store.recordOperatorPlanRevision(
+  const { to } = deps.store.recordOperatorPlanRevision(
     s.id,
     { planHash: base.planHash, plan: base.plan.trim() },
     { planHash, plan },
     req.edits,
   );
-  const gate = deps.store.getPlanGate(s.id);
-  if (gate?.approved) {
-    const withdrawn: PlanGate = { ...gate, approved: false };
-    deps.store.putPlanGate(withdrawn);
-    deps.events.emit("session:plangate", { id: s.id, gate: withdrawn });
+  const prior = deps.store.getPlanGate(s.id);
+  // Still planning with a release on the gate: that Go never reached the agent, so this delivery
+  // carries its edits too. Once executing, it did.
+  const pending = s.planPhase === "planning" ? prior?.operatorRelease?.fromRevision : undefined;
+  const gate = gateAfterPlanEdit(prior, req.mode, {
+    plan,
+    planHash,
+    revision: to,
+  });
+  if (gate) {
+    deps.store.putPlanGate(gate);
+    deps.events.emit("session:plangate", { id: s.id, gate });
   }
+  return { fromRevision: pending ?? to, revision: to, planHash };
+}
+
+/** Hand a landed edit to the agent: `go` through the release, which carries the edits in its Go
+ *  steer, otherwise as one steer that (on an executing session) also returns it to planning. */
+function deliverPlanEdit(
+  s: Session,
+  deps: AppDeps,
+  req: PlanEditsRequest,
+  edit: { fromRevision: number; revision: number },
+): Promise<boolean> {
+  if (req.mode === "go") return deps.service.releasePlanGate(s.id);
   const executing = s.planPhase === "executing";
-  const steer = planEditSteerText({ from, to, edits: req.edits, executing });
-  return { steer, executing, planHash, revision: to };
+  const steer = planEditSteerText({
+    from: edit.fromRevision - 1,
+    to: edit.revision,
+    edits: operatorEditsBetween(
+      deps.store.listPlanRevisions(s.id),
+      edit.fromRevision,
+      edit.revision,
+    ),
+    executing,
+  });
+  return executing
+    ? deps.service.regateForPlanEdit(s.id, steer)
+    : deps.service.resumeAndReply(s.id, steer);
 }
 
 // POST /api/sessions/:id/plan-edits — the operator's edits to `.shepherd-plan.md` (#3514), handed to
 // the planning agent (Claude or Codex alike) as binding decisions in ONE steer. `plan` is the new
 // file and is authoritative; `edits` must describe the change (checkPlanEdits). The edit cancels a
 // plan review in flight, withdraws an approval and — on an executing session — returns it to the
-// planning phase; the normal review runs once the agent stops. Everything that can refuse runs
-// before the first side effect, and again after the cancel's await, directly before the write: a
+// planning phase; the normal review runs once the agent stops. `mode: "go"` (#3518) instead releases
+// the plan with the edits, under the rules of Go and with no new review. Everything that can refuse
+// runs before the first side effect, and again after the cancel's await, directly before the write: a
 // concurrent edit on the same base then fails `plan_changed` instead of both landing.
 async function handleSessionPlanEdits({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "plan-edits")) return null;
@@ -6075,7 +6174,7 @@ async function handleSessionPlanEdits({ req, parts, deps }: Ctx): Promise<Respon
   if ("error" in body) return json({ error: body.error, code: "invalid_body" }, 400);
   const s = deps.store.get(parts[2]);
   if (!s) return json({ error: "not found" }, 404);
-  const before = planEditBase(s, deps.store, body.baseHash);
+  const before = planEditLanding(s, deps, body);
   if (before instanceof Response) return before;
   const mismatch = checkPlanEdits(before.plan, body.plan, body.edits);
   if (mismatch)
@@ -6084,14 +6183,11 @@ async function handleSessionPlanEdits({ req, parts, deps }: Ctx): Promise<Respon
   if ((await deps.planGate?.cancel?.(s.id)) === "skipped") return plannerBusy();
   const fresh = deps.store.get(s.id);
   if (!fresh) return json({ error: "not found" }, 404);
-  const base = planEditBase(fresh, deps.store, body.baseHash);
+  const base = planEditLanding(fresh, deps, body);
   if (base instanceof Response) return base;
   const edit = applyPlanEdit(fresh, deps, body, base);
-  const deliver = edit.executing
-    ? deps.service.regateForPlanEdit(s.id, edit.steer)
-    : deps.service.resumeAndReply(s.id, edit.steer);
   // The edit has landed either way; a steer that could not reach the agent is reported, not thrown.
-  const delivered = await deliver.catch((err: unknown) => {
+  const delivered = await deliverPlanEdit(fresh, deps, body, edit).catch((err: unknown) => {
     console.warn(`[plan-edits] steer to ${s.id} failed:`, err);
     return false;
   });
@@ -7893,6 +7989,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionAnswerPlanQuestions,
     handleSessionPlan,
     handleSessionPlanEdits,
+    handleSessionPlanRevisions,
     handleSessionAnswerAsk,
     handleSessionReviewPlan,
     handleSessionReviewPr,

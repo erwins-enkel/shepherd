@@ -58,6 +58,7 @@ import {
 } from "./critic-core";
 import { ReviewerRuns } from "./reviewer-runs";
 import type { TaskAmendment } from "./task-amendments";
+import { planProvenance, type PlanProvenance } from "./plan-provenance";
 import { scrubStaleVerdictArtifacts } from "./codex-last-message";
 // Generic secret-redactor for a bounded diagnostic string, despite the recap-flavoured name — the
 // critic's pane tail gets the same treatment before it reaches the log.
@@ -316,6 +317,8 @@ interface PlanContext {
    *  only when an APPROVED plan is in it. Resolved here rather than at the spawn site so the two
    *  can't drift — finalize reads `planDrift` off this same flag. */
   planShown: boolean;
+  /** #3518: who wrote what in `plan`, from the server-written revisions. Null without operator edits. */
+  provenance: PlanProvenance | null;
 }
 
 /** The blocks the argv-budget ladder varies between compositions of the critic prompt. An object
@@ -334,6 +337,7 @@ export interface ReviewServiceDeps extends MembraneSeams {
     SessionStore,
     | "getRepoConfig"
     | "getPlanGate"
+    | "listPlanRevisions"
     | "listActiveTaskAmendments"
     | "getReview"
     | "putReview"
@@ -948,6 +952,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       round,
       planCtx.approved,
       amendments,
+      planCtx.provenance,
     );
     const argvFor = (p: string): string[] =>
       this.criticArgvFor(p, reviewerEnv, criticSessionId, planCtx.planShown);
@@ -1248,7 +1253,22 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // `plan_gates.plan` is stored already-trimmed; the trim here is belt-and-braces so an empty
     // approved plan can never present as a text block.
     const approved = gate?.approved ? gate.plan.trim() || null : null;
-    if (!approved) return { plan: live, current: null, approved: false, planShown: false };
+    const provenanceOf = (plan: string | null): PlanProvenance | null =>
+      plan
+        ? planProvenance(
+            this.deps.store.listPlanRevisions(session.id),
+            plan,
+            gate?.operatorRelease?.revision ?? null,
+          )
+        : null;
+    if (!approved)
+      return {
+        plan: live,
+        current: null,
+        approved: false,
+        planShown: false,
+        provenance: provenanceOf(live),
+      };
     // Equal texts are the normal case and must collapse to ONE block: a second, identical block
     // would cost budget and imply an edit that never happened.
     return {
@@ -1256,6 +1276,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       current: live && live !== approved ? live : null,
       approved: true,
       planShown: true,
+      provenance: provenanceOf(approved),
     };
   }
 
@@ -1273,6 +1294,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     round: number,
     planApproved: boolean,
     amendments: readonly TaskAmendment[],
+    planProvenance: PlanProvenance | null,
   ): (v: ComposeVars) => string {
     // Shared with the plan reviewer: same read-only injection-contained sandbox (the PR diff is
     // UNTRUSTED). The prompt is the only critic-specific part. `diffBase` is the resolved base
@@ -1301,6 +1323,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
         planCurrentClamped: v.planCurrentClamped,
         reviewPolicy: v.reviewPolicy,
         amendments,
+        planProvenance,
       });
   }
 

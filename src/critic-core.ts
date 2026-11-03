@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { timedAsync } from "./instrument";
 import { execGit, execGitSync, resolveWorktreePin, type GitPin } from "./safe-git";
 import { amendmentBlock, type TaskAmendment } from "./task-amendments";
+import { planProvenanceCriticBlock, type PlanProvenance } from "./plan-provenance";
 import type {
   CriticFinding,
   FindingPass,
@@ -332,6 +333,8 @@ export function reviewPrompt(
      *  an un-amended session stays byte-identical. Operator-authored, so it rides OUTSIDE the
      *  fences and ranks with the task — see {@link amendmentBlock}. */
     amendments?: readonly TaskAmendment[];
+    /** #3518: who wrote what in `plan`, when the operator edited it. Null/absent ⇒ no block. */
+    planProvenance?: PlanProvenance | null;
   } = {},
 ): string {
   // The clamp caveats speak about "the plan shown above", so they are only coherent when a plan is
@@ -372,6 +375,8 @@ export function reviewPrompt(
   // WHICH plan text this is (approved snapshot vs. edited working file) is stated rather than
   // assumed.
   lines.push(...planBlocks(opts, planClamped));
+  // #3518: the block talks about "the plan above", so it needs one to be there.
+  if (opts.plan?.trim()) lines.push(...planProvenanceCriticBlock(opts.planProvenance));
   if (priorFindings.length) {
     lines.push(
       `This is a RE-REVIEW. The previous revision raised the points below. For EACH, confirm the new diff actually addresses it; if it does not, re-raise it verbatim in your findings — do not let it slide — UNLESS its file is not in \`git diff ${diffBase}...HEAD\`, in which case drop it per the scope rule below (do NOT re-raise it):`,

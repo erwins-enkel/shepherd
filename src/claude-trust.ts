@@ -9,7 +9,8 @@
  * config-dir target once and tests never touch a real `$HOME`.
  */
 
-import { readFile, writeFile, rename } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { readFile, writeFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 /** Claude's unshortened project directory encoding: every non-ASCII-alphanumeric character → `-`. */
@@ -56,6 +57,9 @@ export async function readRepoRootTrusted(configPath: string, dir: string): Prom
  * read + our rename can CLOBBER concurrent Claude state written between them
  * (last-writer-wins). Accepted given the read-gate's rarity and the sub-ms window.
  *
+ * The temp file is created exclusively under a random name with owner-only permissions:
+ * the rename gives the config the temp file's mode, and the config holds account state.
+ *
  * Emits COMPACT JSON (no pretty-print) to match Claude's on-disk format and avoid
  * reflowing a possibly-large file.
  */
@@ -77,9 +81,14 @@ export async function trustRepoRoot(configPath: string, dir: string): Promise<vo
   projects[dir] = entry;
   j.projects = projects;
 
-  const tmp = `${configPath}.tmp.${process.pid}`;
-  await writeFile(tmp, JSON.stringify(j), "utf8");
-  await rename(tmp, configPath);
+  const tmp = `${configPath}.tmp.${randomUUID()}`;
+  try {
+    await writeFile(tmp, JSON.stringify(j), { encoding: "utf8", mode: 0o600, flag: "wx" });
+    await rename(tmp, configPath);
+  } catch (err) {
+    await rm(tmp, { force: true });
+    throw err;
+  }
 }
 
 /**

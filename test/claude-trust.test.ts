@@ -1,5 +1,15 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -134,5 +144,74 @@ test("ensureRepoRootTrusted preserves unrelated project state", async () => {
     expect(j.projects["/other"].history).toEqual(["x"]);
     expect(j.hasCompletedOnboarding).toBe(true);
     expect(j.projects["/repo"].hasTrustDialogAccepted).toBe(true);
+  });
+});
+
+// ── private rewrite: the config holds account state, so it stays owner-only ──
+async function modeOf(path: string): Promise<number> {
+  return (await stat(path)).mode & 0o777;
+}
+
+async function tempLeftovers(dir: string): Promise<string[]> {
+  return (await readdir(dir)).filter((name) => name.includes(".tmp."));
+}
+
+test("trust narrows an existing group/world-readable config to owner-only", async () => {
+  await withTmp(async (dir) => {
+    const cfg = join(dir, ".claude.json");
+    await writeFile(cfg, JSON.stringify({ projects: {} }));
+    await chmod(cfg, 0o644);
+
+    await trustRepoRoot(cfg, "/repo");
+
+    expect(await modeOf(cfg)).toBe(0o600);
+  });
+});
+
+test("trust creates a missing config owner-only", async () => {
+  await withTmp(async (dir) => {
+    const cfg = join(dir, ".claude.json");
+
+    await trustRepoRoot(cfg, "/repo");
+
+    expect(await modeOf(cfg)).toBe(0o600);
+  });
+});
+
+test("trust does not write through a symlink planted at a pid-derived temp path", async () => {
+  await withTmp(async (dir) => {
+    const cfg = join(dir, ".claude.json");
+    const target = join(dir, "target");
+    await writeFile(target, "original");
+    await symlink(target, `${cfg}.tmp.${process.pid}`);
+
+    await trustRepoRoot(cfg, "/repo");
+
+    expect(await readFile(target, "utf8")).toBe("original");
+    expect(await readRepoRootTrusted(cfg, "/repo")).toBe(true);
+  });
+});
+
+test("trust rejects and removes its temp file when the final rename fails", async () => {
+  await withTmp(async (dir) => {
+    const cfg = join(dir, ".claude.json");
+    await mkdir(cfg); // rename(file, directory) fails
+
+    await expect(trustRepoRoot(cfg, "/repo")).rejects.toThrow();
+
+    expect(await tempLeftovers(dir)).toEqual([]);
+  });
+});
+
+test("concurrent trust calls in one process do not collide on the temp file", async () => {
+  await withTmp(async (dir) => {
+    const cfg = join(dir, ".claude.json");
+
+    await Promise.all([trustRepoRoot(cfg, "/repo-a"), trustRepoRoot(cfg, "/repo-b")]);
+
+    expect(await tempLeftovers(dir)).toEqual([]);
+    // Last writer wins (documented on trustRepoRoot), so at least one dir is seeded.
+    const { projects } = JSON.parse(await readFile(cfg, "utf8"));
+    expect(Object.keys(projects).length).toBeGreaterThan(0);
   });
 });

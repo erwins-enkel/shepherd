@@ -137,6 +137,7 @@ const bootstrapGetRoutes: Record<string, GetHandler> = {
   "/api/heavy-slot": () => json(DEMO_HEAVY_SLOT_OFF),
   "/api/update": () => json(demoState.update()),
   "/api/update/log": () => json({ phase: "idle", exitCode: null, log: "" }),
+  "/api/update/last": () => json({ last: null }),
   "/api/herdr-update": () => json(demoState.herdrUpdate()),
   "/api/codex-update": () => json(demoState.codexUpdate()),
   // Fetched at mount alongside the other update GETs, and again by Settings → Plugins.

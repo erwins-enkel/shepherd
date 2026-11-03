@@ -112,6 +112,7 @@ import {
   onboardingTimerUnit,
 } from "./onboarding-paths";
 import { UpdateService } from "./update";
+import { ingestUpdateJournal } from "./update-call";
 import { HerdrUpdateService } from "./herdr-update";
 import { CodexUpdateService, parseCodexUpdateChannel } from "./codex-update";
 import { refreshMiseClaude } from "./mise-claude";
@@ -218,7 +219,7 @@ import {
   prepareMembraneMiseConfig,
 } from "./membrane-state";
 import { GitignoreAdopter } from "./gitignore-adopt";
-import { attachSignalCapture } from "./signals";
+import { attachSignalCapture, HOST_SIGNAL_REPO } from "./signals";
 import { HookIngest, toolUseSince, type HookEvent } from "./hooks-ingest";
 import { AskAnswerService } from "./ask-answer-service";
 import { CodexQuestionTracker } from "./codex-questions";
@@ -3390,7 +3391,6 @@ const gitignoreAdopter = new GitignoreAdopter({ worktree, resolveForge });
 // Tunable default — NOT load-bearing. Note: this is only SAMPLED once per daily sweep, so the
 // worst-case detection latency is ~24h regardless of the threshold.
 const BACKUP_STALENESS_MS = 3 * 60 * 60 * 1000;
-const HOST_SIGNAL_REPO = "__host__"; // sentinel repoPath for host-global (non-repo) signals
 
 /**
  * Read-only staleness probe for the external backup timer. Runs inside the daily sweep so no
@@ -3886,7 +3886,13 @@ const updates = new UpdateService();
 // one-click restart of the shepherd unit (optionally herdr live-handoff first);
 // self-guarded: refuses unless this process IS the systemd unit's activation.
 const restart = new RestartService();
-const checkUpdates = async () => events.emit("update:status", await updates.check(Date.now()));
+const checkUpdates = async () => {
+  // Boot (first tick) and every round: a deploy that didn't restart us leaves its line waiting.
+  await ingestUpdateJournal(store, config.updateJournalPath).catch((err: unknown) =>
+    console.warn("[update] journal ingest failed:", err),
+  );
+  events.emit("update:status", await updates.check(Date.now()));
+};
 setTimeout(timerTask("update", checkUpdates), 3_000);
 setInterval(timerTask("update", checkUpdates), 5 * 60 * 1000);
 

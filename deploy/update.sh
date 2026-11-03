@@ -82,6 +82,8 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   warn "working tree has uncommitted changes — they will go live"
 fi
 
+FROM_SHA="$(git rev-parse --short HEAD)"
+
 if [[ "$PULL" == "1" ]]; then
   [[ "$branch" == "main" ]] || die "--pull requires being on main (currently '$branch')"
 
@@ -115,6 +117,34 @@ if [[ "$PULL" == "1" ]]; then
   note "fast-forwarding main from origin"
   git pull --ff-only
 fi
+
+# ── update journal (#3623) ───────────────────────────────────────────────────
+# One line per run, past the pull: who ran this deploy and which commit it is on. A direct run never
+# passes the server, which takes these lines over into `update_call` signals (src/update-call.ts).
+# Same state dir as the server, resolved like BACKUP_DIR below. Never fails a deploy.
+journal_update() {
+  local dir to tty=false app=false ids=""
+  local uuid='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+  dir="$(set -a; [ -f "$HOME/.shepherd/env" ] && . "$HOME/.shepherd/env"; set +a; dirname "${SHEPHERD_DB:-$HOME/.shepherd/shepherd.db}")" || return 1
+  to="$(git rev-parse --short HEAD)" || return 1
+  [ -t 0 ] && tty=true
+  [[ "${SHEPHERD_UPDATE_REQUEST_ID:-}" =~ $uuid ]] && ids+=",\"requestId\":\"$SHEPHERD_UPDATE_REQUEST_ID\""
+  if [[ "${SHEPHERD_SESSION_ID:-}" =~ $uuid ]]; then
+    ids+=",\"sessionId\":\"$SHEPHERD_SESSION_ID\""
+  # NO_SERVICE alone is a general skip-systemd knob. The Mac app sets it too and runs this script
+  # with no terminal; a person or an agent running it directly stays a script run.
+  elif [[ "${SHEPHERD_NO_SERVICE:-0}" == "1" && "$tty" == "false" && "$(uname -s)" == "Darwin" ]]; then
+    app=true
+  fi
+  (
+    umask 077
+    mkdir -p "$dir"
+    printf '{"at":%s000,"from":"%s","to":"%s","pull":%s,"tty":%s,"app":%s%s}\n' \
+      "$(date +%s)" "$FROM_SHA" "$to" "$([[ "$PULL" == "1" ]] && echo true || echo false)" \
+      "$tty" "$app" "$ids" >>"$dir/update-journal.jsonl"
+  )
+}
+journal_update || warn "could not write the update journal — this run stays unattributed"
 
 # ── build ────────────────────────────────────────────────────────────────────
 note "installing deps (root + ui)"

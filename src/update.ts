@@ -248,6 +248,9 @@ export interface DiscardLaunch {
   pathspecWtFile: string;
 }
 
+/** Why {@link UpdateService.apply} did not start a deploy. */
+export type UpdateRefusal = "already_running" | "launch_failed" | "unsupported_discard";
+
 export interface UpdateDeps {
   /** App-owned update handoff directory; empty disables the handoff. */
   appUpdateDir?: string;
@@ -270,7 +273,7 @@ export interface UpdateDeps {
   /** inject point for tests; defaults to streaming `git -C <repoDir> …` into a hash */
   gitHashStream?: GitHashStreamer;
   /** inject point for tests; defaults to launching the deploy script detached */
-  launch?: (discard?: DiscardLaunch) => void;
+  launch?: (discard?: DiscardLaunch, requestId?: string) => void;
   /** inject point for tests; defaults to launching the Shepherd app in the background, which
    *  adopts this server and claims the handoff (the server outlives a quit app) */
   wakeApp?: () => void;
@@ -299,7 +302,7 @@ export class UpdateService {
   private git: GitRunner;
   private gitRaw: GitRawRunner;
   private gitHashStream: GitHashStreamer;
-  private launch: (discard?: DiscardLaunch) => void;
+  private launch: (discard?: DiscardLaunch, requestId?: string) => void;
   private wakeApp: () => void;
   private limit: number;
   private sigMaxBytes: number;
@@ -341,7 +344,7 @@ export class UpdateService {
       });
     this.gitHashStream =
       deps.gitHashStream ?? ((args, hash, limit) => this.streamGit(args, hash, limit));
-    this.launch = deps.launch ?? ((discard) => this.defaultLaunch(discard));
+    this.launch = deps.launch ?? ((discard, requestId) => this.defaultLaunch(discard, requestId));
     this.wakeApp = deps.wakeApp ?? wakeMacApp;
   }
 
@@ -394,7 +397,7 @@ export class UpdateService {
    *  the script returns, so a failed deploy (which never restarts shepherd) can
    *  be read back and shown to the operator instead of vanishing. Throws if the
    *  unit can't even be registered (e.g. systemd-run missing). */
-  private defaultLaunch(discard?: DiscardLaunch): void {
+  private defaultLaunch(discard?: DiscardLaunch, requestId?: string): void {
     if (this.appUpdateDir) {
       const requestPath = join(this.appUpdateDir, "update-request");
       const temporaryPath = `${requestPath}.${process.pid}.tmp`;
@@ -432,6 +435,8 @@ export class UpdateService {
     // deploy script needs bun/herdr/git/systemctl, which live on the service's PATH.
     const args = ["--user", "--collect", "--unit=shepherd-update"];
     if (process.env.PATH) args.push(`--setenv=PATH=${process.env.PATH}`);
+    // Ties the script's journal line to the recorded call that started it (#3623).
+    if (requestId) args.push(`--setenv=SHEPHERD_UPDATE_REQUEST_ID=${requestId}`);
     // A discard forwards the confirmed signature + the private pathspec dir so the
     // script can re-verify the tree and restore ONLY the confirmed paths.
     if (discard) {
@@ -622,14 +627,19 @@ export class UpdateService {
    *
    *  `opts.discard` forwards the confirmed signature + private pathspec dir so the
    *  deploy runs a scoped `git restore` of only the confirmed paths (see
-   *  {@link DiscardLaunch}); throwing propagates so the caller can clean the dir up. */
-  apply(opts?: { discard?: boolean } & Partial<DiscardLaunch>): {
+   *  {@link DiscardLaunch}); throwing propagates so the caller can clean the dir up.
+   *
+   *  `opts.requestId` reaches the deploy so its journal line can name the call behind it. `code`
+   *  classifies a refusal for the record of that call; `error` stays the text the UI shows. */
+  apply(opts?: { discard?: boolean; requestId?: string } & Partial<DiscardLaunch>): {
     started: boolean;
     error?: string;
+    code?: UpdateRefusal;
   } {
     if (this.appUpdateDir && opts?.discard) {
       return {
         started: false,
+        code: "unsupported_discard",
         error:
           "discarding local changes is not supported on an app-managed Mac — update it from the Shepherd app",
       };
@@ -641,6 +651,7 @@ export class UpdateService {
     if (this.applying || phase === "running") {
       return {
         started: false,
+        code: "already_running",
         error: "a deploy is already running — wait for it to finish or check the log",
       };
     }
@@ -655,12 +666,13 @@ export class UpdateService {
           }
         : undefined;
     try {
-      this.launch(discard);
+      this.launch(discard, opts?.requestId);
     } catch (e) {
       this.applying = false;
       // never launched → the caller (server) removes the private pathspec dir it wrote
       return {
         started: false,
+        code: "launch_failed",
         error: e instanceof Error ? e.message : "could not launch the update",
       };
     }

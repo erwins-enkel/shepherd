@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { loopbackPeerUid, parseProcNetTcpUid } from "../src/peer-uid";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { loopbackPeerSessionId, loopbackPeerUid, parseProcNetTcpUid } from "../src/peer-uid";
 
 const HEADER =
   "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode";
@@ -82,3 +85,73 @@ test.if(process.platform === "linux")(
     }
   },
 );
+
+// ── loopbackPeerSessionId (#3623) ───────────────────────────────────────────
+
+/** A `/proc` tree: net/tcp with one client row (inode 123) and the given processes. */
+function procFixture(procs: { pid: number; fds: string[]; environ?: string }[]) {
+  const root = mkdtempSync(join(tmpdir(), "peer-session-"));
+  mkdirSync(join(root, "net"));
+  writeFileSync(join(root, "net/tcp"), table(row(`${V4_LO}:D431`, `${V4_LO}:1CA2`, "01", 1000)));
+  writeFileSync(join(root, "net/tcp6"), table());
+  for (const { pid, fds, environ } of procs) {
+    mkdirSync(join(root, String(pid), "fd"), { recursive: true });
+    fds.forEach((target, i) => symlinkSync(target, join(root, String(pid), "fd", String(i))));
+    if (environ !== undefined) writeFileSync(join(root, String(pid), "environ"), environ);
+  }
+  return root;
+}
+const sessionOf = (procRoot: string, deadlineMs?: number) =>
+  loopbackPeerSessionId("127.0.0.1", 54321, 7330, { platform: "linux", procRoot, deadlineMs });
+
+test("loopbackPeerSessionId: the socket's holder's marker names the session", async () => {
+  const root = procFixture([
+    { pid: 10, fds: ["socket:[999]"], environ: "SHEPHERD_SESSION_ID=other\0" },
+    { pid: 11, fds: ["/dev/null", "socket:[123]"], environ: "A=1\0SHEPHERD_SESSION_ID=abc\0B=2\0" },
+  ]);
+  expect(await sessionOf(root)).toBe("abc");
+  rmSync(root, { recursive: true });
+});
+
+test("loopbackPeerSessionId: a holder without a marker gives way to a forked one with it", async () => {
+  const root = procFixture([
+    { pid: 10, fds: ["socket:[123]"], environ: "A=1\0" },
+    { pid: 11, fds: ["socket:[123]"], environ: "SHEPHERD_SESSION_ID=abc\0" },
+  ]);
+  expect(await sessionOf(root)).toBe("abc");
+  rmSync(root, { recursive: true });
+});
+
+test("loopbackPeerSessionId: no marker, no holder, no row or an unreadable environ → null", async () => {
+  const unmarked = procFixture([{ pid: 10, fds: ["socket:[123]"], environ: "A=1\0" }]);
+  const unreadable = procFixture([{ pid: 10, fds: ["socket:[123]"] }]);
+  const noHolder = procFixture([{ pid: 10, fds: ["/dev/null"], environ: "SHEPHERD_SESSION_ID=x" }]);
+  expect(await sessionOf(unmarked)).toBeNull();
+  expect(await sessionOf(unreadable)).toBeNull();
+  expect(await sessionOf(noHolder)).toBeNull();
+  expect(
+    await loopbackPeerSessionId("127.0.0.1", 1, 7330, { platform: "linux", procRoot: unmarked }),
+  ).toBeNull();
+  for (const root of [unmarked, unreadable, noHolder]) rmSync(root, { recursive: true });
+});
+
+test("loopbackPeerSessionId: non-Linux and non-loopback peers never touch /proc", async () => {
+  const root = procFixture([
+    { pid: 10, fds: ["socket:[123]"], environ: "SHEPHERD_SESSION_ID=abc" },
+  ]);
+  expect(
+    await loopbackPeerSessionId("127.0.0.1", 54321, 7330, { platform: "darwin", procRoot: root }),
+  ).toBeNull();
+  expect(
+    await loopbackPeerSessionId("100.64.0.1", 54321, 7330, { platform: "linux", procRoot: root }),
+  ).toBeNull();
+  rmSync(root, { recursive: true });
+});
+
+test("loopbackPeerSessionId: past the deadline it answers null instead of walking on", async () => {
+  const root = procFixture([
+    { pid: 10, fds: ["socket:[123]"], environ: "SHEPHERD_SESSION_ID=abc" },
+  ]);
+  expect(await sessionOf(root, -1)).toBeNull();
+  rmSync(root, { recursive: true });
+});

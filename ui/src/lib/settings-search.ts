@@ -13,6 +13,7 @@ export const SETTINGS_SECTION_IDS = [
   "device",
   "access",
   "machines",
+  "update",
   "resources",
   "diagnose",
 ] as const;
@@ -41,6 +42,8 @@ export const SECTION_GLYPHS: Record<SettingsSectionId, string> = {
   access: "◈",
   // U+25A3, same Geometric Shapes block as ▦/◫/◈ — a framed square reads as a screen.
   machines: "▣",
+  // U+25B2, same Geometric Shapes block as ▦/◫/◈ — an upward triangle reads as "update".
+  update: "▲",
   resources: "◴",
   diagnose: "⚠",
 };
@@ -347,6 +350,11 @@ export function sectionSearchRows(ctx: {
       [m.settings_machines_list_title()],
       [m.settings_machines_connect_title(), m.settings_machines_connect_hint()],
       [m.settings_machines_incoming_title(), m.settings_machines_incoming_hint()],
+    ],
+    update: [
+      [m.settings_tab_update()],
+      [m.settings_update_running_title()],
+      [m.settings_update_last_title()],
     ],
     resources: [
       [m.resources_title(), m.resources_scope()],

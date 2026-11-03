@@ -1,5 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir, readlink } from "node:fs/promises";
+import { join } from "node:path";
 import { isLoopbackPeer } from "./operator-auth";
+import { SESSION_MARKER_ENV } from "./process-reaper";
 
 const TCP_ESTABLISHED = "01";
 
@@ -29,16 +31,22 @@ function normalizeAddress(address: string): string {
 
 type Endpoint = { address: string; port: number };
 
-/** One table row → its uid when it is the client end of `peer` → our loopback `serverPort`: the
+/** One table row's fields when it is the client end of `peer` → our loopback `serverPort`: the
  *  row's local address+port must be exactly the peer's, its remote a loopback address on our port
  *  (#3368 — a socket on 127.0.0.2:P must never stand in for tailscaled's 127.0.0.1:P). */
-function clientRowUid(line: string, peer: Endpoint, serverPort: number): number | null {
+function clientRow(line: string, peer: Endpoint, serverPort: number): string[] | null {
   const f = line.trim().split(/\s+/);
   if (f.length < 8 || f[3] !== TCP_ESTABLISHED) return null;
   const [localHex = "", localPort = ""] = f[1]!.split(":");
   const [remoteHex = "", remotePort = ""] = f[2]!.split(":");
   if (parseInt(localPort, 16) !== peer.port || parseInt(remotePort, 16) !== serverPort) return null;
   if (loopbackFromHex(localHex) !== peer.address || !loopbackFromHex(remoteHex)) return null;
+  return f;
+}
+
+function clientRowUid(line: string, peer: Endpoint, serverPort: number): number | null {
+  const f = clientRow(line, peer, serverPort);
+  if (!f) return null;
   const uid = Number(f[7]);
   return Number.isInteger(uid) ? uid : null;
 }
@@ -85,4 +93,75 @@ export async function loopbackPeerUid(
     uid = found ?? uid;
   }
   return uid;
+}
+
+/** How long a peer-process lookup may take; past it the caller simply goes unattributed. */
+const PEER_SESSION_DEADLINE_MS = 1000;
+
+/** Socket inode of the client end of `peer` → our `serverPort`, from `/proc/net/tcp[6]` text. */
+function parseProcNetTcpInode(
+  text: string,
+  peerAddress: string,
+  peerPort: number,
+  serverPort: number,
+): string | null {
+  const peer = { address: normalizeAddress(peerAddress), port: peerPort };
+  for (const line of text.split("\n").slice(1)) {
+    const inode = clientRow(line, peer, serverPort)?.[9];
+    if (inode && inode !== "0") return inode;
+  }
+  return null;
+}
+
+async function holdsSocket(procRoot: string, pid: string, link: string): Promise<boolean> {
+  const fdDir = join(procRoot, pid, "fd");
+  const fds = await readdir(fdDir).catch(() => [] as string[]);
+  for (const fd of fds) {
+    if ((await readlink(join(fdDir, fd)).catch(() => null)) === link) return true;
+  }
+  return false;
+}
+
+async function sessionMarker(procRoot: string, pid: string): Promise<string | null> {
+  const environ = await readFile(join(procRoot, pid, "environ"), "utf8").catch(() => "");
+  const prefix = `${SESSION_MARKER_ENV}=`;
+  const entry = environ.split("\0").find((e) => e.startsWith(prefix));
+  return entry ? entry.slice(prefix.length) || null : null;
+}
+
+/**
+ * The agent session behind a loopback connection (#3623): the marker every agent process inherits,
+ * read from the process holding the client socket. Names the origin in the ordinary case and is no
+ * security control, since a process can drop its marker.
+ *
+ * Walks `/proc` asynchronously and in sequence, so the one loop stays responsive; meant for rare
+ * routes only. null ⇒ non-Linux, no matching socket, no marker, or past the deadline. A socket can
+ * have several holders after a fork, so a holder without a marker does not end the walk.
+ */
+export async function loopbackPeerSessionId(
+  peerAddress: string,
+  peerPort: number,
+  serverPort: number,
+  opts: { platform?: NodeJS.Platform; procRoot?: string; deadlineMs?: number } = {},
+): Promise<string | null> {
+  if ((opts.platform ?? process.platform) !== "linux") return null;
+  if (!isLoopbackPeer(normalizeAddress(peerAddress))) return null;
+  const procRoot = opts.procRoot ?? "/proc";
+  const deadline = Date.now() + (opts.deadlineMs ?? PEER_SESSION_DEADLINE_MS);
+  const tables = await Promise.all(
+    ["net/tcp", "net/tcp6"].map((file) => readFile(join(procRoot, file), "utf8").catch(() => "")),
+  );
+  const inode = tables
+    .map((text) => parseProcNetTcpInode(text, peerAddress, peerPort, serverPort))
+    .find(Boolean);
+  if (!inode) return null;
+  const link = `socket:[${inode}]`;
+  const pids = (await readdir(procRoot).catch(() => [] as string[])).filter((n) => /^\d+$/.test(n));
+  for (const pid of pids) {
+    if (Date.now() > deadline) return null;
+    if (!(await holdsSocket(procRoot, pid, link))) continue;
+    const marker = await sessionMarker(procRoot, pid);
+    if (marker) return marker;
+  }
+  return null;
 }

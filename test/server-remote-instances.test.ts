@@ -388,7 +388,20 @@ describe("connected machines", () => {
 
     const started = await call(a, "POST", `/api/remote-instances/${id}/update`, {});
     expect([started.status, started.body]).toEqual([202, { ok: true }]);
-    expect(applied).toEqual([null]);
+    expect(applied).toEqual([{ requestId: expect.any(String) }]);
+    // #3623: this Shepherd records its caller and the machine; the machine records the token.
+    const recordsOn = (i: Instance) =>
+      i.deps.store.listSignalsByKind("update_call", 0, 10).map((s) => JSON.parse(s.payload));
+    expect(recordsOn(a)[0]).toMatchObject({
+      outcome: "started",
+      caller: { kind: "surface" },
+      machine: { id, name: expect.any(String) },
+    });
+    expect(recordsOn(b)[0]).toMatchObject({
+      outcome: "started",
+      caller: { kind: "token", name: "machine", client: "relay" },
+      machine: null,
+    });
     const log = await call(a, "GET", `/api/remote-instances/${id}/update/log`);
     expect(log.body).toEqual({ phase: "running", exitCode: null, log: "bun install" });
     const dirty = await call(a, "GET", `/api/remote-instances/${id}/update/dirty`);
@@ -406,6 +419,20 @@ describe("connected machines", () => {
     const badBody = { discard: "yes" };
     expect((await call(a, "POST", `/api/remote-instances/${id}/update`, badBody)).status).toBe(400);
     expect((await call(a, "POST", "/api/remote-instances/nope/update", {})).status).toBe(404);
+    // A relay that throws still answers and stays on this machine's record (#3623).
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const relay = spyOn(a.deps.remoteInstances!, "relaySelfUpdate").mockImplementationOnce(() =>
+      Promise.reject(new Error("boom")),
+    );
+    const thrown = await call(a, "POST", `/api/remote-instances/${id}/update`, {});
+    expect(thrown.status).toBe(500);
+    expect(recordsOn(a)[0]).toMatchObject({
+      outcome: "rejected",
+      reason: "internal_error",
+      machine: { id },
+    });
+    relay.mockRestore();
+    warn.mockRestore();
     expect((await call(a, "GET", "/api/remote-instances/nope/update/log")).status).toBe(404);
 
     // An answer the machine's update route never gives is not passed on as one.

@@ -46,7 +46,7 @@ export const FIRST_PASS_RANGE = "30d" as const;
 const FIRST_PASS_WINDOW_DAYS = 30;
 
 /**
- * `incident_spike` evaluates every SignalKind EXCEPT these. All four are high-volume BY DESIGN
+ * `incident_spike` evaluates every SignalKind EXCEPT these. The first four are high-volume BY DESIGN
  * rather than fault streams, so including them puts the band permanently in breach on a healthy
  * install:
  *
@@ -73,6 +73,8 @@ const FIRST_PASS_WINDOW_DAYS = 30;
  *   #3432 came from two audit probe repos on one day. Each distinct blocked host is still recorded
  *   and toasted once per session, up to `EGRESS_DROP_CAP`.
  *
+ * `update_call` (#3623) is an audit trail of self-updates: operation, not a fault.
+ *
  * Genuine faults stay covered: `stall` (the auto-address streak and re-review ceilings) and
  * `injection_detected` remain in this band, `critic_error_rate` scores review runs that produced
  * no verdict at all, and `first_pass_collapse` carries the rework rate.
@@ -82,6 +84,7 @@ const INCIDENT_KINDS_EXCLUDED: ReadonlySet<SignalKind> = new Set<SignalKind>([
   "block",
   "critic",
   "egress_drop",
+  "update_call",
 ]);
 
 /** How long a band is suppressed after a run COMPLETES, whatever its outcome or tier. */

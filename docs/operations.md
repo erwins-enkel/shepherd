@@ -257,6 +257,16 @@ It's idempotent and safe to re-run — sessions survive the restart (herdr owns 
 changes don't strictly need it: a fresh `cd ui && bun run build` is served on the next request,
 since the core reads `ui/build` from disk per request.
 
+Every run leaves a line in `update-journal.jsonl` next to the database. The server takes those lines
+over, together with its own record of each `POST /api/update` and of each relay to another machine,
+as `update_call` signals (kept 60 days) plus one `[update]` line in `shepherd.log`. **Settings →
+Update** shows the last one: when, and from which surface, token, CLI, machine, session or terminal.
+
+An agent session is recognized by the `SHEPHERD_SESSION_ID` its processes inherit: the server reads
+it from the process holding the loopback socket, and `update.sh` from its own environment. Socket
+attribution is Linux-only; on macOS, or through a proxy, only the token name remains. This names the
+origin in the ordinary case and is no security control, since a process can drop the marker.
+
 Per-deployment overrides (token, repo root, alternate hosts) go in `~/.shepherd/env`
 (`KEY=value` lines), read by the unit if present.
 

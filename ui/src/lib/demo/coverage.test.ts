@@ -165,6 +165,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/heavy-slot"),
   get("/api/update"),
   get("/api/update/log"),
+  get("/api/update/last"),
   get("/api/herdr-update"),
   get("/api/codex-update"),
   get("/api/plugin-update"),

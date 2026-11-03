@@ -141,9 +141,12 @@ describe("incident_spike band", () => {
         // None is a fault class, so none may produce a reading however far past the tier-2 counts
         // it runs.
         { kind: "egress_drop", occurrences: 500, sessions: 40 },
+        // An audit record of a self-update (#3623).
+        { kind: "update_call", occurrences: 500, sessions: 40 },
         { kind: "stall", occurrences: 1, sessions: 1 },
       ],
     });
+    expect(readings.some((r) => r.key === "incident_spike:update_call")).toBe(false);
     expect(readings.some((r) => r.key === "incident_spike:reply")).toBe(false);
     expect(readings.some((r) => r.key === "incident_spike:block")).toBe(false);
     expect(readings.some((r) => r.key === "incident_spike:critic")).toBe(false);

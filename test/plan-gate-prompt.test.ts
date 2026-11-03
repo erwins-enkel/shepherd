@@ -318,6 +318,15 @@ test("#1948: non-blocking items route to a named body section, never to findings
   expect(p).toContain('NEVER go in "findings"');
 });
 
+test("#3563: what the reviewer verified routes to a named body section, never to findings", () => {
+  for (const lang of ["en", "de"] as const) {
+    const p = planReviewPrompt("do X", "PLAN TEXT", [], null, lang);
+    expect(p).toContain('SINGLE "body" section headed exactly `Checked:`');
+    expect(p).toContain("ONE LINE PER CLAIM you actually verified");
+    expect(p).toContain('these items NEVER go in "findings"');
+  }
+});
+
 test("#1948: scope-demand lens bars findings that require work the task never asked for", () => {
   const p = planReviewPrompt("do X", "PLAN TEXT");
   expect(p).toContain("SCOPE DEMANDS");

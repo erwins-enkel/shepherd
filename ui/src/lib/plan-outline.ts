@@ -33,6 +33,9 @@ const LIST_ITEM_RE = /^\s{0,3}(?:[-*+]|\d{1,9}[.)])\s+(.*)$/;
 // rendering of it.
 const NOTES_HEAD_RE =
   /^\s{0,3}(?:#{1,6}\s+)?(?:\*\*|__)?(?:suggestions \(non-blocking\)|(?:vorschläge|hinweise) \(nicht blockierend\))\s*:?\s*(?:\*\*|__)?\s*:?\s*$/i;
+// Same contract for the section naming what the reviewer verified, headed exactly `Checked:`.
+const CHECKED_HEAD_RE =
+  /^\s{0,3}(?:#{1,6}\s+)?(?:\*\*|__)?(?:checked|geprüft|verifiziert)\s*:?\s*(?:\*\*|__)?\s*:?\s*$/i;
 
 /** Each line paired with whether it sits inside a fenced code block (fence lines included). */
 function fenced(lines: string[]): boolean[] {
@@ -123,37 +126,49 @@ export function planAnchorTarget(
   return part?.querySelectorAll<HTMLElement>(selector)[index] ?? part;
 }
 
-/**
- * Split the reviewer's `Suggestions (non-blocking):` list out of its write-up so the verdict card
- * can show the items on their own. `rest` is the write-up without that section. A body without
- * the section — or whose section is prose rather than a list — comes back whole, with no notes.
- */
-export function splitReviewerNotes(body: string): { notes: string[]; rest: string } {
+/** Lift the list under the first line matching `headRe` out of `body`. No such line, or prose
+ *  rather than a list under it, returns the body whole with no items. */
+function splitListSection(body: string, headRe: RegExp): { items: string[]; rest: string } {
   const lines = body.split(/\r?\n/);
   const inFence = fenced(lines);
-  const head = lines.findIndex((l, i) => !inFence[i] && NOTES_HEAD_RE.test(l));
-  if (head < 0) return { notes: [], rest: body };
-  const notes: string[] = [];
+  const head = lines.findIndex((l, i) => !inFence[i] && headRe.test(l));
+  if (head < 0) return { items: [], rest: body };
+  const items: string[] = [];
   let end = head + 1;
   for (let j = head + 1; j < lines.length; j++) {
     const line = lines[j];
     const item = LIST_ITEM_RE.exec(line);
     if (item) {
-      notes.push(item[1].trim());
+      items.push(item[1].trim());
       end = j + 1;
     } else if (line.trim() === "") {
       // A blank line inside a loose list; the section ends where the list does.
-      if (notes.length > 0 && !LIST_ITEM_RE.test(lines.slice(j + 1).find((l) => l.trim()) ?? ""))
+      if (items.length > 0 && !LIST_ITEM_RE.test(lines.slice(j + 1).find((l) => l.trim()) ?? ""))
         break;
-    } else if (/^\s+\S/.test(line) && notes.length > 0) {
-      notes[notes.length - 1] += ` ${line.trim()}`;
+    } else if (/^\s+\S/.test(line) && items.length > 0) {
+      items[items.length - 1] += ` ${line.trim()}`;
       end = j + 1;
     } else break;
   }
-  if (notes.length === 0) return { notes: [], rest: body };
+  if (items.length === 0) return { items: [], rest: body };
   const rest = [...lines.slice(0, head), ...lines.slice(end)]
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return { notes, rest };
+  return { items, rest };
+}
+
+/**
+ * Split the reviewer's `Suggestions (non-blocking):` and `Checked:` lists out of its write-up so
+ * the verdict card can show the items on their own. `rest` is the write-up without those sections.
+ * A section that is missing, or is prose rather than a list, stays in `rest` and yields no items.
+ */
+export function splitReviewerNotes(body: string): {
+  notes: string[];
+  checked: string[];
+  rest: string;
+} {
+  const { items: notes, rest: withoutNotes } = splitListSection(body, NOTES_HEAD_RE);
+  const { items: checked, rest } = splitListSection(withoutNotes, CHECKED_HEAD_RE);
+  return { notes, checked, rest };
 }

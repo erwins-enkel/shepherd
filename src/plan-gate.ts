@@ -396,6 +396,9 @@ function findingsRoutingBlock(): string[] {
     'FINDINGS ROUTING — what belongs in "findings" and what does not:',
     "- A finding is BLOCKING only when one of these holds: the plan will not satisfy the task; a step is wrong or will not work; a stated assumption is factually false against this codebase; a named risk would cause data loss, a security hole, or breakage and is left unmitigated; or a materially simpler approach exists that the plan does not consider at all.",
     '- EVERYTHING ELSE is non-blocking. Report it in a SINGLE "body" section headed exactly `Suggestions (non-blocking):`, ONE LINE PER DISTINCT ITEM. Non-blocking items NEVER go in "findings" and NEVER make the decision "request-changes".',
+    // #3563: the verdict card shows this as its "Checked" column, split out of "body" by
+    // ui/src/lib/plan-outline.ts → splitReviewerNotes, which needs a list to pull apart.
+    '- ALWAYS also report what you verified, in a SINGLE "body" section headed exactly `Checked:`, a "- " list with ONE LINE PER CLAIM you actually verified against the code or the task (e.g. "All named symbols resolve in the code."). Only what you really checked — no padding, no inference. It is informational: these items NEVER go in "findings", NEVER make the decision "request-changes", and do NOT prevent approval.',
     // The scope-demand lens — the plan-side analogue of the PR critic's SCOPE-CREEP lens, with named
     // item classes so it is matchable rather than a bare principle.
     "- SCOPE DEMANDS: a finding may NOT require the plan to cover work the TASK does not ask for — additional cases, extra hardening, follow-up work, or considerations outside the task's boundary. Those are suggestions. A gap is blocking ONLY when the task AS STATED is not satisfied. A plan being narrower than you would have scoped it is never a finding on its own.",

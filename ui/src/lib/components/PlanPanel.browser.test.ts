@@ -1246,6 +1246,56 @@ describe("PlanPanel reading layout (#3515)", () => {
     ]);
   });
 
+  it("shows what the reviewer verified with check marks, folded out of the rationale", async () => {
+    await page.viewport(1440, 900);
+    const id = "s-card-checked";
+    planGates.map = {
+      [id]: gate(id, {
+        approved: false,
+        decision: "changes_requested",
+        findings: ["Fix the seam."],
+        body: `${NOTED_BODY}\n\nChecked:\n- All symbols resolve.\n- Steps fit the \`task\`.`,
+        plan: READING_PLAN,
+      }),
+    };
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    const card = page.getByRole("region", { name: m.planpanel_verdict() });
+    await expect.element(card.getByText(m.planpanel_checked_head())).toBeVisible();
+    await expect.element(card.getByText("All symbols resolve.")).toBeVisible();
+    const list = document.querySelector<HTMLElement>(".verdict .checked ul")!;
+    expect(getComputedStyle(list).listStyleType).toContain("✓");
+    expect(list.querySelectorAll("li")).toHaveLength(2);
+
+    // Findings lead, then what was verified, then the notes.
+    const labels = [...document.querySelectorAll(".verdict .vlabel")].map((el) => el.textContent);
+    expect(labels).toEqual([
+      m.planpanel_findings_blocking(),
+      m.planpanel_checked_head(),
+      m.planpanel_notes_head(),
+    ]);
+
+    const rationale = document.querySelector(".verdict details")!;
+    await expect.poll(() => rationale.textContent).toContain("The plan holds.");
+    expect(rationale.textContent).not.toContain("All symbols resolve.");
+    // The verified items are not approval figures.
+    expect(releaseFigures()).toContainEqual([m.planpanel_release_notes(), "2"]);
+  });
+
+  it("shows no checked column for a verdict without the section", async () => {
+    await page.viewport(1440, 900);
+    const id = "s-card-unchecked";
+    planGates.map = {
+      [id]: gate(id, { summary: "Sound plan.", body: NOTED_BODY, plan: READING_PLAN }),
+    };
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    const card = page.getByRole("region", { name: m.planpanel_verdict() });
+    await expect.element(card.getByText(m.planpanel_notes_head())).toBeVisible();
+    await expect.element(card.getByText(m.planpanel_checked_head())).not.toBeInTheDocument();
+    expect(document.querySelector(".verdict .checked")).toBeNull();
+  });
+
   it("leads a changes-requested verdict with its blocking findings", async () => {
     await page.viewport(1440, 900);
     const id = "s-card-changes";

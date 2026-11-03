@@ -10,6 +10,7 @@
     gate,
     reviewer,
     notes,
+    checked,
     rationale,
     tone,
   }: {
@@ -18,6 +19,8 @@
     reviewer: string | null;
     /** Non-blocking suggestion items split out of the write-up (splitReviewerNotes). */
     notes: string[];
+    /** What the reviewer verified, split out the same way. */
+    checked: string[];
     /** The reviewer's write-up without those items. */
     rationale: string;
     tone: "ready" | "changes" | "error" | "muted";
@@ -43,6 +46,7 @@
   );
   const summary = $derived(gate.summaryCode ? summaryForCode(gate.summaryCode) : gate.summary);
   const notesSource = $derived(notes.map((n, i) => `${i + 1}. ${n}`).join("\n"));
+  const checkedSource = $derived(checked.map((c) => `- ${c}`).join("\n"));
 
   /** Server-authored gate summaries travel as a sentinel CODE and are localized here, so no English
    *  is ever baked into the row. An unknown code (older UI, newer server) falls back to the generic
@@ -54,8 +58,8 @@
   }
 </script>
 
-<!-- The decision basis comes first: blocking findings lead, then the non-blocking notes, with the
-     full write-up folded underneath. -->
+<!-- The decision basis comes first: blocking findings lead, then what was verified and the
+     non-blocking notes, with the full write-up folded underneath. -->
 <section class="verdict {tone}" data-anchor="verdict" aria-label={m.planpanel_verdict()}>
   <div class="vhead">
     <span class="vtitle">{m.planpanel_verdict_head({ decision })}</span>
@@ -64,7 +68,7 @@
   {#if summary}
     <p class="summary">{summary}</p>
   {/if}
-  {#if gate.findings.length > 0 || notes.length > 0}
+  {#if gate.findings.length > 0 || checked.length > 0 || notes.length > 0}
     <div class="vcols">
       {#if gate.findings.length > 0}
         <div class="vcol">
@@ -74,6 +78,12 @@
               <li>{f}</li>
             {/each}
           </ol>
+        </div>
+      {/if}
+      {#if checked.length > 0}
+        <div class="vcol checked">
+          <span class="vlabel">{m.planpanel_checked_head()}</span>
+          <MarkdownBody source={checkedSource} />
         </div>
       {/if}
       {#if notes.length > 0}
@@ -179,6 +189,13 @@
   .findings li::marker,
   .notes :global(li::marker) {
     color: var(--color-amber);
+  }
+  /* Two classes: one would tie .md-body's own `ul` rule and win only by stylesheet order. */
+  .vcol.checked :global(ul) {
+    list-style-type: "✓  ";
+  }
+  .vcol.checked :global(li::marker) {
+    color: var(--status-done);
   }
   .rationale {
     border-top: 1px solid var(--color-line);

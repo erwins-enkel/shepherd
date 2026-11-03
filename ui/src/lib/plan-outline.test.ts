@@ -65,6 +65,7 @@ describe("splitReviewerNotes", () => {
   it("pulls the suggestion items out and leaves the rest of the write-up", () => {
     expect(splitReviewerNotes(verdict)).toEqual({
       notes: ["First `note`.", "Second note that wraps onto a second line."],
+      checked: [],
       rest: "## Verdict\nThe plan holds.\n\nAnchor staleness (informational, non-blocking): two files moved.",
     });
   });
@@ -86,13 +87,64 @@ describe("splitReviewerNotes", () => {
   });
 
   it("returns the body whole when there is no section, or it is prose", () => {
-    expect(splitReviewerNotes("All good.")).toEqual({ notes: [], rest: "All good." });
+    expect(splitReviewerNotes("All good.")).toEqual({
+      notes: [],
+      checked: [],
+      rest: "All good.",
+    });
     const prose = "Ok.\n\nSuggestions (non-blocking):\nNone worth raising.";
-    expect(splitReviewerNotes(prose)).toEqual({ notes: [], rest: prose });
+    expect(splitReviewerNotes(prose)).toEqual({ notes: [], checked: [], rest: prose });
   });
 
   it("ignores a header line inside fenced code", () => {
-    const body = "```\nSuggestions (non-blocking):\n- x\n```";
-    expect(splitReviewerNotes(body)).toEqual({ notes: [], rest: body });
+    for (const head of ["Suggestions (non-blocking):", "Checked:"]) {
+      const body = `\`\`\`\n${head}\n- x\n\`\`\``;
+      expect(splitReviewerNotes(body)).toEqual({ notes: [], checked: [], rest: body });
+    }
+  });
+
+  describe("Checked section", () => {
+    it("pulls the verified items out and leaves the rest of the write-up", () => {
+      expect(
+        splitReviewerNotes("## Verdict\nHolds.\n\nChecked:\n- Symbols `a` resolve.\n- Steps fit."),
+      ).toEqual({
+        notes: [],
+        checked: ["Symbols `a` resolve.", "Steps fit."],
+        rest: "## Verdict\nHolds.",
+      });
+    });
+
+    it("accepts the heading, bold and German forms of the section header", () => {
+      for (const head of [
+        "## Checked:",
+        "**Checked:**",
+        "**Checked**:",
+        "Geprüft:",
+        "Verifiziert:",
+      ])
+        expect(splitReviewerNotes(`Ok.\n\n${head}\n- one\n- two`).checked).toEqual(["one", "two"]);
+    });
+
+    it("splits both sections in either order, adjacent or apart", () => {
+      const checked = "Checked:\n- c";
+      const notes = "Suggestions (non-blocking):\n- n";
+      for (const body of [
+        `Ok.\n\n${checked}\n\n${notes}`,
+        `Ok.\n\n${notes}\n\n${checked}`,
+        `Ok.\n\n${checked}\n${notes}`,
+        `Ok.\n\n${notes}\n${checked}`,
+      ])
+        expect(splitReviewerNotes(body)).toEqual({ notes: ["n"], checked: ["c"], rest: "Ok." });
+    });
+
+    it("leaves a prose section in the write-up", () => {
+      const prose = "Ok.\n\nChecked:\nThe whole plan.";
+      expect(splitReviewerNotes(prose)).toEqual({ notes: [], checked: [], rest: prose });
+    });
+
+    it("does not take a line that merely starts with the word", () => {
+      const prose = "Checked: all symbols.\n- not a section";
+      expect(splitReviewerNotes(prose)).toEqual({ notes: [], checked: [], rest: prose });
+    });
   });
 });

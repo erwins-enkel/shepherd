@@ -516,6 +516,7 @@
             {gate}
             reviewer={reviewerName}
             notes={verdict.notes}
+            checked={verdict.checked}
             rationale={verdict.rest}
             tone={verdictTone}
           />

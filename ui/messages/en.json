@@ -8039,5 +8039,7 @@
   "feat_upnext_dep_commands_title": "Dependabot commands in the PR preview",
   "feat_upnext_dep_commands_body": "Open a Dependabot PR from Up Next and use Dependabot ▾ to rebase it, recreate it, or ignore a major, minor or patch version. On grouped PRs, you choose which dependency to ignore.",
   "feat_weekly_usage_push_title": "Weekly usage warning",
-  "feat_weekly_usage_push_body": "Shepherd now also sends a push when the weekly Claude usage window crosses 80%, once per week. Plans without a 5-hour window (Ultra) work too: the 5-hour gauge disappears instead of showing a stale value, and holds and downgrades follow the weekly window."
+  "feat_weekly_usage_push_body": "Shepherd now also sends a push when the weekly Claude usage window crosses 80%, once per week. Plans without a 5-hour window (Ultra) work too: the 5-hour gauge disappears instead of showing a stale value, and holds and downgrades follow the weekly window.",
+  "feat_upnext_tab_top_title": "Up Next: tap Next to return to the top",
+  "feat_upnext_tab_top_body": "On your phone, tap Next in the bottom bar while reading an issue or pull request to go back to the top of the list. Tapping it while you're scrolled down the list also takes you to the top."
 }

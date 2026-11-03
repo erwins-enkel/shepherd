@@ -1,4 +1,5 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { tick } from "svelte";
 import { render } from "vitest-browser-svelte";
 import "../../../app.css";
 import HerdLensStrip from "./HerdLensStrip.svelte";
@@ -6,6 +7,7 @@ import HerdSegRow from "./HerdSegRow.svelte";
 import { overwriteGetLocale } from "#lib/paraglide/runtime.js";
 import { m } from "#lib/paraglide/messages.js";
 import { upNext } from "#lib/up-next.svelte.js";
+import { upNextUi } from "#lib/up-next-ui.svelte.js";
 import type { UpNextPr } from "#lib/types.js";
 
 const base = {
@@ -30,6 +32,74 @@ afterEach(() => {
   overwriteGetLocale(() => "en");
   upNext.snapshot = null;
   document.body.replaceChildren();
+});
+
+describe("HerdSegRow: tapping Next", () => {
+  const OPEN = "~/projects/homeassistant#2";
+  const SCROLLED = 400;
+
+  function scrollDown() {
+    const tall = document.createElement("div");
+    tall.style.height = "5000px";
+    document.body.appendChild(tall);
+    window.scrollTo({ top: SCROLLED });
+    expect(window.scrollY).toBe(SCROLLED);
+  }
+  function tapNext() {
+    document.querySelector<HTMLElement>(".seg-btn")!.click();
+  }
+
+  afterEach(() => {
+    upNextUi.reset();
+    window.scrollTo({ top: 0 });
+  });
+
+  it("closes the open preview and returns to the top when Next is already active", () => {
+    upNextUi.previewKey = OPEN;
+    render(HerdSegRow, { props: { filter: "next", statusFilter: null } });
+    scrollDown();
+    tapNext();
+    expect(upNextUi.previewKey).toBeNull();
+    expect(window.scrollY).toBe(0);
+  });
+
+  it("scrolls the list back to the top when no preview is open", () => {
+    render(HerdSegRow, { props: { filter: "next", statusFilter: null } });
+    scrollDown();
+    tapNext();
+    expect(window.scrollY).toBe(0);
+  });
+
+  it("keeps the preview and the scroll when arriving from another lens", async () => {
+    upNextUi.previewKey = OPEN;
+    render(HerdSegRow, { props: { filter: "all", statusFilter: null } });
+    scrollDown();
+    tapNext();
+    await tick();
+    const next = document.querySelector<HTMLElement>(".seg-btn")!;
+    expect(next.getAttribute("aria-pressed")).toBe("true");
+    expect(upNextUi.previewKey).toBe(OPEN);
+    expect(window.scrollY).toBe(SCROLLED);
+  });
+
+  it("keeps the preview and the scroll when arriving from a status filter", () => {
+    upNextUi.previewKey = OPEN;
+    const onstatusfilter = vi.fn();
+    render(HerdSegRow, { props: { filter: "next", statusFilter: "running", onstatusfilter } });
+    scrollDown();
+    tapNext();
+    expect(onstatusfilter).toHaveBeenCalledWith(null);
+    expect(upNextUi.previewKey).toBe(OPEN);
+    expect(window.scrollY).toBe(SCROLLED);
+  });
+
+  it("keeps ticked rows on a re-tap", () => {
+    upNextUi.previewKey = OPEN;
+    upNextUi.selected.add(OPEN);
+    render(HerdSegRow, { props: { filter: "next", statusFilter: null } });
+    tapNext();
+    expect(upNextUi.selected.has(OPEN)).toBe(true);
+  });
 });
 
 describe("HerdLensStrip layout at the 300px sidebar floor", () => {

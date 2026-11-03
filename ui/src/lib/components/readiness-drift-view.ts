@@ -12,10 +12,11 @@ export function hasEpicWork(d: FrameworkDrift): boolean {
   return d.runningEpic !== null || d.epicBranches.length > 0;
 }
 
-/** `installed → target (latest)` for a row behind, `installed (latest)` when current, and
+/** `installed → target (latest)` for a row behind or held, `installed (latest)` when current, and
  *  `installed · unknown` when the registry lookup failed. */
 export function lineLabel(r: DriftRow, unknown: string): string {
   if (r.latest === null || r.target === null) return `${r.installed} · ${unknown}`;
-  if (r.state === "behind") return `${r.installed} → ${r.target} (${r.latest})`;
+  if (r.state === "behind" || r.state === "held")
+    return `${r.installed} → ${r.target} (${r.latest})`;
   return `${r.installed} (${r.latest})`;
 }

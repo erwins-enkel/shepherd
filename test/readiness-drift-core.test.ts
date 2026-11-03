@@ -4,6 +4,7 @@ import {
   claudeMdPins,
   compareLine,
   dependabotBumps,
+  dependabotMajorHolds,
   driftRows,
   lowestLine,
   parseCargoToml,
@@ -93,6 +94,35 @@ describe("parsePackageJson", () => {
     ]);
   });
 
+  test("npm aliases declare the aliased package; unversioned aliases are skipped", () => {
+    const text = JSON.stringify({
+      devDependencies: {
+        "@typescript/native": "npm:typescript@^7.0.2",
+        "kit-next": "npm:@sveltejs/kit@^3.1.0",
+        bare: "npm:typescript",
+        tagged: "npm:typescript@latest",
+      },
+    });
+    expect(parsePackageJson(text, "package.json")).toEqual([
+      {
+        ecosystem: "npm",
+        name: "typescript",
+        line: "7",
+        spec: "^7.0.2",
+        manifest: "package.json",
+        aliased: true,
+      },
+      {
+        ecosystem: "npm",
+        name: "@sveltejs/kit",
+        line: "3",
+        spec: "^3.1.0",
+        manifest: "package.json",
+        aliased: true,
+      },
+    ]);
+  });
+
   test("invalid JSON → []", () => expect(parsePackageJson("{", "package.json")).toEqual([]));
 });
 
@@ -174,6 +204,59 @@ describe("dependabotBumps", () => {
     expect(out.get("@sveltejs/kit")).toEqual([
       { number: 124, url: "u124", from: "2.70.0", to: "3.0.1" },
     ]);
+  });
+});
+
+describe("dependabotMajorHolds", () => {
+  const config = (ecosystem: string, ignore: string) =>
+    `version: 2\nupdates:\n  - package-ecosystem: "${ecosystem}"\n    directory: "/"\n    ignore:\n${ignore}`;
+
+  test("exact name with semver-major, or with nothing narrowing it, is a hold", () => {
+    const major =
+      '      - dependency-name: "typescript"\n        update-types: ["version-update:semver-major"]\n';
+    const everything = '      - dependency-name: "svelte"\n';
+    expect([...dependabotMajorHolds(config("npm", major + everything))]).toEqual([
+      "npm:typescript",
+      "npm:svelte",
+    ]);
+  });
+
+  test("semver-major alongside versions still holds", () => {
+    const both =
+      '      - dependency-name: "typescript"\n        versions: [">=9"]\n        update-types: ["version-update:semver-major"]\n';
+    expect([...dependabotMajorHolds(config("npm", both))]).toEqual(["npm:typescript"]);
+  });
+
+  test("maps bun → npm and cargo → crates; other ecosystems never hold", () => {
+    const entry = '      - dependency-name: "serde"\n';
+    expect([...dependabotMajorHolds(config("bun", entry))]).toEqual(["npm:serde"]);
+    expect([...dependabotMajorHolds(config("cargo", entry))]).toEqual(["crates:serde"]);
+    expect([...dependabotMajorHolds(config("github-actions", entry))]).toEqual([]);
+  });
+
+  test("globs, minor-only and versions-only ignores are not holds", () => {
+    const entries = [
+      '      - dependency-name: "*"\n        update-types: ["version-update:semver-major"]\n',
+      '      - dependency-name: "@types/*"\n',
+      '      - dependency-name: "typescript"\n        update-types: ["version-update:semver-minor"]\n',
+      '      - dependency-name: "typescript"\n        versions: ["7.x"]\n',
+      '      - dependency-name: "typescript"\n        update-types: "version-update:semver-minor"\n',
+    ].join("");
+    expect([...dependabotMajorHolds(config("npm", entries))]).toEqual([]);
+  });
+
+  test("malformed or shapeless config → no holds", () => {
+    for (const text of [
+      "",
+      "updates: [",
+      "version: 2",
+      "updates: nope",
+      "updates:\n  - nope",
+      'updates:\n  - package-ecosystem: "npm"\n    ignore: nope',
+      'updates:\n  - package-ecosystem: "npm"\n    ignore:\n      - nope',
+    ]) {
+      expect(dependabotMajorHolds(text).size).toBe(0);
+    }
   });
 });
 
@@ -263,6 +346,154 @@ describe("driftRows", () => {
     });
   });
 
+  describe("intentional holds", () => {
+    const tracked = trackedKeys(DEFAULT_HOUSE_STACK, { npm: ["typescript"], crates: [] });
+    const manifest = (deps: Record<string, string>, path = "package.json") =>
+      parsePackageJson(JSON.stringify({ devDependencies: deps }), path);
+    const bridge = { typescript: "~6.0.3", "@typescript/native": "npm:typescript@^7.0.2" };
+    const rowFor = (
+      declared: ReturnType<typeof parsePackageJson>,
+      version: string,
+      holds?: Set<string>,
+    ) =>
+      driftRows(
+        trackedDeclared(declared, tracked),
+        new Map([["npm:typescript", version]]),
+        new Map(),
+        holds,
+      )[0]!;
+
+    test("alias on the target line holds the lagging sibling", () => {
+      expect(rowFor(manifest(bridge), "7.0.2")).toMatchObject({
+        state: "held",
+        hold: "alias",
+        installed: "6",
+        target: "7",
+        manifests: ["package.json"],
+      });
+    });
+
+    test("a lagging alias beside a current direct declaration is held too", () => {
+      const legacy = { typescript: "^7.0.0", "ts-legacy": "npm:typescript@^5.0.0" };
+      expect(rowFor(manifest(legacy), "7.0.2")).toMatchObject({
+        state: "held",
+        hold: "alias",
+        installed: "5",
+      });
+    });
+
+    test("an alias on the target line holds every lagging sibling", () => {
+      const both = { ...bridge, "ts-legacy": "npm:typescript@^5.0.0" };
+      expect(rowFor(manifest(both), "7.0.2")).toMatchObject({
+        state: "held",
+        hold: "alias",
+        installed: "5",
+      });
+    });
+
+    test("a lagging alias holds only itself: a direct lagging sibling stays behind", () => {
+      const declared = parsePackageJson(
+        JSON.stringify({
+          peerDependencies: { typescript: ">=5" },
+          devDependencies: { typescript: "~6.0.3", "ts-legacy": "npm:typescript@^5.0.0" },
+        }),
+        "package.json",
+      );
+      expect(rowFor(declared, "7.0.2")).toMatchObject({
+        state: "behind",
+        hold: null,
+        installed: "6",
+        manifests: ["package.json"],
+      });
+    });
+
+    test("an alias below the target holds nothing", () => {
+      expect(rowFor(manifest(bridge), "8.0.0")).toMatchObject({
+        state: "behind",
+        hold: null,
+        installed: "6",
+      });
+    });
+
+    test("a lone lagging alias is behind", () => {
+      const lone = { "ts-old": "npm:typescript@^6.0.0" };
+      expect(rowFor(manifest(lone), "7.0.2")).toMatchObject({ state: "behind", installed: "6" });
+    });
+
+    test("an alias only holds its own manifest", () => {
+      const declared = [
+        ...manifest(bridge, "a/package.json"),
+        ...manifest({ typescript: "^5.0.0" }, "b/package.json"),
+      ];
+      expect(rowFor(declared, "7.0.2")).toMatchObject({
+        state: "behind",
+        hold: null,
+        installed: "5",
+        manifests: ["b/package.json"],
+      });
+    });
+
+    test("a current direct sibling without an alias holds nothing", () => {
+      const declared = [
+        ...parsePackageJson(
+          JSON.stringify({
+            peerDependencies: { typescript: "^6.0.0" },
+            devDependencies: { typescript: "^7.0.0" },
+          }),
+          "package.json",
+        ),
+      ];
+      expect(rowFor(declared, "7.0.2")).toMatchObject({ state: "behind", hold: null });
+    });
+
+    test("a Dependabot major hold covers every lagging declaration", () => {
+      const declared = [
+        ...manifest({ typescript: "~6.0.3" }, "a/package.json"),
+        ...manifest({ typescript: "^5.0.0" }, "b/package.json"),
+      ];
+      const row = rowFor(declared, "7.0.2", new Set(["npm:typescript"]));
+      expect(row).toMatchObject({ state: "held", hold: "dependabot", installed: "5" });
+      expect(row.manifests).toEqual(["a/package.json", "b/package.json"]);
+    });
+
+    test("alias wins as the reason when both signals apply", () => {
+      expect(rowFor(manifest(bridge), "7.0.2", new Set(["npm:typescript"]))).toMatchObject({
+        state: "held",
+        hold: "alias",
+      });
+    });
+
+    test("alias reason needs every lagging declaration alias-held", () => {
+      const declared = [
+        ...manifest(bridge, "a/package.json"),
+        ...manifest({ typescript: "^5.0.0" }, "b/package.json"),
+      ];
+      expect(rowFor(declared, "7.0.2", new Set(["npm:typescript"]))).toMatchObject({
+        state: "held",
+        hold: "dependabot",
+      });
+    });
+
+    test("a current or unknown package never reports a hold", () => {
+      const holds = new Set(["npm:typescript"]);
+      expect(rowFor(manifest({ typescript: "^7.0.0" }), "7.0.2", holds)).toMatchObject({
+        state: "ok",
+        hold: null,
+      });
+      const unknown = driftRows(
+        trackedDeclared(manifest(bridge), tracked),
+        new Map(),
+        new Map(),
+        holds,
+      )[0];
+      expect(unknown).toMatchObject({ state: "unknown", hold: null });
+    });
+
+    test("held never counts as unknown for the resolver", () => {
+      expect(resolverState([rowFor(manifest(bridge), "7.0.2")])).toBe("ok");
+    });
+  });
+
   test("all lookups failed → offline, nothing behind", () => {
     const rows = driftRows(pkgs, new Map(), new Map());
     expect(rows.every((r) => r.state === "unknown")).toBe(true);
@@ -281,6 +512,7 @@ describe("renderUpgradeStory", () => {
       target: "3",
       state: "behind" as const,
       manifests: ["package.json"],
+      hold: null,
       dependabot: [{ number: 124, url: "u", from: "2.70.0", to: "3.0.1" }],
     };
     const { title, body } = renderUpgradeStory([row], ["epic/7-foo"]);

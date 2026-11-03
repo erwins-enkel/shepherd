@@ -6573,6 +6573,8 @@
   "readiness_drift_story_error": "Die Upgrade-Story konnte nicht angelegt werden. Prüfe deinen Zugriff auf das Repository und versuche es erneut.",
   "readiness_drift_view_story": "Story ansehen",
   "readiness_drift_unknown": "unbekannt",
+  "readiness_drift_held_alias": "Bewusst zurückgehalten: Ein npm-Alias hält in diesem Manifest eine ältere und die aktuelle Major-Version nebeneinander.",
+  "readiness_drift_held_dependabot": "Bewusst zurückgehalten: dependabot.yml ignoriert Major-Updates für dieses Paket.",
   "readiness_drift_dependabot": "Dependabot #{number} → {to}",
   "feat_readiness_drift_title": "Framework-Rückstand in Readiness",
   "feat_readiness_drift_body": "Readiness warnt jetzt, wenn ein Paket des gepinnten Stacks eine Major-Version hinter der Registry liegt – und legt per Klick eine priorisierte Upgrade-Story an, inklusive der nachzuziehenden Epic-Branches.",

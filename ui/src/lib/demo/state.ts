@@ -530,6 +530,7 @@ export const demoState = {
         target: "2",
         state: "ok",
         manifests: ["package.json"],
+        hold: null,
         dependabot: [],
       },
       {
@@ -540,6 +541,7 @@ export const demoState = {
         target: "5",
         state: "ok",
         manifests: ["package.json"],
+        hold: null,
         dependabot: [],
       },
     ],

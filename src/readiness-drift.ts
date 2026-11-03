@@ -13,6 +13,7 @@ import { PRIORITY_LABEL } from "./drain-core";
 import {
   claudeMdPins,
   dependabotBumps,
+  dependabotMajorHolds,
   driftKey,
   driftRows,
   parseCargoToml,
@@ -144,18 +145,28 @@ async function dependabotSignal(forge: GitForge | null) {
   }
 }
 
+/** The repo's Dependabot config, `.yml` winning over `.yaml`; empty when there is none. */
+async function readDependabotConfig(dir: string): Promise<string> {
+  for (const file of ["dependabot.yml", "dependabot.yaml"]) {
+    const text = await readFile(join(dir, ".github", file), "utf8").catch(() => null);
+    if (text !== null) return text;
+  }
+  return "";
+}
+
 export async function frameworkDrift(dir: string, deps: DriftDeps): Promise<FrameworkDrift> {
   const forge = usableForge(deps.forge);
   const claudeMd = await readFile(join(dir, "CLAUDE.md"), "utf8").catch(() => "");
   const tracked = trackedKeys(deps.houseStack, claudeMdPins(claudeMd));
   const packages = trackedDeclared(await readDeclared(dir), tracked);
-  const [latest, bumps, epicBranches, story] = await Promise.all([
+  const [latest, bumps, epicBranches, story, dependabotConfig] = await Promise.all([
     lookupLatest(packages, deps.resolver),
     dependabotSignal(forge),
     (deps.listEpicBranches ?? gitEpicBranches)(dir).catch(() => []),
     forge ? openStory(forge).catch(() => null) : null,
+    readDependabotConfig(dir),
   ]);
-  const rows = driftRows(packages, latest, bumps);
+  const rows = driftRows(packages, latest, bumps, dependabotMajorHolds(dependabotConfig));
   return {
     rows,
     resolver: resolverState(rows),

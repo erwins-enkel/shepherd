@@ -46,7 +46,7 @@ export const FIRST_PASS_RANGE = "30d" as const;
 const FIRST_PASS_WINDOW_DAYS = 30;
 
 /**
- * `incident_spike` evaluates every SignalKind EXCEPT these. All three are high-volume BY DESIGN
+ * `incident_spike` evaluates every SignalKind EXCEPT these. All four are high-volume BY DESIGN
  * rather than fault streams, so including them puts the band permanently in breach on a healthy
  * install:
  *
@@ -65,6 +65,13 @@ const FIRST_PASS_WINDOW_DAYS = 30;
  *   occurrences with no denominator; the DENOMINATED view of this identical event is
  *   `first_pass_collapse`, which scores the `changes_requested` spawn outcome as a rate. One event
  *   scored by two bands, one of them without a denominator, is what made this a false alarm.
+ * - `egress_drop` is the firewall blocking a DNS lookup (#3432), so it records the control working.
+ *   Healthy sandboxed agents cause it: `ANTHROPIC_EGRESS_HOSTS` documents background probes that are
+ *   left blocked on purpose. Measured on a live install at 1-10 distinct hosts per session (mean
+ *   about 4, nine sessions), so roughly seven sessions in a week reach tier 2. Unlike the kinds
+ *   above it breaches only in weeks with that much autonomous use. The 33 occurrences that filed
+ *   #3432 came from two audit probe repos on one day. Each distinct blocked host is still recorded
+ *   and toasted once per session, up to `EGRESS_DROP_CAP`.
  *
  * Genuine faults stay covered: `stall` (the auto-address streak and re-review ceilings) and
  * `injection_detected` remain in this band, `critic_error_rate` scores review runs that produced
@@ -74,6 +81,7 @@ const INCIDENT_KINDS_EXCLUDED: ReadonlySet<SignalKind> = new Set<SignalKind>([
   "reply",
   "block",
   "critic",
+  "egress_drop",
 ]);
 
 /** How long a band is suppressed after a run COMPLETES, whatever its outcome or tier. */

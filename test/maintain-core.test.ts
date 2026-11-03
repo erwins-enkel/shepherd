@@ -135,16 +135,19 @@ describe("incident_spike band", () => {
         { kind: "reply", occurrences: 500, sessions: 40 },
         // ...an agent asking the operator a question (#2242)...
         { kind: "block", occurrences: 500, sessions: 40 },
-        // ...and the review loop's designed normal outcome, a changes_requested verdict (#2319).
+        // ...the review loop's designed normal outcome, a changes_requested verdict (#2319)...
+        { kind: "critic", occurrences: 500, sessions: 40 },
+        // ...and the firewall blocking a lookup, which healthy sessions cause too (#3432).
         // None is a fault class, so none may produce a reading however far past the tier-2 counts
         // it runs.
-        { kind: "critic", occurrences: 500, sessions: 40 },
+        { kind: "egress_drop", occurrences: 500, sessions: 40 },
         { kind: "stall", occurrences: 1, sessions: 1 },
       ],
     });
     expect(readings.some((r) => r.key === "incident_spike:reply")).toBe(false);
     expect(readings.some((r) => r.key === "incident_spike:block")).toBe(false);
     expect(readings.some((r) => r.key === "incident_spike:critic")).toBe(false);
+    expect(readings.some((r) => r.key === "incident_spike:egress_drop")).toBe(false);
     expect(readings.some((r) => r.key === "incident_spike:stall")).toBe(true);
   });
 
@@ -256,11 +259,11 @@ describe("breaches", () => {
     const readings = evaluate({
       incidents: [
         { kind: "stall", occurrences: 30, sessions: 9 },
-        { kind: "egress_drop", occurrences: 30, sessions: 9 },
+        { kind: "injection_detected", occurrences: 30, sessions: 9 },
       ],
     });
     expect(breaches(readings).map((r) => r.key)).toEqual([
-      "incident_spike:egress_drop",
+      "incident_spike:injection_detected",
       "incident_spike:stall",
     ]);
   });

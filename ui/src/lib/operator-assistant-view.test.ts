@@ -23,6 +23,14 @@ describe("buildAssistantViewReport", () => {
     });
   });
 
+  it("a project only other machines have stays out of the filter — it names no path", () => {
+    const r = buildAssistantViewReport({
+      ...BASE,
+      repoFilter: new Set(["project:kai/murmur", "/p/shepherd"]),
+    });
+    expect(r.repoFilter).toEqual(["/p/shepherd"]);
+  });
+
   it("no filter and nothing selected say so", () => {
     const r = buildAssistantViewReport({ ...BASE, repoFilter: new Set(), selected: null });
     expect(r.repoFilter).toEqual([]);

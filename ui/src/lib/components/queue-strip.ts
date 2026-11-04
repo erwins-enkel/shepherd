@@ -1,9 +1,10 @@
-import type { AgentProvider, AutoMergeStatus, DrainStatus, Session } from "../types";
+import type { AgentProvider, AutoMergeStatus, DrainStatus, RepoEntry, Session } from "../types";
 import { m } from "#lib/paraglide/messages.js";
 import { sortBlocked, type BlockState } from "../triage";
 import { displayStatus } from "../display-status";
 import { bootstrapMissingLabel } from "./readiness-greenfield-view";
 import { providerLabel } from "#lib/reviewer-env.js";
+import { projectFilterKey } from "#lib/remote-sessions.js";
 
 /** Enabled drains only, sorted by repo path — the per-repo drain lookup feeding repoChipRows. */
 export function enabledDrains(drain: Record<string, DrainStatus>): DrainStatus[] {
@@ -13,25 +14,42 @@ export function enabledDrains(drain: Record<string, DrainStatus>): DrainStatus[]
 }
 
 /** One chip in the horizontal repo-filter rail: one entry per repo with ≥1 live
- *  (non-archived) session. */
+ *  (non-archived) session, on this machine or another. */
 export interface RepoChip {
+  /** The repo-filter key: a checkout's path, or `project:<slug>` (`projectFilterKey`) for a
+   *  project only other machines have checked out. */
   repoPath: string;
-  /** Count of this repo's live (non-archived) sessions. */
+  /** Count of this repo's live (non-archived) sessions, on every machine. */
   count: number;
   /** Enabled drain for this repo, or null. */
   drain: DrainStatus | null;
 }
 
+type ChipRepo = Pick<RepoEntry, "path" | "realPath" | "remoteSlug">;
+
 /**
  * One chip per repo that currently has ≥1 live session (any status EXCEPT "archived").
  * Sourced from the unfiltered herd `sessions` so the repo filter can scope to
  * idle/blocked/done repos too. Enriched with the repo's enabled drain. Sorted by repoPath.
+ *
+ * Sessions mirrored from connected machines (`remote`, #2762) count where the repo filter shows
+ * them (`inRepoFilter`, by project slug): on every chip of a local checkout of their project, or,
+ * while none has one, on a chip for its first checkout by realpath. A project no checkout here
+ * has gets a chip keyed `project:<slug>`; a session without a known project gets none.
  */
-export function repoChipRows(sessions: Session[], drain: Record<string, DrainStatus>): RepoChip[] {
+export function repoChipRows(
+  sessions: readonly Session[],
+  drain: Record<string, DrainStatus>,
+  remote: readonly Session[] = [],
+  repos: readonly ChipRepo[] = [],
+): RepoChip[] {
   const countByRepo = new Map<string, number>();
-  for (const s of sessions) {
-    if (s.status === "archived") continue;
-    countByRepo.set(s.repoPath, (countByRepo.get(s.repoPath) ?? 0) + 1);
+  const add = (key: string) => countByRepo.set(key, (countByRepo.get(key) ?? 0) + 1);
+  for (const s of sessions) if (s.status !== "archived") add(s.repoPath);
+  const local = new Set(countByRepo.keys());
+  for (const s of remote) {
+    if (s.status === "archived" || !s.remoteSlug) continue;
+    for (const key of mirroredChipKeys(s.remoteSlug, repos, local)) add(key);
   }
   if (countByRepo.size === 0) return [];
 
@@ -40,6 +58,21 @@ export function repoChipRows(sessions: Session[], drain: Record<string, DrainSta
   return [...countByRepo.entries()]
     .map(([repoPath, count]) => ({ repoPath, count, drain: drains.get(repoPath) ?? null }))
     .sort((a, b) => a.repoPath.localeCompare(b.repoPath));
+}
+
+/** The chips a mirrored session of project `slug` counts on: see `repoChipRows`. */
+function mirroredChipKeys(
+  slug: string,
+  repos: readonly ChipRepo[],
+  local: ReadonlySet<string>,
+): string[] {
+  const lower = slug.toLowerCase();
+  const checkouts = repos
+    .filter((r) => r.remoteSlug?.toLowerCase() === lower)
+    .sort((a, b) => a.realPath.localeCompare(b.realPath));
+  if (checkouts.length === 0) return [projectFilterKey(slug)];
+  const live = new Set(checkouts.flatMap((r) => [r.realPath, r.path]).filter((p) => local.has(p)));
+  return live.size > 0 ? [...live] : [checkouts[0]!.realPath];
 }
 
 /** Shared frozen empty repo filter — the default for every `repoFilter?: ReadonlySet<string>`
@@ -128,9 +161,11 @@ export function followRepoFilter(repoFilter: Set<string>, repoPath: string): boo
  * was selected before — now in a *different* repo than the visible list. This chooses,
  * within the chosen repo: a session waiting on the user's answer (oldest-blocked first,
  * excluding working-while-blocked, which is actively running not waiting), else the first
- * active (running) session, else the first session in the repo. Returns null when nothing
- * should change — the user is already on a session in this repo, the repo has no session,
- * or the best target is already selected.
+ * active (running) session, else the first session in the repo. A repo only other machines
+ * still run picks among its mirrored sessions (`mirrored.sessions`, the caller's
+ * `inRepoFilter` of this repo) the same way, by their last update. Returns null when nothing
+ * should change — the user is already on a session in this repo (local, or the mirrored
+ * `mirrored.selectedId`), the repo has no session, or the best target is already selected.
  */
 export function pickRepoSwitchTarget(
   repoFilter: string,
@@ -139,14 +174,29 @@ export function pickRepoSwitchTarget(
   workingBlocked: Record<string, boolean>,
   selected: Session | null,
   backgroundBusy: Record<string, boolean> = {},
+  mirrored: { sessions: readonly Session[]; selectedId: string | null } = {
+    sessions: [],
+    selectedId: null,
+  },
 ): string | null {
   if (selected && selected.repoPath === repoFilter) return null;
+  if (mirrored.sessions.some((s) => s.id === mirrored.selectedId)) return null;
   const inRepo = sessions.filter((s) => s.repoPath === repoFilter);
-  if (inRepo.length === 0) return null;
+  if (inRepo.length === 0) return pickMirroredTarget(mirrored.sessions);
   const waiting = sortBlocked(inRepo, blocks).find((e) => !workingBlocked[e.session.id])?.session;
   const active = inRepo.find((s) => displayStatus(s, workingBlocked, backgroundBusy) === "running");
   const next = waiting ?? active ?? inRepo[0];
   return next.id !== selected?.id ? next.id : null;
+}
+
+/** `pickRepoSwitchTarget` among mirrored sessions: no block reasons or times are mirrored, so the
+ *  longest unchanged blocked one (not shelved) waits longest. */
+function pickMirroredTarget(remote: readonly Session[]): string | null {
+  const waiting = remote
+    .filter((s) => !s.shelved && displayStatus(s, {}) === "blocked")
+    .sort((a, b) => a.updatedAt - b.updatedAt)[0];
+  const active = remote.find((s) => displayStatus(s, {}) === "running");
+  return (waiting ?? active ?? remote[0])?.id ?? null;
 }
 
 /** Whether the `queued` indicator is an interactive trigger (opens the queue

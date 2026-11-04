@@ -18,9 +18,11 @@
   import { untrack } from "svelte";
   import { MediaQuery } from "svelte/reactivity";
   import { swipeBack } from "./swipe-back";
+  import { repoChipRows } from "./queue-strip";
 
   let {
     sessions,
+    remoteSessions = [],
     workingBlocked,
     backgroundBusy = {},
     blocks = {},
@@ -35,6 +37,8 @@
     initialFilter = undefined,
   }: {
     sessions: Session[];
+    /** Sessions mirrored from connected machines (#2762): they keep a repo filterable too. */
+    remoteSessions?: Session[];
     workingBlocked: Record<string, boolean>;
     backgroundBusy?: Record<string, boolean>;
     blocks?: Record<string, BlockState>;
@@ -215,13 +219,14 @@
       })),
   );
 
-  // A repo can be filtered onto the session list only if it has a live (non-archived)
-  // session — same liveness rule as repoChipRows. Filtering a session-less repo would be
-  // pruned by the page (staleFilterRepos) and strand an empty herd, so the
-  // secondary action + its hint are gated on this. Keyed on session.repoPath (the
-  // realpath'd form), so the repo lookup below must compare r.realPath, not r.path.
+  // A repo can be filtered onto the session list only if it has a chip — a live (non-archived)
+  // session on this machine or another (repoChipRows itself, so the two can't drift).
+  // Filtering a chip-less repo would be pruned by the page (staleFilterRepos) and strand an
+  // empty herd, so the secondary action + its hint are gated on this. Keyed on
+  // session.repoPath (the realpath'd form), so the repo lookup below must compare r.realPath,
+  // not r.path.
   const liveRepoPaths = $derived(
-    new Set(sessions.filter((s) => s.status !== "archived").map((s) => s.repoPath)),
+    new Set(repoChipRows(sessions, {}, remoteSessions, repos.entries).map((c) => c.repoPath)),
   );
   const repoRows = $derived<Row[]>(
     repos.entries

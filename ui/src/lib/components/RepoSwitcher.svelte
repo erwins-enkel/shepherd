@@ -6,6 +6,7 @@
   import type { ForgeKind } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { basename } from "#lib/basename.js";
+  import { projectKeySlug } from "#lib/remote-sessions.js";
   import { projectIcons } from "#lib/projectIcons.svelte.js";
   import { chipRailVisible, chipHasTelemetry, pausedText } from "./queue-strip";
   import RepoChipTelemetry from "./repo-switcher/RepoChipTelemetry.svelte";
@@ -184,10 +185,17 @@
       .join(" ");
   }
 
+  // A project only other machines have (#2762) has no checkout here: its menu offers only what
+  // needs none — pin and filter — and never asks the server about a path it doesn't have.
+  function isLocalChip(chip: RepoChip): boolean {
+    return projectKeySlug(chip.repoPath) === null;
+  }
+
   function openPinMenu(chip: RepoChip, x: number, y: number, opener: HTMLElement): boolean {
     menu = { chip, x, y, opener };
     menuRepoWeb = { repoPath: chip.repoPath, slug: null, webUrl: null, kind: null };
     menuPos = null;
+    if (!isLocalChip(chip)) return true;
     getRepoWeb(chip.repoPath)
       .then((r) => {
         if (menu?.chip.repoPath !== chip.repoPath) return;
@@ -485,6 +493,7 @@
 {#if menu}
   {@const menuPinned = pinnedRepo === menu.chip.repoPath}
   {@const menuFiltered = repoFilter.has(menu.chip.repoPath)}
+  {@const menuLocal = isLocalChip(menu.chip)}
   <div
     bind:this={menuEl}
     class="rs-menu"
@@ -498,7 +507,7 @@
         ? m.repo_chip_unpin()
         : m.repo_chip_pin()}
     </button>
-    {#if onrepoassistant}
+    {#if onrepoassistant && menuLocal}
       <button
         class="rs-menu-item rs-menu-assistant"
         type="button"
@@ -512,45 +521,47 @@
           : m.repo_chip_assistant_start()}
       </button>
     {/if}
-    <button
-      class="rs-menu-item"
-      type="button"
-      role="menuitem"
-      tabindex="-1"
-      onclick={openAutomation}
-    >
-      <span class="rs-menu-icon" aria-hidden="true">⚙</span>
-      <span class="rs-menu-text">
-        {m.repo_chip_automation_settings()}
-        {#if noPrCiRepos.has(menu.chip.repoPath)}
-          <span class="rs-menu-hold"
-            ><span aria-hidden="true">⚠</span> {m.repo_chip_no_pr_ci()}</span
-          >
-        {/if}
-      </span>
-    </button>
-    <button
-      class="rs-menu-item"
-      type="button"
-      role="menuitem"
-      tabindex="-1"
-      onclick={commitCleanTerminal}
-    >
-      <span class="rs-menu-icon" aria-hidden="true">❯</span>{m.repo_chip_clean_terminal()}
-    </button>
-    {#if menuRepoWeb?.repoPath === menu.chip.repoPath && menuRepoWeb.kind === "github" && menuRepoWeb.webUrl}
-      <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->
-      <a
+    {#if menuLocal}
+      <button
         class="rs-menu-item"
+        type="button"
         role="menuitem"
         tabindex="-1"
-        href={firstSafeHttpUrl(menuRepoWeb.webUrl) ?? undefined}
-        target="_blank"
-        rel="noopener"
-        onclick={() => closeMenu()}
+        onclick={openAutomation}
       >
-        <span class="rs-menu-icon" aria-hidden="true">↗</span>{m.repo_chip_open_github()}
-      </a>
+        <span class="rs-menu-icon" aria-hidden="true">⚙</span>
+        <span class="rs-menu-text">
+          {m.repo_chip_automation_settings()}
+          {#if noPrCiRepos.has(menu.chip.repoPath)}
+            <span class="rs-menu-hold"
+              ><span aria-hidden="true">⚠</span> {m.repo_chip_no_pr_ci()}</span
+            >
+          {/if}
+        </span>
+      </button>
+      <button
+        class="rs-menu-item"
+        type="button"
+        role="menuitem"
+        tabindex="-1"
+        onclick={commitCleanTerminal}
+      >
+        <span class="rs-menu-icon" aria-hidden="true">❯</span>{m.repo_chip_clean_terminal()}
+      </button>
+      {#if menuRepoWeb?.repoPath === menu.chip.repoPath && menuRepoWeb.kind === "github" && menuRepoWeb.webUrl}
+        <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->
+        <a
+          class="rs-menu-item"
+          role="menuitem"
+          tabindex="-1"
+          href={firstSafeHttpUrl(menuRepoWeb.webUrl) ?? undefined}
+          target="_blank"
+          rel="noopener"
+          onclick={() => closeMenu()}
+        >
+          <span class="rs-menu-icon" aria-hidden="true">↗</span>{m.repo_chip_open_github()}
+        </a>
+      {/if}
     {/if}
     <button class="rs-menu-item" type="button" role="menuitem" tabindex="-1" onclick={commitFilter}>
       <span class="rs-menu-icon" aria-hidden="true">{menuFiltered ? "⊖" : "⊕"}</span>{menuFiltered

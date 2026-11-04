@@ -9,6 +9,8 @@ import {
   mirroredNeedsYou,
   mirroredPreviewChange,
   platformName,
+  projectFilterKey,
+  projectKeySlug,
   qualifiedDesig,
   reduceRemoteSessions,
   remoteActionMessage,
@@ -130,6 +132,26 @@ describe("repo filter", () => {
   test("a repo or a session without a slug never matches", () => {
     expect(ids(inRepoFilter(mac, new Set(["/home/moe/projects/scratch"]), repos))).toEqual([]);
     expect(ids(inRepoFilter(mac, new Set(["/unknown"]), repos))).toEqual([]);
+  });
+
+  test("a project key keeps that project's sessions, whatever the case of the slugs", () => {
+    expect(ids(inRepoFilter(mac, new Set([projectFilterKey("ACME/app")]), repos))).toEqual(["b"]);
+    const other = [...mac, s("d", { repoPath: "/Users/k/murmur", remoteSlug: "kai/murmur" })];
+    expect(ids(inRepoFilter(other, new Set([projectFilterKey("kai/murmur")]), repos))).toEqual([
+      "d",
+    ]);
+  });
+
+  test("a project key and a selected repo combine", () => {
+    const other = [...mac, s("d", { repoPath: "/Users/k/murmur", remoteSlug: "kai/murmur" })];
+    const filter = new Set(["/home/moe/projects/shepherd", projectFilterKey("kai/murmur")]);
+    expect(ids(inRepoFilter(other, filter, repos))).toEqual(["a", "d"]);
+  });
+
+  test("a project key names its slug, lower-cased; a path is no project key", () => {
+    expect(projectFilterKey("Kai/Murmur")).toBe("project:kai/murmur");
+    expect(projectKeySlug(projectFilterKey("Kai/Murmur"))).toBe("kai/murmur");
+    expect(projectKeySlug("/home/moe/projects/murmur")).toBeNull();
   });
 });
 

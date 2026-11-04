@@ -343,6 +343,99 @@ describe("repoChipRows", () => {
   });
 });
 
+// ─── repoChipRows with sessions mirrored from other machines (#2762) ──────────
+
+describe("repoChipRows — mirrored sessions", () => {
+  const repos = [
+    { path: "/home/k/murmur", realPath: "/srv/murmur", remoteSlug: "kai/murmur" },
+    { path: "/home/k/scratch", realPath: "/home/k/scratch" },
+  ];
+  const mac = (id: string, over: Partial<Session> = {}) =>
+    session({
+      id,
+      repoPath: `/Users/k/${id}`,
+      host: { instanceId: "m1", name: "macbook", platform: "macos" },
+      connection: { state: "connected", since: 1 },
+      ...over,
+    });
+
+  it("counts every machine's sessions of a project on its local chip", () => {
+    const chips = repoChipRows(
+      [session({ id: "l1", repoPath: "/srv/murmur" })],
+      {},
+      [mac("r1", { remoteSlug: "kai/murmur" }), mac("r2", { remoteSlug: "Kai/Murmur" })],
+      repos,
+    );
+    expect(chips).toEqual([{ repoPath: "/srv/murmur", count: 3, drain: null }]);
+  });
+
+  it("keeps the chip, keyed by the checkout's realpath, once only other machines run it", () => {
+    const chips = repoChipRows(
+      [],
+      {},
+      [mac("r1", { remoteSlug: "kai/murmur" }), mac("r2", { remoteSlug: "kai/murmur" })],
+      repos,
+    );
+    expect(chips).toEqual([{ repoPath: "/srv/murmur", count: 2, drain: null }]);
+    expect(staleFilterRepos(new Set(["/srv/murmur"]), chips)).toEqual([]);
+  });
+
+  it("adds to a local chip keyed by the checkout's raw path", () => {
+    const chips = repoChipRows(
+      [session({ id: "l1", repoPath: "/home/k/murmur" })],
+      {},
+      [mac("r1", { remoteSlug: "kai/murmur" })],
+      repos,
+    );
+    expect(chips).toEqual([{ repoPath: "/home/k/murmur", count: 2, drain: null }]);
+  });
+
+  it("gives a project only another machine has a chip of its own", () => {
+    const chips = repoChipRows(
+      [session({ id: "l1", repoPath: "/srv/murmur" })],
+      {},
+      [mac("r1", { remoteSlug: "Acme/App" }), mac("r2", { remoteSlug: "acme/app" })],
+      repos,
+    );
+    expect(chips).toEqual([
+      { repoPath: "/srv/murmur", count: 1, drain: null },
+      { repoPath: "project:acme/app", count: 2, drain: null },
+    ]);
+  });
+
+  it("leaves out a mirrored session without a project and an archived one", () => {
+    const chips = repoChipRows(
+      [],
+      {},
+      [mac("r1"), mac("r2", { remoteSlug: "kai/murmur", status: "archived" })],
+      repos,
+    );
+    expect(chips).toEqual([]);
+  });
+
+  it("counts toward every live checkout of the same project, else the first by realpath", () => {
+    const twice = [
+      ...repos,
+      { path: "/home/k/murmur-2", realPath: "/home/k/murmur-2", remoteSlug: "kai/murmur" },
+    ];
+    const both = repoChipRows(
+      [
+        session({ id: "l1", repoPath: "/srv/murmur" }),
+        session({ id: "l2", repoPath: "/home/k/murmur-2" }),
+      ],
+      {},
+      [mac("r1", { remoteSlug: "kai/murmur" })],
+      twice,
+    );
+    expect(both.map((c) => [c.repoPath, c.count])).toEqual([
+      ["/home/k/murmur-2", 2],
+      ["/srv/murmur", 2],
+    ]);
+    const none = repoChipRows([], {}, [mac("r1", { remoteSlug: "kai/murmur" })], twice);
+    expect(none.map((c) => [c.repoPath, c.count])).toEqual([["/home/k/murmur-2", 1]]);
+  });
+});
+
 // ─── chipRailVisible ──────────────────────────────────────────────────────────
 
 describe("chipRailVisible", () => {
@@ -617,6 +710,61 @@ describe("pickRepoSwitchTarget", () => {
   it("re-targets even with no session previously selected", () => {
     const sessions = [session({ id: "b1", repoPath: "/repos/b", status: "running" })];
     expect(pickRepoSwitchTarget("/repos/b", sessions, {}, {}, null)).toBe("b1");
+  });
+
+  describe("a repo only other machines still run (#2762)", () => {
+    const local = [session({ id: "a1", repoPath: "/repos/a", status: "running" })];
+    const mirrored = (sessions: Session[], selectedId: string | null = null) => ({
+      sessions,
+      selectedId,
+    });
+
+    it("lands on the longest-blocked mirrored session first", () => {
+      const remote = [
+        session({ id: "r-run", status: "running", updatedAt: 1 }),
+        session({ id: "r-new", status: "blocked", updatedAt: 200 }),
+        session({ id: "r-old", status: "blocked", updatedAt: 100 }),
+        session({ id: "r-shelved", status: "blocked", updatedAt: 50, shelved: true }),
+      ];
+      expect(pickRepoSwitchTarget("/repos/b", local, {}, {}, local[0], {}, mirrored(remote))).toBe(
+        "r-old",
+      );
+    });
+
+    it("then on a running one, then on the first", () => {
+      const running = [
+        session({ id: "r-idle", status: "idle" }),
+        session({ id: "r-run", status: "running" }),
+      ];
+      expect(pickRepoSwitchTarget("/repos/b", local, {}, {}, local[0], {}, mirrored(running))).toBe(
+        "r-run",
+      );
+      const resting = [
+        session({ id: "r-idle", status: "idle" }),
+        session({ id: "r-done", status: "done" }),
+      ];
+      expect(pickRepoSwitchTarget("/repos/b", local, {}, {}, null, {}, mirrored(resting))).toBe(
+        "r-idle",
+      );
+    });
+
+    it("stays put when a mirrored session of the repo is already open", () => {
+      const remote = [
+        session({ id: "r-idle", status: "idle" }),
+        session({ id: "r-blocked", status: "blocked" }),
+      ];
+      expect(
+        pickRepoSwitchTarget("/repos/b", local, {}, {}, null, {}, mirrored(remote, "r-idle")),
+      ).toBeNull();
+    });
+
+    it("prefers the repo's own local sessions", () => {
+      const sessions = [...local, session({ id: "b1", repoPath: "/repos/b", status: "idle" })];
+      const remote = [session({ id: "r-blocked", status: "blocked" })];
+      expect(
+        pickRepoSwitchTarget("/repos/b", sessions, {}, {}, local[0], {}, mirrored(remote)),
+      ).toBe("b1");
+    });
   });
 });
 

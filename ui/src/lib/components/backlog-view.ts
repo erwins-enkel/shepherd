@@ -4,6 +4,7 @@
  */
 import type { BacklogPayload, BacklogProject, DrainStatus } from "#lib/types.js";
 import { searchRepos } from "#lib/repo-search.js";
+import { projectKeySlug } from "#lib/remote-sessions.js";
 
 /**
  * Format a count for display: number as-is, null as the em-dash placeholder
@@ -310,14 +311,18 @@ export function routePageTabKey(
  * The dashboard's repo filter as backlog project paths. The filter holds session real
  * paths while a backlog project's `path` is the raw `repoRoot/name` form, so a repo
  * known to `entries` maps `realPath → path`; an unknown one passes through unchanged
- * (the dialog then drops it if the backlog doesn't list it). Order kept, duplicates dropped.
+ * (the dialog then drops it if the backlog doesn't list it). A project only other machines
+ * have (`project:` key) has no backlog here and is skipped. Order kept, duplicates dropped.
  */
 export function resolveFilterPaths(
   filter: Iterable<string>,
   entries: readonly { path: string; realPath: string }[],
 ): string[] {
   const out = new Set<string>();
-  for (const p of filter) out.add(entries.find((e) => e.realPath === p)?.path ?? p);
+  for (const p of filter) {
+    if (projectKeySlug(p) !== null) continue;
+    out.add(entries.find((e) => e.realPath === p)?.path ?? p);
+  }
   return [...out];
 }
 

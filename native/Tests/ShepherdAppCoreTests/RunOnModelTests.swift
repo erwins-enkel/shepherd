@@ -84,6 +84,35 @@ extension CoreSeamTests {
         #expect(try body(model.createRequest(baseBranch: "main"))["target"] == nil)
     }
 
+    @Test func aMachineWithoutTheCheckoutIsOfferedAndSaysItClonesFirst() async throws {
+        let fake = FakeReads()
+        fake.preview = { request in
+            var preview = try activePreview(target: request.target == nil ? linuxJSON : macJSON)
+            preview.withoutCheckout = ["mac"]
+            return preview
+        }
+        let model = composer(fake)
+        defer { model.teardown() }
+        await model.refreshPlacement()
+        let mac = try #require(model.runOn.machines.first { $0.instanceId == "mac" })
+        let linux = try #require(model.runOn.machines.first { $0.instanceId == "linux" })
+        #expect(model.runOn.needsClone(mac))
+        #expect(!model.runOn.needsClone(linux))
+        #expect(PlacementCopy.machineLabel(mac, clone: true)
+                == L.t("newtask_runon_machine_clone", PlacementCopy.machineLabel(mac)))
+        #expect(!model.runOn.remoteTargetClones, "Automatic placed it here")
+
+        model.runOn.pick = "mac"
+        await model.refreshPlacement()
+        #expect(model.runOn.remoteTargetClones)
+        #expect(PlacementCopy.sending(to: "MacBook", clones: true, repoPath: model.repoPath)
+                == L.t("newtask_runon_cloning", "repo", "MacBook"))
+        #expect(PlacementCopy.cloneNotice("MacBook", repoPath: "/home/me/projects/murmur")
+                == L.t("newtask_runon_clone_notice", "MacBook", "murmur"))
+        #expect(PlacementCopy.cloneFailure("clonerepo_failed_auth") == L.t("clonerepo_failed_auth"))
+        #expect(PlacementCopy.cloneFailure("first_run_pending") == L.t("clonerepo_failed_generic"))
+    }
+
     @Test func requirementsAreReadFromTheTaskAndTheQuestionBlocksTheStart() async throws {
         let fake = FakeReads()
         fake.preview = { _ in try activePreview(derive: true) }

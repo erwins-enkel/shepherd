@@ -2521,6 +2521,23 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
+  /** It never goes out: its machine could not take it after all (`code` says why, `reason` the
+   *  detail) — the project could not be cloned there. */
+  rejectWaitingRemoteDispatch(
+    id: string,
+    code: string,
+    reason: string | null,
+    now = Date.now(),
+  ): boolean {
+    return (
+      this.db.run(
+        `UPDATE remote_dispatches SET state = 'rejected', code = ?, reason = ?, updatedAt = ?
+           WHERE id = ? AND state = 'waiting'`,
+        [code, reason, now, id],
+      ).changes === 1
+    );
+  }
+
   /** It runs on this machine instead: the row goes, its client key now names a local dispatch. */
   deleteWaitingRemoteDispatch(id: string): boolean {
     return (

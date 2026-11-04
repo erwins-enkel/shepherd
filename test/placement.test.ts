@@ -54,6 +54,7 @@ function machine(
     reason: null,
     released: true,
     hasProject: true,
+    cloneable: true,
     report: report([`platform:${platform}` as Capability, "agent:claude"]),
     ...over,
   };
@@ -146,17 +147,63 @@ describe("automatic placement", () => {
     );
     expect(d).toEqual({
       ok: false,
-      refusal: { code: "no_suitable_machine", missing: ["xcode"], together: false, elsewhere: [] },
+      refusal: { code: "no_suitable_machine", missing: ["xcode"], together: false },
     });
     expect(target([linux({ local: true }), stale], request())).toBe(LINUX_ID);
   });
 
-  test("unreleased platforms and machines without the project never run it", () => {
+  test("unreleased platforms and projects without a slug never run there", () => {
     const win = machine("00000000-0000-4000-8000-000000000001", "win", "windows", {
       released: false,
     });
     expect(target([mac({ local: true }), win], request())).toBe(MAC_ID);
-    expect(target([mac({ local: true }), linux({ hasProject: false })], request())).toBe(MAC_ID);
+    const noSlug = linux({ hasProject: false, cloneable: false });
+    expect(target([mac({ local: true }), noSlug], request())).toBe(MAC_ID);
+  });
+
+  test("a machine with the checkout wins over a preferred one that would clone it", () => {
+    // Linux is preferred, but only the Mac has the checkout.
+    const views = [mac({ local: true }), linux({ hasProject: false })];
+    expect(decidePlacement(views, request())).toMatchObject({
+      ok: true,
+      placement: { target: mac().host, basis: "only_candidate" },
+    });
+    // Asleep, the machine with the checkout is still the one waited for; the clone is offered.
+    const asleep = mac({ connected: false, status: "unreachable" });
+    expect(
+      decidePlacement(
+        [linux({ local: true, report: report(["platform:linux"]) }), asleep],
+        request({ requirements: ["xcode"] }),
+      ),
+    ).toMatchObject({ ok: true, placement: { target: asleep.host }, wait: { alternatives: [] } });
+    const box = machine("00000000-0000-4000-8000-000000000003", "box", "macos", {
+      hasProject: false,
+      report: report(["platform:macos", "xcode"]),
+    });
+    expect(
+      decidePlacement([linux({ local: true }), asleep, box], request({ requirements: ["xcode"] })),
+    ).toMatchObject({
+      ok: true,
+      placement: { target: asleep.host },
+      wait: { alternatives: [box.host] },
+    });
+  });
+
+  test("when only a machine without the checkout fits, the task goes there to clone it", () => {
+    const views = [linux({ local: true }), mac({ hasProject: false })];
+    expect(decidePlacement(views, request({ requirements: ["xcode"] }))).toMatchObject({
+      ok: true,
+      placement: { mode: "auto", target: mac().host, basis: "requirements", preferred: null },
+    });
+    // Out of reach, it is waited for — the clone happens when the task is sent.
+    const asleep = mac({ hasProject: false, connected: false, status: "unreachable" });
+    expect(
+      decidePlacement([linux({ local: true }), asleep], request({ requirements: ["xcode"] })),
+    ).toMatchObject({
+      ok: true,
+      placement: { target: asleep.host },
+      wait: { status: "unreachable", alternatives: [] },
+    });
   });
 
   test("an offline preferred machine is waited for, never replaced by the next one", () => {
@@ -203,7 +250,6 @@ describe("automatic placement", () => {
         code: "no_suitable_machine",
         missing: ["android-sdk"],
         together: false,
-        elsewhere: [],
       },
     });
     // Each exists somewhere, never on one machine.
@@ -212,14 +258,14 @@ describe("automatic placement", () => {
       ok: false,
       refusal: { missing: ["platform:linux", "xcode"], together: true },
     });
-    // The Mac has Xcode but not the project.
-    const noCheckout = decidePlacement(
-      [linux({ local: true }), mac({ hasProject: false })],
+    // The Mac has Xcode, but the project has no slug to find or clone it there.
+    const noSlug = decidePlacement(
+      [linux({ local: true }), mac({ hasProject: false, cloneable: false })],
       request({ requirements: ["xcode"] }),
     );
-    expect(noCheckout).toMatchObject({
+    expect(noSlug).toEqual({
       ok: false,
-      refusal: { missing: ["xcode"], elsewhere: [mac().host] },
+      refusal: { code: "no_suitable_machine", missing: ["xcode"], together: false },
     });
   });
 });
@@ -234,6 +280,17 @@ describe("manual placement", () => {
       placement: { mode: "manual", basis: "manual", preferred: null, target: mac().host },
     });
     expect(target(views, request({ override: LINUX_ID }))).toBe(LINUX_ID);
+  });
+
+  test("a machine without the checkout is kept: the project is cloned there", () => {
+    const d = decidePlacement(
+      [linux({ local: true }), mac({ hasProject: false })],
+      request({ override: MAC_ID }),
+    );
+    expect(d).toMatchObject({
+      ok: true,
+      placement: { mode: "manual", basis: "manual", target: mac().host },
+    });
   });
 
   test("a machine that does not fit is refused with the reason", () => {
@@ -260,7 +317,7 @@ describe("manual placement", () => {
     ).toMatchObject({ ok: false, refusal: { code: "remote_target_unreleased", reason: "macos" } });
     expect(
       decidePlacement(
-        [linux({ local: true }), mac({ hasProject: false })],
+        [linux({ local: true }), mac({ hasProject: false, cloneable: false })],
         request({ override: MAC_ID }),
       ),
     ).toMatchObject({ ok: false, refusal: { code: "remote_project_missing" } });
@@ -321,10 +378,9 @@ describe("rules", () => {
       code: "remote_target_unreleased",
       reason: "macos",
     });
-    expect(remoteUnfit(base, "acme/other")).toEqual({
-      code: "remote_project_missing",
-      reason: null,
-    });
+    // No checkout: the dispatch clones it. No slug: nothing to find or clone.
+    expect(remoteUnfit(base, "acme/other")).toBeNull();
+    expect(remoteUnfit(base, "")).toEqual({ code: "remote_project_missing", reason: null });
   });
 
   test("refusals read as sentences", () => {
@@ -333,19 +389,8 @@ describe("rules", () => {
         code: "no_suitable_machine",
         missing: ["xcode"],
         together: false,
-        elsewhere: [],
       }),
     ).toBe("no connected machine has xcode; nothing was started");
-    expect(
-      describeRefusal({
-        code: "no_suitable_machine",
-        missing: ["xcode"],
-        together: false,
-        elsewhere: [mac().host],
-      }),
-    ).toBe(
-      "no connected machine has xcode; MacBook would, but has no checkout of this project; nothing was started",
-    );
     expect(
       describeRefusal({
         code: "missing_capabilities",
@@ -400,6 +445,9 @@ describe("waiting tasks (#2775)", () => {
     expect(fittingNow(views, [], DEFAULT_PLATFORM_ORDER)).toEqual([linux().host, mac().host]);
     expect(fittingNow(views, [], DEFAULT_PLATFORM_ORDER, LINUX_ID)).toEqual([mac().host]);
     expect(fittingNow(views, ["xcode"], DEFAULT_PLATFORM_ORDER, MAC_ID)).toEqual([]);
+    // A machine that would clone the project comes after those with the checkout.
+    const cloning = [mac({ local: true }), linux({ hasProject: false })];
+    expect(fittingNow(cloning, [], DEFAULT_PLATFORM_ORDER)).toEqual([mac().host, linux().host]);
   });
 
   function summary(over: Partial<RemoteInstanceSummary> = {}): RemoteInstanceSummary {
@@ -435,7 +483,9 @@ describe("waiting tasks (#2775)", () => {
     expect(readinessOf(summary({ released: false }), "acme/app", [])).toEqual({
       state: "unreleased",
     });
-    expect(readinessOf(summary(), "acme/other", [])).toEqual({ state: "project_missing" });
+    // No checkout yet: it is cloned when the task is sent. No slug: nothing to clone.
+    expect(readinessOf(summary(), "acme/other", [])).toEqual({ state: "ready" });
+    expect(readinessOf(summary(), "", [])).toEqual({ state: "project_missing" });
     expect(readinessOf(summary(), "acme/app", ["xcode", "sdk:ios"])).toEqual({
       state: "missing_capabilities",
       missing: [{ capability: "sdk:ios", reason: "not_installed" }],
@@ -463,6 +513,7 @@ describe("waiting tasks (#2775)", () => {
       connected: true,
       released: true,
       hasProject: true,
+      cloneable: false,
     });
     const [m] = remoteMachineViews([summary({ status: "unreachable" })], "acme/app");
     expect(m).toMatchObject({
@@ -471,8 +522,16 @@ describe("waiting tasks (#2775)", () => {
       connected: false,
       released: true,
       hasProject: true,
+      cloneable: true,
     });
-    expect(remoteMachineViews([summary()], undefined)[0]!.hasProject).toBe(false);
+    expect(remoteMachineViews([summary()], "acme/other")[0]).toMatchObject({
+      hasProject: false,
+      cloneable: true,
+    });
+    expect(remoteMachineViews([summary()], undefined)[0]).toMatchObject({
+      hasProject: false,
+      cloneable: false,
+    });
   });
 });
 
@@ -497,9 +556,13 @@ describe("whether reading requirements from a task can change the choice (#2773)
     expect(choiceDependsOn([], DERIVABLE)).toBe(false);
   });
 
-  test("a machine without the project or on an unreleased platform is no candidate", () => {
-    expect(choiceDependsOn([linux(), mac({ hasProject: false })], DERIVABLE)).toBe(false);
+  test("a machine that cannot get the project or runs an unreleased platform is no candidate", () => {
+    expect(
+      choiceDependsOn([linux(), mac({ hasProject: false, cloneable: false })], DERIVABLE),
+    ).toBe(false);
     expect(choiceDependsOn([linux(), mac({ released: false })], DERIVABLE)).toBe(false);
+    // Without the checkout it still counts: the project would be cloned there.
+    expect(choiceDependsOn([linux(), mac({ hasProject: false })], DERIVABLE)).toBe(true);
   });
 
   test("a Mac out of reach counts on its last report; a connected one's stale report verifies nothing", () => {

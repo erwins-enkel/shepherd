@@ -4,9 +4,12 @@
  * the create handler validates, authorizes and hands over, and implements no remote logic itself.
  *
  * Order, and why:
- * 1. Pre-flight, nothing stored: the machine is known, connected and has the project (its forge
- *    slug) checked out; the project is mapped to the machine's own checkout through its fresh
- *    `GET /api/repos`. A refusal here has sent nothing, so the client can simply submit again.
+ * 1. Pre-flight, nothing stored: the machine is known and connected; the project (its forge slug)
+ *    is mapped to the machine's own checkout through its fresh `GET /api/repos`. A machine without
+ *    a checkout clones it first (`ensureCheckout`): its own `POST /api/repos` with this checkout's
+ *    origin URL — user info dropped, the machine clones with its own credentials — then its repos are
+ *    read again. Concurrent sends for the same machine and project share that one clone. A refusal
+ *    or a failed clone here has sent nothing, so the client can simply submit again.
  * 2. The dispatch is stored (`remote_dispatches`) BEFORE it is sent: the machine it goes to, the
  *    exact body, and a dispatch ID generated here — never the client's key, so keys two clients
  *    happen to share can never collide at the machine.
@@ -39,8 +42,10 @@
  * as `waiting` and NOT sent — nothing goes to any machine, no attachment is uploaded. After every
  * probe that finds that machine connected it is judged again (`readinessOf`: platform, project,
  * requirements); a task with requirements asks the machine for a fresh capability check
- * (`POST /api/instance/capabilities`) right before it is sent, then its project path is mapped and
- * it goes out like any other dispatch — attachments first. Until then it can be canceled (it never
+ * (`POST /api/instance/capabilities`) right before it is sent, then its project path is mapped —
+ * cloned there first when the machine has no checkout; a clone that fails ends the task as
+ * `rejected` (`remote_clone_failed`), it is never tried again on its own — and it goes out like any
+ * other dispatch, attachments first. Until then it can be canceled (it never
  * goes out) or redirected: to another machine (`redirect`, same dispatch ID — it was never sent)
  * or to this one (`claimForHere`, after which the row is gone and the client key names a local
  * dispatch). A machine that is removed here takes its waiting tasks with it (canceled). Every
@@ -58,6 +63,7 @@
 import { randomUUID } from "node:crypto";
 import { basename, extname } from "node:path";
 import type { EventHub } from "../events";
+import { originCloneUrl } from "../repos";
 import type { SessionStore } from "../store";
 import {
   type Capability,
@@ -100,6 +106,18 @@ const REMOTE_UPLOAD_TIMEOUT_MS = 120_000;
 
 /** The machine's capability probe runs each check with its own 5 s timeout, one after another. */
 const REMOTE_CAPABILITY_TIMEOUT_MS = 60_000;
+
+/** A clone there answers once the machine's own 120 s clone timeout has. */
+const REMOTE_CLONE_TIMEOUT_MS = 150_000;
+
+/** Why a clone there failed: the machine's error code (`clonerepo_failed_*`, `first_run_pending`,
+ *  …), never free text. */
+const CLONE_ERROR_RE = /^[a-z][a-z0-9_]{0,63}$/;
+const CLONE_FAILED = "clonerepo_failed_generic";
+const CLONE_EXISTS = "clonerepo_failed_exists";
+
+/** The dispatch code of a task whose project could not be cloned onto its machine. */
+export const REMOTE_CLONE_FAILED = "remote_clone_failed";
 
 /** `sending` = stored, no answer yet; `unknown` = sent, no answer — it may have started;
  *  `upload_failed` = an attachment did not reach the machine, so the task was never sent;
@@ -243,6 +261,8 @@ export type RemoteOutcome =
     }
   | { kind: "unknown"; host: SessionHost; dispatchKey: string }
   | { kind: "upload_failed"; host: SessionHost; reason: string }
+  /** The machine had no checkout and could not clone it (`error`: its error code); nothing sent. */
+  | { kind: "clone_failed"; host: SessionHost; error: string }
   | { kind: "canceled"; host: SessionHost }
   | { kind: "cancel_pending"; host: SessionHost }
   | { kind: "waiting"; dispatch: RemoteDispatchView; count: number }
@@ -268,10 +288,14 @@ type Store = Pick<
   | "startWaitingRemoteDispatch"
   | "retargetWaitingRemoteDispatch"
   | "cancelWaitingRemoteDispatch"
+  | "rejectWaitingRemoteDispatch"
   | "deleteWaitingRemoteDispatch"
   | "settleHeldRemoteDispatch"
 >;
-type Instances = Pick<RemoteInstanceService, "get" | "list" | "noteCapabilities">;
+type Instances = Pick<RemoteInstanceService, "get" | "list" | "noteCapabilities" | "noteProject">;
+
+/** Where a machine's checkout of a project is, or why there is none to send a task to. */
+type CheckoutResult = { ok: true; path: string } | { ok: false; outcome: RemoteOutcome };
 
 const NO_OUTCOME = { sessionId: null, heldId: null, reason: null, code: null, httpStatus: null };
 
@@ -316,6 +340,12 @@ export function placementOf(wireBody: string): Placement | null {
   return record && !("error" in record) ? record : null;
 }
 
+/** A machine's answer to `POST /api/repos`, read as the clone's error code. */
+function cloneError(body: unknown): string {
+  const error = isRecord(body) ? body.error : undefined;
+  return typeof error === "string" && CLONE_ERROR_RE.test(error) ? error : CLONE_FAILED;
+}
+
 /** Ready, or only unconfirmed for want of a fresh report: then asking the machine is worth it. */
 function worthAsking(readiness: Readiness): boolean {
   if (readiness.state === "ready") return true;
@@ -346,6 +376,8 @@ export class RemoteDispatcher {
   private readonly inflight = new Map<string, Promise<RemoteOutcome>>();
   /** Checks, cancels and redirects running in this process, by dispatch ID (#2774). */
   private readonly checks = new Map<string, Promise<void>>();
+  /** Clones running on a machine, by machine and project — a concurrent send waits for the same. */
+  private readonly clones = new Map<string, Promise<CheckoutResult>>();
   /** The last view announced of each waiting dispatch (#2775): its readiness and alternatives follow
    *  the machines, so it is announced again whenever that changes. */
   private readonly lastShown = new Map<string, string>();
@@ -355,6 +387,7 @@ export class RemoteDispatcher {
   private readonly fetch: FetchLike | undefined;
   private readonly now: () => number;
   private readonly here: (() => MachineView | null) | undefined;
+  private readonly cloneSource: (repoPath: string) => Promise<string | null>;
 
   constructor(deps: {
     store: Store;
@@ -364,6 +397,10 @@ export class RemoteDispatcher {
     now?: () => number;
     /** This Shepherd as the machine choice sees it (#2775), for what a waiting task could run on. */
     here?: () => MachineView | null;
+    /** The URL a machine without a checkout clones the project from, given this Shepherd's own
+     *  checkout of it (the task's `repoPath`); null when there is none. Defaults to that
+     *  checkout's origin, user info dropped (`originCloneUrl`). */
+    cloneSource?: (repoPath: string) => Promise<string | null>;
   }) {
     this.store = deps.store;
     this.instances = deps.instances;
@@ -371,6 +408,7 @@ export class RemoteDispatcher {
     this.fetch = deps.fetch;
     this.now = deps.now ?? Date.now;
     this.here = deps.here;
+    this.cloneSource = deps.cloneSource ?? originCloneUrl;
   }
 
   /** Dispatches no machine has confirmed yet, waiting here for their machine or held there, of
@@ -586,18 +624,78 @@ export class RemoteDispatcher {
     const machine = this.instances.get(req.instanceId);
     const creds = this.store.getRemoteInstance(req.instanceId);
     if (!machine || !creds) return refused("remote_target_unknown");
-    // Not connected, a platform not released for tasks (#2770) or no checkout of the project.
+    // Not connected, a platform not released for tasks (#2770) or no project to find or clone.
     const unfit = remoteUnfit(machine, req.project);
     if (unfit) return refused(unfit.code, unfit.reason);
-    const repos = await getRemoteJson(creds, "/api/repos", { fetch: this.fetch });
-    if (!repos.ok) return refused("remote_target_unavailable", repos.failure.reason);
-    return parseProjectPath(repos.body, req.project) ?? refused("remote_project_missing");
+    const checkout = await this.ensureCheckout(
+      req.instanceId,
+      creds,
+      req.project,
+      req.body.repoPath,
+    );
+    return checkout.ok ? checkout.path : checkout.outcome;
   }
 
-  /** The machine's own path for `project`, read fresh; null when it cannot say right now. */
-  private async projectPath(creds: RemoteTarget, project: string): Promise<string | null> {
+  /** The machine's own path for `project`, read fresh — cloned there first when it has no checkout,
+   *  from `repoPath`, this Shepherd's checkout of it. */
+  private async ensureCheckout(
+    instanceId: string,
+    creds: RemoteTarget,
+    project: string,
+    repoPath: unknown,
+  ): Promise<CheckoutResult> {
+    // A clone in flight comes first: mid-clone the machine may already list the half-made checkout.
+    const key = `${instanceId}\n${project}`;
+    const running = this.clones.get(key);
+    if (running) return running;
+    const found = await this.findCheckout(creds, project);
+    if (found !== null) return found;
+    const started = this.clones.get(key);
+    if (started) return started;
+    const clone = this.cloneThere(instanceId, creds, project, repoPath).finally(() =>
+      this.clones.delete(key),
+    );
+    this.clones.set(key, clone);
+    return clone;
+  }
+
+  /** The machine's checkout of `project` from its fresh repo list; null when it has none. */
+  private async findCheckout(creds: RemoteTarget, project: string): Promise<CheckoutResult | null> {
     const repos = await getRemoteJson(creds, "/api/repos", { fetch: this.fetch });
-    return repos.ok ? parseProjectPath(repos.body, project) : null;
+    if (!repos.ok) {
+      return { ok: false, outcome: refused("remote_target_unavailable", repos.failure.reason) };
+    }
+    const path = parseProjectPath(repos.body, project);
+    return path ? { ok: true, path } : null;
+  }
+
+  /** Clone `project` onto the machine (its `POST /api/repos`) and read where it landed. A folder of
+   *  that name already there is fine only when it is this project — a concurrent clone. */
+  private async cloneThere(
+    instanceId: string,
+    creds: RemoteTarget,
+    project: string,
+    repoPath: unknown,
+  ): Promise<CheckoutResult> {
+    const url = typeof repoPath === "string" ? await this.cloneSource(repoPath) : null;
+    if (!url) return { ok: false, outcome: refused("remote_project_missing") };
+    const res = await postRemoteJson(creds, "/api/repos", JSON.stringify({ url }), {
+      fetch: this.fetch,
+      timeoutMs: REMOTE_CLONE_TIMEOUT_MS,
+    });
+    if (res.kind === "no_answer") {
+      return { ok: false, outcome: refused("remote_target_unavailable", res.reason) };
+    }
+    const error = res.status === 201 ? null : cloneError(res.body);
+    if (error !== null && error !== CLONE_EXISTS) return this.cloneFailed(instanceId, error);
+    const found = await this.findCheckout(creds, project);
+    if (found === null) return this.cloneFailed(instanceId, error ?? CLONE_FAILED);
+    if (found.ok) this.instances.noteProject(instanceId, project, found.path);
+    return found;
+  }
+
+  private cloneFailed(instanceId: string, error: string): CheckoutResult {
+    return { ok: false, outcome: { kind: "clone_failed", host: this.host(instanceId), error } };
   }
 
   private async retry(row: RemoteDispatchRow, payloadHash: string): Promise<RemoteOutcome> {
@@ -658,12 +756,13 @@ export class RemoteDispatcher {
       const fresh = await this.freshCapabilities(row.instanceId, creds);
       if (!fresh || missingRequirements(fresh, requirements).length > 0) return null;
     }
-    const path = await this.projectPath(creds, project);
-    if (path === null) return null;
+    // A waiting row holds this Shepherd's own repo path: what a missing checkout is cloned from.
     const body = JSON.parse(row.wireBody) as Record<string, unknown>;
+    const checkout = await this.ensureCheckout(row.instanceId, creds, project, body.repoPath);
+    if (!checkout.ok) return this.endWaitingOnCloneFailure(id, checkout.outcome);
     const wire = JSON.stringify({
       ...body,
-      repoPath: path,
+      repoPath: checkout.path,
       target: { instanceId: row.instanceId },
     });
     // A redirect or a cancel got there first.
@@ -672,6 +771,18 @@ export class RemoteDispatcher {
     // It was shown as waiting: say how it ended (a shown outcome announced itself already).
     const settled = this.store.getRemoteDispatch(id)!;
     if (!SHOWN_STATES.has(settled.state)) this.announce(settled);
+    return outcome;
+  }
+
+  /** A waiting task whose machine could not clone its project ends as `rejected`, announced. Not
+   *  tried again on its own: a clone that failed once (credentials, a folder in the way) fails the
+   *  same way next time. Null while it keeps waiting — no answer from the machine — or when a
+   *  redirect or a cancel got there first: theirs stands. */
+  private endWaitingOnCloneFailure(id: string, outcome: RemoteOutcome): RemoteOutcome | null {
+    if (outcome.kind !== "clone_failed") return null;
+    const code = REMOTE_CLONE_FAILED;
+    if (!this.store.rejectWaitingRemoteDispatch(id, code, outcome.error, this.now())) return null;
+    this.announce(this.store.getRemoteDispatch(id)!);
     return outcome;
   }
 

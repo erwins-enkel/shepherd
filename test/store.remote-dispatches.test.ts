@@ -116,6 +116,7 @@ describe("remote_dispatches", () => {
     expect(store.startWaitingRemoteDispatch("d-1", "{}", 7)).toBe(false);
     expect(store.retargetWaitingRemoteDispatch("d-1", "m-3", "{}", 7)).toBe(false);
     expect(store.cancelWaitingRemoteDispatch("d-1", null, 7)).toBe(false);
+    expect(store.rejectWaitingRemoteDispatch("d-1", "remote_clone_failed", null, 7)).toBe(false);
     expect(store.deleteWaitingRemoteDispatch("d-1")).toBe(false);
     expect(store.retargetWaitingRemoteDispatch("d-2", "m-3", "{}", 7)).toBe(false);
 
@@ -124,6 +125,16 @@ describe("remote_dispatches", () => {
     expect(store.getRemoteDispatch("d-3")).toMatchObject({
       state: "canceled",
       code: "machine_removed",
+    });
+    store.insertRemoteDispatch(row({ id: "d-5", clientKey: "key-5", state: "waiting" }));
+    expect(
+      store.rejectWaitingRemoteDispatch("d-5", "remote_clone_failed", "clonerepo_failed_auth", 9),
+    ).toBe(true);
+    expect(store.getRemoteDispatch("d-5")).toMatchObject({
+      state: "rejected",
+      code: "remote_clone_failed",
+      reason: "clonerepo_failed_auth",
+      updatedAt: 9,
     });
     store.insertRemoteDispatch(row({ id: "d-4", clientKey: "key-4", state: "waiting" }));
     expect(store.deleteWaitingRemoteDispatch("d-4")).toBe(true);

@@ -85,9 +85,43 @@ public enum PlacementCopy {
         ids.map(capabilityLabel).formatted(.list(type: .and))
     }
 
-    /// "MacBook (macOS)", as Run on lists a machine.
-    public static func machineLabel(_ host: SessionHost) -> String {
-        L.t("newtask_runon_machine", host.name, RemoteSessionCopy.platformName(host.platform))
+    /// "MacBook (macOS)", as Run on lists a machine — with "· clones first" after it when the
+    /// machine has no checkout of the project yet.
+    public static func machineLabel(_ host: SessionHost, clone: Bool = false) -> String {
+        let label = L.t("newtask_runon_machine", host.name, RemoteSessionCopy.platformName(host.platform))
+        return clone ? L.t("newtask_runon_machine_clone", label) : label
+    }
+
+    /// "MacBook has no checkout of app yet — Shepherd clones it …", under Run on while the task
+    /// goes to a machine that clones the project first.
+    public static func cloneNotice(_ machine: String, repoPath: String) -> String {
+        L.t("newtask_runon_clone_notice", machine, projectName(repoPath))
+    }
+
+    /// What the composer says while a create goes to `machine`: "Starting on MacBook", or "Cloning
+    /// app on MacBook, then starting there" when the project is cloned there first.
+    public static func sending(to machine: String, clones: Bool, repoPath: String) -> String {
+        clones
+            ? L.t("newtask_runon_cloning", projectName(repoPath), machine)
+            : L.t("newtask_runon_starting", machine)
+    }
+
+    /// The project as the repo picker names it: its checkout's folder.
+    private static func projectName(_ repoPath: String) -> String {
+        (repoPath as NSString).lastPathComponent
+    }
+
+    /// A failed clone's error code (`clonerepo_failed_auth`, …) in words; an unknown one reads as
+    /// the generic failure. The web's `cloneFailureText`.
+    public static func cloneFailure(_ code: String) -> String {
+        switch code {
+        case "clonerepo_failed_auth": L.t("clonerepo_failed_auth")
+        case "clonerepo_failed_exists": L.t("clonerepo_failed_exists")
+        case "clonerepo_failed_url": L.t("clonerepo_failed_url")
+        case "clonerepo_failed_outside": L.t("clonerepo_failed_outside")
+        case "clonerepo_failed_timeout": L.t("clonerepo_failed_timeout")
+        default: L.t("clonerepo_failed_generic")
+        }
     }
 
     /// Glossary markers (`[[id|Label]]`) the web renders as terms, read as their label.
@@ -222,6 +256,8 @@ public enum PlacementCopy {
         switch code {
         case "remote_rejected": return L.t("newtask_runon_rejected", machine, message)
         case "remote_upload_failed": return L.t("newtask_runon_upload_failed", machine, message)
+        // `message` is the machine's clone error code.
+        case "remote_clone_failed": return L.t("newtask_runon_clone_failed", machine, cloneFailure(message))
         case "remote_target_unavailable": return L.t("newtask_runon_unavailable", machine)
         case "remote_target_unreleased": return L.t("newtask_runon_unreleased", machine)
         case "remote_project_missing": return L.t("newtask_runon_project_missing", machine)

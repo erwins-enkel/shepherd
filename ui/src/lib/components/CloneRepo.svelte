@@ -12,6 +12,7 @@
   import type { RepoEntry } from "#lib/types.js";
   import { dialog } from "#lib/a11yDialog.js";
   import { accessCase, looksLikeGithubUrl } from "#lib/clone-access.js";
+  import { cloneFailureText } from "#lib/clone-errors.js";
   import { m } from "#lib/paraglide/messages.js";
   import CloneAccessPanel from "./CloneAccessPanel.svelte";
   import CloneGitNote from "./CloneGitNote.svelte";
@@ -111,23 +112,6 @@
   const hasVisible = $derived(groups.length > 0);
   const busy = $derived(submitting || cloningUrl !== null);
 
-  function msg(code: string): string {
-    switch (code) {
-      case "auth":
-        return m.clonerepo_failed_auth();
-      case "exists":
-        return m.clonerepo_failed_exists();
-      case "url":
-        return m.clonerepo_failed_url();
-      case "outside":
-        return m.clonerepo_failed_outside();
-      case "timeout":
-        return m.clonerepo_failed_timeout();
-      default:
-        return m.clonerepo_failed_generic();
-    }
-  }
-
   /** Map a failed clone to the error line, and — for a github.com URL — hand it to the
    *  access panel: a refusal (`auth`) always, a "not found" (`url`) only when gh can see the
    *  repo, since a git token for another account reads a private repo as missing. */
@@ -140,7 +124,7 @@
   ) {
     const code = err instanceof Error ? err.message.replace(/^clonerepo_failed_/, "") : "";
     const detail = err instanceof CloneFailedError ? err.detail : undefined;
-    error = msg(code);
+    error = cloneFailureText(code);
     retry = again;
     failure = null;
     if (!looksLikeGithubUrl(cloneUrl)) return;

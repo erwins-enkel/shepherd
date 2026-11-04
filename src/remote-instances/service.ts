@@ -398,6 +398,18 @@ export class RemoteInstanceService {
       this.states.set(instanceId, { ...state, capabilities: snapshot });
   }
 
+  /** Record a checkout made outside the probe — a task's project cloned there right before the task
+   *  was sent — so the machine's summary lists the project now, not after the next probe. Only while
+   *  it is connected; like `noteCapabilities`, no listener is told. */
+  noteProject(instanceId: string, project: string, path: string): void {
+    const state = this.states.get(instanceId);
+    if (state?.status !== "connected") return;
+    const projects = [...new Set([...(state.projects ?? []), project])].sort();
+    const repoSlugs = new Map(state.repoSlugs ?? []);
+    repoSlugs.set(path, project);
+    this.states.set(instanceId, { ...state, projects, repoSlugs });
+  }
+
   /** Every machine's self-update, for the update window. */
   updates(): MachineUpdate[] {
     return this.store.listRemoteInstances().map((row) => {

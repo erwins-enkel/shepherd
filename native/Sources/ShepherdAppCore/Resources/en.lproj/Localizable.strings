@@ -88,6 +88,12 @@
 "clibadge_label_claude" = "Claude";
 "clibadge_label_codex" = "Codex";
 "clibadge_title" = "Coding CLI: %1$@";
+"clonerepo_failed_auth" = "Access refused: git has no credentials that cover this repo";
+"clonerepo_failed_exists" = "Target folder already exists";
+"clonerepo_failed_generic" = "Clone failed";
+"clonerepo_failed_outside" = "Target is outside repoRoot";
+"clonerepo_failed_timeout" = "Timed out, please retry";
+"clonerepo_failed_url" = "Invalid or unsupported URL";
 "coldresume_chip" = "cold · ≈%1$@ units";
 "coldresume_title" = "Prompt cache expired — this session has been idle longer than its cache lifetime. Its %1$@ of context must be re-sent at the cache-write rate, so the next turn costs about %2$@ weighted units instead of a small fraction of that.";
 "common_cancel" = "Cancel";
@@ -1754,9 +1760,13 @@
 "newtask_requirements_remove" = "Remove %1$@";
 "newtask_research_sandbox_note" = "Research can't use the autonomous profile — web search needs open network access.";
 "newtask_runon_auto" = "Automatic";
+"newtask_runon_clone_failed" = "%1$@ could not clone the project, so nothing was started: %2$@";
+"newtask_runon_clone_notice" = "%1$@ has no checkout of %2$@ yet — Shepherd clones it from origin into %1$@'s project folder first.";
+"newtask_runon_cloning" = "Cloning %1$@ on %2$@, then starting there";
 "newtask_runon_gone" = "%1$@ is no longer connected — nothing was started.";
 "newtask_runon_label" = "Run on";
 "newtask_runon_machine" = "%1$@ (%2$@)";
+"newtask_runon_machine_clone" = "%1$@ · clones first";
 "newtask_runon_notice" = "Starts on %1$@ from %2$@ as pushed to origin — local changes that aren't pushed are not there.";
 "newtask_runon_on" = "on";
 "newtask_runon_project_missing" = "%1$@ has no checkout of this project — nothing was started.";
@@ -1819,7 +1829,7 @@
 "pairing_title" = "Connect iPhone";
 "placement_basis_load" = "Preferred machine %1$@ is under high load";
 "placement_basis_manual" = "Chosen manually";
-"placement_basis_only" = "Only machine with this project";
+"placement_basis_only" = "Only machine that can run it";
 "placement_basis_preference" = "Needs %1$@ – preferred: %2$@";
 "placement_basis_preference_none" = "No special requirements – preferred: %1$@";
 "placement_basis_requirements" = "Needs %1$@";
@@ -2220,6 +2230,7 @@
 "toast_dispatch_cancel_failed" = "Couldn't cancel the task.";
 "toast_dispatch_cancel_pending" = "%1$@ can't be reached — the cancel is delivered as soon as it answers.";
 "toast_dispatch_canceled_on" = "Canceled — the task won't start on %1$@";
+"toast_dispatch_clone_failed_on" = "%1$@ could not clone the project, so the task did not start: %2$@";
 "toast_dispatch_declined_on" = "%1$@ did not start the task: %2$@";
 "toast_dispatch_not_cancelable" = "%1$@ already has this task — it can't be canceled anymore.";
 "toast_dispatch_redirect_failed" = "Couldn't run the task elsewhere.";
@@ -2284,7 +2295,7 @@
 "tooltip_placement_by" = "Decided by";
 "tooltip_placement_how" = "How it was chosen";
 "tooltip_placement_how_auto" = "Automatically: suitable machines follow your platform preference, then machine ID. When the preferred connected machine is under high load, a suitable machine with fresh spare capacity can take the new task.";
-"tooltip_placement_how_manual" = "Picked under Run on. It fit: connected, the project checked out and every requirement verified.";
+"tooltip_placement_how_manual" = "Picked under Run on. It fit: connected and every requirement verified. Without a checkout of the project, Shepherd clones it there first.";
 "tooltip_placement_needs" = "Requirements";
 "tooltip_placement_needs_none" = "None — any connected machine with the project fits.";
 "tooltip_placement_title" = "Why %1$@";
@@ -2297,7 +2308,7 @@
 "tooltip_runon_attachments" = "Attachments";
 "tooltip_runon_attachments_body" = "Uploaded to the machine right before the task is sent, so they are in the session's worktree there. If one can't be sent, the task doesn't start.";
 "tooltip_runon_auto" = "Automatic";
-"tooltip_runon_auto_body" = "Shepherd picks a connected machine that has this project and every requirement verified, Linux before macOS, and starts right away — wherever you submit, as long as every Shepherd uses the same order. Pick a machine to override it; if the machine meant for the task is offline, nothing starts elsewhere on its own.";
+"tooltip_runon_auto_body" = "Shepherd picks a connected machine that has every requirement verified, Linux before macOS, and starts right away — wherever you submit, as long as every Shepherd uses the same order. Machines with the project checked out come first; only when none of them fits does it pick one without, and clone the project there first. Pick a machine to override it; if the machine meant for the task is offline, nothing starts elsewhere on its own.";
 "tooltip_runon_code" = "Code";
 "tooltip_runon_code_body" = "The machine starts from the base branch as it is on origin. Commits and changes you haven't pushed are not there.";
 "tooltip_runon_failure" = "If it can't start";
@@ -2312,7 +2323,7 @@
 "tooltip_waiting_offline_summary" = "%1$@ is the machine for this task (%2$@), but it can't be reached right now.";
 "tooltip_waiting_ready_summary" = "%1$@ is back and fits: the task is sent with its next check, about once a minute.";
 "tooltip_waiting_start" = "When it starts";
-"tooltip_waiting_start_body" = "By itself, once %1$@ answers again and a fresh check of its capabilities and of the project checkout passes. Its attachments are uploaded only then.";
+"tooltip_waiting_start_body" = "By itself, once %1$@ answers again and a fresh check of its capabilities passes; without a checkout of the project, it clones it first. Its attachments are uploaded only then.";
 "tooltip_waiting_title" = "Waiting for %1$@";
 "topbar_held_badge" = "%1$@ held";
 "topbar_held_discard" = "Discard";

@@ -59,6 +59,18 @@ describe("remote dispatches (#2774)", () => {
       text: m.toast_dispatch_declined_on({ machine: "MacBook", reason: "restarted" }),
       alert: true,
     });
+    // Its machine could not clone the project: the clone's error code, in words.
+    expect(
+      resolvedMessage(
+        d("a", "rejected", { code: "remote_clone_failed", reason: "clonerepo_failed_auth" }),
+      ),
+    ).toEqual({
+      text: m.toast_dispatch_clone_failed_on({
+        machine: "MacBook",
+        reason: m.clonerepo_failed_auth(),
+      }),
+      alert: true,
+    });
     expect(resolvedMessage(d("a", "unknown"))).toBeNull();
     // Taken to run here: its session shows up, nothing to say.
     expect(resolvedMessage(d("a", "redirected"))).toBeNull();

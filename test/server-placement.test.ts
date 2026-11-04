@@ -89,7 +89,12 @@ function fixedCapabilities(node: { ok: Capability[]; probes: number }): Capabili
   } as unknown as CapabilityService;
 }
 
-function startNode(dir: string, platform: "linux" | "macos", ok: Capability[]): Node {
+function startNode(
+  dir: string,
+  platform: "linux" | "macos",
+  ok: Capability[],
+  slug = "acme/app",
+): Node {
   const checkout = join(root, dir);
   mkdirSync(checkout);
   const store = new SessionStore(":memory:");
@@ -123,7 +128,7 @@ function startNode(dir: string, platform: "linux" | "macos", ok: Capability[]): 
     recheckDelaysMs: [20],
   });
   remoteInstances.onChange((id) => remoteSessions.sync(id));
-  const forge = { slug: "acme/app", isFork: false } as unknown as GitForge;
+  const forge = { slug, isFork: false } as unknown as GitForge;
   const node = { ok: [...ok], probes: 0, dropCreate: false, load1: 1 } as Node;
   const deps = {
     store,
@@ -169,6 +174,8 @@ function startNode(dir: string, platform: "linux" | "macos", ok: Capability[]): 
       return res;
     },
     here: () => localMachine(instanceIdentity(store, platform), deps.capabilities.report()),
+    // Every node shares `repoRoot`, where `app` is already taken: a clone there always finds it.
+    cloneSource: async () => "https://github.com/acme/app.git",
   });
   Object.assign(deps, { remoteDispatch: dispatcher });
   remoteInstances.onChange((id) => {
@@ -450,7 +457,44 @@ describe("automatic machine choice", () => {
       error: "no connected machine has android-sdk; nothing was started",
       missing: ["android-sdk"],
       together: false,
-      elsewhere: [],
+    });
+    expect(ranOn([linux, mac])).toEqual([]);
+  });
+
+  test("a Mac without the checkout is offered and chosen when only it fits; a failed clone starts nothing", async () => {
+    const linux = startNode("app", "linux", ["platform:linux", "agent:claude"]);
+    const mac = startNode(
+      "other-mac",
+      "macos",
+      ["platform:macos", "xcode", "agent:claude"],
+      "acme/other",
+    );
+    await connect(linux, mac);
+    await connect(mac, linux);
+    linux.id = await instanceId(linux);
+    mac.id = await instanceId(mac);
+    const plain = await preview(linux);
+    expect(plain.body).toMatchObject({
+      active: true,
+      placement: { target: { instanceId: linux.id } },
+      withoutCheckout: [mac.id],
+    });
+    expect((plain.body.machines as { instanceId: string }[]).map((h) => h.instanceId)).toEqual([
+      linux.id,
+      mac.id,
+    ]);
+    const xcode = await preview(linux, { requirements: ["xcode"] });
+    expect(xcode.body).toMatchObject({
+      placement: { target: { instanceId: mac.id }, basis: "requirements" },
+    });
+    expect(xcode.body).not.toHaveProperty("wait");
+    // The clone lands on a folder of that name that is not the project: nothing starts anywhere.
+    const res = await create(linux, task(linux, { requirements: ["xcode"] }));
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({
+      error: "clonerepo_failed_exists",
+      code: "remote_clone_failed",
+      host: { instanceId: mac.id, name: expect.any(String), platform: "macos" },
     });
     expect(ranOn([linux, mac])).toEqual([]);
   });

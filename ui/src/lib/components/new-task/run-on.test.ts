@@ -8,6 +8,7 @@ import {
   isUnansweredSend,
   keyedSend,
   machineLabel,
+  needsClone,
   pendingAfter,
   placementFailureMessage,
   runOnFailureMessage,
@@ -36,16 +37,21 @@ function machine(over: Partial<RemoteInstance> = {}): RemoteInstance {
 }
 
 describe("Run on machines (#2763)", () => {
-  it("offers connected machines that have the project checked out", () => {
+  it("offers every connected machine; one without the checkout clones the project first", () => {
     const machines = [
       machine(),
       machine({ instanceId: "m2", projects: ["acme/other"] }),
       machine({ instanceId: "m3", status: "unreachable" }),
     ];
     expect(connectedMachines(machines).map((x) => x.instanceId)).toEqual(["m1", "m2"]);
-    expect(runOnMachines(machines, "acme/app").map((x) => x.instanceId)).toEqual(["m1"]);
+    expect(runOnMachines(machines, "acme/app").map((x) => x.instanceId)).toEqual(["m1", "m2"]);
+    // Without a slug the project can be neither matched nor cloned elsewhere.
     expect(runOnMachines(machines, undefined)).toEqual([]);
-    expect(runOnMachines([machine({ projects: null })], "acme/app")).toEqual([]);
+    expect(needsClone(machines[0], "acme/app")).toBe(false);
+    expect(needsClone(machines[1], "acme/app")).toBe(true);
+    expect(needsClone(machine({ projects: null }), "acme/app")).toBe(true);
+    expect(needsClone(machines[1], undefined)).toBe(false);
+    expect(needsClone(undefined, "acme/app")).toBe(false);
   });
 
   it("never offers a machine whose platform is not released (Windows, #2770)", () => {
@@ -64,6 +70,9 @@ describe("Run on machines (#2763)", () => {
   it("labels a machine with its platform once it is known", () => {
     expect(machineLabel(machine())).toBe("MacBook (macOS)");
     expect(machineLabel(machine({ info: null }))).toBe("MacBook");
+    expect(machineLabel(machine(), true)).toBe(
+      m.newtask_runon_machine_clone({ machine: "MacBook (macOS)" }),
+    );
   });
 });
 
@@ -167,6 +176,16 @@ describe("runOnFailureMessage (#2763)", () => {
         machine: "MacBook",
         reason: "attachment 1 of 1: the machine answered 413",
       }),
+    );
+  });
+
+  it("names the machine and why when it could not clone the project", () => {
+    const err = (message: string) => new ApiError(502, message, "remote_clone_failed", true);
+    expect(runOnFailureMessage(err("clonerepo_failed_auth"), "MacBook")).toBe(
+      m.newtask_runon_clone_failed({ machine: "MacBook", reason: m.clonerepo_failed_auth() }),
+    );
+    expect(runOnFailureMessage(err("first_run_pending"), "MacBook")).toBe(
+      m.newtask_runon_clone_failed({ machine: "MacBook", reason: m.clonerepo_failed_generic() }),
     );
   });
 

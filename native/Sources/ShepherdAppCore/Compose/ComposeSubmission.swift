@@ -32,6 +32,9 @@ public final class ComposeSubmission {
     public private(set) var recoveryFailure: BackendFailure?
     /// The machine the attempt in flight goes to when it does not start on this server (#2776).
     public private(set) var sendingTo: SessionHost?
+    /// What the composer says about that attempt (#2776): starting there, or cloning the project
+    /// there first. Nil while it starts on this server.
+    public private(set) var sendingLabel: String?
     /// The machine the last create waits for or is held on (#2776); nil after a hold here.
     public private(set) var heldOn: SessionHost?
     @ObservationIgnored private var eventsTask: Task<Void, Never>?
@@ -95,6 +98,9 @@ public final class ComposeSubmission {
         let keyed = model.runOn.send(for: request)
         let machine = model.runOn.remoteTarget
         sendingTo = machine
+        sendingLabel = machine.map {
+            PlacementCopy.sending(to: $0.name, clones: model.runOn.remoteTargetClones, repoPath: model.repoPath)
+        }
         heldOn = nil
         recoveryFailure = nil
         busy = true; slow = false; message = nil; progress = nil; cancelRequested = false
@@ -172,7 +178,7 @@ public final class ComposeSubmission {
     private func finish() {
         eventsTask?.cancel(); eventsTask = nil
         timer?.cancel(); timer = nil
-        busy = false; slow = false; canceling = false; spawnID = nil; progress = nil; sendingTo = nil; startedAt = nil
+        busy = false; slow = false; canceling = false; spawnID = nil; progress = nil; sendingTo = nil; sendingLabel = nil; startedAt = nil
     }
     public func teardown() {
         stopped = true; generation += 1

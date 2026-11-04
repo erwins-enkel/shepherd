@@ -88,6 +88,12 @@
 "clibadge_label_claude" = "Claude";
 "clibadge_label_codex" = "Codex";
 "clibadge_title" = "Coding-CLI: %1$@";
+"clonerepo_failed_auth" = "Zugriff verweigert: git hat keine Anmeldedaten, die dieses Repo abdecken";
+"clonerepo_failed_exists" = "Zielordner existiert bereits";
+"clonerepo_failed_generic" = "Klonen fehlgeschlagen";
+"clonerepo_failed_outside" = "Ziel liegt außerhalb des repoRoot";
+"clonerepo_failed_timeout" = "Timeout, bitte erneut";
+"clonerepo_failed_url" = "Ungültige oder nicht unterstützte URL";
 "coldresume_chip" = "kalt · ≈%1$@ Einheiten";
 "coldresume_title" = "Prompt-Cache abgelaufen — diese Session war länger untätig als ihre Cache-Lebensdauer. Ihre %1$@ Kontext müssen zum Cache-Schreibtarif erneut gesendet werden, daher kostet der nächste Zug etwa %2$@ gewichtete Einheiten statt eines kleinen Bruchteils davon.";
 "common_cancel" = "Abbrechen";
@@ -1754,9 +1760,13 @@
 "newtask_requirements_remove" = "%1$@ entfernen";
 "newtask_research_sandbox_note" = "Recherche-Aufgaben können das autonome Profil nicht verwenden — Websuche benötigt offenen Netzwerkzugang.";
 "newtask_runon_auto" = "Automatisch";
+"newtask_runon_clone_failed" = "%1$@ konnte das Projekt nicht klonen, deshalb wurde nichts gestartet: %2$@";
+"newtask_runon_clone_notice" = "%1$@ hat %2$@ noch nicht ausgecheckt – Shepherd klont es zuerst von origin in den Projektordner von %1$@.";
+"newtask_runon_cloning" = "Klont %1$@ auf %2$@ und startet dort";
 "newtask_runon_gone" = "%1$@ ist nicht mehr verbunden – es wurde nichts gestartet.";
 "newtask_runon_label" = "Ausführen auf";
 "newtask_runon_machine" = "%1$@ (%2$@)";
+"newtask_runon_machine_clone" = "%1$@ · wird geklont";
 "newtask_runon_notice" = "Startet auf %1$@ ab %2$@, wie es auf origin liegt – nicht gepushte lokale Änderungen fehlen dort.";
 "newtask_runon_on" = "auf";
 "newtask_runon_project_missing" = "%1$@ hat dieses Projekt nicht ausgecheckt – es wurde nichts gestartet.";
@@ -1819,7 +1829,7 @@
 "pairing_title" = "iPhone verbinden";
 "placement_basis_load" = "Bevorzugter Rechner %1$@ ist stark ausgelastet";
 "placement_basis_manual" = "Manuell gewählt";
-"placement_basis_only" = "Einziger Rechner mit diesem Projekt";
+"placement_basis_only" = "Einziger Rechner, der sie ausführen kann";
 "placement_basis_preference" = "Benötigt %1$@ – bevorzugt: %2$@";
 "placement_basis_preference_none" = "Keine besonderen Anforderungen – bevorzugt: %1$@";
 "placement_basis_requirements" = "Benötigt %1$@";
@@ -2220,6 +2230,7 @@
 "toast_dispatch_cancel_failed" = "Die Aufgabe konnte nicht abgebrochen werden.";
 "toast_dispatch_cancel_pending" = "%1$@ ist nicht erreichbar – der Abbruch wird zugestellt, sobald es antwortet.";
 "toast_dispatch_canceled_on" = "Abgebrochen – die Aufgabe startet nicht auf %1$@";
+"toast_dispatch_clone_failed_on" = "%1$@ konnte das Projekt nicht klonen, deshalb startete die Aufgabe nicht: %2$@";
 "toast_dispatch_declined_on" = "%1$@ hat die Aufgabe nicht gestartet: %2$@";
 "toast_dispatch_not_cancelable" = "%1$@ hat diese Aufgabe bereits – sie lässt sich nicht mehr abbrechen.";
 "toast_dispatch_redirect_failed" = "Die Aufgabe konnte nicht woanders gestartet werden.";
@@ -2284,7 +2295,7 @@
 "tooltip_placement_by" = "Entschieden von";
 "tooltip_placement_how" = "Wie gewählt wurde";
 "tooltip_placement_how_auto" = "Automatisch: Passende Rechner folgen deiner Plattformpräferenz, danach der Rechner-ID. Bei hoher Last des bevorzugten verbundenen Rechners kann ein geeigneter Rechner mit aktuell gemessenen Reserven die neue Aufgabe übernehmen.";
-"tooltip_placement_how_manual" = "Unter „Ausführen auf“ gewählt. Der Rechner passte: verbunden, Projekt ausgecheckt und jede Anforderung geprüft.";
+"tooltip_placement_how_manual" = "Unter „Ausführen auf“ gewählt. Der Rechner passte: verbunden und jede Anforderung geprüft. Fehlt dort der Checkout des Projekts, klont Shepherd es zuerst.";
 "tooltip_placement_needs" = "Anforderungen";
 "tooltip_placement_needs_none" = "Keine – jeder verbundene Rechner mit dem Projekt passt.";
 "tooltip_placement_title" = "Warum %1$@";
@@ -2297,7 +2308,7 @@
 "tooltip_runon_attachments" = "Anhänge";
 "tooltip_runon_attachments_body" = "Werden direkt vor dem Senden der Aufgabe auf den Rechner hochgeladen und liegen dort im Worktree der Session. Lässt sich einer nicht senden, startet die Aufgabe nicht.";
 "tooltip_runon_auto" = "Automatisch";
-"tooltip_runon_auto_body" = "Shepherd wählt einen verbundenen Rechner, der dieses Projekt und jede Anforderung geprüft hat, Linux vor macOS, und startet sofort – egal wo du einreichst, solange jeder Shepherd dieselbe Reihenfolge nutzt. Wähle einen Rechner, um das zu übersteuern; ist der vorgesehene Rechner offline, startet nichts von selbst woanders.";
+"tooltip_runon_auto_body" = "Shepherd wählt einen verbundenen Rechner, der jede Anforderung geprüft hat, Linux vor macOS, und startet sofort – egal wo du einreichst, solange jeder Shepherd dieselbe Reihenfolge nutzt. Rechner mit ausgechecktem Projekt kommen zuerst; nur wenn keiner davon passt, wählt Shepherd einen ohne und klont das Projekt dort zuerst. Wähle einen Rechner, um das zu übersteuern; ist der vorgesehene Rechner offline, startet nichts von selbst woanders.";
 "tooltip_runon_code" = "Code";
 "tooltip_runon_code_body" = "Der Rechner startet vom Basisbranch, wie er auf origin liegt. Commits und Änderungen, die du nicht gepusht hast, fehlen dort.";
 "tooltip_runon_failure" = "Wenn sie nicht startet";
@@ -2312,7 +2323,7 @@
 "tooltip_waiting_offline_summary" = "%1$@ ist der Rechner für diese Aufgabe (%2$@), aber gerade nicht erreichbar.";
 "tooltip_waiting_ready_summary" = "%1$@ ist wieder da und passt: Die Aufgabe geht mit der nächsten Prüfung raus, etwa einmal pro Minute.";
 "tooltip_waiting_start" = "Wann sie startet";
-"tooltip_waiting_start_body" = "Von selbst, sobald %1$@ wieder antwortet und eine frische Prüfung seiner Fähigkeiten und des Projekt-Checkouts besteht. Erst dann werden ihre Anhänge übertragen.";
+"tooltip_waiting_start_body" = "Von selbst, sobald %1$@ wieder antwortet und eine frische Prüfung seiner Fähigkeiten besteht; fehlt dort der Checkout des Projekts, klont er es zuerst. Erst dann werden ihre Anhänge übertragen.";
 "tooltip_waiting_title" = "Wartet auf %1$@";
 "topbar_held_badge" = "%1$@ zurückgehalten";
 "topbar_held_discard" = "Verwerfen";

@@ -466,7 +466,7 @@ struct IOSComposeContent: View {
     /// taken, why that phase can be slow, and what already finished — or why no progress arrives.
     @ViewBuilder private func spawnStatus(elapsed: TimeInterval) -> some View {
         let phase = submission.progress.map { ComposeSubmission.phaseCopy($0.phase) }
-            ?? submission.sendingTo.map { L.t("newtask_runon_starting", $0.name) } ?? L.t("newtask_spawning")
+            ?? submission.sendingLabel ?? L.t("newtask_spawning")
         if elapsed < ConnectingDetailCopy.threshold {
             Text(verbatim: phase)
         } else {

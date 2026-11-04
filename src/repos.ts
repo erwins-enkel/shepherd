@@ -15,7 +15,7 @@ import {
 } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { execGitSync } from "./safe-git";
+import { execGit, execGitSync } from "./safe-git";
 import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { expandHome, safeRepoDir } from "./validate";
@@ -296,12 +296,14 @@ export function writeTodo(repoPathRaw: string, repoRoot: string, content: string
  * one of: `clonerepo_failed_outside`, `clonerepo_failed_exists`, or a code
  * from `classifyCloneError` — the latter with git's own stderr as a
  * single-line, credential-redacted `detail` for the dialog's "technical details".
+ * Async: a coordinator Shepherd clones a task's project onto this machine unasked, and the
+ * clone must not hold up the sessions already running here.
  */
-export function cloneRepo(
+export async function cloneRepo(
   url: string,
   name: string,
   repoRoot: string,
-): { ok: true; entry: RepoEntry } | { ok: false; error: string; detail?: string } {
+): Promise<{ ok: true; entry: RepoEntry } | { ok: false; error: string; detail?: string }> {
   const root = resolve(expandHome(repoRoot));
   const target = join(root, name);
 
@@ -316,8 +318,7 @@ export function cloneRepo(
   }
 
   try {
-    execGitSync(["clone", "--", url, target], {
-      stdio: "pipe",
+    await execGit(["clone", "--", url, target], {
       timeout: 120_000,
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
     });
@@ -333,6 +334,33 @@ export function cloneRepo(
     realPath: realpathOrRaw(target),
   };
   return { ok: true, entry };
+}
+
+/**
+ * The URL another machine clones this checkout's project from: its `origin`, or null when it has
+ * none. User info in an http(s) URL (`https://user:token@host/…`) is dropped — a credential of this
+ * machine never travels to another one, which clones with its own.
+ */
+export async function originCloneUrl(repoPath: string): Promise<string | null> {
+  let url: string;
+  try {
+    url = (
+      await execGit(["-C", repoPath, "remote", "get-url", "origin"], { timeout: 10_000 })
+    ).stdout.trim();
+  } catch {
+    return null;
+  }
+  if (!url) return null;
+  if (!/^https?:\/\//i.test(url)) return url;
+  try {
+    const parsed = new URL(url);
+    if (!parsed.username && !parsed.password) return url;
+    parsed.username = "";
+    parsed.password = "";
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }
 
 export function classifyCloneError(e: unknown): string {

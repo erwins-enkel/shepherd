@@ -18,6 +18,7 @@ import {
   readTodo,
   writeTodo,
   cloneRepo,
+  originCloneUrl,
   classifyCloneError,
   createProject,
   classifyProjectError,
@@ -321,12 +322,12 @@ function makeBareSrc(parent: string): string {
   return bare;
 }
 
-test("cloneRepo happy path: clones repo, returns entry with correct name/path, dir exists", () => {
+test("cloneRepo happy path: clones repo, returns entry with correct name/path, dir exists", async () => {
   const cloneRoot = mkdtempSync(join(tmpdir(), "shepherd-clone-root-"));
   try {
     const bareSrc = makeBareSrc(cloneRoot);
     const url = `file://${bareSrc}`;
-    const result = cloneRepo(url, "my-clone", cloneRoot);
+    const result = await cloneRepo(url, "my-clone", cloneRoot);
     expect(result.ok).toBe(true);
     if (!result.ok) return; // narrow type
     expect(result.entry.name).toBe("my-clone");
@@ -337,14 +338,14 @@ test("cloneRepo happy path: clones repo, returns entry with correct name/path, d
   }
 });
 
-test("cloneRepo: returns clonerepo_failed_exists when target dir already exists", () => {
+test("cloneRepo: returns clonerepo_failed_exists when target dir already exists", async () => {
   const cloneRoot = mkdtempSync(join(tmpdir(), "shepherd-clone-root-"));
   try {
     const bareSrc = makeBareSrc(cloneRoot);
     const url = `file://${bareSrc}`;
     // pre-create the target
     mkdirSync(join(cloneRoot, "already-there"));
-    const result = cloneRepo(url, "already-there", cloneRoot);
+    const result = await cloneRepo(url, "already-there", cloneRoot);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toBe("clonerepo_failed_exists");
@@ -353,12 +354,12 @@ test("cloneRepo: returns clonerepo_failed_exists when target dir already exists"
   }
 });
 
-test("cloneRepo: returns clonerepo_failed_outside for a name containing '..'", () => {
+test("cloneRepo: returns clonerepo_failed_outside for a name containing '..'", async () => {
   const cloneRoot = mkdtempSync(join(tmpdir(), "shepherd-clone-root-"));
   try {
     const bareSrc = makeBareSrc(cloneRoot);
     const url = `file://${bareSrc}`;
-    const result = cloneRepo(url, "../escape", cloneRoot);
+    const result = await cloneRepo(url, "../escape", cloneRoot);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toBe("clonerepo_failed_outside");
@@ -367,17 +368,36 @@ test("cloneRepo: returns clonerepo_failed_outside for a name containing '..'", (
   }
 });
 
-test("cloneRepo: a failed git clone carries git's stderr as a redacted detail", () => {
+test("cloneRepo: a failed git clone carries git's stderr as a redacted detail", async () => {
   const cloneRoot = mkdtempSync(join(tmpdir(), "shepherd-clone-root-"));
   try {
     const url = `file://${join(cloneRoot, "nope")}`;
-    const result = cloneRepo(url, "nope-clone", cloneRoot);
+    const result = await cloneRepo(url, "nope-clone", cloneRoot);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.detail).toContain("does not appear to be a git repository");
     expect(result.detail).not.toContain("\n");
   } finally {
     rmSync(cloneRoot, { recursive: true, force: true });
+  }
+});
+
+// ── originCloneUrl ────────────────────────────────────────────────────────────
+
+test("originCloneUrl: the origin URL, without user info; null without origin", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-origin-url-"));
+  try {
+    execFileSync("git", ["init", "-q", dir], { stdio: "pipe" });
+    expect(await originCloneUrl(dir)).toBeNull();
+    const git = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { stdio: "pipe" });
+    git("remote", "add", "origin", "https://x-access-token:secret@github.com/acme/app.git");
+    expect(await originCloneUrl(dir)).toBe("https://github.com/acme/app.git");
+    git("remote", "set-url", "origin", "https://github.com/acme/app.git");
+    expect(await originCloneUrl(dir)).toBe("https://github.com/acme/app.git");
+    git("remote", "set-url", "origin", "git@github.com:acme/app.git");
+    expect(await originCloneUrl(dir)).toBe("git@github.com:acme/app.git");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

@@ -312,8 +312,19 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
     }));
     const onsubmit = vi.fn().mockResolvedValue(undefined);
     render(NewTask, { props: { onsubmit, initialRepoPath: repo.path } });
-    await expect.poll(() => runOnSelect()?.options.length).toBe(3);
+    // Builder has no checkout of the project: it is offered, marked as cloning it first.
+    await expect.poll(() => runOnSelect()?.options.length).toBe(4);
+    expect([...runOnSelect()!.options].map((o) => o.textContent?.trim())).toEqual([
+      m.newtask_runon_auto(),
+      m.newtask_runon_here(),
+      "MacBook (macOS)",
+      m.newtask_runon_machine_clone({ machine: "Builder (macOS)" }),
+    ]);
+    const cloneNotice = m.newtask_runon_clone_notice({ machine: "Builder", project: "app" });
+    await pickMachine("other-1");
+    await expect.element(page.getByText(cloneNotice)).toBeVisible();
     await pickMachine("mac-1");
+    expect(page.getByText(cloneNotice).query()).toBeNull();
     await expect
       .poll(placementText)
       .toBe(m.placement_runs_on({ machine: "MacBook", reason: m.placement_basis_manual() }));

@@ -492,6 +492,21 @@ describe("RemoteInstanceService", () => {
     expect(instance).not.toHaveProperty("repoSlugs");
   });
 
+  test("a project cloned there is listed at once; only while the machine is connected", async () => {
+    const { svc, remote } = setup();
+    svc.noteProject(REMOTE_ID, "acme/new", "/Users/k/repos/new");
+    expect(svc.get(REMOTE_ID)).toBeNull();
+    await svc.connect(connectReq);
+    svc.noteProject(REMOTE_ID, "acme/new", "/Users/k/repos/new");
+    svc.noteProject(REMOTE_ID, "acme/new", "/Users/k/repos/new");
+    expect(svc.get(REMOTE_ID)?.projects).toEqual(["acme/app", "acme/new", "erwins-enkel/shepherd"]);
+    expect(svc.repoSlugs(REMOTE_ID).get("/Users/k/repos/new")).toBe("acme/new");
+    remote.status = { "/api/me": 401 };
+    await svc.check(REMOTE_ID);
+    svc.noteProject(REMOTE_ID, "acme/later", "/Users/k/repos/later");
+    expect(svc.get(REMOTE_ID)?.projects).not.toContain("acme/later");
+  });
+
   // ── capabilities and platform release (#2770) ──
 
   const capabilityReport = (over: Record<string, unknown> = {}) => ({

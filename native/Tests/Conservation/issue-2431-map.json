@@ -13017,7 +13017,17 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"aStaleDiscardCarriesTheFreshSnapshot() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"idleLogAndUncheckedStatusDecodeTheirNulls() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"readsMapAuthenticationScopeAndServerFailures() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"readsStatusLogAndDirtySnapshot() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"readsStatusLogAndDirtySnapshot() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"aDiscardSendsTheSignatureThatWasShown() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"aFailedDeployShowsItsLogOrRoutesADirtyTreeBackThroughTheProbe() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"aRefusalShowsTheServersReason() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"aServerThatStaysUnreachableEndsTheWaitAfterThreeMinutes() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"aStaleDiscardReplacesTheListAndAsksAgain() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"aStartedUpdateFollowsTheLogThroughTheRestartThenReconnects() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"openingProbesTheTreeFreshAndPicksTheMode() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"teardownStopsFollowingTheDeploy() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"theLiveLineIsTheNewestNonEmptyLineCapped()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"theOfferFollowsTheServersOwnUpdateStatus() async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

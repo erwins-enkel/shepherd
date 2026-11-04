@@ -8104,5 +8104,11 @@
   "heavyslot_state_lingering": "Befehl beendet · Restprozesse halten den Slot",
   "heavyslot_state_offered": "Reserviert, bis die Sitzung ihren Check neu startet",
   "native_error_server_failure": "Auf dem Server ist ein Fehler aufgetreten (HTTP {status}): {message}",
-  "native_error_server_failure_generic": "Auf dem Server ist ein Fehler aufgetreten (HTTP {status}). Versuche es erneut; wenn es weiter fehlschlägt, prüfe das Server-Log."
+  "native_error_server_failure_generic": "Auf dem Server ist ein Fehler aufgetreten (HTTP {status}). Versuche es erneut; wenn es weiter fehlschlägt, prüfe das Server-Log.",
+  "native_server_update_action": "Server aktualisieren",
+  "native_server_update_behind": "Der Server liegt {count} Commits hinter main. Ein Update sollte die Abweichung beheben.",
+  "native_server_update_body": "Der Server holt main, baut neu und startet neu. Laufende Agent-Sessions laufen in herdr weiter; die App verbindet sich neu, sobald der Server wieder antwortet.",
+  "native_server_update_testflight_action": "TestFlight öffnen",
+  "native_server_update_testflight_hint": "Der Server ist aktuell, also ist diese App die ältere Seite. Installiere den neuesten Build aus TestFlight.",
+  "native_server_update_title": "{server} aktualisieren"
 }

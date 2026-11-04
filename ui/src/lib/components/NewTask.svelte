@@ -1007,8 +1007,8 @@
   // iOS Safari overlays the soft keyboard WITHOUT shrinking the layout viewport
   // (dvh/vh don't react; interactive-widget isn't in WebKit). visualViewport reports
   // the region above the keyboard; mirror its height + offsetTop onto the overlay so
-  // the card fills it and the fixed bottom sheet (contained by the overlay via its
-  // backdrop-filter) re-anchors above the keyboard. Same pattern as ComposeBar.
+  // the card fills it and the fixed bottom sheet (contained by the overlay via that
+  // transform) re-anchors above the keyboard. Same pattern as ComposeBar.
   // Soft-keyboard occlusion in CSS px: innerHeight − vv.height×scale is ≈ 0 under
   // pure pinch zoom (vv.height shrinks by exactly 1/scale) and ≈ keyboard height
   // when the keyboard is up, zoomed or not. The threshold sits between transient

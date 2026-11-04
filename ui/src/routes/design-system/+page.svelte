@@ -788,16 +788,27 @@ const overview: TooltipExplanation = {
   const scrimMarkup = `<div class="scrim"><!-- dialog --></div>
 
 /* .scrim lives in app.css — one canonical backdrop for every dialog/drawer.
-   Theme-aware dim (never a raw rgba()) + a soft blur so the app recedes. */
+   Theme-aware dim (never a raw rgba()) + a soft blur so the app recedes.
+   The blur stays on ::before: a panel inside a backdrop-filter host vanishes
+   whenever Chrome on macOS drops that layer for a frame. */
 .scrim {
   position: fixed;
   inset: 0;
   background: var(--color-scrim);
+  isolation: isolate;
+}
+.scrim::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  will-change: backdrop-filter;
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
 }
 /* Existing modal backdrops use class="overlay" and keep their own
-   background/z-index; app.css adds the same blur to .overlay too. */`;
+   background/z-index; app.css adds the same blur layer to .overlay too. */`;
 </script>
 
 <svelte:head>

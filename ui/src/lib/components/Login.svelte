@@ -29,7 +29,7 @@
   }
 </script>
 
-<div class="login-scrim">
+<div class="login-scrim scrim">
   <form class="login-card panel" onsubmit={submit}>
     <h1 class="title">{m.login_title()}</h1>
     <p class="subtitle">{m.login_subtitle()}</p>
@@ -69,7 +69,6 @@
     place-items: center;
     padding: 24px;
     background: var(--color-scrim, color-mix(in srgb, var(--color-bg) 70%, transparent));
-    backdrop-filter: blur(6px);
   }
   .login-card {
     width: min(360px, 100%);
@@ -147,10 +146,5 @@
   }
   .submit {
     margin-top: 4px;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .login-scrim {
-      backdrop-filter: none;
-    }
   }
 </style>

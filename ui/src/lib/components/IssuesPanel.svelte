@@ -1154,6 +1154,11 @@
     background: var(--color-inset);
     transition: transform 0.18s ease-out;
   }
+  /* Keeps `overlay` for the open-overlay checks, but it isn't a backdrop: the global viewport-fixed
+     blur layer would blur the chrome around this column. */
+  .detail-col.overlay::before {
+    content: none;
+  }
   /* Mid swipe-back: follows the finger 1:1, edge shadow over the uncovered list. */
   .detail-col.overlay.swiping {
     transition: none;

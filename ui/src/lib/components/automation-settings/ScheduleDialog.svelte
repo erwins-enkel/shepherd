@@ -261,11 +261,14 @@
   }
   .sched-dlg::backdrop {
     background: var(--color-scrim);
+    /* Same stable-layer guard as the app.css scrim; ::backdrop can't take a ::before. */
+    will-change: backdrop-filter;
     -webkit-backdrop-filter: blur(3px);
     backdrop-filter: blur(3px);
   }
   @media (prefers-reduced-transparency: reduce) {
     .sched-dlg::backdrop {
+      will-change: auto;
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
     }

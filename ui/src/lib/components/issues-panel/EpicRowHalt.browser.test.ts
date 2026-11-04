@@ -268,7 +268,9 @@ describe("EpicHeaderRow halt (#3455)", () => {
     expect(sheet.element().getAttribute("aria-modal")).toBe("true");
     const scrim = document.querySelector<HTMLElement>(".scrim");
     expect(scrim).not.toBeNull();
-    expect(getComputedStyle(scrim!).backdropFilter).toContain("blur");
+    expect(getComputedStyle(scrim!).backdropFilter).toBe("none");
+    expect(getComputedStyle(scrim!, "::before").backdropFilter).toContain("blur");
+    expect(getComputedStyle(scrim!, "::before").willChange).toContain("backdrop-filter");
 
     const apply = page.getByRole("button", {
       name: m.epic_autofix_apply_start({ issues: issueList([21, 22]) }),

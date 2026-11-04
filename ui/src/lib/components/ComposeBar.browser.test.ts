@@ -124,6 +124,17 @@ const micBtn = () => page.getByRole("button", { name: m.composebar_dictate_aria(
 const stopBtn = () => page.getByRole("button", { name: m.composebar_dictate_stop_aria() });
 const field = () => page.getByRole("textbox", { name: m.composebar_input_aria() });
 
+describe("ComposeBar backdrop", () => {
+  it("blurs behind the sheet on a separate stable layer", async () => {
+    render(ComposeBar, base());
+    await expect.element(page.getByRole("dialog")).toBeInTheDocument();
+    const host = document.querySelector<HTMLElement>(".overlay")!;
+    expect(getComputedStyle(host).backdropFilter).toBe("none");
+    expect(getComputedStyle(host, "::before").backdropFilter).toContain("blur");
+    expect(getComputedStyle(host, "::before").willChange).toContain("backdrop-filter");
+  });
+});
+
 describe("ComposeBar dictation (shared controller wiring)", () => {
   it("shows the mic when Web Speech is available; a tap starts recognition", async () => {
     render(ComposeBar, base());

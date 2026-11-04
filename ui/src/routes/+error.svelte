@@ -39,7 +39,7 @@
   });
 </script>
 
-<div class="err-scrim">
+<div class="err-scrim scrim">
   <div class="err-card panel" role="alert" aria-live="assertive">
     {#if reloading}
       <h1 class="title">{m.errorpage_reloading_title()}</h1>
@@ -72,7 +72,6 @@
     place-items: center;
     padding: 24px;
     background: var(--color-scrim, color-mix(in srgb, var(--color-bg) 70%, transparent));
-    backdrop-filter: blur(6px);
   }
   .err-card {
     width: min(420px, 100%);
@@ -136,10 +135,5 @@
     /* Chunk URLs are long and unbreakable; keep them inside the card on a phone. */
     overflow-wrap: anywhere;
     opacity: 0.8;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .err-scrim {
-      backdrop-filter: none;
-    }
   }
 </style>

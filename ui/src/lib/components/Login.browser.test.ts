@@ -26,6 +26,15 @@ async function submit() {
 }
 
 describe("Login", () => {
+  it("blurs behind the card on a separate stable layer", async () => {
+    render(Login);
+    await expect.element(page.getByLabelText(m.login_password_label())).toBeVisible();
+    const host = document.querySelector<HTMLElement>(".login-scrim")!;
+    expect(getComputedStyle(host).backdropFilter).toBe("none");
+    expect(getComputedStyle(host, "::before").backdropFilter).toContain("blur");
+    expect(getComputedStyle(host, "::before").willChange).toContain("backdrop-filter");
+  });
+
   it("a spent attempt budget (429) says so instead of 'incorrect password' (#2105)", async () => {
     respond(429, { error: "login_rate_limited" });
     render(Login);

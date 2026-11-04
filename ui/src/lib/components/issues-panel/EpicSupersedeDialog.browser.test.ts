@@ -132,7 +132,9 @@ describe("EpicSupersedeDialog (#2623)", () => {
     render(EpicSupersedeDialog, props());
     await expect.element(page.getByRole("dialog")).toBeInTheDocument();
     const overlay = document.querySelector<HTMLElement>(".overlay")!;
-    expect(getComputedStyle(overlay).backdropFilter).toContain("blur");
+    expect(getComputedStyle(overlay).backdropFilter).toBe("none");
+    expect(getComputedStyle(overlay, "::before").backdropFilter).toContain("blur");
+    expect(getComputedStyle(overlay, "::before").willChange).toContain("backdrop-filter");
   });
 
   it("Supersede confirms, Cancel and Escape close", async () => {

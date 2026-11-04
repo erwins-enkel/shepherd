@@ -482,22 +482,35 @@ button {
    foreground reads clearly. Single source of truth — see /design-system.
    `.scrim` is the full primitive for new backdrops; the `.overlay` rule just
    adds the blur to existing modal backdrops that already set their own
-   background/position/z-index in component-scoped styles. */
+   background/position/z-index in component-scoped styles.
+   The blur sits on a `::before`, never on the host: Chrome on macOS can drop a backdrop-filter
+   layer for a frame, and a panel inside that layer vanishes with it. `will-change` keeps the
+   empty layer from blinking too. */
 .scrim {
   position: fixed;
   inset: 0;
   background: var(--color-scrim);
-  -webkit-backdrop-filter: blur(3px);
-  backdrop-filter: blur(3px);
 }
+.scrim,
 .overlay {
+  isolation: isolate;
+}
+.scrim::before,
+.overlay::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  will-change: backdrop-filter;
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
 }
 /* Honor users who reduce transparency/blur: keep the dim, drop the blur. */
 @media (prefers-reduced-transparency: reduce) {
-  .scrim,
-  .overlay {
+  .scrim::before,
+  .overlay::before {
+    will-change: auto;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

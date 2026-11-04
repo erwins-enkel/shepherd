@@ -811,6 +811,16 @@
 "native_banner_needs_login" = "Deine Sitzung ist abgelaufen. Melde dich erneut an.";
 "native_banner_offline" = "%1$@ nicht erreichbar. Neuer Versuch läuft.";
 "native_banner_unhealthy" = "%1$@ antwortet, meldet aber ein Problem. Neuer Versuch.";
+"native_battery_body" = "Shepherd arbeitet im Hintergrund und verbraucht dabei Energie. Lokale Arbeit bis zum nächsten Netzanschluss pausieren?";
+"native_battery_changing" = "Akku-Pause wird umgestellt …";
+"native_battery_continue" = "Weiterlaufen lassen";
+"native_battery_hint" = "Am Netzstrom geht es automatisch weiter.";
+"native_battery_pause" = "Bis Netzstrom pausieren";
+"native_battery_pause_failed" = "Die lokale Arbeit konnte nicht pausiert werden. Bitte erneut versuchen; die Pause ist nicht bestätigt.";
+"native_battery_paused" = "Akku-Pause · Weiter bei Netzstrom";
+"native_battery_resume" = "Jetzt fortsetzen";
+"native_battery_resume_failed" = "Die lokale Arbeit konnte nicht vollständig fortgesetzt werden. Bitte „Jetzt fortsetzen“ erneut wählen.";
+"native_battery_title" = "Dein Mac läuft jetzt auf Akku";
 "native_close_backend_choices" = "Backend weiterlaufen lassen: Das lokale Backend bleibt im Hintergrund aktiv. Laufende Sessions und Agents arbeiten weiter und bleiben von anderen Clients erreichbar. Öffne Shepherd erneut, um sie zu verfolgen.\n\nBackend ebenfalls beenden: Das lokale Backend wird gestoppt. Seine Weboberfläche und Verbindungen anderer Clients sind bis zum erneuten Start nicht verfügbar. Laufende lokale Arbeiten können unterbrochen werden.\n\nEntfernte Server laufen in beiden Fällen weiter.";
 "native_close_confirm_body" = "Beim Schließen des Fensters oder Beenden der App bleiben die Backend-Server unverändert. Ein laufendes oder pausiertes Backend behält seinen Zustand. Entfernte Server sind nicht betroffen. Öffne Shepherd erneut, um deine Sessions zu verfolgen.";
 "native_close_confirm_title" = "Shepherd-Fenster schließen?";

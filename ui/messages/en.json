@@ -6838,7 +6838,7 @@
   "feat_decision_model_settings_title": "Decision model in Settings",
   "feat_decision_model_settings_body": "Paste your JEV key under Settings → Decision model, check it and turn on the fast stop classifier — no shell, no restart. Model, address and time budget are editable there too, and the judge features sit together with what each one needs.",
   "native_battery_title": "Your Mac is on battery",
-  "native_battery_body": "Shepherd is working in the background on this Mac and uses energy. Pause local work until external power returns? Work resumes automatically when you plug in.",
+  "native_battery_body": "Shepherd is working in the background and uses energy. Pause local work until you plug in?",
   "native_battery_pause": "Pause until plugged in",
   "native_battery_continue": "Keep running",
   "native_battery_paused": "Battery pause · Resumes on external power",
@@ -8073,5 +8073,6 @@
   "settings_house_stack_swift_toolchain": "Pin the stable Swift toolchain",
   "settings_house_stack_swift_toolchain_label": "Swift toolchain",
   "feat_readiness_swift_title": "Readiness for Swift packages",
-  "feat_readiness_swift_body": "A repo with a Package.swift now gets a Readiness scorecard with Swift tooling instead of the new-project checklist. House Stack can pin Swift packages and the Swift toolchain, Framework majors tracks them, and a Bootstrap task can scaffold a Swift project."
+  "feat_readiness_swift_body": "A repo with a Package.swift now gets a Readiness scorecard with Swift tooling instead of the new-project checklist. House Stack can pin Swift packages and the Swift toolchain, Framework majors tracks them, and a Bootstrap task can scaffold a Swift project.",
+  "native_battery_hint": "Work resumes automatically on external power."
 }

@@ -5,7 +5,7 @@ import SwiftUI
 /// A decision surface, not a notification: no timeout, close button or Escape dismissal.
 @MainActor final class BatteryPromptPanel: NSPanel {
     init(model: BatteryPauseModel) {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 440, height: 300),
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 400, height: 220),
                    styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
                    backing: .buffered, defer: false)
         title = L.t("native_battery_title")
@@ -42,30 +42,51 @@ import SwiftUI
 private struct BatteryPromptView: View {
     let model: BatteryPauseModel
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Label(L.t("native_battery_title"), systemImage: "battery.50percent")
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(.orange)
-            Text(L.t("native_battery_body"))
-                .font(.body)
-                .fixedSize(horizontal: false, vertical: true)
-            if let error = model.error {
-                Text(verbatim: error).font(.callout).foregroundStyle(.red)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: "battery.50percent")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+                    .frame(width: 40, height: 40)
+                    .background(.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L.t("native_battery_title"))
+                        .font(.headline)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(L.t("native_battery_body"))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            VStack(spacing: 10) {
-                Button(L.t("native_battery_pause")) { model.pauseUntilPower() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!model.canPause)
-                    .accessibilityIdentifier("battery-pause")
+            Label(L.t("native_battery_hint"), systemImage: "powerplug")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+            if let error = model.error {
+                Label { Text(verbatim: error) } icon: { Image(systemName: "exclamationmark.circle") }
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 8) {
+                Spacer()
                 Button(L.t("native_battery_continue")) { model.keepRunning() }
                     .buttonStyle(.bordered)
                     .accessibilityIdentifier("battery-continue")
+                Button(L.t("native_battery_pause")) { model.pauseUntilPower() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.orange)
+                    .disabled(!model.canPause)
+                    .accessibilityIdentifier("battery-pause")
             }
-            .controlSize(.large)
-            .frame(maxWidth: .infinity)
         }
-        .padding(28)
-        .frame(width: 440)
+        .padding(20)
+        .frame(width: 400)
         .background(.regularMaterial)
     }
 }

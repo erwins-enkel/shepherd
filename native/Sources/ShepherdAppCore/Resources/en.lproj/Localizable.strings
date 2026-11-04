@@ -811,6 +811,16 @@
 "native_banner_needs_login" = "Your session expired. Sign in again.";
 "native_banner_offline" = "Cannot reach %1$@. Retrying.";
 "native_banner_unhealthy" = "%1$@ answered but reports a problem. Retrying.";
+"native_battery_body" = "Shepherd is working in the background and uses energy. Pause local work until you plug in?";
+"native_battery_changing" = "Changing battery pause…";
+"native_battery_continue" = "Keep running";
+"native_battery_hint" = "Work resumes automatically on external power.";
+"native_battery_pause" = "Pause until plugged in";
+"native_battery_pause_failed" = "Could not pause local work. Please try again; work has not been confirmed paused.";
+"native_battery_paused" = "Battery pause · Resumes on external power";
+"native_battery_resume" = "Resume now";
+"native_battery_resume_failed" = "Could not resume all local work. Please try Resume now again.";
+"native_battery_title" = "Your Mac is on battery";
 "native_close_backend_choices" = "Keep backend running: the local backend stays in the background. Running sessions and agents continue working and remain accessible from other clients. Open Shepherd again to follow them.\n\nStop backend too: the local backend stops. Its web UI and connections from other clients become unavailable until you start it again. Running local work may be interrupted.\n\nRemote servers keep running in either case.";
 "native_close_confirm_body" = "Closing this window or quitting the app leaves backend servers unchanged. A running or paused backend keeps its current state. Remote servers are unaffected. Open Shepherd again to follow your sessions.";
 "native_close_confirm_title" = "Close the Shepherd window?";

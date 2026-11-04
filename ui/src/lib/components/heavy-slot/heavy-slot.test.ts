@@ -7,6 +7,7 @@ import {
   commandLabel,
   formatBytes,
   formatRuntime,
+  holderState,
   memPressureBar,
   orderedWaiters,
   popoverLeft,
@@ -332,5 +333,14 @@ describe("laneTotals", () => {
       ramPct: null,
       braking: true,
     });
+  });
+});
+
+describe("holderState", () => {
+  const holder = { sessionId: "h", command: "x", startedAt: 0, rssBytes: null };
+  it("keeps the reported state and reads an older server's holder as running", () => {
+    expect(holderState({ ...holder, state: "lingering" })).toBe("lingering");
+    expect(holderState({ ...holder, state: "offered" })).toBe("offered");
+    expect(holderState(holder)).toBe("running");
   });
 });

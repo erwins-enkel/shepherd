@@ -5,6 +5,7 @@ import {
   LINGER_MAX_MS,
   OFFER_TTL_MS,
   RUNNING_GRACE_MS,
+  UNVERIFIED_HOLD_MAX_MS,
   buildSnapshot,
   defaultHeavySlotBudget,
   estimateWaits,
@@ -47,9 +48,12 @@ describe("defaultHeavySlotBudget", () => {
     });
   });
 
-  test("a slot per 16 cores AND 32 GiB, never fewer than one", () => {
+  test("a slot per 6 cores AND 32 GiB, never fewer than one", () => {
+    expect(defaultHeavySlotBudget({ cpus: 12, memTotalBytes: 64 * GIB }).slots).toBe(2);
+    expect(defaultHeavySlotBudget({ cpus: 16, memTotalBytes: 48 * GIB }).slots).toBe(1);
     expect(defaultHeavySlotBudget({ cpus: 32, memTotalBytes: 64 * GIB }).slots).toBe(2);
-    expect(defaultHeavySlotBudget({ cpus: 64, memTotalBytes: 64 * GIB }).slots).toBe(2);
+    expect(defaultHeavySlotBudget({ cpus: 64, memTotalBytes: 128 * GIB }).slots).toBe(4);
+    expect(defaultHeavySlotBudget({ cpus: 8, memTotalBytes: 16 * GIB }).slots).toBe(1);
     expect(defaultHeavySlotBudget({ cpus: 4, memTotalBytes: 8 * GIB }).slots).toBe(1);
   });
 
@@ -262,6 +266,38 @@ describe("HeavyLedger", () => {
     expect(l.get("j1")).toBeNull();
   });
 
+  test("a running job of unknown liveness is dropped only after the unverified window (#3631)", () => {
+    // Its runner never reported back and no scan can tell: measured from its start.
+    const l = new HeavyLedger();
+    const unknown = () => null;
+    const active = () => true;
+    l.acquire(req("j1", "s1"), ctx(0));
+    l.reconcile(UNVERIFIED_HOLD_MAX_MS - 1, unknown, active);
+    expect(l.get("j1")?.state).toBe("running");
+    l.reconcile(UNVERIFIED_HOLD_MAX_MS, unknown, active);
+    expect(l.get("j1")).toBeNull();
+    expect(l.takeDirty().find((j) => j.id === "j1")).toMatchObject({
+      state: "dropped",
+      dropReason: "unverified",
+    });
+  });
+
+  test("positive evidence restarts the unverified window; a false scan still frees at once", () => {
+    const l = new HeavyLedger();
+    const active = () => true;
+    l.acquire(req("j1", "s1"), ctx(0));
+    l.reconcile(UNVERIFIED_HOLD_MAX_MS - 1, () => true, active);
+    l.reconcile(2 * UNVERIFIED_HOLD_MAX_MS - 2, () => null, active);
+    expect(l.get("j1")?.state).toBe("running");
+    l.reconcile(2 * UNVERIFIED_HOLD_MAX_MS - 1, () => null, active);
+    expect(l.get("j1")).toBeNull();
+
+    l.acquire(req("j2", "s2"), ctx(0));
+    l.finish("j2", "s2", 0, true, 0);
+    l.reconcile(1, () => false, active);
+    expect(l.get("j2")).toBeNull();
+  });
+
   test("an archived session's waiting jobs are dropped; its running job stays bound", () => {
     const l = new HeavyLedger();
     l.acquire(req("j1", "s1"), ctx(0));
@@ -303,6 +339,35 @@ describe("HeavyLedger", () => {
     const again = new HeavyLedger(rows);
     expect(again.queue().map((j) => j.id)).toEqual(["j2", "j3"]);
     expect(again.active().map((j) => j.id)).toEqual(["j1"]);
+  });
+
+  test("a session that can't take an offer is passed over and keeps its place", () => {
+    const l = new HeavyLedger();
+    const blocked = new Set(["s2"]);
+    const c = (now: number) => ctx(now, { offerable: (id) => !blocked.has(id) });
+    l.acquire(req("j1", "s1"), c(0));
+    l.acquire(req("j2", "s2"), c(1));
+    l.acquire(req("j3", "s3"), c(2));
+    l.finish("j1", "s1", 0, false, 3);
+    expect(l.fill(c(3)).map((j) => j.id)).toEqual(["j3"]);
+    expect(l.queue().map((j) => j.id)).toEqual(["j2"]);
+    l.acquire(req("j3", "s3"), c(4));
+    l.finish("j3", "s3", 0, false, 5);
+    blocked.clear();
+    expect(l.fill(c(5)).map((j) => j.id)).toEqual(["j2"]);
+  });
+
+  test("a newcomer runs at once when only sessions that can't take an offer wait", () => {
+    const l = new HeavyLedger();
+    const c = (now: number) => ctx(now, { offerable: (id) => id !== "s2" });
+    l.acquire(req("j1", "s1"), c(0));
+    l.acquire(req("j2", "s2"), c(1));
+    l.finish("j1", "s1", 0, false, 2);
+    expect(l.acquire(req("j3", "s3"), c(3)).kind).toBe("run");
+    expect(l.queue().map((j) => j.id)).toEqual(["j2"]);
+    // Everyone offerable (the default): no barging past a waiter.
+    l.finish("j3", "s3", 0, false, 4);
+    expect(l.acquire(req("j4", "s1"), ctx(5)).kind).toBe("queued");
   });
 
   test("two slots run two jobs at once", () => {
@@ -392,14 +457,52 @@ describe("text and keys", () => {
       etaMs: 200_000,
       reason: "pressure",
       repeat: false,
+      holders: [],
+      now: 0,
     });
     expect(text).toContain("NOT RUN");
     expect(text).toContain("place 2 of 3, estimated wait ~4 min");
     expect(text).toContain("memory pressure");
     expect(text).toContain("Do not retry, poll, or skip this check");
     expect(
-      queuedMessage("x", { position: 1, total: 1, etaMs: null, reason: "slot", repeat: true }),
-    ).toContain("Still queued for the heavy-check slot: place 1 of 1, wait unknown.");
+      queuedMessage("x", {
+        position: 1,
+        total: 1,
+        etaMs: null,
+        reason: "slot",
+        repeat: true,
+        holders: [],
+        now: 0,
+      }),
+    ).toContain("Still queued for the heavy-check slot: place 1 of 1, wait unknown.\nDo not");
+  });
+
+  test("the queued message says who holds the slot and for how long (#3631)", () => {
+    const now = 12 * 60 * 60_000;
+    const text = (holders: Parameters<typeof queuedMessage>[1]["holders"]) =>
+      queuedMessage("x", {
+        position: 1,
+        total: 1,
+        etaMs: null,
+        reason: "slot",
+        repeat: false,
+        holders,
+        now,
+      });
+    expect(text([{ state: "running", startedAt: now - 4 * 60_000, finishedAt: null }])).toContain(
+      "wait unknown. Held by: a check running for ~4 min.",
+    );
+    expect(
+      text([{ state: "lingering", startedAt: 0, finishedAt: now - 11.5 * 60 * 60_000 }]),
+    ).toContain("Held by: leftover processes of a check that finished ~11 h ago.");
+    expect(
+      text([
+        { state: "offered", startedAt: null, finishedAt: null },
+        { state: "running", startedAt: now - 10_000, finishedAt: null },
+      ]),
+    ).toContain(
+      "Held by: a session ahead of you that was just offered the slot; a check running for ~1 min.",
+    );
   });
 
   test("the offer steer names the command and the deadline", () => {

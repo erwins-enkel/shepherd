@@ -8,10 +8,13 @@
 // lingering job's command has exited while processes carrying its marker still run — the slot is
 // bound to the process tree, not to the command's exit (#3181, "Slot an Job und Prozessbaum
 // binden"). FIFO, no barging: a free slot goes to the queue head as an offer, never to a newcomer.
+// The one exception: a session with a prompt on screen is passed over, keeping its place (#3631).
 
 export type HeavyJobState = "queued" | "offered" | "running" | "lingering" | "done" | "dropped";
-/** Why a job ended without running to completion. */
-export type HeavyDropReason = "expired" | "steer_missed" | "session_gone" | "disabled" | "released";
+/** Why a job ended without running to completion. `unverified`: a running job nothing has vouched
+ *  for during {@link UNVERIFIED_HOLD_MAX_MS} (its runner never reported an exit). */
+export type HeavyDropReason =
+  "expired" | "steer_missed" | "session_gone" | "disabled" | "released" | "unverified";
 /** What a queued job is waiting for: a free slot, or the pressure brake to let go. */
 export type HeavyWaitReason = "slot" | "pressure";
 export type HeavyBrakeReason = "memory_available" | "memory_pressure";
@@ -73,6 +76,11 @@ export const OFFER_TTL_MS = 5 * 60_000;
 export const RUNNING_GRACE_MS = 15_000;
 /** A lingering job frees its slot after this long even while its liveness stays unknown. */
 export const LINGER_MAX_MS = 15 * 60_000;
+/** A running job whose liveness stayed unknown this long — no marker process and no live process
+ *  group seen, the scan itself failing, its runner never reporting back — is dropped anyway, the
+ *  running counterpart of {@link LINGER_MAX_MS}: a slot is never held forever on no evidence
+ *  (#3631). Positive evidence restarts the window. */
+export const UNVERIFIED_HOLD_MAX_MS = 10 * 60_000;
 const COMMAND_MAX_CHARS = 500;
 /** Durations feeding a wait estimate: the most recent this many per {@link heavyEtaKey}. */
 export const ETA_HISTORY = 20;
@@ -82,7 +90,8 @@ const GIB = 1024 ** 3;
 /**
  * The budget a host gets with no configuration (#3181): every heavy runner already saturates all
  * cores (Vitest workers, `--max-concurrency`, cargo jobs = core count), so extra slots only pay off
- * on a big box — one per 16 cores AND 32 GiB, never fewer than one. The brake thresholds are the
+ * on a bigger box — one per 6 cores AND 32 GiB, never fewer than one, so a 12-core / 64 GiB machine
+ * runs two (#3631) while the pressure brake still gates each start. The brake thresholds are the
  * issue's provisional values: at most 4 GiB (15 % of RAM on a smaller host) and PSI `full` 20 %,
  * let go after 30 s. `slotsOverride` (SHEPHERD_HEAVY_SLOTS) wins when it is a positive integer.
  */
@@ -92,7 +101,7 @@ export function defaultHeavySlotBudget(
 ): HeavySlotBudget {
   const derived = Math.max(
     1,
-    Math.min(Math.floor(hw.cpus / 16), Math.floor(hw.memTotalBytes / (32 * GIB))),
+    Math.min(Math.floor(hw.cpus / 6), Math.floor(hw.memTotalBytes / (32 * GIB))),
   );
   const slots =
     slotsOverride != null && Number.isInteger(slotsOverride) && slotsOverride > 0
@@ -183,21 +192,38 @@ const HOLDS_SLOT: ReadonlySet<HeavyJobState> = new Set(["offered", "running", "l
 const TERMINAL: ReadonlySet<HeavyJobState> = new Set(["done", "dropped"]);
 
 /**
- * How the sweep ends one job, or null to keep it. A holder ends `done` once its processes are gone
- * (a running one only after the grace — the runner may not have spawned yet); a waiter is dropped
- * when its session is gone or its offer ran out.
+ * How the sweep ends a running or lingering job, or null to keep it: `done` once its processes are
+ * gone (a running one only after the grace — the runner may not have spawned yet). While its
+ * liveness is unknown (`live` null) a running job is kept until nothing has vouched for it since
+ * `evidenceAt` (else its start) for {@link UNVERIFIED_HOLD_MAX_MS}; a lingering one until
+ * {@link LINGER_MAX_MS} (see {@link settle}).
  */
+function settleHolder(
+  job: HeavyJob,
+  now: number,
+  live: boolean | null,
+  evidenceAt: number | null,
+): "done" | "unverified" | null {
+  const graced = job.state === "lingering" || now - (job.startedAt ?? now) > RUNNING_GRACE_MS;
+  if (!graced || live === true) return null;
+  if (live === false) return "done";
+  if (job.state === "lingering") return null;
+  return now - (evidenceAt ?? job.startedAt ?? now) < UNVERIFIED_HOLD_MAX_MS ? null : "unverified";
+}
+
+/** How the sweep ends one job, or null to keep it: a lingering job at {@link LINGER_MAX_MS} after
+ *  its exit, any holder per {@link settleHolder}; a waiter is dropped when its session is gone or
+ *  its offer ran out. */
 function settle(
   job: HeavyJob,
   now: number,
-  alive: (job: HeavyJob) => boolean | null,
+  live: boolean | null,
+  evidenceAt: number | null,
   sessionActive: (sessionId: string) => boolean,
 ): "done" | HeavyDropReason | null {
   if (job.state === "lingering" && now - (job.finishedAt ?? now) >= LINGER_MAX_MS) return "done";
-  if (job.state === "running" || job.state === "lingering") {
-    const graced = job.state === "lingering" || now - (job.startedAt ?? now) > RUNNING_GRACE_MS;
-    return graced && alive(job) === false ? "done" : null;
-  }
+  if (job.state === "running" || job.state === "lingering")
+    return settleHolder(job, now, live, evidenceAt);
   if (!sessionActive(job.sessionId)) return "session_gone";
   return job.state === "offered" && now > (job.offerExpiresAt ?? now) ? "expired" : null;
 }
@@ -219,7 +245,12 @@ export interface LedgerContext {
   now: number;
   budget: HeavySlotBudget;
   brakeEngaged: boolean;
+  /** False while a session has a prompt on screen: an offer steer would type into it, so its
+   *  queued job is passed over — keeping its place — until it can take one. Default: everyone. */
+  offerable?: (sessionId: string) => boolean;
 }
+
+const everyone = () => true;
 
 /**
  * The non-terminal jobs and every transition between them. Mutating, but pure of I/O: each change
@@ -228,6 +259,8 @@ export interface LedgerContext {
 export class HeavyLedger {
   #jobs = new Map<string, HeavyJob>();
   #dirty = new Map<string, HeavyJob>();
+  /** Last sweep a running job's scan vouched for it (in memory: a restart measures from start). */
+  #evidenceAt = new Map<string, number>();
 
   constructor(jobs: readonly HeavyJob[] = []) {
     for (const j of jobs) if (!TERMINAL.has(j.state)) this.#jobs.set(j.id, { ...j });
@@ -273,7 +306,10 @@ export class HeavyLedger {
 
   #touch(job: HeavyJob): HeavyJob {
     this.#dirty.set(job.id, { ...job });
-    if (TERMINAL.has(job.state)) this.#jobs.delete(job.id);
+    if (TERMINAL.has(job.state)) {
+      this.#jobs.delete(job.id);
+      this.#evidenceAt.delete(job.id);
+    }
     return job;
   }
 
@@ -302,7 +338,8 @@ export class HeavyLedger {
   /**
    * A heavy check asks for the slot. An offer this session holds is claimed first (it was made
    * while the slot and the brake allowed it); an existing queue entry is refreshed, never doubled;
-   * otherwise the job runs at once only when a slot is free, nobody waits and the brake is off.
+   * otherwise the job runs at once only when a slot is free, nobody who could take an offer waits
+   * and the brake is off.
    */
   acquire(
     req: { id: string; sessionId: string; command: string; cwd: string | null; etaKey: string },
@@ -348,7 +385,9 @@ export class HeavyLedger {
       treeHash: null,
     };
     this.#jobs.set(job.id, job);
-    if (this.active().length < ctx.budget.slots && !ctx.brakeEngaged && this.queue().length === 1) {
+    const offerable = ctx.offerable ?? everyone;
+    const ahead = this.queue().some((j) => j.id !== job.id && offerable(j.sessionId));
+    if (this.active().length < ctx.budget.slots && !ctx.brakeEngaged && !ahead) {
       job.state = "running";
       job.startedAt = ctx.now;
       return { kind: "run", job: this.#touch(job) };
@@ -408,7 +447,8 @@ export class HeavyLedger {
 
   /**
    * The periodic sweep. `alive(job)` is the process scan (null = cannot tell, so nothing is freed
-   * on a guess); `sessionActive(id)` is false for an archived or unknown session.
+   * on a guess — until {@link UNVERIFIED_HOLD_MAX_MS} without evidence); `sessionActive(id)` is
+   * false for an archived or unknown session.
    */
   reconcile(
     now: number,
@@ -416,7 +456,10 @@ export class HeavyLedger {
     sessionActive: (sessionId: string) => boolean,
   ): void {
     for (const job of this.all()) {
-      const end = settle(job, now, alive, sessionActive);
+      const holds = job.state === "running" || job.state === "lingering";
+      const live = holds ? alive(job) : null;
+      if (live) this.#evidenceAt.set(job.id, now);
+      const end = settle(job, now, live, this.#evidenceAt.get(job.id) ?? null, sessionActive);
       if (end === "done") this.#release(job, now, "done");
       else if (end) this.#release(job, now, "dropped", end);
     }
@@ -439,13 +482,16 @@ export class HeavyLedger {
     for (const job of this.all()) this.#release(job, now, "dropped", reason);
   }
 
-  /** Hand free slots to the queue head as offers. Returns the jobs just offered (to steer). */
+  /** Hand free slots to the queue head as offers, passing over sessions that can't take one now.
+   *  Returns the jobs just offered (to steer). */
   fill(ctx: LedgerContext, offerTtlMs = OFFER_TTL_MS): HeavyJob[] {
     const offered: HeavyJob[] = [];
     if (ctx.brakeEngaged) return offered;
+    const offerable = ctx.offerable ?? everyone;
     let free = ctx.budget.slots - this.active().length;
     for (const job of this.queue()) {
       if (free <= 0) break;
+      if (!offerable(job.sessionId)) continue;
       job.state = "offered";
       job.offerExpiresAt = ctx.now + offerTtlMs;
       offered.push(this.#touch(job));
@@ -500,6 +546,24 @@ function minutes(ms: number): string {
   return `~${Math.max(1, Math.ceil(ms / 60_000))} min`;
 }
 
+/** An age for the agent-facing text: minutes under an hour, whole hours beyond. */
+function age(ms: number): string {
+  return ms < 60 * 60_000 ? minutes(ms) : `~${Math.floor(ms / (60 * 60_000))} h`;
+}
+
+type HolderLine = Pick<HeavyJob, "state" | "startedAt" | "finishedAt">;
+
+/** Who holds the slot, so a long wait reads as a cause and not as a stall (#3631). */
+function heldBy(holders: readonly HolderLine[], now: number): string {
+  const items = holders.map((h) => {
+    if (h.state === "lingering")
+      return `leftover processes of a check that finished ${age(now - (h.finishedAt ?? now))} ago`;
+    if (h.state === "offered") return "a session ahead of you that was just offered the slot";
+    return `a check running for ${age(now - (h.startedAt ?? now))}`;
+  });
+  return items.length > 0 ? ` Held by: ${items.join("; ")}.` : "";
+}
+
 /**
  * What the runner prints when the check did NOT run. Typed into the agent's tool result, so fixed
  * English (the same precedent as ciFinishedSteer). It has to stop the three failure modes a refusal
@@ -513,6 +577,9 @@ export function queuedMessage(
     etaMs: number | null;
     reason: HeavyWaitReason;
     repeat: boolean;
+    /** The jobs holding a slot right now. */
+    holders: readonly HolderLine[];
+    now: number;
   },
 ): string {
   const wait = out.etaMs === null ? "wait unknown" : `estimated wait ${minutes(out.etaMs)}`;
@@ -522,7 +589,7 @@ export function queuedMessage(
     `Shepherd: NOT RUN. \`${command}\` is a heavy check (tests, type checks, builds), and this host ` +
       "runs those one at a time so it stays responsive.",
     `${out.repeat ? "Still queued" : "Queued"} for the heavy-check slot: place ${out.position} of ` +
-      `${out.total}, ${wait}.${pressure}`,
+      `${out.total}, ${wait}.${heldBy(out.holders, out.now)}${pressure}`,
     "Do not retry, poll, or skip this check. Continue with other work, or end your turn if nothing " +
       "else is left. Shepherd will message you when the slot is yours; then rerun this exact command.",
   ].join("\n");

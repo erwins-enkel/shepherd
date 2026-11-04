@@ -94,3 +94,14 @@ test("a remote snapshot without lastResults parses to an empty list; bad entries
   // unreported staleness never reads as current
   expect(parsed?.lastResults[0]).toMatchObject({ sessionId: "a", result: "passed", stale: true });
 });
+
+test("a remote holder keeps a known state; one from an older release reads as running", () => {
+  const holder = { sessionId: "a", command: "c", startedAt: 1, rssBytes: null };
+  const parsed = parseHeavySlotSnapshot({
+    enabled: true,
+    capacity: 3,
+    holders: [{ ...holder, state: "lingering" }, holder, { ...holder, state: "bogus" }],
+    waiters: [],
+  });
+  expect(parsed?.holders.map((h) => h.state)).toEqual(["lingering", "running", "running"]);
+});

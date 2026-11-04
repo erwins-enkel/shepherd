@@ -58,7 +58,7 @@ onDarwin(
       childPid = Number(Buffer.concat(output).toString().trim());
       expect(Number.isSafeInteger(childPid) && childPid > 0).toBe(true);
       const first = await scanMarkersDarwin(new Set([id]));
-      expect(first.procs.get(id)?.count).toBe(1);
+      expect(first?.get(id)?.count).toBe(1);
       let lastScan: DarwinMarkerScan = first;
       const steers: string[] = [];
       let nextId = 0;
@@ -103,11 +103,14 @@ onDarwin(
       expect(steers).toHaveLength(0);
       process.kill(childPid, "SIGKILL");
       const deadline = Date.now() + 8000;
-      while (lastScan.procs.has(id) && Date.now() < deadline) {
+      while (lastScan?.has(id) && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 100));
         await svc.sweep(true);
       }
-      expect(lastScan.procs.has(id)).toBe(false);
+      // SIP-protected processes of the runner UID are unreadable; they must not keep the slot
+      // (#3631) — a listed process table without the marker frees it.
+      expect(lastScan).not.toBeNull();
+      expect(lastScan!.has(id)).toBe(false);
       expect(steers).toEqual(["s2"]);
       childPid = undefined;
     } finally {

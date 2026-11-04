@@ -4055,7 +4055,15 @@ export interface AssistantSwitchState {
 export interface HeavySlotSnapshot {
   enabled: boolean;
   capacity: number;
-  holders: { sessionId: string; command: string; startedAt: number; rssBytes: number | null }[];
+  holders: {
+    sessionId: string;
+    command: string;
+    startedAt: number;
+    rssBytes: number | null;
+    /** `lingering`: the command finished but processes it started still hold the slot. Absent
+     *  from older servers — read it through `holderState`. */
+    state?: "offered" | "running" | "lingering";
+  }[];
   waiters: { sessionId: string; position: number; reason: "slot" | "pressure" }[];
   brake: { active: boolean; reason: "memory" | null };
   pressure: {

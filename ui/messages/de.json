@@ -8098,5 +8098,9 @@
   "heavyslot_pressure_memory": "Druck & Speicher",
   "heavyslot_last_results_count": "Letzte Prüfresultate ({n})",
   "feat_machine_slots_overview_title": "Die Prüfslots aller Rechner im Blick",
-  "feat_machine_slots_overview_body": "Sind Rechner verbunden, zeigen die Prüfslot-Leiste unter der Herde und der Chip in der Top-Leiste die Slots aller Rechner: eine Spur je Rechner mit Arbeit, wer gerade prüft und wer hinter wem wartet. Ein nicht erreichbarer Rechner behält seine zuletzt gemeldete Warteschlange, mit der Uhrzeit dieses Stands."
+  "feat_machine_slots_overview_body": "Sind Rechner verbunden, zeigen die Prüfslot-Leiste unter der Herde und der Chip in der Top-Leiste die Slots aller Rechner: eine Spur je Rechner mit Arbeit, wer gerade prüft und wer hinter wem wartet. Ein nicht erreichbarer Rechner behält seine zuletzt gemeldete Warteschlange, mit der Uhrzeit dieses Stands.",
+  "heavyslot_strip_holder_lingering": "Restprozesse von {command}",
+  "heavyslot_strip_holder_offered": "Angeboten für {command}",
+  "heavyslot_state_lingering": "Befehl beendet · Restprozesse halten den Slot",
+  "heavyslot_state_offered": "Reserviert, bis die Sitzung ihren Check neu startet"
 }

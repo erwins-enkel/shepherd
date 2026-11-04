@@ -21,7 +21,11 @@ moves to another machine.
   drain or reaper on your side touches them. A session on another machine is never passed on, so
   two machines connected to each other neither loop nor show a session twice. A repo filter in the
   herd also keeps the other machines' sessions of the same project, matched by its forge remote
-  (`owner/repo`), because the checkout paths differ between machines.
+  (`owner/repo`), because the checkout paths differ between machines. The repo chips count them
+  too, so a chip stays while only another machine still runs its project, and a project checked
+  out only on another machine gets a chip of its own (its menu offers only pin and filter, since
+  there is no checkout here). The Herd, Busy, Idle and Blocked tallies in the top bar count
+  every machine's sessions; the emergency stop still halts only your own.
 - **Actions go to the machine.** The terminal, steering, stopping, archiving, the diff, the files
   and the preview are sent to the machine and run there. While the machine can't be reached,
   nothing is sent and nothing runs on your side in its place.

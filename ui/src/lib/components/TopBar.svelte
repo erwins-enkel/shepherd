@@ -125,8 +125,9 @@
     heavySlot?: HeavySlotSnapshot | null;
     /** Connected machines whose reported slots the chip shows beside this one's (desktop). */
     slotMachines?: readonly RemoteInstance[];
-    /** Sessions mirrored from those machines, to name their slots' holders and waiters. */
-    remoteSessions?: Pick<Session, "id" | "name">[];
+    /** Sessions mirrored from connected machines (#2762): the tallies count them like the herd
+     *  lists them, and the slot chip names its holders and waiters among them. */
+    remoteSessions?: Session[];
     onheavyslotrelease?: (sessionId: string) => Promise<void>;
     /** Phone only: opens the full-screen host panel from the gear sheet's check-slot row. */
     onhostpanel?: () => void;
@@ -198,8 +199,9 @@
 
   // tally click: toggle — clicking the active status clears the filter
   const clickStatus = (s: TallyStatus) => onstatusfilter?.(statusFilter === s ? null : s);
-  // The chip names holders and waiters on every machine, so it looks up mirrored sessions too.
-  const slotSessions = $derived(
+  // Every machine's sessions: the slot chip names holders and waiters on every machine, and the
+  // tallies count them all (below).
+  const everySession = $derived(
     remoteSessions.length > 0 ? [...sessions, ...remoteSessions] : sessions,
   );
 
@@ -212,8 +214,13 @@
   // blocked (displayStatus upgrades it). The halt e-stop instead reads the RAW
   // status (`haltable` below): the server's haltAll only reaches agents herdr
   // itself reports working, which the latched-"blocked" session is not.
+  //
+  // They count every machine's sessions, as the herd lists them and the status filter they set
+  // narrows them; a mirrored id is in neither display map, so its status reads as reported. The
+  // halt e-stop counts this machine's only: haltAll never reaches another machine's agents.
   const working = $derived(
-    sessions.filter((s) => displayStatus(s, workingBlocked, backgroundBusy) === "running").length,
+    everySession.filter((s) => displayStatus(s, workingBlocked, backgroundBusy) === "running")
+      .length,
   );
   const haltable = $derived(sessions.filter((s) => s.status === "running").length);
   // "touch-desktop" = a coarse-pointer device wider than 768px (an unfolded foldable, a
@@ -390,12 +397,12 @@
 
   // Shelved sessions are out of play: they never count toward the attention tallies.
   const idle = $derived(
-    sessions.filter(
+    everySession.filter(
       (s) => !s.shelved && displayStatus(s, workingBlocked, backgroundBusy) === "idle",
     ).length,
   );
   const blocked = $derived(
-    sessions.filter(
+    everySession.filter(
       (s) => !s.shelved && displayStatus(s, workingBlocked, backgroundBusy) === "blocked",
     ).length,
   );
@@ -953,7 +960,7 @@
          Assist and New moved to the thumb zone (ActionBar Menu tab, MobileFabs), and the
          check-slot + merge-train strips fold into this line's segments. -->
     <TopBarStatusLine
-      total={sessions.length}
+      total={everySession.length}
       {working}
       {idle}
       {blocked}
@@ -976,7 +983,7 @@
     <TopBarTallies
       mobile={false}
       compact={compactBadges}
-      total={sessions.length}
+      total={everySession.length}
       {working}
       {idle}
       {blocked}
@@ -989,7 +996,7 @@
       <HeavySlotChip
         {heavySlot}
         machines={slotMachines}
-        sessions={slotSessions}
+        sessions={everySession}
         {nowMs}
         compact={compactBadges}
         onrelease={async (id) => onheavyslotrelease?.(id)}

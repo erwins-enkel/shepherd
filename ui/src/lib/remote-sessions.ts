@@ -74,11 +74,27 @@ export function byMachine<T extends { host?: SessionHost }>(
   return items.filter((x) => x.host?.instanceId === filter);
 }
 
+const PROJECT_KEY_PREFIX = "project:";
+
+/**
+ * The repo-filter key of a project only other machines have checked out: there is no path of
+ * this Shepherd's to name it by, so it is named by its slug, ignoring case. Never an absolute
+ * path, so it can't collide with a checkout's key.
+ */
+export function projectFilterKey(slug: string): string {
+  return PROJECT_KEY_PREFIX + slug.toLowerCase();
+}
+
+/** The slug a project key names, or null for a checkout's path. */
+export function projectKeySlug(key: string): string | null {
+  return key.startsWith(PROJECT_KEY_PREFIX) ? key.slice(PROJECT_KEY_PREFIX.length) : null;
+}
+
 /**
  * The mirrored sessions a repo filter keeps: those whose project (`remoteSlug`, as their machine's
- * repo index names it) is the project of a selected repo. The filter names this Shepherd's
- * checkouts by path, which a session on another machine never shares, so the match is by slug,
- * ignoring case. Every session while no repo is selected.
+ * repo index names it) is the project of a selected repo, or the project a selected project key
+ * names. The filter names this Shepherd's checkouts by path, which a session on another machine
+ * never shares, so the match is by slug, ignoring case. Every session while no repo is selected.
  */
 export function inRepoFilter(
   remote: readonly Session[],
@@ -93,6 +109,10 @@ export function inRepoFilter(
         : [],
     ),
   );
+  for (const key of repoFilter) {
+    const slug = projectKeySlug(key);
+    if (slug) slugs.add(slug);
+  }
   return remote.filter((s) => !!s.remoteSlug && slugs.has(s.remoteSlug.toLowerCase()));
 }
 

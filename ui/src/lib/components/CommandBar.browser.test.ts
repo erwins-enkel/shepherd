@@ -404,6 +404,29 @@ describe("CommandBar — repo secondary action (filter)", () => {
     expect(onfilterrepo).not.toHaveBeenCalled();
   });
 
+  // gamma's only live session runs on another machine (#2762): its chip stands, so it filters.
+  it("Shift+Enter filters a repo whose only live session runs on another machine", async () => {
+    repos.entries = seedRepos().map((r) =>
+      r.name === "gamma" ? { ...r, remoteSlug: "kai/gamma" } : r,
+    );
+    const { onselectrepo, onfilterrepo } = renderBar({
+      remoteSessions: [
+        session({
+          id: "r1",
+          repoPath: "/Users/k/gamma",
+          remoteSlug: "Kai/Gamma",
+          host: { instanceId: "m1", name: "macbook", platform: "macos" },
+          connection: { state: "connected", since: 1 },
+        }),
+      ],
+    });
+    await page.getByRole("combobox").click();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}");
+    await userEvent.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(onfilterrepo).toHaveBeenCalledWith("/repos/gamma");
+    expect(onselectrepo).not.toHaveBeenCalled();
+  });
+
   it("shows the filter hint on live-session repos but not on session-less ones", async () => {
     renderBar();
     // A live repo (beta) row carries both the "Repository" label and the ⇧↵ hint.

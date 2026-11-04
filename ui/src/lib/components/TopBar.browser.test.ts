@@ -934,6 +934,37 @@ describe("TopBar — tallies toggle the status filter", () => {
     expect(onstatusfilter).toHaveBeenCalledWith(null);
   });
 
+  it("desktop: the tallies count the other machines' sessions too (#2762)", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const local = [
+      { id: "l-run", status: "running" },
+      { id: "l-idle", status: "idle" },
+    ] as unknown as Session[];
+    const remoteSessions = [
+      { id: "r-run", name: "r-run", status: "running" },
+      { id: "r-blocked", name: "r-blocked", status: "blocked" },
+      { id: "r-idle", name: "r-idle", status: "idle" },
+      { id: "r-shelved", name: "r-shelved", status: "blocked", shelved: true },
+    ] as unknown as Session[];
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      sessions: local,
+      remoteSessions,
+      ...FLAGS.desktop,
+    });
+    const tally = (title: string) =>
+      page.getByTitle(title).element().querySelector(".n")?.textContent ?? null;
+    const status = (label: string) => tally(m.topbar_tally_filter_title({ status: label }));
+    await expect.element(page.getByTitle(m.topbar_tally_clear_title())).toBeVisible();
+    expect(tally(m.topbar_tally_clear_title()), "Herd: every session on every machine").toBe("6");
+    expect(status(m.topbar_working_label())).toBe("2");
+    expect(status(m.topbar_idle_label())).toBe("2");
+    // A shelved session is out of play on any machine.
+    expect(status(m.topbar_blocked_label())).toBe("1");
+  });
+
   it("desktop: the Herd tally clears the filter", async () => {
     await page.viewport(1280, 900);
     document.body.style.width = "1280px";

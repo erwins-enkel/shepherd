@@ -343,6 +343,32 @@ describe("RepoSwitcher — filter rail", () => {
     expect(page.getByRole("menuitem", { name: m.repo_chip_assistant_start() }).query()).toBeNull();
   });
 
+  it("a project only other machines have reads by name and offers only pin and filter (#2762)", async () => {
+    const onrepofilter = vi.fn();
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "project:kai/murmur", count: 2 }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: new Set<string>(),
+      onrepofilter,
+      onrepoassistant: vi.fn(),
+    });
+    const murmur = page.getByRole("button", { name: m.repo_filter_apply_aria({ repo: "murmur" }) });
+    await expect.element(murmur).toBeVisible();
+    expect((murmur.element() as HTMLElement).querySelector(".rs-count")?.textContent).toBe("2");
+    (murmur.element() as HTMLElement).dispatchEvent(
+      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+    );
+    await tick();
+    await expect.element(page.getByRole("menu")).toBeVisible();
+    const items = [...document.querySelectorAll(".rs-menu-item")].map((el) => el.textContent);
+    expect(items).toEqual([
+      expect.stringContaining(m.repo_chip_pin()),
+      expect.stringContaining(m.repo_chip_add_filter()),
+    ]);
+    expect(getRepoWebFn, "no checkout here to look its forge page up by").not.toHaveBeenCalled();
+    await page.getByRole("menuitem", { name: m.repo_chip_add_filter() }).click();
+    expect(onrepofilter).toHaveBeenCalledWith("project:kai/murmur", true);
+  });
+
   it("opens the selected repo's automation settings from the chip menu", async () => {
     render(RepoSwitcher, {
       chips: [

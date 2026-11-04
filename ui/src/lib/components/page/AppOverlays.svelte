@@ -723,6 +723,7 @@
 {#if showCommandBar}
   <CommandBar
     sessions={store.sessions}
+    remoteSessions={store.remoteSessions}
     workingBlocked={store.workingBlocked}
     backgroundBusy={store.backgroundBusy}
     blocks={store.blocks}

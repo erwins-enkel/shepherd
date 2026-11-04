@@ -685,6 +685,10 @@ describe("resolveFilterPaths", () => {
   it("an empty filter resolves to nothing", () => {
     expect(resolveFilterPaths(new Set(), entries)).toEqual([]);
   });
+
+  it("skips a project only other machines have — it has no backlog here", () => {
+    expect(resolveFilterPaths(["project:kai/murmur", "/real/a"], entries)).toEqual(["/root/a"]);
+  });
 });
 
 describe("sortProjects", () => {

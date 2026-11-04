@@ -1,4 +1,5 @@
 import type { Session, TerminalClientInfo } from "./types";
+import { projectKeySlug } from "./remote-sessions";
 
 /** The tabs of a session's Viewport (its `tab` state). */
 export type ViewTab = "chat" | "term" | "todo" | "diff" | "files" | "preview" | "browser";
@@ -12,7 +13,8 @@ export type ViewTab = "chat" | "term" | "todo" | "diff" | "files" | "preview" | 
 export interface AssistantViewReport {
   v: 1;
   client: TerminalClientInfo;
-  /** Repo paths of the herd's repo filter; empty = all repos. */
+  /** Repo paths of the herd's repo filter; empty = all repos. A project only other machines
+   *  have (`project:` key) names no path here, so it is left out — the server takes paths only. */
   repoFilter: string[];
   focus:
     | { kind: "none" }
@@ -41,7 +43,7 @@ export function buildAssistantViewReport(i: {
   return {
     v: 1,
     client: i.client,
-    repoFilter: [...i.repoFilter],
+    repoFilter: [...i.repoFilter].filter((key) => projectKeySlug(key) === null),
     focus: i.mobile && i.assistantReturnScreen !== "detail" ? { kind: "none" } : mainPaneFocus(i),
   };
 }

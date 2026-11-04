@@ -106,6 +106,7 @@
     byMachine,
     inRepoFilter,
     mirroredNeedsYou,
+    projectKeySlug,
     type MachineFilter,
   } from "#lib/remote-sessions.js";
   import { machines } from "#lib/machines.svelte.js";
@@ -474,6 +475,11 @@
   // behaviors (selection re-target, new-task follow, composer prefill) so a multi-selection
   // never yanks selection or prefills a repo.
   const activeRepo = $derived(repoFilter.size === 1 ? [...repoFilter][0]! : null);
+  // activeRepo as one of this Shepherd's checkouts — null for a project only other machines have
+  // (its `project:` key names no path here), so a composer or dialog never gets it as a repo.
+  const activeLocalRepo = $derived(
+    activeRepo !== null && projectKeySlug(activeRepo) === null ? activeRepo : null,
+  );
   // Reconcile the filter set in place (mutation, not reassignment — SvelteSet is reactive).
   function replaceRepoFilter(paths: Iterable<string>) {
     const next = new Set(paths);
@@ -515,9 +521,13 @@
   //     single filter change selectNewSession makes (selection is already on the new task).
   let followingRepo: string | null = null;
   let followingNewSession = false;
-  // Chips for the repo switcher: one per repo with a live session, computed from the
-  // unfiltered herd (selection/global counts stay whole). Single source — passed to the switcher.
-  const repoChips = $derived(repoChipRows(store.sessions, store.drain));
+  // Chips for the repo switcher: one per repo with a live session on any machine, computed from
+  // the unfiltered herd (selection/global counts stay whole). Single source — passed to the
+  // switcher. Mirrored sessions count by project, so a repo only other machines still run keeps
+  // its chip (and the filter on it).
+  const repoChips = $derived(
+    repoChipRows(store.sessions, store.drain, store.remoteSessions, repos.entries),
+  );
   // Prune only the selected repos whose last live session has ended (no chip) — a filter on a
   // vanished repo would strand it in the set. Removes exactly the stale members, keeping the rest.
   $effect(() => {
@@ -536,7 +546,8 @@
   // Picking a repo chip narrows the herd list to that repo — but the terminal would
   // otherwise keep showing whatever session was selected before, which now lives in a
   // different repo than the visible list. Re-target selection onto the chosen repo
-  // (waiting-on-you session first, then first active, then any). Tracks ONLY activeRepo
+  // (waiting-on-you session first, then first active, then any — among the other machines'
+  // sessions when only they still run the repo). Tracks ONLY activeRepo
   // (everything else is untracked) so it fires on a single-repo chip switch, never on a
   // later session/block update. Keyed on activeRepo (null unless exactly one repo is
   // selected) so shift-adding a 2nd repo to a multi-selection keeps the current selection.
@@ -560,6 +571,10 @@
         store.workingBlocked,
         selected,
         store.backgroundBusy,
+        {
+          sessions: inRepoFilter(store.remoteSessions, new Set([rf]), repos.entries),
+          selectedId,
+        },
       );
       // toDetail=false lives in the handler: filtering the list must not fling a
       // phone user into a terminal. Routed through jumpHandlers so a target in a
@@ -4431,7 +4446,7 @@
   relaunchOriginal={relaunchOriginalId !== null}
   editHeld={editHeldId !== null}
   {composeRepoPath}
-  repoFilter={activeRepo}
+  repoFilter={activeLocalRepo}
   {composeBaseBranch}
   {composeIssue}
   {relaunchIssueNumber}
@@ -4607,7 +4622,7 @@
   {amendTarget}
   onamendclose={() => (amendTargetId = null)}
   {showEpicDiagnose}
-  epicDiagnoseInitialRepo={activeRepo ?? undefined}
+  epicDiagnoseInitialRepo={activeLocalRepo ?? undefined}
   onepicdiagnoseclose={() => (showEpicDiagnose = false)}
   {clearMergedSessions}
   {clearMergedLeftovers}

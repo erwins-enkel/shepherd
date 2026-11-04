@@ -10,6 +10,7 @@
     commandLabel,
     formatReadAt,
     hasMachineLanes,
+    holderState,
     laneTotals,
     orderedWaiters,
     slotActive,
@@ -36,6 +37,14 @@
 
   const nameOf = (id: string) =>
     sessions.find((s) => s.id === id)?.name ?? m.heavyslot_unknown_session();
+  /** A holder's line: running, its leftover processes, or an open offer (#3631). */
+  const holderLine = (h: HeavySlotSnapshot["holders"][number]) => {
+    const command = commandLabel(h.command);
+    const state = holderState(h);
+    if (state === "lingering") return m.heavyslot_strip_holder_lingering({ command });
+    if (state === "offered") return m.heavyslot_strip_holder_offered({ command });
+    return m.heavyslot_strip_holder({ command });
+  };
   const lanes = $derived(slotLanes(heavySlot, machines));
   const byMachine = $derived(hasMachineLanes(lanes));
   const shown = $derived(byMachine ? activeLanes(lanes) : []);
@@ -58,7 +67,7 @@
         onclick={() => onselect?.(h.sessionId)}
       >
         <span class="hs-name">{nameOf(h.sessionId)}</span>
-        <span class="hs-cmd">{m.heavyslot_strip_holder({ command: commandLabel(h.command) })}</span>
+        <span class="hs-cmd">{holderLine(h)}</span>
       </button>
     </li>
   {/each}

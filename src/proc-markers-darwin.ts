@@ -25,12 +25,13 @@ const runHelper: MarkerRunner = (ids) =>
     child.stdin?.end(JSON.stringify(ids));
   });
 
+/** The helper's answer: `null` (process table unreadable) or the marker entries. */
 function decodeScan(text: string, ids: ReadonlySet<string>): DarwinMarkerScan {
   const raw = JSON.parse(text);
-  if (typeof raw?.complete !== "boolean" || !Array.isArray(raw.procs))
-    throw new Error("invalid scan");
+  if (raw === null) return null;
+  if (!Array.isArray(raw)) throw new Error("invalid scan");
   const procs = new Map<string, ProcStat>();
-  for (const entry of raw.procs) {
+  for (const entry of raw) {
     if (!Array.isArray(entry) || entry.length !== 2) throw new Error("invalid entry");
     const [id, stat] = entry;
     if (
@@ -45,10 +46,11 @@ function decodeScan(text: string, ids: ReadonlySet<string>): DarwinMarkerScan {
       throw new Error("invalid stat");
     procs.set(id, { count: stat.count, rssBytes: stat.rssBytes });
   }
-  return { procs, complete: raw.complete };
+  return procs;
 }
 
-/** Each request gets fresh evidence, with at most one helper in flight. */
+/** Each request gets fresh evidence, with at most one helper in flight. A helper that fails or
+ *  answers garbage is an unknown scan (null), never "nothing found". */
 export function makeDarwinMarkerScanner(run: MarkerRunner = runHelper) {
   let pending: Promise<unknown> = Promise.resolve();
   return (ids: ReadonlySet<string>): Promise<DarwinMarkerScan> => {
@@ -56,7 +58,7 @@ export function makeDarwinMarkerScanner(run: MarkerRunner = runHelper) {
       try {
         return decodeScan(await run([...ids]), ids);
       } catch {
-        return { procs: new Map<string, ProcStat>(), complete: false };
+        return null;
       }
     });
     pending = scan;

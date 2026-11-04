@@ -13,6 +13,8 @@ export interface HeavySlotHolder {
   startedAt: number;
   /** Summed RSS of the holder's process tree (an upper bound — shared pages count repeatedly). */
   rssBytes: number | null;
+  /** `lingering`: the command finished but processes it started still hold the slot. */
+  state: "offered" | "running" | "lingering";
 }
 
 export interface HeavySlotWaiter {
@@ -151,7 +153,8 @@ function parseHolder(h: unknown): HeavySlotHolder | null {
   const sessionId = text(h.sessionId);
   const command = text(h.command);
   if (sessionId === null || command === null) return null;
-  return { sessionId, command, startedAt: h.startedAt, rssBytes: orNull(h.rssBytes) };
+  const state = h.state === "offered" || h.state === "lingering" ? h.state : "running";
+  return { sessionId, command, startedAt: h.startedAt, rssBytes: orNull(h.rssBytes), state };
 }
 
 function parseWaiter(w: unknown): HeavySlotWaiter | null {

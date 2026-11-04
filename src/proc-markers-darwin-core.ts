@@ -1,80 +1,75 @@
 import type { ProcStat } from "./heavy-slot";
 
-export interface DarwinMarkerScan {
-  procs: Map<string, ProcStat>;
-  /** Only a complete scan can prove that a job has no remaining processes. */
-  complete: boolean;
-}
+/** Live marker processes per job id; null when the process table itself could not be read. */
+export type DarwinMarkerScan = Map<string, ProcStat> | null;
 
-/** KERN_PROCARGS2: argc, executable + padding, argc NUL-terminated args, environ.
- * Empty/redacted environments are deliberately unknown, never negative evidence. */
-export function parseProcArgsMarker(data: Buffer): { marker: string | null; complete: boolean } {
-  const unknown = { marker: null, complete: false };
-  if (data.length < 4) return unknown;
+const MARKER = "SHEPHERD_HEAVY_JOB=";
+
+/** KERN_PROCARGS2: argc, executable + padding, argc NUL-terminated args, environ. The job id the
+ * process carries, or null (none, or an unreadable block). An empty argv[0] is indistinguishable
+ * from the executable's padding and shifts the first environment entry into the last argument, so
+ * a marker there counts too: a shifted marker is never missed, and an argument naming a live job
+ * id belongs to that job anyway. */
+export function parseProcArgsMarker(data: Buffer): string | null {
+  if (data.length < 4) return null;
   const argc = data.readInt32LE(0);
-  if (argc <= 0 || argc > data.length - 4) return unknown;
+  if (argc <= 0 || argc > data.length - 4) return null;
   let cursor = data.indexOf(0, 4);
-  if (cursor < 0) return unknown;
+  if (cursor < 0) return null;
   while (cursor < data.length && data[cursor] === 0) cursor++;
-  let ambiguousMarker = false;
+  let lastArg = "";
   for (let arg = 0; arg < argc; arg++) {
     const end = data.indexOf(0, cursor);
-    if (end < 0) return unknown;
-    // Empty argv[0] cannot be distinguished from executable padding. A marker
-    // consumed here is not positive evidence, but cannot prove absence either.
-    ambiguousMarker ||= data.toString("utf8", cursor, end).startsWith("SHEPHERD_HEAVY_JOB=");
+    if (end < 0) return null;
+    lastArg = data.toString("utf8", cursor, end);
     cursor = end + 1;
   }
   const env = parseEnvironmentMarker(data, cursor);
-  return { marker: env.marker, complete: !ambiguousMarker && env.complete };
+  if (env !== null) return env;
+  return lastArg.startsWith(MARKER) ? lastArg.slice(MARKER.length) : null;
 }
 
-function parseEnvironmentMarker(data: Buffer, cursor: number) {
+function parseEnvironmentMarker(data: Buffer, cursor: number): string | null {
   let marker: string | null = null;
-  let entries = 0;
   while (cursor < data.length && data[cursor] !== 0) {
     const end = data.indexOf(0, cursor);
-    if (end < 0) return { marker, complete: false };
+    if (end < 0) break;
     const entry = data.toString("utf8", cursor, end);
-    if (entry.startsWith("SHEPHERD_HEAVY_JOB=")) marker = entry.slice("SHEPHERD_HEAVY_JOB=".length);
-    entries++;
+    if (entry.startsWith(MARKER)) marker = entry.slice(MARKER.length);
     cursor = end + 1;
   }
-  return { marker, complete: entries > 0 && cursor < data.length };
+  return marker;
 }
 
-/** A vanished process is harmless; any other unreadable own process makes absence unknown. */
+/**
+ * Every own process carrying one of `jobIds`, the same rule as the Linux /proc scan: a process
+ * whose arguments or environment macOS won't show (SIP-protected agents of the same UID; macOS 27
+ * redacts most own processes' environment, #3697) or that vanished is skipped, as an unreadable
+ * /proc/<pid>/environ is on Linux. Demanding every process be readable
+ * let one such agent pin a slot forever (#3631). Only an unreadable process table (empty or
+ * malformed `ps` output) is unknown → null.
+ */
 export function collectDarwinMarkers(
   ps: string,
   uid: number,
   jobIds: ReadonlySet<string>,
-  read: (pid: number) => Buffer | "gone" | null,
+  read: (pid: number) => Buffer | null,
 ): DarwinMarkerScan {
+  if (ps.trim().length === 0) return null;
   const procs = new Map<string, ProcStat>();
-  let complete = ps.trim().length > 0;
   for (const line of ps.trim().split("\n")) {
     const proc = parseOwnProcess(line, uid);
     if (proc === "skip") continue;
-    if (proc === null) {
-      complete = false;
-      continue;
-    }
-    const { pid, rssBytes } = proc;
-    const data = read(pid);
-    if (data === "gone") continue;
-    if (data === null) {
-      complete = false;
-      continue;
-    }
-    const parsed = parseProcArgsMarker(data);
-    complete &&= parsed.complete;
-    if (!parsed.marker || !jobIds.has(parsed.marker)) continue;
-    const stat = procs.get(parsed.marker) ?? { count: 0, rssBytes: 0 };
+    if (proc === null) return null;
+    const data = read(proc.pid);
+    const marker = data ? parseProcArgsMarker(data) : null;
+    if (!marker || !jobIds.has(marker)) continue;
+    const stat = procs.get(marker) ?? { count: 0, rssBytes: 0 };
     stat.count++;
-    stat.rssBytes += rssBytes;
-    procs.set(parsed.marker, stat);
+    stat.rssBytes += proc.rssBytes;
+    procs.set(marker, stat);
   }
-  return { procs, complete };
+  return procs;
 }
 
 /** Malformed rows are unknown; foreign users and zombies are outside the scan. */

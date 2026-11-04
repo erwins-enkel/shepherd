@@ -8098,5 +8098,9 @@
   "heavyslot_pressure_memory": "Pressure & memory",
   "heavyslot_last_results_count": "Last check results ({n})",
   "feat_machine_slots_overview_title": "Every machine's check slot at a glance",
-  "feat_machine_slots_overview_body": "With machines connected, the check-slot strip under the herd and the chip in the top bar show every machine's slot: one lane per machine with work, who runs a check and who waits behind whom. An unreachable machine keeps its last known queue, marked with the time it was read."
+  "feat_machine_slots_overview_body": "With machines connected, the check-slot strip under the herd and the chip in the top bar show every machine's slot: one lane per machine with work, who runs a check and who waits behind whom. An unreachable machine keeps its last known queue, marked with the time it was read.",
+  "heavyslot_strip_holder_lingering": "Leftover processes of {command}",
+  "heavyslot_strip_holder_offered": "Offered for {command}",
+  "heavyslot_state_lingering": "Command finished · leftover processes hold the slot",
+  "heavyslot_state_offered": "Reserved until the session reruns its check"
 }

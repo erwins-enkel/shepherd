@@ -8,6 +8,7 @@
     commandLabel,
     formatBytes,
     formatRuntime,
+    holderState,
     memPressureBar,
     orderedWaiters,
     ramUsedPct,
@@ -50,6 +51,12 @@
   const toggle = (key: string) => (expanded.has(key) ? expanded.delete(key) : expanded.add(key));
   const nameOf = (id: string) =>
     sessions.find((s) => s.id === id)?.name ?? m.heavyslot_unknown_session();
+  /** What a holder that isn't simply running is doing with its slot (#3631); empty when running. */
+  const stateLabel = (h: HeavySlotSnapshot["holders"][number]) => {
+    const state = holderState(h);
+    if (state === "lingering") return m.heavyslot_state_lingering();
+    return state === "offered" ? m.heavyslot_state_offered() : "";
+  };
   const bar = $derived(memPressureBar(heavySlot));
   const ram = $derived(ramUsedPct(heavySlot));
   const p = $derived(heavySlot.pressure);
@@ -112,6 +119,7 @@
   {#each heavySlot.holders as h, i (i)}
     <div class="hp-row">
       <span class="hp-name">{nameOf(h.sessionId)}</span>
+      <span class="hp-dim hp-state">{stateLabel(h)}</span>
       <span class="hp-dim hp-mono"
         >{formatRuntime(h.startedAt, nowMs)} · {formatBytes(h.rssBytes)}</span
       >
@@ -269,6 +277,10 @@
   .hp-dim {
     color: var(--color-muted);
     margin: 0;
+  }
+  /* A plainly running holder has no state label; keep the row's gap from showing it. */
+  .hp-state:empty {
+    display: none;
   }
   /* The command sits on its own full-width line under the row's name/meta: collapsed it is its first
      step (commandLabel) on one line, so a heredoc pipeline can't push pressure below the fold; it

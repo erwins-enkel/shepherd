@@ -23,7 +23,11 @@ import { scanMarkersDarwin } from "./proc-markers-darwin";
 import type { DarwinMarkerScan } from "./proc-markers-darwin-core";
 import { sampleMemoryDarwin } from "./heavy-slot-darwin";
 import { captureRevision } from "./heavy-slot-revision";
-import { type HeavySlotSnapshot, OPERATOR_HOLDER } from "./heavy-slot-snapshot";
+import {
+  type HeavySlotHolder,
+  type HeavySlotSnapshot,
+  OPERATOR_HOLDER,
+} from "./heavy-slot-snapshot";
 import type { EventHub } from "./events";
 import { parseMemAvailable, parsePsiAvg10 } from "./host-parse";
 import { mapBounded } from "./map-bounded";
@@ -261,6 +265,7 @@ export class HeavySlotService {
             j.startedAt ??
             (j.offerExpiresAt === null ? j.enqueuedAt : j.offerExpiresAt - OFFER_TTL_MS),
           rssBytes: j.rssBytes,
+          state: j.state as HeavySlotHolder["state"],
         })),
       waiters: view.jobs
         .filter((j) => j.state === "queued")
@@ -360,7 +365,12 @@ export class HeavySlotService {
       total: out.total,
       etaMs,
       reason: out.reason,
-      message: queuedMessage(out.job.command, { ...out, etaMs }),
+      message: queuedMessage(out.job.command, {
+        ...out,
+        etaMs,
+        holders: this.#ledger.active(),
+        now: this.#now(),
+      }),
     };
   }
 
@@ -403,7 +413,13 @@ export class HeavySlotService {
   }
 
   #ctx(): LedgerContext {
-    return { now: this.#now(), budget: this.#deps.budget, brakeEngaged: this.#brake.engaged };
+    return {
+      now: this.#now(),
+      budget: this.#deps.budget,
+      brakeEngaged: this.#brake.engaged,
+      // A blocked session has a prompt on screen; the offer steer would land in it.
+      offerable: (id) => this.#deps.store.get(id)?.status !== "blocked",
+    };
   }
 
   async #sample(): Promise<void> {
@@ -432,21 +448,20 @@ export class HeavySlotService {
     if (jobs.length === 0) return () => null;
     const found = await (this.#deps.scanMarkersDarwin ?? scanMarkersDarwin)(
       new Set(jobs.map((j) => j.id)),
-    ).catch(() => ({ procs: new Map<string, ProcStat>(), complete: false }));
-    for (const job of jobs) {
-      const stat = found.procs.get(job.id);
-      if (stat) this.#procs.set(job.id, stat);
-      else if (found.complete) this.#procs.delete(job.id);
-    }
-    return (job) => {
-      if (found.procs.has(job.id)) return true;
-      if (job.pgid !== null) {
-        if (groupAlive(job.pgid)) return true;
-        // macOS 27 redacts most processes' environment, so a complete scan is rare: a dead
-        // group with no marker seen is taken as gone rather than holding the slot forever.
-        return false;
+    ).catch(() => null);
+    if (found) {
+      for (const job of jobs) {
+        const stat = found.get(job.id);
+        if (stat) this.#procs.set(job.id, stat);
+        else this.#procs.delete(job.id);
       }
-      return found.complete ? false : null;
+    }
+    // A scan that listed the processes and found no marker, with the group gone, is proof the job
+    // is over (#3631) — macOS 27 redacts most processes' environment, so a scan that read every
+    // process is rare. Only a scan that could not run leaves it unknown.
+    return (job) => {
+      if (found?.has(job.id) || (job.pgid !== null && groupAlive(job.pgid))) return true;
+      return found ? false : null;
     };
   }
 

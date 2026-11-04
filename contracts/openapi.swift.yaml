@@ -3634,6 +3634,13 @@ components:
               rssBytes:
                 type: integer
                 nullable: true
+              state:
+                type: string
+                enum:
+                  - offered
+                  - running
+                  - lingering
+                description: offered = reserved for a queued session to rerun its check; lingering = the command finished but processes it started still hold the slot. Absent from older servers (read as running).
         waiters:
           type: array
           items:

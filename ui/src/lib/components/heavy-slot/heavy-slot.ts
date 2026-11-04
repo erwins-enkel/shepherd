@@ -169,6 +169,13 @@ export function commandLabel(command: string): string {
   return label.replace(/\s+/g, " ") || first.trim();
 }
 
+/** What a holder is doing with its slot; an older server that doesn't say only ever ran checks. */
+export function holderState(
+  h: HeavySlotSnapshot["holders"][number],
+): "offered" | "running" | "lingering" {
+  return h.state ?? "running";
+}
+
 /** Waiters in queue order. */
 export function orderedWaiters(s: HeavySlotSnapshot): HeavySlotSnapshot["waiters"] {
   return [...s.waiters].sort((a, b) => a.position - b.position);

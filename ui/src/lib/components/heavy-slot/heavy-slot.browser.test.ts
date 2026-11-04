@@ -98,6 +98,42 @@ describe("HeavySlotChip", () => {
     expect(document.querySelectorAll(".hp-row").length).toBe(4);
   });
 
+  it("marks a lingering and an offered holder in the host popover (#3631)", async () => {
+    render(HeavySlotChip, {
+      heavySlot: snap({
+        capacity: 3,
+        holders: [
+          {
+            sessionId: "h",
+            command: "vitest run",
+            startedAt: 0,
+            rssBytes: GIB,
+            state: "lingering",
+          },
+          { sessionId: "w1", command: "bun test", startedAt: 0, rssBytes: null, state: "offered" },
+          { sessionId: "w2", command: "tsc", startedAt: 0, rssBytes: null },
+        ],
+        waiters: [],
+      }),
+      sessions,
+      nowMs: 0,
+      onrelease: vi.fn(),
+    });
+    await userEvent.click(page.getByRole("button", { name: /3 of 3 held/i }));
+    await expect.element(page.getByRole("dialog")).toBeVisible();
+    const states = [...document.querySelectorAll<HTMLElement>(".hp-state")].map((n) => ({
+      text: n.textContent?.trim(),
+      shown: n.offsetParent !== null,
+    }));
+    expect(states).toEqual([
+      { text: "Command finished · leftover processes hold the slot", shown: true },
+      { text: "Reserved until the session reruns its check", shown: true },
+      { text: "", shown: false },
+    ]);
+    // A lingering holder can still be released by hand.
+    expect(page.getByRole("button", { name: "Release", exact: true }).elements()).toHaveLength(3);
+  });
+
   // The bar (.hud) is the popover's positioning box; the render container stands in for it.
   async function openIn(width: number, chipOffset: number) {
     render(HeavySlotChip, { heavySlot: snap(), sessions, nowMs: 0, onrelease: vi.fn() });
@@ -160,6 +196,33 @@ describe("HeavySlotStrip", () => {
     render(HeavySlotStrip, { heavySlot: snap(), sessions, onopen });
     await userEvent.click(page.getByRole("button", { name: /1 of 1 held, 2 waiting/i }));
     expect(onopen).toHaveBeenCalledOnce();
+  });
+
+  it("says what a holder does: running, leftover processes, or an open offer (#3631)", async () => {
+    render(HeavySlotStrip, {
+      heavySlot: snap({
+        capacity: 3,
+        holders: [
+          {
+            sessionId: "h",
+            command: "vitest run",
+            startedAt: 0,
+            rssBytes: GIB,
+            state: "lingering",
+          },
+          { sessionId: "w1", command: "bun test", startedAt: 0, rssBytes: null, state: "offered" },
+          { sessionId: "w2", command: "tsc", startedAt: 0, rssBytes: null },
+        ],
+        waiters: [],
+      }),
+      sessions,
+    });
+    const lines = [...document.querySelectorAll(".hs-holder .hs-cmd")].map((n) => n.textContent);
+    expect(lines).toEqual([
+      "Leftover processes of vitest run",
+      "Offered for bun test",
+      "Running tsc",
+    ]);
   });
 
   it("lists every slot one session holds when capacity is above one", async () => {

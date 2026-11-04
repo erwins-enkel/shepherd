@@ -510,15 +510,27 @@ memory and swap until the host stalled.
    - If a slot is free, the command runs as usual.
    - If not, what happens depends on **When waiting** in Settings → Resources.
      By default the command does **not** run: the agent gets its place in line
-     and an estimated wait (exit code 75), keeps working, and Shepherd messages
-     it when it's its turn. The slot is then held for it for five minutes.
+     and an estimated wait (exit code 75), plus what holds the slot and for how
+     long. It keeps working, and Shepherd messages it when it's its turn. The
+     slot is then held for it for five minutes.
+   - Shepherd passes over a waiting session that has a prompt on screen, since
+     its message would land in the prompt. The next session in line gets the
+     slot; the skipped one keeps its place and gets the next free slot once the
+     prompt is gone.
    - **Block for a limited time** instead makes the command wait up to the set
      number of minutes before falling back to that message.
 3. **Bound to the processes.** A slot stays taken until every process the
    check started has exited, not just the command. Shepherd finds them by the
    `SHEPHERD_HEAVY_JOB` variable they inherit (on macOS, by process group plus
    detached children). If a browser or worker is left behind, the slot stays
-   taken. **Release** in the host popover frees it without stopping anything.
+   taken for at most 15 minutes after the command ended. The strip and host
+   popover show such a holder as **leftover processes** instead of running.
+   **Release** in the host popover frees it sooner, without stopping anything.
+   - A process whose environment the system won't show doesn't count, the
+     same as on Linux. macOS 27 hides it for most processes, so there a dead
+     process group with no marked process in sight counts as finished.
+   - A check whose runner stops reporting is freed once Shepherd has seen no
+     sign of it for 10 minutes.
 4. **Pressure brake.** No new check starts while the host is short on memory.
    - On Linux the brake reads `MemAvailable` and memory PSI `full avg10`.
    - On macOS it reads the system's memory-pressure level.
@@ -553,11 +565,12 @@ memory and swap until the host stalled.
 - Autopilot leaves a waiting session alone.
 
 **Defaults and switches.** With no configuration the slot count comes from the
-hardware: one slot per 16 cores *and* 32 GiB of RAM, never fewer than one, so a
-16-core / 30 GiB host gets one. **Settings → Resources** changes the master
-switch, slot count, wait behaviour, heavy list and brake at runtime. A change
-applies to the next start; running jobs keep running. `SHEPHERD_HEAVY_SLOT` and
-`SHEPHERD_HEAVY_SLOTS` set the defaults those settings fall back to.
+hardware: one slot per 6 cores *and* 32 GiB of RAM, never fewer than one, so a
+12-core / 64 GiB host gets two and a 16-core / 30 GiB host one. **Settings →
+Resources** changes the master switch, slot count, wait behaviour, heavy list
+and brake at runtime. A change applies to the next start; running jobs keep
+running. `SHEPHERD_HEAVY_SLOT` and `SHEPHERD_HEAVY_SLOTS` set the defaults those
+settings fall back to.
 
 From an operator terminal, `shepherd slot run -- <command>` takes a free slot
 the same way. If none is free, it prints the place and estimate and exits 75

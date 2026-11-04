@@ -1969,6 +1969,13 @@
 "prreview_no_candidates" = "No reviewers are available to select.";
 "prreview_title" = "Request review";
 "prspanel_merge_train_prompt" = "Run a merge train for the pull requests I've selected. Review each for correctness and product-fit, propose a safe merge order, and stop for my approval before merging anything; then re-check the queue after every merge, because main moves under you.\n\nSelected PRs:\n%1$@\n\nIf this repo provides a /merge-train command or skill, use it. Otherwise work the train yourself:\n1. For each PR, gather status with gh (CI rollup, mergeability/conflicts, how far behind main, and which files overlap other PRs in this list).\n2. Move any PR that is CI-red, conflicting, gate-failing, or that we don't actually want into a separate hold list with a one-line reason; never merge past a red gate.\n3. Order the rest: smallest and most independent first; when two overlap, sequence them so the riskier one rebases onto the other; release-please PRs last.\n4. Present the numbered merge order plus the hold list and WAIT for my approval.\n5. On approval, merge in order: rebase onto latest main first (never merge main into the branch), confirm gates are green, then gh pr merge --squash --delete-branch, and re-check the remaining PRs against main before the next one.";
+"pulse_slot_gib" = "%1$@ GiB";
+"pulse_slot_note_informed" = "The agent learns when it's its turn.";
+"pulse_slot_note_next" = "Starts next. The agent learns when it's its turn.";
+"pulse_slot_note_pressure" = "On hold: memory pressure. Starts once it eases.";
+"pulse_slot_place" = "Place %1$@";
+"pulse_state_slot_running" = "Checking";
+"pulse_state_slot_waiting" = "Waiting for check slot";
 "qform_freeform_placeholder" = "Free-text answer";
 "qform_kind_freeform" = "Free response";
 "qform_kind_multi" = "Select all that apply";

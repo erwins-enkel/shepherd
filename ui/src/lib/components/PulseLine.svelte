@@ -38,6 +38,8 @@
       glyph: holding ? "▤" : "◔",
       label: pulseLabel(p.state),
       metric: holding ? clockOf(slot.elapsedMs) : m.pulse_slot_place({ position: slot.position }),
+      // A mirrored session waits on (or holds) its own machine's slot, not this host's.
+      machine: slot.machine ? m.pulse_slot_machine({ machine: slot.machine }) : "",
       ratio: null,
       detail: holding
         ? [slot.command, slot.rssBytes ? gib(slot.rssBytes) : ""].filter(Boolean).join(" · ")
@@ -78,6 +80,7 @@
       state: pulse.state,
       label: pulseLabel(pulse.state),
       metric: metricOf(pulse, timed),
+      machine: "",
       // Elapsed against the usual, capped full; an overdue job simply fills the bar.
       ratio: timed && job?.typicalMs ? Math.min(1, job.elapsedMs! / job.typicalMs) : null,
       detail: detailOf(pulse),
@@ -103,6 +106,9 @@
       <span class="p-label">{view.label}</span>
       {#if view.metric}<span class="p-metric">{view.metric}</span>{/if}
     </div>
+    {#if view.machine}
+      <div class="p-sub"><span class="p-machine">{view.machine}</span></div>
+    {/if}
     {#if view.ratio != null}
       <div class="p-bar" aria-hidden="true"><span style:width="{view.ratio * 100}%"></span></div>
     {/if}
@@ -156,6 +162,11 @@
   }
   .p-note {
     min-width: 0;
+  }
+  .p-machine {
+    min-width: 0;
+    color: var(--color-ink-bright);
+    overflow-wrap: anywhere;
   }
   /* The pressure brake is subordinate red: text only — the loudest red stays a blocked agent. */
   .p-pressure {

@@ -120,4 +120,18 @@ describe("pulseExplanation: heavy-check slot (#3181)", () => {
     expect(x.summary).toBe(m.pulse_summary_slot_waiting({ position: 2 }));
     expect(x.sections.at(-1)?.rows?.[0]?.text).toBe(m.pulse_next_slot_waiting());
   });
+
+  it("names the machine for a mirrored session instead of this one", () => {
+    const pulse = {
+      state: "slot_waiting",
+      green: 0,
+      total: 0,
+      ciFixRun: 0,
+      slot: { kind: "waiting", position: 5, pressure: false, machine: "macbook" },
+    } as const;
+    const x = pulseExplanation({ pulse, session, nowMs: NOW });
+    expect(x.summary).toBe(
+      m.pulse_summary_slot_waiting_remote({ position: 5, machine: "macbook" }),
+    );
+  });
 });

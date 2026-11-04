@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   BRAKE_OFF,
   HeavyLedger,
+  LINGER_MAX_MS,
   OFFER_TTL_MS,
   RUNNING_GRACE_MS,
   buildSnapshot,
@@ -178,6 +179,26 @@ describe("HeavyLedger", () => {
     );
     expect(l.get("j1")).toBeNull();
     expect(l.fill(ctx(30)).map((j) => j.id)).toEqual(["j2"]);
+  });
+
+  test("a lingering job is released at LINGER_MAX_MS even while its liveness stays unknown", () => {
+    const l = new HeavyLedger();
+    l.acquire(req("j1", "s1"), ctx(0));
+    l.acquire(req("j2", "s2"), ctx(1));
+    l.finish("j1", "s1", 0, true, 10);
+    l.reconcile(
+      10 + LINGER_MAX_MS - 1,
+      () => null,
+      () => true,
+    );
+    expect(l.get("j1")?.state).toBe("lingering");
+    l.reconcile(
+      10 + LINGER_MAX_MS,
+      () => null,
+      () => true,
+    );
+    expect(l.get("j1")).toBeNull();
+    expect(l.fill(ctx(10 + LINGER_MAX_MS)).map((j) => j.id)).toEqual(["j2"]);
   });
 
   test("the offered session claims its slot with any heavy command", () => {

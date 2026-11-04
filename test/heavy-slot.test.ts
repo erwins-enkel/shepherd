@@ -295,7 +295,7 @@ describe("HeavySlotService", () => {
     expect(h.steers.map(([id]) => id)).toEqual(["s1"]);
   });
 
-  test("macOS detached markers survive finish and restart; unknown scans never free the slot", async () => {
+  test("macOS detached markers survive finish and restart; an incomplete scan with a dead group frees the slot", async () => {
     const procs = new Map([["j1", { count: 1, rssBytes: 1234 }]]);
     let complete = true;
     const h = harness({
@@ -314,13 +314,31 @@ describe("HeavySlotService", () => {
     live.push(restarted);
     await restarted.start();
     expect(h.steers).toHaveLength(0);
-    procs.clear();
     complete = false;
     await restarted.sweep(true);
     expect(h.steers).toHaveLength(0);
-    complete = true;
+    procs.clear();
     await restarted.sweep(true);
-    await restarted.sweep(true);
+    expect(h.steers.map(([id]) => id)).toEqual(["s2"]);
+  });
+
+  test("macOS: an incomplete scan keeps the slot while the process group is alive", async () => {
+    const groups = new Set([4242]);
+    const h = harness({
+      platform: "darwin",
+      groupAlive: (g) => groups.has(g),
+      scanMarkersDarwin: async () => ({ procs: new Map(), complete: false }),
+    });
+    await h.svc.start();
+    await h.svc.acquire("s1", "x", null);
+    await h.svc.acquire("s2", "y", null);
+    await h.svc.started("s1", "j1", 4242);
+    await h.svc.finish("s1", "j1", 0);
+    await h.svc.sweep(true);
+    expect(h.store.listHeavySlotJobs(["lingering"])).toMatchObject([{ id: "j1" }]);
+    expect(h.steers).toHaveLength(0);
+    groups.clear();
+    await h.svc.sweep(true);
     expect(h.steers.map(([id]) => id)).toEqual(["s2"]);
   });
 

@@ -439,7 +439,13 @@ export class HeavySlotService {
       else if (found.complete) this.#procs.delete(job.id);
     }
     return (job) => {
-      if (found.procs.has(job.id) || (job.pgid !== null && groupAlive(job.pgid))) return true;
+      if (found.procs.has(job.id)) return true;
+      if (job.pgid !== null) {
+        if (groupAlive(job.pgid)) return true;
+        // macOS 27 redacts most processes' environment, so a complete scan is rare: a dead
+        // group with no marker seen is taken as gone rather than holding the slot forever.
+        return false;
+      }
       return found.complete ? false : null;
     };
   }

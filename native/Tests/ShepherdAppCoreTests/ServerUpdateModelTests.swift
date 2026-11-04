@@ -63,14 +63,14 @@ private final class UpdateRecorder: @unchecked Sendable {
         recorder: UpdateRecorder = UpdateRecorder(),
         onDone: @escaping @MainActor () -> Void = {}
     ) throws -> ServerUpdateModel {
-        let status = try status ?? UpdateScript(then: .success(Self.status(behind: 2)))
-        let dirty = try dirty ?? UpdateScript(then: .success(Self.dirty(false)))
-        let log = try log ?? UpdateScript(then: .success(Self.deploy("done")))
+        let statusScript = try status ?? UpdateScript(then: .success(Self.status(behind: 2)))
+        let dirtyScript = try dirty ?? UpdateScript(then: .success(Self.dirty(false)))
+        let logScript = try log ?? UpdateScript(then: .success(Self.deploy("done")))
         return ServerUpdateModel(calls: .init(
-            status: { try status.next() },
-            dirty: { try dirty.next() },
+            status: { try statusScript.next() },
+            dirty: { try dirtyScript.next() },
             apply: { try recorder.apply($0, $1) },
-            log: { try log.next() },
+            log: { try logScript.next() },
             sleep: { _ in await Task.yield(); try Task.checkCancellation() },
             now: { recorder.now() }),
             onDone: onDone)

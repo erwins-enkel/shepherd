@@ -12993,7 +12993,9 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AskAnswerFlowTests.swift\",\"CoreSeamTests.AskAnswerFlowTests\",\"aPreviewQuestionDropsOtherButEveryMultiStaysRequired()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RemoteSessionsTests.swift\",\"CoreSeamTests.RemoteSessionsTests\",\"aRepoFilterKeepsOtherMachinesSessionsOfTheSameProjectBySlug()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RemoteSessionsTests.swift\",\"CoreSeamTests.RemoteSessionsTests\",\"theSidebarNarrowsMachineGroupsToTheFilteredProject()\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunOnModelTests.swift\",\"CoreSeamTests.RunOnModelTests\",\"aMachineWithoutTheCheckoutIsOfferedAndSaysItClonesFirst() async throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunOnModelTests.swift\",\"CoreSeamTests.RunOnModelTests\",\"aMachineWithoutTheCheckoutIsOfferedAndSaysItClonesFirst() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/HeavySlotEntryTests.swift\",\"HeavySlotEntryTests\",\"holderAndWaitersGetTheirOwnLine() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/HeavySlotEntryTests.swift\",\"HeavySlotEntryTests\",\"switchedOffSlotOrArchivedSessionShowsNothing() throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

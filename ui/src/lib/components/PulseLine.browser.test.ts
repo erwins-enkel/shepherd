@@ -87,4 +87,18 @@ describe("PulseLine", () => {
     expect(text).toContain(m.pulse_slot_place({ position: 2 }));
     expect(container.querySelector(".p-pressure")?.textContent).toBe(m.pulse_slot_note_pressure());
   });
+
+  it("a mirrored session's slot line names the machine whose slot it is", async () => {
+    const pulse: Pulse = {
+      state: "slot_waiting",
+      green: 0,
+      total: 0,
+      ciFixRun: 0,
+      slot: { kind: "waiting", position: 5, pressure: false, machine: "macbook" },
+    };
+    const { container } = await render(PulseLine, { pulse, id: "u-pulse-x" });
+    expect(container.querySelector(".p-machine")?.textContent).toBe(
+      m.pulse_slot_machine({ machine: "macbook" }),
+    );
+  });
 });

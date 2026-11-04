@@ -41,6 +41,9 @@ struct HerdSessionRow: View {
                 .accessibilityLabel(L.t("cardmenu_label"))
                 .accessibilityIdentifier("session-menu-\(session.id)")
             }
+            if let slot = app.extension(HeavySlotModel.self)?.entry(for: session) {
+                HeavySlotLine(entry: slot)
+            }
             // Row predicates read the raw session, matching UnitRowRight;
             // the display-status upgrade belongs only to SessionRow.
             if let plan = app.extension(PlanModel.self) {

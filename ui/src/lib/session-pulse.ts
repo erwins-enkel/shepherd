@@ -28,9 +28,13 @@ export type PulseState =
   | "working";
 
 /** The session's place in the host-wide heavy-check slot, as the card shows it (#3181). */
-export type PulseSlot =
+export type PulseSlot = (
   | { kind: "holding"; command: string; elapsedMs: number; rssBytes: number | null }
-  | { kind: "waiting"; position: number; pressure: boolean };
+  | { kind: "waiting"; position: number; pressure: boolean }
+) & {
+  /** The connected machine whose slot this is, for a mirrored session; absent for this host. */
+  machine?: string;
+};
 
 /** A running job counts as overdue past this multiple of its usual duration… */
 const OVERDUE_FACTOR = 1.5;
@@ -203,7 +207,8 @@ export function sessionPulse({
   if (ci?.state === "looping") return ci;
   // Any session but an archived one: a holder's processes outlive the agent's turn, and a waiting
   // agent may have ended its turn on purpose (Shepherd steers it when its turn comes).
-  const slot = session.status === "archived" ? null : slotFor(heavySlot, session.id, nowMs);
+  const entry = session.status === "archived" ? null : slotFor(heavySlot, session.id, nowMs);
+  const slot = entry && session.host ? { ...entry, machine: session.host.name } : entry;
   if (slot)
     return { state: slot.kind === "holding" ? "slot_running" : "slot_waiting", ...base, slot };
   if (ci) return ci;

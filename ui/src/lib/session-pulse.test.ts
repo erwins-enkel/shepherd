@@ -233,6 +233,15 @@ describe("sessionPulse: the host-wide heavy-check slot (#3181)", () => {
     });
   });
 
+  it("a mirrored session's slot names its machine; a local one names none", () => {
+    const host = { instanceId: "i1", name: "macbook", platform: "darwin" };
+    expect(pulse({ session: session({ host }), heavySlot: waiting() })?.slot).toMatchObject({
+      kind: "waiting",
+      machine: "macbook",
+    });
+    expect(pulse({ heavySlot: waiting() })?.slot?.machine).toBeUndefined();
+  });
+
   it("only this session's entry counts, and a switched-off slot shows nothing", () => {
     expect(slotFor(waiting(), "other", NOW)).toBeNull();
     expect(slotFor({ ...holding, enabled: false }, "s1", NOW)).toBeNull();

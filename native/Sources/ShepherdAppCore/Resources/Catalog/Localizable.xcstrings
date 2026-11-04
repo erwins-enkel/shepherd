@@ -33848,6 +33848,127 @@
         }
       }
     },
+    "pulse_slot_gib": {
+      "comment": "%1$@ = gib",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ GiB"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ GiB"
+          }
+        }
+      }
+    },
+    "pulse_slot_note_informed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent erfährt, wann er dran ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent learns when it's its turn."
+          }
+        }
+      }
+    },
+    "pulse_slot_note_next": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startet als Nächstes. Der Agent erfährt, wann er dran ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starts next. The agent learns when it's its turn."
+          }
+        }
+      }
+    },
+    "pulse_slot_note_pressure": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angehalten wegen Speicherdruck. Startet, sobald er nachlässt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On hold: memory pressure. Starts once it eases."
+          }
+        }
+      }
+    },
+    "pulse_slot_place": {
+      "comment": "%1$@ = position",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Platz %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Place %1$@"
+          }
+        }
+      }
+    },
+    "pulse_state_slot_running": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking"
+          }
+        }
+      }
+    },
+    "pulse_state_slot_waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf Prüfslot"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for check slot"
+          }
+        }
+      }
+    },
     "qform_freeform_placeholder": {
       "extractionState": "manual",
       "localizations": {

@@ -69,14 +69,21 @@ function pulseTitle(state: PulseState): string {
 
 /** The status panel's summary for a heavy-check slot verdict (#3181). */
 function slotSummary(slot: PulseSlot): string {
-  if (slot.kind === "holding")
-    return m.pulse_summary_slot_running({
-      command: slot.command,
-      elapsed: minutes(slot.elapsedMs),
-    });
-  return slot.pressure
-    ? m.pulse_summary_slot_waiting_pressure({ position: slot.position })
-    : m.pulse_summary_slot_waiting({ position: slot.position });
+  const machine = slot.machine;
+  if (slot.kind === "holding") {
+    const args = { command: slot.command, elapsed: minutes(slot.elapsedMs) };
+    return machine
+      ? m.pulse_summary_slot_running_remote({ ...args, machine })
+      : m.pulse_summary_slot_running(args);
+  }
+  const position = slot.position;
+  if (slot.pressure)
+    return machine
+      ? m.pulse_summary_slot_waiting_pressure_remote({ position, machine })
+      : m.pulse_summary_slot_waiting_pressure({ position });
+  return machine
+    ? m.pulse_summary_slot_waiting_remote({ position, machine })
+    : m.pulse_summary_slot_waiting({ position });
 }
 
 function pulseSummary(p: Pulse): string {

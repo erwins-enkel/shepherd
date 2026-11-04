@@ -84,7 +84,15 @@ struct IOSRunOnPicker: View {
         guard runOn.active else { return servers?.entry.name ?? "" }
         guard let id = runOn.pickedID, let host = runOn.machines.first(where: { $0.instanceId == id })
         else { return L.t("newtask_runon_auto") }
-        return PlacementCopy.machineLabel(host)
+        return PlacementCopy.machineLabel(host, clone: runOn.needsClone(host))
+    }
+
+    /// The option's label; a machine without a checkout of the project says it clones it first.
+    private func title(_ option: IOSRunOnOption) -> String {
+        if case .machine(let host) = option {
+            return PlacementCopy.machineLabel(host, clone: runOn.needsClone(host))
+        }
+        return option.label
     }
 
     private func isCurrent(_ option: IOSRunOnOption) -> Bool {
@@ -124,8 +132,8 @@ struct IOSRunOnPicker: View {
                     StableMenu(value: choices.map { "\($0.id)|\(isCurrent($0))" }) {
                         ForEach(choices) { option in
                             Button { choose(option) } label: {
-                                if isCurrent(option) { Label(option.label, systemImage: "checkmark") }
-                                else { Text(verbatim: option.label) }
+                                if isCurrent(option) { Label(title(option), systemImage: "checkmark") }
+                                else { Text(verbatim: title(option)) }
                             }
                         }
                     } label: { label }.equatable()
@@ -165,6 +173,10 @@ struct IOSRunOnNotices: View {
                 if let target = model.runOn.remoteTarget {
                     Text(verbatim: L.t("newtask_runon_notice", target.name, model.repoBranches.baseBranch))
                         .foregroundStyle(ComposePalette.muted)
+                    if model.runOn.remoteTargetClones {
+                        Text(verbatim: PlacementCopy.cloneNotice(target.name, repoPath: model.repoPath))
+                            .foregroundStyle(ComposePalette.muted)
+                    }
                 }
             }
             .font(.system(.caption, design: .monospaced))

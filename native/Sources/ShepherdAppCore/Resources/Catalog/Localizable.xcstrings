@@ -1546,6 +1546,108 @@
         }
       }
     },
+    "clonerepo_failed_auth": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugriff verweigert: git hat keine Anmeldedaten, die dieses Repo abdecken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access refused: git has no credentials that cover this repo"
+          }
+        }
+      }
+    },
+    "clonerepo_failed_exists": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zielordner existiert bereits"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Target folder already exists"
+          }
+        }
+      }
+    },
+    "clonerepo_failed_generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klonen fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clone failed"
+          }
+        }
+      }
+    },
+    "clonerepo_failed_outside": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ziel liegt außerhalb des repoRoot"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Target is outside repoRoot"
+          }
+        }
+      }
+    },
+    "clonerepo_failed_timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timeout, bitte erneut"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out, please retry"
+          }
+        }
+      }
+    },
+    "clonerepo_failed_url": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültige oder nicht unterstützte URL"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid or unsupported URL"
+          }
+        }
+      }
+    },
     "coldresume_chip": {
       "comment": "%1$@ = units",
       "extractionState": "manual",
@@ -30141,6 +30243,60 @@
         }
       }
     },
+    "newtask_runon_clone_failed": {
+      "comment": "%1$@ = machine, %2$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ konnte das Projekt nicht klonen, deshalb wurde nichts gestartet: %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ could not clone the project, so nothing was started: %2$@"
+          }
+        }
+      }
+    },
+    "newtask_runon_clone_notice": {
+      "comment": "%1$@ = machine, %2$@ = project",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat %2$@ noch nicht ausgecheckt – Shepherd klont es zuerst von origin in den Projektordner von %1$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has no checkout of %2$@ yet — Shepherd clones it from origin into %1$@'s project folder first."
+          }
+        }
+      }
+    },
+    "newtask_runon_cloning": {
+      "comment": "%1$@ = project, %2$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klont %1$@ auf %2$@ und startet dort"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloning %1$@ on %2$@, then starting there"
+          }
+        }
+      }
+    },
     "newtask_runon_gone": {
       "comment": "%1$@ = machine",
       "extractionState": "manual",
@@ -30190,6 +30346,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ (%2$@)"
+          }
+        }
+      }
+    },
+    "newtask_runon_machine_clone": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · wird geklont"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · clones first"
           }
         }
       }
@@ -31272,13 +31446,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Einziger Rechner mit diesem Projekt"
+            "value": "Einziger Rechner, der sie ausführen kann"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Only machine with this project"
+            "value": "Only machine that can run it"
           }
         }
       }
@@ -38149,6 +38323,24 @@
         }
       }
     },
+    "toast_dispatch_clone_failed_on": {
+      "comment": "%1$@ = machine, %2$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ konnte das Projekt nicht klonen, deshalb startete die Aufgabe nicht: %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ could not clone the project, so the task did not start: %2$@"
+          }
+        }
+      }
+    },
     "toast_dispatch_declined_on": {
       "comment": "%1$@ = machine, %2$@ = reason",
       "extractionState": "manual",
@@ -39267,13 +39459,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unter „Ausführen auf“ gewählt. Der Rechner passte: verbunden, Projekt ausgecheckt und jede Anforderung geprüft."
+            "value": "Unter „Ausführen auf“ gewählt. Der Rechner passte: verbunden und jede Anforderung geprüft. Fehlt dort der Checkout des Projekts, klont Shepherd es zuerst."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Picked under Run on. It fit: connected, the project checked out and every requirement verified."
+            "value": "Picked under Run on. It fit: connected and every requirement verified. Without a checkout of the project, Shepherd clones it there first."
           }
         }
       }
@@ -39492,13 +39684,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shepherd wählt einen verbundenen Rechner, der dieses Projekt und jede Anforderung geprüft hat, Linux vor macOS, und startet sofort – egal wo du einreichst, solange jeder Shepherd dieselbe Reihenfolge nutzt. Wähle einen Rechner, um das zu übersteuern; ist der vorgesehene Rechner offline, startet nichts von selbst woanders."
+            "value": "Shepherd wählt einen verbundenen Rechner, der jede Anforderung geprüft hat, Linux vor macOS, und startet sofort – egal wo du einreichst, solange jeder Shepherd dieselbe Reihenfolge nutzt. Rechner mit ausgechecktem Projekt kommen zuerst; nur wenn keiner davon passt, wählt Shepherd einen ohne und klont das Projekt dort zuerst. Wähle einen Rechner, um das zu übersteuern; ist der vorgesehene Rechner offline, startet nichts von selbst woanders."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shepherd picks a connected machine that has this project and every requirement verified, Linux before macOS, and starts right away — wherever you submit, as long as every Shepherd uses the same order. Pick a machine to override it; if the machine meant for the task is offline, nothing starts elsewhere on its own."
+            "value": "Shepherd picks a connected machine that has every requirement verified, Linux before macOS, and starts right away — wherever you submit, as long as every Shepherd uses the same order. Machines with the project checked out come first; only when none of them fits does it pick one without, and clone the project there first. Pick a machine to override it; if the machine meant for the task is offline, nothing starts elsewhere on its own."
           }
         }
       }
@@ -39752,13 +39944,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Von selbst, sobald %1$@ wieder antwortet und eine frische Prüfung seiner Fähigkeiten und des Projekt-Checkouts besteht. Erst dann werden ihre Anhänge übertragen."
+            "value": "Von selbst, sobald %1$@ wieder antwortet und eine frische Prüfung seiner Fähigkeiten besteht; fehlt dort der Checkout des Projekts, klont er es zuerst. Erst dann werden ihre Anhänge übertragen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "By itself, once %1$@ answers again and a fresh check of its capabilities and of the project checkout passes. Its attachments are uploaded only then."
+            "value": "By itself, once %1$@ answers again and a fresh check of its capabilities passes; without a checkout of the project, it clones it first. Its attachments are uploaded only then."
           }
         }
       }

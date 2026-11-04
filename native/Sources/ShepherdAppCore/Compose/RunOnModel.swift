@@ -109,7 +109,7 @@ public final class RunOnModel {
     private var answer: Answer?
     /// Whether the choice is active for a repo, from its last answer.
     private var activeFor: RepoFlag?
-    private var machinesFor: (repo: String, hosts: [SessionHost])?
+    private var machinesFor: (repo: String, hosts: [SessionHost], withoutCheckout: Set<String>)?
     /// The first preview for this repo is still being asked: nothing is known yet.
     private var askingFor: String?
     /// The last preview for this repo failed: whether the choice is active there is unknown.
@@ -138,11 +138,21 @@ public final class RunOnModel {
     /// still read, so a failed check never sends a task elsewhere unread.
     public var available: Bool { active || failedFor == repo }
 
-    /// What Run on offers: the entry server first, then the connected machines with the project.
+    /// What Run on offers: the entry server first, then the connected machines — with the project
+    /// checked out, or cloning it first (`needsClone`).
     public var machines: [SessionHost] {
         guard active, let known = machinesFor, known.repo == repo else { return [] }
         return known.hosts
     }
+
+    /// The listed machine has no checkout of the project yet: a task sent there clones it first.
+    public func needsClone(_ host: SessionHost) -> Bool {
+        guard active, let known = machinesFor, known.repo == repo else { return false }
+        return known.withoutCheckout.contains(host.instanceId)
+    }
+
+    /// Where the task goes clones the project first.
+    public var remoteTargetClones: Bool { remoteTarget.map { needsClone($0) } ?? false }
 
     /// The pick, while the repo can run there; nil = Automatic.
     public var pickedID: String? {
@@ -240,7 +250,9 @@ public final class RunOnModel {
     private func install(_ value: PlacementPreview, for key: PreviewKey) {
         answer = Answer(key: key, value: value)
         activeFor = RepoFlag(repo: key.repo, value: value.active)
-        if value.active { machinesFor = (key.repo, value.machines ?? []) }
+        if value.active {
+            machinesFor = (key.repo, value.machines ?? [], Set(value.withoutCheckout ?? []))
+        }
         if failedFor == key.repo { failedFor = nil }
         if askingFor == key.repo { askingFor = nil }
         // Only Automatic says whether the task's description can matter; a pick says false.

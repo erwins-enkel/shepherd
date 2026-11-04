@@ -120,6 +120,7 @@
   import {
     keyedSend,
     machineLabel,
+    needsClone,
     pendingAfter,
     placementFailureMessage,
     runOnFailureMessage,
@@ -537,7 +538,10 @@
 
   /** "starting…", or which machine it is starting on (#2763) — that machine reports no phases here. */
   function spawningLabel(): string {
-    return sendingTo ? m.newtask_runon_starting({ machine: sendingTo.name }) : m.newtask_spawning();
+    if (!sendingTo) return m.newtask_spawning();
+    return sendingTo.clones
+      ? m.newtask_runon_cloning({ machine: sendingTo.name, project: selectedRepoName })
+      : m.newtask_runon_starting({ machine: sendingTo.name });
   }
 
   /** Ask the server to abandon this start. A `false` answer means the agent came up first, so the
@@ -607,8 +611,17 @@
       ? placement.target
       : null;
   });
-  /** The machine the in-flight create was sent to — the spawn panel names it. */
-  let sendingTo = $state<{ name: string } | null>(null);
+  /** The remote target has no checkout of the project yet: it is cloned there first. */
+  const remoteTargetClones = $derived(
+    !!remoteTarget &&
+      needsClone(
+        machines.find((x) => x.instanceId === remoteTarget.instanceId),
+        selectedRepo?.remoteSlug,
+      ),
+  );
+  /** The machine the in-flight create was sent to — the spawn panel names it, and whether the
+   *  project is cloned there first. */
+  let sendingTo = $state<{ name: string; clones: boolean } | null>(null);
   /** The last keyed send that went unanswered: retrying the same task reuses its key. */
   let pendingSend: PendingSend | null = null;
 
@@ -2162,7 +2175,7 @@
     // an unanswered one is retried under the same key while the task is unchanged, so it never
     // starts twice.
     const send = keyedSend(runOnAvailable, pendingSend, input);
-    sendingTo = remoteTarget;
+    sendingTo = remoteTarget && { name: remoteTarget.name, clones: remoteTargetClones };
     try {
       await onsubmit(send ? { ...input, dispatchKey: send.key } : input);
       pendingSend = null;
@@ -2368,7 +2381,9 @@
           <option value={self.instanceId}>{m.newtask_runon_here()}</option>
         {/if}
         {#each runOnOptions as machine (machine.instanceId)}
-          <option value={machine.instanceId}>{machineLabel(machine)}</option>
+          <option value={machine.instanceId}
+            >{machineLabel(machine, needsClone(machine, selectedRepo?.remoteSlug))}</option
+          >
         {/each}
       </select>
     {/snippet}
@@ -2596,6 +2611,14 @@
               <span class="nt-upstream"
                 >{m.newtask_runon_notice({ machine: remoteTarget.name, base: baseBranch })}</span
               >
+              {#if remoteTargetClones}
+                <span class="nt-upstream"
+                  >{m.newtask_runon_clone_notice({
+                    machine: remoteTarget.name,
+                    project: selectedRepoName,
+                  })}</span
+                >
+              {/if}
             {/if}
 
             <!-- `agentProvider` is safe as the label: a provider flip re-runs the effect above in

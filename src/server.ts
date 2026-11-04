@@ -231,6 +231,7 @@ import {
   type SessionHost,
 } from "./remote-instances/sessions";
 import {
+  REMOTE_CLONE_FAILED,
   RemoteDispatcher,
   type RemoteDispatchRow,
   type RemoteDispatchView,
@@ -2841,8 +2842,9 @@ function parseRedirectTarget(body: unknown): string | null {
 
 /**
  * POST /api/remote-dispatches/{id}/redirect (#2775): run a task that waits for its machine on
- * another one now. The machine must fit as a manual choice does — connected, released, with the
- * project and every requirement verified — or the refusal is answered and the task keeps waiting.
+ * another one now. The machine must fit as a manual choice does — connected, released, every
+ * requirement verified; without a checkout it clones the project first — or the refusal is
+ * answered and the task keeps waiting.
  * Another machine gets it under the same dispatch ID (it was never sent) and answers like a
  * create; this machine starts it under the task's own client key, so a retry of the original
  * create replays this start.
@@ -4698,33 +4700,42 @@ async function handlePlacementPreview(ctx: Ctx): Promise<Response | null> {
   const named = target.instanceId !== null && !target.self;
   if (!named && !placementActive(remoteInstances(deps).list())) return json({ active: false });
   const project = repoRemoteSlug(deps.resolveForge?.(repoPath));
-  const machines = await runOnMachines(deps, project);
-  if (named && !project) return json({ active: true, refusal: PROJECT_UNKNOWN, machines });
+  const { machines, withoutCheckout } = await runOnMachines(deps, project);
+  const listed = { machines, withoutCheckout };
+  if (named && !project) return json({ active: true, refusal: PROJECT_UNKNOWN, ...listed });
   // Whether the task's requirements can change the choice (#2773) — New Task waits on the read only
   // then. A named machine is the operator's pick.
   const deriveRequirements = target.instanceId === null && (await derivationMatters(deps, project));
   const decision = await decide(deps, { requirements, project, override: target.instanceId });
   if (decision.ok) {
     const { placement, wait } = decision;
-    return json({ active: true, placement, ...(wait && { wait }), deriveRequirements, machines });
+    return json({ active: true, placement, ...(wait && { wait }), deriveRequirements, ...listed });
   }
   return json({
     active: true,
     refusal: placementRefusal(decision.refusal).body,
     deriveRequirements,
-    machines,
+    ...listed,
   });
 }
 
 /** The machines a create may name for this project (#2776): this instance first, then every
- *  connected machine whose platform is released and that has the project checked out — what the
- *  web form lists from GET /api/remote-instances, which a native app's token cannot read. */
-async function runOnMachines(deps: AppDeps, project: string | undefined): Promise<SessionHost[]> {
+ *  connected machine whose platform is released — what the web form lists from
+ *  GET /api/remote-instances, which a native app's token cannot read. `withoutCheckout` names those
+ *  without a checkout of the project: a task sent there clones it first. Without a forge slug the
+ *  project can be neither matched nor cloned elsewhere, so only this instance is listed. */
+async function runOnMachines(
+  deps: AppDeps,
+  project: string | undefined,
+): Promise<{ machines: SessionHost[]; withoutCheckout: string[] }> {
   const local = await localMachineView(deps, false);
   const remote = remoteMachineViews(remoteInstances(deps).list(), project).filter(
-    (m) => m.connected && m.released && m.hasProject,
+    (m) => m.connected && m.released && (m.hasProject || m.cloneable),
   );
-  return [local.host, ...remote.map((m) => m.host)];
+  return {
+    machines: [local.host, ...remote.map((m) => m.host)],
+    withoutCheckout: remote.filter((m) => !m.hasProject).map((m) => m.host.instanceId),
+  };
 }
 
 // ── POST /api/requirements/derive — what a task calls for, read from its description (#2773) ──
@@ -5099,8 +5110,8 @@ async function machinePlacement(
  * POST /api/sessions for a connected machine (#2763): named in `target`, chosen automatically
  * (#2772, `placement` given) or a keyed retry of a dispatch already sent. The WHOLE session starts
  * there. General inputs are validated here exactly like a local create and need the same grant; a
- * named machine must fit (#2772) — connected, released, the project checked out, the requirements
- * verified — and paths, holds and the sandbox are the machine's to check. Nothing starts here and
+ * named machine must fit (#2772) — connected, released, the requirements verified; one without a
+ * checkout clones the project first — and paths, holds and the sandbox are the machine's to check. Nothing starts here and
  * no local event is emitted — the session reaches this Shepherd's herd through the machine's mirror
  * (#2762).
  */
@@ -5188,6 +5199,9 @@ function remoteOutcomeResponse(o: RemoteOutcome): Response {
       );
     case "upload_failed":
       return json({ error: o.reason, code: "remote_upload_failed", host: o.host }, 502);
+    case "clone_failed":
+      // `error` is the machine's clone error code (`clonerepo_failed_auth`, …); nothing was sent.
+      return json({ error: o.error, code: REMOTE_CLONE_FAILED, host: o.host }, 502);
     case "canceled":
       return json(
         {
@@ -9512,7 +9526,7 @@ async function cloneRepoFromRequest(req: Request): Promise<Response> {
   const body = (await req.json().catch(() => null)) as { url?: unknown } | null;
   const parsed = validateCloneUrl(body?.url);
   if (!parsed.ok) return json({ error: parsed.error }, 400);
-  const r = cloneRepo(parsed.value.url, parsed.value.name, config.repoRoot);
+  const r = await cloneRepo(parsed.value.url, parsed.value.name, config.repoRoot);
   if (!r.ok) {
     const body = r.detail ? { error: r.error, detail: r.detail } : { error: r.error };
     return json(body, CLONE_ERROR_STATUS[r.error] ?? 422);

@@ -12,7 +12,7 @@ struct RunOnPicker: View {
     private var current: String {
         guard let id = runOn.pickedID, let host = runOn.machines.first(where: { $0.instanceId == id })
         else { return L.t("newtask_runon_auto") }
-        return PlacementCopy.machineLabel(host)
+        return PlacementCopy.machineLabel(host, clone: runOn.needsClone(host))
     }
 
     var body: some View {
@@ -22,7 +22,8 @@ struct RunOnPicker: View {
                 Divider()
                 ForEach(runOn.machines, id: \.instanceId) { host in
                     Button { runOn.pick = host.instanceId } label: {
-                        option(PlacementCopy.machineLabel(host), on: runOn.pickedID == host.instanceId)
+                        option(PlacementCopy.machineLabel(host, clone: runOn.needsClone(host)),
+                               on: runOn.pickedID == host.instanceId)
                     }
                 }
             } label: {
@@ -61,6 +62,11 @@ struct RunOnNotices: View {
                     Text(verbatim: L.t("newtask_runon_notice", target.name, model.repoBranches.baseBranch))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if model.runOn.remoteTargetClones {
+                        Text(verbatim: PlacementCopy.cloneNotice(target.name, repoPath: model.repoPath))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             .font(.caption)

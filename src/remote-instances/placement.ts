@@ -7,10 +7,12 @@
  * shows before submit is what the create does with the same readiness.
  *
  * The rules, and why:
- * - A machine fits a task when its platform is released, it has the project checked out and every
- *   requirement is `ok` in its capability report. A connected machine's report must be fresh (not
- *   stale); a machine out of reach is judged on what it last reported, so it can still be the one a
- *   task is meant for.
+ * - A machine fits a task when its platform is released, it has the project checked out — or the
+ *   project has a forge slug, so the dispatch can clone it there first — and every requirement is
+ *   `ok` in its capability report. A connected machine's report must be fresh (not stale); a machine
+ *   out of reach is judged on what it last reported, so it can still be the one a task is meant for.
+ * - Machines with a checkout come first: one without it is chosen only when no machine with it fits
+ *   — out of reach included. Among the machines of that tier the rules below apply unchanged.
  * - Under high host load, a connected fitting machine with verified spare capacity can take the
  *   new task instead. Unknown load and offline targets keep the preference.
  * - Fitting machines are ranked by platform (the order below, Linux first: it has the full sandbox
@@ -71,6 +73,9 @@ export interface MachineView {
   reason: string | null;
   released: boolean;
   hasProject: boolean;
+  /** Without a checkout, the project can still be cloned there: it has a forge slug to clone from.
+   *  Never this Shepherd — the task's project is its own. */
+  cloneable: boolean;
   report: CapabilityReport | null;
   load?: HostLoadReport | null;
 }
@@ -111,12 +116,10 @@ export type RemoteUnfitCode =
 export type PlacementRefusal =
   | {
       code: "no_suitable_machine";
-      /** Requirements no connected machine with the project has — all of them when each is on some
-       *  machine but none has them together. */
+      /** Requirements no connected machine that could run the project has — all of them when each
+       *  is on some machine but none has them together. */
       missing: Capability[];
       together: boolean;
-      /** Connected machines that would fit but have no checkout of the project. */
-      elsewhere: SessionHost[];
     }
   | { code: "missing_capabilities"; host: SessionHost; missing: MissingCapability[] }
   | { code: RemoteUnfitCode; host: SessionHost | null; reason: string | null };
@@ -177,18 +180,21 @@ interface Availability {
   released: boolean;
   platform: string | null;
   hasProject: boolean;
+  cloneable: boolean;
 }
 
 function unfitOf(m: Availability): { code: RemoteUnfitCode; reason: string | null } | null {
   if (!m.connected) return { code: "remote_target_unavailable", reason: m.reason ?? m.status };
   // A platform not cleared to run tasks (Windows, #2770) is listed but never sent a task.
   if (!m.released) return { code: "remote_target_unreleased", reason: m.platform };
-  if (!m.hasProject) return { code: "remote_project_missing", reason: null };
+  // Without a checkout the dispatch clones the project there — unless it has no slug to clone from.
+  if (!m.hasProject && !m.cloneable) return { code: "remote_project_missing", reason: null };
   return null;
 }
 
 /** Why a machine cannot take a task even before its capabilities are looked at — the dispatcher's
- *  pre-flight (#2763) and a manual choice share it. */
+ *  pre-flight (#2763) and a manual choice share it. A missing checkout is no reason: `project` (the
+ *  forge slug) is what the dispatch clones there. */
 export function remoteUnfit(
   machine: Pick<RemoteInstanceSummary, "status" | "reason" | "released" | "info" | "projects">,
   project: string,
@@ -200,6 +206,7 @@ export function remoteUnfit(
     released: machine.released,
     platform: machine.info?.platform ?? null,
     hasProject: machine.projects?.includes(project) ?? false,
+    cloneable: project !== "",
   });
 }
 
@@ -231,13 +238,15 @@ export function localMachine(
     reason: null,
     released: platformReleased(identity.platform),
     hasProject: true,
+    cloneable: false,
     report,
     ...(load !== undefined && { load }),
   };
 }
 
 /** Every connected machine as the choice sees it, named as a session's `host` names it. One this
- *  Shepherd has never reached has no platform, so it is never released and never chosen. */
+ *  Shepherd has never reached has no platform, so it is never released and never chosen. Without a
+ *  slug (`project` undefined) the project cannot be matched or cloned on any of them. */
 export function remoteMachineViews(
   machines: RemoteInstanceSummary[],
   project: string | undefined,
@@ -255,14 +264,16 @@ export function remoteMachineViews(
     reason: m.reason,
     released: m.released,
     hasProject: project !== undefined && (m.projects?.includes(project) ?? false),
+    cloneable: project !== undefined,
     report: m.capabilities,
     ...(m.load !== undefined && { load: m.load }),
   }));
 }
 
 /** How far a waiting task's machine is from taking it (#2775). `offline`: not connected (`status`
- *  says why); `unreleased`: its platform runs no tasks; `project_missing`: no checkout of the
- *  project; `missing_capabilities`: its report lacks a requirement (`not_verified` while no fresh
+ *  says why); `unreleased`: its platform runs no tasks; `project_missing`: the task has no project
+ *  slug to find or clone there (a missing checkout alone is cloned when it is sent);
+ *  `missing_capabilities`: its report lacks a requirement (`not_verified` while no fresh
  *  report confirms one); `ready`: it fits — the task goes out with the next check. */
 export type ReadinessState =
   "offline" | "unreleased" | "project_missing" | "missing_capabilities" | "ready";
@@ -292,13 +303,27 @@ export function readinessOf(
   return missing.length > 0 ? { state: "missing_capabilities", missing } : { state: "ready" };
 }
 
+/** The machine can run the project at all: it has the checkout, or the dispatch can clone it. */
+function reachesProject(machine: Pick<MachineView, "hasProject" | "cloneable">): boolean {
+  return machine.hasProject || machine.cloneable;
+}
+
 export function fits(machine: MachineView, requirements: readonly Capability[]): boolean {
-  return machine.released && machine.hasProject && missingOn(machine, requirements).length === 0;
+  return (
+    machine.released && reachesProject(machine) && missingOn(machine, requirements).length === 0
+  );
 }
 
 function rank(order: readonly string[], platform: string): number {
   const i = order.indexOf(platform);
   return i === -1 ? order.length : i;
+}
+
+/** Machines with a checkout before those that would clone it; within each, `byPreference`. */
+function checkoutFirst(order: readonly string[]) {
+  const preference = byPreference(order);
+  return (a: MachineView, b: MachineView) =>
+    Number(b.hasProject) - Number(a.hasProject) || preference(a, b);
 }
 
 /** Platform order first, then instance ID — a plain code-unit comparison, the same everywhere. */
@@ -335,19 +360,13 @@ function noSuitableMachine(
   machines: readonly MachineView[],
   requirements: readonly Capability[],
 ): PlacementRefusal {
-  const live = machines.filter((m) => m.connected && m.released);
-  const withProject = live.filter((m) => m.hasProject);
-  const absent = requirements.filter(
-    (r) => !withProject.some((m) => missingOn(m, [r]).length === 0),
-  );
+  const live = machines.filter((m) => m.connected && m.released && reachesProject(m));
+  const absent = requirements.filter((r) => !live.some((m) => missingOn(m, [r]).length === 0));
   const together = absent.length === 0;
   return {
     code: "no_suitable_machine",
     missing: together ? [...requirements] : absent,
     together,
-    elsewhere: live
-      .filter((m) => !m.hasProject && missingOn(m, requirements).length === 0)
-      .map((m) => m.host),
   };
 }
 
@@ -364,7 +383,8 @@ function basisOf(ranked: readonly MachineView[], requirements: readonly Capabili
 }
 
 /** The connected machines — this one included — that could run a task with `requirements` right
- *  now, best first, without `except` (the machine a waiting task is meant for). */
+ *  now, best first (those with a checkout before those that would clone it), without `except` (the
+ *  machine a waiting task is meant for). */
 export function fittingNow(
   machines: readonly MachineView[],
   requirements: readonly Capability[],
@@ -373,7 +393,7 @@ export function fittingNow(
 ): SessionHost[] {
   return machines
     .filter((m) => m.connected && m.host.instanceId !== except && fits(m, requirements))
-    .sort(byPreference(order))
+    .sort(checkoutFirst(order))
     .map((m) => m.host);
 }
 
@@ -381,7 +401,11 @@ function placeAutomatically(
   machines: readonly MachineView[],
   req: PlacementRequest,
 ): PlacementDecision {
-  const ranked = machines.filter((m) => fits(m, req.requirements)).sort(byPreference(req.order));
+  const fitting = machines.filter((m) => fits(m, req.requirements));
+  // A machine with the checkout wins whenever one fits; only without one does the choice fall to
+  // the machines the project would be cloned to — by the same rules, among them alone.
+  const withCheckout = fitting.filter((m) => m.hasProject);
+  const ranked = (withCheckout.length > 0 ? withCheckout : fitting).sort(byPreference(req.order));
   const top = ranked[0];
   if (!top) return { ok: false, refusal: noSuitableMachine(machines, req.requirements) };
   const diverted =
@@ -459,13 +483,14 @@ function placeManually(machines: readonly MachineView[], req: PlacementRequest):
 }
 
 /** Whether requirements from `capabilities` can change where a task runs (#2773): at least two
- *  machines could take it — released, with the project — and they differ in which of them their
- *  reports verify. A machine out of reach counts on its last report, as it does in the choice. */
+ *  machines could take it — released, with the project or able to clone it — and they differ in
+ *  which of them their reports verify. A machine out of reach counts on its last report, as it does
+ *  in the choice. */
 export function choiceDependsOn(
   machines: readonly MachineView[],
   capabilities: readonly Capability[],
 ): boolean {
-  const candidates = machines.filter((m) => m.released && m.hasProject);
+  const candidates = machines.filter((m) => m.released && reachesProject(m));
   const profiles = new Set(
     candidates.map((m) => capabilities.filter((c) => missingOn(m, [c]).length === 0).join(",")),
   );
@@ -489,11 +514,7 @@ export function describeRefusal(
   switch (refusal.code) {
     case "no_suitable_machine": {
       const what = refusal.missing.length > 0 ? listOf(refusal.missing) : "this project";
-      const elsewhere =
-        refusal.elsewhere.length > 0
-          ? `; ${listOf(refusal.elsewhere.map((h) => h.name))} would, but has no checkout of this project`
-          : "";
-      return `no connected machine has ${what}${refusal.together && refusal.missing.length > 1 ? " together" : ""}${elsewhere}; nothing was started`;
+      return `no connected machine has ${what}${refusal.together && refusal.missing.length > 1 ? " together" : ""}; nothing was started`;
     }
     case "missing_capabilities":
       return `${refusal.host.name} is missing capabilities: ${listOf(refusal.missing.map((m) => `${m.capability} (${m.reason})`))}`;

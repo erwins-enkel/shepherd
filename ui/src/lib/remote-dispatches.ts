@@ -1,4 +1,5 @@
 import { m } from "#lib/paraglide/messages.js";
+import { cloneFailureText } from "#lib/clone-errors.js";
 import { capabilityLabel, capabilityReasonLabel, machineStatusLabel } from "#lib/machines.js";
 import { placementReason } from "#lib/placement.js";
 import type { DispatchReadiness, RemoteDispatch, SessionHost } from "./types";
@@ -59,6 +60,11 @@ export function resolvedMessage(d: RemoteDispatch): { text: string; alert: boole
       return { text: m.toast_dispatch_canceled_on({ machine }), alert: false };
     case "rejected":
     case "upload_failed":
+      // The machine had no checkout and could not clone it: `reason` is the clone's error code.
+      if (d.code === "remote_clone_failed") {
+        const reason = cloneFailureText(d.reason ?? "");
+        return { text: m.toast_dispatch_clone_failed_on({ machine, reason }), alert: true };
+      }
       return {
         text: m.toast_dispatch_declined_on({ machine, reason: d.reason ?? d.code ?? "" }),
         alert: true,

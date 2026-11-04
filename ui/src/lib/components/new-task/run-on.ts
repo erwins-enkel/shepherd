@@ -1,4 +1,5 @@
 import { ApiError, PlacementRefusedError } from "#lib/api.js";
+import { cloneFailureText } from "#lib/clone-errors.js";
 import { m } from "#lib/paraglide/messages.js";
 import { placementRefusalText } from "#lib/placement.js";
 import { platformName } from "#lib/remote-sessions.js";
@@ -17,23 +18,31 @@ export function connectedMachines(machines: readonly RemoteInstance[]): RemoteIn
   return machines.filter((machine) => machine.status === "connected" && machine.released);
 }
 
-/** The machines a task for this project can start on: connected and released, with the project
- *  (its forge slug) checked out. A repo without a slug cannot be matched on another machine. */
+/** The machines a task for this project can start on: connected and released. One without a
+ *  checkout of the project (its forge slug) clones it first (`needsClone`). A repo without a slug
+ *  can be neither matched nor cloned on another machine. */
 export function runOnMachines(
   machines: readonly RemoteInstance[],
   slug: string | undefined,
 ): RemoteInstance[] {
   if (!slug) return [];
-  return connectedMachines(machines).filter((machine) => machine.projects?.includes(slug));
+  return connectedMachines(machines);
 }
 
-export function machineLabel(machine: RemoteInstance): string {
-  return machine.info
+/** The machine has no checkout of the project yet: a task sent there clones it first. */
+export function needsClone(machine: RemoteInstance | undefined, slug: string | undefined): boolean {
+  return !!machine && !!slug && !(machine.projects?.includes(slug) ?? false);
+}
+
+/** "MacBook (macOS)", and "· clones first" after it when the project is cloned there first. */
+export function machineLabel(machine: RemoteInstance, clone = false): string {
+  const label = machine.info
     ? m.newtask_runon_machine({
         machine: machine.name,
         platform: platformName(machine.info.platform),
       })
     : machine.name;
+  return clone ? m.newtask_runon_machine_clone({ machine: label }) : label;
 }
 
 /** A send to a machine that went unanswered — it may have started there. Only then does the next
@@ -95,6 +104,9 @@ export function runOnFailureMessage(err: unknown, machine: string): string | nul
       return m.newtask_runon_rejected({ machine, reason: err.message });
     case "remote_upload_failed":
       return m.newtask_runon_upload_failed({ machine, reason: err.message });
+    case "remote_clone_failed":
+      // `message` is the machine's clone error code (`clonerepo_failed_auth`, …).
+      return m.newtask_runon_clone_failed({ machine, reason: cloneFailureText(err.message) });
     case "remote_target_unavailable":
       return m.newtask_runon_unavailable({ machine });
     case "remote_target_unreleased":

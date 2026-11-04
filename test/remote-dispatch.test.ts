@@ -105,6 +105,7 @@ function reposAnswer(path: string): Response {
 function setup(
   fetch: FetchLike,
   machines: RemoteInstanceSummary[] = [machine(MAC)],
+  clone: { source?: (repoPath: string) => Promise<string | null>; noted?: unknown[][] } = {},
 ): { store: SessionStore; dispatcher: RemoteDispatcher; events: [string, unknown][] } {
   const store = new SessionStore(":memory:");
   for (const m of machines) {
@@ -121,15 +122,69 @@ function setup(
     get: (id: string) => machines.find((m) => m.instanceId === id) ?? null,
     list: () => machines,
     noteCapabilities: () => {},
+    noteProject: (...args: unknown[]) => void clone.noted?.push(args),
   };
   const events: [string, unknown][] = [];
   const hub = { emit: (event: string, data: unknown) => void events.push([event, data]) };
   return {
     store,
     events,
-    dispatcher: new RemoteDispatcher({ store, instances, events: hub, fetch, now: () => 42 }),
+    dispatcher: new RemoteDispatcher({
+      store,
+      instances,
+      events: hub,
+      fetch,
+      now: () => 42,
+      cloneSource: clone.source ?? (async () => null),
+    }),
   };
 }
+
+const ORIGIN = "https://github.com/acme/app.git";
+const CLONED_PATH = "/Users/kai/projects/app";
+
+/** A machine with no checkout of acme/app until its `POST /api/repos` answers 201 (or a 409 with
+ *  `landed`: a concurrent clone put it there); `POST /api/sessions` answers from `creates`. */
+function cloneNet(
+  clones: (Response | Promise<Response> | Error)[],
+  creates: Response[] = [session("s-1"), session("s-2")],
+  landed = false,
+  /** Mid-clone the machine already lists the half-made checkout. */
+  listsEarly = false,
+) {
+  let cloned = false;
+  const calls: { method: string; url: string; body: unknown }[] = [];
+  const fetch: FetchLike = async (input, init) => {
+    const method = init.method ?? "GET";
+    calls.push({
+      method,
+      url: input,
+      body: typeof init.body === "string" ? JSON.parse(init.body) : null,
+    });
+    if (input.endsWith("/api/repos") && method === "GET") {
+      const repos = cloned ? [{ path: CLONED_PATH, remoteSlug: "acme/app" }] : [];
+      return Response.json({ repos: [{ path: "/Users/kai/x", remoteSlug: "acme/x" }, ...repos] });
+    }
+    if (input.endsWith("/api/repos")) {
+      if (listsEarly) cloned = true;
+      const answer = await clones.shift();
+      if (!answer) throw new Error("unexpected clone");
+      if (answer instanceof Error) throw answer;
+      if (answer.status === 201 || (answer.status === 409 && landed)) cloned = true;
+      return answer;
+    }
+    const create = input.endsWith("/api/sessions") ? creates.shift() : undefined;
+    if (!create) throw new Error(`unexpected ${method} ${input}`);
+    return create;
+  };
+  const urls = () => calls.map((c) => `${c.method} ${c.url}`);
+  return { fetch, calls, urls };
+}
+
+const cloned = () => Response.json({ name: "app", path: CLONED_PATH }, { status: 201 });
+
+const session = (id: string) =>
+  Response.json({ id, desig: "TASK-01", status: "running" }, { status: 201 });
 
 const BODY = {
   repoPath: "/home/moe/projects/app",
@@ -149,9 +204,6 @@ function submit(over: Partial<RemoteSubmit> = {}): RemoteSubmit {
     ...over,
   };
 }
-
-const session = (id: string) =>
-  Response.json({ id, desig: "TASK-01", status: "running" }, { status: 201 });
 
 describe("RemoteDispatcher", () => {
   test("maps the project onto the machine's own checkout and sends everything else verbatim", async () => {
@@ -351,9 +403,9 @@ describe("RemoteDispatcher", () => {
         "remote_target_unreleased",
       ],
       [
-        "a machine without the project",
+        "a machine without the project, and nothing to clone it from",
         [machine(MAC, { projects: ["acme/other"] })],
-        undefined,
+        Response.json({ repos: [] }),
         "remote_project_missing",
       ],
       [
@@ -411,6 +463,101 @@ describe("RemoteDispatcher", () => {
 
 // #2774: a dispatch no machine has confirmed is reconciled with its machine — never sent anywhere
 // else, never started twice — and can be cancelled so a late arrival never starts.
+describe("RemoteDispatcher clones a missing checkout", () => {
+  const MAC_HOST = { instanceId: MAC, name: "MacBook", platform: "macos" };
+  const bare = () => [machine(MAC, { projects: [] })];
+
+  test("it is cloned from this checkout's origin, then the task starts on the clone", async () => {
+    const net = cloneNet([cloned()]);
+    const sources: string[] = [];
+    const noted: unknown[][] = [];
+    const source = async (repoPath: string) => {
+      sources.push(repoPath);
+      return ORIGIN;
+    };
+    const { store, dispatcher } = setup(net.fetch, bare(), { source, noted });
+    expect(await dispatcher.submit(submit())).toMatchObject({ kind: "started" });
+    expect(sources).toEqual([BODY.repoPath]);
+    expect(net.urls()).toEqual([
+      "GET http://mac.test/api/repos",
+      "POST http://mac.test/api/repos",
+      "GET http://mac.test/api/repos",
+      "POST http://mac.test/api/sessions",
+    ]);
+    expect(net.calls[1]!.body).toEqual({ url: ORIGIN });
+    expect(net.calls[3]!.body).toMatchObject({
+      repoPath: CLONED_PATH,
+      target: { instanceId: MAC },
+    });
+    expect(noted).toEqual([[MAC, "acme/app", CLONED_PATH]]);
+    expect(store.getRemoteDispatchByKey("key-1")).toMatchObject({ state: "started" });
+  });
+
+  test("a clone that fails sends and stores nothing, and says why", async () => {
+    const answers = [
+      [
+        Response.json({ error: "clonerepo_failed_auth", detail: "x" }, { status: 422 }),
+        "clonerepo_failed_auth",
+      ],
+      [Response.json({ error: "Something broke." }, { status: 500 }), "clonerepo_failed_generic"],
+      [new Response("no", { status: 502 }), "clonerepo_failed_generic"],
+      // A folder of that name is there, but it is not this project.
+      [
+        Response.json({ error: "clonerepo_failed_exists" }, { status: 409 }),
+        "clonerepo_failed_exists",
+      ],
+    ] as const;
+    for (const [answer, error] of answers) {
+      const net = cloneNet([answer]);
+      const { store, dispatcher } = setup(net.fetch, bare(), { source: async () => ORIGIN });
+      expect(await dispatcher.submit(submit())).toEqual({
+        kind: "clone_failed",
+        host: MAC_HOST,
+        error,
+      });
+      expect(net.urls()).not.toContain("POST http://mac.test/api/sessions");
+      expect(store.getRemoteDispatchByKey("key-1")).toBeNull();
+    }
+  });
+
+  test("a folder already there is fine when it is the project: a concurrent clone put it there", async () => {
+    const net = cloneNet(
+      [Response.json({ error: "clonerepo_failed_exists" }, { status: 409 })],
+      undefined,
+      true,
+    );
+    const { dispatcher } = setup(net.fetch, bare(), { source: async () => ORIGIN });
+    expect(await dispatcher.submit(submit())).toMatchObject({ kind: "started" });
+  });
+
+  test("no answer to the clone is an unreachable machine; nothing was started", async () => {
+    const net = cloneNet([new TypeError("socket closed")]);
+    const { store, dispatcher } = setup(net.fetch, bare(), { source: async () => ORIGIN });
+    expect(await dispatcher.submit(submit())).toMatchObject({
+      kind: "refused",
+      code: "remote_target_unavailable",
+    });
+    expect(store.getRemoteDispatchByKey("key-1")).toBeNull();
+  });
+
+  test("concurrent sends for the same machine and project share one clone", async () => {
+    let release!: (r: Response) => void;
+    const gate = new Promise<Response>((resolve) => (release = resolve));
+    const net = cloneNet([gate], undefined, false, true);
+    const { dispatcher } = setup(net.fetch, bare(), { source: async () => ORIGIN });
+    const first = dispatcher.submit(submit());
+    await new Promise((r) => setTimeout(r, 5));
+    // Sent while the clone runs, and the half-made checkout is already listed: it waits.
+    const second = dispatcher.submit(submit({ clientKey: "key-2", payloadHash: "hash-2" }));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(net.urls()).not.toContain("POST http://mac.test/api/sessions");
+    release(cloned());
+    expect((await first).kind).toBe("started");
+    expect((await second).kind).toBe("started");
+    expect(net.urls().filter((u) => u === "POST http://mac.test/api/repos")).toHaveLength(1);
+  });
+});
+
 describe("RemoteDispatcher start status unknown", () => {
   const HOST = { instanceId: MAC, name: "MacBook", platform: "macos" };
   const WIRE = JSON.stringify({ ...BODY, repoPath: "/Users/kai/dev/app" });
@@ -927,7 +1074,12 @@ describe("RemoteDispatcher waiting tasks", () => {
 
   /** Machines that can change between probes, this Shepherd as `here`, and every
    *  `noteCapabilities` the dispatcher made. */
-  function world(fetch: FetchLike, initial: RemoteInstanceSummary[], store?: SessionStore) {
+  function world(
+    fetch: FetchLike,
+    initial: RemoteInstanceSummary[],
+    store?: SessionStore,
+    cloneSource?: (repoPath: string) => Promise<string | null>,
+  ) {
     const machines = new Map(initial.map((m) => [m.instanceId, m]));
     const db = store ?? new SessionStore(":memory:");
     if (!store) {
@@ -949,6 +1101,7 @@ describe("RemoteDispatcher waiting tasks", () => {
       noteCapabilities: (id: string, snapshot: { checks: { id: Capability; ok: boolean }[] }) => {
         noted.push([id, snapshot.checks.filter((c) => c.ok).map((c) => c.id)]);
       },
+      noteProject: () => {},
     };
     const events: RemoteDispatchView[] = [];
     const hub = {
@@ -966,6 +1119,7 @@ describe("RemoteDispatcher waiting tasks", () => {
       fetch,
       now: () => 42,
       here,
+      cloneSource: cloneSource ?? (async () => null),
     });
     const set = (m: RemoteInstanceSummary) => machines.set(m.instanceId, m);
     return { store: db, dispatcher, events, set, noted, machines };
@@ -1108,14 +1262,47 @@ describe("RemoteDispatcher waiting tasks", () => {
     expect(store.getRemoteDispatchByKey("key-1")!.state).toBe("started");
   });
 
-  test("no checkout of the project there: it keeps waiting as project missing", async () => {
-    const net = scripted([]);
-    const { dispatcher, set } = world(net.fetch, [asleep()]);
-    await dispatcher.wait(waitFor());
+  test("no checkout of the project there: it is cloned when the task is sent", async () => {
+    const net = cloneNet([cloned()]);
+    const { store, dispatcher, set } = world(net.fetch, [asleep()], undefined, async () => ORIGIN);
+    await dispatcher.wait(submit({ body: { ...BODY, placement: placed([]) } }));
     set(awake({ projects: ["acme/other"] }));
+    expect(dispatcher.list()[0]!.readiness).toEqual({ state: "ready" });
     await dispatcher.reconcile(MAC);
-    expect(net.calls).toEqual([]);
-    expect(dispatcher.list()[0]!.readiness).toEqual({ state: "project_missing" });
+    expect(net.urls()).toEqual([
+      "GET http://mac.test/api/repos",
+      "POST http://mac.test/api/repos",
+      "GET http://mac.test/api/repos",
+      "POST http://mac.test/api/sessions",
+    ]);
+    expect(net.calls[3]!.body).toMatchObject({ repoPath: CLONED_PATH });
+    expect(store.getRemoteDispatchByKey("key-1")!.state).toBe("started");
+  });
+
+  test("a clone that fails ends the waiting task as rejected, said once, never tried again", async () => {
+    const net = cloneNet([Response.json({ error: "clonerepo_failed_auth" }, { status: 422 })]);
+    const { store, dispatcher, events, set } = world(
+      net.fetch,
+      [asleep()],
+      undefined,
+      async () => ORIGIN,
+    );
+    await dispatcher.wait(submit({ body: { ...BODY, placement: placed([]) } }));
+    set(awake({ projects: [] }));
+    await dispatcher.reconcile(MAC);
+    await dispatcher.reconcile(MAC);
+    expect(net.urls().filter((u) => u === "POST http://mac.test/api/repos")).toHaveLength(1);
+    expect(net.urls()).not.toContain("POST http://mac.test/api/sessions");
+    expect(store.getRemoteDispatchByKey("key-1")).toMatchObject({
+      state: "rejected",
+      code: "remote_clone_failed",
+      reason: "clonerepo_failed_auth",
+    });
+    expect(events.map((e) => [e.state, e.code ?? null])).toEqual([
+      ["waiting", null],
+      ["rejected", "remote_clone_failed"],
+    ]);
+    expect(dispatcher.list()).toEqual([]);
   });
 
   test("a restart keeps it waiting, and the next probe sends it once", async () => {

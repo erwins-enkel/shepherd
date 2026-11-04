@@ -236,7 +236,7 @@ struct ComposeSheetContent: View {
                     }
                 }
             } else {
-                Text(verbatim: submission.sendingTo.map { L.t("newtask_runon_starting", $0.name) } ?? L.t("newtask_spawning"))
+                Text(verbatim: submission.sendingLabel ?? L.t("newtask_spawning"))
             }
             Button(submission.canceling || submission.cancelRequested ? L.t("newtask_spawn_canceling") : L.t("newtask_spawn_cancel")) {
                 Task { await submission.cancel(using: { try await store.client.cancelSpawn(id: $0) }, isCurrent: { current }) }

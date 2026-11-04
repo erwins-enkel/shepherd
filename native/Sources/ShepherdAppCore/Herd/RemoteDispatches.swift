@@ -78,6 +78,10 @@ public enum DispatchCopy {
         case "started": return .init(text: L.t("toast_dispatch_started_on", machine), alert: false)
         case "held": return .init(text: L.t("toast_task_held_on", machine), alert: false)
         case "canceled": return .init(text: L.t("toast_dispatch_canceled_on", machine), alert: false)
+        case "rejected" where dispatch.code == "remote_clone_failed":
+            // Its machine could not clone the project: `reason` is the clone's error code.
+            let reason = PlacementCopy.cloneFailure(dispatch.reason ?? "")
+            return .init(text: L.t("toast_dispatch_clone_failed_on", machine, reason), alert: true)
         case "rejected", "upload_failed":
             return .init(text: L.t("toast_dispatch_declined_on", machine, dispatch.reason ?? dispatch.code ?? ""),
                          alert: true)

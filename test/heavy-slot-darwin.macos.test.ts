@@ -108,13 +108,6 @@ onDarwin(
         await svc.sweep(true);
       }
       expect(lastScan.procs.has(id)).toBe(false);
-      if (!lastScan.complete) {
-        // SIP-protected processes of the runner UID may make global absence
-        // unprovable. Keep the slot, exactly as the production safety rule requires.
-        expect(steers).toHaveLength(0);
-        expect(store.listHeavySlotJobs(["lingering"])).toHaveLength(1);
-        await svc.release("s1");
-      }
       expect(steers).toEqual(["s2"]);
       childPid = undefined;
     } finally {

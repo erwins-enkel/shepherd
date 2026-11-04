@@ -71,6 +71,8 @@ export const OFFER_TTL_MS = 5 * 60_000;
 /** A running job with no marker process is released only after this long — the runner spawns the
  *  command a moment after the grant, and a scan in between must not free the slot. */
 export const RUNNING_GRACE_MS = 15_000;
+/** A lingering job frees its slot after this long even while its liveness stays unknown. */
+export const LINGER_MAX_MS = 15 * 60_000;
 const COMMAND_MAX_CHARS = 500;
 /** Durations feeding a wait estimate: the most recent this many per {@link heavyEtaKey}. */
 export const ETA_HISTORY = 20;
@@ -191,6 +193,7 @@ function settle(
   alive: (job: HeavyJob) => boolean | null,
   sessionActive: (sessionId: string) => boolean,
 ): "done" | HeavyDropReason | null {
+  if (job.state === "lingering" && now - (job.finishedAt ?? now) >= LINGER_MAX_MS) return "done";
   if (job.state === "running" || job.state === "lingering") {
     const graced = job.state === "lingering" || now - (job.startedAt ?? now) > RUNNING_GRACE_MS;
     return graced && alive(job) === false ? "done" : null;

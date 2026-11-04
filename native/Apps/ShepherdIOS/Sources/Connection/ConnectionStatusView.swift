@@ -33,6 +33,15 @@ struct IOSServerConnectionStatus: View {
     static func isFirstRun(_ state: ConnectionState) -> Bool { state == .firstRunPending }
     static func isConnecting(_ state: ConnectionState) -> Bool { state == .connecting || state == .idle }
     var body: some View {
+        VStack(spacing: 0) {
+            status
+            // Outside the banner: the update sheet stays open while the server restarts (#2987).
+            if let model = app.extension(ServerUpdateModel.self) {
+                IOSServerUpdateSheetHost(model: model, serverName: serverName ?? app.activeProfile?.name ?? "")
+            }
+        }
+    }
+    @ViewBuilder private var status: some View {
         if showsUnavailableNotice {
             VStack(alignment: .leading, spacing: 4) {
                 if typeSize.isAccessibilitySize {
@@ -73,8 +82,14 @@ struct IOSServerConnectionStatus: View {
                         if store.connection == .needsLogin, let profile = app.activeProfile { app.sheet = .login(profile) }
                         else { app.retry() }
                     }.disabled(app.retrying)
+                    IOSServerUpdateOfferRow(banner: banner, lastError: store.lastError)
                 }.padding().frame(maxWidth: .infinity, alignment: .leading)
                     .background(.orange.opacity(0.12)).accessibilityIdentifier("connection-banner")
+                    // Ask the server how far behind it is only for a genuine mismatch, once per banner.
+                    .task(id: banner) {
+                        guard IOSServerUpdateOfferRow.probes(banner, lastError: store.lastError) else { return }
+                        await app.extension(ServerUpdateModel.self)?.refreshOffer()
+                    }
             }
         }
     }

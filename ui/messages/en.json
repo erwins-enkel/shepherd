@@ -8102,5 +8102,13 @@
   "heavyslot_strip_holder_lingering": "Leftover processes of {command}",
   "heavyslot_strip_holder_offered": "Offered for {command}",
   "heavyslot_state_lingering": "Command finished · leftover processes hold the slot",
-  "heavyslot_state_offered": "Reserved until the session reruns its check"
+  "heavyslot_state_offered": "Reserved until the session reruns its check",
+  "native_error_server_failure": "The server hit an error (HTTP {status}): {message}",
+  "native_error_server_failure_generic": "The server hit an error (HTTP {status}). Try again; if it keeps failing, check the server log.",
+  "native_server_update_action": "Update server",
+  "native_server_update_behind": "The server is {count} commits behind main. Updating it should resolve the mismatch.",
+  "native_server_update_body": "The server pulls main, rebuilds and restarts. Running agent sessions keep going in herdr; this app reconnects once the server answers again.",
+  "native_server_update_testflight_action": "Open TestFlight",
+  "native_server_update_testflight_hint": "The server is up to date, so this app is the older side. Install the latest build from TestFlight.",
+  "native_server_update_title": "Update {server}"
 }

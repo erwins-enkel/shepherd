@@ -16269,6 +16269,42 @@
         }
       }
     },
+    "native_error_server_failure": {
+      "comment": "%1$@ = status, %2$@ = message",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf dem Server ist ein Fehler aufgetreten (HTTP %1$@): %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server hit an error (HTTP %1$@): %2$@"
+          }
+        }
+      }
+    },
+    "native_error_server_failure_generic": {
+      "comment": "%1$@ = status",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf dem Server ist ein Fehler aufgetreten (HTTP %1$@). Versuche es erneut; wenn es weiter fehlschlägt, prüfe das Server-Log."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server hit an error (HTTP %1$@). Try again; if it keeps failing, check the server log."
+          }
+        }
+      }
+    },
     "native_firstrun_body": {
       "extractionState": "manual",
       "localizations": {
@@ -24924,6 +24960,110 @@
           "stringUnit": {
             "state": "translated",
             "value": "Install update"
+          }
+        }
+      }
+    },
+    "native_server_update_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server aktualisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update server"
+          }
+        }
+      }
+    },
+    "native_server_update_behind": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Server liegt %1$@ Commits hinter main. Ein Update sollte die Abweichung beheben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server is %1$@ commits behind main. Updating it should resolve the mismatch."
+          }
+        }
+      }
+    },
+    "native_server_update_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Server holt main, baut neu und startet neu. Laufende Agent-Sessions laufen in herdr weiter; die App verbindet sich neu, sobald der Server wieder antwortet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server pulls main, rebuilds and restarts. Running agent sessions keep going in herdr; this app reconnects once the server answers again."
+          }
+        }
+      }
+    },
+    "native_server_update_testflight_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TestFlight öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open TestFlight"
+          }
+        }
+      }
+    },
+    "native_server_update_testflight_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Server ist aktuell, also ist diese App die ältere Seite. Installiere den neuesten Build aus TestFlight."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server is up to date, so this app is the older side. Install the latest build from TestFlight."
+          }
+        }
+      }
+    },
+    "native_server_update_title": {
+      "comment": "%1$@ = server",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ aktualisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update %1$@"
           }
         }
       }
@@ -40505,6 +40645,298 @@
           "stringUnit": {
             "state": "translated",
             "value": "unknown reviewer"
+          }
+        }
+      }
+    },
+    "updatemodal_deploy_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Update konnte nicht abgeschlossen werden. Der Deploy ist abgebrochen, bevor der Server neu gestartet wurde."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update could not be completed. The deploy stopped before the server restarted."
+          }
+        }
+      }
+    },
+    "updatemodal_deploy_log": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deploy-Ausgabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deploy output"
+          }
+        }
+      }
+    },
+    "updatemodal_dirty_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du hast nicht committete Änderungen im Repo, in dem Shepherd läuft — deshalb kann die neue Version nicht sauber geholt werden. Verwirf deine Änderungen, um zu aktualisieren, oder lass sie stehen und aktualisiere später, nachdem du sie selbst committet hast."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You have uncommitted changes in the repo where Shepherd runs, so it can't pull the new version cleanly. Discard your changes to update, or leave them and update later after committing them yourself."
+          }
+        }
+      }
+    },
+    "updatemodal_dirty_files_head": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geänderte Dateien"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changed files"
+          }
+        }
+      }
+    },
+    "updatemodal_dirty_files_more": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "… und %1$@ weitere"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "… and %1$@ more"
+          }
+        }
+      }
+    },
+    "updatemodal_dirty_stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Änderungen haben sich seit der Anzeige geändert — bitte prüfe die aktualisierte Liste und bestätige erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The changes shifted since they were shown — review the updated list and confirm again."
+          }
+        }
+      }
+    },
+    "updatemodal_dirty_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokale Änderungen blockieren das Update"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local changes are blocking the update"
+          }
+        }
+      }
+    },
+    "updatemodal_dirty_too_large": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Änderungen sind zu groß, um sie für einen Ein-Klick-Discard sicher zu prüfen — bitte committe oder verwirf sie manuell."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The changes are too large to verify safely for a one-click discard — please commit or discard them manually."
+          }
+        }
+      }
+    },
+    "updatemodal_discard_and_update": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwerfen & aktualisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard & update"
+          }
+        }
+      }
+    },
+    "updatemodal_discard_confirm": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ getrackte Änderung(en) auf den letzten Commit zurücksetzen? Bearbeitungen an vorhandenen Dateien gehen verloren; neu hinzugefügte Dateien werden nicht gelöscht — sie bleiben als ungetrackte Dateien liegen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset %1$@ tracked change(s) to the last commit? Edits to existing files are lost; newly added files aren't deleted — they stay as untracked files."
+          }
+        }
+      }
+    },
+    "updatemodal_discard_confirm_yes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ja, zurücksetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yes, reset"
+          }
+        }
+      }
+    },
+    "updatemodal_exit_code": {
+      "comment": "%1$@ = code",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit-Code %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit code %1$@"
+          }
+        }
+      }
+    },
+    "updatemodal_now_clean": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Baum ist jetzt sauber — versuche das Update erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tree is clean now — try the update again."
+          }
+        }
+      }
+    },
+    "updatemodal_retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut versuchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        }
+      }
+    },
+    "updatemodal_unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server zu lange nicht erreichbar. Das Update ist möglicherweise fehlgeschlagen. App neu laden oder Logs prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server stayed unreachable for too long. The update may have failed. Reload the app or check the logs."
+          }
+        }
+      }
+    },
+    "updatemodal_update_now": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update jetzt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update now"
+          }
+        }
+      }
+    },
+    "updatemodal_updating": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisiere…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating…"
           }
         }
       }

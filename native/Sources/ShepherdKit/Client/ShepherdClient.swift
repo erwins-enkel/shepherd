@@ -139,8 +139,8 @@ public final class ShepherdClient: Sendable {
     do {
       switch try await generated.getHealth(.init()) {
       case .ok(let ok): return try ok.body.json
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "getHealth")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "getHealth")
       }
     } catch { throw ShepherdError.from(error, route: "getHealth") }
   }
@@ -150,8 +150,8 @@ public final class ShepherdClient: Sendable {
       switch try await generated.getSettings(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "getSettings")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "getSettings")
       }
     } catch { throw ShepherdError.from(error, route: "getSettings") }
   }
@@ -174,8 +174,8 @@ public final class ShepherdClient: Sendable {
         }
         return .notModified
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "listSessions")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "listSessions")
       }
     } catch { throw ShepherdError.from(error, route: "listSessions") }
   }
@@ -198,8 +198,8 @@ public final class ShepherdClient: Sendable {
         }
         return .notModified
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "listDoneSessions")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "listDoneSessions")
       }
     } catch { throw ShepherdError.from(error, route: "listDoneSessions") }
   }
@@ -210,8 +210,8 @@ public final class ShepherdClient: Sendable {
       case .ok(let ok): return try ok.body.json
       case .unauthorized: throw ShepherdError.unauthenticated
       case .notFound: throw ShepherdError.notFound
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "getSession")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "getSession")
       }
     } catch { throw ShepherdError.from(error, route: "getSession") }
   }
@@ -221,8 +221,8 @@ public final class ShepherdClient: Sendable {
       switch try await generated.listRepos(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "listRepos")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "listRepos")
       }
     } catch { throw ShepherdError.from(error, route: "listRepos") }
   }
@@ -248,8 +248,8 @@ public final class ShepherdClient: Sendable {
       case .badGateway(let bad): throw ShepherdError.upstreamFailure(try bad.body.json.error)
       // A task sent to a connected machine got no answer (remote_dispatch_unknown, #2763).
       case .gatewayTimeout(let timeout): throw ShepherdError.fromUpstream(try timeout.body.json)
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "createSession")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "createSession")
       }
     } catch { throw ShepherdError.from(error, route: "createSession") }
   }
@@ -264,8 +264,8 @@ public final class ShepherdClient: Sendable {
       case .unauthorized: throw ShepherdError.unauthenticated
       case .internalServerError(let bad):
         throw ShepherdError.upstreamFailure(try bad.body.json.error)
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "archiveSession")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "archiveSession")
       }
     } catch { throw ShepherdError.from(error, route: "archiveSession") }
   }
@@ -276,8 +276,8 @@ public final class ShepherdClient: Sendable {
       case .ok: return
       case .unauthorized: throw ShepherdError.unauthenticated
       case .notFound: throw ShepherdError.notFound
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "interruptSession")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "interruptSession")
       }
     } catch { throw ShepherdError.from(error, route: "interruptSession") }
   }
@@ -290,8 +290,8 @@ public final class ShepherdClient: Sendable {
       case .ok(let ok): return try ok.body.json
       case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "putRepoRoot")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "putRepoRoot")
       }
     } catch { throw ShepherdError.from(error, route: "putRepoRoot") }
   }

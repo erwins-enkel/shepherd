@@ -1696,7 +1696,9 @@
         "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"contractFailureIsOffline() async throws\"]"
       ],
       "reason": "Retained unchanged in ShepherdKitTests.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: Operator-authorized #2987 amendment — the bootstrap stub answers an undocumented 418 instead of 500 so this row still exercises .contractMismatch now that a 5xx maps to .serverFailure; the assertion is unchanged and serverFailureBootstrapIsOffline covers the 5xx row."
+      ]
     },
     {
       "oldID": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"convenienceInitRefusesInsecureProfile() throws\"]",
@@ -2104,7 +2106,9 @@
         "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"branchErrors(route: String, status: Int) async throws\"]"
       ],
       "reason": "Retained unchanged in ShepherdKitTests.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: Operator-authorized #2987 amendment — an undocumented 5xx maps to .serverFailure(status:message:) carrying the body's error text instead of .contractMismatch; every other row and assertion is retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"branchesAndStatusEncodeQueriesAndDecodeNullableDefaults() async throws\"]",
@@ -2160,7 +2164,9 @@
         "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"errors(route: String, status: Int) async throws\"]"
       ],
       "reason": "Retained unchanged in ShepherdKitTests.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: Operator-authorized #2987 amendment — an undocumented 5xx maps to .serverFailure(status:message:) carrying the body's error text instead of .contractMismatch; every other row and assertion is retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"fetchFailed() async throws\"]",
@@ -2304,7 +2310,9 @@
         "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"uploadMapsEveryDeclaredError(_ status: Int) async throws\"]"
       ],
       "reason": "Retained unchanged in ShepherdKitTests.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: Operator-authorized #2987 amendment — an undocumented 5xx maps to .serverFailure(status:message:) carrying the body's error text instead of .contractMismatch; every other row and assertion is retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"uploadProgressFollowsConsumerDemandAndStopsOnCancellation() async throws\"]",
@@ -12995,7 +13003,31 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RemoteSessionsTests.swift\",\"CoreSeamTests.RemoteSessionsTests\",\"theSidebarNarrowsMachineGroupsToTheFilteredProject()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RunOnModelTests.swift\",\"CoreSeamTests.RunOnModelTests\",\"aMachineWithoutTheCheckoutIsOfferedAndSaysItClonesFirst() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/HeavySlotEntryTests.swift\",\"HeavySlotEntryTests\",\"holderAndWaitersGetTheirOwnLine() throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/HeavySlotEntryTests.swift\",\"HeavySlotEntryTests\",\"switchedOffSlotOrArchivedSessionShowsNothing() throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/HeavySlotEntryTests.swift\",\"HeavySlotEntryTests\",\"switchedOffSlotOrArchivedSessionShowsNothing() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdErrorTests.swift\",\"ShepherdErrorTests\",\"undocumentedServerErrorIsServerFailure(_ status: Int)\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdErrorTests.swift\",\"ShepherdErrorTests\",\"undocumentedServerErrorWithoutText(_ body: String?)\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdErrorTests.swift\",\"ShepherdErrorTests\",\"otherUndocumentedStatusesAreUnchanged(_ status: Int)\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdErrorTests.swift\",\"ShepherdErrorTests\",\"undocumentedPayloadBody() async\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdErrorTests.swift\",\"ShepherdErrorTests\",\"serverFailureMessageIsCapped() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"serverFailureBootstrapIsOffline() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ShepherdErrorCopyTests.swift\",\"CoreSeamTests.ShepherdErrorCopyTests\",\"aServerFailureSaysTheServerFailedNotThatTheVersionDiffers()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectionBannerTests.swift\",\"CoreSeamTests.ConnectionBannerTests\",\"aServerFailureNeverRaisesTheMismatchBanner()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"aPlainUpdateSendsAnEmptyBodyAndADiscardSendsTheShownSignature() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"applyMapsEveryRefusal(_ c: (Int, String, ShepherdError)) async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"aStaleDiscardCarriesTheFreshSnapshot() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"idleLogAndUncheckedStatusDecodeTheirNulls() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"readsMapAuthenticationScopeAndServerFailures() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"readsStatusLogAndDirtySnapshot() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"aDiscardSendsTheSignatureThatWasShown() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"aFailedDeployShowsItsLogOrRoutesADirtyTreeBackThroughTheProbe() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"aRefusalShowsTheServersReason() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"aServerThatStaysUnreachableEndsTheWaitAfterThreeMinutes() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"aStaleDiscardReplacesTheListAndAsksAgain() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"aStartedUpdateFollowsTheLogThroughTheRestartThenReconnects() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"openingProbesTheTreeFreshAndPicksTheMode() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"teardownStopsFollowingTheDeploy() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"theLiveLineIsTheNewestNonEmptyLineCapped()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"theOfferFollowsTheServersOwnUpdateStatus() async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

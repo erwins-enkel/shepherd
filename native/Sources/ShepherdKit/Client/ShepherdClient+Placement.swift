@@ -181,8 +181,8 @@ extension ShepherdClient {
       case .unauthorized: throw ShepherdError.unauthenticated
       case .forbidden: throw ShepherdError.forbidden
       case .undocumented(404, _): throw ShepherdError.notFound
-      case .undocumented(let code, _):
-        throw ShepherdError.fromUndocumented(statusCode: code, route: "previewPlacement")
+      case .undocumented(let code, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: code, payload: payload, route: "previewPlacement")
       }
     } catch { throw ShepherdError.from(error, route: "previewPlacement") }
   }
@@ -199,8 +199,8 @@ extension ShepherdClient {
       case .unauthorized: throw ShepherdError.unauthenticated
       case .forbidden: throw ShepherdError.forbidden
       case .undocumented(404, _): throw ShepherdError.notFound
-      case .undocumented(let code, _):
-        throw ShepherdError.fromUndocumented(statusCode: code, route: "deriveRequirements")
+      case .undocumented(let code, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: code, payload: payload, route: "deriveRequirements")
       }
     } catch { throw ShepherdError.from(error, route: "deriveRequirements") }
   }
@@ -213,8 +213,8 @@ extension ShepherdClient {
       case .ok(let ok): return try ok.body.json.dispatches
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(404, _): throw ShepherdError.notFound
-      case .undocumented(let code, _):
-        throw ShepherdError.fromUndocumented(statusCode: code, route: "listRemoteDispatches")
+      case .undocumented(let code, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: code, payload: payload, route: "listRemoteDispatches")
       }
     } catch { throw ShepherdError.from(error, route: "listRemoteDispatches") }
   }
@@ -229,8 +229,8 @@ extension ShepherdClient {
       case .unauthorized: throw ShepherdError.unauthenticated
       case .notFound: throw ShepherdError.notFound
       case .conflict(let conflict): throw RemoteDispatchConflict(try conflict.body.json)
-      case .undocumented(let code, _):
-        throw ShepherdError.fromUndocumented(statusCode: code, route: "cancelRemoteDispatch")
+      case .undocumented(let code, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: code, payload: payload, route: "cancelRemoteDispatch")
       }
     } catch let error as RemoteDispatchConflict { throw error }
     catch { throw ShepherdError.from(error, route: "cancelRemoteDispatch") }
@@ -261,8 +261,8 @@ extension ShepherdClient {
         throw ShepherdError.unprocessable(body.error)
       case .badGateway(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
       case .gatewayTimeout(let timeout): throw ShepherdError.fromUpstream(try timeout.body.json)
-      case .undocumented(let code, _):
-        throw ShepherdError.fromUndocumented(statusCode: code, route: "redirectRemoteDispatch")
+      case .undocumented(let code, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: code, payload: payload, route: "redirectRemoteDispatch")
       }
     } catch let error as MachineRefusal { throw error }
     catch let error as RemoteDispatchConflict { throw error }

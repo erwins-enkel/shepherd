@@ -15,9 +15,9 @@ extension ShepherdClient {
             case .ok(let value): return try value.body.json
             case .forbidden: throw ShepherdError.forbidden
             case .unauthorized: throw ShepherdError.unauthenticated
-            case .undocumented(let status, _):
+            case .undocumented(let status, let payload):
                 if status == 404 { throw ShepherdError.notFound }
-                throw ShepherdError.fromUndocumented(statusCode: status, route: "getHerdrUpdate")
+                throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "getHerdrUpdate")
             }
         } catch { throw ShepherdError.from(error, route: "getHerdrUpdate") }
     }
@@ -27,9 +27,9 @@ extension ShepherdClient {
             case .ok(let value): return try value.body.json
             case .forbidden: throw ShepherdError.forbidden
             case .unauthorized: throw ShepherdError.unauthenticated
-            case .undocumented(let status, _):
+            case .undocumented(let status, let payload):
                 if status == 404 { throw ShepherdError.notFound }
-                throw ShepherdError.fromUndocumented(statusCode: status, route: "getCodexUpdate")
+                throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "getCodexUpdate")
             }
         } catch { throw ShepherdError.from(error, route: "getCodexUpdate") }
     }
@@ -39,9 +39,9 @@ extension ShepherdClient {
             case .ok(let value): return try value.body.json
             case .forbidden: throw ShepherdError.forbidden
             case .unauthorized: throw ShepherdError.unauthenticated
-            case .undocumented(let status, _):
+            case .undocumented(let status, let payload):
                 if status == 404 { throw ShepherdError.notFound }
-                throw ShepherdError.fromUndocumented(statusCode: status, route: "getCodexReleaseNotes")
+                throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "getCodexReleaseNotes")
             }
         } catch { throw ShepherdError.from(error, route: "getCodexReleaseNotes") }
     }
@@ -57,9 +57,9 @@ extension ShepherdClient {
                 throw ShepherdError.conflict(code: body.code ?? (body.error == nil ? "runner_update_not_started" : nil),
                     message: body.error ?? "update not started")
             case .serviceUnavailable(let value): throw ShepherdError.fromUpstream(try value.body.json)
-            case .undocumented(let status, _):
+            case .undocumented(let status, let payload):
                 if status == 404 { throw ShepherdError.notFound }
-                throw ShepherdError.fromUndocumented(statusCode: status, route: "applyHerdrUpdate")
+                throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "applyHerdrUpdate")
             }
         } catch { throw ShepherdError.from(error, route: "applyHerdrUpdate") }
     }
@@ -75,9 +75,9 @@ extension ShepherdClient {
                 throw ShepherdError.conflict(code: body.code ?? (body.error == nil ? "runner_update_not_started" : nil),
                     message: body.error ?? "update not started")
             case .serviceUnavailable(let value): throw ShepherdError.fromUpstream(try value.body.json)
-            case .undocumented(let status, _):
+            case .undocumented(let status, let payload):
                 if status == 404 { throw ShepherdError.notFound }
-                throw ShepherdError.fromUndocumented(statusCode: status, route: "applyHerdrDowngrade")
+                throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "applyHerdrDowngrade")
             }
         } catch { throw ShepherdError.from(error, route: "applyHerdrDowngrade") }
     }
@@ -93,9 +93,9 @@ extension ShepherdClient {
                 throw ShepherdError.conflict(code: body.code ?? (body.error == nil ? "runner_update_not_started" : nil),
                     message: body.error ?? "update not started")
             case .serviceUnavailable(let value): throw ShepherdError.fromUpstream(try value.body.json)
-            case .undocumented(let status, _):
+            case .undocumented(let status, let payload):
                 if status == 404 { throw ShepherdError.notFound }
-                throw ShepherdError.fromUndocumented(statusCode: status, route: "applyHerdrSandboxDowngrade")
+                throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "applyHerdrSandboxDowngrade")
             }
         } catch { throw ShepherdError.from(error, route: "applyHerdrSandboxDowngrade") }
     }
@@ -113,9 +113,9 @@ extension ShepherdClient {
                 throw ShepherdError.conflict(code: body.code ?? (body.error == nil ? "runner_update_not_started" : nil),
                     message: body.error ?? "update not started")
             case .serviceUnavailable(let value): throw ShepherdError.fromUpstream(try value.body.json)
-            case .undocumented(let status, _):
+            case .undocumented(let status, let payload):
                 if status == 404 { throw ShepherdError.notFound }
-                throw ShepherdError.fromUndocumented(statusCode: status, route: "restartHerdrServer")
+                throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "restartHerdrServer")
             }
         } catch { throw ShepherdError.from(error, route: "restartHerdrServer") }
     }
@@ -131,9 +131,9 @@ extension ShepherdClient {
                 throw ShepherdError.conflict(code: body.code ?? (body.error == nil ? "runner_update_not_started" : nil),
                     message: body.error ?? "update not started")
             case .serviceUnavailable(let value): throw ShepherdError.fromUpstream(try value.body.json)
-            case .undocumented(let status, _):
+            case .undocumented(let status, let payload):
                 if status == 404 { throw ShepherdError.notFound }
-                throw ShepherdError.fromUndocumented(statusCode: status, route: "applyCodexUpdate")
+                throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "applyCodexUpdate")
             }
         } catch { throw ShepherdError.from(error, route: "applyCodexUpdate") }
     }

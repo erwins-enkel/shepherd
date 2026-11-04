@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "amendments": [
+    {
+      "id": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientActionsTests.swift\",\"ShepherdClientActionsTests\",\"amendFailures(_ c: (Int, String, String?, ShepherdError)) async throws\"]",
+      "fromAttributes": "3ff88fc753fbcc5fa8cd6bc53fed9ebaf2c9fb25e0816d342fb8cfe2cfe8292c",
+      "toAttributes": "8284606acb37a937ac0757cd10bc2a9d0358754881629dd463978561c1fa18dd",
+      "reason": "#2987 (operator-authorized): the undocumented-5xx argument row now expects .serverFailure(status:message:) carrying the stubbed body's error text instead of .contractMismatch; every other argument row is unchanged."
+    },
+    {
+      "id": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientActionsTests.swift\",\"ShepherdClientActionsTests\",\"readyFailures(_ c: (Int, String, String?, ShepherdError)) async throws\"]",
+      "fromAttributes": "6ab6f87f84bcb8d95b859abaf7b4b3c6482a43bd04d696f178f347e8a349f4ad",
+      "toAttributes": "5ada17cc5b2cfe85db98ad3a9e51029503aa00dbeb0314cdfffaf0613393f266",
+      "reason": "#2987 (operator-authorized): the undocumented-5xx argument row now expects .serverFailure(status:message:) carrying the stubbed body's error text instead of .contractMismatch; every other argument row is unchanged."
+    },
+    {
+      "id": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientActionsTests.swift\",\"ShepherdClientActionsTests\",\"recapsFailures(_ c: (Int, String, String?, ShepherdError)) async throws\"]",
+      "fromAttributes": "5f7c92455f1f6394be949ee1852fb14c00ecf34f66d5c535cfc742254026e4b8",
+      "toAttributes": "3ca5a951c1b33666a14321ecf831a496db2e1f2edee7db4b017cbed1599eed59",
+      "reason": "#2987 (operator-authorized): the undocumented-5xx argument row now expects .serverFailure(status:message:) carrying the stubbed body's error text instead of .contractMismatch; every other argument row is unchanged."
+    },
+    {
+      "id": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientActionsTests.swift\",\"ShepherdClientActionsTests\",\"regenerateFailures(_ c: (Int, String, String?, ShepherdError)) async throws\"]",
+      "fromAttributes": "cc987ae8d8a827cd968242575952d0a3e399185b609f55d46b594e389eefbbbb",
+      "toAttributes": "dc85e44fcc34e1887ddfd790c8a57d5e3ce3460e435d55b00dac2970c892c9cd",
+      "reason": "#2987 (operator-authorized): the undocumented-5xx argument row now expects .serverFailure(status:message:) carrying the stubbed body's error text instead of .contractMismatch; every other argument row is unchanged."
+    },
+    {
+      "id": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientActionsTests.swift\",\"ShepherdClientActionsTests\",\"relaunchFailures(_ c: (Int, String, String?, ShepherdError)) async throws\"]",
+      "fromAttributes": "10e7058469c9bd2622a37a1f6aaa7e57d2a4e9548dd13f4c46ee54bed5f0cdb2",
+      "toAttributes": "1ae53c09dc97720e9d834bed3ab8e968f3a4278933686de50a4470b997146e82",
+      "reason": "#2987 (operator-authorized): the undocumented-5xx argument row now expects .serverFailure(status:message:) carrying the stubbed body's error text instead of .contractMismatch; every other argument row is unchanged."
+    },
+    {
+      "id": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientActionsTests.swift\",\"ShepherdClientActionsTests\",\"renameFailures(_ c: (Int, String, String?, ShepherdError)) async throws\"]",
+      "fromAttributes": "b1ad44b496deaaa1516e6a0f0ed422390012c7506d89dfd2af2b10f5950c1af3",
+      "toAttributes": "6ad4357f2101fa1b59c80f74c724ac771e282609f6d21edee93161b16d15877a",
+      "reason": "#2987 (operator-authorized): the undocumented-5xx argument row now expects .serverFailure(status:message:) carrying the stubbed body's error text instead of .contractMismatch; every other argument row is unchanged."
+    },
+    {
+      "id": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientActionsTests.swift\",\"ShepherdClientActionsTests\",\"resumeFailures(_ c: (Int, String, String?, ShepherdError)) async throws\"]",
+      "fromAttributes": "6fc353e4363d9c9099fa144f16b093500840e1eabfa37f346f1dabf9935fca8a",
+      "toAttributes": "4427edd3acfd5a7216b2db8cd081e8558805876d320110ae92c7871f2a406932",
+      "reason": "#2987 (operator-authorized): the undocumented-5xx argument row now expects .serverFailure(status:message:) carrying the stubbed body's error text instead of .contractMismatch; every other argument row is unchanged."
+    },
+    {
+      "id": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientHerdTests.swift\",\"ShepherdClientHerdTests\",\"reviewPrMapsOtherFailures(_ response: (Int, ShepherdError)) async throws\"]",
+      "fromAttributes": "2526bbc8501a7ba17b7da5f335f30175c84695d199c8cbda03bc70614edb507b",
+      "toAttributes": "d5d795cba597cbea506f68c95b8b30eb390b2d72db8ba8723820a0b41e8c141e",
+      "reason": "#2987 (operator-authorized): the undocumented-5xx argument row now expects .serverFailure(status:message:) carrying the stubbed body's error text instead of .contractMismatch; every other argument row is unchanged."
+    },
+    {
+      "id": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"remainingDocumentedFailures(_ c: (Route, Int, ShepherdError)) async throws\"]",
+      "fromAttributes": "e281bba22516f6b9ad124c56000961f187ff83e7ce1fc9cbbdfa6558e03cfe0e",
+      "toAttributes": "46073b5331bcc6b7f4ec447588817ee8748792a554c28bfb797e27eb09e9fb82",
+      "reason": "#2987 (operator-authorized): the undocumented-5xx argument row now expects .serverFailure(status:message:) carrying the stubbed body's error text instead of .contractMismatch; every other argument row is unchanged."
+    }
+  ]
+}

@@ -114,6 +114,8 @@ export const KEYS_CORE: readonly string[] = [
   "native_error_mismatch",
   "native_error_not_found",
   "native_error_offline",
+  "native_error_server_failure",
+  "native_error_server_failure_generic",
   "native_firstrun_body",
   "native_firstrun_choose",
   "native_firstrun_confirm",
@@ -2584,6 +2586,34 @@ export const KEYS_ISSUE_FILTER: readonly string[] = [
  * PRs in Up Next on iOS: the PR groups, the card status line, the PR sheet and the
  * Dependabot merge train. Keep alphabetical.
  */
+/** iOS: updating the connected server from the mismatch banner (#2987). Reuses the web update
+ * modal's copy wherever the wording already fits. */
+export const KEYS_IOS_SERVER_UPDATE: readonly string[] = [
+  "native_server_update_action",
+  "native_server_update_behind",
+  "native_server_update_body",
+  "native_server_update_testflight_action",
+  "native_server_update_testflight_hint",
+  "native_server_update_title",
+  "updatemodal_deploy_failed",
+  "updatemodal_deploy_log",
+  "updatemodal_dirty_body",
+  "updatemodal_dirty_files_head",
+  "updatemodal_dirty_files_more",
+  "updatemodal_dirty_stale",
+  "updatemodal_dirty_title",
+  "updatemodal_dirty_too_large",
+  "updatemodal_discard_and_update",
+  "updatemodal_discard_confirm",
+  "updatemodal_discard_confirm_yes",
+  "updatemodal_exit_code",
+  "updatemodal_now_clean",
+  "updatemodal_retry",
+  "updatemodal_unreachable",
+  "updatemodal_update_now",
+  "updatemodal_updating",
+];
+
 export const KEYS_IOS_UPNEXT_PRS: readonly string[] = [
   "mergetrain_confirm_action",
   "mergetrain_confirm_other_repos",
@@ -2691,6 +2721,7 @@ export const KEYS: readonly string[] = [
   ...KEYS_MACHINES,
   ...KEYS_ISSUE_FILTER,
   ...KEYS_IOS_UPNEXT_PRS,
+  ...KEYS_IOS_SERVER_UPDATE,
 ];
 
 /**

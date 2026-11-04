@@ -96,8 +96,8 @@ public enum ProfileSetup {
       case .unauthorized: throw ShepherdError.unauthenticated
       case .contentTooLarge(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
       case .tooManyRequests: throw LoginError.rateLimited
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "login")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "login")
       }
     } catch let error as LoginError { throw error }
       catch { throw ShepherdError.from(error, route: "login") }
@@ -115,8 +115,8 @@ public enum ProfileSetup {
       case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
       case .unauthorized: throw ShepherdError.unauthenticated
       case .forbidden: throw ShepherdError.forbidden
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "mintAccessToken")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "mintAccessToken")
       }
     } catch { throw ShepherdError.from(error, route: "mintAccessToken") }
 
@@ -171,8 +171,8 @@ public enum ProfileSetup {
       case .unauthorized: throw PairingError.invalidCode
       case .contentTooLarge(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
       case .tooManyRequests: throw PairingError.rateLimited
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "pairDevice")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "pairDevice")
       }
     } catch let error as PairingError { throw error }
       catch { throw ShepherdError.from(error, route: "pairDevice") }

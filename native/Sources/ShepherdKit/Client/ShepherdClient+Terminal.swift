@@ -10,8 +10,8 @@ extension ShepherdClient {
       case .conflict(let result): throw ShepherdError.fromConflict(try result.body.json)
       case .notFound: throw ShepherdError.notFound
       case .badGateway(let result): throw ShepherdError.fromUpstream(try result.body.json)
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "createSessionTerminal")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "createSessionTerminal")
       }
     } catch { throw ShepherdError.from(error, route: "createSessionTerminal") }
   }
@@ -42,8 +42,8 @@ extension ShepherdClient {
         // a view would offer to fix the prose, and there is nothing to fix.
         throw ShepherdError.contractMismatch(
           route: "replySession", underlying: "server rejected application/json")
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "replySession")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "replySession")
       }
     } catch { throw ShepherdError.from(error, route: "replySession") }
   }
@@ -72,7 +72,7 @@ extension ShepherdClient {
       case 200, 201: return try JSONDecoder().decode(Session.self, from: data)
       case 401: throw ShepherdError.unauthenticated
       case 409: throw ShepherdError.fromConflict(try JSONDecoder().decode(Components.Schemas._Error.self, from: data))
-      default: throw ShepherdError.fromUndocumented(statusCode: http.statusCode, route: "createTerminalSession")
+      default: throw ShepherdError.fromUndocumented(statusCode: http.statusCode, body: data, route: "createTerminalSession")
       }
     } catch { throw ShepherdError.from(error, route: "createTerminalSession") }
   }

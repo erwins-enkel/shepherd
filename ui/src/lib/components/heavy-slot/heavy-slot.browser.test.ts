@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
-import type { HeavySlotSnapshot } from "#lib/types.js";
+import type { HeavySlotSnapshot, RemoteInstance } from "#lib/types.js";
 import HeavySlotChip from "./HeavySlotChip.svelte";
 import HeavySlotStrip from "./HeavySlotStrip.svelte";
 import HostPopover from "./HostPopover.svelte";
@@ -514,5 +514,135 @@ describe("HostPopover — last results", () => {
   it("offers no toggle at or under five results", async () => {
     render(HostPopover, props(many.slice(0, 5)));
     expect(document.querySelector(".hp-more")).toBeNull();
+  });
+});
+
+describe("Check slots across connected machines", () => {
+  function machine(slot: HeavySlotSnapshot, stale = false): RemoteInstance {
+    return {
+      instanceId: "mac-1",
+      name: "macbook",
+      label: null,
+      reportedName: "macbook",
+      url: "https://macbook.example.ts.net",
+      tokenHint: null,
+      createdAt: 1,
+      status: stale ? "unreachable" : "connected",
+      reason: null,
+      checkedAt: 0,
+      lastSeenAt: 0,
+      info: null,
+      projects: null,
+      capabilities: null,
+      heavySlot: { snapshot: slot, readAt: Date.UTC(2026, 10, 4, 13, 2), stale },
+      released: true,
+    };
+  }
+  const macSessions = [
+    ...sessions,
+    { id: "mh", name: "mac-holder" },
+    ...[1, 2, 3, 4, 5].map((n) => ({ id: `m${n}`, name: `mac-waiter-${n}` })),
+  ];
+  const macSlot = (waiting: number) =>
+    snap({
+      holders: [{ sessionId: "mh", command: "cat >> x", startedAt: 0, rssBytes: GIB }],
+      waiters: Array.from({ length: waiting }, (_, i) => ({
+        sessionId: `m${i + 1}`,
+        position: i + 1,
+        reason: "slot" as const,
+      })),
+    });
+
+  it("strip: one lane per machine with work, three waiters each, the rest on request", async () => {
+    const onselect = vi.fn();
+    render(HeavySlotStrip, {
+      heavySlot: snap(),
+      machines: [machine(macSlot(5))],
+      sessions: macSessions,
+      onselect,
+    });
+    const lanes = [...document.querySelectorAll(".hs-machine")].map((n) => n.textContent);
+    expect(lanes).toEqual(["macbook", "This Shepherd"]);
+    expect(document.querySelector(".hs-total")?.textContent).toBe("■ 2/2 · ◔ 7");
+    await expect.element(page.getByText("mac-waiter-3")).toBeVisible();
+    expect(document.body.textContent).not.toContain("mac-waiter-4");
+    await userEvent.click(page.getByRole("button", { name: "+ 2 more on macbook" }));
+    await expect.element(page.getByText("mac-waiter-5")).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: /mac-waiter-5/ }));
+    expect(onselect).toHaveBeenCalledWith("m5");
+  });
+
+  it("strip: only the busy machine's lane, its whole queue, while this one idles", async () => {
+    render(HeavySlotStrip, {
+      heavySlot: snap({ holders: [], waiters: [] }),
+      machines: [machine(macSlot(5))],
+      sessions: macSessions,
+    });
+    const lanes = [...document.querySelectorAll(".hs-machine")].map((n) => n.textContent);
+    expect(lanes).toEqual(["macbook"]);
+    expect(document.querySelector(".hs-total")?.textContent).toBe("■ 1/2 · ◔ 5");
+    await expect.element(page.getByText("mac-waiter-5")).toBeVisible();
+    expect(document.querySelector(".hs-more")).toBeNull();
+  });
+
+  it("strip: an unreachable machine keeps its last known queue, saying since when", async () => {
+    render(HeavySlotStrip, {
+      heavySlot: null,
+      machines: [machine(macSlot(1), true)],
+      sessions: macSessions,
+    });
+    await expect.element(page.getByText(/^Unreachable · as of/)).toBeVisible();
+    await expect.element(page.getByText("mac-waiter-1")).toBeVisible();
+  });
+
+  it("chip: a segment per machine with work, every machine named for screen readers", async () => {
+    render(HeavySlotChip, {
+      heavySlot: snap(),
+      machines: [machine(macSlot(5))],
+      sessions: macSessions,
+      nowMs: 0,
+      onrelease: vi.fn(),
+      compact: true,
+    });
+    const chip = page.getByRole("button", {
+      name: "Check slots: macbook 1 of 1 held, 5 waiting; This Shepherd 1 of 1 held, 2 waiting. Open details.",
+    });
+    await expect.element(chip).toBeVisible();
+    expect(document.querySelectorAll(".hs-seg")).toHaveLength(2);
+    expect(chip.element().classList.contains("idle")).toBe(false);
+  });
+
+  it("chip: quiet totals when no machine has work", async () => {
+    render(HeavySlotChip, {
+      heavySlot: snap({ holders: [], waiters: [] }),
+      machines: [machine(snap({ holders: [], waiters: [] }))],
+      nowMs: 0,
+      onrelease: vi.fn(),
+      compact: true,
+    });
+    const chip = document.querySelector(".hs-chip");
+    expect(chip?.classList.contains("idle")).toBe(true);
+    expect(chip?.textContent).toContain("■ 0/2");
+    expect(document.querySelectorAll(".hs-seg")).toHaveLength(0);
+  });
+
+  it("popover: a section per machine, details folded, release only for this one's slot", async () => {
+    render(HostPopover, {
+      heavySlot: snap(),
+      machines: [machine(macSlot(2))],
+      sessions: macSessions,
+      nowMs: 0,
+      onrelease: vi.fn(),
+      onClose: vi.fn(),
+    });
+    await expect.element(page.getByRole("dialog", { name: "Check slots" })).toBeVisible();
+    const sections = [...document.querySelectorAll(".hp-machine")];
+    expect(sections.map((s) => s.getAttribute("aria-label"))).toEqual(["macbook", "This Shepherd"]);
+    expect(sections[0].querySelector(".hp-btn")).toBeNull();
+    expect(sections[1].querySelector(".hp-btn")?.textContent?.trim()).toBe("Release");
+    expect(document.body.textContent).not.toContain("Memory by origin");
+    const fold = page.getByRole("button", { name: /Pressure & memory/ }).first();
+    await userEvent.click(fold);
+    await expect.element(page.getByText("Memory by origin").first()).toBeVisible();
   });
 });

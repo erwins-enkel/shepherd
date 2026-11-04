@@ -2012,6 +2012,10 @@
   // Desktop: the strip closes off the Herd panel, so a check starting or ending never reflows
   // the herd list or the main area. A phone folds it into the TopBar status line + Menu sheet.
   const inlineSlot = $derived(mobile.current ? null : store.heavySlot);
+  // Connected machines' slots join the desktop strip and chip, a lane each; mirrored sessions
+  // name their holders and waiters.
+  const inlineSlotMachines = $derived(mobile.current ? [] : machines.list);
+  const slotSessions = $derived([...store.sessions, ...store.remoteSessions]);
 
   function jumpToSession(id: string) {
     void jumpHandlers.jumpToSession(id);
@@ -3809,6 +3813,8 @@
         touch={touch.current}
         limits={store.usageLimits}
         heavySlot={store.heavySlot}
+        slotMachines={machines.list}
+        remoteSessions={store.remoteSessions}
         onheavyslotrelease={releaseSlot}
         onhostpanel={() => (showHostPanel = true)}
         onsettings={() => {
@@ -4211,7 +4217,8 @@
               {#snippet footer()}
                 <HeavySlotStrip
                   heavySlot={inlineSlot}
-                  sessions={store.sessions}
+                  machines={inlineSlotMachines}
+                  sessions={slotSessions}
                   onselect={jumpToSession}
                 />
               {/snippet}

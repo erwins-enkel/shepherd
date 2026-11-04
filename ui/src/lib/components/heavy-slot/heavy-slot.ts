@@ -1,9 +1,91 @@
-import type { HeavySlotLastResult, HeavySlotSnapshot } from "#lib/types.js";
+import type { HeavySlotLastResult, HeavySlotSnapshot, RemoteInstance } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
+import { machineColorVar } from "#lib/remote-sessions.js";
 
 /** The master switch is the only gate: with it off there is no chip, strip or popover. */
 export function slotEnabled(s: HeavySlotSnapshot | null | undefined): s is HeavySlotSnapshot {
   return s?.enabled === true;
+}
+
+/** One machine's check slot in the overview: this Shepherd's own (`instanceId` null) or a
+ *  connected machine's, as its last answered connection check reported it. */
+export interface SlotLane {
+  instanceId: string | null;
+  /** The machine's display name; null for this Shepherd. */
+  name: string | null;
+  /** The machine's color as a CSS value; null for this Shepherd. */
+  color: string | null;
+  snapshot: HeavySlotSnapshot;
+  /** The machine is not reachable now: `snapshot` is its last known state, read at `readAt`. */
+  stale: boolean;
+  readAt: number | null;
+}
+
+/** Every switched-on slot: each connected machine's that reported one, in the machines' color
+ *  order (stable across reloads, so a lane never jumps), then this Shepherd's own. */
+export function slotLanes(
+  own: HeavySlotSnapshot | null | undefined,
+  machines: readonly RemoteInstance[],
+): SlotLane[] {
+  const ordered = [...machines].sort(
+    (a, b) => a.createdAt - b.createdAt || a.instanceId.localeCompare(b.instanceId),
+  );
+  const lanes: SlotLane[] = [];
+  for (const x of ordered) {
+    const hs = x.heavySlot;
+    if (!hs || !slotEnabled(hs.snapshot)) continue;
+    lanes.push({
+      instanceId: x.instanceId,
+      name: x.name,
+      color: machineColorVar(x.instanceId, machines),
+      snapshot: hs.snapshot,
+      stale: hs.stale,
+      readAt: hs.readAt,
+    });
+  }
+  if (slotEnabled(own)) {
+    lanes.push({
+      instanceId: null,
+      name: null,
+      color: null,
+      snapshot: own,
+      stale: false,
+      readAt: null,
+    });
+  }
+  return lanes;
+}
+
+/** A connected machine reports a slot: strip, chip and popover then name each lane's machine. */
+export function hasMachineLanes(lanes: readonly SlotLane[]): boolean {
+  return lanes.some((l) => l.instanceId !== null);
+}
+
+/** Lanes with something going on (an unreachable machine's by its last known state). */
+export function activeLanes(lanes: readonly SlotLane[]): SlotLane[] {
+  return lanes.filter((l) => slotActive(l.snapshot));
+}
+
+/** Held, capacity and waiting summed over the reachable lanes; braking if any of them brakes. */
+export function laneTotals(lanes: readonly SlotLane[]): ChipModel {
+  const live = lanes.filter((l) => !l.stale);
+  return {
+    held: live.reduce((n, l) => n + l.snapshot.holders.length, 0),
+    capacity: live.reduce((n, l) => n + l.snapshot.capacity, 0),
+    waiting: live.reduce((n, l) => n + l.snapshot.waiters.length, 0),
+    ramPct: null,
+    braking: live.some((l) => l.snapshot.brake.active),
+  };
+}
+
+/** How many waiters a lane lists while several lanes share the strip, before "+ n more". */
+export const LANE_WAITERS_SHOWN = 3;
+
+/** The wall-clock time an unreachable machine's last known slot state was read. */
+export function formatReadAt(ts: number | null): string {
+  return ts == null
+    ? "–"
+    : new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
 /** Something is going on worth a strip: a holder, a waiter, the brake holding starts back, or new

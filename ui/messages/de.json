@@ -8110,5 +8110,8 @@
   "native_server_update_body": "Der Server holt main, baut neu und startet neu. Laufende Agent-Sessions laufen in herdr weiter; die App verbindet sich neu, sobald der Server wieder antwortet.",
   "native_server_update_testflight_action": "TestFlight öffnen",
   "native_server_update_testflight_hint": "Der Server ist aktuell, also ist diese App die ältere Seite. Installiere den neuesten Build aus TestFlight.",
-  "native_server_update_title": "{server} aktualisieren"
+  "native_server_update_title": "{server} aktualisieren",
+  "native_ios_merge_hold_hint": "Zum Mergen gedrückt halten. Früher loslassen bricht ab.",
+  "native_ios_merge_opens_confirmation": "Öffnet die Merge-Bestätigung.",
+  "native_ios_merge_with_options": "Merge mit Optionen …"
 }

@@ -519,6 +519,81 @@ final class IOSSessionActionsTests: XCTestCase {
         XCTAssertTrue(MergeInputs.terminalEnded(app, session.id))
     }
 
+    func testHoldMergesTheShownPRWithServerDefaultsAndNoSheet() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.session.readyToMerge = true
+        fixture.git = try IOSActionFixture.decodeGit(extra: ["mergeGate": NSNull(), "mergeStateStatus": "clean"])
+        XCTAssertTrue(fixture.state.canHoldMerge(fixture.git))
+        fixture.state.holdMerge()
+        XCTAssertTrue(fixture.state.merging)
+        await settle { fixture.mergePayload != nil && !fixture.merge.busy }
+        XCTAssertEqual(fixture.calls, ["merge"], "The hold merges the card's PR without a fresh confirmation read")
+        XCTAssertEqual(fixture.mergePayload?.headSha, "fresh-head")
+        XCTAssertEqual(fixture.mergePayload?.baseRefName, "develop")
+        XCTAssertNil(fixture.mergePayload?.handoff)
+        XCTAssertNil(fixture.mergeMethod); XCTAssertNil(fixture.deleteBranch)
+        XCTAssertNil(fixture.state.sheet)
+        XCTAssertFalse(fixture.state.merging)
+        XCTAssertEqual(fixture.state.outcome.note, .success(L.t("prbadge_merged_toast", "42")))
+    }
+
+    func testHoldNeverMergesATakeoverALockedPROrWithoutWriteAccess() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.session.readyToMerge = true
+        // The default fixture names another reviewer and a review block: a takeover.
+        XCTAssertTrue(IOSMergeConfirmationFacts.isTakeover(fixture.git))
+        XCTAssertFalse(fixture.state.canHoldMerge(fixture.git))
+        fixture.state.holdMerge()
+        let locked: [[String: Any]] = [["checks": "pending"], ["checks": "failure"], ["mergeStateStatus": "behind"],
+            ["mergeStateStatus": "dirty"], ["isDraft": true], ["mergeStateStatus": "blocked"], ["inMergeQueue": true],
+            ["state": "merged"]]
+        for extra in locked {
+            fixture.git = try IOSActionFixture.decodeGit(extra: extra.merging(["mergeGate": NSNull()]) { $1 })
+            XCTAssertFalse(fixture.state.canHoldMerge(fixture.git), "\(extra)")
+            fixture.state.holdMerge()
+        }
+        fixture.git = try IOSActionFixture.decodeGit(extra: ["mergeGate": NSNull()])
+        XCTAssertTrue(fixture.state.canHoldMerge(fixture.git))
+        fixture.writable = false
+        XCTAssertFalse(fixture.state.canHoldMerge(fixture.git)); fixture.state.holdMerge()
+        fixture.writable = true; fixture.selected = false
+        XCTAssertFalse(fixture.state.canHoldMerge(fixture.git)); fixture.state.holdMerge()
+        fixture.selected = true; fixture.session.readyToMerge = false
+        XCTAssertFalse(fixture.state.canHoldMerge(fixture.git)); fixture.state.holdMerge()
+        XCTAssertEqual(fixture.calls, [])
+    }
+
+    func testHoldRefusalShowsTheServerErrorInTheCard() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.session.readyToMerge = true
+        fixture.git = try IOSActionFixture.decodeGit(extra: ["mergeGate": NSNull()])
+        fixture.error = ShepherdError.conflict(code: "merge_confirm_stale", message: "Revision changed")
+        fixture.state.holdMerge()
+        await settle { fixture.calls == ["merge"] && !fixture.merge.busy }
+        XCTAssertNotNil(fixture.state.error)
+        XCTAssertNil(fixture.state.outcome.note)
+        XCTAssertFalse(fixture.state.merging)
+    }
+
+    func testReviewRequestReportsSkippedAndFailedButNotStarted() async {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        await fixture.state.requestReview()
+        XCTAssertNil(fixture.state.outcome.note); XCTAssertNil(fixture.state.error)
+        fixture.reviewStatus = "skipped"
+        await fixture.state.requestReview()
+        XCTAssertEqual(fixture.state.outcome.note, .warning(L.t("gitrail_review_skipped")))
+        fixture.reviewStatus = "declined"
+        await fixture.state.requestReview()
+        XCTAssertEqual(fixture.state.error, L.t("gitrail_review_failed"))
+        fixture.writable = false
+        await fixture.state.requestReview()
+        XCTAssertEqual(fixture.calls, ["review", "review", "review"])
+    }
+
     func testRenderFixtureImages() async throws {
         let fixture = IOSActionFixture()
         defer { fixture.merge.teardown() }
@@ -557,6 +632,21 @@ final class IOSSessionActionsTests: XCTestCase {
         try render(IOSRecapContent(recap: recap), "recap")
         try render(IOSActionFeedback(error: L.t("recap_regenerate_failed"), busy: true, rendersStaticFixture: true), "progress-error", height: 250)
         try render(IOSActionFeedback(note: .success(L.t("prbadge_merged_toast", "42"))), "merge-success", height: 200)
+        fixture.state.dismiss()
+        func card(_ git: GitState, canMerge: Bool = true) -> some View {
+            IOSMergeCard(session: fixture.session, state: fixture.state, git: git, verdict: nil, reviewing: false,
+                canMerge: canMerge, rendersStaticFixture: true)
+        }
+        let ready = try IOSActionFixture.decodeGit(extra: ["mergeGate": NSNull(), "mergeStateStatus": "clean"])
+        try render(card(ready), "merge-card-ready", height: 160)
+        try render(card(ready), "merge-card-large-type", large: true, height: 520)
+        try render(card(try IOSActionFixture.decodeGit(extra: ["mergeGate": NSNull(), "checks": "pending"])), "merge-card-ci-running", height: 160)
+        try render(card(try IOSActionFixture.decodeGit(extra: ["mergeGate": NSNull(), "checks": "failure", "mergeStateStatus": "unstable"])),
+            "merge-card-ci-failed", height: 160)
+        try render(card(try IOSActionFixture.decodeGit(extra: ["mergeGate": NSNull(), "mergeStateStatus": "behind"])), "merge-card-behind", height: 160)
+        try render(card(try IOSActionFixture.decodeGit(extra: ["mergeStateStatus": "clean"])), "merge-card-takeover", height: 160)
+        fixture.writable = false
+        try render(card(ready, canMerge: false), "merge-card-read-only", height: 200)
     }
 
     func testDecommissionIsOfferedForEveryLiveSessionButNeverArchivedOrReadOnly() {
@@ -880,6 +970,7 @@ private final class IOSActionFixture {
     var mergePayload: Components.Schemas.MergeConfirmation?
     var mergeMethod: MergeMethod?
     var deleteBranch: Bool?
+    var reviewStatus = "started"
     var leftovers = try! decodeLeftovers([])
     var reap: [String]?
     var decommissionedID: String?
@@ -916,6 +1007,8 @@ private final class IOSActionFixture {
             merge: { _, method, delete, payload in
                 self.mergePayload = payload; self.mergeMethod = method; self.deleteBranch = delete
                 try await self.record("merge"); return self.git
+            }, reviewPR: { _ in
+                try await self.record("review"); return PrReviewResult(ok: true, status: PrReviewTriggerKnown(rawValue: self.reviewStatus).map { .init(known: $0) } ?? .init(unknown: self.reviewStatus))
             }, leftovers: { _ in try await self.record("leftovers"); return self.leftovers },
             closePR: { _ in try await self.record("closePR"); return self.git },
             archive: { _, reap in self.reap = reap; try await self.record("archive") })

@@ -296,7 +296,8 @@ struct IOSSessionDetailContent<Surface: View>: View {
                 if let askStrip { askStrip }
                 IOSTerminalPane(model: terminal, allowsInput: allowsInput, surface: surface, fontSize: $fontSize,
                     rendersStaticFixture: !selectableText, steerChips: steerChips,
-                    inlineActions: inlineActions, fixtureClipboard: fixtureClipboard, fixtureThumbnails: fixtureThumbnails,
+                    // Focus mode is terminal only: no merge card over the capsule.
+                    inlineActions: focused ? nil : inlineActions, fixtureClipboard: fixtureClipboard, fixtureThumbnails: fixtureThumbnails,
                     latency: latency)
             case .activity:
                 List { ActivityView(session: session, model: model).listRowBackground(IOSTerminalStyle.panel) }

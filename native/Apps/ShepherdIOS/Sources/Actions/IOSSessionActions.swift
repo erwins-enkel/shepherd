@@ -105,7 +105,9 @@ struct IOSActionOperations {
     var relaunch: (String, RelaunchRequest) async throws -> RelaunchResult
     var recap: (String) async throws -> RecapRegenerateResult
     var git: (String) async throws -> GitState?
-    var merge: (String, MergeMethod?, Bool, Components.Schemas.MergeConfirmation) async throws -> GitState
+    /// A nil method or branch deletion leaves that choice to the server's defaults.
+    var merge: (String, MergeMethod?, Bool?, Components.Schemas.MergeConfirmation) async throws -> GitState
+    var reviewPR: (String) async throws -> PrReviewResult
     var leftovers: (String) async throws -> ComposeLeftovers
     var closePR: (String) async throws -> GitState
     var archive: (String, [String]?) async throws -> Void
@@ -121,6 +123,7 @@ struct IOSActionOperations {
             recap: { try await client.regenerateRecap(sessionID: $0) },
             git: { try await client.git(sessionID: $0) },
             merge: { try await client.mergePR(sessionID: $0, method: $1, deleteBranch: $2, confirm: $3) },
+            reviewPR: { try await client.reviewPr(sessionID: $0) },
             leftovers: { try await client.sessionLeftovers(id: $0) },
             closePR: { try await client.closePR(sessionID: $0) },
             archive: { try await store.archive(id: $0, reap: $1) })
@@ -176,6 +179,8 @@ final class IOSSessionActionState {
     private var presentationRevision = 0
     private var invalidated = false
     private var mergeBusy = false
+    /// A merge request is in flight (not just a confirmation being prepared).
+    private(set) var merging = false
     private var mergeError: String?
     private let operations: IOSActionOperations
     private let readSession: () -> Session?
@@ -258,7 +263,7 @@ final class IOSSessionActionState {
         invalidated = true; presentationRevision &+= 1
         sheet = nil; candidate = nil; presentedAt = nil; outcome.note = nil; command.clear()
         decommission = IOSDecommissionDraft()
-        mergeBusy = false; mergeError = nil
+        mergeBusy = false; merging = false; mergeError = nil
     }
 
     /// Inline writes stay on their own session even if the operator opens another
@@ -529,7 +534,7 @@ final class IOSSessionActionState {
         let payload = MergeConfirmationRules.payload(candidate)
         let method = method, deleteBranch = deleteBranch, revision = presentationRevision
         presentedAt = nil // A confirmation is spent even when the server refuses it.
-        performMerge(revision: revision, commit: { [weak self] _ in
+        performMerge(revision: revision, merges: true, commit: { [weak self] _ in
             guard let self, self.allowsWrites, self.isSelected(), self.presentationRevision == revision else { return }
             self.sheet = nil; self.candidate = nil
             self.outcome.note = .success(L.t("prbadge_merged_toast", String(candidate.number ?? 0)))
@@ -543,21 +548,63 @@ final class IOSSessionActionState {
         }
     }
 
+    /// The merge card's hold (#3542): merges exactly the PR the card shows, without a sheet.
+    /// Takeovers never qualify, they open the confirmation. Method and branch deletion are
+    /// the server's defaults; the echoed revision lets the server refuse a drifted PR.
+    func canHoldMerge(_ git: GitState?) -> Bool {
+        guard allowsWrites, !busy, !mergeModel.busy, isSelected(), let session = readSession(), session.readyToMerge,
+              !isReviewing(), session.status.known != .archived, let git, MergeRowRules.visible(git),
+              !IOSMergeConfirmationFacts.isTakeover(git) else { return false }
+        return MergeRowRules.kind(git, merging: false) == .ready
+    }
+
+    func holdMerge() {
+        let git = readGit()
+        guard canHoldMerge(git), let git, let session = readSession() else { return }
+        command.clear(); mergeError = nil; outcome.note = nil
+        presentationRevision &+= 1
+        let revision = presentationRevision, payload = MergeConfirmationRules.payload(git)
+        performMerge(revision: revision, merges: true, commit: { [weak self] _ in
+            guard let self, self.allowsWrites, self.isSelected(), self.presentationRevision == revision else { return }
+            self.outcome.note = .success(L.t("prbadge_merged_toast", String(git.number ?? 0)))
+        }) {
+            guard self.allowsWrites, self.isSelected(), self.presentationRevision == revision,
+                  self.readSession()?.readyToMerge == true, !self.isReviewing() else { throw ShepherdError.cancelled }
+            return try await self.operations.merge(session.id, nil, nil, payload)
+        }
+    }
+
+    /// `doReview` in PrActionRow.svelte: a started review shows up as the critic fact,
+    /// a skipped or refused one says so.
+    func requestReview() async {
+        guard allowsWrites, !busy, let session = readSession() else { return }
+        mergeError = nil; outcome.note = nil
+        var skipped = false
+        let ok = await command.run({
+            let result = try await operations.reviewPR(session.id)
+            if result.status.known == .skipped { skipped = true }
+            else if result.status.known != .started { throw ShepherdError.badRequest(L.t("gitrail_review_failed")) }
+        }, failureCopy: { _ in L.t("gitrail_review_failed") },
+            isCurrent: { self.allowsWrites && self.readSession()?.id == session.id })
+        if ok, skipped { outcome.note = .warning(L.t("gitrail_review_skipped")) }
+    }
+
     /// MergeModel still serializes all merge work. Only this session owns its
     /// progress/refusal; background snapshot failures belong to the overview.
     private func performMerge<Value: Sendable>(
         revision: Int,
+        merges: Bool = false,
         commit: @escaping @MainActor (Value) -> Void,
         failure: @escaping @MainActor () -> Void = {},
         _ operation: @escaping @MainActor () async throws -> Value
     ) {
         guard !mergeModel.busy else { return }
-        mergeBusy = true
+        mergeBusy = true; merging = merges
         mergeModel.perform(commit: { [weak self] value in
-            self?.mergeBusy = false
+            self?.mergeBusy = false; self?.merging = false
             commit(value)
         }, failure: { [weak self] in
-            self?.mergeBusy = false
+            self?.mergeBusy = false; self?.merging = false
             failure()
         }) {
             do { return try await operation() }

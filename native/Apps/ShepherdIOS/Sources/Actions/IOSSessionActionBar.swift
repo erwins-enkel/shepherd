@@ -194,11 +194,12 @@ struct IOSActionFeedback: View {
 
 struct IOSActionButtonStyle: ButtonStyle {
     var tint = SessionListStyle.amber
+    var minHeight: CGFloat = 44
     @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.sessionFont(label: true, weight: .semibold)
             .foregroundStyle(isEnabled ? tint : SessionListStyle.muted)
-            .padding(.horizontal, 10).padding(.vertical, 8).frame(minHeight: 44)
+            .padding(.horizontal, 10).padding(.vertical, 8).frame(minHeight: minHeight)
             .background(configuration.isPressed ? SessionListStyle.selected : SessionListStyle.background)
             .overlay { RoundedRectangle(cornerRadius: 2).stroke(isEnabled ? tint : SessionListStyle.brightLine, lineWidth: 1) }
     }

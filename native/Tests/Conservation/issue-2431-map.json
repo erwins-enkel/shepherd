@@ -13011,7 +13011,13 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdErrorTests.swift\",\"ShepherdErrorTests\",\"serverFailureMessageIsCapped() throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"serverFailureBootstrapIsOffline() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ShepherdErrorCopyTests.swift\",\"CoreSeamTests.ShepherdErrorCopyTests\",\"aServerFailureSaysTheServerFailedNotThatTheVersionDiffers()\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectionBannerTests.swift\",\"CoreSeamTests.ConnectionBannerTests\",\"aServerFailureNeverRaisesTheMismatchBanner()\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectionBannerTests.swift\",\"CoreSeamTests.ConnectionBannerTests\",\"aServerFailureNeverRaisesTheMismatchBanner()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"aPlainUpdateSendsAnEmptyBodyAndADiscardSendsTheShownSignature() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"applyMapsEveryRefusal(_ c: (Int, String, ShepherdError)) async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"aStaleDiscardCarriesTheFreshSnapshot() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"idleLogAndUncheckedStatusDecodeTheirNulls() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"readsMapAuthenticationScopeAndServerFailures() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientServerUpdateTests.swift\",\"ShepherdClientServerUpdateTests\",\"readsStatusLogAndDirtySnapshot() async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

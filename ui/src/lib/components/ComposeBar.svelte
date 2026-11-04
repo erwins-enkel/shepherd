@@ -433,8 +433,6 @@
     align-items: flex-end;
     justify-content: center;
     background: var(--color-scrim);
-    -webkit-backdrop-filter: blur(3px);
-    backdrop-filter: blur(3px);
   }
 
   .sheet {

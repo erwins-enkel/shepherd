@@ -169,6 +169,8 @@ describe("mobile backlog issue scrolling", () => {
       await page.elementLocator(last).click();
       const issueDetail = document.querySelector<HTMLElement>(".detail-col.overlay")!;
       expect(issueDetail.getBoundingClientRect().bottom).toBeLessThanOrEqual(height + 1);
+      // Opaque in-place column, not a backdrop: its viewport-fixed blur layer would blur the chrome.
+      expect(getComputedStyle(issueDetail, "::before").content).toBe("none");
       await page.elementLocator(issueDetail.querySelector<HTMLElement>(".task-btn")!).click();
       expect(input.onissue).toHaveBeenCalledWith(
         "/repo-0",

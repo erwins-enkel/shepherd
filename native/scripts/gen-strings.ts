@@ -634,6 +634,42 @@ export const KEYS_IOS_ACTIONS: readonly string[] = [
   "viewport_decommission_title",
 ];
 
+// #3542 — iOS merge card above the steer capsule (web: viewport/pr-action-row.ts).
+export const KEYS_IOS_MERGE_CARD: readonly string[] = [
+  "gitrail_merge_blocked_busy",
+  "gitrail_merge_blocked_pending",
+  "gitrail_ready_to_merge",
+  "gitrail_rereview",
+  "gitrail_review",
+  "gitrail_review_failed",
+  "gitrail_review_skipped",
+  "native_ios_merge_hold_hint",
+  "native_ios_merge_opens_confirmation",
+  "native_ios_merge_with_options",
+  "prrow_aria",
+  "prrow_fact_base_behind",
+  "prrow_fact_base_current",
+  "prrow_fact_ci_failed",
+  "prrow_fact_ci_none",
+  "prrow_fact_ci_passing",
+  "prrow_fact_ci_running",
+  "prrow_fact_conflicts",
+  "prrow_fact_critic_changes",
+  "prrow_fact_critic_error",
+  "prrow_fact_critic_reviewed",
+  "prrow_fact_critic_reviewing",
+  "prrow_fact_no_conflicts",
+  "prrow_merging",
+  "prrow_more_aria",
+  "prrow_pr_link",
+  "prrow_state_behind",
+  "prrow_state_ci_failed",
+  "prrow_state_ci_running",
+  "prrow_state_conflict",
+  "prrow_state_draft",
+  "prrow_state_protected",
+];
+
 /** S5 — local server detection, install, start/stop/restart and the log tail. */
 export const KEYS_LOCALSERVER: readonly string[] = [
   "native_battery_body",
@@ -2706,6 +2742,7 @@ export const KEYS: readonly string[] = [
   ...KEYS_IOS_SERVERS,
   ...KEYS_ACTIONS,
   ...KEYS_IOS_ACTIONS,
+  ...KEYS_IOS_MERGE_CARD,
   ...KEYS_LOCALSERVER,
   ...KEYS_NOTIFICATIONS,
   ...KEYS_HERD,

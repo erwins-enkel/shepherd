@@ -8110,5 +8110,8 @@
   "native_server_update_body": "The server pulls main, rebuilds and restarts. Running agent sessions keep going in herdr; this app reconnects once the server answers again.",
   "native_server_update_testflight_action": "Open TestFlight",
   "native_server_update_testflight_hint": "The server is up to date, so this app is the older side. Install the latest build from TestFlight.",
-  "native_server_update_title": "Update {server}"
+  "native_server_update_title": "Update {server}",
+  "native_ios_merge_hold_hint": "Press and hold to merge. Release early to cancel.",
+  "native_ios_merge_opens_confirmation": "Opens the merge confirmation.",
+  "native_ios_merge_with_options": "Merge with options …"
 }

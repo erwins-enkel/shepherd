@@ -13027,7 +13027,12 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"openingProbesTheTreeFreshAndPicksTheMode() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"teardownStopsFollowingTheDeploy() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"theLiveLineIsTheNewestNonEmptyLineCapped()\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"theOfferFollowsTheServersOwnUpdateStatus() async throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ServerUpdateModelTests.swift\",\"ServerUpdateModelTests\",\"theOfferFollowsTheServersOwnUpdateStatus() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MergeRowRulesTests.swift\",\"CoreSeamTests.MergeRowRulesTests\",\"visibleOnlyForAnOpenNumberedPR() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MergeRowRulesTests.swift\",\"CoreSeamTests.MergeRowRulesTests\",\"statePrecedenceMatchesTheWeb() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MergeRowRulesTests.swift\",\"CoreSeamTests.MergeRowRulesTests\",\"onlyReadyIsUnlockedAndEveryLockNamesItsReason()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MergeRowRulesTests.swift\",\"CoreSeamTests.MergeRowRulesTests\",\"factsLeaveOutWhatWasNotMeasured() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MergeRowRulesTests.swift\",\"CoreSeamTests.MergeRowRulesTests\",\"checksClearedMatchesTheServer() throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",
@@ -13042,6 +13047,10 @@
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSUpNextPrTests.swift\",\"IOSUpNextPrTests\",\"testBadgeAndToolbarCopy()\"]",
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSUpNextPrTests.swift\",\"IOSUpNextPrTests\",\"testRendersListSheetAndConfirmationFixtures() async throws\"]",
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSUpNextPrTests.swift\",\"IOSUpNextPrTests\",\"testTrainPlansPerServerSoSharedRepoPathsNeverMix() throws\"]",
-    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSMergedServerPresentationTests.swift\",\"IOSMergedServerPresentationTests\",\"testARepoFilterHidesOtherMachinesSessionsOfAnotherProjectInEveryStage()\"]"
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSMergedServerPresentationTests.swift\",\"IOSMergedServerPresentationTests\",\"testARepoFilterHidesOtherMachinesSessionsOfAnotherProjectInEveryStage()\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSSessionActionsTests.swift\",\"IOSSessionActionsTests\",\"testHoldMergesTheShownPRWithServerDefaultsAndNoSheet() async throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSSessionActionsTests.swift\",\"IOSSessionActionsTests\",\"testHoldNeverMergesATakeoverALockedPROrWithoutWriteAccess() async throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSSessionActionsTests.swift\",\"IOSSessionActionsTests\",\"testHoldRefusalShowsTheServerErrorInTheCard() async throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSSessionActionsTests.swift\",\"IOSSessionActionsTests\",\"testReviewRequestReportsSkippedAndFailedButNotStarted() async\"]"
   ]
 }

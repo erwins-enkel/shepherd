@@ -15,7 +15,9 @@ struct IOSSessionChromeActions: View {
             IOSSessionChromeActionContent(session: session, state: state, repos: store.repos,
                 recap: app.extension(ActionsModel.self)?.recap(for: session.id),
                 canMerge: state.canMerge(session, git: MergeInputs.git(app), reviewing: MergeInputs.reviewing(app, session.id)),
-                placement: placement)
+                placement: placement, git: MergeInputs.git(app)[session.id],
+                verdict: app.extension(HerdSignals.self)?.verdicts[session.id],
+                reviewing: MergeInputs.reviewing(app, session.id))
             .onAppear {
                 if placement == .menu, let note = app.extension(ActionsModel.self)?.consumeOutcomeNote(forSessionID: session.id) {
                     state.outcome.note = .success(note)
@@ -38,6 +40,9 @@ struct IOSSessionChromeActionContent: View {
     let recap: Recap?
     let canMerge: Bool
     let placement: IOSSessionChromeActions.Placement
+    var git: GitState?
+    var verdict: ReviewVerdict?
+    var reviewing = false
     @State private var showsRecap = false
 
     var body: some View {
@@ -53,14 +58,13 @@ struct IOSSessionChromeActionContent: View {
                 }
                 .onDisappear { state.detailDidDisappear() }
         case .inline:
-            if state.busy || state.error != nil || state.outcome.note != nil || !state.allowsWrites || primaryReady || canMerge {
+            if let git, MergeRowRules.visible(git), session.status.known != .archived {
+                IOSMergeCard(session: session, state: state, git: git, verdict: verdict, reviewing: reviewing, canMerge: canMerge)
+            } else if state.busy || state.error != nil || state.outcome.note != nil || !state.allowsWrites || primaryReady {
                 VStack(alignment: .leading, spacing: 2) {
                     IOSActionFeedback(error: state.error, note: state.outcome.note, busy: state.busy)
                     if !state.allowsWrites {
                         Text(L.t("native_ios_actions_read_only")).foregroundStyle(SessionListStyle.muted)
-                    } else if canMerge {
-                        Button(action: state.prepareMerge) { Label(L.t("prbadge_merge"), systemImage: "arrow.triangle.merge").frame(minHeight: 44) }
-                            .disabled(state.busy || state.mergeModel.busy).accessibilityIdentifier("action-merge")
                     } else if primaryReady {
                         Button { Task { await state.execute(.toggleReady) } } label: {
                             Label(IOSSessionActionState.label(.toggleReady, session: session), systemImage: SessionAction.toggleReady.systemImage)

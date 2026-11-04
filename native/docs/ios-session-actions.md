@@ -11,8 +11,9 @@ Mobile web uses `CardMenu.svelte` for Stop, Resume, Rename, Amend and Relaunch,
 its phone swipe for Decommission. That action is outside this stream.
 
 The iOS detail header menu holds every available command, including eligible Merge.
-Only one next-step button is repeated above the terminal footer: Merge, or Ready
-when no Merge is available. Recap opens from Info. The header owns Rename, Amend,
+While the session's PR is open, a **merge card** sits above the steer capsule (#3542),
+the iOS counterpart of the web's merge row (`viewport/PrActionRow.svelte`). Without an
+open PR, only Ready is repeated above the terminal footer. Recap opens from Info. The header owns Rename, Amend,
 Relaunch and Merge confirmation sheets, keeping them reachable across tabs.
 Errors, progress, outcome notes and read-only copy remain inline above the footer
 or other tab content.
@@ -26,6 +27,35 @@ analytics. Full swipe never executes a command. System swipe buttons expose
 VoiceOver actions; the detail also offers explicit labeled buttons and a menu.
 Dynamic Type is uncapped; menus and sheets keep commands reachable at larger
 text sizes. Controls have at least a 44-point hit target.
+
+## Merge card
+
+`MergeRowRules` ports `pr-action-row.ts`: the state (merging, draft, conflict, behind,
+CI failed, CI running, protected, ready), the lock reason (`gitrail_merge_blocked_*`)
+and the fact line (CI · critic · base · conflicts). A fact the host did not measure is
+left out; the critic fact appears only with a verdict or a running review, because
+iOS does not know whether the repo runs the critic. Like the web row, any failing or
+pending check locks Merge here.
+
+- **Left:** status glyph and label, `#<nr>` and title on one line, the facts in mono caption.
+- **Right:** a 44 pt ⋯ menu (Review/Re-review once CI has cleared, Mark not ready, PR ↗,
+  Merge with options …) and the main action, at least 48 pt high.
+- **Main action:** Mark ready while the session is not handed back. Otherwise
+  **PR mergen** as a hold: about 1.2 s, the button fills amber from the left with a light
+  tick per quarter and a success haptic at 100 %. Releasing early cancels. The hold sends
+  the same `confirm` stamp as the sheet, built from the PR the card shows, with the
+  server's merge method and branch deletion. A drifted PR fails with the stale refusal
+  and nothing is merged.
+- **Takeovers** (`IOSMergeConfirmationFacts.isTakeover`) never hold: a tap opens the
+  confirmation sheet with the responsibility notice.
+- **Locked:** the status and facts say why; VoiceOver reads the reason as the hint.
+- **Accessibility:** VoiceOver and Switch Control activation and the named action open
+  the sheet, since holding is not reasonable there. Reduced motion fills without
+  animation and shows the progress as a percentage. Accessibility text sizes stack the
+  card vertically. The card is a container named "Pull request #<nr>".
+- Merging shows "Merging …" and locks the button; errors appear inside the card.
+  The card is hidden in focus mode and while a Claude dialog is open; read-only keeps
+  its note.
 
 ## Reuse and lifecycle
 

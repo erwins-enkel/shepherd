@@ -33,8 +33,8 @@ extension ShepherdClient {
             case .badRequest(let value): throw ShepherdError.badRequest(try value.body.json.error)
             case .unauthorized: throw ShepherdError.unauthenticated
             case .serviceUnavailable: return .unavailable
-            case .undocumented(let status, _):
-                throw ShepherdError.fromUndocumented(statusCode: status, route: "registerApnsDevice")
+            case .undocumented(let status, let payload):
+                throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "registerApnsDevice")
             }
         } catch { throw ShepherdError.from(error, route: "registerApnsDevice") }
     }

@@ -946,6 +946,8 @@
 "native_error_mismatch" = "Der Server spricht eine andere API-Version als diese App. Aktualisiere eines von beiden.";
 "native_error_not_found" = "Diese Session existiert auf dem Server nicht mehr.";
 "native_error_offline" = "Server nicht erreichbar. Prüfe die Verbindung und versuche es erneut.";
+"native_error_server_failure" = "Auf dem Server ist ein Fehler aufgetreten (HTTP %1$@): %2$@";
+"native_error_server_failure_generic" = "Auf dem Server ist ein Fehler aufgetreten (HTTP %1$@). Versuche es erneut; wenn es weiter fehlschlägt, prüfe das Server-Log.";
 "native_firstrun_body" = "Shepherd sucht deine Git-Repositories unter diesem Ordner. Du kannst ihn später in den Einstellungen ändern.";
 "native_firstrun_choose" = "Ordner wählen…";
 "native_firstrun_confirm" = "Diesen Ordner verwenden";

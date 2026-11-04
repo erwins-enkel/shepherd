@@ -54,6 +54,12 @@ public enum ShepherdErrorCopy {
         case .conflict(_, let message): return message
         case .unprocessable(let message): return message
         case .upstreamFailure(_, let message): return message
+        // The server failed, not the contract: say so, with its own words when
+        // it sent any — never the API-version line, which would send the
+        // operator to update something that is not out of date.
+        case .serverFailure(let status, let message?):
+            return L.t("native_error_server_failure", String(status), message)
+        case .serverFailure(let status, .none): return L.t("native_error_server_failure_generic", String(status))
         case .contractMismatch: return L.t("native_error_mismatch")
         case .insecureProfile(let reason): return message(reason)
         case .transport: return L.t("native_error_offline")
@@ -72,7 +78,7 @@ public enum ShepherdErrorCopy {
         switch shepherd {
         case .unauthenticated, .forbidden: return true
         case .firstRunPending, .notFound, .badRequest, .conflict, .unprocessable,
-             .upstreamFailure, .contractMismatch, .insecureProfile, .transport, .cancelled:
+             .upstreamFailure, .serverFailure, .contractMismatch, .insecureProfile, .transport, .cancelled:
             return false
         }
     }

@@ -16269,6 +16269,42 @@
         }
       }
     },
+    "native_error_server_failure": {
+      "comment": "%1$@ = status, %2$@ = message",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf dem Server ist ein Fehler aufgetreten (HTTP %1$@): %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server hit an error (HTTP %1$@): %2$@"
+          }
+        }
+      }
+    },
+    "native_error_server_failure_generic": {
+      "comment": "%1$@ = status",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf dem Server ist ein Fehler aufgetreten (HTTP %1$@). Versuche es erneut; wenn es weiter fehlschlägt, prüfe das Server-Log."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server hit an error (HTTP %1$@). Try again; if it keeps failing, check the server log."
+          }
+        }
+      }
+    },
     "native_firstrun_body": {
       "extractionState": "manual",
       "localizations": {

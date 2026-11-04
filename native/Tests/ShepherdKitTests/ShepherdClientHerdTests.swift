@@ -237,7 +237,7 @@ struct ShepherdClientHerdTests {
     (401, ShepherdError.unauthenticated),
     (502, ShepherdError.upstreamFailure("forge failed")),
     (200, ShepherdError.contractMismatch(route: "reviewPr", underlying: "undocumented status 200")),
-    (500, ShepherdError.contractMismatch(route: "reviewPr", underlying: "undocumented status 500")),
+    (500, ShepherdError.serverFailure(status: 500, message: "forge failed")),
   ])
   func reviewPrMapsOtherFailures(_ response: (Int, ShepherdError)) async throws {
     let server = FakeShepherdServer()

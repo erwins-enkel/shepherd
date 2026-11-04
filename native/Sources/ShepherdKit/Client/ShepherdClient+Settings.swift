@@ -37,7 +37,7 @@ extension ShepherdClient {
             case .ok(let value): return try value.body.json
             case .badRequest(let value): throw ShepherdError.badRequest(try value.body.json.error)
             case .unauthorized: throw ShepherdError.unauthenticated
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "getRepoConfig")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "getRepoConfig")
             }
         } catch { throw ShepherdError.from(error, route: "getRepoConfig") }
     }
@@ -47,7 +47,7 @@ extension ShepherdClient {
             case .ok(let value): return try value.body.json
             case .badRequest(let value): throw ShepherdError.badRequest(try value.body.json.error)
             case .unauthorized: throw ShepherdError.unauthenticated
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "putRepoConfig")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "putRepoConfig")
             }
         } catch { throw ShepherdError.from(error, route: "putRepoConfig") }
     }
@@ -57,7 +57,7 @@ extension ShepherdClient {
             case .ok(let value): return try value.body.json
             case .badRequest(let value): throw ShepherdError.badRequest(try value.body.json.error)
             case .unauthorized: throw ShepherdError.unauthenticated
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "getRepoRoles")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "getRepoRoles")
             }
         } catch { throw ShepherdError.from(error, route: "getRepoRoles") }
     }
@@ -68,7 +68,7 @@ extension ShepherdClient {
             case .badRequest(let value): throw ShepherdError.badRequest(try value.body.json.error)
             case .unauthorized: throw ShepherdError.unauthenticated
             case .badGateway(let value): throw ShepherdError.upstreamFailure(code: nil, message: try value.body.json.pushError ?? "push rejected")
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "putRepoRoles")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "putRepoRoles")
             }
         } catch { throw ShepherdError.from(error, route: "putRepoRoles") }
     }
@@ -78,7 +78,7 @@ extension ShepherdClient {
             case .ok(let value): return try value.body.json
             case .badRequest(let value): throw ShepherdError.badRequest(try value.body.json.error)
             case .unauthorized: throw ShepherdError.unauthenticated
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "getRepoCollaborators")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "getRepoCollaborators")
             }
         } catch { throw ShepherdError.from(error, route: "getRepoCollaborators") }
     }
@@ -87,7 +87,7 @@ extension ShepherdClient {
             switch try await generated.getDiagnostics(.init(query: .init(refresh: refresh))) {
             case .ok(let value): return try value.body.json
             case .unauthorized: throw ShepherdError.unauthenticated
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "getDiagnostics")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "getDiagnostics")
             }
         } catch { throw ShepherdError.from(error, route: "getDiagnostics") }
     }
@@ -100,7 +100,7 @@ extension ShepherdClient {
             case .conflict(let value): throw ShepherdError.fromConflict(try value.body.json)
             case .badGateway(let value): throw ShepherdError.fromUpstream(try value.body.json)
             case .serviceUnavailable(let value): throw ShepherdError.fromUpstream(try value.body.json)
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "fixDiagnostics")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "fixDiagnostics")
             }
         } catch { throw ShepherdError.from(error, route: "fixDiagnostics") }
     }
@@ -111,7 +111,7 @@ extension ShepherdClient {
             case .unauthorized: throw ShepherdError.unauthenticated
             case .conflict(let value): throw ShepherdError.fromConflict(try value.body.json)
             case .serviceUnavailable(let value): throw ShepherdError.fromUpstream(try value.body.json)
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "verifySettingsKey")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "verifySettingsKey")
             }
         } catch { throw ShepherdError.from(error, route: "verifySettingsKey") }
     }
@@ -120,7 +120,7 @@ extension ShepherdClient {
             switch try await generated.listDirectories(.init(query: .init(path: path))) {
             case .ok(let value): return try value.body.json
             case .unauthorized: throw ShepherdError.unauthenticated
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "listDirectories")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "listDirectories")
             }
         } catch { throw ShepherdError.from(error, route: "listDirectories") }
     }
@@ -136,7 +136,7 @@ extension ShepherdClient {
             case .badGateway(let value):
                 let result = try value.body.json
                 throw ShepherdError.upstreamFailure(code: result.reason, message: result.reason ?? "pull failed")
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "pullRepo")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "pullRepo")
             }
         } catch { throw ShepherdError.from(error, route: "pullRepo") }
     }
@@ -149,7 +149,7 @@ extension ShepherdClient {
             case .conflict(let value): throw ShepherdError.fromConflict(try value.body.json)
             case .unprocessableContent(let value): throw ShepherdError.unprocessable(try value.body.json.error)
             case .gatewayTimeout(let value): throw ShepherdError.fromUpstream(try value.body.json)
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "forkRepo")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "forkRepo")
             }
         } catch { throw ShepherdError.from(error, route: "forkRepo") }
     }
@@ -161,7 +161,7 @@ extension ShepherdClient {
             case .unauthorized: throw ShepherdError.unauthenticated
             case .conflict(let value): throw ShepherdError.fromConflict(try value.body.json)
             case .badGateway(let value): throw ShepherdError.fromUpstream(try value.body.json)
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "syncFork")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "syncFork")
             }
         } catch { throw ShepherdError.from(error, route: "syncFork") }
     }
@@ -171,7 +171,7 @@ extension ShepherdClient {
             case .ok(let value): return try value.body.json
             case .badRequest(let value): throw ShepherdError.badRequest(try value.body.json.error)
             case .unauthorized: throw ShepherdError.unauthenticated
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "patchSettings")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "patchSettings")
             }
         } catch { throw ShepherdError.from(error, route: "patchSettings") }
     }
@@ -182,7 +182,7 @@ extension ShepherdClient {
             case .unauthorized: throw ShepherdError.unauthenticated
             case .contentTooLarge(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
             case .tooManyRequests: throw ProfileSetup.LoginError.rateLimited
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "login")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "login")
             }
         } catch let error as ProfileSetup.LoginError { throw error }
           catch { throw ShepherdError.from(error, route: "login") }
@@ -193,7 +193,7 @@ extension ShepherdClient {
             case .ok(let ok): return try ok.body.json
             case .unauthorized: throw ShepherdError.unauthenticated
             case .forbidden: throw ShepherdError.forbidden
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "listAccessTokens")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "listAccessTokens")
             }
         } catch { throw ShepherdError.from(error, route: "listAccessTokens") }
     }
@@ -204,7 +204,7 @@ extension ShepherdClient {
             case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
             case .unauthorized: throw ShepherdError.unauthenticated
             case .forbidden: throw ShepherdError.forbidden
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "mintAccessToken")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "mintAccessToken")
             }
         } catch { throw ShepherdError.from(error, route: "mintAccessToken") }
     }
@@ -215,7 +215,7 @@ extension ShepherdClient {
             case .unauthorized: throw ShepherdError.unauthenticated
             case .forbidden: throw ShepherdError.forbidden
             case .notFound: throw ShepherdError.notFound
-            case .undocumented(let status, _): throw ShepherdError.fromUndocumented(statusCode: status, route: "revokeAccessToken")
+            case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "revokeAccessToken")
             }
         } catch { throw ShepherdError.from(error, route: "revokeAccessToken") }
     }

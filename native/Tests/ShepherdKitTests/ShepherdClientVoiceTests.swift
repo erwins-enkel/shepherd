@@ -35,7 +35,7 @@ struct ShepherdClientVoiceTests {
         let c = try client(server)
         if status == 429 { await #expect(throws: VoiceTranscriptionError.busy) { _ = try await c.transcribeAudio(Data([1])) } }
         else {
-            let error: ShepherdError = status == 401 ? .unauthenticated : status == 404 ? .notFound : .contractMismatch(route: "transcribeAudio", underlying: "undocumented status 503")
+            let error: ShepherdError = status == 401 ? .unauthenticated : status == 404 ? .notFound : .serverFailure(status: 503, message: "busy")
             await #expect(throws: error) { _ = try await c.transcribeAudio(Data([1])) }
         }
     }

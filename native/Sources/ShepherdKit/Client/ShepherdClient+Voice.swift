@@ -10,7 +10,7 @@ extension ShepherdClient {
             switch try await generated.listPlugins(.init()) {
             case .ok(let response): return try response.body.json.plugins
             case .unauthorized: throw ShepherdError.unauthenticated
-            case .undocumented(let code, _): throw ShepherdError.fromUndocumented(statusCode: code, route: "listPlugins")
+            case .undocumented(let code, let payload): throw await ShepherdError.fromUndocumented(statusCode: code, payload: payload, route: "listPlugins")
             }
         } catch { throw ShepherdError.from(error, route: "listPlugins") }
     }
@@ -23,7 +23,7 @@ extension ShepherdClient {
             case .ok(let response): return try response.body.json
             case .notFound: return nil
             case .unauthorized: throw ShepherdError.unauthenticated
-            case .undocumented(let code, _): throw ShepherdError.fromUndocumented(statusCode: code, route: "getVoiceStatus")
+            case .undocumented(let code, let payload): throw await ShepherdError.fromUndocumented(statusCode: code, payload: payload, route: "getVoiceStatus")
             }
         } catch { throw ShepherdError.from(error, route: "getVoiceStatus") }
     }
@@ -42,7 +42,7 @@ extension ShepherdClient {
             case .unauthorized: throw ShepherdError.unauthenticated
             case .notFound: throw ShepherdError.notFound
             case .tooManyRequests: throw VoiceTranscriptionError.busy
-            case .undocumented(let code, _): throw ShepherdError.fromUndocumented(statusCode: code, route: "transcribeAudio")
+            case .undocumented(let code, let payload): throw await ShepherdError.fromUndocumented(statusCode: code, payload: payload, route: "transcribeAudio")
             }
         } catch let error as VoiceTranscriptionError { throw error }
         catch { throw ShepherdError.from(error, route: "transcribeAudio") }

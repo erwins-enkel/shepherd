@@ -369,7 +369,7 @@ extension ShepherdClientQueuesTests {
         (.start, 409, .conflict(code: nil, message: "failed")),
         (.refresh, 503, .upstreamFailure("failed")),
         (.halt, 405, .contractMismatch(route: "haltHerd", underlying: "POST /api/halt returned 405 Method Not Allowed")),
-        (.halt, 500, .contractMismatch(route: "haltHerd", underlying: "undocumented status 500")),
+        (.halt, 500, .serverFailure(status: 500, message: "failed")),
         (.retry, 400, .badRequest("failed")),
         (.restore, 404, .notFound),
         (.broadcast, 400, .badRequest("failed")),

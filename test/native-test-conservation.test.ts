@@ -2,10 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
 import {
   collectTests,
   identity,
+  readAttributeAmendments,
   verifyConservation,
+  type AttributeAmendment,
   type TestIdentity,
 } from "../native/scripts/test-conservation";
 
@@ -414,4 +417,74 @@ test("migration tolerates only legacy leading testable-import metadata", () => {
   expect(() => check(current.replace("@MainActor @Suite(.serialized)", "@MainActor"))).toThrow();
   expect(() => check(current.replace("[1, 2]", "[1]"))).toThrow();
   expect(() => check(current.replace("@MainActor", "@Suite(.disabled()) @MainActor"))).toThrow();
+});
+
+describe("operator-authorized attribute amendments (#2987)", () => {
+  const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+  const kit: TestIdentity = {
+    ...a,
+    target: "ShepherdKitTests",
+    attributes:
+      '@Test(arguments: [(500, ShepherdError.contractMismatch(route: "r", underlying: "x"))])',
+  };
+  const changed: TestIdentity = {
+    ...kit,
+    attributes:
+      '@Test(arguments: [(500, ShepherdError.serverFailure(status: 500, message: "boom"))])',
+  };
+  const entry = (over: Partial<AttributeAmendment> = {}): AttributeAmendment => ({
+    id: identity(kit),
+    fromAttributes: sha(kit.attributes),
+    toAttributes: sha(changed.attributes),
+    reason: "#2987: the 5xx row expects .serverFailure",
+    ...over,
+  });
+
+  test("an attribute change passes only with an entry pinned to both exact texts", () => {
+    expect(() => verifyConservation([kit], [changed], [retained(kit)], [])).toThrow();
+    verifyConservation([kit], [changed], [retained(kit)], [], [entry()]);
+    for (const wrong of [
+      entry({ fromAttributes: sha("other") }),
+      entry({ toAttributes: sha("other") }),
+      entry({ id: identity({ ...kit, signature: "other()" }) }),
+    ])
+      expect(() => verifyConservation([kit], [changed], [retained(kit)], [], [wrong])).toThrow();
+  });
+
+  test("an entry never excuses a condition change, an unused entry or a duplicate", () => {
+    expect(() =>
+      verifyConservation(
+        [kit],
+        [{ ...changed, condition: "#if OTHER" }],
+        [retained(kit)],
+        [],
+        [entry()],
+      ),
+    ).toThrow();
+    expect(() => verifyConservation([kit], [kit], [retained(kit)], [], [entry()])).toThrow(
+      "unused attribute amendment",
+    );
+    expect(() =>
+      verifyConservation([kit], [changed], [retained(kit)], [], [entry(), entry()]),
+    ).toThrow();
+    expect(() =>
+      verifyConservation([kit], [changed], [retained(kit)], [], [entry({ reason: " " })]),
+    ).toThrow();
+  });
+
+  test("the ledger file is read only when it matches its pinned hash", () => {
+    const root = mkdtempSync(join(tmpdir(), "amendments-"));
+    try {
+      const dir = join(root, "native/Tests/Conservation");
+      mkdirSync(dir, { recursive: true });
+      const text = JSON.stringify({ schemaVersion: 1, amendments: [entry()] }) + "\n";
+      writeFileSync(join(dir, "issue-2431-amendments.json"), text);
+      expect(readAttributeAmendments(root, sha(text))).toEqual([entry()]);
+      expect(() => readAttributeAmendments(root, sha(text + " "))).toThrow(
+        "attribute amendment ledger changed",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

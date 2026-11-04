@@ -51,8 +51,8 @@ extension ShepherdClient {
         if let refusal = BacklogMergeRefusal(body) { throw refusal }
         throw ShepherdError.conflict(code: body.code?.value2, message: body.error)
       case .badGateway(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "mergeBacklogPr")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "mergeBacklogPr")
       }
     } catch let refusal as BacklogMergeRefusal {
       throw refusal
@@ -68,8 +68,8 @@ extension ShepherdClient {
       case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
       case .unauthorized: throw ShepherdError.unauthenticated
       case .badGateway(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "requestDependabotRebase")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "requestDependabotRebase")
       }
     } catch { throw ShepherdError.from(error, route: "requestDependabotRebase") }
   }
@@ -87,8 +87,8 @@ extension ShepherdClient {
       case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
       case .unprocessableContent(let bad): throw ShepherdError.unprocessable(try bad.body.json.error)
       case .badGateway(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "startUpNextPrFix")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "startUpNextPrFix")
       }
     } catch { throw ShepherdError.from(error, route: "startUpNextPrFix") }
   }
@@ -103,8 +103,8 @@ extension ShepherdClient {
       case .notFound: throw ShepherdError.notFound
       case .badGateway(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
       case .serviceUnavailable(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "getUpNextPrBody")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "getUpNextPrBody")
       }
     } catch { throw ShepherdError.from(error, route: "getUpNextPrBody") }
   }

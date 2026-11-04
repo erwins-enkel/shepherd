@@ -27,6 +27,12 @@ public enum ShepherdError: Error, Equatable, Sendable {
   /// branches on a stable code rather than on a sentence the server may reword.
   /// `nil` for the routes whose mapping passes only the text.
   case upstreamFailure(code: String?, message: String)
+  /// A 5xx the route does not document: the server itself failed (its dispatch
+  /// seam answers a JSON 500 `{error}` for any route that throws, and a proxy in
+  /// front may answer 502/503/504 bare). Not a contract problem — the app and the
+  /// server may agree perfectly. `message` is the body's `error` text, or `nil`
+  /// when the body carried none.
+  case serverFailure(status: Int, message: String?)
   /// The server answered with something the contract does not describe, or a
   /// body that would not decode. `route` is the operation id.
   case contractMismatch(route: String, underlying: String)
@@ -112,15 +118,50 @@ public enum ShepherdError: Error, Equatable, Sendable {
 
   /// Maps the generated `.undocumented(statusCode:_)` case. A 401 there means
   /// a route the contract did not mark as returning 401 answered with one —
-  /// still an auth failure, not a contract bug.
-  public static func fromUndocumented(statusCode: Int, route: String) -> ShepherdError {
+  /// still an auth failure, not a contract bug. A 5xx is the server failing,
+  /// not a version disagreement: it becomes `.serverFailure`, with the body's
+  /// `error` text when `body` carries one.
+  public static func fromUndocumented(statusCode: Int, body: Data?, route: String) -> ShepherdError {
     switch statusCode {
     case 401: return .unauthenticated
     case 403: return .forbidden
+    case 500...599: return .serverFailure(status: statusCode, message: body.flatMap(errorText))
     default:
       return .contractMismatch(route: route, underlying: "undocumented status \(statusCode)")
     }
   }
+
+  /// The status-only spelling, for a caller with no response body to offer.
+  public static func fromUndocumented(statusCode: Int, route: String) -> ShepherdError {
+    fromUndocumented(statusCode: statusCode, body: nil, route: route)
+  }
+
+  /// The generated client's spelling: reads the undocumented payload's body —
+  /// only for a 5xx, the one case that shows it — and maps it as above. A body
+  /// that cannot be read (too large, already consumed) leaves `message` `nil`.
+  public static func fromUndocumented(
+    statusCode: Int, payload: UndocumentedPayload, route: String
+  ) async -> ShepherdError {
+    guard (500...599).contains(statusCode), let stream = payload.body else {
+      return fromUndocumented(statusCode: statusCode, body: nil, route: route)
+    }
+    let body = try? await Data(collecting: stream, upTo: undocumentedBodyLimit)
+    return fromUndocumented(statusCode: statusCode, body: body, route: route)
+  }
+
+  /// The server's `{error}` text, trimmed and capped; `nil` for a body that is
+  /// not that shape or whose text is empty.
+  private static func errorText(_ body: Data) -> String? {
+    struct Body: Decodable { let error: String }
+    guard let text = (try? JSONDecoder().decode(Body.self, from: body))?.error
+      .trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty
+    else { return nil }
+    return capped(text)
+  }
+
+  /// Ceiling on how much of an undocumented 5xx body is read for its `error`
+  /// text. The dispatch seam's `{error}` is a few hundred bytes at most.
+  private static let undocumentedBodyLimit = 64 * 1024
 
   /// Maps a documented 409 body onto `.firstRunPending` or `.conflict`.
   public static func fromConflict(_ body: Components.Schemas._Error) -> ShepherdError {

@@ -31,6 +31,16 @@ export type IdentityMap = {
   reason: string;
   assertionChanges: string[];
 };
+/** An operator-authorized change to a conserved test's attribute text (its `@Test(arguments:)`
+ * rows, say), pinned to the exact text on both sides: `fromAttributes` / `toAttributes` are the
+ * sha256 hex of the baseline and current attributes. A descriptive string alone never authorizes
+ * drift — the ledger file itself is hash-pinned below, so every new entry is a reviewed script change. */
+export type AttributeAmendment = {
+  id: string;
+  fromAttributes: string;
+  toAttributes: string;
+  reason: string;
+};
 export function identity(test: TestIdentity): string {
   return JSON.stringify([test.target, test.path, test.suite, test.signature]);
 }
@@ -402,7 +412,23 @@ export function verifyConservation(
   current: TestIdentity[],
   mapping: IdentityMap[],
   added: string[],
+  amendments: AttributeAmendment[] = [],
 ): void {
+  const ledger = new Map(amendments.map((a) => [a.id, a]));
+  if (ledger.size !== amendments.length || amendments.some((a) => !a.reason.trim()))
+    throw new Error("duplicate or unexplained attribute amendment");
+  const amended = new Set<string>();
+  const amends = (old: TestIdentity, dest: TestIdentity) => {
+    const entry = ledger.get(identity(dest));
+    if (
+      !entry ||
+      entry.fromAttributes !== hash(old.attributes) ||
+      entry.toAttributes !== hash(dest.attributes)
+    )
+      return false;
+    amended.add(entry.id);
+    return true;
+  };
   const originalIDs = new Set(baseline.map(identity));
   if (originalIDs.size !== baseline.length) throw new Error("duplicate baseline identity");
   const rows = new Map(mapping.map((row) => [row.oldID, row]));
@@ -426,7 +452,10 @@ export function verifyConservation(
       used.add(id);
       const dest = now.get(id);
       if (!dest) throw new Error("missing destination " + id);
-      if (!preservedAttributes(old, dest) || dest.condition !== old.condition)
+      if (
+        (!preservedAttributes(old, dest) && !amends(old, dest)) ||
+        dest.condition !== old.condition
+      )
         throw new Error("changed attributes/conditions " + id);
       return dest;
     });
@@ -463,6 +492,21 @@ export function verifyConservation(
     used.add(id);
   }
   for (const id of now.keys()) if (!used.has(id)) throw new Error("unaccounted addition " + id);
+  for (const id of ledger.keys())
+    if (!amended.has(id)) throw new Error("unused attribute amendment " + id);
+}
+
+/** Reads the attribute-amendment ledger and checks it against its pinned hash. */
+export function readAttributeAmendments(root: string, pinned: string): AttributeAmendment[] {
+  const text = readFileSync(
+    join(root, "native/Tests/Conservation/issue-2431-amendments.json"),
+    "utf8",
+  );
+  if (hash(text) !== pinned) throw new Error("attribute amendment ledger changed");
+  const ledger = JSON.parse(text) as { schemaVersion: number; amendments: AttributeAmendment[] };
+  if (ledger.schemaVersion !== 1 || !Array.isArray(ledger.amendments))
+    throw new Error("unexpected attribute amendment ledger");
+  return ledger.amendments;
 }
 export type UpstreamTransition = {
   original: TestIdentity | null;
@@ -743,6 +787,9 @@ export function readFixtureProvenance(root: string): {
   return { provenance, source: collect("source"), reviewed: collect("reviewed") };
 }
 
+/** sha256 of issue-2431-amendments.json. Changing the ledger means changing this line, in review. */
+const AMENDMENTS_SHA256 = "8b9d5c1c356b70168e5ae050330b24159e1d4a2ccf1cbf3197d72935adc8ff91";
+
 if (import.meta.main) {
   const root = process.cwd();
   const baselinePath = join(root, "native/Tests/Conservation/issue-2431-baseline.json");
@@ -879,12 +926,19 @@ if (import.meta.main) {
     map.mappings,
     fixtures.provenance.transitions,
   );
-  verifyConservation(expected, current, map.mappings, [
-    ...map.added,
-    ...(map.upstreamAdded ?? []),
-    ...(map.harnessAdded ?? []),
-    ...(map.featureAdded ?? []),
-  ]);
+  verifyConservation(
+    expected,
+    current,
+    map.mappings,
+    [
+      ...map.added,
+      ...(map.upstreamAdded ?? []),
+      ...(map.harnessAdded ?? []),
+      ...(map.featureAdded ?? []),
+    ],
+    // #2987: operator-authorized `@Test(arguments:)` amendments. Pinned: a new entry is a change here.
+    readAttributeAmendments(root, AMENDMENTS_SHA256),
+  );
   console.log(
     `sourceSHA=${baseline.sourceSHA}; conserved original identities=${baseline.tests.length}; raw declarations=${current.length}; additional split declarations=${map.mappings.reduce((n, row) => n + row.destinations.length - 1, 0)}; explicit Stage 1 additions=${map.added.length}; upstream additions=${map.upstreamAdded?.length ?? 0}; isolated harness additions=${map.harnessAdded?.length ?? 0}; feature additions=${map.featureAdded?.length ?? 0}`,
   );

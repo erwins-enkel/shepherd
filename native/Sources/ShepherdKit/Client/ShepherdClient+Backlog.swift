@@ -27,8 +27,8 @@ extension ShepherdClient {
       switch try await generated.getWorkingBlocked(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json.additionalProperties
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "getWorkingBlocked")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "getWorkingBlocked")
       }
     } catch { throw ShepherdError.from(error, route: "getWorkingBlocked") }
   }
@@ -39,8 +39,8 @@ extension ShepherdClient {
       switch try await generated.getHolds(.init()) {
       case .ok(let ok): return try ok.body.json.additionalProperties
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "getHolds")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "getHolds")
       }
     } catch { throw ShepherdError.from(error, route: "getHolds") }
   }
@@ -52,8 +52,8 @@ extension ShepherdClient {
       switch try await generated.getBlocks(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json.additionalProperties
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "getBlocks")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "getBlocks")
       }
     } catch { throw ShepherdError.from(error, route: "getBlocks") }
   }
@@ -65,8 +65,8 @@ extension ShepherdClient {
       switch try await generated.getUsageLimits(.init()) {
       case .ok(let ok): return try ok.body.json
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "getUsageLimits")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "getUsageLimits")
       }
     } catch { throw ShepherdError.from(error, route: "getUsageLimits") }
   }

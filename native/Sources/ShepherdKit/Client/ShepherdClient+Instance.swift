@@ -9,8 +9,8 @@ extension ShepherdClient {
       switch try await generated.getInstance(.init()) {
       case .ok(let ok): return try ok.body.json
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "getInstance")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "getInstance")
       }
     } catch { throw ShepherdError.from(error, route: "getInstance") }
   }

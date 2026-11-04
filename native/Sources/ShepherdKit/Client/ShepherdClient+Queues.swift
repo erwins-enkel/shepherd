@@ -14,8 +14,8 @@ extension ShepherdClient {
       case .ok(let ok): return try ok.body.json
       case .unauthorized: throw ShepherdError.unauthenticated
       case .notFound: throw ShepherdError.notFound
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "sessionUsage")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "sessionUsage")
       }
     } catch { throw ShepherdError.from(error, route: "sessionUsage") }
   }
@@ -101,8 +101,8 @@ extension ShepherdClient {
         return .modified(snapshot: snapshot, etag: ok.headers.eTag)
       case .notModified: return .notModified
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "peekUpNext")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "peekUpNext")
       }
     } catch { throw ShepherdError.from(error, route: "peekUpNext") }
   }
@@ -121,8 +121,8 @@ extension ShepherdClient {
       switch try await generated.listHeld(.init()) {
       case .ok(let ok): return try ok.body.json
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "listHeld")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "listHeld")
       }
     } catch { throw ShepherdError.from(error, route: "listHeld") }
   }
@@ -136,8 +136,8 @@ extension ShepherdClient {
       case .unauthorized: throw ShepherdError.unauthenticated
       case .forbidden: throw ShepherdError.forbidden
       case .notFound: throw ShepherdError.notFound
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "updateHeld")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "updateHeld")
       }
     } catch { throw ShepherdError.from(error, route: "updateHeld") }
   }
@@ -157,8 +157,8 @@ extension ShepherdClient {
       case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
       case .unprocessableContent(let bad): throw ShepherdError.unprocessable(try bad.body.json.error)
       case .badGateway(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "spawnHeld")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "spawnHeld")
       }
     } catch { throw ShepherdError.from(error, route: "spawnHeld") }
   }
@@ -170,8 +170,8 @@ extension ShepherdClient {
       switch try await generated.discardHeld(.init(path: .init(id: id))) {
       case .ok: return
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "discardHeld")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "discardHeld")
       }
     } catch { throw ShepherdError.from(error, route: "discardHeld") }
   }
@@ -185,8 +185,8 @@ extension ShepherdClient {
       case .unauthorized: throw ShepherdError.unauthenticated
       case .serviceUnavailable(let unavailable):
         throw ShepherdError.fromUpstream(try unavailable.body.json)
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "refreshUpNext")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "refreshUpNext")
       }
     } catch { throw ShepherdError.from(error, route: "refreshUpNext") }
   }
@@ -206,8 +206,8 @@ extension ShepherdClient {
       case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
       case .unauthorized: throw ShepherdError.unauthenticated
       case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "startUpNext")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "startUpNext")
       }
     } catch { throw ShepherdError.from(error, route: "startUpNext") }
   }
@@ -222,8 +222,8 @@ extension ShepherdClient {
         // This wrapper always sends POST; a 405 therefore contradicts the route.
         throw ShepherdError.contractMismatch(
           route: "haltHerd", underlying: "POST /api/halt returned 405 Method Not Allowed")
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "haltHerd")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "haltHerd")
       }
     } catch { throw ShepherdError.from(error, route: "haltHerd") }
   }
@@ -235,8 +235,8 @@ extension ShepherdClient {
       case .ok(let ok): return try ok.body.json
       case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "retryHalted")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "retryHalted")
       }
     } catch { throw ShepherdError.from(error, route: "retryHalted") }
   }
@@ -246,8 +246,8 @@ extension ShepherdClient {
       switch try await generated.listStranded(.init()) {
       case .ok(let ok): return try ok.body.json
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "listStranded")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "listStranded")
       }
     } catch { throw ShepherdError.from(error, route: "listStranded") }
   }
@@ -258,8 +258,8 @@ extension ShepherdClient {
       switch try await generated.reviveStranded(.init()) {
       case .ok(let ok): return try ok.body.json
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "reviveStranded")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "reviveStranded")
       }
     } catch { throw ShepherdError.from(error, route: "reviveStranded") }
   }
@@ -273,8 +273,8 @@ extension ShepherdClient {
       case .unauthorized: throw ShepherdError.unauthenticated
       case .notFound: throw ShepherdError.notFound
       case .conflict(let conflict): throw try conflict.body.json
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "restoreSession")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "restoreSession")
       }
     } catch let conflict as RestoreConflict {
       throw conflict
@@ -287,8 +287,8 @@ extension ShepherdClient {
       case .ok(let ok): return try ok.body.json
       case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let statusCode, _):
-        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "broadcast")
+      case .undocumented(let statusCode, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "broadcast")
       }
     } catch { throw ShepherdError.from(error, route: "broadcast") }
   }

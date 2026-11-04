@@ -8102,5 +8102,7 @@
   "heavyslot_strip_holder_lingering": "Leftover processes of {command}",
   "heavyslot_strip_holder_offered": "Offered for {command}",
   "heavyslot_state_lingering": "Command finished · leftover processes hold the slot",
-  "heavyslot_state_offered": "Reserved until the session reruns its check"
+  "heavyslot_state_offered": "Reserved until the session reruns its check",
+  "native_error_server_failure": "The server hit an error (HTTP {status}): {message}",
+  "native_error_server_failure_generic": "The server hit an error (HTTP {status}). Try again; if it keeps failing, check the server log."
 }

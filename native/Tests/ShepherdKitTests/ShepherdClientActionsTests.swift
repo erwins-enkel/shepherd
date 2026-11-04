@@ -81,8 +81,7 @@ struct ShepherdClientActionsTests {
       (409, "cannot resume", nil, ShepherdError.conflict(code: nil, message: "cannot resume")),
       (
         500, "boom", nil,
-        ShepherdError.contractMismatch(
-          route: "resumeSession", underlying: "undocumented status 500")
+        ShepherdError.serverFailure(status: 500, message: "boom")
       ),
     ] as [(Int, String, String?, ShepherdError)]
   )
@@ -138,8 +137,7 @@ struct ShepherdClientActionsTests {
       (409, "name_taken", nil, ShepherdError.conflict(code: nil, message: "name_taken")),
       (
         500, "boom", nil,
-        ShepherdError.contractMismatch(
-          route: "renameSession", underlying: "undocumented status 500")
+        ShepherdError.serverFailure(status: 500, message: "boom")
       ),
     ] as [(Int, String, String?, ShepherdError)]
   )
@@ -200,8 +198,7 @@ struct ShepherdClientActionsTests {
       (404, "no such session", nil, ShepherdError.notFound),
       (
         500, "boom", nil,
-        ShepherdError.contractMismatch(
-          route: "amendSession", underlying: "undocumented status 500")
+        ShepherdError.serverFailure(status: 500, message: "boom")
       ),
     ] as [(Int, String, String?, ShepherdError)]
   )
@@ -236,8 +233,7 @@ struct ShepherdClientActionsTests {
       (404, "not found", nil, ShepherdError.notFound),
       (
         500, "boom", nil,
-        ShepherdError.contractMismatch(
-          route: "setSessionReady", underlying: "undocumented status 500")
+        ShepherdError.serverFailure(status: 500, message: "boom")
       ),
     ] as [(Int, String, String?, ShepherdError)]
   )
@@ -296,8 +292,7 @@ struct ShepherdClientActionsTests {
       ),
       (
         500, "boom", nil,
-        ShepherdError.contractMismatch(
-          route: "relaunchSession", underlying: "undocumented status 500")
+        ShepherdError.serverFailure(status: 500, message: "boom")
       ),
     ] as [(Int, String, String?, ShepherdError)]
   )
@@ -335,8 +330,7 @@ struct ShepherdClientActionsTests {
       (404, "no such session", nil, ShepherdError.notFound),
       (
         500, "boom", nil,
-        ShepherdError.contractMismatch(
-          route: "regenerateRecap", underlying: "undocumented status 500")
+        ShepherdError.serverFailure(status: 500, message: "boom")
       ),
     ] as [(Int, String, String?, ShepherdError)]
   )
@@ -385,7 +379,7 @@ struct ShepherdClientActionsTests {
       (401, "unauthorized", nil, ShepherdError.unauthenticated),
       (
         500, "boom", nil,
-        ShepherdError.contractMismatch(route: "listRecaps", underlying: "undocumented status 500")
+        ShepherdError.serverFailure(status: 500, message: "boom")
       ),
     ] as [(Int, String, String?, ShepherdError)]
   )

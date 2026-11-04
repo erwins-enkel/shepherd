@@ -38,8 +38,8 @@ extension ShepherdClient {
       switch try await generated.gitStates(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json.additionalProperties
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "gitStates")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "gitStates")
       }
     } catch { throw ShepherdError.from(error, route: "gitStates") }
   }
@@ -50,8 +50,8 @@ extension ShepherdClient {
       switch try await generated.activityStates(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json.additionalProperties
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "activityStates")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "activityStates")
       }
     } catch { throw ShepherdError.from(error, route: "activityStates") }
   }
@@ -62,8 +62,8 @@ extension ShepherdClient {
       switch try await generated.claudeAliveStates(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json.additionalProperties
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "claudeAliveStates")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "claudeAliveStates")
       }
     } catch { throw ShepherdError.from(error, route: "claudeAliveStates") }
   }
@@ -74,8 +74,8 @@ extension ShepherdClient {
       switch try await generated.listReviews(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json.additionalProperties
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "listReviews")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "listReviews")
       }
     } catch { throw ShepherdError.from(error, route: "listReviews") }
   }
@@ -86,8 +86,8 @@ extension ShepherdClient {
       switch try await generated.listReviewsInflight(.init(query: .init(host: host))) {
       case .ok(let ok): return try ok.body.json
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "listReviewsInflight")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "listReviewsInflight")
       }
     } catch { throw ShepherdError.from(error, route: "listReviewsInflight") }
   }
@@ -104,8 +104,8 @@ extension ShepherdClient {
       case .notFound: throw ShepherdError.notFound
       case .badGateway(let bad):
         throw ShepherdError.upstreamFailure(try bad.body.json.error)
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "reviewPr")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "reviewPr")
       }
     } catch { throw ShepherdError.from(error, route: "reviewPr") }
   }

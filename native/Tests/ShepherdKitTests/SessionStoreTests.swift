@@ -273,10 +273,12 @@ struct SessionStoreTests {
   func contractFailureIsOffline() async throws {
     let server = FakeShepherdServer()
     defer { server.tearDown() }
-    // 500 is undocumented on every bootstrap route, so this maps to
-    // .contractMismatch — the state machine's "anything else" row.
+    // 418 is undocumented on every bootstrap route, so this maps to
+    // .contractMismatch — the state machine's "anything else" row. (A 5xx
+    // would be a .serverFailure since #2987; `serverFailureBootstrapIsOffline`
+    // covers that row.)
     for path in ["/api/sessions", "/api/settings", "/api/repos"] {
-      server.stub("GET", path, status: 500, json: Data("{}".utf8))
+      server.stub("GET", path, status: 418, json: Data("{}".utf8))
     }
     let store = try makeStore(server)
 
@@ -289,6 +291,27 @@ struct SessionStoreTests {
     if case .contractMismatch = store.lastError {} else {
       Issue.record("expected a contract mismatch, got \(String(describing: store.lastError))")
     }
+
+    store.stop()
+    _ = await runner.value
+  }
+
+  @Test("a 5xx bootstrap failure is offline and records the server's own reason, not a mismatch")
+  func serverFailureBootstrapIsOffline() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    for path in ["/api/sessions", "/api/settings", "/api/repos"] {
+      server.stub("GET", path, status: 500, json: try Fixtures.errorJSON("disk full"))
+    }
+    let store = try makeStore(server)
+
+    let runner = Task { await store.start() }
+    #expect(
+      await eventually {
+        if case .offline = store.connection { return true }
+        return false
+      })
+    #expect(store.lastError == .serverFailure(status: 500, message: "disk full"))
 
     store.stop()
     _ = await runner.value

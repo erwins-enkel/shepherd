@@ -382,7 +382,7 @@ struct ShepherdClientComposeTests {
             }
         } else {
             let expected: ShepherdError = status == 400 ? .badRequest("bad") : status == 401 ? .unauthenticated
-                : status == 404 ? .notFound : .contractMismatch(route: "uploadFile", underlying: "undocumented status 503")
+                : status == 404 ? .notFound : .serverFailure(status: 503, message: "bad")
             await #expect(throws: expected) {
                 _ = try await client.uploadFile(data: Data(), filename: "empty.txt")
             }
@@ -546,6 +546,7 @@ struct ShepherdClientComposeTests {
         let operation = repair ? "initEmptyCommit" : route == "branches" ? "listBranches" : "getBranchStatus"
         let expected: ShepherdError = status == 400 ? .badRequest("bad") : status == 401 ? .unauthenticated
             : repair && status == 422 ? .unprocessable("bad")
+            : status == 503 ? .serverFailure(status: 503, message: "bad")
             : .contractMismatch(route: operation, underlying: "undocumented status \(status)")
         await #expect(throws: expected) {
             if repair { _ = try await client.initEmptyCommit(repoPath: "/repo", branch: "main") }
@@ -562,7 +563,7 @@ struct ShepherdClientComposeTests {
         let client = try makeClient(server)
         let operation = ["issues": "listIssues", "commands": "listCommands", "epics": "listEpics"][route]!
         let expected: ShepherdError = status == 400 ? .badRequest("bad") : status == 401
-            ? .unauthenticated : .contractMismatch(route: operation, underlying: "undocumented status 503")
+            ? .unauthenticated : .serverFailure(status: 503, message: "bad")
         await #expect(throws: expected) {
             switch route {
             case "issues": _ = try await client.issues(repoPath: "/repo")

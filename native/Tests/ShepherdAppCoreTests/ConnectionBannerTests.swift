@@ -54,6 +54,16 @@ struct ConnectionBannerTests {
         #expect(kind?.message.contains("0.1.0") == true)
     }
 
+    /// #2987: a 5xx is the server failing, not a version disagreement — it
+    /// must never raise the "server X, app Y — update one of them" banner.
+    @Test func aServerFailureNeverRaisesTheMismatchBanner() {
+        let error = ShepherdError.serverFailure(status: 500, message: "EACCES: permission denied")
+        #expect(BannerPolicy.kind(for: .live, lastError: error, serverName: "Studio",
+                                  serverVersion: "1.47.0", appVersion: "0.1.0") == nil)
+        #expect(BannerPolicy.kind(for: .offline(message: "lost"), lastError: error, serverName: "Studio",
+                                  serverVersion: "1.47.0", appVersion: "0.1.0") == .offline(server: "Studio"))
+    }
+
     @Test func aContractMismatchOutranksOffline() {
         let error = ShepherdError.contractMismatch(route: "listSessions", underlying: "keyNotFound")
         #expect(BannerPolicy.kind(for: .offline(message: "lost"), lastError: error, serverName: "Studio",

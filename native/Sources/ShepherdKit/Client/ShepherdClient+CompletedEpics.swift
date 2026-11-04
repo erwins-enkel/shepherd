@@ -28,8 +28,8 @@ extension ShepherdClient {
       case .ok(let ok): return try ok.body.json
       case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "listCompletedEpics")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "listCompletedEpics")
       }
     } catch { throw ShepherdError.from(error, route: "listCompletedEpics") }
   }
@@ -43,8 +43,8 @@ extension ShepherdClient {
       case .unauthorized: throw ShepherdError.unauthenticated
       case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
       case .badGateway(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "landCompletedEpic")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "landCompletedEpic")
       }
     } catch { throw ShepherdError.from(error, route: "landCompletedEpic") }
   }
@@ -56,8 +56,8 @@ extension ShepherdClient {
       case .ok: return
       case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "dismissCompletedEpic")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "dismissCompletedEpic")
       }
     } catch { throw ShepherdError.from(error, route: "dismissCompletedEpic") }
   }
@@ -70,8 +70,8 @@ extension ShepherdClient {
       case .ok: return
       case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
       case .unauthorized: throw ShepherdError.unauthenticated
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "ackCompletedEpicMigrations")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "ackCompletedEpicMigrations")
       }
     } catch { throw ShepherdError.from(error, route: "ackCompletedEpicMigrations") }
   }
@@ -88,8 +88,8 @@ extension ShepherdClient {
       case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
       case .badGateway(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
       case .serviceUnavailable(let unavailable): throw ShepherdError.fromUpstream(try unavailable.body.json)
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "resolveCompletedEpicConflicts")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "resolveCompletedEpicConflicts")
       }
     } catch { throw ShepherdError.from(error, route: "resolveCompletedEpicConflicts") }
   }
@@ -105,8 +105,8 @@ extension ShepherdClient {
       case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
       case .badGateway(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
       case .serviceUnavailable(let unavailable): throw ShepherdError.fromUpstream(try unavailable.body.json)
-      case .undocumented(let status, _):
-        throw ShepherdError.fromUndocumented(statusCode: status, route: "repairCompletedEpicCi")
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "repairCompletedEpicCi")
       }
     } catch { throw ShepherdError.from(error, route: "repairCompletedEpicCi") }
   }

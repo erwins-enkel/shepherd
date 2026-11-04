@@ -114,6 +114,8 @@ export const KEYS_CORE: readonly string[] = [
   "native_error_mismatch",
   "native_error_not_found",
   "native_error_offline",
+  "native_error_server_failure",
+  "native_error_server_failure_generic",
   "native_firstrun_body",
   "native_firstrun_choose",
   "native_firstrun_confirm",

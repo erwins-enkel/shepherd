@@ -206,6 +206,63 @@ struct ShepherdErrorTests {
     #expect(underlying.count == 501)
     #expect(underlying.hasSuffix("…"))
   }
+
+  // MARK: - undocumented statuses (#2987)
+
+  @Test("an undocumented 5xx is the server failing, with the body's error text", arguments: [500, 502, 503, 599])
+  func undocumentedServerErrorIsServerFailure(_ status: Int) {
+    let body = Data(#"{"error":" EACCES: permission denied, rm '/w/t' "}"#.utf8)
+    #expect(
+      ShepherdError.fromUndocumented(statusCode: status, body: body, route: "deleteSession")
+        == .serverFailure(status: status, message: "EACCES: permission denied, rm '/w/t'"))
+  }
+
+  @Test(
+    "an undocumented 5xx without usable error text carries no message",
+    arguments: [nil, "", "<html>Bad Gateway</html>", "{}", #"{"error":"   "}"#, #"{"error":42}"#] as [String?])
+  func undocumentedServerErrorWithoutText(_ body: String?) {
+    #expect(
+      ShepherdError.fromUndocumented(statusCode: 502, body: body.map { Data($0.utf8) }, route: "listSessions")
+        == .serverFailure(status: 502, message: nil))
+    #expect(ShepherdError.fromUndocumented(statusCode: 500, route: "listSessions")
+      == .serverFailure(status: 500, message: nil))
+  }
+
+  @Test("every other undocumented status keeps its mapping", arguments: [200, 418, 499, 600])
+  func otherUndocumentedStatusesAreUnchanged(_ status: Int) {
+    let body = Data(#"{"error":"boom"}"#.utf8)
+    #expect(ShepherdError.fromUndocumented(statusCode: 401, body: body, route: "r") == .unauthenticated)
+    #expect(ShepherdError.fromUndocumented(statusCode: 403, body: body, route: "r") == .forbidden)
+    #expect(
+      ShepherdError.fromUndocumented(statusCode: status, body: body, route: "r")
+        == .contractMismatch(route: "r", underlying: "undocumented status \(status)"))
+  }
+
+  @Test("the generated payload's body is read for a 5xx and ignored otherwise")
+  func undocumentedPayloadBody() async {
+    let body = Data(#"{"error":"disk full"}"#.utf8)
+    let server = await ShepherdError.fromUndocumented(
+      statusCode: 503, payload: UndocumentedPayload(body: HTTPBody(body)), route: "r")
+    #expect(server == .serverFailure(status: 503, message: "disk full"))
+    let other = await ShepherdError.fromUndocumented(
+      statusCode: 418, payload: UndocumentedPayload(body: HTTPBody(body)), route: "r")
+    #expect(other == .contractMismatch(route: "r", underlying: "undocumented status 418"))
+    let empty = await ShepherdError.fromUndocumented(statusCode: 500, payload: UndocumentedPayload(), route: "r")
+    #expect(empty == .serverFailure(status: 500, message: nil))
+  }
+
+  @Test("a server's error text is capped like every other diagnostic")
+  func serverFailureMessageIsCapped() throws {
+    let body = try JSONEncoder().encode(["error": String(repeating: "y", count: 4_000)])
+    guard case .serverFailure(_, let message?) = ShepherdError.fromUndocumented(
+      statusCode: 500, body: body, route: "r")
+    else {
+      Issue.record("expected a server failure with a message")
+      return
+    }
+    #expect(message.count == 501)
+    #expect(message.hasSuffix("…"))
+  }
 }
 
 /// A `CodingKey` for building a `DecodingError.keyNotFound` by hand.

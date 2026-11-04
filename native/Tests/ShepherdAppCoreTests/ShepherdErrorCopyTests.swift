@@ -21,6 +21,8 @@ struct ShepherdErrorCopyTests {
         .unprocessable("no such ref"),
         .upstreamFailure("git exploded"),
         .upstreamFailure(code: "issue_unresolved", message: "could not re-resolve linked issue"),
+        .serverFailure(status: 500, message: "EACCES: permission denied"),
+        .serverFailure(status: 502, message: nil),
         .contractMismatch(route: "listSessions", underlying: "keyNotFound"),
         .insecureProfile(.insecureRemoteURL("box.example.com")),
         .transport("connection lost"),
@@ -58,6 +60,20 @@ struct ShepherdErrorCopyTests {
             ShepherdErrorCopy.message(
                 ShepherdError.upstreamFailure(code: "issue_unresolved", message: "no issue"))
                 == "no issue")
+    }
+
+    /// #2987: a server that failed is not a server on another API version —
+    /// the copy names the failure and the server's own reason, never the
+    /// "update one of them" line.
+    @Test func aServerFailureSaysTheServerFailedNotThatTheVersionDiffers() {
+        let withReason = ShepherdErrorCopy.message(
+            ShepherdError.serverFailure(status: 500, message: "EACCES: permission denied"))
+        #expect(withReason == L.t("native_error_server_failure", "500", "EACCES: permission denied"))
+        #expect(withReason.contains("EACCES: permission denied"))
+        let bare = ShepherdErrorCopy.message(ShepherdError.serverFailure(status: 502, message: nil))
+        #expect(bare == L.t("native_error_server_failure_generic", "502"))
+        for copy in [withReason, bare] { #expect(copy != L.t("native_error_mismatch")) }
+        #expect(!ShepherdErrorCopy.isAuthFailure(ShepherdError.serverFailure(status: 500, message: nil)))
     }
 
     @Test func theUrlPolicyErrorReusesTheWelcomeCopy() {

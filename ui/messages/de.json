@@ -8102,5 +8102,7 @@
   "heavyslot_strip_holder_lingering": "Restprozesse von {command}",
   "heavyslot_strip_holder_offered": "Angeboten für {command}",
   "heavyslot_state_lingering": "Befehl beendet · Restprozesse halten den Slot",
-  "heavyslot_state_offered": "Reserviert, bis die Sitzung ihren Check neu startet"
+  "heavyslot_state_offered": "Reserviert, bis die Sitzung ihren Check neu startet",
+  "native_error_server_failure": "Auf dem Server ist ein Fehler aufgetreten (HTTP {status}): {message}",
+  "native_error_server_failure_generic": "Auf dem Server ist ein Fehler aufgetreten (HTTP {status}). Versuche es erneut; wenn es weiter fehlschlägt, prüfe das Server-Log."
 }

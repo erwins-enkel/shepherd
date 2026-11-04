@@ -791,6 +791,7 @@
         leftovers={clearMergedLeftovers}
         probesUnavailable={clearMergedProbesUnavailable}
         repoFilter={clearMergedRepoFilter}
+        repos={repos.entries}
         onclose={onclearmergedclose}
         onconfirm={onclearmergedconfirm}
       />

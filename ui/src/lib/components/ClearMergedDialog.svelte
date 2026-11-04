@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Session } from "#lib/types.js";
+  import type { RepoEntry, Session } from "#lib/types.js";
   import { dialog } from "#lib/a11yDialog.js";
   import { m } from "#lib/paraglide/messages.js";
   import { basename } from "#lib/basename.js";
@@ -11,6 +11,7 @@
     leftovers,
     probesUnavailable,
     repoFilter,
+    repos,
     onclose,
     onconfirm,
   }: {
@@ -25,12 +26,15 @@
     /** The herd's repo filter (empty = every repo). The default action clears only the merged
      *  sessions it shows; the ones it hides need the separate "all" action. */
     repoFilter: ReadonlySet<string>;
+    /** This host's repos: their project slugs keep another machine's sessions under the filter,
+     *  as the herd does. */
+    repos: readonly Pick<RepoEntry, "path" | "realPath" | "remoteSlug">[];
     onclose: () => void;
     /** Clear the given sessions (worktree + agent + merged branch). */
     onconfirm: (ids: string[]) => void;
   } = $props();
 
-  const scope = $derived(scopeClearMerged(sessions, repoFilter));
+  const scope = $derived(scopeClearMerged(sessions, repoFilter, repos));
   const filterName = $derived(
     repoFilter.size === 1
       ? basename([...repoFilter][0]!)

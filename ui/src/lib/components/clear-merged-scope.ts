@@ -1,5 +1,6 @@
-import type { Session } from "../types";
+import type { RepoEntry, Session } from "../types";
 import { basename } from "#lib/basename.js";
+import { inRepoFilter } from "#lib/remote-sessions.js";
 
 /** The "decommission all merged" batch, split along the herd's repo filter. */
 export interface ClearMergedScope {
@@ -7,25 +8,55 @@ export interface ClearMergedScope {
   inside: Session[];
   /** Merged sessions in repos the filter hides; empty when the herd is unfiltered. */
   outside: Session[];
-  /** `outside` counted per repo, largest first, for the dialog's one-line summary. */
+  /** `outside` counted per project, largest first, for the dialog's one-line summary. */
   outsideRepos: { name: string; count: number }[];
 }
 
-/** Split the server's merged set by the herd's repo filter (empty = every repo), matching
- *  on `repoPath` exactly as the herd does, so "inside" is what the operator is looking at. */
+type ScopeRepo = Pick<RepoEntry, "path" | "realPath" | "remoteSlug">;
+
+/** Split the server's merged set by the herd's repo filter (empty = every repo) with the herd's
+ *  own matching, so "inside" is what the operator is looking at: a local session by `repoPath`, a
+ *  session mirrored from a connected machine (#2765) by project slug (`inRepoFilter`), since its
+ *  checkout never shares this host's path. */
 export function scopeClearMerged(
   sessions: Session[],
   repoFilter: ReadonlySet<string>,
+  repos: readonly ScopeRepo[],
 ): ClearMergedScope {
   if (repoFilter.size === 0) return { inside: sessions, outside: [], outsideRepos: [] };
-  const inside = sessions.filter((s) => repoFilter.has(s.repoPath));
-  const outside = sessions.filter((s) => !repoFilter.has(s.repoPath));
-  const counts = new Map<string, number>();
-  for (const s of outside) counts.set(s.repoPath, (counts.get(s.repoPath) ?? 0) + 1);
-  const outsideRepos = [...counts]
-    .map(([repoPath, count]) => ({ name: basename(repoPath), count }))
-    .sort((a, b) => b.count - a.count);
+  const keptMirrored = new Set(
+    inRepoFilter(
+      sessions.filter((s) => s.host),
+      repoFilter,
+      repos,
+    ),
+  );
+  const shown = (s: Session) => (s.host ? keptMirrored.has(s) : repoFilter.has(s.repoPath));
+  const inside = sessions.filter(shown);
+  const outside = sessions.filter((s) => !shown(s));
+  const counts = new Map<string, { name: string; count: number }>();
+  for (const s of outside) {
+    const { key, name } = projectOf(s, repos);
+    const entry = counts.get(key);
+    if (entry) entry.count += 1;
+    else counts.set(key, { name, count: 1 });
+  }
+  const outsideRepos = [...counts.values()].sort((a, b) => b.count - a.count);
   return { inside, outside, outsideRepos };
+}
+
+/** The project a hidden session counts toward: its slug (a mirrored session's `remoteSlug`, a
+ *  local one's checkout's), so this host's and another machine's checkout of one project count
+ *  together, named after this host's checkout where it has one. Without a slug, its own path. */
+function projectOf(s: Session, repos: readonly ScopeRepo[]): { key: string; name: string } {
+  const slug = (
+    s.host
+      ? s.remoteSlug
+      : repos.find((r) => r.path === s.repoPath || r.realPath === s.repoPath)?.remoteSlug
+  )?.toLowerCase();
+  if (!slug) return { key: `path:${s.repoPath}`, name: basename(s.repoPath) };
+  const local = repos.find((r) => r.remoteSlug?.toLowerCase() === slug);
+  return { key: `slug:${slug}`, name: basename(local?.path ?? s.repoPath) };
 }
 
 /** Leftover subprocesses the given sessions would take down; an id the server didn't count is 0. */

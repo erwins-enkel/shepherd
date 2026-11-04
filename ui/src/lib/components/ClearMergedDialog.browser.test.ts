@@ -24,6 +24,7 @@ function renderDialog(overrides: Partial<Parameters<typeof ClearMergedDialog>[1]
     leftovers: {},
     probesUnavailable: false,
     repoFilter: new Set(["/p/hunde-frontend"]),
+    repos: [],
     onclose: vi.fn(),
     onconfirm: vi.fn(),
     ...overrides,
@@ -112,5 +113,38 @@ describe("ClearMergedDialog with sessions on connected machines (#2765)", () => 
     renderDialog({ sessions: [s("h1", "hunde-frontend"), remote], repoFilter: new Set() });
     await expect.element(page.getByText("MacBook · TASK-07")).toBeVisible();
     await expect.element(page.getByText("TASK-h1", { exact: true })).toBeVisible();
+  });
+
+  it("lists another machine's merged sessions of the filtered project as inside", async () => {
+    // The herd under "shepherd" shows these three MacBook rows by project slug; their checkout
+    // path differs from this host's, which must not push them out of the default action.
+    const mac = (id: string) =>
+      ({
+        ...s(id, "shepherd"),
+        repoPath: "/Users/kai/githubrepos/shepherd",
+        remoteSlug: "erwins-enkel/shepherd",
+        host: { instanceId: "m1", name: "macbook", platform: "macos" },
+        connection: { state: "connected", since: 1 },
+      }) as Session;
+    const props = renderDialog({
+      sessions: [
+        s("f1", "manufare-portal"),
+        s("h1", "hundesport"),
+        mac("m1"),
+        mac("m2"),
+        mac("m3"),
+      ],
+      repoFilter: new Set(["/p/shepherd"]),
+      repos: [
+        { path: "/p/shepherd", realPath: "/p/shepherd", remoteSlug: "erwins-enkel/shepherd" },
+      ],
+    });
+    await expect
+      .element(page.getByText(m.clearmerged_scoped_desc({ repo: "shepherd", count: 3 })))
+      .toBeVisible();
+    await expect.element(page.getByText("macbook · TASK-m1")).toBeVisible();
+    await expect.element(page.getByText("manufare-portal 1 · hundesport 1")).toBeVisible();
+    await page.getByRole("button", { name: m.clearmerged_confirm({ count: 3 }) }).click();
+    expect(props.onconfirm).toHaveBeenCalledWith(["m1", "m2", "m3"]);
   });
 });

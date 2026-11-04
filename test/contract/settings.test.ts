@@ -833,6 +833,92 @@ test("runner update contract uses existing backend actions and all event payload
   }
 });
 
+// #2987: the native client's view of this Shepherd's own self-update — status, start (plain and
+// discard), the deploy log and the dirty-tree snapshot — through the production handlers.
+test("self-update status, apply, log and dirty snapshot answer every declared status", async () => {
+  const saved = { updates: s.deps.updates, peer: s.deps.peerSessionId };
+  const status = {
+    behind: 2,
+    current: "aaaaaaa",
+    latest: "bbbbbbb",
+    commits: [
+      { sha: "bbbbbbb", subject: "fix: newer" },
+      { sha: "ccccccc", subject: "feat: older" },
+    ],
+    checkedAt: 1,
+  };
+  const dirty = {
+    dirty: true,
+    dirtyFiles: [" M src/a.ts"],
+    dirtyCount: 1,
+    sig: "sig-1",
+    pathspecAll: Buffer.from("src/a.ts\0"),
+    pathspecWorktree: Buffer.from("src/a.ts\0"),
+  };
+  let result: { started: boolean; error?: string; code?: "already_running" } = { started: true };
+  const launches: { discard?: boolean; dir?: string }[] = [];
+  s.deps.peerSessionId = async () => null;
+  try {
+    s.deps.updates = undefined;
+    await request("GET", "/api/update", 200);
+    expect(await request("GET", "/api/update/log", 200)).toMatchObject({ phase: "idle" });
+    await request("POST", "/api/update", 503, {});
+    await request("GET", "/api/update/dirty", 503);
+
+    s.deps.updates = {
+      current: () => status,
+      apply: (opts) => {
+        launches.push({ discard: opts?.discard, dir: opts?.dir });
+        return result;
+      },
+      applyState: () => ({
+        phase: "failed",
+        exitCode: 1,
+        log: "needs a clean tree",
+        reason: "dirty",
+      }),
+      dirtyStatus: async () => dirty,
+    };
+    expect(await request("GET", "/api/update", 200)).toEqual(status);
+    expect(await request("GET", "/api/update/log", 200)).toMatchObject({ reason: "dirty" });
+    expect(await request("GET", "/api/update/dirty", 200)).toEqual({
+      dirty: true,
+      dirtyFiles: [" M src/a.ts"],
+      dirtyCount: 1,
+      sig: "sig-1",
+    });
+    await request("POST", "/api/update", 400, { discard: "yes" });
+    expect(await request("POST", "/api/update", 202, {})).toEqual({ ok: true });
+    expect(await request("POST", "/api/update", 202, { discard: true, sig: "sig-1" })).toEqual({
+      ok: true,
+    });
+    const stale = await request("POST", "/api/update", 409, { discard: true, sig: "old" });
+    expect(stale).toMatchObject({ error: "stale", dirty: { sig: "sig-1", dirtyCount: 1 } });
+    result = { started: false, error: "an update is already running", code: "already_running" };
+    expect(await request("POST", "/api/update", 409, {})).toEqual({
+      error: "an update is already running",
+    });
+    expect(launches.map((l) => l.discard === true)).toEqual([false, true, false]);
+
+    const reader = (await request(
+      "POST",
+      "/api/access-tokens",
+      201,
+      { name: "update-read", scope: "read", expiresInDays: 30 },
+      undefined,
+      { cookie },
+    )) as { token: string };
+    for (const path of ["/api/update", "/api/update/log", "/api/update/dirty"])
+      await request("GET", path, 403, undefined, undefined, bearer(reader.token));
+    await request("POST", "/api/update", 403, {}, undefined, bearer(reader.token));
+  } finally {
+    s.deps.updates = saved.updates;
+    s.deps.peerSessionId = saved.peer;
+    // A started discard leaves its pathspec dir for update.sh's trap; no script runs here.
+    for (const { dir } of launches) if (dir) rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("the decision-model connection is cookie-admin only and never returns the key", async () => {
   const admin = { cookie };
   const KEY = "jev_contract_0123456789abcdef";

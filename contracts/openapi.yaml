@@ -8016,6 +8016,121 @@ components:
             - string
             - "null"
           x-shepherd-explicit-null: true
+    UpdateCommit:
+      type: object
+      additionalProperties: true
+      required:
+        - sha
+        - subject
+      properties:
+        sha:
+          type: string
+        subject:
+          type: string
+    UpdateStatus:
+      type: object
+      additionalProperties: true
+      description: How far this Shepherd's running checkout is behind its tracked branch. behind 0 is up to date; error is set when the check itself failed.
+      required:
+        - behind
+        - current
+        - latest
+        - commits
+        - checkedAt
+      properties:
+        behind:
+          type: integer
+          minimum: 0
+        current:
+          type:
+            - string
+            - "null"
+        latest:
+          type:
+            - string
+            - "null"
+        commits:
+          type: array
+          items:
+            $ref: "#/components/schemas/UpdateCommit"
+        checkedAt:
+          type: integer
+        error:
+          type: string
+    UpdateApplyRequest:
+      type: object
+      additionalProperties: false
+      description: An empty body is a plain update. discard true resets the listed tracked changes first, and only when sig still matches the dirty snapshot the operator confirmed.
+      properties:
+        discard:
+          type: boolean
+        sig:
+          type: string
+    UpdateAccepted:
+      type: object
+      additionalProperties: true
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+    UpdateDirtyStatus:
+      type: object
+      additionalProperties: true
+      required:
+        - dirty
+        - dirtyFiles
+        - dirtyCount
+        - sig
+      properties:
+        dirty:
+          type: boolean
+        dirtyFiles:
+          type: array
+          description: Capped, display-formatted "XY path" lines.
+          items:
+            type: string
+        dirtyCount:
+          type: integer
+          minimum: 0
+        sig:
+          type:
+            - string
+            - "null"
+          description: Content signature a discard is validated against; null when the diff was too large to sign, which rules out a one-click discard.
+    UpdateConflict:
+      type: object
+      additionalProperties: true
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: '"stale" when the tree changed since the confirmed snapshot (dirty then carries the fresh one); otherwise a human-readable reason (no update available, already running, could not start).'
+        dirty:
+          $ref: "#/components/schemas/UpdateDirtyStatus"
+    UpdateDeployState:
+      type: object
+      additionalProperties: true
+      required:
+        - phase
+        - exitCode
+        - log
+      properties:
+        phase:
+          type: string
+          description: idle, running, done or failed. done is written only after the restarted server answered its health check.
+        exitCode:
+          type:
+            - integer
+            - "null"
+        log:
+          type: string
+        reason:
+          type:
+            - string
+            - "null"
+          description: dirty or stale when a failed deploy should route through the dirty-tree flow.
     # ── /stream: settings ──
   responses:
     Unauthorized:
@@ -13508,6 +13623,110 @@ paths:
                 $ref: "#/components/schemas/Error"
         "503":
           description: Push is not available on this server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/update:
+    get:
+      operationId: getUpdateStatus
+      responses:
+        "200":
+          description: UpdateStatus
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Token scope denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      operationId: applyUpdate
+      description: Starts this Shepherd's self-update (pull, rebuild, restart) in the background. Follow it with GET /api/update/log.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateApplyRequest"
+      responses:
+        "202":
+          description: Update started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateAccepted"
+        "400":
+          description: Invalid body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Token scope denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: No update available, one already running, could not start, or a discard whose confirmed tree went stale.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateConflict"
+        "503":
+          description: Updates are not available on this server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/update/log:
+    get:
+      operationId: getUpdateLog
+      description: Live state of the detached deploy, with the tail of its output.
+      responses:
+        "200":
+          description: UpdateDeployState
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateDeployState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Token scope denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/update/dirty:
+    get:
+      operationId: getUpdateDirty
+      description: Fresh, never cached snapshot of the tracked changes that would block or be discarded by an update.
+      responses:
+        "200":
+          description: UpdateDirtyStatus
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateDirtyStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Token scope denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Updates are not available on this server.
           content:
             application/json:
               schema:

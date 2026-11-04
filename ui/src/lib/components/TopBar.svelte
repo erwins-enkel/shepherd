@@ -3,6 +3,7 @@
     Session,
     UsageLimits,
     HeavySlotSnapshot,
+    RemoteInstance,
     UpdateStatus,
     MachineUpdate,
     HerdrUpdateStatus,
@@ -71,6 +72,8 @@
     touch = false,
     limits = null,
     heavySlot = null,
+    slotMachines = [],
+    remoteSessions = [],
     onheavyslotrelease,
     onhostpanel,
     onsettings,
@@ -120,6 +123,10 @@
     limits?: UsageLimits | null;
     /** The host-wide check slot; null/disabled → no chip. */
     heavySlot?: HeavySlotSnapshot | null;
+    /** Connected machines whose reported slots the chip shows beside this one's (desktop). */
+    slotMachines?: readonly RemoteInstance[];
+    /** Sessions mirrored from those machines, to name their slots' holders and waiters. */
+    remoteSessions?: Pick<Session, "id" | "name">[];
     onheavyslotrelease?: (sessionId: string) => Promise<void>;
     /** Phone only: opens the full-screen host panel from the gear sheet's check-slot row. */
     onhostpanel?: () => void;
@@ -191,6 +198,10 @@
 
   // tally click: toggle — clicking the active status clears the filter
   const clickStatus = (s: TallyStatus) => onstatusfilter?.(statusFilter === s ? null : s);
+  // The chip names holders and waiters on every machine, so it looks up mirrored sessions too.
+  const slotSessions = $derived(
+    remoteSessions.length > 0 ? [...sessions, ...remoteSessions] : sessions,
+  );
 
   const updateInfo = $derived(updateBadge(update, machineUpdates));
   const updateAvailable = $derived(updateInfo !== null);
@@ -977,7 +988,8 @@
       <!-- A phone has no room for it: the Menu sheet carries the check slot instead. -->
       <HeavySlotChip
         {heavySlot}
-        {sessions}
+        machines={slotMachines}
+        sessions={slotSessions}
         {nowMs}
         compact={compactBadges}
         onrelease={async (id) => onheavyslotrelease?.(id)}

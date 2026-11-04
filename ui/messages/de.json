@@ -8087,5 +8087,16 @@
   "newtask_runon_clone_failed": "{machine} konnte das Projekt nicht klonen, deshalb wurde nichts gestartet: {reason}",
   "toast_dispatch_clone_failed_on": "{machine} konnte das Projekt nicht klonen, deshalb startete die Aufgabe nicht: {reason}",
   "feat_run_on_clone_title": "Auf einem Rechner starten, der das Projekt noch nicht hat",
-  "feat_run_on_clone_body": "„Ausführen auf“ listet jetzt jeden verbundenen Rechner, auch ohne Checkout des Projekts (markiert mit „wird geklont“). Wählst du einen, lässt Shepherd ihn das Projekt von origin in seinen eigenen Projektordner klonen, mit den git-Anmeldedaten dieses Rechners, und startet die Aufgabe dann dort. „Automatisch“ macht das auch, wenn nur ein Rechner ohne Checkout passt, etwa der einzige Mac mit Xcode."
+  "feat_run_on_clone_body": "„Ausführen auf“ listet jetzt jeden verbundenen Rechner, auch ohne Checkout des Projekts (markiert mit „wird geklont“). Wählst du einen, lässt Shepherd ihn das Projekt von origin in seinen eigenen Projektordner klonen, mit den git-Anmeldedaten dieses Rechners, und startet die Aufgabe dann dort. „Automatisch“ macht das auch, wenn nur ein Rechner ohne Checkout passt, etwa der einzige Mac mit Xcode.",
+  "heavyslot_label_machines": "Prüfslots",
+  "heavyslot_chip_aria_machines": "Prüfslots: {lanes}. Details öffnen.",
+  "heavyslot_chip_aria_lane": "{machine} {held} von {capacity} belegt, {waiting} wartend",
+  "heavyslot_chip_aria_lane_offline": "{machine} nicht erreichbar",
+  "heavyslot_offline": "offline",
+  "heavyslot_lane_offline": "Nicht erreichbar · Stand {time}",
+  "heavyslot_lane_more": "+ {n} weitere auf {machine}",
+  "heavyslot_pressure_memory": "Druck & Speicher",
+  "heavyslot_last_results_count": "Letzte Prüfresultate ({n})",
+  "feat_machine_slots_overview_title": "Die Prüfslots aller Rechner im Blick",
+  "feat_machine_slots_overview_body": "Sind Rechner verbunden, zeigen die Prüfslot-Leiste unter der Herde und der Chip in der Top-Leiste die Slots aller Rechner: eine Spur je Rechner mit Arbeit, wer gerade prüft und wer hinter wem wartet. Ein nicht erreichbarer Rechner behält seine zuletzt gemeldete Warteschlange, mit der Uhrzeit dieses Stands."
 }

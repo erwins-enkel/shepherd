@@ -8087,5 +8087,16 @@
   "newtask_runon_clone_failed": "{machine} could not clone the project, so nothing was started: {reason}",
   "toast_dispatch_clone_failed_on": "{machine} could not clone the project, so the task did not start: {reason}",
   "feat_run_on_clone_title": "Run on a machine that doesn't have the project yet",
-  "feat_run_on_clone_body": "Run on now lists every connected machine, including those without a checkout of the project (marked “clones first”). Pick one and Shepherd has it clone the project from origin into its own project folder, using that machine's git credentials, and then starts the task there. Automatic does the same when only a machine without the checkout fits, for example the only Mac with Xcode."
+  "feat_run_on_clone_body": "Run on now lists every connected machine, including those without a checkout of the project (marked “clones first”). Pick one and Shepherd has it clone the project from origin into its own project folder, using that machine's git credentials, and then starts the task there. Automatic does the same when only a machine without the checkout fits, for example the only Mac with Xcode.",
+  "heavyslot_label_machines": "Check slots",
+  "heavyslot_chip_aria_machines": "Check slots: {lanes}. Open details.",
+  "heavyslot_chip_aria_lane": "{machine} {held} of {capacity} held, {waiting} waiting",
+  "heavyslot_chip_aria_lane_offline": "{machine} unreachable",
+  "heavyslot_offline": "offline",
+  "heavyslot_lane_offline": "Unreachable · as of {time}",
+  "heavyslot_lane_more": "+ {n} more on {machine}",
+  "heavyslot_pressure_memory": "Pressure & memory",
+  "heavyslot_last_results_count": "Last check results ({n})",
+  "feat_machine_slots_overview_title": "Every machine's check slot at a glance",
+  "feat_machine_slots_overview_body": "With machines connected, the check-slot strip under the herd and the chip in the top bar show every machine's slot: one lane per machine with work, who runs a check and who waits behind whom. An unreachable machine keeps its last known queue, marked with the time it was read."
 }

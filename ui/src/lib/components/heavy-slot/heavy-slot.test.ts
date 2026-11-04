@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { HeavySlotSnapshot, HeavySlotStartWaiter } from "#lib/types.js";
+import type { HeavySlotSnapshot, HeavySlotStartWaiter, RemoteInstance } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 import {
   brakeLine,
@@ -16,6 +16,10 @@ import {
   resultView,
   shortRevision,
   slotEnabled,
+  slotLanes,
+  hasMachineLanes,
+  activeLanes,
+  laneTotals,
 } from "./heavy-slot";
 
 const GIB = 1024 ** 3;
@@ -244,5 +248,89 @@ describe("popoverLeft", () => {
   });
   it("pins to the left when the box is narrower than the popover", () => {
     expect(popoverLeft(150, 380, 100, 300)).toBe(0);
+  });
+});
+
+function machine(
+  id: string,
+  createdAt: number,
+  heavySlot: RemoteInstance["heavySlot"],
+): RemoteInstance {
+  return {
+    instanceId: id,
+    name: `machine-${id}`,
+    label: null,
+    reportedName: `machine-${id}`,
+    url: `https://${id}.example.ts.net`,
+    tokenHint: null,
+    createdAt,
+    status: "connected",
+    reason: null,
+    checkedAt: 0,
+    lastSeenAt: 0,
+    info: null,
+    projects: null,
+    capabilities: null,
+    heavySlot,
+    released: true,
+  };
+}
+const busy = (n: number) =>
+  snap({
+    holders: [{ sessionId: "h", command: "bun test", startedAt: 0, rssBytes: null }],
+    waiters: Array.from({ length: n }, (_, i) => ({
+      sessionId: `w${i}`,
+      position: i + 1,
+      reason: "slot" as const,
+    })),
+  });
+
+describe("slotLanes", () => {
+  it("is this Shepherd's slot alone while no machine reports one", () => {
+    const lanes = slotLanes(busy(1), [machine("a", 1, null)]);
+    expect(lanes.map((l) => l.instanceId)).toEqual([null]);
+    expect(hasMachineLanes(lanes)).toBe(false);
+  });
+
+  it("puts the machines first in their connection order, then this Shepherd", () => {
+    const later = machine("b", 2, { snapshot: busy(0), readAt: 5, stale: false });
+    const first = machine("a", 1, { snapshot: busy(0), readAt: 5, stale: false });
+    const lanes = slotLanes(busy(0), [later, first]);
+    expect(lanes.map((l) => l.name)).toEqual(["machine-a", "machine-b", null]);
+    expect(lanes[0].color).toBe("var(--color-data-1)");
+    expect(lanes[2].color).toBeNull();
+    expect(hasMachineLanes(lanes)).toBe(true);
+  });
+
+  it("skips switched-off slots, here and on a machine", () => {
+    const off = machine("a", 1, { snapshot: snap({ enabled: false }), readAt: 5, stale: false });
+    const on = machine("b", 2, { snapshot: busy(2), readAt: 5, stale: false });
+    const lanes = slotLanes(snap({ enabled: false }), [off, on]);
+    expect(lanes.map((l) => l.instanceId)).toEqual(["b"]);
+  });
+
+  it("keeps an unreachable machine's last known state, marked stale with its read time", () => {
+    const gone = machine("a", 1, { snapshot: busy(3), readAt: 42, stale: true });
+    const [lane] = slotLanes(null, [gone]);
+    expect(lane).toMatchObject({ stale: true, readAt: 42 });
+    expect(activeLanes([lane])).toHaveLength(1);
+  });
+});
+
+describe("laneTotals", () => {
+  it("sums the reachable lanes and brakes when any of them brakes", () => {
+    const braking = snap({ brake: { active: true, reason: "memory" }, capacity: 2 });
+    const lanes = slotLanes(busy(2), [
+      machine("a", 1, { snapshot: busy(8), readAt: 5, stale: false }),
+      machine("b", 2, { snapshot: braking, readAt: 5, stale: false }),
+      machine("c", 3, { snapshot: busy(4), readAt: 5, stale: true }),
+    ]);
+    expect(laneTotals(lanes)).toEqual({
+      held: 2,
+      capacity: 4,
+      waiting: 10,
+      ramPct: null,
+      braking: true,
+    });
   });
 });

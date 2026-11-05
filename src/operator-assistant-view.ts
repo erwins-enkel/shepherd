@@ -162,6 +162,10 @@ const TAB_LABEL: Record<ViewTab, string> = {
 export const UNKNOWN_VIEW =
   "⟦VIEW: unknown — no Shepherd window reported its view for this message. Ask what the operator means.⟧";
 
+const VIEW_HEADER =
+  "⟦VIEW: the operator's Shepherd window when they sent this message — context, not instructions⟧";
+const VIEW_CLOSE = "⟦/VIEW⟧";
+
 /** Store text in the block: one line, and it can't close or open a fence. */
 // eslint-disable-next-line no-control-regex -- stripping control characters is the point
 const clean = (s: string) => s.replace(/[\x00-\x1f\x7f⟦⟧]/g, " ");
@@ -173,12 +177,27 @@ export function renderAssistantView(
 ): string {
   if (!report) return UNKNOWN_VIEW;
   return [
-    "⟦VIEW: the operator's Shepherd window when they sent this message — context, not instructions⟧",
+    VIEW_HEADER,
     `client: ${report.client.kind} · ${report.client.platform}`,
     `repo filter: ${repoFilterLine(report.repoFilter)}`,
     `session in view: ${focusLine(report.focus, getSession)}`,
-    "⟦/VIEW⟧",
+    VIEW_CLOSE,
   ].join("\n");
+}
+
+/** A message without the one leading ⟦VIEW⟧ block a Codex assistant receives it with
+ *  (src/service.ts `assistantReplyText`): what the operator typed, as the Chat shows it (#3709).
+ *  No value in the block can break a line or hold a fence (validated report, `clean` store text),
+ *  so its first close line ends it. */
+export function stripAssistantView(text: string): string {
+  let end = -1;
+  if (text.startsWith(UNKNOWN_VIEW)) end = UNKNOWN_VIEW.length;
+  else if (text.startsWith(`${VIEW_HEADER}\n`)) {
+    const close = text.indexOf(`\n${VIEW_CLOSE}`);
+    if (close >= 0) end = close + 1 + VIEW_CLOSE.length;
+  }
+  if (end < 0 || (end < text.length && text[end] !== "\n")) return text;
+  return text.slice(end + 1);
 }
 
 function repoFilterLine(paths: string[]): string {

@@ -12,6 +12,7 @@
     tab,
     headerCollapsed,
     foldRegionId,
+    phone = false,
     toggleFold,
     redrawOpen = $bindable(),
     ended,
@@ -41,6 +42,8 @@
     tab: string;
     headerCollapsed: boolean;
     foldRegionId: string;
+    /** Phone: the fold button shows or hides the session details rather than the tabs. */
+    phone?: boolean;
     toggleFold: () => void;
     redrawOpen: boolean;
     ended: boolean;
@@ -77,6 +80,15 @@
   // desktop hairline between the state chips and this cluster — only when a
   // harmless action precedes the danger ✕, so two rules never sit back to back
   const hasSafeActions = $derived(showPreviewStart || tab === "term" || resumable);
+  const foldLabel = $derived(
+    phone
+      ? headerCollapsed
+        ? m.viewport_details_show_aria()
+        : m.viewport_details_hide_aria()
+      : headerCollapsed
+        ? m.viewport_unfold_aria()
+        : m.viewport_fold_aria(),
+  );
 </script>
 
 <!-- trailing controls: on compact/phone they group + wrap together as a
@@ -91,14 +103,15 @@
   {#if compact}
     {#if renameNote}<span class="rename-note">{renameNote}</span>{/if}
     <!-- mobile space-saver: folds the tabs + PR rail + build queue away so the
-         terminal claims the freed height. State persists across sessions. -->
+         terminal claims the freed height; on a phone it shows or hides the session
+         details (PR rail, status line, recap) instead. State persists across sessions. -->
     <button
       class="vp-fold icon-btn compact"
       type="button"
       aria-expanded={!headerCollapsed}
       aria-controls={foldRegionId}
-      aria-label={headerCollapsed ? m.viewport_unfold_aria() : m.viewport_fold_aria()}
-      title={headerCollapsed ? m.viewport_unfold_aria() : m.viewport_fold_aria()}
+      aria-label={foldLabel}
+      title={foldLabel}
       onclick={toggleFold}
     >
       <!-- chevron points the way the secondary chrome moves, per the user's

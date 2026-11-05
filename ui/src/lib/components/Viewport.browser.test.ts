@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from "vitest";
 import { tick } from "svelte";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
@@ -657,8 +657,12 @@ describe("Viewport rename affordances", () => {
   // Several tests below fold/unfold the compact header; headerCollapsed persists
   // to localStorage on every toggleFold, so a prior test's fold would leak into
   // the next mount and invert its "true"→"false" assertions. Reset so every test
-  // starts unfolded (mirrors the reset in the swipe-scoping describe block below).
-  beforeEach(() => localStorage.removeItem("shepherd-vp-header-collapsed"));
+  // starts unfolded (mirrors the reset in the swipe-scoping describe block below). A phone's
+  // session-details flag persists the same way, so it starts closed (its default) too.
+  beforeEach(() => {
+    localStorage.removeItem("shepherd-vp-header-collapsed");
+    localStorage.removeItem("shepherd-vp-phone-details-open");
+  });
 
   const headerNameSlug = (value: string) =>
     value
@@ -852,7 +856,7 @@ describe("Viewport rename affordances", () => {
     expect(toggle!.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("phone single tap folds the header", async () => {
+  it("phone single tap opens the session details and keeps the tabs", async () => {
     const { container } = await render(Viewport, {
       session: session({ id: "phone-fold", name: "phone fold title" }),
       mobile: true,
@@ -862,13 +866,16 @@ describe("Viewport rename affordances", () => {
 
     const fold = container.querySelector<HTMLElement>(".vp-fold");
     expect(fold, "header fold button").not.toBeNull();
-    expect(fold!.getAttribute("aria-expanded")).toBe("true");
+    expect(fold!.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector(".vp-git-strip")).toBeNull();
 
     const trigger = container.querySelector<HTMLElement>(".vp-head.mobile .ctx-trigger");
     expect(trigger, "mobile ctx-trigger").not.toBeNull();
     trigger!.click();
 
-    await expect.poll(() => fold!.getAttribute("aria-expanded")).toBe("false");
+    await expect.poll(() => fold!.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelector(".vp-git-strip")).not.toBeNull();
+    expect(container.querySelector(".tab-group.folded")).toBeNull();
   });
 
   it("mobile double-tap on the title still renames (folds then undoes, not a rail toggle)", async () => {
@@ -1385,8 +1392,13 @@ describe("Viewport usage refetch on session switch", () => {
 describe("Viewport mobile page-swipe scoping", () => {
   // The structural-invariant test below assumes the header is expanded so
   // `.vp-git-strip` / `.bqp` render; clear the persisted collapse flag so a prior
-  // test can't leave it set ("1").
-  beforeEach(() => localStorage.removeItem("shepherd-vp-header-collapsed"));
+  // test can't leave it set ("1"), and open the phone's session details, where the
+  // strip lives.
+  beforeEach(() => {
+    localStorage.removeItem("shepherd-vp-header-collapsed");
+    localStorage.setItem("shepherd-vp-phone-details-open", "1");
+  });
+  afterEach(() => localStorage.removeItem("shepherd-vp-phone-details-open"));
 
   // The swipe listeners live on the `.viewport` root and read e.target via closest();
   // the module-scope `fakeTouch` carries our chosen target up to that root listener.
@@ -1555,6 +1567,10 @@ describe("Viewport mobile page-swipe scoping", () => {
 // background (not the faint tint of .decom.armed, which is overridden by
 // .decom.icon-btn.armed for the icon-only forms).
 describe("Viewport armed decommission icon-only rendering", () => {
+  // the phone's decommission ✕ sits in the session details, closed by default
+  beforeEach(() => localStorage.setItem("shepherd-vp-phone-details-open", "1"));
+  afterEach(() => localStorage.removeItem("shepherd-vp-phone-details-open"));
+
   it("armed compact decom button has no .decom-confirm child and has solid red background", async () => {
     // mobile=true + readyToMerge=false → the git-strip icon-only decom button renders.
     // Viewport.svelte CSS is scoped; app.css (imported at test top) provides tokens.
@@ -1644,6 +1660,10 @@ describe("Viewport armed decommission icon-only rendering", () => {
 // be a toast — and the close must still go through, per the deliberate "a probe failure must
 // never block decommission" guard.
 describe("Viewport decommission — leftover probes unavailable", () => {
+  // the phone's decommission ✕ sits in the session details, closed by default
+  beforeEach(() => localStorage.setItem("shepherd-vp-phone-details-open", "1"));
+  afterEach(() => localStorage.removeItem("shepherd-vp-phone-details-open"));
+
   it("fires an assertive keyed toast and still archives", async () => {
     getLeftoversFn.mockResolvedValueOnce({ leftovers: [], probesUnavailable: true });
     const infoSpy = vi.spyOn(toasts, "info");
@@ -2137,6 +2157,8 @@ describe("Viewport task info reveal", () => {
   }
   const folded = (c: Element) =>
     c.querySelector(".vp-fold")?.getAttribute("aria-expanded") !== "true";
+  // a phone's fold button opens the session details, closed by default: compare with the start
+  const expanded = (c: Element) => c.querySelector(".vp-fold")?.getAttribute("aria-expanded");
 
   it("hold on the desktop trigger opens the popover and does not fold", async () => {
     const { container } = await renderMeta({ touch: true });
@@ -2150,15 +2172,16 @@ describe("Viewport task info reveal", () => {
   it("mobile: hold on .ctx-trigger opens the popover and does not fold", async () => {
     const { container } = await renderMeta({ mobile: true });
     const trigger = container.querySelector<HTMLElement>(".ctx-trigger")!;
-    expect(folded(container)).toBe(false);
+    const before = expanded(container);
     await hold(trigger);
     expect(isOpen(container)).toBe(true);
-    expect(folded(container)).toBe(false);
+    expect(expanded(container)).toBe(before);
   });
 
   it("mobile: a click while held closes it and does not fold (phone desigWrapEl bind)", async () => {
     const { container } = await renderMeta({ mobile: true });
     const trigger = container.querySelector<HTMLElement>(".ctx-trigger")!;
+    const before = expanded(container);
     await hold(trigger);
     expect(isOpen(container)).toBe(true);
     // Real closing gesture: pointerdown (capture-phase dismissal listener sees it —
@@ -2169,7 +2192,7 @@ describe("Viewport task info reveal", () => {
     trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     expect(isOpen(container)).toBe(false);
-    expect(folded(container)).toBe(false); // swallowed → no fold
+    expect(expanded(container)).toBe(before); // swallowed → no fold
   });
 
   it("a pointerenter with pointerType touch does not open it", async () => {
@@ -2896,6 +2919,9 @@ describe("Viewport — merge row above the steer bar", () => {
   it("phone: the strip carries no PR chips beside the row, and has them back on Diff", async () => {
     gitStateFn.mockResolvedValue(openGit);
     await page.viewport(390, 844);
+    // the phone's strip lives in the session details, closed by default
+    localStorage.setItem("shepherd-vp-phone-details-open", "1");
+    onTestFinished(() => localStorage.removeItem("shepherd-vp-phone-details-open"));
     const { container } = await render(Viewport, {
       session: session({ id: "mr-strip" }),
       git: openGit,
@@ -2983,5 +3009,61 @@ describe("Viewport — merge row above the steer bar", () => {
     });
     await vi.waitFor(() => expect(container.querySelector("button.recap-header")).not.toBeNull());
     expect(container.querySelector("section.pr-row")).toBeNull();
+  });
+});
+
+// ── Phone: the Chat keeps the height ─────────────────────────────────────────
+// On a phone the session details (git strip, status line, recap) wait behind the header's fold
+// button and the steer row behind the composer's toggle; the tabs never fold away.
+describe("Viewport — phone keeps the Chat tall", () => {
+  const KEYS = ["shepherd-vp-phone-details-open", "shepherd-vp-phone-steers-open"];
+  beforeEach(() => KEYS.forEach((k) => localStorage.removeItem(k)));
+  afterEach(() => KEYS.forEach((k) => localStorage.removeItem(k)));
+
+  function renderPhone(id: string) {
+    return render(Viewport, {
+      session: session({ id }),
+      mobile: true,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+  }
+
+  it("opens the git strip and the status line together from the fold button", async () => {
+    const { container } = await renderPhone("phone-details");
+    expect(container.querySelector(".vp-git-strip")).toBeNull();
+    expect(container.querySelector(".ssb")).toBeNull();
+
+    await page.getByRole("button", { name: m.viewport_details_show_aria() }).click();
+
+    await expect.poll(() => container.querySelector(".vp-git-strip")).not.toBeNull();
+    expect(container.querySelectorAll(".ssb")).toHaveLength(1);
+    expect(container.querySelector(".vp-phone-details .ssb")).not.toBeNull();
+    expect(localStorage.getItem("shepherd-vp-phone-details-open")).toBe("1");
+    await expect
+      .element(page.getByRole("tab", { name: m.viewport_diff_tab() }))
+      .toBeInTheDocument();
+  });
+
+  it("folds the steer row in the Chat behind the composer toggle", async () => {
+    const { container } = await renderPhone("phone-steers");
+    await page.getByRole("tab", { name: m.viewport_chat_tab() }).click();
+    const show = page.getByRole("button", { name: m.viewport_steers_show_aria() });
+    await expect.element(show).toBeVisible();
+    expect(container.querySelector(".steer-row")).toBeNull();
+
+    await show.click();
+
+    await expect.poll(() => container.querySelector(".steer-row")).not.toBeNull();
+    await expect
+      .element(page.getByRole("button", { name: m.viewport_steers_hide_aria() }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(localStorage.getItem("shepherd-vp-phone-steers-open")).toBe("1");
+  });
+
+  it("keeps the steer row on the terminal tab", async () => {
+    const { container } = await renderPhone("phone-steers-term");
+    await page.getByRole("tab", { name: m.viewport_terminal_tab() }).click();
+    await expect.poll(() => container.querySelector(".steer-row")).not.toBeNull();
   });
 });

@@ -8115,5 +8115,11 @@
   "native_ios_merge_opens_confirmation": "Öffnet die Merge-Bestätigung.",
   "native_ios_merge_with_options": "Merge mit Optionen …",
   "feat_assistant_issue_create_title": "Issues vom Assistenten anlegen lassen",
-  "feat_assistant_issue_create_body": "Beschreibe einen Fehler oder eine Aufgabe und bitte den Operator-Assistenten, ein Issue in einem bestimmten Repo anzulegen. „Automatik bearbeiten“ unter Einstellungen → Assistent legt fest, ob er vorher fragt. Der Assistent liefert den Issue-Link; das Anlegen reiht keine Arbeit ein und startet keine Sitzung."
+  "feat_assistant_issue_create_body": "Beschreibe einen Fehler oder eine Aufgabe und bitte den Operator-Assistenten, ein Issue in einem bestimmten Repo anzulegen. „Automatik bearbeiten“ unter Einstellungen → Assistent legt fest, ob er vorher fragt. Der Assistent liefert den Issue-Link; das Anlegen reiht keine Arbeit ein und startet keine Sitzung.",
+  "viewport_details_show_aria": "Session-Details einblenden: PR-Aktionen, Statuszeile und Zusammenfassung",
+  "viewport_details_hide_aria": "Session-Details ausblenden für mehr Platz im Chat",
+  "viewport_steers_show_aria": "Steers einblenden",
+  "viewport_steers_hide_aria": "Steers ausblenden",
+  "feat_phone_chat_room_title": "Mehr Platz für den Chat auf dem Smartphone",
+  "feat_phone_chat_room_body": "Auf dem Smartphone warten PR-Aktionen, Statuszeile und Zusammenfassung einer Session jetzt hinter dem Pfeil im Kopfbereich, die Steers hinter dem Blitz-Knopf im Chat-Eingabefeld. Der Chat behält die Höhe, und die Tabs bleiben erreichbar."
 }

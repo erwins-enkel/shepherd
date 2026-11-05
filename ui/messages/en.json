@@ -8115,5 +8115,11 @@
   "native_ios_merge_opens_confirmation": "Opens the merge confirmation.",
   "native_ios_merge_with_options": "Merge with options …",
   "feat_assistant_issue_create_title": "Ask the Assistant to create an issue",
-  "feat_assistant_issue_create_body": "Describe a bug or task and ask the Operator Assistant to file an issue in a specific repo. Automation in Settings → Assistant controls whether it asks first. The Assistant returns the issue link; creating an issue does not queue work or start a session."
+  "feat_assistant_issue_create_body": "Describe a bug or task and ask the Operator Assistant to file an issue in a specific repo. Automation in Settings → Assistant controls whether it asks first. The Assistant returns the issue link; creating an issue does not queue work or start a session.",
+  "viewport_details_show_aria": "Show session details: PR actions, status line and summary",
+  "viewport_details_hide_aria": "Hide session details for more Chat space",
+  "viewport_steers_show_aria": "Show steers",
+  "viewport_steers_hide_aria": "Hide steers",
+  "feat_phone_chat_room_title": "More room for the Chat on a phone",
+  "feat_phone_chat_room_body": "On a phone, a session's PR actions, status line and summary now wait behind the arrow in the header, and the steers behind the lightning button in the Chat composer. The Chat keeps the height, and the tabs stay in reach."
 }

@@ -193,6 +193,8 @@ public final class AttachmentModel {
 
     public func beginImport() -> Int? {
         guard !stopped else { return nil }
+        // A fresh pick drops a stale error; one pick's failures survive its later successes.
+        if pendingImports == 0 { importError = nil }
         pendingImports += 1
         return generation
     }
@@ -200,7 +202,7 @@ public final class AttachmentModel {
     public func finishImport(_ file: File?, error: String?, generation mine: Int) {
         guard !stopped, mine == generation else { return }
         pendingImports -= 1
-        importError = error
+        if let error { importError = error }
         if let file { addFiles([file]) } else { droppedImports += 1 }
         resumeSettledWaitersIfIdle()
     }

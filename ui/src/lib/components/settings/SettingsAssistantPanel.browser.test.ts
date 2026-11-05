@@ -94,6 +94,75 @@ describe("HUD runtime preferences", () => {
     await page.getByRole("button", { name: m.settings_assistant_runtime_switch() }).click();
     await vi.waitFor(() => expect(switchOperatorAssistants).toHaveBeenCalledOnce());
   });
+
+  const exact = (name: string) => page.getByRole("combobox", { name, exact: true });
+  const tabFromProvider = async () => {
+    select(m.settings_assistant_runtime_provider()).element().focus();
+    await userEvent.keyboard("{Tab}");
+    return document.activeElement?.getAttribute("aria-label");
+  };
+
+  it("puts the preferred provider's model menus right under the provider", async () => {
+    render(SettingsAssistantPanel, {
+      payload: { ...payload(), assistantRuntime: { ...runtime, preferredProvider: "codex" } },
+    });
+    expect(await tabFromProvider()).toBe(m.settings_assistant_runtime_model({ provider: "Codex" }));
+    const codexModels = [
+      ...(
+        exact(
+          m.settings_assistant_runtime_model({ provider: "Codex" }),
+        ).element() as HTMLSelectElement
+      ).options,
+    ].map((o) => o.value);
+    expect(codexModels).toContain("gpt-6.1-sol");
+    const fallbackToggle = page
+      .getByRole("switch", { name: m.settings_assistant_runtime_fallback() })
+      .element();
+    const fallbackModel = exact(
+      m.settings_assistant_runtime_fallback_model({ provider: "Claude" }),
+    ).element();
+    await expect
+      .element(exact(m.settings_assistant_runtime_fallback_effort({ provider: "Claude" })))
+      .toBeVisible();
+    expect(
+      fallbackToggle.compareDocumentPosition(fallbackModel) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("hides the fallback provider's menus while fallback is off and keeps their values", async () => {
+    const off = { ...runtime, preferredProvider: "codex" as const, automaticFallback: false };
+    vi.mocked(putAssistantRuntime).mockReset().mockResolvedValue({ assistantRuntime: off });
+    render(SettingsAssistantPanel, {
+      payload: { ...payload(), assistantRuntime: { ...runtime, preferredProvider: "codex" } },
+    });
+    await expect
+      .element(exact(m.settings_assistant_runtime_fallback_model({ provider: "Claude" })))
+      .toBeVisible();
+    await page.getByRole("switch", { name: m.settings_assistant_runtime_fallback() }).click();
+    await vi.waitFor(() => expect(putAssistantRuntime).toHaveBeenCalledWith(off));
+    await expect
+      .element(exact(m.settings_assistant_runtime_fallback_model({ provider: "Claude" })))
+      .not.toBeInTheDocument();
+    await expect
+      .element(exact(m.settings_assistant_runtime_fallback_effort({ provider: "Claude" })))
+      .not.toBeInTheDocument();
+    await expect
+      .element(exact(m.settings_assistant_runtime_model({ provider: "Codex" })))
+      .toBeVisible();
+  });
+
+  it("re-orders the menus when the preferred provider changes", async () => {
+    vi.mocked(putAssistantRuntime)
+      .mockReset()
+      .mockResolvedValue({ assistantRuntime: { ...runtime, preferredProvider: "codex" } });
+    render(SettingsAssistantPanel, { payload: { ...payload(), assistantRuntime: runtime } });
+    await select(m.settings_assistant_runtime_provider()).selectOptions("codex");
+    await vi.waitFor(() => expect(putAssistantRuntime).toHaveBeenCalledOnce());
+    await expect
+      .element(exact(m.settings_assistant_runtime_fallback_model({ provider: "Claude" })))
+      .toBeVisible();
+    expect(await tabFromProvider()).toBe(m.settings_assistant_runtime_model({ provider: "Codex" }));
+  });
 });
 
 for (const locale of ["en", "de"] as const) {

@@ -8121,5 +8121,7 @@
   "viewport_steers_show_aria": "Steers einblenden",
   "viewport_steers_hide_aria": "Steers ausblenden",
   "feat_phone_chat_room_title": "Mehr Platz für den Chat auf dem Smartphone",
-  "feat_phone_chat_room_body": "Auf dem Smartphone warten PR-Aktionen, Statuszeile und Zusammenfassung einer Session jetzt hinter dem Pfeil im Kopfbereich, die Steers hinter dem Blitz-Knopf im Chat-Eingabefeld. Der Chat behält die Höhe, und die Tabs bleiben erreichbar."
+  "feat_phone_chat_room_body": "Auf dem Smartphone warten PR-Aktionen, Statuszeile und Zusammenfassung einer Session jetzt hinter dem Pfeil im Kopfbereich, die Steers hinter dem Blitz-Knopf im Chat-Eingabefeld. Der Chat behält die Höhe, und die Tabs bleiben erreichbar.",
+  "settings_assistant_runtime_fallback_model": "Ausweichen: {provider}-Modell",
+  "settings_assistant_runtime_fallback_effort": "Ausweichen: {provider}-Denkaufwand"
 }

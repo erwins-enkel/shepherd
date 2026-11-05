@@ -8121,5 +8121,7 @@
   "viewport_steers_show_aria": "Show steers",
   "viewport_steers_hide_aria": "Hide steers",
   "feat_phone_chat_room_title": "More room for the Chat on a phone",
-  "feat_phone_chat_room_body": "On a phone, a session's PR actions, status line and summary now wait behind the arrow in the header, and the steers behind the lightning button in the Chat composer. The Chat keeps the height, and the tabs stay in reach."
+  "feat_phone_chat_room_body": "On a phone, a session's PR actions, status line and summary now wait behind the arrow in the header, and the steers behind the lightning button in the Chat composer. The Chat keeps the height, and the tabs stay in reach.",
+  "settings_assistant_runtime_fallback_model": "Fallback: {provider} model",
+  "settings_assistant_runtime_fallback_effort": "Fallback: {provider} reasoning effort"
 }

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ShepherdKit
 
-@Suite("ShepherdClient Chat")
+@Suite("ShepherdClient Chat", .timeLimit(.minutes(1)))
 @MainActor
 struct ShepherdClientChatTests {
     @Test func messagesRequestIncludesTheMobileWindowAndTools() async throws {

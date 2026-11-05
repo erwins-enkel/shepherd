@@ -106,20 +106,25 @@ final class IOSReplyImports {
     let model: IOSTerminalPresentation
     init(model: IOSTerminalPresentation) { self.model = model }
 
-    func photo(_ photo: PhotosPickerItem) {
-        guard model.canAttach, let attachments = model.attachments, let stamp = attachments.beginImport() else { return }
+    /// Every pick is reserved up front, so all N show as pending at once; loading is sequential in pick order.
+    func photos(_ items: [PhotosPickerItem]) {
+        guard model.canAttach, let attachments = model.attachments else { return }
         model.openWriting(focus: false)
+        let reserved = items.compactMap { item in attachments.beginImport().map { (item, $0) } }
+        guard !reserved.isEmpty else { return }
         Task {
-            do {
-                if photo.isMovie {
-                    let movie = try await photo.loadTransferable(type: IOSPickedMovie.self)
-                    attachments.finishImport(movie.map { .init(url: $0.url) }, error: movie == nil ? L.t("native_ios_attachment_invalid") : nil, generation: stamp)
-                    return
-                }
-                let data = try await photo.loadTransferable(type: Data.self)
-                let ext = photo.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-                finish(data, name: "photo-\(UUID().uuidString).\(ext)", attachments: attachments, stamp: stamp)
-            } catch { attachments.finishImport(nil, error: ShepherdErrorCopy.message(error), generation: stamp) }
+            for (photo, stamp) in reserved {
+                do {
+                    if photo.isMovie {
+                        let movie = try await photo.loadTransferable(type: IOSPickedMovie.self)
+                        attachments.finishImport(movie.map { .init(url: $0.url) }, error: movie == nil ? L.t("native_ios_attachment_invalid") : nil, generation: stamp)
+                        continue
+                    }
+                    let data = try await photo.loadTransferable(type: Data.self)
+                    let ext = photo.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+                    finish(data, name: "photo-\(UUID().uuidString).\(ext)", attachments: attachments, stamp: stamp)
+                } catch { attachments.finishImport(nil, error: ShepherdErrorCopy.message(error), generation: stamp) }
+            }
         }
     }
     func camera(_ image: UIImage) {

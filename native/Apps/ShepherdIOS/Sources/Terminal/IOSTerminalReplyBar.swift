@@ -15,7 +15,7 @@ struct IOSTerminalReplyBar: View {
     @State private var photos = false
     @State private var files = false
     @State private var camera = false
-    @State private var photo: PhotosPickerItem?
+    @State private var picked: [PhotosPickerItem] = []
     @State private var imports: IOSReplyImports?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
@@ -131,9 +131,13 @@ struct IOSTerminalReplyBar: View {
             }
         }
         // Picker lives outside Menu, whose content is destroyed on dismissal.
-        .photosPicker(isPresented: $photos, selection: $photo, matching: .any(of: [.images, .videos]))
+        .photosPicker(isPresented: $photos, selection: $picked, selectionBehavior: .ordered, matching: .any(of: [.images, .videos]))
         .onChange(of: model.attachments?.rows.map(\.id)) { _, _ in imports?.pruneThumbnails() }
-        .onChange(of: photo) { _, item in if let item { imports?.photo(item); photo = nil } }
+        .onChange(of: picked) { _, items in
+            guard !items.isEmpty else { return }
+            picked = []
+            imports?.photos(items)
+        }
         .sheet(isPresented: $camera) {
             IOSReplyCamera { image in if let image { imports?.camera(image) }; camera = false }
                 .ignoresSafeArea()

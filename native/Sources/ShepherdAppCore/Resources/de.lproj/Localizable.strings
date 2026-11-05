@@ -100,6 +100,17 @@
 "clonerepo_failed_url" = "Ungültige oder nicht unterstützte URL";
 "coldresume_chip" = "kalt · ≈%1$@ Einheiten";
 "coldresume_title" = "Prompt-Cache abgelaufen — diese Session war länger untätig als ihre Cache-Lebensdauer. Ihre %1$@ Kontext müssen zum Cache-Schreibtarif erneut gesendet werden, daher kostet der nächste Zug etwa %2$@ gewichtete Einheiten statt eines kleinen Bruchteils davon.";
+"commandbar_cmd_new_task" = "Neue Aufgabe";
+"commandbar_cmd_new_task_kw" = "erstellen starten verfassen prompt";
+"commandbar_cmd_next_needs_you" = "Zur nächsten Session springen, die dich braucht";
+"commandbar_cmd_next_needs_you_kw" = "wartend blockiert aufmerksamkeit";
+"commandbar_group_commands" = "Befehle";
+"commandbar_group_lenses" = "Ansichten";
+"commandbar_group_repos" = "Repositories";
+"commandbar_group_sessions" = "Sessions";
+"commandbar_no_matches" = "Keine Treffer";
+"commandbar_placeholder" = "Zu Session, Repo oder Ansicht springen – oder Befehl ausführen bzw. Doku durchsuchen…";
+"commandbar_title" = "Befehlsleiste";
 "common_cancel" = "Abbrechen";
 "common_close" = "schließen";
 "common_issues_lightweight" = "Lightweight-Modus (nur lokal) ist für dieses Repo aktiv — kein Forge, keine Issues. Umschaltbar unter Automatisierung.";
@@ -753,6 +764,9 @@
 "mergetrain_confirm_action" = "Merge-Train starten";
 "mergetrain_confirm_other_repos" = "%1$@ bereite PR(s) in anderen Repos sind nicht enthalten.";
 "mergetrain_confirm_title" = "Merge-Train starten";
+"mobile_pull_search" = "Ziehen zum Suchen";
+"mobile_release_reload" = "Loslassen zum Neuladen";
+"mobile_release_search" = "Loslassen zum Suchen";
 "model_configured_fable_latest" = "Fable (neuestes)";
 "model_configured_opus_1m_latest" = "Opus (neuestes, 1 Mio. Kontext)";
 "model_configured_opus_latest" = "Opus (neuestes)";

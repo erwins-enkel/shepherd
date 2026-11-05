@@ -100,6 +100,17 @@
 "clonerepo_failed_url" = "Invalid or unsupported URL";
 "coldresume_chip" = "cold · ≈%1$@ units";
 "coldresume_title" = "Prompt cache expired — this session has been idle longer than its cache lifetime. Its %1$@ of context must be re-sent at the cache-write rate, so the next turn costs about %2$@ weighted units instead of a small fraction of that.";
+"commandbar_cmd_new_task" = "New task";
+"commandbar_cmd_new_task_kw" = "create start compose prompt";
+"commandbar_cmd_next_needs_you" = "Jump to next needs-you";
+"commandbar_cmd_next_needs_you_kw" = "waiting blocked attention";
+"commandbar_group_commands" = "Commands";
+"commandbar_group_lenses" = "Lenses";
+"commandbar_group_repos" = "Repositories";
+"commandbar_group_sessions" = "Sessions";
+"commandbar_no_matches" = "No matches";
+"commandbar_placeholder" = "Jump to a session, repo, or lens — or run a command or search docs…";
+"commandbar_title" = "Command bar";
 "common_cancel" = "Cancel";
 "common_close" = "close";
 "common_issues_lightweight" = "Lightweight (local-only) mode is on for this repo — no forge, no issues. Change it under Automation.";
@@ -753,6 +764,9 @@
 "mergetrain_confirm_action" = "Start merge train";
 "mergetrain_confirm_other_repos" = "%1$@ ready PR(s) in other repos are not included.";
 "mergetrain_confirm_title" = "Start merge train";
+"mobile_pull_search" = "Pull to search";
+"mobile_release_reload" = "Release to reload";
+"mobile_release_search" = "Release to search";
 "model_configured_fable_latest" = "Fable (latest)";
 "model_configured_opus_1m_latest" = "Opus (latest, 1M context)";
 "model_configured_opus_latest" = "Opus (latest)";

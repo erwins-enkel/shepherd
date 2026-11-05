@@ -70,6 +70,7 @@
     onkeys,
     oninterrupt,
     onterminal,
+    composerLead,
   }: {
     sessionId: string;
     status: SessionStatus;
@@ -106,6 +107,8 @@
     oninterrupt: () => void;
     /** Show the terminal: the agent waits on something only the terminal can answer. */
     onterminal: () => void;
+    /** A control at the composer field's leading edge (the phone's steer toggle). */
+    composerLead?: Snippet;
   } = $props();
 
   /** The newest messages kept in view; older ones stay in the Terminal's scrollback. */
@@ -608,7 +611,7 @@
   {ondrop}
 >
   <div class="ac-thread" bind:this={thread} {onscroll} role="log" aria-label={copy.log()}>
-    <div class="ac-stack" bind:this={stack}>
+    <div class="ac-stack" class:ac-narrow={mobile} bind:this={stack}>
       {#if rows.length === 0 && waiting.length === 0 && !working && !ask}
         <p class="ac-empty">{copy.empty()}</p>
       {/if}
@@ -719,6 +722,7 @@
       <AttachmentChips {attachments} coarse={touch || mobile} onremove={removeAttachment} />
     {/if}
     <div class="ac-field" bind:this={field}>
+      {@render composerLead?.()}
       {@render caret()}
       <textarea
         bind:this={input}
@@ -803,6 +807,19 @@
      measure. */
   .ac-wide {
     grid-template-columns: var(--ac-gutter) minmax(0, 1fr);
+  }
+  /* Phone: the time gutter would cost a sixth of the width, so a row's time sits on its own line
+     above the message and the content spans the thread. */
+  .ac-stack.ac-narrow {
+    --ac-gutter: 0px;
+    --ac-gap: 0px;
+  }
+  .ac-narrow .ac-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ac-narrow .ac-row.ac-working {
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 10px;
   }
   .ac-wide .ac-msg > :global(:not(.md-body)),
   .ac-wide :global(.md-plain),

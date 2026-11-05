@@ -378,6 +378,30 @@
       /* localStorage unavailable (private mode) — fold stays in-memory only */
     }
   });
+  function readFlag(key: string): boolean {
+    try {
+      return typeof localStorage !== "undefined" && localStorage.getItem(key) === "1";
+    } catch {
+      return false;
+    }
+  }
+  function writeFlag(key: string, on: boolean) {
+    try {
+      localStorage.setItem(key, on ? "1" : "0");
+    } catch {
+      /* localStorage unavailable (private mode) — the flag stays in-memory only */
+    }
+  }
+  // phone only: the session details (git rail + autopilot + decommission, the status line, the
+  // recap headline) stay behind the header's fold button until asked for, so the Chat keeps the
+  // height. Its own key, closed by default: the tab fold above never applies on a phone.
+  const PHONE_DETAILS_KEY = "shepherd-vp-phone-details-open";
+  let phoneDetailsOpen = $state(readFlag(PHONE_DETAILS_KEY));
+  $effect(() => writeFlag(PHONE_DETAILS_KEY, phoneDetailsOpen));
+  // phone Chat only: the steer chips stay folded behind the composer's steer toggle until opened.
+  const PHONE_STEERS_KEY = "shepherd-vp-phone-steers-open";
+  let phoneSteersOpen = $state(readFlag(PHONE_STEERS_KEY));
+  $effect(() => writeFlag(PHONE_STEERS_KEY, phoneSteersOpen));
   let conn = $state<PtyConn | undefined>();
 
   // Compose sheet — owned here because its two entry points live on different rows:
@@ -670,8 +694,17 @@
   // foldables). Drops secondary fields + wraps so the trailing actions never clip.
   const compact = $derived(mobile || touch);
   // the fold only applies on the compact layout (it's the mobile space-saver);
-  // desktop keeps its own git-actions disclosure untouched.
-  const headerFolded = $derived(compact && headerCollapsed);
+  // desktop keeps its own git-actions disclosure untouched. A phone keeps its tabs:
+  // there the fold button shows or hides the session details (phoneDetailsOpen).
+  const headerFolded = $derived(compact && !mobile && headerCollapsed);
+  // What the build queue and the epic-draft bar treat as folded: they then show only when
+  // something waits on the operator.
+  const chromeFolded = $derived(headerFolded || (mobile && !phoneDetailsOpen));
+  const foldExpanded = $derived(mobile ? phoneDetailsOpen : !headerCollapsed);
+  // The steer row in the phone Chat follows its toggle, but a halted retry always shows it.
+  const steersShown = $derived(
+    !(mobile && tab === "chat") || phoneSteersOpen || (retryReady && retryHaltedCount > 0),
+  );
 
   // AskUserQuestion answer dialog (#3165), listing this session's question first and every other
   // session's beside it. Auto-opens ONCE per tool_use id while this session is shown — closing it
@@ -737,6 +770,9 @@
   // the fold, so they can't carry a stable controlled-region id). Per-session id so
   // it stays unique if ever more than one viewport mounts.
   const foldRegionId = $derived(`vp-fold-region-${session.id}`);
+  // a11y: on a phone the fold button controls the session-details region instead, which stays
+  // mounted (empty while closed) so the reference always resolves.
+  const detailsRegionId = $derived(`vp-details-region-${session.id}`);
   // a11y: tablist wiring — per-session ids so the tab buttons' aria-controls and the
   // panel's aria-labelledby resolve uniquely if more than one viewport ever mounts.
   const vpBodyId = $derived(`vp-panel-${session.id}`);
@@ -747,6 +783,11 @@
     // swallow guard, so reset the popover flags here too (holdOpen would leak a
     // bound capture listener; focusOpen a stuck-open popover).
     resetMeta();
+    // phone: the tabs stay put; the fold shows or hides the session details.
+    if (mobile) {
+      phoneDetailsOpen = !phoneDetailsOpen;
+      return;
+    }
     headerCollapsed = !headerCollapsed;
     // folding hides the tab switcher, so a non-terminal tab would be stranded with no
     // way back except unfolding — and its panel would keep filling the body, reclaiming
@@ -1377,7 +1418,9 @@
     if (now - lastTitleTap < DOUBLE_TAP_MS) {
       lastTitleTap = 0;
       // undo the first tap's toggle → header back to its pre-tap state
-      if (compact) {
+      if (mobile) {
+        phoneDetailsOpen = !phoneDetailsOpen;
+      } else if (compact) {
         headerCollapsed = !headerCollapsed;
         tab = preFoldTab;
       } else {
@@ -3006,6 +3049,26 @@
   {#snippet renameNoteEl()}
     {#if renameNote}<span class="rename-note">{renameNote}</span>{/if}
   {/snippet}
+  {#snippet steerToggle()}
+    <!-- phone Chat: opens or folds the steer row under the conversation -->
+    <button
+      type="button"
+      class="vp-steer-toggle"
+      aria-pressed={phoneSteersOpen}
+      aria-label={phoneSteersOpen ? m.viewport_steers_hide_aria() : m.viewport_steers_show_aria()}
+      title={phoneSteersOpen ? m.viewport_steers_hide_aria() : m.viewport_steers_show_aria()}
+      onclick={() => (phoneSteersOpen = !phoneSteersOpen)}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linejoin="round"
+        aria-hidden="true"><path d="M13 3 5 13h6l-1 8 8-10h-6z" /></svg
+      >
+    </button>
+  {/snippet}
   <!-- The session console's chrome: identity header, git strip, build queue, epic-draft bar. The
        Operator Assistant shows none of it, only the terminal below. -->
   {#if !assistant}
@@ -3307,8 +3370,9 @@
         {compact}
         {renaming}
         {tab}
-        {headerCollapsed}
-        {foldRegionId}
+        headerCollapsed={!foldExpanded}
+        foldRegionId={mobile ? detailsRegionId : foldRegionId}
+        phone={mobile}
         {toggleFold}
         bind:redrawOpen
         {ended}
@@ -3339,7 +3403,7 @@
        the session-lifecycle surface, so the lifecycle cluster (ready — inside
        GitRail — autopilot, plus decommission on compact) lives here too, off the
        identity row; on desktop decommission stays inline in the actions cluster. -->
-    {#if (compact && !headerCollapsed) || gitOpen}
+    {#snippet gitStrip()}
       <div class="vp-git-strip">
         <GitRail
           sessionId={session.id}
@@ -3411,6 +3475,27 @@
           {/if}
         </span>
       </div>
+    {/snippet}
+    {#if mobile}
+      <!-- phone: the session details sit behind the header's fold button (closed by default), so
+         the Chat keeps the height. The git strip, the status line and the recap headline open
+         together here; the region stays mounted so the button's aria-controls resolves. -->
+      <div id={detailsRegionId} class="vp-phone-details">
+        {#if phoneDetailsOpen}
+          {@render gitStrip()}
+          <SessionStatusBar {session} {usage} {activity} joined={false} />
+          <div class="vp-phone-recap">
+            <SessionRecap
+              {session}
+              autoMergeOwned={autoMergeHandsOff}
+              headless={prRowShown}
+              bind:expanded={recapOpen}
+            />
+          </div>
+        {/if}
+      </div>
+    {:else if (compact && !headerCollapsed) || gitOpen}
+      {@render gitStrip()}
     {/if}
 
     <!-- Keep approval/start actions reachable even with the compact header folded. -->
@@ -3422,7 +3507,7 @@
       planPhase={session.planPhase}
       planReview={planGates.isReviewing(session.id) ? "reviewing" : planGate ? "available" : null}
       terminalEnded={ended}
-      folded={headerFolded}
+      folded={chromeFolded}
       onbootstrap={(q) => onSeedBuildQueue?.(q)}
     />
 
@@ -3433,7 +3518,7 @@
     <EpicDraftPanel
       sessionId={session.id}
       epicAuthoring={session.epicAuthoring}
-      folded={headerFolded}
+      folded={chromeFolded}
       onreview={() => (epicDraftOpen = true)}
     />
   {/if}
@@ -3569,6 +3654,7 @@
             onkeys={sendKeys}
             oninterrupt={sendInterrupt}
             onterminal={() => (tab = "term")}
+            composerLead={mobile ? steerToggle : undefined}
           />
         {/key}
       </div>
@@ -3650,7 +3736,8 @@
        ReviewInFlightBanner above shows the REVIEWER's env while this keeps the task's.
        Sits between .vp-body and SteerBar/controls so the ctrl-row stays bottom-most
        (the foldable swipe-up compose gesture starts on the bottom-most element). -->
-  {#if !assistant}
+  {#if !assistant && !mobile}
+    <!-- a phone shows it in the session details under the header instead -->
     <SessionStatusBar {session} {usage} {activity} joined={reviewActive && tab === "term"} />
   {/if}
 
@@ -3667,11 +3754,15 @@
       {liveness}
       ondecommission={confirmDecommission}
       onsent={(text, sent) => chatView?.echo(text, sent)}
-      onsummary={() => (recapOpen = !recapOpen)}
+      onsummary={() => {
+        recapOpen = !recapOpen;
+        // phone: the recap lives in the session details, so opening it opens them too
+        if (mobile && recapOpen) phoneDetailsOpen = true;
+      }}
     />
   {/if}
 
-  {#if (tab === "term" || tab === "chat") && !assistant}
+  {#if (tab === "term" || tab === "chat") && !assistant && steersShown}
     <SteerBar
       focusedId={session.id}
       repoPath={session.repoPath}
@@ -3745,7 +3836,8 @@
     />
   {/if}
 
-  {#if !assistant}
+  {#if !assistant && !mobile}
+    <!-- a phone shows it in the session details under the header instead -->
     <SessionRecap
       {session}
       autoMergeOwned={autoMergeHandsOff}
@@ -4650,6 +4742,56 @@
     border-bottom: 1px solid var(--color-line);
     flex-shrink: 0;
     min-height: 44px;
+  }
+  /* phone session details: the git strip, status line and recap, opened from the header */
+  .vp-phone-details {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    min-width: 0;
+  }
+  .vp-phone-details .vp-git-strip {
+    border-bottom: 0;
+  }
+  /* an opened recap can run long: it scrolls here instead of squeezing the Chat to nothing */
+  .vp-phone-recap {
+    max-height: 45dvh;
+    overflow-y: auto;
+  }
+  /* the phone Chat's steer toggle, at the composer field's leading edge */
+  .vp-steer-toggle {
+    flex: none;
+    align-self: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    margin-left: -6px;
+    padding: 0;
+    border: 0;
+    border-radius: 2px;
+    background: transparent;
+    color: var(--color-muted);
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .vp-steer-toggle svg {
+    width: 16px;
+    height: 16px;
+  }
+  .vp-steer-toggle[aria-pressed="true"] {
+    color: var(--color-amber);
+  }
+  .vp-steer-toggle:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  @media (pointer: coarse) {
+    .vp-steer-toggle {
+      width: 44px;
+      height: 44px;
+    }
   }
   /* lifecycle cluster (autopilot toggle + decommission) at the strip's trailing
      edge. It continues GitRail's ⚙ pill as one control cluster; the single

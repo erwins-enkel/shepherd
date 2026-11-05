@@ -958,6 +958,7 @@
         {#key selectedKey}
           <IssueDetail
             {repoPath}
+            {slug}
             {selection}
             epicSummary={selection.kind === "epic"
               ? epicByNumber.get(selection.issue.number)

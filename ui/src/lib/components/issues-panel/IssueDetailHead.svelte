@@ -17,6 +17,7 @@
   // template stays under the complexity bar; every optional bit is a plain prop.
   let {
     tag = null,
+    repo = null,
     number,
     title,
     url,
@@ -34,6 +35,8 @@
   }: {
     /** Epic tag text ("Epic" / "Epic #12"); null on a single issue. */
     tag?: string | null;
+    /** The issue's repo (`owner/repo`), named before the number; null → not shown. */
+    repo?: string | null;
     number: number;
     title: string;
     url: string;
@@ -80,6 +83,7 @@
       >
     {:else if tag}<span class="epic-tag">{tag}</span>{/if}
     {#if role}<EpicRoleBadge {role} {position} />{/if}
+    {#if repo}<span class="repo">{repo}</span>{/if}
     <span class="num">#{number}</span>
     <IssueLabelChips {labels} {labelColors} />
     {#if author}<span class="faint">{m.issuerow_author_by({ login: author })}</span>{/if}
@@ -164,6 +168,12 @@
   .back:focus-visible {
     background: color-mix(in oklab, var(--status-running) 24%, transparent);
     outline: none;
+  }
+
+  .repo {
+    font-family: var(--font-mono);
+    color: var(--color-muted);
+    overflow-wrap: anywhere;
   }
 
   .num {

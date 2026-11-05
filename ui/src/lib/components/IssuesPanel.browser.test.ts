@@ -101,6 +101,32 @@ describe("IssuesPanel header (#2639)", () => {
     expect(document.querySelector(".issues-header")).toBeNull();
     expect(document.querySelector(".repo-link")).toBeNull();
   });
+
+  it("names the forge slug in the selected issue's detail", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: "https://github.com/owner/repo",
+      issues: [
+        {
+          number: 7,
+          title: "An issue",
+          body: "",
+          url: "https://github.com/owner/repo/issues/7",
+          labels: [],
+          createdAt: 0,
+          assignees: [],
+        },
+      ],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await selectRow("s:7");
+    await expect
+      .poll(() => document.querySelector(".detail-head .repo")?.textContent)
+      .toBe("owner/repo");
+  });
 });
 
 describe("IssuesPanel empty vs fetch-failed", () => {

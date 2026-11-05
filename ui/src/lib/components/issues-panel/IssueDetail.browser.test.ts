@@ -53,9 +53,10 @@ const epic: Epic = {
   run: { repoPath: "/repo", parentIssueNumber: 150, mode: "auto", status: "idle" },
 };
 
-function mount(selection: IssueSelection, withEpic?: Epic) {
+function mount(selection: IssueSelection, withEpic?: Epic, slug?: string | null) {
   return render(IssueDetail, {
     repoPath: "/repo",
+    slug,
     selection,
     epic: withEpic,
     issueActions: [],
@@ -167,5 +168,33 @@ describe("IssueDetail reading layout (#2950)", () => {
     mount({ kind: "child", parent: 150, child: child(152, [151], "ready") }, epic);
     await expect.poll(() => document.querySelector(".detail-body")).not.toBeNull();
     expect(document.querySelector(".detail-body")!.classList.contains("wide")).toBe(false);
+  });
+});
+
+describe("IssueDetail repo label", () => {
+  const repoLabel = () => document.querySelector(".detail-head .repo")?.textContent;
+
+  it.each<[string, IssueSelection, Epic | undefined]>([
+    ["single issue", { kind: "single", issue }, undefined],
+    ["epic", { kind: "epic", issue }, epic],
+    ["epic child", { kind: "child", parent: 150, child: child(152, [151], "ready") }, epic],
+  ])("names the repo before the number on a %s", async (_name, selection, withEpic) => {
+    mount(selection, withEpic, "owner/repo");
+    await expect.poll(repoLabel).toBe("owner/repo");
+    expect(document.querySelector(".detail-head .repo + .num")).not.toBeNull();
+  });
+
+  it("falls back to the path basename without a slug", async () => {
+    mount({ kind: "single", issue }, undefined, null);
+    await expect.poll(repoLabel).toBe("repo");
+  });
+
+  it("wraps a long slug at phone width instead of overflowing", async () => {
+    await page.viewport(390, 800);
+    const slug = `${"o".repeat(100)}/${"r".repeat(100)}`;
+    mount({ kind: "single", issue }, undefined, slug);
+    await expect.poll(repoLabel).toBe(slug);
+    const head = document.querySelector<HTMLElement>(".detail-head")!;
+    expect(head.scrollWidth).toBeLessThanOrEqual(head.clientWidth);
   });
 });

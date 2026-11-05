@@ -561,6 +561,13 @@ memory and swap until the host stalled.
   - **▤ Checking**, with command, time and memory;
   - **◔ Waiting for check slot · Place n**, with the memory-pressure reason
     when the brake holds it.
+  A mirrored session's line names the machine whose slot it holds or waits for.
+  Session cards in the Mac app show the same line for that host's slot.
+- **With machines connected**, the chip has a segment and the strip a lane for
+  each machine with work, and the host popover a section per machine. A braking
+  machine turns the chip red. An unreachable machine keeps its last known queue,
+  marked **Unreachable · as of** the time it was read. **Release** works only on
+  this Shepherd's own slot.
 - **Settings → Machines** shows each connected machine's slot.
 - Autopilot leaves a waiting session alone.
 

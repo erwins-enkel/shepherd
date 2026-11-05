@@ -295,10 +295,11 @@ too and names any machine that did not answer. If a machine becomes unreachable,
 its sessions stay with their last known state and are marked disconnected, nothing
 is sent to it, and an open terminal says so and reopens once the machine is back;
 a session disappears only once its machine no longer reports it. A new task can be
-started on a machine that has its project checked out — **Run on** in the New Task
+started on any connected machine — **Run on** in the New Task
 dialog, where **Automatic** lets Shepherd pick the machine by the task's
 [requirements](#requirement) — and then the whole session runs there, from the
-branch as pushed to origin.
+branch as pushed to origin. A machine without a checkout of the project is marked
+**clones first** and clones it from origin before the task starts.
 
 ### Capability
 
@@ -321,8 +322,8 @@ A [capability](#capability) a task needs from the machine it runs on — for
 example `xcode`, `sdk:ios` or `android-sdk`. In New Task they are chips under the
 prompt; through the API, `requirements`. With **Run on: Automatic**, Shepherd starts
 the task on a connected [machine](#machine) — or this one — that has every
-requirement verified, preferring Linux over macOS, and shows which and why before
-it starts. If none has them, nothing starts and the missing capability is named; if
+requirement verified, preferring machines with the project checked out and then
+Linux over macOS, and shows which and why before it starts. If none has them, nothing starts and the missing capability is named; if
 the machine a task is meant for is offline, the task becomes a
 [waiting task](#waiting-task) — nothing starts elsewhere on its own. The machine
 checks the requirements again when it accepts the task.
@@ -332,10 +333,11 @@ checks the requirements again when it accepts the task.
 A task Shepherd keeps for the [machine](#machine) it is meant for while that
 machine is asleep, out of reach or missing a [requirement](#requirement). It shows
 at the top of the herd, labelled with its machine — **Waiting** while the machine is
-away, **Blocked** while it is back but lacks a requirement or the project's
-checkout — and nothing is sent until the machine is back and a fresh check of its
-capabilities and project passes; then it starts there by itself, attachments
-included. It never moves to another machine on its own: cancel it, or run it on
+away, **Blocked** while it is back but lacks a requirement — and nothing is sent
+until the machine is back and a fresh check of its capabilities passes; then it
+starts there by itself, attachments included, after cloning the project if the
+machine has no checkout. If that clone fails, the task ends without starting. It
+never moves to another machine on its own: cancel it, or run it on
 another machine that fits now (**Run here**, **Run on …**). It survives a restart of
 this Shepherd. A task a busy machine has already accepted and holds shows as
 **Busy** instead.

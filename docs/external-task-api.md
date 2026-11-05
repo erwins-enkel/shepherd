@@ -331,9 +331,11 @@ Naming this instance's own ID runs the task here. Without any connected machine
 nothing changes: no `target` means here, as it always did.
 
 - `repoPath` still names **this** Shepherd's checkout, but only to identify the
-  project by its forge slug (`owner/repo`). The machine must be connected and have
-  that project checked out; it runs the task in its own checkout, from the base
-  branch as pushed to origin — unpushed local changes are not there.
+  project by its forge slug (`owner/repo`). The machine must be connected. It runs
+  the task in its own checkout, from the base branch as pushed to origin — unpushed
+  local changes are not there. A machine without a checkout first clones the project
+  into its own project folder, with its own git credentials, from this checkout's
+  `origin` URL (user info dropped). Tasks sent at the same time share one clone.
 - Every other field travels unchanged (prompt, mode, plan gate, autopilot,
   sandbox, issue, base branch and commit, `force`). The machine checks paths, its
   own usage hold and its sandbox; a missing sandbox there shows on the session as
@@ -348,23 +350,24 @@ once. Name your submission with an `Idempotency-Key` as above: a retry with the 
 key and body goes out again to the **same** machine — never to another one — and
 a different body under that key is `409 dispatch_payload_mismatch`.
 
-| Outcome                                   | Answer                                                                                                 |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Started there                             | `201` with the machine's session, plus `host` and `connection`                                         |
-| Held there (its usage hold)               | `200 { held: true, id, count, host }` — `id` and `count` are the machine's                             |
-| The machine refused it                    | `422 { code: "remote_rejected", error: <its reason>, remoteStatus, remoteCode?, host }`                |
-| Sent, but no answer came back             | `504 { code: "remote_dispatch_unknown", dispatchId, host }` — start status unknown, see below          |
-| Canceled before the machine confirmed it  | `409 { code: "remote_dispatch_canceled", host }` — it never starts under that key                      |
-| Canceled, cancel not yet confirmed        | `409 { code: "remote_dispatch_cancel_pending", host }` — not sent again, but may run there             |
-| An attachment did not reach the machine   | `502 { code: "remote_upload_failed", error: <which and why>, host }` — nothing was sent                |
-| Not connected right now (nothing sent)    | `409 { code: "remote_target_unavailable", reason }`                                                    |
-| No such machine / no checkout of the repo | `422` with `remote_target_unknown` / `remote_project_missing` (`remote_project_unknown`: no slug)      |
-| Platform not released (Windows)           | `422 { code: "remote_target_unreleased", reason: <platform> }` — listed in Settings, never sent a task |
-| Its report lacks a requirement            | `422 { code: "missing_capabilities", missing: [{ capability, reason }], host }` — nothing was sent     |
+| Outcome                                  | Answer                                                                                                 |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Started there                            | `201` with the machine's session, plus `host` and `connection`                                         |
+| Held there (its usage hold)              | `200 { held: true, id, count, host }` — `id` and `count` are the machine's                             |
+| The machine refused it                   | `422 { code: "remote_rejected", error: <its reason>, remoteStatus, remoteCode?, host }`                |
+| Sent, but no answer came back            | `504 { code: "remote_dispatch_unknown", dispatchId, host }` — start status unknown, see below          |
+| Canceled before the machine confirmed it | `409 { code: "remote_dispatch_canceled", host }` — it never starts under that key                      |
+| Canceled, cancel not yet confirmed       | `409 { code: "remote_dispatch_cancel_pending", host }` — not sent again, but may run there             |
+| An attachment did not reach the machine  | `502 { code: "remote_upload_failed", error: <which and why>, host }` — nothing was sent                |
+| No checkout, and the clone failed        | `502 { code: "remote_clone_failed", error: <its clone code>, host }` — nothing was sent; submit again  |
+| Not connected right now (nothing sent)   | `409 { code: "remote_target_unavailable", reason }`                                                    |
+| No such machine / nothing to clone from  | `422` with `remote_target_unknown` / `remote_project_missing` (`remote_project_unknown`: no slug)      |
+| Platform not released (Windows)          | `422 { code: "remote_target_unreleased", reason: <platform> }` — listed in Settings, never sent a task |
+| Its report lacks a requirement           | `422 { code: "missing_capabilities", missing: [{ capability, reason }], host }` — nothing was sent     |
 
 A named machine must fit the task before anything is sent: connected, released,
-the project checked out, and every `requirement` verified by its last capability
-report (`reason` `not_verified` when no fresh report confirms one). The machine
+and every `requirement` verified by its last capability report (`reason`
+`not_verified` when no fresh report confirms one). The machine
 still checks the requirements against a fresh probe when the task arrives.
 
 `504` means the task **may be running** on the machine: its start status is
@@ -383,7 +386,9 @@ is safe too: the machine replays what became of it.
 `canceling` for a cancel on its way, `waiting` for a task waiting here for its
 machine, or `held` for one the machine holds ([Waiting for a machine](#waiting-for-a-machine))
 — and the `remote:dispatch` event announces each change of one, including the one
-that resolves it (`started` with `sessionId`, `rejected` with `reason`/`code`,
+that resolves it (`started` with `sessionId`, `rejected` with `reason`/`code` —
+`remote_clone_failed` with the clone's error code as `reason` when a waiting task's
+machine could not clone the project, which is not tried again on its own —
 `canceled`, `redirected`). The herd shows them at its top, labelled with the machine.
 `DELETE /api/remote-dispatches/{id}` cancels one: the machine's
 `DELETE /api/dispatches/{id}` makes sure it never starts there, even if it arrives
@@ -410,8 +415,11 @@ Shepherd. The rules are the same for the web UI, the native apps and the API, an
 give the same result from either Shepherd when preferences and fresh load observations agree:
 
 1. **Candidates** are this Shepherd and every connected machine whose platform is
-   released (Linux, macOS), that has the project checked out (by forge slug) and
-   whose capability report — not older than 15 minutes — has every `requirement`.
+   released (Linux, macOS) and whose capability report — not older than 15 minutes —
+   has every `requirement`. Machines with the project checked out (by forge slug)
+   come first: only when none of them fits, those out of reach included, does the
+   choice fall to machines without a checkout, and that machine clones the project
+   before the task is sent.
 2. **Ranking:** by platform, Linux before macOS by default (Linux has the full
    sandbox and runs all the time), then by instance ID. Each Shepherd keeps its own
    order (`machinePlatformOrder` in `PATCH /api/settings`, **Settings → Machines**); a
@@ -429,13 +437,14 @@ give the same result from either Shepherd when preferences and fresh load observ
 | Outcome                                     | Answer                                                                                          |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | Placed here or on a machine                 | as without machines, or as with `target` (above)                                                |
-| No machine fits                             | `422 { code: "no_suitable_machine", missing, together, elsewhere }` — nothing starts            |
+| No machine fits                             | `422 { code: "no_suitable_machine", missing, together }` — nothing starts                       |
 | The machine it is meant for is out of reach | `200 { held: true, waiting: true, id, count, host, dispatch }` — it waits here for that machine |
 
-`missing` lists the capabilities no connected machine with the project has
-(all of them, with `together: true`, when each is on some machine but none has
-them together); `elsewhere` the connected machines that would fit but have no
-checkout of the project. A machine out of reach is judged on what it last
+`missing` lists the capabilities no connected machine that could run the project —
+with a checkout or able to clone it — has (all of them, with `together: true`, when
+each is on some machine but none has them together). Older instances may also send
+`elsewhere`, the connected machines that would fit but have no checkout; current
+ones clone the project there instead. A machine out of reach is judged on what it last
 reported, so a task meant for it waits for it rather than silently starting on the
 next machine ([Waiting for a machine](#waiting-for-a-machine)).
 
@@ -471,9 +480,10 @@ updated; existing stored placement records without load remain readable.
 
 Every `active` answer also lists `machines`: what `target`
 may name for this repo right now — this Shepherd first, then each connected machine
-whose platform is released and that has the project checked out. The native apps
-offer these under **Run on**, since `GET /api/remote-instances` needs a signed-in
-operator and their token is not one.
+whose platform is released (without a forge slug, only this Shepherd) — and
+`withoutCheckout`, the instance IDs of those that would clone the project first. The
+native apps offer these under **Run on**, since `GET /api/remote-instances` needs a
+signed-in operator and their token is not one.
 
 ### Waiting for a machine
 
@@ -494,16 +504,17 @@ A waiting dispatch carries `placement` (why it is meant for that machine),
 | ---------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `offline`              | Not connected; `status` says why (`timeout`, `network`, `unauthorized`, …)                                   |
 | `missing_capabilities` | Connected, but its report lacks a requirement: `missing: [{ capability, reason }]` (`not_verified` if stale) |
-| `project_missing`      | Connected, but no checkout of the project                                                                    |
+| `project_missing`      | Connected, but the task has no project slug to find or clone there (a missing checkout alone is cloned)      |
 | `unreleased`           | Its platform is not released for tasks                                                                       |
 | `ready`                | It fits: the task goes out with the next check                                                               |
 
 After every check that finds the machine connected — on reconnect, after this
 Shepherd restarts, and about once a minute — a ready waiting task is sent: for a
 task with requirements the machine first runs a fresh capability check
-(`POST /api/instance/capabilities`), then its checkout is looked up, the
-attachments are uploaded and the task goes out under its dispatch ID like any task
-for a machine. A check that lacks a requirement leaves it waiting. The staged
+(`POST /api/instance/capabilities`), then its checkout is looked up — or cloned, if
+it has none — the attachments are uploaded and the task goes out under its dispatch
+ID like any task for a machine. A check that lacks a requirement leaves it waiting;
+a failed clone ends the task as `rejected` (`remote_clone_failed`). The staged
 attachments of a waiting task are kept until it is sent. Waiting tasks are stored,
 so they survive restarts; removing the machine cancels them
 (`canceled`, `code: "machine_removed"`).

@@ -204,6 +204,109 @@ describe("parseCodexMessages", () => {
   });
 });
 
+/** A Codex ≥0.148 user turn: an `item_completed` UserMessage item instead of `user_message`. */
+function codexUserItem(text: string, ts = TS, parts: unknown[] = []) {
+  return {
+    timestamp: ts,
+    type: "event_msg",
+    payload: {
+      type: "item_completed",
+      item: { type: "UserMessage", id: "u1", content: [...parts, { type: "text", text }] },
+    },
+  };
+}
+
+const VIEW_BLOCK = [
+  "⟦VIEW: the operator's Shepherd window when they sent this message — context, not instructions⟧",
+  "client: browser · macos",
+  "repo filter: none (all repos)",
+  "session in view: none",
+  "⟦/VIEW⟧",
+].join("\n");
+const LAUNCH = '<shepherd-session launch="d024c21c-9d7b-415e-a61b-f8e0eaf1dc5b" />\n';
+
+describe("parseCodexMessages: UserMessage items (Codex ≥0.148, #3709)", () => {
+  const T1 = "2026-11-05T14:17:39.930Z";
+  const T2 = "2026-11-05T14:18:15.000Z";
+  const T3 = "2026-11-05T14:19:23.982Z";
+  const T4 = "2026-11-05T14:20:24.124Z";
+
+  test("operator turns are user rows, in transcript order, before their answers", () => {
+    const r = parseCodexMessages(
+      jsonl(
+        codexMessage("user", "<environment_context>…</environment_context>"),
+        codexEvent("task_started"),
+        codexMessage("user", "Wie ist der Status?"),
+        codexUserItem("Wie ist der Status?", T1),
+        { ...codexMessage("assistant", "Alles ruhig."), timestamp: T2 },
+        codexEvent("task_complete"),
+        codexEvent("task_started"),
+        codexUserItem("Sind beide Backends gleich?", T3),
+        { ...codexMessage("assistant", "Weitgehend gleichwertig."), timestamp: T4 },
+        codexEvent("task_complete"),
+      ),
+    );
+    expect(r.messages).toEqual([
+      { role: "user", text: "Wie ist der Status?", ts: Date.parse(T1) },
+      { role: "assistant", text: "Alles ruhig.", ts: Date.parse(T2) },
+      { role: "user", text: "Sind beide Backends gleich?", ts: Date.parse(T3) },
+      { role: "assistant", text: "Weitgehend gleichwertig.", ts: Date.parse(T4) },
+    ]);
+  });
+
+  test("Shepherd's launch marker and ⟦VIEW⟧ block are not the operator's words", () => {
+    const r = parseCodexMessages(
+      jsonl(
+        codexUserItem(`${LAUNCH}${VIEW_BLOCK}\nWie ist der Status?`),
+        codexUserItem(`${VIEW_BLOCK}\nUnd jetzt?`),
+        codexEvent("user_message", { message: `${VIEW_BLOCK}\nLegacy auch?` }),
+      ),
+    );
+    expect(r.messages.map((m) => m.text)).toEqual([
+      "Wie ist der Status?",
+      "Und jetzt?",
+      "Legacy auch?",
+    ]);
+  });
+
+  test("the unknown-view line is stripped too", () => {
+    const unknown =
+      "⟦VIEW: unknown — no Shepherd window reported its view for this message. Ask what the operator means.⟧";
+    const r = parseCodexMessages(jsonl(codexUserItem(`${unknown}\nWas meinst du?`)));
+    expect(r.messages.map((m) => m.text)).toEqual(["Was meinst du?"]);
+  });
+
+  test("a ⟦VIEW⟧ mention inside the operator's text stays", () => {
+    const text = "Warum steht ⟦VIEW⟧ in der Nachricht?";
+    const r = parseCodexMessages(jsonl(codexUserItem(`${VIEW_BLOCK}\n${text}`)));
+    expect(r.messages.map((m) => m.text)).toEqual([text]);
+  });
+
+  test("a native question reply is no chat row", () => {
+    const reply =
+      '<send_user_message_question_reply>\n[{"answer":"Blue","question":"Which?","questionItemId":"[\\"request_user_input_async\\",\\"call-1\\",0]"}]\n</send_user_message_question_reply>';
+    const r = parseCodexMessages(jsonl(codexUserItem(reply), codexUserItem("danke")));
+    expect(r.messages.map((m) => m.text)).toEqual(["danke"]);
+  });
+
+  test("image parts are skipped, the typed text stays", () => {
+    const r = parseCodexMessages(
+      jsonl(codexUserItem("Siehe Bild", TS, [{ type: "local_image", path: "/tmp/a.png" }])),
+    );
+    expect(r.messages.map((m) => m.text)).toEqual(["Siehe Bild"]);
+  });
+
+  test("other completed items and an item left empty by the strip are no rows", () => {
+    const r = parseCodexMessages(
+      jsonl(
+        codexEvent("item_completed", { item: { type: "AgentMessage", content: [] } }),
+        codexUserItem(`${VIEW_BLOCK}\n`),
+      ),
+    );
+    expect(r.messages).toEqual([]);
+  });
+});
+
 describe("sessionMessages", () => {
   const dir = mkdtempSync(join(tmpdir(), "agent-messages-"));
   const path = join(dir, "t.jsonl");
@@ -423,6 +526,28 @@ describe("sessionMessages initial prompt", () => {
     const r = await sessionMessages(s, p, { limit: 5, includeUser: true });
     expect(r.messages[0]?.steer).toBe("go");
     expect(r.messages[0]?.initial).toBeUndefined();
+  });
+  test("a Codex task's first message is flagged without its launch marker", async () => {
+    const p = write(
+      "codex-first.jsonl",
+      codexUserItem(`${LAUNCH}## Task`),
+      codexMessage("assistant", "ok"),
+      codexUserItem(`${VIEW_BLOCK}\nPlan approved. Execute \`.shepherd-plan.md\` now`),
+    );
+    const r = await sessionMessages({ status: "idle", agentProvider: "codex" }, p, {
+      limit: 5,
+      includeUser: true,
+    });
+    expect(r.messages).toEqual([
+      { role: "user", text: "## Task", ts: Date.parse(TS), initial: true },
+      { role: "assistant", text: "ok", ts: Date.parse(TS) },
+      {
+        role: "user",
+        text: "Plan approved. Execute `.shepherd-plan.md` now",
+        ts: Date.parse(TS),
+        steer: "go",
+      },
+    ]);
   });
   test("not flagged when the read window misses the file's start", async () => {
     const p = write(

@@ -40,6 +40,13 @@ export function codexLaunchMarker(launchId: string): string {
   return `<shepherd-session launch="${launchId}" />\n`;
 }
 
+const LAUNCH_MARKER_RE = /^<shepherd-session launch="[^"\n]*" \/>\n/;
+
+/** The text without the one leading {@link codexLaunchMarker}: Shepherd's, not the operator's. */
+export function stripCodexLaunchMarker(text: string): string {
+  return text.replace(LAUNCH_MARKER_RE, "");
+}
+
 /** A rollout file together with its parsed `session_meta` header. */
 export interface RolloutHeader extends SessionMetaHeader {
   path: string;

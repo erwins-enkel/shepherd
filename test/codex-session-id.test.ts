@@ -9,6 +9,7 @@ import {
   findCodexLaunchSessionId,
   findCodexRolloutById,
   rolloutHeaders,
+  stripCodexLaunchMarker,
 } from "../src/codex-session-id";
 import { SessionStore } from "../src/store";
 
@@ -40,6 +41,14 @@ function writeRollout(
 }
 
 const CWD = "/home/u/.shepherd-worktrees/repo-feature";
+
+test("stripCodexLaunchMarker removes the one leading marker it was launched with (#3709)", () => {
+  const marker = codexLaunchMarker("d024c21c-9d7b-415e-a61b-f8e0eaf1dc5b");
+  expect(stripCodexLaunchMarker(`${marker}## Task`)).toBe("## Task");
+  expect(stripCodexLaunchMarker(`${marker}${marker}x`)).toBe(`${marker}x`);
+  expect(stripCodexLaunchMarker(`see ${marker}x`)).toBe(`see ${marker}x`);
+  expect(stripCodexLaunchMarker("plain")).toBe("plain");
+});
 
 /** Codex's real naming: `rollout-<timestamp>-<thread id>.jsonl`. */
 const named = (id: string) => `rollout-2026-08-01T10-00-00-${id}.jsonl`;

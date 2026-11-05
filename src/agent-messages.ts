@@ -12,6 +12,8 @@
  */
 import { parseActivityObjects, readTranscriptTailAsync, type ActivityEntry } from "./activity";
 import { parseCodexActivityObjects } from "./codex-activity";
+import { stripCodexLaunchMarker } from "./codex-session-id";
+import { stripAssistantView } from "./operator-assistant-view";
 import { stat } from "node:fs/promises";
 import { eachJsonlObject } from "./jsonl";
 import { transcriptSteer, type SteerKind } from "./steer-log";
@@ -209,16 +211,36 @@ function parseClaudeMessageObjects(objs: Iterable<unknown>): ParsedMessages {
 interface CodexRecord {
   type?: unknown;
   timestamp?: unknown;
-  payload?: { type?: unknown; role?: unknown; content?: unknown; message?: unknown };
+  payload?: {
+    type?: unknown;
+    role?: unknown;
+    content?: unknown;
+    message?: unknown;
+    item?: { type?: unknown; content?: unknown } | null;
+  };
 }
 
-function codexAssistantText(content: unknown): string {
+/** The `kind` text parts of a Codex content array (`output_text` for the agent, `text` in a
+ *  UserMessage item); image parts are skipped. */
+function codexContentText(content: unknown, kind: "output_text" | "text"): string {
   if (!Array.isArray(content)) return "";
   return (content as ClaudeBlock[])
-    .filter((b) => b?.type === "output_text" && typeof b.text === "string")
+    .filter((b) => b?.type === kind && typeof b.text === "string")
     .map((b) => (b.text as string).trim())
     .filter(Boolean)
     .join("\n\n");
+}
+
+/** How Codex delivers an answer given through Shepherd's question center (src/codex-question-state.ts). */
+const QUESTION_REPLY_TAG = "<send_user_message_question_reply>";
+
+/** A logged user turn as the operator's words: without the launch marker and ⟦VIEW⟧ block Shepherd
+ *  sends ahead of them, so the Chat matches the composer's text (#3709). No row for an empty turn
+ *  or a native question's reply — like Claude's AskUserQuestion answer, a tool result. */
+function codexUserMessage(raw: string, rec: CodexRecord): { message: AgentMessage } | null {
+  const text = stripAssistantView(stripCodexLaunchMarker(raw.trim())).trim();
+  if (!text || text.startsWith(QUESTION_REPLY_TAG)) return null;
+  return { message: { role: "user", text, ts: tsOf(rec) } };
 }
 
 /** Turn-lifecycle events; the last one seen says whether the latest turn completed. */
@@ -236,14 +258,16 @@ function classifyCodexRecord(
   const p = rec?.payload;
   if (!rec || !p) return null;
   if (rec.type === "response_item" && p.type === "message" && p.role === "assistant") {
-    const text = codexAssistantText(p.content);
+    const text = codexContentText(p.content, "output_text");
     return text ? { message: { role: "assistant", text, ts: tsOf(rec) } } : null;
   }
   if (rec.type !== "event_msg") return null;
-  if (p.type === "user_message") {
-    const text = typeof p.message === "string" ? p.message.trim() : "";
-    return text ? { message: { role: "user", text, ts: tsOf(rec) } } : null;
-  }
+  // The operator's turn: `user_message` up to Codex ~0.147, a completed UserMessage item since.
+  // Never the `response_item` user messages, which also carry the harness's own context.
+  if (p.type === "user_message")
+    return codexUserMessage(typeof p.message === "string" ? p.message : "", rec);
+  if (p.type === "item_completed" && p.item?.type === "UserMessage")
+    return codexUserMessage(codexContentText(p.item.content, "text"), rec);
   return CODEX_TURN_EVENTS.has(p.type) ? { turnEvent: p.type } : null;
 }
 

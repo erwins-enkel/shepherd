@@ -1114,3 +1114,68 @@ test("saving an unavailable future runtime keeps an existing healthy conversatio
     config.assistantRuntime = saved;
   }
 });
+
+for (const agentProvider of ["claude", "codex"] as const) {
+  test(`${agentProvider} issue creation reaches the forge only after HUD approval`, async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "oa-issue-create-")));
+    const repo = join(root, "alpha");
+    mkdirSync(repo);
+    const saved = { repoRoot: config.repoRoot, permissions: config.assistantPermissions };
+    restore = () => {
+      config.repoRoot = saved.repoRoot;
+      config.assistantPermissions = saved.permissions;
+      rmSync(root, { recursive: true, force: true });
+    };
+    config.repoRoot = root;
+    config.assistantPermissions = { ...saved.permissions, shell: "off", automation: "ask" };
+    const { deps, store } = setup();
+    const created: { title: string; body: string }[] = [];
+    const labels: string[] = [];
+    deps.resolveForge = (path) => {
+      expect(path).toBe(repo);
+      return {
+        kind: "github",
+        slug: "o/alpha",
+        createIssue: async (issue: { title: string; body: string }) => {
+          created.push(issue);
+          return { number: 42, url: "https://github.com/o/alpha/issues/42" };
+        },
+        addIssueLabel: async (_number: number, label: string) => labels.push(label),
+      } as never;
+    };
+    deps.actionRequests = new ActionRequestService({ events: new EventHub() });
+    deps.actionWaitMs = 1;
+    const assistant = assistantRow(store, repo);
+    store.update(assistant.id, { agentProvider });
+    const app = makeApp(deps);
+    const args = { repo: "alpha", title: "  HUD blocked  ", body: "Reproduction" };
+    const create = () => callTool(app, assistant.id, "issue_create", args);
+    const answer = (outcome: "approved" | "denied") => {
+      const open = deps.actionRequests!.snapshot()[assistant.id]!;
+      return app.fetch(
+        post(`/api/sessions/${assistant.id}/action-request`, { requestId: open.id, outcome }),
+      );
+    };
+    expect((await create()).data.status).toBe("awaiting_approval");
+    expect(created).toEqual([]);
+    expect((await answer("denied")).status).toBe(200);
+    expect((await create()).isError).toBe(true);
+    expect(created).toEqual([]);
+    expect((await create()).data.status).toBe("awaiting_approval");
+    expect((await answer("approved")).status).toBe(200);
+    expect(await create()).toEqual({
+      isError: false,
+      data: {
+        ok: true,
+        action: "issue_create",
+        target: repo,
+        number: 42,
+        url: "https://github.com/o/alpha/issues/42",
+        slug: "o/alpha",
+      },
+    });
+    expect(created).toEqual([{ title: "HUD blocked", body: "Reproduction" }]);
+    expect(labels).toEqual([]);
+    expect(store.list().filter((s) => !s.operatorAssistant)).toEqual([]);
+  });
+}

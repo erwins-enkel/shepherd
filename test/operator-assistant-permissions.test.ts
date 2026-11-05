@@ -140,3 +140,17 @@ test("drain_enqueue follows automation off, ask and allow", () => {
     expect(rules[bucket]).toContain("mcp__shepherd__drain_enqueue");
   }
 });
+
+test("issue_create follows the Automation permission without widening defaults", () => {
+  expect(actionGroupOf("issue_create")).toBe("automation");
+  expect(DEFAULT_ASSISTANT_PERMISSIONS.automation).toBe("ask");
+  for (const [level, bucket] of [
+    ["off", "deny"],
+    ["ask", "allow"],
+    ["allow", "allow"],
+  ] as const) {
+    expect(assistantPermissionRules({ ...ALL_OFF, automation: level })[bucket]).toContain(
+      "mcp__shepherd__issue_create",
+    );
+  }
+});

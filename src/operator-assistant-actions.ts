@@ -407,6 +407,38 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
       target: desigs.join(","),
     };
   },
+  issue_create: (args, resolve) => {
+    const stray = Object.keys(args).filter((k) => !["repo", "title", "body"].includes(k));
+    if (stray.length > 0) return fail(400, `not settable here: ${stray.join(", ")}`);
+    const repo = resolve.repo(args.repo);
+    if (isFail(repo)) return repo;
+    if (typeof args.title !== "string" || !args.title.trim() || args.title.length > 200)
+      return fail(400, "title must be a non-empty string ≤ 200 chars");
+    if (typeof args.body !== "string" || args.body.length > 16000)
+      return fail(400, "body must be a string ≤ 16000 chars");
+    return {
+      requests: [
+        {
+          method: "POST",
+          path: "/api/issues",
+          body: { repo, title: args.title.trim(), body: args.body },
+        },
+      ],
+      target: repo,
+      bind: { repo },
+      answer: (body) => {
+        const b = (typeof body === "object" && body !== null ? body : {}) as Record<
+          string,
+          unknown
+        >;
+        return {
+          ...(Number.isSafeInteger(b.number) && (b.number as number) > 0 && { number: b.number }),
+          ...(typeof b.url === "string" && { url: b.url }),
+          ...(typeof b.slug === "string" && { slug: b.slug }),
+        };
+      },
+    };
+  },
   schedule_create: (args, resolve) => {
     const repo = resolve.repo(args.repo);
     if (isFail(repo)) return repo;
@@ -426,7 +458,7 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
  *  - every desig-targeted tool (steer, plan_answer, the sessions and approve groups,
  *    session_automation_set) and herd_retry (by desigs) resolve through `session()`, which refuses
  *    a session of another repo;
- *  - session_start, repo_automation_set, epic_run_set and schedule_create resolve through
+ *  - session_start, repo_automation_set, epic_run_set, schedule_create and issue_create resolve through
  *    `repo()`, which refuses another repo;
  *  - held_task resolves through `held()`, which refuses another repo's held task;
  *  - herd_halt interrupts every working session of every repo (`/api/halt` takes no target), so it
@@ -841,6 +873,24 @@ export const OPERATOR_ACTION_TOOLS: McpTool[] = [
         enabled: { type: "boolean", description: "Default true." },
       },
       required: ["repo", "name", "prompt", "days", "times"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "issue_create",
+    description:
+      "[automation] Create an issue in the explicitly named repo. Returns its number, URL and slug. " +
+      "Ask the operator if the target is unclear. Creates no queue entry or session. Report success " +
+      "only with the returned issue URL; never blindly retry a failed or uncertain write." +
+      NOTE,
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: REPO,
+        title: { type: "string", minLength: 1, maxLength: 200 },
+        body: { type: "string", maxLength: 16000 },
+      },
+      required: ["repo", "title", "body"],
       additionalProperties: false,
     },
   },

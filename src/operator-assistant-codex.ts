@@ -88,6 +88,8 @@ enabled = false
 [mcp_servers.shepherd]
 url = ${JSON.stringify(opts.endpoint)}
 required = true
+# Shepherd enforces action and shell approvals server-side.
+default_tools_approval_mode = "approve"
 [mcp_servers.shepherd.http_headers]
 x-shepherd-ingress-key = ${JSON.stringify(opts.key)}
 `;

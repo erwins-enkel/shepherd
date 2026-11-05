@@ -577,12 +577,28 @@ test.skipIf(!Bun.which("codex"))(
       expect(calls.starts[0]!.argv).toContain(
         `CODEX_HOME=${join(dir, ".codex-runtime", session.id)}`,
       );
+      const runtimeConfig = join(dir, ".codex-runtime", session.id, "config.toml");
+      expect(
+        (Bun.TOML.parse(readFileSync(runtimeConfig, "utf8")) as any).mcp_servers.shepherd
+          .default_tools_approval_mode,
+      ).toBe("approve");
+      writeFileSync(
+        runtimeConfig,
+        readFileSync(runtimeConfig, "utf8").replace(
+          'default_tools_approval_mode = "approve"\n',
+          "",
+        ),
+      );
       store.setProviderSessionId(session.id, "native-fixture");
       config.assistantRuntime = {
         ...config.assistantRuntime,
         codex: { model: "gpt-6-sol", effort: "low" },
       };
       await svc.resume(session.id);
+      expect(
+        (Bun.TOML.parse(readFileSync(runtimeConfig, "utf8")) as any).mcp_servers.shepherd
+          .default_tools_approval_mode,
+      ).toBe("approve");
       expect(calls.starts[1]!.argv).toContain("native-fixture");
       expect(calls.starts[1]!.argv).toContain("gpt-6-astra");
       codexMissing = true;

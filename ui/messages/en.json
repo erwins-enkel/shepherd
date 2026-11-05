@@ -6437,7 +6437,7 @@
   "settings_assistant_approve_title": "Approvals & merge",
   "settings_assistant_approve_hint": "Start an approved plan, approve a build queue, mark a PR ready, merge a PR. Never takes over a merge someone else is responsible for.",
   "settings_assistant_automation_title": "Automation",
-  "settings_assistant_automation_hint": "Repo automation (Auto-Drain, max auto sessions, auto-merge, critic), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd, issue queue and priority, and releasing orphaned claims, and creating repo schedules.",
+  "settings_assistant_automation_hint": "Repo automation (Auto-Drain, max auto sessions, auto-merge, critic), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd, issue queue and priority, and releasing orphaned claims, and creating repo schedules and issues.",
   "settings_assistant_save_failed": "Couldn't save what the assistant may do.",
   "operator_assistant_mode_asks": "Asks first",
   "operator_assistant_mode_acts": "Acts itself",
@@ -8113,5 +8113,7 @@
   "native_server_update_title": "Update {server}",
   "native_ios_merge_hold_hint": "Press and hold to merge. Release early to cancel.",
   "native_ios_merge_opens_confirmation": "Opens the merge confirmation.",
-  "native_ios_merge_with_options": "Merge with options …"
+  "native_ios_merge_with_options": "Merge with options …",
+  "feat_assistant_issue_create_title": "Ask the Assistant to create an issue",
+  "feat_assistant_issue_create_body": "Describe a bug or task and ask the Operator Assistant to file an issue in a specific repo. Automation in Settings → Assistant controls whether it asks first. The Assistant returns the issue link; creating an issue does not queue work or start a session."
 }

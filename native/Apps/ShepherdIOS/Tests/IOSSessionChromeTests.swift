@@ -164,7 +164,7 @@ final class IOSSessionChromeTests: XCTestCase {
             }.font(.system(size: 12.5, design: .monospaced)).padding(12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             let detail = IOSSessionDetailContent(session: record, model: DetailModel(loaders: .stubbed()), terminal: f.model,
-                allowsInput: true, fontSize: .constant(12.5), surface: output, selectableText: false,
+                allowsInput: true, fontSize: .constant(12.5), surface: output, tab: .terminal, selectableText: false,
                 steerChips: AnyView(chips), repoName: "epamano", back: {}, fixtureClipboard: name == "clipboard", fixtureThumbnails: thumbnails)
             let view = VStack(spacing: 0) {
                 Color.clear.frame(height: 54)

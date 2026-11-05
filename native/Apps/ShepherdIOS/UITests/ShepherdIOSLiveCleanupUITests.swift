@@ -29,6 +29,9 @@ final class ShepherdIOSLiveCleanupUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 30), "A live session is required for detail coverage")
         row.tap()
         XCTAssertTrue(app.descendants(matching: .any)["session-detail"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.descendants(matching: .any)["detail-tab-chat"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.descendants(matching: .any)["chat-composer"].exists)
+        app.buttons["detail-select-terminal"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["detail-tab-terminal"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["terminal-font-settings"].exists)
         for identifier in ["terminal-reply-bar", "terminal-reply-text", "terminal-reply-send",

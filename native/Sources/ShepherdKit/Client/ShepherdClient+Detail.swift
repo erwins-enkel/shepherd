@@ -21,6 +21,8 @@ extension Components.Schemas.PrReviewState: OpenEnum {}
 // MARK: - Short names for the generated detail schemas
 
 public typealias ActivityEntry = Components.Schemas.ActivityEntry
+public typealias AgentMessage = Components.Schemas.AgentMessage
+public typealias SessionMessages = Components.Schemas.SessionMessages
 public typealias DiffResult = Components.Schemas.DiffResult
 public typealias DiffFile = Components.Schemas.DiffFile
 public typealias DiffNote = Components.Schemas.DiffNote
@@ -49,6 +51,21 @@ public typealias ForgeKindKnown = Components.Schemas.ForgeKindKnown
 // MARK: - Reads
 
 extension ShepherdClient {
+  /// The mobile Chat window, including operator messages and tool calls, oldest first.
+  public func messages(sessionID: String) async throws -> SessionMessages {
+    do {
+      switch try await generated.getSessionMessages(.init(
+        path: .init(id: sessionID), query: .init(limit: 50, includeUser: true, includeTools: true)
+      )) {
+      case .ok(let ok): return try ok.body.json
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .notFound: throw ShepherdError.notFound
+      case .undocumented(let status, let payload):
+        throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "getSessionMessages")
+      }
+    } catch { throw ShepherdError.from(error, route: "getSessionMessages") }
+  }
+
   /// Recent tool use from the agent transcript, oldest first. An unreadable transcript is an
   /// empty list server-side, never an error.
   public func activity(sessionID: String) async throws -> [ActivityEntry] {

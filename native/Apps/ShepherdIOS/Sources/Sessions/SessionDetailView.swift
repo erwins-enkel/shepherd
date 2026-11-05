@@ -17,6 +17,7 @@ struct SessionDetailView: View {
     @State private var gesture = IOSSteerGestureState()
     @State private var steerDraft: IOSSteerDraft?
     @State private var askFlow = AskAnswerFlow()
+    @State private var chat = IOSChatModel()
 
     init(session: Session, model: DetailModel, terminal: IOSTerminalPresentation, defaults: UserDefaults) {
         self.session = session
@@ -60,6 +61,7 @@ struct SessionDetailView: View {
         IOSSessionDetailContent(session: session, model: model, terminal: terminal,
             allowsInput: app.allowsTerminalInput, fontSize: $fontSize,
             surface: terminalSurface,
+            chatSurface: AnyView(IOSChatView(session: session, detail: model, model: chat, allowsInput: app.allowsTerminalInput)),
             planSurface: planSurface,
             planEntryLabel: planEntryLabel,
             planInitialEntry: planInitialEntry,
@@ -243,9 +245,10 @@ struct SessionDetailView: View {
 }
 
 enum IOSSessionDetailTab: CaseIterable {
-    case terminal, activity, info, plan
+    case chat, terminal, activity, info, plan
     var title: String {
         switch self {
+        case .chat: L.t("viewport_chat_tab")
         case .terminal: L.t("native_terminal_tab_title")
         case .activity: L.t("native_detail_tab_activity")
         case .info: L.t("native_ios_detail_info")
@@ -261,9 +264,10 @@ struct IOSSessionDetailContent<Surface: View>: View {
     let allowsInput: Bool
     @Binding var fontSize: Double
     let surface: Surface
-    @State var tab: IOSSessionDetailTab = .terminal
+    @State var tab: IOSSessionDetailTab = .chat
     // ImageRenderer cannot draw UIKit-backed selectable Text. Fixtures disable selection.
     var selectableText = true
+    var chatSurface: AnyView? = nil
     var planSurface: AnyView? = nil
     var planEntryLabel: String? = nil
     var planInitialEntry = false
@@ -292,6 +296,9 @@ struct IOSSessionDetailContent<Surface: View>: View {
             if focused { focusBar } else { header; tabRow }
             if tab != .terminal, let inlineActions { inlineActions }
             switch tab {
+            case .chat:
+                if let askStrip { askStrip }
+                chatSurface
             case .terminal:
                 if let askStrip { askStrip }
                 IOSTerminalPane(model: terminal, allowsInput: allowsInput, surface: surface, fontSize: $fontSize,

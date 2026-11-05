@@ -1211,6 +1211,33 @@ export const KEYS_IOS_PLAN: readonly string[] = [
   "native_ios_plan_readonly",
 ];
 
+/** iOS conversation tab; reuse mobile-web chat copy. */
+export const KEYS_IOS_CHAT: readonly string[] = [
+  "viewport_chat_tab",
+  "session_chat_log",
+  "session_chat_empty",
+  "session_chat_input_label",
+  "session_chat_placeholder",
+  "session_chat_steer_by",
+  "chat_tools_one",
+  "chat_tools_many",
+  "chat_tool_error",
+  "assistant_chat_send",
+  "native_ios_chat_load_failed",
+  "native_ios_chat_unavailable",
+  "native_ios_chat_pending",
+  "native_ios_chat_send_failed",
+  "pulse_event_go",
+  "pulse_event_plan_review",
+  "pulse_event_ci_fix",
+  "pulse_event_rebase",
+  "pulse_event_open_pr",
+  "pulse_event_nudge",
+  "pulse_event_review",
+  "pulse_event_queue",
+  "pulse_event_api_retry",
+];
+
 /** Phone AskUserQuestion sheet and its strip above the terminal (#3166). */
 export const KEYS_IOS_ASK: readonly string[] = [
   "ask_banner_answer",
@@ -2751,6 +2778,7 @@ export const KEYS: readonly string[] = [
   ...KEYS_PLAN,
   ...KEYS_IOS_PLAN,
   ...KEYS_IOS_ASK,
+  ...KEYS_IOS_CHAT,
   ...KEYS_MERGE,
   ...KEYS_QUEUES,
   ...KEYS_COMPOSE,

@@ -13,6 +13,7 @@ test("Codex assistant has isolated MCP and read-denying read-only permissions", 
   ) as any;
   expect(config.features.shell_tool).toBe(false);
   expect(config.approval_policy).toBe("never");
+  expect(config.mcp_servers.shepherd.default_tools_approval_mode).toBe("approve");
   expect(config.permissions.assistant.extends).toBe(":read-only");
   expect(config.permissions.assistant.filesystem["/safe/runtime"]).toBe("deny");
   expect(Object.keys(config.mcp_servers)).toEqual(["shepherd"]);

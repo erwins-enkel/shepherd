@@ -187,6 +187,8 @@ test("brief names every action tool and the setting that governs it", () => {
   const b = brief();
   for (const tool of Object.values(ASSISTANT_ACTION_GROUPS).flat()) expect(b).toContain(tool);
   expect(b).toContain("Settings → Assistant");
+  expect(b).toContain("issue_create({repo, title, body})");
+  expect(b).toContain("Do not blindly retry failed or uncertain writes");
 });
 
 test("brief carries the guardrails", () => {

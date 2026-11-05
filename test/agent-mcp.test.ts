@@ -36,6 +36,7 @@ function harness(
     sharedBrowser?: boolean;
     sandboxApplied?: SandboxProfile;
     operatorAssistant?: boolean;
+    assistantRepo?: string;
     scheduleId?: string;
   } = {},
 ): {
@@ -70,6 +71,7 @@ function harness(
     plain: opts.plain,
     sandboxApplied: opts.sandboxApplied,
     operatorAssistant: opts.operatorAssistant,
+    assistantRepo: opts.assistantRepo,
     scheduleId: opts.scheduleId,
   });
   return {
@@ -1106,3 +1108,59 @@ test("Codex-only shell and view tools are not advertised to Claude assistants", 
   expect(agentTools(deps, sessionId).map((t) => t.name)).toContain("assistant_shell");
   expect(agentTools(deps, sessionId).map((t) => t.name)).toContain("assistant_view");
 });
+
+for (const agentProvider of ["claude", "codex"] as const) {
+  test(`${agentProvider} assistant issue_create reaches the action gate over MCP`, async () => {
+    const { deps, store, sessionId } = harness({ operatorAssistant: true });
+    store.update(sessionId, { agentProvider });
+    let dispatched = 0;
+    let level: "off" | "allow" = "off";
+    deps.operatorDiag = {
+      repos: () => ["/repo"],
+      logPaths: {},
+      herdrSocketPath: "/missing",
+    } as AgentControlDeps["operatorDiag"];
+    deps.operatorActions = {
+      permissions: () => ({
+        shell: "off",
+        steer: "off",
+        start: "off",
+        sessions: "off",
+        approve: "off",
+        automation: level,
+      }),
+      taskDefaults: () => ({ baseBranch: "main", agentProvider, model: null, effort: null }),
+      dispatch: async (req) => {
+        expect(req).toEqual({
+          method: "POST",
+          path: "/api/issues",
+          body: { repo: "/repo", title: "Bug", body: "Details" },
+        });
+        dispatched++;
+        return {
+          status: 201,
+          body: { number: 7, url: "https://github.com/o/r/issues/7", slug: "o/r" },
+        };
+      },
+      log: () => {},
+    };
+    expect(agentTools(deps, sessionId).map((t) => t.name)).toContain("issue_create");
+    const args = { repo: "/repo", title: "Bug", body: "Details" };
+    expect(toolPayload(await call(deps, sessionId, "issue_create", args)).isError).toBe(true);
+    expect(dispatched).toBe(0);
+    level = "allow";
+    expect(toolPayload(await call(deps, sessionId, "issue_create", args))).toMatchObject({
+      isError: false,
+      payload: { number: 7, url: "https://github.com/o/r/issues/7" },
+    });
+    expect(dispatched).toBe(1);
+    const scoped = harness({ operatorAssistant: true, assistantRepo: "/other" });
+    scoped.store.update(scoped.sessionId, { agentProvider });
+    scoped.deps.operatorActions = deps.operatorActions;
+    scoped.deps.operatorDiag = deps.operatorDiag;
+    expect(
+      toolPayload(await call(scoped.deps, scoped.sessionId, "issue_create", args)).isError,
+    ).toBe(true);
+    expect(dispatched).toBe(1);
+  });
+}

@@ -6437,7 +6437,7 @@
   "settings_assistant_approve_title": "Freigaben & Merge",
   "settings_assistant_approve_hint": "Freigegebenen Plan starten, Build-Queue freigeben, PR auf ready setzen, PR mergen. Übernimmt nie einen Merge, für den jemand anderes zuständig ist.",
   "settings_assistant_automation_title": "Automatik bearbeiten",
-  "settings_assistant_automation_hint": "Repo-Automatik (Auto-Drain, max. Auto-Sessions, Auto-Merge, Critic), Autopilot und Auto-Merge einer Session, Epic pausieren oder fortsetzen, gehaltene Tasks, Herde anhalten und erneut starten, Issues einreihen oder herausnehmen, priorisieren und verwaiste Claims freigeben sowie Repo-Zeitpläne anlegen.",
+  "settings_assistant_automation_hint": "Repo-Automatik (Auto-Drain, max. Auto-Sessions, Auto-Merge, Critic), Autopilot und Auto-Merge einer Session, Epic pausieren oder fortsetzen, gehaltene Tasks, Herde anhalten und erneut starten, Issues einreihen oder herausnehmen, priorisieren und verwaiste Claims freigeben sowie Repo-Zeitpläne und Issues anlegen.",
   "settings_assistant_save_failed": "Die Rechte des Assistenten konnten nicht gespeichert werden.",
   "operator_assistant_mode_asks": "Fragt nach",
   "operator_assistant_mode_acts": "Handelt selbst",
@@ -8113,5 +8113,7 @@
   "native_server_update_title": "{server} aktualisieren",
   "native_ios_merge_hold_hint": "Zum Mergen gedrückt halten. Früher loslassen bricht ab.",
   "native_ios_merge_opens_confirmation": "Öffnet die Merge-Bestätigung.",
-  "native_ios_merge_with_options": "Merge mit Optionen …"
+  "native_ios_merge_with_options": "Merge mit Optionen …",
+  "feat_assistant_issue_create_title": "Issues vom Assistenten anlegen lassen",
+  "feat_assistant_issue_create_body": "Beschreibe einen Fehler oder eine Aufgabe und bitte den Operator-Assistenten, ein Issue in einem bestimmten Repo anzulegen. „Automatik bearbeiten“ unter Einstellungen → Assistent legt fest, ob er vorher fragt. Der Assistent liefert den Issue-Link; das Anlegen reiht keine Arbeit ein und startet keine Sitzung."
 }

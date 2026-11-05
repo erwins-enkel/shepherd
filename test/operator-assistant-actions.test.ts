@@ -899,3 +899,129 @@ test("handoff history cannot replay an allowed action before fresh operator inpu
   expect(await run("session_interrupt", { desig: worker.desig })).toMatchObject({ ok: true });
   expect(requests).toHaveLength(1);
 });
+
+// Issue creation uses the same route and exact-call approval as the operator's button.
+const ISSUE_ARGS = { repo: "alpha", title: "  HUD blocked  ", body: "Steps to reproduce" };
+const CREATED_ISSUE = { number: 42, url: "https://github.com/o/alpha/issues/42", slug: "o/alpha" };
+
+test("issue_create dispatches one scoped create and returns only the issue identity", async () => {
+  const { run, requests } = setup({
+    permissions: { automation: "allow" },
+    answer: () => ({ status: 201, body: { ...CREATED_ISSUE, private: "never echo" } }),
+  });
+  expect(await run("issue_create", ISSUE_ARGS)).toEqual({
+    ok: true,
+    data: { ok: true, action: "issue_create", target: "/r/alpha", ...CREATED_ISSUE },
+  });
+  expect(requests).toEqual([
+    {
+      method: "POST",
+      path: "/api/issues",
+      body: { repo: "/r/alpha", title: "HUD blocked", body: ISSUE_ARGS.body },
+    },
+  ]);
+});
+
+test("issue_create validates input and repo before asking or dispatching", async () => {
+  const { service } = approvals();
+  const { run, runScoped, requests, deps } = setup({ actionRequests: service });
+  for (const patch of [
+    { repo: undefined },
+    { repo: "missing" },
+    { title: " " },
+    { title: 1 },
+    { title: "a".repeat(201) },
+    { body: undefined },
+    { body: null },
+    { body: "a".repeat(16001) },
+    { labels: ["shepherd"] },
+  ]) {
+    expect((await run("issue_create", { ...ISSUE_ARGS, ...patch })).ok).toBe(false);
+  }
+  expect(await runScoped("/r/beta", "issue_create", ISSUE_ARGS)).toMatchObject({
+    ok: false,
+    status: 403,
+  });
+  deps.operatorDiag.repos = () => ["/r/alpha", "/other/alpha"];
+  expect((await run("issue_create", ISSUE_ARGS)).ok).toBe(false);
+  expect(service.snapshot()).toEqual({});
+  expect(requests).toEqual([]);
+});
+
+test("issue_create accepts boundary lengths, empty bodies and its own repo scope", async () => {
+  const { runScoped, requests } = setup({ permissions: { automation: "allow" } });
+  for (const body of ["", "b".repeat(16000)]) {
+    expect(
+      (await runScoped("/r/alpha", "issue_create", { repo: "alpha", title: "t".repeat(200), body }))
+        .ok,
+    ).toBe(true);
+  }
+  expect(requests).toHaveLength(2);
+});
+
+test("issue_create off, denial and handoff never dispatch", async () => {
+  const off = setup({ permissions: { automation: "off" } });
+  expect(await off.run("issue_create", ISSUE_ARGS)).toMatchObject({ ok: false, status: 403 });
+  expect(off.requests).toEqual([]);
+  const { service } = approvals();
+  const h = setup({ actionRequests: service });
+  await h.run("issue_create", ISSUE_ARGS);
+  service.resolve(ASSISTANT_ID, service.snapshot()[ASSISTANT_ID]!.id, "denied");
+  expect(await h.run("issue_create", ISSUE_ARGS)).toMatchObject({ ok: false, status: 403 });
+  h.store.setSetting(`assistantHandoff:${ASSISTANT_ID}`, "pending");
+  expect(await h.run("issue_create", ISSUE_ARGS)).toMatchObject({ ok: false, status: 409 });
+  expect(h.requests).toEqual([]);
+});
+
+test("issue_create ask binds content and canonical repo, consumes approval once", async () => {
+  const { service } = approvals();
+  const h = setup({ actionRequests: service });
+  expect(await h.run("issue_create", ISSUE_ARGS)).toMatchObject({
+    ok: true,
+    data: { status: "awaiting_approval" },
+  });
+  expect(h.requests).toEqual([]);
+  let open = service.snapshot()[ASSISTANT_ID]!;
+  expect(open).toMatchObject({ target: "/r/alpha", args: { ...ISSUE_ARGS, repo: "/r/alpha" } });
+  service.resolve(ASSISTANT_ID, open.id, "approved");
+  await h.run("issue_create", { ...ISSUE_ARGS, body: "changed" });
+  expect(h.requests).toEqual([]);
+  open = service.snapshot()[ASSISTANT_ID]!;
+  service.resolve(ASSISTANT_ID, open.id, "approved");
+  h.deps.operatorDiag.repos = () => ["/different/alpha"];
+  await h.run("issue_create", { ...ISSUE_ARGS, body: "changed" });
+  expect(h.requests).toEqual([]);
+  open = service.snapshot()[ASSISTANT_ID]!;
+  service.resolve(ASSISTANT_ID, open.id, "approved");
+  expect((await h.run("issue_create", { ...ISSUE_ARGS, body: "changed" })).ok).toBe(true);
+  expect(h.requests).toHaveLength(1);
+  await h.run("issue_create", { ...ISSUE_ARGS, body: "changed" });
+  expect(h.requests).toHaveLength(1);
+});
+
+test("issue_create rechecks automation after approval while waiting", async () => {
+  const { service } = approvals();
+  const h = setup({ actionRequests: service });
+  h.deps.actionWaitMs = 5000;
+  const pending = h.run("issue_create", ISSUE_ARGS);
+  await Bun.sleep(0);
+  const open = service.snapshot()[ASSISTANT_ID]!;
+  const permissions = h.deps.operatorActions.permissions();
+  permissions.automation = "off";
+  service.resolve(ASSISTANT_ID, open.id, "approved");
+  expect(await pending).toMatchObject({ ok: false, status: 403 });
+  expect(h.requests).toEqual([]);
+});
+
+test("issue_create returns route errors without retrying or claiming creation", async () => {
+  const h = setup({
+    permissions: { automation: "allow" },
+    answer: () => ({ status: 502, body: { error: "forge unavailable" } }),
+  });
+  expect(await h.run("issue_create", ISSUE_ARGS)).toMatchObject({
+    ok: false,
+    status: 502,
+    error: "forge unavailable",
+  });
+  expect(h.requests).toHaveLength(1);
+});

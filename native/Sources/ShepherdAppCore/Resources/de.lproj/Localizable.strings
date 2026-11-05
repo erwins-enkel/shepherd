@@ -43,6 +43,7 @@
 "ask_result_sending" = "Antwort wird ins Terminal getippt…";
 "ask_result_unverified" = "Antwort konnte nicht bestätigt werden — bitte im Terminal prüfen.";
 "ask_result_verified" = "Antwort übermittelt.";
+"assistant_chat_send" = "Senden";
 "automerge_state_merge_error" = "Merge fehlgeschlagen, Eingriff nötig";
 "automerge_state_merging" = "Wird gemergt…";
 "automerge_state_migrations" = "PR ändert Datenbank-Migrationen, manuell mergen";
@@ -79,6 +80,9 @@
 "cardmenu_stop_failed" = "%1$@ konnte nicht gestoppt werden — läuft möglicherweise nicht mehr";
 "cardmenu_stop_title" = "Sendet Esc an diese Sitzung — bricht nur den laufenden Zug ab";
 "cardmenu_stop_toast" = "%1$@ gestoppt";
+"chat_tool_error" = "fehlgeschlagen";
+"chat_tools_many" = "%1$@ Tool-Aufrufe";
+"chat_tools_one" = "1 Tool-Aufruf";
 "childrun_step_unlocks" = "Gibt frei";
 "clearmerged_confirm" = "%1$@ stilllegen";
 "clearmerged_desc" = "Diese %1$@ Sessions liegen auf gemergten Branches. Beim Stilllegen wird jeder Agent gestoppt, sein Worktree entfernt und der gemergte Branch gelöscht.";
@@ -994,6 +998,10 @@
 "native_ios_attachment_invalid" = "Das Bild konnte nicht importiert werden.";
 "native_ios_attachment_photos" = "Fotomediathek";
 "native_ios_attachment_remove" = "%1$@ entfernen";
+"native_ios_chat_load_failed" = "Die Unterhaltung konnte nicht geladen werden. Erneuter Versuch…";
+"native_ios_chat_pending" = "Warte auf Gesprächsprotokoll…";
+"native_ios_chat_send_failed" = "Nachricht nicht gesendet. Dein Entwurf bleibt erhalten; versuche es erneut.";
+"native_ios_chat_unavailable" = "Kein Gesprächsprotokoll verfügbar. Öffne das Terminal, um die Sitzung zu sehen.";
 "native_ios_connecting" = "Verbinde…";
 "native_ios_detail_branch" = "Branch";
 "native_ios_detail_info" = "Info";
@@ -2009,6 +2017,15 @@
 "prrow_state_draft" = "Entwurf";
 "prrow_state_protected" = "Geschützt";
 "prspanel_merge_train_prompt" = "Führe einen Merge-Train für die Pull Requests aus, die ich ausgewählt habe. Prüfe jeden auf Korrektheit und Produkt-Fit, schlage eine sichere Merge-Reihenfolge vor und halte vor jedem Merge für meine Freigabe an; prüfe danach nach jedem Merge die Warteschlange erneut, denn main bewegt sich unter dir.\n\nAusgewählte PRs:\n%1$@\n\nWenn dieses Repo einen /merge-train-Befehl oder -Skill bereitstellt, nutze ihn. Andernfalls arbeite den Train selbst ab:\n1. Erfasse für jeden PR den Status mit gh (CI-Rollup, Mergebarkeit/Konflikte, wie weit hinter main, und welche Dateien sich mit anderen PRs dieser Liste überschneiden).\n2. Verschiebe jeden PR, der CI-rot, konfliktbehaftet, gate-fehlerhaft oder nicht erwünscht ist, mit einer einzeiligen Begründung auf eine separate Halteliste; merge niemals an einem roten Gate vorbei.\n3. Ordne den Rest: am kleinsten und unabhängigsten zuerst; überschneiden sich zwei, sequenziere sie so, dass der riskantere auf den anderen rebased; release-please-PRs zuletzt.\n4. Präsentiere die nummerierte Merge-Reihenfolge plus die Halteliste und WARTE auf meine Freigabe.\n5. Nach Freigabe merge in Reihenfolge: erst auf das aktuelle main rebasen (niemals main in den Branch mergen), grüne Gates bestätigen, dann gh pr merge --squash --delete-branch, und vor dem nächsten die verbleibenden PRs erneut gegen main prüfen.";
+"pulse_event_api_retry" = "Wiederholung nach API-Fehler";
+"pulse_event_ci_fix" = "CI rot → CI-Fix-Hinweis";
+"pulse_event_go" = "Freigabe zur Umsetzung";
+"pulse_event_nudge" = "Anstoß vom Autopilot";
+"pulse_event_open_pr" = "Hinweis: PR öffnen";
+"pulse_event_plan_review" = "Plan-Review";
+"pulse_event_queue" = "Queue-Abgleich";
+"pulse_event_rebase" = "Rebase-Hinweis";
+"pulse_event_review" = "Befunde des Kritikers";
 "pulse_slot_gib" = "%1$@ GiB";
 "pulse_slot_note_informed" = "Der Agent erfährt, wann er dran ist.";
 "pulse_slot_note_next" = "Startet als Nächstes. Der Agent erfährt, wann er dran ist.";
@@ -2127,6 +2144,11 @@
 "session_autopilot_paused_title" = "Autopilot hat dies für eine Entscheidung zurückgegeben: %1$@";
 "session_autopilot_unavailable_label" = "AP nicht verfügbar";
 "session_autopilot_unavailable_title" = "Autopilot wartet auf eine eindeutig zugeordnete Unterhaltung der Aufgabe.";
+"session_chat_empty" = "Noch keine Nachrichten. Schreib dem Agenten unten.";
+"session_chat_input_label" = "Nachricht an den Agenten";
+"session_chat_log" = "Unterhaltung mit dem Agenten";
+"session_chat_placeholder" = "Nachricht an den Agenten…";
+"session_chat_steer_by" = "Shepherd · %1$@";
 "session_env_effort_configured" = "Aufwand: %1$@ — die konfigurierte Einstellung, nicht beobachtet. Für diesen Lauf wurde kein Laufzeitwert verzeichnet, die CLI kann also einen anderen Aufwand genutzt haben.";
 "session_env_effort_observed" = "Aufwand: %1$@ — was dieser Lauf tatsächlich genutzt hat, aus dem Laufzeitprotokoll des Agenten gelesen.";
 "session_env_model_configured" = "Modell: %1$@ — die konfigurierte Einstellung, nicht beobachtet. Für diesen Lauf wurde kein Laufzeitwert verzeichnet, die CLI kann also ein anderes Modell genutzt haben.";
@@ -2524,6 +2546,7 @@
 "vblock_wireframe_surface_mobile" = "Mobile Skizze";
 "vblock_wireframe_surface_panel" = "Panel-Skizze";
 "vblock_wireframe_surface_popover" = "Popover-Skizze";
+"viewport_chat_tab" = "Chat";
 "viewport_decommission_title" = "Agent stoppen + Worktree entfernen";
 "viewport_diff_annotation_review" = "Prüfung";
 "viewport_reconnect_sub" = "Terminal bricht direkt nach dem Verbinden ab — herdr ist evtl. nicht erreichbar. Tippen zum erneuten Versuch.";

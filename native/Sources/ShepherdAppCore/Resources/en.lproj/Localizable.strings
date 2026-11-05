@@ -43,6 +43,7 @@
 "ask_result_sending" = "Typing your answer into the terminal…";
 "ask_result_unverified" = "Couldn't confirm the answer — check the terminal.";
 "ask_result_verified" = "Answer delivered.";
+"assistant_chat_send" = "Send";
 "automerge_state_merge_error" = "Merge failed, needs attention";
 "automerge_state_merging" = "Merging…";
 "automerge_state_migrations" = "PR touches database migrations, merge it manually";
@@ -79,6 +80,9 @@
 "cardmenu_stop_failed" = "Couldn't stop %1$@ — it may no longer be running";
 "cardmenu_stop_title" = "Send Esc to this session — stops the current turn, nothing else";
 "cardmenu_stop_toast" = "Stopped %1$@";
+"chat_tool_error" = "failed";
+"chat_tools_many" = "%1$@ tool calls";
+"chat_tools_one" = "1 tool call";
 "childrun_step_unlocks" = "Unlocks";
 "clearmerged_confirm" = "Decommission %1$@";
 "clearmerged_desc" = "These %1$@ sessions are on merged branches. Decommissioning them stops each agent, removes its worktree, and deletes the merged branch.";
@@ -994,6 +998,10 @@
 "native_ios_attachment_invalid" = "The image could not be imported.";
 "native_ios_attachment_photos" = "Photo Library";
 "native_ios_attachment_remove" = "Remove %1$@";
+"native_ios_chat_load_failed" = "Could not load the conversation. Retrying…";
+"native_ios_chat_pending" = "Waiting for transcript…";
+"native_ios_chat_send_failed" = "Message not sent. Your draft is kept; try again.";
+"native_ios_chat_unavailable" = "No transcript is available. Open Terminal to see the session.";
 "native_ios_connecting" = "Connecting…";
 "native_ios_detail_branch" = "Branch";
 "native_ios_detail_info" = "Info";
@@ -2009,6 +2017,15 @@
 "prrow_state_draft" = "Draft";
 "prrow_state_protected" = "Protected";
 "prspanel_merge_train_prompt" = "Run a merge train for the pull requests I've selected. Review each for correctness and product-fit, propose a safe merge order, and stop for my approval before merging anything; then re-check the queue after every merge, because main moves under you.\n\nSelected PRs:\n%1$@\n\nIf this repo provides a /merge-train command or skill, use it. Otherwise work the train yourself:\n1. For each PR, gather status with gh (CI rollup, mergeability/conflicts, how far behind main, and which files overlap other PRs in this list).\n2. Move any PR that is CI-red, conflicting, gate-failing, or that we don't actually want into a separate hold list with a one-line reason; never merge past a red gate.\n3. Order the rest: smallest and most independent first; when two overlap, sequence them so the riskier one rebases onto the other; release-please PRs last.\n4. Present the numbered merge order plus the hold list and WAIT for my approval.\n5. On approval, merge in order: rebase onto latest main first (never merge main into the branch), confirm gates are green, then gh pr merge --squash --delete-branch, and re-check the remaining PRs against main before the next one.";
+"pulse_event_api_retry" = "API error retry";
+"pulse_event_ci_fix" = "CI red → fix steer";
+"pulse_event_go" = "Go-ahead to execute";
+"pulse_event_nudge" = "Autopilot nudge";
+"pulse_event_open_pr" = "Steer: open the PR";
+"pulse_event_plan_review" = "Plan review";
+"pulse_event_queue" = "Queue reconcile";
+"pulse_event_rebase" = "Rebase steer";
+"pulse_event_review" = "Critic findings";
 "pulse_slot_gib" = "%1$@ GiB";
 "pulse_slot_note_informed" = "The agent learns when it's its turn.";
 "pulse_slot_note_next" = "Starts next. The agent learns when it's its turn.";
@@ -2127,6 +2144,11 @@
 "session_autopilot_paused_title" = "Autopilot handed this back for a decision: %1$@";
 "session_autopilot_unavailable_label" = "AP unavailable";
 "session_autopilot_unavailable_title" = "Autopilot is waiting for an unambiguous task conversation.";
+"session_chat_empty" = "No messages yet. Write to the agent below.";
+"session_chat_input_label" = "Message to the agent";
+"session_chat_log" = "Conversation with the agent";
+"session_chat_placeholder" = "Message the agent…";
+"session_chat_steer_by" = "Shepherd · %1$@";
 "session_env_effort_configured" = "Effort: %1$@ — the configured setting, not observed. No runtime value was recorded for this run, so the CLI may have used another effort.";
 "session_env_effort_observed" = "Effort: %1$@ — what this run actually used, read from the agent's own runtime log.";
 "session_env_model_configured" = "Model: %1$@ — the configured setting, not observed. No runtime value was recorded for this run, so the CLI may have used another model.";
@@ -2524,6 +2546,7 @@
 "vblock_wireframe_surface_mobile" = "Mobile mockup";
 "vblock_wireframe_surface_panel" = "Panel mockup";
 "vblock_wireframe_surface_popover" = "Popover mockup";
+"viewport_chat_tab" = "Chat";
 "viewport_decommission_title" = "stop agent + remove worktree";
 "viewport_diff_annotation_review" = "Review";
 "viewport_reconnect_sub" = "Terminal keeps dropping right after attaching — herdr may be down. Tap to retry.";

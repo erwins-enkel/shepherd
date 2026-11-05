@@ -5,8 +5,12 @@ the shared Sidebar, Detail, Herd, Plan, Queues, Merge and recap models. Profiles
 login, activation generations and the single event connection remain owned by
 `AppModel`. `IOSTerminalController` owns presentations around the shared PTY state
 machine and retains selected Done sessions until navigation leaves them. Session detail
-opens on Terminal, with Activity and Info (including the complete prompt) on
-separate tabs. The iOS SwiftTerm renderer is pinned to 1.20.0, like the Mac app.
+opens on Chat, with Terminal, Activity and Info (including the complete prompt) on
+separate tabs. Chat shows the latest 50 messages with Markdown, operator messages,
+Shepherd steers and collapsed tool runs. It polls only while selected and active
+(every 2 seconds while running, 8 seconds at rest). Its retained draft uses the
+reply endpoint and shared hold-to-talk dictation; dictation never sends. Attachments
+and terminal dialog keys remain in Terminal. The iOS SwiftTerm renderer is pinned to 1.20.0, like the Mac app.
 Terminal font size is a per-device setting; the surrounding chrome, metadata and
 activity use Dynamic Type. Sessions with a plan phase or gate also expose a Plan tab;
 attention entries open it directly. See [plan decisions](ios-plan.md) for request ownership

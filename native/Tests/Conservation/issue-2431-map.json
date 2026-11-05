@@ -13032,7 +13032,17 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MergeRowRulesTests.swift\",\"CoreSeamTests.MergeRowRulesTests\",\"statePrecedenceMatchesTheWeb() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MergeRowRulesTests.swift\",\"CoreSeamTests.MergeRowRulesTests\",\"onlyReadyIsUnlockedAndEveryLockNamesItsReason()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MergeRowRulesTests.swift\",\"CoreSeamTests.MergeRowRulesTests\",\"factsLeaveOutWhatWasNotMeasured() throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MergeRowRulesTests.swift\",\"CoreSeamTests.MergeRowRulesTests\",\"checksClearedMatchesTheServer() throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MergeRowRulesTests.swift\",\"CoreSeamTests.MergeRowRulesTests\",\"checksClearedMatchesTheServer() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ChatTimelineTests.swift\",\"CoreSeamTests.ChatTimelineTests\",\"echoesUseClockSkewAndStaySettledBeyondTheWindow()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ChatTimelineTests.swift\",\"CoreSeamTests.ChatTimelineTests\",\"harnessTrafficCommandsAndEvents()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ChatTimelineTests.swift\",\"CoreSeamTests.ChatTimelineTests\",\"keysSurviveAppendsAndDisambiguateSharedStamps()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ChatTimelineTests.swift\",\"CoreSeamTests.ChatTimelineTests\",\"ledgerAnchorsMinutesAndOperatorTurns()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ChatTimelineTests.swift\",\"CoreSeamTests.ChatTimelineTests\",\"onlyInitialPromptsLoseWholeFenceLines()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ChatTimelineTests.swift\",\"CoreSeamTests.ChatTimelineTests\",\"pasteWrappersAndUnknownSteers()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ChatTimelineTests.swift\",\"CoreSeamTests.ChatTimelineTests\",\"repeatedSendsNeedSeparateTranscriptEchoes()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ChatTimelineTests.swift\",\"CoreSeamTests.ChatTimelineTests\",\"toolRunsInterleaveAndEqualStampsFollowMessages()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientChatTests.swift\",\"ShepherdClientChatTests\",\"messagesRequestIncludesTheMobileWindowAndTools() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientChatTests.swift\",\"ShepherdClientChatTests\",\"unavailableMessagesAndMissingSessions() async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",
@@ -13051,6 +13061,13 @@
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSSessionActionsTests.swift\",\"IOSSessionActionsTests\",\"testHoldMergesTheShownPRWithServerDefaultsAndNoSheet() async throws\"]",
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSSessionActionsTests.swift\",\"IOSSessionActionsTests\",\"testHoldNeverMergesATakeoverALockedPROrWithoutWriteAccess() async throws\"]",
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSSessionActionsTests.swift\",\"IOSSessionActionsTests\",\"testHoldRefusalShowsTheServerErrorInTheCard() async throws\"]",
-    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSSessionActionsTests.swift\",\"IOSSessionActionsTests\",\"testReviewRequestReportsSkippedAndFailedButNotStarted() async\"]"
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSSessionActionsTests.swift\",\"IOSSessionActionsTests\",\"testReviewRequestReportsSkippedAndFailedButNotStarted() async\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testPollUsesWorkingAndRestingCadenceAndStopsWhenNotCurrent() async\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testLateSelectionAndCancelledResponsesAreDiscarded() async\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testPollingRecoversFromFailureAndRetainsPreviousConversation() async\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testFailedSendKeepsDraftAndSuccessEchoSettlesPermanently() async\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testSendingLocksComposerAndReadOnlyNeverReplies() async\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testChatIsFirstDefaultAndMarkdownKeepsBlockStructure()\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testRenderChatFixture() throws\"]"
   ]
 }

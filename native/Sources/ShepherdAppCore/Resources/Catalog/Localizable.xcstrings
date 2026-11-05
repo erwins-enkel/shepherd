@@ -772,6 +772,23 @@
         }
       }
     },
+    "assistant_chat_send": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send"
+          }
+        }
+      }
+    },
     "automerge_state_merge_error": {
       "extractionState": "manual",
       "localizations": {
@@ -1385,6 +1402,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "Stopped %1$@"
+          }
+        }
+      }
+    },
+    "chat_tool_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "failed"
+          }
+        }
+      }
+    },
+    "chat_tools_many": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ Tool-Aufrufe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ tool calls"
+          }
+        }
+      }
+    },
+    "chat_tools_one": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Tool-Aufruf"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 tool call"
           }
         }
       }
@@ -17087,6 +17156,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Remove %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_chat_load_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Unterhaltung konnte nicht geladen werden. Erneuter Versuch…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load the conversation. Retrying…"
+          }
+        }
+      }
+    },
+    "native_ios_chat_pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warte auf Gesprächsprotokoll…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for transcript…"
+          }
+        }
+      }
+    },
+    "native_ios_chat_send_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachricht nicht gesendet. Dein Entwurf bleibt erhalten; versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message not sent. Your draft is kept; try again."
+          }
+        }
+      }
+    },
+    "native_ios_chat_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Gesprächsprotokoll verfügbar. Öffne das Terminal, um die Sitzung zu sehen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No transcript is available. Open Terminal to see the session."
           }
         }
       }
@@ -34536,6 +34673,159 @@
         }
       }
     },
+    "pulse_event_api_retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiederholung nach API-Fehler"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API error retry"
+          }
+        }
+      }
+    },
+    "pulse_event_ci_fix": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI rot → CI-Fix-Hinweis"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI red → fix steer"
+          }
+        }
+      }
+    },
+    "pulse_event_go": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Freigabe zur Umsetzung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go-ahead to execute"
+          }
+        }
+      }
+    },
+    "pulse_event_nudge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anstoß vom Autopilot"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot nudge"
+          }
+        }
+      }
+    },
+    "pulse_event_open_pr": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinweis: PR öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer: open the PR"
+          }
+        }
+      }
+    },
+    "pulse_event_plan_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan-Review"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan review"
+          }
+        }
+      }
+    },
+    "pulse_event_queue": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Queue-Abgleich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Queue reconcile"
+          }
+        }
+      }
+    },
+    "pulse_event_rebase": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebase-Hinweis"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebase steer"
+          }
+        }
+      }
+    },
+    "pulse_event_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befunde des Kritikers"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Critic findings"
+          }
+        }
+      }
+    },
     "pulse_slot_gib": {
       "comment": "%1$@ = gib",
       "extractionState": "manual",
@@ -36558,6 +36848,92 @@
           "stringUnit": {
             "state": "translated",
             "value": "Autopilot is waiting for an unambiguous task conversation."
+          }
+        }
+      }
+    },
+    "session_chat_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Nachrichten. Schreib dem Agenten unten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No messages yet. Write to the agent below."
+          }
+        }
+      }
+    },
+    "session_chat_input_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachricht an den Agenten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message to the agent"
+          }
+        }
+      }
+    },
+    "session_chat_log": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unterhaltung mit dem Agenten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversation with the agent"
+          }
+        }
+      }
+    },
+    "session_chat_placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachricht an den Agenten…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message the agent…"
+          }
+        }
+      }
+    },
+    "session_chat_steer_by": {
+      "comment": "%1$@ = kind",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd · %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd · %1$@"
           }
         }
       }
@@ -43398,6 +43774,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Popover mockup"
+          }
+        }
+      }
+    },
+    "viewport_chat_tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat"
           }
         }
       }

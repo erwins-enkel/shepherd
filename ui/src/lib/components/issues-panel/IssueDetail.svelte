@@ -12,6 +12,7 @@
   } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { importEpic } from "#lib/api.js";
+  import { basename } from "#lib/basename.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { assignedOthers, epicFlagForOthers, type IssueSelection } from "../issues-panel";
   import { epicRole, epicRunState, queuePosition, stateLabel } from "../epic-panel";
@@ -39,6 +40,7 @@
   // `position: fixed` menus and dialogs inside EpicRunControl to the container).
   let {
     repoPath,
+    slug = null,
     selection,
     epicSummary = undefined,
     epic = undefined,
@@ -63,6 +65,8 @@
     issueSession = undefined,
   }: {
     repoPath: string;
+    /** The repo's forge slug (`owner/repo`); null falls back to the path's basename. */
+    slug?: string | null;
     selection: IssueSelection;
     /** Summary of the selected epic (epic selections only). */
     epicSummary?: EpicSummary;
@@ -188,7 +192,15 @@
 </script>
 
 <article class="issue-detail" aria-label={head.title} bind:clientWidth={viewWidth}>
-  <IssueDetailHead {...head} {assign} {othersFlag} {menu} {role} {position} />
+  <IssueDetailHead
+    {...head}
+    repo={slug ?? basename(repoPath)}
+    {assign}
+    {othersFlag}
+    {menu}
+    {role}
+    {position}
+  />
 
   <div class="detail-body" class:wide class:has-flow={selection.kind === "epic" && epic}>
     {#if selection.kind === "single"}

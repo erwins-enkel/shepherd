@@ -360,10 +360,7 @@ function createIssue(draft: IssueDraft, dryRun: boolean): number {
 }
 
 function repoSlug(): string {
-  return (
-    process.env.GITHUB_REPOSITORY ??
-    gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).trim()
-  );
+  return gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).trim();
 }
 
 /** The commit that added `file`, within `range`. */

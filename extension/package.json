@@ -28,7 +28,7 @@
     "@tsconfig/svelte": "^5.0.4",
     "@types/chrome": "^0.3.7",
     "eslint": "^10.14.0",
-    "eslint-plugin-svelte": "^3.23.1",
+    "eslint-plugin-svelte": "^3.24.0",
     "globals": "^17.14.0",
     "svelte": "^5.57.3",
     "svelte-check": "^4.7.8",

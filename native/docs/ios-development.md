@@ -400,6 +400,21 @@ changes, bypassing alert gates, and includes the current count on every iOS aler
 With several servers connected, each push knows only that server's count; the app corrects the
 sum when opened and writes it again when entering the background.
 
+## Session-list command bar
+
+Pull down the session list and release at 64 points to open the command bar;
+a longer pull (144 points) refreshes connected servers. The pill shows the action
+that release will perform. VoiceOver exposes Command bar and Refresh actions on
+the list, and a hardware keyboard can open it with ⌘K.
+
+The dark sheet searches listed sessions (including epic children), repository
+chips and all iOS lenses. An empty search leads with sessions needing input, then
+recent activity. Typing also finds New task, the next session needing input and
+Servers. Return activates the first result. Hold the shared microphone to dictate
+a query; transcripts never activate a result. Repository selection sets that
+chip's paths and retains an already selected filter. Docs, broadcast, usage and
+schedules remain web-only command-bar entries.
+
 ## Task composer and dictation
 
 `RootView` presents `IOSComposeSheet` for `app.sheet = .newSession`. The session-list

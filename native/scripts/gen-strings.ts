@@ -2748,6 +2748,23 @@ export const KEYS_IOS_UPNEXT_PRS: readonly string[] = [
   "upnext_pr_fix_started",
 ];
 
+export const KEYS_IOS_COMMAND_BAR: readonly string[] = [
+  "commandbar_cmd_new_task",
+  "commandbar_cmd_new_task_kw",
+  "commandbar_cmd_next_needs_you",
+  "commandbar_cmd_next_needs_you_kw",
+  "commandbar_group_commands",
+  "commandbar_group_lenses",
+  "commandbar_group_repos",
+  "commandbar_group_sessions",
+  "commandbar_no_matches",
+  "commandbar_placeholder",
+  "commandbar_title",
+  "mobile_pull_search",
+  "mobile_release_reload",
+  "mobile_release_search",
+];
+
 /**
  * The manifest the catalog is generated from. Order here does not reach the
  * output — `build()` sorts before emitting — but is fixed so the concatenation
@@ -2787,6 +2804,7 @@ export const KEYS: readonly string[] = [
   ...KEYS_ISSUE_FILTER,
   ...KEYS_IOS_UPNEXT_PRS,
   ...KEYS_IOS_SERVER_UPDATE,
+  ...KEYS_IOS_COMMAND_BAR,
 ];
 
 /**

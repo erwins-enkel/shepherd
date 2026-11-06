@@ -13,6 +13,10 @@ struct SessionListView: View {
     @State private var epicSheet: IOSEpicSelection?
     @State private var refreshError: String?
     @State private var showingRepos = false
+    @State private var showingCommandBar = false
+    @State private var commandAction: IOSCommandBarPresentation.Action?
+    @State private var commandPull = IOSCommandBarPull()
+    @State private var commandRefreshing = false
     @State private var explainingStage: HerdStage?
     @State private var explanationTitle = ""
     @State private var clearingMerged: [IOSMergedSessionPresentation.Row] = []
@@ -78,6 +82,18 @@ struct SessionListView: View {
                 }
             }
         }
+        .sheet(isPresented: $showingCommandBar, onDismiss: {
+            if let action = commandAction { commandAction = nil; runCommandBar(action) }
+        }) {
+            IOSCommandBarSheet(snapshot: presentation, facts: commandFacts,
+                availability: .init(newTask: app.liveRequestAudit == nil && (hub.map { $0.composeModel != nil } ?? (app.store != nil)),
+                    selected: hub?.selection ?? app.activeProfile.flatMap { profile in app.selectedSessionID.map { .init(profileID: profile.id, sessionID: $0) } }),
+                app: hub?.focused ?? app) { commandAction = $0; showingCommandBar = false }
+        }
+        .background {
+            Button(L.t("commandbar_title")) { openCommandBar() }
+                .keyboardShortcut("k", modifiers: .command).frame(width: 0, height: 0).clipped().accessibilityHidden(true)
+        }
         .sheet(isPresented: $showingRepos) { IOSServerReposSheet(model: model) }
         .sheet(isPresented: $showingEpicsHelp) { IOSCompletedEpicsHelpSheet() }
         // Live landing signals (green CI, ready, stranded) ride only the GET and no frame fires when
@@ -133,6 +149,34 @@ struct SessionListView: View {
             for owner in hub?.connected ?? [app] {
                 owner.reconcileSelection(against: Self.listedSessions(of: owner).map(\.id))
             }
+        }
+    }
+
+    private var commandSheetOpen: Bool {
+        showingCommandBar || showingRepos || showingEpicsHelp || epicSheet != nil || explainingStage != nil
+            || pendingLand != nil || !clearingMerged.isEmpty || app.sheet != nil
+            || hub?.routedSheet != nil || hub?.managingServers == true
+    }
+    private func openCommandBar() {
+        guard !commandSheetOpen else { return }
+        commandPull = IOSCommandBarPull(); showingCommandBar = true
+    }
+    private func refreshFromCommandBar() {
+        guard !commandSheetOpen, !commandRefreshing else { return }
+        commandRefreshing = true
+        Task { await refresh(); commandRefreshing = false }
+    }
+    private var commandFacts: [IOSSessionIdentity: IOSCommandBarPresentation.SessionFacts] {
+        IOSCommandBarContext.facts(presentation, owners: hub?.models ?? [:], fallback: app, sidebar: model)
+    }
+    private func runCommandBar(_ action: IOSCommandBarPresentation.Action) {
+        switch action {
+        case .session(let id), .command(.nextNeedsYou(let id)): selectRow(id)
+        case .repo(let paths):
+            if let hub { hub.selectedRepos = paths } else { model.selectedRepos = paths }
+        case .lens(let lens): setLens(lens)
+        case .command(.newTask): if let hub { hub.openComposer() } else { IOSComposer.open(app) }
+        case .command(.servers): if let hub { hub.managingServers = true } else { app.deactivate() }
         }
     }
 
@@ -322,7 +366,34 @@ struct SessionListView: View {
             .listRowSpacing(6)
             .environment(\.defaultMinListRowHeight, 0)
             .foregroundStyle(SessionListStyle.ink)
-            .refreshable { await refresh() }
+            .onScrollGeometryChange(for: CGFloat.self) { -($0.contentOffset.y + $0.contentInsets.top) } action: { _, distance in
+                guard !commandSheetOpen, !commandRefreshing else { commandPull = IOSCommandBarPull(); return }
+                commandPull.update(distance: distance)
+            }
+            .onScrollPhaseChange { old, phase, context in
+                guard !commandSheetOpen, !commandRefreshing else { commandPull = IOSCommandBarPull(); return }
+                if phase == .interacting {
+                    commandPull.begin(distance: -(context.geometry.contentOffset.y + context.geometry.contentInsets.top))
+                } else if old == .interacting {
+                    switch commandPull.release() {
+                    case .search: openCommandBar()
+                    case .reload: refreshFromCommandBar()
+                    case .idle: break
+                    }
+                }
+            }
+            .overlay(alignment: .top) {
+                if commandPull.distance > 8, commandPull.interacting, !commandSheetOpen {
+                    Label(L.t(commandPull.stage.labelKey), systemImage: "magnifyingglass")
+                        .sessionFont().padding(.horizontal, 14).padding(.vertical, 9)
+                        .background(SessionListStyle.panel, in: Capsule())
+                        .overlay { Capsule().stroke(SessionListStyle.brightLine) }
+                        .padding(.top, 8).allowsHitTesting(false).accessibilityHidden(true)
+                }
+            }
+            .sensoryFeedback(.selection, trigger: commandPull.stage)
+            .accessibilityAction(named: L.t("commandbar_title")) { openCommandBar() }
+            .accessibilityAction(named: L.t("native_detail_refresh")) { refreshFromCommandBar() }
         }
     }
 

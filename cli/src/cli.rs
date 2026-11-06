@@ -575,6 +575,17 @@ pub struct NewArgs {
     /// Run on autopilot
     #[arg(long)]
     pub autopilot: bool,
+    /// Start in epic-authoring mode: shape the prompt into an epic draft (no plan gate, no
+    /// autopilot)
+    #[arg(long, conflicts_with_all = ["research", "plain", "plan_gate", "autopilot"])]
+    pub epic_authoring: bool,
+    /// Start in research mode: web research into a report, no code change (no plan gate, no
+    /// autopilot)
+    #[arg(long, conflicts_with_all = ["plain", "plan_gate", "autopilot"])]
+    pub research: bool,
+    /// Start in plain mode: the agent without Shepherd's guards (no plan gate, no autopilot)
+    #[arg(long, conflicts_with_all = ["plan_gate", "autopilot"])]
+    pub plain: bool,
     /// Bypass the usage hold and spawn now
     #[arg(long)]
     pub force: bool,

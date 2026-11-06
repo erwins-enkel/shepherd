@@ -388,6 +388,12 @@ Flags for `new`:
 - `--model`, `--effort <low|medium|high|xhigh|max|ultra>`, `--provider <claude|codex>`: override
   the server's defaults.
 - `--plan-gate`, `--autopilot`: turn on the plan gate or autopilot for this session.
+- `--epic-authoring`, `--research`, `--plain`: start the session in that mode instead of as a
+  code task, like the UI's mode switch. Epic authoring shapes the prompt into an epic draft (the
+  session gets the `epic_draft` tool), research produces a report, and plain runs the agent without
+  Shepherd's guards. A mode also sends the plan gate and autopilot off. Pass at most one mode and
+  neither `--plan-gate` nor `--autopilot` with it; otherwise the CLI exits `2` and sends nothing.
+  The human output tags a mode session, e.g. `created TASK-09 (…) — name [epic authoring]`.
 - `--force`: spawn now even if the usage hold would queue the task.
 - `--after <task>`: hold the task until that task's PR has landed (id or designation, e.g.
   `TASK-1490`; merged, or squash-merged into its epic branch). It is queued as a held task with

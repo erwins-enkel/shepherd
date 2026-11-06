@@ -611,6 +611,126 @@ async fn new_without_machine_flags_sends_neither_target_nor_requirements() {
     let body: serde_json::Value = serde_json::from_slice(&create.body).unwrap();
     assert!(body.get("target").is_none(), "{body}");
     assert!(body.get("requirements").is_none(), "{body}");
+    for mode in ["epicAuthoring", "research", "plain"] {
+        assert!(body.get(mode).is_none(), "{body}");
+    }
+}
+
+#[tokio::test]
+async fn new_mode_flags_send_the_mode_with_the_guards_off() {
+    for (flag, field) in [
+        ("--epic-authoring", "epicAuthoring"),
+        ("--research", "research"),
+        ("--plain", "plain"),
+    ] {
+        let s = server().await;
+        let mut body = json!({ "planGateEnabled": false, "autopilotEnabled": false });
+        body[field] = json!(true);
+        Mock::given(method("POST"))
+            .and(path("/api/sessions"))
+            .and(body_partial_json(body))
+            .respond_with(ResponseTemplate::new(201).set_body_json(session_json("id-9", "TASK-09")))
+            .expect(1)
+            .mount(&s)
+            .await;
+        let h = Harness::new();
+        let code = h
+            .run(&["--url", &s.uri(), "new", "--repo", "/r", flag, "x"])
+            .await;
+        assert_eq!(code, 0, "{flag}: {}", h.err.text());
+        let requests = s.received_requests().await.unwrap();
+        let create = requests
+            .iter()
+            .find(|r| r.url.path() == "/api/sessions" && r.method.as_str() == "POST")
+            .expect("a create");
+        let sent: serde_json::Value = serde_json::from_slice(&create.body).unwrap();
+        for other in ["epicAuthoring", "research", "plain"]
+            .iter()
+            .filter(|o| **o != field)
+        {
+            assert!(sent.get(*other).is_none(), "{flag}: {sent}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn new_conflicting_mode_flags_are_usage_and_send_nothing() {
+    for pair in [
+        ["--epic-authoring", "--research"],
+        ["--epic-authoring", "--plain"],
+        ["--research", "--plain"],
+        ["--plain", "--plan-gate"],
+        ["--research", "--autopilot"],
+        ["--epic-authoring", "--plan-gate"],
+    ] {
+        let h = Harness::new();
+        let code = h
+            .run(&[
+                "--url",
+                "http://127.0.0.1:1",
+                "new",
+                "--repo",
+                "/r",
+                pair[0],
+                pair[1],
+                "x",
+            ])
+            .await;
+        assert_eq!(code, 2, "{pair:?}");
+        assert!(
+            h.err.text().contains("cannot be used with"),
+            "{}",
+            h.err.text()
+        );
+    }
+}
+
+#[tokio::test]
+async fn tty_new_tags_a_mode_session() {
+    let s = server().await;
+    let mut created = session_json("id-9", "TASK-09");
+    created["epicAuthoring"] = json!(true);
+    Mock::given(method("POST"))
+        .and(path("/api/sessions"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(created))
+        .mount(&s)
+        .await;
+    let h = Harness {
+        tty: true,
+        ..Harness::new()
+    };
+    let args = [
+        "--url",
+        &s.uri(),
+        "new",
+        "--repo",
+        "/r",
+        "--epic-authoring",
+        "x",
+    ];
+    assert_eq!(h.run(&args).await, 0, "{}", h.err.text());
+    assert!(
+        h.out.text().contains("[epic authoring]"),
+        "{}",
+        h.out.text()
+    );
+}
+
+#[tokio::test]
+async fn tty_new_leaves_a_code_session_untagged() {
+    let s = server().await;
+    Mock::given(method("POST"))
+        .and(path("/api/sessions"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(session_json("id-9", "TASK-09")))
+        .mount(&s)
+        .await;
+    let h = Harness {
+        tty: true,
+        ..Harness::new()
+    };
+    let args = ["--url", &s.uri(), "new", "--repo", "/r", "x"];
+    assert_eq!(h.run(&args).await, 0, "{}", h.err.text());
+    assert!(!h.out.text().contains('['), "{}", h.out.text());
 }
 
 #[tokio::test]

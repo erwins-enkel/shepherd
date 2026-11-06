@@ -60,6 +60,8 @@ export interface ScrapedCredit {
 export interface ScrapedUsage {
   session5h: ScrapedWindow | null;
   week: ScrapedWindow | null;
+  /** The capture contains a `Current session` header, whether or not its pct rendered. */
+  sessionSectionSeen: boolean;
   perModelWeek: ScrapedModelWindow[];
   credits: ScrapedCredit | null;
 }
@@ -260,6 +262,7 @@ export function parseUsageFrame(raw: string, now: number): ScrapedUsage {
   const best: ScrapedUsage = {
     session5h: null,
     week: null,
+    sessionSectionSeen: anchors.some((a) => /^Currentsession/i.test(a[0])),
     perModelWeek: [],
     credits: parseCredits(c, now),
   };
@@ -288,8 +291,8 @@ export interface ObservedLimitWindow {
 export interface UsageObservations {
   session5h: ObservedLimitWindow | null;
   week: ObservedLimitWindow | null;
-  /** Set when the latest probe rendered the weekly window but no 5h window: the plan has none
-   *  (Ultra since 2026-10-30). Absent otherwise. */
+  /** Set when the latest probe rendered the weekly window but no `Current session` section: the
+   *  plan has no 5h window (Ultra since 2026-10-30). Absent otherwise. */
   session5hAbsent?: true;
 }
 
@@ -497,8 +500,9 @@ export class UsageLimitsService {
       const parsed = parseUsageFrame(raw, now);
       const prior = new Map(this.caps.getCaps().map((r) => [r.window, r]));
       let any = this.reconcileSessionPresence(parsed, prior.has("session5h"));
-      // A plan without a 5h window has nothing to confirm there.
-      let confirmed = Number(this.observed.session5hAbsent === true);
+      // A plan without a 5h window has nothing to confirm there. Only this probe's own verdict
+      // counts: a flag from an earlier probe must not complete a capture whose 5h pct is missing.
+      let confirmed = Number(!parsed.sessionSectionSeen && this.observed.session5hAbsent === true);
       for (const key of ["session5h", "week"] as WindowKey[]) {
         const sample = parsed[key];
         // A past time-only label is parsed as tomorrow. That is not a confirmed new 5h
@@ -522,15 +526,16 @@ export class UsageLimitsService {
   }
 
   /**
-   * A rendered weekly window without a 5h one is taken to mean the plan has no 5h limit (Ultra).
-   * Assumed, not verified against a live capture: the 5h section renders above the weekly one, so
-   * a frame showing the week but no 5h pct is read as no 5h window rather than a partial render.
-   * A false positive heals on the next probe that reads a 5h pct. Drop the 5h window then —
-   * delete its cap so `limits()` stops projecting it, and clear its observation. A frame with a
-   * 5h window clears the flag again. Returns true when a persisted cap was removed.
+   * A plan without a 5h limit (Ultra) renders `/usage` with only the weekly sections and no
+   * `Current session` header at all — confirmed on the operator's live Ultra account since
+   * 2026-10-31. So a capture with a rendered weekly window but no `Current session` header means
+   * the plan has no 5h window: delete its cap so `limits()` stops projecting it, and clear its
+   * observation. A header whose pct never rendered is a partial redraw, not absence — cap and
+   * observation stay untouched. A frame with a 5h pct clears the flag again. Returns true when a
+   * persisted cap was removed.
    */
   private reconcileSessionPresence(parsed: ScrapedUsage, hadCap: boolean): boolean {
-    if (parsed.session5h === null && parsed.week?.resetAt != null) {
+    if (!parsed.sessionSectionSeen && parsed.week?.resetAt != null) {
       if (hadCap) this.caps.deleteCap("session5h");
       this.observed = { session5h: null, week: this.observed.week, session5hAbsent: true };
       return hadCap;

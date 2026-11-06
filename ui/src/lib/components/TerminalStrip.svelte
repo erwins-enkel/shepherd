@@ -5,7 +5,7 @@
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import StatusPip from "./StatusPip.svelte";
 
-  // The session column folded away by the "talk" assistant layout (assistant-layout.svelte.ts):
+  // The session column folded away by dragging the docked assistant's edge (assistant-layout.svelte.ts):
   // a slim strip naming the session it hides, and one click to unfold it. It renders only while
   // folded, so +page.svelte can mount it unconditionally (its <template> sits near fallow's bar).
   let {

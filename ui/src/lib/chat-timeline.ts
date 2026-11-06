@@ -1,4 +1,4 @@
-import type { ChatEntry } from "./assistant-chat";
+import type { ChatEntry, PendingSend } from "./assistant-chat";
 import type { ActivityEntry, BlockReason } from "./types";
 import { clock } from "./activity";
 
@@ -36,6 +36,24 @@ export function chatTimeline(
   }
   while (t < tools.length) pushTool(tools[t++]);
   return rows;
+}
+
+/** Where the Chat shows the sends the transcript has not logged ({@link PendingSend}): each one
+ *  above the first row stamped later than its `after` (what the agent wrote since, its answer
+ *  among it), else below every row. `before[i]` goes ahead of row `i`. Only transcript stamps are
+ *  compared, so the browser's clock never decides the order. */
+export function waitingSlots<T extends Pick<PendingSend, "after">>(
+  rows: readonly Pick<TimelineRow, "ts">[],
+  waiting: readonly T[],
+): { before: T[][]; tail: T[] } {
+  const before: T[][] = rows.map(() => []);
+  const tail: T[] = [];
+  for (const p of waiting) {
+    const after = p.after;
+    const i = after === undefined ? -1 : rows.findIndex((r) => r.ts > after);
+    (i < 0 ? tail : before[i]).push(p);
+  }
+  return { before, tail };
 }
 
 /** A row's place in the Chat's ledger: the gutter time it shows (null: same minute as the time

@@ -262,6 +262,36 @@ describe("ChatView steers", () => {
     expect(page.getByText("so we need to upgrade?").query()).toBeNull();
     expect(page.getByText(m.assistant_chat_sent()).query()).toBeNull();
   });
+
+  it("a send the transcript never matches stays above the answer it got", async () => {
+    const conversation = (
+      ...messages: { role: "user" | "assistant"; text: string; ts: number }[]
+    ) => ({
+      messages,
+      awaitingInput: false,
+      pendingQuestion: null,
+      unavailable: null,
+    });
+    const earlier = { role: "assistant" as const, text: "Earlier answer.", ts: 1000 };
+    mockMessages.mockResolvedValue(conversation(earlier));
+    const view = await render(ChatView, props({ status: "idle", variant: "assistant" }));
+    await expect.element(page.getByText("Earlier answer.")).toBeVisible();
+    view.component.echo("Was ist los?", Promise.resolve(true));
+    mockMessages.mockResolvedValue(
+      conversation(
+        earlier,
+        { role: "user", text: "Was ist los?\n\n<notice>…</notice>", ts: 2000 },
+        { role: "assistant", text: "Here is the answer.", ts: 3000 },
+      ),
+    );
+    await view.rerender({ status: "running" });
+    await expect.element(page.getByText("Here is the answer.")).toBeVisible();
+    const sent = page.getByText(m.assistant_chat_sent()).element();
+    const follows = (a: Element, b: Element) =>
+      !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(page.getByText("Earlier answer.").element(), sent)).toBe(true);
+    expect(follows(sent, page.getByText("Here is the answer.").element())).toBe(true);
+  });
 });
 
 describe("ChatView command menu", () => {

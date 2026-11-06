@@ -100,6 +100,9 @@ export interface PendingSend {
   text: string;
   /** ms epoch (browser clock) of the send. */
   at: number;
+  /** The newest transcript stamp the Chat held when it was sent (0 for an empty conversation);
+   *  rows stamped later came after it. Absent when no transcript had loaded yet. */
+  after?: number;
   /** Set when images rode along: Claude may rewrite their pasted paths, so the echo only has to
    *  contain these typed words (any user row when empty), not equal `text`. */
   match?: string;

@@ -23,6 +23,12 @@ describe("composeEpicSteer", () => {
     expect(out!).toContain("</epic-authoring-notice>");
     expect(out!).toContain("```epic-dag"); // the recognition contract is carried
   });
+
+  test("intent comes from the operator's words, not Shepherd's framing around them", () => {
+    const framed = `⟦VIEW⟧\nsession in view: TASK-9 · epic #12\n⟦/VIEW⟧\n${PLAIN_MSG}`;
+    expect(composeEpicSteer(framed, PLAIN_MSG)).toBeNull();
+    expect(composeEpicSteer(`⟦VIEW⟧\n${EPIC_MSG}`, EPIC_MSG)).toStartWith(`⟦VIEW⟧\n${EPIC_MSG}`);
+  });
 });
 
 // ── operatorReply: stateful behavior ──
@@ -130,6 +136,16 @@ describe("operatorReply", () => {
     const second = sent.join("");
     expect(second).not.toContain(NOTICE_MARK); // second epic reply is delivered verbatim
     expect(second).toContain("also split #20 into sub-issues");
+  });
+
+  test("reads intent off the operator's words, never the text Shepherd wraps them in", async () => {
+    const framed = makeSvc();
+    const text = `epic #12 in view\n${PLAIN_MSG}`;
+    expect(await framed.svc.operatorReply(framed.id, text, PLAIN_MSG)).toBe(true);
+    expect(framed.pasted()).not.toContain(NOTICE_MARK);
+    const asked = makeSvc();
+    expect(await asked.svc.operatorReply(asked.id, `context\n${EPIC_MSG}`, EPIC_MSG)).toBe(true);
+    expect(asked.pasted()).toContain(NOTICE_MARK);
   });
 
   test("marks only on successful delivery — a dead pane keeps the one-shot armed", async () => {

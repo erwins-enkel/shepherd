@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockCard, blockContext, chatTimeline, ledger } from "./chat-timeline";
+import { blockCard, blockContext, chatTimeline, ledger, waitingSlots } from "./chat-timeline";
 import { clock } from "./activity";
 import type { ChatEntry } from "./assistant-chat";
 import type { ActivityEntry, BlockReason } from "./types";
@@ -54,6 +54,33 @@ describe("chatTimeline", () => {
   it("disambiguates rows sharing a stamp", () => {
     const rows = chatTimeline([msg("user", "a", 1), msg("user", "b", 1)]);
     expect(rows[0].key).not.toBe(rows[1].key);
+  });
+});
+
+describe("waitingSlots", () => {
+  const send = (text: string, after?: number) => ({ text, after });
+  const rows = [{ ts: 10 }, { ts: 20 }, { ts: 0 }, { ts: 30 }];
+  const texts = (slots: { text: string }[][]) => slots.map((s) => s.map((p) => p.text));
+
+  it("puts a send above the first row written after it left", () => {
+    const slots = waitingSlots(rows, [send("a", 10), send("b", 20)]);
+    expect(texts(slots.before)).toEqual([[], ["a"], [], ["b"]]);
+    expect(slots.tail).toEqual([]);
+  });
+
+  it("keeps a send at the end while nothing newer is logged, or with no transcript at send", () => {
+    const slots = waitingSlots(rows, [send("a", 30), send("b")]);
+    expect(texts(slots.before)).toEqual([[], [], [], []]);
+    expect(slots.tail.map((p) => p.text)).toEqual(["a", "b"]);
+  });
+
+  it("puts a send into an empty conversation above everything logged since", () => {
+    expect(texts(waitingSlots(rows, [send("a", 0)]).before)).toEqual([["a"], [], [], []]);
+  });
+
+  it("never lets an unstamped row pull a send up", () => {
+    const slots = waitingSlots([{ ts: 10 }, { ts: 0 }], [send("a", 10)]);
+    expect(slots.tail.map((p) => p.text)).toEqual(["a"]);
   });
 });
 

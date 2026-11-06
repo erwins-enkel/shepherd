@@ -223,7 +223,8 @@
   import { version } from "#lib/build-info.js";
   import { sidebarCollapse, sidebarShouldCollapse } from "#lib/sidebar-collapse.svelte.js";
   import { herdWidth } from "#lib/herd-width.svelte.js";
-  import { assistantLayout } from "#lib/assistant-layout.svelte.js";
+  import { assistantLayout, assistantShareStyle } from "#lib/assistant-layout.svelte.js";
+  import { createResizeDrag } from "#lib/resize-drag.js";
   import { backlogRefresh } from "#lib/backlog-refresh.svelte.js";
   // Side-effect-free (no top-level DOM/timer work) — tree-shakes out of non-demo
   // builds along with every other __DEMO__-guarded reference below.
@@ -1787,11 +1788,48 @@
   const assistantLifecycle = new AssistantLifecycle(store);
   const assistantOpen = $derived(mobile.current ? mobileScreen === "assistant" : showAssistant);
   const assistantDocked = $derived(showAssistant && !mobile.current);
-  // The docked panel's share of the grid (assistant-layout.svelte.ts), set as the .grid's
-  // data-layout. "talk" folds the session column into a strip; closing the panel unfolds it, since
-  // a layout only splits the width the session column shares with the panel.
-  const assistantGridLayout = $derived(assistantDocked ? assistantLayout.layout : undefined);
-  const sessionFolded = $derived(assistantGridLayout === "talk");
+  // ── Docked panel resize (mouse-desktop only, like the herd splitter) ──────
+  // The splitter on the panel's left edge drags its share of the width it shares with the session
+  // column (assistant-layout.svelte.ts); dragging past the terminal's floor folds the session
+  // column into a strip. Closing the panel unfolds it — the split only exists while docked — and
+  // reopening restores the remembered width and fold.
+  const assistantResizable = $derived(!touch.current);
+  const assistantSplit = $derived(assistantDocked && assistantResizable);
+  const sessionFolded = $derived(assistantSplit && assistantLayout.folded);
+  const assistantShare = $derived(
+    assistantSplit && !sessionFolded && assistantLayout.share !== null
+      ? assistantShareStyle(assistantLayout.share)
+      : undefined,
+  );
+  const gridStyle = $derived(
+    [herdWidthStyle, assistantShare].filter(Boolean).join(";") || undefined,
+  );
+  let assistantColEl = $state<HTMLElement>();
+  let assistantResizing = $state(false);
+  const gridResizing = $derived(herdResizing || assistantResizing);
+  // The drag reads the grid's resolved tracks (herd, session, panel) at pointer-down: the panel's
+  // width and the width it shares with the session column, folded strip included.
+  const startAssistantResize = createResizeDrag<{
+    x: number;
+    panel: number;
+    shared: number;
+    startShare: number | null;
+  }>({
+    axis: "x",
+    onActive: (a) => (assistantResizing = a),
+    onStart: (e) => {
+      const grid = assistantColEl?.parentElement;
+      if (!assistantResizable || !grid) return null;
+      const [, session, panel] = getComputedStyle(grid)
+        .gridTemplateColumns.split(" ")
+        .map(parseFloat);
+      if (!Number.isFinite(session) || !Number.isFinite(panel)) return null;
+      return { x: e.clientX, panel, shared: session + panel, startShare: assistantLayout.share };
+    },
+    onDrag: (e, c) => assistantLayout.drag(c.panel - (e.clientX - c.x), c.shared, c.startShare),
+    onCommit: () => assistantLayout.commit(),
+    onReset: () => assistantLayout.reset(),
+  });
   // Repo assistants the operator started that have no row yet: their entry shows at once (spawning,
   // or the error of a failed start) instead of waiting for the row.
   let requestedRepoAssistants = $state<string[]>([]);
@@ -4135,10 +4173,10 @@
         class:compact={touch.current}
         class:collapsed={sidebarCollapsed}
         class:resized={herdResized}
-        class:resizing={herdResizing}
+        class:resizing={gridResizing}
         class:assistant={assistantDocked}
-        data-layout={assistantGridLayout}
-        style={herdWidthStyle}
+        class:session-folded={sessionFolded}
+        style={gridStyle}
       >
         {#if sidebarCollapsed}
           <button
@@ -4256,8 +4294,8 @@
             ></div>
           </div>
         {/if}
-        <!-- The session column: invisible to the grid until the "talk" assistant layout folds it
-             into a strip (see .session-col). Its content stays mounted while folded. -->
+        <!-- The session column: invisible to the grid until dragging the docked assistant's edge
+             folds it into a strip (see .session-col). Its content stays mounted while folded. -->
         <div class="session-col" class:folded={sessionFolded}>
           <TerminalStrip
             folded={sessionFolded}
@@ -4367,7 +4405,21 @@
           {/if}
         </div>
         {#if assistantDocked}
-          {@render assistantPanel()}
+          <!-- The panel's own splitter on its left edge, centred on the gap like the herd's
+               (see startAssistantResize). Always rendered, display:none on touch (.inert). -->
+          <div class="assistant-col" bind:this={assistantColEl}>
+            {@render assistantPanel()}
+            <div
+              class="assistant-splitter"
+              class:inert={!assistantResizable}
+              class:dragging={assistantResizing}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={m.assistant_resize_handle()}
+              title={m.assistant_resize_handle()}
+              onpointerdown={startAssistantResize}
+            ></div>
+          </div>
         {/if}
       </div>
     {/if}
@@ -4794,23 +4846,32 @@
   }
   /* Splitter: ~12px hit strip centred on the 14px grid gap at the sidebar's
      right edge (right:0 of .herd-col is the sidebar edge; gap midpoint is +7px).
-     A 2px hairline (::after) is invisible at rest and brightens on hover/drag. */
-  .herd-splitter {
+     A 2px hairline (::after) is invisible at rest and brightens on hover/drag.
+     The docked assistant's splitter mirrors it on the panel's left edge. */
+  .herd-splitter,
+  .assistant-splitter {
     position: absolute;
     top: 0;
     bottom: 0;
-    right: -13px;
     width: 12px;
     cursor: col-resize;
     z-index: 5;
     touch-action: none;
   }
+  .herd-splitter {
+    right: -13px;
+  }
+  .assistant-splitter {
+    left: -13px;
+  }
   /* Touch-wide layouts: keep the splitter in the DOM (avoids an extra template
      branch) but fully inert — no hit area, no cursor, no visual. */
-  .herd-splitter.inert {
+  .herd-splitter.inert,
+  .assistant-splitter.inert {
     display: none;
   }
-  .herd-splitter::after {
+  .herd-splitter::after,
+  .assistant-splitter::after {
     content: "";
     position: absolute;
     top: 0;
@@ -4822,13 +4883,17 @@
     transition: background 0.12s ease;
   }
   .herd-splitter:hover::after,
-  .herd-splitter.dragging::after {
+  .herd-splitter.dragging::after,
+  .assistant-splitter:hover::after,
+  .assistant-splitter.dragging::after {
     background: var(--color-line-bright);
   }
-  .herd-splitter:focus-visible {
+  .herd-splitter:focus-visible,
+  .assistant-splitter:focus-visible {
     outline: none;
   }
-  .herd-splitter:focus-visible::after {
+  .herd-splitter:focus-visible::after,
+  .assistant-splitter:focus-visible::after {
     background: var(--color-line-bright);
   }
   /* touch devices on the desktop layout (e.g. unfolded foldables): the picker
@@ -4868,22 +4933,23 @@
     grid-template-columns: 44px var(--session-w) var(--assistant-w);
     gap: 10px;
   }
-  /* The operator's layout pick (assistant-layout.svelte.ts) re-sizes the two tracks every herd
-     variant above shares. "half" and "wide" keep Standard's 360px floor, so on a small screen
-     they never leave the panel narrower than Standard does; "talk" folds the session column
-     into a strip as wide as the herd's reopen tab. */
-  .grid.assistant[data-layout="half"] {
-    --assistant-w: minmax(360px, 1fr);
-  }
-  .grid.assistant[data-layout="wide"] {
-    --assistant-w: minmax(360px, 2fr);
-  }
-  .grid.assistant[data-layout="talk"] {
+  /* A dragged split (assistant-layout.svelte.ts) re-sizes the two tracks every herd variant above
+     shares, set inline as per-mille fr (assistantShareStyle). Dragging past the terminal's floor
+     folds the session column into a strip as wide as the herd's reopen tab. */
+  .grid.assistant.session-folded {
     --session-w: 44px;
     --assistant-w: minmax(0, 1fr);
   }
+  /* Wrapper around the docked panel that hosts its absolutely-positioned splitter, like
+     .herd-col: a single grid cell the panel stretches to fill. */
+  .assistant-col {
+    position: relative;
+    display: grid;
+    min-height: 0;
+    min-width: 0;
+  }
   /* The session column's wrapper takes no box of its own, so its content stays the grid item it
-     always was — until "talk" folds it. Then it is the strip track itself and hides, without
+     always was — until the drag folds it. Then it is the strip track itself and hides, without
      unmounting, what it holds: the terminal keeps its connection, and a hidden Viewport never
      refits (its refit() bails while offsetParent is null), so the PTY keeps its size. */
   .session-col {

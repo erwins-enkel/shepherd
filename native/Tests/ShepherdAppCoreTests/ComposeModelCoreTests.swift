@@ -482,6 +482,22 @@ extension CoreSeamTests {
         #expect(!uploads.inFlight && uploads.status == nil && m.readiness().canSubmit)
     }
 
+    @Test func aFailedImportKeepsItsErrorUntilTheNextPick() async throws {
+        let uploads = AttachmentModel(upload: { _, name in "/\(name)" })
+        defer { uploads.teardown() }
+        let stamps = try (0..<3).map { _ in try #require(uploads.beginImport()) }
+        #expect(uploads.inFlight && uploads.status?.phase == .preparing)
+        uploads.finishImport(nil, error: "boom", generation: stamps[0])
+        uploads.finishImport(.init(name: "b", data: Data([2])), error: nil, generation: stamps[1])
+        uploads.finishImport(.init(name: "c", data: Data([3])), error: nil, generation: stamps[2])
+        #expect(uploads.importError == "boom")
+        #expect(uploads.rows.map(\.file.name) == ["b", "c"])
+        await uploads.settled()
+        #expect(!uploads.inFlight && uploads.importError == "boom")
+        _ = try #require(uploads.beginImport())
+        #expect(uploads.importError == nil)
+    }
+
     @Test func settledWaitsForTheDrainAnImportOrTeardown() async throws {
         var pending: CheckedContinuation<String, any Error>?
         let uploads = AttachmentModel(upload: { _, _ in try await withCheckedThrowingContinuation { pending = $0 } })

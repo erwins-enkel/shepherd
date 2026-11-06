@@ -12985,6 +12985,7 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"heldCloseArchivesAtOnceOnlyWithNothingToReap() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"heldCloseArchiveFailureKeepsTheSessionAndExplains() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"heldCloseOpensNoSheetForASessionTheOperatorLeft() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"aFailedImportKeepsItsErrorUntilTheNextPick() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/HerdPartitionTests.swift\",\"CoreSeamTests.HerdPartitionTests\",\"reviewBlockRendersAboveCiBlock()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextPrsTests.swift\",\"CoreSeamTests.UpNextPrsTests\",\"parseReadsTheContractFieldAndDropsOnlyAnUnknownBand() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextPrsTests.swift\",\"CoreSeamTests.UpNextPrsTests\",\"groupsKeepBandOrderApplyTheRepoFilterAndSortWithinABand()\"]",

@@ -116,6 +116,17 @@ function userTextOf(content: unknown): string {
     .join("\n\n");
 }
 
+/** The block `composeEpicSteer` (src/service.ts) appends to an operator reply, at the end of the
+ *  text or before the closing tag of the paste Claude logs it in. */
+const EPIC_NOTICE_RE =
+  /\n\n<epic-authoring-notice>\n[\s\S]*?\n<\/epic-authoring-notice>(?=\n?(?:<\/pasted_content(?: id="[^"]*")?>\n?)?$)/;
+
+/** A logged user turn without the epic-authoring notice Shepherd appended: what the operator
+ *  typed, so the Chat matches the composer's text. The same tag inside the operator's words stays. */
+export function stripEpicNotice(text: string): string {
+  return text.replace(EPIC_NOTICE_RE, "");
+}
+
 /** `question (A / B)` per question of an AskUserQuestion input, one per line. */
 function askUserQuestionText(input: unknown): string {
   const questions = (input as { questions?: unknown })?.questions;
@@ -170,7 +181,7 @@ function scanUser(scan: ClaudeScan, rec: ClaudeRecord): void {
       if (b?.type === "tool_result" && typeof b.tool_use_id === "string")
         scan.pendingAsks.delete(b.tool_use_id);
   if (rec.isMeta === true) return;
-  const text = userTextOf(content);
+  const text = stripEpicNotice(userTextOf(content));
   if (!text) return;
   scan.messages.push({ role: "user", text, ts: tsOf(rec) });
   scan.lastAssistantId = undefined;
@@ -235,10 +246,11 @@ function codexContentText(content: unknown, kind: "output_text" | "text"): strin
 const QUESTION_REPLY_TAG = "<send_user_message_question_reply>";
 
 /** A logged user turn as the operator's words: without the launch marker and ⟦VIEW⟧ block Shepherd
- *  sends ahead of them, so the Chat matches the composer's text (#3709). No row for an empty turn
- *  or a native question's reply — like Claude's AskUserQuestion answer, a tool result. */
+ *  sends ahead of them (#3709) or the epic notice after them, so the Chat matches the composer's
+ *  text. No row for an empty turn or a native question's reply — like Claude's AskUserQuestion
+ *  answer, a tool result. */
 function codexUserMessage(raw: string, rec: CodexRecord): { message: AgentMessage } | null {
-  const text = stripAssistantView(stripCodexLaunchMarker(raw.trim())).trim();
+  const text = stripEpicNotice(stripAssistantView(stripCodexLaunchMarker(raw.trim()))).trim();
   if (!text || text.startsWith(QUESTION_REPLY_TAG)) return null;
   return { message: { role: "user", text, ts: tsOf(rec) } };
 }

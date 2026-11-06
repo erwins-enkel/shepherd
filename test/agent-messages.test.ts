@@ -8,7 +8,10 @@ import {
   parseCodexMessages,
   sessionMessages,
   awaitingInput,
+  stripEpicNotice,
 } from "../src/agent-messages";
+import { composeEpicSteer } from "../src/service";
+import { unwrapPasted } from "../src/steer-log";
 import type { SessionStatus } from "../src/types";
 
 const TS = "2026-09-29T10:00:00.000Z";
@@ -304,6 +307,40 @@ describe("parseCodexMessages: UserMessage items (Codex ≥0.148, #3709)", () => 
       ),
     );
     expect(r.messages).toEqual([]);
+  });
+});
+
+describe("the epic-authoring notice Shepherd appends is not the operator's words", () => {
+  const words =
+    "Was ist mit dem Epic los?\n\nFasse das mal ordentlich Punkt für Punkt für mich zusammen.";
+  const steered = composeEpicSteer(words)!;
+
+  test("a Codex turn reads as the typed words, behind the marker and ⟦VIEW⟧ block", () => {
+    const r = parseCodexMessages(jsonl(codexUserItem(`${LAUNCH}${VIEW_BLOCK}\n${steered}`)));
+    expect(r.messages.map((m) => m.text)).toEqual([words]);
+  });
+
+  test("a Claude paste keeps its wrapper around the typed words only", () => {
+    const r = parseClaudeMessages(
+      jsonl(userText(`\n\n<pasted_content id="10d5">\n${steered}\n</pasted_content id="10d5">\n`)),
+    );
+    expect(r.messages).toHaveLength(1);
+    expect(unwrapPasted(r.messages[0]!.text)).toBe(words);
+    expect(r.messages[0]!.text).not.toContain("epic-authoring-notice");
+  });
+
+  test("an unwrapped Claude message loses the trailing notice too", () => {
+    const r = parseClaudeMessages(jsonl(userText(steered)));
+    expect(r.messages.map((m) => m.text)).toEqual([words]);
+  });
+
+  test("the tag typed by the operator mid-message stays", () => {
+    const text =
+      "Warum steht\n\n<epic-authoring-notice>\nx\n</epic-authoring-notice>\n\nin der Nachricht?";
+    expect(parseCodexMessages(jsonl(codexUserItem(text))).messages.map((m) => m.text)).toEqual([
+      text,
+    ]);
+    expect(stripEpicNotice(text)).toBe(text);
   });
 });
 

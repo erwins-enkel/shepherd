@@ -30,7 +30,7 @@
     yesNoQuestions,
     type PendingSend,
   } from "#lib/assistant-chat.js";
-  import { blockCard, chatTimeline, ledger } from "#lib/chat-timeline.js";
+  import { blockCard, chatTimeline, ledger, waitingSlots } from "#lib/chat-timeline.js";
   import { steers } from "#lib/steers.svelte.js";
   import { askToQuestionForm } from "#lib/askForm.js";
   import QuestionFormBlock from "../blocks/QuestionFormBlock.svelte";
@@ -199,6 +199,8 @@
   const waiting = $derived(pending.filter((p) => p.echoTs === undefined));
   const rows = $derived(chatTimeline(entries, tools ? (data?.tools ?? []) : []));
   const marks = $derived(ledger(rows));
+  // An unlogged send sits above what the agent wrote after it, even when its echo never matches.
+  const slots = $derived(waitingSlots(rows, waiting));
   const lastRow = $derived(rows.at(-1));
   const latest = $derived(
     rows.filter((row) => row.kind === "assistant" || row.kind === "user").at(-1),
@@ -463,7 +465,8 @@
     }
     sendFailed = false;
     const at = Date.now();
-    pending = [...pending, { text, at, match }];
+    const after = data ? Math.max(0, ...rows.map((r) => r.ts)) : undefined;
+    pending = [...pending, { text, at, match, after }];
     stick = true;
     // A send that settles later (the reply fallback) takes its echo back when it fails.
     if (sent instanceof Promise) {
@@ -595,6 +598,19 @@
   >
 {/snippet}
 
+{#snippet sent(p: PendingSend, turn: boolean)}
+  <div class="ac-row" class:ac-turn={turn}>
+    <span class="ac-gutter"></span>
+    <div class="ac-msg ac-mine ac-waiting">
+      <div class="ac-bubble">
+        {@render caret()}
+        <p>{p.text}</p>
+      </div>
+      <span class="ac-meta">{m.assistant_chat_sent()}</span>
+    </div>
+  </div>
+{/snippet}
+
 <!-- The whole panel takes a dropped image, thread included, not just the composer. -->
 <div
   class="ac"
@@ -616,6 +632,9 @@
         <p class="ac-empty">{copy.empty()}</p>
       {/if}
       {#each rows as e, i (e.key)}
+        {#each slots.before[i] as p, j (p.at)}
+          {@render sent(p, i + j > 0)}
+        {/each}
         <div class="ac-row" class:ac-turn={marks[i].turn} class:ac-wide={e.kind === "assistant"}>
           <span class="ac-gutter">
             <time class="ac-time">{marks[i].time}</time>
@@ -660,17 +679,8 @@
           {/if}
         </div>
       {/each}
-      {#each waiting as p, i (p.at)}
-        <div class="ac-row" class:ac-turn={rows.length + i > 0}>
-          <span class="ac-gutter"></span>
-          <div class="ac-msg ac-mine ac-waiting">
-            <div class="ac-bubble">
-              {@render caret()}
-              <p>{p.text}</p>
-            </div>
-            <span class="ac-meta">{m.assistant_chat_sent()}</span>
-          </div>
-        </div>
+      {#each slots.tail as p, i (p.at)}
+        {@render sent(p, rows.length + i > 0)}
       {/each}
       {#if working}
         <p class="ac-row ac-working" role="status">

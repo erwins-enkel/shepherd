@@ -1330,10 +1330,12 @@ export function detectEpicIntent(prompt: string): boolean {
  * already closes, and unlike this block — which reaches both providers, in every repo — the skill
  * was Claude-only, model-invoked, and shipped only inside the Shepherd repo.
  * Returns null when the message shows no epic intent (the caller then delivers it verbatim).
+ * `intentText` is what the intent is read off: the operator's own words when `text` wraps them in
+ * Shepherd's framing (the assistant's ⟦VIEW⟧ block names `epic #N` and session titles).
  * Exported for tests.
  */
-export function composeEpicSteer(text: string): string | null {
-  if (!detectEpicIntent(text)) return null;
+export function composeEpicSteer(text: string, intentText: string = text): string | null {
+  if (!detectEpicIntent(intentText)) return null;
   return `${text}\n\n<epic-authoring-notice>\n${EPIC_AUTHORING_NOTICE}\n</epic-authoring-notice>`;
 }
 
@@ -7674,7 +7676,8 @@ export class SessionService {
   }
 
   /** Deliver an operator-authored steer to an already-resolved, LIVE session, injecting the
-   *  epic-authoring notice ONCE per session when the text signals epic intent (#1405). The notice
+   *  epic-authoring notice ONCE per session when the operator's words (`signalPayload`, never
+   *  Shepherd's framing in `text`) signal epic intent (#1405). The notice
    *  rides the PTY only; the recorded `reply` signal keeps the raw operator text either way. Shared
    *  by operatorReply (single session) and broadcast (fan-out) so both operator free-text channels
    *  behave identically — a broadcast that says "make these epics" gets the same guidance a single
@@ -7685,7 +7688,9 @@ export class SessionService {
     text: string,
     signalPayload: string = text,
   ): Promise<void> {
-    const combined = this.#epicNoticeSteered.has(s.id) ? null : composeEpicSteer(text);
+    const combined = this.#epicNoticeSteered.has(s.id)
+      ? null
+      : composeEpicSteer(text, signalPayload);
     if (!combined) {
       await this.sendSteerTo(s, text, signalPayload);
       return;

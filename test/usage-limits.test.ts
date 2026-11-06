@@ -971,6 +971,100 @@ test("a frame with neither window is a failed probe, not a missing 5h window", a
   expect(svc.limits(NOW).refresh?.failed).toBe(true);
 });
 
+// Transcribed from the operator's Claude Code `/usage` screenshot of a live Ultra account (no raw
+// PTY capture exists): only the weekly gauges and the credits row, no `Current session` section.
+const ULTRA_FRAME = [
+  "Current week (all models)",
+  "████████████████████████▌ 49% used",
+  "Resets Nov 5 at 10pm (Europe/Berlin)",
+  "",
+  "Current week (Fable)",
+  "██▌ 5% used",
+  "Resets Nov 5 at 10pm (Europe/Berlin)",
+  "",
+  "Usage credits",
+  "Usage credits are off · /usage-credits to turn them on",
+  "",
+  "Esc to cancel",
+].join("\n");
+// A Pro/Max redraw caught before the 5h pct rendered: the header is there, the value is not.
+const PARTIAL_SESSION_FRAME =
+  "Current session\n█████\nCurrent week (all models)\n████ 49% used\nResets Nov 5 at 10pm (Europe/Berlin)\nEsc to cancel";
+// "Nov 5" must fall inside the week window, or the week sample would go unconfirmed.
+const NOV = Date.parse("2026-11-02T12:00:00.000Z");
+const seededSessionCap = (): CapRow => ({
+  window: "session5h",
+  cap: 1000,
+  resetAt: NOV + 60 * 60_000,
+  pct: 40,
+  scrapedAt: NOV - 1,
+});
+
+test("the real Ultra render (no session section) retires the 5h window and completes", async () => {
+  const caps = new MemCaps();
+  caps.putCap(seededSessionCap());
+  const svc = new UsageLimitsService(
+    fakeIndex(100),
+    caps,
+    new StubProbe(ULTRA_FRAME),
+    new MemCredits(),
+    new MemModelWeek(),
+  );
+  const parsed = parseUsageFrame(ULTRA_FRAME, NOV);
+  expect(parsed.sessionSectionSeen).toBe(false);
+  expect(parsed.credits).toBeNull();
+  expect(await svc.calibrate(NOV)).toBe(true);
+  const l = svc.limits(NOV);
+  expect(caps.rows.has("session5h")).toBe(false);
+  expect(l.session5h).toBeNull();
+  expect(l.observed?.session5h).toBeNull();
+  expect(l.observed?.session5hAbsent).toBe(true);
+  expect(l.observed?.week?.pct).toBe(49);
+  expect(l.refresh?.failed).toBe(false);
+  expect(l.perModelWeek.map((w) => [w.model, w.pct])).toEqual([["fable", 5]]);
+  expect(l.credits).toBeNull();
+});
+
+test("a session header without a pct is a partial redraw, not a missing 5h window", async () => {
+  const caps = new MemCaps();
+  const seeded = seededSessionCap();
+  caps.putCap(seeded);
+  const svc = new UsageLimitsService(
+    fakeIndex(100),
+    caps,
+    new StubProbe(PARTIAL_SESSION_FRAME),
+    new MemCredits(),
+  );
+  const parsed = parseUsageFrame(PARTIAL_SESSION_FRAME, NOV);
+  expect(parsed.session5h).toBeNull();
+  expect(parsed.sessionSectionSeen).toBe(true);
+  await svc.calibrate(NOV);
+  const l = svc.limits(NOV);
+  expect(caps.rows.get("session5h")).toEqual(seeded);
+  expect(l.session5h).not.toBeNull();
+  expect(l.observed?.session5hAbsent).toBeUndefined();
+  expect(l.refresh?.failed).toBe(true);
+});
+
+test("a flag from an earlier probe cannot complete a capture whose 5h pct never rendered", async () => {
+  let raw = ULTRA_FRAME;
+  const caps = new MemCaps();
+  const svc = new UsageLimitsService(
+    fakeIndex(100),
+    caps,
+    { scrape: async () => raw },
+    new MemCredits(),
+  );
+  await svc.calibrate(NOV);
+  expect(svc.limits(NOV).observed?.session5hAbsent).toBe(true);
+  raw = PARTIAL_SESSION_FRAME;
+  await svc.calibrate(NOV + 1000);
+  const l = svc.limits(NOV + 1000);
+  expect(l.refresh?.failed).toBe(true);
+  expect(l.observed?.session5hAbsent).toBe(true);
+  expect(caps.rows.has("session5h")).toBe(false);
+});
+
 test("refresh status remains busy until the probe finishes", async () => {
   let finish!: (raw: string | null) => void;
   const svc = new UsageLimitsService(

@@ -13,8 +13,8 @@
   "dependencies": {
     "@astrojs/starlight": "^0.42.8",
     "@vercel/analytics": "^2.0.1",
-    "astro": "^7.4.4",
-    "astro-og-canvas": "^0.13.2"
+    "astro": "^7.4.5",
+    "astro-og-canvas": "^0.13.3"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.12",

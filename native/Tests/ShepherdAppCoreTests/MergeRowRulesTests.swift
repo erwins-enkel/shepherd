@@ -16,7 +16,7 @@ struct MergeRowRulesTests {
              "addressRound": 0, "addressCap": 0, "finalRoundPending": false, "finalRoundTimeoutMs": 0, "updatedAt": 1]))
     }
 
-    @Test func visibleForAnOpenOrMergedNumberedPR() throws {
+    @Test func visibleOnlyForAnOpenNumberedPR() throws {
         #expect(MergeRowRules.visible(try git()))
         #expect(MergeRowRules.visible(try git(["state": "merged"])))
         #expect(!MergeRowRules.visible(try git(["state": "closed"])))

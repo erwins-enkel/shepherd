@@ -42,6 +42,10 @@
   });
   const providers: AgentProvider[] = ["claude", "codex"];
   const name = (provider: AgentProvider) => (provider === "claude" ? "Claude" : "Codex");
+  /** The provider automatic fallback switches to; its menus sit under the fallback toggle. */
+  const fallbackProvider = $derived<AgentProvider>(
+    runtime?.preferredProvider === "codex" ? "claude" : "codex",
+  );
   function models(provider: AgentProvider): string[] {
     const current = runtime?.[provider].model;
     const values = pickerModels(provider, current).filter((model) =>
@@ -114,42 +118,7 @@
       >
     {/snippet}
   </SettingRow>
-  {#each providers as provider (provider)}
-    <SettingRow title={m.settings_assistant_runtime_model({ provider: name(provider) })} {query}>
-      {#snippet control()}
-        <span class="set-select"
-          ><select
-            bind:value={runtime![provider].model}
-            aria-label={m.settings_assistant_runtime_model({ provider: name(provider) })}
-            disabled={busy}
-            onchange={save}
-          >
-            <option value={null}>{m.settings_assistant_runtime_default()}</option>
-            {#each models(provider) as model (model)}<option value={model}
-                >{modelOptionLabel(provider, model)}</option
-              >{/each}
-          </select><span class="set-chev" aria-hidden="true">▾</span></span
-        >
-      {/snippet}
-    </SettingRow>
-    <SettingRow title={m.settings_assistant_runtime_effort({ provider: name(provider) })} {query}>
-      {#snippet control()}
-        <span class="set-select"
-          ><select
-            bind:value={runtime![provider].effort}
-            aria-label={m.settings_assistant_runtime_effort({ provider: name(provider) })}
-            disabled={busy}
-            onchange={save}
-          >
-            <option value={null}>{m.settings_assistant_runtime_default()}</option>
-            {#each [...new Set( [...(runtime![provider].effort ? [runtime![provider].effort!] : []), ...providerEfforts(provider, runtime![provider].model)] )] as effort (effort)}<option
-                value={effort}>{effortLabel(effort)}</option
-              >{/each}
-          </select><span class="set-chev" aria-hidden="true">▾</span></span
-        >
-      {/snippet}
-    </SettingRow>
-  {/each}
+  {@render providerRows(runtime.preferredProvider, false)}
   <SettingRow
     title={m.settings_assistant_runtime_fallback()}
     description={m.settings_assistant_runtime_fallback_hint()}
@@ -167,6 +136,9 @@
       />
     {/snippet}
   </SettingRow>
+  {#if runtime.automaticFallback}
+    <div class="runtime-fallback">{@render providerRows(fallbackProvider, true)}</div>
+  {/if}
   <SettingRow title={m.settings_assistant_runtime_switch()} {query}>
     {#snippet control()}<button
         class="gbtn"
@@ -201,6 +173,51 @@
   </SettingRow>
 {/if}
 
+<!-- Model + effort menus of one provider: the preferred one under the provider select, the
+     fallback one (labelled as such) under the automatic-fallback toggle. -->
+{#snippet providerRows(provider: AgentProvider, fallback: boolean)}
+  {@const modelTitle = fallback
+    ? m.settings_assistant_runtime_fallback_model({ provider: name(provider) })
+    : m.settings_assistant_runtime_model({ provider: name(provider) })}
+  {@const effortTitle = fallback
+    ? m.settings_assistant_runtime_fallback_effort({ provider: name(provider) })
+    : m.settings_assistant_runtime_effort({ provider: name(provider) })}
+  <SettingRow title={modelTitle} {query}>
+    {#snippet control()}
+      <span class="set-select"
+        ><select
+          bind:value={runtime![provider].model}
+          aria-label={modelTitle}
+          disabled={busy}
+          onchange={save}
+        >
+          <option value={null}>{m.settings_assistant_runtime_default()}</option>
+          {#each models(provider) as model (model)}<option value={model}
+              >{modelOptionLabel(provider, model)}</option
+            >{/each}
+        </select><span class="set-chev" aria-hidden="true">▾</span></span
+      >
+    {/snippet}
+  </SettingRow>
+  <SettingRow title={effortTitle} {query}>
+    {#snippet control()}
+      <span class="set-select"
+        ><select
+          bind:value={runtime![provider].effort}
+          aria-label={effortTitle}
+          disabled={busy}
+          onchange={save}
+        >
+          <option value={null}>{m.settings_assistant_runtime_default()}</option>
+          {#each [...new Set( [...(runtime![provider].effort ? [runtime![provider].effort!] : []), ...providerEfforts(provider, runtime![provider].model)] )] as effort (effort)}<option
+              value={effort}>{effortLabel(effort)}</option
+            >{/each}
+        </select><span class="set-chev" aria-hidden="true">▾</span></span
+      >
+    {/snippet}
+  </SettingRow>
+{/snippet}
+
 <style>
   .runtime-intro,
   .runtime-status {
@@ -215,5 +232,18 @@
   }
   .runtime-status p {
     margin: 6px 0;
+  }
+  /* Same nesting as SettingsDecisionModelPanel's .dm-nested: these rows only matter while the
+     fallback toggle above them is on. */
+  .runtime-fallback {
+    margin-left: 10px;
+    padding-left: 16px;
+    border-left: 1px dashed var(--color-line-bright);
+  }
+  @media (max-width: 768px) {
+    .runtime-fallback {
+      margin-left: 4px;
+      padding-left: 12px;
+    }
   }
 </style>

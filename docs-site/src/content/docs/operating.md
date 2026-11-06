@@ -664,9 +664,10 @@ flip repo automation — you decide under **Settings → Assistant**.
 
 Set its preferred provider, model and reasoning effort under **Settings → Assistant**.
 One configuration applies to the global and all repo assistants, independently of coding
-defaults. Each provider keeps its own model and effort selection. Existing installations
-start with a snapshot of their previous Claude defaults; changing coding defaults later
-has no effect on HUD assistants.
+defaults. Each provider keeps its own model and effort selection: the preferred provider's
+menus sit directly under it, the other provider's under **Automatic fallback** while it is
+on. Existing installations start with a snapshot of their previous Claude defaults; changing
+coding defaults later has no effect on HUD assistants.
 
 Saving applies to new conversations. **Switch now** transfers every open assistant's
 recent conversation to the saved runtime, waiting for current answers and pending approvals.

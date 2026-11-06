@@ -49,10 +49,22 @@ fn print_created(ctx: &mut Ctx<'_>, verb: &str, s: &Session, on: Option<&str>) -
         return output::json(&mut ctx.io.stdout, s);
     }
     let on = on.map(|m| format!(" on {m}")).unwrap_or_default();
+    let mode = mode_tag(s).map(|m| format!(" [{m}]")).unwrap_or_default();
     output::line(
         &mut ctx.io.stdout,
-        &format!("{verb} {} ({}) — {}{on}", s.desig, s.id, s.name),
+        &format!("{verb} {} ({}) — {}{mode}{on}", s.desig, s.id, s.name),
     )
+}
+
+/// The non-code mode a session runs in, in the server's directive precedence; None for code.
+fn mode_tag(s: &Session) -> Option<&'static str> {
+    [
+        (s.epic_authoring, "epic authoring"),
+        (s.research, "research"),
+        (s.plain, "plain"),
+    ]
+    .into_iter()
+    .find_map(|(on, tag)| (on == Some(true)).then_some(tag))
 }
 
 /// Prints what `POST /api/sessions` answered: the created session, the held task, or the task
@@ -231,6 +243,22 @@ pub async fn new(ctx: &mut Ctx<'_>, args: NewArgs) -> Result<()> {
             }
             if args.autopilot {
                 b = b.autopilot_enabled(Some(true));
+            }
+            // A non-code mode turns the guards off explicitly, as the UI does: the server drops the
+            // plan gate for these modes, but autopilot would follow the repo default.
+            if args.epic_authoring || args.research || args.plain {
+                b = b
+                    .plan_gate_enabled(Some(false))
+                    .autopilot_enabled(Some(false));
+            }
+            if args.epic_authoring {
+                b = b.epic_authoring(Some(true));
+            }
+            if args.research {
+                b = b.research(Some(true));
+            }
+            if args.plain {
+                b = b.plain(Some(true));
             }
             if args.force {
                 b = b.force(Some(true));

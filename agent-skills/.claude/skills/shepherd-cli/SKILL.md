@@ -30,6 +30,9 @@ EOF
   - `--base <branch>`: base branch (default `main`).
   - `--after <task>`: hold it until that task's PR has landed (e.g. `--after TASK-07`).
   - `--plan-gate` / `--autopilot`: run the plan gate, or autopilot.
+  - `--epic-authoring` / `--research` / `--plain`: start it in that mode instead of as a code task.
+    **To hand off epic authoring, use `--epic-authoring`**: only that session gets the `epic_draft`
+    tool. At most one mode, and not with `--plan-gate` or `--autopilot` (exit 2).
   - `--model <model>`, `--effort <level>`, `--provider <claude|codex>`: override server defaults.
   - `--force`: spawn now even if the usage hold would queue it. Only when the operator asks.
   - `--on <machine>`: run it on that machine, by name or instance id (e.g. `--on macbook`). Not

@@ -39,7 +39,9 @@ struct IOSComposeContent: View {
     @State private var explanation: IOSExplanation?
     @State private var files = false
     @State private var photos = false
-    @State private var photo: PhotosPickerItem?
+    @State private var picked: [PhotosPickerItem] = []
+    /// Numbers photos `photo-1`, `photo-2`, … for the sheet's lifetime; the compose list shows no thumbnails.
+    @State private var photoCount = 0
     @FocusState private var promptFocused: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.composeRendering) private var rendering
@@ -141,8 +143,12 @@ struct IOSComposeContent: View {
                 }
             }
             // A PhotosPicker view inside the + Menu never presents: dismissing the menu tears it down.
-            .photosPicker(isPresented: $photos, selection: $photo, matching: .any(of: [.images, .videos]))
-            .onChange(of: photo) { _, photo in importPhoto(photo) }
+            .photosPicker(isPresented: $photos, selection: $picked, selectionBehavior: .ordered, matching: .any(of: [.images, .videos]))
+            .onChange(of: picked) { _, items in
+                guard !items.isEmpty else { return }
+                picked = []
+                importPhotos(items)
+            }
             .onChange(of: scenePhase) { _, phase in
                 if phase != .active { if voice.capturing { voice.finalize() } else if voice.state == .arming { voice.cancel() } }
                 else { startRequestedDictation() }
@@ -532,20 +538,27 @@ struct IOSComposeContent: View {
             else { app.selectedSessionID = session.id; dismiss() }
         }
     }
-    private func importPhoto(_ photo: PhotosPickerItem?) {
-        guard let photo, let stamp = model.attachments.beginImport() else { return }
+    /// Reserves every import up front so Start waits for all of them, then loads in pick order so rows keep that order.
+    private func importPhotos(_ items: [PhotosPickerItem]) {
+        let stamps = items.compactMap { _ in model.attachments.beginImport() }
+        guard stamps.count == items.count else { return }
         Task {
-            do {
-                if photo.isMovie {
-                    let movie = try await photo.loadTransferable(type: IOSPickedMovie.self)
-                    model.attachments.finishImport(movie.map { .init(url: $0.url) }, error: nil, generation: stamp)
-                } else {
-                    let bytes = try await photo.loadTransferable(type: Data.self)
-                    let ext = photo.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-                    model.attachments.finishImport(bytes.map { .init(name: "photo.\(ext)", data: $0) }, error: nil, generation: stamp)
-                }
-            } catch { model.attachments.finishImport(nil, error: ShepherdErrorCopy.message(error), generation: stamp) }
-            self.photo = nil
+            for (photo, stamp) in zip(items, stamps) {
+                do {
+                    if photo.isMovie {
+                        let movie = try await photo.loadTransferable(type: IOSPickedMovie.self)
+                        model.attachments.finishImport(movie.map { .init(url: $0.url) }, error: nil, generation: stamp)
+                    } else {
+                        let bytes = try await photo.loadTransferable(type: Data.self)
+                        let ext = photo.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+                        let file = bytes.map { data -> AttachmentModel.File in
+                            photoCount += 1
+                            return .init(name: "photo-\(photoCount).\(ext)", data: data)
+                        }
+                        model.attachments.finishImport(file, error: nil, generation: stamp)
+                    }
+                } catch { model.attachments.finishImport(nil, error: ShepherdErrorCopy.message(error), generation: stamp) }
+            }
         }
     }
     /// `hasImages` reads no contents, so an empty clipboard is reported without iOS's paste prompt; a denied prompt stays a no-op.

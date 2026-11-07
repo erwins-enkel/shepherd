@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { attachCiSteer, ciFinishedSteer } from "../src/ci-steer";
+import { CiRestartHolds } from "../src/ci-restart-hold";
 import { EventHub } from "../src/events";
 import type { ChecksState, GitState } from "../src/forge/types";
 import type { Session } from "../src/types";
@@ -269,5 +270,82 @@ describe("attachCiSteer critic hold (#3426)", () => {
     h.events.emit("session:reviewing", { id: "s1", reviewing: true });
     await Promise.resolve();
     expect(h.sent).toEqual([]);
+  });
+});
+
+describe("attachCiSteer during an operator CI restart (#2863)", () => {
+  const running = git("pending", "abc", { jobs: [{ name: "test", state: "pending" }] });
+  const red = git("failure", "abc", { jobs: [{ name: "test", state: "failure" }] });
+  const passed = git("success", "abc", { jobs: [{ name: "test", state: "success" }] });
+
+  function restartHarness() {
+    const events = new EventHub();
+    let expire: (() => void) | null = null;
+    const holds = new CiRestartHolds({
+      set: (fn) => (expire = fn),
+      clear: () => (expire = null),
+    });
+    holds.attach(events);
+    const sent: string[] = [];
+    attachCiSteer(events, { get: () => session() } as never, {
+      reply: async (_id, text) => {
+        sent.push(text);
+        return true;
+      },
+      autopilotOn: () => false,
+      ciRestartHeld: (id) => holds.held(id),
+      onRestartRelease: (cb) => holds.onRelease(cb),
+    });
+    const emit = (g: GitState) => events.emit("session:git", { id: "s1", git: g });
+    emit(running); // prime
+    return { holds, sent, emit, expire: () => expire?.() };
+  }
+
+  it("never steers the cancelled run; a re-run failing inside the hold window is steered", async () => {
+    const h = restartHarness();
+    h.holds.hold("s1");
+    h.emit(red); // the cancelled run
+    h.holds.rerunIssued("s1");
+    h.emit(running); // the re-run is underway → the hold lifts
+    await Promise.resolve();
+    expect(h.holds.held("s1")).toBe(false);
+    expect(h.sent).toEqual([]);
+    h.emit(red); // the re-run fails, well inside the original 3 min
+    await Promise.resolve();
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toContain("failed — test");
+  });
+
+  it("a re-run that fails before the poller sees it running is steered when the hold expires", async () => {
+    const h = restartHarness();
+    h.holds.hold("s1");
+    h.emit(red);
+    h.holds.rerunIssued("s1");
+    h.emit(red); // same pair: no in-flight sample was ever seen
+    await Promise.resolve();
+    expect(h.sent).toEqual([]);
+    h.expire();
+    await Promise.resolve();
+    expect(h.sent).toHaveLength(1);
+  });
+
+  it("a failed restart announces the held red", async () => {
+    const h = restartHarness();
+    h.holds.hold("s1");
+    h.emit(red);
+    h.holds.release("s1", "failed");
+    await Promise.resolve();
+    expect(h.sent).toHaveLength(1);
+  });
+
+  it("a held red superseded by a newer result is not re-announced", async () => {
+    const h = restartHarness();
+    h.holds.hold("s1");
+    h.emit(red);
+    h.emit(passed);
+    h.expire();
+    await Promise.resolve();
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toContain("all checks passed");
   });
 });

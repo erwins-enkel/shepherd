@@ -88,6 +88,7 @@
   import { amendments } from "#lib/amendments.svelte.js";
   import TaskTipAmendments from "#lib/components/TaskTipAmendments.svelte";
   import { toasts } from "#lib/toasts.svelte.js";
+  import { steerLogs } from "#lib/steerLogs.svelte.js";
   import SteerBar from "#lib/components/SteerBar.svelte";
   import ControlBar from "#lib/components/ControlBar.svelte";
   import SessionStatusBar from "#lib/components/SessionStatusBar.svelte";
@@ -105,6 +106,7 @@
   import ViewportTermBanners from "./viewport/ViewportTermBanners.svelte";
   import ReviewInFlightBanner from "./viewport/ReviewInFlightBanner.svelte";
   import CiRunningBanner from "./viewport/CiRunningBanner.svelte";
+  import PulseActionBanner from "./viewport/PulseActionBanner.svelte";
   import AutoMergeBanner from "./viewport/AutoMergeBanner.svelte";
   import { ciBannerState } from "#lib/ci-banner.js";
   import ViewportTermControls from "./viewport/ViewportTermControls.svelte";
@@ -479,7 +481,23 @@
   // the merge train, so dim the terminal + steer chips and relabel the recap. Input stays live.
   let autoMergeH = $state(0);
   let autoMergeOwned = $state(false);
-  const ciStripShown = $derived(ciBannerState({ git, reviewActive }).show);
+  // #2863: the CI-overdue / going-in-circles action strip. It ranks below the review banner and
+  // above the CI and auto-merge strips, which treat it as a claimed slot.
+  let pulseBannerH = $state(0);
+  let pulseStripShown = $state(false);
+  const ciStripShown = $derived(
+    ciBannerState({ git, reviewActive: reviewActive || pulseStripShown }).show,
+  );
+  // The steer log has no push (steerLogs.svelte.ts): re-read it when a steer is likely to have
+  // happened, as the card does, so the loop verdict holds without the Herd rail mounted.
+  const steerLogKey = $derived(
+    session.host || session.status === "done" || session.status === "archived"
+      ? null
+      : `${session.id}|${session.status}|${git?.checks ?? ""}|${git?.headSha ?? ""}`,
+  );
+  $effect(() => {
+    if (steerLogKey) void steerLogs.refresh(untrack(() => session.id));
+  });
   // "Shepherd has this" only holds while this session's agent is quiet: when it works in THIS PTY
   // (CI fix, rebase, addressing findings) its live output must stay readable, and a blocked agent
   // needs the operator. Gates both the recap relabel and the dim; the dim additionally yields to
@@ -3531,7 +3549,7 @@
     role={assistant ? undefined : "tabpanel"}
     id={vpBodyId}
     aria-labelledby={assistant ? undefined : tabId(tab)}
-    style:--review-banner-h={`${reviewBannerH || ciBannerH || autoMergeH}px`}
+    style:--review-banner-h={`${reviewBannerH || pulseBannerH || ciBannerH || autoMergeH}px`}
   >
     <div
       class="term-mount"
@@ -3615,9 +3633,26 @@
         bind:active={reviewActive}
         bind:inflight={reviewInFlight}
       />
-      <!-- Non-blocking "CI is running" banner: same bottom strip, shown only when no
-         review banner claims it (reviewActive) so the two never overlap. -->
-      <CiRunningBanner {git} {tab} {reviewActive} bind:height={ciBannerH} />
+      <!-- CI overdue / going in circles (#2863): the status panel's actions, same bottom strip,
+         yielding only to the review banner. -->
+      <PulseActionBanner
+        {session}
+        {git}
+        steers={steerLogs.map[session.id]}
+        autopilotOn={autopilotEffective}
+        {tab}
+        {reviewActive}
+        bind:height={pulseBannerH}
+        bind:shown={pulseStripShown}
+      />
+      <!-- Non-blocking "CI is running" banner: same bottom strip, shown only when neither the
+         review banner nor the action strip claims it, so they never overlap. -->
+      <CiRunningBanner
+        {git}
+        {tab}
+        reviewActive={reviewActive || pulseStripShown}
+        bind:height={ciBannerH}
+      />
       <!-- Full-auto merge strip: same bottom slot, last in line — shown only when neither banner
          above claims it. Its `owned` signal dims the terminal regardless of who holds the slot. -->
       <AutoMergeBanner
@@ -3626,7 +3661,7 @@
         {git}
         status={autoMergeTrain[session.repoPath]}
         {tab}
-        stripTaken={reviewActive || ciStripShown}
+        stripTaken={reviewActive || pulseStripShown || ciStripShown}
         handedBack={session.autopilotPaused}
         bind:height={autoMergeH}
         bind:owned={autoMergeOwned}

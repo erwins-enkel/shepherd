@@ -109,7 +109,8 @@ type CiSkipReason =
   | "no-capacity"
   | "working"
   | "background-busy"
-  | "critic-reviewing";
+  | "critic-reviewing"
+  | "operator-ci-restart";
 
 export const CI_FIX_STEER = [
   "You're in autopilot and CI is failing on your open pull request. Fix it: find the failing",
@@ -264,6 +265,10 @@ export interface AutopilotDeps {
    *  held — the critic's findings steer carries it, or its settle releases it to the tick. Omitted
    *  → never held. */
   criticReviewing?: (id: string, headSha: string) => boolean;
+  /** #2863: the operator is restarting this session's CI (CiRestartHolds.held). The cancelled run
+   *  reads red but is not the agent's to fix: no CI-fix steer until the hold lifts, after which the
+   *  tick re-engages a head that is still red. Omitted → never held. */
+  ciRestartHeld?: (id: string) => boolean;
   /** Kick a fresh PR-status poll (best-effort, fire-and-forget). Called when a session settles
    *  so the `hasPr` snapshot — which otherwise lags on a ~120s cadence — catches a PR the
    *  agent just opened before autopilot redundantly steers it to open one. */
@@ -933,6 +938,7 @@ export class AutopilotService {
     if (s.mergingSince !== null) return skip("merging"); // merge train owns this session; don't double-steer its rebase
     if (ciHandedBack(s)) return skip(parkedReason(s)); // already handed back; waits for operator
     if (this.pending.has(s.id)) return skip("pending-classify"); // a classify (gate/done path) is mid-flight
+    if (this.deps.ciRestartHeld?.(s.id)) return skip("operator-ci-restart"); // ciNudged stays unset: the tick re-engages after the hold
     // Cap gate FIRST, matching reEngageCi where that order is load-bearing (there the stand-down
     // claims-without-acting, so evaluating it first would make the pause unreachable). Here both
     // arms are plain returns, so order does not affect behaviour — they are kept in the same
@@ -1018,6 +1024,7 @@ export class AutopilotService {
     if (ciHandedBack(s)) return this.skipCi(s, git, parkedReason(s), false); // already handed back; waits for operator
     if (this.pending.has(id)) return this.skipCi(s, git, "pending-classify", false); // a classify (onDone/onBlock) is mid-flight — its dispatch will act; don't race it
     if (!git) return false;
+    if (this.deps.ciRestartHeld?.(id)) return this.skipCi(s, git, "operator-ci-restart", true); // the operator's cancel reads red: claim (no classify) without steering
     // Non-full-auto: the merge train never touches it, so this idle backstop is the only actor
     // left once considerCi's one-shot edge steer is spent. A rebase actor that takes it
     // (reEngageRebase, red+behind) goes first: return false so tick() falls through to it.

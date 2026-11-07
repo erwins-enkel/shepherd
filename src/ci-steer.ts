@@ -21,6 +21,12 @@ export interface CiSteerDeps {
    *  held until it settles — its findings steer may carry the failure — and re-evaluated on the
    *  `session:reviewing` false edge. Omitted → never held. */
   criticReviewing?: (id: string, headSha: string) => boolean;
+  /** #2863: an operator CI restart is in progress (CiRestartHolds.held). A red sample is held —
+   *  the cancelled run is the operator's, not a failure to fix — and settled on release. */
+  ciRestartHeld?: (id: string) => boolean;
+  /** Registers the release callback (CiRestartHolds.onRelease). `running`: the re-run is underway,
+   *  so the held sample is dropped; `expired`/`failed`: it is announced if still the latest pair. */
+  onRestartRelease?: (cb: (id: string, reason: "running" | "expired" | "failed") => void) => void;
 }
 
 /** The handle attachCiSteer returns. */
@@ -67,7 +73,7 @@ const finished = (c: ChecksState): c is "success" | "failure" => c === "success"
 
 /** Checks still running on the head. The rollup is worst-of with failure ABOVE pending, so a red
  *  rollup can still have jobs in flight; absent per-job data (REST fallback, Gitea) reads as none. */
-function inFlight(git: GitState): boolean {
+export function inFlight(git: GitState): boolean {
   return (
     (git.runningChecks?.length ?? 0) > 0 || (git.jobs ?? []).some((j) => j.state === "pending")
   );
@@ -119,12 +125,18 @@ export function attachCiSteer(
   const deferred = new Map<string, GitState>();
   // Head whose CI failure the critic's combined steer already delivered.
   const criticSteered = new Map<string, string>();
+  // Latest red sample seen during an operator CI restart (#2863), settled on release.
+  const restartDeferred = new Map<string, GitState>();
 
   const announce = (id: string, git: GitState, key: string) => {
     const s = store.get(id);
     if (!steerable(s, git)) return;
     if (git.checks === "failure") {
       if (deps.autopilotOn(s)) return;
+      if (deps.ciRestartHeld?.(id)) {
+        restartDeferred.set(id, git);
+        return;
+      }
       if (criticSteered.get(id) === git.headSha) {
         steered.set(id, key);
         return;
@@ -145,7 +157,18 @@ export function attachCiSteer(
     steered.delete(id);
     deferred.delete(id);
     criticSteered.delete(id);
+    restartDeferred.delete(id);
   };
+
+  // An operator CI restart lifted: drop the held red if the re-run superseded it, else announce it.
+  const onRestartRelease = (id: string, reason: "running" | "expired" | "failed") => {
+    const held = restartDeferred.get(id);
+    restartDeferred.delete(id);
+    if (!held || reason === "running") return;
+    const key = pairKey(held);
+    if (last.get(id) === key && steered.get(id) !== key) announce(id, held, key);
+  };
+  deps.onRestartRelease?.(onRestartRelease);
 
   // The critic run settled: re-evaluate the red sample it held.
   const onReviewing = (id: string, reviewing: boolean) => {

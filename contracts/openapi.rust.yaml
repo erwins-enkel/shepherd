@@ -2452,6 +2452,9 @@ components:
         kind:
           type: string
           description: The channel, read off Shepherd's fixed steer wording — go, plan_review, ci_fix, rebase, open_pr, nudge, review, queue, api_retry, or operator. Treat an unknown value as operator.
+        headSha:
+          type: string
+          description: The PR head SHA the message was sent on. Absent when no PR was cached at the time, or on messages recorded before the field existed.
     SteerLogList:
       type: array
       description: Oldest first, since the session was created.
@@ -2538,6 +2541,24 @@ components:
           type: string
         runtimeEffort:
           type: string
+        ciPolling:
+          type: object
+          additionalProperties: true
+          description: "The agent is polling CI itself: its trailing tool calls only sleep and read CI. Absent when it is not."
+          required:
+            - polls
+            - inputTokens
+            - since
+          properties:
+            polls:
+              type: integer
+              description: CI reads in the trailing run.
+            inputTokens:
+              type: integer
+              description: Input-side tokens the polling requests consumed.
+            since:
+              type: integer
+              description: Epoch ms of the run's first call.
     SessionActivityEvent:
       type: object
       additionalProperties: true

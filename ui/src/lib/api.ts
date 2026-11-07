@@ -1671,6 +1671,14 @@ export async function interruptSession(id: string): Promise<void> {
   if (!r.ok) throw await failed(r, "interrupt");
 }
 
+/** Re-run an overdue job of the session's open PR (#2863): the server cancels its run, waits for
+ *  it to finish and re-runs the failed jobs in the background. Throws an {@link ApiError}; status
+ *  400 means the forge can't restart this run. */
+export async function restartCiJob(id: string, job: string): Promise<void> {
+  const r = await fetch(`/api/sessions/${id}/ci/restart`, JSON_POST({ job }));
+  if (!r.ok) throw await failed(r, "ci restart");
+}
+
 /** A next-prompt recommendation: the suggested prompt, or a stable error code the
  *  RecommendDialog maps to a localized message. Never throws — the dialog needs a
  *  distinct error state, not a crash. */

@@ -8199,5 +8199,17 @@
   "feat_warm_repos_body": "Shepherd now reads GitHub in the background only for repos you worked in recently. A [[cold-repo|cold repo]] shows its last-known counts with their age in REPOS, and opening it brings it up to date. Set how many days count as recent under Settings → Workspace → Warm window; 0 polls every repo.",
   "pulse_section_polling": "Agent polls CI itself",
   "pulse_polling_row": "{polls} polls · ≈{tokens} tokens",
-  "pulse_polling_note": "Not needed: Shepherd steers the agent when CI turns red and starts the critic when it turns green."
+  "pulse_polling_note": "Not needed: Shepherd steers the agent when CI turns red and starts the critic when it turns green.",
+  "pulseactions_open_run": "Open run",
+  "pulseactions_rerun": "Re-run",
+  "pulseactions_rerun_confirm": "Cancel & re-run?",
+  "pulseactions_rerun_busy": "Restarting…",
+  "pulseactions_rerun_started": "Cancelling {job}; it re-runs once the cancel lands.",
+  "pulseactions_rerun_unsupported": "Re-run isn't supported for this repo's forge — open the run instead.",
+  "pulseactions_rerun_failed": "Couldn't restart the job.",
+  "pulseactions_take_over": "Take over",
+  "pulseactions_stop": "Stop",
+  "pulseactions_stop_failed": "Couldn't stop the agent.",
+  "feat_ci_overdue_loop_actions_title": "Act on overdue CI and CI-fix loops",
+  "feat_ci_overdue_loop_actions_body": "When a CI job runs far past its usual time, the session's detail view offers Open run and Re-run (cancel, then re-run). When a session gets three CI-fix steers on the same head without going green, it offers Take over (autopilot off) and Stop. The status panel also warns when an agent polls CI itself — Shepherd already tells it when CI finishes."
 }

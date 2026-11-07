@@ -78,6 +78,7 @@ const SESSION_READS = new Set([
 const SESSION_POSTS = new Set([
   "reply",
   "interrupt",
+  "ci/restart",
   "resume",
   "relaunch",
   "replace",

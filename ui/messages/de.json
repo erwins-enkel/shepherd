@@ -8199,5 +8199,17 @@
   "feat_warm_repos_body": "Shepherd liest GitHub im Hintergrund jetzt nur noch für Repos, in denen du zuletzt gearbeitet hast. Ein [[cold-repo|kaltes Repo]] zeigt in REPOS die zuletzt bekannten Zahlen mit ihrem Alter; beim Öffnen wird es aktualisiert. Wie viele Tage als „zuletzt“ gelten, stellst du unter Einstellungen → Arbeitsbereich → Warmfenster ein; bei 0 wird jedes Repo abgefragt.",
   "pulse_section_polling": "Agent fragt die CI selbst ab",
   "pulse_polling_row": "{polls} Abfragen · ≈{tokens} Tokens",
-  "pulse_polling_note": "Nicht nötig: Shepherd meldet sich beim Agenten, wenn die CI rot wird, und startet bei Grün den Kritiker."
+  "pulse_polling_note": "Nicht nötig: Shepherd meldet sich beim Agenten, wenn die CI rot wird, und startet bei Grün den Kritiker.",
+  "pulseactions_open_run": "Lauf öffnen",
+  "pulseactions_rerun": "Neu starten",
+  "pulseactions_rerun_confirm": "Abbrechen & neu starten?",
+  "pulseactions_rerun_busy": "Startet neu…",
+  "pulseactions_rerun_started": "{job} wird abgebrochen und danach neu gestartet.",
+  "pulseactions_rerun_unsupported": "Neustart wird für die Forge dieses Repos nicht unterstützt – öffne stattdessen den Lauf.",
+  "pulseactions_rerun_failed": "Der Job konnte nicht neu gestartet werden.",
+  "pulseactions_take_over": "Übernehmen",
+  "pulseactions_stop": "Stoppen",
+  "pulseactions_stop_failed": "Der Agent konnte nicht gestoppt werden.",
+  "feat_ci_overdue_loop_actions_title": "Überfällige CI und CI-Fix-Schleifen direkt angehen",
+  "feat_ci_overdue_loop_actions_body": "Läuft ein CI-Job weit länger als üblich, bietet die Detailansicht der Session „Lauf öffnen“ und „Neu starten“ (abbrechen, dann neu starten). Bekommt eine Session drei CI-Fix-Hinweise auf demselben Stand, ohne grün zu werden, gibt es „Übernehmen“ (Autopilot aus) und „Stoppen“. Das Status-Panel warnt außerdem, wenn ein Agent die CI selbst abfragt – Shepherd meldet ihm ohnehin, wenn die CI fertig ist."
 }

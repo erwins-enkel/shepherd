@@ -3023,6 +3023,7 @@ function fakeSnapshotSvc(
     hasTransient: () => boolean;
     isStale: () => boolean;
     noteHeadRead: () => void;
+    setPrCoverage: () => void;
   };
   calls: { refresh: number; get: number };
 } {
@@ -3041,6 +3042,7 @@ function fakeSnapshotSvc(
     hasTransient: () => false,
     isStale: () => false,
     noteHeadRead: () => {},
+    setPrCoverage: () => {},
   };
   return { svc, calls };
 }
@@ -4348,5 +4350,157 @@ test("#2867: the full sweep keeps reading a merge-train head the fast sweep cove
     expect(reads).toBe(1);
   } finally {
     poller.stop();
+  }
+});
+
+// ── #3764: the snapshot's pending-CI re-read skips poller-covered heads ─────────
+
+/** Two sessions of one repo, a real snapshot service whose re-read timers run on the fake clock,
+ *  and a started poller (only a scheduled fast sweep covers heads). */
+function coverageSim(byBranch: Record<string, PrStatus>) {
+  const store = new SessionStore(":memory:");
+  const a = store.create({ ...baseSession, branch: "shepherd/a" });
+  store.update(a.id, { status: "done" }); // finished agent, CI still running
+  const b = store.create({ ...baseSession, herdrAgentId: "term_b", branch: "shepherd/b" });
+  const clock = { t0: 1_800_000_000_000, now: 1_800_000_000_000 };
+  const cache = new GithubReadCache(store, { now: () => clock.now });
+  cache.put("fingerprint", "o/r", null, {
+    openIssues: 0,
+    issuesUpdatedAt: "",
+    openPrs: 2,
+    prsUpdatedAt: "t0",
+    ciState: "",
+    defaultHeadOid: "main-1",
+  });
+  const timers: Array<{ fn: () => void; due: number }> = [];
+  const snapshots = new OpenPrSnapshotService(
+    () => clock.now,
+    undefined,
+    cache,
+    (fn, ms) => timers.push({ fn, due: clock.now + ms }),
+  );
+  const calls = { snapshot: 0 };
+  const { forge, setPhase } = simForge(byBranch);
+  forge.countOpenPrs = async () => 2;
+  forge.listOpenPrSnapshot = async () => {
+    calls.snapshot++;
+    const rows = Object.entries(byBranch).map(([head, st]) => ({ ...st, head }));
+    return {
+      prs: rows.map((r) => ({
+        number: r.number!,
+        title: r.head,
+        url: `https://github.com/o/r/pull/${r.number}`,
+        author: "alice",
+        kind: "regular" as const,
+        createdAt: 0,
+        isDraft: false,
+        mergeable: true,
+        checks: r.checks,
+        jobs: [],
+        headSha: r.headSha,
+        headRefName: r.head,
+      })),
+      statuses: new Map(rows.map((r) => [r.head, { ...byBranch[r.head]! }])),
+      capped: false,
+      source: "graphql" as const,
+    };
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    undefined,
+    0,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    snapshots,
+    () => `${cache.contentKey("prs", "o/r")}|${cache.revision("o/r")}`,
+    cache,
+  );
+  /** Fire the snapshot re-reads due by now. */
+  const fireDue = async () => {
+    for (const t of timers.filter((t) => t.due <= clock.now)) {
+      timers.splice(timers.indexOf(t), 1);
+      t.fn();
+    }
+    await new Promise((r) => setTimeout(r, 0));
+  };
+  return { store, a, b, clock, snapshots, forge, poller, calls, setPhase, fireDue };
+}
+
+test("#3764: fastCoveredPrs lists only the PRs the live fast sweep reads", async () => {
+  const byBranch: Record<string, PrStatus> = {
+    "shepherd/a": CI_RUNNING("h1"),
+    "shepherd/b": { ...OPEN_STABLE, number: 2, headSha: "h2" },
+  };
+  const t = coverageSim(byBranch);
+  await t.poller.tick();
+  expect([...t.poller.fastCoveredPrs("o/r")]).toEqual([]); // fast timer not scheduled
+  t.poller.start();
+  try {
+    expect([...t.poller.fastCoveredPrs("o/r")]).toEqual([1]); // b is settled: not covered
+    expect([...t.poller.fastCoveredPrs("other/repo")]).toEqual([]);
+    t.clock.now += 3_600_000; // past CI_FAST_MAX_MS: parked
+    expect([...t.poller.fastCoveredPrs("o/r")]).toEqual([]);
+  } finally {
+    t.poller.stop();
+  }
+});
+
+test("#3764: a covered pending head drives no snapshot re-read; the PRs tab settles in one sweep", async () => {
+  const byBranch: Record<string, PrStatus> = {
+    "shepherd/a": CI_RUNNING("h1"),
+    "shepherd/b": { ...OPEN_STABLE, number: 2, headSha: "h2" },
+  };
+  const t = coverageSim(byBranch);
+  t.poller.start();
+  try {
+    t.setPhase("full");
+    await t.poller.tick(); // seed: the one snapshot fetch
+    expect(t.calls.snapshot).toBe(1);
+    await runClock(t.poller, t.clock, t.setPhase, 15_000, 1_785_000, t.fireDue);
+    expect(t.calls.snapshot).toBe(1); // 30 min of pending CI: no 120 s re-reads
+    byBranch["shepherd/a"] = { ...CI_GREEN("h1") };
+    let seenAt: number | null = null;
+    let settledAt: number | null = null;
+    await runClock(t.poller, t.clock, t.setPhase, 1_800_000, 2_100_000, async (now) => {
+      await t.fireDue();
+      if (seenAt == null && t.poller.get(t.a.id)?.checks === "success") seenAt = now;
+      const row = t.snapshots.peek(t.forge)?.prs.find((p) => p.number === 1);
+      if (settledAt == null && row?.checks === "success") settledAt = now;
+    });
+    expect(seenAt).not.toBeNull();
+    expect(settledAt).not.toBeNull();
+    expect(settledAt! - seenAt!).toBeLessThanOrEqual(120_000);
+    expect(t.calls.snapshot).toBe(2); // the stale catch-up only
+  } finally {
+    t.poller.stop();
+  }
+});
+
+test("#3764: without a scheduled fast sweep nothing is covered — the snapshot keeps its re-read", async () => {
+  const byBranch: Record<string, PrStatus> = {
+    "shepherd/a": CI_RUNNING("h1"),
+    "shepherd/b": { ...OPEN_STABLE, number: 2, headSha: "h2" },
+  };
+  const t = coverageSim(byBranch);
+  t.poller.start();
+  try {
+    await t.poller.tick();
+    t.poller.stop(); // no fast timer: the head is uncovered
+    t.clock.now += 120_000;
+    await t.fireDue();
+    t.clock.now += 120_000;
+    await t.fireDue();
+    expect(t.calls.snapshot).toBe(3);
+  } finally {
+    t.poller.stop();
   }
 });

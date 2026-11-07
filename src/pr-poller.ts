@@ -413,6 +413,8 @@ export class PrPoller implements PrCache {
     this.cache = new Map(Object.entries(this.store.listSessionGitCache()));
     this.hydrateTransientWindows();
     this.hydrateSessionFreshness();
+    // Heads the fast sweep reads don't need the snapshot's pending-CI re-read (#3764).
+    this.snapshotSvc?.setPrCoverage((slug) => this.fastCoveredPrs(slug));
   }
 
   private now(): number {
@@ -811,6 +813,20 @@ export class PrPoller implements PrCache {
   private fastCovers(s: Session): boolean {
     const git = this.cache.get(s.id);
     return s.mergingSince == null && !!git && this.fastCadence(s, git, this.now()) != null;
+  }
+
+  /** PR numbers of `slug`'s sessions the scheduled, live fast sweep reads on its own cadence
+   *  (#3764) — their CI finishing reaches the snapshot via {@link refetchStale}. */
+  fastCoveredPrs(slug: string): Set<number> {
+    const out = new Set<number>();
+    if (this.fastTimer == null || !this.fastLive()) return out;
+    for (const [id, git] of this.cache) {
+      if (git.number == null) continue;
+      const s = this.store.get(id);
+      if (!s || s.status === "archived" || this.resolveForge(s.repoPath)?.slug !== slug) continue;
+      if (this.fastCovers(s)) out.add(git.number);
+    }
+    return out;
   }
 
   /** Every fast-covered live session of each repo that has at least one due head. Half a tick of

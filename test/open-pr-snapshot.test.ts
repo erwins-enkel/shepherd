@@ -933,6 +933,76 @@ test("recheck: repeat gets queue one timer; a settled snapshot queues none; a RE
   expect(rest.queued.map((t) => t.ms)).toEqual([CHECKS_RECHECK_MS]);
 });
 
+/** A forge listing PRs #1 and #2, both awaiting CI. */
+function twoPendingForge() {
+  const forge = makeForge();
+  let fetches = 0;
+  (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = async () => {
+    fetches++;
+    const pr = makeSnapshot(1).prs[0]!;
+    return {
+      ...makeSnapshot(1),
+      prs: [
+        { ...pr, number: 1, headSha: "a", checks: "pending" as const },
+        { ...pr, number: 2, headSha: "b", checks: "pending" as const },
+      ],
+    };
+  };
+  return { forge, fetches: () => fetches };
+}
+
+test("recheck (#3764): a pending PR the session poller covers arms no re-read", async () => {
+  const timers = fakeTimers();
+  const { cache } = coveredCache();
+  const svc = new OpenPrSnapshotService(() => 0, 6, cache, timers.schedule);
+  const asked: string[] = [];
+  svc.setPrCoverage((slug) => (asked.push(slug), new Set([1])));
+  const { forge, fetches } = ciForge();
+  await svc.get(forge);
+  await svc.get(forge);
+  expect(timers.queued).toHaveLength(0);
+  expect(fetches()).toBe(1);
+  expect(asked.every((s) => s === "org/repo")).toBe(true);
+});
+
+test("recheck (#3764): only uncovered PRs spend tries; a covered one keeps its budget", async () => {
+  const timers = fakeTimers();
+  const { cache } = coveredCache();
+  const svc = new OpenPrSnapshotService(() => 0, 6, cache, timers.schedule);
+  let covered = new Set([1]);
+  svc.setPrCoverage(() => covered);
+  const { forge, fetches } = twoPendingForge();
+  await svc.get(forge);
+  expect(timers.queued.map((t) => t.ms)).toEqual([CHECKS_RECHECK_MS]);
+  while (timers.queued.length > 0) await timers.fire();
+  expect(fetches()).toBe(1 + CHECKS_RECHECK_MAX); // PR #2 drove the schedule alone
+  covered = new Set(); // coverage lapses: PR #1 was never charged
+  await svc.get(forge);
+  expect(timers.queued.map((t) => t.ms)).toEqual([CHECKS_RECHECK_MS]);
+  while (timers.queued.length > 0) await timers.fire();
+  expect(fetches()).toBe(1 + 2 * CHECKS_RECHECK_MAX);
+});
+
+test("recheck (#3764): a PR covered by fire time costs no fetch and no try", async () => {
+  const timers = fakeTimers();
+  const { cache } = coveredCache();
+  const svc = new OpenPrSnapshotService(() => 0, 6, cache, timers.schedule);
+  let covered = new Set<number>();
+  svc.setPrCoverage(() => covered);
+  const { forge, fetches } = ciForge();
+  await svc.get(forge);
+  expect(timers.queued).toHaveLength(1);
+  covered = new Set([1]); // the poller picked the head up meanwhile
+  await timers.fire();
+  expect(fetches()).toBe(1);
+  expect(timers.queued).toHaveLength(0);
+  covered = new Set(); // lapses again: the next reader re-arms with the full budget
+  await svc.get(forge);
+  for (let i = 0; i < CHECKS_RECHECK_MAX; i++) await timers.fire();
+  expect(fetches()).toBe(1 + CHECKS_RECHECK_MAX);
+  expect(timers.queued).toHaveLength(0);
+});
+
 test("patchPr: replaces the PR's row and status in place, keeps fetch time, notifies", async () => {
   let now = 0;
   const cache = new GithubReadCache(new SessionStore(":memory:"), { now: () => now });

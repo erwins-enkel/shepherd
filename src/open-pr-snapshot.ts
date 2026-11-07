@@ -13,7 +13,8 @@ export const SNAPSHOT_TTL_MS = 120_000;
 export const SETTLE_DELAYS_MS = [5_000, 30_000];
 
 /** How often a snapshot holding pending CI is re-read, and how many times per PR head: CI finishing
- *  moves no fingerprint, and repos without a session get no poller catch-up. */
+ *  moves no fingerprint, and PRs without a session get no poller catch-up. PRs a session poller
+ *  reads by head ({@link OpenPrSnapshotService.setPrCoverage}) don't drive it (#3764). */
 export const CHECKS_RECHECK_MS = 120_000;
 export const CHECKS_RECHECK_MAX = 30;
 /** Re-reads for a head with no checks yet: CI may still register, but a repo without CI never
@@ -21,6 +22,7 @@ export const CHECKS_RECHECK_MAX = 30;
 export const NO_CHECKS_RECHECK_MAX = 3;
 
 type CacheEntry = GithubCacheEntry<OpenPrSnapshot>;
+type ChecksTry = { number: number; spent: number; budget: number };
 type Schedule = (fn: () => void, ms: number) => void;
 
 const defaultSchedule: Schedule = (fn, ms) => {
@@ -65,8 +67,11 @@ export class OpenPrSnapshotService {
   >();
   /** Slugs with a settle re-read scheduled. */
   private readonly settlePending = new Set<string>();
-  /** slug → `number:headSha` of its PRs awaiting CI → re-reads spent on that head, and its budget. */
-  private readonly checksTries = new Map<string, Map<string, { spent: number; budget: number }>>();
+  /** slug → `number:headSha` of its PRs awaiting CI → its PR number, re-reads spent on that head,
+   *  and its budget. */
+  private readonly checksTries = new Map<string, Map<string, ChecksTry>>();
+  /** slug → PR numbers a session poller reads by head on its own cadence (#3764). */
+  private prCoverage: (slug: string) => ReadonlySet<number> = () => new Set();
   /** Slugs with a pending-CI re-read scheduled. */
   private readonly checksPending = new Set<string>();
   private readonly listeners = new Set<(slug: string) => void>();
@@ -199,6 +204,15 @@ export class OpenPrSnapshotService {
       this.staleAt.set(forge.slug!, this.now());
   }
 
+  /**
+   * Tell the pending-CI re-read which PRs a session poller already reads by head on its own
+   * cadence (#3764). Those don't drive it: the poller's head read catches CI finishing and
+   * {@link noteHeadRead} marks the snapshot stale for its refetch. Covered time costs no tries.
+   */
+  setPrCoverage(covered: (slug: string) => ReadonlySet<number>): void {
+    this.prCoverage = covered;
+  }
+
   /** Subscribe to cache writes — a fetched snapshot or a {@link patchPr} — by slug. */
   onUpdate(listener: (slug: string) => void): void {
     this.listeners.add(listener);
@@ -319,30 +333,39 @@ export class OpenPrSnapshotService {
    * Re-read a snapshot holding a PR awaiting CI every {@link CHECKS_RECHECK_MS}, at most
    * {@link CHECKS_RECHECK_MAX} times per pending PR head and {@link NO_CHECKS_RECHECK_MAX} per head
    * with no checks yet. Tries survive a moved content key, so a busy repo can't keep a stuck check
-   * polling; a re-read skipped for budget costs no try.
+   * polling; a re-read skipped for budget costs no try. Only PRs no session poller covers
+   * ({@link setPrCoverage}) arm it or spend tries.
    */
   private scheduleChecksRecheck(slug: string, forge: GitForge, snap: OpenPrSnapshot): void {
     if (forge.kind !== "github") return;
     const prev = this.checksTries.get(slug);
-    const tries = new Map<string, { spent: number; budget: number }>();
+    const tries = new Map<string, ChecksTry>();
     for (const pr of snap.prs) {
       if (pr.checks !== "pending" && pr.checks !== "none") continue;
       const id = `${pr.number}:${pr.headSha ?? ""}`;
       const budget = pr.checks === "pending" ? CHECKS_RECHECK_MAX : NO_CHECKS_RECHECK_MAX;
-      tries.set(id, { spent: prev?.get(id)?.spent ?? 0, budget });
+      tries.set(id, { number: pr.number, spent: prev?.get(id)?.spent ?? 0, budget });
     }
     this.checksTries.set(slug, tries);
-    if (this.checksPending.has(slug)) return;
-    if (![...tries.values()].some((t) => t.spent < t.budget)) return;
+    if (this.checksPending.has(slug) || this.dueChecks(slug).length === 0) return;
     this.checksPending.add(slug);
     this.schedule(() => {
       this.checksPending.delete(slug);
       if (graphRateLimit.blocked() || (this.readCache && !this.readCache.canRefresh())) return;
-      const current = this.checksTries.get(slug);
-      if (!current?.size) return; // another read already saw CI finish
-      for (const t of current.values()) if (t.spent < t.budget) t.spent++;
+      // Empty when another read saw CI finish, or every pending PR is covered by now.
+      const due = this.dueChecks(slug);
+      if (due.length === 0) return;
+      for (const t of due) t.spent++;
       void this.refresh(forge);
     }, CHECKS_RECHECK_MS);
+  }
+
+  /** `slug`'s pending-CI tries under budget whose PR no session poller covers. */
+  private dueChecks(slug: string): ChecksTry[] {
+    const tries = this.checksTries.get(slug);
+    if (!tries?.size) return [];
+    const covered = this.prCoverage(slug);
+    return [...tries.values()].filter((t) => t.spent < t.budget && !covered.has(t.number));
   }
 
   /** True when the forge can supply a snapshot (non-null slug + method present). */

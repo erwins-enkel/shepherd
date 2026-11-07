@@ -116,25 +116,31 @@ Done when every taxonomy label exists (dry run: when the missing ones are listed
 ### 2. Inventory
 
 ```bash
-gh issue list --state open --limit 1000 --json number,title,labels \
-  -q '.[] | "\(.number)\t\([.labels[].name] | join(","))\t\(.title)"'
+gh issue list --state open --limit 1000 --json number,title,labels,updatedAt \
+  -q '.[] | "\(.number)\t\(.updatedAt)\t\([.labels[].name] | join(","))\t\(.title)"'
 ```
 
 One call, no bodies. If it returns 1000 rows, page further before continuing.
 
 ### 3. Select candidates
 
-From titles and labels alone, an issue is a candidate when any holds:
+From titles and labels alone, an issue is a candidate when either holds:
 
 - no type label, or no platform label;
-- carries `needs-triage`;
+- carries `needs-triage`.
+
+An issue that has a type and a platform is complete. It is a candidate only for its requirements,
+and only when it was updated in the last 3 days (`updatedAt`) and any of these holds:
+
 - carries `ios-app` or `mac-app` but not `requires-macos`;
 - title mentions Codex but lacks `codex`;
 - title mentions a device test, TestFlight or a measurement on a phone but lacks
   `requires-ios-device`.
 
-Every other issue is complete as far as this run can tell; skip it. Wrong labels on skipped issues
-stay unseen; that is the price of a cheap daily run. Done when every inventory row
+Every other issue is complete as far as this run can tell; skip it. A complete issue whose missing
+requirement was judged correct (an epic or design doc with `ios-app` but no `requires-macos`) is read
+again only in the 3 days after it changes. Wrong labels on skipped issues stay unseen; that is the price of a
+cheap daily run. Done when every inventory row
 is either a candidate or skipped.
 
 ### 4. Judge

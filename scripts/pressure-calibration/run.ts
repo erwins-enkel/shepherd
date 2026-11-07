@@ -11,6 +11,8 @@
  * → sweep (cargo -j W and browser --maxWorkers=W, solo) → settle (idle) → ramp (one looping lane
  * every --step s up to --max-lanes, hold, then one lane stopped every --step s) → cooldown (idle).
  * A 1 Hz sampler writes samples.ndjson; events.ndjson records phases, lanes and every command.
+ * Both are mirrored to stdout as `[cal:sample] {…}` / `[cal:event] {…}` lines, so the job log keeps
+ * them if pressure takes the runner down before the artifact upload.
  * `--probe-only` replaces the workloads with short sleeps: a harmless pipeline check.
  */
 import { spawn, type ChildProcess } from "node:child_process";
@@ -166,7 +168,9 @@ class Harness {
   }
 
   event(e: CalEvent): void {
-    appendFileSync(join(this.cfg.out, "events.ndjson"), `${JSON.stringify(e)}\n`);
+    const line = JSON.stringify(e);
+    appendFileSync(join(this.cfg.out, "events.ndjson"), `${line}\n`);
+    console.log(`[cal:event] ${line}`);
   }
 
   setPhase(phase: Phase): void {
@@ -232,7 +236,9 @@ class Harness {
         probeMs: this.probeBuffer.splice(0),
       };
       this.lastSample = s;
-      appendFileSync(join(this.cfg.out, "samples.ndjson"), `${JSON.stringify(s)}\n`);
+      const line = JSON.stringify(s);
+      appendFileSync(join(this.cfg.out, "samples.ndjson"), `${line}\n`);
+      console.log(`[cal:sample] ${line}`);
     } finally {
       this.#sampling = false;
     }

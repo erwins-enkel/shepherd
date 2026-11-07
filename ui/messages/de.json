@@ -8196,5 +8196,8 @@
   "upnext_cold_skipped_one": "1 [[cold-repo|kaltes Repo]] nicht geladen — aktualisieren, um es einzubeziehen",
   "upnext_cold_skipped": "{count} [[cold-repo|kalte Repos]] nicht geladen — aktualisieren, um sie einzubeziehen",
   "feat_warm_repos_title": "Nur aktive Repos werden abgefragt",
-  "feat_warm_repos_body": "Shepherd liest GitHub im Hintergrund jetzt nur noch für Repos, in denen du zuletzt gearbeitet hast. Ein [[cold-repo|kaltes Repo]] zeigt in REPOS die zuletzt bekannten Zahlen mit ihrem Alter; beim Öffnen wird es aktualisiert. Wie viele Tage als „zuletzt“ gelten, stellst du unter Einstellungen → Arbeitsbereich → Warmfenster ein; bei 0 wird jedes Repo abgefragt."
+  "feat_warm_repos_body": "Shepherd liest GitHub im Hintergrund jetzt nur noch für Repos, in denen du zuletzt gearbeitet hast. Ein [[cold-repo|kaltes Repo]] zeigt in REPOS die zuletzt bekannten Zahlen mit ihrem Alter; beim Öffnen wird es aktualisiert. Wie viele Tage als „zuletzt“ gelten, stellst du unter Einstellungen → Arbeitsbereich → Warmfenster ein; bei 0 wird jedes Repo abgefragt.",
+  "pulse_section_polling": "Agent fragt die CI selbst ab",
+  "pulse_polling_row": "{polls} Abfragen · ≈{tokens} Tokens",
+  "pulse_polling_note": "Nicht nötig: Shepherd meldet sich beim Agenten, wenn die CI rot wird, und startet bei Grün den Kritiker."
 }

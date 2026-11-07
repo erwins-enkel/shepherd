@@ -49,7 +49,7 @@
   const width = $derived(pulse ? Math.min(560, window.innerWidth - 16) : 320);
   const left = $derived(Math.max(8, Math.min(anchorRect.left, window.innerWidth - width - 8)));
   const explanation = $derived(
-    pulse ? pulseExplanation({ pulse, session, git, steers, nowMs }) : null,
+    pulse ? pulseExplanation({ pulse, session, git, steers, activity, nowMs }) : null,
   );
   // Opening the panel is a good moment to re-read who steered the session.
   onMount(() => void steerLogs.refresh(session.id));

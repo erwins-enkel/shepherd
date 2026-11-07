@@ -1909,6 +1909,9 @@ export interface SessionActivity {
   runtimeModel?: string;
   /** Effective reasoning effort reported by the provider's runtime log. */
   runtimeEffort?: string;
+  /** The agent polls CI itself (#2863): CI reads in its trailing run, the input tokens they cost,
+   *  and when the run began. Absent when it is not polling. */
+  ciPolling?: { polls: number; inputTokens: number; since: number };
 }
 
 export interface Session {

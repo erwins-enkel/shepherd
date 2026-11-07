@@ -8196,5 +8196,8 @@
   "upnext_cold_skipped_one": "1 [[cold-repo|cold repo]] not loaded — refresh to include it",
   "upnext_cold_skipped": "{count} [[cold-repo|cold repos]] not loaded — refresh to include them",
   "feat_warm_repos_title": "Only active repos are polled",
-  "feat_warm_repos_body": "Shepherd now reads GitHub in the background only for repos you worked in recently. A [[cold-repo|cold repo]] shows its last-known counts with their age in REPOS, and opening it brings it up to date. Set how many days count as recent under Settings → Workspace → Warm window; 0 polls every repo."
+  "feat_warm_repos_body": "Shepherd now reads GitHub in the background only for repos you worked in recently. A [[cold-repo|cold repo]] shows its last-known counts with their age in REPOS, and opening it brings it up to date. Set how many days count as recent under Settings → Workspace → Warm window; 0 polls every repo.",
+  "pulse_section_polling": "Agent polls CI itself",
+  "pulse_polling_row": "{polls} polls · ≈{tokens} tokens",
+  "pulse_polling_note": "Not needed: Shepherd steers the agent when CI turns red and starts the critic when it turns green."
 }

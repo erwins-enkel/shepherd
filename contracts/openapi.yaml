@@ -2178,6 +2178,18 @@ components:
         recentErrTs: { type: array, items: { type: integer } }
         runtimeModel: { type: string }
         runtimeEffort: { type: string }
+        ciPolling:
+          type: object
+          additionalProperties: true
+          description: >-
+            The agent is polling CI itself: its trailing tool calls only sleep and read CI. Absent
+            when it is not.
+          required: [polls, inputTokens, since]
+          properties:
+            polls: { type: integer, description: CI reads in the trailing run. }
+            inputTokens:
+              { type: integer, description: Input-side tokens the polling requests consumed. }
+            since: { type: integer, description: Epoch ms of the run's first call. }
     SessionActivityEvent:
       type: object
       additionalProperties: true

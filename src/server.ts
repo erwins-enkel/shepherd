@@ -350,7 +350,12 @@ import {
 } from "./preview-launch";
 import { sessionActivity } from "./activity";
 import { steerLog } from "./steer-log";
-import { restartCiRun, runIdFromJobUrl, type CiRestartHolds } from "./ci-restart-hold";
+import {
+  restartCiRun,
+  runIdFromJobUrl,
+  type CiRestartForge,
+  type CiRestartHolds,
+} from "./ci-restart-hold";
 import { sessionMessages } from "./agent-messages";
 import { SessionPhaseService } from "./session-phase";
 import { firstRun } from "./first-run";
@@ -6043,30 +6048,47 @@ async function handleSessionCiRestart({ req, parts, deps }: Ctx): Promise<Respon
   if (typeof body?.job !== "string" || !body.job) return json({ error: "job required" }, 400);
   const s = deps.store.get(parts[2]);
   if (!s || s.status === "archived") return json({ error: "no session" }, 404);
-  if (!deps.ciRestart) return json({ error: "unavailable" }, 503);
-  const git = deps.prCache?.get(s.id);
-  if (git?.state !== "open") return json({ error: "no open PR" }, 409);
-  const job = (git.jobs ?? []).find((j) => j.name === body.job);
-  if (!job || job.state !== "pending") return json({ error: "job not running" }, 409);
-  const runId = runIdFromJobUrl(job.url);
-  const forge = deps.resolveForge?.(s.repoPath) ?? null;
-  if (runId === null || !forge?.cancelWorkflowRun || !forge.rerunWorkflowRun || !forge.getRunDetail)
-    return json({ error: "unsupported" }, 400);
-  if (deps.ciRestart.holds.held(s.id)) return json({ error: "restart in progress" }, 409);
-  deps.ciRestart.holds.hold(s.id);
-  const { cancelWorkflowRun, rerunWorkflowRun, getRunDetail } = forge;
-  void (deps.ciRestart.run ?? restartCiRun)({
+  const ciRestart = deps.ciRestart;
+  if (!ciRestart) return json({ error: "unavailable" }, 503);
+  const target = ciRestartTarget(deps, s, body.job);
+  if (target instanceof Response) return target;
+  if (ciRestart.holds.held(s.id)) return json({ error: "restart in progress" }, 409);
+  ciRestart.holds.hold(s.id);
+  void (ciRestart.run ?? restartCiRun)({
     id: s.id,
-    runId,
-    forge: {
-      cancelWorkflowRun: (r) => cancelWorkflowRun.call(forge, r),
-      rerunWorkflowRun: (r, o) => rerunWorkflowRun.call(forge, r, o),
-      getRunDetail: (r) => getRunDetail.call(forge, r),
-    },
-    holds: deps.ciRestart.holds,
-    refreshPr: deps.ciRestart.refreshPr,
+    ...target,
+    holds: ciRestart.holds,
+    refreshPr: ciRestart.refreshPr,
   });
   return json({ ok: true }, 202);
+}
+
+/** The run to restart for a running job of the session's open PR, read off the CACHED job URL,
+ *  with the forge calls that restart it; or the error response. */
+function ciRestartTarget(
+  deps: AppDeps,
+  s: Session,
+  jobName: string,
+): { runId: number; forge: CiRestartForge } | Response {
+  const git = deps.prCache?.get(s.id);
+  if (git?.state !== "open") return json({ error: "no open PR" }, 409);
+  const job = (git.jobs ?? []).find((j) => j.name === jobName);
+  if (job?.state !== "pending") return json({ error: "job not running" }, 409);
+  const runId = runIdFromJobUrl(job.url);
+  const forge = restartableForge(deps.resolveForge?.(s.repoPath) ?? null);
+  if (runId === null || !forge) return json({ error: "unsupported" }, 400);
+  return { runId, forge };
+}
+
+/** The forge's restart calls, or null when it lacks any (only GitHub has all three). */
+function restartableForge(forge: GitForge | null): CiRestartForge | null {
+  const { cancelWorkflowRun, rerunWorkflowRun, getRunDetail } = forge ?? {};
+  if (!forge || !cancelWorkflowRun || !rerunWorkflowRun || !getRunDetail) return null;
+  return {
+    cancelWorkflowRun: (r) => cancelWorkflowRun.call(forge, r),
+    rerunWorkflowRun: (r, o) => rerunWorkflowRun.call(forge, r, o),
+    getRunDetail: (r) => getRunDetail.call(forge, r),
+  };
 }
 
 // POST /api/sessions/:id/recommend-prompt — analyze the session's recent terminal history via a

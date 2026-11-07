@@ -20,7 +20,7 @@ export type CiRestartPhase = "cancelling" | "rerun";
 export type CiRestartRelease = "running" | "expired" | "failed";
 
 /** Long enough for the cancel wait plus one cold PR sweep after the re-run. */
-export const BACKSTOP_MS = 3 * 60_000;
+const BACKSTOP_MS = 3 * 60_000;
 
 interface Timers {
   set: (fn: () => void, ms: number) => unknown;

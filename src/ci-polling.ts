@@ -10,7 +10,7 @@
  * its rollout parser).
  */
 /** This many CI polls in a row reads as polling (one check after a push is fine). */
-export const CI_POLL_MIN = 3;
+const CI_POLL_MIN = 3;
 
 export interface CiPolling {
   /** CI polls in the trailing run (sleeps don't count). */
@@ -94,6 +94,20 @@ interface ClaudeRecord {
   };
 }
 
+type ClaudeUsage = NonNullable<NonNullable<ClaudeRecord["message"]>["usage"]>;
+
+/** A request's input-side tokens: fresh input plus cache reads and writes. */
+const inputSide = (u: ClaudeUsage) =>
+  tokenNum(u.input_tokens) +
+  tokenNum(u.cache_read_input_tokens) +
+  tokenNum(u.cache_creation_input_tokens);
+
+/** A tool_use block's shell command; null for any tool but Bash. */
+function bashCommand(b: { name?: unknown; input?: unknown }): string | null {
+  const command = (b.input as { command?: unknown } | undefined)?.command;
+  return b.name === "Bash" && typeof command === "string" ? command : null;
+}
+
 /** Claude Code JSONL: assistant records carry `tool_use` blocks; one API message can span several
  *  records that repeat its `message.id` and usage, so tokens are counted once per id. */
 export function claudeCiPolling(objs: Iterable<unknown>): CiPolling | null {
@@ -101,23 +115,13 @@ export function claudeCiPolling(objs: Iterable<unknown>): CiPolling | null {
   const usage = new Map<string, number>();
   for (const o of objs) {
     const rec = o as ClaudeRecord;
-    if (rec.type !== "assistant" || !Array.isArray(rec.message?.content)) continue;
-    const msg = rec.message!;
+    const msg = rec.message;
+    if (rec.type !== "assistant" || !Array.isArray(msg?.content)) continue;
     const request = typeof msg.id === "string" ? msg.id : `${calls.length}`;
-    const u = msg.usage;
-    if (u)
-      usage.set(
-        request,
-        tokenNum(u.input_tokens) +
-          tokenNum(u.cache_read_input_tokens) +
-          tokenNum(u.cache_creation_input_tokens),
-      );
-    for (const b of msg.content as { type?: unknown; name?: unknown; input?: unknown }[]) {
-      if (b?.type !== "tool_use") continue;
-      const command = (b.input as { command?: unknown } | undefined)?.command;
-      const cmd = b.name === "Bash" && typeof command === "string" ? command : null;
-      calls.push({ cmd, ts: recordTs(rec), request });
-    }
+    if (msg.usage) usage.set(request, inputSide(msg.usage));
+    const blocks = msg.content as { type?: unknown; name?: unknown; input?: unknown }[];
+    for (const b of blocks.filter((x) => x?.type === "tool_use"))
+      calls.push({ cmd: bashCommand(b), ts: recordTs(rec), request });
   }
   return trailingCiPolling(calls, (run) =>
     [...new Set(run.map((c) => c.request))].reduce((sum, id) => sum + (usage.get(id) ?? 0), 0),

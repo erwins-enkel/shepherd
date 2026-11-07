@@ -78,7 +78,7 @@
   import PulseLine from "./PulseLine.svelte";
   import { sessionPulse } from "#lib/session-pulse.js";
   import { buildQueues } from "#lib/buildQueues.svelte.js";
-  import { steerLogs } from "#lib/steerLogs.svelte.js";
+  import { steerLogRefreshKey, steerLogs } from "#lib/steerLogs.svelte.js";
   import RemoteConnectionNote from "./RemoteConnectionNote.svelte";
   import { remoteActionMessage } from "#lib/remote-sessions.js";
   import { rowHold, epicStartTarget } from "#lib/hold-row.js";
@@ -692,15 +692,8 @@
   const linePulse = $derived(showPulseLine ? pulse : null);
   // The line is showing the queue's live "Step N/M" — the badge strip then skips the queue segment.
   const queueStepLive = $derived(!!linePulse?.step);
-  // The steer log has no push: re-read it whenever a steer is likely to have just happened —
-  // the session's status, its CI rollup or its PR head moved. Keyed on a primitive so a fresh
-  // session object with the same values doesn't refetch. Finished sessions need none, and a
-  // mirrored one (#2762) has its log on its own machine.
-  const steerLogKey = $derived(
-    session.host || session.status === "done" || session.status === "archived"
-      ? null
-      : `${session.id}|${session.status}|${git?.checks ?? ""}|${git?.headSha ?? ""}`,
-  );
+  // The steer log has no push: re-read it whenever a steer is likely to have just happened.
+  const steerLogKey = $derived(steerLogRefreshKey(session, git));
   $effect(() => {
     if (steerLogKey) void steerLogs.refresh(untrack(() => session.id));
   });

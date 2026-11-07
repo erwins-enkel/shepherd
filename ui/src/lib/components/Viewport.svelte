@@ -88,7 +88,7 @@
   import { amendments } from "#lib/amendments.svelte.js";
   import TaskTipAmendments from "#lib/components/TaskTipAmendments.svelte";
   import { toasts } from "#lib/toasts.svelte.js";
-  import { steerLogs } from "#lib/steerLogs.svelte.js";
+  import { steerLogRefreshKey, steerLogs } from "#lib/steerLogs.svelte.js";
   import SteerBar from "#lib/components/SteerBar.svelte";
   import ControlBar from "#lib/components/ControlBar.svelte";
   import SessionStatusBar from "#lib/components/SessionStatusBar.svelte";
@@ -490,11 +490,7 @@
   );
   // The steer log has no push (steerLogs.svelte.ts): re-read it when a steer is likely to have
   // happened, as the card does, so the loop verdict holds without the Herd rail mounted.
-  const steerLogKey = $derived(
-    session.host || session.status === "done" || session.status === "archived"
-      ? null
-      : `${session.id}|${session.status}|${git?.checks ?? ""}|${git?.headSha ?? ""}`,
-  );
+  const steerLogKey = $derived(steerLogRefreshKey(session, git));
   $effect(() => {
     if (steerLogKey) void steerLogs.refresh(untrack(() => session.id));
   });

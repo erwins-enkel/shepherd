@@ -483,6 +483,26 @@ test("repoConfig.toggleClaudeAiConnectors reverts on error and reports no restar
   expect(repoConfig.claudeAiConnectorsOn("/repo")).toBe(true); // reverted to prev
 });
 
+test("repoConfig allowlists default to null (unlimited) for an unknown repo (#3780)", () => {
+  expect(repoConfig.pluginAllowlistFor("/unknown")).toBeNull();
+  expect(repoConfig.skillAllowlistFor("/unknown")).toBeNull();
+});
+
+test("repoConfig.setPluginAllowlist sends the list and ingests the answer (#3780)", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(rc({ pluginAllowlist: ["a@x"], skillAllowlist: [] }));
+  await repoConfig.setPluginAllowlist("/repo", ["a@x"]);
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { pluginAllowlist: ["a@x"] });
+  expect(repoConfig.pluginAllowlistFor("/repo")).toEqual(["a@x"]);
+  expect(repoConfig.skillAllowlistFor("/repo")).toEqual([]);
+});
+
+test("repoConfig.setSkillAllowlist reverts on error (#3780)", async () => {
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  repoConfig.skillAllowlist = { "/repo": ["tdd"] };
+  await repoConfig.setSkillAllowlist("/repo", null);
+  expect(repoConfig.skillAllowlistFor("/repo")).toEqual(["tdd"]);
+});
+
 test("repoConfig.isAutoAddressEnabled defaults to false for unknown repo", () => {
   expect(repoConfig.isAutoAddressEnabled("/unknown")).toBe(false);
 });

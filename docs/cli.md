@@ -628,6 +628,9 @@ key or a value of the wrong type exits `2`. The validated value is sent as writt
 `[]` reach the server, which reads them as "clear": `repo-config set egressExtraHosts '[]'`
 removes every extra egress host. `repo-config set browserAllowedHosts '["accounts.example.com"]'`
 sets the Browser Origin Allowlist an autonomous session's Shared Browser attach may reach.
+`pluginAllowlist` and `skillAllowlist` are the exception to "`null` and `[]` both clear": `null`
+lifts the limit, `[]` switches every plugin or personal skill off for the repo, and
+`repo-config set pluginAllowlist '["context7@claude-plugins-official"]'` keeps only that plugin.
 
 `anthropicApiKey` is only read from stdin, so the key stays out of your shell history and the
 process list. A value on the command line exits `2`, and so does empty stdin, because the server

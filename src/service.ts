@@ -538,6 +538,24 @@ export async function readInstalledPluginIds(
   }
 }
 
+/** The plugin ids the operator has switched ON (`enabledPlugins` value `true`) — what the repo
+ *  allowlist picker offers (#3780). Unlike readInstalledPluginIds it never needs to tell an error
+ *  from an empty config: either way there is nothing to pick, so both yield `[]`. */
+export async function readEnabledPluginIds(
+  read: (path: string) => Promise<string> = (p) => readFile(p, "utf8"),
+): Promise<string[]> {
+  try {
+    const raw = await read(join(homedir(), ".claude", "settings.json"));
+    const plugins = (JSON.parse(raw) as { enabledPlugins?: unknown }).enabledPlugins;
+    if (plugins === null || typeof plugins !== "object") return [];
+    return Object.entries(plugins)
+      .filter(([, on]) => on === true)
+      .map(([id]) => id);
+  } catch {
+    return [];
+  }
+}
+
 let pluginIdsCache: Promise<string[]> | null = null;
 /** Memoized readInstalledPluginIds: plugins change ~never, so one read per process
  *  lifetime — a server restart picks up changes. Only SUCCESSFUL reads are cached: on
@@ -705,17 +723,23 @@ function overlayPermissions(
  * `enableAllProjectMcpServers` in their own `--settings` to clear Claude's interactive
  * project-.mcp.json approval gate; see buildTransientAgentArgv.)
  *
- * `disablePlugins` (trimmed auto spawns only) adds `enabledPlugins: {<id>: false, ...}`,
- * which overrides the global `true` per-spawn and kills plugin SessionStart hooks, plugin
- * skills, and plugin MCP for this process only. Absent/empty → key omitted entirely, so
- * untrimmed spawns keep today's exact overlay.
+ * The trim keys come from trimDecision: the full drain trim (trimmed auto spawns) or a repo's
+ * plugin/skill allowlists (#3780) on any other task spawn.
  *
- * `disableSkills` (trimmed auto spawns only, issue #2001) adds `disableBundledSkills: true` plus
- * `skillOverrides: {<name>: "off"}` for each listed skill — Claude Code's built-ins and the
- * operator's personal skills, hidden from the model while the session repo's own stay available.
- * `disableBundledSkills` rides whenever the key is PRESENT, including for the empty array (a
- * machine with no personal skills still shouldn't pay for the built-in catalog); absent → both keys
- * omitted, so untrimmed spawns keep today's exact overlay.
+ * `disablePlugins` adds `enabledPlugins: {<id>: false, ...}`, which overrides the global `true`
+ * per-spawn and kills plugin SessionStart hooks, plugin skills, and plugin MCP for this process
+ * only. The drain trim lists every operator plugin; an allowlist spawn lists the ones outside the
+ * repo's allowlist. Absent/empty → key omitted entirely, so untrimmed spawns keep today's exact
+ * overlay.
+ *
+ * `disableSkills` (issue #2001) adds `skillOverrides: {<name>: "off"}` for each listed personal
+ * skill, hidden from the model while the session repo's own stay available. Absent/empty → key
+ * omitted.
+ *
+ * `disableBundledSkills` is its own flag: `true` adds `disableBundledSkills: true`, dropping
+ * Claude Code's built-in skills. Only the drain trim sets it — always, even with no personal skills
+ * to override (a machine with none still shouldn't pay for the built-in catalog) — so allowlist
+ * spawns keep the built-ins. Absent → key omitted.
  *
  * `hooks` (issue #704, only when `config.hooksIngest`) adds PreToolUse(AskUserQuestion|ExitPlanMode,
  * #3165/#2779)/
@@ -762,11 +786,9 @@ export function spawnSettingsOverlay(
   if (opts.disablePlugins && opts.disablePlugins.length > 0) {
     settings.enabledPlugins = Object.fromEntries(opts.disablePlugins.map((id) => [id, false]));
   }
-  if (opts.disableSkills) {
-    settings.disableBundledSkills = true;
-    if (opts.disableSkills.length > 0) {
-      settings.skillOverrides = Object.fromEntries(opts.disableSkills.map((name) => [name, "off"]));
-    }
+  if (opts.disableBundledSkills) settings.disableBundledSkills = true;
+  if (opts.disableSkills && opts.disableSkills.length > 0) {
+    settings.skillOverrides = Object.fromEntries(opts.disableSkills.map((name) => [name, "off"]));
   }
   // The guard owns `PreToolUse(Bash)`; the ingest hooks own the lifecycle events plus
   // `PreToolUse(AskUserQuestion)` (#3165); the assistant's view hook owns `UserPromptSubmit`.
@@ -886,11 +908,20 @@ function buildAssistantViewHookFragment(input: HookTarget): Record<string, unkno
 }
 
 /** The per-spawn context trim as {@link spawnSettingsOverlay} consumes it: plugin ids to switch
- *  off, and skill names to hide from the model (see trimDecision). Both absent on an untrimmed
- *  spawn, which keeps its overlay byte-identical to a pre-trim one. */
+ *  off, skill names to hide from the model, and whether Claude Code's bundled skills go too (see
+ *  trimDecision). All absent on an untrimmed spawn, which keeps its overlay byte-identical to a
+ *  pre-trim one. */
 export interface SpawnTrimOverlay {
   disablePlugins?: string[];
   disableSkills?: string[];
+  disableBundledSkills?: boolean;
+}
+
+/** A repo's plugin / personal-skill allowlists (#3780): `null` leaves that catalog untouched, a
+ *  list keeps only its entries (see trimDecision). */
+interface TrimAllowlists {
+  plugins: string[] | null;
+  skills: string[] | null;
 }
 
 /**
@@ -928,26 +959,42 @@ export interface SpawnTrimOverlay {
  * docs/research/drain-context-trim-2026-08-03.md for both sides of the ledger.
  *
  * Deliberately NOT `--settings disableAllHooks` — that would kill the operator's global
- * SessionStart hook Shepherd's status pipeline depends on. Interactive spawns are untouched, and
- * `SHEPHERD_TRIM_AUTO_CONTEXT=false` still opts the whole thing out.
+ * SessionStart hook Shepherd's status pipeline depends on. `SHEPHERD_TRIM_AUTO_CONTEXT=false`
+ * still opts the whole thing out.
+ *
+ * Every other spawn (attended, plan-gated, research, …) honors the repo's allowlists (#3780,
+ * {@link TrimAllowlists}): a set plugin allowlist disables every operator plugin outside it, a set
+ * skill allowlist every personal skill outside it — through the same project-skill guard as the
+ * drain trim. Bundled skills stay, and there is no trim notice: the operator chose what this repo
+ * keeps. Neither set → no overlay keys at all, so the spawn is unchanged.
  */
 async function trimDecision(
   auto: boolean,
   worktreePath: string,
+  allow: TrimAllowlists,
   pluginIds: () => Promise<string[]>,
   skillNames: (dir: string) => Promise<string[] | null>,
   userSkills: () => Promise<string[]>,
 ): Promise<{ overlayOpts: SpawnTrimOverlay; trimmed: boolean }> {
-  if (!auto || !config.trimAutoContext) {
-    return { overlayOpts: {}, trimmed: false };
+  if (auto && config.trimAutoContext) {
+    return {
+      overlayOpts: {
+        disablePlugins: await pluginIds(),
+        disableSkills: await disableableSkillNames(worktreePath, skillNames, userSkills),
+        disableBundledSkills: true,
+      },
+      trimmed: true,
+    };
   }
-  return {
-    overlayOpts: {
-      disablePlugins: await pluginIds(),
-      disableSkills: await disableableSkillNames(worktreePath, skillNames, userSkills),
-    },
-    trimmed: true,
-  };
+  const overlayOpts: SpawnTrimOverlay = {};
+  const { plugins, skills } = allow;
+  if (plugins)
+    overlayOpts.disablePlugins = (await pluginIds()).filter((id) => !plugins.includes(id));
+  if (skills) {
+    const names = await disableableSkillNames(worktreePath, skillNames, userSkills);
+    overlayOpts.disableSkills = names.filter((name) => !skills.includes(name));
+  }
+  return { overlayOpts, trimmed: false };
 }
 
 /**
@@ -3151,14 +3198,18 @@ export class SessionService {
 
   /** trimDecision via the injected plugin/skill seams (tests) or the real memoized reads —
    *  the one resolver both spawn sites (create + resume) go through. `worktreePath` is the agent's
-   *  cwd, whose own `.claude/skills` the trim must not disable (issue #2001). */
+   *  cwd, whose own `.claude/skills` the trim must not disable (issue #2001); `repoPath` keys the
+   *  repo's plugin/skill allowlists (#3780). */
   private trimFor(
     auto: boolean | undefined,
     worktreePath: string,
+    repoPath: string,
   ): ReturnType<typeof trimDecision> {
+    const cfg = this.deps.store.getRepoConfig(repoPath);
     return trimDecision(
       auto ?? false,
       worktreePath,
+      { plugins: cfg.pluginAllowlist ?? null, skills: cfg.skillAllowlist ?? null },
       this.deps.pluginIds ?? installedPluginIds,
       this.deps.skillNames ?? ((dir) => readSkillNames(dir)),
       this.deps.userSkills ?? (() => userSkillNames()),
@@ -4807,7 +4858,7 @@ export class SessionService {
     // CLI-agnostic. See resolvePlanGateOn for the override + research semantics. Replacements can
     // pass a runtime override so a session that already left planning does not re-enter the gate.
     const planGateOn = opts.planGateOn ?? this.resolvePlanGateOn(spawnInput, repoConfig);
-    const trim = await this.trimFor(spawnInput.auto, wt.worktreePath);
+    const trim = await this.trimFor(spawnInput.auto, wt.worktreePath, spawnInput.repoPath);
     const profileOverride =
       agentProvider === "codex"
         ? "trusted"
@@ -6748,7 +6799,7 @@ export class SessionService {
 
     // Same trim as the fresh-spawn path (buildSpawnArgv) — a resumed auto session must
     // keep the slim context, not silently regrow the bundled/personal catalogs + plugin hooks.
-    const trim = await this.trimFor(session.auto, session.worktreePath);
+    const trim = await this.trimFor(session.auto, session.worktreePath, session.repoPath);
     // Capacity/trim can yield: refuse a transcript removed while we prepared, before teardown.
     if (!this.canRespawnConversation(session)) return null;
     // Forced respawn over a live agent: close the stale husk tab first so it doesn't
@@ -6959,7 +7010,7 @@ export class SessionService {
       worktreeCreated = true;
     }
 
-    const trim = await this.trimFor(s.auto, s.worktreePath);
+    const trim = await this.trimFor(s.auto, s.worktreePath, s.repoPath);
     const outcome = await this.prepareResumeSpawn(
       s,
       await this.buildResumeArgv(s, provider, trim, codexSessionId),

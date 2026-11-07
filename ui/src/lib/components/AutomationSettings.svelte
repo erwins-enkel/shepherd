@@ -16,6 +16,7 @@
   import AutomationRepoFields from "./automation-settings/AutomationRepoFields.svelte";
   import AutomationDrainFields from "./automation-settings/AutomationDrainFields.svelte";
   import BrowserAllowedHosts from "./automation-settings/BrowserAllowedHosts.svelte";
+  import AgentExtensions from "./automation-settings/AgentExtensions.svelte";
   import AutomationBootstrap from "./automation-settings/AutomationBootstrap.svelte";
   import AutomationSchedules from "./automation-settings/AutomationSchedules.svelte";
   import AutomationNoPrCiHold from "./automation-settings/AutomationNoPrCiHold.svelte";
@@ -597,6 +598,7 @@
     <span class="knob"></span>
   </button>
 </div>
+<AgentExtensions {repoPath} />
 <div class={["auto-row", { disabled: flags.draftMode }]}>
   <div class="auto-meta">
     <div class="auto-name">

@@ -76,6 +76,28 @@ test("repo config, role no-op, push refusal and collaborator fallback", async ()
   expect(cfg.priorityLabels).toEqual(["ci-gate-rot"]);
   expect(typeof cfg.automationConfirmed).toBe("boolean");
   await request("PUT", "/api/repo-config", 400, { maxAuto: "many" }, "/api/repo-config" + query);
+  // #3780: allowlists round-trip as a list and clear back to null.
+  const allow = (await request(
+    "PUT",
+    "/api/repo-config",
+    200,
+    { pluginAllowlist: ["context7@c"], skillAllowlist: null },
+    "/api/repo-config" + query,
+  )) as { pluginAllowlist: string[] | null; skillAllowlist: string[] | null };
+  expect(allow.pluginAllowlist).toEqual(["context7@c"]);
+  expect(allow.skillAllowlist).toBeNull();
+  await request(
+    "PUT",
+    "/api/repo-config",
+    400,
+    { pluginAllowlist: "x" },
+    "/api/repo-config" + query,
+  );
+  s.deps.agentExtensions = async () => ({ plugins: ["context7@c"], skills: ["tdd"] });
+  expect(await request("GET", "/api/agent-extensions", 200)).toEqual({
+    plugins: ["context7@c"],
+    skills: ["tdd"],
+  });
   await request(
     "PUT",
     "/api/repo-roles",

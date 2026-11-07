@@ -392,6 +392,8 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     previewStartScript: null,
     previewStartCommand: null,
     previewOpenMode: "ask",
+    pluginAllowlist: null,
+    skillAllowlist: null,
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: false,
@@ -462,6 +464,8 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     previewStartScript: null,
     previewStartCommand: null,
     previewOpenMode: "tab",
+    pluginAllowlist: null,
+    skillAllowlist: null,
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: true,
@@ -532,6 +536,8 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     previewStartScript: null,
     previewStartCommand: null,
     previewOpenMode: "ask",
+    pluginAllowlist: null,
+    skillAllowlist: null,
   });
 });
 

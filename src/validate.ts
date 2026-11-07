@@ -1090,6 +1090,30 @@ export function validateBrowserAllowedHosts(value: unknown): Field<string[]> {
 }
 
 /**
+ * pluginAllowlist / skillAllowlist (#3780) — the plugin ids / personal skill names a repo's spawns
+ * keep. `null` → no allowlist (untouched); otherwise an array of non-empty strings, trimmed and
+ * deduped, bounded so a bad client cannot bloat every spawn's `--settings` overlay.
+ */
+export function validateNameAllowlist(name: string, value: unknown): Field<string[] | null> {
+  if (value === null) return field(null);
+  if (!Array.isArray(value)) return err(`${name} must be an array of strings or null`);
+  if (value.length > MAX_ALLOWLIST_ENTRIES)
+    return err(`${name} must have at most ${MAX_ALLOWLIST_ENTRIES} entries`);
+  const out: string[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const v = value[i];
+    if (typeof v !== "string") return err(`${name}[${i}]: must be a string`);
+    const t = v.trim();
+    if (t.length === 0 || t.length > MAX_ALLOWLIST_ENTRY_CHARS)
+      return err(`${name}[${i}]: must be 1–${MAX_ALLOWLIST_ENTRY_CHARS} characters`);
+    if (!out.includes(t)) out.push(t);
+  }
+  return field(out);
+}
+const MAX_ALLOWLIST_ENTRIES = 200;
+const MAX_ALLOWLIST_ENTRY_CHARS = 200;
+
+/**
  * Timing-safe token check.
  * Returns true when token config is null (auth disabled) or header matches.
  */

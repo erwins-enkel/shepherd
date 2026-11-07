@@ -439,6 +439,20 @@ export function claudeAiConnectorsExplanation(): TooltipExplanation {
   };
 }
 
+/** Plugins & skills per repo (#3780): what the limit drops, what always stays, when it applies. */
+export function agentExtensionsExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_agent_ext_title(),
+    summary: m.tooltip_agent_ext_summary(),
+    sections: [
+      { label: m.tooltip_agent_ext_drops(), text: m.tooltip_agent_ext_drops_body() },
+      { label: m.tooltip_agent_ext_keeps(), text: m.tooltip_agent_ext_keeps_body() },
+      { label: m.tooltip_agent_ext_when(), text: m.tooltip_agent_ext_when_body() },
+      { label: m.tooltip_agent_ext_risk(), text: m.tooltip_agent_ext_risk_body() },
+    ],
+  };
+}
+
 /** Browser allowed hosts (#2898): what to enter, what is always refused, what else it needs. */
 export function browserAllowedHostsExplanation(): TooltipExplanation {
   return {

@@ -7100,6 +7100,22 @@ components:
             type: string
           description: >-
             Hostnames an autonomous session's Browser Attach may reach (ports 80/443, public addresses only), besides its own Preview port. Only cookies for these hosts are copied into the autonomous session's isolated browser context.
+        pluginAllowlist:
+          type:
+            - array
+            - "null"
+          items:
+            type: string
+          description: >-
+            Operator plugin ids (keys of enabledPlugins in ~/.claude/settings.json) this repo's non-drain Claude task sessions keep; every other installed plugin is switched off per spawn. null = untouched (default); [] = every plugin off. Applies at the next spawn or resume.
+        skillAllowlist:
+          type:
+            - array
+            - "null"
+          items:
+            type: string
+          description: >-
+            Personal skill names (~/.claude/skills) this repo's non-drain Claude task sessions keep; every other personal skill is switched off per spawn. Bundled and repo skills always stay. null = untouched (default); [] = every personal skill off. Applies at the next spawn or resume.
         repoMode:
           type: string
         previewStartScript:
@@ -7119,6 +7135,22 @@ components:
         sandboxDefaultProfile:
           description: "Read-only: the global default profile an inherit sandboxProfile resolves to — SHEPHERD_SANDBOX_DEFAULT_PROFILE, else standard where the bwrap backend works, else trusted."
           $ref: "#/components/schemas/SandboxProfile"
+    AgentExtensions:
+      type: object
+      required:
+        - plugins
+        - skills
+      properties:
+        plugins:
+          type: array
+          items:
+            type: string
+          description: Plugin ids set to true in enabledPlugins of ~/.claude/settings.json, sorted.
+        skills:
+          type: array
+          items:
+            type: string
+          description: Personal skill names under ~/.claude/skills, sorted.
     RepoConfigPatch:
       type: object
       additionalProperties: false
@@ -7200,6 +7232,22 @@ components:
             type: string
           description: >-
             Hostnames an autonomous session's Browser Attach may reach (ports 80/443, public addresses only), besides its own Preview port. Only cookies for these hosts are copied into the autonomous session's isolated browser context.
+        pluginAllowlist:
+          type:
+            - array
+            - "null"
+          items:
+            type: string
+          description: >-
+            Operator plugin ids (keys of enabledPlugins in ~/.claude/settings.json) this repo's non-drain Claude task sessions keep; every other installed plugin is switched off per spawn. null = untouched (default); [] = every plugin off. Applies at the next spawn or resume.
+        skillAllowlist:
+          type:
+            - array
+            - "null"
+          items:
+            type: string
+          description: >-
+            Personal skill names (~/.claude/skills) this repo's non-drain Claude task sessions keep; every other personal skill is switched off per spawn. Bundled and repo skills always stay. null = untouched (default); [] = every personal skill off. Applies at the next spawn or resume.
         repoMode:
           type: string
         previewStartScript:
@@ -12743,6 +12791,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/agent-extensions:
+    get:
+      operationId: getAgentExtensions
+      description: The operator's enabled plugins and personal skills a repo's pluginAllowlist / skillAllowlist can pick from (#3780).
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentExtensions"
         "401":
           $ref: "#/components/responses/Unauthorized"
   /api/repo-bootstrap:

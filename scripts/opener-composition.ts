@@ -5,6 +5,7 @@
  *   bun run scripts/opener-composition.ts                     # every session + reviewer in the DB
  *   bun run scripts/opener-composition.ts --since 2026-11-08  # spawns created on/after a date
  *   bun run scripts/opener-composition.ts --md --top 12       # markdown, 12 blocks per kind
+ *   bun run scripts/opener-composition.ts --repo /path/to/repo # one repo's sessions (no reviewers)
  *
  * READ-ONLY: opens the DB with `readonly: true` and only reads transcripts. Token figures are
  * calibrated estimates (chars × a fitted tokens/char, tool JSON and prose separately); the
@@ -32,10 +33,12 @@ interface Args {
   since: number;
   md: boolean;
   top: number;
+  /** Only sessions of this repo (#3780, e.g. to measure its plugin/skill allowlists). */
+  repo: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { since: 0, md: false, top: 15 };
+  const args: Args = { since: 0, md: false, top: 15, repo: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--md") args.md = true;
@@ -43,6 +46,9 @@ function parseArgs(argv: string[]): Args {
       const raw = argv[++i] ?? "";
       args.since = Date.parse(raw);
       if (!Number.isFinite(args.since)) throw new Error(`--since expects a date, got: ${raw}`);
+    } else if (a === "--repo") {
+      args.repo = argv[++i] ?? "";
+      if (!args.repo) throw new Error("--repo expects a repo path");
     } else if (a === "--top") {
       args.top = Number(argv[++i]);
       if (!Number.isInteger(args.top) || args.top <= 0) throw new Error("--top expects a count");
@@ -89,7 +95,12 @@ function readSample(path: string, sets: SkillSets): OpenerSample | null {
   return openerSample(readFileSync(path, "utf8").split("\n"), sets, homedir());
 }
 
-function sessionSamples(db: Database, since: number, sets: SkillSets): Sample[] {
+function sessionSamples(
+  db: Database,
+  since: number,
+  repo: string | null,
+  sets: SkillSets,
+): Sample[] {
   const budgets = new Map(
     db
       .query<{ sessionId: string; totalChars: number; totalTokens: number }, []>(
@@ -99,13 +110,14 @@ function sessionSamples(db: Database, since: number, sets: SkillSets): Sample[] 
       .map((b) => [b.sessionId, { chars: b.totalChars, tokens: b.totalTokens }]),
   );
   const rows = db
-    .query<SessionRow, [number]>(
+    .query<SessionRow, [number, string | null, string | null]>(
       `SELECT id, worktreePath, claudeSessionId, spawnAccountDir, auto, research, terminal,
               operatorAssistant, epicAuthoring
          FROM sessions
-        WHERE agentProvider = 'claude' AND claudeSessionId != '' AND createdAt >= ?`,
+        WHERE agentProvider = 'claude' AND claudeSessionId != '' AND createdAt >= ?
+          AND (? IS NULL OR repoPath = ?)`,
     )
-    .all(since);
+    .all(since, repo, repo);
   return rows.flatMap((r) => {
     const s = readSample(jsonlPathFor(r.worktreePath, r.claudeSessionId, r.spawnAccountDir), sets);
     return s ? [{ ...s, kind: sessionKind(r, s), budget: budgets.get(r.id) }] : [];
@@ -188,8 +200,9 @@ async function main(): Promise<void> {
     shepherd: new Set(AGENT_SKILL_NAMES),
   };
   const samples = [
-    ...sessionSamples(db, args.since, sets),
-    ...reviewerSamples(db, args.since, sets),
+    ...sessionSamples(db, args.since, args.repo, sets),
+    // Reviewer spawns carry no repo column; a per-repo run reports sessions only.
+    ...(args.repo ? [] : reviewerSamples(db, args.since, sets)),
   ];
   if (samples.length === 0) throw new Error("no transcripts with recorded requests in the window");
   const cal = fitCalibration(samples);

@@ -1339,6 +1339,12 @@ export interface RepoConfig {
   /** Let this repo's Claude sessions load the operator's claude.ai account connectors (Docs, Gmail,
    *  Drive, Notion …). Default off. Flipping it restarts the repo's live Claude sessions. */
   claudeAiConnectorsEnabled: boolean;
+  /** Operator plugin ids this repo's non-drain Claude sessions keep (#3780); every other installed
+   *  plugin is off. `null`/absent = untouched; `[]` = all off. */
+  pluginAllowlist?: string[] | null;
+  /** Personal skill names this repo's non-drain Claude sessions keep (#3780); every other personal
+   *  skill is off. `null`/absent = untouched; `[]` = all off. */
+  skillAllowlist?: string[] | null;
   /** Hidden from the Backlog repos panel (list-only declutter; sessions/drain unaffected). Default off. */
   hidden: boolean;
   /** Pinned to the top of the Backlog repos panel (list-only ordering; sessions/drain unaffected). Default off. */

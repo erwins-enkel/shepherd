@@ -1749,6 +1749,8 @@ function buildRepoConfig(): Record<string, DemoRepoConfig> {
     sharedBrowserEnabled: false,
     browserAllowedHosts: [],
     claudeAiConnectorsEnabled: false,
+    pluginAllowlist: null,
+    skillAllowlist: null,
     hidden: false,
     pinned: false,
     previewStartScript: null,

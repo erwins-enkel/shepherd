@@ -114,6 +114,9 @@ const bootstrapGetRoutes: Record<string, GetHandler> = {
   "/api/sessions/done": () => json(demoState.doneSessions()),
   "/api/repo-config": (url) => json(demoState.repoConfig(repoParam(url))),
   "/api/repo-bootstrap": () => json(DEMO_BOOTSTRAP),
+  // Repo plugin/skill allowlist picker (#3780): a small plausible catalog, never the host's.
+  "/api/agent-extensions": () =>
+    json({ plugins: ["context7@claude-plugins-official"], skills: ["code-review", "tdd"] }),
   // Operator schedules (#3469): the demo seeds none; a list keeps `schedules.listFor` an array.
   "/api/schedules": () => json({ schedules: [] }),
   // The repo index. Fired on mount by `repos.load()`; without it `listRepos()` saw the

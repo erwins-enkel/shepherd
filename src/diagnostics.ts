@@ -55,6 +55,7 @@ import type { DiagnosticCheck, DiagnosticsSnapshot, DiagnosticState } from "./ty
 import type { MembraneLaunchFacts } from "./membrane-launch";
 import type { EgressProbeFacts } from "./egress";
 import type { SandboxBackend } from "./sandbox";
+import { AGENT_SLICE } from "./agent-scope";
 
 const execFileAsync = promisify(execFile);
 
@@ -539,6 +540,14 @@ export function herdrLimitFromProps(props: Record<string, string>): boolean | nu
   return hasMeaningfulLimit(props);
 }
 
+/** Does the shipped agents slice (#3128) bound herdr's workload? Agent spawns run in scopes under
+ *  `shepherd_agents.slice`, so a bounded slice IS herdr's guardrail — limiting herdr.service itself
+ *  would throttle the daemon again. Counts only with a unit file: a slice without one still reads
+ *  `LoadState=loaded` (systemd loads slices fragment-less) and carries no limits Shepherd shipped. */
+export function agentSliceLimitFromProps(props: Record<string, string>): boolean {
+  return !!props.FragmentPath && hasMeaningfulLimit(props);
+}
+
 /** Conservative host-derived guardrail values for the one-click fix (#1839). `MemoryHigh` (soft cap,
  *  reclaim/throttle, never OOM-kills) leaves `clamp(15%, 2GiB, 8GiB)` headroom; `CPUQuota` leaves
  *  `min(1 core, 15% of cores)` for the OS — so a 2-core host keeps an 85% ceiling (`170%`), not a
@@ -754,6 +763,8 @@ async function defaultReadHostResources(): Promise<HostCapacityFacts> {
         "TasksMax",
         "-p",
         "Slice",
+        "-p",
+        "FragmentPath",
       ],
       { encoding: "utf8", timeout: DIAGNOSTICS_PROBE_TIMEOUT_MS },
     );
@@ -800,6 +811,13 @@ async function defaultReadHostResources(): Promise<HostCapacityFacts> {
       const props = await showLimits(HERDR_UNIT, true);
       const base = herdrLimitFromProps(props);
       herdrLimited = base === null ? null : await withSlice(base, props, true);
+      if (herdrLimited === false) {
+        // Slice unreadable ⇒ keep herdr's own verdict (false), not unknown.
+        herdrLimited = await showLimits(AGENT_SLICE, true).then(
+          agentSliceLimitFromProps,
+          () => false,
+        );
+      }
     } catch {
       herdrLimited = null; // systemctl absent/failed ⇒ unknown
     }

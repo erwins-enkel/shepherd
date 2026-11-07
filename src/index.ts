@@ -118,6 +118,7 @@ import { ingestUpdateJournal } from "./update-call";
 import { HerdrUpdateService } from "./herdr-update";
 import { CodexUpdateService, parseCodexUpdateChannel } from "./codex-update";
 import { refreshMiseClaude } from "./mise-claude";
+import { refreshAgentScope } from "./agent-scope";
 import { PluginUpdateService } from "./plugin-update";
 import { RestartService } from "./restart";
 import { DiagnosticsService, defaultReadHerdrFleet, nextDiagnosticsDelay } from "./diagnostics";
@@ -4059,6 +4060,15 @@ setInterval(timerTask("plugin-update", checkPluginUpdates), 30 * 60 * 1000);
 // diagnostics tick is what makes it effective for an early spawn.
 setTimeout(
   timerTask("mise-claude", async () => void (await refreshMiseClaude())),
+  1_000,
+);
+
+// Agent scopes (#3128): may spawns run under shepherd_agents.slice? Read SYNCHRONOUSLY by
+// `buildWrappedArgv`, cold = unscoped. ONE kick at boot: the slice + herdr drop-in are installed by
+// provision/update.sh, which restart Shepherd afterwards, so the host fact cannot change under a
+// running server.
+setTimeout(
+  timerTask("agent-scope", async () => void (await refreshAgentScope())),
   1_000,
 );
 

@@ -1,0 +1,21 @@
+[Unit]
+Description=Shepherd agent workloads — every agent session runs in its own scope here (#3128)
+Documentation=https://github.com/erwins-enkel/shepherd/issues/3128
+# Shepherd starts each agent via `systemd-run --user --scope --slice=shepherd_agents.slice` (see
+# src/agent-scope.ts), so claude and every dev server, build and test it spawns are charged HERE —
+# not to herdr.service. When agents fill memory, only this slice is throttled; the herdr daemon stays
+# responsive (#3127). The name uses an UNDERSCORE on purpose: a dash would nest this slice under
+# `shepherd.slice`, which operators may have limited for herdr.service + shepherd.service, and the
+# daemon would share a budget with the agents again.
+#
+# Percentages of physical RAM so one file fits every host. Tune per host with
+# `systemctl --user edit shepherd_agents.slice` — a drop-in there survives `bun run update`.
+
+[Slice]
+# Soft cap: above it the kernel reclaims/throttles agent allocations (never OOM-kills).
+MemoryHigh=60%
+# Hard cap: a cgroup OOM kill inside the slice. Each scope runs with OOMPolicy=continue, so only the
+# victim process dies — not its session, not the others.
+MemoryMax=80%
+# Every agent process and thread counts here; same ceiling as herdr.service (#2029).
+TasksMax=16384

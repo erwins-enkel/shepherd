@@ -270,6 +270,26 @@ if [[ "${SHEPHERD_NO_SERVICE:-0}" != "1" ]] && command -v systemctl >/dev/null 2
     PATH="$HOME/.local/bin:$PATH" command -v "${HERDR_BIN:-herdr}" || true
   )"
   if [[ -n "$HERDR_PATH" ]]; then
+    # Agent scopes (#3128): the slice every agent spawn runs in (its memory/task limits) and herdr's
+    # 99-shepherd.conf drop-in (TasksMax floor, OOMPolicy=continue, ExecStopPost stopping the slice).
+    # Verbatim copies, synced only when they differ. A daemon-reload applies both; herdr is NEVER
+    # restarted for them (that would end every live session). Shepherd's boot probe, after the
+    # restart below, only scopes spawns once BOTH are installed (src/agent-scope.ts).
+    AGENT_UNITS_CHANGED=0
+    if ! cmp -s "$REPO/deploy/shepherd_agents.slice" "$UNIT_DIR/shepherd_agents.slice"; then
+      cp "$REPO/deploy/shepherd_agents.slice" "$UNIT_DIR/shepherd_agents.slice"
+      AGENT_UNITS_CHANGED=1
+    fi
+    mkdir -p "$UNIT_DIR/herdr.service.d"
+    if ! cmp -s "$REPO/deploy/herdr.service.d/99-shepherd.conf" "$UNIT_DIR/herdr.service.d/99-shepherd.conf"; then
+      cp "$REPO/deploy/herdr.service.d/99-shepherd.conf" "$UNIT_DIR/herdr.service.d/99-shepherd.conf"
+      AGENT_UNITS_CHANGED=1
+    fi
+    if [[ "$AGENT_UNITS_CHANGED" == 1 ]]; then
+      note "syncing agent slice + herdr drop-in"
+      systemctl --user daemon-reload
+    fi
+
     note "syncing herdr daemon unit"
     HERDR_UNIT_TMP="$(mktemp)"
     # ExecStartPre (the session.json prune, #2031) runs a script from THIS checkout — same
@@ -306,6 +326,13 @@ if [[ "${SHEPHERD_NO_SERVICE:-0}" != "1" ]] && command -v systemctl >/dev/null 2
       systemctl --user reset-failed herdr >/dev/null 2>&1 || true
     fi
     systemctl --user enable --now herdr || warn "herdr.service did not start — DIAGNOSE will report herdr offline"
+    # The repo's TasksMax is a floor (#2029 died at 2500 with `pthread_create: EAGAIN`). 99-shepherd.conf
+    # beats every lower-sorting drop-in; only a later-sorting operator drop-in can still undercut it.
+    WANT_TASKS="$(sed -n 's/^TasksMax=//p' "$REPO/deploy/herdr.service.d/99-shepherd.conf")"
+    HAVE_TASKS="$(systemctl --user show herdr -p TasksMax --value 2>/dev/null || true)"
+    if [[ "$WANT_TASKS" =~ ^[0-9]+$ && "$HAVE_TASKS" =~ ^[0-9]+$ ]] && ((HAVE_TASKS < WANT_TASKS)); then
+      warn "herdr.service TasksMax=$HAVE_TASKS is below the repo's $WANT_TASKS — a herdr.service.d drop-in sorting after 99-shepherd.conf lowers it; remove that setting"
+    fi
   else
     warn "herdr not found (HERDR_BIN / PATH) — skipping herdr.service sync"
   fi

@@ -489,6 +489,19 @@ export function installService(
   );
   const herdrUnitChanged = readIfPresent(fileIO, herdrUnitPath) !== desiredHerdrUnit;
   if (herdrUnitChanged) fileIO.write(herdrUnitPath, desiredHerdrUnit);
+  // Agent scopes (#3128): the slice agents run in (its memory/task limits) and herdr's drop-in
+  // (TasksMax floor, OOMPolicy=continue, ExecStopPost stopping the slice). Verbatim copies; both are
+  // picked up by the daemon-reload below and need no herdr restart. Shepherd's boot probe
+  // (src/agent-scope.ts) only scopes spawns once BOTH are installed.
+  fileIO.write(
+    join(unitDir, "shepherd_agents.slice"),
+    fileIO.read(join(repo, "deploy", "shepherd_agents.slice")),
+  );
+  run("mkdir", ["-p", join(unitDir, "herdr.service.d")]);
+  fileIO.write(
+    join(unitDir, "herdr.service.d", "99-shepherd.conf"),
+    fileIO.read(join(repo, "deploy", "herdr.service.d", "99-shepherd.conf")),
+  );
   run("systemctl", ["--user", "daemon-reload"]);
   // Pick up a CHANGED ExecStart on a host whose herdr unit is already running: `enable --now`
   // will not restart an active unit, so a re-provision after herdr moved (e.g. /usr/local/bin →

@@ -140,6 +140,7 @@ import {
   notifySessionDone,
 } from "./push";
 import { attachCiSteer } from "./ci-steer";
+import { createRateLimitSteer } from "./rate-limit-steer";
 import { HeavySlotService } from "./heavy-slot";
 import { recordHeavyPeak, resolveHeavySlotConfig, writeHeavyListFile } from "./heavy-slot-apply";
 import { HEAVY_SLOT_SETTING, storedHeavySlotSettings } from "./heavy-slot-settings";
@@ -2441,6 +2442,20 @@ const ciSteer = attachCiSteer(events, store, {
   // #3426: hold a red result while the critic reviews its head.
   criticReviewing: (id, headSha) => reviewService.ciSteerHeld(id, headSha),
 });
+// #2946: tell working agents once per GraphQL backoff episode when the budget resets. Local only.
+const rateLimitSteer = createRateLimitSteer({
+  backoff: () => ({
+    graphql: graphRateLimit.snapshot(),
+    restRead: restRateLimit.snapshot(),
+    restWrite: restWriteRateLimit.snapshot(),
+  }),
+  sessions: () => store.list({ activeOnly: true }),
+  reply: (id, text) => service.reply(id, text, { automatic: true }),
+  now: () => Date.now(),
+});
+setInterval(() => {
+  if (!maintenance.active) rateLimitSteer.tick();
+}, 15_000);
 attachMergePush(events, push);
 // #3181: the host-wide heavy-check slot. Local only (no outbound call), so it starts at once: its
 // persisted jobs load synchronously, before the agent ingress can ask for a slot.

@@ -584,7 +584,7 @@ import { scanInstalled, installPlugin, uninstallPlugin } from "./plugins/manage"
 import { isPublicHttpsUrl, type LookupFn } from "./browser-origin-policy";
 import { randomUUID } from "node:crypto";
 import { apnsEndpoint, isApnsToken, parseApnsEndpoint } from "./apns";
-import { WARM_REPO_DAYS_SETTING, clampWarmRepoDays } from "./repo-warmth";
+import { WARM_REPO_DAYS_SETTING, clampWarmRepoDays, type RepoWarmthService } from "./repo-warmth";
 import { APNS_FIELDS, type ApnsSaveInput, type ApnsSettings } from "./apns-settings";
 import {
   JUDGE_FIELDS,
@@ -1027,6 +1027,9 @@ export interface AppDeps {
     ensureFresh(slug: string, demand?: boolean): Promise<void>;
     coversRepo(repoDir: string): boolean;
   };
+  /** The warm repo set (#2837): `isWarmPath` gates background reads; `touch` records the operator
+   *  opening a repo (true when that promoted a cold one). Absent ⇒ every repo is warm. */
+  warmth?: Pick<RepoWarmthService, "isWarmPath" | "touch">;
   /** Force-refresh one repo's backlog counts (bypassing the read-TTL) and push the
    *  rebuilt overview to every client. Fired after a mutation that changes a repo's
    *  open issue/PR counts (e.g. a merge) so the counters + headline drop the item
@@ -13485,8 +13488,10 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
 
   // A repo the fingerprint covers is reconciled when its issues change (#2756), so this GET
   // never lists its issues; only uncovered repos (no fingerprint, e.g. Gitea) reconcile here.
+  // A cold repo (#2837) serves its stored rows; it reconciles once it turns warm.
   for (const repo of scopeRepos) {
-    if (!deps.fingerprint?.coversRepo(repo)) await reconcileCompletedEpicsForRepo(deps, repo);
+    if (deps.fingerprint?.coversRepo(repo) || deps.warmth?.isWarmPath(repo) === false) continue;
+    await reconcileCompletedEpicsForRepo(deps, repo);
   }
 
   // Re-query post-reconcile so the response reflects dismiss + backfill.

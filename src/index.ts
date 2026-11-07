@@ -181,7 +181,7 @@ import {
 import { CountsService } from "./backlog";
 import { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { GithubReadCache } from "./github-read-cache";
-import { BacklogPoller, reposUsedSince, createBacklogBroadcast } from "./backlog-poller";
+import { BacklogPoller, createBacklogBroadcast } from "./backlog-poller";
 import { UpNextService, buildUpNextRepos, upNextChangePublisher } from "./up-next";
 import { prsHeldBySessions } from "./up-next-prs";
 import { ISSUE_FILTER_SETTING, storedIssueFilter } from "./issue-filter";
@@ -380,7 +380,7 @@ const githubSlugOf = (path: string): string | null => {
   const forge = resolveForge(path);
   return forge?.kind === "github" && forge.slug ? forge.slug : null;
 };
-const repoWarmth = new RepoWarmthService({
+const repoWarmth: RepoWarmthService = new RepoWarmthService({
   windowDays: () => config.warmRepoDays,
   listRepos: () => listRepos(config.repoRoot),
   slugOf: githubSlugOf,
@@ -395,7 +395,7 @@ const repoWarmth = new RepoWarmthService({
       .filter((r) => r.status === "running" || r.status === "paused")
       .map((r) => r.repoPath),
   epicCompletedRepos: () => store.listEpicCompleted().map((r) => r.repoPath),
-  openPrRepos: () => {
+  openPrRepos: (): string[] => {
     const git = prPoller.snapshot();
     return store
       .list({ activeOnly: true })
@@ -417,6 +417,7 @@ const fingerprint = new RepoFingerprintService({
   // The foreign rate counts toward the reserve once 10 min of readings back it (#2840).
   foreignPerHour: () => graphqlSpend.foreignPerHour(10 * 60_000),
   onObserved: onFingerprintObserved,
+  isWarm: (slug) => repoWarmth.isWarmSlug(slug),
 });
 setIssuesFreshness((slug) => fingerprint.issuesKey(slug));
 // One ProcessReaper for the service (detect/reap/stop), the poller refresh, the
@@ -1902,6 +1903,7 @@ const prPoller = new PrPoller(
   githubReadCache,
   undefined, // terminalPollMs (default)
   () => fingerprint.belowReserve(), // below the GraphQL reserve: background PR polling pauses
+  (repoPath) => repoWarmth.isWarmPath(repoPath), // full sweep skips sessions in cold repos (#2837)
 );
 deferredStarts.push(() => {
   labelGhCalls("pr-poller:full");
@@ -2039,6 +2041,7 @@ const branchPruner = new BranchPruner(
   undefined,
   undefined,
   () => fingerprint.backgroundReady(),
+  (repo) => repoWarmth.isWarmPath(repo),
 );
 deferredStarts.push(() => {
   labelGhCalls("branch-pruner");
@@ -4315,11 +4318,8 @@ const backlogPoller = new BacklogPoller(
   broadcastBacklog,
   // Broad scans wait for the first fingerprint and the reserve; rehydrated counts stay readable.
   () => presence.hasClients() && fingerprint.backgroundReady(),
-  // Repos with a session in the last week every tick; the rest every 15 min (#2656).
-  {
-    hotRepos: () => reposUsedSince(store.lastUsedByRepo(), Date.now() - 7 * 86_400_000),
-    coldIntervalMs: 15 * 60_000,
-  },
+  // Only warm repos (#2837); a cold repo keeps its last-known counts.
+  (path) => repoWarmth.isWarmPath(path),
   // The fingerprint refreshes a covered repo's counts when they change (#2756).
   fingerprintCoversRepo,
 );
@@ -4409,6 +4409,7 @@ const appDeps: AppDeps = {
     ensureFresh: (slug, demand) => fingerprint.ensureFresh(slug, demand),
     coversRepo: fingerprintCoversRepo,
   },
+  warmth: repoWarmth,
   readCodexAuthMode,
   mythosAvailable: accountMythosAvailable,
   telemetry,

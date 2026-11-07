@@ -409,6 +409,9 @@ export class PrPoller implements PrCache {
      *  GitHub sessions alone — no batch, head lookup or per-session read. Turn-end and
      *  `pollNow` polls still run. */
     private budgetPaused: () => boolean = () => false,
+    /** Warm repo gate (#2837): the full sweep leaves sessions in cold repos alone. A session
+     *  holding an open PR keeps its repo warm; turn-end and `pollNow` polls still run. */
+    private isWarmRepo: (repoPath: string) => boolean = () => true,
   ) {
     this.cache = new Map(Object.entries(this.store.listSessionGitCache()));
     this.hydrateTransientWindows();
@@ -505,11 +508,12 @@ export class PrPoller implements PrCache {
     this.sweeping = true;
     try {
       const sessions = [...this.store.list({ activeOnly: true })];
+      const polled = sessions.filter((s) => this.isWarmRepo(s.repoPath));
       const recheckNone = this.now() - this.lastNoneRecheckAt >= this.noneRecheckMs;
       if (recheckNone) this.lastNoneRecheckAt = this.now();
       const paused = this.budgetPaused();
-      const due = this.sweepDue(sessions, recheckNone, graphqlLimited, paused);
-      due.push(...(await this.queueMoved(sessions, due)));
+      const due = this.sweepDue(polled, recheckNone, graphqlLimited, paused);
+      due.push(...(await this.queueMoved(polled, due)));
       const batches = graphqlLimited
         ? new Map<string, PrBatch | null>()
         : await this.buildBatches(due, !this.repoFreshness);
@@ -526,7 +530,7 @@ export class PrPoller implements PrCache {
         const batch = targeted.has(s.id) ? null : this.batchFor(s, batches);
         await this.withGh(() => this.refresh(s, batch, recheckNone, pre.get(s.id)));
       }
-      if (!graphqlLimited) await this.refetchStale(sessions, paused);
+      if (!graphqlLimited) await this.refetchStale(polled, paused);
       for (const id of [...this.cache.keys()]) {
         if (!active.has(id)) {
           this.drop(id);

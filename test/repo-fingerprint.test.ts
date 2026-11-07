@@ -29,6 +29,7 @@ function harness(
     targets?: FingerprintTarget[];
     minGapMs?: number;
     foreignPerHour?: () => number | null;
+    isWarm?: (slug: string) => boolean;
   } = {},
 ) {
   let clock = 1_000_000;
@@ -61,6 +62,7 @@ function harness(
     reserve: 1_000,
     foreignPerHour: opts.foreignPerHour,
     minGapMs: opts.minGapMs ?? 30_000,
+    isWarm: opts.isWarm,
   });
   return {
     svc,
@@ -487,4 +489,15 @@ test("countsPlan: re-fetch moved counts, first sightings only when uncached; res
   );
   expect(plan.refresh).toEqual(["/moved", "/new-cold"]);
   expect(plan.touch).toEqual(["/issues", "/new-cached", "/same", "/same-ref"]);
+});
+
+test("fleet runs observe only warm slugs; ensureFresh still reaches a cold one (#2837)", async () => {
+  const h = harness({ isWarm: (slug) => slug === "acme/web" });
+  await h.svc.tick();
+  expect(h.fetches).toEqual([["acme/web"]]);
+  h.advance(120_000);
+  await h.svc.refreshSoon();
+  expect(h.fetches.at(-1)).toEqual(["acme/web"]);
+  await h.svc.ensureFresh("acme/api", true);
+  expect(h.fetches.at(-1)).toEqual(["acme/api"]);
 });

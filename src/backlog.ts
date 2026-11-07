@@ -20,10 +20,8 @@ export type { RepoCounts } from "./forge/types";
 
 type CacheEntry = GithubCacheEntry<RepoCounts> & { negative?: boolean; revision?: number };
 
-/** Read TTL. Must outlive BacklogPoller's cold cadence (15 min, #2656): a cold repo is
- *  re-warmed that rarely, and a shorter TTL would make every backlog broadcast and GET
- *  re-fetch it on the request path anyway — undoing the tiering. Hot repos are rewritten
- *  every warm tick, so they never get near it. */
+/** Read TTL for repos the fingerprint doesn't cover. Warm repos are rewritten every warm tick,
+ *  so they never get near it; a cold repo's counts are frozen (#2837) and never expire. */
 const TTL_MS = 20 * 60_000;
 const FAILURE_TTL_MS = 30_000;
 

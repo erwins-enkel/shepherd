@@ -41,6 +41,9 @@ export interface RepoFingerprintDeps {
   /** Minimum spacing between demanded runs. */
   minGapMs?: number;
   cache?: GithubReadCache;
+  /** Warm repo gate (#2837): fleet runs observe only warm slugs; {@link
+   *  RepoFingerprintService.ensureFresh} still reaches any tracked slug. Absent ⇒ all warm. */
+  isWarm?: (slug: string) => boolean;
 }
 
 /** Which backlog-count entries a fingerprint run should re-fetch and which it should merely
@@ -246,11 +249,12 @@ export class RepoFingerprintService {
     return this.reserve + Math.round((foreign * left) / 3_600_000);
   }
 
-  /** Single-flight fleet run over every tracked repo. */
+  /** Single-flight fleet run over every warm tracked repo. */
   private run(): Promise<void> {
     if (this.inflight) return this.inflight;
     this.lastRunAt = this.now();
-    const p = this.observe(() => this.deps.listTargets(), this.lastRunAt, true)
+    const warm = (t: FingerprintTarget) => this.deps.isWarm?.(t.slug) ?? true;
+    const p = this.observe(() => this.deps.listTargets().filter(warm), this.lastRunAt, true)
       .catch((err: unknown) => {
         console.warn("[fingerprint] run failed:", err instanceof Error ? err.message : err);
       })

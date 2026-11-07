@@ -1,3 +1,4 @@
+import type { GitForge } from "../src/forge/types";
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -1396,6 +1397,7 @@ function completedHarness(opts?: {
   resolveForge?: AppDeps["resolveForge"];
   fingerprint?: AppDeps["fingerprint"];
   openPrSnapshot?: AppDeps["openPrSnapshot"];
+  warmth?: AppDeps["warmth"];
 }): {
   app: ReturnType<typeof makeApp>;
   store: SessionStore;
@@ -1431,6 +1433,7 @@ function completedHarness(opts?: {
     resolveForge: opts?.resolveForge,
     fingerprint: opts?.fingerprint,
     openPrSnapshot: opts?.openPrSnapshot,
+    warmth: opts?.warmth,
   };
   return { app: makeApp(deps), store, cleared };
 }
@@ -1581,6 +1584,28 @@ describe("GET /api/epics/completed", () => {
     expect(row.landingRebasePauseReason).toBe("conflict");
     expect("landingRebaseCount" in row).toBe(false);
     expect("landingRebaseDriverMisses" in row).toBe(false);
+  });
+
+  test("a cold repo is not reconciled; a warm one is (#2837)", async () => {
+    for (const warm of [false, true]) {
+      let lists = 0;
+      const forge = {
+        kind: "gitea",
+        slug: "o/r",
+        listIssues: async () => {
+          lists++;
+          return [];
+        },
+      } as unknown as GitForge;
+      const { app, store } = completedHarness({
+        resolveForge: () => forge,
+        warmth: { isWarmPath: () => warm, touch: () => false },
+      });
+      store.setEpicRun({ repoPath: repoDir, parentIssueNumber: 9, mode: "auto", status: "idle" });
+      const res = await app.fetch(new Request(`http://x/api/epics/completed`));
+      expect(res.status).toBe(200);
+      expect(lists > 0).toBe(warm);
+    }
   });
 
   test("plain record → default landing fields (pending/null/null)", async () => {

@@ -43,6 +43,8 @@ export class BranchPruner {
      *  the backlog drains across subsequent hourly ticks regardless. */
     private maxChecksPerTick = 20,
     private shouldSweep: () => boolean = () => true,
+    /** Warm repo gate (#2837): a cold repo's branches wait until it turns warm. */
+    private isWarm: (repoPath: string) => boolean = () => true,
   ) {}
 
   /** Default ON: only an explicit "0" disables the sweep. */
@@ -161,7 +163,9 @@ export class BranchPruner {
         .list()
         .filter((s) => !isOperatorAssistant(s))
         .map((s) => s.repoPath);
-      const repos = [...new Set([...sessionRepos, ...this.extraRepos()])];
+      const repos = [...new Set([...sessionRepos, ...this.extraRepos()])].filter((r) =>
+        this.isWarm(r),
+      );
       // Branches of live sessions are off-limits regardless of merge state.
       const activeBranches = new Set(
         this.store

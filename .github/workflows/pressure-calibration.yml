@@ -13,7 +13,7 @@ on:
       max_lanes:
         description: "Concurrent load lanes at the ramp's peak"
         required: false
-        default: "8"
+        default: "12"
       step_seconds:
         description: "Seconds between lane starts (and stops)"
         required: false
@@ -72,7 +72,7 @@ jobs:
 
       - name: Measure
         env:
-          MAX_LANES: ${{ inputs.max_lanes || '8' }}
+          MAX_LANES: ${{ inputs.max_lanes || '12' }}
           STEP: ${{ inputs.step_seconds || '60' }}
           HOLD: ${{ inputs.hold_seconds || '180' }}
         run: >-

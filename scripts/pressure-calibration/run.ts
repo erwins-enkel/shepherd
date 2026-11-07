@@ -4,7 +4,7 @@
  * Linux host — never on the shared operator machine: it drives memory into pressure on purpose.
  * Runs in .github/workflows/pressure-calibration.yml; see docs/verification/pressure-brake-3589.md.
  *
- *   bun scripts/pressure-calibration/run.ts --out DIR --work DIR [--max-lanes 8] [--step 60]
+ *   bun scripts/pressure-calibration/run.ts --out DIR --work DIR [--max-lanes 12] [--step 60]
  *     [--hold 180] [--settle 60] [--cooldown 60] [--sweep 1,2,4,8,16] [--protect] [--probe-only]
  *
  * Phases: prepare (one git worktree + bun install per lane) → baseline (each workload once, solo)
@@ -484,7 +484,7 @@ function parseConfig(): Config {
     options: {
       out: { type: "string" },
       work: { type: "string" },
-      "max-lanes": { type: "string", default: "8" },
+      "max-lanes": { type: "string", default: "12" },
       step: { type: "string", default: "60" },
       hold: { type: "string", default: "180" },
       settle: { type: "string", default: "60" },

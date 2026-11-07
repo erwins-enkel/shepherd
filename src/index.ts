@@ -313,6 +313,7 @@ import {
   RepoWarmthService,
   WARM_REPO_DAYS_SETTING,
   clampWarmRepoDays,
+  inLiveColdRead,
 } from "./repo-warmth";
 import { MIN_BUN_VERSION, bunTooOld } from "./runtime-guard";
 
@@ -404,6 +405,9 @@ const repoWarmth = new RepoWarmthService({
 });
 const githubReadCache: GithubReadCache = new GithubReadCache(store, {
   canRefresh: () => fingerprint.backgroundReady(),
+  // A cold repo serves its cached reads and refreshes nothing (#2837), except inside the manual
+  // Up Next refresh's live scope.
+  frozen: (slug) => !repoWarmth.isWarmSlug(slug) && !inLiveColdRead(),
 });
 const fingerprint = new RepoFingerprintService({
   cache: githubReadCache,
@@ -3135,6 +3139,10 @@ const drain = new DrainService({
   prCache: prPoller, // has snapshot()
   usage: usageLimits, // has limits(now)
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
+  frozen: (repoPath) => {
+    const slug = githubSlugOf(repoPath);
+    return slug !== null && githubReadCache.frozen(slug);
+  },
   emitStatus: (status) => events.emit("drain:status", status),
   emitArchived: (id) => events.emit("session:archived", { id }),
   dropPrCache: (id) => prPoller.drop(id),

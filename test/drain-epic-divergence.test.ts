@@ -66,7 +66,7 @@ function fakeForge(branchesRef: BranchesRef): GitForge {
   };
 }
 
-function makeHarness(branchesRef: BranchesRef, clock: { t: number }) {
+function makeHarness(branchesRef: BranchesRef, clock: { t: number }, frozen?: () => boolean) {
   const store = new SessionStore(":memory:");
   store.setRepoConfig(REPO, {
     criticEnabled: true,
@@ -129,6 +129,7 @@ function makeHarness(branchesRef: BranchesRef, clock: { t: number }) {
       },
     },
     resolveForge: () => forge,
+    frozen,
     prCache: { snapshot: () => ({}) as Record<string, GitState> },
     usage: { limits: (): UsageLimitsType => NO_USAGE },
     repos: () => [REPO],
@@ -168,6 +169,26 @@ describe("epic-branch host divergence scan (#645 signal c)", () => {
     clock.t += 6 * 60_000;
     await drain.buildEpic(REPO, run);
     expect(branchesRef.calls).toBe(2);
+  });
+
+  test("a cold repo serves the cached scan past the TTL, or [] — no listBranches call (#2837)", async () => {
+    const branchesRef = { branches: [PINNED, "epic/efi-valuemap-327"], calls: 0 };
+    const clock = { t: 1_000 };
+    let frozen = true;
+    const { store, drain } = makeHarness(branchesRef, clock, () => frozen);
+    const run = store.getEpicRun(REPO)!;
+    const cold = await drain.buildEpic(REPO, run);
+    expect(cold!.warnings.some((w) => w.includes("divergent epic branch"))).toBe(false);
+    expect(branchesRef.calls).toBe(0);
+    frozen = false;
+    clock.t += 6 * 60_000;
+    await drain.buildEpic(REPO, run);
+    expect(branchesRef.calls).toBe(1);
+    frozen = true;
+    clock.t += 6 * 60_000;
+    const stale = await drain.buildEpic(REPO, run);
+    expect(stale!.warnings.filter((w) => w.includes("divergent epic branch"))).toHaveLength(1);
+    expect(branchesRef.calls).toBe(1);
   });
 
   test("aligned host (only the pinned branch) → no divergence warning", async () => {

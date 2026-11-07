@@ -25,8 +25,7 @@ function make(over: Partial<RepoWarmthDeps> = {}) {
       p.includes("b-clone") || p.endsWith("/b") ? "o/b" : p.endsWith("/a") ? "o/a" : "o/c",
     canonical: (p) => p.replace("/root/", "/real/"),
     lastActivityByRepo: () => ({}),
-    repoOpenedSince: (since) =>
-      new Set([...opened].filter(([, t]) => t >= since).map(([p]) => p)),
+    repoOpenedSince: (since) => new Set([...opened].filter(([, t]) => t >= since).map(([p]) => p)),
     markRepoOpened: (p, at) => opened.set(p, at),
     automationRepos: () => [],
     activeEpicRepos: () => [],

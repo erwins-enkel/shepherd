@@ -112,10 +112,21 @@ export class CountsService {
     return this.entry(repoPath)?.value ?? null;
   }
 
+  /** When the cached counts were fetched, or null when nothing is cached — the "as of" age a
+   *  cold repo shows (#2837). */
+  peekAt(repoPath: string): number | null {
+    return this.entry(repoPath)?.at ?? null;
+  }
+
   /** Read-through: serve a TTL-fresh cached value, else load it. */
   async counts(repoPath: string, trigger = "read-through"): Promise<RepoCounts> {
     const entry = this.entry(repoPath);
     const slug = this.githubSlug(repoPath);
+    // A cold repo (#2837): any cached value, a failure included, is served as-is.
+    if (slug && this.readCache?.frozen(slug)) {
+      const held = entry ?? this.cache.get(slug);
+      if (held) return held.value;
+    }
     const fpKey = slug ? this.readCache?.contentKey("counts", slug) : null;
     if (entry && fpKey != null && entry.contentKey === fpKey && !this.readCache?.expired(entry))
       return entry.value;

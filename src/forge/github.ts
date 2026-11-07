@@ -1665,6 +1665,11 @@ export class GithubForge implements GitForge {
     });
   }
 
+  /** A cold repo (#2837): serve cached reads as-is and start no refresh. */
+  private isFrozen(): boolean {
+    return this.readCache?.frozen(this.slug) ?? false;
+  }
+
   /**
    * Open issues, served from a cache shared by every caller of this forge (#2656): the issues
    * panel, the epics routes, the completed-epics band, the drain and Up Next each list the same
@@ -1682,6 +1687,7 @@ export class GithubForge implements GitForge {
     this.syncReadCache();
     const fpKey = this.issueKey();
     const hit = this.readCache ? this.readCache.get("issues", this.slug) : this.issuesCache;
+    if (hit !== null && this.isFrozen()) return copyIssues(hit.value);
     const fresh =
       hit !== null &&
       (fpKey !== null ? hit.contentKey === fpKey : this.now() - hit.at < ISSUES_CACHE_TTL_MS);
@@ -3229,7 +3235,8 @@ export class GithubForge implements GitForge {
 
   async allowedMergeMethods(): Promise<MergeMethod[] | null> {
     const hit = this.mergeMethodsCache;
-    if (hit && Date.now() - hit.at < MERGE_METHODS_TTL_MS) return hit.methods;
+    if (hit && (this.isFrozen() || Date.now() - hit.at < MERGE_METHODS_TTL_MS)) return hit.methods;
+    if (this.isFrozen()) return null; // a cold repo (#2837): unknown, no `gh api` call
     let methods: MergeMethod[] | null = null;
     try {
       const repo = JSON.parse((await this.run(["api", `repos/${this.slug}`])) || "{}") as {
@@ -4108,8 +4115,10 @@ export class GithubForge implements GitForge {
       graphRateLimit.blocked() &&
       hit.restWindow === graphRateLimit.window() &&
       (fpKey === null || hit.contentKey === fpKey || now - hit.at < EPIC_STRUCTURE_TTL_MS);
+    const frozen = hit !== undefined && this.isFrozen();
     const fresh =
       restHeld ||
+      frozen ||
       (hit !== undefined &&
         (hit.retryAt !== undefined
           ? now < hit.retryAt
@@ -4119,6 +4128,7 @@ export class GithubForge implements GitForge {
     if (fresh) {
       if (
         !restHeld &&
+        !frozen &&
         persisted &&
         this.readCache?.expired(persisted) &&
         this.readCache.canRefresh() &&
@@ -4433,12 +4443,14 @@ export class GithubForge implements GitForge {
     this.syncReadCache();
     const hit = this.readCache?.get("links", this.slug);
     const fpKey = this.readCache?.contentKey("prs", this.slug) ?? null;
+    const frozen = !!hit && this.isFrozen();
     const fresh =
-      hit &&
-      (fpKey !== null ? hit.contentKey === fpKey : this.now() - hit.at < ISSUES_CACHE_TTL_MS);
+      frozen ||
+      (hit &&
+        (fpKey !== null ? hit.contentKey === fpKey : this.now() - hit.at < ISSUES_CACHE_TTL_MS));
     let linked: Map<number, LinkedPr[]> | null;
     if (fresh || graphRateLimit.blocked()) {
-      if (hit && fresh && this.readCache?.expired(hit) && this.readCache.canRefresh())
+      if (hit && fresh && !frozen && this.readCache?.expired(hit) && this.readCache.canRefresh())
         void this.loadPrLinks(fpKey);
       linked = hit?.value ?? null;
     } else linked = await this.loadPrLinks(fpKey);
@@ -4516,11 +4528,13 @@ export class GithubForge implements GitForge {
     this.syncReadCache();
     const fpKey = this.issueKey();
     const hit = this.readCache ? this.readCache.get("relations", this.slug) : this.relationsCache;
+    const frozen = hit !== null && this.isFrozen();
     const fresh =
-      hit !== null &&
-      (fpKey !== null ? hit.contentKey === fpKey : this.now() - hit.at < ISSUES_CACHE_TTL_MS);
+      frozen ||
+      (hit !== null &&
+        (fpKey !== null ? hit.contentKey === fpKey : this.now() - hit.at < ISSUES_CACHE_TTL_MS));
     if (fresh || graphRateLimit.blocked()) {
-      if (hit && fresh && this.readCache?.expired(hit) && this.readCache.canRefresh())
+      if (hit && fresh && !frozen && this.readCache?.expired(hit) && this.readCache.canRefresh())
         void this.loadRelations(fpKey);
       return Promise.resolve(hit?.value ?? null);
     }

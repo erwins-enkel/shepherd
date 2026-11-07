@@ -259,6 +259,9 @@ function collect(
  * and diff `init.slash_commands` against `listCommands()`. Note also that some bundled skills are
  * account-gated (`verify`, `debug`, `batch`, `deep-research`, … appear only for some accounts), so
  * only broadly-available ones belong here — a gated name would be the `/review` failure again.
+ *
+ * An entry that drives a built-in tool the spawn trim denies (`UNUSED_BUILTIN_TOOLS`, #3778) needs a
+ * row in `COMMAND_BUILTIN_TOOLS` (src/service.ts), or it is dead in every trimmed session.
  */
 const BUILTINS: ReadonlyArray<{ name: string; description: string; argumentHint?: string }> = [
   { name: "init", description: "Initialize a new CLAUDE.md with codebase documentation" },

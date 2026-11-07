@@ -123,6 +123,23 @@ test("recommendPrompt: claude path spawns opus, Write-only, dontAsk last, return
   expect(calls.cleaned).toBe(true);
 });
 
+test("recommendPrompt: claude path offers only Write under the built-in tool trim (#3778)", async () => {
+  const prev = config.trimBuiltinTools;
+  try {
+    config.trimBuiltinTools = true;
+    const { deps, calls } = makeDeps({ readSuggestion: () => ({ prompt: "x" }) });
+    await recommendPrompt(args(), deps);
+    const argv: string[] = calls.started.argv;
+    expect(argv[argv.indexOf("--tools") + 1]).toBe("Write");
+    expect(argv.indexOf("--tools")).toBeLessThan(argv.indexOf("--allowedTools"));
+    config.trimBuiltinTools = false;
+    await recommendPrompt(args(), deps);
+    expect(calls.started.argv).not.toContain("--tools");
+  } finally {
+    config.trimBuiltinTools = prev;
+  }
+});
+
 test("recommendPrompt: codex path uses codex argv, gpt-5.5, no env, bypass sandbox", async () => {
   const { deps, calls } = makeDeps({
     readSuggestion: () => ({ prompt: "Try the other approach." }),

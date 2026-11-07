@@ -925,6 +925,11 @@ export const config = {
   // .claude/skills stay available, so progressive disclosure still works. Default on; set
   // SHEPHERD_TRIM_AUTO_CONTEXT=false/0/off as the escape hatch if drain quality regresses.
   trimAutoContext: parseTrimAutoContext(process.env.SHEPHERD_TRIM_AUTO_CONTEXT),
+  // Built-in tool trim for EVERY Claude spawn (issue #3778): task sessions deny the Claude Code
+  // built-ins they never call (UNUSED_BUILTIN_TOOLS in src/service.ts — ~20k tok/turn), transient
+  // roles see only the built-ins their allowlist can run (`--tools`, src/transient-agent-argv.ts).
+  // Same parse as SHEPHERD_TRIM_AUTO_CONTEXT: default on, `false`/`0`/`off` restores the full set.
+  trimBuiltinTools: parseTrimAutoContext(process.env.SHEPHERD_TRIM_BUILTIN_TOOLS),
   // Standard command: legacy seed for the backlog quick-launch prompt. Quick-launch
   // actions now live in the steers list (issue-scoped entries, edited in the UI); this
   // value only seeds/migrates the default "Standard" issue action on first steers read.

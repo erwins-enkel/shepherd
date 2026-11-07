@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   allowedToolsFor,
+  builtinToolsFor,
   buildTransientAgentArgv,
   disallowedToolsFor,
   type TransientAgentKind,
@@ -229,6 +230,68 @@ test("coupling: --safe-mode precedes --allowedTools", () => {
   for (const kind of ["reviewer", "doc"] as const) {
     const { argv } = buildTransientAgentArgv(kind, { model: null, prompt: "p" });
     expect(argv.indexOf("--safe-mode")).toBeLessThan(argv.indexOf("--allowedTools"));
+  }
+});
+
+// ── #3778: --tools offers the model exactly the built-ins the role can run ──────────────────────
+
+/** Run `fn` with the built-in tool trim switched on (the preload pins it off for byte-identity). */
+function withToolTrim(fn: () => void): void {
+  const prev = config.trimBuiltinTools;
+  try {
+    config.trimBuiltinTools = true;
+    fn();
+  } finally {
+    config.trimBuiltinTools = prev;
+  }
+}
+
+test("--tools: per-kind built-in set, spelled out by hand (#3778)", () => {
+  withToolTrim(() => {
+    const expected: Record<TransientAgentKind, string> = {
+      reviewer: "Read,Grep,Glob,Bash,Write,Agent",
+      doc: "Read,Grep,Glob,Bash,Write,Edit",
+      "writer-ro": "Read,Grep,Glob,Write",
+      "writer-only": "Write",
+    };
+    for (const kind of ALL_KINDS) {
+      const { argv } = buildTransientAgentArgv(kind, { model: null, prompt: "P" });
+      expect(argv[argv.indexOf("--tools") + 1]).toBe(expected[kind]);
+      expect(builtinToolsFor(kind).join(",")).toBe(expected[kind]);
+    }
+  });
+});
+
+test("--tools: one token, after --safe-mode, before --allowedTools; prompt stays last (#3778)", () => {
+  withToolTrim(() => {
+    for (const kind of ALL_KINDS) {
+      const { argv } = buildTransientAgentArgv(kind, { model: null, prompt: "THE_PROMPT" });
+      const at = argv.indexOf("--tools");
+      expect(argv.filter((a) => a === "--tools")).toHaveLength(1);
+      expect(argv[at + 2]).toBe("--allowedTools");
+      if (argv.includes("--safe-mode")) expect(argv.indexOf("--safe-mode")).toBeLessThan(at);
+      expect(argv.at(-1)).toBe("THE_PROMPT");
+      expect(argv.at(-2)).toBe("dontAsk");
+    }
+  });
+});
+
+test("--tools: every allowlist rule names a tool the role is offered (#3778)", () => {
+  for (const kind of ALL_KINDS) {
+    const offered = new Set(builtinToolsFor(kind));
+    for (const rule of allowedToolsFor(kind)) expect(offered).toContain(rule.replace(/\(.*$/, ""));
+  }
+});
+
+test("--tools: trim off → no --tools anywhere, argv otherwise identical (#3778)", () => {
+  for (const kind of ALL_KINDS) {
+    const off = buildTransientAgentArgv(kind, { model: null, prompt: "P", sessionId: "sid" }).argv;
+    expect(off).not.toContain("--tools");
+    withToolTrim(() => {
+      const on = buildTransientAgentArgv(kind, { model: null, prompt: "P", sessionId: "sid" }).argv;
+      const at = on.indexOf("--tools");
+      expect([...on.slice(0, at), ...on.slice(at + 2)]).toEqual(off);
+    });
   }
 });
 

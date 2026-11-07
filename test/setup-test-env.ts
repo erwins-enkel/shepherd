@@ -45,6 +45,11 @@ for (const key of Object.keys(process.env)) {
 process.env.SHEPHERD_HOOKS_INGEST = "0";
 process.env.SHEPHERD_HOOKS_SIGNALS = "0";
 
+// #3778: the built-in tool trim is default-ON too and adds `permissions.deny` to every spawn/resume
+// overlay plus `--tools` to every transient argv. Pinned OFF for the same snapshot reason as the
+// hook flags; the on-path is covered by tests that set `config.trimBuiltinTools` directly.
+process.env.SHEPHERD_TRIM_BUILTIN_TOOLS = "0";
+
 // #2100: with no explicit default profile, a new repo inherits `standard` iff the REAL bwrap
 // self-test passes — so every spawn in a test that injects no backend seam would probe the host
 // and wrap (or not) depending on the runner. Pin the pre-#2100 `trusted` default to keep spawn

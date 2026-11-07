@@ -12,6 +12,7 @@ import { PTY_GONE_CODE, PTY_SUPERSEDED_CODE, type AppDeps } from "../../src/serv
 import { TOKEN_SCOPES } from "../../src/token-scopes";
 import { AGENT_PROVIDERS, DISPATCH_STATES, EFFORTS } from "../../src/types";
 import { WorktreeMissingBaseError } from "../../src/worktree";
+import { CiRestartHolds } from "../../src/ci-restart-hold";
 import type {
   RemoteCancelResult,
   RemoteDispatchView,
@@ -1042,6 +1043,60 @@ describe("sessions", () => {
     });
     await validateResponse("POST", "/api/sessions/{id}/interrupt", missing);
     expect(missing.status).toBe(404);
+  });
+
+  test("POST /api/sessions/{id}/ci/restart", async () => {
+    const created = await createSession("ci restart");
+    const path = "/api/sessions/{id}/ci/restart";
+    const restart = (id: string, body: unknown) =>
+      fetch(`${s.baseUrl}/api/sessions/${id}/ci/restart`, {
+        method: "POST",
+        headers: { ...bearer(token), "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const job = (state: "pending" | "failure") => ({
+      name: "CI / gate",
+      state,
+      startedAt: 1,
+      url: "https://github.com/o/r/actions/runs/42/job/7",
+    });
+    const git = (state: "pending" | "failure") => ({
+      kind: "github",
+      state: "open",
+      checks: state,
+      deployConfigured: false,
+      jobs: [job(state)],
+    });
+    const statusOf = async (id: string, body: unknown) => {
+      const res = await restart(id, body);
+      await validateResponse("POST", path, res);
+      return res.status;
+    };
+    expect(await statusOf(created.id, { job: "CI / gate" })).toBe(503); // not wired
+    const runs: number[] = [];
+    s.deps.ciRestart = {
+      holds: new CiRestartHolds({ set: () => 0, clear: () => {} }),
+      refreshPr: () => {},
+      run: async (a) => void runs.push(a.runId),
+    };
+    s.stubs.resolveForge.forge = {
+      cancelWorkflowRun: async () => {},
+      rerunWorkflowRun: async () => {},
+      getRunDetail: async () => null,
+    };
+    try {
+      s.stubs.prCache.rows[created.id] = git("failure");
+      expect(await statusOf(created.id, { job: "CI / gate" })).toBe(409); // not running
+      expect(await statusOf(created.id, {})).toBe(400);
+      expect(await statusOf("nope", { job: "CI / gate" })).toBe(404);
+      s.stubs.prCache.rows[created.id] = git("pending");
+      expect(await statusOf(created.id, { job: "CI / gate" })).toBe(202);
+      expect(runs).toEqual([42]);
+    } finally {
+      s.deps.ciRestart = undefined;
+      s.stubs.resolveForge.forge = null;
+      delete s.stubs.prCache.rows[created.id];
+    }
   });
 
   // No request body: handleSessionDelete's `{reap}` body is optional (it parses with a

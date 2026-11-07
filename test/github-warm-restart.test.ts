@@ -13,6 +13,7 @@ import type { OpenPrSnapshot, PrStatus } from "../src/forge/types";
 import { OpenPrSnapshotService } from "../src/open-pr-snapshot";
 import { SessionStore } from "../src/store";
 import { CountsService } from "../src/backlog";
+import { inLiveColdRead, liveColdRead } from "../src/repo-warmth";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -138,7 +139,7 @@ function harness(store: GithubCacheStore = new MemoryStore()) {
     if (query.includes("issue(number:")) return JSON.stringify(EPIC);
     throw new Error(`unexpected gh call: ${args.join(" ")}`);
   };
-  const boot = (frozen?: (slug: string) => boolean) => {
+  const boot = (frozen?: (slug: string) => boolean, isWarm?: (slug: string) => boolean) => {
     const cache: GithubReadCache = new GithubReadCache(store, {
       now: () => now,
       canRefresh: () => svc.backgroundReady(),
@@ -159,6 +160,7 @@ function harness(store: GithubCacheStore = new MemoryStore()) {
       onObserved: (o) => {
         observations.push(o);
       },
+      isWarm,
     });
     setIssuesFreshness((slug) => svc.issuesKey(slug));
     const forge = new GithubForge("o/r", {}, run, undefined, undefined, cache);
@@ -1040,5 +1042,25 @@ describe("cold repo freeze (#2837)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("live refresh re-reads a cold slug whose fingerprint was rehydrated at boot", async () => {
+    const h = harness();
+    const first = h.boot();
+    await first.svc.tick();
+    await first.forge.listIssues();
+    const before = h.calls.length;
+    h.advance(2 * 3_600_000); // inside the 24h expiry: only coverage decides freshness
+    // Restart: the slug's fingerprint is rehydrated (covered) but cold, so never re-observed.
+    const warm = false;
+    const cold = h.boot(
+      () => !warm && !inLiveColdRead(),
+      () => warm,
+    );
+    await cold.svc.tick();
+    await cold.forge.listIssues();
+    expect(h.calls.length).toBe(before); // frozen outside the live scope
+    await liveColdRead(() => cold.forge.listIssues());
+    expect(h.calls.length).toBeGreaterThan(before); // the stale rehydrated key vouches for nothing
   });
 });

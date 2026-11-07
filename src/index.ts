@@ -4529,6 +4529,7 @@ const appDeps: AppDeps = {
   upNext: {
     snapshot: () => upNext.snapshot(),
     refresh: () => upNext.refresh(),
+    refreshLive: () => upNext.refreshLive(),
     refreshIfStale: (maxAgeMs) => upNext.refreshIfStale(maxAgeMs),
     recomputeUntilCleared: (started) => upNext.recomputeUntilCleared(started),
     refilter: () => upNext.refilter(),

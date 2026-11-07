@@ -1,6 +1,7 @@
 import type { FingerprintResult, RepoFingerprint } from "./forge/github-fingerprint";
 import type { RateLimitSnapshot } from "./forge/rate-limit";
 import { countsKey, issuesKey, type GithubReadCache } from "./github-read-cache";
+import { inLiveColdRead } from "./repo-warmth";
 
 /** One tracked GitHub repo: its slug and every local repo path that resolves to it. */
 export interface FingerprintTarget {
@@ -190,10 +191,13 @@ export class RepoFingerprintService {
     return this.pending;
   }
 
-  /** True when the slug's issue list may be served from cache until its content key moves. */
+  /** True when the slug's issue list may be served from cache until its content key moves. A cold
+   *  slug is never observed, so inside the manual refresh's live scope (#2837) its last reading —
+   *  possibly a days-old rehydrated one — vouches for nothing. */
   covered(slug: string): boolean {
     const s = this.state.get(slug);
     if (!s) return false;
+    if (inLiveColdRead() && this.deps.isWarm && !this.deps.isWarm(slug)) return false;
     return (
       !!s.rehydrated || this.now() - s.observedAt < 3 * this.intervalMs || this.backgroundPaused()
     );

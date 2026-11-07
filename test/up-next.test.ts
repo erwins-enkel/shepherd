@@ -1229,3 +1229,43 @@ describe("UpNextService pull requests", () => {
     expect(s.snapshot()!.pullRequests![0]!.band).toBe("blocked");
   });
 });
+
+test("cold handling covers GitHub only: a cold Gitea repo is read as before (#2837)", async () => {
+  let reads = 0;
+  const s = svc({
+    resolveForge: () =>
+      fakeForge({
+        kind: "gitea",
+        listIssues: async () => {
+          reads++;
+          return [issue(1)];
+        },
+      } as Partial<GitForge>),
+    isWarm: () => false,
+    cachedIssuesAt: () => null,
+  });
+  const snap = await s.refresh();
+  expect(reads).toBe(1);
+  expect(snap.coldSkippedCount).toBeUndefined();
+  expect(snap.sections.flatMap((x) => x.items).map((i) => [i.number, i.asOf])).toEqual([
+    [1, undefined],
+  ]);
+});
+
+test("a cold GitHub repo with nothing cached sits out and is counted (#2837)", async () => {
+  let reads = 0;
+  const s = svc({
+    resolveForge: () =>
+      fakeForge({
+        listIssues: async () => {
+          reads++;
+          return [issue(1)];
+        },
+      }),
+    isWarm: () => false,
+    cachedIssuesAt: () => null,
+  });
+  const snap = await s.refresh();
+  expect(reads).toBe(0);
+  expect(snap.coldSkippedCount).toBe(1);
+});

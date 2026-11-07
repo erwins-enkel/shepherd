@@ -527,11 +527,13 @@ export class UpNextService {
     return { summaries, blockedByOpen, links };
   }
 
-  /** A cold repo (#2837) contributes its cached issues, read frozen: their fetch time, or null when
-   *  none are cached (the repo sits out). Undefined for a warm repo or inside the manual refresh's
-   *  live scope. */
+  /** A cold GitHub repo (#2837) contributes its cached issues, read frozen: their fetch time, or
+   *  null when none are cached (the repo sits out). Undefined for a warm repo, inside the manual
+   *  refresh's live scope, and for other forges — only GitHub reads are frozen and cached. */
   private coldAsOf(repoPath: string, forge: GitForge): number | null | undefined {
-    if (!this.deps.isWarm || this.deps.isWarm(repoPath) || inLiveColdRead()) return undefined;
+    if (forge.kind !== "github" || !this.deps.isWarm || this.deps.isWarm(repoPath))
+      return undefined;
+    if (inLiveColdRead()) return undefined;
     return forge.slug ? (this.deps.cachedIssuesAt?.(forge.slug) ?? null) : null;
   }
 

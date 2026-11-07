@@ -140,6 +140,13 @@ test("session:background-busy sets/drops the flag; bootstrap replaces; archive d
   expect(s.backgroundBusy).toEqual({});
 });
 
+test("sessionsLoaded flips only once a session list lands (even an empty one)", () => {
+  const s = new HerdStore();
+  expect(s.sessionsLoaded).toBe(false);
+  s.setAll([]);
+  expect(s.sessionsLoaded).toBe(true);
+});
+
 test("session:ready patches the target session's readyToMerge", () => {
   const s = new HerdStore();
   s.setAll([session("s1"), session("s2")]);

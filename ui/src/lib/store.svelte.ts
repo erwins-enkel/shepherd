@@ -243,7 +243,12 @@ export class HerdStore {
   /** toast id keyed by sessionId for active draft-reconcile error alerts; used to dismiss on success. */
   private draftReconcileToastIds = new SvelteMap<string, number>();
 
+  /** A `listSessions()` result has landed at least once, so `sessions` is real, not the
+   *  pre-bootstrap `[]` — the command bar drops pins for removed sessions only after this. */
+  sessionsLoaded = $state(false);
+
   setAll(list: Session[]) {
+    this.sessionsLoaded = true;
     this.sessions = list.filter((s) => !s.host);
     this.remoteSessions = list.filter((s) => s.host);
   }

@@ -232,6 +232,12 @@ export function jumpDigitIndex(e: KeyboardEvent): number | null {
   return d === 0 ? 9 : d - 1;
 }
 
+/** Command-bar Alt+P / Option+P: pin or unpin the highlighted row (#3052). Physical
+ *  `e.code`, like jumpDigitIndex — macOS Option+P emits "π", never "p". */
+export function isPinChord(e: KeyboardEvent): boolean {
+  return e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === "KeyP";
+}
+
 /** Next blocked session after `currentId` in `blockedIds` (oldest-first, the
  *  NEEDS-YOU set), wrapping around; cycles among several, skips the current one.
  *  Null when none are blocked or the only blocked session is already selected. */

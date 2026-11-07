@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import de from "../../messages/de.json";
-import { buildCommands, type CommandCtx } from "./command-registry";
+import { buildCommands, COMMAND_IDS, type CommandCtx } from "./command-registry";
 
 function ctx(overrides: Partial<CommandCtx> = {}): CommandCtx {
   return {
@@ -162,5 +162,15 @@ describe("buildCommands — run() wiring", () => {
     for (const cmd of buildCommands(ctx())) {
       expect(cmd.label().length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("COMMAND_IDS", () => {
+  it("lists every id buildCommands can emit, shelved or not", () => {
+    const emitted = new Set([
+      ...ids(ctx({ selectedShelved: false })),
+      ...ids(ctx({ selectedShelved: true })),
+    ]);
+    expect([...emitted].sort()).toEqual([...COMMAND_IDS].sort());
   });
 });

@@ -14,14 +14,18 @@
  * We pair them with Shepherd's own GraphQL, REST read and REST write backoff state
  * ({@link graphRateLimit}, {@link restRateLimit}, {@link restWriteRateLimit}) so the UI can explain
  * *why* polling is paused, not just that a budget is low, and with the per-caller tally of the
- * current window so a burn can be traced to its source.
+ * current window so a burn can be traced to its source. Both the GraphQL budget and the REST write
+ * counter are split into the Shepherd server's own spend and everything else (#2840, #2943).
  */
 
 import {
   graphqlSpend,
+  restWriteSpend,
   type GhCallerTally,
   type GraphqlSpendLedger,
   type GraphqlSpendSplit,
+  type SpendSplit,
+  type SpendSplitLedger,
 } from "./github-spend";
 import {
   graphRateLimit,
@@ -64,6 +68,10 @@ export interface GithubRateLimitPayload {
   /** The current GraphQL window split into the Shepherd server's own spend and everything else
    *  on the account (#2840); null before an in-query reading of a live window. */
   graphqlSplit: GraphqlSpendSplit | null;
+  /** The current REST write window split into the Shepherd server's own writes and everything
+   *  else on the account (#2943), in requests; null before a write reading of a live window.
+   *  Readings come only from Shepherd's own writes. */
+  restWriteSplit: SpendSplit | null;
   /** GitHub calls of the current GraphQL window per caller (#2743), most points first. */
   callers: GhCallerTally[];
 }
@@ -117,11 +125,13 @@ function graphqlBucket(spend: GraphqlSpendLedger): GhRateBucket | null {
  * @param run    injected `gh` runner (production passes the shared async runner).
  * @param now    injectable clock for deterministic tests.
  * @param spend  the ledger holding the GraphQL readings and callers.
+ * @param writeSpend  the ledger holding the REST write readings (#2943).
  */
 export async function fetchGithubRateLimit(
   run: GhRun,
   now: () => number = () => Date.now(),
   spend: GraphqlSpendLedger = graphqlSpend,
+  writeSpend: SpendSplitLedger = restWriteSpend,
 ): Promise<GithubRateLimitPayload> {
   const t = now();
   if (!cache || t - cache.at >= TTL_MS) cache = { at: t, rest: await readRestBucket(run) };
@@ -133,6 +143,7 @@ export async function fetchGithubRateLimit(
     restBackoff: restRateLimit.snapshot(),
     restWriteBackoff: restWriteRateLimit.snapshot(),
     graphqlSplit: spend.split(),
+    restWriteSplit: writeSpend.split(),
     callers: spend.callers(),
   };
 }

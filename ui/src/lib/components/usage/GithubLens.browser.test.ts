@@ -18,6 +18,7 @@ function fixture(over: Partial<GithubRateLimit> = {}): GithubRateLimit {
     restBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
     restWriteBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
     graphqlSplit: null,
+    restWriteSplit: null,
     callers: [],
     ...over,
   };
@@ -267,6 +268,43 @@ describe("GithubLens", () => {
         .element(page.getByText(m.github_lens_split_other({ rate: (1000).toLocaleString() })))
         .toBeInTheDocument();
       await expect.element(page.getByRole("note")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("REST write split (#2943)", () => {
+    const write = (own: number | null, other: number | null) => ({
+      resetAt: BASE + H,
+      since: BASE - 20 * 60_000,
+      until: BASE,
+      ownPoints: 8,
+      otherPoints: 140,
+      ownPerHour: own,
+      otherPerHour: other,
+    });
+
+    it("shows own vs. everything else's writes under the REST row", async () => {
+      render(GithubLens, { data: fixture({ restWriteSplit: write(24, 420) }) });
+      await expect.element(page.getByText(m.github_lens_write_split_label())).toBeInTheDocument();
+      await expect
+        .element(page.getByText(m.github_lens_split_own({ rate: (24).toLocaleString() })))
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByText(m.github_lens_split_other({ rate: (420).toLocaleString() })))
+        .toBeInTheDocument();
+    });
+
+    it("says it is still measuring before Shepherd's writes span enough time", async () => {
+      render(GithubLens, { data: fixture({ restWriteSplit: write(null, null) }) });
+      await expect
+        .element(page.getByText(m.github_lens_write_split_measuring()))
+        .toBeInTheDocument();
+    });
+
+    it("shows nothing without a write reading", async () => {
+      render(GithubLens, { data: fixture() });
+      await expect
+        .element(page.getByText(m.github_lens_write_split_label()))
+        .not.toBeInTheDocument();
     });
   });
 

@@ -3,7 +3,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import { gaugeColor } from "#lib/components/usage-gauges.js";
   import { formatResetIn } from "#lib/format.js";
-  import SplitBar from "./SplitBar.svelte";
+  import BudgetSplit from "./BudgetSplit.svelte";
 
   const { data }: { data: GithubRateLimit } = $props();
 
@@ -17,6 +17,8 @@
     paused: boolean;
     /** The GraphQL row carries the spend split (#2840). */
     graphql?: true;
+    /** The REST row carries the write counter's split (#2943). */
+    rest?: true;
   };
 
   // Build only the buckets we actually received, in fixed order (REST, GraphQL).
@@ -29,6 +31,7 @@
         desc: m.github_lens_rest_desc(),
         // Reads and writes back off apart (#2805); either one pauses work on this bucket.
         paused: d.restBackoff.blocked || d.restWriteBackoff.blocked,
+        rest: true,
       });
     if (d.graphql)
       out.push({
@@ -76,6 +79,9 @@
   // Above this foreign rate, the hint names the likely sources.
   const FOREIGN_HINT_PER_HOUR = 1_000;
   const foreignHigh = $derived((split?.otherPerHour ?? 0) > FOREIGN_HINT_PER_HOUR);
+  // The same split for REST writes (#2943), on their own counter; readings come only from
+  // Shepherd's own writes.
+  const writeSplit = $derived(data.restWriteSplit);
 
   // Who made this window's GitHub calls (#2743): the top callers by GraphQL points.
   const TOP_CALLERS = 8;
@@ -160,23 +166,15 @@
           >
         </div>
 
+        {#if row.rest && writeSplit}
+          <BudgetSplit
+            split={writeSplit}
+            label={m.github_lens_write_split_label()}
+            measuring={m.github_lens_write_split_measuring()}
+          />
+        {/if}
         {#if row.graphql && split}
-          <div class="split-block">
-            {#if split.ownPerHour !== null && split.otherPerHour !== null}
-              <SplitBar a={split.ownPerHour} b={split.otherPerHour} />
-              <div class="split-legend">
-                <span class="split-own"
-                  >{m.github_lens_split_own({ rate: split.ownPerHour.toLocaleString() })}</span
-                >
-                <span class="split-sep" aria-hidden="true">·</span>
-                <span class="split-other"
-                  >{m.github_lens_split_other({ rate: split.otherPerHour.toLocaleString() })}</span
-                >
-              </div>
-            {:else}
-              <span class="desc">{m.github_lens_split_measuring()}</span>
-            {/if}
-          </div>
+          <BudgetSplit {split} measuring={m.github_lens_split_measuring()} />
         {/if}
 
         {#if row.graphql && split && foreignHigh}
@@ -379,46 +377,6 @@
 
   .callers .caller {
     overflow-wrap: anywhere;
-  }
-
-  .split-block {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-    margin-top: 0.25rem;
-  }
-
-  .split-legend {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0.25rem 0.5rem;
-    font-size: var(--fs-meta);
-    color: var(--color-ink);
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* Swatches match SplitBar's default tones: blue = Shepherd server, amber = everything else. */
-  .split-own::before,
-  .split-other::before {
-    content: "";
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 2px;
-    margin-right: 0.375rem;
-  }
-
-  .split-own::before {
-    background: var(--color-blue);
-  }
-
-  .split-other::before {
-    background: var(--color-amber);
-  }
-
-  .split-sep {
-    color: var(--color-faint);
   }
 
   .foreign-hint {

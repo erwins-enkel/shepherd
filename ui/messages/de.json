@@ -8145,5 +8145,9 @@
   "feat_epic_machine_body": "Ein Epic-Kind mit dem Label requires-macos startet jetzt auf einem verbundenen Mac statt hier, und in den Lauf-Einstellungen des Epics wählst du den Rechner für alle seine Kinder. Ein Kind auf einem anderen Rechner trägt dessen Badge und öffnet seine Session dort; ist der Rechner nicht erreichbar, wartet das Epic, statt das Kind hier zu starten.",
   "cardmenu_ready_failed": "Bereit-Status von {name} konnte nicht geändert werden",
   "feat_cardmenu_mark_ready_title": "Als bereit markieren im Sitzungsmenü",
-  "feat_cardmenu_mark_ready_body": "Rechtsklick oder langes Drücken auf eine Sitzung in der Herd-Liste markiert sie als bereit zum Mergen – oder hebt die Markierung auf –, ohne sie zu öffnen."
+  "feat_cardmenu_mark_ready_body": "Rechtsklick oder langes Drücken auf eine Sitzung in der Herd-Liste markiert sie als bereit zum Mergen – oder hebt die Markierung auf –, ohne sie zu öffnen.",
+  "github_lens_write_split_label": "Schreibzugriffe — GitHub zählt sie getrennt von Lesezugriffen",
+  "github_lens_write_split_measuring": "Messe, wie viel vom Schreibkontingent Shepherd selbst verbraucht — braucht etwa 5 Minuten mit eigenen Schreibzugriffen von Shepherd in diesem Fenster.",
+  "feat_github_write_split_title": "Sieh, wer dein GitHub-Schreibkontingent verbraucht",
+  "feat_github_write_split_body": "Der GitHub-Tab im Verbrauch teilt jetzt auch REST-Schreibzugriffe auf: was der Shepherd-Server pro Stunde schreibt und was alles andere auf deinem Konto schreibt. GitHub zählt Schreibzugriffe getrennt von Lesezugriffen, und Schreibzugriffe anderer Werkzeuge können Shepherds Hintergrund-Schreibzugriffe in eine Pause zwingen."
 }

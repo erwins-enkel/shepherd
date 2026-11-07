@@ -9,6 +9,9 @@
  * the in-query `rateLimit.cost` for Shepherd's own `gh api graphql` queries, and the measured
  * per-page table in {@link porcelainCost} for porcelain `gh pr|issue …`. Between two in-query
  * readings of the same window, everything else = Δ`used` − own spend.
+ *
+ * The REST write counter (#2943) is split the same way by a {@link SpendSplitLedger}: one request
+ * per own write, readings off the write responses' `X-Ratelimit-*` headers.
  */
 import { sameWindow } from "./rate-limit";
 
@@ -106,8 +109,9 @@ export function porcelainCost(args: string[], stdout: string | null): number {
 }
 
 /** The split of the current window, as the GitHub tab shows it. Rates are null until
- *  {@link SPLIT_MIN_COVERAGE_MS} of readings exist. `otherPoints` is never negative. */
-export interface GraphqlSpendSplit {
+ *  {@link SPLIT_MIN_COVERAGE_MS} of readings exist. `otherPoints` is never negative. Points are
+ *  GraphQL points, or requests for the REST write counter (#2943). */
+export interface SpendSplit {
   /** The window's `resetAt`, epoch ms. */
   resetAt: number;
   /** Epoch ms of the window's first and latest accepted reading. */
@@ -118,6 +122,9 @@ export interface GraphqlSpendSplit {
   ownPerHour: number | null;
   otherPerHour: number | null;
 }
+
+/** The GraphQL budget's split (#2840). */
+export type GraphqlSpendSplit = SpendSplit;
 
 /** One caller's GitHub calls in the current window (#2743). */
 export interface GhCallerTally {
@@ -148,25 +155,24 @@ interface WindowTally {
 }
 
 /**
- * Splits the GraphQL budget into the Shepherd server's own spend and everything else (#2840).
+ * Splits one GitHub counter's spend into the Shepherd server's own and everything else on the
+ * account — the GraphQL budget (#2840) or the REST write counter (#2943).
  *
- * The runner feeds it {@link noteOwnSpend} for every GraphQL-bucket call, and {@link noteReading}
- * for every in-query reading the GraphQL tracker accepted as its current window's — readings from
- * GitHub's other counters never reach it. Per window it sums, for each pair of consecutive
- * readings, own = what Shepherd charged in between and other = Δ`used` − own. Calls still in
- * flight at a reading land in the next interval, so per-interval noise cancels over the window.
- * Readings arrive as calls complete, up to six at once: one GitHub evaluated earlier can finish
- * after a later one. Its lower `used` is ignored — its cost stays in the running own total, so
- * the next in-order reading takes it in.
+ * The runner feeds it {@link noteOwnSpend} for every call it makes on the counter, and
+ * {@link noteReading} for every reading the counter's tracker accepted as its current window's —
+ * readings from GitHub's other counters never reach it. Per window it sums, for each pair of
+ * consecutive readings, own = what Shepherd charged in between and other = Δ`used` − own. Calls
+ * still in flight at a reading land in the next interval, so per-interval noise cancels over the
+ * window. Readings arrive as calls complete, up to six at once: one GitHub evaluated earlier can
+ * finish after a later one. Its lower `used` is ignored — its cost stays in the running own
+ * total, so the next in-order reading takes it in.
  */
-export class GraphqlSpendLedger {
+export class SpendSplitLedger {
   private readonly now: () => number;
   /** Points Shepherd charged since boot — monotonic, so an interval is a difference. */
   private ownTotal = 0;
   private last: { used: number; ownTotal: number; remaining?: number } | null = null;
   private window: WindowTally | null = null;
-  /** Per-caller tally since the current window began (or boot, before the first reading). */
-  private byCaller = new Map<string, GhCallerTally>();
 
   constructor(opts?: { now?: () => number }) {
     this.now = opts?.now ?? (() => Date.now());
@@ -176,15 +182,16 @@ export class GraphqlSpendLedger {
     this.ownTotal += points;
   }
 
-  /** An in-query reading of the current window (epoch-ms `resetAt`). */
-  noteReading(reading: { used: number; resetAt: number; remaining?: number }): void {
+  /** A reading of the current window (epoch-ms `resetAt`). Returns true when it starts a window
+   *  other than the one tallied so far. */
+  noteReading(reading: { used: number; resetAt: number; remaining?: number }): boolean {
     const at = this.now();
     const w = this.window;
-    if (!w || !this.last || !sameWindow(w.resetAt, reading.resetAt)) {
-      if (w && !sameWindow(w.resetAt, reading.resetAt)) this.byCaller.clear();
+    const newWindow = !!w && !sameWindow(w.resetAt, reading.resetAt);
+    if (!w || !this.last || newWindow) {
       this.window = { resetAt: reading.resetAt, since: at, until: at, own: 0, other: 0 };
     } else if (reading.used < this.last.used) {
-      return; // out of order — an earlier-evaluated call that finished late
+      return false; // out of order — an earlier-evaluated call that finished late
     } else {
       const own = this.ownTotal - this.last.ownTotal;
       w.own += own;
@@ -192,10 +199,11 @@ export class GraphqlSpendLedger {
       w.until = at;
     }
     this.last = { used: reading.used, ownTotal: this.ownTotal, remaining: reading.remaining };
+    return newWindow;
   }
 
-  /** The newest in-order reading of the live window that carried `remaining` — the GraphQL
-   *  bucket as GitHub last reported it (#2743). Null before one, or once the window has passed. */
+  /** The newest in-order reading of the live window that carried `remaining` — the counter as
+   *  GitHub last reported it (#2743). Null before one, or once the window has passed. */
   latestReading(): { used: number; remaining: number; resetAt: number } | null {
     const w = this.live();
     const r = this.last;
@@ -204,27 +212,8 @@ export class GraphqlSpendLedger {
       : null;
   }
 
-  /** Tally one `gh` call against `caller` (#2743). `graphqlPoints` is what the call was charged
-   *  ({@link noteOwnSpend}); a non-GraphQL call counts as one REST call. */
-  noteCall(caller: string, call: { graphqlPoints: number; rest: boolean }): void {
-    const name =
-      this.byCaller.has(caller) || this.byCaller.size < MAX_CALLERS ? caller : OVERFLOW_CALLER;
-    const t = this.byCaller.get(name) ?? { caller: name, calls: 0, graphqlPoints: 0, restCalls: 0 };
-    t.calls++;
-    t.graphqlPoints += call.graphqlPoints;
-    if (call.rest) t.restCalls++;
-    this.byCaller.set(name, t);
-  }
-
-  /** The current window's callers, most GraphQL points first, then most calls. */
-  callers(): GhCallerTally[] {
-    return [...this.byCaller.values()]
-      .map((t) => ({ ...t }))
-      .sort((a, b) => b.graphqlPoints - a.graphqlPoints || b.calls - a.calls);
-  }
-
   /** The current window's split, or null before a reading or once the window has passed. */
-  split(): GraphqlSpendSplit | null {
+  split(): SpendSplit | null {
     const w = this.live();
     if (!w) return null;
     const span = w.until - w.since;
@@ -258,5 +247,46 @@ export class GraphqlSpendLedger {
   }
 }
 
+/**
+ * Splits the GraphQL budget into the Shepherd server's own spend and everything else (#2840),
+ * and tallies the window's `gh` calls per caller (#2743).
+ *
+ * The runner feeds it {@link noteOwnSpend} for every GraphQL-bucket call, and {@link noteReading}
+ * for every in-query reading the GraphQL tracker accepted as its current window's.
+ */
+export class GraphqlSpendLedger extends SpendSplitLedger {
+  /** Per-caller tally since the current window began (or boot, before the first reading). */
+  private byCaller = new Map<string, GhCallerTally>();
+
+  override noteReading(reading: { used: number; resetAt: number; remaining?: number }): boolean {
+    const newWindow = super.noteReading(reading);
+    if (newWindow) this.byCaller.clear();
+    return newWindow;
+  }
+
+  /** Tally one `gh` call against `caller` (#2743). `graphqlPoints` is what the call was charged
+   *  ({@link noteOwnSpend}); a non-GraphQL call counts as one REST call. */
+  noteCall(caller: string, call: { graphqlPoints: number; rest: boolean }): void {
+    const name =
+      this.byCaller.has(caller) || this.byCaller.size < MAX_CALLERS ? caller : OVERFLOW_CALLER;
+    const t = this.byCaller.get(name) ?? { caller: name, calls: 0, graphqlPoints: 0, restCalls: 0 };
+    t.calls++;
+    t.graphqlPoints += call.graphqlPoints;
+    if (call.rest) t.restCalls++;
+    this.byCaller.set(name, t);
+  }
+
+  /** The current window's callers, most GraphQL points first, then most calls. */
+  callers(): GhCallerTally[] {
+    return [...this.byCaller.values()]
+      .map((t) => ({ ...t }))
+      .sort((a, b) => b.graphqlPoints - a.graphqlPoints || b.calls - a.calls);
+  }
+}
+
 /** The process-wide ledger the shared `gh` runner charges. */
 export const graphqlSpend: GraphqlSpendLedger = new GraphqlSpendLedger();
+
+/** The REST write counter's ledger (#2943): the shared runner charges one request per write it
+ *  makes and feeds the write responses' `X-Ratelimit-*` readings. */
+export const restWriteSpend: SpendSplitLedger = new SpendSplitLedger();

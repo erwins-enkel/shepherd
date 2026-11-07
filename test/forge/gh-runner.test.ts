@@ -8,7 +8,7 @@ import { describe, it, expect, spyOn, beforeEach, afterEach } from "bun:test";
 import { makeGhRunner } from "../../src/forge/github";
 import { BucketRateLimit, isGraphqlBucketCall, isRateLimitError } from "../../src/forge/rate-limit";
 import { classifyGhError } from "../../src/forge/gh-attempt";
-import { GraphqlSpendLedger } from "../../src/forge/github-spend";
+import { GraphqlSpendLedger, SpendSplitLedger } from "../../src/forge/github-spend";
 import { routeCaller, UNATTRIBUTED, withGhCaller } from "../../src/forge/gh-caller";
 
 const REST_403 = "gh: API rate limit exceeded for user ID 1. (HTTP 403)";
@@ -27,6 +27,7 @@ function harness(
   const restWrite = tracker("REST write");
   const graph = new BucketRateLimit({ now: () => t });
   const spend = new GraphqlSpendLedger({ now: () => t });
+  const writeSpend = new SpendSplitLedger({ now: () => t });
   const execs: string[][] = [];
   // GitHub limits REST reads and writes on separate counters (#2805): each can be down alone.
   let readDown = true;
@@ -49,6 +50,7 @@ function harness(
     restWrite,
     graph,
     spend,
+    writeSpend,
     maxConcurrent: opts.maxConcurrent,
   });
   return {
@@ -57,6 +59,7 @@ function harness(
     restWrite,
     graph,
     spend,
+    writeSpend,
     execs,
     advance: (ms: number) => (t += ms),
     restUp: () => (readDown = writeDown = false),
@@ -165,7 +168,7 @@ describe("makeGhRunner — separate REST read and write trackers (#2805)", () =>
     expect(h.rest.blocked()).toBe(false);
 
     expect(await h.run(read)).toBe("{}");
-    expect(h.execs).toEqual([write, read]);
+    expect(h.execs).toEqual([[...write, "-i"], read]);
     // A read's success says nothing about the write counter.
     expect(h.restWrite.blocked()).toBe(true);
   });
@@ -511,5 +514,162 @@ describe("routeCaller", () => {
     );
     expect(routeCaller("POST", "/api/issues/2743/close")).toBe("http:POST /api/issues/:id/close");
     expect(routeCaller("GET", "/api/epics/completed")).toBe("http:GET /api/epics/completed");
+  });
+});
+
+describe("makeGhRunner — REST write split (#2943)", () => {
+  let warnSpy: ReturnType<typeof spyOn>;
+  beforeEach(() => {
+    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  /** The write window's reset, epoch seconds as GitHub sends it (live at the harness's t=0). */
+  const RESET_S = 3600;
+  const write = ["api", "--method", "POST", "repos/o/r/issues/1/comments", "-f", "body=hi"];
+
+  /** `gh api -i` stdout: status line, `X-Ratelimit-*` headers, blank line, body. */
+  function response(
+    used: number,
+    body = '{"id":1}',
+    o: { reset?: number; status?: string; remaining?: number } = {},
+  ): string {
+    return [
+      `HTTP/2.0 ${o.status ?? "201 Created"}`,
+      "Content-Type: application/json; charset=utf-8",
+      "X-Ratelimit-Limit: 5000",
+      `X-Ratelimit-Remaining: ${o.remaining ?? 5000 - used}`,
+      `X-Ratelimit-Reset: ${o.reset ?? RESET_S}`,
+      "X-Ratelimit-Resource: core",
+      `X-Ratelimit-Used: ${used}`,
+      "",
+      body,
+    ].join("\r\n");
+  }
+
+  /** A harness whose exec answers each call with the next queued response. */
+  function scripted(answers: Array<(args: string[]) => string>) {
+    let i = 0;
+    return harness({ exec: async (args) => answers[i++]!(args) });
+  }
+
+  it("adds -i to a gh api write and hands the caller the body only", async () => {
+    const h = scripted([() => response(137)]);
+    expect(await h.run(write)).toBe('{"id":1}');
+    expect(h.execs).toEqual([[...write, "-i"]]);
+  });
+
+  it("strips the headers before a --jq result and from --silent output", async () => {
+    const h = scripted([() => response(1, "42\n"), () => response(2, "")]);
+    expect(await h.run([...write, "--jq", ".id"])).toBe("42\n");
+    expect(await h.run([...write, "--silent"])).toBe("");
+  });
+
+  it("leaves a caller's own -i output whole, but still reads it", async () => {
+    const h = scripted([() => response(10), () => response(15)]);
+    const out = await h.run([...write, "-i"]);
+    expect(out.startsWith("HTTP/2.0 201")).toBe(true);
+    await h.run([...write, "--include"]);
+    expect(h.execs).toEqual([
+      [...write, "-i"],
+      [...write, "--include"],
+    ]);
+    expect(h.writeSpend.split()).toMatchObject({ ownPoints: 1, otherPoints: 4 });
+  });
+
+  it("never adds -i to REST reads, GraphQL, porcelain or paged writes", async () => {
+    const h = scripted(Array.from({ length: 5 }, () => () => "{}"));
+    await h.run(["api", "repos/o/r/issues"]);
+    await h.run(["api", "graphql", "-f", "query=…"]);
+    await h.run(["run", "rerun", "7", "--repo", "o/r"]);
+    await h.run(["workflow", "run", "ci.yml", "--repo", "o/r"]);
+    await h.run(["api", "--paginate", "-X", "PATCH", "repos/o/r/x"]);
+    expect(h.execs.some((a) => a.includes("-i"))).toBe(false);
+  });
+
+  it("splits Δused between same-window readings into own writes and everything else", async () => {
+    const h = scripted([() => response(100), () => response(103), () => response(150)]);
+    await h.run(write);
+    h.advance(3 * 60_000);
+    await h.run(write);
+    h.advance(3 * 60_000);
+    await h.run(write);
+    // Own: 2 writes after the first reading; other: (150 − 100) − 2.
+    expect(h.writeSpend.split()).toMatchObject({
+      resetAt: RESET_S * 1000,
+      ownPoints: 2,
+      otherPoints: 48,
+      ownPerHour: 20,
+      otherPerHour: 480,
+    });
+  });
+
+  it("charges porcelain writes without a reading — they land in the next interval", async () => {
+    const h = scripted([() => response(100), () => "", () => response(110)]);
+    await h.run(write);
+    await h.run(["run", "rerun", "7", "--repo", "o/r"]);
+    await h.run(write);
+    expect(h.writeSpend.split()).toMatchObject({ ownPoints: 2, otherPoints: 8 });
+  });
+
+  it("a reading from another window moves neither the split nor the write backoff", async () => {
+    const other = { reset: RESET_S - 1200, remaining: 3 };
+    const h = scripted([
+      () => response(100),
+      () => response(4997, '{"id":2}', other),
+      () => response(110),
+    ]);
+    await h.run(write);
+    expect(await h.run(write)).toBe('{"id":2}');
+    expect(h.restWrite.blocked()).toBe(false);
+    expect(h.restWrite.snapshot()).toMatchObject({ remaining: 4900, resetAt: RESET_S * 1000 });
+    await h.run(write);
+    // The ignored write still cost Shepherd its request.
+    expect(h.writeSpend.split()).toMatchObject({ ownPoints: 2, otherPoints: 8 });
+  });
+
+  it("a same-window reading with almost nothing left engages the write backoff until reset", async () => {
+    const h = scripted([() => response(4950)]);
+    await h.run(write);
+    expect(h.restWrite.blocked()).toBe(true);
+    expect(h.restWrite.snapshot().pausedUntil).toBe(RESET_S * 1000);
+    expect(h.rest.blocked()).toBe(false);
+  });
+
+  it("a failed write GitHub answered is charged and read; its stdout is the body only", async () => {
+    const body = '{"message":"Validation Failed"}';
+    const h = scripted([
+      () => response(100),
+      () => {
+        throw Object.assign(new Error("exit 1"), {
+          stdout: response(120, body, { status: "422 Unprocessable Entity" }),
+          stderr: "gh: Validation Failed (HTTP 422)",
+        });
+      },
+    ]);
+    await h.run(write);
+    const err = (await h.run(write).catch((e: unknown) => e)) as { stdout: string };
+    expect(err.stdout).toBe(body);
+    expect(h.writeSpend.split()).toMatchObject({ ownPoints: 1, otherPoints: 19 });
+    expect(h.restWrite.blocked()).toBe(false);
+  });
+
+  it("a rate-limited write backs off as before: not charged, its reading ignored", async () => {
+    const h = scripted([
+      () => response(100),
+      () => {
+        throw Object.assign(new Error("exit 1"), {
+          stdout: response(120, '{"message":"secondary"}', { status: "403 Forbidden" }),
+          stderr: "gh: You have exceeded a secondary rate limit (HTTP 403)",
+        });
+      },
+    ]);
+    await h.run(write);
+    const err = (await h.run(write).catch((e: unknown) => e)) as { stdout: string };
+    expect(err.stdout).toBe('{"message":"secondary"}');
+    expect(h.restWrite.blocked()).toBe(true);
+    expect(h.writeSpend.split()).toMatchObject({ ownPoints: 0, otherPoints: 0 });
   });
 });

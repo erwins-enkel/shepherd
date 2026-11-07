@@ -1,0 +1,122 @@
+name: Pressure-brake calibration
+
+# Measures representative heavy-check load on an isolated GitHub runner to calibrate the pressure
+# brake's defaults (#3589, src/heavy-slot-core.ts → defaultHeavySlotBudget). It drives the runner
+# into memory pressure ON PURPOSE — never run scripts/pressure-calibration/run.ts on a shared
+# operator machine. Method, decision rule and results: docs/verification/pressure-brake-3589.md.
+#
+# Manual only: workflow_dispatch, or a push to a `calibration/**` branch (so a branch can be
+# measured before its workflow reaches main). No schedule, no PR gate, no secrets.
+on:
+  workflow_dispatch:
+    inputs:
+      max_lanes:
+        description: "Concurrent load lanes at the ramp's peak"
+        required: false
+        default: "8"
+      step_seconds:
+        description: "Seconds between lane starts (and stops)"
+        required: false
+        default: "60"
+      hold_seconds:
+        description: "Seconds the peak is held"
+        required: false
+        default: "180"
+  push:
+    branches: ["calibration/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    name: measure (rep ${{ matrix.rep }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        rep: [1, 2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+
+      - name: Install (root)
+        uses: ./.github/actions/bun-install-retry
+
+      - name: Install (ui)
+        uses: ./.github/actions/bun-install-retry
+        with:
+          working-directory: ui
+
+      - name: Install Playwright Chromium
+        timeout-minutes: 5
+        uses: ./.github/actions/playwright-chromium
+
+      - name: Fetch crates
+        run: cargo fetch --locked --manifest-path cli/Cargo.toml
+
+      - name: Measure
+        env:
+          MAX_LANES: ${{ inputs.max_lanes || '8' }}
+          STEP: ${{ inputs.step_seconds || '60' }}
+          HOLD: ${{ inputs.hold_seconds || '180' }}
+        run: >-
+          bun scripts/pressure-calibration/run.ts --protect
+          --out "$RUNNER_TEMP/rep-${{ matrix.rep }}" --work "$RUNNER_TEMP/work"
+          --max-lanes "$MAX_LANES" --step "$STEP" --hold "$HOLD"
+
+      - name: Upload measurements
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rep-${{ matrix.rep }}
+          path: ${{ runner.temp }}/rep-${{ matrix.rep }}
+          if-no-files-found: warn
+
+  analyze:
+    needs: measure
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Install (root)
+        uses: ./.github/actions/bun-install-retry
+
+      - name: Download measurements
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ${{ runner.temp }}/reps
+
+      - name: Analyze
+        run: |
+          bun scripts/pressure-calibration/analyze.ts --out "$RUNNER_TEMP/analysis" "$RUNNER_TEMP"/reps/rep-*
+          cat "$RUNNER_TEMP/analysis/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload analysis
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: analysis
+          path: ${{ runner.temp }}/analysis

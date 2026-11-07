@@ -1,6 +1,12 @@
 import { test, expect, spyOn } from "bun:test";
 import { SessionStore } from "../src/store";
-import { PrPoller, trustsTerminal, gitStateChanged } from "../src/pr-poller";
+import {
+  PrPoller,
+  trustsTerminal,
+  gitStateChanged,
+  fastCadenceMs,
+  CI_FAST_MAX_MS,
+} from "../src/pr-poller";
 import type { GitForge, GitState, PrStatus } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import { GithubReadCache } from "../src/github-read-cache";
@@ -75,6 +81,13 @@ test("gitStateChanged: true when reviewerStates or reviewBlock changes", () => {
     ),
   ).toBe(true);
 });
+
+/** Backdate every session's last poll by one fast interval, as if 15 s passed — the fast sweep
+ *  only re-reads a head once its cadence is due (#2867). */
+function elapseFastInterval(poller: PrPoller): void {
+  const last = (poller as unknown as { lastPolledAt: Map<string, number> }).lastPolledAt;
+  for (const [id, at] of last) last.set(id, at - 15_000);
+}
 
 const baseSession = {
   name: "x",
@@ -1320,6 +1333,7 @@ test("fast tick re-polls only open PRs — accelerating in-flight CI", async () 
 
   await poller.tick(); // warm the cache (both branches polled)
   polled.length = 0;
+  elapseFastInterval(poller);
   await poller.fastTick(); // only the open PR is re-polled on the fast cadence
   expect(polled).toEqual(["shepherd/a"]);
 });
@@ -1349,6 +1363,7 @@ test("fastTick reads transient heads in one prStatusMany, never the open-PR batc
   stats.prStatus = 0;
   lookups.length = 0;
   await Bun.sleep(2); // a prefetch stamped in the same ms as the last poll is discarded
+  elapseFastInterval(poller);
   await poller.fastTick();
   expect(stats.count).toBe(0); // no count-gate probe on the fast path
   expect(stats.list).toBe(0); // no open-PR batch
@@ -1373,6 +1388,7 @@ test("fastTick falls back to per-session for a single eligible PR — count<2 (b
   stats.list = 0;
   stats.count = 0;
   stats.prStatus = 0;
+  elapseFastInterval(poller);
   await poller.fastTick();
   expect(stats.count).toBe(0); // count<2 short-circuits before the probe
   expect(stats.list).toBe(0);
@@ -1394,6 +1410,7 @@ test("fastTick keeps re-polling an open PR whose CI failed but still has running
 
   await poller.tick();
   stats.prStatus = 0;
+  elapseFastInterval(poller);
   await poller.fastTick();
   // Transient purely via runningChecks (merge state settled) → still fast-polled.
   expect(stats.prStatus).toBe(1);
@@ -1433,6 +1450,7 @@ test("fastTick fans out O(eligible) per-session across singleton repos, no cap (
   await poller.tick();
   prStatusCalls = 0;
   listCalls = 0;
+  elapseFastInterval(poller);
   await poller.fastTick();
   expect(prStatusCalls).toBe(REPOS); // every singleton repo polled per-session in one tick
   expect(listCalls).toBe(0); // count<2 each → never batched
@@ -1460,6 +1478,7 @@ test("fastTick covers all eligible PRs of one repo in a single tick — no rotat
   stats.prStatus = 0;
   lookups = 0;
   await Bun.sleep(2); // a prefetch stamped in the same ms as the last poll is discarded
+  elapseFastInterval(poller);
   await poller.fastTick();
   expect(lookups).toBe(1); // one head lookup covers all 10 (old code rotated 8/tick)
   expect(stats.list).toBe(0);
@@ -1560,6 +1579,7 @@ test("fastTick skips when warm() is false and runs when warm & not limited", asy
   await poller.fastTick();
   expect(calls).toBe(0); // not warm → skipped
   warm = true;
+  elapseFastInterval(poller);
   await poller.fastTick();
   expect(calls).toBe(1); // warm & not limited → runs
 });
@@ -2110,7 +2130,7 @@ test("#2851: restart preserves an expired transient window even after unchanged 
   const cache = new GithubReadCache(store, { now: () => now });
   const before = clockedPoller(store, forge, cache);
   await before.tick();
-  now += 300_000;
+  now += CI_FAST_MAX_MS;
   await before.tick(); // An unchanged read must not renew the first-observation stamp.
   const after = clockedPoller(store, forge, new GithubReadCache(store, { now: () => now }));
   polls = 0;
@@ -2138,7 +2158,7 @@ test("#2851: restart continues only the remainder of a transient window", async 
   polls = 0;
   await after.fastTick();
   expect(polls).toBe(1);
-  now += 100_000;
+  now += CI_FAST_MAX_MS - 200_000;
   await after.fastTick();
   expect(polls).toBe(1);
 });
@@ -2159,7 +2179,7 @@ test.each(["session", "snapshot", "missing"] as const)(
         statuses: new Map([[s.branch!, cached]]),
         capped: false,
       });
-    now += 400_000;
+    now += CI_FAST_MAX_MS;
     let polls = 0;
     const forge = forgeReturning(() => {
       polls++;
@@ -2210,6 +2230,7 @@ test.each(["done", "idle"] as const)(
     current = { ...current, checks: "failure", runningChecks: ["ci"] };
     await poller.pollNow(s.id);
     polls = 0;
+    elapseFastInterval(poller);
     await poller.fastTick();
     expect(polls).toBe(1);
   },
@@ -2226,7 +2247,7 @@ test("#2851: session-git updates reopen a transient window after a new push", as
   });
   const poller = clockedPoller(store, forge, new GithubReadCache(store, { now: () => now }));
   poller.set(s.id, openGit({ headSha: "old-head" }));
-  now += 300_000;
+  now += CI_FAST_MAX_MS;
   await poller.fastTick();
   expect(polls).toBe(0);
   poller.set(s.id, openGit({ headSha: "new-head" }));
@@ -2301,6 +2322,7 @@ test.each(["done", "idle"] as const)(
     await tick();
     expect(poller.get(s.id)).toMatchObject({ headSha: "new-head", checks: "pending" });
     completed = true;
+    elapseFastInterval(poller);
     await poller.fastTick();
     expect(poller.get(s.id)).toMatchObject({ headSha: "new-head", checks: "success" });
     expect(heads).toEqual([s.branch!, s.branch!]);
@@ -2393,11 +2415,12 @@ test("fastTick polls a transient open PR (checks:pending)", async () => {
 
   await poller.tick();
   fastPolled = 0;
+  elapseFastInterval(poller);
   await poller.fastTick(); // pending → transient → eligible → polled
   expect(fastPolled).toBe(1);
 });
 
-test("fastTick parks a transient PR whose transientMaxMs window has expired", async () => {
+test("fastTick parks a running-CI PR past CI_FAST_MAX_MS", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create({ ...baseSession, branch: "shepherd/aged" });
   let fastPolled = 0;
@@ -2426,9 +2449,9 @@ test("fastTick parks a transient PR whose transientMaxMs window has expired", as
   await poller.tick(); // seed cache + transientSince (since ≈ now)
   fastPolled = 0;
 
-  // Age the transientSince entry past the 300s window
+  // Age the transientSince entry past the running-CI cap
   const ts = (poller as any).transientSince as Map<string, { since: number; headSha?: string }>;
-  ts.set(s.id, { since: Date.now() - 400_000, headSha: undefined });
+  ts.set(s.id, { since: Date.now() - CI_FAST_MAX_MS - 1, headSha: undefined });
 
   await poller.fastTick(); // aged out → parked → 0 polls
   expect(fastPolled).toBe(0);
@@ -2465,7 +2488,7 @@ test("headSha change restamps the transient window, making an aged-out PR eligib
 
   // Age out the entry so fastTick would park it
   const ts = (poller as any).transientSince as Map<string, { since: number; headSha?: string }>;
-  ts.set(s.id, { since: Date.now() - 400_000, headSha: "sha-aaa" });
+  ts.set(s.id, { since: Date.now() - CI_FAST_MAX_MS - 1, headSha: "sha-aaa" });
 
   fastPolled = 0;
   await poller.fastTick(); // aged out → 0 polls
@@ -2475,6 +2498,7 @@ test("headSha change restamps the transient window, making an aged-out PR eligib
   cur = { ...OPEN_PENDING, headSha: "sha-bbb" };
   await poller.tick(); // tick re-stamps transientSince with since ≈ now
   fastPolled = 0;
+  elapseFastInterval(poller);
   await poller.fastTick(); // fresh window → eligible → polled
   expect(fastPolled).toBe(1);
 });
@@ -4048,4 +4072,281 @@ test("#2799: CI settling past the transient window refetches the snapshot once, 
   t.advance(120_000);
   await t.poller.tick();
   expect(t.calls.snapshot).toBe(2);
+});
+
+// ── #2867: CI backoff + per-repo phase ─────────────────────────────────────────
+
+test("#2867: fastCadenceMs backs off 15 s → 30 s → 60 s and parks at the cap", () => {
+  const cases: Array<[number, boolean, number | null]> = [
+    [0, true, 15_000],
+    [119_999, true, 15_000],
+    [120_000, true, 30_000],
+    [299_999, true, 30_000],
+    [300_000, true, 60_000],
+    [CI_FAST_MAX_MS - 1, true, 60_000],
+    [CI_FAST_MAX_MS, true, null],
+    [0, false, 15_000],
+    [120_000, false, 30_000],
+    [299_999, false, 30_000],
+    [300_000, false, null], // no running CI: the 5-min transient cap still applies
+  ];
+  for (const [age, ci, want] of cases) expect(fastCadenceMs(age, ci, 300_000)).toBe(want);
+});
+
+/** One repo whose heads' statuses the test moves; counts each query by sweep phase. */
+function simForge(byBranch: Record<string, PrStatus>) {
+  const q = { fast: [] as string[][], full: [] as string[][], prStatus: 0 };
+  let phase: "fast" | "full" = "full";
+  const forge: GitForge = {
+    ...forgeByBranch(byBranch),
+    prStatus: async (head) => {
+      q.prStatus++;
+      return byBranch[head] ?? NONE;
+    },
+    prStatusMany: async (heads) => {
+      q[phase].push([...heads].sort());
+      return new Map(heads.map((h) => [h, byBranch[h] ?? NONE]));
+    },
+  };
+  const setPhase = (p: "fast" | "full") => (phase = p);
+  return { forge, q, setPhase };
+}
+
+/** Drive `poller` like start() does on a fake clock: a fast tick every 15 s, a full one every
+ *  120 s, from `fromMs` to `toMs` (inclusive). `onStep` runs first at each step. */
+async function runClock(
+  poller: PrPoller,
+  clock: { t0: number; now: number },
+  setPhase: (p: "fast" | "full") => void,
+  fromMs: number,
+  toMs: number,
+  onStep: (t: number) => Promise<void> | void = () => {},
+): Promise<void> {
+  for (let t = fromMs; t <= toMs; t += 15_000) {
+    clock.now = clock.t0 + t;
+    await onStep(t);
+    setPhase("fast");
+    await poller.fastTick();
+    if (t % 120_000 === 0) {
+      setPhase("full");
+      await poller.tick();
+    }
+  }
+}
+
+function simPoller(store: SessionStore, forge: GitForge, clock: { now: number }) {
+  const emitted: Array<{ id: string; git: GitState; at: number }> = [];
+  const cache = new GithubReadCache(store, { now: () => clock.now });
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    (id, git) => emitted.push({ id, git, at: clock.now }),
+    undefined,
+    0,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => `${cache.contentKey("prs", forge.slug!)}|${cache.revision(forge.slug!)}`,
+    cache,
+  );
+  poller.start(); // arms the fast timer — only a scheduled fast sweep covers heads
+  return { poller, emitted };
+}
+
+const CI_RUNNING = (headSha: string): PrStatus => ({
+  ...OPEN_PENDING,
+  headSha,
+  mergeable: true,
+  mergeStateStatus: "blocked",
+});
+const CI_GREEN = (headSha: string): PrStatus => ({
+  ...OPEN_STABLE,
+  number: 1,
+  headSha,
+});
+
+test("#2867: a 30-min CI run costs ≤40 queries and its end is seen within 60 s", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({ ...baseSession, branch: "shepherd/a" });
+  store.update(s.id, { status: "done" }); // finished agent, CI still running
+  const byBranch: Record<string, PrStatus> = { "shepherd/a": CI_RUNNING("h1") };
+  const { forge, q, setPhase } = simForge(byBranch);
+  const clock = { t0: 1_800_000_000_000, now: 1_800_000_000_000 };
+  const { poller, emitted } = simPoller(store, forge, clock);
+  try {
+    setPhase("full");
+    await poller.tick(); // the push: first read
+    await runClock(poller, clock, setPhase, 15_000, 1_785_000);
+    const queries = q.fast.length + q.full.length + q.prStatus;
+    expect(queries).toBeLessThanOrEqual(40);
+    expect(q.full).toHaveLength(1); // the seed only — the full sweep leaves the covered head alone
+    byBranch["shepherd/a"] = CI_GREEN("h1");
+    await runClock(poller, clock, setPhase, 1_800_000, 1_860_000);
+    const seen = emitted.find((e) => e.git.checks === "success");
+    expect(seen).toBeDefined();
+    expect(seen!.at - (clock.t0 + 1_800_000)).toBeLessThanOrEqual(60_000);
+  } finally {
+    poller.stop();
+  }
+});
+
+test("#2867: CI ending in the first 2 min after a push is seen within 15 s", async () => {
+  const store = new SessionStore(":memory:");
+  store.create({ ...baseSession, branch: "shepherd/a" });
+  const byBranch: Record<string, PrStatus> = { "shepherd/a": CI_RUNNING("h1") };
+  const { forge, setPhase } = simForge(byBranch);
+  const clock = { t0: 1_800_000_000_000, now: 1_800_000_000_000 };
+  const { poller, emitted } = simPoller(store, forge, clock);
+  try {
+    await poller.tick();
+    await runClock(poller, clock, setPhase, 15_000, 120_000, (t) => {
+      if (t === 90_000) byBranch["shepherd/a"] = CI_GREEN("h1");
+    });
+    const seen = emitted.find((e) => e.git.checks === "success");
+    expect(seen!.at - (clock.t0 + 90_000)).toBeLessThanOrEqual(15_000);
+  } finally {
+    poller.stop();
+  }
+});
+
+test("#2867: a new head brings back the 15 s cadence", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({ ...baseSession, branch: "shepherd/a" });
+  const byBranch: Record<string, PrStatus> = { "shepherd/a": CI_RUNNING("h1") };
+  const { forge, q, setPhase } = simForge(byBranch);
+  const clock = { t0: 1_800_000_000_000, now: 1_800_000_000_000 };
+  const { poller } = simPoller(store, forge, clock);
+  try {
+    await poller.tick();
+    await runClock(poller, clock, setPhase, 15_000, 600_000); // settled into 60 s reads
+    const before = q.fast.length;
+    await runClock(poller, clock, setPhase, 615_000, 660_000);
+    expect(q.fast.length - before).toBe(1); // one read per minute
+    byBranch["shepherd/a"] = CI_RUNNING("h2");
+    await poller.pollNow(s.id); // the agent's turn ends after the push
+    const pushed = q.fast.length;
+    await runClock(poller, clock, setPhase, 675_000, 720_000);
+    expect(q.fast.length - pushed).toBe(4); // back to every 15 s
+  } finally {
+    poller.stop();
+  }
+});
+
+test("#2867: same-repo heads pushed at different times share one query per fast tick", async () => {
+  const store = new SessionStore(":memory:");
+  const ids: Record<string, string> = {};
+  for (const b of ["a", "b", "c"]) {
+    const s = store.create({ ...baseSession, branch: `shepherd/${b}` });
+    store.update(s.id, { status: "done" });
+    ids[b] = s.id;
+  }
+  const byBranch: Record<string, PrStatus> = {
+    "shepherd/a": CI_RUNNING("a1"),
+    "shepherd/b": CI_GREEN("b0"),
+    "shepherd/c": CI_GREEN("c0"),
+  };
+  const { forge, q, setPhase } = simForge(byBranch);
+  const clock = { t0: 1_800_000_000_000, now: 1_800_000_000_000 };
+  const { poller, emitted } = simPoller(store, forge, clock);
+  const pushes: Record<number, string> = { 465_000: "b", 900_000: "c" };
+  try {
+    await poller.tick();
+    let fastTicks = 0;
+    await runClock(poller, clock, setPhase, 15_000, 1_785_000, async (t) => {
+      const b = pushes[t];
+      if (b) {
+        byBranch[`shepherd/${b}`] = CI_RUNNING(`${b}1`);
+        clock.now -= 5_000; // the push and its turn end land between two ticks
+        await poller.pollNow(ids[b]!);
+        clock.now += 5_000;
+      }
+      fastTicks++;
+    });
+    // In phase: every fast query carries all of the repo's running heads at that moment.
+    for (const heads of q.fast) expect(heads).toContain("shepherd/a");
+    expect(q.fast.filter((h) => h.length === 3).length).toBeGreaterThan(0);
+    expect(q.fast.length).toBeLessThanOrEqual(fastTicks); // ≤1 query per fast tick
+    expect(q.prStatus).toBe(2); // only the two turn-end polls read a head alone
+    // The union of the three schedules: a 15 s / 30 s burst after each push, 60 s between —
+    // 54 fast queries, plus the seed and the two turn-end reads. Three heads on their own phases
+    // would cost ~94 (39 + 31 + 24).
+    expect(q.fast).toHaveLength(54);
+    expect(q.fast.length + q.full.length + q.prStatus).toBe(57);
+    for (const b of ["a", "b", "c"]) byBranch[`shepherd/${b}`] = CI_GREEN(`${b}1`);
+    await runClock(poller, clock, setPhase, 1_800_000, 1_860_000);
+    for (const b of ["a", "b", "c"]) {
+      const seen = emitted.find(
+        (e) => e.id === ids[b] && e.git.checks === "success" && e.at >= clock.t0 + 1_800_000,
+      );
+      expect(seen!.at - (clock.t0 + 1_800_000)).toBeLessThanOrEqual(60_000);
+    }
+  } finally {
+    poller.stop();
+  }
+});
+
+test("#2867: the full sweep still reads a running-CI head when cold or rate-limited", async () => {
+  for (const mode of ["cold", "limited"] as const) {
+    const store = new SessionStore(":memory:");
+    store.create({ ...baseSession, branch: "shepherd/a" });
+    let reads = 0;
+    const forge = forgeReturning(() => {
+      reads++;
+      return CI_RUNNING("h1");
+    });
+    const poller = new PrPoller(
+      store,
+      () => forge,
+      () => {},
+      120_000,
+      1000,
+      async () => null,
+      15_000,
+      () => true,
+      () => mode !== "cold",
+      () => mode === "limited",
+      0, // idleIntervalMs: let the cold full sweep run every call
+    );
+    poller.start();
+    try {
+      await poller.tick();
+      reads = 0;
+      await poller.tick();
+      expect(reads).toBe(1);
+    } finally {
+      poller.stop();
+    }
+  }
+});
+
+test("#2867: the full sweep keeps reading a merge-train head the fast sweep covers", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({ ...baseSession, branch: "shepherd/a" });
+  store.update(s.id, { mergingSince: Date.now() });
+  let reads = 0;
+  const forge = forgeReturning(() => {
+    reads++;
+    return CI_RUNNING("h1");
+  });
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+  );
+  poller.start();
+  try {
+    await poller.tick();
+    reads = 0;
+    await poller.tick();
+    expect(reads).toBe(1);
+  } finally {
+    poller.stop();
+  }
 });

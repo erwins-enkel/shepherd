@@ -4533,7 +4533,7 @@ components:
     CompletedEpic:
       type: object
       additionalProperties: true
-      description: 'One row of the "Epics to land" band (CompletedEpic in src/completed-epic.ts): every sub-issue is done and their PRs sit on the epic''s integration branch; one landing PR brings that branch to the default branch. The `landingChecks` … `landingCiAutomation` gate signals are live and exist ONLY on GET /api/epics/completed, and only for a row whose landing PR is open and could be read — the epic:completed frame never carries them, and no frame fires when CI turns green, so a client re-reads the GET while a row is open.'
+      description: 'One row of the "Epics to land" band (CompletedEpic in src/completed-epic.ts): every sub-issue is done and their PRs sit on the epic''s integration branch; one landing PR brings that branch to the default branch. The `landingChecks` … `landingCiAutomation` gate signals are live: GET /api/epics/completed and the epic:landing-gate frame carry them, and only for a row whose landing PR is open and could be read. The epic:completed frame never carries them. Time-based states need no frame: compare `landingStrandedAt` and `landingConflictStrandedAt` with the client clock.'
       required:
         - repoPath
         - parentIssueNumber
@@ -4609,6 +4609,11 @@ components:
         landingConflictStranded:
           type: boolean
           description: Live. The conflict pause has stood past the stranded threshold with no live repair session.
+        landingConflictStrandedAt:
+          type:
+            - integer
+            - "null"
+          description: Live. When the conflict pause turns stranded (`landingConflictSince` plus the stranded threshold), epoch ms; null outside a conflict pause or while a repair session works it. The chip shows once the client clock passes it.
         landingChecks:
           $ref: "#/components/schemas/ChecksState"
         landingMergeable:
@@ -4624,6 +4629,11 @@ components:
         landingStranded:
           type: boolean
           description: Live. Open and ready, yet unlanded for longer than the stranded threshold.
+        landingStrandedAt:
+          type:
+            - integer
+            - "null"
+          description: Live. When an open, ready landing turns stranded (`completedAt` plus the stranded threshold), epoch ms; null while not ready. The chip shows once the client clock passes it.
         landingCiFailing:
           type: boolean
           description: Live. CI is terminally red and nothing automatic is still acting on it.
@@ -17557,7 +17567,11 @@ x-shepherd-events:
     schema:
       $ref: "#/components/schemas/SessionClaudeAliveEvent"
   epic:completed:
-    description: A completed epic joined the band or its stored landing state changed. The whole row, but never the live landing signals — those come from GET /api/epics/completed only.
+    description: A completed epic joined the band or its stored landing state changed. The whole row, but never the live landing signals — those come from GET /api/epics/completed and epic:landing-gate.
+    schema:
+      $ref: "#/components/schemas/CompletedEpic"
+  epic:landing-gate:
+    description: "An open landing's live gate or landing progress moved (CI, mergeability, repair, rebase pause, automation stages). The whole row, enriched like GET /api/epics/completed. Replace an existing row with it; never add a row (a late frame must not bring back a dismissed one). Sent only on a change: each drain tick and right after a repair dispatch. GET /api/epics/completed serves the last pushed gate, so the two never disagree."
     schema:
       $ref: "#/components/schemas/CompletedEpic"
   epic:completed-cleared:

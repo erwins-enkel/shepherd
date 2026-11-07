@@ -2,7 +2,7 @@ import type { EpicChild } from "./epic-core";
 import type { ChecksState, ForgeKind, PrStatus } from "./forge/types";
 import type { Session } from "./types";
 import { checksCleared, noCiMergeHeld, repoHasNoCiCached } from "./checks-gate";
-import type { RepoConfig } from "./store";
+import type { RepoConfig, SessionStore } from "./store";
 
 export interface CompletedEpicChild {
   number: number;
@@ -54,6 +54,9 @@ export interface CompletedEpic {
   /** Live, non-persisted (#1841): a conflict pause has stood past EPIC_LANDING_STRANDED_MS with no
    *  live repair/rework session on the branch — the stale-conflict escalation chip. */
   landingConflictStranded?: boolean;
+  /** Live (#2858): when the current conflict pause turns stale (`landingConflictSince` +
+   *  EPIC_LANDING_STRANDED_MS); null outside a pause or while a live repair session works it. */
+  landingConflictStrandedAt?: number | null;
   /** Live, non-persisted landing-PR gate signals (present only when the landing PR could be fetched). */
   landingChecks?: ChecksState;
   landingMergeable?: boolean | null;
@@ -64,6 +67,9 @@ export interface CompletedEpic {
   landingNoCiHold?: boolean;
   /** True when an open+ready landing has sat unlanded past EPIC_LANDING_STRANDED_MS (Rec D escalation). */
   landingStranded?: boolean;
+  /** Live (#2858): when an open+ready landing turns stranded (`completedAt` +
+   *  EPIC_LANDING_STRANDED_MS); null while not ready. Clients compare it with their own clock. */
+  landingStrandedAt?: number | null;
   /** Live, non-persisted: the landing PR's CI is terminally failing (not behind/conflicting). */
   landingCiFailing?: boolean;
   /** Live, non-persisted: a genuinely-live landingRepair session currently holds this landing's
@@ -214,7 +220,7 @@ export function isLiveRepairSession(s: Session, now: number): boolean {
 /** The genuinely-live repair session holding `integrationBranch` for `repoPath`, or null. Single
  *  source of truth for the fence/surface predicate so the drain pass and GET /api/epics/completed
  *  can't drift. */
-export function findLiveRepairSession(
+function findLiveRepairSession(
   sessions: Session[],
   repoPath: string,
   integrationBranch: string,
@@ -377,7 +383,7 @@ function rowAutomation(
   pr: PrStatus,
   forgeKind: ForgeKind,
   branch: string,
-  deps: EnrichLandingDeps,
+  deps: Pick<EnrichLandingDeps, "automation">,
 ): LandingCiAutomation | undefined {
   if (!deps.automation) return undefined;
   return deriveLandingCiAutomation({
@@ -394,11 +400,136 @@ function rowAutomation(
   });
 }
 
+/** The live, non-persisted landing-gate fields enrichment adds to a row. */
+type LandingGate = Pick<
+  CompletedEpic,
+  | "landingChecks"
+  | "landingMergeable"
+  | "landingReady"
+  | "landingNoCiHold"
+  | "landingStranded"
+  | "landingStrandedAt"
+  | "landingCiFailing"
+  | "landingRepairing"
+  | "landingCiChecks"
+  | "landingCiAutomation"
+  | "landingConflictStranded"
+  | "landingConflictStrandedAt"
+>;
+
+/** Every {@link LandingGate} key — what {@link overlayPushedGate} copies. */
+const LANDING_GATE_KEYS = [
+  "landingChecks",
+  "landingMergeable",
+  "landingReady",
+  "landingNoCiHold",
+  "landingStranded",
+  "landingStrandedAt",
+  "landingCiFailing",
+  "landingRepairing",
+  "landingCiChecks",
+  "landingCiAutomation",
+  "landingConflictStranded",
+  "landingConflictStrandedAt",
+] as const satisfies readonly (keyof LandingGate)[];
+
+/** #2858: give an open row the gate the drain last pushed for it, so a GET seeds clients with the
+ *  very state later pushes build on (a fresher read here could disagree, and nothing would correct
+ *  it until the next change). Applies only to the same landing PR; the time-derived booleans are
+ *  re-evaluated at `now`. Returns whether it applied. */
+export function overlayPushedGate(
+  row: CompletedEpic,
+  pushed: CompletedEpic | null | undefined,
+  now: number,
+): boolean {
+  if (!pushed || row.landingState !== "open" || pushed.landingPrNumber !== row.landingPrNumber)
+    return false;
+  const target = row as unknown as Record<string, unknown>;
+  for (const k of LANDING_GATE_KEYS) target[k] = pushed[k];
+  row.landingStranded = row.landingStrandedAt != null && now > row.landingStrandedAt;
+  row.landingConflictStranded =
+    row.landingConflictStrandedAt != null && now > row.landingConflictStrandedAt;
+  return true;
+}
+
+/** When an open+ready landing turns stranded (#2858): clients compare it with their own clock. */
+function strandedAt(row: CompletedEpic, landingReady: boolean): number | null {
+  return landingReady ? row.completedAt + EPIC_LANDING_STRANDED_MS : null;
+}
+
+/** When a conflict pause turns stale (#2858) — null outside a pause or while a repair works it. */
+function conflictStrandedAt(row: CompletedEpic, live: boolean): number | null {
+  return row.landingRebasePauseReason === "conflict" && row.landingConflictSince != null && !live
+    ? row.landingConflictSince + EPIC_LANDING_STRANDED_MS
+    : null;
+}
+
+/** The live landing-gate fields of one OPEN-landing row, given its landing PR's state. Pure apart
+ *  from the injected lookups; shared by GET /api/epics/completed and the drain's landing-gate
+ *  observation (#2858) so the two can't drift. */
+function deriveLandingGate(
+  row: CompletedEpic & Partial<LandingAutomationRow>,
+  pr: PrStatus,
+  forgeKind: ForgeKind,
+  branch: string,
+  deps: Omit<EnrichLandingDeps, "getEpicIntegrationBranch" | "resolveForge" | "prStatus">,
+): LandingGate {
+  const noCi = repoHasNoCiCached(forgeKind, row.repoPath);
+  const landingReady = computeLandingReady(pr, noCi);
+  // A terminally-failing landing PR that is NOT behind/conflicting (those are owned by the
+  // rebase pass's landingRebasePauseReason). Surfaced as a distinct Tier-1 item (index.ts) —
+  // UNLESS a genuinely-live repair session is already holding the branch and fixing it, in
+  // which case the non-actionable landingRepairing surface takes over instead.
+  // #1841: a CONFLICTING landing PR held by a live repair session is a conflict rework in
+  // flight — same non-actionable landingRepairing surface (the card shows the chip, not the
+  // "Resolve conflicts" CTA). landingCiFailing stays false for it (conflict-owned).
+  const red = pr.checks === "failure" && pr.mergeStateStatus !== "behind" && pr.mergeable !== false;
+  const conflicting = pr.mergeable === false;
+  // One live-session probe serves both the repairing surface and the #1841 stale-conflict chip.
+  const conflictPaused = row.landingRebasePauseReason === "conflict";
+  const live =
+    (red || conflicting || conflictPaused) && deps.hasLiveRepairSession(row.repoPath, branch);
+  const repairing = (red || conflicting) && live;
+  const automation = rowAutomation(row, pr, forgeKind, branch, deps);
+  const gate: LandingGate = {
+    landingChecks: pr.checks,
+    landingMergeable: pr.mergeable ?? null,
+    landingReady,
+    landingStranded: computeLandingStranded({
+      landingState: "open",
+      landingReady,
+      completedAt: row.completedAt,
+      now: deps.now,
+    }),
+    landingStrandedAt: strandedAt(row, landingReady),
+    landingRepairing: repairing,
+    landingCiChecks: landingCiChecksOf(pr),
+    landingCiAutomation: automation,
+    // #2872: "your turn" only once no automatic stage is still pending or in flight.
+    landingCiFailing: red && !repairing && !(automation && automationStillActing(automation)),
+    landingConflictStranded: computeLandingConflictStranded({
+      pauseReason: row.landingRebasePauseReason,
+      conflictSince: row.landingConflictSince,
+      repairing: live,
+      now: deps.now,
+    }),
+    landingConflictStrandedAt: conflictStrandedAt(row, live),
+  };
+  if (deps.repoConfig)
+    gate.landingNoCiHold = computeLandingNoCiHold(
+      pr,
+      landingReady,
+      noCi,
+      deps.repoConfig(row.repoPath),
+    );
+  return gate;
+}
+
 /** Enrich each OPEN-landing completed epic in `rows` with live landing-PR gate signals
- *  (`landingChecks`/`landingMergeable`/`landingReady`/`landingStranded`/`landingCiFailing`/
- *  `landingRepairing`/`landingCiChecks`/`landingCiAutomation`), mutating in place.
+ *  ({@link LandingGate}), mutating in place.
  *  Best-effort + fail-safe per row: a missing branch/forge or a forge error simply leaves that
- *  row's live fields undefined — never throws. Used by GET /api/epics/completed. */
+ *  row's live fields undefined — never throws. Used by GET /api/epics/completed and the drain's
+ *  landing-gate observation. */
 export async function enrichLandingEpics(
   rows: Array<CompletedEpic & Partial<LandingAutomationRow>>,
   deps: EnrichLandingDeps,
@@ -414,57 +545,111 @@ export async function enrichLandingEpics(
         const pr = deps.prStatus
           ? await deps.prStatus(row.repoPath, branch)
           : await forge.prStatus(branch);
-        row.landingChecks = pr.checks;
-        row.landingMergeable = pr.mergeable ?? null;
-        const noCi = repoHasNoCiCached(forge.kind, row.repoPath);
-        const landingReady = computeLandingReady(pr, noCi);
-        row.landingReady = landingReady;
-        if (deps.repoConfig)
-          row.landingNoCiHold = computeLandingNoCiHold(
-            pr,
-            landingReady,
-            noCi,
-            deps.repoConfig(row.repoPath),
-          );
-        row.landingStranded = computeLandingStranded({
-          landingState: "open",
-          landingReady,
-          completedAt: row.completedAt,
-          now: deps.now,
-        });
-        // A terminally-failing landing PR that is NOT behind/conflicting (those are owned by the
-        // rebase pass's landingRebasePauseReason). Surfaced as a distinct Tier-1 item (index.ts) —
-        // UNLESS a genuinely-live repair session is already holding the branch and fixing it, in
-        // which case the non-actionable landingRepairing surface takes over instead.
-        // #1841: a CONFLICTING landing PR held by a live repair session is a conflict rework in
-        // flight — same non-actionable landingRepairing surface (the card shows the chip, not the
-        // "Resolve conflicts" CTA). landingCiFailing stays false for it (conflict-owned).
-        const red =
-          pr.checks === "failure" && pr.mergeStateStatus !== "behind" && pr.mergeable !== false;
-        const conflicting = pr.mergeable === false;
-        // One live-session probe serves both the repairing surface and the #1841 stale-conflict chip.
-        const conflictPaused = row.landingRebasePauseReason === "conflict";
-        const live =
-          (red || conflicting || conflictPaused) && deps.hasLiveRepairSession(row.repoPath, branch);
-        const repairing = (red || conflicting) && live;
-        row.landingRepairing = repairing;
-        row.landingCiChecks = landingCiChecksOf(pr);
-        const automation = rowAutomation(row, pr, forge.kind, branch, deps);
-        row.landingCiAutomation = automation;
-        // #2872: "your turn" only once no automatic stage is still pending or in flight.
-        row.landingCiFailing =
-          red && !repairing && !(automation && automationStillActing(automation));
-        row.landingConflictStranded = computeLandingConflictStranded({
-          pauseReason: row.landingRebasePauseReason,
-          conflictSince: row.landingConflictSince,
-          repairing: live,
-          now: deps.now,
-        });
+        Object.assign(row, deriveLandingGate(row, pr, forge.kind, branch, deps));
       } catch {
         // leave live fields undefined — callers always serve/return the base DB rows
       }
     }),
   );
+}
+
+/** The store reads {@link completedEpicRows} and {@link landingAutomationContext} need. */
+export type CompletedEpicStore = Pick<
+  SessionStore,
+  "listEpicCompleted" | "getEpicIntegrationBranch" | "getRepoConfig" | "getEpicRun" | "list" | "get"
+>;
+
+/** A band row as the API serves it, still carrying the internal automation counters enrichment
+ *  reads; {@link publicCompletedEpic} strips them before the row leaves the server. */
+export type CompletedEpicRow = CompletedEpic & LandingAutomationRow;
+
+/** The non-dismissed completed epics (optionally one repo's), mapped from DB rows to band rows:
+ *  internal counters dropped, children parsed, integration branch attached. */
+export function completedEpicRows(
+  store: Pick<CompletedEpicStore, "listEpicCompleted" | "getEpicIntegrationBranch">,
+  repoPath?: string,
+): CompletedEpicRow[] {
+  return store.listEpicCompleted(repoPath).map((row) => {
+    // landingAttempts, landingRebaseCount, landingRebaseDriverMisses are internal counters,
+    // not part of the CompletedEpic response. landingRebasePauseReason is API-facing and passes through.
+    const {
+      childrenJson,
+      landingAttempts,
+      landingRebaseCount,
+      landingRebaseDriverMisses,
+      landingConflictEscalatedAt,
+      ...rest
+    } = row;
+    void landingAttempts;
+    void landingRebaseCount;
+    void landingRebaseDriverMisses;
+    void landingConflictEscalatedAt;
+    return {
+      ...rest,
+      integrationBranch: store.getEpicIntegrationBranch(row.repoPath, row.parentIssueNumber),
+      children: JSON.parse(childrenJson) as CompletedEpic["children"],
+    };
+  });
+}
+
+/** #2872: the raw automation counters are folded into landingCiAutomation — not part of the API. */
+export function publicCompletedEpic(row: CompletedEpicRow): CompletedEpic {
+  const {
+    landingRerunHead,
+    landingRerunCount,
+    landingRerunUnavailable,
+    landingRepairSessionId,
+    ...rest
+  } = row;
+  void landingRerunHead;
+  void landingRerunCount;
+  void landingRerunUnavailable;
+  void landingRepairSessionId;
+  return rest;
+}
+
+/** #2872: the drain's landing-automation gate inputs for one repo + the session lookups the repair
+ *  stage needs — fed to enrichLandingEpics so the card's stages mirror what the drain will do. */
+function landingAutomationContext(
+  store: Pick<CompletedEpicStore, "getRepoConfig" | "getEpicRun" | "list" | "get">,
+  repoPath: string,
+  integrationBranch: string,
+  now: number,
+): LandingAutomationContext {
+  const cfg = store.getRepoConfig(repoPath);
+  return {
+    draftMode: cfg.draftMode,
+    autoMergeEnabled: cfg.autoMergeEnabled,
+    autoDrainEnabled: cfg.autoDrainEnabled,
+    epicRunning: store.getEpicRun(repoPath)?.status === "running",
+    liveRepair: findLiveRepairSession(store.list(), repoPath, integrationBranch, now),
+    sessionVisible: (id) => {
+      const s = store.get(id);
+      return s !== null && s.status !== "archived";
+    },
+  };
+}
+
+/** The enrichment deps for `store`, reading each landing PR through `prStatus` — the GET's
+ *  snapshot-first cache, or the drain's no-fetch view of reads it already made. */
+export function storeEnrichDeps(
+  store: CompletedEpicStore,
+  resolveForge: EnrichLandingDeps["resolveForge"],
+  prStatus: NonNullable<EnrichLandingDeps["prStatus"]>,
+  now: number,
+): EnrichLandingDeps {
+  return {
+    getEpicIntegrationBranch: (repoPath, parent) =>
+      store.getEpicIntegrationBranch(repoPath, parent),
+    resolveForge,
+    hasLiveRepairSession: (repoPath, integrationBranch) =>
+      anyLiveRepairSession(store.list(), repoPath, integrationBranch, now),
+    prStatus,
+    automation: (repoPath, integrationBranch) =>
+      landingAutomationContext(store, repoPath, integrationBranch, now),
+    repoConfig: (repoPath) => store.getRepoConfig(repoPath),
+    now,
+  };
 }
 
 export function buildRollup(

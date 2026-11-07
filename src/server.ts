@@ -487,13 +487,13 @@ import type { OperatorDiagDeps } from "./operator-assistant-tools";
 import type { OperatorActionDeps } from "./operator-assistant-actions";
 import { parseAssistantPermissionsPatch } from "./operator-assistant-permissions";
 import {
-  anyLiveRepairSession,
+  completedEpicRows,
   computeLandingReady,
   enrichLandingEpics,
-  findLiveRepairSession,
+  overlayPushedGate,
+  publicCompletedEpic,
+  storeEnrichDeps,
   type CompletedEpic,
-  type LandingAutomationContext,
-  type LandingAutomationRow,
 } from "./completed-epic";
 import {
   completedEpicScopeRepos,
@@ -505,6 +505,7 @@ import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./ba
 import { invalidateIssuePeek, peekIssue } from "./issue-peek";
 import { createIssueWithLabels, issueForgeGap } from "./issue-create";
 import { SNAPSHOT_TTL_MS, type OpenPrSnapshotService } from "./open-pr-snapshot";
+import { landingPrCache } from "./landing-pr-cache";
 import { dirname, join, normalize, basename, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
@@ -1063,6 +1064,8 @@ export interface AppDeps {
   /** Self-draining work queue snapshot; absent in tests that don't exercise it. */
   drain?: {
     snapshot(): Promise<DrainStatus[]>;
+    /** #2858: the landing row last pushed as epic:landing-gate, or null. */
+    pushedLandingGate?(repoPath: string, parentIssueNumber: number): CompletedEpic | null;
     resolveClaim?(
       repoPath: string,
       number: number,
@@ -13432,49 +13435,14 @@ async function cachedLinkedPrs(repo: string, forge: GitForge): Promise<Map<numbe
 }
 
 // GET /api/epics/completed re-reads each open landing PR's state for the "Land epic" CTA, and
-// every visible tab polls that route every 60 s — so the read must not scale with tabs (#2756).
-// Prefer the open-PR snapshot the pr-poller keeps warm; otherwise share one prStatus per
-// repo+branch per minute (the cached promise is the single-flight; a failure is evicted).
-const LANDING_PR_TTL_MS = 60_000;
-const landingPrCache = new Map<string, { at: number; value: Promise<PrStatus> }>();
-
+// every client reads it on load, wake and reconnect — so the read must not scale with tabs (#2756).
+// Prefer the open-PR snapshot the pr-poller keeps warm; otherwise the shared per-minute read.
 function landingPrStatus(deps: AppDeps, repoPath: string, branch: string): Promise<PrStatus> {
   const forge = deps.resolveForge?.(repoPath);
   if (!forge) return Promise.reject(new Error(`no forge for ${repoPath}`));
   const snap = deps.openPrSnapshot?.peek?.(forge, SNAPSHOT_TTL_MS)?.statuses.get(branch);
   if (snap) return Promise.resolve(snap);
-  const key = `${repoPath}\0${branch}`;
-  const now = Date.now();
-  const hit = landingPrCache.get(key);
-  if (hit && now - hit.at < LANDING_PR_TTL_MS) return hit.value;
-  const value = forge.prStatus(branch);
-  landingPrCache.set(key, { at: now, value });
-  value.catch(() => {
-    if (landingPrCache.get(key)?.value === value) landingPrCache.delete(key);
-  });
-  return value;
-}
-
-/** #2872: the drain's landing-automation gate inputs for one repo + the session lookups the repair
- *  stage needs — fed to enrichLandingEpics so the card's stages mirror what the drain will do. */
-function landingAutomationContext(
-  deps: AppDeps,
-  repoPath: string,
-  integrationBranch: string,
-  now: number,
-): LandingAutomationContext {
-  const cfg = deps.store.getRepoConfig(repoPath);
-  return {
-    draftMode: cfg.draftMode,
-    autoMergeEnabled: cfg.autoMergeEnabled,
-    autoDrainEnabled: cfg.autoDrainEnabled,
-    epicRunning: deps.store.getEpicRun(repoPath)?.status === "running",
-    liveRepair: findLiveRepairSession(deps.store.list(), repoPath, integrationBranch, now),
-    sessionVisible: (id) => {
-      const s = deps.store.get(id);
-      return s !== null && s.status !== "archived";
-    },
-  };
+  return landingPrCache.read(forge, repoPath, branch);
 }
 
 // GET /api/epics/completed[?repo=] — durable completed-epics band. Primarily pure-DB; for a repo
@@ -13510,65 +13478,32 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
   }
 
   // Re-query post-reconcile so the response reflects dismiss + backfill.
-  const dbRows = deps.store.listEpicCompleted(repoFilter);
-  const baseRows: Array<
-    CompletedEpic &
-      LandingAutomationRow & { repoPath: string; parentIssueNumber: number; completedAt: number }
-  > = dbRows.map((row) => {
-    // landingAttempts, landingRebaseCount, landingRebaseDriverMisses are internal counters,
-    // not part of the CompletedEpic response. landingRebasePauseReason is API-facing and passes through.
-    const {
-      childrenJson,
-      landingAttempts,
-      landingRebaseCount,
-      landingRebaseDriverMisses,
-      landingConflictEscalatedAt,
-      ...rest
-    } = row;
-    void landingAttempts;
-    void landingRebaseCount;
-    void landingRebaseDriverMisses;
-    void landingConflictEscalatedAt;
-    return {
-      ...rest,
-      integrationBranch: deps.store.getEpicIntegrationBranch(row.repoPath, row.parentIssueNumber),
-      children: JSON.parse(childrenJson) as CompletedEpic["children"],
-    };
-  });
+  const baseRows = completedEpicRows(deps.store, repoFilter);
 
-  // Enrich open-landing rows with live gate signals (best-effort, fail-safe — forge/network
-  // errors must NOT 500 this route; just omit the live fields for that row).
+  // #2858: an open row the drain already pushed as epic:landing-gate is served with exactly that
+  // gate — clients then hold what later pushes build on. Only the rest are enriched here
+  // (best-effort, fail-safe — forge/network errors must NOT 500 this route; just omit the live
+  // fields for that row).
   const nowMs = Date.now();
-  await enrichLandingEpics(baseRows, {
-    getEpicIntegrationBranch: (repoPath, parent) =>
-      deps.store.getEpicIntegrationBranch(repoPath, parent),
-    resolveForge: (repoPath) => deps.resolveForge?.(repoPath),
-    hasLiveRepairSession: (repoPath, integrationBranch) =>
-      anyLiveRepairSession(deps.store.list(), repoPath, integrationBranch, nowMs),
-    prStatus: (repoPath, branch) => landingPrStatus(deps, repoPath, branch),
-    automation: (repoPath, integrationBranch) =>
-      landingAutomationContext(deps, repoPath, integrationBranch, nowMs),
-    repoConfig: (repoPath) => deps.store.getRepoConfig(repoPath),
-    now: nowMs,
-  });
-
-  // #2872: the raw automation counters are folded into landingCiAutomation — not part of the response.
-  return json(
-    baseRows.map((row) => {
-      const {
-        landingRerunHead,
-        landingRerunCount,
-        landingRerunUnavailable,
-        landingRepairSessionId,
-        ...rest
-      } = row;
-      void landingRerunHead;
-      void landingRerunCount;
-      void landingRerunUnavailable;
-      void landingRepairSessionId;
-      return rest;
-    }),
+  const unpushed = baseRows.filter(
+    (r) =>
+      !overlayPushedGate(
+        r,
+        deps.drain?.pushedLandingGate?.(r.repoPath, r.parentIssueNumber),
+        nowMs,
+      ),
   );
+  await enrichLandingEpics(
+    unpushed,
+    storeEnrichDeps(
+      deps.store,
+      (repoPath) => deps.resolveForge?.(repoPath),
+      (repoPath, branch) => landingPrStatus(deps, repoPath, branch),
+      nowMs,
+    ),
+  );
+
+  return json(baseRows.map(publicCompletedEpic));
 }
 
 /** POST /api/epics/completed/<action> with body { repo, parent }: the validated repo dir + parent,

@@ -1723,7 +1723,8 @@ export interface CompletedEpicChild {
 }
 
 /** A durable record of a fully-integrated epic; surfaced in the completed-epics band.
- *  GET /api/epics/completed payload item; pushed live via the `epic:completed` WS event. */
+ *  GET /api/epics/completed payload item; pushed live via the `epic:completed` WS event, and its
+ *  live landing-gate fields via `epic:landing-gate` (#2858). */
 export interface CompletedEpic {
   repoPath: string;
   parentIssueNumber: number;
@@ -1745,21 +1746,25 @@ export interface CompletedEpic {
   // ask for acknowledgement before it can be cleared — never gates the completion flip.
   migrationPaths: string[];
   migrationsAckedAt: number | null;
-  // Live, display-only landing-PR gate signals from GET /api/epics/completed (server #1039);
-  // present only for open-landing rows the server could fetch. Drive the "Land epic" CTA + escalation.
+  // Live, display-only landing-PR gate signals from GET /api/epics/completed and the
+  // `epic:landing-gate` frame (server #1039, #2858); present only for open-landing rows the server
+  // could read. Drive the "Land epic" CTA + escalation.
   landingChecks?: ChecksState;
   landingMergeable?: boolean | null;
   landingReady?: boolean;
-  landingStranded?: boolean;
+  /** #2858: when the open+ready landing turns stranded (epoch ms); null while not ready. The
+   *  "waiting since" chip shows once the client clock passes it — no frame needed. */
+  landingStrandedAt?: number | null;
   /** #3104: ready, auto-merge on, but auto-land holds — the repo has no CI and no mergeWithoutCi opt-in. */
   landingNoCiHold?: boolean;
   // When the auto-rebase pass is paused and operator action is needed (#1071); null when not paused.
   landingRebasePauseReason?: "cap" | "conflict" | "driver" | null;
   /** When the current conflict pause began (#1841); null/absent outside a conflict pause. */
   landingConflictSince?: number | null;
-  /** Live: the conflict pause has stood unresolved past the stranded threshold with no live
-   *  rework session (#1841) — drives the "conflict unresolved" chip. */
-  landingConflictStranded?: boolean;
+  /** Live (#1841, #2858): when the conflict pause turns stranded (epoch ms); null outside a
+   *  conflict pause or while a rework session works it. The "conflict unresolved" chip shows once
+   *  the client clock passes it. */
+  landingConflictStrandedAt?: number | null;
   /** Non-actionable: a capped auto-repair agent session is live and driving this landing PR's CI
    *  back to green — suppresses the operator's CI-failing surface while genuinely live (mirrors
    *  server CompletedEpic.landingRepairing). A stuck/finished session falls back to the plain
@@ -3568,6 +3573,7 @@ export type WsEvent =
   | { event: "draftreconcile:status"; data: DraftReconcileStatus }
   | { event: "epic:update"; data: Epic }
   | { event: "epic:completed"; data: CompletedEpic }
+  | { event: "epic:landing-gate"; data: CompletedEpic }
   | { event: "epic:completed-cleared"; data: { repoPath: string; parentIssueNumber: number } }
   | { event: "session:egress-drop"; data: { id: string; host: string } }
   | { event: "session:uploads-dropped"; data: { id: string; count: number } }

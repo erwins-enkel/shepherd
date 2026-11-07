@@ -64,7 +64,7 @@
     landingChecks: "success",
     landingMergeable: true,
     landingReady: true,
-    landingStranded: true,
+    landingStrandedAt: Date.now() - 60 * 60_000, // completed 7 h ago + 6 h threshold
     migrationPaths: [],
     migrationsAckedAt: null,
     landingConflictReworkCount: 0,
@@ -991,7 +991,7 @@ const overview: TooltipExplanation = {
           parentTitle: "Landing checks failed",
           landingChecks: "failure",
           landingReady: false,
-          landingStranded: false,
+          landingStrandedAt: null,
         }}
         onland={async () => {}}
         ondismiss={() => {}}

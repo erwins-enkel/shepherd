@@ -670,7 +670,7 @@ function buildCompletedEpics(): CompletedEpic[] {
       landingChecks: "success",
       landingMergeable: true,
       landingReady: true,
-      landingStranded: true,
+      landingStrandedAt: NOW - 2 * DAY + 6 * HOUR,
       migrationPaths: [],
       migrationsAckedAt: null,
       landingConflictReworkCount: 0,

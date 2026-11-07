@@ -1167,9 +1167,8 @@
       .then((p) => (backlog = p))
       .catch(() => {});
     refreshBuildQueues();
-    // Re-seed completed epics: the epic:completed WS payload carries the bare row WITHOUT the
-    // GET-only live landing-gate fields (landingReady/landingChecks/landingMergeable/landingStranded),
-    // so only a fetch repopulates them — without this, the "Land epic" CTA reads disabled on wake.
+    // Re-seed completed epics: epic:completed / epic:landing-gate frames missed while the tab was
+    // frozen are gone, and the server only re-pushes a landing gate when it next changes (#2858).
     getCompletedEpics()
       .then((l) => store.seedCompletedEpics(l))
       .catch(() => {});
@@ -2735,30 +2734,6 @@
     return () => clearInterval(t);
   });
 
-  // Keep the "Land epic" CTA + stranded badge live. The landing-gate fields are computed only in the
-  // GET /api/epics/completed enrichment; the epic:completed WS payload omits them, and the two signals
-  // that flip them — the landing PR's CI going green and the time-based `stranded` crossing — fire no
-  // WS event. So while an open-landing epic exists, re-seed from the GET on a slow timer (and once
-  // immediately on the none→open flip, so a freshly-opened landing isn't disabled for a full interval).
-  // Gated on a $derived boolean (same reasoning as hasSessions above): it only flips on none↔open, so
-  // the interval is created once — completedEpics reassignment from WS events won't recreate it.
-  const hasOpenLandingEpic = $derived(store.completedEpics.some((e) => e.landingState === "open"));
-  $effect(() => {
-    if (!hasOpenLandingEpic) return;
-    const refresh = () =>
-      getCompletedEpics()
-        .then((l) => store.seedCompletedEpics(l))
-        .catch(() => {});
-    refresh();
-    // Visible tabs only, every 60s: each GET lists issues for every repo with epic history,
-    // so a backgrounded tab polling at 30s was a steady GitHub API drain (#2656). No wake
-    // refresh here — resync() already re-fetches completed epics on a hidden→visible flip.
-    const t = setInterval(() => {
-      if (!document.hidden) refresh();
-    }, 60_000);
-    return () => clearInterval(t);
-  });
-
   // Clear ALL compose + relaunch seed state. Called on every dialog dismissal and
   // after a successful submit so no seed (repo / issue / prompt / model / base branch /
   // relaunch origin + issue) leaks into the next New Task open.
@@ -3658,8 +3633,9 @@
   }
 
   // #1841: dispatch a conflict-rework agent for a conflicting epic landing PR. Success needs no
-  // toast — an immediate re-seed flips landingRepairing (GET-only enrichment) and the card shows
-  // the auto-repairing chip. Failure copy is keyed off the server's stable `reason`.
+  // toast — the server pushes the new landingRepairing gate (epic:landing-gate) before answering,
+  // and the re-seed backs it up; the card shows the auto-repairing chip. Failure copy is keyed off
+  // the server's stable `reason`.
   async function onResolveEpicConflicts(repoPath: string, parent: number) {
     try {
       await resolveLandingConflicts(repoPath, parent);
@@ -3678,8 +3654,9 @@
     }
   }
 
-  // #2872: dispatch a CI-repair agent for a red epic landing PR. Either way re-seed — the live
-  // landingRepairing / stage fields are GET-only. Failure is shown inline on the card (false).
+  // #2872: dispatch a CI-repair agent for a red epic landing PR. Either way re-seed — the server
+  // also pushes the new landingRepairing / stage fields as epic:landing-gate on success; the GET
+  // covers a missed frame. Failure is shown inline on the card (false).
   async function onRepairEpicCi(repoPath: string, parent: number): Promise<boolean> {
     const reseed = () =>
       getCompletedEpics()

@@ -100,7 +100,7 @@ describe("IntegratedEpicRow", () => {
       props(
         epic({
           landingMergeable: false,
-          landingConflictStranded: true,
+          landingConflictStrandedAt: 500_000,
           landingConflictSince: 1000,
         }),
       ),
@@ -195,11 +195,29 @@ describe("IntegratedEpicRow", () => {
     await render(
       IntegratedEpicRow,
       props(
-        epic({ landingStranded: true, landingConflictStranded: true, landingConflictSince: 1000 }),
+        epic({
+          landingStrandedAt: 500_000,
+          landingConflictStrandedAt: 500_000,
+          landingConflictSince: 1000,
+        }),
       ),
     );
     await expect.element(page.getByText("Waiting for 9m")).toBeInTheDocument();
     await expect.element(page.getByText("conflict unresolved for 9m")).toBeInTheDocument();
+  });
+  it("#2858: the waiting chips appear once the clock passes their time, with no new row", async () => {
+    const e = epic({
+      landingStrandedAt: 700_000,
+      landingConflictStrandedAt: 700_000,
+      landingConflictSince: 1000,
+    });
+    const { rerender } = await render(IntegratedEpicRow, props(e));
+    await expect.element(page.getByText("READY TO LAND", { exact: true })).toBeInTheDocument();
+    expect(page.getByText(/^Waiting for/).query()).toBeNull();
+    expect(page.getByText(/^conflict unresolved for/).query()).toBeNull();
+    await rerender({ ...props(e), nowMs: 700_001 });
+    await expect.element(page.getByText("Waiting for 11m")).toBeInTheDocument();
+    await expect.element(page.getByText("conflict unresolved for 11m")).toBeInTheDocument();
   });
   it.each(["en", "de"] as const)(
     "keeps the title on its own line at 340px in %s",

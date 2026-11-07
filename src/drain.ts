@@ -82,10 +82,14 @@ import { detectMigrationPaths } from "./epic-migrations";
 import {
   anyLiveRepairSession,
   buildRollup,
+  completedEpicRows,
   computeLandingReady,
+  enrichLandingEpics,
   EPIC_LANDING_STRANDED_MS,
   LANDING_REPAIR_CAP,
   LANDING_RERUN_CAP,
+  publicCompletedEpic,
+  storeEnrichDeps,
   type CompletedEpic,
   type CompletedEpicChild,
   type EpicLandingState,
@@ -106,6 +110,7 @@ import { readEpicStructureByParts } from "./forge/epic-structure";
 import { config } from "./config";
 import { rebaseLandingBranch, isUnionDriverReady, branchBehindDefault } from "./landing-rebase";
 import { LandingPrReads } from "./landing-pr-reads";
+import { LandingGateWatch } from "./landing-gate-watch";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import type { NotifyInput } from "./push";
 import type { StartEntry } from "./start-queue-core";
@@ -461,6 +466,16 @@ export interface DrainDeps {
   bootstrapMustHaves?: (repoPath: string) => string[];
   /** → events.emit("epic:completed", e). Optional — absent in tests that don't need it. */
   emitEpicCompleted?: (epic: CompletedEpic) => void;
+  /** #2858: → events.emit("epic:landing-gate", e) — an open landing row whose gate moved, enriched.
+   *  Absent ⇒ the drain skips the landing-gate observation entirely. */
+  emitLandingGate?: (epic: CompletedEpic) => void;
+  /** #2858: a read of a landing PR neither this tick's passes nor a current snapshot cover — the
+   *  shared, TTL-bounded GET read — or null to skip it (e.g. no client connected to notify). */
+  landingPrFallback?: (
+    repoPath: string,
+    forge: GitForge,
+    branch: string,
+  ) => Promise<PrStatus> | null;
   /** → events.emit("epic:completed-cleared", key). Optional — absent in tests that don't need it. */
   emitEpicCompletedCleared?: (key: { repoPath: string; parentIssueNumber: number }) => void;
   /** → events.emit("session:new", s). Optional — absent in tests that don't need it. */
@@ -716,6 +731,8 @@ export class DrainService {
   private isDriverRegistered: (repoPath: string) => Promise<boolean>;
   /** #2873: the landing passes' shared landing-PR read (one per tick; settled PRs left alone). */
   private readonly landingPrs: LandingPrReads;
+  /** #2858: which open landing rows' gates changed since the last push. */
+  private readonly landingGates = new LandingGateWatch((row) => this.deps.emitLandingGate?.(row));
 
   constructor(private deps: DrainDeps) {
     this.now = deps.now ?? Date.now;
@@ -4303,8 +4320,9 @@ export class DrainService {
     const key = `${repoPath}#${parent}`;
     if (this.landingInFlight.has(key)) return { ok: false, error: "busy" };
     this.landingInFlight.add(key);
+    let result: R;
     try {
-      return await run(row, branch, forge);
+      result = await run(row, branch, forge);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       console.warn(`[drain] ${what} failed for ${key}: ${reason}`);
@@ -4312,6 +4330,9 @@ export class DrainService {
     } finally {
       this.landingInFlight.delete(key);
     }
+    // #2858: push the new repairing gate now — the client's re-seed GET serves the pushed gate.
+    if (result.ok) await this.observeLandingGatesSafely(repoPath);
+    return result;
   }
 
   private async resolveLandingConflictLocked(
@@ -6042,6 +6063,9 @@ export class DrainService {
       // #1044: opt-in auto-land of open landing PRs (gated internally on the repo's auto-merge
       // opt-in → zero forge calls when off). UNGATED by drain, like ensureLandingPrsForRepo.
       await this.autoLandLandingPrsForRepo(repoPath);
+      // #2858: push landing-gate changes from the reads above (else a current snapshot, else the
+      // shared TTL read) — LAST, so it sees every pass's read.
+      await this.observeLandingGatesSafely(repoPath);
       const cfg = this.deps.store.getRepoConfig(repoPath);
       const er = this.deps.store.getEpicRun(repoPath);
       if (cfg.autoDrainEnabled || er?.status === "running") await this.pump(repoPath);
@@ -6052,6 +6076,65 @@ export class DrainService {
           await this.refreshRunPicture(repoPath);
       }
     }
+  }
+
+  /** {@link observeLandingGatesForRepo}, never throwing. */
+  private async observeLandingGatesSafely(repoPath: string): Promise<void> {
+    try {
+      await this.observeLandingGatesForRepo(repoPath);
+    } catch (err) {
+      console.warn(`[drain] landing-gate observation failed for ${repoPath}:`, err);
+    }
+  }
+
+  /** #2858: push each open landing row of `repoPath` whose gate moved since the last push, so
+   *  clients need not poll GET /api/epics/completed. Reads via {@link observedLandingPr}; a row
+   *  with nothing to read keeps its last pushed state. */
+  private async observeLandingGatesForRepo(repoPath: string): Promise<void> {
+    if (!this.deps.emitLandingGate) return;
+    const open = completedEpicRows(this.deps.store, repoPath).filter(
+      (r) => r.landingState === "open",
+    );
+    const parents = new Set(open.map((r) => r.parentIssueNumber));
+    const forge = this.deps.resolveForge(repoPath);
+    if (forge && open.length > 0)
+      await enrichLandingEpics(
+        open,
+        storeEnrichDeps(
+          this.deps.store,
+          () => forge,
+          (repo, branch) => this.observedLandingPr(repo, forge, branch),
+          this.now(),
+        ),
+      );
+    // A row whose read was missing or failed carries no gate fields: nothing to compare.
+    const observed = open.filter((r) => r.landingChecks !== undefined).map(publicCompletedEpic);
+    this.landingGates.observe(repoPath, parents, observed);
+  }
+
+  /** The landing PR's state as this tick already knows it: the passes' shared read, else the
+   *  current open-PR snapshot's row — no forge call. Only a landing neither covers falls back to
+   *  the shared TTL read ({@link DrainDeps.landingPrFallback}). Rejects when nothing is available,
+   *  or when the PR was opened this tick (every source may predate the open). */
+  private observedLandingPr(repoPath: string, forge: GitForge, branch: string): Promise<PrStatus> {
+    if (this.landingPrs.openedThisTick(repoPath, branch))
+      return Promise.reject(new Error("landing PR opened this tick"));
+    const read = this.landingPrs.tickRead(repoPath, branch);
+    if (read) return read;
+    const snap = forge.isFork
+      ? undefined
+      : this.deps.openPrSnapshot?.peekCurrent(forge)?.value.statuses.get(branch);
+    if (snap) return Promise.resolve(snap);
+    return (
+      this.deps.landingPrFallback?.(repoPath, forge, branch) ??
+      Promise.reject(new Error("no landing PR read this tick"))
+    );
+  }
+
+  /** #2858: the landing row last pushed as `epic:landing-gate` (what connected clients hold), or
+   *  null. GET /api/epics/completed seeds from it so the two never disagree. */
+  pushedLandingGate(repoPath: string, parentIssueNumber: number): CompletedEpic | null {
+    return this.landingGates.pushed(repoPath, parentIssueNumber) ?? null;
   }
 
   /** Client bootstrap: a status per drain-enabled, epic-active or winding-down repo, WITHOUT

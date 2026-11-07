@@ -72,6 +72,11 @@ export class LandingPrReads {
     return read;
   }
 
+  /** This tick's read of `branch` if a pass already started it, else undefined. Never reads. */
+  tickRead(repoPath: string, branch: string): Promise<PrStatus> | undefined {
+    return this.tickReads.get(`${repoPath}\0${branch}`);
+  }
+
   /** The drain wrote to `branch` or its PR: from the next tick on, read it per head. This tick's
    *  passes keep the pre-write result, which is never more landable than the truth. */
   invalidate(repoPath: string, branch: string): void {

@@ -403,6 +403,10 @@ describe("completed epics", () => {
       ]);
       expect(row.landingCiAutomation.reruns.status).toBeString();
       expect(row.landingCiAutomation.repair.status).toBeString();
+      // #2858: red ⇒ never stranded; the drain pushes this very row shape as epic:landing-gate.
+      expect(row.landingStrandedAt).toBeNull();
+      expect(row.landingConflictStrandedAt).toBeNull();
+      validateEvent("epic:landing-gate", row);
     } finally {
       s.stubs.resolveForge.forge = null;
     }

@@ -1508,6 +1508,56 @@ describe("GET /api/epics/completed", () => {
     expect(row.landingRebasePauseReason).toBe(null); // not paused
   });
 
+  test("#2858: an open row the drain pushed is served with that gate, not a fresh read", async () => {
+    let reads = 0;
+    const pushedFor = (repoPath: string, parent: number) =>
+      parent === 44
+        ? ({
+            repoPath,
+            parentIssueNumber: 44,
+            landingPrNumber: 44,
+            landingState: "open",
+            landingChecks: "success",
+            landingMergeable: true,
+            landingReady: true,
+            landingStrandedAt: 1,
+            landingStranded: false, // stale at push time — re-evaluated against now
+          } as never)
+        : null;
+    const { app, store } = completedHarness({
+      resolveForge: () =>
+        ({
+          kind: "github",
+          prStatus: async () => {
+            reads++;
+            return { state: "open", checks: "pending", mergeable: true };
+          },
+        }) as never,
+      drainOverrides: { pushedLandingGate: pushedFor },
+    });
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: 44,
+      parentTitle: "Pushed Epic",
+      completedAt: 5000,
+      childrenJson: "[]",
+    });
+    store.setEpicLandingPr(repoDir, 44, {
+      state: "open",
+      prNumber: 44,
+      prUrl: "https://example/pr/44",
+      attempts: 0,
+    });
+    store.getOrInitEpicIntegrationBranch(repoDir, 44, "epic/44-pushed");
+    const res = await app.fetch(new Request(`http://x/api/epics/completed`));
+    const [row] = await res.json();
+    expect(reads).toBe(0);
+    expect(row.landingChecks).toBe("success");
+    expect(row.landingReady).toBe(true);
+    expect(row.landingStranded).toBe(true);
+    expect(row.parentTitle).toBe("Pushed Epic"); // persisted fields still from the DB
+  });
+
   test("landingRebasePauseReason passes through with its value when set", async () => {
     const { app, store } = completedHarness({ resolveForge: () => null });
     store.recordEpicCompleted({

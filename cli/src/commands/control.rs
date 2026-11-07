@@ -96,11 +96,16 @@ pub fn print_create_result(ctx: &mut Ctx<'_>, created: CreateSessionSuccess) -> 
                 );
             }
             if h.reason.as_ref().is_some_and(|r| r.0 == "after") {
+                // A predecessor on a connected machine takes the task there (#3633).
+                let there = h
+                    .host
+                    .as_ref()
+                    .map_or(String::new(), |m| format!(" on {}", m.name));
                 return output::line(
                     &mut ctx.io.stdout,
                     &format!(
-                        "held: waiting for its predecessor's PR to land, queued as {} ({} held). \
-                         It spawns once that PR merges.",
+                        "held{there}: waiting for its predecessor's PR to land, queued as {} \
+                         ({} held). It spawns once that PR merges.",
                         h.id, h.count
                     ),
                 );
@@ -202,11 +207,11 @@ pub async fn new(ctx: &mut Ctx<'_>, args: NewArgs) -> Result<()> {
         .map(|a| a.parse())
         .transpose()
         .map_err(|_| CliError::new(Exit::Usage, "--after takes a task id or designation"))?;
-    // The server refuses it too (after_remote): a predecessor lives in this machine's namespace.
+    // The server refuses it too (after_remote): the server picks the predecessor's machine.
     if after.is_some() && args.on.is_some() {
         return Err(CliError::new(
             Exit::Usage,
-            "--after tasks run on this machine, where their predecessor lives; drop --on",
+            "--after tasks run on their predecessor's machine; drop --on",
         ));
     }
     for unknown in args

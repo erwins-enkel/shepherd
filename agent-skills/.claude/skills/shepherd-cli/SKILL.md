@@ -36,7 +36,7 @@ EOF
   - `--model <model>`, `--effort <level>`, `--provider <claude|codex>`: override server defaults.
   - `--force`: spawn now even if the usage hold would queue it. Only when the operator asks.
   - `--on <machine>`: run it on that machine, by name or instance id (e.g. `--on macbook`). Not
-    with `--after`: a dependent task always runs on this machine.
+    with `--after`: a dependent task always runs on its predecessor's machine.
   - `--require <capability>`: only a machine with all of these may run it; repeat it or separate
     with commas. Values: `xcode`, `sdk:ios`, `sdk:macos`, `ios-simulator`, `android-sdk`,
     `platform:linux`, `platform:macos`, `agent:claude`, `agent:codex`,

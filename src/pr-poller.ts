@@ -30,6 +30,30 @@ const MERGE_QUEUE_TTL_MS = 30_000;
  *  (read lag). Mirrors automerge's ENQUEUE_GRACE_MS. */
 const ENQUEUE_GRACE_MS = 60_000;
 
+/** How long the fast sweep keeps a PR with running CI (or a queued PR) on its cadence, measured
+ *  from the push / new head — long native CI runs 20–40 min (#2867). */
+export const CI_FAST_MAX_MS = 3_600_000;
+
+/**
+ * Fast-sweep cadence for a transient PR whose window opened `ageMs` ago (#2867): 15 s for the
+ * first 2 min after a push or new head, 30 s until 5 min, then 60 s. `null` = parked — past
+ * {@link CI_FAST_MAX_MS} while CI runs, past `transientMaxMs` for any other transient state.
+ */
+export function fastCadenceMs(
+  ageMs: number,
+  ciRunning: boolean,
+  transientMaxMs: number,
+): number | null {
+  if (ageMs >= (ciRunning ? CI_FAST_MAX_MS : transientMaxMs)) return null;
+  if (ageMs < 120_000) return 15_000;
+  return ageMs < 300_000 ? 30_000 : 60_000;
+}
+
+/** CI is still running, or the PR waits in a merge queue — it moves without a human. */
+function ciRunning(git: GitState): boolean {
+  return git.checks === "pending" || (git.runningChecks?.length ?? 0) > 0 || !!git.inMergeQueue;
+}
+
 interface ReadProvenance {
   contentKey: string | null;
   revision: number | undefined;
@@ -246,9 +270,11 @@ export function gitStateChanged(prev: GitState | undefined, git: GitState): bool
  * `checks: "pending"` is short-lived and the 120s sweep routinely sampled `none`
  * then `success` two sweeps later, never recording the running state, so the
  * list jumped straight to green and never showed the pulsing "CI running" dot.
- * The fast sweep reads its eligible (transient, in-window) open PRs by head in one
- * aliased `prStatusMany` query (~1 point per 20 heads), never the repo's open-PR
- * snapshot (#2799). No per-PR cap or round-robin — every eligible PR is covered each tick.
+ * Each transient PR backs off on the fast cadence (15 s for 2 min after a push or new
+ * head, then 30 s, then 60 s while CI runs, up to {@link CI_FAST_MAX_MS}; #2867), and while
+ * the fast sweep covers a PR the full sweep leaves it alone. A due head pulls its repo's other
+ * fast-covered heads into the same aliased `prStatusMany` query (~1 point per 20 heads), never
+ * the repo's open-PR snapshot (#2799).
  *
  * The full sweep reuses the shared snapshot while the repo's PR fingerprint (count, newest
  * PR, default-branch head) holds, refetching it only when that moves or when the cached
@@ -354,9 +380,9 @@ export class PrPoller implements PrCache {
     /** Coarse full-sweep cadence while cold (no warmth) — the fast sweep is paused
      *  outright, so this is the only PR refresh path when nobody's watching. */
     private idleIntervalMs = 300_000,
-    /** How long a PR can remain transient (checks pending / mergeable unknown / merge
-     *  state unknown) before `fastTick` parks it and stops fast-polling it. A new
-     *  headSha resets the clock. Default: 5 minutes. */
+    /** How long a PR can remain transient without running CI (mergeable unknown / merge
+     *  state unknown) before `fastTick` parks it; running CI or a queued PR stays on up to
+     *  {@link CI_FAST_MAX_MS}. A new headSha resets the clock. Default: 5 minutes. */
     private transientMaxMs = 300_000,
     /** Batch the full sweep for a non-fork repo only while its open-PR count
      *  `P ≤ batchOpenRatio × (sessions with a branch in that repo)`. Above it,
@@ -414,7 +440,7 @@ export class PrPoller implements PrCache {
     const head = snapshot?.value.statuses.get(s.branch ?? "");
     // Older warm caches lack a dedicated stamp: seed from a matching observation.
     // With no provenance, park the rehydrated PR until a new head/state transition.
-    let since = this.now() - this.transientMaxMs;
+    let since = this.now() - Math.max(this.transientMaxMs, CI_FAST_MAX_MS);
     if (sessionRead?.value === s.branch) since = sessionRead.at;
     else if (head && head.number === git.number && head.headSha === git.headSha)
       since = snapshot!.at;
@@ -480,12 +506,7 @@ export class PrPoller implements PrCache {
       const recheckNone = this.now() - this.lastNoneRecheckAt >= this.noneRecheckMs;
       if (recheckNone) this.lastNoneRecheckAt = this.now();
       const paused = this.budgetPaused();
-      const due = sessions.filter(
-        (s) =>
-          !(paused && this.resolveForge(s.repoPath)?.kind === "github") &&
-          this.shouldPoll(s, recheckNone) &&
-          !(graphqlLimited && this.terminalUnderBackoff(s)),
-      );
+      const due = this.sweepDue(sessions, recheckNone, graphqlLimited, paused);
       due.push(...(await this.queueMoved(sessions, due)));
       const batches = graphqlLimited
         ? new Map<string, PrBatch | null>()
@@ -512,6 +533,25 @@ export class PrPoller implements PrCache {
     } finally {
       this.sweeping = false;
     }
+  }
+
+  /** The sessions this full sweep reads. Leaves out GitHub sessions below the reserve, ones the
+   *  live fast sweep covers (#2867), and terminal ones under the GraphQL backoff. */
+  private sweepDue(
+    sessions: Session[],
+    recheckNone: boolean,
+    graphqlLimited: boolean,
+    paused: boolean,
+  ): Session[] {
+    // Only a scheduled fast sweep covers anything; without its timer the full sweep reads all.
+    const fastLive = this.fastTimer != null && this.fastLive();
+    return sessions.filter(
+      (s) =>
+        !(paused && this.resolveForge(s.repoPath)?.kind === "github") &&
+        !(fastLive && this.fastCovers(s)) &&
+        this.shouldPoll(s, recheckNone) &&
+        !(graphqlLimited && this.terminalUnderBackoff(s)),
+    );
   }
 
   /** Settled open-PR sessions (not already `due`) whose PR entered or left its base's merge
@@ -752,35 +792,61 @@ export class PrPoller implements PrCache {
     return batches.get(forge.slug) ?? null;
   }
 
+  /** The fast sweep runs: warm, GraphQL not limited, above the reserve. */
+  private fastLive(): boolean {
+    return !this.rateLimited() && !this.budgetPaused() && this.warm();
+  }
+
+  /** `s`'s fast cadence (#2867), or null when the fast sweep doesn't cover it — not a transient
+   *  open PR, no window stamp (a missing stamp never opens a new restart window), or parked. */
+  private fastCadence(s: Session, git: GitState, now: number): number | null {
+    if (!this.isTransientSession(s, git)) return null;
+    const entry = this.transientSince.get(s.id);
+    if (!entry) return null;
+    return fastCadenceMs(now - entry.since, ciRunning(git), this.transientMaxMs);
+  }
+
+  /** A session the live fast sweep reads on its own cadence (#2867), so the full sweep leaves it
+   *  alone. Merge-train sessions keep their full-sweep read. */
+  private fastCovers(s: Session): boolean {
+    const git = this.cache.get(s.id);
+    return s.mergingSince == null && !!git && this.fastCadence(s, git, this.now()) != null;
+  }
+
+  /** Every fast-covered live session of each repo that has at least one due head. Half a tick of
+   *  slack keeps the timer from slipping a 30/60 s cadence by one tick. */
+  private fastDueSessions(now: number): Session[] {
+    const byRepo = new Map<string, Session[]>();
+    const dueRepos = new Set<string>();
+    for (const [id, git] of this.cache) {
+      const s = this.store.get(id);
+      if (!s || s.status === "archived") continue; // pruned by the next full tick
+      const cadence = this.fastCadence(s, git, now);
+      if (cadence == null) continue;
+      const repo = this.resolveForge(s.repoPath)?.slug ?? s.repoPath;
+      const ss = byRepo.get(repo);
+      if (ss) ss.push(s);
+      else byRepo.set(repo, [s]);
+      const last = this.lastPolledAt.get(id) ?? -Infinity;
+      if (now - last >= cadence - this.fastIntervalMs / 2) dueRepos.add(repo);
+    }
+    return [...byRepo].flatMap(([repo, ss]) => (dueRepos.has(repo) ? ss : []));
+  }
+
   /** Accelerated re-poll of in-flight PRs (cached `state === "open"`) so the list
    *  overview tracks CI running/transition as live as the detail view, without the
-   *  120s sweep's lag. Reads the eligible (transient, in-window) open PRs by head in one
-   *  `prStatusMany` query (~1 point per 20 heads) and never touches the repo's open-PR
-   *  snapshot (#2799); a head the query couldn't answer falls back to `prStatus`. No
-   *  per-PR cap or round-robin — every eligible PR is covered each tick. Skipped while
-   *  GraphQL is limited (its per-session REST fallback costs a multiple, #2660 — the full
-   *  sweep still keeps every session moving) or below the reserve. */
+   *  120s sweep's lag. Each transient PR runs on {@link fastCadenceMs} (15 s → 30 s → 60 s,
+   *  #2867); when any head of a repo is due, every fast-covered head of that repo is read in
+   *  the same `prStatusMany` query (~1 point per 20 heads), so a repo's heads stay in phase and
+   *  N concurrent CI runs cost about one. Never touches the repo's open-PR snapshot (#2799); a
+   *  head the query couldn't answer falls back to `prStatus`. Skipped while GraphQL is limited
+   *  (its per-session REST fallback costs a multiple, #2660 — the full sweep still keeps every
+   *  session moving) or below the reserve. */
   async fastTick(): Promise<void> {
     // Cadence gates first: skip entirely when limited or not warm, before the activity-aware filter.
-    if (this.rateLimited() || this.budgetPaused() || !this.warm()) return;
+    if (!this.fastLive()) return;
     if (this.sweeping) return; // don't overlap (or double-poll behind) the full sweep
-    const open = [...this.cache.entries()].filter(([, g]) => g.state === "open").map(([id]) => id);
-    if (open.length === 0) return;
-    // Activity-aware filter: only re-poll PRs that are still transient AND within
-    // the time-bounded window. A missing stamp never opens a new restart window.
-    const now = this.now();
-    const eligible = open.filter((id) => {
-      const git = this.cache.get(id)!;
-      const s = this.store.get(id);
-      if (!s || !this.isTransientSession(s, git)) return false;
-      const entry = this.transientSince.get(id);
-      return !!entry && now - entry.since < this.transientMaxMs;
-    });
-    if (eligible.length === 0) return;
-    // Resolve to live sessions (an archived/gone session is pruned by the next full tick).
-    const sessions = eligible
-      .map((id) => this.store.get(id))
-      .filter((s): s is Session => !!s && s.status !== "archived");
+    const sessions = this.fastDueSessions(this.now());
     if (sessions.length === 0) return;
     // Flag BEFORE the head lookup so it runs inside the mutual-exclusion window — a
     // concurrent full tick can't interleave.
@@ -1221,6 +1287,7 @@ export class PrPoller implements PrCache {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     if (this.fastTimer) clearInterval(this.fastTimer);
+    this.timer = this.fastTimer = null;
     for (const t of this.debounce.values()) clearTimeout(t);
     this.debounce.clear();
   }

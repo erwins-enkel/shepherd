@@ -34,3 +34,56 @@ export function afterGateOpen(
   }
   return predecessorLanded(store, prGit, s);
 }
+
+/** A session a connected machine reports (#2762), as far as resolving a predecessor needs it. */
+export interface MirroredPredecessor {
+  id: string;
+  desig?: unknown;
+  host: { instanceId: string; name: string };
+}
+
+export type PredecessorMatch<M extends MirroredPredecessor> =
+  | { kind: "local"; session: Session }
+  | { kind: "remote"; session: M }
+  | { kind: "none" }
+  | { kind: "ambiguous"; local: boolean; hosts: string[] };
+
+/** Where `--after <ref>` points (#3633): a session here or one a connected machine runs. Each
+ *  machine numbers its own tasks, so a designation can name a task here AND one there; any
+ *  reference that matches more than once is ambiguous rather than silently picking one. An id
+ *  matching here wins (the mirror never shadows a local session). */
+export function resolvePredecessor<M extends MirroredPredecessor>(
+  ref: string,
+  local: { byId: Session | null; byDesig: Session | null },
+  mirrored: readonly M[],
+): PredecessorMatch<M> {
+  if (local.byId) return { kind: "local", session: local.byId };
+  const byId = mirrored.filter((m) => m.id === ref);
+  if (byId.length > 0) return pick(null, byId);
+  const matches = desigMatcher(ref);
+  return pick(local.byDesig, matches ? mirrored.filter((m) => matches(m.desig)) : []);
+}
+
+function pick<M extends MirroredPredecessor>(
+  here: Session | null,
+  remote: M[],
+): PredecessorMatch<M> {
+  if (here && remote.length === 0) return { kind: "local", session: here };
+  if (!here && remote.length === 1) return { kind: "remote", session: remote[0]! };
+  if (!here && remote.length === 0) return { kind: "none" };
+  return { kind: "ambiguous", local: here !== null, hosts: remote.map((m) => m.host.name) };
+}
+
+const DESIG_RE = /^TASK-(\d+)$/i;
+
+/** Same matching as `SessionStore.getByDesig`: `TASK-n` by name (any case), bare digits by number. */
+function desigMatcher(ref: string): ((desig: unknown) => boolean) | null {
+  const key = ref.trim().toUpperCase();
+  if (key.startsWith("TASK-")) return (d) => typeof d === "string" && d.toUpperCase() === key;
+  if (!/^\d+$/.test(key)) return null;
+  const n = Number(key);
+  return (d) => {
+    const m = typeof d === "string" ? DESIG_RE.exec(d) : null;
+    return m !== null && Number(m[1]) === n;
+  };
+}

@@ -407,7 +407,7 @@ import type { GithubRateLimitPayload } from "./forge/github-rate-limit";
 import { BaseCheckoutBusyError, MergeConflictError } from "./forge/local";
 import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teardown";
 import { deadBaseSession } from "./dead-base";
-import { predecessorLanded } from "./task-deps";
+import { predecessorLanded, resolvePredecessor } from "./task-deps";
 import {
   type PrCache,
   gitStateChanged,
@@ -4845,32 +4845,22 @@ async function routeCreate(
   dispatchId: string | undefined,
 ): Promise<Response> {
   const { req, deps, token } = ctx;
-  // A keyed retry goes where its first submission went (#2772) — whatever a choice would say now.
-  const sentTo = dispatchId && deps.store.getRemoteDispatchByKey(dispatchId)?.instanceId;
-  const named = target.instanceId !== null && !target.self ? target.instanceId : null;
-  if (sentTo || named) {
-    // A predecessor (#2589) names a task in THIS machine's namespace; another machine can't resolve it.
-    if (isRecord(target.body) && target.body.afterSession != null)
-      return json(
-        { error: "afterSession tasks run on this machine; drop target", code: "after_remote" },
-        400,
-      );
-    const instanceId = (sentTo || named)!;
-    return createOnMachine(ctx, {
-      body: target.body as Record<string, unknown>,
-      instanceId,
-      raw,
-      clientKey: dispatchId,
-    });
-  }
+  const chosen = routeChosenMachine(ctx, raw, target, dispatchId);
+  if (chosen) return chosen;
   const body = target.body;
   const result = validateCreate(body, config.repoRoot);
   if (!result.ok) return json({ error: result.error }, 400);
   const repoErr = repositoryInputError(token, result.value);
   if (repoErr) return repoErr;
-  // A dependent task (#2589) stays here: its predecessor is resolved and waited on locally.
-  const self = target.self || (result.value.terminal !== true && !!result.value.afterSessionId);
-  const placed = await placeCreate(ctx, result.value, { self, raw, dispatchId });
+  const value = await routeDependent(ctx, result.value, {
+    body: isRecord(body) ? body : {},
+    raw,
+    dispatchId,
+  });
+  if (value instanceof Response) return value;
+  // A dependent task (#2589) whose predecessor runs here stays here and waits on it locally.
+  const self = target.self || (value.terminal !== true && !!value.afterSessionId);
+  const placed = await placeCreate(ctx, value, { self, raw, dispatchId });
   if (placed instanceof Response) return placed;
   const create = () => createValidatedSession(req, body, placed, deps, token);
   if (dispatchId === undefined) return create();
@@ -4878,6 +4868,83 @@ async function routeCreate(
   // the spawn — so a retry or a concurrent duplicate replays this outcome instead of running again.
   const claim = { id: dispatchId, payloadHash: payloadHash(raw), repoPath: result.value.repoPath };
   return runDispatch(deps.store, claim, create);
+}
+
+/** A create whose machine is already chosen: a keyed retry goes where its first submission went
+ *  (#2772) — whatever a choice would say now — and a named machine gets it. Null otherwise. */
+function routeChosenMachine(
+  ctx: Ctx,
+  raw: unknown,
+  target: CreateTarget,
+  dispatchId: string | undefined,
+): Promise<Response> | null {
+  const sentTo = dispatchId && ctx.deps.store.getRemoteDispatchByKey(dispatchId)?.instanceId;
+  const named = target.instanceId !== null && !target.self ? target.instanceId : null;
+  const instanceId = sentTo || named;
+  if (!instanceId) return null;
+  // A dependent task (#2589) runs where its predecessor runs, so naming a machine is refused. A
+  // keyed retry follows its first submission, which may have gone to the predecessor's machine.
+  if (!sentTo && isRecord(target.body) && target.body.afterSession != null)
+    return Promise.resolve(
+      json(
+        {
+          error: "afterSession tasks run on their predecessor's machine; drop target",
+          code: "after_remote",
+        },
+        400,
+      ),
+    );
+  return createOnMachine(ctx, {
+    body: target.body as Record<string, unknown>,
+    instanceId,
+    raw,
+    clientKey: dispatchId,
+  });
+}
+
+/** `afterSession` (#2589) for a create no machine was named for: the predecessor here or on a
+ *  connected machine (#3633). One here comes back as its session id, so the task stays and waits
+ *  here. One on a machine takes the task there, waiting on it by session id — that machine numbers
+ *  its own tasks. A repo-scoped token sees no machines' sessions, as in `GET /api/sessions`. */
+async function routeDependent(
+  ctx: Ctx,
+  value: CreateSessionInput,
+  req: { body: Record<string, unknown>; raw: unknown; dispatchId: string | undefined },
+): Promise<CreateSessionInput | Response> {
+  if (value.terminal === true || !value.afterSessionId) return value;
+  const { deps, token } = ctx;
+  const ref = value.afterSessionId;
+  // A repo-scoped token must not learn about tasks outside its grant: same answer as unknown.
+  const granted = (s: Session | null) => (s && tokenRepoAllowed(token, s.repoPath) ? s : null);
+  const local = {
+    byId: granted(deps.store.get(ref)),
+    byDesig: granted(deps.store.getByDesig(ref)),
+  };
+  const mirrored = !token || token.repoPaths === null ? (deps.remoteSessions?.list() ?? []) : [];
+  const match = resolvePredecessor(ref, local, mirrored);
+  switch (match.kind) {
+    case "none":
+      return json({ error: `no task ${ref}`, code: "after_not_found" }, 404);
+    case "local":
+      return { ...value, afterSessionId: match.session.id };
+    case "ambiguous": {
+      const where = [...(match.local ? ["this machine"] : []), ...match.hosts].join(", ");
+      return json(
+        {
+          error: `${ref} names more than one task (${where}); pass its session id`,
+          code: "after_ambiguous",
+        },
+        409,
+      );
+    }
+    case "remote":
+      return createOnMachine(ctx, {
+        body: { ...req.body, afterSession: match.session.id },
+        instanceId: match.session.host.instanceId,
+        raw: req.raw,
+        clientKey: req.dispatchId,
+      });
+  }
 }
 
 type CreateTarget =
@@ -5145,7 +5212,16 @@ function remoteOutcomeResponse(o: RemoteOutcome): Response {
     case "started":
       return json(o.session, 201);
     case "held":
-      return json({ held: true, id: o.id, count: o.count, host: o.host }, 200);
+      return json(
+        {
+          held: true,
+          id: o.id,
+          count: o.count,
+          ...(o.reason && { reason: o.reason }),
+          host: o.host,
+        },
+        200,
+      );
     case "waiting":
       return json(
         {

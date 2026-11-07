@@ -65,6 +65,7 @@ import { basename, extname } from "node:path";
 import type { EventHub } from "../events";
 import { originCloneUrl } from "../repos";
 import type { SessionStore } from "../store";
+import type { HeldReason } from "../types";
 import {
   type Capability,
   type CapabilitySnapshot,
@@ -156,6 +157,14 @@ const SHOWN_STATES: ReadonlySet<RemoteDispatchState> = new Set([
   "waiting",
   "held",
 ]);
+
+/** Every `HeldReason` — keyed by the type, so a new reason cannot be left out. */
+const HELD_REASONS = Object.keys({
+  usage: true,
+  capacity: true,
+  after: true,
+  memory: true,
+} satisfies Record<HeldReason, true>) as HeldReason[];
 
 /** A dispatch's `summary` is a one-line label, not the task. */
 const SUMMARY_MAX = 120;
@@ -251,7 +260,7 @@ export type RemoteRefusalCode = RemoteUnfitCode | "dispatch_payload_mismatch";
 
 export type RemoteOutcome =
   | { kind: "started"; session: Record<string, unknown> & { host: SessionHost } }
-  | { kind: "held"; id: string; count: number; host: SessionHost }
+  | { kind: "held"; id: string; count: number; host: SessionHost; reason?: HeldReason }
   | {
       kind: "rejected";
       host: SessionHost;
@@ -1127,8 +1136,10 @@ export class RemoteDispatcher {
     }
     if (status === 200 && body.held === true && id) {
       const count = typeof body.count === "number" ? body.count : 0;
+      // Why the machine held it (an `after` hold waits on its predecessor there, #3633).
+      const reason = HELD_REASONS.find((r) => r === body.reason);
       return {
-        outcome: { kind: "held", id, count, host },
+        outcome: { kind: "held", id, count, host, ...(reason && { reason }) },
         record: { ...NO_OUTCOME, state: "held", heldId: id },
       };
     }

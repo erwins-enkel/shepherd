@@ -399,7 +399,10 @@ Flags for `new`:
   `TASK-1490`; merged, or squash-merged into its epic branch). It is queued as a held task with
   reason `after` and spawns on a fresh base once the PR lands. A predecessor that already landed
   spawns it now; an unknown one is `404`, one archived without landing is `409`. `held spawn`
-  starts it early, `held discard` drops it.
+  starts it early, `held discard` drops it. A predecessor running on a connected machine takes the
+  task there: it is held on that machine (the output names it) and spawns there once the PR lands.
+  Each machine numbers its own tasks, so a designation that matches a task here and one on a
+  machine (or tasks on several machines) is `409` `after_ambiguous`: pass the session id.
 - `--on <machine>`: run the whole session on that machine, by name (case doesn't matter) or
   instance id. The CLI looks it up among the machines `POST /api/placement` lists for `--repo`
   (this one first, then every connected machine that can take tasks and has the project checked
@@ -417,9 +420,9 @@ Flags for `new`:
   checks that machine has them all. When no machine fits, the refusal (exit `6`,
   `no_suitable_machine`) names the missing capabilities and any machine that has them but no
   checkout of the project.
-- `--after` with `--on` exits `2` without sending anything: a dependent task always runs on this
-  machine, where its predecessor lives. `--after` with `--require` is allowed; the requirements are
-  then checked against this machine.
+- `--after` with `--on` exits `2` without sending anything: a dependent task always runs on the
+  machine its predecessor runs on. `--after` with `--require` is allowed; the requirements are then
+  checked against that machine.
 
 When the usage hold trips, `new` still exits `0`. It prints the held task (`{"held": true, …}`)
 instead of a session.

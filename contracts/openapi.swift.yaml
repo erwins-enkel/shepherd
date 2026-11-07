@@ -1053,7 +1053,7 @@ components:
             - string
             - "null"
           pattern: ^[A-Za-z0-9-]{1,64}$
-          description: Predecessor task (#2589), by session id or designation (TASK-07). Until its PR has landed (merged, or squash-merged into its epic's integration branch) the task is held (200 HeldTask with reason `after`) and spawns once it lands. Already landed → spawns now. Unknown → 404 after_not_found; archived without landing → 409 after_not_landed.
+          description: "Predecessor task (#2589), by session id or designation (TASK-07). Until its PR has landed (merged, or squash-merged into its epic's integration branch) the task is held (200 HeldTask with reason `after`) and spawns once it lands. Already landed → spawns now. Unknown → 404 after_not_found; archived without landing → 409 after_not_landed. A predecessor running on a connected machine (#3633) takes the task there: it is held on that machine (HeldTask with `host`) and waits on the predecessor by session id. A designation matching more than one task (here and on a machine, or on several machines) → 409 after_ambiguous; pass the session id."
         prompt:
           type: string
           minLength: 1
@@ -1130,7 +1130,7 @@ components:
     HeldTask:
       type: object
       additionalProperties: true
-      description: "The usage hold tripped — the task was queued instead of spawned. With `host` it was held on that connected machine (`id` and `count` are that machine's). With `waiting` (#2775) it waits HERE for `host`, the machine it is meant for, which is out of reach: nothing was sent, it starts there once that machine can take it — `id` is the dispatch ID, `count` the tasks waiting here, `dispatch` the waiting RemoteDispatch (cancel or redirect it via /api/remote-dispatches)."
+      description: "The usage hold tripped — the task was queued instead of spawned. With `host` it was held on that connected machine (`id` and `count` are that machine's, `reason` its hold reason). With `waiting` (#2775) it waits HERE for `host`, the machine it is meant for, which is out of reach: nothing was sent, it starts there once that machine can take it — `id` is the dispatch ID, `count` the tasks waiting here, `dispatch` the waiting RemoteDispatch (cancel or redirect it via /api/remote-dispatches)."
       required:
         - held
         - id
@@ -11409,7 +11409,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Session"
         "400":
-          description: "Invalid input (see error text). Also afterSession with a target naming another machine (after_remote): a dependent task runs where its predecessor lives, so the automatic choice keeps it here."
+          description: "Invalid input (see error text). Also afterSession with a target naming another machine (after_remote): a dependent task runs where its predecessor lives, so the server picks the machine (a keyed retry still follows its first submission)."
           content:
             application/json:
               schema:
@@ -11423,7 +11423,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: "First run pending, name taken, worktree occupied, or herdr restart required (see code). With an Idempotency-Key also: the key was used with a different body (dispatch_payload_mismatch), was withdrawn before it arrived (dispatch_canceled), or its first start was cut off by a restart (dispatch_interrupted). With a target also: the machine is not reachable right now and nothing was sent (remote_target_unavailable, `reason` says why), or the task was canceled before the machine confirmed it and never starts under that key (remote_dispatch_canceled), or it was canceled here but the machine has not confirmed the cancel yet — the task may have reached it first and be running there; it is not sent again (remote_dispatch_cancel_pending). With afterSession also: the predecessor was archived without its PR landing (after_not_landed)."
+          description: "First run pending, name taken, worktree occupied, or herdr restart required (see code). With an Idempotency-Key also: the key was used with a different body (dispatch_payload_mismatch), was withdrawn before it arrived (dispatch_canceled), or its first start was cut off by a restart (dispatch_interrupted). With a target also: the machine is not reachable right now and nothing was sent (remote_target_unavailable, `reason` says why), or the task was canceled before the machine confirmed it and never starts under that key (remote_dispatch_canceled), or it was canceled here but the machine has not confirmed the cancel yet — the task may have reached it first and be running there; it is not sent again (remote_dispatch_cancel_pending). With afterSession also: the predecessor was archived without its PR landing (after_not_landed), or the designation names more than one task — here and on a connected machine, or on several machines (after_ambiguous; pass the session id)."
           content:
             application/json:
               schema:

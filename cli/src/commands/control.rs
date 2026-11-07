@@ -202,11 +202,11 @@ pub async fn new(ctx: &mut Ctx<'_>, args: NewArgs) -> Result<()> {
         .map(|a| a.parse())
         .transpose()
         .map_err(|_| CliError::new(Exit::Usage, "--after takes a task id or designation"))?;
-    // The server refuses it too (after_remote): a predecessor lives in this machine's namespace.
+    // The server refuses it too (after_remote): the server picks the predecessor's machine.
     if after.is_some() && args.on.is_some() {
         return Err(CliError::new(
             Exit::Usage,
-            "--after tasks run on this machine, where their predecessor lives; drop --on",
+            "--after tasks run on their predecessor's machine; drop --on",
         ));
     }
     for unknown in args

@@ -355,6 +355,62 @@ describe("automatic machine choice", () => {
     expect(linux.created).toHaveLength(0);
   });
 
+  test("a predecessor on a connected machine takes the dependent task there (#3633)", async () => {
+    const { linux, mac } = await pair();
+    const pred = (await create(mac, { ...task(mac), target: { instanceId: linux.id } })).body as {
+      id: string;
+      desig: string;
+    };
+    await until(
+      () => mac.deps.remoteSessions.has(pred.id),
+      (v) => v,
+    );
+    linux.created.length = 0;
+    for (const [n, afterSession] of [pred.desig, pred.id].entries()) {
+      const body = task(mac, { afterSession });
+      const res = await create(mac, body, { key: `after-${n}` });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        held: true,
+        reason: "after",
+        host: { instanceId: linux.id },
+      });
+      // Held on the predecessor's machine, waiting on it by session id; nothing started anywhere.
+      expect(linux.deps.store.getHeldTask(res.body.id as string)?.input).toMatchObject({
+        afterSessionId: pred.id,
+      });
+      expect(mac.deps.store.countHeldTasks()).toBe(0);
+      expect(ranOn([linux, mac])).toEqual([]);
+      // A keyed retry follows the first submission: same hold, not after_remote, no second one.
+      const again = await create(mac, body, { key: `after-${n}` });
+      expect(again.status).toBe(200);
+      expect(again.body).toMatchObject({ held: true, id: res.body.id });
+      expect(linux.deps.store.countHeldTasks()).toBe(n + 1);
+    }
+  });
+
+  test("a designation both here and on a connected machine is ambiguous (#3633)", async () => {
+    const { linux, mac } = await pair();
+    const here = (await create(mac, { ...task(mac), target: { instanceId: mac.id } })).body as {
+      desig: string;
+    };
+    const there = (await create(mac, { ...task(mac), target: { instanceId: linux.id } })).body as {
+      id: string;
+      desig: string;
+    };
+    // Each machine numbers its own tasks: the first one on each has the same designation.
+    expect(there.desig).toBe(here.desig);
+    await until(
+      () => mac.deps.remoteSessions.has(there.id),
+      (v) => v,
+    );
+    const res = await create(mac, task(mac, { afterSession: here.desig }));
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("after_ambiguous");
+    expect(res.body.error).toContain("this machine");
+    expect(mac.deps.store.countHeldTasks() + linux.deps.store.countHeldTasks()).toBe(0);
+  });
+
   test("the preview names the machine the create then uses (the form and the API agree)", async () => {
     const { linux, mac } = await pair();
     for (const at of [linux, mac]) {

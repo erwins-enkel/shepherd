@@ -480,8 +480,11 @@ describe("POST /api/sessions/:id/ci/restart", () => {
     const holds = new CiRestartHolds({ set: () => 0, clear: () => {} });
     if (o.held) holds.hold("s1", { name: "CI / gate" });
     const runs: { id: string; runId: number }[] = [];
+    const emitted: { event: string; data: unknown }[] = [];
+    let onFailed: ((reason: "cancel" | "rerun") => void) | undefined;
     const deps: AppDeps = {
       ...makeDeps(() => (o.forge === undefined ? restartForge() : o.forge)),
+      events: { emit: (event: string, data: unknown) => emitted.push({ event, data }) } as never,
       store: { get: (id: string) => (id === "s1" ? session : null) } as unknown as SessionStore,
       prCache: { get: () => (o.git === undefined ? openGit() : o.git) } as never,
       ...(o.withRestart === false
@@ -490,8 +493,13 @@ describe("POST /api/sessions/:id/ci/restart", () => {
             ciRestart: {
               holds,
               refreshPr: () => {},
-              run: async (a: { id: string; runId: number }) => {
+              run: async (a: {
+                id: string;
+                runId: number;
+                onFailed: (reason: "cancel" | "rerun") => void;
+              }) => {
                 runs.push({ id: a.id, runId: a.runId });
+                onFailed = a.onFailed;
               },
             },
           }),
@@ -505,7 +513,7 @@ describe("POST /api/sessions/:id/ci/restart", () => {
           body: JSON.stringify(body),
         }),
       );
-    return { post, holds, runs };
+    return { post, holds, runs, emitted, fail: (r: "cancel" | "rerun") => onFailed?.(r) };
   }
 
   test("holds red-CI steers and starts the restart with the run id from the CACHED job url", async () => {
@@ -514,6 +522,11 @@ describe("POST /api/sessions/:id/ci/restart", () => {
     expect(res.status).toBe(202);
     expect(t.holds.phase("s1")).toBe("cancelling");
     expect(t.runs).toEqual([{ id: "s1", runId: 42 }]);
+    t.fail("rerun"); // a background failure reaches the operator as an event
+    expect(t.emitted).toContainEqual({
+      event: "session:ci-restart-failed",
+      data: { id: "s1", reason: "rerun" },
+    });
   });
 
   test("validates the request and the session's PR state", async () => {

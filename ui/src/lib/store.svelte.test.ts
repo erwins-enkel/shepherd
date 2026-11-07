@@ -5,6 +5,7 @@ import { repoBootstrap } from "./repo-bootstrap.svelte";
 import { schedules } from "./schedules.svelte";
 import { dropKey } from "./safe-keys";
 import { toasts } from "./toasts.svelte";
+import { m } from "#lib/paraglide/messages.js";
 import { motionSettle } from "./motion-settle";
 import { isDecommissioning, markDecommissioning } from "./decommissioning.svelte";
 
@@ -449,6 +450,16 @@ test("session:renamed surfaces a toast naming the new name", () => {
     data: { id: "s1", name: "fresh", branch: "shepherd/fresh" },
   });
   expect(toasts.items.some((t) => t.text.includes("fresh"))).toBe(true);
+});
+
+test("session:ci-restart-failed tells the operator which stage of the restart failed (#2863)", () => {
+  toasts.items = [];
+  const s = new HerdStore();
+  s.setAll([session("s1")]); // name "n"
+  s.apply({ event: "session:ci-restart-failed", data: { id: "s1", reason: "rerun" } });
+  expect(toasts.items.map((t) => t.text)).toEqual([m.toast_ci_restart_rerun_failed({ name: "n" })]);
+  s.apply({ event: "session:ci-restart-failed", data: { id: "s1", reason: "cancel" } });
+  expect(toasts.items.at(-1)?.text).toBe(m.toast_ci_restart_cancel_failed({ name: "n" }));
 });
 
 test("session:renamed adopts a new branch silently when the display name is unchanged", () => {

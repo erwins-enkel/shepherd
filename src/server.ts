@@ -6061,6 +6061,7 @@ async function handleSessionCiRestart({ req, parts, deps }: Ctx): Promise<Respon
     forge: target.forge,
     holds: ciRestart.holds,
     refreshPr: ciRestart.refreshPr,
+    onFailed: (reason) => deps.events.emit("session:ci-restart-failed", { id: s.id, reason }),
   });
   return json({ ok: true }, 202);
 }

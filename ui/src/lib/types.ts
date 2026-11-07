@@ -3473,6 +3473,9 @@ export type WsEvent =
       data: { id: string; status: SessionStatus; hasScratchpadFiles?: boolean } & Partial<Session>;
     }
   | { event: "session:ready"; data: { id: string; ready: boolean } }
+  /** #2863: a background CI restart failed — at the cancel (CI unchanged) or after it (the run is
+   *  cancelled but not re-run). */
+  | { event: "session:ci-restart-failed"; data: { id: string; reason: "cancel" | "rerun" } }
   | { event: "session:shelved"; data: { id: string; shelved: boolean } }
   | {
       event: "session:merging";

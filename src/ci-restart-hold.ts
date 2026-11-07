@@ -10,7 +10,7 @@
  *    re-run's check runs asynchronously, so the cancelled job can still read red) — the re-run is
  *    underway, so every later result is a fresh edge both consumers see normally;
  *  - `expired`: on the backstop timer (BACKSTOP_MS after `hold`, reset by `rerunIssued`);
- *  - `failed`: when the background restart fails.
+ *  - `failed`: when the cancel itself fails (once it landed, a failed re-run holds to the backstop).
  * Listeners learn the reason, so a red sample held back during the hold can be announced when the
  * restart did not supersede it.
  */
@@ -130,10 +130,17 @@ export interface CiRestartForge {
 const POLL_MS = 3_000;
 const CANCEL_WAIT_MS = 90_000;
 
+/** Where a background restart failed: the cancel itself (the run is untouched, so its red is
+ *  real), or after the cancel landed (the run is cancelled but not re-run). */
+export type CiRestartFailure = "cancel" | "rerun";
+
 /**
  * Cancel a stuck run, wait until GitHub reports it completed (a run in progress can't be re-run),
- * then re-run its failed and cancelled jobs. Runs in the background behind a 202; the hold is set
- * by the caller and lifted here on failure (on success it lifts on the re-run's in-flight sample).
+ * then re-run its failed and cancelled jobs. Runs in the background behind a 202, so a failure is
+ * reported through `onFailed` for the operator. The hold is set by the caller; on success it lifts
+ * once the job runs again. A failed cancel releases it (`failed`): nothing was cancelled. Once the
+ * cancel landed the red is the operator's, so a failed wait or re-run keeps holding until the
+ * backstop — time for the operator, told by `onFailed`, to re-run it themselves.
  */
 export async function restartCiRun(o: {
   id: string;
@@ -141,11 +148,19 @@ export async function restartCiRun(o: {
   forge: CiRestartForge;
   holds: CiRestartHolds;
   refreshPr: (id: string) => void;
+  onFailed: (reason: CiRestartFailure) => void;
   sleep?: (ms: number) => Promise<void>;
 }): Promise<void> {
   const sleep = o.sleep ?? ((ms: number) => Bun.sleep(ms));
   try {
     await o.forge.cancelWorkflowRun(o.runId);
+  } catch (err) {
+    console.warn(`[ci-restart] ${o.id} cancel run ${o.runId}:`, err);
+    o.holds.release(o.id, "failed");
+    o.onFailed("cancel");
+    return;
+  }
+  try {
     let completed = false;
     for (let waited = 0; waited < CANCEL_WAIT_MS && !completed; waited += POLL_MS) {
       await sleep(POLL_MS);
@@ -154,10 +169,9 @@ export async function restartCiRun(o: {
     if (!completed) throw new Error(`run ${o.runId} still not completed after cancel`);
     await o.forge.rerunWorkflowRun(o.runId, { failedOnly: true });
     o.holds.rerunIssued(o.id);
-    o.refreshPr(o.id);
   } catch (err) {
-    console.warn(`[ci-restart] ${o.id} run ${o.runId}:`, err);
-    o.holds.release(o.id, "failed");
-    o.refreshPr(o.id);
+    console.warn(`[ci-restart] ${o.id} re-run run ${o.runId}:`, err);
+    o.onFailed("rerun");
   }
+  o.refreshPr(o.id);
 }

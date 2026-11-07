@@ -8211,5 +8211,7 @@
   "pulseactions_stop": "Stoppen",
   "pulseactions_stop_failed": "Der Agent konnte nicht gestoppt werden.",
   "feat_ci_overdue_loop_actions_title": "Überfällige CI und CI-Fix-Schleifen direkt angehen",
-  "feat_ci_overdue_loop_actions_body": "Läuft ein CI-Job weit länger als üblich, bietet die Detailansicht der Session „Lauf öffnen“ und „Neu starten“ (abbrechen, dann neu starten). Bekommt eine Session drei CI-Fix-Hinweise auf demselben Stand, ohne grün zu werden, gibt es „Übernehmen“ (Autopilot aus) und „Stoppen“. Das Status-Panel warnt außerdem, wenn ein Agent die CI selbst abfragt – Shepherd meldet ihm ohnehin, wenn die CI fertig ist."
+  "feat_ci_overdue_loop_actions_body": "Läuft ein CI-Job weit länger als üblich, bietet die Detailansicht der Session „Lauf öffnen“ und „Neu starten“ (abbrechen, dann neu starten). Bekommt eine Session drei CI-Fix-Hinweise auf demselben Stand, ohne grün zu werden, gibt es „Übernehmen“ (Autopilot aus) und „Stoppen“. Das Status-Panel warnt außerdem, wenn ein Agent die CI selbst abfragt – Shepherd meldet ihm ohnehin, wenn die CI fertig ist.",
+  "toast_ci_restart_cancel_failed": "{name}: Der überfällige Lauf konnte nicht abgebrochen werden. Die CI ist unverändert.",
+  "toast_ci_restart_rerun_failed": "{name}: Der überfällige Lauf wurde abgebrochen, konnte aber nicht neu gestartet werden. Starte ihn auf der Lauf-Seite neu; Shepherd hält die CI-Hinweise an den Agenten ein paar Minuten zurück."
 }

@@ -8211,5 +8211,7 @@
   "pulseactions_stop": "Stop",
   "pulseactions_stop_failed": "Couldn't stop the agent.",
   "feat_ci_overdue_loop_actions_title": "Act on overdue CI and CI-fix loops",
-  "feat_ci_overdue_loop_actions_body": "When a CI job runs far past its usual time, the session's detail view offers Open run and Re-run (cancel, then re-run). When a session gets three CI-fix steers on the same head without going green, it offers Take over (autopilot off) and Stop. The status panel also warns when an agent polls CI itself — Shepherd already tells it when CI finishes."
+  "feat_ci_overdue_loop_actions_body": "When a CI job runs far past its usual time, the session's detail view offers Open run and Re-run (cancel, then re-run). When a session gets three CI-fix steers on the same head without going green, it offers Take over (autopilot off) and Stop. The status panel also warns when an agent polls CI itself — Shepherd already tells it when CI finishes.",
+  "toast_ci_restart_cancel_failed": "{name}: couldn't cancel the overdue run. CI is unchanged.",
+  "toast_ci_restart_rerun_failed": "{name}: the overdue run was cancelled but couldn't be re-run. Re-run it from the run page; Shepherd holds the agent's CI steers for a few minutes."
 }

@@ -136,6 +136,9 @@ describe("restartCiRun", () => {
       forge: f.forge,
       holds: h.holds,
       refreshPr: (id) => polled.push(id),
+      onFailed: () => {
+        throw new Error("no failure expected");
+      },
       sleep: async () => {},
     });
     expect(f.calls).toEqual(["cancel 7", "detail 7", "detail 7", "rerun 7 true"]);
@@ -143,24 +146,42 @@ describe("restartCiRun", () => {
     expect(polled).toEqual(["s1"]);
   });
 
-  it("releases the hold as failed when the run never completes or a call throws", async () => {
+  async function run(f: ReturnType<typeof forge>) {
+    const h = harness();
+    const failed: string[] = [];
+    h.holds.hold("s1", GATE);
+    await restartCiRun({
+      id: "s1",
+      runId: 7,
+      forge: f.forge,
+      holds: h.holds,
+      refreshPr: () => {},
+      onFailed: (reason) => failed.push(reason),
+      sleep: async () => {},
+    });
+    return { h, failed };
+  }
+
+  it("a failed cancel releases the hold (the run is untouched) and tells the operator", async () => {
+    const f = forge([], "cancel");
+    const { h, failed } = await run(f);
+    expect(f.calls).toEqual(["cancel 7"]);
+    expect(h.released).toEqual([["s1", "failed"]]);
+    expect(failed).toEqual(["cancel"]);
+  });
+
+  it("cancelled but not re-run keeps holding to the backstop and tells the operator", async () => {
     for (const [f, calls] of [
-      [forge([]), 31],
-      [forge(["completed"], "rerun"), 3],
-      [forge([], "cancel"), 1],
+      [forge([]), 31], // the run never reports completed
+      [forge(["completed"], "rerun"), 3], // the re-run call fails
     ] as const) {
-      const h = harness();
-      h.holds.hold("s1", GATE);
-      await restartCiRun({
-        id: "s1",
-        runId: 7,
-        forge: f.forge,
-        holds: h.holds,
-        refreshPr: () => {},
-        sleep: async () => {},
-      });
+      const { h, failed } = await run(f);
       expect(f.calls).toHaveLength(calls);
-      expect(h.released).toEqual([["s1", "failed"]]);
+      expect(h.released).toEqual([]);
+      expect(h.holds.phase("s1")).toBe("cancelling");
+      expect(failed).toEqual(["rerun"]);
+      h.fire(); // the backstop still ends it
+      expect(h.released).toEqual([["s1", "expired"]]);
     }
   });
 });

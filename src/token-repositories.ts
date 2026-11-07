@@ -215,6 +215,7 @@ const SESSION_EVENTS = new Set([
   "session:manual-steps",
   "session:experiment",
   "session:autopilot",
+  "session:ci-restart-failed",
 ]);
 
 /** Unknown events never inherit access merely because their payload contains an id. */

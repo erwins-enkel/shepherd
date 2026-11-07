@@ -11,6 +11,12 @@
 //                exit 75. Shepherd steers the agent when the slot is its turn;
 //   - disabled → run it unmanaged.
 //
+// Linux hosts with heavy-run scopes (#3555) answer `scope: true`: the command then starts behind a
+// gate — a shell blocked on fd 3 that carries the marker — while the server moves it into the run's
+// own memory-limited systemd scope (`op: "bind"`). Only after that answer (or its failure) does the
+// gate exec the command, so everything it forks is born inside the scope. A gate that never hears
+// "go" (the runner died) exits instead of running the command orphaned.
+//
 // Plain `.mjs` for the same reason as the guard: it runs under the node binary the sandbox membrane
 // already binds, and it reaches the server over the agent ingress with the session's key header
 // file — the `shepherd` CLI has no credentials inside a membrane.
@@ -29,6 +35,11 @@ export const EXIT_QUEUED = 75;
 /** How long the acquire may take before the runner gives up and runs unmanaged. */
 const ACQUIRE_TIMEOUT_MS = 15_000;
 const REPORT_TIMEOUT_MS = 5_000;
+const BIND_TIMEOUT_MS = 5_000;
+/** Exit code of a gate whose runner went away before releasing it. */
+const EXIT_GATE_ABANDONED = 125;
+/** Waits for "go" on fd 3, then execs its arguments unchanged. */
+const GATE_SCRIPT = `IFS= read -r t <&3; exec 3<&-; [ "$t" = go ] || exit ${EXIT_GATE_ABANDONED}; exec "$@"`;
 const FORWARDED_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"];
 
 /** The command after `--` (the guard passes it as ONE argument), or null. */
@@ -102,18 +113,34 @@ function shellPath() {
 
 /**
  * Run the selected executable and its unchanged arguments with stdio passed straight through.
- * `detached` (macOS) puts it in its own process group, whose id the server then watches. Signals
- * are forwarded so a Bash-tool timeout or Ctrl-C still reaches the command. Resolves its exit code
- * (128 + signal number when it was killed).
+ * `detached` (macOS) puts it in its own process group, whose id the server then watches. `gate`
+ * starts it behind {@link GATE_SCRIPT}; `onSpawn` then gets a `release` that opens the gate. Signals
+ * are forwarded so a Bash-tool timeout or Ctrl-C still reaches the command (the gate execs it under
+ * the same PID). Resolves its exit code (128 + signal number when it was killed).
  */
-function run(executable, args, env, extraEnv = {}, { detached = false, onSpawn } = {}) {
+function run(
+  executable,
+  args,
+  env,
+  extraEnv = {},
+  { detached = false, gate = false, onSpawn } = {},
+) {
   return new Promise((resolve) => {
-    const child = spawn(executable, args, {
-      shell: false,
-      stdio: "inherit",
-      env: { ...env, ...extraEnv },
-      detached,
-    });
+    const child = spawn(
+      gate ? shellPath() : executable,
+      gate ? ["-c", GATE_SCRIPT, "heavy-gate", executable, ...args] : args,
+      {
+        shell: false,
+        stdio: gate ? ["inherit", "inherit", "inherit", "pipe"] : "inherit",
+        env: { ...env, ...extraEnv },
+        detached,
+      },
+    );
+    const gatePipe = gate ? child.stdio[3] : null;
+    gatePipe?.on("error", () => {}); // the gate already died: its exit is reported below
+    const release = () => {
+      if (gatePipe && !gatePipe.destroyed) gatePipe.end("go\n");
+    };
     const forward = (sig) => {
       try {
         if (detached) process.kill(-child.pid, sig);
@@ -123,7 +150,8 @@ function run(executable, args, env, extraEnv = {}, { detached = false, onSpawn }
       }
     };
     for (const sig of FORWARDED_SIGNALS) process.on(sig, forward);
-    if (child.pid) onSpawn?.(child.pid);
+    if (child.pid) onSpawn?.(child.pid, release);
+    else release();
     const cleanup = () => {
       for (const sig of FORWARDED_SIGNALS) process.off(sig, forward);
     };
@@ -205,17 +233,28 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   if (typeof jobId !== "string") return execute(); // unmanaged, or an answer we don't know
 
   const darwin = process.platform === "darwin";
+  const gate = !darwin && answer.scope === true;
   const code = await execute(
     { SHEPHERD_HEAVY_JOB: jobId },
     {
       detached: darwin,
+      gate,
       onSpawn: darwin
         ? (pid) =>
             void post(cfg, { op: "started", jobId, pgid: pid }, REPORT_TIMEOUT_MS).catch(() => {})
-        : undefined,
+        : gate
+          ? (_pid, release) =>
+              // Fail open: a failed or slow bind still runs the command, just unscoped.
+              void post(cfg, { op: "bind", jobId }, BIND_TIMEOUT_MS)
+                .catch(() => {})
+                .finally(release)
+          : undefined,
     },
   );
-  await post(cfg, { op: "finished", jobId, exitCode: code }, REPORT_TIMEOUT_MS).catch(() => {});
+  const done = await post(cfg, { op: "finished", jobId, exitCode: code }, REPORT_TIMEOUT_MS).catch(
+    () => null,
+  );
+  if (typeof done?.message === "string") process.stderr.write(`${done.message}\n`);
   return code;
 }
 

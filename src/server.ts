@@ -749,6 +749,8 @@ export interface AppDeps {
         | "acquireOperator"
         | "started"
         | "finish"
+        | "bind"
+        | "oomNote"
         | "applyConfig"
         | "refreshPressure"
         | "admitStart"
@@ -6873,9 +6875,10 @@ function boundedString(v: unknown, max: number): string | null {
 type HeavySlotDeps = Pick<
   import("./heavy-slot").HeavySlotService,
   "acquire" | "acquireOperator" | "started" | "finish"
->;
+> &
+  Partial<Pick<import("./heavy-slot").HeavySlotService, "bind" | "oomNote">>;
 
-/** The runner's three reports, keyed by `op`. Each validates its own body. */
+/** The runner's reports, keyed by `op`. Each validates its own body. */
 const HEAVY_SLOT_OPS: Record<
   string,
   (slot: HeavySlotDeps, id: string, body: Record<string, unknown>) => Promise<Response>
@@ -6897,18 +6900,31 @@ const HEAVY_SLOT_OPS: Record<
       return json({ error: "jobId and a positive integer pgid are required" }, 400);
     return json({ ok: await slot.started(id, jobId, pgid) });
   },
+  // Linux, #3555: the gated command asks for its own memory-limited scope before it execs.
+  async bind(slot, id, body) {
+    const jobId = boundedString(body.jobId, 200);
+    if (!jobId) return json({ error: "jobId must be a non-empty string" }, 400);
+    if (id === OPERATOR_HOLDER || !slot.bind) return json({ ok: false, scoped: false });
+    return json(await slot.bind(id, jobId));
+  },
   async finished(slot, id, body) {
     const jobId = boundedString(body.jobId, 200);
     if (!jobId) return json({ error: "jobId must be a non-empty string" }, 400);
     const code = body.exitCode;
     const exitCode = typeof code === "number" && Number.isInteger(code) ? code : null;
-    return json({ ok: await slot.finish(id, jobId, exitCode) });
+    const ok = await slot.finish(id, jobId, exitCode);
+    // Regardless of `ok`: an OOM stop kills every marker process, so a sweep can settle the job
+    // before this report lands — the note (and the unit's reset) must not depend on winning that
+    // race. oomNote checks the session owns the scoped job itself.
+    const message = slot.oomNote ? await slot.oomNote(id, jobId) : null;
+    return json(message ? { ok, oom: true, message } : { ok });
   },
 };
 
 // POST /api/sessions/:id/heavy-slot — the heavy-check runner (scripts/heavy-slot.mjs, #3181).
 // `op: "acquire"` asks for the host-wide slot before the command starts; `started` (macOS: the
-// process group) and `finished` report on a job of THIS session only. Reached through the agent
+// process group), `bind` (Linux: start the run's own scope, #3555) and `finished` report on a job
+// of THIS session only. Reached through the agent
 // ingress (allowlisted, per-session key); no service → 503, which the runner treats as fail-open.
 async function handleSessionHeavySlot({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "heavy-slot" && !parts[4])) return null;
@@ -6927,7 +6943,7 @@ function runHeavySlotOp(
   body: Record<string, unknown>,
 ): Promise<Response> | Response {
   const op = typeof body.op === "string" && Object.hasOwn(HEAVY_SLOT_OPS, body.op) ? body.op : null;
-  if (!op) return json({ error: "op must be acquire, started or finished" }, 400);
+  if (!op) return json({ error: "op must be acquire, started, bind or finished" }, 400);
   return HEAVY_SLOT_OPS[op]!(slot, id, body);
 }
 

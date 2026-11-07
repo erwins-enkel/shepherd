@@ -116,6 +116,14 @@ export function defaultHeavySlotBudget(
   };
 }
 
+/**
+ * The memory limit one heavy run gets with no configuration (#3555): a quarter of RAM, never below
+ * 4 GiB (a browser suite needs ~3) and never above 16 GiB (more than any measured check).
+ */
+export function defaultRunMemoryMaxBytes(memTotalBytes: number): number {
+  return Math.min(16 * GIB, Math.max(4 * GIB, Math.floor(memTotalBytes / 4)));
+}
+
 export const BRAKE_OFF: BrakeState = {
   engaged: false,
   reason: null,
@@ -594,6 +602,19 @@ export function queuedMessage(
     "Do not retry, poll, or skip this check. Continue with other work, or end your turn if nothing " +
       "else is left. Shepherd will message you when the slot is yours; then rerun this exact command.",
   ].join("\n");
+}
+
+/**
+ * What the runner prints when the run's own scope was stopped for exceeding its memory limit
+ * (#3555). Fixed English like {@link queuedMessage}: the agent must not read it as a test failure.
+ */
+export function heavyOomMessage(limitBytes: number): string {
+  const gib = (limitBytes / GIB).toFixed(limitBytes % GIB === 0 ? 0 : 1);
+  return (
+    `Shepherd: this heavy check hit its memory limit (${gib} GiB) and was stopped — the exit code ` +
+    "is not a test result. Run a narrower selection (fewer files or workers), or ask the operator " +
+    "to raise Settings → Resources → Memory per heavy run."
+  );
 }
 
 /** The steer that hands the queue head its slot. Fixed English, typed into the PTY. */

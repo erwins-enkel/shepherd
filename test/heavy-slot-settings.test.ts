@@ -3,6 +3,7 @@ import {
   EMPTY_HEAVY_SLOT_SETTINGS,
   parseHeavySlotPatch,
   effectiveHeavySlot,
+  heavySlotDefaults,
   storedHeavySlotSettings,
 } from "../src/heavy-slot-settings";
 import { recordHeavyPeak } from "../src/heavy-slot-apply";
@@ -66,4 +67,27 @@ test("unknown brake keys return a validation error, including inherited object n
     const patch = JSON.parse(`{"brake":{"${key}":10}}`);
     expect(parseHeavySlotPatch(patch, EMPTY_HEAVY_SLOT_SETTINGS).ok).toBe(false);
   }
+});
+
+test("memory per heavy run (#3555): null = a quarter of RAM in 4–16 GiB, else 512 MiB–1 TiB", () => {
+  const GIB = 1024 ** 3;
+  const run = (memTotalBytes: number, runMemoryMaxMiB: number | null = null) =>
+    effectiveHeavySlot(
+      { ...EMPTY_HEAVY_SLOT_SETTINGS, runMemoryMaxMiB },
+      { cpus: 8, memTotalBytes },
+      { enabled: true, slots: 0 },
+    ).runMemoryMaxBytes;
+  expect(run(8 * GIB)).toBe(4 * GIB);
+  expect(run(32 * GIB)).toBe(8 * GIB);
+  expect(run(128 * GIB)).toBe(16 * GIB);
+  expect(run(128 * GIB, 6144)).toBe(6 * GIB);
+  expect(heavySlotDefaults({ cpus: 8, memTotalBytes: 32 * GIB }).runMemoryMaxMiB).toBe(8192);
+
+  const parsed = parseHeavySlotPatch({ runMemoryMaxMiB: 6144 }, EMPTY_HEAVY_SLOT_SETTINGS);
+  expect(parsed.ok && storedHeavySlotSettings(JSON.stringify(parsed.value)).runMemoryMaxMiB).toBe(
+    6144,
+  );
+  expect(parseHeavySlotPatch({ runMemoryMaxMiB: null }, EMPTY_HEAVY_SLOT_SETTINGS).ok).toBe(true);
+  for (const runMemoryMaxMiB of [511, 1024 * 1024 + 1, 1.5, "6144"])
+    expect(parseHeavySlotPatch({ runMemoryMaxMiB }, EMPTY_HEAVY_SLOT_SETTINGS).ok).toBe(false);
 });

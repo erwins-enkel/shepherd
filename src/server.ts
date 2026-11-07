@@ -1016,11 +1016,15 @@ export interface AppDeps {
    *  Absent in tests that don't exercise it — the PRs route then fetches fresh. */
   openPrSnapshot?: Pick<OpenPrSnapshotService, "get"> &
     Partial<Pick<OpenPrSnapshotService, "invalidate" | "peek">>;
-  /** Repo fingerprint (#2756). `ensureFresh(slug)` runs before an operator view reads that repo's
-   *  issues, fingerprinting just that repo; `coversRepo` says the repo's issue changes are observed
-   *  (so the completed-epics GET leaves its reconcile to the fingerprint). Absent in tests that
-   *  don't exercise it. */
-  fingerprint?: { ensureFresh(slug: string): Promise<void>; coversRepo(repoDir: string): boolean };
+  /** Repo fingerprint (#2756). `ensureFresh(slug, demand)` runs before a view reads that repo's
+   *  issues, fingerprinting just that repo — `demand` (the client sent `fresh=1`: an operator
+   *  opening the view) allows a shorter gap than a timed re-request (#2869); `coversRepo` says
+   *  the repo's issue changes are observed (so the completed-epics GET leaves its reconcile to
+   *  the fingerprint). Absent in tests that don't exercise it. */
+  fingerprint?: {
+    ensureFresh(slug: string, demand?: boolean): Promise<void>;
+    coversRepo(repoDir: string): boolean;
+  };
   /** Force-refresh one repo's backlog counts (bypassing the read-TTL) and push the
    *  rebuilt overview to every client. Fired after a mutation that changes a repo's
    *  open issue/PR counts (e.g. a merge) so the counters + headline drop the item
@@ -10970,8 +10974,10 @@ async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | 
       return json({ slug: null, webUrl: null, issues: [], viewer: null, lightweight: false });
     // An operator opening the view: make sure this repo's fingerprint is recent, so the cached
     // list is current without a timed re-list (#2756). Just this repo — fingerprinting every
-    // tracked repo here held the view for seconds.
-    if (forge.kind === "github" && forge.slug) await deps.fingerprint?.ensureFresh(forge.slug);
+    // tracked repo here held the view for seconds. Only `fresh=1` (the operator opening the view)
+    // gets the short gap; a client polling waits out the background cadence (#2869).
+    if (forge.kind === "github" && forge.slug)
+      await deps.fingerprint?.ensureFresh(forge.slug, url.searchParams.get("fresh") === "1");
     return issuesResponse(forge);
   }
   return null;
@@ -12614,7 +12620,8 @@ async function handleEpicsList({ req, parts, url, deps }: Ctx): Promise<Response
   if (!deps.drain) return json({ epics: [], subIssues: [] });
   const forge = deps.resolveForge?.(dir) ?? null;
   if (!forge) return json({ epics: [], subIssues: [] });
-  if (forge.kind === "github" && forge.slug) await deps.fingerprint?.ensureFresh(forge.slug); // see handleIssues
+  if (forge.kind === "github" && forge.slug)
+    await deps.fingerprint?.ensureFresh(forge.slug, url.searchParams.get("fresh") === "1"); // see handleIssues
 
   const storedRun = deps.store.getEpicRun(dir);
   let openIssues: Awaited<ReturnType<typeof forge.listIssues>>;

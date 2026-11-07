@@ -147,13 +147,16 @@ export class RepoFingerprintService {
     await this.run();
   }
 
-  /** Make sure `slug`'s fingerprint is at most `minGapMs` old, fingerprinting just that repo now
-   *  if needed — for an operator opening its view. Never waits on a fleet run: one query for every
-   *  tracked repo takes seconds once there are dozens. Calls for the same slug share one run. */
-  ensureFresh(slug: string): Promise<void> {
+  /** Make sure `slug`'s fingerprint is recent, fingerprinting just that repo now if needed.
+   *  `demand` (an operator opening its view) allows `minGapMs` of age; any other caller — e.g. a
+   *  client re-requesting on a timer — the background `intervalMs`, so polling can't speed the
+   *  cadence up (#2869). Never waits on a fleet run: one query for every tracked repo takes
+   *  seconds once there are dozens. Calls for the same slug share one run. */
+  ensureFresh(slug: string, demand = false): Promise<void> {
     if (this.deps.rateLimit().blocked) return Promise.resolve();
     const s = this.state.get(slug);
-    if (s && !s.rehydrated && this.now() - s.observedAt < this.minGapMs) return Promise.resolve();
+    const gap = demand ? this.minGapMs : this.intervalMs;
+    if (s && !s.rehydrated && this.now() - s.observedAt < gap) return Promise.resolve();
     const inflight = this.scopedInflight.get(slug);
     if (inflight) return inflight;
     const targets = () => this.deps.listTargets().filter((t) => t.slug === slug);

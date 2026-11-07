@@ -113,15 +113,35 @@ test("GET /api/issues runs the fingerprint check before listing a GitHub repo, n
       }),
     ),
     fingerprint: {
-      ensureFresh: async (slug) => {
-        order.push(`fresh:${slug}`);
+      ensureFresh: async (slug, demand) => {
+        order.push(`fresh:${slug}:${demand}`);
       },
       coversRepo: () => true,
     },
   });
   expect((await makeApp(deps("github")).fetch(req(repoDir))).status).toBe(200);
   expect((await makeApp(deps("gitea")).fetch(req(repoDir))).status).toBe(200);
-  expect(order).toEqual(["fresh:team/proj", "list:github", "list:gitea"]);
+  expect(order).toEqual(["fresh:team/proj:false", "list:github", "list:gitea"]);
+});
+
+// #2869: only `fresh=1` (an operator opening the view) is a demand; any other request waits out
+// the background cadence.
+test("GET /api/issues passes fresh=1 to the fingerprint as a demand", async () => {
+  const demands: Array<boolean | undefined> = [];
+  const app = makeApp({
+    ...makeDeps(() => fakeForge({ kind: "github", listIssues: async () => [ISSUE] })),
+    fingerprint: {
+      ensureFresh: async (_slug, demand) => {
+        demands.push(demand);
+      },
+      coversRepo: () => true,
+    },
+  });
+  const url = (q: string) =>
+    new Request(`http://localhost/api/issues?repo=${encodeURIComponent(repoDir)}${q}`);
+  for (const q of ["&fresh=1", "", "&fresh=0", "&fresh=true"])
+    expect((await app.fetch(url(q))).status).toBe(200);
+  expect(demands).toEqual([true, false, false, false]);
 });
 
 test("GET /api/issues with no forge for repo → {slug:null, issues:[]}", async () => {

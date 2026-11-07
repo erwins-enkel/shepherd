@@ -1897,6 +1897,9 @@ export async function setShelved(id: string, shelved: boolean): Promise<void> {
   if (!r.ok) throw await failed(r, "shelve");
 }
 
+/** Open issues for one repo. Sends `fresh=1`: every caller is an operator opening or re-opening a
+ *  view, which lets the server re-fingerprint the repo after a short gap (#2869). A timer-driven
+ *  caller must not send it, or polling speeds up the fingerprint cadence. */
 export async function listIssues(repoPath: string): Promise<{
   slug: string | null;
   webUrl: string | null;
@@ -1920,7 +1923,7 @@ export async function listIssues(repoPath: string): Promise<{
    *  GitHub listings only, and only alongside `error`; absent everywhere else. */
   attempts?: IssueFetchAttempt[];
 }> {
-  const r = await fetch(`/api/issues?repo=${encodeURIComponent(repoPath)}`);
+  const r = await fetch(`/api/issues?repo=${encodeURIComponent(repoPath)}&fresh=1`);
   if (!r.ok) throw await failed(r, "issues");
   return r.json();
 }
@@ -3611,10 +3614,11 @@ export async function stopPreview(
 
 // ── epics ──────────────────────────────────────────────────────────────────
 
+/** Epic summaries for one repo. Sends `fresh=1` for the same reason as {@link listIssues}. */
 export async function getEpics(
   repoPath: string,
 ): Promise<{ epics: EpicSummary[]; subIssues: number[] }> {
-  return getJson(`/api/epics?repo=${encodeURIComponent(repoPath)}`, "get epics");
+  return getJson(`/api/epics?repo=${encodeURIComponent(repoPath)}&fresh=1`, "get epics");
 }
 
 export async function getEpic(repoPath: string, parent: number): Promise<Epic> {

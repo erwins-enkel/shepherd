@@ -3693,6 +3693,62 @@ test("#2743: terminal sessions are re-polled at most every 10 min despite finger
   expect(polls).toEqual(["done-none"]);
 });
 
+// #2869 AC1: at the 120 s sweep cadence a `done` session without a PR costs one head lookup per
+// 10 min — batched or per-session — while a running session is read every sweep.
+test("#2869: a done session without a PR is looked up at most once per 10 min of sweeps", async () => {
+  const store = new SessionStore(":memory:");
+  const done = store.create({ ...baseSession, herdrAgentId: "term_1", branch: "done-none" });
+  store.update(done.id, { status: "done" });
+  store.create({ ...baseSession, herdrAgentId: "term_2", branch: "running" });
+  const lookups: string[] = [];
+  const forge = forgeReturning(() => NONE);
+  forge.prStatus = async (branch) => {
+    lookups.push(branch);
+    return NONE;
+  };
+  forge.prStatusMany = async (heads) => {
+    lookups.push(...heads);
+    return new Map(heads.map((h) => [h, NONE]));
+  };
+  const { tick } = churnPoller(store, forge);
+  await tick(0);
+  for (let t = 120_000; t < 600_000; t += 120_000) await tick(120_000); // up to 480 s
+  await tick(60_000); // 540 s
+  expect(lookups.filter((b) => b === "done-none")).toHaveLength(1);
+  expect(lookups.filter((b) => b === "running")).toHaveLength(6);
+  await tick(60_000); // 600 s: the cap lapses
+  expect(lookups.filter((b) => b === "done-none")).toHaveLength(2);
+});
+
+// #2869 AC2: a repo the count-gate sends to the per-session path still reads its heads in one
+// aliased query, not one `gh pr list --head` each.
+test("#2869: a count-gated repo's heads share one prStatusMany query", async () => {
+  const store = new SessionStore(":memory:");
+  for (const [i, branch] of ["a", "b", "c"].entries())
+    store.create({ ...baseSession, herdrAgentId: `term_${i}`, branch });
+  let single = 0;
+  let listed = 0;
+  const many: string[][] = [];
+  const forge = forgeReturning(() => {
+    single++;
+    return NONE;
+  });
+  forge.countOpenPrs = async () => 50; // > batchOpenRatio (2) × 3 sessions → no repo batch
+  forge.listOpenPrStatuses = async () => {
+    listed++;
+    return new Map();
+  };
+  forge.prStatusMany = async (heads) => {
+    many.push(heads);
+    return new Map(heads.map((h) => [h, NONE]));
+  };
+  const { tick } = churnPoller(store, forge);
+  await tick(0);
+  expect(listed).toBe(0);
+  expect(many).toEqual([["a", "b", "c"]]);
+  expect(single).toBe(0);
+});
+
 test("#2743: a merge-train session is never terminal-capped", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create({ ...baseSession, herdrAgentId: "term_1", branch: "m" });

@@ -246,6 +246,12 @@ const glossary: readonly GlossaryTerm[] = [
     bodyKey: "gloss_sandbox_membrane_def",
   },
   {
+    id: "egress-firewall",
+    kind: "internal",
+    termKey: "gloss_egress_firewall_term",
+    bodyKey: "gloss_egress_firewall_def",
+  },
+  {
     id: "shared-browser",
     kind: "internal",
     termKey: "gloss_shared_browser_term",

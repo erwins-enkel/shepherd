@@ -53,6 +53,8 @@ import { BINARY_CANDIDATES, whichAsync } from "./shared-browser";
 import type { SessionStore } from "./store";
 import type { DiagnosticCheck, DiagnosticsSnapshot, DiagnosticState } from "./types";
 import type { MembraneLaunchFacts } from "./membrane-launch";
+import type { EgressProbeFacts } from "./egress";
+import type { SandboxBackend } from "./sandbox";
 
 const execFileAsync = promisify(execFile);
 
@@ -216,6 +218,11 @@ export interface DiagnosticsDeps {
    *  spawns bwrap, so an unwired/test run must never reach it; the fail-safe reject resolves the
    *  probe to its `optional`/uninspectable `onTimeout`, never a false ok. Wired in `index.ts`. */
   readMembraneLaunch?: () => Promise<MembraneLaunchFacts>;
+  /** Facts for the `sandbox_egress` row (#3459): bwrap backend, a FRESH async egress re-probe (which
+   *  refills the cache the spawn paths read) and the effectively-autonomous repo names. NO functional
+   *  default (the real read spawns the firewall stack); unwired ⇒ `optional`/uninspectable. Wired in
+   *  `index.ts`. */
+  readSandboxEgress?: () => Promise<SandboxEgressFacts>;
   /** LIVE freshness of the reaper's snapshot cell — a pure read, never a spawn.
    *  `DIAGNOSTICS_PROBE_TIMEOUT_MS` (5s) exceeds the refresh bound (3s), so the
    *  standalone probe alone would report `ok` on a host whose cell is frozen by
@@ -247,11 +254,13 @@ function unwired<T>(name: string): () => Promise<T> {
 function resolveUnwiredReads(deps: DiagnosticsDeps): {
   readHerdrFleet: () => Promise<HerdrFleetFacts>;
   readMembraneLaunch: () => Promise<MembraneLaunchFacts>;
+  readSandboxEgress: () => Promise<SandboxEgressFacts>;
   readComposeOrphans: () => Promise<number | null>;
 } {
   return {
     readHerdrFleet: deps.readHerdrFleet ?? unwired("readHerdrFleet"),
     readMembraneLaunch: deps.readMembraneLaunch ?? unwired("readMembraneLaunch"),
+    readSandboxEgress: deps.readSandboxEgress ?? unwired("readSandboxEgress"),
     readComposeOrphans: deps.readComposeOrphans ?? unwired("readComposeOrphans"),
   };
 }
@@ -286,10 +295,13 @@ function worstOf(checks: DiagnosticCheck[]): DiagnosticState {
 //  `sandbox_membrane` (#2111) is steady-state for the same reason: a launcher broken under the
 //  membrane stays broken until a human repairs the toolchain, and each re-check costs a real
 //  `bwrap` + `<agent> --version` spawn. Accelerating would fast-poll that forever with no path back.
+//  `sandbox_egress` (#3459) likewise: missing host packages never install themselves, and each
+//  re-check runs the full netns + slirp4netns + dnsmasq + nft self-test.
 const STEADY_STATE_ERROR_CHECK_IDS = new Set<string>([
   "host_capacity",
   "tmp_inodes",
   "sandbox_membrane",
+  "sandbox_egress",
 ]);
 
 /**
@@ -927,6 +939,49 @@ export function classifyMembraneLaunch(f: MembraneLaunchFacts): DiagnosticCheck 
   return { id: "sandbox_membrane", state: "ok", hintKey: "diagnostics_hint_sandbox_membrane_ok" };
 }
 
+// ── sandbox_egress check (#3459) ─────────────────────────────────────────────
+
+/** What the `sandbox_egress` row classifies. `egress` is null when `sandboxBackend` is null — no
+ *  bwrap backend means egress is never wired, so it is not probed. `autonomousRepos` are repo NAMES
+ *  (never paths) whose resolved sandbox profile is `autonomous`. */
+export interface SandboxEgressFacts {
+  sandboxBackend: SandboxBackend;
+  egress: EgressProbeFacts | null;
+  autonomousRepos: string[];
+}
+
+/**
+ * The `sandbox_egress` row (#3459): without the egress backend the autonomous profile cannot be
+ * enforced, so every unattended autonomous spawn is refused and interactive autonomous sessions
+ * run without network confinement — until now visible only in the server log.
+ *
+ * `error` only when some repo is actually autonomous; otherwise the gap is latent ⇒ `warning`.
+ * `null` (row omitted) on a host with no bwrap backend: `sandbox_membrane` already reports that the
+ * sandbox is unavailable, and egress never applies there.
+ *
+ * GUIDANCE-ONLY: the fix is a privileged package install (same reasoning as git/chromium in
+ * `GUIDANCE_ONLY`), so the per-distro commands live in the hint copy, not in `remediation`.
+ */
+export function classifySandboxEgress(f: SandboxEgressFacts): DiagnosticCheck | null {
+  if (f.sandboxBackend === null || f.egress === null) return null;
+  const id = "sandbox_egress";
+  if (f.egress.backend !== null) {
+    return { id, state: "ok", hintKey: "diagnostics_hint_sandbox_egress_ok" };
+  }
+  const blocking = f.autonomousRepos.length > 0;
+  const state: DiagnosticState = blocking ? "error" : "warning";
+  const kind = f.egress.missingTools.length > 0 ? "missing" : "selftest";
+  const hintParams: Record<string, string> = {};
+  if (kind === "missing") hintParams.tools = f.egress.missingTools.join(", ");
+  if (blocking) hintParams.repos = f.autonomousRepos.join(", ");
+  return {
+    id,
+    state,
+    hintKey: `diagnostics_hint_sandbox_egress_${kind}${blocking ? "_blocking" : ""}`,
+    ...(Object.keys(hintParams).length > 0 ? { hintParams } : {}),
+  };
+}
+
 // ── tmp_inodes check (#1862) ─────────────────────────────────────────────────
 // A tmpfs caps INODES independently of bytes, so an agent that puts a worktree + dependency
 // install on it can exhaust the table while `df -h` still shows the volume mostly empty. Every
@@ -1182,6 +1237,7 @@ export class DiagnosticsService {
   private readComposeOrphans: () => Promise<number | null>;
   private readTmpInodes: () => Promise<TmpInodeFacts>;
   private readMembraneLaunch: () => Promise<MembraneLaunchFacts>;
+  private readSandboxEgress: () => Promise<SandboxEgressFacts>;
   private runTmpSweep: () => Promise<void>;
   private applyHostLimits: (
     units: string[],
@@ -1252,6 +1308,7 @@ export class DiagnosticsService {
     this.readHerdrFleet = reads.readHerdrFleet;
     this.readComposeOrphans = reads.readComposeOrphans;
     this.readMembraneLaunch = reads.readMembraneLaunch;
+    this.readSandboxEgress = reads.readSandboxEgress;
     this.applyHostLimits = deps.applyHostLimits ?? defaultApplyHostLimits;
     const tmpSweep = resolveTmpSweepDeps(deps);
     this.readTmpInodes = tmpSweep.readTmpInodes;
@@ -1622,6 +1679,13 @@ export class DiagnosticsService {
     return check ? [check] : [];
   };
 
+  /** sandbox_egress (#3459): conditional row (omitted without a bwrap backend). Any read failure
+   *  resolves to `optional`/uninspectable in `check()`. */
+  private sandboxEgressProbe = async (): Promise<DiagnosticCheck[]> => {
+    const check = classifySandboxEgress(await this.readSandboxEgress());
+    return check ? [check] : [];
+  };
+
   /** preview_probes (#1912): does process/port detection work on this host?
    *  Classifies from BOTH the standalone backend probe AND the live snapshot-cell
    *  health (`probeHealth` is a pure read, so this adds no sync spawn). A probe
@@ -1768,7 +1832,7 @@ export class DiagnosticsService {
   /** Force a fresh run of all probes; sets the TTL cache. A probe that throws /
    *  times out resolves to its defined non-OK fallback — the batch never rejects. */
   async check(now: number): Promise<DiagnosticsSnapshot> {
-    const [checks, agentCliChecks, membraneChecks] = await Promise.all([
+    const [checks, agentCliChecks, membraneChecks, egressChecks] = await Promise.all([
       Promise.all(this.probes().map(({ run, onTimeout }) => run().catch(() => onTimeout))),
       this.agentCliProbes().catch((): DiagnosticCheck[] => [
         { id: "claude", state: "error", hintKey: "diagnostics_hint_claude_missing" },
@@ -1786,8 +1850,17 @@ export class DiagnosticsService {
           hintKey: "diagnostics_hint_sandbox_membrane_uninspectable",
         },
       ]),
+      // Conditional for the same reason (#3459): omitted without a bwrap backend; a rejected read
+      // (unwired, or a probe that timed out) is "couldn't check" ⇒ `optional`, never a false ok.
+      this.sandboxEgressProbe().catch((): DiagnosticCheck[] => [
+        {
+          id: "sandbox_egress",
+          state: "optional",
+          hintKey: "diagnostics_hint_sandbox_egress_uninspectable",
+        },
+      ]),
     ]);
-    checks.splice(4, 0, ...agentCliChecks, ...membraneChecks);
+    checks.splice(4, 0, ...agentCliChecks, ...membraneChecks, ...egressChecks);
     // Annotate each non-ok, auto-fixable check with its verbatim Fix command. Only
     // attach the key when a command exists (guidance-only / ok stay absent), so
     // payload-purity expectations hold.

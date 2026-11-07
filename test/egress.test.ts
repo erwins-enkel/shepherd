@@ -22,6 +22,9 @@ import {
   sweepEgressTmp,
   type EgressConfig,
   type EgressBackendProbeDeps,
+  refreshEgressBackend,
+  type EgressRefreshDeps,
+  type EgressCapturedRun,
 } from "../src/egress";
 import type { ForgeMap } from "../src/forge/types";
 import { existsSync, mkdtempSync, readFileSync, rmSync, mkdirSync } from "node:fs";
@@ -988,6 +991,105 @@ describe("detectEgressBackend", () => {
 });
 
 // ── spawn orchestration prep ───────────────────────────────────────────────────
+
+// ── refreshEgressBackend (#3459) ─────────────────────────────────────────────
+
+describe("refreshEgressBackend", () => {
+  const PROBE_TMP = "/tmp/shepherd-egress-refresh-test";
+  const FAKE_RUNNER = "/fake/scripts/egress-runner.sh";
+
+  /** Deps whose async capture reports `missing` tools as absent (exit 127) and the runner as `runnerExit`. */
+  function refreshDeps(
+    opts: { missing?: string[]; runnerExit?: number; slirpVersion?: string; calls?: string[] } = {},
+  ): EgressRefreshDeps {
+    const missing = new Set(opts.missing ?? []);
+    return {
+      runCapture: async (cmd: string): Promise<EgressCapturedRun> => {
+        opts.calls?.push(cmd);
+        if (missing.has(cmd)) return { status: 127, output: "" };
+        if (cmd === FAKE_RUNNER) return { status: opts.runnerExit ?? 0, output: "probe out" };
+        if (cmd === "slirp4netns")
+          return { status: 0, output: opts.slirpVersion ?? "slirp4netns version 1.2.0" };
+        return { status: 0, output: "" };
+      },
+      exists: (p: string) => p === FAKE_RUNNER,
+      runnerPath: FAKE_RUNNER,
+      home: "/home/testuser",
+      claudeDir: "/home/testuser/.claude",
+      nodeBinReal: "/usr/bin/node",
+      writeFile: () => {},
+      mkdtemp: () => PROBE_TMP,
+      rmdir: () => {},
+      isSymlink: () => false,
+      realpath: (p: string) => p,
+    };
+  }
+
+  const throwingRun = (): { status: number } => {
+    throw new Error("sync probe must not run — the cache should answer");
+  };
+
+  beforeEach(() => {
+    resetEgressBackendCache();
+    resetEgressHostLoopbackCache();
+  });
+
+  test("names exactly the missing tools, caches null, never runs the self-test", async () => {
+    const calls: string[] = [];
+    const facts = await refreshEgressBackend(
+      refreshDeps({ missing: ["slirp4netns", "dnsmasq"], calls }),
+    );
+    expect(facts).toEqual({ backend: null, missingTools: ["slirp4netns", "dnsmasq"] });
+    expect(calls).not.toContain(FAKE_RUNNER);
+    expect(detectEgressBackend({ run: throwingRun })).toBe(null);
+  });
+
+  test("all tools present + self-test exit 0 → slirp4netns, and the sync spawn path reads it from cache", async () => {
+    const facts = await refreshEgressBackend(refreshDeps());
+    expect(facts).toEqual({ backend: "slirp4netns", missingTools: [] });
+    expect(detectEgressBackend({ run: throwingRun })).toBe("slirp4netns");
+  });
+
+  test("re-probe after install flips a cached null to slirp4netns (no restart)", async () => {
+    await refreshEgressBackend(refreshDeps({ missing: ["dnsmasq"] }));
+    expect(detectEgressBackend({ run: throwingRun })).toBe(null);
+    await refreshEgressBackend(refreshDeps());
+    expect(detectEgressBackend({ run: throwingRun })).toBe("slirp4netns");
+  });
+
+  test("self-test non-zero → null with no missing tools", async () => {
+    const facts = await refreshEgressBackend(refreshDeps({ runnerExit: 1 }));
+    expect(facts).toEqual({ backend: null, missingTools: [] });
+    expect(detectEgressBackend({ run: throwingRun })).toBe(null);
+  });
+
+  test("missing runner script → null with no missing tools", async () => {
+    const deps = { ...refreshDeps(), exists: () => false };
+    expect(await refreshEgressBackend(deps)).toEqual({ backend: null, missingTools: [] });
+  });
+
+  test("a probe that cannot complete rejects and leaves the cache untouched", async () => {
+    await refreshEgressBackend(refreshDeps());
+    const deps: EgressRefreshDeps = {
+      ...refreshDeps(),
+      runCapture: async () => {
+        throw new Error("timed out");
+      },
+    };
+    let rejected = false;
+    await refreshEgressBackend(deps).catch(() => {
+      rejected = true;
+    });
+    expect(rejected).toBe(true);
+    expect(detectEgressBackend({ run: throwingRun })).toBe("slirp4netns");
+  });
+
+  test("re-derives host-loopback support from the freshly installed slirp4netns", async () => {
+    expect(detectEgressHostLoopback({ versionOutput: () => null })).toBe(false);
+    await refreshEgressBackend(refreshDeps({ slirpVersion: "slirp4netns version 1.2.0" }));
+    expect(detectEgressHostLoopback({ versionOutput: () => null })).toBe(true);
+  });
+});
 
 describe("egressRunnerPath", () => {
   test("resolves to an absolute scripts/egress-runner.sh that exists", () => {

@@ -122,7 +122,7 @@ import { PluginUpdateService } from "./plugin-update";
 import { RestartService } from "./restart";
 import { DiagnosticsService, defaultReadHerdrFleet, nextDiagnosticsDelay } from "./diagnostics";
 import { homedir } from "node:os";
-import { safeRealpath } from "./sandbox";
+import { detectBackend, resolveProfile, safeRealpath } from "./sandbox";
 import { readMembraneLaunchFacts } from "./membrane-launch";
 import { TelemetryService, normalizeTelemetryHealth } from "./telemetry";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
@@ -268,7 +268,7 @@ import { normalizeOperatorLanguage } from "./operator-language";
 import { normalizeStoredAssistantPermissions } from "./operator-assistant-permissions";
 import { EgressWatcher } from "./egress-watch";
 import { NetnsDevForwarder } from "./netns-dev-forward";
-import { detectEgressHostLoopback } from "./egress";
+import { detectEgressHostLoopback, refreshEgressBackend } from "./egress";
 import { RecapService, type LandedWorkEvidence } from "./recap";
 import { PostMergeStepsService } from "./post-merge-steps";
 import { materializeLandingManualSteps, materializeLandingOnClear } from "./epic-landing-steps";
@@ -4056,6 +4056,29 @@ const diagnostics = new DiagnosticsService({
       home: homedir(),
       nodeBinReal: safeRealpath(config.nodeBin),
     }),
+  // sandbox_egress (#3459): a FRESH async egress re-probe on every check — it refills the cache the
+  // drain/spawn paths read, so installing the packages + Re-run un-blocks autonomous spawns without a
+  // restart. Skipped (row omitted) without a bwrap backend. Same host env as the spawn paths.
+  readSandboxEgress: async () => {
+    const env = {
+      claudeDir: config.claudeDir,
+      home: homedir(),
+      nodeBinReal: safeRealpath(config.nodeBin),
+    };
+    const sandboxBackend = detectBackend(env);
+    if (sandboxBackend === null) return { sandboxBackend, egress: null, autonomousRepos: [] };
+    const autonomousRepos = listRepos(config.repoRoot)
+      .filter(
+        (r) =>
+          resolveProfile(
+            undefined,
+            store.getRepoConfig(r.path).sandboxProfile,
+            defaultSandboxProfile,
+          ) === "autonomous",
+      )
+      .map((r) => r.name);
+    return { sandboxBackend, egress: await refreshEgressBackend(env), autonomousRepos };
+  },
   // claude_install (#2052): the SHARED mise-vs-native probe, so the row and the spawn-env
   // auto-updater pin can never disagree — each read re-latches the pin from the state the row
   // renders. Wired here (not a ctor default) so no test ever spawns `mise which claude` against

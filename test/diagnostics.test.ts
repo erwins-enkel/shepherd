@@ -6,6 +6,7 @@ import {
   classifyHerdrFleet,
   classifyHostCapacity,
   classifyPreviewProbes,
+  classifySandboxEgress,
   classifyTmpInodes,
   defaultReadHerdrFleet,
   resolveChromiumBinary,
@@ -18,6 +19,7 @@ import {
   proposeHostLimits,
   type DiagnosticsDeps,
   type HostCapacityFacts,
+  type SandboxEgressFacts,
 } from "../src/diagnostics";
 import {
   parseCgroupUnit,
@@ -102,6 +104,13 @@ function healthyDeps(): DiagnosticsDeps {
         { agent: "claude" as const, state: "ok" as const },
         { agent: "codex" as const, state: "ok" as const },
       ],
+    }),
+    // sandbox_egress (#3459): egress self-test passes → ok. No functional default (the real read
+    // spawns the firewall stack), so it MUST be wired here or the row degrades to optional.
+    readSandboxEgress: async () => ({
+      sandboxBackend: "bwrap" as const,
+      egress: { backend: "slirp4netns" as const, missingTools: [] },
+      autonomousRepos: [],
     }),
     // Pin the Codex auth mode so the codex_model_auth advisory is deterministically absent here
     // (it must not depend on the test host's real ~/.codex/auth.json).
@@ -221,7 +230,7 @@ describe("DiagnosticsService probes", () => {
     const snap = await svc.check(1000);
     expect(snap.overall).toBe("ok");
     expect(snap.generatedAt).toBe(1000);
-    expect(snap.checks).toHaveLength(16);
+    expect(snap.checks).toHaveLength(17);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "chromium",
@@ -236,6 +245,7 @@ describe("DiagnosticsService probes", () => {
       "host_capacity",
       "node",
       "preview_probes",
+      "sandbox_egress",
       "sandbox_membrane",
       "tailscale",
       "tmp_inodes",
@@ -1076,7 +1086,7 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       anyLightweightRepo: () => true,
     });
     const snap = await svc.check(0);
-    expect(snap.checks).toHaveLength(17);
+    expect(snap.checks).toHaveLength(18);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "chromium",
@@ -1092,10 +1102,98 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       "host_capacity",
       "node",
       "preview_probes",
+      "sandbox_egress",
       "sandbox_membrane",
       "tailscale",
       "tmp_inodes",
     ]);
+  });
+});
+
+// ── sandbox_egress check (#3459) ────────────────────────────────────────────────
+describe("classifySandboxEgress", () => {
+  const facts = (o: Partial<SandboxEgressFacts> = {}): SandboxEgressFacts => ({
+    sandboxBackend: "bwrap",
+    egress: { backend: null, missingTools: ["slirp4netns", "dnsmasq"] },
+    autonomousRepos: [],
+    ...o,
+  });
+
+  it("ok when the egress self-test passes", () => {
+    expect(
+      classifySandboxEgress(facts({ egress: { backend: "slirp4netns", missingTools: [] } })),
+    ).toEqual({ id: "sandbox_egress", state: "ok", hintKey: "diagnostics_hint_sandbox_egress_ok" });
+  });
+
+  it("warning naming the missing tools when no repo is autonomous", () => {
+    expect(classifySandboxEgress(facts())).toEqual({
+      id: "sandbox_egress",
+      state: "warning",
+      hintKey: "diagnostics_hint_sandbox_egress_missing",
+      hintParams: { tools: "slirp4netns, dnsmasq" },
+    });
+  });
+
+  it("error naming tools AND affected repos when a repo is autonomous", () => {
+    expect(classifySandboxEgress(facts({ autonomousRepos: ["hundesport", "site"] }))).toEqual({
+      id: "sandbox_egress",
+      state: "error",
+      hintKey: "diagnostics_hint_sandbox_egress_missing_blocking",
+      hintParams: { tools: "slirp4netns, dnsmasq", repos: "hundesport, site" },
+    });
+  });
+
+  it("self-test failure with all tools present: warning, or error with repos", () => {
+    const selftest = { backend: null, missingTools: [] };
+    expect(classifySandboxEgress(facts({ egress: selftest }))).toEqual({
+      id: "sandbox_egress",
+      state: "warning",
+      hintKey: "diagnostics_hint_sandbox_egress_selftest",
+    });
+    expect(
+      classifySandboxEgress(facts({ egress: selftest, autonomousRepos: ["hundesport"] })),
+    ).toEqual({
+      id: "sandbox_egress",
+      state: "error",
+      hintKey: "diagnostics_hint_sandbox_egress_selftest_blocking",
+      hintParams: { repos: "hundesport" },
+    });
+  });
+
+  it("omitted on a host with no bwrap backend", () => {
+    expect(classifySandboxEgress(facts({ sandboxBackend: null, egress: null }))).toBeNull();
+  });
+
+  it("service: unwired read → optional/uninspectable row, never a false ok", async () => {
+    const deps = healthyDeps();
+    delete deps.readSandboxEgress;
+    const c = byId((await new DiagnosticsService(deps).check(0)).checks, "sandbox_egress");
+    expect(c).toEqual({
+      id: "sandbox_egress",
+      state: "optional",
+      hintKey: "diagnostics_hint_sandbox_egress_uninspectable",
+    });
+  });
+
+  it("service: blocking facts → error row right after sandbox_membrane, guidance-only", async () => {
+    const snap = await new DiagnosticsService({
+      ...healthyDeps(),
+      readSandboxEgress: async () => facts({ autonomousRepos: ["hundesport"] }),
+    }).check(0);
+    const ids = snap.checks.map((c) => c.id);
+    expect(ids.indexOf("sandbox_egress")).toBe(ids.indexOf("sandbox_membrane") + 1);
+    const c = byId(snap.checks, "sandbox_egress");
+    expect(c.state).toBe("error");
+    expect(c.remediation).toBeUndefined();
+    expect(snap.overall).toBe("error");
+  });
+
+  it("service: no bwrap backend → no row", async () => {
+    const snap = await new DiagnosticsService({
+      ...healthyDeps(),
+      readSandboxEgress: async () => facts({ sandboxBackend: null, egress: null }),
+    }).check(0);
+    expect(snap.checks.some((c) => c.id === "sandbox_egress")).toBe(false);
   });
 });
 
@@ -1710,6 +1808,10 @@ describe("nextDiagnosticsDelay", () => {
   // needs — is already exhausted.
   it("a tmp_inodes-only error does NOT accelerate (steady-state exempt)", () => {
     expect(delay([chk("tmp_inodes", "error"), chk("bun", "ok")])).toBe(DIAGNOSTICS_INTERVAL_MS);
+  });
+
+  it("a sandbox_egress-only error does NOT accelerate (steady-state exempt)", () => {
+    expect(delay([chk("sandbox_egress", "error"), chk("bun", "ok")])).toBe(DIAGNOSTICS_INTERVAL_MS);
   });
 
   it("tmp_inodes error alongside a transient error still accelerates (exemption is scoped)", () => {

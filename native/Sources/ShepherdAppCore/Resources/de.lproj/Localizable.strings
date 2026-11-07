@@ -232,6 +232,12 @@
 "diagnostics_hint_pwa_android" = "Installiere Shepherd für ein App-Symbol, eine Vollbild-Ansicht und ein Push-Abo, das die Speicherbereinigung des Browsers übersteht. Öffne das Browser-Menü → „App installieren“ / „Zum Startbildschirm hinzufügen“.";
 "diagnostics_hint_pwa_ios" = "Auf iOS funktionieren Shepherds Push-Benachrichtigungen nur, wenn die App zum Home-Bildschirm hinzugefügt ist — in einem Safari-Tab bekommst du keine. Tippe auf „Teilen“ und dann „Zum Home-Bildschirm“.";
 "diagnostics_hint_pwa_optional" = "Shepherd in diesem Browser zu installieren ist optional. Wo es unterstützt wird, ergänzt es ein App-Symbol, eine Vollbild-Ansicht und Push-Benachrichtigungen, die die Speicherbereinigung des Browsers überstehen.";
+"diagnostics_hint_sandbox_egress_missing" = "Die [[egress-firewall|Egress-Firewall]] ist nicht verfügbar, fehlende Werkzeuge: %1$@. Noch nutzt kein Repo Autonom, aber ein darauf gestelltes Repo könnte nicht unbeaufsichtigt starten. Installieren unter Arch: pacman -S --needed slirp4netns dnsmasq nftables — Debian/Ubuntu: apt install slirp4netns dnsmasq-base nftables. Danach die Checks neu prüfen; kein Neustart nötig.";
+"diagnostics_hint_sandbox_egress_missing_blocking" = "Die [[egress-firewall|Egress-Firewall]] ist nicht verfügbar, fehlende Werkzeuge: %1$@. Betroffene Repos auf Autonom: %2$@. Shepherd lehnt dort jeden unbeaufsichtigten Start ab, und interaktive Sitzungen laufen ohne Netzwerk-Abschottung. Installieren unter Arch: pacman -S --needed slirp4netns dnsmasq nftables — Debian/Ubuntu: apt install slirp4netns dnsmasq-base nftables. Danach die Checks neu prüfen; kein Neustart nötig.";
+"diagnostics_hint_sandbox_egress_ok" = "Die [[egress-firewall|Egress-Firewall]] funktioniert auf diesem Host, Repos auf Autonom laufen also mit Netzwerk-Abschottung.";
+"diagnostics_hint_sandbox_egress_selftest" = "Die Werkzeuge der [[egress-firewall|Egress-Firewall]] sind installiert, aber der Selbsttest ist fehlgeschlagen. Noch nutzt kein Repo Autonom, aber ein darauf gestelltes Repo könnte nicht unbeaufsichtigt starten. Der genaue Fehler steht in Shepherds Log; nach der Behebung die Checks neu prüfen.";
+"diagnostics_hint_sandbox_egress_selftest_blocking" = "Die Werkzeuge der [[egress-firewall|Egress-Firewall]] sind installiert, aber der Selbsttest ist fehlgeschlagen. Betroffene Repos auf Autonom: %1$@. Shepherd lehnt dort jeden unbeaufsichtigten Start ab, und interaktive Sitzungen laufen ohne Netzwerk-Abschottung. Der genaue Fehler steht in Shepherds Log; nach der Behebung die Checks neu prüfen.";
+"diagnostics_hint_sandbox_egress_uninspectable" = "Shepherd konnte die [[egress-firewall|Egress-Firewall]] auf diesem Host nicht prüfen (der Selbsttest wurde nicht fertig). Checks neu prüfen, um es erneut zu versuchen.";
 "diagnostics_hint_sandbox_membrane_broken" = "%1$@ startet auf diesem Host nicht in der [[sandbox-membrane|Sandbox-Membran]]. Deshalb verweigern alle eingeschränkten Helfer — Plan-Prüfer, Pull-Request-Kritiker, Doku-Agent — den Start, statt bis zum Timeout zu hängen. Meist versucht ein Versionsmanager, Dateien zu überschreiben, die die Sandbox schreibgeschützt hält. Der genaue Fehler steht in Shepherds Log.";
 "diagnostics_hint_sandbox_membrane_ok" = "Agent-Programme starten korrekt in der [[sandbox-membrane|Sandbox-Membran]], Prüfer und Kritiker können also eingeschränkt laufen.";
 "diagnostics_hint_sandbox_membrane_unavailable" = "Dieser Host hat keine funktionierende [[sandbox-membrane|Sandbox-Membran]] (bubblewrap fehlt oder ist blockiert). Repos mit Standardwert laufen als Vertraut (ohne Abschottung); ein auf Standard oder Autonom gestelltes Repo läuft ohne Abschottung und wird als eingeschränkt markiert.";
@@ -262,6 +268,7 @@
 "diagnostics_label_node" = "node";
 "diagnostics_label_preview_probes" = "Preview-Erkennung";
 "diagnostics_label_pwa_install" = "Home-Bildschirm-App";
+"diagnostics_label_sandbox_egress" = "Netzwerk-Firewall (Autonom)";
 "diagnostics_label_sandbox_membrane" = "Agent-Start in Sandbox";
 "diagnostics_label_tailscale" = "Tailscale";
 "diagnostics_label_tmp_inodes" = "Inodes im temporären Dateisystem";

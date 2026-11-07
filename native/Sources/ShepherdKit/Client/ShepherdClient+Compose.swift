@@ -308,6 +308,7 @@ extension ShepherdClient {
             case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
             case .unauthorized: throw ShepherdError.unauthenticated
             case .conflict(let value): throw ShepherdError.fromConflict(try value.body.json)
+            case .unprocessableContent(let bad): throw ShepherdError.unprocessable(try bad.body.json.error)
             case .serviceUnavailable(let value): throw ShepherdError.fromUpstream(try value.body.json)
             case .undocumented(let statusCode, let payload):
                 throw await ShepherdError.fromUndocumented(statusCode: statusCode, payload: payload, route: "patchEpicRun")

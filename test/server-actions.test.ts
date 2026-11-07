@@ -478,7 +478,7 @@ describe("POST /api/sessions/:id/ci/restart", () => {
     o: { git?: unknown; forge?: GitForge | null; withRestart?: boolean; held?: boolean } = {},
   ) {
     const holds = new CiRestartHolds({ set: () => 0, clear: () => {} });
-    if (o.held) holds.hold("s1");
+    if (o.held) holds.hold("s1", { name: "CI / gate" });
     const runs: { id: string; runId: number }[] = [];
     const deps: AppDeps = {
       ...makeDeps(() => (o.forge === undefined ? restartForge() : o.forge)),

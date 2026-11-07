@@ -303,7 +303,7 @@ describe("attachCiSteer during an operator CI restart (#2863)", () => {
 
   it("never steers the cancelled run; a re-run failing inside the hold window is steered", async () => {
     const h = restartHarness();
-    h.holds.hold("s1");
+    h.holds.hold("s1", { name: "test", startedAt: 1 });
     h.emit(red); // the cancelled run
     h.holds.rerunIssued("s1");
     h.emit(running); // the re-run is underway → the hold lifts
@@ -318,7 +318,7 @@ describe("attachCiSteer during an operator CI restart (#2863)", () => {
 
   it("a re-run that fails before the poller sees it running is steered when the hold expires", async () => {
     const h = restartHarness();
-    h.holds.hold("s1");
+    h.holds.hold("s1", { name: "test", startedAt: 1 });
     h.emit(red);
     h.holds.rerunIssued("s1");
     h.emit(red); // same pair: no in-flight sample was ever seen
@@ -331,7 +331,7 @@ describe("attachCiSteer during an operator CI restart (#2863)", () => {
 
   it("a failed restart announces the held red", async () => {
     const h = restartHarness();
-    h.holds.hold("s1");
+    h.holds.hold("s1", { name: "test", startedAt: 1 });
     h.emit(red);
     h.holds.release("s1", "failed");
     await Promise.resolve();
@@ -340,7 +340,7 @@ describe("attachCiSteer during an operator CI restart (#2863)", () => {
 
   it("a held red superseded by a newer result is not re-announced", async () => {
     const h = restartHarness();
-    h.holds.hold("s1");
+    h.holds.hold("s1", { name: "test", startedAt: 1 });
     h.emit(red);
     h.emit(passed);
     h.expire();

@@ -73,7 +73,7 @@ const finished = (c: ChecksState): c is "success" | "failure" => c === "success"
 
 /** Checks still running on the head. The rollup is worst-of with failure ABOVE pending, so a red
  *  rollup can still have jobs in flight; absent per-job data (REST fallback, Gitea) reads as none. */
-export function inFlight(git: GitState): boolean {
+function inFlight(git: GitState): boolean {
   return (
     (git.runningChecks?.length ?? 0) > 0 || (git.jobs ?? []).some((j) => j.state === "pending")
   );

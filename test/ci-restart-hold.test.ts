@@ -6,7 +6,9 @@ import {
   type CiRestartRelease,
 } from "../src/ci-restart-hold";
 import { EventHub } from "../src/events";
-import type { GitState } from "../src/forge/types";
+import type { GitState, WorkflowJob } from "../src/forge/types";
+
+const GATE = { name: "CI / gate", startedAt: 100 };
 
 /** Fake timers: one pending backstop per arm, fired by hand; `armed` counts set() calls. */
 function harness() {
@@ -24,37 +26,52 @@ function harness() {
   const released: [string, CiRestartRelease][] = [];
   holds.onRelease((id, reason) => released.push([id, reason]));
   const fire = () => [...timers.values()].forEach((fn) => fn());
-  const git = (running: boolean) =>
-    ({
-      kind: "github",
-      state: "open",
-      checks: running ? "pending" : "failure",
-      jobs: [{ name: "t", state: running ? "pending" : "failure" }],
-    }) as GitState;
-  const sample = (running: boolean) => events.emit("session:git", { id: "s1", git: git(running) });
+  const sample = (...jobs: WorkflowJob[]) =>
+    events.emit("session:git", {
+      id: "s1",
+      git: { kind: "github", state: "open", checks: "pending", jobs } as GitState,
+    });
   return { holds, events, released, fire, sample, pending: () => timers.size };
 }
 
 describe("CiRestartHolds", () => {
-  it("moves cancelling → rerun and lifts on the re-run's first in-flight sample only", () => {
+  const gate = (state: WorkflowJob["state"], startedAt?: number): WorkflowJob => ({
+    name: GATE.name,
+    state,
+    ...(startedAt === undefined ? {} : { startedAt }),
+  });
+  const other: WorkflowJob = { name: "Docs / build", state: "pending", startedAt: 50 };
+
+  it("moves cancelling → rerun and lifts only once the restarted job runs a new attempt", () => {
     const h = harness();
-    h.holds.hold("s1");
+    h.holds.hold("s1", GATE);
     expect(h.holds.phase("s1")).toBe("cancelling");
-    h.sample(true); // the cancel itself can still show jobs running: not the re-run yet
+    h.sample(gate("pending", 300)); // not the re-run yet: still cancelling
     expect(h.holds.held("s1")).toBe(true);
     h.holds.rerunIssued("s1");
     expect(h.holds.phase("s1")).toBe("rerun");
-    h.sample(false);
+    h.sample(gate("pending", 100)); // the cancelled attempt itself, not yet settled
+    h.sample(gate("failure", 100));
     expect(h.holds.held("s1")).toBe(true);
-    h.sample(true);
+    h.sample(gate("pending")); // the re-run, queued
     expect(h.holds.held("s1")).toBe(false);
     expect(h.released).toEqual([["s1", "running"]]);
     expect(h.pending()).toBe(0);
   });
 
+  it("another workflow still running does not lift the hold while the restarted job reads red", () => {
+    const h = harness();
+    h.holds.hold("s1", GATE);
+    h.holds.rerunIssued("s1");
+    h.sample(gate("failure", 100), other);
+    expect(h.holds.held("s1")).toBe(true);
+    h.sample(gate("pending", 400), other);
+    expect(h.released).toEqual([["s1", "running"]]);
+  });
+
   it("expires on the backstop, which rerunIssued restarts", () => {
     const h = harness();
-    h.holds.hold("s1");
+    h.holds.hold("s1", GATE);
     h.holds.rerunIssued("s1");
     expect(h.pending()).toBe(1); // the first backstop was cleared, one remains
     h.fire();
@@ -64,12 +81,12 @@ describe("CiRestartHolds", () => {
 
   it("reports a failed restart, ignores a re-run on an unheld session, drops archived silently", () => {
     const h = harness();
-    h.holds.hold("s1");
+    h.holds.hold("s1", GATE);
     h.holds.release("s1", "failed");
     expect(h.released).toEqual([["s1", "failed"]]);
     h.holds.rerunIssued("s1");
     expect(h.holds.held("s1")).toBe(false);
-    h.holds.hold("s1");
+    h.holds.hold("s1", GATE);
     h.events.emit("session:archived", { id: "s1" });
     expect(h.holds.held("s1")).toBe(false);
     expect(h.released).toHaveLength(1);
@@ -112,7 +129,7 @@ describe("restartCiRun", () => {
     const h = harness();
     const f = forge(["in_progress", "completed"]);
     const polled: string[] = [];
-    h.holds.hold("s1");
+    h.holds.hold("s1", GATE);
     await restartCiRun({
       id: "s1",
       runId: 7,
@@ -133,7 +150,7 @@ describe("restartCiRun", () => {
       [forge([], "cancel"), 1],
     ] as const) {
       const h = harness();
-      h.holds.hold("s1");
+      h.holds.hold("s1", GATE);
       await restartCiRun({
         id: "s1",
         runId: 7,

@@ -5,8 +5,10 @@
  * — would tell the agent to fix what was the operator's cancel. This holds them for the session.
  *
  * Phases: `cancelling` from the click, `rerun` once the re-run is issued. The hold lifts:
- *  - `running`: on the first `session:git` sample with checks in flight during `rerun` — the
- *    re-run is underway, so every later result is a fresh edge both consumers see normally;
+ *  - `running`: on the first `session:git` sample during `rerun` that shows the RESTARTED job
+ *    pending on a new attempt (another workflow still running proves nothing: GitHub registers a
+ *    re-run's check runs asynchronously, so the cancelled job can still read red) — the re-run is
+ *    underway, so every later result is a fresh edge both consumers see normally;
  *  - `expired`: on the backstop timer (BACKSTOP_MS after `hold`, reset by `rerunIssued`);
  *  - `failed`: when the background restart fails.
  * Listeners learn the reason, so a red sample held back during the hold can be announced when the
@@ -14,10 +16,22 @@
  */
 import type { EventHub } from "./events";
 import type { GitState } from "./forge/types";
-import { inFlight } from "./ci-steer";
 
 export type CiRestartPhase = "cancelling" | "rerun";
 export type CiRestartRelease = "running" | "expired" | "failed";
+
+/** The job the operator restarted, as the PR cache showed it at the click. */
+export interface RestartedJob {
+  name: string;
+  startedAt?: number;
+}
+
+/** The restarted job is running again on a new attempt: pending, and not the cancelled one (a
+ *  re-run's job starts later; a still-queued one has no start yet). */
+function rerunRunning(git: GitState, job: RestartedJob): boolean {
+  const cur = (git.jobs ?? []).find((j) => j.name === job.name);
+  return cur?.state === "pending" && cur.startedAt !== job.startedAt;
+}
 
 /** Long enough for the cancel wait plus one cold PR sweep after the re-run. */
 const BACKSTOP_MS = 3 * 60_000;
@@ -37,7 +51,7 @@ const REAL_TIMERS: Timers = {
 };
 
 export class CiRestartHolds {
-  #holds = new Map<string, { phase: CiRestartPhase; timer: unknown }>();
+  #holds = new Map<string, { phase: CiRestartPhase; job: RestartedJob; timer: unknown }>();
   #listeners: ((id: string, reason: CiRestartRelease) => void)[] = [];
 
   constructor(
@@ -45,14 +59,15 @@ export class CiRestartHolds {
     private readonly backstopMs = BACKSTOP_MS,
   ) {}
 
-  /** The operator clicked Re-run: hold red-CI steers while the run is cancelled. */
-  hold(id: string): void {
-    this.#arm(id, "cancelling");
+  /** The operator clicked Re-run on `job`: hold red-CI steers while its run is cancelled. */
+  hold(id: string, job: RestartedJob): void {
+    this.#arm(id, "cancelling", job);
   }
 
-  /** The re-run was issued: lift on its first in-flight sample; the backstop restarts. */
+  /** The re-run was issued: lift once the job runs again; the backstop restarts. */
   rerunIssued(id: string): void {
-    if (this.#holds.has(id)) this.#arm(id, "rerun");
+    const h = this.#holds.get(id);
+    if (h) this.#arm(id, "rerun", h.job);
   }
 
   release(id: string, reason: CiRestartRelease): void {
@@ -75,12 +90,13 @@ export class CiRestartHolds {
     this.#listeners.push(cb);
   }
 
-  /** Lift on the re-run's first in-flight sample; drop an archived session's hold silently. */
+  /** Lift once the restarted job runs again; drop an archived session's hold silently. */
   attach(events: EventHub): void {
     events.subscribe((event, data) => {
       if (event === "session:git") {
         const { id, git } = data as { id: string; git: GitState };
-        if (this.phase(id) === "rerun" && inFlight(git)) this.release(id, "running");
+        const h = this.#holds.get(id);
+        if (h?.phase === "rerun" && rerunRunning(git, h.job)) this.release(id, "running");
       } else if (event === "session:archived") {
         const id = (data as { id: string }).id;
         const h = this.#holds.get(id);
@@ -90,11 +106,11 @@ export class CiRestartHolds {
     });
   }
 
-  #arm(id: string, phase: CiRestartPhase): void {
+  #arm(id: string, phase: CiRestartPhase, job: RestartedJob): void {
     const prev = this.#holds.get(id);
     if (prev) this.timers.clear(prev.timer);
     const timer = this.timers.set(() => this.release(id, "expired"), this.backstopMs);
-    this.#holds.set(id, { phase, timer });
+    this.#holds.set(id, { phase, job, timer });
   }
 }
 

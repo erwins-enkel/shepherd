@@ -355,6 +355,7 @@ import {
   runIdFromJobUrl,
   type CiRestartForge,
   type CiRestartHolds,
+  type RestartedJob,
 } from "./ci-restart-hold";
 import { sessionMessages } from "./agent-messages";
 import { SessionPhaseService } from "./session-phase";
@@ -6053,10 +6054,11 @@ async function handleSessionCiRestart({ req, parts, deps }: Ctx): Promise<Respon
   const target = ciRestartTarget(deps, s, body.job);
   if (target instanceof Response) return target;
   if (ciRestart.holds.held(s.id)) return json({ error: "restart in progress" }, 409);
-  ciRestart.holds.hold(s.id);
+  ciRestart.holds.hold(s.id, target.job);
   void (ciRestart.run ?? restartCiRun)({
     id: s.id,
-    ...target,
+    runId: target.runId,
+    forge: target.forge,
     holds: ciRestart.holds,
     refreshPr: ciRestart.refreshPr,
   });
@@ -6069,7 +6071,7 @@ function ciRestartTarget(
   deps: AppDeps,
   s: Session,
   jobName: string,
-): { runId: number; forge: CiRestartForge } | Response {
+): { runId: number; forge: CiRestartForge; job: RestartedJob } | Response {
   const git = deps.prCache?.get(s.id);
   if (git?.state !== "open") return json({ error: "no open PR" }, 409);
   const job = (git.jobs ?? []).find((j) => j.name === jobName);
@@ -6077,7 +6079,7 @@ function ciRestartTarget(
   const runId = runIdFromJobUrl(job.url);
   const forge = restartableForge(deps.resolveForge?.(s.repoPath) ?? null);
   if (runId === null || !forge) return json({ error: "unsupported" }, 400);
-  return { runId, forge };
+  return { runId, forge, job: { name: job.name, startedAt: job.startedAt } };
 }
 
 /** The forge's restart calls, or null when it lacks any (only GitHub has all three). */

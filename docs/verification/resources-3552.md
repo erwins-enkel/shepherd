@@ -27,28 +27,9 @@ marks. A run shorter than a scan interval can be missed; unavailable measurement
 The open panel refreshes live status, but command peaks currently refresh on reopen or save.
 External-load values come from the existing snapshot and stay unknown if that producer has none.
 
-## Pressure-brake evidence and limitation
+## Pressure-brake evidence
 
-No new default threshold is selected by this change. The inherited provisional limits remain
-`min(4 GiB, 15% of RAM)`, PSI memory `full avg10` 20%, and a 30-second healthy hold. The page
-explicitly labels them provisional rather than presenting them as measured recommendations.
-
-Ten one-second observations from `/proc/meminfo` and `/proc/pressure/memory` on this development
-host, 2026-10-28 23:09:20–23:09:29 UTC, during targeted verification / CLI compilation:
-
-| Measurement             | Observed         |
-| ----------------------- | ---------------- |
-| Total memory            | 30.63 GiB        |
-| Available memory        | 12.63–13.87 GiB  |
-| Memory PSI `full avg10` | 0.00% throughout |
-| Memory PSI `full avg60` | 0.13–0.15%       |
-
-These observations demonstrate a healthy operating point only. They **do not** validate the
-low-memory cutoff, PSI threshold, or release time, and do not satisfy the requested load
-calibration. Selecting validated defaults needs a controlled representative workload on an
-isolated host: record available RAM, full PSI, job RSS, completion times and interactive latency
-while varying concurrency; then replay measured pressure traces through the brake. Do not
-manufacture memory pressure on the shared operator host to obtain such data.
-
-The implementation tests verify threshold behavior and release hysteresis independently of
-whether these provisional values are good defaults. Calibration remains follow-up work in [#3589](https://github.com/erwins-enkel/shepherd/issues/3589).
+This change selected no thresholds; it inherited the provisional `min(4 GiB, 15% of RAM)`, PSI
+memory `full avg10` 20% and 30-second hold. They were calibrated against measured load in
+[#3589](https://github.com/erwins-enkel/shepherd/issues/3589); method, data and the resulting
+defaults: [pressure-brake-3589.md](pressure-brake-3589.md).

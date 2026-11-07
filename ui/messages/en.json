@@ -7953,7 +7953,7 @@
   "resources_remove_command": "Remove {command}",
   "resources_add": "Add command",
   "resources_brake": "Pressure brake",
-  "resources_brake_hint": "The inherited limits are provisional, not validated recommendations. Memory peaks are sampled and may miss short spikes.",
+  "resources_brake_hint": "Defaults are calibrated against measured Linux load. Memory peaks are sampled and may miss short spikes.",
   "resources_ram": "Minimum available RAM (MiB)",
   "resources_psi": "Maximum memory PSI full (%)",
   "resources_release": "Release after healthy readings (seconds)",

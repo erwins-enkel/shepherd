@@ -11,6 +11,7 @@
  *   bun run scripts/usage-report.ts --recent 5       # 5 most-recent (ex-ops)
  *   bun run scripts/usage-report.ts --md             # markdown tables
  *   bun run scripts/usage-report.ts --include-excluded
+ *   bun run scripts/usage-report.ts --phase-split --md  # plan/execute split (#1951)
  *
  * NOTE: the "cost-units" everywhere below are the RELATIVE per-Mtok cost-proxy
  * from src/pricing.ts (`weightedUnits`) — never dollars. Only ratios matter.
@@ -29,6 +30,23 @@ import {
 import { weightedUnits, cacheWriteUnits } from "../src/pricing";
 import { isOperationalArchetype } from "../src/usage-archetype";
 import { config } from "../src/config";
+import {
+  cohortOf,
+  cohortSummary,
+  distributionRows,
+  execKindCells,
+  lengthBucketRows,
+  phaseRow,
+  phaseRowCells,
+  phaseSplit,
+  summaryCells,
+  BUCKET_HEADERS,
+  DIST_HEADERS,
+  KIND_HEADERS,
+  PHASE_HEADERS,
+  SUMMARY_HEADERS,
+  type PhaseRow,
+} from "./usage-phase-split";
 
 // ── DB shape ────────────────────────────────────────────────────────────────
 
@@ -78,17 +96,25 @@ interface Args {
   recent: number | null;
   md: boolean;
   includeExcluded: boolean;
+  phaseSplit: boolean;
 }
 
 /** The five sample tasks used when no designations and no --recent are given. */
 const DEFAULT_SAMPLE = ["TASK-286", "TASK-287", "TASK-288", "TASK-290", "TASK-295"];
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { desigs: [], recent: null, md: false, includeExcluded: false };
+  const args: Args = {
+    desigs: [],
+    recent: null,
+    md: false,
+    includeExcluded: false,
+    phaseSplit: false,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--md") args.md = true;
     else if (a === "--include-excluded") args.includeExcluded = true;
+    else if (a === "--phase-split") args.phaseSplit = true;
     else if (a === "--recent") {
       const raw = argv[++i];
       const n = Number(raw);
@@ -820,9 +846,9 @@ export function totalsCells(rows: ReportRow[]): string[] {
   ];
 }
 
-function renderMarkdownTable(rows: string[][]): string {
-  const head = `| ${HEADERS.join(" | ")} |`;
-  const sep = `| ${HEADERS.map(() => "---").join(" | ")} |`;
+function renderMarkdownTable(rows: string[][], headers: string[] = HEADERS): string {
+  const head = `| ${headers.join(" | ")} |`;
+  const sep = `| ${headers.map(() => "---").join(" | ")} |`;
   const body = rows.map((r) => `| ${r.map(mdCell).join(" | ")} |`);
   return [head, sep, ...body].join("\n");
 }
@@ -832,12 +858,12 @@ export function mdCell(s: string): string {
   return s.replace(/\r?\n/g, " ").replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
 }
 
-function renderPlainTable(rows: string[][]): string {
-  const all = [HEADERS, ...rows];
-  const widths = HEADERS.map((_, c) => Math.max(...all.map((r) => (r[c] ?? "").length)));
+function renderPlainTable(rows: string[][], headers: string[] = HEADERS): string {
+  const all = [headers, ...rows];
+  const widths = headers.map((_, c) => Math.max(...all.map((r) => (r[c] ?? "").length)));
   const fmtRow = (r: string[]) => r.map((cell, c) => (cell ?? "").padEnd(widths[c]!)).join("  ");
   const sep = widths.map((w) => "-".repeat(w)).join("  ");
-  return [fmtRow(HEADERS), sep, ...rows.map(fmtRow)].join("\n");
+  return [fmtRow(headers), sep, ...rows.map(fmtRow)].join("\n");
 }
 
 const LEGEND = [
@@ -879,6 +905,85 @@ function render(
   return parts.join("\n");
 }
 
+// ── --phase-split (#1951) ─────────────────────────────────────────────────---
+
+/** The sessions-row fields --phase-split reads. Optional ones may be absent on a legacy DB. */
+interface PhaseSessionRow {
+  desig: string;
+  name: string;
+  prompt: string;
+  worktreePath: string;
+  model: string | null;
+  claudeSessionId: string | null;
+  spawnAccountDir?: string | null;
+  agentProvider?: string | null;
+  effort?: string | null;
+  executionEffort?: string | null;
+  activeEffort?: string | null;
+}
+
+/** Claude task sessions (ex-ops), newest first, narrowed by explicit desigs and bounded by --recent.
+ *  `SELECT *` so a DB without the newer effort columns reads them as absent. */
+function fetchPhaseCandidates(db: Database, args: Args): PhaseSessionRow[] {
+  const all = db
+    .query<PhaseSessionRow, []>("SELECT * FROM sessions ORDER BY createdAt DESC")
+    .all()
+    .filter((r) => r.claudeSessionId && r.agentProvider !== "codex" && !isOperationalArchetype(r));
+  const narrowed = args.desigs.length ? all.filter((r) => args.desigs.includes(r.desig)) : all;
+  return args.recent !== null ? narrowed.slice(0, args.recent) : narrowed;
+}
+
+async function phaseRowFor(r: PhaseSessionRow): Promise<PhaseRow | null> {
+  const lines = await readLines(
+    jsonlPathFor(r.worktreePath, r.claudeSessionId!, r.spawnAccountDir),
+  );
+  const split = lines ? phaseSplit(lines) : null;
+  if (!split) return null;
+  const cohort = cohortOf({
+    executionEffort: r.executionEffort ?? null,
+    activeEffort: r.activeEffort ?? null,
+    effort: r.effort ?? null,
+  });
+  return phaseRow({ desig: r.desig, model: r.model ?? "unknown", cohort }, split);
+}
+
+const PHASE_LEGEND = [
+  "Legend:",
+  "  Cohort      switched = #3434 execution effort in force at archive and != planning effort; baseline = every other plan-gated session",
+  "  Ctx@Go      context tokens of the last main-thread request before the Go steer; Opener = first request's context + estimated plan tokens",
+  "  Tier/Reset/Both/In-pane save  execution-phase cost saved ÷ session total: re-priced at Sonnet 5.5 / minus carried planning context from reads then writes (+1 cold opener write unless the first exec turn was already cold) / both / tier + one cold rebuild of Ctx@Go at Sonnet 5.5 (same exception). UPPER BOUNDS — token counts held fixed",
+  "  Flags       regated = re-gate steer after Go; plan? = no .shepherd-plan.md Write found (plan size counted as 0)",
+  "  *cost       RELATIVE per-Mtok cost-proxy (src/pricing.ts weightedUnits) — NOT dollars; only ratios are meaningful.",
+];
+
+async function runPhaseSplit(db: Database, args: Args): Promise<string> {
+  const candidates = fetchPhaseCandidates(db, args);
+  const rows = (await Promise.all(candidates.map(phaseRowFor))).filter(
+    (r): r is PhaseRow => r !== null,
+  );
+  const table = (cells: string[][], headers: string[]) =>
+    args.md ? renderMarkdownTable(cells, headers) : renderPlainTable(cells, headers);
+  const h = (t: string) => (args.md ? `## ${t}` : `=== ${t} ===`);
+  const legend = args.md
+    ? PHASE_LEGEND.map((l) => (l === "Legend:" ? `**${l}**` : `- ${l.trim()}`))
+    : PHASE_LEGEND;
+  return [
+    h(
+      `Plan/execute phase split — ${rows.length} plan-gated of ${candidates.length} Claude sessions`,
+    ),
+    table(cohortSummary(rows).map(summaryCells), SUMMARY_HEADERS),
+    h("Execution cost by token kind"),
+    table([execKindCells(rows)], KIND_HEADERS),
+    h("Context sizes"),
+    table(distributionRows(rows), DIST_HEADERS),
+    h("Savings by execution length"),
+    table(lengthBucketRows(rows), BUCKET_HEADERS),
+    h("Per session"),
+    table(rows.map(phaseRowCells), PHASE_HEADERS),
+    legend.join("\n"),
+  ].join("\n\n");
+}
+
 // ── main ──────────────────────────────────────────────────────────────────--
 
 async function buildGroup(
@@ -906,6 +1011,12 @@ async function buildGroup(
 async function main(): Promise<void> {
   const args = parseArgs(Bun.argv.slice(2));
   const db = openDb();
+  if (args.phaseSplit) {
+    const out = await runPhaseSplit(db, args);
+    db.close();
+    process.stdout.write(out + "\n");
+    return;
+  }
 
   const reviews = db.query<ReviewRow, []>("SELECT sessionId, headSha FROM reviews").all();
   const planGates = db.query<PlanGateRow, []>("SELECT sessionId FROM plan_gates").all();

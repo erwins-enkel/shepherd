@@ -16,6 +16,12 @@ closed **#551** — `src/egress.ts`) confines outbound traffic to
 `api.anthropic.com` + `statsig.anthropic.com` + the GitHub hosts, and watches
 for DNS drops. Egress is keyed to the **autonomous profile**, not to
 attendedness (`src/sandbox.ts` `egressApplies`).
+Without the backend every unattended autonomous spawn is refused. The DIAGNOSE
+row `sandbox_egress` (#3459) reports it, naming the missing tools and the
+affected autonomous repos. Each DIAGNOSE check re-runs the self-test async
+(`refreshEgressBackend`) and refills the per-process cache the spawn paths
+read, so installing the packages + **Re-run checks** un-blocks them without a
+restart.
 The toolchain is bound read-only: node's bin dir and the server's own bun
 (`config.bunBin`, #3351) land on the membrane PATH. Under `autonomous`,
 `bun install` still fails, since no package registry is an egress host.

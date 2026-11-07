@@ -21,8 +21,10 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 import { execFileSync } from "./instrument";
 import { resolveNodeBin } from "./node-bin";
 import { shepherdRuntimeDir } from "./runtime-dir";
@@ -97,7 +99,8 @@ export function egressRunnerPath(): string {
 
 let _egressBackendCache: EgressBackend | undefined;
 
-/** Clear the per-process egress backend cache (tests). */
+/** Clear the per-process egress backend cache. {@link refreshEgressBackend} overwrites it in
+ *  production (the DIAGNOSE re-probe); this plain reset is for tests. */
 export function resetEgressBackendCache(): void {
   _egressBackendCache = undefined;
 }
@@ -273,6 +276,125 @@ export function detectEgressHostLoopback(
 
   _egressHostLoopbackCache = result;
   return result;
+}
+
+// ── async re-probe (DIAGNOSE `sandbox_egress`, #3459) ────────────────────────
+
+const execFileAsync = promisify(execFile);
+
+/** Budget for each async probe step. The self-test brings up a netns, slirp4netns, dnsmasq, an nft
+ *  ruleset and a nested bwrap, so it gets far more than the 5s generic diagnostics budget. */
+const EGRESS_PROBE_TIMEOUT_MS = 15_000;
+
+/** Longest self-test output tail written to the server log. */
+const EGRESS_PROBE_DETAIL_MAX = 2_000;
+
+/** What the DIAGNOSE row classifies: the verdict plus which required tools are absent (empty when
+ *  all are present — a null `backend` then means the self-test itself failed). */
+export interface EgressProbeFacts {
+  backend: EgressBackend;
+  missingTools: string[];
+}
+
+/** Captured run for the async probe. */
+export interface EgressCapturedRun {
+  status: number;
+  output: string;
+}
+
+export interface EgressRefreshDeps extends EgressBackendProbeDeps {
+  /** Async spawn + capture; default `execFileAsync` with {@link EGRESS_PROBE_TIMEOUT_MS}. A non-zero
+   *  exit RESOLVES with its status; a spawn that could not run to completion (timeout) REJECTS. */
+  runCapture?: (cmd: string, args: string[]) => Promise<EgressCapturedRun>;
+}
+
+/** Default capture: async (never `execFileSync` — the server is one Bun loop). Refuses to run under
+ *  NODE_ENV=test so an un-injected test can never spawn the real firewall stack. */
+async function defaultEgressRunCapture(cmd: string, args: string[]): Promise<EgressCapturedRun> {
+  if (process.env.NODE_ENV === "test") {
+    throw new Error(
+      "refreshEgressBackend reached its real spawn under NODE_ENV=test — inject runCapture",
+    );
+  }
+  try {
+    const { stdout, stderr } = await execFileAsync(cmd, args, {
+      encoding: "utf8",
+      timeout: EGRESS_PROBE_TIMEOUT_MS,
+    });
+    return { status: 0, output: `${stdout}${stderr}` };
+  } catch (e) {
+    const err = e as { code?: unknown; killed?: boolean; stdout?: string; stderr?: string };
+    // ENOENT (tool absent) has a string code: that IS a definitive "missing", not a failure to probe.
+    if (err.code === "ENOENT") return { status: 127, output: "" };
+    // A timeout kills the child (`killed`, no numeric code): the probe failed to run → reject.
+    if (err.killed || typeof err.code !== "number") throw e;
+    return { status: err.code, output: `${err.stdout ?? ""}${err.stderr ?? ""}` };
+  }
+}
+
+/** Run the full-nesting self-test (tools already known present). Writes no cache. */
+async function runEgressSelfTest(
+  deps: EgressRefreshDeps,
+  runCapture: (cmd: string, args: string[]) => Promise<EgressCapturedRun>,
+): Promise<EgressBackend> {
+  const runnerPath = deps.runnerPath ?? egressRunnerPath();
+  if (!(deps.exists ?? existsSync)(runnerPath)) return null;
+
+  // Re-derive host-loopback support too: it was cached `false` if slirp4netns was absent at first
+  // probe, which would keep the host-gateway rule off after an install until restart.
+  resetEgressHostLoopbackCache();
+  const version = await runCapture("slirp4netns", ["--version"]).catch(() => null);
+  detectEgressHostLoopback({
+    versionOutput: () => (version?.status === 0 ? version.output.trim() : null),
+  });
+
+  const mkdtemp = deps.mkdtemp ?? ((prefix: string) => mkdtempSync(prefix));
+  const cleanup = deps.rmdir ?? ((p: string) => rmSync(p, { recursive: true, force: true }));
+  const tmpDir = mkdtemp(join(tmpdir(), "shepherd-egress-probe-"));
+  try {
+    const inner = buildProbeInnerArgv(tmpDir, deps);
+    const probe = await runCapture(runnerPath, ["--tmp", tmpDir, "--", ...inner]);
+    if (probe.status === 0) return "slirp4netns";
+    // The tail carries host paths, so it goes to the LOG, never into a diagnostics payload.
+    console.warn(
+      `[sandbox] egress self-test exits ${probe.status} — autonomous spawns will be refused:\n` +
+        probe.output.trim().slice(-EGRESS_PROBE_DETAIL_MAX),
+    );
+    return null;
+  } finally {
+    try {
+      cleanup(tmpDir);
+    } catch {
+      // best-effort cleanup
+    }
+  }
+}
+
+/**
+ * Re-probe the egress backend ASYNCHRONOUSLY and REFILL the per-process cache that the spawn paths
+ * (`detectEgressBackend`, drain + service) read. Called by every DIAGNOSE check, so an operator who
+ * installs the missing packages and hits Re-run un-blocks autonomous spawns without a restart, and
+ * the row and the refusal decision never disagree.
+ *
+ * Same verdict rules as {@link detectEgressBackend}: all required tools present AND the full-nesting
+ * self-test exits 0. A definitive answer (tool missing, runner missing, self-test non-zero) writes
+ * the cache; a probe that could not complete (timeout, spawn error) REJECTS and leaves the cache as
+ * it was — "couldn't check" must not flip a working host to refused.
+ */
+export async function refreshEgressBackend(
+  deps: EgressRefreshDeps = {},
+): Promise<EgressProbeFacts> {
+  const runCapture = deps.runCapture ?? defaultEgressRunCapture;
+  const results = await Promise.all(
+    EGRESS_REQUIRED_TOOLS.map(async (tool) => ({
+      tool,
+      ok: (await runCapture(tool, ["--version"])).status === 0,
+    })),
+  );
+  const missingTools = results.filter((r) => !r.ok).map((r) => r.tool);
+  const backend = missingTools.length > 0 ? null : await runEgressSelfTest(deps, runCapture);
+  _egressBackendCache = backend;
+  return { backend, missingTools };
 }
 
 // ── Anthropic base set ────────────────────────────────────────────────────────

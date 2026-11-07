@@ -8,6 +8,7 @@ import { config } from "../src/config";
 import { validateEpicRunPatch } from "../src/validate";
 import { queuedEpicRun, type Epic, type EpicChild, type EpicRun } from "../src/epic-core";
 import type { EpicDiagnosis } from "../src/epic-diagnosis";
+import { instanceIdentity } from "../src/remote-instances/identity";
 
 // ── validateEpicRunPatch unit tests ──────────────────────────────────────────
 
@@ -2854,5 +2855,99 @@ describe("PUT /api/epic landing", () => {
     });
     expect((await putLanding(app, { landing: "integration" })).status).toBe(200);
     expect((await putLanding(app, { mode: "attended" })).status).toBe(200);
+  });
+});
+
+// ── the machine an epic's children run on ────────────────────────────────────
+
+describe("PUT /api/epic machine", () => {
+  const MAC = "a2222222-2222-4222-8222-222222222222";
+  const put = (app: ReturnType<typeof makeApp>, body: unknown, parent = 327, requeue = false) =>
+    app.fetch(
+      new Request(
+        `http://x/api/epic?repo=${encRepo(repoDir)}&parent=${parent}${requeue ? "&requeueLeader=1" : ""}`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      ),
+    );
+  const registerMac = (store: SessionStore) =>
+    store.insertRemoteInstance({
+      instanceId: MAC,
+      url: "https://mac.example",
+      token: "t",
+      label: "macbook",
+      reportedName: "macbook",
+      createdAt: 1,
+    });
+
+  test("validateEpicRunPatch takes an instance ID or null, nothing else", () => {
+    expect(validateEpicRunPatch({ machine: MAC })).toEqual({ machine: MAC });
+    expect(validateEpicRunPatch({ machine: null })).toEqual({ machine: null });
+    expect(validateEpicRunPatch({ machine: "" })).toBeNull();
+    expect(validateEpicRunPatch({ machine: 7 })).toBeNull();
+    expect(validateEpicRunPatch({ machine: "x".repeat(129) })).toBeNull();
+  });
+
+  test("a registered machine persists on the run, null clears it", async () => {
+    const { app, store } = harness();
+    registerMac(store);
+    store.setEpicRun({ repoPath: repoDir, parentIssueNumber: 327, mode: "auto", status: "idle" });
+    expect((await put(app, { machine: MAC })).status).toBe(200);
+    expect(store.getEpicRun(repoDir)?.machine).toBe(MAC);
+    expect((await put(app, { machine: null })).status).toBe(200);
+    expect(store.getEpicRun(repoDir)?.machine).toBeUndefined();
+  });
+
+  test("this Shepherd's own ID is a machine too", async () => {
+    const { app, store } = harness();
+    const self = instanceIdentity(store).instanceId;
+    expect((await put(app, { machine: self })).status).toBe(200);
+    expect(store.getEpicSettings(repoDir, 327)?.machine).toBe(self);
+  });
+
+  test("an unknown instance ID is 422 and nothing changes", async () => {
+    const { app, store } = harness();
+    store.setEpicRun({ repoPath: repoDir, parentIssueNumber: 327, mode: "auto", status: "idle" });
+    const res = await put(app, { machine: MAC });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({ code: "unknown_machine" });
+    expect(store.getEpicRun(repoDir)?.machine).toBeUndefined();
+  });
+
+  test("a superseded leader keeps its machine at the queue head", async () => {
+    const { app, store } = harness();
+    registerMac(store);
+    store.setEpicRun({
+      repoPath: repoDir,
+      parentIssueNumber: 100,
+      mode: "auto",
+      status: "running",
+      machine: MAC,
+    });
+    expect((await put(app, { status: "running" }, 400, true)).status).toBe(200);
+    expect(store.getEpicQueueEntry(repoDir, 100)?.machine).toBe(MAC);
+  });
+
+  test("queueing behind the leader keeps a remembered machine", async () => {
+    const { app, store } = harness();
+    registerMac(store);
+    store.setEpicRun({
+      repoPath: repoDir,
+      parentIssueNumber: 100,
+      mode: "auto",
+      status: "running",
+    });
+    expect((await put(app, { machine: MAC }, 200)).status).toBe(200);
+    expect(store.getEpicSettings(repoDir, 200)?.machine).toBe(MAC);
+    const res = await app.fetch(
+      new Request(`http://x/api/epic/queue?repo=${encRepo(repoDir)}&parent=200`, {
+        method: "POST",
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(store.getEpicQueueEntry(repoDir, 200)?.machine).toBe(MAC);
   });
 });

@@ -71,7 +71,9 @@ import { RemoteInstanceService } from "./remote-instances/service";
 import { RemoteSessionMirror } from "./remote-instances/sessions";
 import { attachMirrorPush } from "./remote-instances/push-relay";
 import { RemoteDispatcher, waitingAttachments } from "./remote-instances/dispatch";
-import { instanceIdentity } from "./remote-instances/identity";
+import { instanceIdentity, instancePlatform } from "./remote-instances/identity";
+import { hostLoadReport, readHostLoad } from "./remote-instances/load";
+import { drainMachinePort } from "./drain-machines";
 import { localMachine } from "./remote-instances/placement";
 import { StatusPoller } from "./poller";
 import { PrPoller, withIssueUrl } from "./pr-poller";
@@ -3110,6 +3112,25 @@ const drain = new DrainService({
   // a current open-PR snapshot can answer it without a per-head lookup.
   prFreshness,
   openPrSnapshot,
+  // A spawn whose labels call for a capability this machine lacks (`requires-macos`), or whose
+  // epic names another machine, goes to that machine (src/drain-placement.ts).
+  machines: drainMachinePort({
+    store,
+    decide: {
+      store,
+      capabilities,
+      instances: remoteInstances,
+      platform: instancePlatform(),
+      load: () => {
+        const snapshot = readHostLoad(store.countRunningSessions());
+        return snapshot ? hostLoadReport(snapshot, Date.now()) : null;
+      },
+    },
+    instances: remoteInstances,
+    sessions: remoteSessions,
+    dispatcher: remoteDispatch,
+    resolveForge,
+  }),
 });
 
 // Drive the drain's archived/review handling off the poller events. `session:git`/`session:status`

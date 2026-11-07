@@ -1,5 +1,7 @@
 import type { Issue, LinkedPr } from "./forge/types";
 import type { AgentProvider, Session } from "./types";
+import type { Capability } from "./remote-instances/capabilities";
+import type { SessionHost } from "./remote-instances/sessions";
 
 export type EpicSource = "native" | "markdown";
 export type EpicMode = "auto" | "attended";
@@ -39,6 +41,19 @@ export interface EpicChild {
    *  merge). Set by `buildEpic` only while the child is session-less and `in-review`; absent
    *  otherwise. */
   retiredPrNumber?: number;
+  /** What the child needs from the machine it runs on, read from its labels and its epic's
+   *  (src/drain-placement.ts). Absent when it needs nothing in particular. */
+  requirements?: Capability[];
+  /** The drain sent this child to another machine and it is still on its way or running there.
+   *  Absent otherwise. */
+  elsewhere?: EpicChildElsewhere;
+}
+/** A child the drain sent to another machine: where, its session there once it started (null
+ *  while the machine has not confirmed the start) and its PR once it opened one. */
+export interface EpicChildElsewhere {
+  host: SessionHost;
+  sessionId: string | null;
+  prNumber: number | null;
 }
 /** How an epic's children land (#3191): `integration` (default) bases them on and merges them into
  *  the epic's integration branch, which lands as one PR; `incremental` bases and merges each child
@@ -58,13 +73,23 @@ export interface EpicRun {
   ignoreUsageCeiling?: boolean;
   /** How the epic's children land; absent = `integration`. */
   landing?: EpicLanding;
+  /** The machine (instance ID) its children run on; null/absent = automatic: a child runs here
+   *  unless its labels call for a capability only another machine has (src/drain-placement.ts). */
+  machine?: string | null;
 }
 /** An epic's run settings without a status. They live in exactly one place: the repo's `epic_run`
  *  row while the epic holds it, its `epic_queue` row while queued, else its `epic_settings` row
  *  (absent = the defaults). */
 export type EpicSettings = Pick<
   EpicRun,
-  "repoPath" | "parentIssueNumber" | "mode" | "agentProvider" | "model" | "effort" | "landing"
+  | "repoPath"
+  | "parentIssueNumber"
+  | "mode"
+  | "agentProvider"
+  | "model"
+  | "effort"
+  | "landing"
+  | "machine"
 >;
 /** Why an epic stopped leading its repo: the operator ended it, another epic was started over it,
  *  or all its children merged. */
@@ -197,6 +222,8 @@ export interface EpicQueueEntry {
   effort?: string | null;
   /** How the epic's children land once promoted; absent = `integration`. */
   landing?: EpicLanding;
+  /** The machine its children run on; null/absent = automatic (see EpicRun.machine). */
+  machine?: string | null;
   createdAt: number;
 }
 
@@ -234,6 +261,7 @@ export function queuedEpicRun(entry: EpicQueueEntry): EpicRun {
     model: entry.model ?? null,
     effort: entry.effort ?? null,
     landing: entry.landing ?? "integration",
+    ...(entry.machine ? { machine: entry.machine } : {}),
   };
 }
 export interface Epic {
@@ -269,6 +297,8 @@ export function deriveChildState(c: EpicChild, done: Set<number>): EpicChildStat
   if (c.integrationMerged || c.issueClosed) return "merged";
   if (c.sessionId && c.prNumber != null) return "in-review";
   if (c.sessionId) return "running";
+  // Sent to another machine: running there until it opens its PR, then that machine's to land.
+  if (c.elsewhere) return c.elsewhere.prNumber != null ? "in-review" : "running";
   // claimed but no live local session + issue still open = spawned & retired/in-flight
   // (PR awaiting human merge); session was archived after the retire path.
   if (c.claimed) return "in-review";

@@ -19,6 +19,7 @@
   import EpicPanel from "../EpicPanel.svelte";
   import EpicRunControl from "./EpicRunControl.svelte";
   import EpicChildRun from "./EpicChildRun.svelte";
+  import { childSessionId } from "../epic-child";
   import EpicFlowGraph from "./EpicFlowGraph.svelte";
   import EpicTimingDetail from "./EpicTimingDetail.svelte";
   import EpicDiagnosisModal from "../EpicDiagnosisModal.svelte";
@@ -125,8 +126,8 @@
   }
 
   const live = $derived(
-    selection.kind === "child" && selection.child.sessionId
-      ? (sessionInfo?.(selection.child.sessionId) ?? null)
+    selection.kind === "child" && childSessionId(selection.child)
+      ? (sessionInfo?.(childSessionId(selection.child)!) ?? null)
       : null,
   );
 

@@ -5,6 +5,7 @@ import { displayStatus } from "../display-status";
 import { bootstrapMissingLabel } from "./readiness-greenfield-view";
 import { providerLabel } from "#lib/reviewer-env.js";
 import { projectFilterKey } from "#lib/remote-sessions.js";
+import { capabilityList } from "#lib/placement.js";
 
 /** Enabled drains only, sorted by repo path — the per-repo drain lookup feeding repoChipRows. */
 export function enabledDrains(drain: Record<string, DrainStatus>): DrainStatus[] {
@@ -258,14 +259,31 @@ export function holdCliLabel(detail: string): string {
   return providerLabel(detail as AgentProvider);
 }
 
+/** The requirements a `no_suitable_machine` hold names ("xcode, sdk:ios"), in words. */
+export function holdNeedsLabel(detail: string): string {
+  return capabilityList(
+    detail
+      .split(",")
+      .map((c) => c.trim())
+      .filter(Boolean),
+  );
+}
+
 /** #3452: banner lines for the spawn gates — the next spawn's sandbox, CLI, host or target repo
- *  refuses unattended work. `detail` is the profile (implied by the code), the CLI or the repo. */
+ *  refuses unattended work. `detail` is the profile (implied by the code), the CLI or the repo.
+ *  The next spawn belongs on another machine that cannot take it now: `detail` is that machine's
+ *  name, or the requirements no machine meets. */
 const SPAWN_GATE_PAUSED: Record<string, (detail: string) => string> = {
   sandbox_interactive: () => m.drain_paused_sandbox_interactive(),
   sandbox_provider_unconfined: (cli) => m.drain_paused_sandbox_provider({ cli: holdCliLabel(cli) }),
   sandbox_backend_unavailable: () => m.drain_paused_sandbox_backend(),
   sandbox_egress_unavailable: () => m.drain_paused_sandbox_egress(),
   target_repo_drain_off: (repo) => m.drain_paused_target_repo_drain_off({ repo }),
+  machine_offline: (machine) => m.drain_paused_machine_offline({ machine }),
+  machine_unfit: (machine) => m.drain_paused_machine_unfit({ machine }),
+  no_suitable_machine: (needs) =>
+    m.drain_paused_no_suitable_machine({ needs: holdNeedsLabel(needs) }),
+  machine_stacked: (machine) => m.drain_paused_machine_stacked({ machine }),
 };
 
 /** Localized banner line for a paused drain, mapped from its reason + detail. */

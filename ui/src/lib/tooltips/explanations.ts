@@ -616,6 +616,21 @@ export function runOnExplanation(): TooltipExplanation {
   };
 }
 
+/** Where an epic's children run: Automatic (by their labels) or a named machine, what happens on
+ *  the other machine, and that an unreachable machine holds the epic. */
+export function epicMachineExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_epic_machine_title(),
+    summary: m.tooltip_epic_machine_summary(),
+    sections: [
+      { label: m.tooltip_epic_machine_auto(), text: m.tooltip_epic_machine_auto_body() },
+      { label: m.tooltip_epic_machine_fixed(), text: m.tooltip_epic_machine_fixed_body() },
+      { label: m.tooltip_epic_machine_followup(), text: m.tooltip_epic_machine_followup_body() },
+      { label: m.tooltip_epic_machine_offline(), text: m.tooltip_epic_machine_offline_body() },
+    ],
+  };
+}
+
 /** Requirements read from the task's description (#2773): what was read, and that the chips are
  *  the operator's to correct. */
 export function derivedRequirementsExplanation(): TooltipExplanation {

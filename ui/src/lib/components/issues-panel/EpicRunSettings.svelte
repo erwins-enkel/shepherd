@@ -18,11 +18,18 @@
   import { modelOptionLabel } from "#lib/model-guidance.js";
   import { repoConfig } from "#lib/reviews.svelte.js";
   import { basename } from "#lib/basename.js";
+  import { machines } from "#lib/machines.svelte.js";
+  import { connectedMachines, machineLabel } from "../new-task/run-on";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { epicMachineExplanation } from "#lib/tooltips/explanations.js";
 
   // Footer of the epic run area (#2620): the CLI / model / effort the epic's children spawn with.
   // Moved unchanged from EpicPanel's control bar, dependencies included (a provider change drops
   // a model/effort the new CLI doesn't offer). #3454: plus the repo's sandbox, marked as the repo's
   // setting; the CLI and the sandbox say "halts" while they keep the children from starting.
+  // Plus the machine the children run on, while another machine is registered: Automatic (by
+  // their labels), this one, or a connected one; a named machine that is not connected right now
+  // stays listed as such.
   let {
     repoPath,
     parent,
@@ -93,6 +100,21 @@
     void repoConfig.setSandboxProfile(repoPath, value);
   }
 
+  const epicMachine = $derived(epic.run.machine ?? "");
+  const machineOptions = $derived(connectedMachines(machines.list));
+  /** The named machine when it is neither this one nor a connected one: shown, marked offline. */
+  const absentMachine = $derived.by(() => {
+    if (!epicMachine || epicMachine === machines.self?.instanceId) return null;
+    if (machineOptions.some((x) => x.instanceId === epicMachine)) return null;
+    const known = machines.list.find((x) => x.instanceId === epicMachine);
+    return m.epic_machine_offline({ machine: known?.name ?? epicMachine.slice(0, 8) });
+  });
+
+  function onMachineChange(e: Event) {
+    const value = (e.currentTarget as HTMLSelectElement).value;
+    updateEpic(repoPath, parent, { machine: value === "" ? null : value }).catch(updateFailed);
+  }
+
   function onEffortChange(e: Event) {
     if (!epicProvider) return;
     const value = (e.currentTarget as HTMLSelectElement).value;
@@ -151,6 +173,28 @@
     <span class="tag">{m.epic_sandbox_repo_tag()}</span>
     {#if halts.sandbox}<span class="tag halt">{m.epic_setting_halts()}</span>{/if}
   </label>
+
+  {#if machines.list.length > 0}
+    <label class="mini-field" data-field="machine">
+      <span class="micro" use:statusTip={{ text: epicMachineExplanation(), placement: "top" }}
+        >{m.epic_machine_label()}</span
+      >
+      <select value={epicMachine} aria-label={m.epic_machine_aria()} onchange={onMachineChange}>
+        <option value="">{m.newtask_runon_auto()}</option>
+        {#if machines.self}
+          <option value={machines.self.instanceId}
+            >{m.epic_machine_here({ machine: machines.self.name })}</option
+          >
+        {/if}
+        {#each machineOptions as machine (machine.instanceId)}
+          <option value={machine.instanceId}>{machineLabel(machine)}</option>
+        {/each}
+        {#if absentMachine}
+          <option value={epicMachine}>{absentMachine}</option>
+        {/if}
+      </select>
+    </label>
+  {/if}
 </div>
 
 <style>

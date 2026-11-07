@@ -269,6 +269,11 @@ describe("epic", () => {
         expect(() => validateRequest("PUT", "/api/epic", bad)).toThrow();
         await call("PUT", "/api/epic", `/api/epic${q()}`, 400, bad);
       }
+      // The machine the children run on: an unknown one is refused, null makes it automatic.
+      const unknownMachine = { machine: "a2222222-2222-4222-8222-222222222222" };
+      validateRequest("PUT", "/api/epic", unknownMachine);
+      await call("PUT", "/api/epic", `/api/epic${q()}`, 422, unknownMachine);
+      await call("PUT", "/api/epic", `/api/epic${q()}`, 200, { machine: null });
 
       const next = (await call(
         "POST",

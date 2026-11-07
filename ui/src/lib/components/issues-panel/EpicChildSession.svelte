@@ -8,6 +8,8 @@
   import { slotHeldBy } from "../epic-panel";
   import { childPrUrl } from "../epic-child";
   import SessionPhaseBar from "./SessionPhaseBar.svelte";
+  import MachineBadge from "../MachineBadge.svelte";
+  import { childSessionId } from "../epic-child";
 
   // Body of an epic child's "Sitzung" run area (#2622): phase bar, agent, start time, PR link,
   // "Open session", and — while it holds an agent slot — who gets that slot next. Without a
@@ -24,7 +26,10 @@
     onopensession?: (sessionId: string) => void;
   } = $props();
 
-  const prUrl = $derived(childPrUrl(child, live?.git?.url));
+  // A child on another machine: its PR and session are the ones there.
+  const prNumber = $derived(child.prNumber ?? child.elsewhere?.prNumber ?? null);
+  const prUrl = $derived(childPrUrl({ url: child.url, prNumber }, live?.git?.url));
+  const sessionId = $derived(childSessionId(child));
   const agent = $derived.by(() => {
     if (!live) return "";
     const s = live.session;
@@ -54,6 +59,7 @@
 {/if}
 
 <div class="meta">
+  {#if child.elsewhere}<MachineBadge host={child.elsewhere.host} />{/if}
   {#if agent}<span class="agent">{agent}</span>{/if}
   {#if started}<span class="faint">{started}</span>{/if}
   {#if prUrl}
@@ -62,12 +68,12 @@
       class="pr-link"
       href={firstSafeHttpUrl(prUrl) ?? undefined}
       target="_blank"
-      rel="noopener noreferrer">{m.childrun_pr_link({ number: child.prNumber ?? 0 })} ↗</a
+      rel="noopener noreferrer">{m.childrun_pr_link({ number: prNumber ?? 0 })} ↗</a
     >
     <!-- eslint-enable svelte/no-navigation-without-resolve -->
   {/if}
-  {#if child.sessionId && onopensession}
-    <button class="link" type="button" onclick={() => onopensession(child.sessionId!)}
+  {#if sessionId && onopensession}
+    <button class="link" type="button" onclick={() => onopensession(sessionId)}
       >{m.epic_run_open_session()}</button
     >
   {/if}

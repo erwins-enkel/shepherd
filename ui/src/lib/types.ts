@@ -1432,6 +1432,9 @@ export interface DrainRunSession {
   desig: string;
   issueNumber: number | null;
   epicParent: number | null;
+  /** The machine it runs on when the drain sent it to another one; absent here. `sessionId` is
+   *  empty while that machine has not confirmed the start. */
+  host?: SessionHost;
 }
 
 /** Mirrors src/drain-core.ts → RunSummary. */
@@ -1483,6 +1486,17 @@ export interface EpicChild {
   /** #3423: the open PR the drain retired this session-less in-review child with (checks cleared,
    *  mergeable, left for a human merge). Absent otherwise. */
   retiredPrNumber?: number;
+  /** What it needs from the machine it runs on, read from its labels and its epic's. */
+  requirements?: string[];
+  /** The drain sent it to another machine; absent otherwise. */
+  elsewhere?: EpicChildElsewhere;
+}
+/** A child on another machine: where, its mirrored session there (null until the start is
+ *  confirmed) and its PR once it opened one. */
+export interface EpicChildElsewhere {
+  host: SessionHost;
+  sessionId: string | null;
+  prNumber: number | null;
 }
 /** How an epic's children land (#3191): via its integration branch (default) or one by one on the
  *  default branch. */
@@ -1499,6 +1513,8 @@ export interface EpicRun {
   ignoreUsageCeiling?: boolean;
   /** How the children land (#3191); absent = "integration". */
   landing?: EpicLanding;
+  /** The machine (instance ID) the children run on; absent/null = automatic. */
+  machine?: string | null;
 }
 export interface Epic {
   repoPath: string;

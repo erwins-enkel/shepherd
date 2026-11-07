@@ -125,6 +125,10 @@ in-flight work running and resumes on its own — and only a few are **terminal*
   on the old base until `main` moves again.
 - **Epic base-branch divergence** — a child PR retargeted off the epic integration branch; the epic
   is blocked until it's pointed back at the integration branch.
+- **A child's machine can't take it** — the next child belongs on another machine (it is labelled
+  `requires-macos`, or the epic names a machine) and that machine is out of reach, lacks Xcode or
+  can't take tasks. The run shows **Halted** with the machine; nothing starts here in its place.
+  Reconnect the machine, or pick another one under **Machine** in the run settings.
 - **A stack that lost a middle layer**, if you run with
   [stacked epic children](/reference/stacked-epic-children/) on — the layers above it can't land
   until you abandon or merge them.
@@ -147,6 +151,10 @@ epic's card.
 3. If it's your first epic, the **Run this epic hands-off** panel offers **Apply hands-off
    defaults** — or set the pane manually per the table above.
 4. Confirm the epic is in **auto** mode and press **Start**.
+5. With another machine connected, check **Machine** in the run settings. **Automatic** sends each
+   child labelled `requires-macos` (or every child of an epic labelled so) to a connected Mac with
+   Xcode and keeps the rest here; a named machine takes every child. See
+   [Epic children on another machine](/machines/#epic-children-on-another-machine).
 
 Shepherd spawns the first ready child immediately, then drains the rest as their dependencies
 complete, landing one aggregate PR at the end.

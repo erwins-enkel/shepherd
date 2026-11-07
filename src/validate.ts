@@ -1521,7 +1521,12 @@ export type EpicRunPatch = {
   effort?: string | null;
   ignoreUsageCeiling?: boolean;
   landing?: EpicLanding;
+  /** The machine (instance ID) the epic's children run on; null = automatic. */
+  machine?: string | null;
 };
+
+/** Upper bound of an instance ID in a patch (placement records bound theirs the same way). */
+const EPIC_MACHINE_MAX = 128;
 
 const EPIC_RUN_PATCH_KEYS = [
   "mode",
@@ -1531,6 +1536,7 @@ const EPIC_RUN_PATCH_KEYS = [
   "effort",
   "ignoreUsageCeiling",
   "landing",
+  "machine",
 ] as const;
 const EPIC_RUN_PATCH_KEY_SET = new Set(EPIC_RUN_PATCH_KEYS);
 type EpicRunPatchKey = (typeof EPIC_RUN_PATCH_KEYS)[number];
@@ -1594,6 +1600,15 @@ const EPIC_RUN_PATCH_FIELD_VALIDATORS: Record<EpicRunPatchKey, EpicRunPatchField
     const landing = parseEpicLanding(value);
     if (landing === null) return false;
     out.landing = landing;
+    return true;
+  },
+  machine(value, out) {
+    if (value === null) {
+      out.machine = null;
+      return true;
+    }
+    if (typeof value !== "string" || !value.trim() || value.length > EPIC_MACHINE_MAX) return false;
+    out.machine = value;
     return true;
   },
 };

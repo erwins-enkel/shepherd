@@ -140,7 +140,7 @@ function parseStrandedChildren(raw: string | null | undefined): number[] {
 }
 
 const EPIC_RUN_COLUMNS =
-  "repoPath, parentIssueNumber, mode, status, agentProvider, model, effort, ignoreUsageCeiling, landing";
+  "repoPath, parentIssueNumber, mode, status, agentProvider, model, effort, ignoreUsageCeiling, landing, machine";
 
 /** The stored `landing` column read back as an {@link EpicLanding}: anything but `incremental`
  *  (including a legacy row's default) is `integration`. */
@@ -156,16 +156,22 @@ type EpicRunRow = Omit<EpicRun, "ignoreUsageCeiling" | "landing"> & {
 
 function epicRunFromRow(row: EpicRunRow): EpicRun {
   return {
-    ...row,
+    ...withEpicLanding(row),
     ignoreUsageCeiling: row.ignoreUsageCeiling === 1,
-    landing: epicLandingFromColumn(row.landing),
   };
 }
 
-/** Normalize an epic row read from `epic_settings`/`epic_queue`: its `landing` column as an
- *  {@link EpicLanding}. */
-function withEpicLanding<T extends { landing?: unknown }>(row: T): T & { landing: EpicLanding } {
-  return { ...row, landing: epicLandingFromColumn(row.landing) };
+/** Normalize an epic row read from `epic_run`/`epic_settings`/`epic_queue`: its `landing` column as
+ *  an {@link EpicLanding}, and `machine` present only when one is named (absent = automatic). */
+function withEpicLanding<T extends { landing?: unknown; machine?: string | null }>(
+  row: T,
+): T & { landing: EpicLanding } {
+  const { machine, ...rest } = row;
+  return {
+    ...(rest as T),
+    landing: epicLandingFromColumn(row.landing),
+    ...(machine ? { machine } : {}),
+  };
 }
 
 /** The persisted override: only a running run may lift the ceiling, so every other write clears it. */
@@ -1973,6 +1979,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       effort: "TEXT",
       ignoreUsageCeiling: "INTEGER NOT NULL DEFAULT 0",
       landing: "TEXT NOT NULL DEFAULT 'integration'",
+      machine: "TEXT",
     });
     // #2624: epics queued behind the repo's leading epic, promoted in `position` order when the
     // leader completes — each with its own settings, so a promotion never resets them to defaults.
@@ -1981,7 +1988,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       mode TEXT NOT NULL DEFAULT 'auto', agentProvider TEXT, model TEXT, effort TEXT,
       createdAt INTEGER NOT NULL,
       PRIMARY KEY (repoPath, parentIssueNumber))`);
-    this.addMissingColumns("epic_queue", { landing: "TEXT NOT NULL DEFAULT 'integration'" });
+    this.addMissingColumns("epic_queue", {
+      landing: "TEXT NOT NULL DEFAULT 'integration'",
+      machine: "TEXT",
+    });
     // The remembered settings of an epic that neither holds the repo's epic_run row nor waits in
     // its queue — so editing an idle epic never has to touch (and so supersede) the leading run.
     this.db.run(`CREATE TABLE IF NOT EXISTS epic_settings (
@@ -1989,7 +1999,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       mode TEXT NOT NULL DEFAULT 'auto', agentProvider TEXT, model TEXT, effort TEXT,
       updatedAt INTEGER NOT NULL,
       PRIMARY KEY (repoPath, parentIssueNumber))`);
-    this.addMissingColumns("epic_settings", { landing: "TEXT NOT NULL DEFAULT 'integration'" });
+    this.addMissingColumns("epic_settings", {
+      landing: "TEXT NOT NULL DEFAULT 'integration'",
+      machine: "TEXT",
+    });
     // Why an epic last stopped leading its repo (EpicRunEnd) — the epic_run row is overwritten by
     // the next run, so without this an ended or superseded epic cannot say why it does not run.
     this.db.run(`CREATE TABLE IF NOT EXISTS epic_run_end (
@@ -2458,6 +2471,20 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   /** Dispatches not settled for good, oldest first: the ones no machine has confirmed yet (#2774:
    *  `sending`, `unknown`, `canceling`), the ones waiting here for their machine and the ones held
    *  there (#2775: `waiting`, `held`). What the reconciler follows up and the herd shows. */
+  /** Spawns the drain sent to other machines for `project` (client keys `drain/…`, see
+   *  src/drain-remote.ts) that may still be on their way or running there, updated since `since`;
+   *  newest first. */
+  listDrainRemoteDispatches(project: string, since: number): RemoteDispatchRow[] {
+    return this.db
+      .query(
+        `SELECT ${REMOTE_DISPATCH_COLUMNS} FROM remote_dispatches
+         WHERE project = ? AND clientKey LIKE 'drain/%' AND updatedAt >= ?
+           AND state IN ('sending', 'unknown', 'held', 'started')
+         ORDER BY createdAt DESC, id`,
+      )
+      .all(project, since) as RemoteDispatchRow[];
+  }
+
   listOpenRemoteDispatches(): RemoteDispatchRow[] {
     return this.db
       .query(
@@ -3020,8 +3047,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       if (prev && prev.parentIssueNumber !== r.parentIssueNumber) this.setEpicSettings(prev);
       this.deleteEpicSettings(r.repoPath, r.parentIssueNumber);
       this.db.run(
-        `INSERT INTO epic_run (repoPath, parentIssueNumber, mode, status, agentProvider, model, effort, ignoreUsageCeiling, landing, updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?)
-        ON CONFLICT(repoPath) DO UPDATE SET parentIssueNumber=excluded.parentIssueNumber, mode=excluded.mode, status=excluded.status, agentProvider=excluded.agentProvider, model=excluded.model, effort=excluded.effort, ignoreUsageCeiling=excluded.ignoreUsageCeiling, landing=excluded.landing, updatedAt=excluded.updatedAt`,
+        `INSERT INTO epic_run (repoPath, parentIssueNumber, mode, status, agentProvider, model, effort, ignoreUsageCeiling, landing, machine, updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(repoPath) DO UPDATE SET parentIssueNumber=excluded.parentIssueNumber, mode=excluded.mode, status=excluded.status, agentProvider=excluded.agentProvider, model=excluded.model, effort=excluded.effort, ignoreUsageCeiling=excluded.ignoreUsageCeiling, landing=excluded.landing, machine=excluded.machine, updatedAt=excluded.updatedAt`,
         [
           r.repoPath,
           r.parentIssueNumber,
@@ -3032,6 +3059,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           r.agentProvider ? (r.effort ?? null) : null,
           epicRunCeilingColumn(r),
           epicLandingFromColumn(r.landing),
+          r.machine ?? null,
           Date.now(),
         ],
       );
@@ -3141,7 +3169,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   getEpicSettings(repoPath: string, parentIssueNumber: number): EpicSettings | null {
     const row = this.db
       .query(
-        `SELECT repoPath, parentIssueNumber, mode, agentProvider, model, effort, landing
+        `SELECT repoPath, parentIssueNumber, mode, agentProvider, model, effort, landing, machine
         FROM epic_settings WHERE repoPath = ? AND parentIssueNumber = ?`,
       )
       .get(repoPath, parentIssueNumber) as EpicSettings | null;
@@ -3150,8 +3178,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   setEpicSettings(s: EpicSettings): void {
     this.db.run(
-      `INSERT INTO epic_settings (repoPath, parentIssueNumber, mode, agentProvider, model, effort, landing, updatedAt) VALUES (?,?,?,?,?,?,?,?)
-      ON CONFLICT(repoPath, parentIssueNumber) DO UPDATE SET mode=excluded.mode, agentProvider=excluded.agentProvider, model=excluded.model, effort=excluded.effort, landing=excluded.landing, updatedAt=excluded.updatedAt`,
+      `INSERT INTO epic_settings (repoPath, parentIssueNumber, mode, agentProvider, model, effort, landing, machine, updatedAt) VALUES (?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(repoPath, parentIssueNumber) DO UPDATE SET mode=excluded.mode, agentProvider=excluded.agentProvider, model=excluded.model, effort=excluded.effort, landing=excluded.landing, machine=excluded.machine, updatedAt=excluded.updatedAt`,
       [
         s.repoPath,
         s.parentIssueNumber,
@@ -3160,6 +3188,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         s.agentProvider ? (s.model ?? null) : null,
         s.agentProvider ? (s.effort ?? null) : null,
         epicLandingFromColumn(s.landing),
+        s.machine ?? null,
         Date.now(),
       ],
     );
@@ -3183,8 +3212,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       ? "COALESCE(MIN(position), 1) - 1"
       : "COALESCE(MAX(position), 0) + 1";
     this.db.run(
-      `INSERT INTO epic_queue (repoPath, parentIssueNumber, position, mode, agentProvider, model, effort, landing, createdAt)
-      VALUES (?, ?, (SELECT ${position} FROM epic_queue WHERE repoPath = ?), ?, ?, ?, ?, ?, ?)
+      `INSERT INTO epic_queue (repoPath, parentIssueNumber, position, mode, agentProvider, model, effort, landing, machine, createdAt)
+      VALUES (?, ?, (SELECT ${position} FROM epic_queue WHERE repoPath = ?), ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(repoPath, parentIssueNumber) DO NOTHING`,
       [
         e.repoPath,
@@ -3195,6 +3224,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         e.agentProvider ? (e.model ?? null) : null,
         e.agentProvider ? (e.effort ?? null) : null,
         epicLandingFromColumn(e.landing),
+        e.machine ?? null,
         Date.now(),
       ],
     );
@@ -3205,7 +3235,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return (
       this.db
         .query(
-          `SELECT repoPath, parentIssueNumber, position, mode, agentProvider, model, effort, landing, createdAt
+          `SELECT repoPath, parentIssueNumber, position, mode, agentProvider, model, effort, landing, machine, createdAt
           FROM epic_queue WHERE repoPath = ? ORDER BY position`,
         )
         .all(repoPath) as EpicQueueEntry[]
@@ -3215,7 +3245,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   getEpicQueueEntry(repoPath: string, parentIssueNumber: number): EpicQueueEntry | null {
     const row = this.db
       .query(
-        `SELECT repoPath, parentIssueNumber, position, mode, agentProvider, model, effort, landing, createdAt
+        `SELECT repoPath, parentIssueNumber, position, mode, agentProvider, model, effort, landing, machine, createdAt
         FROM epic_queue WHERE repoPath = ? AND parentIssueNumber = ?`,
       )
       .get(repoPath, parentIssueNumber) as EpicQueueEntry | null;
@@ -3226,11 +3256,18 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   updateEpicQueueSettings(
     e: Pick<
       EpicQueueEntry,
-      "repoPath" | "parentIssueNumber" | "mode" | "agentProvider" | "model" | "effort" | "landing"
+      | "repoPath"
+      | "parentIssueNumber"
+      | "mode"
+      | "agentProvider"
+      | "model"
+      | "effort"
+      | "landing"
+      | "machine"
     >,
   ): void {
     this.db.run(
-      `UPDATE epic_queue SET mode = ?, agentProvider = ?, model = ?, effort = ?, landing = ?
+      `UPDATE epic_queue SET mode = ?, agentProvider = ?, model = ?, effort = ?, landing = ?, machine = ?
       WHERE repoPath = ? AND parentIssueNumber = ?`,
       [
         e.mode,
@@ -3238,6 +3275,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         e.agentProvider ? (e.model ?? null) : null,
         e.agentProvider ? (e.effort ?? null) : null,
         epicLandingFromColumn(e.landing),
+        e.machine ?? null,
         e.repoPath,
         e.parentIssueNumber,
       ],

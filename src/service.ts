@@ -631,6 +631,58 @@ export function resetUserSkillNamesCacheForTests(): void {
 }
 
 /**
+ * Claude Code built-in tools a Shepherd session never calls, denied per spawn (issue #3778). A
+ * blanket deny rule removes the tool from the request, not only the call, so each one stops riding
+ * every turn of every session: together ≈ 20k tokens/turn on an interactive spawn (Artifact alone
+ * ≈ 13k). Measured over two weeks of live transcripts: Artifact 3 of 191 attended sessions, the rest
+ * 0–2 calls in total; see docs/research/session-opener-composition.md. A deny entry for a tool a
+ * newer CLI renamed or dropped is a no-op, never a broken spawn.
+ */
+export const UNUSED_BUILTIN_TOOLS = [
+  "Artifact",
+  "Workflow",
+  "SendFeedback",
+  "ScheduleWakeup",
+  "ReportFindings",
+  "ListAgents",
+] as const;
+
+/** Curated picker built-ins (`BUILTINS` in src/commands.ts) that drive one of
+ *  {@link UNUSED_BUILTIN_TOOLS}: `/design` publishes an Artifact, `/workflow-authoring` writes for
+ *  the Workflow tool, `/loop`'s dynamic mode paces itself with ScheduleWakeup. */
+const COMMAND_BUILTIN_TOOLS: Record<string, (typeof UNUSED_BUILTIN_TOOLS)[number]> = {
+  design: "Artifact",
+  "workflow-authoring": "Workflow",
+  loop: "ScheduleWakeup",
+};
+
+/**
+ * The trimmed built-ins a session's task text needs back (#3778): one per `/design`,
+ * `/workflow-authoring` or `/loop` token in it (`/loop 5m /design …` keeps both). Keyed off the
+ * operator's task text (`input.prompt` at spawn, `sessions.prompt` on resume), so a resume offers the
+ * same tool list and the prompt cache survives. A command typed later in the session is not seen —
+ * the documented case for `SHEPHERD_TRIM_BUILTIN_TOOLS=false`.
+ */
+export function builtinToolsNeededBy(taskPrompt: string): string[] {
+  const names = [...taskPrompt.matchAll(/(?:^|\s)\/([a-z][\w-]*)(?=\s|$)/g)].map((m) => m[1]!);
+  return [...new Set(names.flatMap((n) => COMMAND_BUILTIN_TOOLS[n] ?? []))];
+}
+
+type OverlayPermissions = { defaultMode: string; allow: string[]; ask: string[]; deny: string[] };
+
+/** The overlay's `permissions` block: the caller's own (the Operator Assistant's) plus, under
+ *  `config.trimBuiltinTools`, the {@link UNUSED_BUILTIN_TOOLS} denials minus `keep` (see
+ *  {@link builtinToolsNeededBy}). `undefined` → key omitted. */
+function overlayPermissions(
+  base: OverlayPermissions | undefined,
+  keep: readonly string[] = [],
+): Partial<OverlayPermissions> | undefined {
+  if (!config.trimBuiltinTools) return base;
+  const deny = UNUSED_BUILTIN_TOOLS.filter((t) => !keep.includes(t));
+  return { ...base, deny: [...(base?.deny ?? []), ...deny] };
+}
+
+/**
  * Per-spawn `--settings` overlay merged on top of the user's settings files. Applied to every
  * Shepherd task spawn — both `create` (`buildSpawnArgv`) and `resume`.
  *
@@ -679,6 +731,11 @@ export function resetUserSkillNamesCacheForTests(): void {
  * `permissions` (the Operator Assistant only, #1446 — see operatorAssistantPermissions) adds Claude's
  * `permissions` block. Absent → key omitted, so every task spawn's overlay stays byte-identical.
  *
+ * `config.trimBuiltinTools` (issue #3778, default on) adds {@link UNUSED_BUILTIN_TOOLS} to
+ * `permissions.deny` on every overlay — task spawn, resume and the Operator Assistant (appended to
+ * its own deny list) — except the ones `builtinToolsNeeded` names. Off → the key stays exactly as
+ * described above.
+ *
  * `assistantView` (the Operator Assistant only, #3161 — see buildAssistantViewHookFragment) adds its
  * `UserPromptSubmit` hook to the same `hooks` object. Independent of `hooksIngest`: it is how the
  * operator's view reaches the model, not telemetry. Absent → no such key, so task spawns keep their
@@ -693,6 +750,8 @@ export function spawnSettingsOverlay(
     assistantView?: HookTarget;
     /** A merge train session (see {@link isMergeTrainDriver}): the tool guard lets it watch CI. */
     ciWatchAllowed?: boolean;
+    /** Trimmed built-ins the session's task needs back ({@link builtinToolsNeededBy}). */
+    builtinToolsNeeded?: readonly string[];
   } = {},
 ): string {
   const settings: Record<string, unknown> = {
@@ -723,7 +782,8 @@ export function spawnSettingsOverlay(
     hooks.PreToolUse = [...(guard.PreToolUse as unknown[]), ...(ingest.PreToolUse as unknown[])];
   }
   if (Object.keys(hooks).length > 0) settings.hooks = hooks;
-  if (opts.permissions) settings.permissions = opts.permissions;
+  const permissions = overlayPermissions(opts.permissions, opts.builtinToolsNeeded);
+  if (permissions) settings.permissions = permissions;
   // #1159: an api key gets the five-minute prompt cache by default, so a coffee-break idle
   // re-writes the whole context. `promptCacheTtl` (Claude Code >= 2.1.242) lifts only the main
   // conversation to an hour — NOT `ENABLE_PROMPT_CACHING_1H`, which lifts subagents too — and it
@@ -4095,6 +4155,7 @@ export class SessionService {
           ...trim.overlayOpts,
           claudeAiConnectors: repoConfig.claudeAiConnectorsEnabled,
           ciWatchAllowed: isMergeTrainDriver(input),
+          builtinToolsNeeded: builtinToolsNeededBy(input.prompt),
         },
         caps,
       )),
@@ -4233,6 +4294,7 @@ export class SessionService {
           ...trim.overlayOpts,
           claudeAiConnectors: connectors,
           ciWatchAllowed: isMergeTrainDriver(s),
+          builtinToolsNeeded: builtinToolsNeededBy(s.prompt),
         },
         sessionCapabilities(this.deps, s.id),
       )),

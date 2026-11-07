@@ -25,6 +25,8 @@ import {
   browserCdpUrl,
   RestoreError,
   spawnSettingsOverlay,
+  UNUSED_BUILTIN_TOOLS,
+  builtinToolsNeededBy,
   buildHooksFragment,
   composeSystemPrompt,
   composeSystemPromptBlocks,
@@ -7640,6 +7642,155 @@ test("resume of an auto session re-applies the trim: plugin-off + skill overlay"
     expect(overlay.skillOverrides).toEqual({ tdd: "off" });
   } finally {
     config.trimAutoContext = prev;
+  }
+});
+
+test("spawnSettingsOverlay: built-in tool trim denies UNUSED_BUILTIN_TOOLS; off omits the key (#3778)", () => {
+  const prev = config.trimBuiltinTools;
+  try {
+    config.trimBuiltinTools = true;
+    expect(JSON.parse(spawnSettingsOverlay()).permissions).toEqual({
+      deny: [...UNUSED_BUILTIN_TOOLS],
+    });
+    config.trimBuiltinTools = false;
+    expect(JSON.parse(spawnSettingsOverlay())).not.toHaveProperty("permissions");
+  } finally {
+    config.trimBuiltinTools = prev;
+  }
+});
+
+test("spawnSettingsOverlay: built-in tool trim appends to the Operator Assistant's own permissions (#3778)", () => {
+  const prev = config.trimBuiltinTools;
+  const base = { defaultMode: "default", allow: ["mcp__x"], ask: [], deny: ["Edit", "Write"] };
+  try {
+    config.trimBuiltinTools = true;
+    expect(JSON.parse(spawnSettingsOverlay({ permissions: base })).permissions).toEqual({
+      ...base,
+      deny: ["Edit", "Write", ...UNUSED_BUILTIN_TOOLS],
+    });
+    expect(base.deny).toEqual(["Edit", "Write"]); // caller's object untouched
+    config.trimBuiltinTools = false;
+    expect(JSON.parse(spawnSettingsOverlay({ permissions: base })).permissions).toEqual(base);
+  } finally {
+    config.trimBuiltinTools = prev;
+  }
+});
+
+test("builtinToolsNeededBy: picker commands that drive a trimmed tool get it back (#3778)", () => {
+  expect(builtinToolsNeededBy("/design a landing page")).toEqual(["Artifact"]);
+  expect(builtinToolsNeededBy("  /workflow-authoring")).toEqual(["Workflow"]);
+  expect(builtinToolsNeededBy("/loop 5m /design hero\n/design again")).toEqual([
+    "ScheduleWakeup",
+    "Artifact",
+  ]);
+  for (const prose of ["fix the build", "see /tmp/loop", "/designer", "a/design", "/simplify"]) {
+    expect(builtinToolsNeededBy(prose)).toEqual([]);
+  }
+});
+
+test("spawnSettingsOverlay: builtinToolsNeeded leaves those tools off the deny list (#3778)", () => {
+  const prev = config.trimBuiltinTools;
+  try {
+    config.trimBuiltinTools = true;
+    const deny = JSON.parse(spawnSettingsOverlay({ builtinToolsNeeded: ["Artifact"] })).permissions
+      .deny;
+    expect(deny).toEqual(UNUSED_BUILTIN_TOOLS.filter((t) => t !== "Artifact"));
+  } finally {
+    config.trimBuiltinTools = prev;
+  }
+});
+
+test("a /design task keeps Artifact on create and on resume (#3778)", async () => {
+  const prev = config.trimBuiltinTools;
+  try {
+    config.trimBuiltinTools = true;
+    const store = new SessionStore(":memory:");
+    const captured: { argv?: string[] } = {};
+    const { deps } = trimDeps(store, captured, [], []);
+    const svc = new SessionService(deps as any);
+    const created = await svc.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "/design a pricing page",
+      model: null,
+      images: [],
+    });
+    const spawnDeny = settingsOverlay(captured.argv!).permissions.deny;
+    expect(spawnDeny).not.toContain("Artifact");
+    expect(spawnDeny).toContain("Workflow");
+
+    const calls: { argv?: string[] } = {};
+    const resumer = new SessionService({
+      transcriptExists: () => true,
+      store,
+      namer: async () => "x",
+      worktree: {
+        create: () => ({}) as any,
+        ensureBaseRef: async () => {},
+        branchExists: () => false,
+        remove: () => {},
+      } as any,
+      herdr: {
+        start: async (_n: string, _c: string, argv: string[]) => {
+          calls.argv = inlineSpawnFiles(argv);
+          return { terminalId: "term_new", agentStatus: "working" } as any;
+        },
+        listAsync: async () => [],
+        stop: async () => {},
+        send: () => {},
+      } as any,
+    });
+    const s = resumable(store, { prompt: store.get(created.id)!.prompt });
+    await resumer.resume(s.id);
+    // Same tool list on resume, so the conversation's prompt cache survives.
+    expect(settingsOverlay(calls.argv!).permissions.deny).toEqual(spawnDeny);
+  } finally {
+    config.trimBuiltinTools = prev;
+  }
+});
+
+test("built-in tool trim rides an attended create and its resume (#3778)", async () => {
+  const prev = config.trimBuiltinTools;
+  try {
+    config.trimBuiltinTools = true;
+    const store = new SessionStore(":memory:");
+    const captured: { argv?: string[] } = {};
+    const { deps } = trimDeps(store, captured, [], []);
+    await new SessionService(deps as any).create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "p",
+      model: null,
+      images: [],
+    });
+    expect(settingsOverlay(captured.argv!).permissions.deny).toEqual([...UNUSED_BUILTIN_TOOLS]);
+
+    const calls: { argv?: string[] } = {};
+    const svc = new SessionService({
+      transcriptExists: () => true,
+      store,
+      namer: async () => "x",
+      worktree: {
+        create: () => ({}) as any,
+        ensureBaseRef: async () => {},
+        branchExists: () => false,
+        remove: () => {},
+      } as any,
+      herdr: {
+        start: async (_n: string, _c: string, argv: string[]) => {
+          calls.argv = inlineSpawnFiles(argv);
+          return { terminalId: "term_new", agentStatus: "working" } as any;
+        },
+        listAsync: async () => [],
+        stop: async () => {},
+        send: () => {},
+      } as any,
+    });
+    const s = resumable(store, {});
+    await svc.resume(s.id);
+    expect(settingsOverlay(calls.argv!).permissions.deny).toEqual([...UNUSED_BUILTIN_TOOLS]);
+  } finally {
+    config.trimBuiltinTools = prev;
   }
 });
 

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { config } from "./config";
 import { apiKeySettingsFragment } from "./spawn-auth";
 import { accountMythosAvailable, assertModelAvailable } from "./claude-account-models";
 import { codexRoleArgv } from "./codex-role-argv";
@@ -23,6 +24,8 @@ import type { AgentProvider } from "./types";
  *                                    [enableAllProjectMcpServers:true], ...apiKeySettingsFragment() }
  *     --disable-slash-commands
  *     [--safe-mode]                emitted IFF the preset is mcpIsolated (see coupling note)
+ *     [--tools <a,b,…>]            the built-ins the model SEES, IFF config.trimBuiltinTools
+ *                                  (#3778) — one comma-joined token, so it never swallows anything
  *     --allowedTools <tools…>      VARIADIC — swallows every following token until the next --flag
  *     [--model <model>]            emitted IFF opts.model is truthy
  *     --permission-mode dontAsk    single-value flag — MUST sit between the variadic allowlist
@@ -170,6 +173,10 @@ const READONLY_GIT_DENY = ["diff", "log", "show"].flatMap((sub) =>
 interface KindPreset {
   /** The exact --allowedTools set for this kind. */
   allowedTools: string[];
+  /** `--tools`: the Claude Code built-ins the model is OFFERED (issue #3778). Everything else —
+   *  Artifact, Workflow, AskUserQuestion, … ≈ 30k tok/turn — would sit in every request while
+   *  dontAsk denied any call to it. Every allowlist entry's tool must be in here (pinned by test). */
+  tools: string[];
   /** --disallowedTools deny rules (beat any allow rule); omitted → flag not emitted. */
   disallowedTools?: string[];
   /** true → emit BOTH --safe-mode AND enableAllProjectMcpServers (the coupled MCP-isolation pair). */
@@ -200,23 +207,33 @@ interface KindPreset {
 const PRESETS: Record<TransientAgentKind, KindPreset> = {
   reviewer: {
     allowedTools: [...READONLY_GIT, "Write"],
+    // + Agent: critics and plan reviewers fan out to a subagent on large inputs (~0.8% of runs,
+    // measured); a subagent inherits this same tool set and allowlist.
+    tools: ["Read", "Grep", "Glob", "Bash", "Write", "Agent"],
     disallowedTools: READONLY_GIT_DENY,
     mcpIsolated: true,
   },
   doc: {
     allowedTools: [...READONLY_GIT, "Write", "Edit"],
+    tools: ["Read", "Grep", "Glob", "Bash", "Write", "Edit"],
     disallowedTools: READONLY_GIT_DENY,
     mcpIsolated: true,
   },
-  "writer-ro": { allowedTools: ["Read", "Grep", "Glob", "Write"], mcpIsolated: false },
-  "writer-only": { allowedTools: ["Write"], mcpIsolated: false },
+  "writer-ro": {
+    allowedTools: ["Read", "Grep", "Glob", "Write"],
+    tools: ["Read", "Grep", "Glob", "Write"],
+    mcpIsolated: false,
+  },
+  "writer-only": { allowedTools: ["Write"], tools: ["Write"], mcpIsolated: false },
 };
 
-/** `--allowedTools …` plus, when the kind has deny rules, `--disallowedTools …`. Both are variadic;
- *  the caller always pushes a flag next, so neither swallows the trailing prompt. */
+/** `--tools <set>` under `config.trimBuiltinTools` (one comma-joined token), then `--allowedTools …`
+ *  plus, when the kind has deny rules, `--disallowedTools …`. Both are variadic; the caller always
+ *  pushes a flag next, so neither swallows the trailing prompt. */
 function toolRuleArgs(preset: KindPreset): string[] {
   const deny = preset.disallowedTools ?? [];
   return [
+    ...(config.trimBuiltinTools ? ["--tools", preset.tools.join(",")] : []),
     "--allowedTools",
     ...preset.allowedTools,
     ...(deny.length ? ["--disallowedTools", ...deny] : []),
@@ -230,6 +247,11 @@ function toolRuleArgs(preset: KindPreset): string[] {
  *  Returns a copy — callers must not mutate the preset. */
 export function allowedToolsFor(kind: TransientAgentKind): string[] {
   return [...PRESETS[kind].allowedTools];
+}
+
+/** The `--tools` built-in set a transient kind is offered under `config.trimBuiltinTools`. Copy. */
+export function builtinToolsFor(kind: TransientAgentKind): string[] {
+  return [...PRESETS[kind].tools];
 }
 
 /** The `--disallowedTools` deny rules a transient kind runs with (empty → flag omitted). Copy. */

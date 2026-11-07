@@ -184,3 +184,16 @@ describe("config seeds reject non-numeric env values", () => {
     expect(JSON.parse(r.stdout)).toEqual([120000, 10, 5, 4000, 10000]);
   });
 });
+
+describe("SHEPHERD_TRIM_BUILTIN_TOOLS (#3778)", () => {
+  test("default on when unset; false/0/off turn it off", () => {
+    const read = (v: string | undefined) =>
+      spawnConfig({ SHEPHERD_TRIM_BUILTIN_TOOLS: v }, "console.log(config.trimBuiltinTools);")
+        .stdout;
+    expect(read(undefined)).toBe("true");
+    expect(read("true")).toBe("true");
+    expect(read("false")).toBe("false");
+    expect(read("0")).toBe("false");
+    expect(read("OFF")).toBe("false");
+  });
+});

@@ -18,6 +18,7 @@ import {
 import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
 import type { OperatorLanguage } from "./operator-language";
 import { codexNoDaemonArgs } from "./codex-cli-capabilities";
+import { config } from "./config";
 
 /** The file the recommender agent writes its suggestion JSON to, in its temp cwd. */
 export const RECOMMEND_FILE = ".shepherd-recommend.json";
@@ -134,7 +135,8 @@ function defaultReadSuggestion(cwd: string): RawSuggestion | null {
  * The `claude` argv for the recommender spawn — identical isolation to the autopilot
  * classifier (src/autopilot-llm.ts): clean context (disableAllHooks + disable-slash-commands),
  * subscription OAuth (NOT --bare), bare `Write` only, and --permission-mode dontAsk LAST.
- * In api-key auth mode the key arrives via apiKeyHelper in --settings.
+ * In api-key auth mode the key arrives via apiKeyHelper in --settings. Under
+ * `config.trimBuiltinTools` (#3778) `--tools Write` hides every other built-in from the model too.
  */
 function claudeRecommenderArgv(model: string, prompt: string): string[] {
   return [
@@ -144,6 +146,7 @@ function claudeRecommenderArgv(model: string, prompt: string): string[] {
     "--settings",
     JSON.stringify({ disableAllHooks: true, ...apiKeySettingsFragment() }),
     "--disable-slash-commands",
+    ...(config.trimBuiltinTools ? ["--tools", "Write"] : []),
     "--allowedTools",
     "Write",
     "--model",

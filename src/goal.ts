@@ -78,12 +78,14 @@ function parseGoalStatus(line: string): { condition: string; met: boolean } | nu
 }
 
 /** The goal a session's row should show, from its current state and the transcript's active goal.
- *  A held goal is Shepherd's own and never changed by a transcript read. */
+ *  A held goal is Shepherd's own while the session plans; once it left planning without the goal
+ *  being armed, the hold is stale and the transcript decides. */
 function nextGoal(
-  s: Pick<Session, "goalCondition" | "goalState">,
+  s: Pick<Session, "goalCondition" | "goalState" | "planPhase">,
   active: string | null,
 ): { goalCondition: string | null; goalState: GoalState | null } {
-  if (s.goalState === "held") return { goalCondition: s.goalCondition ?? null, goalState: "held" };
+  if (s.goalState === "held" && s.planPhase === "planning")
+    return { goalCondition: s.goalCondition ?? null, goalState: "held" };
   return active === null
     ? { goalCondition: null, goalState: null }
     : { goalCondition: active, goalState: "active" };

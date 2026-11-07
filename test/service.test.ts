@@ -8166,6 +8166,19 @@ describe("replaceAgent: held /goal (#2596)", () => {
       data: { id, goalCondition: null, goalState: null },
     });
   });
+
+  test("claude → codex clears an active goal too; claude → claude keeps it", async () => {
+    const store = new SessionStore(":memory:");
+    const { service } = relaunchHarness(store);
+    const toCodex = originalSession(store, { agentProvider: "claude" });
+    store.setGoal(toCodex.id, "T", "active");
+    await service.replaceAgent(toCodex.id, { agentProvider: "codex", model: "gpt-5.5" });
+    expect(store.get(toCodex.id)).toMatchObject({ goalCondition: null, goalState: null });
+    const toClaude = originalSession(store, { agentProvider: "claude" });
+    store.setGoal(toClaude.id, "T", "active");
+    await service.replaceAgent(toClaude.id, { agentProvider: "claude", model: "opus" });
+    expect(store.get(toClaude.id)).toMatchObject({ goalCondition: "T", goalState: "active" });
+  });
 });
 
 test("replaceAgent: ChatGPT auth clamps and warns while preserving the Codex model choice", async () => {

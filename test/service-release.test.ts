@@ -308,3 +308,24 @@ test("releasePlanGate never pastes /goal into a non-Claude agent", async () => {
   expect(h.sent.some((m) => m.text.includes("/goal"))).toBe(false);
   expect(h.goals).toEqual([]);
 });
+
+test("the chat release (#2586) arms a held goal too", async () => {
+  const h = harness({
+    session: sess({ goalState: "held", goalCondition: "X" }),
+    gate: { approved: true },
+  });
+  expect(h.svc.releasePlanOnOperatorReply("s1")).toBe(true);
+  await new Promise((r) => setTimeout(r, 20));
+  expect(h.sent.map((m) => m.text)).toEqual([PASTE("/goal X"), "\r"]);
+  expect(h.goals).toEqual([{ id: "s1", condition: "X", state: "active" }]);
+  expect(h.setPhaseCalls).toEqual([{ id: "s1", phase: "executing" }]);
+});
+
+test("the chat release sends nothing without a held Claude goal", async () => {
+  for (const over of [{}, { goalState: "held", goalCondition: "X", agentProvider: "codex" }]) {
+    const h = harness({ session: sess(over), gate: { approved: true } });
+    expect(h.svc.releasePlanOnOperatorReply("s1")).toBe(true);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(h.sent).toEqual([]);
+  }
+});

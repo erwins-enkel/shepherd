@@ -4568,14 +4568,20 @@ export class SessionService {
     return { composeInput: { ...input, prompt: split.task }, held: split.condition };
   }
 
-  /** #2596: after a provider replace, the row holds the goal only if the replacement does — a
-   *  Codex replacement (or one outside planning) cannot be armed at Go, so its hold is dropped. */
-  #syncReplacedGoal(s: Session, held: string | null): void {
+  /** #2596: the row's goal after a provider replace. A held goal stays held only when the
+   *  replacement holds it too; a Codex replacement runs no Claude goal and its Stop is never read,
+   *  so any goal is cleared. A Claude replacement keeps an active goal for its transcript to
+   *  reconcile. */
+  #syncReplacedGoal(s: Session, provider: AgentProvider, held: string | null): void {
+    if (!held && provider === "claude" && s.goalState === "active") return;
     const next = held
       ? { goalCondition: held, goalState: "held" as const }
       : { goalCondition: null, goalState: null };
-    if (!held && s.goalState !== "held") return;
-    if (held && s.goalState === "held" && s.goalCondition === held) return;
+    if (
+      (s.goalCondition ?? null) === next.goalCondition &&
+      (s.goalState ?? null) === next.goalState
+    )
+      return;
     this.deps.store.setGoal(s.id, next.goalCondition, next.goalState);
     this.deps.events?.emit("session:goal", { id: s.id, ...next });
   }
@@ -6123,7 +6129,7 @@ export class SessionService {
       });
 
       await this.persistReplacementOrStop(s, agentProvider, launch, outcome);
-      this.#syncReplacedGoal(s, held?.condition ?? null);
+      this.#syncReplacedGoal(s, agentProvider, held?.condition ?? null);
 
       try {
         await this.deps.herdr.stop(s.herdrAgentId);
@@ -7996,6 +8002,22 @@ export class SessionService {
     };
   }
 
+  /** Arm `s`'s held goal outside a steer (the chat release): same lock, same send. Never throws. */
+  async #armHeldGoal(s: Session): Promise<void> {
+    if (!armable(s)) return;
+    try {
+      if (!(await this.liveTerminalIds()).has(s.herdrAgentId)) return;
+      this.assertNotTerminal(s, "steer");
+      await this.#serializeSteer(s.id, async () => {
+        const live = this.deps.store.get(s.id);
+        if (live && armable(live) && live.goalCondition)
+          await this.#armGoalInLock(live, live.goalCondition);
+      });
+    } catch (err) {
+      console.warn(`[goal] ${s.id}: arm after chat release failed: ${err}`);
+    }
+  }
+
   async #armGoalInLock(s: Session, condition: string): Promise<void> {
     const target = s.herdrAgentId;
     try {
@@ -8138,6 +8160,9 @@ export class SessionService {
     if (!s || s.planPhase !== "planning") return false;
     if (!this.deps.store.getPlanGate(id)?.approved) return false;
     this.#enterExecution(id);
+    // #2596: Go arms a held goal; so does the go-ahead given in chat. The operator's words already
+    // reached the agent, so `/goal` lands mid-turn (live-tested: it still sets the goal).
+    void this.#armHeldGoal(s);
     // Same predicate as Go: only a session that holds the queue tools has a queue to approve.
     if (this.deps.store.getRepoConfig(s.repoPath).buildQueueEnabled && !isNonCodeMode(s))
       this.#approveQueueOnGo(id, "operator");

@@ -120,10 +120,23 @@ describe("GoalTracker.onStop", () => {
     expect(same.emitted).toEqual([]);
   });
 
-  test("held goal is never overwritten by the transcript", async () => {
+  test("held goal is never overwritten by the transcript while planning", async () => {
     const { tracker, s, writes } = setup("", { goalCondition: "H", goalState: "held" });
     expect(await tracker.onStop(s)).toEqual({ pause: false });
     expect(writes).toEqual([]);
+  });
+
+  test("a hold left behind outside planning yields to the transcript", async () => {
+    const active = setup(set("T"), {
+      planPhase: "executing",
+      goalCondition: "H",
+      goalState: "held",
+    });
+    await active.tracker.onStop(active.s);
+    expect(active.writes).toEqual([["s1", "T", "active"]]);
+    const none = setup("", { planPhase: "executing", goalCondition: "H", goalState: "held" });
+    await none.tracker.onStop(none.s);
+    expect(none.writes).toEqual([["s1", null, null]]);
   });
 
   test("unreadable transcript / codex / no path → no pause, no write", async () => {

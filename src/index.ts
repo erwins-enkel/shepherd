@@ -140,6 +140,7 @@ import {
   notifySessionDone,
 } from "./push";
 import { attachCiSteer } from "./ci-steer";
+import { CiRestartHolds } from "./ci-restart-hold";
 import { createRateLimitSteer } from "./rate-limit-steer";
 import { HeavySlotService } from "./heavy-slot";
 import { recordHeavyPeak, resolveHeavySlotConfig, writeHeavyListFile } from "./heavy-slot-apply";
@@ -1131,6 +1132,7 @@ const service = new SessionService({
   // Live PR snapshot for server-derived merge-train participant marking; lazy (prPoller
   // defined below). reconcileTrainMarks reads this to mark sessions whose PR is open.
   prSnapshot: (): Record<string, import("./forge/types").GitState> => prPoller.snapshot(),
+  prHead: (id): string | null => prPoller.get(id)?.headSha ?? null,
   egressWatcher,
   netnsDevForward,
   // Best-effort pre-teardown recap: generate a durable recap while the worktree still
@@ -2479,6 +2481,9 @@ deferredStarts.push(() => {
 
 attachReviewPush(events, store, push);
 attachGitPush(events, store, push);
+// #2863: an operator CI restart holds both red-CI steer sources while the cancelled run reads red.
+const ciRestartHolds = new CiRestartHolds();
+ciRestartHolds.attach(events);
 // #2852: tell the task agent when its PR's checks finish, so it never polls CI itself.
 const ciSteer = attachCiSteer(events, store, {
   reply: (id, text) => service.reply(id, text, { automatic: true }),
@@ -2486,6 +2491,8 @@ const ciSteer = attachCiSteer(events, store, {
   seed: prPoller.snapshot(),
   // #3426: hold a red result while the critic reviews its head.
   criticReviewing: (id, headSha) => reviewService.ciSteerHeld(id, headSha),
+  ciRestartHeld: (id) => ciRestartHolds.held(id),
+  onRestartRelease: (cb) => ciRestartHolds.onRelease(cb),
 });
 // #2946: tell working agents once per GraphQL backoff episode when the budget resets. Local only.
 const rateLimitSteer = createRateLimitSteer({
@@ -3040,6 +3047,7 @@ const autopilot = new AutopilotService({
   apiRetryPending: (id) => apiErrorRetry.pending(id),
   // #3426: a critic reviewing the red head holds the CI-fix steer (its findings steer carries it).
   criticReviewing: (id, headSha): boolean => reviewService.ciSteerHeld(id, headSha),
+  ciRestartHeld: (id) => ciRestartHolds.held(id),
   refreshPr: (id) => prPoller.pollSession(id),
   pollPrNow: (id) => prPoller.pollNow(id),
   onPause: (id, question) => {
@@ -4457,6 +4465,7 @@ const appDeps: AppDeps = {
   herdrSocketActive,
   resolveForge,
   prCache: prPoller,
+  ciRestart: { holds: ciRestartHolds, refreshPr: (id) => prPoller.pollSession(id) },
   materializeManualSteps,
   ownsPr,
   activity: { snapshot: () => poller.activitySnapshot() },

@@ -758,6 +758,16 @@ export class HerdStore {
    *  complexity gate. Returns true when `ev` was handled. */
   private applyNotificationEvent(ev: WsEvent): boolean {
     switch (ev.event) {
+      case "session:ci-restart-failed": {
+        const name = this.byId(ev.data.id)?.name ?? ev.data.id;
+        toasts.info(
+          ev.data.reason === "cancel"
+            ? m.toast_ci_restart_cancel_failed({ name })
+            : m.toast_ci_restart_rerun_failed({ name }),
+          { key: "ci-restart-" + ev.data.id, alert: true },
+        );
+        return true;
+      }
       case "session:egress-drop":
         toasts.info(m.toast_egress_drop({ host: ev.data.host }), {
           key: "egress-drop-" + ev.data.id,

@@ -261,4 +261,6 @@ export const cliSessionEvents: [string, unknown][] = [
     "session:egress-drop",
     { id: "sess_fixture", host: "evil.example" } satisfies { id: string; host: string },
   ],
+  ["session:ci-restart-failed", { id: "sess_fixture", reason: "cancel" }],
+  ["session:ci-restart-failed", { id: "sess_fixture", reason: "rerun" }],
 ];

@@ -10,9 +10,17 @@ const SRC = join(import.meta.dirname, "..");
 
 /** Bindings that are app-authored or already validated: `commitUrl` is REPO_URL + a build sha,
  *  `previewUrl` is built locally from the preview slot, `entry.ctaUrl` is the compiled feature
- *  catalog, `openPrUrl` (CriticBadge) is derived via firstSafeHttpUrl, and `seg.href` comes from
- *  textLinks' http(s)-only matcher. ALL_CAPS constants never match the pattern. */
-const EXEMPT = new Set(["commitUrl", "previewUrl", "entry.ctaUrl", "openPrUrl", "seg.href"]);
+ *  catalog, `openPrUrl` (CriticBadge) and `safeRunUrl` (PulseActionBanner) are derived via
+ *  firstSafeHttpUrl, and `seg.href` comes from textLinks' http(s)-only matcher. ALL_CAPS
+ *  constants never match the pattern. */
+const EXEMPT = new Set([
+  "commitUrl",
+  "previewUrl",
+  "entry.ctaUrl",
+  "openPrUrl",
+  "safeRunUrl",
+  "seg.href",
+]);
 
 /** A url-ish identifier or member: `url`, `pr.url`, `run.runUrl`, `plugin.repository`, `href`. */
 const URLISH = /^(?:[\w$]+(?:\?)?\.)*(?:url|[a-z]\w*Url|repository|href)$/;

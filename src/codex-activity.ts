@@ -3,7 +3,13 @@ import { readFileSync } from "node:fs";
 import { normalize } from "node:path";
 import { eachJsonlObject } from "./jsonl";
 import { readTranscriptTail, type ActivityEntry } from "./activity";
-import { readActivitySignal, signalFrom, type SessionActivity } from "./activity-signal";
+import {
+  readActivitySignal,
+  signalFrom,
+  withCiPolling,
+  type SessionActivity,
+} from "./activity-signal";
+import { recordTs, tokenNum, trailingCiPolling, type CiCall, type CiPolling } from "./ci-polling";
 import { snapshotFrom, type ActivitySnapshot } from "./stall";
 import { codexHome, listRolloutFiles } from "./codex-usage";
 import { findCodexRolloutById, readSessionMeta } from "./codex-session-id";
@@ -303,12 +309,69 @@ function codexSignalsFromText(text: string): {
   snapshot: ActivitySnapshot | null;
   activity: SessionActivity | null;
 } {
-  const entries = parseCodexActivity(text);
+  const objs = [...eachJsonlObject(text)];
+  const entries = parseCodexActivityObjects(objs);
   const lastTs = latestCodexRecordTs(text);
   return {
     snapshot: snapshotFrom(entries, lastTs),
-    activity: signalFrom(entries, lastTs, codexRuntimeIdentity(text)),
+    activity: withCiPolling(
+      signalFrom(entries, lastTs, codexRuntimeIdentity(text)),
+      codexCiPolling(objs),
+    ),
   };
+}
+
+interface CodexCallRecord {
+  type?: unknown;
+  timestamp?: unknown;
+  payload?: {
+    type?: unknown;
+    name?: unknown;
+    input?: unknown;
+    arguments?: unknown;
+    info?: { total_token_usage?: { input_tokens?: unknown } } | null;
+  };
+}
+
+/** A Codex call's shell command: the `exec` JS envelope, or a shell function's JSON arguments
+ *  (`{cmd}` / `{command}`, a string or an argv). null for any other tool. */
+function codexCommand(p: NonNullable<CodexCallRecord["payload"]>): string | null {
+  if (p.type === "custom_tool_call") return p.name === "exec" ? execCommand(p.input) : null;
+  if (typeof p.arguments !== "string") return null;
+  try {
+    const args = JSON.parse(p.arguments) as { cmd?: unknown; command?: unknown };
+    const cmd = args.cmd ?? args.command;
+    if (typeof cmd === "string") return cmd;
+    if (!Array.isArray(cmd)) return null;
+    const argv = cmd.filter((x): x is string => typeof x === "string");
+    // `["bash", "-lc", "<script>"]`: the script is the command.
+    return argv.length === 3 && /^-\w*c$/.test(argv[1]!) ? argv[2]! : argv.join(" ");
+  } catch {
+    return null;
+  }
+}
+
+/** The Codex walker for src/ci-polling.ts (#2863). Usage is a CUMULATIVE `token_count` event, so
+ *  a polling run costs the input total now minus the total before its first call. */
+export function codexCiPolling(objs: Iterable<unknown>): CiPolling | null {
+  const calls: CiCall[] = [];
+  const before = new Map<string, number>();
+  let total = 0;
+  for (const o of objs) {
+    const rec = o as CodexCallRecord;
+    const p = rec.payload;
+    if (!p) continue;
+    if (rec.type === "event_msg" && p.type === "token_count") {
+      total = Math.max(total, tokenNum(p.info?.total_token_usage?.input_tokens));
+      continue;
+    }
+    if (rec.type !== "response_item") continue;
+    if (p.type !== "custom_tool_call" && p.type !== "function_call") continue;
+    const request = `${calls.length}`;
+    before.set(request, total);
+    calls.push({ cmd: codexCommand(p), ts: recordTs(rec), request });
+  }
+  return trailingCiPolling(calls, (run) => total - (before.get(run[0]!.request) ?? 0));
 }
 
 /**

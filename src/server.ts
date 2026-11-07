@@ -350,6 +350,13 @@ import {
 } from "./preview-launch";
 import { sessionActivity } from "./activity";
 import { steerLog } from "./steer-log";
+import {
+  restartCiRun,
+  runIdFromJobUrl,
+  type CiRestartForge,
+  type CiRestartHolds,
+  type RestartedJob,
+} from "./ci-restart-hold";
 import { sessionMessages } from "./agent-messages";
 import { SessionPhaseService } from "./session-phase";
 import { firstRun } from "./first-run";
@@ -833,6 +840,14 @@ export interface AppDeps {
   /** In-memory PR-status cache surfaced in the list overview; absent in tests
    *  that don't exercise it. */
   prCache?: PrCache;
+  /** #2863: operator CI restart (POST /api/sessions/:id/ci/restart) — the shared hold that keeps
+   *  red-CI steers off the cancelled run, a PR re-poll, and the background flow (injectable for
+   *  tests). Absent → 503. */
+  ciRestart?: {
+    holds: CiRestartHolds;
+    refreshPr: (id: string) => void;
+    run?: typeof restartCiRun;
+  };
   /** #3133: freeze a merged session's manual steps into the Owed lens. The local-merge route
    *  settles in-tree with no session:git merged event, so it calls this directly. */
   materializeManualSteps?: (s: Session, prNumber: number, prTitle: string) => void;
@@ -6021,6 +6036,64 @@ async function handleSessionInterrupt({ req, parts, deps }: Ctx): Promise<Respon
     : json({ error: "not found" }, 404);
 }
 
+// POST /api/sessions/:id/ci/restart — the status panel's "Re-run" on an overdue job (#2863). Body
+// { job } names a running job of the session's open PR; its run id is read off the CACHED job URL,
+// never taken from the client. 202 once the hold is set: cancel → wait → re-run runs in the
+// background (a GitHub run can't be re-run while in progress, and the wait outlasts a request).
+async function handleSessionCiRestart({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "ci" && parts[4] === "restart"))
+    return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as { job?: unknown } | null;
+  if (typeof body?.job !== "string" || !body.job) return json({ error: "job required" }, 400);
+  const s = deps.store.get(parts[2]);
+  if (!s || s.status === "archived") return json({ error: "no session" }, 404);
+  const ciRestart = deps.ciRestart;
+  if (!ciRestart) return json({ error: "unavailable" }, 503);
+  const target = ciRestartTarget(deps, s, body.job);
+  if (target instanceof Response) return target;
+  if (ciRestart.holds.held(s.id)) return json({ error: "restart in progress" }, 409);
+  ciRestart.holds.hold(s.id, target.job);
+  void (ciRestart.run ?? restartCiRun)({
+    id: s.id,
+    runId: target.runId,
+    forge: target.forge,
+    holds: ciRestart.holds,
+    refreshPr: ciRestart.refreshPr,
+    onFailed: (reason) => deps.events.emit("session:ci-restart-failed", { id: s.id, reason }),
+  });
+  return json({ ok: true }, 202);
+}
+
+/** The run to restart for a running job of the session's open PR, read off the CACHED job URL,
+ *  with the forge calls that restart it; or the error response. */
+function ciRestartTarget(
+  deps: AppDeps,
+  s: Session,
+  jobName: string,
+): { runId: number; forge: CiRestartForge; job: RestartedJob } | Response {
+  const git = deps.prCache?.get(s.id);
+  if (git?.state !== "open") return json({ error: "no open PR" }, 409);
+  const job = (git.jobs ?? []).find((j) => j.name === jobName);
+  if (job?.state !== "pending") return json({ error: "job not running" }, 409);
+  const runId = runIdFromJobUrl(job.url);
+  const forge = restartableForge(deps.resolveForge?.(s.repoPath) ?? null);
+  if (runId === null || !forge) return json({ error: "unsupported" }, 400);
+  return { runId, forge, job: { name: job.name, startedAt: job.startedAt } };
+}
+
+/** The forge's restart calls, or null when it lacks any (only GitHub has all three). */
+function restartableForge(forge: GitForge | null): CiRestartForge | null {
+  const { cancelWorkflowRun, rerunWorkflowRun, getRunDetail } = forge ?? {};
+  if (!forge || !cancelWorkflowRun || !rerunWorkflowRun || !getRunDetail) return null;
+  return {
+    cancelWorkflowRun: (r) => cancelWorkflowRun.call(forge, r),
+    rerunWorkflowRun: (r, o) => rerunWorkflowRun.call(forge, r, o),
+    getRunDetail: (r) => getRunDetail.call(forge, r),
+  };
+}
+
 // POST /api/sessions/:id/recommend-prompt — analyze the session's recent terminal history via a
 // transient second agent (claude opus / codex gpt-5.5) and return a recommended next prompt.
 // 200 {prompt} on success; 422 {error} on an analysis failure; 503 when unwired.
@@ -8155,6 +8228,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionAmendmentCreate,
     handleSessionAmendmentRetract,
     handleSessionInterrupt,
+    handleSessionCiRestart,
     handleSessionRecommend,
     handleSessionGo,
     handleSessionAnswerPlanQuestions,

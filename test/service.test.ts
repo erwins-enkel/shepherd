@@ -4530,6 +4530,43 @@ test("reply returns false for a live-in-store session whose pane is dead (no thr
   expect(store.listSignals("/r").length).toBe(0); // undelivered steer records no signal
 });
 
+test("a steer records the session's cached PR head with its reply signal (#2863)", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_live",
+  });
+  let head: string | null = "sha-1";
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    } as any,
+    herdr: {
+      start: async () => ({}) as any,
+      listAsync: async () => [{ terminalId: "term_live" }],
+      stop: async () => {},
+      send: async () => {},
+    } as any,
+    prHead: (id) => (id === s.id ? head : null),
+  });
+  expect(await svc.reply(s.id, "one")).toBe(true);
+  head = null;
+  expect(await svc.reply(s.id, "two")).toBe(true);
+  expect(store.listSessionSteers(s.id).map((r) => r.headSha)).toEqual(["sha-1", null]);
+});
+
 test("broadcast fans the text out to known sessions, skips unknown ids", async () => {
   const sent: { target: string; text: string }[] = [];
   const store = new SessionStore(":memory:");

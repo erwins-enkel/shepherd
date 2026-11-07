@@ -38,6 +38,29 @@ function explain(jobs: WorkflowJob[], steers?: SteerLogEntry[]) {
 }
 
 describe("pulseExplanation", () => {
+  it("leads with a caution while the running agent polls CI itself (#2863)", () => {
+    const g = git([gate]);
+    const pulse = sessionPulse({ session, git: g, nowMs: NOW })!;
+    const activity = {
+      lastActivityTs: NOW,
+      summary: null,
+      recentTs: [],
+      recentErrTs: [],
+      ciPolling: { polls: 25, inputTokens: 1_050_000, since: NOW - 60 * MIN },
+    };
+    const sections = pulseExplanation({ pulse, session, git: g, activity, nowMs: NOW }).sections;
+    expect(sections[0]).toMatchObject({
+      label: m.pulse_section_polling(),
+      rows: [{ text: m.pulse_polling_row({ polls: 25, tokens: "1.1M" }), tone: "warn" }],
+      note: m.pulse_polling_note(),
+    });
+    const idle = { ...session, status: "idle" } as Session;
+    const idleSections = pulseExplanation({ pulse, session: idle, git: g, activity, nowMs: NOW });
+    expect(idleSections.sections.map((s) => s.label)).not.toContain(m.pulse_section_polling());
+    const quiet = pulseExplanation({ pulse, session, git: g, nowMs: NOW }).sections;
+    expect(quiet.map((s) => s.label)).not.toContain(m.pulse_section_polling());
+  });
+
   it("leads with the verdict and what it rests on", () => {
     const e = explain([green(1), gate], log("go", "ci_fix"));
     expect(e.title).toBe(m.pulse_title_waiting_ci());

@@ -1,4 +1,10 @@
-import { parseActivity, latestRecordTs, readTranscriptTail, type ActivityEntry } from "./activity";
+import {
+  parseActivityObjects,
+  latestRecordTs,
+  readTranscriptTail,
+  type ActivityEntry,
+} from "./activity";
+import { claudeCiPolling, type CiPolling } from "./ci-polling";
 import { eachJsonlObject } from "./jsonl";
 import { snapshotFrom, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 
@@ -18,6 +24,9 @@ export interface SessionActivity {
   runtimeModel?: string;
   /** Concrete reasoning-effort tier reported by the provider transcript, when available. */
   runtimeEffort?: string;
+  /** The agent is polling CI itself (#2863): its trailing tool calls only sleep and read CI.
+   *  Absent when it is not. */
+  ciPolling?: CiPolling;
 }
 
 export type RuntimeIdentity = Pick<SessionActivity, "runtimeModel" | "runtimeEffort">;
@@ -88,9 +97,22 @@ export function claudeRuntimeIdentity(text: string): RuntimeIdentity {
   return runtimeModel ? { runtimeModel } : {};
 }
 
-/** Pure: derive an activity signal from already-read transcript text. */
+/** Attach a CI-polling reading to a signal (#2863); a null reading leaves it untouched. */
+export function withCiPolling(
+  activity: SessionActivity | null,
+  ciPolling: CiPolling | null,
+): SessionActivity | null {
+  return activity && ciPolling ? { ...activity, ciPolling } : activity;
+}
+
+/** Pure: derive an activity signal from already-read transcript text. One JSONL parse feeds both
+ *  the tool-use entries and the CI-polling walk. */
 export function signalFromText(text: string): SessionActivity | null {
-  return signalFrom(parseActivity(text), latestRecordTs(text), claudeRuntimeIdentity(text));
+  const objs = [...eachJsonlObject(text)];
+  return withCiPolling(
+    signalFrom(parseActivityObjects(objs), latestRecordTs(text), claudeRuntimeIdentity(text)),
+    claudeCiPolling(objs),
+  );
 }
 
 /**
@@ -114,7 +136,7 @@ export function readActivitySignal(path: string): SessionActivity | null {
  * Read a session JSONL transcript ONCE and derive BOTH the stall snapshot and
  * the activity signal from a SINGLE parse — the per-tick probe for a running
  * agent. Missing/unreadable file → both null. One tail-bounded read, one
- * `parseActivity`, one `latestRecordTs`, both builders fed from the result —
+ * `parseActivityObjects`, one `latestRecordTs`, both builders fed from the result —
  * no duplicate disk read or in-memory parse per tick.
  */
 export function readTranscriptSignals(path: string): {
@@ -127,10 +149,14 @@ export function readTranscriptSignals(path: string): {
   } catch {
     return { snapshot: null, activity: null };
   }
-  const entries = parseActivity(text);
+  const objs = [...eachJsonlObject(text)];
+  const entries = parseActivityObjects(objs);
   const lastTs = latestRecordTs(text);
   return {
     snapshot: snapshotFrom(entries, lastTs),
-    activity: signalFrom(entries, lastTs, claudeRuntimeIdentity(text)),
+    activity: withCiPolling(
+      signalFrom(entries, lastTs, claudeRuntimeIdentity(text)),
+      claudeCiPolling(objs),
+    ),
   };
 }

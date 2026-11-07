@@ -123,6 +123,29 @@ describe("sessionPulse", () => {
     ).toMatchObject({ state: "working" });
   });
 
+  it("counts only CI-fix steers whose head did not move (#2863)", () => {
+    const red = openPr([{ ...green("CI / prodlike"), state: "failure" }]);
+    const onHeads = (...heads: (string | undefined)[]): SteerLogEntry[] =>
+      heads.map((headSha, i) => ({
+        ts: NOW - (60 - i) * MIN,
+        kind: "ci_fix",
+        ...(headSha ? { headSha } : {}),
+      }));
+    expect(pulse({ git: red, steers: onHeads("a", "a", "a") })).toMatchObject({
+      state: "looping",
+      ciFixRun: 3,
+    });
+    expect(pulse({ git: red, steers: onHeads("a", "b", "c") })).toMatchObject({
+      state: "ci_failed",
+      ciFixRun: 1,
+    });
+    expect(pulse({ git: red, steers: onHeads("a", "b", "b") })?.ciFixRun).toBe(2);
+    // a steer without a recorded head (older server, no PR cached) counts as unmoved
+    expect(pulse({ git: red, steers: onHeads(undefined, "a", "a") })?.state).toBe("looping");
+    expect(pulse({ git: red, steers: onHeads("a", undefined, "a") })?.state).toBe("looping");
+    expect(steerTally(onHeads("x", "a", "a"))).toMatchObject({ ciFix: 3, ciFixRun: 2 });
+  });
+
   it("a blocked session needs the operator, whatever CI does", () => {
     expect(
       pulse({ session: session({ status: "blocked" }), git: openPr([gate(9, 43)]) })?.state,

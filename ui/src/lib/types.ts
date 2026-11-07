@@ -47,6 +47,8 @@ export type SteerKind =
 export interface SteerLogEntry {
   ts: number;
   kind: SteerKind;
+  /** The PR head the message was sent on (#2863); absent when unknown. */
+  headSha?: string;
 }
 
 export interface BuildQueue {
@@ -1907,6 +1909,9 @@ export interface SessionActivity {
   runtimeModel?: string;
   /** Effective reasoning effort reported by the provider's runtime log. */
   runtimeEffort?: string;
+  /** The agent polls CI itself (#2863): CI reads in its trailing run, the input tokens they cost,
+   *  and when the run began. Absent when it is not polling. */
+  ciPolling?: { polls: number; inputTokens: number; since: number };
 }
 
 export interface Session {
@@ -3468,6 +3473,9 @@ export type WsEvent =
       data: { id: string; status: SessionStatus; hasScratchpadFiles?: boolean } & Partial<Session>;
     }
   | { event: "session:ready"; data: { id: string; ready: boolean } }
+  /** #2863: a background CI restart failed — at the cancel (CI unchanged) or after it (the run is
+   *  cancelled but not re-run). */
+  | { event: "session:ci-restart-failed"; data: { id: string; reason: "cancel" | "rerun" } }
   | { event: "session:shelved"; data: { id: string; shelved: boolean } }
   | {
       event: "session:merging";

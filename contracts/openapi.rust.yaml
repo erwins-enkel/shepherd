@@ -2231,6 +2231,18 @@ components:
           type: string
         host:
           type: string
+    SessionCiRestartFailedEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - reason
+      properties:
+        id:
+          type: string
+        reason:
+          type: string
+          description: cancel — the cancel failed, so CI is unchanged. rerun — the run was cancelled but not re-run (red-CI steers stay held for a few minutes).
     OperatorAssistantUnavailableReason:
       type: string
     OperatorAssistantState:
@@ -2452,6 +2464,9 @@ components:
         kind:
           type: string
           description: The channel, read off Shepherd's fixed steer wording — go, plan_review, ci_fix, rebase, open_pr, nudge, review, queue, api_retry, or operator. Treat an unknown value as operator.
+        headSha:
+          type: string
+          description: The PR head SHA the message was sent on. Absent when no PR was cached at the time, or on messages recorded before the field existed.
     SteerLogList:
       type: array
       description: Oldest first, since the session was created.
@@ -2538,6 +2553,24 @@ components:
           type: string
         runtimeEffort:
           type: string
+        ciPolling:
+          type: object
+          additionalProperties: true
+          description: "The agent is polling CI itself: its trailing tool calls only sleep and read CI. Absent when it is not."
+          required:
+            - polls
+            - inputTokens
+            - since
+          properties:
+            polls:
+              type: integer
+              description: CI reads in the trailing run.
+            inputTokens:
+              type: integer
+              description: Input-side tokens the polling requests consumed.
+            since:
+              type: integer
+              description: Epoch ms of the run's first call.
     SessionActivityEvent:
       type: object
       additionalProperties: true
@@ -10688,6 +10721,62 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/ci/restart:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: restartSessionCiJob
+      description: Re-run an overdue job of the session's open PR. Cancels the job's run, waits until it has completed, then re-runs its failed and cancelled jobs, all in the background after the 202; a failure arrives as a session:ci-restart-failed frame. Red-CI steers to the agent are held meanwhile. GitHub only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - job
+              properties:
+                job:
+                  type: string
+                  description: Name of a running job of the PR.
+      responses:
+        "202":
+          description: Restart started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: Missing job, or the forge can't restart this run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown or archived session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: No open PR, the job isn't running, or a restart is already in progress.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: CI restart is unavailable on this server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/repos:
     get:
       operationId: listRepos
@@ -16533,6 +16622,10 @@ x-shepherd-events:
     description: The egress firewall dropped a host for an autonomous session (reported once per host).
     schema:
       $ref: "#/components/schemas/SessionEgressDropEvent"
+  session:ci-restart-failed:
+    description: A background CI restart (POST /api/sessions/{id}/ci/restart) failed after its 202.
+    schema:
+      $ref: "#/components/schemas/SessionCiRestartFailedEvent"
   operator-assistant:update:
     description: An Operator Assistant's row (global or repo-scoped) was created, resumed, replaced or closed, or the operator changed their permissions (Settings → Assistant). Carries the global row as session and every live assistant as sessions. Deliberately not session:new, so no row joins the herd; status changes still arrive as session:status.
     schema:

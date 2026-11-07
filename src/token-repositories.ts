@@ -78,6 +78,7 @@ const SESSION_READS = new Set([
 const SESSION_POSTS = new Set([
   "reply",
   "interrupt",
+  "ci/restart",
   "resume",
   "relaunch",
   "replace",
@@ -214,6 +215,7 @@ const SESSION_EVENTS = new Set([
   "session:manual-steps",
   "session:experiment",
   "session:autopilot",
+  "session:ci-restart-failed",
 ]);
 
 /** Unknown events never inherit access merely because their payload contains an id. */

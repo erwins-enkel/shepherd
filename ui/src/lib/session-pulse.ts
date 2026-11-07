@@ -46,7 +46,8 @@ const OVERDUE_MIN_SLACK_MS = 3 * 60_000;
 export function overdueAfterMs(typicalMs: number): number {
   return typicalMs + Math.max(typicalMs * (OVERDUE_FACTOR - 1), OVERDUE_MIN_SLACK_MS);
 }
-/** This many CI-fix steers in a row, with CI still not green, reads as going in circles. */
+/** This many CI-fix steers in a row on an unmoved PR head, with CI still not green, reads as
+ *  going in circles. */
 const LOOP_RUN = 3;
 
 export interface PulseJob {
@@ -67,7 +68,8 @@ export interface Pulse {
   etaMs?: number;
   green: number;
   total: number;
-  /** CI-fix steers at the end of the steer log with nothing else in between. */
+  /** CI-fix steers at the end of the steer log with nothing else in between, all on the newest
+   *  one's PR head (#2863). */
   ciFixRun: number;
   /** The build-queue step being worked (1-based). */
   step?: { index: number; total: number; title: string };
@@ -100,9 +102,19 @@ function pulseJob(j: WorkflowJob, nowMs: number): PulseJob {
   };
 }
 
+/** CI-fix steers at the end of the log on an unmoved head: counting back from the newest, a
+ *  steer on a different head ends the run (a new head is a new failure, not the same loop). A
+ *  steer without a recorded head (an older server, no PR cached) counts as unmoved (#2863). */
 function trailingCiFixes(steers: readonly SteerLogEntry[] | undefined): number {
+  const list = steers ?? [];
   let run = 0;
-  for (let i = (steers?.length ?? 0) - 1; i >= 0 && steers![i]!.kind === "ci_fix"; i--) run++;
+  let head: string | undefined;
+  for (let i = list.length - 1; i >= 0 && list[i]!.kind === "ci_fix"; i--) {
+    const sha = list[i]!.headSha;
+    if (sha && head && sha !== head) break;
+    head ??= sha;
+    run++;
+  }
   return run;
 }
 

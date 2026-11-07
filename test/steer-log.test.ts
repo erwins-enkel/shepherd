@@ -94,6 +94,18 @@ test("steerLog keeps time and kind only, never the text", () => {
   expect(steerLog([{ ts: 5, payload: CI_FIX_STEER }])).toEqual([{ ts: 5, kind: "ci_fix" }]);
 });
 
+test("steerLog carries the PR head a steer was sent on, omitting an unknown one (#2863)", () => {
+  expect(
+    steerLog([
+      { ts: 1, payload: CI_FIX_STEER, headSha: "abc" },
+      { ts: 2, payload: CI_FIX_STEER, headSha: null },
+    ]),
+  ).toEqual([
+    { ts: 1, kind: "ci_fix", headSha: "abc" },
+    { ts: 2, kind: "ci_fix" },
+  ]);
+});
+
 test("listSessionSteers returns this session's steers since it started, oldest first", () => {
   const store = new SessionStore(":memory:");
   const base = {
@@ -115,4 +127,22 @@ test("listSessionSteers returns this session's steers since it started, oldest f
 
   expect(store.listSessionSteers(a.id).map((r) => r.payload)).toEqual(["first", CI_FIX_STEER]);
   expect(store.listSessionSteers("nope")).toEqual([]);
+});
+
+test("listSessionSteers round-trips the head a steer was sent on (#2863)", () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+  });
+  store.addSignal({ repoPath: "/r", sessionId: s.id, kind: "reply", payload: "a", headSha: "h1" });
+  store.addSignal({ repoPath: "/r", sessionId: s.id, kind: "reply", payload: "b" });
+  expect(store.listSessionSteers(s.id).map((r) => r.headSha)).toEqual(["h1", null]);
 });

@@ -135,6 +135,8 @@ function harness(opts: {
   pendingQuestions?: () => Promise<boolean>;
   /** The criticReviewing dep (#3426: a critic run holds this head's CI steer); omit = unset. */
   criticReviewing?: (id: string, headSha: string) => boolean;
+  /** The ciRestartHeld dep (#2863: an operator CI restart is in progress); omit = unset. */
+  ciRestartHeld?: (id: string) => boolean;
 }) {
   let cur = opts.session;
   let prOpen = opts.openPr ?? false;
@@ -246,6 +248,7 @@ function harness(opts: {
     isBackgroundBusy: opts.backgroundBusy,
     apiRetryPending: opts.apiRetryPending,
     criticReviewing: opts.criticReviewing,
+    ciRestartHeld: opts.ciRestartHeld,
     rebaseCap: opts.rebaseCap ?? 5,
     now: () => opts.now ?? 0,
   });
@@ -1180,6 +1183,46 @@ test("eligible() drives an ISOLATED codex session normally (positive control)", 
 // for an UNCHANGED red head, so an idle full-auto agent sitting on the same red PR is reached
 // by NOBODY there. The recurring tick() owns that case — it reads the cached PR (prGit) directly,
 // re-engages each idle poll, and ultimately caps + hands back.
+
+// ── #2863: an operator CI restart holds the CI-fix steer ──────────────────────────────────────
+
+test("onGit: the cancelled run's red during a CI restart → no steer; the re-run's failure steers", async () => {
+  const restart = { held: true };
+  const h = harness({
+    session: sess({ status: "running" }),
+    repoEnabled: true,
+    ciRestartHeld: () => restart.held,
+  });
+  h.svc.onGit("s1", git({ headSha: "sha1" }));
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  // The hold lifted on the re-run's in-flight sample; it then fails on the same head, inside the
+  // original hold window: ciNudged stayed unset, so that edge steers.
+  restart.held = false;
+  h.svc.onGit("s1", git({ headSha: "sha1" }));
+  await flush();
+  expect(h.events.filter((e) => e.steer === CI_FIX_STEER)).toHaveLength(1);
+});
+
+test("tick: red head during a CI restart → claims without steer or classify; steers after it lifts", async () => {
+  const restart = { held: true };
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    prGit: git(),
+    verdict: { kind: "finished", summary: "done" },
+    ciRestartHeld: () => restart.held,
+  });
+  await h.svc.tick();
+  await h.svc.onDone("s1");
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.classifyCount()).toBe(0);
+  restart.held = false; // the re-run failed while still held: the first tick after release steers
+  await h.svc.tick();
+  await flush();
+  expect(h.events.filter((e) => e.steer === CI_FIX_STEER)).toHaveLength(1);
+});
 
 // ── #3426: the critic reviewing a red head holds its CI-fix steer ─────────────────────────────
 

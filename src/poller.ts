@@ -1756,6 +1756,9 @@ export class StatusPoller {
       recentErrTs,
       ...(previous?.runtimeModel ? { runtimeModel: previous.runtimeModel } : {}),
       ...(previous?.runtimeEffort ? { runtimeEffort: previous.runtimeEffort } : {}),
+      // #2863: only the transcript probe can read a CI-polling run; each poll is itself a hook
+      // push, so keep the probe's last reading until the probe updates it.
+      ...(previous?.ciPolling ? { ciPolling: previous.ciPolling } : {}),
     });
     this.lastHookActivityAt.set(id, t);
   }
@@ -1920,7 +1923,8 @@ export class StatusPoller {
     }
   }
 
-  /** Prefer a fresh hook summary while still folding in runtime identity learned by the probe. */
+  /** Prefer a fresh hook summary while still folding in what only the probe learns: runtime
+   *  identity, and the CI-polling reading (#2863), which the probe sets or clears. */
   private emitProbeActivity(id: string, activity: SessionActivity, hookFresh: boolean): void {
     if (!hookFresh || activity.recentErrTs.length > 0) {
       this.emitActivity(id, activity);
@@ -1930,11 +1934,20 @@ export class StatusPoller {
     if (!previous) return;
     const runtimeModel = activity.runtimeModel ?? previous.runtimeModel;
     const runtimeEffort = activity.runtimeEffort ?? previous.runtimeEffort;
-    if (runtimeModel === previous.runtimeModel && runtimeEffort === previous.runtimeEffort) return;
+    const pollingSame = JSON.stringify(activity.ciPolling) === JSON.stringify(previous.ciPolling);
+    if (
+      runtimeModel === previous.runtimeModel &&
+      runtimeEffort === previous.runtimeEffort &&
+      pollingSame
+    )
+      return;
+    const rest = { ...previous };
+    delete rest.ciPolling;
     this.emitActivity(id, {
-      ...previous,
+      ...rest,
       ...(runtimeModel ? { runtimeModel } : {}),
       ...(runtimeEffort ? { runtimeEffort } : {}),
+      ...(activity.ciPolling ? { ciPolling: activity.ciPolling } : {}),
     });
   }
 

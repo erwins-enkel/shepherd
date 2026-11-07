@@ -10,7 +10,8 @@ import {
   type PulseState,
   type TimelineKind,
 } from "./session-pulse";
-import type { GitState, Session, SteerKind, SteerLogEntry } from "./types";
+import { formatTokens } from "./format";
+import type { GitState, Session, SessionActivity, SteerKind, SteerLogEntry } from "./types";
 
 /** The short, localized name of a progress verdict (card label, panel kicker). */
 export function pulseLabel(state: PulseState): string {
@@ -244,21 +245,48 @@ function nextSection(p: Pulse): TooltipSection {
   return { label: m.pulse_section_next(), text: "", rows };
 }
 
+/** Caution: the agent polls CI itself (#2863). Only while it runs — the probe stops refreshing an
+ *  idle session, so its last reading would otherwise linger. */
+function pollingSection(
+  session: Session,
+  activity: SessionActivity | undefined,
+): TooltipSection | null {
+  const polling = activity?.ciPolling;
+  if (!polling || session.status !== "running") return null;
+  return {
+    label: m.pulse_section_polling(),
+    text: "",
+    rows: [
+      {
+        text: m.pulse_polling_row({
+          polls: polling.polls,
+          tokens: formatTokens(polling.inputTokens),
+        }),
+        tone: "warn",
+      },
+    ],
+    note: m.pulse_polling_note(),
+  };
+}
+
 /** The session status panel's content: the verdict as title, what it rests on as summary, and
- *  one idea per section — CI, history, loop check, what happens next. */
+ *  one idea per section — a CI-polling caution, CI, history, loop check, what happens next. */
 export function pulseExplanation(input: {
   pulse: Pulse;
   session: Session;
   git?: GitState;
   steers?: readonly SteerLogEntry[];
+  activity?: SessionActivity;
   nowMs: number;
 }): TooltipExplanation {
-  const { pulse, session, git, steers, nowMs } = input;
+  const { pulse, session, git, steers, activity, nowMs } = input;
   const ci = ciSection(pulse, git, nowMs);
+  const polling = pollingSection(session, activity);
   return {
     title: pulseTitle(pulse.state),
     summary: pulseSummary(pulse),
     sections: [
+      ...(polling ? [polling] : []),
       ...(ci ? [ci] : []),
       historySection(session, git, steers),
       loopSection(pulse, steers),

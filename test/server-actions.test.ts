@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, afterEach } from "bun:test";
+import { test, expect, beforeEach, afterEach, describe } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { makeApp, type AppDeps } from "../src/server";
@@ -8,6 +8,7 @@ import type { EventHub } from "../src/events";
 import type { GitForge, WorkflowRun } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import { config } from "../src/config";
+import { CiRestartHolds } from "../src/ci-restart-hold";
 
 let tmpRoot: string;
 let repoDir: string;
@@ -452,4 +453,105 @@ test("GET /api/actions/run-jobs requires a runId; missing method → empty", asy
     new Request(`http://localhost/api/actions/run-jobs?repo=${encodeURIComponent(repoDir)}`),
   );
   expect(bad.status).toBe(400);
+});
+
+// ── POST /api/sessions/:id/ci/restart (#2863) ─────────────────────────────────────────────────
+
+describe("POST /api/sessions/:id/ci/restart", () => {
+  const JOB_URL = "https://github.com/team/proj/actions/runs/42/job/7";
+  const session = { id: "s1", status: "running", repoPath: "/repo" };
+  const openGit = (state: "pending" | "failure" = "pending", url = JOB_URL) => ({
+    kind: "github",
+    state: "open",
+    checks: state,
+    deployConfigured: false,
+    jobs: [{ name: "CI / gate", state, url }],
+  });
+  const restartForge = () =>
+    fakeForge({
+      cancelWorkflowRun: async () => {},
+      rerunWorkflowRun: async () => {},
+      getRunDetail: async () => null,
+    });
+
+  function setup(
+    o: { git?: unknown; forge?: GitForge | null; withRestart?: boolean; held?: boolean } = {},
+  ) {
+    const holds = new CiRestartHolds({ set: () => 0, clear: () => {} });
+    if (o.held) holds.hold("s1", { name: "CI / gate" });
+    const runs: { id: string; runId: number }[] = [];
+    const emitted: { event: string; data: unknown }[] = [];
+    let onFailed: ((reason: "cancel" | "rerun") => void) | undefined;
+    const deps: AppDeps = {
+      ...makeDeps(() => (o.forge === undefined ? restartForge() : o.forge)),
+      events: { emit: (event: string, data: unknown) => emitted.push({ event, data }) } as never,
+      store: { get: (id: string) => (id === "s1" ? session : null) } as unknown as SessionStore,
+      prCache: { get: () => (o.git === undefined ? openGit() : o.git) } as never,
+      ...(o.withRestart === false
+        ? {}
+        : {
+            ciRestart: {
+              holds,
+              refreshPr: () => {},
+              run: async (a: {
+                id: string;
+                runId: number;
+                onFailed: (reason: "cancel" | "rerun") => void;
+              }) => {
+                runs.push({ id: a.id, runId: a.runId });
+                onFailed = a.onFailed;
+              },
+            },
+          }),
+    };
+    const app = makeApp(deps);
+    const post = (id: string, body: unknown) =>
+      app.fetch(
+        new Request(`http://localhost/api/sessions/${id}/ci/restart`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    return { post, holds, runs, emitted, fail: (r: "cancel" | "rerun") => onFailed?.(r) };
+  }
+
+  test("holds red-CI steers and starts the restart with the run id from the CACHED job url", async () => {
+    const t = setup();
+    const res = await t.post("s1", { job: "CI / gate" });
+    expect(res.status).toBe(202);
+    expect(t.holds.phase("s1")).toBe("cancelling");
+    expect(t.runs).toEqual([{ id: "s1", runId: 42 }]);
+    t.fail("rerun"); // a background failure reaches the operator as an event
+    expect(t.emitted).toContainEqual({
+      event: "session:ci-restart-failed",
+      data: { id: "s1", reason: "rerun" },
+    });
+  });
+
+  test("validates the request and the session's PR state", async () => {
+    expect((await setup().post("s1", {})).status).toBe(400);
+    expect((await setup().post("nope", { job: "CI / gate" })).status).toBe(404);
+    expect((await setup({ withRestart: false }).post("s1", { job: "CI / gate" })).status).toBe(503);
+    expect((await setup({ git: { state: "none" } }).post("s1", { job: "CI / gate" })).status).toBe(
+      409,
+    );
+    expect((await setup().post("s1", { job: "CI / other" })).status).toBe(409);
+    expect((await setup({ git: openGit("failure") }).post("s1", { job: "CI / gate" })).status).toBe(
+      409,
+    );
+    expect((await setup({ held: true }).post("s1", { job: "CI / gate" })).status).toBe(409);
+  });
+
+  test("400 when the forge can't restart or the job url names no run; nothing held", async () => {
+    for (const t of [
+      setup({ forge: fakeForge() }),
+      setup({ forge: null }),
+      setup({ git: openGit("pending", "https://ci.example/jobs/9") }),
+    ]) {
+      expect((await t.post("s1", { job: "CI / gate" })).status).toBe(400);
+      expect(t.holds.held("s1")).toBe(false);
+      expect(t.runs).toEqual([]);
+    }
+  });
 });

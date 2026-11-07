@@ -255,6 +255,74 @@ describe("EpicRunControl state tone", () => {
   });
 });
 
+describe("EpicRunControl run command fill", () => {
+  // Start/Restart/Rejoin fill green, Pause fills orange, so the run command is easy to find.
+  function tokenBg(token: string): string {
+    const probe = document.createElement("span");
+    probe.style.backgroundColor = `var(${token})`;
+    document.body.appendChild(probe);
+    const color = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return color;
+  }
+  const bgOf = (name: string) =>
+    getComputedStyle(page.getByRole("button", { name }).element()).backgroundColor;
+  const winding = () => epic(A, { status: "idle" }, [child(11, "running"), child(12, "ready")]);
+  const noLeader = () =>
+    drain({
+      epicParent: null,
+      reason: null,
+      runSummary: summary({ leadingEpic: null, next: [], after: [] }),
+    });
+
+  it("Pause fills orange; ⋯ stays unfilled", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: B,
+      epic: epic(B),
+      drain: drain(),
+      titleFor,
+    });
+    await expect.element(page.getByRole("button", { name: m.epic_pause() })).toBeInTheDocument();
+    expect(bgOf(m.epic_pause())).toBe(tokenBg("--status-warn"));
+    expect(bgOf(m.epic_run_more())).toBe("rgba(0, 0, 0, 0)");
+  });
+
+  it("Start fills green", async () => {
+    const e = epic(99, { status: "idle" });
+    render(EpicRunControl, { repoPath: "/repo", parent: 99, epic: e, drain: drain(), titleFor });
+    await expect.element(page.getByRole("button", { name: m.epic_start() })).toBeInTheDocument();
+    expect(bgOf(m.epic_start())).toBe(tokenBg("--color-action-ready"));
+  });
+
+  it("Restart and Rejoin fill green", async () => {
+    const { unmount } = await render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: A,
+      epic: winding(),
+      drain: noLeader(),
+      titleFor,
+    });
+    await expect
+      .element(page.getByRole("button", { name: m.epic_run_restart() }))
+      .toBeInTheDocument();
+    expect(bgOf(m.epic_run_restart())).toBe(tokenBg("--color-action-ready"));
+    unmount();
+
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: A,
+      epic: winding(),
+      drain: drain(),
+      titleFor,
+    });
+    await expect
+      .element(page.getByRole("button", { name: m.epic_run_rejoin() }))
+      .toBeInTheDocument();
+    expect(bgOf(m.epic_run_rejoin())).toBe(tokenBg("--color-action-ready"));
+  });
+});
+
 describe("EpicRunControl actions", () => {
   it("pause and mode keep today's payloads", async () => {
     render(EpicRunControl, {

@@ -2665,6 +2665,46 @@ test("hooks: fresh push activity keeps runtime identity discovered by the transc
   }
 });
 
+test("hooks: a fresh push keeps the probe's CI-polling reading; the probe clears it (#2863)", async () => {
+  const orig = config.hooksSignals;
+  config.hooksSignals = true;
+  try {
+    const reading = { polls: 4, inputTokens: 168_000, since: 1 };
+    let polling: typeof reading | undefined = reading;
+    const h = hookHarness({
+      probe: () => ({
+        snapshot: null,
+        activity: {
+          lastActivityTs: h.now(),
+          summary: "$ gh run view 1",
+          recentTs: [],
+          recentErrTs: [],
+          ...(polling ? { ciPolling: polling } : {}),
+        },
+      }),
+    });
+
+    // Each poll is itself a Bash hook push, landing while the hook signal is fresh.
+    h.poller.ingestActivity(h.id, { toolName: "Bash", status: "ok", ts: h.now() });
+    await h.poller.tick(); // prime transcript liveness
+    h.advance(8000);
+    h.poller.ingestActivity(h.id, { toolName: "Bash", status: "ok", ts: h.now() });
+    await h.poller.tick();
+    expect(h.activities.at(-1)?.activity.ciPolling).toEqual(reading);
+    h.advance(3000);
+    h.poller.ingestActivity(h.id, { toolName: "Bash", status: "ok", ts: h.now() });
+    expect(h.activities.at(-1)?.activity).toMatchObject({ summary: "Bash", ciPolling: reading });
+
+    // The agent moved on: the next probe (hook still fresh) clears the reading.
+    polling = undefined;
+    h.advance(5000);
+    await h.poller.tick();
+    expect(h.activities.at(-1)?.activity.ciPolling).toBeUndefined();
+  } finally {
+    config.hooksSignals = orig;
+  }
+});
+
 test("hooks: freshness guard keeps the transcript stall firing for a frozen pure-generation turn", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = true;

@@ -325,6 +325,7 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
   // which every one of these callers either ignores or reads only for `ok`.
   "session lifecycle actions": [
     "/api/sessions/:p/interrupt",
+    "/api/sessions/:p/ci/restart",
     "/api/sessions/:p/rename",
     "/api/sessions/:p/replace",
     "/api/sessions/:p/resume",

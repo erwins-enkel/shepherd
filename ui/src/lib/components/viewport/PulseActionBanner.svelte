@@ -50,7 +50,7 @@
   let armed = $state(false);
   let restarting = $state<{ job: string; at: number } | null>(null);
   const job = $derived(kind === "ci_overdue" ? pulse?.job : undefined);
-  const runUrl = $derived(
+  const safeRunUrl = $derived(
     job ? firstSafeHttpUrl(git?.jobs?.find((j) => j.name === job.name)?.url) : null,
   );
   // "Restarting…" until the job leaves the overdue verdict (its new attempt starts the clock
@@ -137,9 +137,9 @@
       <span>{text}</span>
     </span>
     {#if kind === "ci_overdue"}
-      {#if runUrl}
+      {#if safeRunUrl}
         <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
-        <a class="pa-btn" href={runUrl} target="_blank" rel="noopener"
+        <a class="pa-btn" href={safeRunUrl} target="_blank" rel="noopener"
           >{m.pulseactions_open_run()}</a
         >
       {/if}

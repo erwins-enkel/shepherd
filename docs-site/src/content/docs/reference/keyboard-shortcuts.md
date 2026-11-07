@@ -10,9 +10,13 @@ Shepherd is built to drive from the keyboard. These shortcuts are **desktop-only
 | Keys | Action |
 | --- | --- |
 | `⌘K` / `Ctrl+K` | Open the command bar — a quick-switcher over your sessions, repositories, and herd lenses. Fires even while an input or the terminal is focused. Type to filter, `↑` / `↓` to move, `Enter` to activate the highlighted row, `Esc` to close. |
+| `⌥1`–`⌥9` / `Alt+1`–`Alt+9` | In the command bar, activate the Nth row. `⌥0` / `Alt+0` activates the tenth. Hold the modifier to see the numbers. |
+| `⌥P` / `Alt+P` | In the command bar, pin or unpin the highlighted row. |
 | `⌘J` / `Ctrl+J` | Open or close the Operator Assistant. Fires even while an input or the terminal is focused, so `Ctrl+J` no longer types a newline in the terminal — use `Shift+Enter` there. |
 
 The command bar also carries verbs beyond navigation — including **Next needs you**, which jumps to the next session waiting on your reply (offered whenever another session is waiting), and **Decommission**, which decommissions the session you have selected (offered whenever that session is on screen). Type part of a verb's name to surface it.
+
+**Pin** any row (a session, repository, lens, command or doc) with `⌥P` / `Alt+P` to keep it at the top. On an empty search the bar shows **Pinned** first, in the order you pinned them, so `⌥1` always opens your first pin. Then come **Needs you** (sessions waiting on your reply), Sessions, Repositories and Lenses. While you type, matching pins still sit above every other group. You can pin up to 9 rows. Pins are saved on this device only. A pinned command that is unavailable right now (for example Broadcast with no sessions) is hidden but stays pinned. Pins for sessions or repositories that no longer exist are removed. The footer lists the keys and confirms each pin or unpin. On a touch screen, long-press a row to pin or unpin it.
 
 On a phone there is no keyboard shortcut: pull down at the top of the herd list instead. Release once the hint reads **Release to search** to open the command bar, or keep pulling until it reads **Release to reload** to reload the page. Swipe right on the open command bar to close it.
 

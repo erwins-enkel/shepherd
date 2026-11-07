@@ -8149,5 +8149,19 @@
   "github_lens_write_split_label": "Writes — GitHub counts them apart from reads",
   "github_lens_write_split_measuring": "Measuring how much of the write budget is Shepherd's own — needs about 5 minutes of Shepherd's own writes in this window.",
   "feat_github_write_split_title": "See who spends your GitHub write budget",
-  "feat_github_write_split_body": "The GitHub tab in Usage now also splits REST writes into what the Shepherd server writes and what everything else on your account writes, per hour. GitHub counts writes apart from reads, and other tools' writes can push Shepherd's background writes into a pause."
+  "feat_github_write_split_body": "The GitHub tab in Usage now also splits REST writes into what the Shepherd server writes and what everything else on your account writes, per hour. GitHub counts writes apart from reads, and other tools' writes can push Shepherd's background writes into a pause.",
+  "commandbar_group_pinned": "Pinned",
+  "commandbar_pinned_sr": "pinned",
+  "commandbar_foot_move": "move",
+  "commandbar_foot_open": "open",
+  "commandbar_foot_jump": "jump",
+  "commandbar_foot_pin": "pin",
+  "commandbar_foot_unpin": "unpin",
+  "commandbar_foot_close": "close",
+  "commandbar_foot_longpress_hint": "Long-press a result to pin it",
+  "commandbar_status_pinned": "Pinned {label}",
+  "commandbar_status_unpinned": "Unpinned {label}",
+  "commandbar_status_pin_limit": "Pin limit reached: {max} max",
+  "feat_commandbar_pins_title": "Pin rows to the top of the command bar",
+  "feat_commandbar_pins_body": "Press ⌥P (Alt+P) in the command bar to pin the highlighted row: a session, repository, lens, command or doc. Pinned rows always come first, even while you type, so ⌥1 opens your first pin. On a touch screen, long-press a row instead. Up to 9 pins, saved on this device. Sessions waiting on you now get their own Needs you group, and a footer lists the keys."
 }

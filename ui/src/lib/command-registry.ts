@@ -70,6 +70,23 @@ export type CommandCtx = {
   otherNeedsYouCount: number;
 };
 
+/** Every id `buildCommands` can emit, available or not. A command-bar pin whose id is missing
+ *  here belongs to a removed verb and is dropped; one that is merely unavailable stays pinned. */
+export const COMMAND_IDS: readonly string[] = [
+  "new-task",
+  "broadcast",
+  "settings",
+  "usage",
+  "schedules",
+  "retry",
+  "diagnose-epic",
+  "operator-assistant",
+  "next-needs-you",
+  "unshelve",
+  "shelve",
+  "decommission",
+];
+
 /** The verbs available right now, in display order. Filters out any whose availability
  *  predicate is false, so the caller can render the result directly. */
 export function buildCommands(ctx: CommandCtx): Command[] {

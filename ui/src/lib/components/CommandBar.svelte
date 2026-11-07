@@ -11,17 +11,29 @@
   import { DOCS_PAGES } from "#lib/docs-manifest.js";
   import type { Command } from "#lib/command-registry.js";
   import { fuzzyScore } from "#lib/fuzzy.js";
-  import { jumpDigitIndex } from "#lib/components/herd-keynav.js";
+  import { isPinChord, jumpDigitIndex } from "#lib/components/herd-keynav.js";
+  import { COMMAND_IDS } from "#lib/command-registry.js";
+  import { commandBarPins, MAX_PINS } from "#lib/command-bar-pins.svelte.js";
   import { sortBlocked, type BlockState } from "#lib/triage.js";
   import { m } from "#lib/paraglide/messages.js";
   import { isMacPlatform } from "#lib/platform.js";
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { MediaQuery } from "svelte/reactivity";
   import { swipeBack } from "./swipe-back";
   import { repoChipRows } from "./queue-strip";
+  import { longPress } from "./longpress";
+  import {
+    arrangeGroups,
+    pinKeep,
+    rowLabel,
+    stableKey,
+    type PinSources,
+    type Row,
+  } from "./command-bar-groups";
 
   let {
     sessions,
+    sessionsLoaded = false,
     remoteSessions = [],
     workingBlocked,
     backgroundBusy = {},
@@ -37,6 +49,9 @@
     initialFilter = undefined,
   }: {
     sessions: Session[];
+    /** A session list has landed (store.sessionsLoaded): only then are pins for sessions that
+     *  are gone dropped, so a pre-bootstrap empty list can't wipe them. */
+    sessionsLoaded?: boolean;
     /** Sessions mirrored from connected machines (#2762): they keep a repo filterable too. */
     remoteSessions?: Session[];
     workingBlocked: Record<string, boolean>;
@@ -56,56 +71,8 @@
   const docUrl = (path: string) => DOCS_URL.replace(/\/$/, "") + path;
   const isMac = isMacPlatform();
 
-  // Row unions the navigation and action targets. `rank` is comparable across every kind
-  // for a typed query; `oid` (assigned only after groups are relevance-ordered) is the row's
-  // index within the SELECTABLE-only sequence, so roving navigation skips group headers.
-  type Row =
-    | {
-        kind: "session";
-        id: string;
-        title: string;
-        designation: string;
-        repoPath: string;
-        repoName: string | null;
-        status: string;
-        hl: number[];
-        designationHl: number[];
-        repoHl: number[];
-        promptMatch: boolean;
-        rank: number;
-      }
-    | {
-        kind: "repo";
-        // `path` is the raw entry path (backlog is keyed on it); `realPath` is the
-        // realpath'd form that session.repoPath / the herd repoFilter use — they differ
-        // for a symlinked repo root, so the filter action keys on realPath, backlog on path.
-        path: string;
-        realPath: string;
-        name: string;
-        display: string;
-        hl: number[];
-        displayHl: number[];
-        hasLiveSession: boolean;
-        rank: number;
-      }
-    | { kind: "lens"; lens: HerdFilter; label: string; icon: string; hl: number[]; rank: number }
-    | {
-        kind: "command";
-        id: string;
-        label: string;
-        run: () => void;
-        // Both are non-null only for a destructive (two-step) verb: `confirmLabel` is the armed
-        // row's visible text, `confirmAria` the sentence the live region speaks (it names the
-        // target, which the short visible label drops). The bar has no session context of its
-        // own, so both ride along on the row.
-        confirmLabel: (() => string) | null;
-        confirmAria: (() => string) | null;
-        /** The verb's global chord label (⌘J / Ctrl+J), or null when it has none. */
-        shortcut: string | null;
-        hl: number[];
-        rank: number;
-      }
-    | { kind: "doc"; title: string; url: string; hl: number[]; rank: number };
+  // `oid` (assigned only after groups are arranged) is the row's index within the
+  // SELECTABLE-only sequence, so roving navigation skips group headers.
   type OptRow = Row & { oid: number };
 
   type MatchSource = "title" | "designation" | "session-repo" | "repo-name" | "repo-display";
@@ -266,85 +233,86 @@
       })),
   );
 
-  // Commands + Docs are search-driven, so they stay hidden until the user types: with an
-  // empty query every command (≤6) and doc (~14) would match and flood the bar on open,
-  // burying the recency-ordered sessions/repos/lenses that make it a quick-switcher.
+  // Commands + Docs are search-driven: with an empty query every command and doc matches, and
+  // arrangeGroups shows only the PINNED ones, so they can't flood the bar on open and bury the
+  // recency-ordered sessions/repos/lenses that make it a quick-switcher.
   // Labels/titles use the same compact scorer as navigation rows. Long keyword haystacks stay
   // substring-only at rank 500, so synonyms remain discoverable without outranking visible text.
   const commandRows = $derived<Row[]>(
-    q === ""
-      ? []
-      : commands
-          .map((c, order) => {
-            const label = c.label();
-            const result = fuzzyScore(q, label);
-            const keywordMatch =
-              result === null && (c.keywords?.() ?? "").toLowerCase().includes(q);
-            if (result === null && !keywordMatch) return null;
-            return { c, order, label, result, rank: result?.score ?? 500 };
-          })
-          .filter(isPresent)
-          .sort((a, b) => b.rank - a.rank || a.order - b.order)
-          .map(({ c, label, result, rank }): Row => ({
-            kind: "command",
-            id: c.id,
-            label,
-            run: c.run,
-            confirmLabel: c.confirmLabel ?? null,
-            confirmAria: c.confirmAria ?? null,
-            shortcut: c.shortcut?.(isMac) ?? null,
-            hl: result?.positions ?? [],
-            rank,
-          })),
+    commands
+      .map((c, order) => {
+        const label = c.label();
+        const result = fuzzyScore(q, label);
+        const keywordMatch = result === null && (c.keywords?.() ?? "").toLowerCase().includes(q);
+        if (result === null && !keywordMatch) return null;
+        return { c, order, label, result, rank: result?.score ?? 500 };
+      })
+      .filter(isPresent)
+      .sort((a, b) => b.rank - a.rank || a.order - b.order)
+      .map(({ c, label, result, rank }): Row => ({
+        kind: "command",
+        id: c.id,
+        label,
+        run: c.run,
+        confirmLabel: c.confirmLabel ?? null,
+        confirmAria: c.confirmAria ?? null,
+        shortcut: c.shortcut?.(isMac) ?? null,
+        hl: result?.positions ?? [],
+        rank,
+      })),
   );
 
   const docRows = $derived<Row[]>(
-    q === ""
-      ? []
-      : DOCS_PAGES.map((d, order) => {
-          const result = fuzzyScore(q, d.title);
-          const keywordMatch = result === null && d.keywords.includes(q);
-          if (result === null && !keywordMatch) return null;
-          return { d, order, result, rank: result?.score ?? 500 };
-        })
-          .filter(isPresent)
-          .sort((a, b) => b.rank - a.rank || a.order - b.order)
-          .map(({ d, result, rank }): Row => ({
-            kind: "doc",
-            title: d.title,
-            url: docUrl(d.path),
-            hl: result?.positions ?? [],
-            rank,
-          })),
+    DOCS_PAGES.map((d, order) => {
+      const result = fuzzyScore(q, d.title);
+      const keywordMatch = result === null && d.keywords.includes(q);
+      if (result === null && !keywordMatch) return null;
+      return { d, order, result, rank: result?.score ?? 500 };
+    })
+      .filter(isPresent)
+      .sort((a, b) => b.rank - a.rank || a.order - b.order)
+      .map(({ d, result, rank }): Row => ({
+        kind: "doc",
+        title: d.title,
+        url: docUrl(d.path),
+        hl: result?.positions ?? [],
+        rank,
+      })),
   );
 
-  // Typed queries order groups by their strongest row. Blank queries retain the established
-  // Sessions → Repositories → Lenses order. Global option ids are assigned only after that
-  // final group order, so Arrow/Enter/Alt+digit always target the rendered sequence.
+  // Pinned first, then (blank query) Needs you → Sessions → Repositories → Lenses, or (typed)
+  // groups by their strongest row — see arrangeGroups. Global option ids are assigned only after
+  // that final order, so Arrow/Enter/Alt+digit always target the rendered sequence.
   const groups = $derived.by(() => {
-    const build = (key: string, label: string, rows: Row[], order: number) => ({
-      key,
-      label,
-      rows,
-      rank: rows.reduce((max, row) => Math.max(max, row.rank), Number.NEGATIVE_INFINITY),
-      order,
-    });
-    const ranked = [
-      build("sessions", m.commandbar_group_sessions(), sessionRows, 0),
-      build("repos", m.commandbar_group_repos(), repoRows, 1),
-      build("lenses", m.commandbar_group_lenses(), lensRows, 2),
-      build("commands", m.commandbar_group_commands(), commandRows, 3),
-      build("docs", m.commandbar_group_docs(), docRows, 4),
-    ].filter((g) => g.rows.length > 0);
-    if (q !== "") ranked.sort((a, b) => b.rank - a.rank || a.order - b.order);
-
     let oid = 0;
-    return ranked.map(({ key, label, rows }) => ({
+    return arrangeGroups({
+      q,
+      pins: commandBarPins.keys,
+      rows: {
+        sessions: sessionRows,
+        repos: repoRows,
+        lenses: lensRows,
+        commands: commandRows,
+        docs: docRows,
+      },
+      needsInputIds,
+      labels: {
+        pinned: m.commandbar_group_pinned(),
+        needsYou: (count) => m.common_needs_you({ count }),
+        sessions: m.commandbar_group_sessions(),
+        repos: m.commandbar_group_repos(),
+        lenses: m.commandbar_group_lenses(),
+        commands: m.commandbar_group_commands(),
+        docs: m.commandbar_group_docs(),
+      },
+    }).map(({ key, label, rows }) => ({
       key,
       label,
       rows: rows.map((row): OptRow => ({ ...row, oid: oid++ })),
     }));
   });
+
+  const pinnedKeys = $derived(new Set(commandBarPins.keys));
 
   const options = $derived<OptRow[]>(groups.flatMap((g) => g.rows));
 
@@ -366,21 +334,6 @@
       if (armedRow.oid !== activeIdx) activeIdx = armedRow.oid;
     } else if (armedId !== null) disarm();
   });
-
-  function stableKey(row: OptRow): string {
-    switch (row.kind) {
-      case "session":
-        return "s:" + row.id;
-      case "repo":
-        return "r:" + row.path;
-      case "lens":
-        return "l:" + row.lens;
-      case "command":
-        return "c:" + row.id;
-      case "doc":
-        return "d:" + row.url;
-    }
-  }
 
   // Split text into on/off runs at the matched positions, so matched chars can be wrapped
   // in <mark> for highlighting. The rendered text is unchanged (runs concatenate back to the
@@ -482,6 +435,68 @@
     }
   }
 
+  // ── pins (#3052) ──
+  // Drop pins whose target is gone. Sessions/repos count as gone only once their list is known
+  // to be real (a pre-bootstrap or failed fetch leaves `[]`); an unavailable-but-known command
+  // stays pinned (hidden until it is offered again).
+  const COMMAND_ID_SET = new Set(COMMAND_IDS);
+  const DOC_URL_SET = new Set(DOCS_PAGES.map((d) => docUrl(d.path)));
+  const LENS_ID_SET = new Set<string>(LENSES.map((l) => l.id));
+  $effect(() => {
+    const reposTrusted = repos.loaded && repos.error === null && repos.entries.length > 0;
+    const src: PinSources = {
+      sessionIds: sessionsLoaded ? new Set(sessions.map((s) => s.id)) : null,
+      repoPaths: reposTrusted ? new Set(repos.entries.map((r) => r.path)) : null,
+      commandIds: COMMAND_ID_SET,
+      docUrls: DOC_URL_SET,
+      lensIds: LENS_ID_SET,
+    };
+    untrack(() => commandBarPins.prune((key) => pinKeep(key, src)));
+  });
+
+  // Footer status after a pin/unpin, also spoken (the span is a polite live region). Clears itself.
+  const STATUS_MS = 3000;
+  let pinStatus = $state("");
+  let statusTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => () => clearTimeout(statusTimer));
+
+  function togglePin(row: OptRow) {
+    const key = stableKey(row);
+    const label = rowLabel(row);
+    const result = commandBarPins.toggle(key);
+    if (result === "full") pinStatus = m.commandbar_status_pin_limit({ max: MAX_PINS });
+    else if (result === "pinned") pinStatus = m.commandbar_status_pinned({ label });
+    else pinStatus = m.commandbar_status_unpinned({ label });
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => (pinStatus = ""), STATUS_MS);
+    // The row moved (into or out of Pinned): keep the cursor on it while it is still listed.
+    const idx = options.findIndex((o) => stableKey(o) === key);
+    if (idx !== -1) activeIdx = idx;
+    void tick().then(scrollActiveIntoView);
+  }
+
+  // Alt+P / Option+P. Always preventDefault-ed (macOS Option+P would type "π" into the search),
+  // and a held key toggles once — the same repeat rule as the destructive-verb arm.
+  function onPinChord(e: KeyboardEvent) {
+    e.preventDefault();
+    const row = options[activeIdx];
+    if (row && !e.repeat) togglePin(row);
+  }
+
+  // A long-press moves its row (into or out of Pinned), so the row under the finger is re-created
+  // and longPress can no longer cancel the trailing tap on it — which may then land on whichever
+  // row now sits there. No timer can know when the finger lifts, and the original node is detached
+  // so its touchend never reaches a document listener. So the guard lives for the rest of THIS
+  // gesture: the next row click is swallowed until a new touch begins (every fresh tap starts with
+  // a touchstart, which clears it in the window capture handler below).
+  let swallowTap = false;
+
+  const altLabel = isMac ? "⌥" : "Alt+";
+  const activePinned = $derived.by(() => {
+    const row = options[activeIdx];
+    return row !== undefined && pinnedKeys.has(stableKey(row));
+  });
+
   function scrollActiveIntoView() {
     const el = listEl?.querySelector(`#cb-opt-${activeIdx}`) as HTMLElement | null;
     el?.scrollIntoView({ block: "nearest" });
@@ -527,6 +542,7 @@
   // activation is repeat-guarded (inside selectOption).
   function onWindowKeydown(e: KeyboardEvent) {
     altHeld = e.getModifierState("Alt");
+    if (isPinChord(e)) return onPinChord(e);
     const jump = jumpDigitIndex(e);
     if (jump !== null) {
       e.preventDefault();
@@ -541,6 +557,8 @@
   // Phone (the full-screen layout below): a rightward swipe closes the bar, like Backlog's
   // swipe-back. Touches from the input stay native (see swipeBack).
   const phone = new MediaQuery("(max-width: 768px)");
+  // Touch-first: no key legend, a long-press on a row toggles its pin instead.
+  const coarse = new MediaQuery("(pointer: coarse)");
   let cardX = $state(0); // rubber-banded display offset (px, ≥ 0)
   const cardSwipe = swipeBack({ onback: () => onclose(), onoffset: (px) => (cardX = px) });
 </script>
@@ -549,6 +567,7 @@
   onkeydown={onWindowKeydown}
   onkeyup={onWindowKeyup}
   onblur={() => (altHeld = false)}
+  ontouchstartcapture={() => (swallowTap = false)}
 />
 
 <!-- Primary text with fuzzy-matched chars wrapped in <mark> for highlighting. Shared by the
@@ -620,7 +639,24 @@
             aria-selected={row.oid === activeIdx}
             aria-keyshortcuts={row.oid < 10 ? `Alt+${HINT_LABELS[row.oid]}` : undefined}
             tabindex="-1"
-            onclick={(e) => selectOption(row, e.shiftKey || e.metaKey || e.ctrlKey)}
+            onclick={(e) => {
+              if (swallowTap) {
+                swallowTap = false; // the tap that ends a pinning long-press
+                return;
+              }
+              selectOption(row, e.shiftKey || e.metaKey || e.ctrlKey);
+            }}
+            oncontextmenu={(e) => {
+              // Android fires a native contextmenu on a long-press; the long-press pins instead.
+              if (coarse.current) e.preventDefault();
+            }}
+            use:longPress={{
+              onTrigger: () => {
+                swallowTap = true;
+                togglePin(row);
+                return true; // suppress the trailing tap so the row doesn't also open
+              },
+            }}
             onkeydown={(e) => {
               // Clicking a tabindex="-1" row focuses it, so keys can land HERE rather than on the
               // input's onKey. armGate now pulls focus back on arm, so the armed row's next key
@@ -679,6 +715,26 @@
               <b class="cb-primary">{@render primary(row.title, row.hl)}</b>
               <span class="cb-sub">{m.commandbar_docs_affordance()}</span>
             {/if}
+            {#if pinnedKeys.has(stableKey(row))}
+              <!-- Pin glyph is decorative; the pinned state joins the row's accessible name via
+                   the visually-hidden text. -->
+              <span class="cb-pin" aria-hidden="true"
+                ><svg
+                  viewBox="0 0 24 24"
+                  width="1em"
+                  height="1em"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  ><path d="M12 17v5" /><path
+                    d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"
+                  /></svg
+                ></span
+              >
+              <span class="sr-only">{m.commandbar_pinned_sr()}</span>
+            {/if}
             <!-- Digit jump-hint, first ten rows only, revealed while Alt is held. Decorative
                  (aria-hidden) — the shortcut is exposed to AT via the row's aria-keyshortcuts. -->
             {#if row.oid < 10 && altHeld}
@@ -688,6 +744,26 @@
         {/each}
       {/each}
     </ul>
+
+    <!-- Key legend (fine pointers) or the long-press hint (touch), plus the pin/unpin status on
+         the right — that span is the polite live region announcing it. -->
+    <div class="cb-foot">
+      {#if coarse.current}
+        <span class="cb-foot-keys">{m.commandbar_foot_longpress_hint()}</span>
+      {:else}
+        <span class="cb-foot-keys">
+          <span><kbd>↑↓</kbd> {m.commandbar_foot_move()}</span>
+          <span><kbd>↵</kbd> {m.commandbar_foot_open()}</span>
+          <span><kbd>{altLabel}1–9</kbd> {m.commandbar_foot_jump()}</span>
+          <span
+            ><kbd>{altLabel}P</kbd>
+            {activePinned ? m.commandbar_foot_unpin() : m.commandbar_foot_pin()}</span
+          >
+          <span><kbd>esc</kbd> {m.commandbar_foot_close()}</span>
+        </span>
+      {/if}
+      <span class="cb-status" role="status" aria-live="polite">{pinStatus}</span>
+    </div>
 
     <!-- Live region so screen readers hear an empty result set; .filled gives it a
          footprint only when shown (mirrors RepoSelect's .rs-empty). -->
@@ -786,6 +862,7 @@
   }
 
   .cb-row {
+    position: relative; /* anchors the row's visually-hidden "pinned" text */
     display: flex;
     align-items: center;
     gap: 8px;
@@ -795,6 +872,7 @@
     border-bottom: 1px solid var(--color-line);
     color: var(--color-ink-bright);
     overflow: hidden;
+    -webkit-touch-callout: none; /* the long-press pins; no iOS link/selection callout */
   }
   .cb-row:last-child {
     border-bottom: 0;
@@ -884,6 +962,47 @@
      owns margin-left:auto and the badge just follows it flush. */
   .cb-kbd:not(.cb-hint + .cb-kbd) {
     margin-left: auto;
+  }
+
+  /* Pin glyph — trailing edge, amber like the cursor accent. Owns the auto-margin unless a
+     .cb-hint already did; a following digit badge then sits flush. */
+  .cb-pin {
+    flex-shrink: 0;
+    display: inline-flex;
+    margin-left: auto;
+    color: var(--color-amber);
+    font-size: var(--fs-base);
+  }
+  .cb-hint + .cb-pin,
+  .cb-pin + .sr-only + .cb-kbd {
+    margin-left: 0;
+  }
+
+  /* Key legend + status. Meta size, the same precedented exception as .cb-sub (affordance copy). */
+  .cb-foot {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    flex-shrink: 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--color-line);
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+  }
+  .cb-foot-keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+  .cb-foot kbd {
+    font: inherit;
+    font-family: var(--font-mono);
+    color: var(--color-ink);
+  }
+  .cb-status {
+    margin-left: auto;
+    color: var(--color-amber);
   }
 
   /* visually-hidden live region (no .sr-only util in app.css) */

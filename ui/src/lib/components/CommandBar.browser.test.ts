@@ -8,6 +8,8 @@ import { repos } from "#lib/repos.svelte.js";
 import type { Command } from "#lib/command-registry.js";
 import type { BlockState } from "#lib/triage.js";
 import type { RepoEntry, Session } from "#lib/types.js";
+import { commandBarPins } from "#lib/command-bar-pins.svelte.js";
+import { DOCS_PAGES } from "#lib/docs-manifest.js";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -122,8 +124,14 @@ function renderBar(overrides: Partial<Parameters<typeof CommandBar>[1]> = {}) {
   return { onselectsession, onselectrepo, onfilterrepo, onselectlens, onclose };
 }
 
+const PINS_KEY = "shepherd:commandbar-pins";
+
 beforeEach(() => {
   repos.entries = seedRepos();
+  repos.loaded = false;
+  repos.error = null;
+  localStorage.removeItem(PINS_KEY);
+  commandBarPins.load();
 });
 
 describe("CommandBar — grouping & recency", () => {
@@ -1102,5 +1110,277 @@ describe("CommandBar — phone swipe back", () => {
     swipe(list(), [10, 300], [300, 300]);
     expect(onclose).not.toHaveBeenCalled();
     expect(card().dataset.swipeBack).toBeUndefined();
+  });
+});
+
+describe("CommandBar — pinned rows (#3052)", () => {
+  const stored = (): string[] => JSON.parse(localStorage.getItem(PINS_KEY) ?? "[]");
+  function seedPins(keys: string[]) {
+    localStorage.setItem(PINS_KEY, JSON.stringify(keys));
+    commandBarPins.load();
+  }
+  const groupLabels = () => [...document.querySelectorAll(".cb-group")].map((g) => g.textContent);
+  const optionTexts = () =>
+    page
+      .getByRole("option")
+      .elements()
+      .map((o) => o.textContent ?? "");
+  const status = () => document.querySelector(".cb-status")!;
+  const altP = () => userEvent.keyboard("{Alt>}p{/Alt}");
+  function altPEvent(repeat: boolean): KeyboardEvent {
+    const ev = new KeyboardEvent("keydown", {
+      code: "KeyP",
+      key: "π",
+      altKey: true,
+      repeat,
+      bubbles: true,
+      cancelable: true,
+    });
+    document.querySelector(".cb-input")!.dispatchEvent(ev);
+    return ev;
+  }
+
+  it("Alt+P pins all five row kinds in order and the pins survive a reload", async () => {
+    const { commands } = seedCommands();
+    renderBar({ commands });
+    const input = page.getByRole("combobox");
+    await input.click();
+    await altP(); // cursor on the most-recent session
+    await expect.poll(stored).toEqual(["s:s2"]);
+    for (const q of ["gamma", "owed", "usage", DOCS_PAGES[0]!.title]) {
+      await input.fill(q);
+      await altP();
+    }
+    await expect.poll(() => stored().length).toBe(5);
+    expect(stored().slice(0, 4)).toEqual(["s:s2", "r:/repos/gamma", "l:owed", "c:usage"]);
+    expect(stored()[4]).toMatch(/^d:/);
+
+    commandBarPins.load(); // what a fresh page load reads
+    expect(commandBarPins.keys).toEqual(stored());
+  });
+
+  it("empty query: Pinned (pin order) → Needs you · N → Sessions → Repositories → Lenses; Alt+1 fires pin #1", async () => {
+    const { commands } = seedCommands();
+    const usageRun = commands[1]!.run as ReturnType<typeof vi.fn>;
+    seedPins(["c:usage", "l:owed"]);
+    renderBar({
+      commands,
+      sessions: [
+        ...seedSessions(),
+        session({ id: "s3", name: "waiting", status: "blocked", updatedAt: 5 }),
+      ],
+      blocks: { s3: block() },
+    });
+    await expect
+      .poll(groupLabels)
+      .toEqual([
+        m.commandbar_group_pinned(),
+        m.common_needs_you({ count: 1 }),
+        m.commandbar_group_sessions(),
+        m.commandbar_group_repos(),
+        m.commandbar_group_lenses(),
+      ]);
+    const texts = optionTexts();
+    expect(texts[0]).toContain("Usage");
+    expect(texts[1]).toContain(m.herd_seg_owed());
+    expect(texts[2]).toContain("waiting");
+    // Broadcast (unpinned) stays out of an empty query; owed is listed only once.
+    expect(texts.filter((t) => t.includes("Broadcast"))).toHaveLength(0);
+    expect(texts.filter((t) => t.includes(m.herd_seg_owed()))).toHaveLength(1);
+
+    await page.getByRole("combobox").click();
+    await userEvent.keyboard("{Alt>}1{/Alt}");
+    expect(usageRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("typed query: matching pins sit above every group, non-matching pins are hidden, nothing twice", async () => {
+    const { commands } = seedCommands();
+    seedPins(["r:/repos/gamma", "c:broadcast"]);
+    renderBar({ commands });
+    const input = page.getByRole("combobox");
+    await input.fill("a");
+    await expect.poll(() => groupLabels()[0]).toBe(m.commandbar_group_pinned());
+    const texts = optionTexts();
+    expect(texts[0]).toContain("gamma");
+    expect(texts[1]).toContain("Broadcast");
+    expect(texts.filter((t) => t.includes("gamma"))).toHaveLength(1);
+
+    await input.fill("usage");
+    await expect.poll(() => optionTexts()[0]).toContain("Usage");
+    expect(groupLabels()).not.toContain(m.commandbar_group_pinned());
+  });
+
+  it("an unavailable pinned command is hidden but stays pinned; an unknown command id is dropped", async () => {
+    seedPins(["c:broadcast", "c:gone-verb"]);
+    renderBar({ commands: [] });
+    await expect.poll(stored).toEqual(["c:broadcast"]);
+    expect(groupLabels()).not.toContain(m.commandbar_group_pinned());
+  });
+
+  it("drops pins for removed sessions only once the session list has loaded", async () => {
+    seedPins(["s:gone", "s:s1"]);
+    const { unmount } = await render(CommandBar, {
+      sessions: seedSessions(),
+      sessionsLoaded: false,
+      workingBlocked: {},
+      commands: [],
+      onselectsession: vi.fn(),
+      onselectrepo: vi.fn(),
+      onfilterrepo: vi.fn(),
+      onselectlens: vi.fn(),
+      onclose: vi.fn(),
+    });
+    await expect.element(page.getByRole("option").first()).toBeVisible();
+    expect(stored()).toEqual(["s:gone", "s:s1"]);
+    unmount();
+
+    renderBar({ sessionsLoaded: true });
+    await expect.poll(stored).toEqual(["s:s1"]);
+  });
+
+  it("keeps repo pins through a failed or empty repo load and drops them after a good one", async () => {
+    seedPins(["r:/repos/gone", "r:/repos/beta"]);
+    repos.loaded = true;
+    repos.error = "boom";
+    const first = await render(CommandBar, {
+      sessions: seedSessions(),
+      workingBlocked: {},
+      commands: [],
+      onselectsession: vi.fn(),
+      onselectrepo: vi.fn(),
+      onfilterrepo: vi.fn(),
+      onselectlens: vi.fn(),
+      onclose: vi.fn(),
+    });
+    await expect.element(page.getByRole("option").first()).toBeVisible();
+    expect(stored()).toEqual(["r:/repos/gone", "r:/repos/beta"]);
+    first.unmount();
+
+    repos.error = null;
+    repos.entries = [];
+    const second = await render(CommandBar, {
+      sessions: seedSessions(),
+      workingBlocked: {},
+      commands: [],
+      onselectsession: vi.fn(),
+      onselectrepo: vi.fn(),
+      onfilterrepo: vi.fn(),
+      onselectlens: vi.fn(),
+      onclose: vi.fn(),
+    });
+    await expect.element(page.getByRole("option").first()).toBeVisible();
+    expect(stored()).toEqual(["r:/repos/gone", "r:/repos/beta"]);
+    second.unmount();
+
+    repos.entries = seedRepos();
+    renderBar();
+    await expect.poll(stored).toEqual(["r:/repos/beta"]);
+  });
+
+  it("refuses a 10th pin and announces it", async () => {
+    const { commands } = seedCommands();
+    const nine = ["l:all", "l:next", "l:ready", "l:done", "l:owed"];
+    nine.push("c:usage", "c:broadcast", "c:settings", "c:schedules");
+    seedPins(nine);
+    renderBar({ commands });
+    await page.getByRole("combobox").click();
+    // 7 visible pins (settings/schedules aren't offered here) → the 8th row is session s2.
+    for (let i = 0; i < 7; i++) await userEvent.keyboard("{ArrowDown}");
+    await altP();
+    await expect.poll(() => status().textContent).toBe(m.commandbar_status_pin_limit({ max: 9 }));
+    expect(stored()).toEqual(nine);
+  });
+
+  it("a held Alt+P toggles once, and every Alt+P is preventDefaulted", async () => {
+    renderBar();
+    await expect.element(page.getByRole("option").first()).toBeVisible();
+    expect(altPEvent(false).defaultPrevented).toBe(true);
+    for (let i = 0; i < 3; i++) expect(altPEvent(true).defaultPrevented).toBe(true);
+    await expect.poll(stored).toEqual(["s:s2"]);
+  });
+
+  it("footer legend follows the cursor (pin ↔ unpin); the status is announced; the name says pinned", async () => {
+    renderBar();
+    const foot = () => document.querySelector(".cb-foot-keys")!.textContent ?? "";
+    await expect.poll(foot).toContain(m.commandbar_foot_pin());
+    expect(foot()).toMatch(/(⌥|Alt\+)P/);
+    expect(foot()).not.toContain(m.commandbar_foot_unpin());
+
+    await page.getByRole("combobox").click();
+    await altP();
+    await expect.poll(foot).toContain(m.commandbar_foot_unpin());
+    expect(status().getAttribute("role")).toBe("status");
+    expect(status().getAttribute("aria-live")).toBe("polite");
+    expect(status().textContent).toBe(m.commandbar_status_pinned({ label: "newer" }));
+    await expect
+      .element(page.getByRole("option", { name: new RegExp(m.commandbar_pinned_sr()) }))
+      .toMatchTextContent("newer");
+    expect(document.querySelectorAll(".cb-pin")).toHaveLength(1);
+
+    await altP(); // cursor followed the row into Pinned, so this unpins it
+    await expect
+      .poll(() => status().textContent)
+      .toBe(m.commandbar_status_unpinned({ label: "newer" }));
+    expect(stored()).toEqual([]);
+  });
+
+  describe("coarse pointer", () => {
+    beforeEach(() => {
+      const real = window.matchMedia.bind(window);
+      vi.spyOn(window, "matchMedia").mockImplementation((query: string) =>
+        query.includes("pointer: coarse")
+          ? ({
+              matches: true,
+              media: query,
+              onchange: null,
+              addEventListener: () => {},
+              removeEventListener: () => {},
+              addListener: () => {},
+              removeListener: () => {},
+              dispatchEvent: () => false,
+            } as MediaQueryList)
+          : real(query),
+      );
+      return () => vi.restoreAllMocks();
+    });
+
+    function touch(type: string): Event {
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(e, "touches", {
+        value: type === "touchend" ? [] : [{ clientX: 20, clientY: 20 }],
+      });
+      return e;
+    }
+
+    it("shows the long-press hint instead of the key legend", async () => {
+      renderBar();
+      await expect.element(page.getByText(m.commandbar_foot_longpress_hint())).toBeVisible();
+      expect(document.querySelector(".cb-foot-keys")!.textContent).not.toContain(
+        m.commandbar_foot_move(),
+      );
+    });
+
+    it("a long-press toggles the row's pin without opening it", async () => {
+      const { onselectsession } = renderBar();
+      const row = page.getByRole("option").nth(1);
+      await expect.element(row).toBeVisible();
+      row.element().dispatchEvent(touch("touchstart"));
+      await expect.poll(stored, { timeout: 2000 }).toEqual(["s:s1"]);
+      // The pinned row re-renders in Pinned, so the finger's trailing tap can land on whatever row
+      // now sits under it: that tap must not open anything either — however long the hold.
+      await new Promise((r) => setTimeout(r, 900));
+      row.element().dispatchEvent(touch("touchend"));
+      const under = () => page.getByRole("option").nth(1).element() as HTMLElement;
+      under().click();
+      expect(onselectsession).not.toHaveBeenCalled();
+      // A fresh tap afterwards opens normally.
+      under().dispatchEvent(touch("touchstart"));
+      under().dispatchEvent(touch("touchend"));
+      under().click();
+      expect(onselectsession).toHaveBeenCalledTimes(1);
+      await expect
+        .poll(() => status().textContent)
+        .toBe(m.commandbar_status_pinned({ label: "older" }));
+    });
   });
 });

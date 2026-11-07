@@ -8149,5 +8149,19 @@
   "github_lens_write_split_label": "Schreibzugriffe — GitHub zählt sie getrennt von Lesezugriffen",
   "github_lens_write_split_measuring": "Messe, wie viel vom Schreibkontingent Shepherd selbst verbraucht — braucht etwa 5 Minuten mit eigenen Schreibzugriffen von Shepherd in diesem Fenster.",
   "feat_github_write_split_title": "Sieh, wer dein GitHub-Schreibkontingent verbraucht",
-  "feat_github_write_split_body": "Der GitHub-Tab im Verbrauch teilt jetzt auch REST-Schreibzugriffe auf: was der Shepherd-Server pro Stunde schreibt und was alles andere auf deinem Konto schreibt. GitHub zählt Schreibzugriffe getrennt von Lesezugriffen, und Schreibzugriffe anderer Werkzeuge können Shepherds Hintergrund-Schreibzugriffe in eine Pause zwingen."
+  "feat_github_write_split_body": "Der GitHub-Tab im Verbrauch teilt jetzt auch REST-Schreibzugriffe auf: was der Shepherd-Server pro Stunde schreibt und was alles andere auf deinem Konto schreibt. GitHub zählt Schreibzugriffe getrennt von Lesezugriffen, und Schreibzugriffe anderer Werkzeuge können Shepherds Hintergrund-Schreibzugriffe in eine Pause zwingen.",
+  "commandbar_group_pinned": "Angeheftet",
+  "commandbar_pinned_sr": "angeheftet",
+  "commandbar_foot_move": "bewegen",
+  "commandbar_foot_open": "öffnen",
+  "commandbar_foot_jump": "springen",
+  "commandbar_foot_pin": "anheften",
+  "commandbar_foot_unpin": "lösen",
+  "commandbar_foot_close": "schließen",
+  "commandbar_foot_longpress_hint": "Ergebnis lange drücken, um es anzuheften",
+  "commandbar_status_pinned": "{label} angeheftet",
+  "commandbar_status_unpinned": "{label} gelöst",
+  "commandbar_status_pin_limit": "Höchstens {max} Einträge anheftbar",
+  "feat_commandbar_pins_title": "Zeilen oben in der Befehlsleiste anheften",
+  "feat_commandbar_pins_body": "Drücke in der Befehlsleiste ⌥P (Alt+P), um die markierte Zeile anzuheften: eine Session, ein Repository, eine Ansicht, einen Befehl oder eine Doku-Seite. Angeheftete Zeilen stehen immer oben, auch beim Tippen, sodass ⌥1 deinen ersten Eintrag öffnet. Auf einem Touchscreen drückst du die Zeile stattdessen lange. Bis zu 9 Einträge, gespeichert auf diesem Gerät. Sessions, die auf dich warten, bekommen jetzt eine eigene Gruppe „Braucht dich“, und eine Fußzeile zeigt die Tasten."
 }

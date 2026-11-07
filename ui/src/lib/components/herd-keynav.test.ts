@@ -8,6 +8,7 @@ import {
   nextNeedsYou,
   altComboKey,
   jumpDigitIndex,
+  isPinChord,
   isSettingsChord,
   settingsChordHint,
   isPtySuppressedChord,
@@ -613,6 +614,16 @@ test("jumpDigitIndex returns null for non-digit codes", () => {
   expect(jumpDigitIndex(altDigit("KeyA"))).toBeNull();
   expect(jumpDigitIndex(altDigit("Enter"))).toBeNull();
   expect(jumpDigitIndex(altDigit("Minus"))).toBeNull();
+});
+
+test("isPinChord matches Alt+KeyP only, by physical code", () => {
+  expect(isPinChord(altDigit("KeyP"))).toBe(true);
+  expect(isPinChord({ ...altDigit("KeyP"), key: "π" } as KeyboardEvent)).toBe(true);
+  expect(isPinChord(altDigit("KeyP", { altKey: false }))).toBe(false);
+  expect(isPinChord(altDigit("KeyP", { ctrlKey: true }))).toBe(false);
+  expect(isPinChord(altDigit("KeyP", { metaKey: true }))).toBe(false);
+  expect(isPinChord(altDigit("KeyP", { shiftKey: true }))).toBe(false);
+  expect(isPinChord(altDigit("KeyO"))).toBe(false);
 });
 
 // ── isSettingsChord / settingsChordHint — the Cmd/Ctrl+, open-Settings chord ──

@@ -691,6 +691,7 @@
   "clearmerged_desc": "Diese {count} Sessions liegen auf gemergten Branches. Beim Stilllegen wird jeder Agent gestoppt, sein Worktree entfernt und der gemergte Branch gelöscht.",
   "clearmerged_leftovers": "{count} Hintergrundprozesse dieser Sessions werden ebenfalls beendet.",
   "clearmerged_probes_unavailable": "Shepherd kann auf diesem Host keine laufenden Prozesse erkennen. Hintergrundprozesse dieser Sessions werden daher nicht aufgeführt und laufen möglicherweise weiter. Siehe Diagnose.",
+  "clearmerged_probes_unavailable_machines": "Shepherd kann auf {machines} keine laufenden Prozesse erkennen. Hintergrundprozesse dieser Sessions werden daher nicht aufgeführt und laufen möglicherweise weiter. Siehe Diagnose.",
   "clearmerged_confirm": "{count} stilllegen",
   "viewport_upload_failed": "Upload fehlgeschlagen. Zum Wiederholen tippen",
   "viewport_attach_file": "Datei anhängen",

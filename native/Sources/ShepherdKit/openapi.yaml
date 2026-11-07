@@ -6061,6 +6061,10 @@ components:
           additionalProperties:
             type: integer
         probesUnavailable:
+          description: True when any part of the preview (this instance or a machine that answered) can't detect leftover processes, so its counts are unknown rather than zero.
+          type: boolean
+        localProbesUnavailable:
+          description: This instance can't detect leftover processes; the per-machine flag is `machines[].probesUnavailable`.
           type: boolean
         machines:
           description: One entry per connected machine asked; `ids` above include the merged sessions of those that answered.
@@ -6121,6 +6125,9 @@ components:
           type: array
           items:
             type: string
+        probesUnavailable:
+          description: This machine can't detect leftover processes; present when it answered.
+          type: boolean
     ClearMergedMachineResult:
       type: object
       additionalProperties: true

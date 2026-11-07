@@ -751,6 +751,7 @@ export const demoState = {
       leftovers: 0,
       leftoversById: Object.fromEntries(ids.map((id) => [id, 0])),
       probesUnavailable: false,
+      localProbesUnavailable: false,
       machines: [],
     };
   },

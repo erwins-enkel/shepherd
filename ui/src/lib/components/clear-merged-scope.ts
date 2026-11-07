@@ -63,3 +63,32 @@ function projectOf(s: Session, repos: readonly ScopeRepo[]): { key: string; name
 export function sumLeftovers(sessions: Session[], leftoversById: Record<string, number>): number {
   return sessions.reduce((n, s) => n + (leftoversById[s.id] ?? 0), 0);
 }
+
+/** Which parts of the merged set can't detect leftover processes (#3694): this host, and the
+ *  connected machines (by `instanceId`) that said so. */
+export interface ClearMergedProbes {
+  here: boolean;
+  machines: ReadonlySet<string>;
+}
+
+/** Where the given batch's leftover counts are unknown: `here` when it holds a local session and
+ *  this host can't probe, plus the names of the blind machines whose sessions it holds (first
+ *  appearance order). `exclude` drops what another caution already named. */
+export function probeCaution(
+  sessions: Session[],
+  probes: ClearMergedProbes,
+  exclude: { here: boolean; machines: string[] } = { here: false, machines: [] },
+): { here: boolean; machines: string[] } {
+  let here = false;
+  const machines: string[] = [];
+  for (const s of sessions) {
+    if (!s.host) here ||= probes.here && !exclude.here;
+    else if (
+      probes.machines.has(s.host.instanceId) &&
+      !machines.includes(s.host.name) &&
+      !exclude.machines.includes(s.host.name)
+    )
+      machines.push(s.host.name);
+  }
+  return { here, machines };
+}

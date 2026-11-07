@@ -348,8 +348,9 @@ describe("clear-merged across machines", () => {
       leftovers: 3,
       leftoversById: { l1: 1, b1: 2 },
       probesUnavailable: true,
+      localProbesUnavailable: false,
       machines: [
-        { instanceId: "m-b", name: "MacBook", ok: true, ids: ["b1"] },
+        { instanceId: "m-b", name: "MacBook", ok: true, ids: ["b1"], probesUnavailable: true },
         { instanceId: "m-c", name: "Studio", ok: false, reason: "disconnected", ids: [] },
       ],
     });

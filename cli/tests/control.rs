@@ -134,6 +134,42 @@ async fn new_after_sends_the_predecessor_and_reports_the_dependency_hold() {
     let out = h.out.text();
     assert!(out.contains("predecessor's PR to land"), "{out}");
     assert!(!out.contains("usage hold"), "{out}");
+    assert!(out.starts_with("held:"), "{out}");
+}
+
+#[tokio::test]
+async fn new_after_names_the_machine_a_remote_predecessor_holds_it_on() {
+    let s = server().await;
+    Mock::given(method("POST"))
+        .and(path("/api/sessions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "held": true, "id": "h-3", "count": 1, "reason": "after",
+            "host": {"instanceId": "i-mac", "name": "macbook", "platform": "macos"}
+        })))
+        .expect(1)
+        .mount(&s)
+        .await;
+    let mut h = Harness::new();
+    h.tty = true;
+    assert_eq!(
+        h.run(&[
+            "--url",
+            &s.uri(),
+            "new",
+            "--repo",
+            "/r",
+            "--after",
+            "TASK-108",
+            "Follow-up"
+        ])
+        .await,
+        0
+    );
+    let out = h.out.text();
+    assert!(
+        out.starts_with("held on macbook: waiting for its predecessor's PR"),
+        "{out}"
+    );
 }
 
 #[tokio::test]

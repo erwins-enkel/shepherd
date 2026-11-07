@@ -96,11 +96,16 @@ pub fn print_create_result(ctx: &mut Ctx<'_>, created: CreateSessionSuccess) -> 
                 );
             }
             if h.reason.as_ref().is_some_and(|r| r.0 == "after") {
+                // A predecessor on a connected machine takes the task there (#3633).
+                let there = h
+                    .host
+                    .as_ref()
+                    .map_or(String::new(), |m| format!(" on {}", m.name));
                 return output::line(
                     &mut ctx.io.stdout,
                     &format!(
-                        "held: waiting for its predecessor's PR to land, queued as {} ({} held). \
-                         It spawns once that PR merges.",
+                        "held{there}: waiting for its predecessor's PR to land, queued as {} \
+                         ({} held). It spawns once that PR merges.",
                         h.id, h.count
                     ),
                 );

@@ -387,6 +387,14 @@ describe("automatic machine choice", () => {
       expect(again.body).toMatchObject({ held: true, id: res.body.id });
       expect(linux.deps.store.countHeldTasks()).toBe(n + 1);
     }
+    // Naming this machine resolves here only: the mirrored predecessor is not found, nothing sent.
+    const self = await create(mac, {
+      ...task(mac, { afterSession: pred.id }),
+      target: { instanceId: mac.id },
+    });
+    expect(self.status).toBe(404);
+    expect(self.body.code).toBe("after_not_found");
+    expect(linux.deps.store.countHeldTasks()).toBe(2);
   });
 
   test("a designation both here and on a connected machine is ambiguous (#3633)", async () => {

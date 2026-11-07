@@ -4856,6 +4856,7 @@ async function routeCreate(
     body: isRecord(body) ? body : {},
     raw,
     dispatchId,
+    here: target.self,
   });
   if (value instanceof Response) return value;
   // A dependent task (#2589) whose predecessor runs here stays here and waits on it locally.
@@ -4905,11 +4906,18 @@ function routeChosenMachine(
 /** `afterSession` (#2589) for a create no machine was named for: the predecessor here or on a
  *  connected machine (#3633). One here comes back as its session id, so the task stays and waits
  *  here. One on a machine takes the task there, waiting on it by session id — that machine numbers
- *  its own tasks. A repo-scoped token sees no machines' sessions, as in `GET /api/sessions`. */
+ *  its own tasks. A create naming this machine (`here`, as every forwarded one does) is never
+ *  placed again, so it resolves here only. A repo-scoped token sees no machines' sessions, as in
+ *  `GET /api/sessions`. */
 async function routeDependent(
   ctx: Ctx,
   value: CreateSessionInput,
-  req: { body: Record<string, unknown>; raw: unknown; dispatchId: string | undefined },
+  req: {
+    body: Record<string, unknown>;
+    raw: unknown;
+    dispatchId: string | undefined;
+    here: boolean;
+  },
 ): Promise<CreateSessionInput | Response> {
   if (value.terminal === true || !value.afterSessionId) return value;
   const { deps, token } = ctx;
@@ -4920,7 +4928,8 @@ async function routeDependent(
     byId: granted(deps.store.get(ref)),
     byDesig: granted(deps.store.getByDesig(ref)),
   };
-  const mirrored = !token || token.repoPaths === null ? (deps.remoteSessions?.list() ?? []) : [];
+  const seesMachines = !req.here && (!token || token.repoPaths === null);
+  const mirrored = seesMachines ? (deps.remoteSessions?.list() ?? []) : [];
   const match = resolvePredecessor(ref, local, mirrored);
   switch (match.kind) {
     case "none":

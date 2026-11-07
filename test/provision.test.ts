@@ -455,6 +455,30 @@ describe("extracted helpers (direct)", () => {
     expect(enableHerdr).toBeLessThan(startShepherd);
   });
 
+  it("installs the agents slice + herdr drop-in verbatim (#3128)", () => {
+    const { calls, writes, run, fileIO } = recorder();
+    installService(
+      "/repo",
+      run,
+      fileIO,
+      { USER: "me" },
+      "/home/op",
+      { PATH: "/x" },
+      () => "/root/.local/bin/herdr",
+    );
+    const unitDir = "/home/op/.config/systemd/user";
+    expect(writes.get(`${unitDir}/shepherd_agents.slice`)).toBe(
+      readFileSync("deploy/shepherd_agents.slice", "utf8"),
+    );
+    expect(writes.get(`${unitDir}/herdr.service.d/99-shepherd.conf`)).toBe(
+      readFileSync("deploy/herdr.service.d/99-shepherd.conf", "utf8"),
+    );
+    const flat = calls.map((c) => c.join(" "));
+    expect(flat.indexOf(`mkdir -p ${unitDir}/herdr.service.d`)).toBeLessThan(
+      flat.indexOf("systemctl --user daemon-reload"),
+    );
+  });
+
   it("buildOnly installs deps + builds UI with the build env, no systemd", () => {
     const { calls, run } = recorder();
     buildOnly("/repo", run, { PATH: "/x" });

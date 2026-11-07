@@ -18,6 +18,7 @@ import {
 } from "../src/herdr";
 import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
 import { refreshMiseClaude, __resetMiseClaude } from "../src/mise-claude";
+import { __resetAgentScope, __setAgentScope, agentScopePrefix } from "../src/agent-scope";
 
 // Pin compileCacheDir() to a deterministic sentinel so the `env NODE_COMPILE_CACHE=…`
 // shim that start() prepends to every agent argv is assertable. Also disable the disk-TMPDIR
@@ -1709,5 +1710,33 @@ describe("buildWrappedArgv: resize relay", () => {
     expect(buildWrappedArgv(["bwrap", "--ro-bind", "/x", "/x", "--", "claude"])).not.toContain(
       RELAY,
     );
+  });
+});
+
+// ── agent scope (#3128) ──────────────────────────────────────────────────────
+// On a provisioned systemd host the agent runs in its own scope under shepherd_agents.slice, so
+// agent memory never throttles the herdr daemon. Everywhere else the argv must stay byte-identical.
+describe("buildWrappedArgv: agent scope", () => {
+  afterEach(() => __resetAgentScope());
+
+  test("gate closed ⇒ byte-identical argv", () => {
+    __resetAgentScope();
+    expect(buildWrappedArgv(["claude", "--continue"])).toEqual([
+      "env",
+      `NODE_COMPILE_CACHE=${NCC_SENTINEL}`,
+      "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
+      "claude",
+      "--continue",
+    ]);
+  });
+
+  test("gate open ⇒ the scope prefix runs outermost, exactly once, before the env shim", () => {
+    __setAgentScope(true);
+    const prefix = agentScopePrefix();
+    const w = buildWrappedArgv(["bwrap", "--new-session", "--", "claude"], { A: "1" });
+    expect(w.slice(0, prefix.length)).toEqual(prefix);
+    expect(w[prefix.length]).toBe("env");
+    expect(w.filter((t) => t === "systemd-run")).toHaveLength(1);
+    expect(w.slice(-4)).toEqual(["bwrap", "--new-session", "--", "claude"]);
   });
 });

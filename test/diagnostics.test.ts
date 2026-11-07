@@ -13,6 +13,7 @@ import {
   defaultRunRemediation,
   hasMeaningfulLimit,
   herdrLimitFromProps,
+  agentSliceLimitFromProps,
   nextDiagnosticsDelay,
   parseMemTotal,
   parseSwap,
@@ -2035,6 +2036,44 @@ describe("herdrLimitFromProps (#1839 — the not-found regression pin)", () => {
   });
   it("loaded + a limit → true", () => {
     expect(herdrLimitFromProps({ LoadState: "loaded", MemoryHigh: "6G" })).toBe(true);
+  });
+});
+
+describe("agentSliceLimitFromProps (#3128)", () => {
+  const FRAGMENT = "/home/op/.config/systemd/user/shepherd_agents.slice";
+  it("shipped slice with limits → herdr's workload is bounded", () => {
+    expect(
+      agentSliceLimitFromProps(
+        { LoadState: "loaded", FragmentPath: FRAGMENT, MemoryHigh: "40G" },
+        true,
+      ),
+    ).toBe(true);
+  });
+  it("shipped slice with limits but agents not scoped (gate closed) → not bounded", () => {
+    expect(
+      agentSliceLimitFromProps(
+        { LoadState: "loaded", FragmentPath: FRAGMENT, MemoryHigh: "40G" },
+        false,
+      ),
+    ).toBe(false);
+  });
+  it("loaded but no unit file (fragment-less slice) → not bounded", () => {
+    expect(
+      agentSliceLimitFromProps({ LoadState: "loaded", FragmentPath: "", MemoryHigh: "40G" }, true),
+    ).toBe(false);
+  });
+  it("unit file without limits → not bounded", () => {
+    expect(
+      agentSliceLimitFromProps(
+        {
+          LoadState: "loaded",
+          FragmentPath: FRAGMENT,
+          MemoryHigh: "infinity",
+          MemoryMax: "infinity",
+        },
+        true,
+      ),
+    ).toBe(false);
   });
 });
 

@@ -14,6 +14,7 @@ import { maintenance } from "./maintenance";
 import { spawnCommandLine } from "./spawn-script";
 import { compileCacheDir, agentTmpDir } from "./tmp-sweep";
 import { claudeSpawnPinned } from "./mise-claude";
+import { agentScopeEnabled, agentScopePrefix } from "./agent-scope";
 import { SpawnCanceled } from "./spawn-progress";
 import { SHELLS } from "./json-tolerant";
 import type { HerdrState, LivenessState, SessionStatus } from "./types";
@@ -700,6 +701,12 @@ export { posixShellJoin };
  * launch width. The relay stays in the pane's foreground job and forwards the signal into the
  * sandbox. herdr's foreground list still names `bwrap` beside the relay's `bash`, which keeps the
  * pane out of the idle-shell checks (`awaitPaneLeftShell`, the tab reaper).
+ *
+ * Puts `agentScopePrefix()` (`systemd-run --user --scope --slice=shepherd_agents.slice …`) OUTERMOST
+ * while `agentScopeEnabled()` (#3128): the agent and everything it spawns are charged to the agents
+ * slice instead of herdr.service, so a memory-full herd never throttles the herdr daemon.
+ * systemd-run execs in place (no extra process layer). Gate closed (macOS, unprovisioned host,
+ * cold) ⇒ byte-identical argv.
  */
 export function buildWrappedArgv(argv: string[], env?: Record<string, string>): string[] {
   const envTokens = env
@@ -719,6 +726,7 @@ export function buildWrappedArgv(argv: string[], env?: Record<string, string>): 
     : [];
   const pinAutoupdater = argv[innerCommandStart(argv)] === "claude" && claudeSpawnPinned();
   return [
+    ...(agentScopeEnabled() ? agentScopePrefix() : []),
     "env",
     ...tmpTokens,
     `NODE_COMPILE_CACHE=${compileCacheDir()}`,

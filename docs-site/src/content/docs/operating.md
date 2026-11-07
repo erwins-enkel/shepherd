@@ -375,16 +375,78 @@ starve the box. Add limits to the unit — or to a dedicated slice such as
 `shepherd.slice` — before running many concurrent sessions.
 
 On a **user-scoped** install the check covers **both** units: Shepherd's own unit
-and `herdr.service`, which runs your agent sessions. It stays `ok` only when
-Shepherd is bounded *and* herdr is not positively unbounded, and it raises a
-distinct warning for the case where Shepherd is bounded but herdr is not. A herdr
-that isn't a loaded user unit (absent, masked, or system-scoped) can't be read, so
-it's excluded from the verdict rather than reported as unbounded. The check also
+and `herdr.service`, which runs your agent sessions. herdr counts as bounded when
+`herdr.service` has a limit **or** agents actually run in the shipped
+`shepherd_agents.slice` (see below) and that slice has limits. It stays `ok` only when Shepherd is bounded *and* herdr
+is not positively unbounded, and it raises a distinct warning for the case where
+Shepherd is bounded but herdr is not. A herdr that isn't a loaded user unit
+(absent, masked, or system-scoped) can't be read, so it's excluded from the
+verdict rather than reported as unbounded. The check also
 **errors** when the kernel reports dangerous live memory/IO pressure (PSI), a cue
 to pause or reduce active agent sessions until the host recovers. On non-systemd
 or local dev hosts it stays quiet. Because sustained pressure is steady-state, the
 background re-check is *not* accelerated on this error — use the Diagnostics
 **Re-run** button for an on-demand live reading.
+
+### Agent sessions run in their own slice
+
+On a provisioned Linux host, Shepherd starts every agent in its own systemd scope
+under `shepherd_agents.slice`. The agent and every dev server, build and test it
+starts count against that slice, **not** against `herdr.service`. When agents fill
+memory, only they are throttled; the herdr daemon stays responsive.
+
+`deploy/provision.ts` and `bun run update` install two files:
+
+- `~/.config/systemd/user/shepherd_agents.slice` — `MemoryHigh=60%` and
+  `MemoryMax=80%` of RAM, `TasksMax=16384`, shared by all agents together.
+- `~/.config/systemd/user/herdr.service.d/99-shepherd.conf` — `TasksMax=16384`,
+  `OOMPolicy=continue`, and an `ExecStopPost` that stops the slice.
+
+What this means:
+
+- **An OOM kill hits one process.** Each scope runs with `OOMPolicy=continue`: the
+  kernel kills the offending process (a dev server, a test run), the session
+  and herdr keep running.
+- **Agents still die with herdr.** Stopping, restarting or crashing herdr stops
+  the slice, as before.
+- **The update never restarts herdr for this.** Both files only need a
+  `daemon-reload`; agents started before the update stay in `herdr.service`
+  until they end.
+- **Off elsewhere.** macOS, hosts without a systemd user manager, hosts
+  missing either file, and systemd older than v253 (it rejects `OOMPolicy=` on
+  scopes — e.g. Debian 12, Ubuntu 22.04) spawn agents exactly as before.
+  Shepherd checks once at startup.
+
+**Check that it's on.** Start a session, then:
+
+```sh
+systemd-cgls --user-unit shepherd_agents.slice
+```
+
+The agent's `claude` process should appear under a `run-*.scope` in
+`shepherd_agents.slice`. If the slice is empty, agents still run in
+`herdr.service`.
+
+**Tune the limits** with a drop-in, which survives updates:
+
+```sh
+systemctl --user edit shepherd_agents.slice
+```
+
+**Turn it off** by deleting `shepherd_agents.slice`, then
+`systemctl --user daemon-reload` and restart Shepherd.
+
+:::caution[Remove old herdr memory limits]
+Earlier setups limited `herdr.service` itself, for example with
+`~/.config/systemd/user/herdr.service.d/20-resource-guardrails.conf` or a
+`set-property` drop-in under `~/.config/systemd/user.control/herdr.service.d/`.
+Only once the check above shows agents in `shepherd_agents.slice`: those limits
+then only throttle the daemon. Remove their `MemoryHigh`, `MemoryMax`,
+`CPUQuota`, `TasksMax` and `OOMPolicy` lines, then run
+`systemctl --user daemon-reload`. While agents still run in `herdr.service`,
+keep its memory limits. `99-shepherd.conf` already overrides
+a lower `TasksMax` or `OOMPolicy=stop` from a drop-in that sorts before it.
+:::
 
 ### Add a limit (one click)
 
@@ -420,16 +482,20 @@ OOM-kill ceiling, so it's the safer first lever.
 On a user-scoped install the command above is not enough on its own to clear the
 **Host capacity** warning: agent sessions run under **herdr**, a *separate* unit,
 so a limit on `shepherd.service` alone bounds Shepherd but not the sessions that
-actually consume the box — and where herdr is a loaded user unit, the check keeps
-warning until it is bounded too. Repeat the `set-property` for it:
+actually consume the box. On a provisioned host the shipped
+`shepherd_agents.slice` already bounds them. Without it, the check keeps warning
+until herdr is bounded too. Repeat the `set-property` for it:
 
 ```sh
 systemctl --user set-property herdr.service MemoryHigh=6G CPUQuota=300%
 ```
 
-For **real** protection, prefer a shared **slice** — a per-unit limit on each of
-the two still lets them add up to twice the ceiling. Put both units in one slice
-and limit the slice instead:
+A limit on `herdr.service` also throttles the herdr daemon whenever the agents in
+it reach the limit, so prefer the agents slice wherever it is available.
+
+For a shared cap across Shepherd and herdr, put both units in one slice and
+limit the slice instead. With the agents slice installed, this slice only holds
+the two daemons:
 
 ```ini
 # ~/.config/systemd/user/shepherd.slice
@@ -477,7 +543,9 @@ If the script fails, herdr still starts.
 
 The unit also sets `TasksMax=16384`. Every pane and its threads count against
 herdr's task limit, and a low systemd default (2500 on some hosts) can make herdr
-crash with `pthread_create: EAGAIN`.
+crash with `pthread_create: EAGAIN`. The `99-shepherd.conf` drop-in repeats the
+value so a lower `TasksMax` from an earlier-sorting drop-in can't undercut it, and
+`bun run update` warns if the effective value is still lower.
 
 It also sets `LimitNOFILE=65536:524288`. Every pane holds open files, and at the
 default soft limit of 1024 a burst of tabs can stop herdr's API with

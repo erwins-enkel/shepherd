@@ -259,11 +259,13 @@ describe("Viewport — build queue with persisted compact header fold", () => {
         expect(replySessionFn).toHaveBeenCalledTimes(1);
         expect(approveBuildQueueFn).not.toHaveBeenCalled();
       } else {
-        await page.getByRole("button", { name: m.buildqueue_expand_aria() }).click();
+        // Phone form (#2264): an awaiting queue opens expanded, read-only; editing is a mode.
+        await page.getByRole("button", { name: m.buildqueue_edit() }).click();
         const title = page.getByRole("textbox", { name: `${m.buildqueue_step_title_aria()} 1` });
         await expect.element(title).toBeVisible();
         await title.fill("Review requirements carefully");
-        await cta.click();
+        await page.getByRole("button", { name: m.buildqueue_edit_done() }).click();
+        await page.getByRole("button", { name: label }).click();
         expect(putBuildQueueFn).toHaveBeenCalledTimes(1);
         expect(putBuildQueueFn.mock.calls[0][1][0].title).toBe("Review requirements carefully");
         expect(approveBuildQueueFn).toHaveBeenCalledExactlyOnceWith("folded-queue");
@@ -294,7 +296,12 @@ describe("Viewport — build queue with persisted compact header fold", () => {
       buildQueue: { ...queue(true), steps: [{ ...queue(true).steps[0], status: "active" }] },
       onSeedBuildQueue,
     });
-    expect(mounted.container.querySelector(".bqp")).toBeNull();
+    // Phone form (#2264): nothing needed → the collapsed bar naming the running step.
+    await expect
+      .poll(() => mounted.container.querySelector(".bqp-focus")?.textContent)
+      .toBe("Review requirements");
+    expect(mounted.container.querySelector(".bqp-content")?.classList).toContain("collapsed");
+    expect(mounted.container.querySelector(".bqp-approve")).toBeNull();
     await mounted.rerender({ ...props(false), onSeedBuildQueue });
     await expect
       .element(page.getByRole("button", { name: m.buildqueue_approve_plan() }))
@@ -304,14 +311,31 @@ describe("Viewport — build queue with persisted compact header fold", () => {
   });
 
   for (const status of ["active", "done"] as const) {
-    it(`keeps a non-actionable ${status} queue hidden when folded`, async () => {
+    it(`keeps a non-actionable ${status} queue as a collapsed bar when folded`, async () => {
       const mounted = await render(Viewport, {
         ...props(true),
         buildQueue: { ...queue(true), steps: [{ ...queue(true).steps[0], status }] },
       });
-      expect(mounted.container.querySelector(".bqp")).toBeNull();
+      const panel = mounted.container.querySelector<HTMLElement>(".bqp");
+      expect(panel).not.toBeNull();
+      expect(panel!.querySelector(".bqp-content")?.classList).toContain("collapsed");
+      expect(panel!.getBoundingClientRect().height).toBeLessThanOrEqual(52);
+      // Only a step still to do is named; a finished queue has no focus line.
+      const focusLine = panel!.querySelector<HTMLElement>(".bqp-focus")!;
+      expect(focusLine.offsetParent !== null).toBe(status === "active");
+      expect(mounted.container.querySelector(".vp-fold")?.getAttribute("aria-expanded")).toBe(
+        "false",
+      );
     });
   }
+
+  it("keeps an empty queue hidden under the folded details", async () => {
+    const mounted = await render(Viewport, {
+      ...props(true),
+      buildQueue: { ...queue(true), steps: [] },
+    });
+    expect(mounted.container.querySelector(".bqp")).toBeNull();
+  });
 
   it("keeps in-flight and failure feedback visible when the session starts working", async () => {
     const pending = Promise.withResolvers<void>();

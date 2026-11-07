@@ -8163,5 +8163,9 @@
   "commandbar_status_unpinned": "Unpinned {label}",
   "commandbar_status_pin_limit": "Pin limit reached: {max} max",
   "feat_commandbar_pins_title": "Pin rows to the top of the command bar",
-  "feat_commandbar_pins_body": "Press ⌥P (Alt+P) in the command bar to pin the highlighted row: a session, repository, lens, command or doc. Pinned rows always come first, even while you type, so ⌥1 opens your first pin. On a touch screen, long-press a row instead. Up to 9 pins, saved on this device. Sessions waiting on you now get their own Needs you group, and a footer lists the keys."
+  "feat_commandbar_pins_body": "Press ⌥P (Alt+P) in the command bar to pin the highlighted row: a session, repository, lens, command or doc. Pinned rows always come first, even while you type, so ⌥1 opens your first pin. On a touch screen, long-press a row instead. Up to 9 pins, saved on this device. Sessions waiting on you now get their own Needs you group, and a footer lists the keys.",
+  "buildqueue_edit": "Edit",
+  "buildqueue_edit_done": "Done",
+  "feat_build_queue_phone_title": "Build queue fits your phone",
+  "feat_build_queue_phone_body": "On a phone the build queue now folds to a two-line bar naming the step being worked on, and expands on its own when an approval waits, with the button at the bottom within thumb reach. To reorder or remove steps, tap Edit: the controls become full-size touch targets, and Done returns to reading."
 }

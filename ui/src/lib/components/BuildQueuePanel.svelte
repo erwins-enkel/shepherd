@@ -4,6 +4,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import { buildQueueCollapse } from "#lib/build-queue-collapse.svelte.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { focusStep, panelVisible } from "#lib/build-queue-phone.js";
 
   let {
     sessionId,
@@ -15,6 +16,7 @@
     planReview = null,
     terminalEnded = false,
     folded = false,
+    phone = false,
   }: {
     sessionId: string;
     /** Whether the build-queue feature flag is on for this repo. */
@@ -28,6 +30,10 @@
     planReview?: "reviewing" | "available" | null;
     terminalEnded?: boolean;
     folded?: boolean;
+    /** Phone layout (Viewport `mobile`): collapsed two-line bar by default, the
+     *  action docked full-width at the bottom, and step editing behind an explicit
+     *  edit mode with 44px targets (#2264). */
+    phone?: boolean;
   } = $props();
 
   // A primitive derived id keeps queue/store updates from re-triggering bootstrap.
@@ -103,8 +109,53 @@
     }
   });
   const visible = $derived(
-    action !== null || ((enabled || steps.length > 0) && (!folded || actionable)),
+    panelVisible({
+      phone,
+      enabled,
+      stepCount: steps.length,
+      folded,
+      actionable,
+      acting: action !== null,
+    }),
   );
+
+  // ------------- phone form (#2264) -------------
+
+  // Phone collapse is its own, unpersisted state: collapsed while nothing needs the
+  // operator, expanded while an action waits. A tap overrides that default only
+  // until the session or the actionable state changes — every new approval
+  // re-expands, and returning to a session starts from its default again.
+  let phoneOverride = $state<boolean | null>(null);
+  // Edit mode lasts until "Done", a collapse, or a session change; a non-curating
+  // queue (approved / empty) has nothing to edit.
+  let editMode = $state(false);
+  let overrideSession: string | undefined;
+  let overrideActionable: boolean | undefined;
+  $effect.pre(() => {
+    if (sessionId !== overrideSession || approved) editMode = false;
+    if (sessionId !== overrideSession || actionable !== overrideActionable) phoneOverride = null;
+    overrideSession = sessionId;
+    overrideActionable = actionable;
+  });
+  const editing = $derived(phone && editMode && !approved && steps.length > 0);
+  const phoneCollapsed = $derived(phoneOverride ?? !actionable);
+  const collapsed = $derived(phone ? !editing && phoneCollapsed : buildQueueCollapse.collapsed);
+  // Empty when there is nothing to name; the span hides itself via :empty.
+  const focusTitle = $derived((phone && collapsed && focusStep(steps)?.title) || "");
+  const toggleLabel = $derived(
+    collapsed ? m.buildqueue_expand_aria() : m.buildqueue_collapse_aria(),
+  );
+  // Template branches live here, not in markup, to keep the template under the
+  // Tier-1 Svelte complexity bar.
+  const readMode = $derived(phone && !editing);
+  const phoneHint = $derived(phone && actionable);
+  const dockButton = $derived(editing ? doneButton : phoneHint ? approveButton : null);
+
+  function toggleCollapse() {
+    if (!phone) return buildQueueCollapse.toggle();
+    phoneOverride = !collapsed;
+    editMode = false;
+  }
   const actionLabel = $derived(
     canApprove
       ? planning
@@ -377,34 +428,74 @@
           </div>
         </div>
 
-        <div class="bqp-row-actions">
-          <button
-            type="button"
-            class="bqp-btn bqp-move"
-            disabled={i === 0}
-            onclick={() => moveStep(step.id, -1)}
-            aria-label={m.buildqueue_move_up_aria()}
-            title={m.buildqueue_move_up_aria()}>▲</button
-          >
-          <button
-            type="button"
-            class="bqp-btn bqp-move"
-            disabled={i === steps.length - 1}
-            onclick={() => moveStep(step.id, 1)}
-            aria-label={m.buildqueue_move_down_aria()}
-            title={m.buildqueue_move_down_aria()}>▼</button
-          >
-          <button
-            type="button"
-            class="bqp-btn bqp-remove"
-            onclick={() => removeStep(step.id)}
-            aria-label={m.buildqueue_remove_aria()}
-            title={m.buildqueue_remove_aria()}>✕</button
-          >
-        </div>
+        <!-- Beside the field on desktop; on a phone the row's grid drops them under
+             it as full 44px targets instead of a cramped column. -->
+        {@render rowActions(step, i)}
       </li>
     {/each}
   </ol>
+{/snippet}
+
+{#snippet rowActions(step: BuildStep, i: number)}
+  <div class="bqp-row-actions">
+    <button
+      type="button"
+      class="bqp-btn bqp-move"
+      disabled={i === 0}
+      onclick={() => moveStep(step.id, -1)}
+      aria-label={m.buildqueue_move_up_aria()}
+      title={m.buildqueue_move_up_aria()}>▲</button
+    >
+    <button
+      type="button"
+      class="bqp-btn bqp-move"
+      disabled={i === steps.length - 1}
+      onclick={() => moveStep(step.id, 1)}
+      aria-label={m.buildqueue_move_down_aria()}
+      title={m.buildqueue_move_down_aria()}>▼</button
+    >
+    <button
+      type="button"
+      class="bqp-btn bqp-remove"
+      onclick={() => removeStep(step.id)}
+      aria-label={m.buildqueue_remove_aria()}
+      title={m.buildqueue_remove_aria()}>✕</button
+    >
+  </div>
+{/snippet}
+
+{#snippet approveButton()}
+  <button
+    type="button"
+    class="bqp-btn bqp-approve"
+    disabled={action?.busy}
+    onclick={() => sendAction(canApprove ? "approve" : "start")}
+  >
+    <span class="bqp-approve-glyph" aria-hidden="true">▸</span>{actionLabel}
+  </button>
+{/snippet}
+
+<!-- Phone curation: reading and approving is the norm, editing the exception — so
+     the steps render read-only until the operator asks for edit mode. -->
+{#snippet curationContent()}
+  {#if readMode}
+    {@render readonlyList()}
+    <div class="bqp-footer">
+      <button
+        type="button"
+        class="bqp-btn bqp-edit-toggle"
+        onclick={() => (editMode = true)}
+        use:coachTarget={"build-queue-edit"}>{m.buildqueue_edit()}</button
+      >
+    </div>
+  {:else}
+    {@render curationList()}
+    <div class="bqp-footer">
+      <button type="button" class="bqp-btn bqp-add" onclick={addStep}>
+        {m.buildqueue_add_step()}
+      </button>
+    </div>
+  {/if}
 {/snippet}
 
 {#snippet readonlyList()}
@@ -430,72 +521,83 @@
   </ol>
 {/snippet}
 
+<!-- What the banner offers under its header: the review notice, or the action.
+     On a phone only the hint stays here — the button docks at the panel bottom. -->
+{#snippet bannerAction()}
+  {#if reviewBlocked && steps.length > 0}
+    <p class="bqp-notice">
+      {planReview === "reviewing" ? m.buildqueue_plan_reviewing() : m.buildqueue_plan_review_hint()}
+    </p>
+  {:else if phoneHint}
+    <p class="bqp-hint">{actionHint}</p>
+  {:else if actionable}
+    <!-- Action first, sentence second: the button holds one position regardless of
+         how long the hint runs, instead of being pushed to the far right edge of a
+         multi-line block. -->
+    <div class="bqp-action-row">
+      {@render approveButton()}
+      <p class="bqp-hint">{actionHint}</p>
+    </div>
+  {/if}
+{/snippet}
+
+<!-- Phone: the one action sits in the thumb zone, full width, below the steps it
+     approves. While editing, "Done" takes the slot — approve after editing. -->
+{#snippet doneButton()}
+  <button type="button" class="bqp-btn bqp-edit-done" onclick={() => (editMode = false)}
+    >{m.buildqueue_edit_done()}</button
+  >
+{/snippet}
+
 {#if visible}
   <div
     class="bqp"
     class:is-awaiting={actionable}
+    class:phone
     role="region"
     aria-label={m.buildqueue_panel_title()}
   >
-    <div class="bqp-banner" class:collapsed={buildQueueCollapse.collapsed}>
+    <div class="bqp-banner" class:collapsed>
       <button
         type="button"
         class="bqp-head bqp-collapse-toggle"
-        onclick={() => buildQueueCollapse.toggle()}
-        aria-expanded={!buildQueueCollapse.collapsed}
+        onclick={toggleCollapse}
+        aria-expanded={!collapsed}
         aria-controls={contentId}
-        aria-label={buildQueueCollapse.collapsed
-          ? m.buildqueue_expand_aria()
-          : m.buildqueue_collapse_aria()}
+        aria-label={toggleLabel}
         aria-describedby={canApprove ? awaitingId : undefined}
-        title={buildQueueCollapse.collapsed
-          ? m.buildqueue_expand_aria()
-          : m.buildqueue_collapse_aria()}
+        title={toggleLabel}
         use:coachTarget={"build-queue-collapse"}
       >
-        <!-- The disclosure glyph leads the row, next to the heading it folds. It used
-             to sit at the far right edge — on a wide viewport that stranded it ~1400px
-             from the words it acts on. -->
-        <span class="bqp-collapse-glyph" aria-hidden="true"
-          >{buildQueueCollapse.collapsed ? "▴" : "▾"}</span
-        >
-        <span class="bqp-title">{m.buildqueue_panel_title()}</span>
-        {#if steps.length > 0}{@render meter()}{/if}
-        {#if approved && steps.length > 0}
-          <span class="bqp-sep" aria-hidden="true">·</span>
-          <span class={["bqp-approved", `bqp-run-${runState}`]}>{approvalLabel} · {runLabel}</span>
-        {:else if canApprove}
-          <!-- Needs-you chip: mirrors the approved chip's slot so the header always
-               narrates queue status. Lives in the always-rendered header, so the
-               signal (and its aria-describedby target) survives collapse. -->
-          <span class="bqp-awaiting-chip" id={awaitingId}>
-            <span class="bqp-awaiting-dot" aria-hidden="true"></span>{m.buildqueue_awaiting_chip()}
-          </span>
-        {/if}
+        <!-- One line of chrome. `display: contents` on desktop (the head wraps as
+             before); on a phone it holds the line together so the second line below
+             is the focus step, not a wrapped state chip. -->
+        <span class="bqp-line">
+          <!-- The disclosure glyph leads the row, next to the heading it folds. It used
+               to sit at the far right edge — on a wide viewport that stranded it ~1400px
+               from the words it acts on. -->
+          <span class="bqp-collapse-glyph" aria-hidden="true">{collapsed ? "▴" : "▾"}</span>
+          <span class="bqp-title">{m.buildqueue_panel_title()}</span>
+          {#if steps.length > 0}{@render meter()}{/if}
+          {#if approved && steps.length > 0}
+            <span class="bqp-sep" aria-hidden="true">·</span>
+            <span class={["bqp-approved", `bqp-run-${runState}`]}>{approvalLabel} · {runLabel}</span
+            >
+          {:else if canApprove}
+            <!-- Needs-you chip: mirrors the approved chip's slot so the header always
+                 narrates queue status. Lives in the always-rendered header, so the
+                 signal (and its aria-describedby target) survives collapse. -->
+            <span class="bqp-awaiting-chip" id={awaitingId}>
+              <span class="bqp-awaiting-dot" aria-hidden="true"
+              ></span>{m.buildqueue_awaiting_chip()}
+            </span>
+          {/if}
+        </span>
+        <!-- Phone, collapsed: "running" alone says too little on 390px — name the step. -->
+        <span class="bqp-focus">{focusTitle}</span>
       </button>
 
-      {#if reviewBlocked && steps.length > 0}
-        <p class="bqp-notice">
-          {planReview === "reviewing"
-            ? m.buildqueue_plan_reviewing()
-            : m.buildqueue_plan_review_hint()}
-        </p>
-      {:else if actionable}
-        <!-- Action first, sentence second: the button holds one position regardless of
-             how long the hint runs, instead of being pushed to the far right edge of a
-             multi-line block. -->
-        <div class="bqp-action-row">
-          <button
-            type="button"
-            class="bqp-btn bqp-approve"
-            disabled={action?.busy}
-            onclick={() => sendAction(canApprove ? "approve" : "start")}
-          >
-            <span class="bqp-approve-glyph" aria-hidden="true">▸</span>{actionLabel}
-          </button>
-          <p class="bqp-hint">{actionHint}</p>
-        </div>
-      {/if}
+      {@render bannerAction()}
       {#if action?.busy}
         <p class="bqp-notice" role="status">{m.buildqueue_sending()}</p>
       {:else if action?.feedback === "failed"}
@@ -505,23 +607,18 @@
       {/if}
     </div>
 
-    <div class="bqp-content" id={contentId} class:collapsed={buildQueueCollapse.collapsed}>
+    <div class="bqp-content" id={contentId} class:collapsed>
       {#if steps.length === 0}
         <p class="bqp-empty">{m.buildqueue_empty()}</p>
       {:else if !approved}
-        <!-- Curation mode: editable list -->
-        {@render curationList()}
-
-        <div class="bqp-footer">
-          <button type="button" class="bqp-btn bqp-add" onclick={addStep}>
-            {m.buildqueue_add_step()}
-          </button>
-        </div>
+        {@render curationContent()}
       {:else}
         <!-- Approved/running: read-only list -->
         {@render readonlyList()}
       {/if}
     </div>
+
+    {#if dockButton}<div class="bqp-dock">{@render dockButton()}</div>{/if}
   </div>
 {/if}
 
@@ -1110,5 +1207,125 @@
     .bqp-approve {
       min-height: var(--mobile-actionbar-hit);
     }
+  }
+
+  /* Desktop: the head's line wrapper is layout-transparent, so the head wraps as one
+     flex row exactly as before. The phone form below turns it into a real line. */
+  .bqp-line {
+    display: contents;
+  }
+
+  /* ── phone form (#2264) ────────────────────────────────────────────────
+     273px of chrome surround the panel on a 390×844 phone, so the default is a
+     two-line bar (state line + the step being worked on), the action docks full
+     width at the bottom, and step editing is a separate mode with 44px targets. */
+  .bqp.phone .bqp-banner {
+    padding: 6px 10px;
+  }
+
+  .bqp.phone .bqp-head {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 3px;
+  }
+
+  .bqp.phone .bqp-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .bqp.phone .bqp-line > * {
+    flex: none;
+  }
+
+  /* The state chip is the one part of the line allowed to give way: it ellipsizes
+     rather than wrapping the bar onto a third line. */
+  .bqp.phone .bqp-line > .bqp-approved,
+  .bqp.phone .bqp-line > .bqp-awaiting-chip {
+    flex: 0 1 auto;
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .bqp.phone .bqp-awaiting-dot {
+    display: inline-block;
+    margin-right: 5px;
+    vertical-align: middle;
+  }
+
+  .bqp-focus:empty {
+    display: none;
+  }
+  .bqp-focus {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-ink-bright);
+    font-size: var(--fs-meta);
+    line-height: 1.4;
+  }
+
+  /* The hint is a direct child of the column banner here, not of the row-wrapping
+     action row — its desktop 220px flex-basis would become 220px of height. */
+  .bqp.phone .bqp-hint {
+    flex: none;
+  }
+
+  .bqp.phone .bqp-edit {
+    padding: 8px 10px;
+  }
+
+  /* Edit mode: the step actions get their own grid row under the field; the spine
+     spans both so the rail still runs down to the next step. */
+  .bqp.phone .bqp-row:not(.bqp-row-readonly) {
+    display: grid;
+    grid-template-columns: 11px minmax(0, 1fr);
+    column-gap: 9px;
+  }
+  .bqp.phone .bqp-row:not(.bqp-row-readonly) .bqp-spine {
+    grid-row: span 2;
+  }
+  .bqp.phone .bqp-row:not(.bqp-row-readonly) .bqp-fields {
+    padding-bottom: 0;
+  }
+
+  .bqp.phone .bqp-row-actions {
+    grid-column: 2;
+    gap: 8px;
+    margin: 6px 0 11px;
+  }
+
+  .bqp.phone .bqp-row-actions .bqp-btn,
+  .bqp.phone .bqp-footer .bqp-btn {
+    min-width: var(--mobile-actionbar-hit);
+    min-height: var(--mobile-actionbar-hit);
+    padding: 0 12px;
+    font-size: var(--fs-base);
+  }
+
+  .bqp-dock {
+    display: flex;
+    padding: 0 10px 10px;
+  }
+
+  .bqp-dock .bqp-btn {
+    flex: 1;
+    justify-content: center;
+    min-height: var(--mobile-actionbar-hit);
+  }
+
+  .bqp-edit-done {
+    color: var(--color-ink-bright);
+    border-color: var(--color-ink);
+    font-weight: 600;
+    font-size: var(--fs-meta);
   }
 </style>

@@ -784,15 +784,20 @@ describe("GET /api/epics", () => {
           },
         }) as any,
       fingerprint: {
-        ensureFresh: async (slug) => {
-          order.push(`fresh:${slug}`);
+        ensureFresh: async (slug, demand) => {
+          order.push(`fresh:${slug}:${demand}`);
         },
         coversRepo: () => true,
       },
     });
     const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
     expect(res.status).toBe(200);
-    expect(order).toEqual(["fresh:acme/repo", "list"]);
+    // #2869: `fresh=1` (an operator opening the view) is a demand; a bare request is not.
+    const fresh = await app.fetch(
+      new Request(`http://x/api/epics?repo=${encRepo(repoDir)}&fresh=1`),
+    );
+    expect(fresh.status).toBe(200);
+    expect(order).toEqual(["fresh:acme/repo:false", "list", "fresh:acme/repo:true", "list"]);
   });
 
   test("stored epic_run surfaces even with no forge issues match", async () => {

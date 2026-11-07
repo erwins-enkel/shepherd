@@ -4317,7 +4317,7 @@ const appDeps: AppDeps = {
   assistantIngress,
   service,
   fingerprint: {
-    ensureFresh: (slug) => fingerprint.ensureFresh(slug),
+    ensureFresh: (slug, demand) => fingerprint.ensureFresh(slug, demand),
     coversRepo: fingerprintCoversRepo,
   },
   readCodexAuthMode,

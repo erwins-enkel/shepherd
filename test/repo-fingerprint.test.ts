@@ -253,11 +253,11 @@ test("while the GraphQL backoff is engaged neither the tick nor a demand calls G
   }
 });
 
-test("ensureFresh fingerprints only the requested repo, once per gap, single-flight", async () => {
+test("ensureFresh fingerprints only the requested repo, once per demand gap, single-flight", async () => {
   const h = harness();
   const log = spyOn(console, "log").mockImplementation(() => {});
   try {
-    await h.svc.ensureFresh("acme/web");
+    await h.svc.ensureFresh("acme/web", true);
     expect(h.fetches).toEqual([["acme/web"]]);
     expect(h.observations).toHaveLength(1);
     expect(h.observations[0]!.changed.map((c) => [c.slug, c.paths])).toEqual([
@@ -266,13 +266,35 @@ test("ensureFresh fingerprints only the requested repo, once per gap, single-fli
     expect(h.svc.issuesKey("acme/web")).not.toBeNull();
     expect(h.svc.covered("acme/api")).toBe(false);
     h.advance(10_000);
-    await Promise.all([h.svc.ensureFresh("acme/web"), h.svc.ensureFresh("acme/web")]);
+    await Promise.all([h.svc.ensureFresh("acme/web", true), h.svc.ensureFresh("acme/web", true)]);
     expect(h.fetches).toHaveLength(1);
     h.advance(30_000);
-    await Promise.all([h.svc.ensureFresh("acme/web"), h.svc.ensureFresh("acme/web")]);
+    await Promise.all([h.svc.ensureFresh("acme/web", true), h.svc.ensureFresh("acme/web", true)]);
     expect(h.fetches).toEqual([["acme/web"], ["acme/web"]]);
-    await h.svc.ensureFresh("acme/untracked");
+    await h.svc.ensureFresh("acme/untracked", true);
     expect(h.fetches).toHaveLength(2);
+  } finally {
+    log.mockRestore();
+  }
+});
+
+// #2869: a client re-requesting on a timer (no demand) must not push the fingerprint past the
+// background cadence; an operator opening the view (demand) still gets the short gap.
+test("ensureFresh without demand runs at most once per background interval while a client polls", async () => {
+  const h = harness();
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  try {
+    for (let t = 0; t <= 4 * 60_000; t += 15_000) {
+      await h.svc.ensureFresh("acme/web");
+      h.advance(15_000);
+    }
+    // t = 0, 120 s, 240 s.
+    expect(h.fetches).toEqual([["acme/web"], ["acme/web"], ["acme/web"]]);
+    h.advance(30_000); // last run at 240 s, now 285 s: past the demand gap, not the interval
+    await h.svc.ensureFresh("acme/web");
+    expect(h.fetches).toHaveLength(3);
+    await h.svc.ensureFresh("acme/web", true);
+    expect(h.fetches).toHaveLength(4);
   } finally {
     log.mockRestore();
   }

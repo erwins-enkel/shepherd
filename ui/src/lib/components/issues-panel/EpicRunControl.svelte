@@ -412,14 +412,14 @@
       {/if}
       {#if running}
         <button
-          class="gbtn"
+          class="gbtn stop"
           type="button"
           title={m.epic_pause_title()}
           onclick={() => setStatus("paused")}>{m.epic_pause()}</button
         >
       {:else if role === "winding" && otherLeader == null}
         <button
-          class="gbtn"
+          class="gbtn go"
           type="button"
           title={m.epic_run_restart_title()}
           disabled={checking}
@@ -428,7 +428,7 @@
         >
       {:else if role === "winding"}
         <button
-          class="gbtn"
+          class="gbtn go"
           type="button"
           title={m.epic_run_rejoin_title()}
           disabled={checking}
@@ -437,7 +437,7 @@
         >
       {:else}
         <button
-          class="gbtn"
+          class="gbtn go"
           type="button"
           title={otherLeader != null
             ? m.epic_start_supersede_title({ leader: otherLeader })
@@ -776,6 +776,34 @@
   .gbtn:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+
+  /* The run command is the panel's primary action: filled so it is found at a glance —
+     green to start/restart/rejoin, orange (--status-warn, not the running amber) to pause. */
+  .gbtn.go {
+    --run-fill: var(--color-action-ready);
+  }
+  .gbtn.stop {
+    --run-fill: var(--status-warn);
+  }
+  .gbtn.go,
+  .gbtn.stop,
+  .gbtn.go:hover:not(:disabled),
+  .gbtn.stop:hover:not(:disabled) {
+    background: var(--run-fill);
+    border-color: var(--run-fill);
+    color: var(--color-on-action);
+    font-weight: 600;
+  }
+  .gbtn.go:hover:not(:disabled),
+  .gbtn.stop:hover:not(:disabled),
+  .gbtn.go:focus-visible,
+  .gbtn.stop:focus-visible {
+    border-color: var(--color-ink-bright);
+  }
+  .gbtn.go:focus-visible,
+  .gbtn.stop:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--color-ink-bright);
   }
 
   @media (max-width: 768px), (max-height: 600px) {

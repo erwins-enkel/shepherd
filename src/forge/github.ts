@@ -4108,27 +4108,19 @@ export class GithubForge implements GitForge {
         complete: true,
       });
     const hit = this.epicStructures.get(parentNumber);
-    // A complete REST read of this backoff window is held for the rest of it — one REST pass per
-    // window — unless the issue content moved, then re-read at the normal TTL (#2834).
-    const restHeld =
-      !!hit?.complete &&
-      graphRateLimit.blocked() &&
-      hit.restWindow === graphRateLimit.window() &&
-      (fpKey === null || hit.contentKey === fpKey || now - hit.at < EPIC_STRUCTURE_TTL_MS);
-    const frozen = hit !== undefined && this.isFrozen();
+    if (hit === undefined) return this.loadEpicStructure(parentNumber, fpKey);
+    if (this.isFrozen()) return hit.structure; // a cold repo (#2837)
+    const restHeld = this.epicRestHeld(hit, fpKey, now);
     const fresh =
       restHeld ||
-      frozen ||
-      (hit !== undefined &&
-        (hit.retryAt !== undefined
-          ? now < hit.retryAt
-          : fpKey !== null
-            ? hit.contentKey === fpKey
-            : now - hit.at < EPIC_STRUCTURE_TTL_MS));
+      (hit.retryAt !== undefined
+        ? now < hit.retryAt
+        : fpKey !== null
+          ? hit.contentKey === fpKey
+          : now - hit.at < EPIC_STRUCTURE_TTL_MS);
     if (fresh) {
       if (
         !restHeld &&
-        !frozen &&
         persisted &&
         this.readCache?.expired(persisted) &&
         this.readCache.canRefresh() &&
@@ -4138,6 +4130,21 @@ export class GithubForge implements GitForge {
       return hit.structure;
     }
     return this.loadEpicStructure(parentNumber, fpKey);
+  }
+
+  /** A complete REST read of this backoff window is held for the rest of it — one REST pass per
+   *  window — unless the issue content moved, then re-read at the normal TTL (#2834). */
+  private epicRestHeld(
+    hit: { complete?: boolean; restWindow?: unknown; contentKey: string | null; at: number },
+    fpKey: string | null,
+    now: number,
+  ): boolean {
+    return (
+      !!hit.complete &&
+      graphRateLimit.blocked() &&
+      hit.restWindow === graphRateLimit.window() &&
+      (fpKey === null || hit.contentKey === fpKey || now - hit.at < EPIC_STRUCTURE_TTL_MS)
+    );
   }
 
   private loadEpicStructure(parentNumber: number, fpKey: string | null): Promise<EpicStructure> {

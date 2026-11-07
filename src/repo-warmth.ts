@@ -2,8 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 /** Default warm window in days (#2837). */
 export const WARM_REPO_DAYS_DEFAULT = 3;
-export const WARM_REPO_DAYS_MIN = 0;
-export const WARM_REPO_DAYS_MAX = 30;
+const WARM_REPO_DAYS_MIN = 0;
+const WARM_REPO_DAYS_MAX = 30;
 export const WARM_REPO_DAYS_SETTING = "warmRepoDays";
 
 /** Snap a raw value into the window's range; non-numbers fall back to `fallback`. */
@@ -108,15 +108,7 @@ export class RepoWarmthService {
   private compute(): WarmSet {
     const now = this.now();
     if (this.memo && now - this.memo.at < MEMO_MS) return this.memo;
-    const since = now - this.deps.windowDays() * DAY_MS;
-    const keys = new Set<string>();
-    for (const [path, t] of Object.entries(this.deps.lastActivityByRepo()))
-      if (t >= since) keys.add(path);
-    for (const p of this.deps.repoOpenedSince(since)) keys.add(p);
-    for (const p of this.deps.automationRepos()) keys.add(p);
-    for (const p of this.deps.activeEpicRepos()) keys.add(p);
-    for (const p of this.deps.epicCompletedRepos()) keys.add(p);
-    for (const p of this.deps.openPrRepos()) keys.add(p);
+    const keys = this.warmKeys(now - this.deps.windowDays() * DAY_MS);
     const paths = new Set(keys);
     const slugs = new Set<string>();
     for (const r of this.deps.listRepos()) {
@@ -129,5 +121,21 @@ export class RepoWarmthService {
     }
     this.memo = { at: now, paths, slugs };
     return this.memo;
+  }
+
+  /** Store-space paths warm for any reason, activity at or after `since` included. */
+  private warmKeys(since: number): Set<string> {
+    const keys = new Set<string>();
+    for (const [path, t] of Object.entries(this.deps.lastActivityByRepo()))
+      if (t >= since) keys.add(path);
+    const keepers = [
+      this.deps.repoOpenedSince(since),
+      this.deps.automationRepos(),
+      this.deps.activeEpicRepos(),
+      this.deps.epicCompletedRepos(),
+      this.deps.openPrRepos(),
+    ];
+    for (const source of keepers) for (const p of source) keys.add(p);
+    return keys;
   }
 }

@@ -97,8 +97,7 @@ export class OpenPrSnapshotService {
     const slug = forge.slug!;
     this.syncReadCache(slug);
     const entry = this.entry(forge);
-    if (entry && this.isFrozen(forge)) return entry.value; // a cold repo (#2837): no refresh
-    if (opts?.background && entry && graphRateLimit.blocked()) return entry.value;
+    if (entry && this.servedAsCached(forge, opts?.background)) return entry.value;
     const fpKey = forge.kind === "github" ? this.readCache?.contentKey("prs", slug) : null;
     if (
       entry &&
@@ -367,6 +366,12 @@ export class OpenPrSnapshotService {
     if (!tries?.size) return [];
     const covered = this.prCoverage(slug);
     return [...tries.values()].filter((t) => t.spent < t.budget && !covered.has(t.number));
+  }
+
+  /** The cached snapshot is served as-is: a cold repo (#2837), or a background read while GraphQL
+   *  is limited. */
+  private servedAsCached(forge: GitForge, background?: boolean): boolean {
+    return this.isFrozen(forge) || (!!background && graphRateLimit.blocked());
   }
 
   /** A cold repo's snapshot (#2837) is served as cached and never re-read on its own. */

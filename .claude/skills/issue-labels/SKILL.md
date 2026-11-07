@@ -1,13 +1,14 @@
 ---
 name: issue-labels
-description: Label every open Shepherd issue with its type, platform and implementation requirements. Use when asked to label, categorize or audit the labels of open issues, or when a schedule fires /issue-labels. `dry-run` reports without changing anything.
+description: Label every open Shepherd issue with its type, platform and implementation requirements, and flag issues that link a private claude.ai artifact. Use when asked to label, categorize or audit the labels of open issues, or when a schedule fires /issue-labels. `dry-run` reports without changing anything.
 ---
 
 # Issue labels
 
 Bring every open issue in this repository to a **complete label set**: exactly one type, at least
-one platform, and every requirement the work evidently needs. Runs unattended on a daily Shepherd
-schedule, so it decides on its own and leaves a paper trail instead of asking.
+one platform, every requirement the work evidently needs, and an access flag when the body links
+a private claude.ai artifact. Runs unattended on a daily Shepherd schedule, so it decides on its
+own and leaves a paper trail instead of asking.
 
 Two rules hold in every stage:
 
@@ -30,6 +31,7 @@ creating them), print the stage 6 report as "would add", and stop. No `gh label 
 | Type        | exactly one             | `bug`, `enhancement`, `documentation`, `question`                 |
 | Platform    | at least one            | `server`, `web`, `ios-app`, `mac-app`, `cli`, `extension`, `docs` |
 | Requirement | each one that's evident | `requires-macos`, `requires-ios-device`, `codex`                  |
+| Access      | when the body links one | `needs-artifact-access`                                           |
 | Flag        | skill-owned             | `needs-triage`                                                    |
 
 Every other label (`parity`, `shepherd:*`, `feedback`, `security`, `blocked-upstream`, …) is
@@ -85,6 +87,15 @@ Add only when the text shows the work needs it; absence of a requirement is neve
 - `codex`: needs the Codex CLI installed and signed in — Codex provider/adapter work, Codex
   parity, Codex usage or telemetry.
 
+### Access
+
+`needs-artifact-access`: the issue body links a private claude.ai artifact, so the operator needs
+the author to share it. A link is private when it matches `claude\.ai/(code/)?artifact/`
+(`claude.ai/artifact/<id>`, `claude.ai/code/artifact/<id>`); public links
+(`claude.ai/public/artifacts/…`, `claude.site/…`) never count. Decided mechanically from the URL
+shape alone, whoever wrote the issue, and only from the body, never from comments. Never removed:
+the skill cannot see whether access was granted, so the label stays as a permanent marker.
+
 ### Flag
 
 `needs-triage` (add-only exception above): type or platform cannot be decided with confidence.
@@ -109,6 +120,7 @@ gh label create extension           --color FBCA04 --description "Browser captur
 gh label create docs                --color 0075CA --description "docs/, docs-site/ or site/"
 gh label create requires-ios-device --color B60205 --description "Needs a physical iPhone/iPad to implement or verify"
 gh label create needs-triage        --color D93F0B --description "Auto-labeler could not classify type or platform; label by hand"
+gh label create needs-artifact-access --color C5DEF5 --description "Links a private claude.ai artifact; ask the author for access"
 ```
 
 Done when every taxonomy label exists (dry run: when the missing ones are listed).
@@ -116,18 +128,21 @@ Done when every taxonomy label exists (dry run: when the missing ones are listed
 ### 2. Inventory
 
 ```bash
-gh issue list --state open --limit 1000 --json number,title,labels,updatedAt \
-  -q '.[] | "\(.number)\t\(.updatedAt)\t\([.labels[].name] | join(","))\t\(.title)"'
+gh issue list --state open --limit 1000 --json number,title,labels,updatedAt,body \
+  -q '.[] | "\(.number)\t\(.updatedAt)\t\(.body // "" | test("claude\\.ai/(code/)?artifact/"))\t\([.labels[].name] | join(","))\t\(.title)"'
 ```
 
-One call, no bodies. If it returns 1000 rows, page further before continuing.
+One call; the third column is the private-artifact flag, so no body text reaches the output. If it
+returns 1000 rows, page further before continuing.
 
 ### 3. Select candidates
 
-From titles and labels alone, an issue is a candidate when either holds:
+From the inventory columns alone, an issue is a candidate when any holds:
 
 - no type label, or no platform label;
-- carries `needs-triage`.
+- carries `needs-triage`;
+- artifact flag is `true` but it lacks `needs-artifact-access` — regardless of `updatedAt` or
+  completeness.
 
 An issue that has a type and a platform is complete. It is a candidate only for its requirements,
 and only when it was updated in the last 3 days (`updatedAt`) and any of these holds:
@@ -152,8 +167,9 @@ gh issue list --state open --limit 1000 --json number,title,body,labels \
   -q '.[] | select(.number | IN(3711, 3694))'   # your candidate numbers
 ```
 
-Decide each dimension from the taxonomy. Done when every candidate has a decision: labels to add,
-`needs-triage` to add or remove, and any suspected-wrong labels.
+Decide each dimension from the taxonomy. Access comes straight from the inventory flag: a
+candidate selected only for `needs-artifact-access` needs no body read. Done when every candidate
+has a decision: labels to add, `needs-triage` to add or remove, and any suspected-wrong labels.
 
 ### 5. Apply
 

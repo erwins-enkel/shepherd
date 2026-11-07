@@ -7,6 +7,7 @@ import type { ResolvedHouseStack } from "./house-stack";
 import type {
   BlockJudgeLogRow,
   Session,
+  GoalState,
   SessionArchiveReason,
   SessionStatus,
   ExperimentRole,
@@ -836,9 +837,14 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
  * `COLS` also keeps that constant aligned with `create()`'s placeholder list.
  */
 const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits, settledAt,
-  claudeAiConnectors, ingressStamp, shelved, scheduleId,
+  claudeAiConnectors, ingressStamp, shelved, scheduleId, goalCondition, goalState,
   (SELECT name FROM schedules WHERE schedules.id = sessions.scheduleId) AS scheduleName,
   (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
+
+/** A stored goal state (#2596); anything unknown reads as no goal. */
+function goalStateOf(v: string | null): GoalState | null {
+  return v === "held" || v === "active" ? v : null;
+}
 
 /** A bootstrap spawn: P1+P2 carries its resolved stack, P3 (#3110) only its phase. */
 function isBootstrapInput(input: Pick<NewSession, "bootstrapStack" | "bootstrapPhase">): boolean {
@@ -889,6 +895,8 @@ type SessionRow = {
   runtimeEffort: string | null;
   contextTokens: number | null;
   coldResumeAt: number | null;
+  goalCondition: string | null;
+  goalState: string | null;
   resumeCostUnits: number | null;
   readyToMerge: number;
   status: string;
@@ -4085,6 +4093,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       contextTokens: null,
       coldResumeAt: null,
       resumeCostUnits: null,
+      // #2596: set after create (setGoal) when the spawn holds a goal — never part of the INSERT.
+      goalCondition: null,
+      goalState: null,
       claudeSessionId: input.claudeSessionId ?? "",
       providerSessionId: strOrEmpty(input.providerSessionId),
       agentProvider: input.agentProvider ?? "claude",
@@ -5936,6 +5947,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
+  /** #2596: the session's goal — condition + "held"/"active", or both null for none. */
+  setGoal(id: string, condition: string | null, state: GoalState | null): void {
+    this.db.run(
+      `UPDATE sessions SET goalCondition = ?, goalState = ?, updatedAt = ? WHERE id = ?`,
+      [condition, state, Date.now(), id],
+    );
+  }
+
   setPlanPhase(id: string, phase: Session["planPhase"]): void {
     this.db.run(`UPDATE sessions SET planPhase = ?, updatedAt = ? WHERE id = ?`, [
       phase,
@@ -6976,6 +6995,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // — nothing is known at insert time.
     add("runtimeModel", `runtimeModel TEXT`);
     add("runtimeEffort", `runtimeEffort TEXT`);
+    // Claude Code `/goal` (#2596): held until Go / active in the transcript. Written after create.
+    add("goalCondition", `goalCondition TEXT`);
+    add("goalState", `goalState TEXT`);
     // Execution-phase effort selection + the tier in force (#3434). A pre-existing row's agent
     // runs at its spawn effort, so `activeEffort` backfills from `effort` once.
     add("executionEffort", `executionEffort TEXT`);
@@ -8011,6 +8033,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       completionRepromptCount: r.completionRepromptCount ?? 0,
       planGateEnabled: nullableBool(r.planGateEnabled),
       planPhase: r.planPhase ?? null,
+      goalState: goalStateOf(r.goalState),
       autoMergeEnabled: nullableBool(r.autoMergeEnabled),
       autoMergeRebaseCount: r.autoMergeRebaseCount ?? 0,
       autoMergeRebaseHead: r.autoMergeRebaseHead ?? null,

@@ -1928,6 +1928,83 @@ test("createSession: copies attachments into worktree and appends paths to the p
   expect(store.get(s.id)?.prompt).toBe("look at this");
 });
 
+function goalSpawnService(store: SessionStore, calls: { argv?: string[] }) {
+  return new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({ worktreePath: "/wt/repo-x", branch: "shepherd/repo-x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: async (name: string, cwd: string, argv: string[]) => {
+        calls.argv = inlineSpawnFiles(argv);
+        return {
+          terminalId: "term_y",
+          cwd,
+          agent: "claude",
+          agentStatus: "working",
+          paneId: "p",
+          tabId: "t",
+          workspaceId: "w",
+        };
+      },
+      listAsync: async () => [],
+    } as any,
+    copyUploads: (uploads: string[], worktreePath: string) =>
+      uploads.map((i) => ({
+        src: i,
+        copiedPath: `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`,
+      })),
+  });
+}
+
+describe("createSession: /goal + plan gate (#2596)", () => {
+  const spawn = async (over: Partial<Parameters<SessionService["create"]>[0]> = {}) => {
+    const store = new SessionStore(":memory:");
+    const calls: { argv?: string[] } = {};
+    const s = await goalSpawnService(store, calls).create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "/goal make it responsive",
+      model: null,
+      images: ["/stage/a.png"],
+      planGateEnabled: true,
+      ...over,
+    });
+    return { s, row: store.get(s.id)!, prompt: calls.argv![calls.argv!.length - 1]! };
+  };
+
+  test("plan gate on: goal held, agent plans the condition as plain task text", async () => {
+    const { s, row, prompt } = await spawn();
+    expect(prompt).toBe(
+      "make it responsive\n\nAttached files:\n/wt/repo-x/.shepherd-uploads/a.png",
+    );
+    expect(row.goalState).toBe("held");
+    expect(row.goalCondition).toBe("make it responsive"); // no attachment block
+    expect(s.goalState).toBe("held"); // the returned (emitted) copy agrees
+    expect(row.prompt).toBe("/goal make it responsive"); // operator text kept verbatim
+  });
+
+  test("plan gate off: prompt unchanged, nothing held", async () => {
+    const { row, prompt } = await spawn({ planGateEnabled: false });
+    expect(prompt.startsWith("/goal make it responsive\n\nAttached files:")).toBe(true);
+    expect(row.goalState).toBeNull();
+  });
+
+  test("codex / clear / non-goal prompts are not held", async () => {
+    for (const over of [{ prompt: "/goal clear" }, { prompt: "just do it" }]) {
+      const { row, prompt } = await spawn(over);
+      expect(prompt.startsWith(over.prompt)).toBe(true);
+      expect(row.goalState).toBeNull();
+    }
+    const codex = await spawn({ agentProvider: "codex" });
+    expect(codex.row.goalState).toBeNull();
+  });
+});
+
 test("createSession: a video attachment appends the ffmpeg consumption note", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};
@@ -8202,6 +8279,57 @@ test("replaceAgent swaps provider in the same session and worktree", async () =>
   ]);
   expect(calls.started[0]!.argv.at(-1)!).not.toContain("<plan-gate-directive>");
   expect(calls.removed).toEqual([]);
+});
+
+describe("replaceAgent: held /goal (#2596)", () => {
+  const heldOrig = (store: SessionStore) => {
+    const orig = originalSession(store, {
+      agentProvider: "claude",
+      prompt: "/goal make it responsive",
+      planPhase: "planning",
+    });
+    store.setGoal(orig.id, "make it responsive", "held");
+    return orig.id;
+  };
+
+  test("claude → claude while planning: handoff leads with the task, goal stays held", async () => {
+    const store = new SessionStore(":memory:");
+    const { service, calls, emitted } = relaunchHarness(store);
+    const id = heldOrig(store);
+    await service.replaceAgent(id, { agentProvider: "claude", model: "opus" });
+    const prompt = calls.started[0]!.argv.at(-1)!;
+    expect(prompt.startsWith("make it responsive\n\nProvider handoff context:")).toBe(true);
+    expect(store.get(id)).toMatchObject({
+      goalCondition: "make it responsive",
+      goalState: "held",
+    });
+    expect(emitted.some((e) => e.event === "session:goal")).toBe(false);
+  });
+
+  test("claude → codex: the hold is dropped (Codex cannot be armed)", async () => {
+    const store = new SessionStore(":memory:");
+    const { service, emitted } = relaunchHarness(store);
+    const id = heldOrig(store);
+    await service.replaceAgent(id, { agentProvider: "codex", model: "gpt-5.5" });
+    expect(store.get(id)).toMatchObject({ goalCondition: null, goalState: null });
+    expect(emitted).toContainEqual({
+      event: "session:goal",
+      data: { id, goalCondition: null, goalState: null },
+    });
+  });
+
+  test("claude → codex clears an active goal too; claude → claude keeps it", async () => {
+    const store = new SessionStore(":memory:");
+    const { service } = relaunchHarness(store);
+    const toCodex = originalSession(store, { agentProvider: "claude" });
+    store.setGoal(toCodex.id, "T", "active");
+    await service.replaceAgent(toCodex.id, { agentProvider: "codex", model: "gpt-5.5" });
+    expect(store.get(toCodex.id)).toMatchObject({ goalCondition: null, goalState: null });
+    const toClaude = originalSession(store, { agentProvider: "claude" });
+    store.setGoal(toClaude.id, "T", "active");
+    await service.replaceAgent(toClaude.id, { agentProvider: "claude", model: "opus" });
+    expect(store.get(toClaude.id)).toMatchObject({ goalCondition: "T", goalState: "active" });
+  });
 });
 
 test("replaceAgent: ChatGPT auth clamps and warns while preserving the Codex model choice", async () => {

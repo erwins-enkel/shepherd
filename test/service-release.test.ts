@@ -42,6 +42,8 @@ function harness(opts: {
   /** Repo has buildQueueEnabled; `queue` is the session's stored queue state. */
   buildQueueEnabled?: boolean;
   queue?: { steps: unknown[]; approved: boolean; approvalKind?: "auto" | "operator" };
+  /** The first herdr.send rejects (the goal arm's paste, when a goal is held). */
+  failFirstSend?: boolean;
 }) {
   const setPhaseCalls: { id: string; phase: string }[] = [];
   const emitted: { event: string; data: unknown }[] = [];
@@ -49,7 +51,11 @@ function harness(opts: {
   const term = opts.session?.herdrAgentId ?? "t1";
   const approvals: { id: string; approved: boolean; kind?: string }[] = [];
   const queue = opts.queue ?? { steps: [], approved: false };
+  const goals: { id: string; condition: string | null; state: string | null }[] = [];
+  let failSend = opts.failFirstSend ?? false;
   const store = {
+    setGoal: (id: string, condition: string | null, state: string | null) =>
+      goals.push({ id, condition, state }),
     get: () => opts.session,
     list: () => (opts.session ? [opts.session] : []),
     getPlanGate: () => opts.gate,
@@ -78,13 +84,17 @@ function harness(opts: {
       stop: async () => {},
       paneForegroundProcs: async () => ["claude"],
       send: async (target: string, text: string) => {
+        if (failSend) {
+          failSend = false;
+          throw new Error("pane gone");
+        }
         sent.push({ target, text });
         if (opts.revokeOnSend) opts.gate = { approved: false };
       },
     } as any,
     events: { emit: (event, data) => emitted.push({ event, data }) },
   });
-  return { svc, setPhaseCalls, emitted, sent, approvals };
+  return { svc, setPhaseCalls, emitted, sent, approvals, goals };
 }
 
 test("releasePlanGate flips phase + steers ONLY when approved and planning", async () => {
@@ -241,4 +251,81 @@ test("plan Go reaches a live Claude pane without a persisted transcript", async 
   expect(await h.svc.releasePlanGate("s1", { automatic: true })).toBe(true);
   expect(h.sent.map((s) => s.text).join("")).toContain("Plan approved.");
   expect(h.setPhaseCalls).toEqual([{ id: "s1", phase: "executing" }]);
+});
+
+// #2596: a goal held at spawn is armed by the Go steer — `/goal X` first, then the Go paste.
+const PASTE = (t: string) => `\x1b[200~${t}\x1b[201~`;
+
+test.each([{ automatic: false }, { automatic: true }])(
+  "releasePlanGate arms a held goal before the Go steer (%o)",
+  async (opts) => {
+    const h = harness({
+      session: sess({ goalState: "held", goalCondition: "make it responsive" }),
+      gate: { approved: true },
+    });
+    expect(await h.svc.releasePlanGate("s1", opts)).toBe(true);
+    expect(h.sent[0]!.text).toBe(PASTE("/goal make it responsive"));
+    expect(h.sent[1]!.text).toBe("\r");
+    expect(h.sent[2]!.text).toContain("Plan approved.");
+    expect(h.goals).toEqual([{ id: "s1", condition: "make it responsive", state: "active" }]);
+    expect(h.emitted).toContainEqual({
+      event: "session:goal",
+      data: { id: "s1", goalCondition: "make it responsive", goalState: "active" },
+    });
+    expect(h.setPhaseCalls).toEqual([{ id: "s1", phase: "executing" }]);
+  },
+);
+
+test("releasePlanGate without a held goal sends no /goal", async () => {
+  const h = harness({
+    session: sess({ goalState: "active", goalCondition: "x" }),
+    gate: { approved: true },
+  });
+  expect(await h.svc.releasePlanGate("s1")).toBe(true);
+  expect(h.sent.some((m) => m.text.includes("/goal"))).toBe(false);
+  expect(h.goals).toEqual([]);
+});
+
+test("a failed goal arm never blocks Go; the goal stays held", async () => {
+  const h = harness({
+    session: sess({ goalState: "held", goalCondition: "X" }),
+    gate: { approved: true },
+    failFirstSend: true,
+  });
+  expect(await h.svc.releasePlanGate("s1")).toBe(true);
+  expect(h.sent.map((m) => m.text).join("")).toContain("Plan approved.");
+  expect(h.goals).toEqual([]);
+  expect(h.setPhaseCalls).toEqual([{ id: "s1", phase: "executing" }]);
+});
+
+test("releasePlanGate never pastes /goal into a non-Claude agent", async () => {
+  const h = harness({
+    session: sess({ goalState: "held", goalCondition: "X", agentProvider: "codex" }),
+    gate: { approved: true },
+  });
+  expect(await h.svc.releasePlanGate("s1")).toBe(true);
+  expect(h.sent.map((m) => m.text).join("")).toContain("Plan approved.");
+  expect(h.sent.some((m) => m.text.includes("/goal"))).toBe(false);
+  expect(h.goals).toEqual([]);
+});
+
+test("the chat release (#2586) arms a held goal too", async () => {
+  const h = harness({
+    session: sess({ goalState: "held", goalCondition: "X" }),
+    gate: { approved: true },
+  });
+  expect(h.svc.releasePlanOnOperatorReply("s1")).toBe(true);
+  await new Promise((r) => setTimeout(r, 20));
+  expect(h.sent.map((m) => m.text)).toEqual([PASTE("/goal X"), "\r"]);
+  expect(h.goals).toEqual([{ id: "s1", condition: "X", state: "active" }]);
+  expect(h.setPhaseCalls).toEqual([{ id: "s1", phase: "executing" }]);
+});
+
+test("the chat release sends nothing without a held Claude goal", async () => {
+  for (const over of [{}, { goalState: "held", goalCondition: "X", agentProvider: "codex" }]) {
+    const h = harness({ session: sess(over), gate: { approved: true } });
+    expect(h.svc.releasePlanOnOperatorReply("s1")).toBe(true);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(h.sent).toEqual([]);
+  }
 });

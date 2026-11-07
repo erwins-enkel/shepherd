@@ -359,6 +359,7 @@ import {
 } from "./ci-restart-hold";
 import { sessionMessages } from "./agent-messages";
 import { SessionPhaseService } from "./session-phase";
+import { GoalTracker, PLAN_GATE_STOP_REASON } from "./goal";
 import { firstRun } from "./first-run";
 import { handleUpload, parseUploadFile, MAX_UPLOAD_BYTES, MAX_REQUEST_BODY_BYTES } from "./uploads";
 import type { UsageLimits, UsageLimitsService } from "./usage-limits";
@@ -729,6 +730,9 @@ export interface AppDeps {
   /** Derives each session's `phase` (#2586) for the session reads; the `sessionPhases(deps)`
    *  accessor lazily builds one. */
   sessionPhases?: SessionPhaseService;
+  /** Mirrors each Claude session's `/goal` from its transcript and decides the plan-gate Stop
+   *  pause (#2596); the `goalTracker(deps)` accessor lazily builds one. */
+  goals?: Pick<GoalTracker, "onStop">;
   /** Server-side plugin registry (issue #1124); absent → `/api/plugins/*` 404s and the
    *  Settings → Plugins panel stays hidden (the zero-plugin invariant). */
   pluginRegistry?: PluginRegistry;
@@ -1294,6 +1298,13 @@ function sessionPhases(deps: AppDeps): SessionPhaseService {
     // Read through `deps` on each call: both are wired (and swapped in tests) after construction.
     prCache: { get: (id) => deps.prCache?.get(id) },
     blocks: { snapshot: () => deps.blocks?.snapshot() ?? {} },
+    transcriptPath: (s) => transcriptPathFor(s, deps),
+  }));
+}
+function goalTracker(deps: AppDeps): Pick<GoalTracker, "onStop"> {
+  return (deps.goals ??= new GoalTracker({
+    store: deps.store,
+    events: deps.events,
     transcriptPath: (s) => transcriptPathFor(s, deps),
   }));
 }
@@ -7558,8 +7569,10 @@ async function approveBuildQueue(deps: AppDeps, id: string): Promise<Response> {
 // Claude Code's own http-hook client, not a Shepherd curl with an explicit
 // `Content-Type: application/json`, so its Content-Type is unverified — a hard 415 could
 // silently record ZERO events for the whole spike. Parse defensively instead. The handler
-// does validate + record only — no file parse, no synchronous PTY/herdr read on the Bun
-// loop (memory: single-loop-no-sync-exec).
+// validates + records; a matched Stop additionally awaits GoalTracker.onStop (#2596), an ASYNC
+// bounded transcript-tail read (≤512 KiB, JSON-parsed for `goal_status`) capped at 2 s and
+// failing open to the plain 202. No synchronous file, PTY or herdr read on the Bun loop
+// (memory: single-loop-no-sync-exec).
 async function handleSessionHooks({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "hooks")) return null;
   const id = parts[2];
@@ -7583,6 +7596,10 @@ async function handleSessionHooks({ req, parts, deps }: Ctx): Promise<Response |
   // #3165: a PreToolUse reply body is parsed as a hook DECISION; answer with nothing so the
   // AskUserQuestion dialog renders exactly as without the hook (spike: 200 + empty body).
   if (raw.event === "PreToolUse") return new Response(null, { status: 200 });
+  // #2596: a goal must not push a planning agent past its hand-back. `continue:false` ends the turn
+  // ("Goal paused"); the next prompt — the Go steer — resumes it. Mismatched bodies never decide.
+  if (raw.event === "Stop" && match && (await goalTracker(deps).onStop(session)).pause)
+    return json({ continue: false, stopReason: PLAN_GATE_STOP_REASON });
   return json({ ok: true }, 202);
 }
 

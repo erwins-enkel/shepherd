@@ -3,6 +3,7 @@ import { sessionMessages, type SessionMessages } from "./agent-messages";
 import { jsonlPathFor } from "./usage";
 import { findCodexRolloutById } from "./codex-session-id";
 import { prepareTaskPrompt, removeTaskPromptFile } from "./task-prompt-file";
+import { goalArmCommand, splitHeldGoal } from "./goal";
 import {
   assistantCodexHome,
   findAssistantCodexSessionId,
@@ -2019,6 +2020,23 @@ export function PREVIEW_SETUP_STEER({
     `After creating the script, run it once in a managed/background terminal (not as a blocking foreground command), confirm the port it listens on, and then continue what you were doing.`
   );
 }
+
+/** #2596: the goal a spawn holds until Go — Claude + plan gate only; null keeps the prompt as is. */
+function heldGoalSplit(
+  prompt: string,
+  provider: AgentProvider,
+  planGateOn: boolean,
+): { condition: string; task: string } | null {
+  return provider === "claude" && planGateOn ? splitHeldGoal(prompt) : null;
+}
+
+/** A held goal the Go steer can arm: `/goal` is a Claude Code command. */
+function armable(s: Pick<Session, "goalState" | "agentProvider">): boolean {
+  return s.goalState === "held" && (s.agentProvider ?? "claude") === "claude";
+}
+
+/** Claude Code's confirmation line for `/goal <condition>` (#2596). */
+const GOAL_SET_RE = /Goal set:/g;
 
 /** Steered into a planning session when its plan is approved and the operator hits Go (or an
  *  auto session auto-releases). Hands the agent from the grill/plan phase into execution. NOT i18n'd.
@@ -4596,6 +4614,47 @@ export class SessionService {
     return resolveProfile(override, repoSetting, this.defaultProfile);
   }
 
+  /** #2596: the goal a create holds until Go — a prompt-leading `/goal X` on a plan-gated Claude
+   *  spawn (resolved exactly as resolveCreateLaunch resolves both) — and the input to compose the
+   *  prompt from: `X` as the task when held, else the input unchanged. */
+  #heldGoal(input: StandardCreateInput): {
+    composeInput: StandardCreateInput;
+    held: string | null;
+  } {
+    const split = heldGoalSplit(
+      input.prompt,
+      input.agentProvider ?? config.defaultAgentProvider,
+      this.resolvePlanGateOn(input, this.deps.store.getRepoConfig(input.repoPath)),
+    );
+    if (!split) return { composeInput: input, held: null };
+    return { composeInput: { ...input, prompt: split.task }, held: split.condition };
+  }
+
+  /** #2596: the row's goal after a provider replace. A held goal stays held only when the
+   *  replacement holds it too; a Codex replacement runs no Claude goal and its Stop is never read,
+   *  so any goal is cleared. A Claude replacement keeps an active goal for its transcript to
+   *  reconcile. */
+  #syncReplacedGoal(s: Session, provider: AgentProvider, held: string | null): void {
+    if (!held && provider === "claude" && s.goalState === "active") return;
+    const next = held
+      ? { goalCondition: held, goalState: "held" as const }
+      : { goalCondition: null, goalState: null };
+    if (
+      (s.goalCondition ?? null) === next.goalCondition &&
+      (s.goalState ?? null) === next.goalState
+    )
+      return;
+    this.deps.store.setGoal(s.id, next.goalCondition, next.goalState);
+    this.deps.events?.emit("session:goal", { id: s.id, ...next });
+  }
+
+  /** Persist a held goal on a freshly created row (and the returned copy the caller emits). */
+  #holdGoal(session: Session, condition: string | null): void {
+    if (!condition) return;
+    this.deps.store.setGoal(session.id, condition, "held");
+    Object.assign(session, { goalCondition: condition, goalState: "held" });
+  }
+
   /**
    * Resolve whether a create() spawns into the plan gate (#348): a session-level override
    * wins over the repo default. A research task never enters the plan gate — its deliverable
@@ -4990,8 +5049,11 @@ export class SessionService {
       const baseCommit = usedBaseCommit(input, wt);
       const claudeSessionId = randomUUID();
 
+      // #2596: a prompt-leading `/goal X` on a plan-gated Claude spawn is held until Go — the
+      // agent plans with `X` as its task, and the goal never sees the attached/issue blocks.
+      const { composeInput, held } = this.#heldGoal(input);
       const composed = await phases.phase("prompt", () =>
-        this.composePromptArg(input, wt.worktreePath),
+        this.composePromptArg(composeInput, wt.worktreePath),
       );
       taskFile = composed.taskFile;
       const { promptArg, dropped: droppedImages, injectionHits, attachments } = composed;
@@ -5091,6 +5153,7 @@ export class SessionService {
           outcome,
         }),
       });
+      this.#holdGoal(session, held);
       // The row exists post-create; read it back so persistSpawnIdentity sees the persisted
       // (null) prior spawn-identity fields rather than relying on the in-memory shape.
       const created = this.deps.store.get(sessionId);
@@ -6067,11 +6130,14 @@ export class SessionService {
       console.warn(
         `[replace] ${s.id}: ${carriedUploads.length} files exceed cap ${MAX_IMAGES}; dropped ${carriedUploads.length - promptUploads.length}`,
       );
+    // #2596: a held goal stays held across the replace — the handoff must not lead with `/goal`.
+    const held = heldGoalSplit(s.prompt, agentProvider, s.planPhase === "planning");
+    const task = held?.task ?? s.prompt;
     const input: StandardCreateInput = {
       repoPath: s.repoPath,
       baseBranch: s.baseBranch,
       prompt: composeProviderHandoffPrompt(
-        opts.handoffMode === "summarize" ? composeHandoffSummaryPrompt(s.prompt) : s.prompt,
+        opts.handoffMode === "summarize" ? composeHandoffSummaryPrompt(task) : task,
         { session: s, sourceProvider, targetProvider: agentProvider, model, effort: opts.effort },
       ),
       agentProvider,
@@ -6125,6 +6191,7 @@ export class SessionService {
       });
 
       await this.persistReplacementOrStop(s, agentProvider, launch, outcome);
+      this.#syncReplacedGoal(s, agentProvider, held?.condition ?? null);
 
       try {
         await this.deps.herdr.stop(s.herdrAgentId);
@@ -7840,7 +7907,7 @@ export class SessionService {
     const effortSwitch = this.#goEffortSwitch(s);
     const delivered = await this.resumeAndReply(id, steer, {
       automatic: opts.automatic,
-      prelude: effortSwitch.prelude,
+      prelude: this.#withGoalArm(s, effortSwitch.prelude),
     });
     effortSwitch.settle();
     if (!delivered) return false;
@@ -7982,6 +8049,62 @@ export class SessionService {
     return { prelude, settle };
   }
 
+  /**
+   * #2596: arm a held goal inside the Go steer's lock, after any effort switch and before the Go
+   * paste. Live-tested order: `/goal X` starts its turn at once and the Go steer pasted right after
+   * lands mid-turn as a queued message, so both directives reach the agent. Never aborts the Go:
+   * a failed arm leaves the goal held (the operator can still type it).
+   */
+  #withGoalArm(s: Session, inner?: SteerPrelude): SteerPrelude | undefined {
+    if (!armable(s)) return inner; // nothing to arm: the Go steer is byte-identical
+    return async (live) => {
+      if (inner && !(await inner(live))) return false;
+      if (armable(live) && live.goalCondition) await this.#armGoalInLock(live, live.goalCondition);
+      return true;
+    };
+  }
+
+  /** Arm `s`'s held goal outside a steer (the chat release): same lock, same send. Never throws. */
+  async #armHeldGoal(s: Session): Promise<void> {
+    if (!armable(s)) return;
+    try {
+      if (!(await this.liveTerminalIds()).has(s.herdrAgentId)) return;
+      this.assertNotTerminal(s, "steer");
+      await this.#serializeSteer(s.id, async () => {
+        const live = this.deps.store.get(s.id);
+        if (live && armable(live) && live.goalCondition)
+          await this.#armGoalInLock(live, live.goalCondition);
+      });
+    } catch (err) {
+      console.warn(`[goal] ${s.id}: arm after chat release failed: ${err}`);
+    }
+  }
+
+  async #armGoalInLock(s: Session, condition: string): Promise<void> {
+    const target = s.herdrAgentId;
+    try {
+      const before = await this.#readVisible(target);
+      await this.deps.herdr.send(target, `${PASTE_START}${goalArmCommand(condition)}${PASTE_END}`);
+      await this.deps.herdr.send(target, "\r");
+      // Let the command land before the Go paste follows; a missing marker is only logged — the
+      // Stop hook's transcript read reconciles the row either way.
+      if (
+        before !== null &&
+        !(await this.#awaitMarker(target, GOAL_SET_RE, countMatches(before, GOAL_SET_RE)))
+      )
+        console.warn(`[goal] ${s.id}: no "Goal set" confirmation after arming`);
+    } catch (err) {
+      console.warn(`[goal] ${s.id}: arm failed: ${err}`);
+      return;
+    }
+    this.deps.store.setGoal(s.id, condition, "active");
+    this.deps.events?.emit("session:goal", {
+      id: s.id,
+      goalCondition: condition,
+      goalState: "active",
+    });
+  }
+
   /** Bounds for the in-lock effort switch (#3434). Mutable so tests can shrink them. */
   static effortSwitchTiming = { readMs: 1500, stepMs: 3000, pollMs: 250 };
 
@@ -8099,6 +8222,9 @@ export class SessionService {
     if (!s || s.planPhase !== "planning") return false;
     if (!this.deps.store.getPlanGate(id)?.approved) return false;
     this.#enterExecution(id);
+    // #2596: Go arms a held goal; so does the go-ahead given in chat. The operator's words already
+    // reached the agent, so `/goal` lands mid-turn (live-tested: it still sets the goal).
+    void this.#armHeldGoal(s);
     // Same predicate as Go: only a session that holds the queue tools has a queue to approve.
     if (this.deps.store.getRepoConfig(s.repoPath).buildQueueEnabled && !isNonCodeMode(s))
       this.#approveQueueOnGo(id, "operator");

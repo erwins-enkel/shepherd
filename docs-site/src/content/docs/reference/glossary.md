@@ -46,7 +46,9 @@ releases it itself. Both coding CLIs follow the same rule here, in either
 checkout mode: the automatic release needs a clearly identified task
 conversation, and a session Shepherd cannot attribute one to waits for your Go
 even with Autopilot on. Either way, a gated agent asks you its questions first:
-Autopilot stands down for the whole planning phase. If the plan file changes after
+Autopilot stands down for the whole planning phase. A task started with `/goal`
+plans first: Shepherd holds the goal and arms it when the plan is released, and a
+goal typed in the terminal while the agent plans is paused until then. If the plan file changes after
 it was approved, Shepherd marks it as edited and offers a re-review — during
 execution too; a re-review that requests changes returns the session to the
 planning phase and stops the agent implementing until the revised plan is approved.

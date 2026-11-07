@@ -764,6 +764,14 @@ components:
         planPhase:
           type: string
           nullable: true
+        goalCondition:
+          type: string
+          nullable: true
+          description: Claude Code `/goal` condition (#2596). Held until Go, or active in the transcript.
+        goalState:
+          type: string
+          nullable: true
+          description: held = Shepherd holds the prompt's goal until the plan gate's Go; active = an unmet goal is running.
         research:
           type: boolean
         epicAuthoring:
@@ -2208,6 +2216,23 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SubagentEntry"
+    SessionGoalEvent:
+      type: object
+      additionalProperties: true
+      description: The session's Claude Code goal changed (#2596). Both null = no goal.
+      required:
+        - id
+        - goalCondition
+        - goalState
+      properties:
+        id:
+          type: string
+        goalCondition:
+          type: string
+          nullable: true
+        goalState:
+          type: string
+          nullable: true
     SessionUploadsDroppedEvent:
       type: object
       additionalProperties: true
@@ -16614,6 +16639,10 @@ x-shepherd-events:
     description: The session's sub-agent roster changed. Always the FULL current roster.
     schema:
       $ref: "#/components/schemas/SessionSubagentsEvent"
+  session:goal:
+    description: The session's Claude Code goal was held, armed, or changed in the transcript (#2596).
+    schema:
+      $ref: "#/components/schemas/SessionGoalEvent"
   session:uploads-dropped:
     description: Attached files were lost before spawn; the session started without them.
     schema:

@@ -84,6 +84,7 @@
   import GitRail from "#lib/components/GitRail.svelte";
   import AutopilotBadge from "#lib/components/AutopilotBadge.svelte";
   import PlanGateBadge from "#lib/components/PlanGateBadge.svelte";
+  import GoalChip from "#lib/components/GoalChip.svelte";
   import { reviews, planGates, repoConfig } from "#lib/reviews.svelte.js";
   import { amendments } from "#lib/amendments.svelte.js";
   import TaskTipAmendments from "#lib/components/TaskTipAmendments.svelte";
@@ -3357,6 +3358,8 @@
          (UnitRow, which passes allowView={false}), the focused view surfaces the
          executing read-only chip — it is its home. -->
       <PlanGateBadge {session} pulseReady />
+      <!-- #2596: the session's Claude Code /goal — held until Go while planning, or active. -->
+      <GoalChip {session} coach />
       {#if !compact}
         <!-- passive at-rest pip: the READY control lives in the merge row's ⋯ menu; its ON
            state stays glance-able here. Autopilot's ON state is surfaced solely

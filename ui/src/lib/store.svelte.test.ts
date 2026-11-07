@@ -427,6 +427,26 @@ test("session:autopilot merges autopilot fields into the matching session", () =
   expect(s.byId("s1")?.autopilotEnabled).toBeNull();
 });
 
+test("session:goal patches goal fields onto the matching session and clears them", () => {
+  const s = new HerdStore();
+  s.setAll([session("s1"), session("s2")]);
+  s.apply({
+    event: "session:goal",
+    data: { id: "s1", goalCondition: "all tests pass", goalState: "held" },
+  });
+  expect(s.byId("s1")?.goalCondition).toBe("all tests pass");
+  expect(s.byId("s1")?.goalState).toBe("held");
+  expect(s.byId("s2")?.goalState).toBeUndefined(); // other sessions untouched
+  s.apply({
+    event: "session:goal",
+    data: { id: "s1", goalCondition: "all tests pass", goalState: "active" },
+  });
+  expect(s.byId("s1")?.goalState).toBe("active");
+  s.apply({ event: "session:goal", data: { id: "s1", goalCondition: null, goalState: null } });
+  expect(s.byId("s1")?.goalCondition).toBeNull();
+  expect(s.byId("s1")?.goalState).toBeNull();
+});
+
 test("session:renamed patches the name + branch of the matching session", () => {
   const s = new HerdStore();
   s.setAll([session("s1"), session("s2")]);

@@ -989,6 +989,8 @@ export interface SpawnNotice {
 }
 
 // ── pre-execution plan gate ─────────────────────────────────────────────────
+/** Claude Code `/goal` state (#2596): "held" until the plan gate's Go, "active" while unmet. */
+export type GoalState = "held" | "active";
 export type PlanDecision = "approved" | "changes_requested" | "error";
 /** Sentinel for a server-authored plan-gate summary rendered per-locale in the UI (mirrors server
  *  `PlanSummaryCode`). Only `error` verdicts carry one today. */
@@ -1991,6 +1993,12 @@ export interface Session {
   planGateEnabled: boolean | null;
   /** Plan-gate phase: "planning" (grill+review) → "executing" (gate passed); null = gate off. */
   planPhase: "planning" | "executing" | null;
+  /** Claude Code `/goal` condition (#2596): held by Shepherd until Go, or active in the agent.
+   *  Null / absent when the session has no goal. */
+  goalCondition?: string | null;
+  /** "held" = Shepherd holds the prompt's goal until the plan gate's Go; "active" = an unmet
+   *  goal is running in the agent. */
+  goalState?: GoalState | null;
   autoMergeEnabled: boolean | null;
   autoMergeRebaseCount: number;
   /** Whether this session was launched by the auto-drain queue. */
@@ -3575,6 +3583,11 @@ export type WsEvent =
       data: { id: string; reviewing: boolean; env?: ReviewerEnv };
     }
   | { event: "session:plangate-activity"; data: { id: string; summary: string } }
+  | {
+      event: "session:goal";
+      // #2596: both null = no goal; `held` only while the plan gate is planning.
+      data: { id: string; goalCondition: string | null; goalState: GoalState | null };
+    }
   // #1944: the session's FULL spawn-notice list; an empty array is a genuine all-clear.
   | { event: "session:spawn-notices"; data: { id: string; notices: SpawnNotice[] } }
   | {

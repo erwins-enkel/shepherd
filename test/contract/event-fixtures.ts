@@ -253,6 +253,8 @@ export const cliSessionEvents: [string, unknown][] = [
   ],
   ["session:spawn-notices", { id: "sess_fixture", notices: [] }],
   ["session:subagents", { id: "sess_fixture", subagents }],
+  ["session:goal", { id: "sess_fixture", goalCondition: "X", goalState: "held" }],
+  ["session:goal", { id: "sess_fixture", goalCondition: null, goalState: null }],
   [
     "session:uploads-dropped",
     { id: "sess_fixture", count: 2 } satisfies { id: string; count: number },

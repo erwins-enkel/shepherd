@@ -301,7 +301,8 @@ const BUILTINS: ReadonlyArray<{ name: string; description: string; argumentHint?
   { name: "loop", description: "Run a prompt or slash command on a recurring interval" },
   {
     name: "goal",
-    description: "Set a goal — keep working until the condition is met",
+    description:
+      "Set a goal — keep working until the condition is met. With the plan gate on, Shepherd holds it until Go",
     argumentHint: "[<condition> | clear]",
   },
   {

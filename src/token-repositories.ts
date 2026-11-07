@@ -209,6 +209,7 @@ const SESSION_EVENTS = new Set([
   "session:spawn-notices",
   "session:amendments",
   "session:subagents",
+  "session:goal",
   "session:preview",
   "session:preview-serve",
   "session:recap",

@@ -12,6 +12,7 @@
   import CriticBadge from "../CriticBadge.svelte";
   import BuildQueueBadge from "../BuildQueueBadge.svelte";
   import PlanGateBadge from "../PlanGateBadge.svelte";
+  import GoalChip from "../GoalChip.svelte";
   import AutopilotBadge from "../AutopilotBadge.svelte";
   import MachineBadge from "../MachineBadge.svelte";
   import { repoConfig } from "#lib/reviews.svelte.js";
@@ -258,6 +259,7 @@
       tip
       interactive={badgesInteractive}
     />
+    <GoalChip {session} compact />
     {#if quotaKind && quotaKind !== "plan"}
       <span
         class="badge quota-stalled"

@@ -4,6 +4,7 @@ import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { HookIngest } from "../src/hooks-ingest";
 import { config } from "../src/config";
+import { GoalTracker } from "../src/goal";
 
 const origToken = config.token;
 afterEach(() => {
@@ -194,4 +195,73 @@ test("POST PreToolUse → 200 with an EMPTY body (no hook decision), still recor
   const events = await snap.json();
   expect(events[0].event).toBe("PreToolUse");
   expect(events[0].toolUseId).toBe("toolu_1");
+});
+
+// #2596: the Stop hook pauses a goal while the session plans.
+const goalLine = (met: boolean) =>
+  JSON.stringify({
+    type: "attachment",
+    attachment: { type: "goal_status", met, condition: "make it responsive" },
+  });
+
+function goalHarness(tail: string | Error, planPhase: "planning" | "executing" | null) {
+  const h = harness();
+  if (planPhase) h.store.setPlanPhase(h.session.id, planPhase);
+  const events = new EventHub();
+  const emitted: unknown[] = [];
+  events.subscribe((ev, data) => emitted.push([ev, data]));
+  const deps: AppDeps = {
+    store: h.store,
+    service: {} as any,
+    events,
+    usageLimits: { limits: () => ({}) } as any,
+    hooks: h.hooks,
+    goals: new GoalTracker({
+      store: h.store,
+      events,
+      transcriptPath: () => "/t.jsonl",
+      readTail: async () => {
+        if (tail instanceof Error) throw tail;
+        return tail;
+      },
+    }),
+  };
+  return { ...h, app: makeApp(deps), emitted };
+}
+
+const stop = { session_id: CLAUDE_SID, hook_event_name: "Stop", stop_hook_active: false };
+
+test("Stop while planning with an active goal → 200 continue:false", async () => {
+  const h = goalHarness(goalLine(false), "planning");
+  const res = await post(h.app, h.session.id, stop);
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({
+    continue: false,
+    stopReason: "Shepherd plan gate: plan awaits review",
+  });
+  expect(h.store.get(h.session.id)).toMatchObject({
+    goalCondition: "make it responsive",
+    goalState: "active",
+  });
+  expect(h.emitted).toContainEqual([
+    "session:goal",
+    { id: h.session.id, goalCondition: "make it responsive", goalState: "active" },
+  ]);
+});
+
+test("Stop answers 202 when executing, goal met, unreadable, or session_id mismatched", async () => {
+  for (const [tail, phase] of [
+    [goalLine(false), "executing"],
+    [goalLine(true), "planning"],
+    [new Error("ENOENT"), "planning"],
+    ["", "planning"],
+  ] as const) {
+    const h = goalHarness(tail, phase);
+    const res = await post(h.app, h.session.id, stop);
+    expect(res.status).toBe(202);
+  }
+  const mismatch = goalHarness(goalLine(false), "planning");
+  const res = await post(mismatch.app, mismatch.session.id, { ...stop, session_id: "other" });
+  expect(res.status).toBe(202);
+  expect(mismatch.store.get(mismatch.session.id)?.goalState).toBeNull();
 });

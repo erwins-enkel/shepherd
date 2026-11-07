@@ -918,6 +918,12 @@ export class HerdStore {
         if (ev.data.gate) planGates.apply(ev.data.id, ev.data.gate);
         if (ev.data.planPhase) this.patchSession(ev.data.id, { planPhase: ev.data.planPhase });
         return true;
+      case "session:goal":
+        this.patchSession(ev.data.id, {
+          goalCondition: ev.data.goalCondition,
+          goalState: ev.data.goalState,
+        });
+        return true;
       case "session:plangate-reviewing":
         planGates.applyReviewing(ev.data.id, ev.data.reviewing, ev.data.env);
         if (!ev.data.reviewing) planGates.held.set(ev.data.id, false);

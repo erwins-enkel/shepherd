@@ -376,8 +376,8 @@ starve the box. Add limits to the unit — or to a dedicated slice such as
 
 On a **user-scoped** install the check covers **both** units: Shepherd's own unit
 and `herdr.service`, which runs your agent sessions. herdr counts as bounded when
-`herdr.service` has a limit **or** the shipped `shepherd_agents.slice` (see below)
-is installed with limits. It stays `ok` only when Shepherd is bounded *and* herdr
+`herdr.service` has a limit **or** agents actually run in the shipped
+`shepherd_agents.slice` (see below) and that slice has limits. It stays `ok` only when Shepherd is bounded *and* herdr
 is not positively unbounded, and it raises a distinct warning for the case where
 Shepherd is bounded but herdr is not. A herdr that isn't a loaded user unit
 (absent, masked, or system-scoped) can't be read, so it's excluded from the
@@ -412,9 +412,20 @@ What this means:
 - **The update never restarts herdr for this.** Both files only need a
   `daemon-reload`; agents started before the update stay in `herdr.service`
   until they end.
-- **Off elsewhere.** macOS, hosts without a systemd user manager, and hosts
-  missing either file spawn agents exactly as before. Shepherd checks once at
-  startup.
+- **Off elsewhere.** macOS, hosts without a systemd user manager, hosts
+  missing either file, and systemd older than v253 (it rejects `OOMPolicy=` on
+  scopes — e.g. Debian 12, Ubuntu 22.04) spawn agents exactly as before.
+  Shepherd checks once at startup.
+
+**Check that it's on.** Start a session, then:
+
+```sh
+systemd-cgls --user-unit shepherd_agents.slice
+```
+
+The agent's `claude` process should appear under a `run-*.scope` in
+`shepherd_agents.slice`. If the slice is empty, agents still run in
+`herdr.service`.
 
 **Tune the limits** with a drop-in, which survives updates:
 
@@ -429,9 +440,11 @@ systemctl --user edit shepherd_agents.slice
 Earlier setups limited `herdr.service` itself, for example with
 `~/.config/systemd/user/herdr.service.d/20-resource-guardrails.conf` or a
 `set-property` drop-in under `~/.config/systemd/user.control/herdr.service.d/`.
-With agents in their own slice, those limits only throttle the daemon. Remove
-their `MemoryHigh`, `MemoryMax`, `CPUQuota`, `TasksMax` and `OOMPolicy` lines,
-then run `systemctl --user daemon-reload`. `99-shepherd.conf` already overrides
+Only once the check above shows agents in `shepherd_agents.slice`: those limits
+then only throttle the daemon. Remove their `MemoryHigh`, `MemoryMax`,
+`CPUQuota`, `TasksMax` and `OOMPolicy` lines, then run
+`systemctl --user daemon-reload`. While agents still run in `herdr.service`,
+keep its memory limits. `99-shepherd.conf` already overrides
 a lower `TasksMax` or `OOMPolicy=stop` from a drop-in that sorts before it.
 :::
 

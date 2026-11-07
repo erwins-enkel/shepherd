@@ -2043,22 +2043,36 @@ describe("agentSliceLimitFromProps (#3128)", () => {
   const FRAGMENT = "/home/op/.config/systemd/user/shepherd_agents.slice";
   it("shipped slice with limits → herdr's workload is bounded", () => {
     expect(
-      agentSliceLimitFromProps({ LoadState: "loaded", FragmentPath: FRAGMENT, MemoryHigh: "40G" }),
+      agentSliceLimitFromProps(
+        { LoadState: "loaded", FragmentPath: FRAGMENT, MemoryHigh: "40G" },
+        true,
+      ),
     ).toBe(true);
+  });
+  it("shipped slice with limits but agents not scoped (gate closed) → not bounded", () => {
+    expect(
+      agentSliceLimitFromProps(
+        { LoadState: "loaded", FragmentPath: FRAGMENT, MemoryHigh: "40G" },
+        false,
+      ),
+    ).toBe(false);
   });
   it("loaded but no unit file (fragment-less slice) → not bounded", () => {
     expect(
-      agentSliceLimitFromProps({ LoadState: "loaded", FragmentPath: "", MemoryHigh: "infinity" }),
+      agentSliceLimitFromProps({ LoadState: "loaded", FragmentPath: "", MemoryHigh: "40G" }, true),
     ).toBe(false);
   });
   it("unit file without limits → not bounded", () => {
     expect(
-      agentSliceLimitFromProps({
-        LoadState: "loaded",
-        FragmentPath: FRAGMENT,
-        MemoryHigh: "infinity",
-        MemoryMax: "infinity",
-      }),
+      agentSliceLimitFromProps(
+        {
+          LoadState: "loaded",
+          FragmentPath: FRAGMENT,
+          MemoryHigh: "infinity",
+          MemoryMax: "infinity",
+        },
+        true,
+      ),
     ).toBe(false);
   });
 });

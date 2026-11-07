@@ -55,7 +55,7 @@ import type { DiagnosticCheck, DiagnosticsSnapshot, DiagnosticState } from "./ty
 import type { MembraneLaunchFacts } from "./membrane-launch";
 import type { EgressProbeFacts } from "./egress";
 import type { SandboxBackend } from "./sandbox";
-import { AGENT_SLICE } from "./agent-scope";
+import { AGENT_SLICE, agentScopeEnabled } from "./agent-scope";
 
 const execFileAsync = promisify(execFile);
 
@@ -540,12 +540,15 @@ export function herdrLimitFromProps(props: Record<string, string>): boolean | nu
   return hasMeaningfulLimit(props);
 }
 
-/** Does the shipped agents slice (#3128) bound herdr's workload? Agent spawns run in scopes under
- *  `shepherd_agents.slice`, so a bounded slice IS herdr's guardrail — limiting herdr.service itself
- *  would throttle the daemon again. Counts only with a unit file: a slice without one still reads
- *  `LoadState=loaded` (systemd loads slices fragment-less) and carries no limits Shepherd shipped. */
-export function agentSliceLimitFromProps(props: Record<string, string>): boolean {
-  return !!props.FragmentPath && hasMeaningfulLimit(props);
+/** Does the shipped agents slice (#3128) bound herdr's workload? Only while agent spawns actually
+ *  run in scopes under `shepherd_agents.slice` (`scoped` = `agentScopeEnabled()`): the slice is
+ *  installed unconditionally, but on a host whose gate stays closed (systemd < 253, missing drop-in,
+ *  failed probe) agents still run in herdr.service and the herdr warning + fix must stay. Then a
+ *  bounded slice IS herdr's guardrail — limiting herdr.service itself would throttle the daemon
+ *  again. Counts only with a unit file: a slice without one still reads `LoadState=loaded` (systemd
+ *  loads slices fragment-less) and carries no limits Shepherd shipped. */
+export function agentSliceLimitFromProps(props: Record<string, string>, scoped: boolean): boolean {
+  return scoped && !!props.FragmentPath && hasMeaningfulLimit(props);
 }
 
 /** Conservative host-derived guardrail values for the one-click fix (#1839). `MemoryHigh` (soft cap,
@@ -811,10 +814,10 @@ async function defaultReadHostResources(): Promise<HostCapacityFacts> {
       const props = await showLimits(HERDR_UNIT, true);
       const base = herdrLimitFromProps(props);
       herdrLimited = base === null ? null : await withSlice(base, props, true);
-      if (herdrLimited === false) {
+      if (herdrLimited === false && agentScopeEnabled()) {
         // Slice unreadable ⇒ keep herdr's own verdict (false), not unknown.
         herdrLimited = await showLimits(AGENT_SLICE, true).then(
-          agentSliceLimitFromProps,
+          (p) => agentSliceLimitFromProps(p, true),
           () => false,
         );
       }

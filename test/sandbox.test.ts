@@ -19,10 +19,12 @@ import {
   resetBackendCache,
   collectPassthroughEnv,
   resolveCodexMembrane,
+  resolveClaudeMembrane,
   membraneForArgv,
   MEMBRANE_MISE_CONFIG,
   type MembraneInputs,
   type CodexMembraneInputs,
+  type ClaudeMembraneInputs,
 } from "../src/sandbox";
 import { resolveNodeBin } from "../src/node-bin";
 import { AGENT_SHELL_MARKERS } from "../src/agent-shell-env";
@@ -46,7 +48,8 @@ function fakeMembrane(over: Partial<MembraneInputs> = {}): MembraneInputs {
 }
 
 // Deterministic path probes: nothing exists.
-const detDeps = { exists: () => false };
+// whichAll: no claude launcher found, so wrapArgv never scans the host PATH.
+const detDeps = { exists: () => false, whichAll: () => [] as string[] };
 // Host git-store prep stubbed out, for seams that claim the (fake) store exists.
 const noGitStore = { pinCommondir: () => {}, ensureWorktreeConfig: () => {}, adminDir: () => null };
 
@@ -1298,6 +1301,7 @@ const bunGlobalDeps = {
     p === "/home/me/.bun/bin/codex"
       ? "/home/me/.bun/install/global/node_modules/@openai/codex/bin/codex.js"
       : p,
+  whichAll: () => [] as string[],
   env: {} as Record<string, string | undefined>,
 };
 
@@ -1336,13 +1340,34 @@ describe("resolveCodexMembrane", () => {
 });
 
 describe("membraneForArgv", () => {
-  test("claude argv passes through untouched — no host probe runs", () => {
-    const m = fakeMembrane();
-    const out = membraneForArgv(["claude", "--model", "opus"], m, {
+  test("claude argv folds the resolved claude launcher; codex probe never runs", () => {
+    const out = membraneForArgv(["claude", "--model", "opus"], fakeMembrane(), {
       which: () => {
-        throw new Error("which must not be called for a claude argv");
+        throw new Error("codex which must not be called for a claude argv");
+      },
+      whichAll: () => ["/home/me/.local/share/mise/installs/claude/latest/claude"],
+      realpath: (p: string) => p.replace("/latest/", "/2.1.319/"),
+    });
+    expect(out.claude).toEqual({
+      binDir: "/home/me/.local/share/mise/installs/claude/latest",
+      pkgRoot: "/home/me/.local/share/mise/installs/claude/2.1.319",
+    });
+    expect(out.codex).toBeUndefined();
+  });
+
+  test("pre-resolved membrane.claude is kept (no re-probe)", () => {
+    const m = fakeMembrane({ claude: { binDir: "/x/bin", pkgRoot: "/x/bin" } });
+    const out = membraneForArgv(["claude"], m, {
+      whichAll: () => {
+        throw new Error("whichAll must not be called when claude is pre-resolved");
       },
     });
+    expect(out).toBe(m);
+  });
+
+  test("claude launcher already on the default PATH → membrane unchanged", () => {
+    const m = fakeMembrane();
+    const out = membraneForArgv(["claude"], m, { whichAll: () => ["/home/me/.local/bin/claude"] });
     expect(out).toBe(m);
   });
 
@@ -1650,5 +1675,135 @@ describe("resolveProfile lazy default (#2100)", () => {
     expect(resolveProfile("trusted", "inherit", boom)).toBe("trusted");
     expect(resolveProfile(undefined, "autonomous", boom)).toBe("autonomous");
     expect(resolveProfile(undefined, "inherit", () => "standard")).toBe("standard");
+  });
+});
+
+// ── claude launcher resolution (mise 2026.11 command-wrappers) ───────────────
+// mise 2026.11.3 moved its launchers to ~/.local/share/mise/command-wrappers/bin (links to the
+// mise binary). Where claude resolves only from there, the default membrane PATH had no claude
+// and every wrapped role died with `bwrap: execvp claude: ENOENT`.
+describe("resolveClaudeMembrane", () => {
+  const home = "/home/me";
+  const mise = "/usr/bin/mise";
+  const wrapper = `${home}/.local/share/mise/command-wrappers/bin/claude`;
+  const real = `${home}/.local/share/mise/installs/claude/latest/claude`;
+  const realpath = (p: string) =>
+    p === wrapper || p.endsWith("/shims/claude") ? mise : p.replace("/latest/", "/2.1.319/");
+
+  test("real binary preferred over an earlier mise wrapper", () => {
+    const r = resolveClaudeMembrane(home, { whichAll: () => [wrapper, real], realpath });
+    expect(r).toEqual({
+      binDir: `${home}/.local/share/mise/installs/claude/latest`,
+      pkgRoot: `${home}/.local/share/mise/installs/claude/2.1.319`,
+    });
+  });
+
+  test("only mise wrappers → first wrapper's dir", () => {
+    const r = resolveClaudeMembrane(home, { whichAll: () => [wrapper], realpath });
+    const dir = `${home}/.local/share/mise/command-wrappers/bin`;
+    expect(r).toEqual({ binDir: dir, pkgRoot: dir }); // never the mise binary's own dir
+  });
+
+  test("mise shims candidate is skipped (tmpfs'd inside the membrane)", () => {
+    const shim = `${home}/.local/share/mise/shims/claude`;
+    expect(resolveClaudeMembrane(home, { whichAll: () => [shim], realpath })).toBeNull();
+    const r = resolveClaudeMembrane(home, { whichAll: () => [shim, wrapper], realpath });
+    expect(r?.binDir).toBe(`${home}/.local/share/mise/command-wrappers/bin`);
+  });
+
+  test("launcher in a default sandbox PATH dir → null (flags unchanged)", () => {
+    for (const p of [`${home}/.local/bin/claude`, "/usr/bin/claude", "/bin/claude"]) {
+      expect(resolveClaudeMembrane(home, { whichAll: () => [p], realpath: (x) => x })).toBeNull();
+    }
+  });
+
+  test("candidate whose bind would cover $HOME is dropped", () => {
+    expect(
+      resolveClaudeMembrane(home, { whichAll: () => [`${home}/claude`], realpath: (x) => x }),
+    ).toBeNull();
+    const r = resolveClaudeMembrane(home, {
+      whichAll: () => [`${home}/claude`, "/opt/claude/bin/claude"],
+      realpath: (x) => x,
+    });
+    expect(r?.binDir).toBe("/opt/claude/bin");
+  });
+
+  test("default whichAll ignores relative PATH entries", () => {
+    expect(resolveClaudeMembrane(home, { env: { PATH: ".:bin" } })).toBeNull();
+  });
+
+  test("not on PATH → null", () => {
+    expect(resolveClaudeMembrane(home, { whichAll: () => [] })).toBeNull();
+  });
+
+  test("npm-global launcher → pkgRoot is the nearest node_modules", () => {
+    const r = resolveClaudeMembrane(home, {
+      whichAll: () => ["/opt/node/bin/claude"],
+      realpath: () => "/opt/node/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+    });
+    expect(r).toEqual({ binDir: "/opt/node/bin", pkgRoot: "/opt/node/lib/node_modules" });
+  });
+
+  test("default whichAll scans env.PATH in order", () => {
+    const r = resolveClaudeMembrane(home, {
+      env: { PATH: "/nonexistent-a:/nonexistent-b" },
+    });
+    expect(r).toBeNull();
+  });
+});
+
+describe("buildMembraneFlags claude launcher", () => {
+  const pathOf = (f: string[]) => f[f.indexOf("PATH") + 1] ?? "";
+  const roBindTargets = (f: string[]) => f.filter((_, j) => f[j - 1] === "--ro-bind-try");
+  const outside: ClaudeMembraneInputs = { binDir: "/opt/claude/bin", pkgRoot: "/opt/claude/lib" };
+
+  test("absent → flags byte-identical", () => {
+    const base = buildMembraneFlags(fakeMembrane(), detDeps);
+    expect(buildMembraneFlags(fakeMembrane({ claude: undefined }), detDeps)).toEqual(base);
+    expect(pathOf(base)).toBe(
+      "/home/me/.local/bin:/home/linuxbrew/.linuxbrew/Cellar/node/22.0.0/bin:/usr/bin:/bin",
+    );
+  });
+
+  test("dir outside manager roots: bound RO after the $HOME tmpfs, appended after /bin once", () => {
+    const f = buildMembraneFlags(fakeMembrane({ claude: outside }), detDeps);
+    expect(hasTriple(f, "--ro-bind-try", outside.binDir, outside.binDir)).toBe(true);
+    expect(hasTriple(f, "--ro-bind-try", outside.pkgRoot, outside.pkgRoot)).toBe(true);
+    const homeTmpfs = f.findIndex((x, j) => x === "--tmpfs" && f[j + 1] === "/home/me");
+    expect(f.indexOf(outside.binDir)).toBeGreaterThan(homeTmpfs);
+    expect(pathOf(f)).toBe(
+      "/home/me/.local/bin:/home/linuxbrew/.linuxbrew/Cellar/node/22.0.0/bin:/usr/bin:/bin:/opt/claude/bin",
+    );
+  });
+
+  test("dir under the bound mise root: no extra bind, still on PATH", () => {
+    const claude: ClaudeMembraneInputs = {
+      binDir: "/home/me/.local/share/mise/command-wrappers/bin",
+      pkgRoot: "/home/me/.local/share/mise/command-wrappers/bin",
+    };
+    const f = buildMembraneFlags(fakeMembrane({ claude }), {
+      gitStore: noGitStore,
+      exists: () => true,
+    });
+    expect(roBindTargets(f)).not.toContain(claude.binDir);
+    expect(
+      pathOf(f)
+        .split(":")
+        .filter((e) => e === claude.binDir).length,
+    ).toBe(1);
+  });
+
+  test("claude in node's dir: no duplicate PATH entry", () => {
+    const dir = "/opt/js/bin"; // outside every manager root, so the dir itself is bound
+    const f = buildMembraneFlags(
+      fakeMembrane({ nodeBinReal: `${dir}/node`, claude: { binDir: dir, pkgRoot: dir } }),
+      detDeps,
+    );
+    expect(
+      pathOf(f)
+        .split(":")
+        .filter((e) => e === dir).length,
+    ).toBe(1);
+    expect(roBindTargets(f).filter((t) => t === dir).length).toBe(1);
   });
 });

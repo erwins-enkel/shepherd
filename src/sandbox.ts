@@ -17,6 +17,8 @@
  * rather than hard-failing the spawn.
  */
 import {
+  accessSync,
+  constants as fsConstants,
   existsSync,
   lstatSync,
   readdirSync,
@@ -299,6 +301,9 @@ export interface MembraneInputs {
   /** Codex CLI support — set only for a `codex` inner argv (see membraneForArgv).
    *  Absent (claude spawns): flags stay byte-identical to the historical output. */
   codex?: CodexMembraneInputs;
+  /** The `claude` launcher found on Shepherd's PATH — set only for a `claude` inner argv whose
+   *  launcher is NOT in a default sandbox PATH dir (see membraneForArgv). Absent → byte-identical. */
+  claude?: ClaudeMembraneInputs;
   /** Reviewer-style aux spawn (critic, plan gate, maintain — audit N10): no `~/.gitconfig` or
    *  `~/.config/gh` bind (the server, not the role, talks to the forge) and the git common dir
    *  READ-ONLY. Absent → task-session flags, byte-identical. */
@@ -349,8 +354,10 @@ export interface CodexProbeDeps {
   which?: (cmd: string) => string | null;
   /** realpath; default safeRealpath. */
   realpath?: (p: string) => string;
-  /** Host env (CODEX_HOME override); default process.env. */
+  /** Host env (CODEX_HOME override, PATH for the claude scan); default process.env. */
   env?: Record<string, string | undefined>;
+  /** Every executable `cmd` on PATH, in PATH order; default scans `env.PATH`. */
+  whichAll?: (cmd: string) => string[];
 }
 
 /** Nearest ancestor directory named `node_modules`, or null when none. */
@@ -389,9 +396,84 @@ export function resolveCodexMembrane(
   };
 }
 
+// ── claude launcher membrane support ──────────────────────────────────────────
+
 /**
- * The membrane for an inner argv: a `codex` spawn gets the resolved codex inputs
- * folded in (unless the caller already did); anything else passes through untouched.
+ * Where the `claude` launcher lives when the default sandbox PATH (`~/.local/bin`, node dir, bun
+ * dir, `/usr/bin`, `/bin`) does not reach it. mise 2026.11 moved its launchers to
+ * `~/.local/share/mise/command-wrappers/bin/` (links to the mise binary); on a host where claude
+ * resolves only from there every wrapped role died with `bwrap: execvp claude: ENOENT`.
+ */
+export interface ClaudeMembraneInputs {
+  /** dirname of the chosen launcher on Shepherd's PATH — bound RO and appended to the sandbox PATH. */
+  binDir: string;
+  /** RO bind covering the launcher's real file and its runtime: nearest `node_modules` ancestor
+   *  of the realpath (npm install), else the realpath's dir. `binDir` for a mise link. */
+  pkgRoot: string;
+}
+
+/** Every executable `cmd` in `path` (colon-separated), in order. */
+function scanPath(cmd: string, path: string | undefined): string[] {
+  const hits: string[] = [];
+  for (const dir of (path ?? "").split(":")) {
+    if (!dir.startsWith("/")) continue; // relative entries would make a relative bind
+    const p = join(dir, cmd);
+    try {
+      accessSync(p, fsConstants.X_OK);
+      hits.push(p);
+    } catch {
+      // not here
+    }
+  }
+  return hits;
+}
+
+/**
+ * Resolve the `claude` launcher for the membrane, or null when the default sandbox PATH already
+ * reaches it (flags stay byte-identical) or it is not on Shepherd's PATH at all.
+ *
+ * Prefers the first candidate that is NOT a mise link (realpath basename `mise`): a mise
+ * command-wrapper rewrites its own `command-wrappers/bin` when the link set differs from the
+ * toolset, which hits EROFS under the RO mise bind. Only mise links → the first one (works while
+ * the set matches; the membrane-launch probe reports the EROFS otherwise). Candidates in a
+ * {@link managerScratch} dir are skipped: that dir is an empty tmpfs inside the membrane. A
+ * candidate whose bind would cover `$HOME` (or `/`) is dropped: it would re-expose the home the
+ * membrane tmpfs's away.
+ */
+export function resolveClaudeMembrane(
+  home: string,
+  deps: CodexProbeDeps = {},
+): ClaudeMembraneInputs | null {
+  const env = deps.env ?? process.env;
+  const whichAll = deps.whichAll ?? ((cmd: string) => scanPath(cmd, env.PATH));
+  const realpath = deps.realpath ?? safeRealpath;
+  const scratchDirs = Object.entries(managerScratch(home)).flatMap(([root, subs]) =>
+    subs.map((sub) => `${root}/${sub}`),
+  );
+  const coversHome = (dir: string) => dir === "/" || home === dir || home.startsWith(`${dir}/`);
+  const candidates = whichAll("claude")
+    .filter((p) => !scratchDirs.includes(dirname(p)))
+    .map((p) => ({ p, real: realpath(p) }))
+    .filter((c) => !coversHome(dirname(c.p)) && !coversHome(pkgRootOf(c.p, c.real)));
+  const pick = candidates.find((c) => basename(c.real) !== "mise") ?? candidates[0];
+  if (!pick) {
+    console.warn("[sandbox] `claude` is not on PATH — membrane gets no claude launcher dir");
+    return null;
+  }
+  const binDir = dirname(pick.p);
+  if ([`${home}/.local/bin`, "/usr/bin", "/bin"].includes(binDir)) return null;
+  return { binDir, pkgRoot: pkgRootOf(pick.p, pick.real) };
+}
+
+/** {@link ClaudeMembraneInputs.pkgRoot} for a launcher `p` with realpath `real`. */
+function pkgRootOf(p: string, real: string): string {
+  if (basename(real) === "mise") return dirname(p); // the mise binary's own dir is never bound
+  return nodeModulesAncestor(real) ?? dirname(real);
+}
+
+/**
+ * The membrane for an inner argv: a `codex` or `claude` spawn gets the resolved launcher
+ * inputs folded in (unless the caller already did); anything else passes through untouched.
  * SINGLE source for the detection so wrapArgv and service.ts's egress branch (which
  * calls buildMembraneFlags directly) can never drift.
  */
@@ -400,6 +482,10 @@ export function membraneForArgv(
   membrane: MembraneInputs,
   deps: CodexProbeDeps = {},
 ): MembraneInputs {
+  if (innerArgv[0] === "claude" && !membrane.claude) {
+    const claude = resolveClaudeMembrane(membrane.home, deps);
+    return claude ? { ...membrane, claude } : membrane;
+  }
   if (innerArgv[0] !== "codex" || membrane.codex) return membrane;
   const codex = resolveCodexMembrane(membrane.home, deps);
   return codex ? { ...membrane, codex } : membrane;
@@ -518,6 +604,10 @@ function nodeToolchainFlags(inputs: MembraneInputs, exists: (p: string) => boole
   }
   add(binDir);
   if (inputs.bunBinReal) add(dirname(inputs.bunBinReal));
+  if (inputs.claude) {
+    add(inputs.claude.binDir);
+    add(inputs.claude.pkgRoot);
+  }
   return flags;
 }
 
@@ -562,18 +652,20 @@ function codexCliFlags(codex: CodexMembraneInputs | undefined): string[] {
   return f;
 }
 
-/** The sandbox PATH. The bun dir (#3351) follows node's; a codex spawn appends the launcher's
- *  bin dir so `codex` resolves by name. Each is skipped when it already is an entry. */
+/** The sandbox PATH. The bun dir (#3351) follows node's; a codex/claude spawn appends the
+ *  launcher's bin dir so the agent resolves by name. Each is skipped when it already is an entry. */
 function sandboxPath(
   home: string,
   nodeBinDir: string,
   bunBinDir: string | null,
-  codex?: CodexMembraneInputs,
+  launchers: { codex?: CodexMembraneInputs; claude?: ClaudeMembraneInputs },
 ): string {
+  const { codex, claude } = launchers;
   const entries = [`${home}/.local/bin`, nodeBinDir];
   if (bunBinDir && !entries.includes(bunBinDir)) entries.push(bunBinDir);
   entries.push("/usr/bin", "/bin");
   if (codex && !entries.includes(codex.binDir)) entries.push(codex.binDir);
+  if (claude && !entries.includes(claude.binDir)) entries.push(claude.binDir);
   return entries.join(":");
 }
 
@@ -903,7 +995,7 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   f.push("--clearenv");
   f.push("--setenv", "HOME", home);
   const bunBinDir = inputs.bunBinReal ? dirname(inputs.bunBinReal) : null;
-  f.push("--setenv", "PATH", sandboxPath(home, nodeBinDir, bunBinDir, inputs.codex));
+  f.push("--setenv", "PATH", sandboxPath(home, nodeBinDir, bunBinDir, inputs));
   f.push("--setenv", "TERM", term);
   // --clearenv strips CLAUDE_CONFIG_DIR; re-set it when the bound config dir is NOT the
   // default ~/.claude, else claude would fall back to an empty ~/.claude tmpfs (the custom

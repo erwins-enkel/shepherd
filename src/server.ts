@@ -584,6 +584,7 @@ import { scanInstalled, installPlugin, uninstallPlugin } from "./plugins/manage"
 import { isPublicHttpsUrl, type LookupFn } from "./browser-origin-policy";
 import { randomUUID } from "node:crypto";
 import { apnsEndpoint, isApnsToken, parseApnsEndpoint } from "./apns";
+import { WARM_REPO_DAYS_SETTING, clampWarmRepoDays } from "./repo-warmth";
 import { APNS_FIELDS, type ApnsSaveInput, type ApnsSettings } from "./apns-settings";
 import {
   JUDGE_FIELDS,
@@ -9897,6 +9898,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       autoReviveEnabled: config.autoReviveEnabled,
       prReviewCyclesCap: config.prReviewCyclesCap,
       planReviewCyclesCap: config.planReviewCyclesCap,
+      warmRepoDays: config.warmRepoDays,
       // display-only: each cap's valid bounds, so the UI steppers read min/max off the
       // payload instead of hardcoding a mirror of the server constants.
       prReviewCyclesMin: PR_REVIEW_CYCLES_MIN,
@@ -10034,6 +10036,7 @@ const SETTING_PATCHES: [
   ["autoReviveEnabled", putAutoRevive],
   ["prReviewCyclesCap", putPrReviewCyclesCap],
   ["planReviewCyclesCap", putPlanReviewCyclesCap],
+  ["warmRepoDays", putWarmRepoDays],
   ["defaultModel", putDefaultModel],
   ["defaultCodexModel", putDefaultCodexModel],
   ["defaultEffort", putDefaultEffort],
@@ -10184,6 +10187,15 @@ function putPrReviewCyclesCap(value: unknown, deps: Ctx["deps"]): Response {
   config.prReviewCyclesCap = cap; // live: the next critic run reads it
   deps.store.setSetting("prReviewCyclesCap", String(cap)); // persist across restarts
   return json({ prReviewCyclesCap: config.prReviewCyclesCap });
+}
+
+function putWarmRepoDays(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return json({ error: "warmRepoDays must be a number" }, 400);
+  }
+  config.warmRepoDays = clampWarmRepoDays(value); // live: the warm set reads it per compute
+  deps.store.setSetting(WARM_REPO_DAYS_SETTING, String(config.warmRepoDays));
+  return json({ warmRepoDays: config.warmRepoDays });
 }
 
 function putPlanReviewCyclesCap(value: unknown, deps: Ctx["deps"]): Response {

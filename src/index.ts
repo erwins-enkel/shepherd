@@ -309,6 +309,11 @@ import {
   completedEpicScopeRepos,
   reconcileCompletedEpicsForRepo,
 } from "./completed-epics-reconcile";
+import {
+  RepoWarmthService,
+  WARM_REPO_DAYS_SETTING,
+  clampWarmRepoDays,
+} from "./repo-warmth";
 import { MIN_BUN_VERSION, bunTooOld } from "./runtime-guard";
 
 if (bunTooOld(Bun.version)) {
@@ -368,6 +373,35 @@ if (herdrVersion && !isHerdrVersionSupported(herdrVersion)) {
 
 const store = openPrivateStore(config.dbPath, config.shepherdLogPath, (p) => new SessionStore(p));
 if (process.platform === "darwin") enablePowerPaneJournal(config.dbPath);
+// The warm repo set (#2837): the only repos background loops read from GitHub. Thunks resolve
+// lazily — resolveForge and prPoller are defined further down, and none is read before boot ends.
+const githubSlugOf = (path: string): string | null => {
+  const forge = resolveForge(path);
+  return forge?.kind === "github" && forge.slug ? forge.slug : null;
+};
+const repoWarmth = new RepoWarmthService({
+  windowDays: () => config.warmRepoDays,
+  listRepos: () => listRepos(config.repoRoot),
+  slugOf: githubSlugOf,
+  canonical: (p) => realpathSync(p),
+  lastActivityByRepo: () => store.lastActivityByRepo(),
+  repoOpenedSince: (since) => store.repoOpenedSince(since),
+  markRepoOpened: (p, at) => store.markRepoOpened(p, at),
+  automationRepos: () => store.warmAutomationRepoPaths(),
+  activeEpicRepos: () =>
+    store
+      .listEpicRuns()
+      .filter((r) => r.status === "running" || r.status === "paused")
+      .map((r) => r.repoPath),
+  epicCompletedRepos: () => store.listEpicCompleted().map((r) => r.repoPath),
+  openPrRepos: () => {
+    const git = prPoller.snapshot();
+    return store
+      .list({ activeOnly: true })
+      .filter((s) => git[s.id]?.state === "open")
+      .map((s) => s.repoPath);
+  },
+});
 const githubReadCache: GithubReadCache = new GithubReadCache(store, {
   canRefresh: () => fingerprint.backgroundReady(),
 });
@@ -453,6 +487,9 @@ if (savedPr !== null)
     PR_REVIEW_CYCLES_MAX,
     config.prReviewCyclesCap,
   );
+// The warm window (#2837); clamped on read so a hand-edited value can't escape.
+const savedWarmDays = store.getSetting(WARM_REPO_DAYS_SETTING);
+if (savedWarmDays !== null) config.warmRepoDays = clampWarmRepoDays(savedWarmDays);
 // a UI-chosen plan-review cap (persisted) overrides the env seed; absent → keep the
 // config default. Clamped on read; same presence guard as above.
 const savedPlan = store.getSetting("planReviewCyclesCap");

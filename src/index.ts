@@ -4230,6 +4230,8 @@ const broadcastBacklog = createBacklogBroadcast(
       pinnedRepoPaths: () => store.pinnedRepoPaths(),
       repoConfig: (p) => store.getRepoConfig(p),
       repoRoot: config.repoRoot,
+      isWarm: (p) => repoWarmth.isWarmPath(p),
+      countsAt: (p) => backlog.peekAt(p),
     }),
   (payload) => events.emit("backlog:update", payload),
 );

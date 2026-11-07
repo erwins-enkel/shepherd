@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { BootstrapStepKind } from "#lib/components/bootstrap-checklist.js";
+  import type { ClearMergedProbes } from "#lib/components/clear-merged-scope.js";
   import type { ComponentProps } from "svelte";
   import { displayStatus } from "#lib/display-status.js";
   import { repos } from "#lib/repos.svelte.js";
@@ -185,7 +186,7 @@
     onepicdiagnoseclose,
     clearMergedSessions,
     clearMergedLeftovers,
-    clearMergedProbesUnavailable,
+    clearMergedProbes,
     clearMergedRepoFilter,
     onclearmergedclose,
     onclearmergedconfirm,
@@ -348,9 +349,10 @@
     clearMergedSessions: Session[] | null;
     /** Leftover subprocess count per merged session id. */
     clearMergedLeftovers: Record<string, number>;
-    /** The host can't detect leftovers at all, so `clearMergedLeftovers` is "unknown", not
-     *  "zero" — the dialog cautions instead of implying the batch is clean (#1923). */
-    clearMergedProbesUnavailable: boolean;
+    /** Where leftovers can't be detected at all (this host, blind machines), so
+     *  `clearMergedLeftovers` is "unknown", not "zero" there — the dialog cautions instead of
+     *  implying the batch is clean (#1923), naming the blind machine (#3694). */
+    clearMergedProbes: ClearMergedProbes;
     /** The herd's repo filter: the dialog clears only what it shows unless told "all". */
     clearMergedRepoFilter: ReadonlySet<string>;
     onclearmergedclose: () => void;
@@ -791,7 +793,7 @@
       <ClearMergedDialog
         sessions={clearMergedSessions}
         leftovers={clearMergedLeftovers}
-        probesUnavailable={clearMergedProbesUnavailable}
+        probes={clearMergedProbes}
         repoFilter={clearMergedRepoFilter}
         repos={repos.entries}
         onclose={onclearmergedclose}

@@ -691,6 +691,7 @@
   "clearmerged_desc": "These {count} sessions are on merged branches. Decommissioning them stops each agent, removes its worktree, and deletes the merged branch.",
   "clearmerged_leftovers": "{count} background processes from these sessions will also be terminated.",
   "clearmerged_probes_unavailable": "Shepherd can't detect running processes on this host, so background processes from these sessions aren't listed and may survive. See Diagnose.",
+  "clearmerged_probes_unavailable_machines": "Shepherd can't detect running processes on {machines}, so background processes from these sessions aren't listed and may survive. See Diagnose.",
   "clearmerged_confirm": "Decommission {count}",
   "viewport_upload_failed": "Upload failed. Tap to retry",
   "viewport_attach_file": "Attach file",

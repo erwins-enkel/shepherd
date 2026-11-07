@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scopeClearMerged, sumLeftovers } from "./clear-merged-scope";
+import { probeCaution, scopeClearMerged, sumLeftovers } from "./clear-merged-scope";
 import type { Session } from "../types";
 
 const s = (id: string, repoPath: string) => ({ id, repoPath }) as Session;
@@ -101,5 +101,41 @@ describe("scopeClearMerged with sessions on connected machines", () => {
 describe("sumLeftovers", () => {
   it("totals the leftovers of just the given sessions, missing ids as zero", () => {
     expect(sumLeftovers([hunde1, shep1, bar1], { h1: 2, s1: 3, h2: 7 })).toBe(5);
+  });
+});
+
+describe("probeCaution", () => {
+  const on = (id: string, instanceId: string, name: string) =>
+    ({ id, repoPath: "/r", host: { instanceId, name, platform: "darwin" } }) as Session;
+  const local = s("l1", "/p/shepherd");
+  const mac1 = on("m1", "i-mac", "macbook");
+  const mac2 = on("m2", "i-mac", "macbook");
+  const studio = on("st", "i-studio", "studio");
+
+  it("names nothing when every part can probe", () => {
+    const probes = { here: false, machines: new Set<string>() };
+    expect(probeCaution([local, mac1], probes)).toEqual({ here: false, machines: [] });
+  });
+
+  it("names only the blind machines whose sessions the batch holds", () => {
+    const probes = { here: false, machines: new Set(["i-mac"]) };
+    expect(probeCaution([local, studio], probes)).toEqual({ here: false, machines: [] });
+    expect(probeCaution([local, mac1, studio, mac2], probes)).toEqual({
+      here: false,
+      machines: ["macbook"],
+    });
+  });
+
+  it("flags this host only for a batch with a local session", () => {
+    const probes = { here: true, machines: new Set<string>() };
+    expect(probeCaution([mac1], probes)).toEqual({ here: false, machines: [] });
+    expect(probeCaution([mac1, local], probes)).toEqual({ here: true, machines: [] });
+  });
+
+  it("drops what another caution already named", () => {
+    const probes = { here: true, machines: new Set(["i-mac", "i-studio"]) };
+    expect(
+      probeCaution([local, mac1, studio], probes, { here: true, machines: ["macbook"] }),
+    ).toEqual({ here: false, machines: ["studio"] });
   });
 });

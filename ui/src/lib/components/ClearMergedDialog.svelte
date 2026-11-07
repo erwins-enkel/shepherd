@@ -4,12 +4,17 @@
   import { m } from "#lib/paraglide/messages.js";
   import { basename } from "#lib/basename.js";
   import { qualifiedDesig } from "#lib/remote-sessions.js";
-  import { scopeClearMerged, sumLeftovers } from "./clear-merged-scope";
+  import {
+    probeCaution,
+    scopeClearMerged,
+    sumLeftovers,
+    type ClearMergedProbes,
+  } from "./clear-merged-scope";
 
   let {
     sessions,
     leftovers,
-    probesUnavailable,
+    probes,
     repoFilter,
     repos,
     onclose,
@@ -20,9 +25,10 @@
     sessions: Session[];
     /** Leftover subprocesses per listed session id, totalled over the batch each action clears. */
     leftovers: Record<string, number>;
-    /** This host can't detect running processes, so the leftover totals are "unknown" rather
-     *  than real counts — a 0 must not read as "nothing is running" (#1923). */
-    probesUnavailable: boolean;
+    /** Where running processes can't be detected (this host, blind connected machines), so the
+     *  leftover totals of their sessions are "unknown" rather than real counts — a 0 must not
+     *  read as "nothing is running" (#1923). Cautioned per batch, naming the machine (#3694). */
+    probes: ClearMergedProbes;
     /** The herd's repo filter (empty = every repo). The default action clears only the merged
      *  sessions it shows; the ones it hides need the separate "all" action. */
     repoFilter: ReadonlySet<string>;
@@ -42,6 +48,10 @@
   );
   const insideLeftovers = $derived(sumLeftovers(scope.inside, leftovers));
   const outsideLeftovers = $derived(sumLeftovers(scope.outside, leftovers));
+  // The default action's batch is cautioned in the main area; the hidden repos' box adds only
+  // what that caution doesn't already name.
+  const insideBlind = $derived(probeCaution(scope.inside, probes));
+  const outsideBlind = $derived(probeCaution(scope.outside, probes, insideBlind));
   // "shepherd 5 · BarTab 1": repo names and counts are data, not copy.
   const outsideSummary = $derived(
     scope.outsideRepos.map((r) => `${r.name} ${r.count}`).join(" · "),
@@ -51,6 +61,17 @@
   // relabel only — a layout shift here would move the very button under the pointer.
   let armed = $state(false);
 </script>
+
+{#snippet blind(where: { here: boolean; machines: string[] }, cls: string)}
+  {#if where.here}
+    <p class={cls}>{m.clearmerged_probes_unavailable()}</p>
+  {/if}
+  {#if where.machines.length > 0}
+    <p class={cls}>
+      {m.clearmerged_probes_unavailable_machines({ machines: where.machines.join(", ") })}
+    </p>
+  {/if}
+{/snippet}
 
 <div
   class="overlay"
@@ -118,6 +139,7 @@
             {m.clearmerged_outside_leftovers({ count: outsideLeftovers })}
           </p>
         {/if}
+        {@render blind(outsideBlind, "warn nested-warn")}
         {#if expanded}
           <div class="rows nested">
             {#each scope.outside as s (s.id)}
@@ -133,9 +155,7 @@
     {/if}
 
     <!-- OUTSIDE the count guard: the caution exists precisely for the host that reports 0. -->
-    {#if probesUnavailable}
-      <p class="warn">{m.clearmerged_probes_unavailable()}</p>
-    {/if}
+    {@render blind(insideBlind, "warn")}
 
     <div class="actions">
       <button type="button" class="ghost" onclick={onclose}>{m.common_cancel()}</button>

@@ -5715,7 +5715,9 @@ function mergedSessionIds(deps: AppDeps): string[] {
 // (`?host=local` there, so mutually connected machines never loop) and answer `machines` — one
 // outcome per machine. GET's ids include the reachable machines' merged sessions; POST hands each
 // machine the requested ids that are its sessions (all of its merged set when `ids` is absent),
-// and `partial` is true when a machine gave no usable answer.
+// and `partial` is true when a machine gave no usable answer. GET's `probesUnavailable` is true when
+// any part can't detect leftovers; `localProbesUnavailable` and `machines[].probesUnavailable` say
+// which (#3694).
 async function handleSessionsClearMerged({
   req,
   parts,

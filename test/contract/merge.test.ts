@@ -228,6 +228,7 @@ test("clear-merged sends only the explicitly reviewed ids", async () => {
       leftovers: 0,
       leftoversById: { [id]: 0 },
       probesUnavailable: true,
+      localProbesUnavailable: true,
       machines: [],
     });
     expect(await request("POST", "/api/sessions/clear-merged", 200, { ids: [] })).toEqual({

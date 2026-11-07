@@ -78,6 +78,7 @@ describe("polished GET handlers return the shape api.ts consumes", () => {
       leftovers: 0,
       leftoversById: { deps: 0, envflag: 0 },
       probesUnavailable: false,
+      localProbesUnavailable: false,
       machines: [],
     });
   });
@@ -169,6 +170,7 @@ describe("mutation handlers call the mutator and return the caller's shape", () 
       leftovers: 0,
       leftoversById: { envflag: 0 },
       probesUnavailable: false,
+      localProbesUnavailable: false,
       machines: [],
     });
   });

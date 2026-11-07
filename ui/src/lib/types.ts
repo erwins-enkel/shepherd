@@ -2109,8 +2109,11 @@ export interface ClearMergedPreview {
   leftovers: number;
   /** Leftover count per merged id, so the modal can total just the subset it clears. */
   leftoversById: Record<string, number>;
+  /** Any part (here or an answering machine) can't detect leftovers. */
   probesUnavailable: boolean;
-  machines: (MachineOutcome & { ids: string[] })[];
+  /** This instance can't detect leftovers; a machine's own flag is on its entry (#3694). */
+  localProbesUnavailable?: boolean;
+  machines: (MachineOutcome & { ids: string[]; probesUnavailable?: boolean })[];
 }
 
 /** `POST /api/sessions/clear-merged`. `partial` = a machine gave no usable answer. */

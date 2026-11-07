@@ -290,6 +290,7 @@ describe("demoState mutators emit the correct WsEvent frames", () => {
       leftovers: 0,
       leftoversById: { deps: 0, envflag: 0 },
       probesUnavailable: false,
+      localProbesUnavailable: false,
       machines: [],
     });
   });
@@ -306,6 +307,7 @@ describe("demoState mutators emit the correct WsEvent frames", () => {
       leftovers: 0,
       leftoversById: { envflag: 0 },
       probesUnavailable: false,
+      localProbesUnavailable: false,
       machines: [],
     });
   });

@@ -173,7 +173,7 @@ function baseProps(): Props {
     onepicdiagnoseclose: vi.fn(),
     clearMergedSessions: null,
     clearMergedLeftovers: {},
-    clearMergedProbesUnavailable: false,
+    clearMergedProbes: { here: false, machines: new Set<string>() },
     clearMergedRepoFilter: new Set<string>(),
     onclearmergedclose: vi.fn(),
     onclearmergedconfirm: vi.fn(),
@@ -481,7 +481,7 @@ describe("AppOverlays — command bar wiring", () => {
       { id: "s1", desig: "TASK-01", name: "task one" },
     ] as unknown as Session[];
     props.clearMergedLeftovers = { s1: 0 };
-    props.clearMergedProbesUnavailable = true;
+    props.clearMergedProbes = { here: true, machines: new Set() };
     render(AppOverlays, props);
     await expect.element(page.getByText(m.clearmerged_probes_unavailable())).toBeVisible();
   });
@@ -492,7 +492,7 @@ describe("AppOverlays — command bar wiring", () => {
       { id: "s1", desig: "TASK-01", name: "task one" },
     ] as unknown as Session[];
     props.clearMergedLeftovers = { s1: 0 };
-    props.clearMergedProbesUnavailable = false;
+    props.clearMergedProbes = { here: false, machines: new Set() };
     render(AppOverlays, props);
     // The dialog mounts lazily: wait for it, or the absence check passes vacuously.
     await expect.element(page.getByRole("dialog")).toBeVisible();

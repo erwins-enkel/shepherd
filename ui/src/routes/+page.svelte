@@ -6,6 +6,7 @@
 
 <script lang="ts">
   import type { BootstrapStepKind } from "#lib/components/bootstrap-checklist.js";
+  import type { ClearMergedProbes } from "#lib/components/clear-merged-scope.js";
   import { firstSafeHttpUrl } from "#lib/url.js";
   import { onMount, tick, untrack } from "svelte";
   import { MediaQuery, SvelteSet } from "svelte/reactivity";
@@ -453,9 +454,9 @@
   // subprocess counts per id (both fetched server-side when the modal opens).
   let clearMergedSessions = $state<Session[] | null>(null);
   let clearMergedLeftovers = $state<Record<string, number>>({});
-  // …and whether that count can be trusted: false ⇒ "0 leftovers" really means none, true ⇒
-  // this host can't detect them at all and the batch may leak every dev server (#1923).
-  let clearMergedProbesUnavailable = $state(false);
+  // …and where that count can't be trusted: this host or a connected machine that can't detect
+  // leftovers at all, so its sessions may leak every dev server (#1923, #3694).
+  let clearMergedProbes = $state<ClearMergedProbes>({ here: false, machines: new Set() });
   // Pending merge-train awaiting operator confirmation. Setting it opens the
   // confirm modal; confirming runs `run` (the original launch); closing discards
   // with zero side effects. `run` carries the full launch closure for whichever
@@ -3456,7 +3457,7 @@
   // leftover count, so we ask it rather than trust the local snapshot.
   async function onclearmerged() {
     try {
-      const { ids, leftoversById, probesUnavailable, machines } = await getMergedClearable();
+      const { ids, leftoversById, localProbesUnavailable, machines } = await getMergedClearable();
       // The ids include the merged sessions of the connected machines that answered (#2765);
       // one that did not is named, since its merged sessions are missing from the list.
       const unchecked = (machines ?? [])
@@ -3475,7 +3476,14 @@
         .filter((s): s is Session => s != null);
       if (targets.length === 0) return; // nothing merged (or already cleared) → no modal
       clearMergedLeftovers = leftoversById;
-      clearMergedProbesUnavailable = probesUnavailable;
+      clearMergedProbes = {
+        here: localProbesUnavailable === true,
+        machines: new Set(
+          (machines ?? [])
+            .filter((machine) => machine.probesUnavailable)
+            .map((machine) => machine.instanceId),
+        ),
+      };
       clearMergedSessions = targets;
     } catch {
       toasts.info(m.toast_clear_merged_failed());
@@ -4678,7 +4686,7 @@
   onepicdiagnoseclose={() => (showEpicDiagnose = false)}
   {clearMergedSessions}
   {clearMergedLeftovers}
-  {clearMergedProbesUnavailable}
+  {clearMergedProbes}
   clearMergedRepoFilter={repoFilter}
   onclearmergedclose={() => (clearMergedSessions = null)}
   onclearmergedconfirm={confirmClearMerged}

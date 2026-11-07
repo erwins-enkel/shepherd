@@ -22,7 +22,7 @@ function renderDialog(overrides: Partial<Parameters<typeof ClearMergedDialog>[1]
   const props = {
     sessions,
     leftovers: {},
-    probesUnavailable: false,
+    probes: { here: false, machines: new Set<string>() },
     repoFilter: new Set(["/p/hunde-frontend"]),
     repos: [],
     onclose: vi.fn(),
@@ -146,5 +146,51 @@ describe("ClearMergedDialog with sessions on connected machines (#2765)", () => 
     await expect.element(page.getByText("manufare-portal 1 · hundesport 1")).toBeVisible();
     await page.getByRole("button", { name: m.clearmerged_confirm({ count: 3 }) }).click();
     expect(props.onconfirm).toHaveBeenCalledWith(["m1", "m2", "m3"]);
+  });
+});
+
+describe("ClearMergedDialog when a part can't detect leftovers (#3694)", () => {
+  const mac = (id: string, repo: string) =>
+    ({
+      ...s(id, repo),
+      host: { instanceId: "i-mac", name: "macbook", platform: "darwin" },
+      connection: { state: "connected", since: 1 },
+    }) as Session;
+  const blindMac = { here: false, machines: new Set(["i-mac"]) };
+  const machineCaution = m.clearmerged_probes_unavailable_machines({ machines: "macbook" });
+
+  it("names the blind machine only in the hidden repos' box when the filter hides its sessions", async () => {
+    renderDialog({
+      sessions: [s("h1", "hunde-frontend"), mac("r1", "app")],
+      probes: blindMac,
+    });
+    await expect.element(page.getByText(machineCaution)).toBeVisible();
+    expect(page.getByText(machineCaution).elements()).toHaveLength(1);
+    expect(page.getByText(m.clearmerged_probes_unavailable()).elements()).toHaveLength(0);
+    expect(page.getByText(machineCaution).element().closest(".outside")).not.toBeNull();
+  });
+
+  it("names the blind machine, not this host, for the default batch", async () => {
+    renderDialog({
+      sessions: [s("h1", "hunde-frontend"), mac("r1", "app")],
+      probes: blindMac,
+      repoFilter: new Set(),
+    });
+    await expect.element(page.getByText(machineCaution)).toBeVisible();
+    expect(page.getByText(m.clearmerged_probes_unavailable()).elements()).toHaveLength(0);
+  });
+
+  it("cautions about this host when it can't probe its own sessions", async () => {
+    renderDialog({ probes: { here: true, machines: new Set() }, repoFilter: new Set() });
+    await expect.element(page.getByText(m.clearmerged_probes_unavailable())).toBeVisible();
+  });
+
+  it("cautions nothing when only a machine without sessions here is blind", async () => {
+    renderDialog({ probes: blindMac });
+    await expect
+      .element(page.getByText(m.clearmerged_scoped_desc({ repo: "hunde-frontend", count: 2 })))
+      .toBeVisible();
+    expect(page.getByText(machineCaution).elements()).toHaveLength(0);
+    expect(page.getByText(m.clearmerged_probes_unavailable()).elements()).toHaveLength(0);
   });
 });

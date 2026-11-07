@@ -343,12 +343,20 @@ function parseSummary(body: unknown): ClearMergedSummary | null {
   };
 }
 
+/** What the clear-merged preview answers across machines. `probesUnavailable` is true when any part
+ *  can't detect leftovers; `localProbesUnavailable` and each answering machine's `probesUnavailable`
+ *  say which part, so a client warns only for the batch it clears and names that machine (#3694). */
+export interface ClearMergedSummaryAcross extends ClearMergedSummary {
+  localProbesUnavailable: boolean;
+  machines: (MachineOutcome & { ids: string[]; probesUnavailable?: boolean })[];
+}
+
 /** The merged sessions of this instance and of every machine, with one outcome per machine. */
 export async function clearMergedSummaryAcross(
   local: ClearMergedSummary,
   machines: readonly MachineRoute[],
   opts: ForwardOptions = {},
-): Promise<ClearMergedSummary & { machines: (MachineOutcome & { ids: string[] })[] }> {
+): Promise<ClearMergedSummaryAcross> {
   const answers = await Promise.all(
     machines.map(async (route): Promise<ClearMergedSummary | MachineFailure> => {
       if (!route.target) return "disconnected";
@@ -370,9 +378,9 @@ export async function clearMergedSummaryAcross(
     merged.leftovers += answer.leftovers;
     Object.assign(merged.leftoversById, answer.leftoversById);
     merged.probesUnavailable ||= answer.probesUnavailable;
-    return { ...outcome(route), ids: answer.ids };
+    return { ...outcome(route), ids: answer.ids, probesUnavailable: answer.probesUnavailable };
   });
-  return { ...merged, machines: outcomes };
+  return { ...merged, localProbesUnavailable: local.probesUnavailable, machines: outcomes };
 }
 
 function parseResult(body: unknown): ClearMergedResult | null {

@@ -103,6 +103,23 @@ describe("CardMenu relaunch action", () => {
   });
 });
 
+describe("CardMenu mark-ready action", () => {
+  it("renders a checkbox item by `ready` and fires onready in one click", async () => {
+    const onready = vi.fn();
+    const { rerender } = await render(CardMenu, { props: base() });
+    const item = () => page.getByRole("menuitemcheckbox", { name: m.prrow_menu_mark_ready() });
+    expect(item().query()).toBeNull();
+
+    await rerender(base({ onready }));
+    await expect.element(item()).toHaveAttribute("aria-checked", "false");
+    await item().click();
+    expect(onready).toHaveBeenCalledOnce();
+
+    await rerender(base({ onready, ready: true }));
+    await expect.element(item()).toHaveAttribute("aria-checked", "true");
+  });
+});
+
 describe("CardMenu merge action", () => {
   it("renders the Merge PR item only when onmergepr is provided", async () => {
     const { rerender } = await render(CardMenu, { props: base() });

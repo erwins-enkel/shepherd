@@ -13,6 +13,8 @@
     resumable,
     opener,
     onmergepr,
+    onready,
+    ready = false,
     onstop,
     onresume,
     onaskassistant,
@@ -40,6 +42,10 @@
     // One click, because it only OPENS the merge confirmation (#2299) — the parent's handler
     // closes over the session id and runs the dialog, like the badge menu.
     onmergepr?: () => void;
+    // when provided, a one-click "Mark ready" checkbox item appears (checked by `ready`) — toggles
+    // the session's ready-to-merge flag, like the PR ⋯ menu. Reversible, so no arm step.
+    onready?: () => void;
+    ready?: boolean;
     // when provided, a "Stop agent" item appears (the session is working) — a lone ESC to its
     // pane (#1995). Deliberately a plain, unarmed row: this is the per-session counterpart of
     // pressing Esc in the terminal, NOT the fleet e-stop (which arms red and chips its count),
@@ -223,6 +229,19 @@
   {#if onmergepr}
     <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onmergepr}>
       <span class="cm-icon" aria-hidden="true">⇥</span>{m.prbadge_merge()}
+    </button>
+  {/if}
+  {#if onready}
+    <button
+      class="cm-item"
+      type="button"
+      role="menuitemcheckbox"
+      aria-checked={ready}
+      tabindex="-1"
+      title={ready ? m.gitrail_ready_on_title() : m.gitrail_ready_off_title()}
+      onclick={onready}
+    >
+      <span class="cm-icon" aria-hidden="true">{ready ? "✓" : "□"}</span>{m.prrow_menu_mark_ready()}
     </button>
   {/if}
   {#if onstop}

@@ -8132,5 +8132,8 @@
   "feat_assistant_resize_title": "Drag the assistant's width",
   "feat_assistant_resize_body": "The layout switch in the top bar is gone. Drag the assistant's left edge to size it. Drag past the terminal's minimum and the terminal folds into a strip; click the strip to unfold it. Double-click the edge to reset. The width is remembered on this device.",
   "feat_epic_machine_title": "Epic children run on the right machine",
-  "feat_epic_machine_body": "An epic child labelled requires-macos now starts on a connected Mac instead of here, and the epic's run settings let you pick the machine for all its children. A child on another machine shows that machine's badge and opens its session there; when the machine is out of reach, the epic waits instead of starting the child here."
+  "feat_epic_machine_body": "An epic child labelled requires-macos now starts on a connected Mac instead of here, and the epic's run settings let you pick the machine for all its children. A child on another machine shows that machine's badge and opens its session there; when the machine is out of reach, the epic waits instead of starting the child here.",
+  "cardmenu_ready_failed": "Couldn't change ready state of {name}",
+  "feat_cardmenu_mark_ready_title": "Mark ready from the session menu",
+  "feat_cardmenu_mark_ready_body": "Right-click or long-press a session in the Herd list to mark it ready to merge, or unmark it, without opening it."
 }

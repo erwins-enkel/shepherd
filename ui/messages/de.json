@@ -8132,5 +8132,8 @@
   "feat_assistant_resize_title": "Breite des Assistenten ziehen",
   "feat_assistant_resize_body": "Der Layout-Schalter in der Kopfleiste ist weg. Zieh die linke Kante des Assistenten, um seine Breite anzupassen. Ziehst du über die Mindestbreite des Terminals hinaus, klappt es zu einer Leiste ein; ein Klick darauf klappt es wieder auf. Doppelklick auf die Kante setzt zurück. Die Breite wird auf diesem Gerät gemerkt.",
   "feat_epic_machine_title": "Epic-Kinder laufen auf dem passenden Rechner",
-  "feat_epic_machine_body": "Ein Epic-Kind mit dem Label requires-macos startet jetzt auf einem verbundenen Mac statt hier, und in den Lauf-Einstellungen des Epics wählst du den Rechner für alle seine Kinder. Ein Kind auf einem anderen Rechner trägt dessen Badge und öffnet seine Session dort; ist der Rechner nicht erreichbar, wartet das Epic, statt das Kind hier zu starten."
+  "feat_epic_machine_body": "Ein Epic-Kind mit dem Label requires-macos startet jetzt auf einem verbundenen Mac statt hier, und in den Lauf-Einstellungen des Epics wählst du den Rechner für alle seine Kinder. Ein Kind auf einem anderen Rechner trägt dessen Badge und öffnet seine Session dort; ist der Rechner nicht erreichbar, wartet das Epic, statt das Kind hier zu starten.",
+  "cardmenu_ready_failed": "Bereit-Status von {name} konnte nicht geändert werden",
+  "feat_cardmenu_mark_ready_title": "Als bereit markieren im Sitzungsmenü",
+  "feat_cardmenu_mark_ready_body": "Rechtsklick oder langes Drücken auf eine Sitzung in der Herd-Liste markiert sie als bereit zum Mergen – oder hebt die Markierung auf –, ohne sie zu öffnen."
 }

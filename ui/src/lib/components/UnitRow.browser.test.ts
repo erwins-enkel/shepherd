@@ -26,14 +26,23 @@ vi.mock("#lib/api.js", async (importOriginal) => {
       async () => ({ ok: true }) as { ok: boolean; reason?: "unsupported" | "no-run" },
     ),
     mergePr: vi.fn(async () => ({ state: "merged" }) as never),
+    setReadyToMerge: vi.fn(async () => {}),
     updateEpic: vi.fn(async () => ({}) as never),
     interruptSession: vi.fn(async () => {}),
   };
 });
 
 const { reviews, planGates, repoConfig } = await import("#lib/reviews.svelte.js");
-const { releasePlanGate, reviewPlan, resumeQuota, retryCi, mergePr, interruptSession, updateEpic } =
-  await import("#lib/api.js");
+const {
+  releasePlanGate,
+  reviewPlan,
+  resumeQuota,
+  retryCi,
+  mergePr,
+  interruptSession,
+  updateEpic,
+  setReadyToMerge,
+} = await import("#lib/api.js");
 const { toasts } = await import("#lib/toasts.svelte.js");
 const { buildQueues } = await import("#lib/buildQueues.svelte.js");
 
@@ -782,6 +791,56 @@ describe("UnitRow context menu", () => {
     openMenu("merged row");
 
     await expect.element(page.getByText(m.cardmenu_replace_with())).not.toBeInTheDocument();
+  });
+
+  describe("Mark ready", () => {
+    const readyItem = () => page.getByRole("menuitemcheckbox", { name: m.prrow_menu_mark_ready() });
+    const renderReadyRow = (over: Partial<Session>, gitState: string | null = "open") =>
+      render(UnitRow, {
+        session: session({ id: "ready-row", name: "ready row", ...over }),
+        selected: false,
+        nowMs: Date.now(),
+        onselect: () => {},
+        git: gitState ? ({ state: gitState } as never) : undefined,
+      });
+    beforeEach(() => {
+      vi.mocked(setReadyToMerge).mockReset().mockResolvedValue(undefined);
+    });
+
+    it("marks an idle row with an open PR ready", async () => {
+      renderReadyRow({});
+      openMenu("ready row");
+      await expect.element(readyItem()).toHaveAttribute("aria-checked", "false");
+      await readyItem().click();
+      expect(setReadyToMerge).toHaveBeenCalledWith("ready-row", true);
+    });
+
+    it("unmarks an already-ready row even without an open PR", async () => {
+      renderReadyRow({ readyToMerge: true }, "merged");
+      openMenu("ready row");
+      await expect.element(readyItem()).toHaveAttribute("aria-checked", "true");
+      await readyItem().click();
+      expect(setReadyToMerge).toHaveBeenCalledWith("ready-row", false);
+    });
+
+    it("is not offered while the agent runs", async () => {
+      renderReadyRow({ status: "running" });
+      openMenu("ready row");
+      await expect.element(page.getByRole("menu")).toBeInTheDocument();
+      expect(readyItem().query()).toBeNull();
+    });
+
+    it("toasts an alert when the toggle fails", async () => {
+      vi.mocked(setReadyToMerge).mockRejectedValue(new Error("ready failed (500)"));
+      renderReadyRow({});
+      openMenu("ready row");
+      await readyItem().click();
+      await vi.waitFor(() =>
+        expect(
+          toasts.items.some((t) => t.text === m.cardmenu_ready_failed({ name: "ready row" })),
+        ).toBe(true),
+      );
+    });
   });
 
   it("offers Merge PR for a merge-eligible row; merges via the session id after confirming", async () => {
@@ -2370,7 +2429,8 @@ describe("UnitRow mirrored session (#2762)", () => {
   it("offers only what its machine is sent — Stop and Decommission — while connected (#2765)", async () => {
     const ondecommission = vi.fn();
     render(UnitRow, {
-      session: remote({ claudeSessionId: "c1" }),
+      // readyToMerge: a local row would offer Mark ready — the remote menu must not.
+      session: remote({ claudeSessionId: "c1", readyToMerge: true }),
       selected: false,
       nowMs: Date.now(),
       onselect: () => {},
@@ -2387,6 +2447,7 @@ describe("UnitRow mirrored session (#2762)", () => {
       .elements()
       .map((el) => el.textContent?.trim());
     expect(items).toEqual([`⎋${m.cardmenu_stop()}`, `✕${m.cardmenu_decommission()}`]);
+    expect(page.getByRole("menuitemcheckbox").query()).toBeNull();
     await page.getByRole("menuitem", { name: m.cardmenu_stop() }).click();
     expect(interruptSession).toHaveBeenCalledWith("r1");
 

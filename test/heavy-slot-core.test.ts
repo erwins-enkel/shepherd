@@ -39,10 +39,10 @@ function req(id: string, sessionId: string, command = "bun run test") {
 }
 
 describe("defaultHeavySlotBudget", () => {
-  test("one slot on a 16-core / 30 GiB host, brake at 4 GiB / PSI 20 / 30 s", () => {
+  test("one slot on a 16-core / 30 GiB host, brake at 5 % RAM / PSI 20 / 30 s", () => {
     expect(defaultHeavySlotBudget({ cpus: 16, memTotalBytes: 30 * GIB })).toEqual({
       slots: 1,
-      minAvailableBytes: 4 * GIB,
+      minAvailableBytes: Math.floor(30 * GIB * 0.05),
       psiFullMax: 20,
       releaseHoldMs: 30_000,
     });
@@ -57,9 +57,12 @@ describe("defaultHeavySlotBudget", () => {
     expect(defaultHeavySlotBudget({ cpus: 4, memTotalBytes: 8 * GIB }).slots).toBe(1);
   });
 
-  test("a small host brakes at 15 % of its RAM", () => {
+  test("the RAM floor is 5 %, capped at 7.5 GiB on a big host", () => {
     expect(defaultHeavySlotBudget({ cpus: 8, memTotalBytes: 16 * GIB }).minAvailableBytes).toBe(
-      Math.floor(16 * GIB * 0.15),
+      Math.floor(16 * GIB * 0.05),
+    );
+    expect(defaultHeavySlotBudget({ cpus: 64, memTotalBytes: 256 * GIB }).minAvailableBytes).toBe(
+      7.5 * GIB,
     );
   });
 

@@ -7953,7 +7953,7 @@
   "resources_remove_command": "{command} entfernen",
   "resources_add": "Befehl hinzufügen",
   "resources_brake": "Druckbremse",
-  "resources_brake_hint": "Die übernommenen Grenzen sind vorläufig, keine validierten Empfehlungen. Speicherspitzen werden abgetastet; kurze Spitzen können fehlen.",
+  "resources_brake_hint": "Die Standardwerte sind an gemessener Linux-Last kalibriert. Speicherspitzen werden abgetastet; kurze Spitzen können fehlen.",
   "resources_ram": "Mindestens verfügbarer RAM (MiB)",
   "resources_psi": "Höchster Memory-PSI full (%)",
   "resources_release": "Freigabe nach unauffälligen Messwerten (Sekunden)",

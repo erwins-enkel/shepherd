@@ -297,6 +297,7 @@ export interface Candidate {
   releaseHoldMs: number;
 }
 
+/** The pre-calibration defaults (#3589): the baseline the selection compares against. */
 export const CURRENT: Candidate = { fraction: 0.15, psiFullMax: 20, releaseHoldMs: 30_000 };
 export const CURRENT_CAP_BYTES = 4 * GIB;
 

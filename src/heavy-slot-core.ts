@@ -91,9 +91,10 @@ const GIB = 1024 ** 3;
  * The budget a host gets with no configuration (#3181): every heavy runner already saturates all
  * cores (Vitest workers, `--max-concurrency`, cargo jobs = core count), so extra slots only pay off
  * on a bigger box — one per 6 cores AND 32 GiB, never fewer than one, so a 12-core / 64 GiB machine
- * runs two (#3631) while the pressure brake still gates each start. The brake thresholds are the
- * issue's provisional values: at most 4 GiB (15 % of RAM on a smaller host) and PSI `full` 20 %,
- * let go after 30 s. `slotsOverride` (SHEPHERD_HEAVY_SLOTS) wins when it is a positive integer.
+ * runs two (#3631) while the pressure brake still gates each start. The brake thresholds are
+ * calibrated against measured load (#3589, docs/verification/pressure-brake-3589.md): brake below
+ * 5 % of RAM available (at most 7.5 GiB) or above PSI `full` 20 %, let go after 30 s.
+ * `slotsOverride` (SHEPHERD_HEAVY_SLOTS) wins when it is a positive integer.
  */
 export function defaultHeavySlotBudget(
   hw: { cpus: number; memTotalBytes: number },
@@ -109,7 +110,7 @@ export function defaultHeavySlotBudget(
       : derived;
   return {
     slots,
-    minAvailableBytes: Math.min(4 * GIB, Math.floor(hw.memTotalBytes * 0.15)),
+    minAvailableBytes: Math.min(7.5 * GIB, Math.floor(hw.memTotalBytes * 0.05)),
     psiFullMax: 20,
     releaseHoldMs: 30_000,
   };

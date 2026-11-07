@@ -4,6 +4,8 @@ import { signedOff, type SignoffAuthority, type SignoffView } from "./signoff";
 import { checksCleared } from "./checks-gate";
 import { verdictStale } from "./verdict-freshness";
 import type { EpicChild, EpicRun } from "./epic-core";
+import type { Placement } from "./remote-instances/placement";
+import type { SessionHost } from "./remote-instances/sessions";
 
 /** Issues carrying this label always jump to the head of the drain queue,
  *  alongside any configured per-repo priority labels. */
@@ -48,6 +50,10 @@ export interface HoldReason {
     | "sandbox_backend_unavailable" // `autonomous` but no bwrap on this host (#3452); detail = profile
     | "sandbox_egress_unavailable" // `autonomous` but no egress backend on this host (#3452); detail = profile
     | "target_repo_drain_off" // next spawn routes to a repo with auto-drain off (#3325, #3452); detail = target repo
+    | "machine_offline" // next spawn belongs on another machine that is out of reach; detail = machine name
+    | "machine_unfit" // the machine the epic names cannot take the next spawn; detail = machine name (or ID)
+    | "no_suitable_machine" // no machine meets the next spawn's requirements; detail = requirements
+    | "machine_stacked" // a stacked epic child would have to run on another machine; detail = machine name
     | "memory_pressure" // the spawn waits in the host's start queue (src/start-queue-core.ts) — set by DrainService's start gate, never by computeNext
     | "empty"; // no eligible backlog item
   /** A desig (trouble pauses) or a percentage (usage), for the operator banner. */
@@ -77,6 +83,9 @@ export type DrainDecision =
        *  `Session.incrementalEpicParent`, never as `epicParent` (the child bases on the default
        *  branch and lands on its own). Undefined for integration epics and label-drain. */
       incrementalEpicParent?: number;
+      /** The spawn runs on another machine, as this record of the machine choice says
+       *  (src/drain-placement.ts); undefined = here, as always. */
+      remote?: Placement;
     }
   | { kind: "retire"; sessionId: string; prNumber: number; headSha: string | null }
   | { kind: "hold"; reason: HoldReason };
@@ -220,6 +229,23 @@ export interface DrainRepoState {
    *  so a held issue churns no label; keyed by issue so it can never hold another candidate.
    *  Null/undefined when the next candidate may start. */
   spawnHold?: { issue: number; reason: HoldReason } | null;
+  /** The {@link nextCandidate}'s spawn runs on another machine (src/drain-placement.ts): the
+   *  machine choice's record. Keyed by issue, like `spawnHold`. Null/undefined = it runs here. */
+  spawnRemote?: { issue: number; placement: Placement } | null;
+  /** Spawns the drain sent to other machines that still hold an agent slot here: their start is
+   *  not confirmed yet, or they run there without a PR (see src/drain-remote.ts). They count
+   *  against `maxAuto` like local auto sessions. Absent = none. */
+  remoteHolding?: readonly RemoteHolder[];
+}
+
+/** A spawn the drain sent to another machine, holding a slot (see `remoteHolding`). */
+export interface RemoteHolder {
+  issueNumber: number;
+  host: SessionHost;
+  /** Its session there; null while the machine has not confirmed the start. */
+  sessionId: string | null;
+  /** That session's designation on its machine, when known. */
+  desig: string | null;
 }
 
 /** The candidate the drain spawns next: the first one no session maps yet. */
@@ -362,7 +388,7 @@ function bootstrapHold(state: DrainRepoState): HoldReason | null {
 
 function capHold(state: DrainRepoState): HoldReason | null {
   const holding = slotHolders(state.autoSessions);
-  if (holding.length < state.maxAuto) return null;
+  if (holding.length + (state.remoteHolding?.length ?? 0) < state.maxAuto) return null;
   const awaiting = holding.find((s) => awaitingSignoff(s, state.draftMode, state.signoffAuthority));
   return awaiting
     ? { code: "awaiting_signoff", detail: awaiting.desig }
@@ -453,7 +479,14 @@ export function computeNext(state: DrainRepoState): DrainDecision {
     epicProviderSettings: state.epicProviderSettings ?? undefined,
     stackedBase: state.epicStackBases?.get(next.number),
     incrementalEpicParent: state.epicIncrementalParent ?? undefined,
+    ...remoteSpawnOf(state, next),
   };
+}
+
+/** The other machine `next`'s spawn runs on, when `spawnRemote` names it; else nothing. */
+function remoteSpawnOf(state: DrainRepoState, next: Issue): { remote?: Placement } {
+  const remote = state.spawnRemote;
+  return remote?.issue === next.number ? { remote: remote.placement } : {};
 }
 
 /** #3452: the spawn-gate hold for `next`, when {@link DrainRepoState.spawnHold} names it. */
@@ -512,6 +545,9 @@ export interface RunSummaryHolder {
   desig: string;
   issueNumber: number | null;
   epicParent: number | null;
+  /** The machine it runs on when that is not this one; absent here. A remote holder whose start is
+   *  not confirmed yet has an empty `sessionId`. */
+  host?: SessionHost;
 }
 
 /** Read-only picture of how one repo's drain is running, shipped on `DrainStatus.runSummary`. */
@@ -554,6 +590,18 @@ export interface RunSummaryInput {
   >[];
   /** The repo's epic queue, head first. */
   queued: number[];
+  /** Spawns on other machines that hold a slot (see DrainRepoState.remoteHolding). */
+  remoteHolding?: readonly RemoteHolder[];
+}
+
+function remoteSummaryHolder(h: RemoteHolder, leadingEpic: number | null): RunSummaryHolder {
+  return {
+    sessionId: h.sessionId ?? "",
+    desig: h.desig ?? "",
+    issueNumber: h.issueNumber,
+    epicParent: leadingEpic,
+    host: h.host,
+  };
 }
 
 function summaryHolder(s: AutoSessionView): RunSummaryHolder {
@@ -564,6 +612,7 @@ function summaryHolder(s: AutoSessionView): RunSummaryHolder {
 export function buildRunSummary(input: RunSummaryInput): RunSummary {
   const { leadingEpic, epicChildren } = input;
   const autoSessions = slotHolders(input.autoSessions);
+  const remote = input.remoteHolding ?? [];
   const byEpic = new Map<number, number[]>();
   for (const s of autoSessions) {
     if (s.epicParent == null || s.epicParent === leadingEpic) continue;
@@ -597,9 +646,12 @@ export function buildRunSummary(input: RunSummaryInput): RunSummary {
     leadingEpic,
     windingDown,
     slots: {
-      used: autoSessions.length,
+      used: autoSessions.length + remote.length,
       max: input.maxAuto,
-      holders: autoSessions.map(summaryHolder),
+      holders: [
+        ...autoSessions.map(summaryHolder),
+        ...remote.map((h) => remoteSummaryHolder(h, leadingEpic)),
+      ],
     },
     landingRepairs: input.autoSessions.filter((s) => s.landingRepair).map(summaryHolder),
     next,

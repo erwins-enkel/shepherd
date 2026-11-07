@@ -51,6 +51,7 @@ import {
   selectEpicCandidates,
   type Epic,
   type EpicChild,
+  type EpicChildElsewhere,
   type EpicQueueEntry,
   type EpicRun,
   type EpicStackContext,
@@ -108,6 +109,16 @@ import { LandingPrReads } from "./landing-pr-reads";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import type { NotifyInput } from "./push";
 import type { StartEntry } from "./start-queue-core";
+import {
+  placementQuery,
+  requirementsFromLabels,
+  routeOf,
+  type ChildRoute,
+} from "./drain-placement";
+import type { RemoteWork } from "./drain-remote";
+import type { Capability } from "./remote-instances/capabilities";
+import type { Placement, PlacementDecision } from "./remote-instances/placement";
+import type { RemoteOutcome } from "./remote-instances/dispatch";
 
 /** #645 (c): re-scan the host for stray `epic/*` branches at most this often per epic. The
  *  scan is an advisory divergence warning, not gating — a 5-minute staleness is harmless and
@@ -510,7 +521,42 @@ export interface DrainDeps {
     forgetStart(key: string): void;
     waitingStart(key: string): boolean;
   };
+  /** Other machines (src/drain-placement.ts): a spawn whose labels call for a capability this
+   *  machine lacks, or whose epic names another machine, goes there. Absent → every spawn runs
+   *  here, as it always did. */
+  machines?: DrainMachinePort;
 }
+
+/** What the drain needs of the connected machines (wired in index.ts). */
+export interface DrainMachinePort {
+  /** Some registered machine could take a task (`placementActive`). */
+  active(): boolean;
+  /** This Shepherd's instance ID. */
+  selfId(): string;
+  /** The shared machine choice (src/remote-instances/decide.ts) for a spawn in `repoPath`;
+   *  `override` null = automatic. */
+  decide(
+    repoPath: string,
+    requirements: Capability[],
+    override: string | null,
+  ): Promise<PlacementDecision>;
+  /** Send a spawn for `issue` to the machine `placement` names, as a remote dispatch keyed
+   *  `drain/<issue>/…` (src/drain-remote.ts). `body` is a create body; `repoPath` names the
+   *  project here. */
+  submit(input: {
+    repoPath: string;
+    issue: number;
+    placement: Placement;
+    body: Record<string, unknown>;
+  }): Promise<RemoteOutcome>;
+  /** The spawns sent from `repoPath` still on their way or running elsewhere, by issue. */
+  work(repoPath: string): ReadonlyMap<number, RemoteWork>;
+}
+
+/** A remote dispatch outcome after which the spawn may be running there: keep its claim. */
+const REMOTE_SPAWNED: ReadonlySet<RemoteOutcome["kind"]> = new Set(["started", "held", "unknown"]);
+
+const NO_REMOTE_WORK: ReadonlyMap<number, RemoteWork> = new Map();
 
 /** The start-queue key of a repo's next backlog spawn. */
 const drainStartKey = (repoPath: string) => `drain:${repoPath}`;
@@ -819,6 +865,8 @@ export class DrainService {
         title: parentTitle,
         body: struct.parent?.body ?? "",
       },
+      parentLabels: struct.parent?.labels ?? [],
+      elsewhere: this.elsewhereOf(repoPath),
       subIssues: struct.subIssues,
       blockedBy: struct.blockedBy,
       openIssues,
@@ -1413,6 +1461,12 @@ export class DrainService {
       ],
       summaryCandidates,
     );
+    const spawnState = await this.spawnState(repoPath, candidates, mappedIssueNumbers, {
+      provider: spawnAgentProvider,
+      run: epicRun,
+      epic: builtEpic,
+      stackBases: epicStackBases,
+    });
     // enabled reflects whether spawning (and retiring) is active — see drainEnabled.
     const enabled = drainEnabled(epicRun, cfg.autoDrainEnabled);
     const stall = this.epicStall(repoPath, epicActive, epicRun, builtEpic, epicParent);
@@ -1451,7 +1505,7 @@ export class DrainService {
         epicUnreadable: stall.epicUnreadable,
         ...this.epicBaseHoldState(repoPath, builtEpic, epicIntegrationBranch),
         bootstrapMissing: this.bootstrapHoldFor(repoPath),
-        spawnHold: this.nextSpawnHold(repoPath, candidates, mappedIssueNumbers, spawnAgentProvider),
+        ...spawnState,
         runSummary: buildRunSummary({
           leadingEpic,
           autoSessions,
@@ -1461,6 +1515,7 @@ export class DrainService {
           mappedIssueNumbers,
           epicChildren,
           queued: this.deps.store.listEpicQueue(repoPath).map((e) => e.parentIssueNumber),
+          remoteHolding: spawnState.remoteHolding,
         }),
       },
       epic: builtEpic,
@@ -4652,7 +4707,8 @@ export class DrainService {
     const gate = this.deps.startGate;
     if (!gate) return decision;
     const key = drainStartKey(repoPath);
-    if (decision.kind !== "spawn") {
+    // A spawn for another machine loads that machine, not this one.
+    if (decision.kind !== "spawn" || decision.remote) {
       gate.forgetStart(key);
       return decision;
     }
@@ -5240,12 +5296,14 @@ export class DrainService {
   }
 
   /** #3452: why a spawn into `spawnRepo` must not start unattended, or null — #3325's target-repo
-   *  opt-in, then the sandbox auto-gate. No side effects: buildState asks it for the next candidate
-   *  (snapshot() included), and doSpawn re-asks it before claiming. */
+   *  opt-in, then the sandbox auto-gate. A spawn sent to another machine (`remote`) skips the
+   *  sandbox gate: that machine applies its own. No side effects: buildState asks it for the next
+   *  candidate (snapshot() included), and doSpawn re-asks it before claiming. */
   private spawnGate(
     repoPath: string,
     spawnRepo: string,
     provider: AgentProvider,
+    remote = false,
   ): HoldReason | null {
     const rc = this.deps.store.getRepoConfig(spawnRepo);
     // #3325: an auto spawn routed into another repo needs THAT repo's own auto-drain opt-in —
@@ -5254,22 +5312,127 @@ export class DrainService {
       const detail = this.deps.resolveForge(spawnRepo)?.slug ?? spawnRepo;
       return { code: "target_repo_drain_off", detail };
     }
-    return this.spawnSandboxHold(rc.sandboxProfile, provider);
+    return remote ? null : this.spawnSandboxHold(rc.sandboxProfile, provider);
   }
 
-  /** #3452: the {@link spawnGate} hold of the candidate `computeNext` would spawn next, so it holds
-   *  there and drain:status names it. An unregistered target repo is doSpawn's refusal, not this. */
-  private nextSpawnHold(
+  /** {@link buildState}'s part on the next spawn and the spawns on other machines. Those map their
+   *  issue too — the claim label may not have reached the issue cache yet — and hold a slot until
+   *  they open their PR there. `epic` is the running epic as built (null in label mode); its
+   *  run's `machine` names where its children go. */
+  private async spawnState(
     repoPath: string,
     candidates: Issue[],
     mappedIssueNumbers: Set<number>,
-    provider: AgentProvider,
-  ): DrainRepoState["spawnHold"] {
+    ctx: {
+      provider: AgentProvider;
+      run: EpicRun | null;
+      epic: Epic | null;
+      stackBases: DrainRepoState["epicStackBases"];
+    },
+  ): Promise<Pick<DrainRepoState, "spawnHold" | "spawnRemote" | "remoteHolding">> {
+    const remoteWork = this.remoteWork(repoPath);
+    for (const issue of remoteWork.keys()) mappedIssueNumbers.add(issue);
+    const remoteHolding = [...remoteWork]
+      .filter(([, w]) => w.prNumber === null)
+      .map(([issueNumber, w]) => ({ issueNumber, ...w }));
+    const gate = await this.nextSpawnGate(repoPath, candidates, mappedIssueNumbers, {
+      provider: ctx.provider,
+      machine: ctx.epic ? (ctx.run?.machine ?? null) : null,
+      epicChildren: ctx.epic?.children ?? null,
+      stackBases: ctx.stackBases,
+    });
+    return { ...gate, remoteHolding };
+  }
+
+  /** #3452: the hold of the candidate `computeNext` would spawn next, so it holds there and
+   *  drain:status names it — the machine it belongs on (src/drain-placement.ts) first, then
+   *  {@link spawnGate}. Or the record of the other machine it goes to. An unregistered target repo
+   *  is doSpawn's refusal, not this. */
+  private async nextSpawnGate(
+    repoPath: string,
+    candidates: Issue[],
+    mappedIssueNumbers: Set<number>,
+    ctx: {
+      provider: AgentProvider;
+      /** The running epic's named machine; null = automatic, and always in label mode. */
+      machine: string | null;
+      /** The running epic's children; null in label mode. */
+      epicChildren: EpicChild[] | null;
+      stackBases: DrainRepoState["epicStackBases"];
+    },
+  ): Promise<Pick<DrainRepoState, "spawnHold" | "spawnRemote">> {
     const next = nextCandidate({ candidates, mappedIssueNumbers });
-    if (!next) return null;
+    if (!next) return { spawnHold: null, spawnRemote: null };
     const spawnRepo = this.spawnRepoOf(repoPath, next.body);
-    const reason = spawnRepo === null ? null : this.spawnGate(repoPath, spawnRepo, provider);
-    return reason ? { issue: next.number, reason } : null;
+    if (spawnRepo === null) return { spawnHold: null, spawnRemote: null };
+    const route = await this.routeFor(spawnRepo, next, ctx);
+    if (route.kind === "hold") {
+      return { spawnHold: { issue: next.number, reason: route.reason }, spawnRemote: null };
+    }
+    const remote = route.kind === "remote";
+    const reason = this.spawnGate(repoPath, spawnRepo, ctx.provider, remote);
+    if (reason) return { spawnHold: { issue: next.number, reason }, spawnRemote: null };
+    return {
+      spawnHold: null,
+      spawnRemote: remote ? { issue: next.number, placement: route.placement } : null,
+    };
+  }
+
+  /** Where `next` runs: here, on another machine, or nowhere right now (a hold). Its requirements
+   *  come from its labels — an epic child's from its own and its epic's (EpicChild.requirements).
+   *  Without other machines, or without requirements and a named machine, it runs here unasked. */
+  private async routeFor(
+    spawnRepo: string,
+    next: Issue,
+    ctx: {
+      machine: string | null;
+      epicChildren: EpicChild[] | null;
+      stackBases: DrainRepoState["epicStackBases"];
+    },
+  ): Promise<ChildRoute> {
+    const machines = this.deps.machines;
+    if (!machines) return { kind: "here" };
+    const requirements = ctx.epicChildren
+      ? (ctx.epicChildren.find((c) => c.number === next.number)?.requirements ?? [])
+      : requirementsFromLabels(next.labels);
+    const selfId = machines.selfId();
+    const { machine } = ctx;
+    const query = placementQuery({ requirements, machine, selfId, active: machines.active() });
+    if (!query) return { kind: "here" };
+    const stacked = ctx.stackBases?.has(next.number) ?? false;
+    try {
+      const decision = await machines.decide(spawnRepo, requirements, query.override);
+      return routeOf(decision, { selfId, stacked, machine });
+    } catch (err) {
+      // Never start a spawn here that belongs elsewhere just because the choice failed.
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(`[drain] machine choice for issue #${next.number} failed: ${reason}`);
+      return {
+        kind: "hold",
+        reason: { code: "no_suitable_machine", detail: requirements.join(", ") },
+      };
+    }
+  }
+
+  /** The spawns this drain sent from `repoPath` to other machines (src/drain-remote.ts). */
+  private remoteWork(repoPath: string): ReadonlyMap<number, RemoteWork> {
+    try {
+      return this.deps.machines?.work(repoPath) ?? NO_REMOTE_WORK;
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(`[drain] remote work for ${repoPath} unreadable: ${reason}`);
+      return NO_REMOTE_WORK;
+    }
+  }
+
+  /** {@link remoteWork} as the epic model shows it (EpicChild.elsewhere). */
+  private elsewhereOf(repoPath: string): ReadonlyMap<number, EpicChildElsewhere> {
+    return new Map(
+      [...this.remoteWork(repoPath)].map(([issue, w]) => [
+        issue,
+        { host: w.host, sessionId: w.sessionId, prNumber: w.prNumber },
+      ]),
+    );
   }
 
   /** #2069: a STACKED child bases on its chain predecessor's live PR head. `ensureBranch` is
@@ -5300,7 +5463,8 @@ export class DrainService {
     decision: Extract<DrainDecision, { kind: "spawn" }>,
     defaultModel: string,
   ): Promise<boolean> {
-    if (!this.deps.capacity) return true;
+    // A spawn for another machine runs on that machine's engines, which it checks itself.
+    if (!this.deps.capacity || decision.remote) return true;
     const number = decision.issue.number;
     return this.deps.capacity({
       owner: "drain",
@@ -5339,7 +5503,7 @@ export class DrainService {
     // #3452: computeNext already holds on this gate (spawnHold); re-checked in case the config
     // changed since buildState.
     const provider = decision.epicProviderSettings?.agentProvider ?? config.defaultAgentProvider;
-    const hold = this.spawnGate(repoPath, spawnRepo, provider);
+    const hold = this.spawnGate(repoPath, spawnRepo, provider, !!decision.remote);
     if (hold) {
       console.warn(`[drain] issue #${number} held — ${hold.code} (${hold.detail})`);
       return;
@@ -5386,6 +5550,10 @@ export class DrainService {
     // label for an already-created session → duplicate re-spawn next tick. The UI
     // session list is push-only, so without this emit a drain-spawned (incl. epic
     // sub-issue) session never appears until a full page reload.
+    if (decision.remote) {
+      await this.spawnElsewhere(repoPath, spawnRepo, forge, decision, decision.remote);
+      return;
+    }
     let session: Session | undefined;
     try {
       const plan = await this.spawnPlan(repoPath, spawnRepo, forge, decision);
@@ -5434,6 +5602,66 @@ export class DrainService {
     }
     // Success-only, outside the try: push the new session to the UI live.
     if (session) this.deps.emitSessionNew?.(session);
+  }
+
+  /** doSpawn's step for a spawn that runs on another machine (src/drain-placement.ts): the same
+   *  base and prompt as here, sent as a remote dispatch with the issue linked. Only the epic's own
+   *  CLI settings ride along — without them the machine uses its own defaults, as it does for
+   *  everything that follows (critic, autopilot, merge). The claim was stamped by the caller: it
+   *  stays while the task may run there (started, held there, or no answer yet) and is released
+   *  on a refusal, which backs off like a failed spawn here. */
+  private async spawnElsewhere(
+    repoPath: string,
+    spawnRepo: string,
+    forge: GitForge,
+    decision: Extract<DrainDecision, { kind: "spawn" }>,
+    placement: Placement,
+  ): Promise<void> {
+    const { number, url, title, body } = decision.issue;
+    const failKey = `${repoPath}#${number}`;
+    let outcome: RemoteOutcome | null = null;
+    let failure: unknown = null;
+    try {
+      const plan = await this.spawnPlan(repoPath, spawnRepo, forge, decision);
+      const epicSettings = decision.epicProviderSettings;
+      outcome = await this.deps.machines!.submit({
+        repoPath: spawnRepo,
+        issue: number,
+        placement,
+        body: {
+          repoPath: spawnRepo,
+          baseBranch: plan.base,
+          prompt: plan.prompt,
+          ...(epicSettings && {
+            agentProvider: epicSettings.agentProvider,
+            ...(epicSettings.model && { model: epicSettings.model }),
+            ...(epicSettings.effort && { effort: epicSettings.effort }),
+          }),
+          images: [],
+          issueRef: { number, url, title, body },
+          requirements: placement.requirements,
+          placement,
+        },
+      });
+    } catch (err) {
+      failure = err;
+    }
+    if (outcome && REMOTE_SPAWNED.has(outcome.kind)) {
+      this.spawnFailures.delete(failKey);
+      console.warn(`[drain] issue #${number} sent to ${placement.target.name} (${outcome.kind})`);
+      return;
+    }
+    const reason = failure ?? new Error(`remote spawn ${outcome?.kind ?? "failed"}`);
+    this.recordSpawnFailure(failKey, reason);
+    const detail = reason instanceof Error ? reason.message : String(reason);
+    console.warn(
+      `[drain] spawn on ${placement.target.name} failed for issue #${number}: ${detail}`,
+    );
+    try {
+      await forge.removeIssueLabel?.(number, ACTIVE_LABEL);
+    } catch (rerr) {
+      console.warn(`[drain] release label for issue #${number} failed:`, rerr);
+    }
   }
 
   // ── event handlers (public surface) ───────────────────────────────────────────
@@ -5529,12 +5757,46 @@ export class DrainService {
         (x) => x.repoPath === repoPath && x.issueNumber != null && x.branch && !x.misroutedTarget,
       );
     for (const child of candidates) {
-      await this.probeChildIntegration(
-        forge,
-        repoPath,
-        child.number,
-        rows.filter((x) => x.issueNumber === child.number),
-      );
+      const childRows = rows.filter((x) => x.issueNumber === child.number);
+      // A claimed child with no session here ran on another machine (sent there by this drain, or
+      // started there by hand): only the forge can tell that its PR merged into the epic branch.
+      if (childRows.length === 0 && (child.claimed || child.elsewhere)) {
+        await this.probeElsewhereIntegration(forge, repoPath, run.parentIssueNumber, child.number);
+        continue;
+      }
+      await this.probeChildIntegration(forge, repoPath, child.number, childRows);
+    }
+  }
+
+  /** {@link reconcileEpicIntegrations} for a child without a session here: a merged PR linked to
+   *  its issue whose base is the pinned epic branch integrates it. A forge that cannot list an
+   *  issue's PRs or read a PR's base (Gitea) is not asked; a failed read waits for the next sweep. */
+  private async probeElsewhereIntegration(
+    forge: GitForge,
+    repoPath: string,
+    parent: number,
+    childNumber: number,
+  ): Promise<void> {
+    if (!forge.issuePullRequestReferences || !forge.prReviewMeta) return;
+    const pinned = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
+    if (!pinned) return; // incremental: a child is done when its issue closes
+    try {
+      const refs = (await forge.issuePullRequestReferences(childNumber)) ?? [];
+      for (const pr of refs.filter((r) => r.state === "merged")) {
+        const base = (await forge.prReviewMeta(pr.number))?.baseRefName;
+        if (base !== pinned) continue;
+        this.deps.store.recordEpicIntegrated(
+          repoPath,
+          parent,
+          childNumber,
+          { number: pr.number, url: pr.url },
+          pinned,
+        );
+        return;
+      }
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(`[drain] epic reconcile of #${childNumber} (elsewhere) failed: ${reason}`);
     }
   }
 

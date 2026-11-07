@@ -8,7 +8,7 @@ import type {
 } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 import { formatReset } from "#lib/format.js";
-import { bootstrapMissingText, holdCliLabel, pausedText } from "./queue-strip";
+import { bootstrapMissingText, holdCliLabel, holdNeedsLabel, pausedText } from "./queue-strip";
 
 export type ChipTone = "done" | "review" | "running" | "ready" | "muted";
 
@@ -65,6 +65,10 @@ const DETAIL_HOLD_LINES: Record<string, (detail: string) => string> = {
   sandbox_backend_unavailable: () => m.epic_hold_sandbox_backend_unavailable(),
   sandbox_egress_unavailable: () => m.epic_hold_sandbox_egress_unavailable(),
   target_repo_drain_off: (repo) => m.epic_hold_target_repo_drain_off({ repo }),
+  machine_offline: (machine) => m.epic_hold_machine_offline({ machine }),
+  machine_unfit: (machine) => m.epic_hold_machine_unfit({ machine }),
+  no_suitable_machine: (needs) => m.epic_hold_no_suitable_machine({ needs: holdNeedsLabel(needs) }),
+  machine_stacked: (machine) => m.epic_hold_machine_stacked({ machine }),
 };
 
 /**
@@ -211,6 +215,10 @@ const HALT_REASONS = new Set([
   "sandbox_backend_unavailable",
   "sandbox_egress_unavailable",
   "target_repo_drain_off",
+  "machine_offline",
+  "machine_unfit",
+  "no_suitable_machine",
+  "machine_stacked",
   "awaiting_signoff",
   "disabled",
 ]);

@@ -459,3 +459,65 @@ describe("withRetiredPrs (#3423)", () => {
     ]);
   });
 });
+
+describe("assembleEpic: where a child runs", () => {
+  const MAC = {
+    instanceId: "a2222222-2222-4222-8222-222222222222",
+    name: "macbook",
+    platform: "macos",
+  };
+  const child = (number: number, labels: string[]) => ({
+    number,
+    title: `c${number}`,
+    url: `u${number}`,
+    body: "",
+    closed: false,
+    labels,
+  });
+
+  test("requirements come from the child's labels and its epic's", () => {
+    const e = assembleEpic({
+      ...BASE,
+      subIssues: [child(1, ["requires-macos"]), child(2, ["parity"])],
+      blockedBy: new Map(),
+    });
+    expect(e.children.find((c) => c.number === 1)!.requirements).toEqual(["xcode"]);
+    expect(e.children.find((c) => c.number === 2)!.requirements).toBeUndefined();
+    const inherited = assembleEpic({
+      ...BASE,
+      parentLabels: ["requires-macos", "ios-app"],
+      subIssues: [child(2, ["parity"])],
+      blockedBy: new Map(),
+    });
+    expect(inherited.children[0]!.requirements).toEqual(["xcode"]);
+  });
+
+  test("a child sent elsewhere runs there until its PR opens", () => {
+    const base = { ...BASE, subIssues: [child(5, ["shepherd:active"])], blockedBy: new Map() };
+    const running = assembleEpic({
+      ...base,
+      elsewhere: new Map([[5, { host: MAC, sessionId: "s-mac", prNumber: null }]]),
+    });
+    expect(running.children[0]).toMatchObject({
+      state: "running",
+      elsewhere: { host: MAC, sessionId: "s-mac" },
+    });
+    const review = assembleEpic({
+      ...base,
+      elsewhere: new Map([[5, { host: MAC, sessionId: "s-mac", prNumber: 77 }]]),
+    });
+    expect(review.children[0]!.state).toBe("in-review");
+  });
+
+  test("a local session wins over a record of the child elsewhere", () => {
+    const e = assembleEpic({
+      ...BASE,
+      subIssues: [child(5, [])],
+      blockedBy: new Map(),
+      sessions: [{ id: "local", issueNumber: 5, prNumber: null }],
+      elsewhere: new Map([[5, { host: MAC, sessionId: null, prNumber: null }]]),
+    });
+    expect(e.children[0]!.sessionId).toBe("local");
+    expect(e.children[0]!.elsewhere).toBeUndefined();
+  });
+});

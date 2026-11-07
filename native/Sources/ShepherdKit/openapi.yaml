@@ -6002,6 +6002,9 @@ components:
           type:
             - integer
             - "null"
+        host:
+          $ref: "#/components/schemas/SessionHost"
+          description: The machine the holder runs on when the drain sent it to another one (an epic child or backlog issue whose labels or epic call for that machine); absent for a session here. sessionId is empty while that machine has not confirmed the start.
     EpicQueueReorderRequest:
       type: object
       additionalProperties: false
@@ -8031,6 +8034,34 @@ components:
         retiredPrNumber:
           type: integer
           description: "#3423: the still-open PR of a session-less in-review child whose session the drain retired (checks cleared, mergeable, left for a human merge). Absent otherwise."
+        requirements:
+          type: array
+          items:
+            $ref: "#/components/schemas/Capability"
+          description: What the child needs from the machine it runs on, read from its labels and its epic's (`requires-macos` → xcode). Absent when it needs nothing in particular.
+        elsewhere:
+          $ref: "#/components/schemas/EpicChildElsewhere"
+    EpicChildElsewhere:
+      type: object
+      additionalProperties: true
+      description: The drain sent this child to another machine and it is on its way or running there (absent otherwise). Its follow-up — critic, autopilot, merge — runs there with that machine's settings.
+      required:
+        - host
+        - sessionId
+        - prNumber
+      properties:
+        host:
+          $ref: "#/components/schemas/SessionHost"
+        sessionId:
+          type:
+            - string
+            - "null"
+          description: Its mirrored session there; null while the machine has not confirmed the start.
+        prNumber:
+          type:
+            - integer
+            - "null"
+          description: Its PR once it opened one.
     EpicRun:
       type: object
       additionalProperties: true
@@ -8065,6 +8096,11 @@ components:
         landing:
           $ref: "#/components/schemas/EpicLanding"
           description: "How the epic's children land (EpicLanding in src/epic-core.ts): integration bases and merges them into the epic's integration branch, which lands as one PR; incremental bases and merges each on the default branch. Absent = integration."
+        machine:
+          type:
+            - string
+            - "null"
+          description: "The instance ID of the machine the epic's children run on (this one or a connected one). Absent or null = automatic: a child runs here unless its labels or the epic's call for a capability only another machine has."
     Epic:
       type: object
       additionalProperties: true
@@ -8311,7 +8347,7 @@ components:
     EpicRunPatch:
       type: object
       additionalProperties: false
-      description: PUT /api/epic body (validateEpicRunPatch in src/validate.ts). Every field optional; absent keeps the stored value. model/effort null or "default" clear back to the provider default; model is checked against agentProvider when both are sent. ignoreUsageCeiling true lifts the repo's usage ceiling for this run and needs the resulting run to be running. landing can change only until the epic started (Epic.landingLocked); sending the current value is a no-op.
+      description: PUT /api/epic body (validateEpicRunPatch in src/validate.ts). Every field optional; absent keeps the stored value. model/effort null or "default" clear back to the provider default; model is checked against agentProvider when both are sent. ignoreUsageCeiling true lifts the repo's usage ceiling for this run and needs the resulting run to be running. landing can change only until the epic started (Epic.landingLocked); sending the current value is a no-op. machine names the instance ID the children run on (this Shepherd's own or a registered machine's, else 422 unknown_machine); null makes it automatic again.
       properties:
         mode:
           type: string
@@ -8341,6 +8377,10 @@ components:
           enum:
             - integration
             - incremental
+        machine:
+          type:
+            - string
+            - "null"
     EpicUpdateResult:
       description: "PUT /api/epic and POST /api/epic/approve-next answer the re-assembled Epic, or `{ok: true}` when the drain can no longer assemble it (the run was still saved / approved)."
       oneOf:
@@ -15271,6 +15311,12 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "409":
           description: 'error is "another epic leads": status idle or paused for an epic that does not lead while another one runs or is paused; or "epic not running": ignoreUsageCeiling true while the resulting run is not running; or "landing locked": a landing change once the epic started (Epic.landingLocked).'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: 'code is "unknown_machine": machine names neither this Shepherd nor a registered machine. Nothing is saved.'
           content:
             application/json:
               schema:

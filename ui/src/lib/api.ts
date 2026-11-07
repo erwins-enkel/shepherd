@@ -3661,7 +3661,14 @@ export async function updateEpic(
   patch: Partial<
     Pick<
       EpicRun,
-      "mode" | "status" | "agentProvider" | "model" | "effort" | "ignoreUsageCeiling" | "landing"
+      | "mode"
+      | "status"
+      | "agentProvider"
+      | "model"
+      | "effort"
+      | "ignoreUsageCeiling"
+      | "landing"
+      | "machine"
     >
   >,
   /** `requeueLeader`: a start that supersedes another epic puts it at the head of the epic queue. */

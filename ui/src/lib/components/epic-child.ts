@@ -13,6 +13,12 @@ export function childView(child: Pick<EpicChild, "state">): ChildView {
   return "standing";
 }
 
+/** The session working the child: here, or its mirrored session on the machine the drain sent it
+ *  to once that machine confirmed the start; null otherwise. */
+export function childSessionId(child: Pick<EpicChild, "sessionId" | "elsewhere">): string | null {
+  return child.sessionId ?? child.elsewhere?.sessionId ?? null;
+}
+
 /** The child's blockers that aren't merged yet. A blocker outside the epic (not a sibling)
  *  counts as open — the record carries no state for it. */
 export function openBlockers(

@@ -8,6 +8,7 @@
   import { toasts } from "#lib/toasts.svelte.js";
   import EpicHandsOffIntro from "./EpicHandsOffIntro.svelte";
   import EpicDiagnosisModal from "./EpicDiagnosisModal.svelte";
+  import MachineBadge from "./MachineBadge.svelte";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
 
   // An epic's children and structural warnings. Its run controls (state, Start/Pause, mode,
@@ -92,6 +93,7 @@
         <!-- eslint-enable svelte/no-navigation-without-resolve -->
         <span class="title">{c.title}</span>
         <span class="chip chip-{chip.tone}">{stateLabel(c.state)}</span>
+        {#if c.elsewhere}<MachineBadge host={c.elsewhere.host} />{/if}
         {#if slot}
           <span class="slot">{m.epic_slot_held({ index: slot.index, max: slot.max })}</span>
         {/if}

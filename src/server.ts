@@ -199,8 +199,6 @@ import {
   type PlacementRefusal,
   PLATFORM_ORDER_SETTING,
   choiceDependsOn,
-  decidePlacement,
-  fits,
   loadDecision,
   describeRefusal,
   localMachine,
@@ -211,6 +209,12 @@ import {
   storedPlatformOrder,
 } from "./remote-instances/placement";
 import { CapabilityService } from "./remote-instances/capability-probe";
+import {
+  type DecideDeps,
+  type PlaceInput,
+  decide as decideOver,
+  localMachineView as localMachineViewOf,
+} from "./remote-instances/decide";
 import {
   DERIVABLE_CAPABILITIES,
   type AnsweredDerivation,
@@ -4901,26 +4905,22 @@ function splitTarget(raw: unknown, store: AppDeps["store"]): CreateTarget | { er
 
 // ── automatic machine choice (#2772) ───────────────────────────────────────
 // The create route and `POST /api/placement` decide through the same `decide`, so the form's
-// preview and the create agree on the same readiness. See `remote-instances/placement.ts`.
+// preview and the create agree on the same readiness. See `remote-instances/decide.ts` (shared
+// with the drain) and `remote-instances/placement.ts`.
 
-/** This Shepherd as the choice sees it. Its capability report is refreshed first only when it is
- *  asked about requirements and the last report is missing or stale. */
-async function localMachineView(deps: AppDeps, refresh: boolean): Promise<MachineView> {
-  const last = capabilities(deps).report();
-  if (refresh && (!last || last.stale)) await capabilities(deps).refresh();
-  return localMachine(
-    instanceIdentity(deps.store, hostPlatform(deps)),
-    capabilities(deps).report(),
-    localLoad(deps),
-  );
+/** What `remote-instances/decide.ts` reads, from this server's deps. */
+function decideDeps(deps: AppDeps): DecideDeps {
+  return {
+    store: deps.store,
+    capabilities: capabilities(deps),
+    instances: remoteInstances(deps),
+    platform: hostPlatform(deps),
+    load: () => localLoad(deps),
+  };
 }
 
-interface PlaceInput {
-  requirements: Capability[];
-  /** Forge slug of the project; undefined = no other machine can match it. */
-  project: string | undefined;
-  /** null = automatic; else the named machine (this one's own ID included). */
-  override: string | null;
+function localMachineView(deps: AppDeps, refresh: boolean): Promise<MachineView> {
+  return localMachineViewOf(decideDeps(deps), refresh);
 }
 
 /** Whether reading a task's requirements can change where it runs (#2773), over the same views the
@@ -4931,26 +4931,8 @@ async function derivationMatters(deps: AppDeps, project: string | undefined): Pr
   return choiceDependsOn([local, ...machines], DERIVABLE_CAPABILITIES);
 }
 
-async function decide(deps: AppDeps, input: PlaceInput): Promise<PlacementDecision> {
-  const self = instanceIdentity(deps.store).instanceId;
-  const judgesHere = input.override === null || input.override === self;
-  const local = await localMachineView(deps, judgesHere && input.requirements.length > 0);
-  const instances = remoteInstances(deps);
-  const candidates = remoteMachineViews(instances.list(), input.project).filter(
-    (m) =>
-      m.connected &&
-      fits(m, input.requirements) &&
-      (input.override === null || m.host.instanceId === input.override),
-  );
-  await instances.refreshLoads(candidates.map((m) => m.host.instanceId));
-  local.load = localLoad(deps);
-  return decidePlacement([local, ...remoteMachineViews(instances.list(), input.project)], {
-    requirements: input.requirements,
-    override: input.override,
-    order: storedPlatformOrder(deps.store.getSetting(PLATFORM_ORDER_SETTING)),
-    by: { instanceId: local.host.instanceId, name: local.host.name },
-    now: Date.now(),
-  });
+function decide(deps: AppDeps, input: PlaceInput): Promise<PlacementDecision> {
+  return decideOver(decideDeps(deps), input);
 }
 
 const REMOTE_UNFIT_CODES = new Set<string>([
@@ -7558,7 +7540,7 @@ function registerApprovedEpic(
     return;
   }
   if (!incremental || epicSettingsPlace(store, dir, parentIssueNumber) !== "remembered") return;
-  const { repoPath, mode, agentProvider, model, effort } = runForParent(
+  const { repoPath, mode, agentProvider, model, effort, machine } = runForParent(
     store,
     dir,
     parentIssueNumber,
@@ -7571,6 +7553,7 @@ function registerApprovedEpic(
     model,
     effort,
     landing,
+    machine,
   });
 }
 
@@ -12344,6 +12327,8 @@ function mergeEpicRunPatch(
       ? { ignoreUsageCeiling: patch.ignoreUsageCeiling }
       : {}),
     ...(patch.landing !== undefined ? { landing: patch.landing } : {}),
+    // null names no machine: the children run where their labels send them (automatic).
+    ...(patchHas(patch, "machine") ? { machine: patch.machine ?? null } : {}),
     ...providerSettings,
   };
 }
@@ -12807,9 +12792,10 @@ interface SavedEpicRunPatch {
 function requeueSuperseded(store: AppDeps["store"], leader: EpicRun, started: EpicRun): void {
   if (started.status !== "running" || leader.parentIssueNumber === started.parentIssueNumber)
     return;
-  const { repoPath, parentIssueNumber, mode, agentProvider, model, effort, landing } = leader;
+  const { repoPath, parentIssueNumber, mode, agentProvider, model, effort, landing, machine } =
+    leader;
   store.enqueueEpic(
-    { repoPath, parentIssueNumber, mode, agentProvider, model, effort, landing },
+    { repoPath, parentIssueNumber, mode, agentProvider, model, effort, landing, machine },
     { head: true },
   );
   store.deleteEpicSettings(repoPath, parentIssueNumber);
@@ -12866,9 +12852,15 @@ function isEpicPutRequest(req: Request, parts: string[]): boolean {
 }
 
 /** Why the PUT refuses a valid patch against the epic's current run, else null: a landing change
- *  after the epic started (409), or a model the Codex ChatGPT login cannot run (400). */
+ *  after the epic started (409), a machine that is neither this one nor a registered one (422), or
+ *  a model the Codex ChatGPT login cannot run (400). */
 function refusedEpicRunPatch(deps: AppDeps, base: EpicRun, patch: EpicRunPatch): Response | null {
   if (changesLockedLanding(deps.store, base, patch)) return json({ error: "landing locked" }, 409);
+  if (patch.machine && !knownMachine(deps, patch.machine))
+    return json(
+      { error: "no registered machine has this instance ID", code: "unknown_machine" },
+      422,
+    );
   const incompatibleModel = incompatibleEpicModelForAuth(
     base,
     patch,
@@ -12880,6 +12872,14 @@ function refusedEpicRunPatch(deps: AppDeps, base: EpicRun, patch: EpicRunPatch):
       error: `model "${incompatibleModel}" is not supported when using Codex with a ChatGPT account`,
     },
     400,
+  );
+}
+
+/** `instanceId` is this Shepherd or a machine registered here (connected or not). */
+function knownMachine(deps: AppDeps, instanceId: string): boolean {
+  return (
+    instanceId === instanceIdentity(deps.store).instanceId ||
+    deps.store.getRemoteInstance(instanceId) !== null
   );
 }
 
@@ -12959,7 +12959,7 @@ function enqueueBehindLeader(
   if (!leader) return json({ error: "no leading epic" }, 409);
   if (leader.parentIssueNumber === parentIssueNumber)
     return json({ error: "epic already leads" }, 409);
-  const { mode, agentProvider, model, effort, landing } = runForParent(
+  const { mode, agentProvider, model, effort, landing, machine } = runForParent(
     store,
     dir,
     parentIssueNumber,
@@ -12972,6 +12972,7 @@ function enqueueBehindLeader(
     model,
     effort,
     landing,
+    machine,
   });
   store.deleteEpicSettings(dir, parentIssueNumber);
   return null;

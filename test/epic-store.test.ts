@@ -371,3 +371,76 @@ describe("landing (#3191) survives every run/queue/settings move", () => {
     }
   });
 });
+
+describe("machine survives every run/queue/settings move", () => {
+  const MAC = "a2222222-2222-4222-8222-222222222222";
+  const settings = (parentIssueNumber: number) => ({
+    repoPath: "/repo",
+    parentIssueNumber,
+    mode: "auto" as const,
+    agentProvider: null,
+    model: null,
+    effort: null,
+  });
+
+  test("absent = automatic on run, settings and queue rows", () => {
+    const s = new SessionStore(":memory:");
+    s.setEpicRun({ repoPath: "/repo", parentIssueNumber: 1, mode: "auto", status: "idle" });
+    expect(s.getEpicRun("/repo")!.machine).toBeUndefined();
+    s.setEpicSettings(settings(2));
+    expect(s.getEpicSettings("/repo", 2)!.machine).toBeUndefined();
+    s.enqueueEpic(settings(3));
+    expect(s.getEpicQueueEntry("/repo", 3)!.machine).toBeUndefined();
+  });
+
+  test("run -> supersede (settings) -> enqueue -> promote keeps the machine", () => {
+    const s = new SessionStore(":memory:");
+    s.setEpicRun({
+      repoPath: "/repo",
+      parentIssueNumber: 1,
+      mode: "auto",
+      status: "running",
+      machine: MAC,
+    });
+    expect(s.getEpicRun("/repo")!.machine).toBe(MAC);
+    s.setEpicRun({ repoPath: "/repo", parentIssueNumber: 2, mode: "auto", status: "running" });
+    const saved = s.getEpicSettings("/repo", 1)!;
+    expect(saved.machine).toBe(MAC);
+    s.enqueueEpic(saved);
+    s.deleteEpicSettings("/repo", 1);
+    expect(s.getEpicQueueEntry("/repo", 1)!.machine).toBe(MAC);
+    expect(s.listEpicQueue("/repo")[0]!.machine).toBe(MAC);
+    const head = s.shiftEpicQueue("/repo")!;
+    s.setEpicRun({ ...queuedEpicRun(head), status: "running" });
+    expect(s.getEpicRun("/repo")).toMatchObject({ parentIssueNumber: 1, machine: MAC });
+    expect(s.getEpicSettings("/repo", 2)!.machine).toBeUndefined();
+  });
+
+  test("updateEpicQueueSettings sets and clears the machine in place", () => {
+    const s = new SessionStore(":memory:");
+    s.enqueueEpic(settings(5));
+    s.updateEpicQueueSettings({ ...settings(5), machine: MAC });
+    expect(s.getEpicQueueEntry("/repo", 5)!.machine).toBe(MAC);
+    s.updateEpicQueueSettings({ ...settings(5), machine: null });
+    expect(s.getEpicQueueEntry("/repo", 5)!.machine).toBeUndefined();
+  });
+
+  test("a null machine on the run row reads back as automatic", () => {
+    const s = new SessionStore(":memory:");
+    s.setEpicRun({
+      repoPath: "/repo",
+      parentIssueNumber: 1,
+      mode: "auto",
+      status: "idle",
+      machine: MAC,
+    });
+    s.setEpicRun({
+      repoPath: "/repo",
+      parentIssueNumber: 1,
+      mode: "auto",
+      status: "idle",
+      machine: null,
+    });
+    expect(s.getEpicRun("/repo")!.machine).toBeUndefined();
+  });
+});

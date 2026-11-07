@@ -22,6 +22,7 @@
     type IssueListRow,
   } from "../issues-panel";
   import IssueMenuLayer from "../IssueMenuLayer.svelte";
+  import MachineBadge from "../MachineBadge.svelte";
   import { issueMenuTrigger } from "../issue-menu-trigger";
   import EpicHeaderRow from "./EpicHeaderRow.svelte";
 
@@ -155,6 +156,7 @@
         <span class="child-line">
           <span class="num">#{row.child.number}</span>
           <span class="title">{stripEpicPrefix(row.child.title, row.parent)}</span>
+          {#if row.child.elsewhere}<MachineBadge host={row.child.elsewhere.host} />{/if}
         </span>
         {#if slot}
           <span class="status">{m.epic_slot_held({ index: slot.index, max: slot.max })}</span>

@@ -4,6 +4,7 @@
   import { agentSlotExplanation } from "#lib/tooltips/explanations.js";
   import type { EpicRunSteps, SlotHolder } from "../epic-panel";
   import EpicRoleBadge from "./EpicRoleBadge.svelte";
+  import MachineBadge from "../MachineBadge.svelte";
   import SlotStepper, { slotCap } from "./SlotStepper.svelte";
 
   // The run area's three steps side by side (#2620). Leading epic: Now (slot holders) → Next
@@ -77,7 +78,7 @@
       <span class="quiet">{m.epic_run_now_empty()}</span>
     {:else}
       <ul class="holders">
-        {#each steps.now as h (h.sessionId)}
+        {#each steps.now as h (h.sessionId || `issue-${h.issueNumber}`)}
           {@const role = holderRole(h)}
           {@const title = h.issueNumber == null ? null : titleFor(h.issueNumber)}
           <li class="holder">
@@ -87,9 +88,10 @@
                 <span class="faint">{m.epic_run_holder_epic({ parent: h.epicParent })}</span>
               {/if}
               {#if role}<EpicRoleBadge {role} />{/if}
+              {#if h.host}<MachineBadge host={h.host} />{/if}
             </span>
             <span class="item-title">{title ?? h.desig}</span>
-            {#if onopensession}
+            {#if onopensession && h.sessionId}
               <button class="link" type="button" onclick={() => onopensession(h.sessionId)}
                 >{m.epic_run_open_session()}</button
               >

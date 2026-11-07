@@ -18,7 +18,8 @@ moves to another machine.
   started there directly or by its own automation. Your Shepherd shows them in its herd, among its
   own sessions in the lifecycle group their state belongs to, labelled with the machine they run
   on (`MacBook · TASK-07`), and never treats them as its own: no poller, autopilot, merge train,
-  drain or reaper on your side touches them. A session on another machine is never passed on, so
+  drain or reaper on your side touches them. Your drain only sends work there
+  ([Epic children on another machine](#epic-children-on-another-machine)). A session on another machine is never passed on, so
   two machines connected to each other neither loop nor show a session twice. A repo filter in the
   herd also keeps the other machines' sessions of the same project, matched by its forge remote
   (`owner/repo`), because the checkout paths differ between machines. The repo chips count them
@@ -225,6 +226,39 @@ The reason is shown before you start and on the session afterwards: "Needs macOS
   read in one request, in about a second; otherwise, and with screenshots, a helper on the
   autopilot classifier's CLI and model reads it in a few seconds.
 
+## Epic children on another machine
+
+The drain uses the same automatic choice for each epic child and each backlog issue it starts. The
+epic still runs on the Shepherd that leads it: its run, forecast and landing stay there. A child
+that needs another machine is sent there.
+
+- **Labels say what a child needs.** A child labelled `requires-macos`, or a child of an epic
+  labelled so, needs Xcode. It goes to a connected machine whose capability check has Xcode. A
+  child without such a label runs on the Shepherd that leads the epic, as before. Nothing is read
+  from the child's text.
+- **Or name the machine.** The epic's run settings have a **Machine** field while another machine is
+  registered: **Automatic** (the labels decide), this machine, or a connected machine. A named
+  machine takes every child of the epic, labels or not.
+- **The child runs there like a task you sent.** It starts on the epic's base (the integration
+  branch, or the default branch for an incremental epic) as a session linked to its issue, and the
+  issue is claimed (`shepherd:active`). The epic's CLI, model and effort go along when the epic sets
+  them; otherwise the machine uses its own defaults. Critic, autopilot and merge follow that
+  machine's settings. Your drain never merges or retires it.
+- **You see it in the epic.** The child shows the machine's badge, **Open session** opens its
+  session there, and the run area lists it under **Now**.
+- **It holds a slot until its PR opens.** A child sent to another machine counts against the repo's
+  agent slots while its start is unconfirmed or held there, and while it runs there without a PR.
+  Once its PR is open, that machine handles it and the slot is free again.
+- **Done is detected here.** In an incremental epic the child is done when its issue closes. In an
+  integration epic the drain checks the issue's merged pull requests on GitHub: one merged into
+  the epic's integration branch counts as integrated.
+- **No fallback.** When the child's machine is out of reach, has no Xcode or cannot take it, the
+  epic holds and says why ("Held: the next child belongs on MacBook, which is out of reach"). Nothing
+  starts on the leading Shepherd in its place. A child stacked on its predecessor's branch (stacked
+  PRs) is never sent to another machine; the epic holds and names the machine instead.
+- **Without other machines nothing changes.** With no machine registered, every child starts on the
+  leading Shepherd as before, labels or not.
+
 ### Platform order
 
 When several machines fit a task, the order of platforms decides. Set it under **Settings →
@@ -374,7 +408,9 @@ someone your login.
 - **No rule files.** The choice is made per task, from what it needs, never from rules kept in the
   repository or a subproject.
 - **Each Shepherd keeps its own.** Drain and epics, merging, settings (the platform order too),
-  usage limits and backlogs stay with each Shepherd. Nothing is merged across machines.
+  usage limits and backlogs stay with each Shepherd. Nothing is merged across machines. A drain
+  sends a child that needs another machine there, but its run stays with the Shepherd that leads it
+  ([Epic children on another machine](#epic-children-on-another-machine)).
 - **Windows** is listed, but not released for tasks ([below](#windows-modeled-not-released)).
 
 ## Windows: modeled, not released

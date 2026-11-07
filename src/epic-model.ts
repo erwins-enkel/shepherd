@@ -1,5 +1,12 @@
 import { parseEpicBody } from "./epic-parse";
-import { deriveChildState, type Epic, type EpicChild, type EpicRun } from "./epic-core";
+import {
+  deriveChildState,
+  type Epic,
+  type EpicChild,
+  type EpicChildElsewhere,
+  type EpicRun,
+} from "./epic-core";
+import { requirementsFromLabels } from "./drain-placement";
 import { epicIntegrationBranch } from "./epic-branch";
 import type { SubIssueRef } from "./forge/types";
 import type { DeliveryFact } from "./types";
@@ -24,11 +31,17 @@ interface Resolved {
   body: string;
   closed: boolean;
   claimed: boolean;
+  labels: string[];
 }
 export interface AssembleInput {
   repoPath: string;
   run: EpicRun;
   parent: { number: number; title: string; body: string };
+  /** The parent issue's labels: a label that calls for a capability (`requires-macos`) applies to
+   *  every child. Absent = none. */
+  parentLabels?: string[];
+  /** Children the drain sent to another machine, by issue number (see EpicChild.elsewhere). */
+  elsewhere?: ReadonlyMap<number, EpicChildElsewhere>;
   subIssues: SubIssueRef[]; // native: carries closed/labels/body per child
   blockedBy: Map<number, number[]>;
   openIssues: { number: number; title: string; url: string; body: string; labels: string[] }[]; // markdown fallback only (200-capped)
@@ -95,6 +108,7 @@ function resolveNative(input: AssembleInput): ResolvedGraph {
       body: s.body,
       closed: s.closed,
       claimed: s.labels.includes(ACTIVE_LABEL),
+      labels: s.labels,
     });
   }
   const edges = new Map<number, number[]>(input.blockedBy);
@@ -114,6 +128,7 @@ function resolveMarkdown(input: AssembleInput): ResolvedGraph {
       body: o?.body ?? "",
       closed: !o,
       claimed: !!o?.labels.includes(ACTIVE_LABEL),
+      labels: o?.labels ?? [],
     });
   }
   const edges = new Map<number, number[]>();
@@ -155,6 +170,8 @@ export function assembleEpic(input: AssembleInput): Epic {
     });
     const r = resolved.get(number)!;
     const sess = sessByIssue.get(number) ?? null;
+    const requirements = requirementsFromLabels([...(input.parentLabels ?? []), ...r.labels]);
+    const elsewhere = sess ? undefined : input.elsewhere?.get(number);
     const child: EpicChild = {
       number,
       title: r.title,
@@ -168,6 +185,8 @@ export function assembleEpic(input: AssembleInput): Epic {
       issueClosed: r.closed,
       integrationMerged: input.integrated.has(number),
       claimed: r.claimed,
+      ...(requirements.length > 0 && { requirements }),
+      ...(elsewhere && { elsewhere }),
     };
     child.state = deriveChildState(child, done);
     return child;

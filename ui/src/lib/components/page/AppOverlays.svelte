@@ -455,9 +455,10 @@
   });
   // An epic child's session in the Repos dialog (#2622): the live session + its PR state.
   // Read inside the dialog's deriveds, so it tracks the store's reactive fields.
+  // A child the drain sent to another machine opens its mirrored session there.
   function backlogSessionInfo(id: string): { session: Session; git?: GitState } | null {
-    const session = store.byId(id);
-    return session ? { session, git: store.git[id] } : null;
+    const session = store.byId(id) ?? store.remoteSessions.find((s) => s.id === id);
+    return session ? { session, git: store.git[id] ?? session.git } : null;
   }
 
   // The live session working an issue (#2638): the Issues overview's "Running now".

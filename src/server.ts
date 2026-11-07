@@ -7569,8 +7569,10 @@ async function approveBuildQueue(deps: AppDeps, id: string): Promise<Response> {
 // Claude Code's own http-hook client, not a Shepherd curl with an explicit
 // `Content-Type: application/json`, so its Content-Type is unverified — a hard 415 could
 // silently record ZERO events for the whole spike. Parse defensively instead. The handler
-// does validate + record only — no file parse, no synchronous PTY/herdr read on the Bun
-// loop (memory: single-loop-no-sync-exec).
+// validates + records; a matched Stop additionally awaits GoalTracker.onStop (#2596), an ASYNC
+// bounded transcript-tail read (≤512 KiB, JSON-parsed for `goal_status`) capped at 2 s and
+// failing open to the plain 202. No synchronous file, PTY or herdr read on the Bun loop
+// (memory: single-loop-no-sync-exec).
 async function handleSessionHooks({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "hooks")) return null;
   const id = parts[2];

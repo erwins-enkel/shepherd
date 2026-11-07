@@ -297,3 +297,14 @@ test("a failed goal arm never blocks Go; the goal stays held", async () => {
   expect(h.goals).toEqual([]);
   expect(h.setPhaseCalls).toEqual([{ id: "s1", phase: "executing" }]);
 });
+
+test("releasePlanGate never pastes /goal into a non-Claude agent", async () => {
+  const h = harness({
+    session: sess({ goalState: "held", goalCondition: "X", agentProvider: "codex" }),
+    gate: { approved: true },
+  });
+  expect(await h.svc.releasePlanGate("s1")).toBe(true);
+  expect(h.sent.map((m) => m.text).join("")).toContain("Plan approved.");
+  expect(h.sent.some((m) => m.text.includes("/goal"))).toBe(false);
+  expect(h.goals).toEqual([]);
+});

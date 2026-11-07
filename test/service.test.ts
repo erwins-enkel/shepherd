@@ -8130,6 +8130,44 @@ test("replaceAgent swaps provider in the same session and worktree", async () =>
   expect(calls.removed).toEqual([]);
 });
 
+describe("replaceAgent: held /goal (#2596)", () => {
+  const heldOrig = (store: SessionStore) => {
+    const orig = originalSession(store, {
+      agentProvider: "claude",
+      prompt: "/goal make it responsive",
+      planPhase: "planning",
+    });
+    store.setGoal(orig.id, "make it responsive", "held");
+    return orig.id;
+  };
+
+  test("claude → claude while planning: handoff leads with the task, goal stays held", async () => {
+    const store = new SessionStore(":memory:");
+    const { service, calls, emitted } = relaunchHarness(store);
+    const id = heldOrig(store);
+    await service.replaceAgent(id, { agentProvider: "claude", model: "opus" });
+    const prompt = calls.started[0]!.argv.at(-1)!;
+    expect(prompt.startsWith("make it responsive\n\nProvider handoff context:")).toBe(true);
+    expect(store.get(id)).toMatchObject({
+      goalCondition: "make it responsive",
+      goalState: "held",
+    });
+    expect(emitted.some((e) => e.event === "session:goal")).toBe(false);
+  });
+
+  test("claude → codex: the hold is dropped (Codex cannot be armed)", async () => {
+    const store = new SessionStore(":memory:");
+    const { service, emitted } = relaunchHarness(store);
+    const id = heldOrig(store);
+    await service.replaceAgent(id, { agentProvider: "codex", model: "gpt-5.5" });
+    expect(store.get(id)).toMatchObject({ goalCondition: null, goalState: null });
+    expect(emitted).toContainEqual({
+      event: "session:goal",
+      data: { id, goalCondition: null, goalState: null },
+    });
+  });
+});
+
 test("replaceAgent: ChatGPT auth clamps and warns while preserving the Codex model choice", async () => {
   const store = new SessionStore(":memory:");
   const { service, calls } = relaunchHarness(store, "chatgpt");

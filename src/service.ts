@@ -1961,6 +1961,20 @@ export function PREVIEW_SETUP_STEER({
   );
 }
 
+/** #2596: the goal a spawn holds until Go — Claude + plan gate only; null keeps the prompt as is. */
+function heldGoalSplit(
+  prompt: string,
+  provider: AgentProvider,
+  planGateOn: boolean,
+): { condition: string; task: string } | null {
+  return provider === "claude" && planGateOn ? splitHeldGoal(prompt) : null;
+}
+
+/** A held goal the Go steer can arm: `/goal` is a Claude Code command. */
+function armable(s: Pick<Session, "goalState" | "agentProvider">): boolean {
+  return s.goalState === "held" && (s.agentProvider ?? "claude") === "claude";
+}
+
 /** Claude Code's confirmation line for `/goal <condition>` (#2596). */
 const GOAL_SET_RE = /Goal set:/g;
 
@@ -4545,13 +4559,25 @@ export class SessionService {
     composeInput: StandardCreateInput;
     held: string | null;
   } {
-    const split =
-      (input.agentProvider ?? config.defaultAgentProvider) === "claude" &&
-      this.resolvePlanGateOn(input, this.deps.store.getRepoConfig(input.repoPath))
-        ? splitHeldGoal(input.prompt)
-        : null;
+    const split = heldGoalSplit(
+      input.prompt,
+      input.agentProvider ?? config.defaultAgentProvider,
+      this.resolvePlanGateOn(input, this.deps.store.getRepoConfig(input.repoPath)),
+    );
     if (!split) return { composeInput: input, held: null };
     return { composeInput: { ...input, prompt: split.task }, held: split.condition };
+  }
+
+  /** #2596: after a provider replace, the row holds the goal only if the replacement does — a
+   *  Codex replacement (or one outside planning) cannot be armed at Go, so its hold is dropped. */
+  #syncReplacedGoal(s: Session, held: string | null): void {
+    const next = held
+      ? { goalCondition: held, goalState: "held" as const }
+      : { goalCondition: null, goalState: null };
+    if (!held && s.goalState !== "held") return;
+    if (held && s.goalState === "held" && s.goalCondition === held) return;
+    this.deps.store.setGoal(s.id, next.goalCondition, next.goalState);
+    this.deps.events?.emit("session:goal", { id: s.id, ...next });
   }
 
   /** Persist a held goal on a freshly created row (and the returned copy the caller emits). */
@@ -6036,11 +6062,14 @@ export class SessionService {
       console.warn(
         `[replace] ${s.id}: ${carriedUploads.length} files exceed cap ${MAX_IMAGES}; dropped ${carriedUploads.length - promptUploads.length}`,
       );
+    // #2596: a held goal stays held across the replace — the handoff must not lead with `/goal`.
+    const held = heldGoalSplit(s.prompt, agentProvider, s.planPhase === "planning");
+    const task = held?.task ?? s.prompt;
     const input: StandardCreateInput = {
       repoPath: s.repoPath,
       baseBranch: s.baseBranch,
       prompt: composeProviderHandoffPrompt(
-        opts.handoffMode === "summarize" ? composeHandoffSummaryPrompt(s.prompt) : s.prompt,
+        opts.handoffMode === "summarize" ? composeHandoffSummaryPrompt(task) : task,
         { session: s, sourceProvider, targetProvider: agentProvider, model, effort: opts.effort },
       ),
       agentProvider,
@@ -6094,6 +6123,7 @@ export class SessionService {
       });
 
       await this.persistReplacementOrStop(s, agentProvider, launch, outcome);
+      this.#syncReplacedGoal(s, held?.condition ?? null);
 
       try {
         await this.deps.herdr.stop(s.herdrAgentId);
@@ -7958,11 +7988,10 @@ export class SessionService {
    * a failed arm leaves the goal held (the operator can still type it).
    */
   #withGoalArm(s: Session, inner?: SteerPrelude): SteerPrelude | undefined {
-    if (s.goalState !== "held") return inner; // nothing held: the Go steer is byte-identical
+    if (!armable(s)) return inner; // nothing to arm: the Go steer is byte-identical
     return async (live) => {
       if (inner && !(await inner(live))) return false;
-      if (live.goalState === "held" && live.goalCondition)
-        await this.#armGoalInLock(live, live.goalCondition);
+      if (armable(live) && live.goalCondition) await this.#armGoalInLock(live, live.goalCondition);
       return true;
     };
   }

@@ -317,6 +317,31 @@ test("lastUsedByRepo returns max createdAt per repoPath", () => {
   expect(map["/b"]).toBeGreaterThanOrEqual(older.createdAt);
 });
 
+test("lastActivityByRepo takes the later of createdAt and updatedAt", () => {
+  const s = mk();
+  const a = s.create({ ...base, repoPath: "/a", herdrAgentId: "t1" });
+  const map = s.lastActivityByRepo();
+  expect(map["/a"]).toBeGreaterThanOrEqual(a.createdAt);
+  expect(map["/a"]).toBeGreaterThanOrEqual(a.updatedAt);
+});
+
+test("repo_opened: markRepoOpened keeps the latest open; repoOpenedSince filters", () => {
+  const s = mk();
+  s.markRepoOpened("/a", 200);
+  s.markRepoOpened("/a", 100);
+  s.markRepoOpened("/b", 50);
+  expect([...s.repoOpenedSince(150)]).toEqual(["/a"]);
+  expect([...s.repoOpenedSince(0)].sort()).toEqual(["/a", "/b"]);
+});
+
+test("warmAutomationRepoPaths lists auto-drain and all-PR-critic repos", () => {
+  const s = mk();
+  s.setRepoConfig("/d", { ...s.getRepoConfig("/d"), autoDrainEnabled: true });
+  s.setRepoConfig("/c", { ...s.getRepoConfig("/c"), criticAllPrs: true });
+  s.setRepoConfig("/x", { ...s.getRepoConfig("/x"), criticEnabled: false });
+  expect([...s.warmAutomationRepoPaths()].sort()).toEqual(["/c", "/d"]);
+});
+
 test("recentSessionCountsByRepo counts sessions per repo within the window", () => {
   const s = mk();
   s.create({ ...base, repoPath: "/a", herdrAgentId: "t1" });

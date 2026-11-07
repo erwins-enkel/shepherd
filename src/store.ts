@@ -1581,6 +1581,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       slug TEXT NOT NULL, kind TEXT NOT NULL, entryKey TEXT NOT NULL,
       version INTEGER NOT NULL, contentKey TEXT, fetchedAt INTEGER NOT NULL, dataJson TEXT NOT NULL,
       PRIMARY KEY (slug, kind, entryKey))`);
+    // Repos the operator opened in the UI (#2837) — one input of the warm set. Its own table, not a
+    // repo_config column: creating a repo_config row would flip automationRowExists.
+    this.db.run(`CREATE TABLE IF NOT EXISTS repo_opened (
+      repoPath TEXT PRIMARY KEY, openedAt INTEGER NOT NULL)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS task_seq (
       id INTEGER PRIMARY KEY CHECK (id = 1), next INTEGER NOT NULL)`);
     // Seed once from the high-water mark of existing desigs (TASK-NN) + 1, or 1 on a fresh DB.
@@ -4704,6 +4708,43 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const out: Record<string, number> = {};
     for (const r of rows) out[r.repoPath] = r.t;
     return out;
+  }
+
+  /** repoPath → latest session createdAt or updatedAt — the warm set's activity input (#2837). */
+  lastActivityByRepo(): Record<string, number> {
+    const rows = this.db
+      .query(
+        `SELECT repoPath, MAX(MAX(createdAt), MAX(updatedAt)) AS t FROM sessions GROUP BY repoPath`,
+      )
+      .all() as { repoPath: string; t: number }[];
+    const out: Record<string, number> = {};
+    for (const r of rows) out[r.repoPath] = r.t;
+    return out;
+  }
+
+  /** Record the operator opening a repo's view (#2837). */
+  markRepoOpened(repoPath: string, at: number): void {
+    this.db.run(
+      `INSERT INTO repo_opened (repoPath, openedAt) VALUES (?, ?)
+       ON CONFLICT(repoPath) DO UPDATE SET openedAt = MAX(openedAt, excluded.openedAt)`,
+      [repoPath, at],
+    );
+  }
+
+  /** repoPaths the operator opened at or after `since`. */
+  repoOpenedSince(since: number): Set<string> {
+    const rows = this.db
+      .query(`SELECT repoPath FROM repo_opened WHERE openedAt >= ?`)
+      .all(since) as { repoPath: string }[];
+    return new Set(rows.map((r) => r.repoPath));
+  }
+
+  /** repoPaths whose automation keeps them warm (#2837): auto-drain or the all-PR critic. */
+  warmAutomationRepoPaths(): Set<string> {
+    const rows = this.db
+      .query(`SELECT repoPath FROM repo_config WHERE autoDrainEnabled = 1 OR criticAllPrs = 1`)
+      .all() as { repoPath: string }[];
+    return new Set(rows.map((r) => r.repoPath));
   }
 
   /**

@@ -17,7 +17,7 @@ import type { Placement, PlacementDecision } from "./remote-instances/placement"
 import { withImplied } from "./requirements-classify-core";
 
 /** Labels that call for capabilities, matched case-insensitively. */
-export const LABEL_REQUIREMENTS: Readonly<Record<string, readonly Capability[]>> = {
+const LABEL_REQUIREMENTS: Readonly<Record<string, readonly Capability[]>> = {
   "requires-macos": ["xcode"],
 };
 

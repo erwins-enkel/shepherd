@@ -50,6 +50,29 @@ function prNumberOf(session: MirroredSession): number | null {
   return typeof n === "number" && Number.isInteger(n) && n > 0 ? n : null;
 }
 
+/** A live mirrored session as drain work there. */
+function sessionWork(session: MirroredSession): RemoteWork {
+  return {
+    host: session.host,
+    sessionId: session.id,
+    desig: typeof session.desig === "string" ? session.desig : null,
+    prNumber: prNumberOf(session),
+  };
+}
+
+/** One dispatch's work on `host`, or null when it no longer counts. */
+function rowWork(
+  row: RemoteDispatchRow,
+  host: SessionHost,
+  session: MirroredSession | undefined,
+  now: number,
+): RemoteWork | null {
+  if (row.state !== "started") return { host, sessionId: null, desig: null, prNumber: null };
+  if (session) return session.status === "archived" ? null : sessionWork(session);
+  const fresh = now - row.updatedAt < START_GRACE_MS;
+  return fresh ? { host, sessionId: row.sessionId, desig: null, prNumber: null } : null;
+}
+
 /** The drain spawns still on their way or running elsewhere, by issue: the newest dispatch per
  *  issue decides. `rows` come newest first (`listDrainRemoteDispatches`); `hostOf` names a
  *  registered machine (null once it was removed — its rows no longer count). */
@@ -67,24 +90,8 @@ export function remoteWorkOf(
     if (issue === null || seen.has(issue)) continue;
     seen.add(issue);
     const host = hostOf(row.instanceId);
-    if (!host) continue;
-    if (row.state !== "started") {
-      work.set(issue, { host, sessionId: null, desig: null, prNumber: null });
-      continue;
-    }
-    const session = row.sessionId ? sessions.get(row.sessionId) : undefined;
-    if (session) {
-      if (session.status === "archived") continue;
-      const desig = typeof session.desig === "string" ? session.desig : null;
-      work.set(issue, {
-        host: session.host,
-        sessionId: session.id,
-        desig,
-        prNumber: prNumberOf(session),
-      });
-    } else if (now - row.updatedAt < START_GRACE_MS) {
-      work.set(issue, { host, sessionId: row.sessionId, desig: null, prNumber: null });
-    }
+    const found = host && rowWork(row, host, sessions.get(row.sessionId ?? ""), now);
+    if (found) work.set(issue, found);
   }
   return work;
 }

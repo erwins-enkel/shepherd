@@ -479,8 +479,14 @@ export function computeNext(state: DrainRepoState): DrainDecision {
     epicProviderSettings: state.epicProviderSettings ?? undefined,
     stackedBase: state.epicStackBases?.get(next.number),
     incrementalEpicParent: state.epicIncrementalParent ?? undefined,
-    ...(state.spawnRemote?.issue === next.number && { remote: state.spawnRemote.placement }),
+    ...remoteSpawnOf(state, next),
   };
+}
+
+/** The other machine `next`'s spawn runs on, when `spawnRemote` names it; else nothing. */
+function remoteSpawnOf(state: DrainRepoState, next: Issue): { remote?: Placement } {
+  const remote = state.spawnRemote;
+  return remote?.issue === next.number ? { remote: remote.placement } : {};
 }
 
 /** #3452: the spawn-gate hold for `next`, when {@link DrainRepoState.spawnHold} names it. */

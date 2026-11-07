@@ -1461,22 +1461,10 @@ export class DrainService {
       ],
       summaryCandidates,
     );
-    // Spawns sent to other machines map their issue too — the claim label may not have reached the
-    // issue cache yet — and hold a slot until they open their PR there.
-    const remoteWork = this.remoteWork(repoPath);
-    for (const issue of remoteWork.keys()) mappedIssueNumbers.add(issue);
-    const remoteHolding = [...remoteWork]
-      .filter(([, w]) => w.prNumber === null)
-      .map(([issueNumber, w]) => ({
-        issueNumber,
-        host: w.host,
-        sessionId: w.sessionId,
-        desig: w.desig,
-      }));
-    const gate = await this.nextSpawnGate(repoPath, candidates, mappedIssueNumbers, {
+    const spawnState = await this.spawnState(repoPath, candidates, mappedIssueNumbers, {
       provider: spawnAgentProvider,
-      machine: epicActive && builtEpic ? (epicRun!.machine ?? null) : null,
-      epicChildren: builtEpic ? epicChildren : null,
+      run: epicRun,
+      epic: builtEpic,
       stackBases: epicStackBases,
     });
     // enabled reflects whether spawning (and retiring) is active — see drainEnabled.
@@ -1517,9 +1505,7 @@ export class DrainService {
         epicUnreadable: stall.epicUnreadable,
         ...this.epicBaseHoldState(repoPath, builtEpic, epicIntegrationBranch),
         bootstrapMissing: this.bootstrapHoldFor(repoPath),
-        spawnHold: gate.spawnHold,
-        spawnRemote: gate.spawnRemote,
-        remoteHolding,
+        ...spawnState,
         runSummary: buildRunSummary({
           leadingEpic,
           autoSessions,
@@ -1529,7 +1515,7 @@ export class DrainService {
           mappedIssueNumbers,
           epicChildren,
           queued: this.deps.store.listEpicQueue(repoPath).map((e) => e.parentIssueNumber),
-          remoteHolding,
+          remoteHolding: spawnState.remoteHolding,
         }),
       },
       epic: builtEpic,
@@ -5327,6 +5313,35 @@ export class DrainService {
       return { code: "target_repo_drain_off", detail };
     }
     return remote ? null : this.spawnSandboxHold(rc.sandboxProfile, provider);
+  }
+
+  /** {@link buildState}'s part on the next spawn and the spawns on other machines. Those map their
+   *  issue too — the claim label may not have reached the issue cache yet — and hold a slot until
+   *  they open their PR there. `epic` is the running epic as built (null in label mode); its
+   *  run's `machine` names where its children go. */
+  private async spawnState(
+    repoPath: string,
+    candidates: Issue[],
+    mappedIssueNumbers: Set<number>,
+    ctx: {
+      provider: AgentProvider;
+      run: EpicRun | null;
+      epic: Epic | null;
+      stackBases: DrainRepoState["epicStackBases"];
+    },
+  ): Promise<Pick<DrainRepoState, "spawnHold" | "spawnRemote" | "remoteHolding">> {
+    const remoteWork = this.remoteWork(repoPath);
+    for (const issue of remoteWork.keys()) mappedIssueNumbers.add(issue);
+    const remoteHolding = [...remoteWork]
+      .filter(([, w]) => w.prNumber === null)
+      .map(([issueNumber, w]) => ({ issueNumber, ...w }));
+    const gate = await this.nextSpawnGate(repoPath, candidates, mappedIssueNumbers, {
+      provider: ctx.provider,
+      machine: ctx.epic ? (ctx.run?.machine ?? null) : null,
+      epicChildren: ctx.epic?.children ?? null,
+      stackBases: ctx.stackBases,
+    });
+    return { ...gate, remoteHolding };
   }
 
   /** #3452: the hold of the candidate `computeNext` would spawn next, so it holds there and

@@ -174,6 +174,24 @@ function withEpicLanding<T extends { landing?: unknown; machine?: string | null 
   };
 }
 
+/** An `epic_run` row's values in column order (`updatedAt` = now). Model and effort are stored only
+ *  with a provider. */
+function epicRunColumns(r: EpicRun): (string | number | null)[] {
+  return [
+    r.repoPath,
+    r.parentIssueNumber,
+    r.mode,
+    r.status,
+    r.agentProvider ?? null,
+    r.agentProvider ? (r.model ?? null) : null,
+    r.agentProvider ? (r.effort ?? null) : null,
+    epicRunCeilingColumn(r),
+    epicLandingFromColumn(r.landing),
+    r.machine ?? null,
+    Date.now(),
+  ];
+}
+
 /** The persisted override: only a running run may lift the ceiling, so every other write clears it. */
 function epicRunCeilingColumn(r: EpicRun): 0 | 1 {
   return r.status === "running" && r.ignoreUsageCeiling ? 1 : 0;
@@ -3049,19 +3067,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       this.db.run(
         `INSERT INTO epic_run (repoPath, parentIssueNumber, mode, status, agentProvider, model, effort, ignoreUsageCeiling, landing, machine, updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(repoPath) DO UPDATE SET parentIssueNumber=excluded.parentIssueNumber, mode=excluded.mode, status=excluded.status, agentProvider=excluded.agentProvider, model=excluded.model, effort=excluded.effort, ignoreUsageCeiling=excluded.ignoreUsageCeiling, landing=excluded.landing, machine=excluded.machine, updatedAt=excluded.updatedAt`,
-        [
-          r.repoPath,
-          r.parentIssueNumber,
-          r.mode,
-          r.status,
-          r.agentProvider ?? null,
-          r.agentProvider ? (r.model ?? null) : null,
-          r.agentProvider ? (r.effort ?? null) : null,
-          epicRunCeilingColumn(r),
-          epicLandingFromColumn(r.landing),
-          r.machine ?? null,
-          Date.now(),
-        ],
+        epicRunColumns(r),
       );
     })();
   }

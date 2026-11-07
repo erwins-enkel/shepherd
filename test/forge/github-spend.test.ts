@@ -6,6 +6,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   GraphqlSpendLedger,
+  SpendSplitLedger,
   parseInQueryRateLimit,
   porcelainCost,
 } from "../../src/forge/github-spend";
@@ -220,5 +221,36 @@ describe("GraphqlSpendLedger", () => {
     advance(6 * MIN);
     l.noteReading({ used: 400, resetAt: RESET });
     expect(l.foreignPerHour(10 * MIN)).toBe(2000);
+  });
+});
+
+describe("SpendSplitLedger — REST write counter (#2943)", () => {
+  it("splits write requests between two readings into own and everything else", () => {
+    let t = Date.parse("2026-10-06T15:40:30Z");
+    const l = new SpendSplitLedger({ now: () => t });
+    l.noteReading({ used: 137, resetAt: RESET, remaining: 4863 });
+    t += 6 * MIN;
+    l.noteOwnSpend(1);
+    l.noteOwnSpend(1);
+    l.noteReading({ used: 181, resetAt: RESET, remaining: 4819 });
+    expect(l.split()).toMatchObject({
+      ownPoints: 2,
+      otherPoints: 42,
+      ownPerHour: 20,
+      otherPerHour: 420,
+    });
+    expect(l.latestReading()).toEqual({ used: 181, remaining: 4819, resetAt: RESET });
+  });
+});
+
+describe("GraphqlSpendLedger callers", () => {
+  it("keeps callers within a window and clears them when the window rolls over", () => {
+    const { l } = ledger();
+    l.noteReading({ used: 100, resetAt: RESET });
+    l.noteCall("poller", { graphqlPoints: 2, rest: false });
+    l.noteReading({ used: 110, resetAt: RESET });
+    expect(l.callers()).toHaveLength(1);
+    l.noteReading({ used: 2, resetAt: RESET + 60 * MIN });
+    expect(l.callers()).toEqual([]);
   });
 });

@@ -254,6 +254,16 @@ export function buildGithubRateLimit(): GithubRateLimit {
       ownPerHour: 424,
       otherPerHour: 579,
     },
+    // Foreign REST writes like the ones that prompted #2943 (~420/h).
+    restWriteSplit: {
+      resetAt: NOW + 31 * 60_000,
+      since: NOW - 18 * 60_000,
+      until: NOW - 2 * 60_000,
+      ownPoints: 6,
+      otherPoints: 112,
+      ownPerHour: 23,
+      otherPerHour: 420,
+    },
     callers: [
       { caller: "pr-poller:full", calls: 41, graphqlPoints: 52, restCalls: 0 },
       { caller: "fingerprint", calls: 11, graphqlPoints: 11, restCalls: 0 },

@@ -12,7 +12,7 @@ import {
   __resetGithubRateLimitCache,
 } from "../src/forge/github-rate-limit";
 import { restRateLimit, restWriteRateLimit } from "../src/forge/rate-limit";
-import { GraphqlSpendLedger, graphqlSpend } from "../src/forge/github-spend";
+import { GraphqlSpendLedger, SpendSplitLedger, graphqlSpend } from "../src/forge/github-spend";
 
 // `gh api -i --method HEAD user` output (epoch *seconds* for reset).
 const SAMPLE = [
@@ -79,6 +79,23 @@ describe("fetchGithubRateLimit — sources (#2743)", () => {
       spend,
     );
     expect(out.callers).toEqual([{ caller: "drain", calls: 1, graphqlPoints: 2, restCalls: 0 }]);
+  });
+
+  it("carries the REST write split (#2943)", async () => {
+    const resetAt = Date.now() + 3_000_000;
+    const writeSpend = new SpendSplitLedger();
+    const fetch = () =>
+      fetchGithubRateLimit(
+        async () => SAMPLE,
+        () => 1000,
+        new GraphqlSpendLedger(),
+        writeSpend,
+      );
+    expect((await fetch()).restWriteSplit).toBeNull();
+    writeSpend.noteReading({ used: 100, remaining: 4900, resetAt });
+    writeSpend.noteOwnSpend(1);
+    writeSpend.noteReading({ used: 104, remaining: 4896, resetAt });
+    expect((await fetch()).restWriteSplit).toMatchObject({ resetAt, ownPoints: 1, otherPoints: 3 });
   });
 
   it("a failed probe leaves REST null instead of throwing", async () => {

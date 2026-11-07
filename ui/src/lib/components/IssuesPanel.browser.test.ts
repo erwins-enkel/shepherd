@@ -350,6 +350,7 @@ describe("IssuesPanel rate-limit notice", () => {
         restPausedUntil === null ? free : { ...free, pausedUntil: restPausedUntil, blocked: true },
       restWriteBackoff: free,
       graphqlSplit: null,
+      restWriteSplit: null,
       callers: [],
     };
   }

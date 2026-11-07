@@ -137,6 +137,7 @@ vi.mock("#lib/api.js", async () => {
         restBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
         restWriteBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
         graphqlSplit: null,
+        restWriteSplit: null,
         callers: [],
       }),
     ),

@@ -2426,6 +2426,9 @@ export interface GithubRateLimit {
   /** The current GraphQL window split into the Shepherd server's own spend and
    *  everything else on the account (#2840); null before a reading of a live window. */
   graphqlSplit: GraphqlSpendSplit | null;
+  /** The current REST write window split the same way (#2943), in requests; null before a
+   *  reading of a live window. Readings come only from Shepherd's own writes. */
+  restWriteSplit: GraphqlSpendSplit | null;
   /** GitHub calls of the current GraphQL window per caller (#2743), most points first. */
   callers: GhCallerTally[];
 }
@@ -2438,7 +2441,7 @@ export interface GhCallerTally {
   restCalls: number;
 }
 
-/** Mirrors the server `GraphqlSpendSplit`. Rates are null until the window's
+/** Mirrors the server `SpendSplit` (GraphQL points, or REST write requests). Rates are null until the window's
  *  readings span 5 min; `otherPoints` is never negative. */
 export interface GraphqlSpendSplit {
   resetAt: number;

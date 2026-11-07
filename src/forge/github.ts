@@ -40,8 +40,10 @@ import {
   graphqlSpend,
   parseInQueryRateLimit,
   porcelainCost,
+  restWriteSpend,
   withRateLimit,
   type GraphqlSpendLedger,
+  type SpendSplitLedger,
 } from "./github-spend";
 import { issuesFreshness } from "./repo-freshness";
 import { headBatcherFor, headKey } from "./github-head-batch";
@@ -717,7 +719,12 @@ const execGh: GhRunner = async (args) => {
  *  - a primary GraphQL limit error reads the bucket's `{rateLimit}` once (it answers while
  *    empty), so the backoff holds until its `resetAt` instead of re-probing every minute
  *    (#2841). Calls failing together share the one read; the failing call's error is thrown
- *    once the read is noted.
+ *    once the read is noted;
+ *  - every REST write GitHub answers is charged to the write ledger (#2943). A `gh api` write
+ *    runs with `-i` so its `X-Ratelimit-*` headers — the write counter's reading; a GET reads
+ *    the read counter (#2805) — reach the write tracker and, if of its window, the ledger. The
+ *    added header block is stripped from stdout (and a failure's `stdout`) before the caller
+ *    sees it.
  * Each engagement logs the call and the first stderr line that tripped it.
  * Errors are always re-thrown, so callers' fallbacks and error handling are unchanged.
  * Everything is injectable for tests; production uses {@link sharedGhRunner}.
@@ -730,6 +737,7 @@ export function makeGhRunner(
     rest?: BucketRateLimit;
     restWrite?: BucketRateLimit;
     spend?: GraphqlSpendLedger;
+    writeSpend?: SpendSplitLedger;
   } = {},
 ): GhRunner {
   const exec = opts.exec ?? execGh;
@@ -737,6 +745,7 @@ export function makeGhRunner(
   const rest = opts.rest ?? restRateLimit;
   const restWrite = opts.restWrite ?? restWriteRateLimit;
   const spend = opts.spend ?? graphqlSpend;
+  const write = { restWrite, writeSpend: opts.writeSpend ?? restWriteSpend };
   const gate = new Semaphore(opts.maxConcurrent ?? GH_MAX_CONCURRENCY);
   // Outside the gate: every slot may be held by a call awaiting this very read.
   let budgetRead: Promise<BudgetReading | undefined> | null = null;
@@ -751,16 +760,20 @@ export function makeGhRunner(
         // Checked once a slot is ours, so a call queued before the backoff engaged
         // doesn't spawn into it either.
         if (restRead && rest.blocked()) throw restBackoffError(args, rest);
-        const restBucket = restRead ? rest : isRestBucketCall(args) ? restWrite : null;
+        const restWriteCall = !restRead && isRestBucketCall(args);
+        const restBucket = restRead ? rest : restWriteCall ? restWrite : null;
         const graphql = isGraphqlBucketCall(args);
         const caller = currentGhCaller();
+        const include = restWriteCall && addsInclude(args);
         let points = 0;
         try {
-          const out = await exec(args);
+          const out = await exec(include ? [...args, "-i"] : args);
+          if (restWriteCall) return noteRestWrite(out, include, write);
           restBucket?.noteSuccess();
           if (graphql) points = chargeGraphql(args, out, graph, spend);
           return out;
         } catch (err) {
+          if (restWriteCall) noteRestWriteFailure(err, include, write);
           points = await noteFailure(args, err, { graph, restBucket, spend, readBudget });
           throw err;
         } finally {
@@ -771,6 +784,68 @@ export function makeGhRunner(
 }
 
 type BudgetReading = { remaining: number; resetAt: number };
+
+type RestWriteTrackers = { restWrite: BucketRateLimit; writeSpend: SpendSplitLedger };
+
+/** Whether the runner adds `-i` to a REST write (#2943): `gh api` only (porcelain `gh run` /
+ *  `gh workflow` print no headers), not when the caller asked for headers itself, and not when
+ *  paging (one header block per page). */
+function addsInclude(args: string[]): boolean {
+  return (
+    args[0] === "api" &&
+    !args.includes("-i") &&
+    !args.includes("--include") &&
+    !args.includes("--paginate")
+  );
+}
+
+/**
+ * Account a REST write that succeeded (#2943): charge it to the write ledger, then hand the
+ * response's reading to the write tracker. A response without a reading (porcelain, paged)
+ * clears the write backoff like any success; with one, the tracker decides — a reading of
+ * another window moves neither the backoff nor the ledger. Returns the stdout the caller asked
+ * for: without the header block when the runner added it.
+ */
+function noteRestWrite(stdout: string, included: boolean, t: RestWriteTrackers): string {
+  const { headers, body } = splitHttpResponse(stdout);
+  t.writeSpend.noteOwnSpend(1);
+  if (!noteWriteReading(headers, t)) t.restWrite.noteSuccess();
+  return included ? body : stdout;
+}
+
+/**
+ * A REST write that failed (#2943): strip the header block the runner added from the error's
+ * `stdout`. A failure GitHub answered (a status line on stdout) still counted against the write
+ * counter, so it is charged and its reading noted — except a rate-limit refusal, which
+ * {@link noteFailure} records as before: a secondary limit reports budget left, and its reading
+ * would clear the backoff just engaged.
+ */
+function noteRestWriteFailure(err: unknown, included: boolean, t: RestWriteTrackers): void {
+  const e = err as { stdout?: unknown } | null;
+  if (typeof e?.stdout !== "string" || !e.stdout.startsWith("HTTP/")) return;
+  const { headers, body } = splitHttpResponse(e.stdout);
+  if (included) e.stdout = body;
+  if (isRateLimitError(err)) return;
+  t.writeSpend.noteOwnSpend(1);
+  noteWriteReading(headers, t);
+}
+
+/** Hand a write response's `X-Ratelimit-*` reading to the write tracker, and to the ledger if
+ *  the tracker took it as its window's. Returns whether the response carried a reading. */
+function noteWriteReading(headers: Map<string, string>, t: RestWriteTrackers): boolean {
+  const num = (k: string) => Number(headers.get(k) ?? NaN);
+  const [used, remaining, reset] = [
+    num("x-ratelimit-used"),
+    num("x-ratelimit-remaining"),
+    num("x-ratelimit-reset"),
+  ];
+  const resource = headers.get("x-ratelimit-resource") ?? "core";
+  if (resource !== "core" || ![used, remaining, reset].every(Number.isFinite)) return false;
+  const resetAt = reset * 1000;
+  if (t.restWrite.note({ remaining, resetAt }))
+    t.writeSpend.noteReading({ used, resetAt, remaining });
+  return true;
+}
 
 /** The GraphQL bucket's budget query: free, and answered even while the bucket is empty. */
 const BUDGET_QUERY = ["api", "graphql", "-f", "query={rateLimit{remaining resetAt}}"];

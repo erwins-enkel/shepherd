@@ -6,6 +6,9 @@ import "../../app.css";
 import ReposGrid from "./ReposGrid.svelte";
 import { m } from "#lib/paraglide/messages.js";
 import type { BacklogProject, DrainStatus } from "#lib/types.js";
+import { relativeTimeAgo } from "#lib/format.js";
+import { getLocale } from "#lib/i18n.js";
+import { clock } from "#lib/now.svelte.js";
 
 const noop = () => {};
 
@@ -392,5 +395,57 @@ describe("ReposGrid no-PR-CI hold (#3305)", () => {
   it("shows no toggle when no repo is held", async () => {
     await render(ReposGrid, props());
     expect(q(".rg-hold-filter")).toBeNull();
+  });
+});
+
+describe("ReposGrid warm/cold (#2837)", () => {
+  // Relative to the shared coarse clock the tiles read, half a day inside "2 days ago".
+  const countsAt = clock.current - 2.5 * 86_400_000;
+  const ago = () =>
+    m.repos_grid_as_of({ ago: relativeTimeAgo(countsAt, clock.current, getLocale()) });
+  // alpha → big tile, charlie → small tile; both cold. bravo stays warm, delta omits `warm`.
+  const mixed = () =>
+    projects().map((p) =>
+      p.path === "/r/alpha" || p.path === "/r/charlie"
+        ? { ...p, warm: false, countsAt }
+        : p.path === "/r/bravo"
+          ? { ...p, warm: true, countsAt }
+          : p,
+    );
+  const tileOf = (name: string) =>
+    qa(".rg-tile").find((t) => t.querySelector(".rg-name")?.textContent?.trim() === name)!;
+
+  it("marks cold repos with a pill and the counts' age, on big and small tiles", async () => {
+    await render(ReposGrid, props({ projects: mixed() }));
+    for (const name of ["alpha", "charlie"]) {
+      const tile = tileOf(name);
+      expect(tile.querySelector(".rg-cold")?.textContent?.trim()).toBe(m.repos_grid_cold());
+      expect(tile.querySelector(".rg-asof")?.textContent).toContain(ago());
+    }
+  });
+
+  it("shows neither on a warm repo, nor on one from a server that omits `warm`", async () => {
+    await render(ReposGrid, props({ projects: mixed() }));
+    for (const name of ["bravo", "delta"]) {
+      expect(tileOf(name).querySelector(".rg-cold, .rg-asof")).toBeNull();
+    }
+  });
+
+  it("explains the cold pill and still opens the repo on a click", async () => {
+    const onselect = vi.fn();
+    await render(ReposGrid, props({ projects: mixed(), onselect }));
+    const pill = tileOf("alpha").querySelector<HTMLElement>(".rg-cold")!;
+    expect(pill.getAttribute("aria-description")).toContain(m.tooltip_cold_repo_title());
+    pill.click();
+    expect(onselect).toHaveBeenCalledWith("/r/alpha");
+  });
+
+  it("a cold repo with nothing cached shows the pill but no age", async () => {
+    const ps = projects().map((p) =>
+      p.path === "/r/alpha" ? { ...p, warm: false, countsAt: null } : p,
+    );
+    await render(ReposGrid, props({ projects: ps }));
+    expect(tileOf("alpha").querySelector(".rg-cold")).not.toBeNull();
+    expect(tileOf("alpha").querySelector(".rg-asof")).toBeNull();
   });
 });

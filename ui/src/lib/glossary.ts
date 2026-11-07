@@ -4,6 +4,7 @@ import {
   agentSlotExplanation,
   landingPrExplanation,
   integrationBranchExplanation,
+  coldRepoExplanation,
 } from "#lib/tooltips/explanations.js";
 import type { TooltipExplanation } from "#lib/tooltips/content.js";
 import { m } from "#lib/paraglide/messages.js";
@@ -210,6 +211,14 @@ const glossary: readonly GlossaryTerm[] = [
     kind: "internal",
     termKey: "gloss_cold_cache_term",
     bodyKey: "gloss_cold_cache_def",
+  },
+  {
+    // #2837: a repo outside the warm window — no background GitHub reads, last-known values shown.
+    id: "cold-repo",
+    kind: "internal",
+    termKey: "gloss_cold_repo_term",
+    bodyKey: "gloss_cold_repo_def",
+    explanation: coldRepoExplanation,
   },
   {
     id: "satellite-pass",

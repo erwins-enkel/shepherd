@@ -1296,6 +1296,11 @@ export const putTelemetryConsent = (
 export const putPrReviewCyclesCap = (cap: number): Promise<{ prReviewCyclesCap: number }> =>
   patchSettings({ prReviewCyclesCap: cap });
 
+// Persist the warm window (#2837): days without activity before a repo turns cold. The server
+// clamps to 0–30 (0 = every repo polled) and returns the stored value.
+export const putWarmRepoDays = (days: number): Promise<{ warmRepoDays: number }> =>
+  patchSettings({ warmRepoDays: days });
+
 // Persist the global plan review-cycles cap (max plan-gate revise rounds). The
 // server clamps the value into its valid range and returns the stored value.
 export const putPlanReviewCyclesCap = (cap: number): Promise<{ planReviewCyclesCap: number }> =>

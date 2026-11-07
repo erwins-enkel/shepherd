@@ -152,6 +152,33 @@ export function blockBackstopExplanation(): TooltipExplanation {
   };
 }
 
+/** Settings → Workspace "Warm window" (#2837): what cold means and what 0 does. */
+export function warmWindowExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_warm_window_title(),
+    summary: m.tooltip_warm_window_summary(),
+    sections: [
+      { label: m.tooltip_warm_window_activity(), text: m.tooltip_warm_window_activity_body() },
+      { label: m.tooltip_warm_window_cold(), text: m.tooltip_warm_window_cold_body() },
+      { label: m.tooltip_warm_window_warm_again(), text: m.tooltip_warm_window_warm_again_body() },
+      { label: m.tooltip_warm_window_off(), text: m.tooltip_warm_window_off_body() },
+    ],
+  };
+}
+
+/** A cold repo (#2837): the REPOS "cold" pill and the `cold-repo` glossary term. */
+export function coldRepoExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_cold_repo_title(),
+    summary: m.gloss_cold_repo_def(),
+    sections: [
+      { label: m.tooltip_cold_repo_reads(), text: m.tooltip_cold_repo_reads_body() },
+      { label: m.tooltip_cold_repo_counts(), text: m.tooltip_cold_repo_counts_body() },
+      { label: m.tooltip_cold_repo_warm(), text: m.tooltip_cold_repo_warm_body() },
+    ],
+  };
+}
+
 /** Settings → Workspace "House Stack" (#3108) — what the list feeds and why a failure pins nothing. */
 export function houseStackExplanation(): TooltipExplanation {
   return {

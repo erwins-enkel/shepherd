@@ -3,6 +3,11 @@
   import type { BacklogProject, DrainStatus } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { repoConfig } from "#lib/reviews.svelte.js";
+  import { relativeTimeAgo } from "#lib/format.js";
+  import { getLocale } from "#lib/i18n.js";
+  import { clock } from "#lib/now.svelte.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { coldRepoExplanation } from "#lib/tooltips/explanations.js";
   import AddRepoButton from "./AddRepoButton.svelte";
   import RepoMark from "./RepoMark.svelte";
   import { pausedText } from "./queue-strip";
@@ -78,6 +83,14 @@
   $effect(() => {
     if (searchEl?.closest('[role="dialog"]')) searchEl.focus({ preventScroll: true });
   });
+
+  // #2837: a cold repo gets no background reads; its counts are last-known as of `countsAt`.
+  // An older server omits `warm` — treat that as warm.
+  const cold = (p: BacklogProject) => p.warm === false;
+  const asOf = (p: BacklogProject) =>
+    cold(p) && p.countsAt != null
+      ? m.repos_grid_as_of({ ago: relativeTimeAgo(p.countsAt, clock.current, getLocale()) })
+      : null;
 
   const prCount = (p: BacklogProject) => p.prKinds?.regular ?? p.openPRs ?? "—";
 
@@ -160,16 +173,32 @@
   });
 </script>
 
+<!-- The tip neither pins nor swallows the click: a click on the pill still opens the repo. -->
+{#snippet coldPill()}
+  <span
+    class="rg-cold"
+    use:statusTip={{
+      text: coldRepoExplanation(),
+      stopClickPropagation: false,
+      pinOnClick: false,
+    }}>{m.repos_grid_cold()}</span
+  >
+{/snippet}
+
 {#snippet bigTile(project: BacklogProject)}
   {@const id = repoOwnerName(project)}
   {@const run = runLine(project)}
+  {@const age = asOf(project)}
   <button class="rg-tile rg-tile-big" type="button" onclick={() => onselect(project.path)}>
     <span class="rg-title">
       <RepoMark path={project.path} name={id.name} favicon={project.faviconUrl} />
       <span class="rg-name">{id.name}</span>
+      {#if cold(project)}{@render coldPill()}{/if}
     </span>
     {#if id.owner}<span class="rg-owner">{id.owner}</span>{/if}
-    <span class="rg-counts">{counts(project)}</span>
+    <span class="rg-counts"
+      >{counts(project)}{#if age}<span class="rg-asof"> · {age}</span>{/if}</span
+    >
     {#if run}
       <span class="rg-run" class:paused={run.paused}>
         <span aria-hidden="true">●</span>
@@ -259,6 +288,7 @@
       <div class="rg-small">
         {#each rest as project (project.path)}
           {@const name = repoOwnerName(project).name}
+          {@const age = asOf(project)}
           <button
             class="rg-tile rg-tile-small"
             type="button"
@@ -268,6 +298,7 @@
               <span class="rg-title">
                 <RepoMark path={project.path} {name} favicon={project.faviconUrl} />
                 <span class="rg-name">{name}</span>
+                {#if cold(project)}{@render coldPill()}{/if}
               </span>
               <span class="rg-small-counts">
                 {m.repos_switcher_tile_counts({
@@ -280,6 +311,7 @@
                 {/if}
               </span>
             </span>
+            {#if age}<span class="rg-asof">{age}</span>{/if}
             <span class="rg-size" aria-hidden="true">
               <span
                 class="rg-size-fill"
@@ -489,6 +521,22 @@
     color: var(--color-ink);
     font-size: var(--fs-meta);
     font-variant-numeric: tabular-nums;
+  }
+  /* Badge recipe (/design-system): read-only, neutral — cold is quiet context, not an alarm. */
+  .rg-cold {
+    flex-shrink: 0;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+  }
+  .rg-asof {
+    color: var(--color-faint);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.04em;
   }
   .rg-run {
     display: flex;

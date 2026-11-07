@@ -1,9 +1,14 @@
 <script lang="ts">
-  import { putSettings } from "#lib/api.js";
+  import { untrack } from "svelte";
+  import { putSettings, putWarmRepoDays } from "#lib/api.js";
   import DirPicker from "#lib/components/DirPicker.svelte";
   import { type DirListing, type Settings } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { warmWindowExplanation } from "#lib/tooltips/explanations.js";
   import HighlightText from "./HighlightText.svelte";
+  import SettingRow from "./SettingRow.svelte";
+  import "./settings-controls.css";
   import SettingsHouseStackBlock from "./SettingsHouseStackBlock.svelte";
   import SettingsIssueFilterBlock from "./SettingsIssueFilterBlock.svelte";
   import SettingsRepoOverridesBlock from "./SettingsRepoOverridesBlock.svelte";
@@ -44,6 +49,39 @@
   const isCurrent = $derived(
     listing != null && currentRoot !== "" && listing.display === currentRoot,
   );
+
+  // Warm window (#2837): seeded once from the payload; null hides the row (older server).
+  const WARM_MIN = 0;
+  const WARM_MAX = 30;
+  let warmDays = $state<number | null>(null);
+  let warmDaysSaved = 0;
+  let warmBusy = $state(false);
+  $effect(() => {
+    const days = payload?.warmRepoDays;
+    if (typeof days === "number" && untrack(() => warmDays) === null) {
+      warmDays = days;
+      warmDaysSaved = days;
+    }
+  });
+
+  async function saveWarmDays() {
+    if (warmBusy || warmDays === null) return;
+    warmBusy = true;
+    // Clamp before sending (the server clamps too); an empty field keeps the saved value.
+    const n = Math.round(Number(warmDays));
+    const clamped = Number.isFinite(n) ? Math.min(WARM_MAX, Math.max(WARM_MIN, n)) : warmDaysSaved;
+    warmDays = clamped;
+    try {
+      const r = await putWarmRepoDays(clamped);
+      warmDays = r.warmRepoDays;
+      warmDaysSaved = r.warmRepoDays;
+    } catch {
+      warmDays = warmDaysSaved;
+      toasts.info(m.settings_warm_repo_days_save_failed(), { key: "warm-repo-days", alert: true });
+    } finally {
+      warmBusy = false;
+    }
+  }
 
   async function useThisFolder() {
     if (!listing || saving) return;
@@ -86,6 +124,30 @@
   {/if}
 </button>
 
+{#if warmDays !== null}
+  <div class="stack">
+    <SettingRow
+      title={m.settings_warm_repo_days_title()}
+      description={m.settings_warm_repo_days_hint()}
+      explanation={warmWindowExplanation()}
+      {query}
+    >
+      {#snippet control()}
+        <input
+          class="set-num"
+          type="number"
+          min={WARM_MIN}
+          max={WARM_MAX}
+          step="1"
+          disabled={warmBusy}
+          bind:value={warmDays}
+          aria-label={m.settings_warm_repo_days_title()}
+          onchange={saveWarmDays}
+        />
+      {/snippet}
+    </SettingRow>
+  </div>
+{/if}
 <div class="stack"><SettingsHouseStackBlock {payload} {query} /></div>
 <div class="stack"><SettingsIssueFilterBlock {query} /></div>
 <div class="stack">

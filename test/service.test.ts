@@ -1926,6 +1926,83 @@ test("createSession: copies attachments into worktree and appends paths to the p
   expect(store.get(s.id)?.prompt).toBe("look at this");
 });
 
+function goalSpawnService(store: SessionStore, calls: { argv?: string[] }) {
+  return new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({ worktreePath: "/wt/repo-x", branch: "shepherd/repo-x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: async (name: string, cwd: string, argv: string[]) => {
+        calls.argv = inlineSpawnFiles(argv);
+        return {
+          terminalId: "term_y",
+          cwd,
+          agent: "claude",
+          agentStatus: "working",
+          paneId: "p",
+          tabId: "t",
+          workspaceId: "w",
+        };
+      },
+      listAsync: async () => [],
+    } as any,
+    copyUploads: (uploads: string[], worktreePath: string) =>
+      uploads.map((i) => ({
+        src: i,
+        copiedPath: `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`,
+      })),
+  });
+}
+
+describe("createSession: /goal + plan gate (#2596)", () => {
+  const spawn = async (over: Partial<Parameters<SessionService["create"]>[0]> = {}) => {
+    const store = new SessionStore(":memory:");
+    const calls: { argv?: string[] } = {};
+    const s = await goalSpawnService(store, calls).create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "/goal make it responsive",
+      model: null,
+      images: ["/stage/a.png"],
+      planGateEnabled: true,
+      ...over,
+    });
+    return { s, row: store.get(s.id)!, prompt: calls.argv![calls.argv!.length - 1]! };
+  };
+
+  test("plan gate on: goal held, agent plans the condition as plain task text", async () => {
+    const { s, row, prompt } = await spawn();
+    expect(prompt).toBe(
+      "make it responsive\n\nAttached files:\n/wt/repo-x/.shepherd-uploads/a.png",
+    );
+    expect(row.goalState).toBe("held");
+    expect(row.goalCondition).toBe("make it responsive"); // no attachment block
+    expect(s.goalState).toBe("held"); // the returned (emitted) copy agrees
+    expect(row.prompt).toBe("/goal make it responsive"); // operator text kept verbatim
+  });
+
+  test("plan gate off: prompt unchanged, nothing held", async () => {
+    const { row, prompt } = await spawn({ planGateEnabled: false });
+    expect(prompt.startsWith("/goal make it responsive\n\nAttached files:")).toBe(true);
+    expect(row.goalState).toBeNull();
+  });
+
+  test("codex / clear / non-goal prompts are not held", async () => {
+    for (const over of [{ prompt: "/goal clear" }, { prompt: "just do it" }]) {
+      const { row, prompt } = await spawn(over);
+      expect(prompt.startsWith(over.prompt)).toBe(true);
+      expect(row.goalState).toBeNull();
+    }
+    const codex = await spawn({ agentProvider: "codex" });
+    expect(codex.row.goalState).toBeNull();
+  });
+});
+
 test("createSession: a video attachment appends the ffmpeg consumption note", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};

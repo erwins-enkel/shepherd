@@ -8213,5 +8213,22 @@
   "feat_ci_overdue_loop_actions_title": "Act on overdue CI and CI-fix loops",
   "feat_ci_overdue_loop_actions_body": "When a CI job runs far past its usual time, the session's detail view offers Open run and Re-run (cancel, then re-run). When a session gets three CI-fix steers on the same head without going green, it offers Take over (autopilot off) and Stop. The status panel also warns when an agent polls CI itself — Shepherd already tells it when CI finishes.",
   "toast_ci_restart_cancel_failed": "{name}: couldn't cancel the overdue run. CI is unchanged.",
-  "toast_ci_restart_rerun_failed": "{name}: the overdue run was cancelled but couldn't be re-run. Re-run it from the run page; Shepherd holds the agent's CI steers for a few minutes."
+  "toast_ci_restart_rerun_failed": "{name}: the overdue run was cancelled but couldn't be re-run. Re-run it from the run page; Shepherd holds the agent's CI steers for a few minutes.",
+  "goalchip_label": "Goal",
+  "goalchip_label_held": "Goal · held",
+  "goalchip_aria_held": "Goal held until Go: {condition}",
+  "goalchip_aria_active": "Goal active: {condition}",
+  "goalchip_tip_condition": "Condition",
+  "goalchip_tip_held_title": "Goal held until Go",
+  "goalchip_tip_held_summary": "This session has a /goal, but Shepherd keeps it back while the plan gate is planning.",
+  "goalchip_tip_why_held": "Why held",
+  "goalchip_tip_why_held_body": "While planning, the plan gate decides when a turn ends. A running goal would push the agent past the plan review and into the work.",
+  "goalchip_tip_on_go": "When you hit Go",
+  "goalchip_tip_on_go_body": "Shepherd arms the goal as the plan is released. From then on the agent works until the condition holds.",
+  "goalchip_tip_active_title": "Goal active",
+  "goalchip_tip_active_summary": "A /goal is running in this session and its condition is not met yet.",
+  "goalchip_tip_what_it_does": "What it does",
+  "goalchip_tip_what_it_does_body": "Instead of stopping after a turn, the agent keeps working until the condition holds.",
+  "feat_goal_plan_gate_title": "/goal now waits for the plan gate",
+  "feat_goal_plan_gate_body": "A task started with /goal under the plan gate now plans first. Shepherd holds the goal while the plan is reviewed and arms it when you hit Go; a goal typed during planning is likewise paused until Go. A Goal chip next to the plan chip shows the condition and whether it is held or active."
 }

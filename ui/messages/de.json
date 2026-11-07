@@ -8213,5 +8213,22 @@
   "feat_ci_overdue_loop_actions_title": "Überfällige CI und CI-Fix-Schleifen direkt angehen",
   "feat_ci_overdue_loop_actions_body": "Läuft ein CI-Job weit länger als üblich, bietet die Detailansicht der Session „Lauf öffnen“ und „Neu starten“ (abbrechen, dann neu starten). Bekommt eine Session drei CI-Fix-Hinweise auf demselben Stand, ohne grün zu werden, gibt es „Übernehmen“ (Autopilot aus) und „Stoppen“. Das Status-Panel warnt außerdem, wenn ein Agent die CI selbst abfragt – Shepherd meldet ihm ohnehin, wenn die CI fertig ist.",
   "toast_ci_restart_cancel_failed": "{name}: Der überfällige Lauf konnte nicht abgebrochen werden. Die CI ist unverändert.",
-  "toast_ci_restart_rerun_failed": "{name}: Der überfällige Lauf wurde abgebrochen, konnte aber nicht neu gestartet werden. Starte ihn auf der Lauf-Seite neu; Shepherd hält die CI-Hinweise an den Agenten ein paar Minuten zurück."
+  "toast_ci_restart_rerun_failed": "{name}: Der überfällige Lauf wurde abgebrochen, konnte aber nicht neu gestartet werden. Starte ihn auf der Lauf-Seite neu; Shepherd hält die CI-Hinweise an den Agenten ein paar Minuten zurück.",
+  "goalchip_label": "Ziel",
+  "goalchip_label_held": "Ziel · wartet",
+  "goalchip_aria_held": "Ziel wartet auf dein Los: {condition}",
+  "goalchip_aria_active": "Ziel aktiv: {condition}",
+  "goalchip_tip_condition": "Bedingung",
+  "goalchip_tip_held_title": "Ziel wartet auf dein Los",
+  "goalchip_tip_held_summary": "Diese Session hat ein /goal, aber Shepherd hält es zurück, solange das Plan-Gate plant.",
+  "goalchip_tip_why_held": "Warum es wartet",
+  "goalchip_tip_why_held_body": "Während der Planung entscheidet das Plan-Gate, wann ein Turn endet. Ein laufendes Ziel würde den Agenten an der Planprüfung vorbei direkt in die Umsetzung treiben.",
+  "goalchip_tip_on_go": "Wenn du Los gibst",
+  "goalchip_tip_on_go_body": "Shepherd aktiviert das Ziel, sobald der Plan freigegeben ist. Ab dann arbeitet der Agent, bis die Bedingung erfüllt ist.",
+  "goalchip_tip_active_title": "Ziel aktiv",
+  "goalchip_tip_active_summary": "In dieser Session läuft ein /goal, dessen Bedingung noch nicht erfüllt ist.",
+  "goalchip_tip_what_it_does": "Was es bewirkt",
+  "goalchip_tip_what_it_does_body": "Statt nach einem Turn anzuhalten, arbeitet der Agent weiter, bis die Bedingung erfüllt ist.",
+  "feat_goal_plan_gate_title": "/goal wartet jetzt auf das Plan-Gate",
+  "feat_goal_plan_gate_body": "Eine mit /goal gestartete Aufgabe unter dem Plan-Gate plant jetzt zuerst. Shepherd hält das Ziel zurück, während der Plan geprüft wird, und aktiviert es, sobald du Los gibst; ein während der Planung eingegebenes Ziel pausiert ebenso bis zum Los. Ein Ziel-Chip neben dem Plan-Chip zeigt die Bedingung und ob sie wartet oder aktiv ist."
 }

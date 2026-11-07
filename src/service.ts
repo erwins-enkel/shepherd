@@ -3,6 +3,7 @@ import { sessionMessages, type SessionMessages } from "./agent-messages";
 import { jsonlPathFor } from "./usage";
 import { findCodexRolloutById } from "./codex-session-id";
 import { prepareTaskPrompt, removeTaskPromptFile } from "./task-prompt-file";
+import { goalArmCommand, splitHeldGoal } from "./goal";
 import {
   assistantCodexHome,
   findAssistantCodexSessionId,
@@ -1959,6 +1960,9 @@ export function PREVIEW_SETUP_STEER({
     `After creating the script, run it once in a managed/background terminal (not as a blocking foreground command), confirm the port it listens on, and then continue what you were doing.`
   );
 }
+
+/** Claude Code's confirmation line for `/goal <condition>` (#2596). */
+const GOAL_SET_RE = /Goal set:/g;
 
 /** Steered into a planning session when its plan is approved and the operator hits Go (or an
  *  auto session auto-releases). Hands the agent from the grill/plan phase into execution. NOT i18n'd.
@@ -4534,6 +4538,29 @@ export class SessionService {
     return resolveProfile(override, repoSetting, this.defaultProfile);
   }
 
+  /** #2596: the goal a create holds until Go — a prompt-leading `/goal X` on a plan-gated Claude
+   *  spawn (resolved exactly as resolveCreateLaunch resolves both) — and the input to compose the
+   *  prompt from: `X` as the task when held, else the input unchanged. */
+  #heldGoal(input: StandardCreateInput): {
+    composeInput: StandardCreateInput;
+    held: string | null;
+  } {
+    const split =
+      (input.agentProvider ?? config.defaultAgentProvider) === "claude" &&
+      this.resolvePlanGateOn(input, this.deps.store.getRepoConfig(input.repoPath))
+        ? splitHeldGoal(input.prompt)
+        : null;
+    if (!split) return { composeInput: input, held: null };
+    return { composeInput: { ...input, prompt: split.task }, held: split.condition };
+  }
+
+  /** Persist a held goal on a freshly created row (and the returned copy the caller emits). */
+  #holdGoal(session: Session, condition: string | null): void {
+    if (!condition) return;
+    this.deps.store.setGoal(session.id, condition, "held");
+    Object.assign(session, { goalCondition: condition, goalState: "held" });
+  }
+
   /**
    * Resolve whether a create() spawns into the plan gate (#348): a session-level override
    * wins over the repo default. A research task never enters the plan gate — its deliverable
@@ -4928,8 +4955,11 @@ export class SessionService {
       const baseCommit = usedBaseCommit(input, wt);
       const claudeSessionId = randomUUID();
 
+      // #2596: a prompt-leading `/goal X` on a plan-gated Claude spawn is held until Go — the
+      // agent plans with `X` as its task, and the goal never sees the attached/issue blocks.
+      const { composeInput, held } = this.#heldGoal(input);
       const composed = await phases.phase("prompt", () =>
-        this.composePromptArg(input, wt.worktreePath),
+        this.composePromptArg(composeInput, wt.worktreePath),
       );
       taskFile = composed.taskFile;
       const { promptArg, dropped: droppedImages, injectionHits, attachments } = composed;
@@ -5029,6 +5059,7 @@ export class SessionService {
           outcome,
         }),
       });
+      this.#holdGoal(session, held);
       // The row exists post-create; read it back so persistSpawnIdentity sees the persisted
       // (null) prior spawn-identity fields rather than relying on the in-memory shape.
       const created = this.deps.store.get(sessionId);
@@ -7778,7 +7809,7 @@ export class SessionService {
     const effortSwitch = this.#goEffortSwitch(s);
     const delivered = await this.resumeAndReply(id, steer, {
       automatic: opts.automatic,
-      prelude: effortSwitch.prelude,
+      prelude: this.#withGoalArm(s, effortSwitch.prelude),
     });
     effortSwitch.settle();
     if (!delivered) return false;
@@ -7918,6 +7949,47 @@ export class SessionService {
       return false;
     };
     return { prelude, settle };
+  }
+
+  /**
+   * #2596: arm a held goal inside the Go steer's lock, after any effort switch and before the Go
+   * paste. Live-tested order: `/goal X` starts its turn at once and the Go steer pasted right after
+   * lands mid-turn as a queued message, so both directives reach the agent. Never aborts the Go:
+   * a failed arm leaves the goal held (the operator can still type it).
+   */
+  #withGoalArm(s: Session, inner?: SteerPrelude): SteerPrelude | undefined {
+    if (s.goalState !== "held") return inner; // nothing held: the Go steer is byte-identical
+    return async (live) => {
+      if (inner && !(await inner(live))) return false;
+      if (live.goalState === "held" && live.goalCondition)
+        await this.#armGoalInLock(live, live.goalCondition);
+      return true;
+    };
+  }
+
+  async #armGoalInLock(s: Session, condition: string): Promise<void> {
+    const target = s.herdrAgentId;
+    try {
+      const before = await this.#readVisible(target);
+      await this.deps.herdr.send(target, `${PASTE_START}${goalArmCommand(condition)}${PASTE_END}`);
+      await this.deps.herdr.send(target, "\r");
+      // Let the command land before the Go paste follows; a missing marker is only logged — the
+      // Stop hook's transcript read reconciles the row either way.
+      if (
+        before !== null &&
+        !(await this.#awaitMarker(target, GOAL_SET_RE, countMatches(before, GOAL_SET_RE)))
+      )
+        console.warn(`[goal] ${s.id}: no "Goal set" confirmation after arming`);
+    } catch (err) {
+      console.warn(`[goal] ${s.id}: arm failed: ${err}`);
+      return;
+    }
+    this.deps.store.setGoal(s.id, condition, "active");
+    this.deps.events?.emit("session:goal", {
+      id: s.id,
+      goalCondition: condition,
+      goalState: "active",
+    });
   }
 
   /** Bounds for the in-lock effort switch (#3434). Mutable so tests can shrink them. */

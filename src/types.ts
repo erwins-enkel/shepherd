@@ -34,6 +34,9 @@ export interface ProviderFailoverStatus {
  *  evaluates the variants' results. Sessions with no experiment carry `null`. */
 export type ExperimentRole = "variant" | "comparison";
 
+/** A session's Claude Code goal state (#2596). */
+export type GoalState = "held" | "active";
+
 export interface Session {
   id: string;
   desig: string; // "TASK-07"
@@ -125,6 +128,11 @@ export interface Session {
   planGateEnabled: boolean | null;
   /** Plan-gate phase: "planning" (grill+review) → "executing" (gate passed); null = gate off. */
   planPhase: "planning" | "executing" | null;
+  /** Claude Code `/goal` condition (#2596): held by Shepherd until Go, or active in the transcript.
+   *  Null / absent when the session has no goal. */
+  goalCondition?: string | null;
+  /** "held" = Shepherd holds the prompt's goal until Go; "active" = an unmet goal is running. */
+  goalState?: GoalState | null;
   /** True for a research-kind task: web research → report PR or GitHub issue; never code-PR-steered. */
   research: boolean;
   /** True for an epic-authoring task: attended guided shaping → a reviewable EPIC draft; the agent

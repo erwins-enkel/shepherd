@@ -197,7 +197,7 @@ test("a cold repo comes from cache with asOf and costs no gh call; the manual re
     const items = snap.sections.flatMap((s) => s.items);
     expect(items.find((it) => it.number === 20)?.asOf).toBe(fetchedAt);
     expect(snap.pullRequests?.length).toBe(1);
-    expect(snap.coldSkippedCount).toBe(2 - 1); // o/x still has nothing cached
+    expect(snap.coldSkippedCount).toBe(1); // o/x still has nothing cached
   }
   expect(calls.slice(warmCalls)).toEqual([]);
 

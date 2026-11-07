@@ -616,6 +616,31 @@ the PR's latest commit has no checks for 10 minutes and GitHub reports it mergea
 says CI apparently doesn't run for this PR and offers **Merge without CI**. Pushing a commit that
 triggers CI clears it.
 
+## Warm and cold repos
+
+Shepherd reads GitHub in the background only for **warm** repos. A repo is warm when any of these
+holds:
+
+- a session in it was created or updated inside the warm window;
+- you opened it inside the window (its issues, epics or PRs in the backlog, or the New Task issue
+  picker);
+- a live session holds an open PR there;
+- auto-drain or the all-PR critic is on for it;
+- an epic runs, is paused, or is still landing there.
+
+Every other repo is **cold**. It costs no GitHub budget: no fingerprint, counts, PR snapshot,
+issue list, sub-issue or blocker scan, PR poll or branch prune. The **Repos** view marks it
+**cold** and shows its counts with their age ("as of 3 d"). Up Next lists its last-known issues
+with the same age. A cold repo with nothing cached is left out until you press Up Next's refresh
+button, which reads cold repos live once without making them warm.
+
+Opening a cold repo makes it warm at once: Shepherd re-reads its counts and polls it from then on.
+It turns cold again once the window passes with no activity.
+
+Set the window in **Settings → Workspace → Warm window**. The default is 3 days, and 0 turns the
+gating off, so every repo is polled. The doc agent's nightly run and plugin schedules (ci-watch,
+security-watch) are explicit opt-ins and still read every repo they are enabled for.
+
 ## Session chat
 
 Every session has a **Chat** tab, first in its tab bar. It shows the session's transcript as a

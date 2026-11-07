@@ -39,7 +39,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Operating Shepherd",
     path: "/operating/",
     keywords:
-      "run shepherd as a systemd service, expose it over tailscale, and deploy code changes. run as a systemd user service restart from the ui if the hud freezes expose it over the network connect another machine deploy a code change backups & restore preview detection agent clis managed by mise the claude code install row claude code version and model support transient api errors agent launch inside the sandbox host tuning — tmpfs inodes host tuning — resource guardrails add a limit (one click) add a limit (copy-paste) herdr restarts and the task limit heavy checks take turns auto-merge without pr ci session chat operator assistant open it repo assistants what it reads permissions (settings → assistant) when herdr is down new conversation",
+      "run shepherd as a systemd service, expose it over tailscale, and deploy code changes. run as a systemd user service restart from the ui if the hud freezes expose it over the network connect another machine deploy a code change backups & restore preview detection agent clis managed by mise the claude code install row claude code version and model support transient api errors agent launch inside the sandbox host tuning — tmpfs inodes host tuning — resource guardrails add a limit (one click) add a limit (copy-paste) herdr restarts and the task limit heavy checks take turns auto-merge without pr ci warm and cold repos session chat operator assistant open it repo assistants what it reads permissions (settings → assistant) when herdr is down new conversation",
   },
   {
     title: "CI Watch",
@@ -93,7 +93,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Concepts & glossary",
     path: "/reference/glossary/",
     keywords:
-      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic epic clock agent time plan gate autopilot task amendment critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo weighted units cold cache reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane shared browser handoff login spawn prompt access token token scope operator assistant machine capability requirement waiting task industry terms pr ci telemetry lead time inode",
+      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic epic clock agent time plan gate autopilot task amendment critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo weighted units cold cache cold repo reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane shared browser handoff login spawn prompt access token token scope operator assistant machine capability requirement waiting task industry terms pr ci telemetry lead time inode",
   },
   {
     title: "Project house rules",

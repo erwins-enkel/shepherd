@@ -172,6 +172,16 @@ in [weighted units](#weighted-units) so you can see it before you resume.
 Codex sessions and archived ones stay silent, as does anything below a small
 cost floor.
 
+### Cold repo
+
+A repo with no activity inside the warm window (Settings → Workspace, 3 days by
+default). Shepherd makes no background GitHub reads for it: no fingerprint, counts,
+PR snapshot, issue list or scan. It shows its last-known values with their age
+instead. A repo stays warm while a live session holds an open PR there, while auto-drain
+or the all-PR critic is on, or while an epic runs, is paused or is still landing.
+Opening a cold repo, or starting a session there, makes it warm again. See
+[Warm and cold repos](/operating/#warm-and-cold-repos).
+
 ### Reasoning effort
 
 A cost/quality dial (`low`, `medium`, `high`, `xhigh`, `max`, `ultra`) that sets

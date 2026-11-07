@@ -275,6 +275,7 @@ const fmt = (s: Scored) => [
   s.psiFullMax,
   sec(s.releaseHoldMs),
   `${s.covered}/${s.episodes}`,
+  s.held,
   s.blocked,
   s.flaps,
 ];
@@ -285,7 +286,8 @@ function selectionSection(sel: ReturnType<typeof select>, cap: number): string {
     "PSI full max",
     "Hold",
     "Covered",
-    "Harmless starts blocked",
+    "Harmful job starts held",
+    "Harmless job starts held",
     "Flaps",
   ];
   return [

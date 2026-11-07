@@ -203,6 +203,14 @@ export interface Trace {
   episodes: Episode[];
   /** Times of actual ramp lane starts. */
   starts: number[];
+  /** Every ramp job: each lane loops its workloads, and the brake gates each job's start. `end` is
+   *  null for a job still running when the trace ends. */
+  jobs: Job[];
+}
+
+export interface Job {
+  start: number;
+  end: number | null;
 }
 
 /** One tick per 5 s from the first sample: the latest sample at or before the tick, any unhealthy
@@ -254,7 +262,9 @@ export interface ReplayMetrics {
   episodes: number;
   /** Episodes whose onset tick finds the brake engaged. */
   covered: number;
-  /** Lane starts before the first episode that a brake would have held back. */
+  /** Job starts the brake would have held back that ran into an unhealthy episode. */
+  held: number;
+  /** Job starts the brake would have held back that never overlapped an episode. */
   blocked: number;
   /** Re-engagements within 60 s of a release. */
   flaps: number;
@@ -271,12 +281,15 @@ export function metrics(trace: Trace, engaged: readonly boolean[]): ReplayMetric
     const k = trace.ticks.findIndex((x) => x.t >= e.start);
     if (k >= 0 && engaged[k]) covered++;
   }
-  const firstBad = trace.episodes[0]?.start ?? Infinity;
-  const blocked = trace.starts.filter((s) => {
-    if (s >= firstBad) return false;
-    const k = tickAt(s);
-    return k >= 0 && engaged[k] === true;
-  }).length;
+  let held = 0;
+  let blocked = 0;
+  for (const j of trace.jobs) {
+    const k = tickAt(j.start);
+    if (k < 0 || !engaged[k]) continue;
+    const end = j.end ?? Infinity;
+    if (trace.episodes.some((e) => j.start < e.end && end > e.start)) held++;
+    else blocked++;
+  }
   let flaps = 0;
   let releasedAt: number | null = null;
   engaged.forEach((on, k) => {
@@ -285,7 +298,7 @@ export function metrics(trace: Trace, engaged: readonly boolean[]): ReplayMetric
     if (k > 0 && !engaged[k - 1] && on && releasedAt !== null && t - releasedAt < FLAP_WINDOW_MS)
       flaps++;
   });
-  return { episodes: trace.episodes.length, covered, blocked, flaps };
+  return { episodes: trace.episodes.length, covered, held, blocked, flaps };
 }
 
 // ── Candidates and selection ──────────────────────────────────────────────────────────────────
@@ -324,17 +337,19 @@ export function budgetFor(c: Candidate, memTotalBytes: number, capBytes: number)
 export interface Scored extends Candidate {
   covered: number;
   episodes: number;
+  held: number;
   blocked: number;
   flaps: number;
 }
 
 /** A candidate's metrics summed over every trace. */
 export function score(c: Candidate, traces: readonly Trace[], capBytes: number): Scored {
-  const total: Scored = { ...c, covered: 0, episodes: 0, blocked: 0, flaps: 0 };
+  const total: Scored = { ...c, covered: 0, episodes: 0, held: 0, blocked: 0, flaps: 0 };
   for (const tr of traces) {
     const m = metrics(tr, replay(tr.ticks, budgetFor(c, tr.memTotalBytes, capBytes)));
     total.covered += m.covered;
     total.episodes += m.episodes;
+    total.held += m.held;
     total.blocked += m.blocked;
     total.flaps += m.flaps;
   }
@@ -366,30 +381,25 @@ export interface Selection {
 }
 
 /**
- * The selection rule: candidates with maximal coverage (ideally every episode) and minimal flaps
- * (ideally none), then fewest harmless starts blocked, ties to the candidate closest to current.
- * The current values are kept when they meet the same coverage and flap bar and block at most one
- * harmless start more than the best.
+ * The selection rule, safety first: maximal coverage (ideally every episode), then the most job
+ * starts held back that would have run into an episode, then fewest flaps, then fewest harmless
+ * starts held back, ties to the candidate closest to current. The current values are kept when
+ * they reach the same coverage and hold back at most one harmful start fewer than the best.
  */
 export function select(traces: readonly Trace[], capBytes = CURRENT_CAP_BYTES): Selection {
   const grid = GRID.some((c) => sameCandidate(c, CURRENT)) ? GRID : [...GRID, CURRENT];
   const all = grid.map((c) => score(c, traces, capBytes));
-  const maxCovered = Math.max(...all.map((s) => s.covered));
-  const eligible = all.filter((s) => s.covered === maxCovered);
-  const minFlaps = Math.min(...eligible.map((s) => s.flaps));
   const ranked = all.toSorted(
     (a, b) =>
       b.covered - a.covered ||
+      b.held - a.held ||
       a.flaps - b.flaps ||
       a.blocked - b.blocked ||
       distance(a) - distance(b),
   );
   const best = ranked[0]!;
   const current = all.find((s) => sameCandidate(s, CURRENT))!;
-  const keptCurrent =
-    current.covered === maxCovered &&
-    current.flaps === minFlaps &&
-    current.blocked <= best.blocked + 1;
+  const keptCurrent = current.covered === best.covered && current.held >= best.held - 1;
   return { chosen: keptCurrent ? current : best, current, keptCurrent, ranked };
 }
 
@@ -434,6 +444,10 @@ export function buildTrace(
   const t0 = window[0]?.t ?? 0;
   const rebased = window.map((s) => ({ ...s, t: s.t - t0 }));
   const starts = events.filter((e) => e.kind === "lane_start" && e.t >= t0).map((e) => e.t - t0);
+  const jobs = rampJobs(events).map((j) => ({
+    start: j.start - t0,
+    end: j.end === null ? null : j.end - t0,
+  }));
   const unhealthy = labelUnhealthy(rebased);
   return {
     label,
@@ -442,5 +456,24 @@ export function buildTrace(
     ticks: toTicks(rebased, unhealthy, starts),
     episodes: episodes(rebased, unhealthy),
     starts,
+    jobs,
   };
+}
+
+/** Ramp jobs from their `cmd_end` events (a stopped lane's killed job included), plus the job each
+ *  never-stopped lane was still running when the run ended: it began as the lane's last one ended. */
+function rampJobs(events: readonly CalEvent[]): Job[] {
+  const jobs: Job[] = [];
+  const lastEnd = new Map<number, number>();
+  const stopped = new Set<number>();
+  for (const e of events) {
+    if (e.kind === "lane_start") lastEnd.set(e.lane, e.t);
+    if (e.kind === "lane_stop") stopped.add(e.lane);
+    if (e.kind === "cmd_end" && e.phase === "ramp" && e.lane !== null) {
+      jobs.push({ start: e.startT, end: e.startT + e.durationMs });
+      lastEnd.set(e.lane, Math.max(lastEnd.get(e.lane) ?? 0, e.startT + e.durationMs));
+    }
+  }
+  for (const [lane, t] of lastEnd) if (!stopped.has(lane)) jobs.push({ start: t, end: null });
+  return jobs.toSorted((a, b) => a.start - b.start);
 }

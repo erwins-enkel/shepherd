@@ -129,6 +129,7 @@ function trace(ticks: Tick[], over: Partial<Trace> = {}): Trace {
     ticks,
     episodes: [],
     starts: [],
+    jobs: [],
     ...over,
   };
 }
@@ -159,7 +160,7 @@ describe("ticks and replay", () => {
     expect(replay(ticks, b)).toEqual([false, true, true, true, true, true, true, true, false]);
   });
 
-  test("metrics: coverage, harmless starts blocked, flaps", () => {
+  test("metrics: coverage, harmful and harmless job starts held back, flaps", () => {
     const ticks = [
       tick(0, 8 * GIB),
       tick(5000, GIB),
@@ -170,10 +171,21 @@ describe("ticks and replay", () => {
     ];
     const tr = trace(ticks, {
       episodes: [{ start: 24_000, end: 30_000 }],
-      starts: [2000, 6000, 26_000],
+      jobs: [
+        { start: 2000, end: 5000 }, // brake off: not held back
+        { start: 6000, end: 9000 }, // held back, over before the episode: harmless
+        { start: 7000, end: null }, // held back, still running at the episode
+        { start: 26_000, end: 28_000 }, // held back, inside the episode
+      ],
     });
     const engaged = [false, true, false, false, true, true];
-    expect(metrics(tr, engaged)).toEqual({ episodes: 1, covered: 1, blocked: 1, flaps: 1 });
+    expect(metrics(tr, engaged)).toEqual({
+      episodes: 1,
+      covered: 1,
+      held: 2,
+      blocked: 1,
+      flaps: 1,
+    });
   });
 });
 
@@ -186,15 +198,31 @@ describe("selection", () => {
     return trace(ticks, {
       episodes: [{ start: 40_000, end: 55_000 }],
       starts: [1000, 11_000, 21_000, 31_000],
+      jobs: [
+        { start: 1000, end: 9000 },
+        { start: 11_000, end: 19_000 },
+        { start: 21_000, end: 29_000 },
+        { start: 31_000, end: 50_000 },
+      ],
     });
   }
 
-  test("keeps current when it covers every episode without flapping", () => {
+  test("keeps current when it covers every episode within one harmful start of the best", () => {
     const sel = select([rampTrace()]);
     expect(sel.current.covered).toBe(1);
-    expect(sel.current.flaps).toBe(0);
+    expect(sel.ranked[0]!.held - sel.current.held).toBe(1);
     expect(sel.keptCurrent).toBe(true);
     expect(sel.chosen).toMatchObject(CURRENT);
+  });
+
+  test("adopts a higher floor that holds back more harmful starts", () => {
+    const tr = rampTrace();
+    tr.jobs.push({ start: 26_000, end: 45_000 }, { start: 27_000, end: 45_000 });
+    const sel = select([tr]);
+    expect(sel.current.covered).toBe(1);
+    expect(sel.keptCurrent).toBe(false);
+    expect(sel.chosen.held).toBeGreaterThan(sel.current.held + 1);
+    expect(sel.chosen.fraction).toBeGreaterThan(CURRENT.fraction);
   });
 
   test("adopts a higher floor when current misses the onset", () => {

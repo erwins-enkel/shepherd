@@ -35,12 +35,13 @@ for (const trace of fixtures) {
       expect(m.covered).toBe(trace.episodes.length);
     });
 
-    test("holds back no more harmless starts than at calibration", () => {
-      expect(m.blocked).toBeLessThanOrEqual(trace.expected.blocked);
+    test("holds back at least as many jobs headed into an episode as at calibration", () => {
+      expect(m.held).toBeGreaterThanOrEqual(trace.expected.held);
     });
 
-    test("never re-engages within 60 s of letting go", () => {
-      expect(m.flaps).toBe(0);
+    test("holds back no more harmless jobs, and flaps no more, than at calibration", () => {
+      expect(m.blocked).toBeLessThanOrEqual(trace.expected.blocked);
+      expect(m.flaps).toBeLessThanOrEqual(trace.expected.flaps);
     });
 
     test("lets go only after the hold, and is off once the load is gone", () => {

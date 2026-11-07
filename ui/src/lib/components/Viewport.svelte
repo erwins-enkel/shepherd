@@ -3508,6 +3508,7 @@
       planReview={planGates.isReviewing(session.id) ? "reviewing" : planGate ? "available" : null}
       terminalEnded={ended}
       folded={chromeFolded}
+      phone={mobile}
       onbootstrap={(q) => onSeedBuildQueue?.(q)}
     />
 

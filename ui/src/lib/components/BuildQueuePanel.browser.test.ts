@@ -1169,3 +1169,185 @@ describe("BuildQueuePanel — collapse/expand", () => {
       .not.toBeNull();
   });
 });
+
+describe("BuildQueuePanel — phone form (#2264)", () => {
+  const locale = getLocale();
+  const title = "Implement the mobile edit mode for the build queue panel with large targets";
+  function q(status: "pending" | "active" | "done", approved: boolean): BuildQueue {
+    return {
+      sessionId: "s1",
+      approved,
+      approvalKind: approved ? "auto" : undefined,
+      steps: [
+        { id: "a", title: "Read the issue", status: approved ? "done" : "pending", position: 0 },
+        { id: "b", title, detail: "Long detail text.", status, position: 1 },
+        { id: "c", title: "Ship it", status: "pending", position: 2 },
+      ],
+    };
+  }
+  const panel = () => document.querySelector<HTMLElement>(".bqp")!;
+  const rect = (sel: string) => document.querySelector<HTMLElement>(sel)!.getBoundingClientRect();
+  beforeEach(async () => {
+    await page.viewport(390, 844);
+  });
+  afterEach(async () => {
+    setLocale(locale, { reload: false });
+    await page.viewport(1280, 900);
+  });
+
+  for (const loc of ["en", "de"] as const) {
+    it(`folds a running queue to a two-line bar naming the active step [${loc}]`, async () => {
+      setLocale(loc, { reload: false });
+      render(BuildQueuePanel, {
+        sessionId: "s1",
+        enabled: true,
+        queue: q("active", true),
+        sessionStatus: "running",
+        onbootstrap: noop,
+        folded: true,
+        phone: true,
+      });
+      await expect.poll(() => document.querySelector(".bqp-focus")?.textContent).toBe(title);
+      expect(document.querySelector(".bqp-content")!.classList).toContain("collapsed");
+      expect(panel().getBoundingClientRect().height).toBeLessThanOrEqual(52);
+      expect(panel().scrollWidth).toBeLessThanOrEqual(390);
+      // The desktop preference is never touched by the phone form.
+      expect(buildQueueCollapse.collapsed).toBe(false);
+      await page.getByRole("button", { name: m.buildqueue_expand_aria() }).click();
+      expect(document.querySelector(".bqp-content")!.classList).not.toContain("collapsed");
+      expect(document.querySelector<HTMLElement>(".bqp-focus")!.offsetParent).toBeNull();
+      expect(buildQueueCollapse.collapsed).toBe(false);
+    });
+  }
+
+  it("expands for an approval and docks a full-width 44px button below the steps", async () => {
+    buildQueueCollapse.set(true);
+    const { rerender } = await render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: q("pending", false),
+      sessionStatus: "blocked",
+      onbootstrap: noop,
+      folded: true,
+      phone: true,
+    });
+    const btn = page.getByRole("button", { name: m.buildqueue_approve() });
+    await expect.element(btn).toBeVisible();
+    expect(document.querySelector(".bqp-content")!.classList).not.toContain("collapsed");
+    const b = rect(".bqp-approve");
+    const p = panel().getBoundingClientRect();
+    expect(b.height).toBeGreaterThanOrEqual(44);
+    expect(b.width).toBeGreaterThanOrEqual(p.width - 24);
+    expect(b.top).toBeGreaterThanOrEqual(rect(".bqp-list").bottom);
+    // No dead band between the hint and the steps it explains.
+    expect(rect(".bqp-list").top - rect(".bqp-hint").bottom).toBeLessThan(24);
+    // Collapsing keeps the action reachable.
+    await page.getByRole("button", { name: m.buildqueue_collapse_aria() }).click();
+    expect(document.querySelector(".bqp-content")!.classList).toContain("collapsed");
+    await expect.element(btn).toBeVisible();
+    // Approval lands → nothing needed any more → back to the collapsed default.
+    await rerender({ queue: q("active", true), sessionStatus: "running" });
+    await expect.poll(() => document.querySelector(".bqp-focus")?.textContent).toBe(title);
+    expect(document.querySelector(".bqp-approve")).toBeNull();
+  });
+
+  it("drops a collapse tap once the actionable state or session changes", async () => {
+    const content = () => document.querySelector(".bqp-content")!.classList;
+    const awaiting = { queue: q("pending", false), sessionStatus: "blocked" as const };
+    const { rerender } = await render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      ...awaiting,
+      onbootstrap: noop,
+      phone: true,
+    });
+    await page.getByRole("button", { name: m.buildqueue_collapse_aria() }).click();
+    expect(content()).toContain("collapsed");
+    // A plan review blocks the approval, then lifts: the new approval opens expanded.
+    await rerender({ planPhase: "planning", planReview: "reviewing" });
+    expect(content()).toContain("collapsed");
+    await rerender({ planReview: null });
+    await expect.poll(() => content().contains("collapsed")).toBe(false);
+    // Same for leaving and returning to a session.
+    await page.getByRole("button", { name: m.buildqueue_collapse_aria() }).click();
+    expect(content()).toContain("collapsed");
+    await rerender({ sessionId: "s2" });
+    await rerender({ sessionId: "s1" });
+    await expect.poll(() => content().contains("collapsed")).toBe(false);
+  });
+
+  it("leaves edit mode when the session changes", async () => {
+    const { rerender } = await render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: q("pending", false),
+      sessionStatus: "blocked",
+      onbootstrap: noop,
+      phone: true,
+    });
+    await page.getByRole("button", { name: m.buildqueue_edit() }).click();
+    await expect.poll(() => document.querySelectorAll("textarea").length).toBeGreaterThan(0);
+    await rerender({ sessionId: "s2" });
+    await rerender({ sessionId: "s1" });
+    await expect.poll(() => document.querySelectorAll("textarea").length).toBe(0);
+  });
+
+  it("reads curation steps until Edit, then offers 44px move/remove under each field", async () => {
+    vi.mocked(putBuildQueue).mockClear();
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: q("pending", false),
+      sessionStatus: "blocked",
+      onbootstrap: noop,
+      phone: true,
+    });
+    await expect.element(page.getByText(title)).toBeVisible();
+    expect(document.querySelectorAll("textarea")).toHaveLength(0);
+    expect(document.querySelectorAll(".bqp-move, .bqp-remove")).toHaveLength(0);
+    const edit = page.getByRole("button", { name: m.buildqueue_edit() });
+    expect((edit.element() as HTMLElement).getBoundingClientRect().height).toBeGreaterThanOrEqual(
+      44,
+    );
+    await edit.click();
+
+    await expect
+      .element(page.getByRole("textbox", { name: `${m.buildqueue_step_title_aria()} 2` }))
+      .toBeVisible();
+    expect(document.querySelector(".bqp-approve")).toBeNull();
+    for (const btn of document.querySelectorAll<HTMLElement>(
+      ".bqp-move, .bqp-remove, .bqp-add, .bqp-edit-done",
+    )) {
+      const r = btn.getBoundingClientRect();
+      expect(r.height, btn.className).toBeGreaterThanOrEqual(44);
+      expect(r.width, btn.className).toBeGreaterThanOrEqual(44);
+    }
+    const row = document.querySelectorAll<HTMLElement>(".bqp-row")[1];
+    expect(row.querySelector(".bqp-row-actions")!.getBoundingClientRect().top).toBeGreaterThan(
+      row.querySelector(".bqp-edit")!.getBoundingClientRect().bottom - 1,
+    );
+    expect(panel().scrollWidth).toBeLessThanOrEqual(390);
+
+    await page.getByRole("button", { name: m.buildqueue_move_up_aria() }).nth(1).click();
+    expect(vi.mocked(putBuildQueue).mock.calls[0][1].map((s) => s.id)).toEqual(["b", "a", "c"]);
+
+    await page.getByRole("button", { name: m.buildqueue_edit_done() }).click();
+    expect(document.querySelectorAll("textarea")).toHaveLength(0);
+    await expect.element(page.getByRole("button", { name: m.buildqueue_approve() })).toBeVisible();
+  });
+
+  it("leaves desktop untouched: no Edit mode, inline editing as before", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: q("pending", false),
+      sessionStatus: "blocked",
+      onbootstrap: noop,
+    });
+    await expect
+      .element(page.getByRole("textbox", { name: `${m.buildqueue_step_title_aria()} 1` }))
+      .toBeVisible();
+    expect(document.querySelector(".bqp-edit-toggle")).toBeNull();
+    expect(document.querySelector(".bqp-dock")).toBeNull();
+  });
+});

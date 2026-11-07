@@ -8163,5 +8163,9 @@
   "commandbar_status_unpinned": "{label} gelöst",
   "commandbar_status_pin_limit": "Höchstens {max} Einträge anheftbar",
   "feat_commandbar_pins_title": "Zeilen oben in der Befehlsleiste anheften",
-  "feat_commandbar_pins_body": "Drücke in der Befehlsleiste ⌥P (Alt+P), um die markierte Zeile anzuheften: eine Session, ein Repository, eine Ansicht, einen Befehl oder eine Doku-Seite. Angeheftete Zeilen stehen immer oben, auch beim Tippen, sodass ⌥1 deinen ersten Eintrag öffnet. Auf einem Touchscreen drückst du die Zeile stattdessen lange. Bis zu 9 Einträge, gespeichert auf diesem Gerät. Sessions, die auf dich warten, bekommen jetzt eine eigene Gruppe „Braucht dich“, und eine Fußzeile zeigt die Tasten."
+  "feat_commandbar_pins_body": "Drücke in der Befehlsleiste ⌥P (Alt+P), um die markierte Zeile anzuheften: eine Session, ein Repository, eine Ansicht, einen Befehl oder eine Doku-Seite. Angeheftete Zeilen stehen immer oben, auch beim Tippen, sodass ⌥1 deinen ersten Eintrag öffnet. Auf einem Touchscreen drückst du die Zeile stattdessen lange. Bis zu 9 Einträge, gespeichert auf diesem Gerät. Sessions, die auf dich warten, bekommen jetzt eine eigene Gruppe „Braucht dich“, und eine Fußzeile zeigt die Tasten.",
+  "buildqueue_edit": "Bearbeiten",
+  "buildqueue_edit_done": "Fertig",
+  "feat_build_queue_phone_title": "Build-Queue passt aufs Handy",
+  "feat_build_queue_phone_body": "Auf dem Handy klappt die Build-Queue jetzt zu einem zweizeiligen Balken ein, der den laufenden Schritt nennt, und klappt bei anstehender Freigabe von selbst auf – der Knopf sitzt unten im Daumenbereich. Zum Umsortieren oder Entfernen tippst du auf Bearbeiten: Die Steuerelemente werden zu vollwertigen Touch-Zielen, Fertig führt zurück zur Ansicht."
 }

@@ -3,7 +3,11 @@
   import type { CompletedEpic } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { formatAgo } from "#lib/format.js";
-  import { deriveIntegratedEpicStatus } from "#lib/integrated-epic-status.js";
+  import {
+    deriveIntegratedEpicStatus,
+    landingConflictStrandedNow,
+    landingStrandedNow,
+  } from "#lib/integrated-epic-status.js";
   import IntegratedEpicLanding from "./IntegratedEpicLanding.svelte";
   let {
     epic,
@@ -147,7 +151,7 @@
         >{turnLabel}</button
       >
     {/if}
-    {#if epic.landingStranded}<button
+    {#if landingStrandedNow(epic, nowMs)}<button
         type="button"
         class="waiting-chip"
         aria-expanded={open}
@@ -160,7 +164,7 @@
         aria-expanded={open}
         onclick={() => (open = true)}>{m.integrated_epics_land_no_ci()}</button
       >{/if}
-    {#if epic.landingConflictStranded && epic.landingConflictSince != null}<button
+    {#if landingConflictStrandedNow(epic, nowMs) && epic.landingConflictSince != null}<button
         type="button"
         class="waiting-chip"
         aria-expanded={open}

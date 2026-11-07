@@ -275,6 +275,7 @@ import { PostMergeStepsService } from "./post-merge-steps";
 import { materializeLandingManualSteps, materializeLandingOnClear } from "./epic-landing-steps";
 import { buildLandingPrTitle } from "./epic-landing";
 import type { CompletedEpic } from "./completed-epic";
+import { landingPrCache } from "./landing-pr-cache";
 import { DeliveryFactsService } from "./delivery";
 import { BuildQueueReminderService } from "./build-queue-reminder";
 import { ConnectorRestartService } from "./connector-restart";
@@ -3103,6 +3104,11 @@ const drain = new DrainService({
   emitEpic: (epic) => events.emit("epic:update", epic),
   emitEpicCompleted: (e) => events.emit("epic:completed", e),
   emitEpicCompletedCleared: (key) => events.emit("epic:completed-cleared", key),
+  emitLandingGate: (e) => events.emit("epic:landing-gate", e),
+  // #2858: a landing no pass read and no current snapshot holds (auto-merge/drain off, draft mode,
+  // non-GitHub forge) — the GET's shared per-minute read, and only while a client is there to see it.
+  landingPrFallback: (repoPath, forge, branch) =>
+    presence.hasClients() ? landingPrCache.read(forge, repoPath, branch) : null,
   // A brand-new session's agent is only just starting — its scratchpad can't hold artifacts
   // yet, so seed hasScratchpadFiles=false (#1164). The live truth thereafter rides the
   // session:status (idle/done) push and the /api/sessions list enrichment.
@@ -4529,6 +4535,7 @@ const appDeps: AppDeps = {
       drain.overrideEpicBaseHold(repoPath, parent, kind),
     resolveEpicBaseConflict: (repoPath, parent) => drain.resolveEpicBaseConflict(repoPath, parent),
     tick: () => drain.tick(),
+    pushedLandingGate: (repoPath, parent) => drain.pushedLandingGate(repoPath, parent),
   } satisfies Required<NonNullable<AppDeps["drain"]>>,
   autoMerge: { snapshot: () => autoMerge.snapshot() },
   heavySlot,

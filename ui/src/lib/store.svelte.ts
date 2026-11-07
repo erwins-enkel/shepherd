@@ -64,6 +64,7 @@ import { reduceRemoteDispatches, resolvedMessage } from "./remote-dispatches";
 import { wakeMotionOn } from "./motion-settle";
 import { firstSafeHttpUrl } from "./url";
 import { basename } from "./basename";
+import { withLandingGateOf } from "./integrated-epic-status";
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
@@ -1017,10 +1018,11 @@ export class HerdStore {
         // trailing final epic:update (idle, all merged) is swallowed by setEpic's
         // finished-prune, so it can't resurrect the key.
         this.dropEpic(key);
-        const filtered = this.completedEpics.filter(
-          (e) => `${e.repoPath}#${e.parentIssueNumber}` !== key,
+        const prev = this.completedEpics.find(
+          (e) => `${e.repoPath}#${e.parentIssueNumber}` === key,
         );
-        this.completedEpics = [ev.data, ...filtered];
+        const filtered = this.completedEpics.filter((e) => e !== prev);
+        this.completedEpics = [withLandingGateOf(ev.data, prev), ...filtered];
         // A merged landing state is the operator's own land action resolving (#1039), not a fresh
         // completion — confirm the land instead of re-announcing "complete". Distinct dedupe-key
         // namespace (epic-landed:) so it never collides with the completion toast's key.
@@ -1039,6 +1041,14 @@ export class HerdStore {
         }
         return true;
       }
+      case "epic:landing-gate":
+        // #2858: replace in place, never insert — a late frame must not resurrect a dismissed row.
+        this.completedEpics = this.completedEpics.map((e) =>
+          e.repoPath === ev.data.repoPath && e.parentIssueNumber === ev.data.parentIssueNumber
+            ? ev.data
+            : e,
+        );
+        return true;
       case "epic:completed-cleared":
         this.completedEpics = this.completedEpics.filter(
           (e) =>

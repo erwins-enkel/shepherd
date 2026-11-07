@@ -148,3 +148,48 @@ export function deriveIntegratedEpicStatus(
           : "ci",
   };
 }
+
+/** #2858: the live landing-gate fields only GET /api/epics/completed and `epic:landing-gate` carry. */
+const LANDING_GATE_KEYS = [
+  "landingChecks",
+  "landingMergeable",
+  "landingReady",
+  "landingStrandedAt",
+  "landingNoCiHold",
+  "landingConflictStrandedAt",
+  "landingRepairing",
+  "landingCiChecks",
+  "landingCiAutomation",
+] as const satisfies readonly (keyof CompletedEpic)[];
+
+/** #2858: an `epic:completed` frame never carries the live gate, and no poll restores it any more.
+ *  Keep `prev`'s gate while the row stays an open landing on the same PR; the server pushes
+ *  `epic:landing-gate` on its next tick if anything about it moved. */
+export function withLandingGateOf(
+  next: CompletedEpic,
+  prev: CompletedEpic | undefined,
+): CompletedEpic {
+  if (
+    !prev ||
+    next.landingState !== "open" ||
+    prev.landingState !== "open" ||
+    next.landingPrNumber !== prev.landingPrNumber
+  )
+    return next;
+  const merged: CompletedEpic = { ...next };
+  for (const k of LANDING_GATE_KEYS) {
+    if (k in next || !(k in prev)) continue;
+    (merged as unknown as Record<string, unknown>)[k] = prev[k];
+  }
+  return merged;
+}
+
+/** #2858: the "waiting since" chip — the open+ready landing has passed its stranded time. */
+export function landingStrandedNow(epic: CompletedEpic, nowMs: number): boolean {
+  return epic.landingStrandedAt != null && nowMs > epic.landingStrandedAt;
+}
+
+/** #2858: the "conflict unresolved" chip — the conflict pause has passed its stranded time. */
+export function landingConflictStrandedNow(epic: CompletedEpic, nowMs: number): boolean {
+  return epic.landingConflictStrandedAt != null && nowMs > epic.landingConflictStrandedAt;
+}

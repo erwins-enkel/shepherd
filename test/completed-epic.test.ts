@@ -7,6 +7,7 @@ import {
   computeLandingStranded,
   enrichLandingEpics,
   EPIC_LANDING_STRANDED_MS,
+  overlayPushedGate,
 } from "../src/completed-epic";
 import type { CompletedEpic } from "../src/completed-epic";
 import type { PrStatus } from "../src/forge/types";
@@ -462,6 +463,47 @@ describe("enrichLandingEpics", () => {
     expect(repairing[0]?.landingConflictStranded).toBe(false);
   });
 
+  it("#2858: landingStrandedAt = completedAt + threshold while ready, null when not", async () => {
+    const deps = (checks: PrStatus["checks"]) => ({
+      getEpicIntegrationBranch: () => "epic/7",
+      resolveForge: () => ({ kind: "local" as const, prStatus: async () => prStatus({ checks }) }),
+      hasLiveRepairSession: () => false,
+      now: 2_000, // well before the threshold: the timestamp is set regardless of the clock
+    });
+    const ready = [baseEpic({ completedAt: 1_000 })];
+    await enrichLandingEpics(ready, deps("success"));
+    expect(ready[0]?.landingStrandedAt).toBe(1_000 + EPIC_LANDING_STRANDED_MS);
+    expect(ready[0]?.landingStranded).toBe(false);
+    const red = [baseEpic({ completedAt: 1_000 })];
+    await enrichLandingEpics(red, deps("failure"));
+    expect(red[0]?.landingStrandedAt).toBeNull();
+  });
+
+  it("#2858: landingConflictStrandedAt from the pause start; null while repairing or unpaused", async () => {
+    const deps = (live: boolean) => ({
+      getEpicIntegrationBranch: () => "epic/7",
+      resolveForge: () => ({
+        kind: "local" as const,
+        prStatus: async () => prStatus({ mergeable: false }),
+      }),
+      hasLiveRepairSession: () => live,
+      now: 600,
+    });
+    const paused = () => [
+      baseEpic({ landingRebasePauseReason: "conflict", landingConflictSince: 500 }),
+    ];
+    const idle = paused();
+    await enrichLandingEpics(idle, deps(false));
+    expect(idle[0]?.landingConflictStrandedAt).toBe(500 + EPIC_LANDING_STRANDED_MS);
+    expect(idle[0]?.landingConflictStranded).toBe(false);
+    const repairing = paused();
+    await enrichLandingEpics(repairing, deps(true));
+    expect(repairing[0]?.landingConflictStrandedAt).toBeNull();
+    const unpaused = [baseEpic()];
+    await enrichLandingEpics(unpaused, deps(false));
+    expect(unpaused[0]?.landingConflictStrandedAt).toBeNull();
+  });
+
   it("landingState != 'open' → skipped, no live fields", async () => {
     const rows = [baseEpic({ landingState: "merged" })];
     await enrichLandingEpics(rows, {
@@ -533,5 +575,52 @@ describe("computeLandingNoCiHold (#3104)", () => {
     expect(computeLandingNoCiHold({ checks: "none" }, true, true, { ...on, draftMode: true })).toBe(
       false,
     );
+  });
+});
+
+describe("overlayPushedGate (#2858)", () => {
+  const row = (over: Partial<CompletedEpic> = {}): CompletedEpic => ({
+    repoPath: "/r",
+    parentIssueNumber: 7,
+    parentTitle: "E",
+    completedAt: 0,
+    children: [],
+    landingPrNumber: 42,
+    landingPrUrl: null,
+    landingState: "open",
+    migrationPaths: [],
+    migrationsAckedAt: null,
+    landingRebasePauseReason: null,
+    landingRepairCount: 0,
+    landingRepairHead: null,
+    landingConflictReworkCount: 0,
+    ...over,
+  });
+
+  it("copies the pushed gate and re-evaluates the stranded booleans at now", () => {
+    const r = row({ parentTitle: "fresh" });
+    const pushed = row({
+      parentTitle: "old",
+      landingReady: true,
+      landingChecks: "success",
+      landingStrandedAt: 100,
+      landingStranded: false,
+      landingConflictStrandedAt: null,
+    });
+    expect(overlayPushedGate(r, pushed, 200)).toBe(true);
+    expect(r.landingReady).toBe(true);
+    expect(r.landingChecks).toBe("success");
+    expect(r.landingStranded).toBe(true);
+    expect(r.landingConflictStranded).toBe(false);
+    expect(r.parentTitle).toBe("fresh");
+  });
+
+  it("does nothing without a push, for another landing PR, or for a non-open row", () => {
+    const pushed = row({ landingReady: true });
+    expect(overlayPushedGate(row(), null, 0)).toBe(false);
+    expect(overlayPushedGate(row({ landingPrNumber: 43 }), pushed, 0)).toBe(false);
+    const merged = row({ landingState: "merged" });
+    expect(overlayPushedGate(merged, pushed, 0)).toBe(false);
+    expect(merged.landingReady).toBeUndefined();
   });
 });

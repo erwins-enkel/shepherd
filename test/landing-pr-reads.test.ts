@@ -123,6 +123,19 @@ describe("LandingPrReads", () => {
     expect(h.calls()).toBe(2);
   });
 
+  test("#2858: tickRead exposes the read a pass started this tick and never reads itself", async () => {
+    const h = harness();
+    h.reads.beginTick();
+    expect(h.reads.tickRead(REPO, BRANCH)).toBeUndefined();
+    const read = h.reads.read(REPO, h.forge, BRANCH);
+    expect(h.reads.tickRead(REPO, BRANCH)).toBe(read);
+    expect(h.reads.tickRead(REPO, "epic/8-other")).toBeUndefined();
+    await read;
+    h.reads.beginTick();
+    expect(h.reads.tickRead(REPO, BRANCH)).toBeUndefined();
+    expect(h.calls()).toBe(1);
+  });
+
   test("branches and repos are read separately", async () => {
     const h = harness();
     h.reads.beginTick();

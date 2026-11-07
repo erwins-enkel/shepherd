@@ -1467,6 +1467,68 @@ test("seedCompletedEpics replaces the array", () => {
   expect(s.completedEpics[0].parentIssueNumber).toBe(7);
 });
 
+// ── epic:landing-gate (#2858) ─────────────────────────────────────────────────
+
+function openLanding(
+  repoPath: string,
+  parent: number,
+  over: Partial<CompletedEpic> = {},
+): CompletedEpic {
+  return {
+    ...completedEpic(repoPath, parent),
+    landingState: "open",
+    landingPrNumber: 55,
+    landingPrUrl: "https://github.com/x/y/pull/55",
+    ...over,
+  };
+}
+
+test("epic:landing-gate replaces the row in place, keeps order, no toast", () => {
+  const s = new HerdStore();
+  s.seedCompletedEpics([openLanding("/g", 1), openLanding("/g", 2)]);
+  toasts.items = [];
+  s.apply({
+    event: "epic:landing-gate",
+    data: openLanding("/g", 2, { landingChecks: "success", landingReady: true }),
+  });
+  expect(s.completedEpics.map((e) => e.parentIssueNumber)).toEqual([1, 2]);
+  expect(s.completedEpics[1].landingReady).toBe(true);
+  expect(toasts.items).toHaveLength(0);
+});
+
+test("epic:landing-gate never inserts a row (a dismissed row stays gone)", () => {
+  const s = new HerdStore();
+  s.seedCompletedEpics([openLanding("/g", 1)]);
+  s.apply({ event: "epic:landing-gate", data: openLanding("/g", 9, { landingReady: true }) });
+  expect(s.completedEpics.map((e) => e.parentIssueNumber)).toEqual([1]);
+});
+
+test("epic:completed keeps the live gate of an open landing on the same PR", () => {
+  const s = new HerdStore();
+  s.seedCompletedEpics([
+    openLanding("/g2", 3, { landingReady: true, landingChecks: "success", landingStrandedAt: 5 }),
+  ]);
+  s.apply({
+    event: "epic:completed",
+    data: openLanding("/g2", 3, { landingRebasePauseReason: "cap" }),
+  });
+  const row = s.completedEpics[0];
+  expect(row.landingReady).toBe(true);
+  expect(row.landingChecks).toBe("success");
+  expect(row.landingStrandedAt).toBe(5);
+  expect(row.landingRebasePauseReason).toBe("cap");
+});
+
+test("epic:completed drops the live gate when the landing PR or state changes", () => {
+  const s = new HerdStore();
+  s.seedCompletedEpics([openLanding("/g3", 4, { landingReady: true })]);
+  s.apply({ event: "epic:completed", data: openLanding("/g3", 4, { landingPrNumber: 56 }) });
+  expect(s.completedEpics[0].landingReady).toBeUndefined();
+  s.seedCompletedEpics([openLanding("/g3", 4, { landingReady: true })]);
+  s.apply({ event: "epic:completed", data: openLanding("/g3", 4, { landingState: "merged" }) });
+  expect(s.completedEpics[0].landingReady).toBeUndefined();
+});
+
 // ── doc-agent:done ────────────────────────────────────────────────────────────
 // Each test uses a unique repoPath to avoid key-dedup collisions on the shared
 // toasts singleton (resetting toasts.items doesn't clear its #keyed Map).

@@ -38,6 +38,7 @@
     mergePr,
     interruptSession,
     setShelved,
+    setReadyToMerge,
     MergeRefusedError,
   } from "#lib/api.js";
   import { prMergeAvailable } from "./pr-badge";
@@ -949,6 +950,12 @@
   const onAskAssistant = $derived(askable ? askAssistantFromMenu : undefined);
   // Same cap rationale for Shelve / Unshelve: any live local session.
   const shelvable = $derived(session.archivedAt == null && session.status !== "archived");
+  // Same cap rationale for Mark ready: the PR ⋯ menu's predicate (open PR, agent not running or
+  // blocked), plus an already-ready card so it can be unmarked here too.
+  const readyAble = $derived(
+    session.readyToMerge ||
+      (git?.state === "open" && dStatus !== "running" && dStatus !== "blocked"),
+  );
   let hitEl = $state<HTMLButtonElement>();
   let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
@@ -964,6 +971,7 @@
     remote
       ? session.connection?.state === "connected" && (stoppable || !!ondecommission)
       : mergeable ||
+          readyAble ||
           stoppable ||
           resumable ||
           !!ondecommission ||
@@ -987,6 +995,8 @@
         }
       : {
           onmergepr: mergeable ? mergeFromMenu : undefined,
+          onready: readyAble ? readyFromMenu : undefined,
+          ready: session.readyToMerge,
           onstop: onStop,
           onresume: resumeFromMenu,
           onaskassistant: onAskAssistant,
@@ -1061,6 +1071,16 @@
         );
       }
     });
+  }
+  // No optimistic patch: the server's `session:ready` WS event flips the card.
+  async function readyFromMenu() {
+    menu = null;
+    const { id, name } = session;
+    try {
+      await setReadyToMerge(id, !session.readyToMerge);
+    } catch {
+      toasts.info(m.cardmenu_ready_failed({ name }), { alert: true, key: `session-ready:${id}` });
+    }
   }
   // "Stop agent" — a lone ESC to this session's pane (#1995). One click, no arm: it is exactly what
   // pressing Esc in the terminal does, and it is reversible (the operator can steer again at once).

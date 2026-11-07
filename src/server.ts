@@ -984,6 +984,8 @@ export interface AppDeps {
   upNext?: {
     snapshot(): UpNextSnapshot | null;
     refresh(): Promise<UpNextSnapshot>;
+    /** The manual refresh: recompute reading cold repos live too (#2837). */
+    refreshLive?(): Promise<UpNextSnapshot>;
     /** Lens-open recompute, skipped while the snapshot is younger than `maxAgeMs` (#2658). */
     refreshIfStale(maxAgeMs: number): void;
     /** Recompute (guaranteed-fresh, verify-and-retry) until the just-started items drop from
@@ -2701,7 +2703,9 @@ async function handleUpNext(ctx: Ctx): Promise<Response | null> {
 
   if (req.method === "POST" && parts[2] === "refresh") {
     if (!deps.upNext) return json({ error: "up-next unavailable" }, 503);
-    void deps.upNext.refresh().catch((err) => console.warn("[up-next] manual refresh:", err));
+    // The manual refresh is the one read of cold repos (#2837); older stubs only refresh.
+    const manual = deps.upNext.refreshLive?.() ?? deps.upNext.refresh();
+    void manual.catch((err) => console.warn("[up-next] manual refresh:", err));
     return json({ ok: true }, 202);
   }
 

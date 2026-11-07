@@ -4344,6 +4344,9 @@ const upNext = new UpNextService({
     }),
   resolveForge,
   lastUsedByRepo: () => store.lastUsedByRepo(),
+  // Cold repos come from their cache, marked with its age (#2837).
+  isWarm: (path) => repoWarmth.isWarmPath(path),
+  cachedIssuesAt: (slug) => githubReadCache.get("issues", slug)?.at ?? null,
   buildEpic: (repoPath, run) => drain.buildEpic(repoPath, run),
   getEpicRun: (repoPath) => store.getEpicRun(repoPath),
   onChange: upNextChangePublisher(events),

@@ -59,6 +59,8 @@ export interface UpNextItem {
   /** The issue's author login (standalone rows only — an epic unit's child author isn't listed;
    *  the preview reads it from the body endpoint instead). */
   author?: string;
+  /** The repo is cold (#2837): the row comes from its cached issues, fetched at this time. */
+  asOf?: number;
 }
 
 /** What the operator's issue filter (src/issue-filter.ts) hides from the startable items. */
@@ -104,6 +106,9 @@ export interface UpNextSnapshot {
   /** Open PRs waiting on the operator, classified server-side (src/up-next-prs.ts) and ordered.
    *  Optional on the wire: servers before it omit the field. */
   pullRequests?: UpNextPr[];
+  /** Cold repos left out because nothing of theirs is cached (#2837); a manual refresh reads
+   *  them. Omitted when zero. */
+  coldSkippedCount?: number;
 }
 
 /** A resolved epic, as fed in by the service (after buildEpic + selectEpicCandidates). */
@@ -157,6 +162,8 @@ export interface RepoInput {
   allowedMergeMethods?: MergeMethod[] | null;
   /** The repo runs no CI on PRs (src/checks-gate.ts). */
   noCi?: boolean;
+  /** The repo is cold (#2837) and its rows come from issues cached at this time. */
+  asOf?: number;
 }
 
 /** UI display caps (items beyond these reveal via a "show all N" expander). The server
@@ -234,11 +241,16 @@ interface Candidate {
 
 function candidate(
   repo: RepoInput,
-  item: Omit<UpNextItem, "fromFork" | "mine">,
+  item: Omit<UpNextItem, "fromFork" | "mine" | "asOf">,
   subject: IssueFilterSubject,
 ): Candidate {
   return {
-    item: { ...item, fromFork: repo.isFork, mine: isMine(subject, repo.viewer) },
+    item: {
+      ...item,
+      fromFork: repo.isFork,
+      mine: isMine(subject, repo.viewer),
+      ...(repo.asOf !== undefined ? { asOf: repo.asOf } : {}),
+    },
     subject,
     ctx: { viewer: repo.viewer, isFork: repo.isFork },
   };

@@ -4504,3 +4504,49 @@ test("#3764: without a scheduled fast sweep nothing is covered — the snapshot 
     t.poller.stop();
   }
 });
+
+test("full sweep skips sessions in cold repos but keeps their cached state (#2837)", async () => {
+  const store = new SessionStore(":memory:");
+  const warmS = store.create({ ...baseSession, repoPath: "/warm", branch: "w" });
+  const coldS = store.create({
+    ...baseSession,
+    repoPath: "/cold",
+    herdrAgentId: "term_b",
+    branch: "c",
+  });
+  const none: GitState = { kind: "github", state: "none", checks: "none", deployConfigured: false };
+  store.putSessionGitCache(coldS.id, none);
+  const polls: string[] = [];
+  const forge = forgeReturning(() => none);
+  forge.prStatus = async (branch) => {
+    polls.push(branch);
+    return { state: "none", checks: "none", deployConfigured: false } as PrStatus;
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    (repoPath: string) => repoPath === "/warm",
+  );
+  for (let i = 0; i < 3; i++) await poller.tick();
+  expect(polls.every((b) => b === "w")).toBe(true);
+  expect(polls.length).toBeGreaterThan(0);
+  expect(poller.get(coldS.id)?.state).toBe("none");
+  expect(warmS.id).toBeDefined();
+});

@@ -65,13 +65,21 @@ export class GithubReadCache {
   private readonly revisions = new Map<string, number>();
   readonly now: () => number;
   readonly canRefresh: () => boolean;
+  /** A cold slug (#2837): any cached value is served as-is — whatever its age, content key or
+   *  expiry — and no refresh starts. A miss still reads once. */
+  readonly frozen: (slug: string) => boolean;
 
   constructor(
     private readonly store: GithubCacheStore,
-    opts: { now?: () => number; canRefresh?: () => boolean } = {},
+    opts: {
+      now?: () => number;
+      canRefresh?: () => boolean;
+      frozen?: (slug: string) => boolean;
+    } = {},
   ) {
     this.now = opts.now ?? Date.now;
     this.canRefresh = opts.canRefresh ?? (() => true);
+    this.frozen = opts.frozen ?? (() => false);
     for (const row of store.listGithubReadCache()) {
       try {
         if (row.version !== VERSION) throw new Error("incompatible GitHub cache version");

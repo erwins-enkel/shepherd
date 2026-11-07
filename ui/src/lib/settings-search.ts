@@ -263,6 +263,7 @@ export function sectionSearchRows(ctx: {
       [m.settings_tab_workspace()],
       [m.settings_current_root_label()],
       [m.settings_use_folder()],
+      [m.settings_warm_repo_days_title(), m.settings_warm_repo_days_hint()],
       [m.settings_house_stack_title(), m.settings_house_stack_hint()],
       [m.settings_issue_filter_title(), m.settings_issue_filter_summary()],
       [m.upnext_filter_scope_heading(), m.settings_issue_filter_scope_desc()],

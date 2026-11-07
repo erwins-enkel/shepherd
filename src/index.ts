@@ -181,7 +181,7 @@ import {
 import { CountsService } from "./backlog";
 import { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { GithubReadCache } from "./github-read-cache";
-import { BacklogPoller, reposUsedSince, createBacklogBroadcast } from "./backlog-poller";
+import { BacklogPoller, createBacklogBroadcast } from "./backlog-poller";
 import { UpNextService, buildUpNextRepos, upNextChangePublisher } from "./up-next";
 import { prsHeldBySessions } from "./up-next-prs";
 import { ISSUE_FILTER_SETTING, storedIssueFilter } from "./issue-filter";
@@ -309,6 +309,12 @@ import {
   completedEpicScopeRepos,
   reconcileCompletedEpicsForRepo,
 } from "./completed-epics-reconcile";
+import {
+  RepoWarmthService,
+  WARM_REPO_DAYS_SETTING,
+  clampWarmRepoDays,
+  inLiveColdRead,
+} from "./repo-warmth";
 import { MIN_BUN_VERSION, bunTooOld } from "./runtime-guard";
 
 if (bunTooOld(Bun.version)) {
@@ -368,8 +374,40 @@ if (herdrVersion && !isHerdrVersionSupported(herdrVersion)) {
 
 const store = openPrivateStore(config.dbPath, config.shepherdLogPath, (p) => new SessionStore(p));
 if (process.platform === "darwin") enablePowerPaneJournal(config.dbPath);
+// The warm repo set (#2837): the only repos background loops read from GitHub. Thunks resolve
+// lazily — resolveForge and prPoller are defined further down, and none is read before boot ends.
+const githubSlugOf = (path: string): string | null => {
+  const forge = resolveForge(path);
+  return forge?.kind === "github" && forge.slug ? forge.slug : null;
+};
+const repoWarmth: RepoWarmthService = new RepoWarmthService({
+  windowDays: () => config.warmRepoDays,
+  listRepos: () => listRepos(config.repoRoot),
+  slugOf: githubSlugOf,
+  canonical: (p) => realpathSync(p),
+  lastActivityByRepo: () => store.lastActivityByRepo(),
+  repoOpenedSince: (since) => store.repoOpenedSince(since),
+  markRepoOpened: (p, at) => store.markRepoOpened(p, at),
+  automationRepos: () => store.warmAutomationRepoPaths(),
+  activeEpicRepos: () =>
+    store
+      .listEpicRuns()
+      .filter((r) => r.status === "running" || r.status === "paused")
+      .map((r) => r.repoPath),
+  epicCompletedRepos: () => store.listEpicCompleted().map((r) => r.repoPath),
+  openPrRepos: (): string[] => {
+    const git = prPoller.snapshot();
+    return store
+      .list({ activeOnly: true })
+      .filter((s) => git[s.id]?.state === "open")
+      .map((s) => s.repoPath);
+  },
+});
 const githubReadCache: GithubReadCache = new GithubReadCache(store, {
   canRefresh: () => fingerprint.backgroundReady(),
+  // A cold repo serves its cached reads and refreshes nothing (#2837), except inside the manual
+  // Up Next refresh's live scope.
+  frozen: (slug) => !repoWarmth.isWarmSlug(slug) && !inLiveColdRead(),
 });
 const fingerprint = new RepoFingerprintService({
   cache: githubReadCache,
@@ -379,6 +417,7 @@ const fingerprint = new RepoFingerprintService({
   // The foreign rate counts toward the reserve once 10 min of readings back it (#2840).
   foreignPerHour: () => graphqlSpend.foreignPerHour(10 * 60_000),
   onObserved: onFingerprintObserved,
+  isWarm: (slug) => repoWarmth.isWarmSlug(slug),
 });
 setIssuesFreshness((slug) => fingerprint.issuesKey(slug));
 // One ProcessReaper for the service (detect/reap/stop), the poller refresh, the
@@ -453,6 +492,9 @@ if (savedPr !== null)
     PR_REVIEW_CYCLES_MAX,
     config.prReviewCyclesCap,
   );
+// The warm window (#2837); clamped on read so a hand-edited value can't escape.
+const savedWarmDays = store.getSetting(WARM_REPO_DAYS_SETTING);
+if (savedWarmDays !== null) config.warmRepoDays = clampWarmRepoDays(savedWarmDays);
 // a UI-chosen plan-review cap (persisted) overrides the env seed; absent → keep the
 // config default. Clamped on read; same presence guard as above.
 const savedPlan = store.getSetting("planReviewCyclesCap");
@@ -1861,6 +1903,7 @@ const prPoller = new PrPoller(
   githubReadCache,
   undefined, // terminalPollMs (default)
   () => fingerprint.belowReserve(), // below the GraphQL reserve: background PR polling pauses
+  (repoPath) => repoWarmth.isWarmPath(repoPath), // full sweep skips sessions in cold repos (#2837)
 );
 deferredStarts.push(() => {
   labelGhCalls("pr-poller:full");
@@ -1998,6 +2041,7 @@ const branchPruner = new BranchPruner(
   undefined,
   undefined,
   () => fingerprint.backgroundReady(),
+  (repo) => repoWarmth.isWarmPath(repo),
 );
 deferredStarts.push(() => {
   labelGhCalls("branch-pruner");
@@ -3098,6 +3142,10 @@ const drain = new DrainService({
   prCache: prPoller, // has snapshot()
   usage: usageLimits, // has limits(now)
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
+  frozen: (repoPath) => {
+    const slug = githubSlugOf(repoPath);
+    return slug !== null && githubReadCache.frozen(slug);
+  },
   emitStatus: (status) => events.emit("drain:status", status),
   emitArchived: (id) => events.emit("session:archived", { id }),
   dropPrCache: (id) => prPoller.drop(id),
@@ -4182,6 +4230,8 @@ const broadcastBacklog = createBacklogBroadcast(
       pinnedRepoPaths: () => store.pinnedRepoPaths(),
       repoConfig: (p) => store.getRepoConfig(p),
       repoRoot: config.repoRoot,
+      isWarm: (p) => repoWarmth.isWarmPath(p),
+      countsAt: (p) => backlog.peekAt(p),
     }),
   (payload) => events.emit("backlog:update", payload),
 );
@@ -4270,11 +4320,8 @@ const backlogPoller = new BacklogPoller(
   broadcastBacklog,
   // Broad scans wait for the first fingerprint and the reserve; rehydrated counts stay readable.
   () => presence.hasClients() && fingerprint.backgroundReady(),
-  // Repos with a session in the last week every tick; the rest every 15 min (#2656).
-  {
-    hotRepos: () => reposUsedSince(store.lastUsedByRepo(), Date.now() - 7 * 86_400_000),
-    coldIntervalMs: 15 * 60_000,
-  },
+  // Only warm repos (#2837); a cold repo keeps its last-known counts.
+  (path) => repoWarmth.isWarmPath(path),
   // The fingerprint refreshes a covered repo's counts when they change (#2756).
   fingerprintCoversRepo,
 );
@@ -4299,6 +4346,9 @@ const upNext = new UpNextService({
     }),
   resolveForge,
   lastUsedByRepo: () => store.lastUsedByRepo(),
+  // Cold repos come from their cache, marked with its age (#2837).
+  isWarm: (path) => repoWarmth.isWarmPath(path),
+  cachedIssuesAt: (slug) => githubReadCache.get("issues", slug)?.at ?? null,
   buildEpic: (repoPath, run) => drain.buildEpic(repoPath, run),
   getEpicRun: (repoPath) => store.getEpicRun(repoPath),
   onChange: upNextChangePublisher(events),
@@ -4364,6 +4414,7 @@ const appDeps: AppDeps = {
     ensureFresh: (slug, demand) => fingerprint.ensureFresh(slug, demand),
     coversRepo: fingerprintCoversRepo,
   },
+  warmth: repoWarmth,
   readCodexAuthMode,
   mythosAvailable: accountMythosAvailable,
   telemetry,
@@ -4478,6 +4529,7 @@ const appDeps: AppDeps = {
   upNext: {
     snapshot: () => upNext.snapshot(),
     refresh: () => upNext.refresh(),
+    refreshLive: () => upNext.refreshLive(),
     refreshIfStale: (maxAgeMs) => upNext.refreshIfStale(maxAgeMs),
     recomputeUntilCleared: (started) => upNext.recomputeUntilCleared(started),
     refilter: () => upNext.refilter(),

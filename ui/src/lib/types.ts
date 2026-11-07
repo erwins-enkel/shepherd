@@ -512,6 +512,9 @@ export interface Settings {
   sessionRetentionDays: number;
   /** Display-only: newest archived sessions kept regardless of age. */
   sessionRetentionKeep: number;
+  /** Days without activity before a repo turns cold and its background GitHub reads stop
+   *  (#2837); 0 = off, every repo polled. Absent from older servers. */
+  warmRepoDays?: number;
   /** The agent node's own tailnet hostname; the UI builds preview iframe URLs from it
    *  when the HUD is fronted on a different host than the node. Null when tailscale is
    *  absent → fall back to the operator's own connection host. */
@@ -3007,6 +3010,11 @@ export interface BacklogProject {
   faviconUrl?: string | null;
   /** Auto-merge holds this repo's PRs for lack of PR CI (#3305) — read via repoConfig.noPrCiHeld. */
   noPrCiHold?: boolean;
+  /** Inside the warm window (#2837): background GitHub reads run. False = cold, the counts are
+   *  last-known as of `countsAt`. Absent from older servers — treat as warm. */
+  warm?: boolean;
+  /** When the shown counts were fetched (ms epoch); null when nothing is cached. */
+  countsAt?: number | null;
 }
 export interface BacklogPayload {
   pinnedPath: string | null;
@@ -3336,6 +3344,8 @@ export interface UpNextItem {
   mine?: boolean;
   /** The issue author's login. Standalone rows only — an epic child's comes from the body read. */
   author?: string;
+  /** The repo is cold (#2837): the row comes from its cached issues, fetched at this time. */
+  asOf?: number;
 }
 // Default issue filter (#3007/#3017). Mirrors src/issue-filter.ts.
 export type IssueFilterScope = "all" | "mine_unassigned" | "mine";
@@ -3424,6 +3434,9 @@ export interface UpNextSnapshot {
   filter?: UpNextFilterStats;
   /** Open PRs waiting on the operator, in display order. Absent from servers before it. */
   pullRequests?: UpNextPr[];
+  /** Cold repos left out because nothing of theirs is cached (#2837); a manual refresh reads
+   *  them. Omitted when zero. */
+  coldSkippedCount?: number;
 }
 
 /** One measured section of an in-flight spawn (server: src/spawn-progress.ts). */

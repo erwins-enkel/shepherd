@@ -19,6 +19,7 @@ import {
   putEngineEffort,
   putUpnextQuickStart,
   putUpNextReadiness,
+  putWarmRepoDays,
 } from "#lib/api.js";
 import { toasts } from "#lib/toasts.svelte.js";
 import { roleTitle } from "#lib/settings-search.js";
@@ -59,6 +60,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     putTelemetryConsent: vi.fn(async (consent) => ({ telemetryConsent: consent })),
     putSessionHousekeeping: vi.fn(async (enabled) => ({ sessionHousekeepingEnabled: enabled })),
     putUpNextReadiness: vi.fn(async (enabled) => ({ upNextReadiness: enabled })),
+    putWarmRepoDays: vi.fn(async (days) => ({ warmRepoDays: days })),
     getApnsConfig: vi.fn(async () => ({
       state: "unconfigured",
       hasKey: false,
@@ -104,6 +106,7 @@ const mockFix = vi.mocked(fixDiagnostic);
 const mockPutTelemetry = vi.mocked(putTelemetryConsent);
 const mockPutHousekeeping = vi.mocked(putSessionHousekeeping);
 const mockPutUpNextReadiness = vi.mocked(putUpNextReadiness);
+const mockPutWarmRepoDays = vi.mocked(putWarmRepoDays);
 const mockPutEngineEffort = vi.mocked(putEngineEffort);
 const mockPutQuickStart = vi.mocked(putUpnextQuickStart);
 
@@ -1302,6 +1305,53 @@ it("saves ultra as the shared default effort", async () => {
   await effort.selectOptions("ultra");
   await vi.waitFor(() => expect(putDefaultEffort).toHaveBeenCalledWith("ultra"));
   await expect.element(effort).toHaveValue("ultra");
+});
+
+describe("Settings workspace — warm window (#2837)", () => {
+  const field = () => page.getByRole("spinbutton", { name: m.settings_warm_repo_days_title() });
+
+  beforeEach(() => {
+    mockPutWarmRepoDays.mockReset();
+    mockPutWarmRepoDays.mockImplementation(async (days) => ({ warmRepoDays: days }));
+  });
+
+  it("shows the saved window and saves a change, clamped to 0–30", async () => {
+    mockGetSettings.mockResolvedValue(settings({ warmRepoDays: 3 }));
+    await page.viewport(1280, 900);
+    render(Settings, { initialTab: "workspace", onclose: noop, onsaved: noop });
+
+    await expect.element(field()).toHaveValue(3);
+    await field().fill("7");
+    (field().element() as HTMLInputElement).dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() => expect(mockPutWarmRepoDays).toHaveBeenLastCalledWith(7));
+
+    await field().fill("99");
+    (field().element() as HTMLInputElement).dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() => expect(mockPutWarmRepoDays).toHaveBeenLastCalledWith(30));
+    await expect.element(field()).toHaveValue(30);
+  });
+
+  it("reverts to the saved window when saving fails", async () => {
+    mockGetSettings.mockResolvedValue(settings({ warmRepoDays: 3 }));
+    mockPutWarmRepoDays.mockRejectedValueOnce(new Error("boom"));
+    await page.viewport(1280, 900);
+    render(Settings, { initialTab: "workspace", onclose: noop, onsaved: noop });
+
+    await expect.element(field()).toHaveValue(3);
+    await field().fill("0");
+    (field().element() as HTMLInputElement).dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() => expect(mockPutWarmRepoDays).toHaveBeenCalledWith(0));
+    await expect.element(field()).toHaveValue(3);
+  });
+
+  it("hides the row for a server that doesn't send the setting", async () => {
+    await page.viewport(1280, 900);
+    render(Settings, { initialTab: "workspace", onclose: noop, onsaved: noop });
+    await expect
+      .element(page.getByRole("tabpanel", { name: m.settings_tab_workspace() }))
+      .toBeInTheDocument();
+    await expect.element(field()).not.toBeInTheDocument();
+  });
 });
 
 describe("Settings device — issue number on session cards", () => {

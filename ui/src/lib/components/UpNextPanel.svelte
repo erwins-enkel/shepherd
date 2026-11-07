@@ -8,6 +8,7 @@
   import { formatAgo } from "#lib/format.js";
   import { clock } from "#lib/now.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
+  import GlossaryText from "./GlossaryText.svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { EMPTY_REPO_FILTER } from "./queue-strip";
   import { onMount } from "svelte";
@@ -214,6 +215,11 @@
       (upNext.loadError && sections.length === 0 && prs.length === 0),
   );
   const isEmpty = $derived(computed && !loadFailed && sections.length === 0 && prs.length === 0);
+  // Cold repos with nothing cached sit out the background compute (#2837); ⟳ reads them live.
+  const coldSkipped = $derived(computed ? (snap?.coldSkippedCount ?? 0) : 0);
+  const coldNote = $derived(
+    coldSkipped === 1 ? m.upnext_cold_skipped_one() : m.upnext_cold_skipped({ count: coldSkipped }),
+  );
 
   // The default issue filter (#3018): the server applies it; the panel shows what it hides.
   const filter = $derived(issueFilterSettings.value);
@@ -529,6 +535,11 @@
             ontick={toggle}
           />
         {/each}
+      {/if}
+      {#if coldSkipped > 0}
+        <p class="un-muted" data-testid="upnext-cold-skipped">
+          <GlossaryText text={coldNote} />
+        </p>
       {/if}
     </div>
 

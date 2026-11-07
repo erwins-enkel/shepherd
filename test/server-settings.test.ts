@@ -212,6 +212,23 @@ test("PATCH /api/settings reuses setting validation and numeric clamping", async
   expect(store.getSetting("prReviewCyclesCap")).toBe(String(PR_REVIEW_CYCLES_MAX));
 });
 
+test("PATCH /api/settings warmRepoDays clamps to 0..30 and persists (#2837)", async () => {
+  const saved = config.warmRepoDays;
+  try {
+    const { app, store } = harness();
+    const bad = await patch(app, { warmRepoDays: "3" });
+    expect(bad.status).toBe(400);
+    const high = await patch(app, { warmRepoDays: 99 });
+    expect(await high.json()).toEqual({ warmRepoDays: 30 });
+    expect(store.getSetting("warmRepoDays")).toBe("30");
+    const off = await patch(app, { warmRepoDays: 0 });
+    expect(await off.json()).toEqual({ warmRepoDays: 0 });
+    expect(config.warmRepoDays).toBe(0);
+  } finally {
+    config.warmRepoDays = saved;
+  }
+});
+
 test("PATCH /api/settings rejects malformed, non-object, empty, and multi-field bodies without writes", async () => {
   config.remoteControlAtStartup = false;
   config.reducedPushMode = false;

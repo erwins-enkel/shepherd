@@ -252,3 +252,34 @@ test("keeps the branch when the forge errors or is absent", async () => {
   expect(localBranches(repo)).toContain("shepherd/noforge");
   rmSync(repo, { recursive: true, force: true });
 });
+
+test("skips cold repos: no prStatus lookup until the repo turns warm (#2837)", async () => {
+  const repo = mkRepo();
+  try {
+    git(repo, "branch", "shepherd/old");
+    let warm = false;
+    let reads = 0;
+    const adapter = forge({ "shepherd/old": "merged" });
+    adapter.prStatus = async () => {
+      reads++;
+      return ST("merged");
+    };
+    const pruner = new BranchPruner(
+      new SessionStore(":memory:"),
+      () => adapter,
+      () => [repo],
+      undefined,
+      undefined,
+      undefined,
+      () => warm,
+    );
+    await pruner.tick();
+    expect(reads).toBe(0);
+    expect(localBranches(repo)).toContain("shepherd/old");
+    warm = true;
+    await pruner.tick();
+    expect(reads).toBe(1);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});

@@ -20,10 +20,8 @@ export type { RepoCounts } from "./forge/types";
 
 type CacheEntry = GithubCacheEntry<RepoCounts> & { negative?: boolean; revision?: number };
 
-/** Read TTL. Must outlive BacklogPoller's cold cadence (15 min, #2656): a cold repo is
- *  re-warmed that rarely, and a shorter TTL would make every backlog broadcast and GET
- *  re-fetch it on the request path anyway — undoing the tiering. Hot repos are rewritten
- *  every warm tick, so they never get near it. */
+/** Read TTL for repos the fingerprint doesn't cover. Warm repos are rewritten every warm tick,
+ *  so they never get near it; a cold repo's counts are frozen (#2837) and never expire. */
 const TTL_MS = 20 * 60_000;
 const FAILURE_TTL_MS = 30_000;
 
@@ -112,10 +110,21 @@ export class CountsService {
     return this.entry(repoPath)?.value ?? null;
   }
 
+  /** When the cached counts were fetched, or null when nothing is cached — the "as of" age a
+   *  cold repo shows (#2837). */
+  peekAt(repoPath: string): number | null {
+    return this.entry(repoPath)?.at ?? null;
+  }
+
   /** Read-through: serve a TTL-fresh cached value, else load it. */
   async counts(repoPath: string, trigger = "read-through"): Promise<RepoCounts> {
     const entry = this.entry(repoPath);
     const slug = this.githubSlug(repoPath);
+    // A cold repo (#2837): any cached value, a failure included, is served as-is.
+    if (slug && this.readCache?.frozen(slug)) {
+      const held = entry ?? this.cache.get(slug);
+      if (held) return held.value;
+    }
     const fpKey = slug ? this.readCache?.contentKey("counts", slug) : null;
     if (entry && fpKey != null && entry.contentKey === fpKey && !this.readCache?.expired(entry))
       return entry.value;

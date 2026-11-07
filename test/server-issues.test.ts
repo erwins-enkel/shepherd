@@ -537,3 +537,39 @@ test("POST /api/issues/:number is not a route", async () => {
   );
   expect(res.status).toBe(404);
 });
+
+// #2837: an operator opening a repo (fresh=1 issues/epics, the PRs tab) turns it warm; a cold
+// repo also gets its counts re-read and the overview re-broadcast.
+test("fresh=1 issues and the PRs tab promote the repo; a timed re-request does not", async () => {
+  const touched: string[] = [];
+  const refreshed: string[] = [];
+  let wasCold = true;
+  const app = makeApp({
+    ...makeDeps(() =>
+      fakeForge({
+        kind: "github",
+        listIssues: async () => [ISSUE],
+        listPullRequests: async () => [],
+      }),
+    ),
+    warmth: {
+      isWarmPath: () => !wasCold,
+      touch: (dir) => {
+        touched.push(dir);
+        const promoted = wasCold;
+        wasCold = false;
+        return promoted;
+      },
+    },
+    refreshBacklog: async (dir) => {
+      refreshed.push(dir);
+    },
+  });
+  const enc = encodeURIComponent(repoDir);
+  await app.fetch(new Request(`http://localhost/api/issues?repo=${enc}`));
+  expect(touched).toEqual([]);
+  await app.fetch(new Request(`http://localhost/api/issues?repo=${enc}&fresh=1`));
+  await app.fetch(new Request(`http://localhost/api/prs?repo=${enc}`));
+  expect(touched).toHaveLength(2);
+  expect(refreshed).toHaveLength(1); // only the cold → warm promotion re-reads counts
+});

@@ -449,6 +449,8 @@ export interface DrainDeps {
     archive(id: string, reapKeys?: string[], reason?: SessionArchiveReason): Promise<number>;
   };
   resolveForge: (repoPath: string) => GitForge | null;
+  /** A cold repo (#2837): forge reads serve their cache and start no new call. */
+  frozen?: (repoPath: string) => boolean;
   prCache: { snapshot(): Record<string, GitState> };
   usage: { limits(now: number): UsageLimits };
   /** Candidate repo paths (e.g. listRepos output). */
@@ -1095,6 +1097,7 @@ export class DrainService {
     const key = `${repoPath}#${parentNumber}`;
     const cached = this.epicBranchScanCache.get(key);
     if (cached && this.now() - cached.at < EPIC_BRANCH_SCAN_TTL_MS) return cached.divergent;
+    if (this.deps.frozen?.(repoPath)) return cached?.divergent ?? [];
     try {
       const branches = await forge.listBranches("epic/");
       const divergent = branches.filter(

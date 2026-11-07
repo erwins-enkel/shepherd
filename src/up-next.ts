@@ -14,6 +14,7 @@ import type { GitForge, PullRequest } from "./forge/types";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { graphRateLimit } from "./forge/rate-limit";
 import { repoHasNoCiCached } from "./checks-gate";
+import { inLiveColdRead, liveColdRead } from "./repo-warmth";
 import { buildUpNextPrs, type UpNextPrsInFlight } from "./up-next-prs";
 import { reconcileRealPathRecordToRaw, reconcileRealPathsToRaw, type RepoEntry } from "./repos";
 import type { ReadinessScorer, ReadinessInputOf } from "./up-next-readiness";
@@ -120,6 +121,10 @@ export interface UpNextDeps {
   /** What non-archived sessions hold per repo (`prsHeldBySessions`), keyed by the sessions'
    *  realpath-space repoPath; read per build so a just-started session drops its PR on refilter. */
   prsInFlight?: () => ReadonlyMap<string, UpNextPrsInFlight>;
+  /** Warm repo gate (#2837): a cold repo is read from its cache only. Absent ⇒ all warm. */
+  isWarm?: (repoPath: string) => boolean;
+  /** When the slug's issues were cached, or null when nothing is — a cold repo's `asOf`. */
+  cachedIssuesAt?: (slug: string) => number | null;
   /** Whether a repo runs no CI on PRs; injectable for tests. Defaults to `repoHasNoCiCached`. */
   hasNoCi?: (forgeKind: GitForge["kind"], repoPath: string) => boolean;
 }
@@ -174,6 +179,7 @@ export class UpNextService {
   private input: {
     repos: RepoInput[];
     failedRepoCount: number;
+    coldSkippedCount: number;
     inputOf: ReadinessInputOf;
     /** When the input was fetched: a rebuild keeps this as `generatedAt`, so freshness stays honest. */
     fetchedAt: number;
@@ -208,8 +214,9 @@ export class UpNextService {
     const resolved = await mapBounded(repos, this.concurrency, (r) =>
       this.resolveRepo(r, lastUsed),
     );
-    const ok = resolved.filter((r): r is RepoInput => r !== null && r !== "fetch_failed");
+    const ok = resolved.filter((r): r is RepoInput => typeof r === "object" && r !== null);
     const failedRepoCount = resolved.filter((r) => r === "fetch_failed").length;
+    const coldSkippedCount = resolved.filter((r) => r === "cold_skipped").length;
     // Keep the text in this compute's private context, never on a published row.
     const bodies = new Map<string, Map<number, string>>();
     for (const repo of ok) {
@@ -224,7 +231,7 @@ export class UpNextService {
       body: bodies.get(item.repoPath)!.get(item.issueRef.number)!,
       labels: item.labels,
     });
-    this.input = { repos: ok, failedRepoCount, inputOf, fetchedAt: this.now() };
+    this.input = { repos: ok, failedRepoCount, coldSkippedCount, inputOf, fetchedAt: this.now() };
     return this.build();
   }
 
@@ -290,7 +297,7 @@ export class UpNextService {
 
   /** Build, rerank and publish a snapshot from the cached input with the current filter. */
   private build(): UpNextSnapshot {
-    const { repos, failedRepoCount, inputOf, fetchedAt } = this.input!;
+    const { repos, failedRepoCount, coldSkippedCount, inputOf, fetchedAt } = this.input!;
     const stored = this.deps.issueFilter?.() ?? DEFAULT_ISSUE_FILTER;
     // Overrides are realpath-keyed (like repo_config); items carry the raw listRepos path.
     const repoOverrides = reconcileRealPathRecordToRaw(
@@ -301,6 +308,7 @@ export class UpNextService {
     const raw = {
       ...buildSnapshot(repos, fetchedAt, null, failedRepoCount, filter),
       pullRequests: buildUpNextPrs(repos, filter, this.heldBy()),
+      ...(coldSkippedCount > 0 ? { coldSkippedCount } : {}),
     };
     this.raw = { snapshot: raw, inputOf };
     const readiness = this.activeReadiness();
@@ -392,6 +400,12 @@ export class UpNextService {
     return this.refresh();
   }
 
+  /** The manual refresh (#2837): a guaranteed-fresh recompute that reads cold repos live too,
+   *  without promoting them. */
+  refreshLive(): Promise<UpNextSnapshot> {
+    return liveColdRead(() => this.recompute());
+  }
+
   /** Does the snapshot still list any of the just-started items? Reconciles path-space:
    *  `started` carry safeRepoDir/realpath paths, while snapshot items carry raw
    *  join(repoRoot,name) paths (see buildUpNextRepos). Under a symlinked repoRoot these
@@ -442,9 +456,11 @@ export class UpNextService {
   private async resolveRepo(
     r: UpNextRepo,
     lastUsed: Record<string, number>,
-  ): Promise<RepoInput | "fetch_failed" | null> {
+  ): Promise<RepoInput | "fetch_failed" | "cold_skipped" | null> {
     const forge = this.deps.resolveForge(r.repoPath);
     if (!forge) return null; // forge vanished mid-compute → benign skip, not a fetch failure
+    const asOf = this.coldAsOf(r.repoPath, forge);
+    if (asOf === null) return "cold_skipped";
     // The operator's own login on this forge, for the "mine & unassigned" filter (#824). Cached
     // per-forge (`gh api user`), so ~free after the first call. null when the host can't resolve
     // it (local/un-authed/no identity API) → the core fails open and filters nothing.
@@ -457,17 +473,10 @@ export class UpNextService {
       // snapshot can surface a load error rather than looking "all caught up" (cf. #1221).
       return "fetch_failed";
     }
-    // The sub-issue and blocker scans run only for repos the operator works in (#2808): a
-    // reference clone is listed without them — no native-epic or dependency gating there.
-    const scan = this.workedIn(r.repoPath, lastUsed);
-    const summaries = (scan ? await forge.listSubIssueSummaries?.().catch(() => null) : null) ?? {
-      summaries: new Map<number, { total: number; completed: number }>(),
-      subIssueNumbers: [],
-    };
-    const links = await this.prLinks(forge);
-    const blockedByOpen =
-      (scan ? await forge.listBlockedByOpen?.().catch(() => null) : null) ??
-      new Map<number, number[]>();
+    const { summaries, blockedByOpen, links } = await this.relations(
+      forge,
+      this.workedIn(r.repoPath, lastUsed),
+    );
     for (const issue of openIssues) {
       const blockers = blockedByOpen.get(issue.number);
       if (blockers && blockers.length > 0) issue.blockedBy = blockers;
@@ -499,7 +508,33 @@ export class UpNextService {
       closingIssueByPr: links.closing,
       allowedMergeMethods,
       noCi: (this.deps.hasNoCi ?? repoHasNoCiCached)(forge.kind, r.repoPath),
+      ...(asOf !== undefined ? { asOf } : {}),
     };
+  }
+
+  /** Sub-issue summaries, open blockers and PR links. The sub-issue and blocker scans run only
+   *  for repos the operator works in (#2808, `scan`): a reference clone is listed without them —
+   *  no native-epic or dependency gating there. */
+  private async relations(forge: GitForge, scan: boolean) {
+    const summaries = (scan ? await forge.listSubIssueSummaries?.().catch(() => null) : null) ?? {
+      summaries: new Map<number, { total: number; completed: number }>(),
+      subIssueNumbers: [],
+    };
+    const links = await this.prLinks(forge);
+    const blockedByOpen =
+      (scan ? await forge.listBlockedByOpen?.().catch(() => null) : null) ??
+      new Map<number, number[]>();
+    return { summaries, blockedByOpen, links };
+  }
+
+  /** A cold GitHub repo (#2837) contributes its cached issues, read frozen: their fetch time, or
+   *  null when none are cached (the repo sits out). Undefined for a warm repo, inside the manual
+   *  refresh's live scope, and for other forges — only GitHub reads are frozen and cached. */
+  private coldAsOf(repoPath: string, forge: GitForge): number | null | undefined {
+    if (forge.kind !== "github" || !this.deps.isWarm || this.deps.isWarm(repoPath))
+      return undefined;
+    if (inLiveColdRead()) return undefined;
+    return forge.slug ? (this.deps.cachedIssuesAt?.(forge.slug) ?? null) : null;
   }
 
   /** Issues an open PR would close (dropped from the issue list) and each PR's lowest such issue

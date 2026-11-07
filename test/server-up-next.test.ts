@@ -89,6 +89,7 @@ function harness(
   const labelCalls: number[] = [];
   const recomputeCalls: Array<Array<{ repoPath: string; issueNumber: number }>> = [];
   let refreshCalls = 0;
+  let liveRefreshCalls = 0;
   let refilterCalls = 0;
   const staleRefreshCalls: number[] = [];
   let n = 0;
@@ -132,6 +133,10 @@ function harness(
         refreshCalls++;
         return SNAP;
       },
+      refreshLive: async () => {
+        liveRefreshCalls++;
+        return SNAP;
+      },
       refreshIfStale: (maxAgeMs) => {
         staleRefreshCalls.push(maxAgeMs);
       },
@@ -151,6 +156,7 @@ function harness(
     createCalls,
     labelCalls,
     refreshCalls: () => refreshCalls,
+    liveRefreshCalls: () => liveRefreshCalls,
     refilterCalls: () => refilterCalls,
     staleRefreshCalls,
     recomputeCalls,
@@ -216,10 +222,12 @@ test("GET /api/up-next?peek paints cached only (no recompute)", async () => {
   expect(refreshCalls()).toBe(0); // app-load path costs zero cross-repo gh fan-out
 });
 
-test("POST /api/up-next/refresh returns 202", async () => {
-  const { app } = harness();
+test("POST /api/up-next/refresh returns 202 and reads cold repos live (#2837)", async () => {
+  const { app, refreshCalls, liveRefreshCalls } = harness();
   const res = await app.fetch(new Request("http://x/api/up-next/refresh", { method: "POST" }));
   expect(res.status).toBe(202);
+  expect(liveRefreshCalls()).toBe(1);
+  expect(refreshCalls()).toBe(0);
 });
 
 test("POST /api/up-next/start spawns one session and stamps the claim", async () => {

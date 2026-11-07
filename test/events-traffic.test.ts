@@ -49,6 +49,8 @@ test("180 s stationary traffic falls by at least half while full changes remain 
       defaultBranch: "main",
       faviconUrl: "https://github.com/organization.png?size=40",
       noPrCiHold: false,
+      warm: true,
+      countsAt: 1_800_000_000_000,
     })),
     totals: { openIssues: 650, openPRs: 130 },
   };

@@ -13,6 +13,7 @@ import type { OpenPrSnapshot, PrStatus } from "../src/forge/types";
 import { OpenPrSnapshotService } from "../src/open-pr-snapshot";
 import { SessionStore } from "../src/store";
 import { CountsService } from "../src/backlog";
+import { inLiveColdRead, liveColdRead } from "../src/repo-warmth";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -138,10 +139,11 @@ function harness(store: GithubCacheStore = new MemoryStore()) {
     if (query.includes("issue(number:")) return JSON.stringify(EPIC);
     throw new Error(`unexpected gh call: ${args.join(" ")}`);
   };
-  const boot = () => {
+  const boot = (frozen?: (slug: string) => boolean, isWarm?: (slug: string) => boolean) => {
     const cache: GithubReadCache = new GithubReadCache(store, {
       now: () => now,
       canRefresh: () => svc.backgroundReady(),
+      frozen,
     });
     const svc = new RepoFingerprintService({
       cache,
@@ -158,6 +160,7 @@ function harness(store: GithubCacheStore = new MemoryStore()) {
       onObserved: (o) => {
         observations.push(o);
       },
+      isWarm,
     });
     setIssuesFreshness((slug) => svc.issuesKey(slug));
     const forge = new GithubForge("o/r", {}, run, undefined, undefined, cache);
@@ -888,5 +891,176 @@ describe("GitHub warm restart", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("cold repo freeze (#2837)", () => {
+  afterEach(() => {
+    setIssuesFreshness(null);
+    graphRateLimit.noteSuccess();
+  });
+
+  test("frozen reads serve a stale, expired hit with no gh call; a miss reads once", async () => {
+    const h = harness();
+    let frozen = false;
+    const { forge } = h.boot(() => frozen);
+    await forge.listIssues();
+    await forge.listOpenPrLinkedIssues();
+    await forge.listSubIssueSummaries();
+    await forge.getEpicStructure(10);
+    const warmCalls = h.calls.length;
+    frozen = true;
+    h.advance(25 * 3_600_000); // past every TTL and the 24h persisted expiry
+    expect((await forge.listIssues()).map((i) => i.number)).toEqual([10]);
+    expect([...(await forge.listOpenPrLinkedIssues()).keys()]).toEqual([11]);
+    expect((await forge.listSubIssueSummaries())?.subIssueNumbers).toEqual([11]);
+    expect((await forge.listBlockedByOpen())?.get(11)).toEqual([12]);
+    expect((await forge.getEpicStructure(10)).subIssues.map((c) => c.number)).toEqual([11]);
+    expect(h.calls.length).toBe(warmCalls);
+
+    // A miss on another slug while frozen still reads once.
+    const other = new GithubForge(
+      "o/other",
+      {},
+      async (args) => {
+        h.calls.push(args);
+        return JSON.stringify([ISSUE]);
+      },
+      undefined,
+      undefined,
+      h.boot(() => true).cache,
+    );
+    await other.listIssues();
+    await other.listIssues();
+    expect(h.calls.length).toBe(warmCalls + 1);
+  });
+
+  test("allowedMergeMethods: frozen serves its hit past the TTL, or null with no call", async () => {
+    let calls = 0;
+    let frozen = false;
+    const h = harness();
+    const cache = h.boot(() => frozen).cache;
+    const forge = new GithubForge(
+      "o/r",
+      {},
+      async () => {
+        calls++;
+        return JSON.stringify({
+          allow_merge_commit: false,
+          allow_squash_merge: true,
+          allow_rebase_merge: false,
+        });
+      },
+      undefined,
+      undefined,
+      cache,
+    );
+    frozen = true;
+    expect(await forge.allowedMergeMethods()).toBeNull();
+    expect(calls).toBe(0);
+    frozen = false;
+    expect(await forge.allowedMergeMethods()).toEqual(["squash"]);
+    frozen = true;
+    const realNow = Date.now;
+    Date.now = () => realNow() + 60 * 60_000;
+    try {
+      expect(await forge.allowedMergeMethods()).toEqual(["squash"]);
+    } finally {
+      Date.now = realNow;
+    }
+    expect(calls).toBe(1);
+  });
+
+  test("open-PR snapshot: frozen get serves the expired entry and schedules no re-read", async () => {
+    const h = harness();
+    let frozen = false;
+    const { forge, cache } = h.boot(() => frozen);
+    let reads = 0;
+    forge.listOpenPrSnapshot = async () => {
+      reads++;
+      return {
+        prs: [
+          {
+            number: 4,
+            title: "t",
+            url: "u",
+            branch: "topic",
+            headSha: "abc",
+            checks: "pending",
+            mergeable: null,
+          } as unknown as OpenPrSnapshot["prs"][number],
+        ],
+        statuses: new Map(),
+        capped: false,
+      };
+    };
+    const scheduled: Array<() => void> = [];
+    const snapshots = new OpenPrSnapshotService(h.now, 6, cache, (fn: () => void) => {
+      scheduled.push(fn);
+    });
+    await snapshots.get(forge);
+    expect(reads).toBe(1);
+    frozen = true;
+    h.advance(25 * 3_600_000);
+    for (const fn of scheduled.splice(0)) fn(); // timers queued while warm fire while cold
+    expect((await snapshots.get(forge))?.prs[0]?.number).toBe(4);
+    for (const fn of scheduled.splice(0)) fn();
+    await Promise.resolve();
+    expect(reads).toBe(1);
+  });
+
+  test("backlog counts: frozen serves the cached value whatever its age", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "shepherd-cold-counts-"));
+    try {
+      execFileSync("git", ["init", "-q", dir]);
+      execFileSync("git", ["-C", dir, "remote", "add", "origin", "https://github.com/o/r.git"]);
+      const h = harness();
+      let reads = 0;
+      const run: GhRunner = async () => {
+        reads++;
+        return JSON.stringify({
+          data: {
+            repository: {
+              issues: { totalCount: 2 },
+              pullRequests: { totalCount: reads, nodes: [] },
+              defaultBranchRef: { target: { statusCheckRollup: { state: "SUCCESS" } } },
+            },
+          },
+        });
+      };
+      let frozen = false;
+      const { cache } = h.boot(() => frozen);
+      const counts = new CountsService({}, run, fetch, undefined, undefined, undefined, cache);
+      expect((await counts.counts(dir)).openPRs).toBe(1);
+      const at = counts.peekAt(dir);
+      expect(at).toBe(h.now());
+      frozen = true;
+      h.advance(25 * 3_600_000);
+      expect((await counts.counts(dir)).openPRs).toBe(1);
+      expect(reads).toBe(1);
+      expect(counts.peekAt(dir)).toBe(at);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("live refresh re-reads a cold slug whose fingerprint was rehydrated at boot", async () => {
+    const h = harness();
+    const first = h.boot();
+    await first.svc.tick();
+    await first.forge.listIssues();
+    const before = h.calls.length;
+    h.advance(2 * 3_600_000); // inside the 24h expiry: only coverage decides freshness
+    // Restart: the slug's fingerprint is rehydrated (covered) but cold, so never re-observed.
+    const warm = false;
+    const cold = h.boot(
+      () => !warm && !inLiveColdRead(),
+      () => warm,
+    );
+    await cold.svc.tick();
+    await cold.forge.listIssues();
+    expect(h.calls.length).toBe(before); // frozen outside the live scope
+    await liveColdRead(() => cold.forge.listIssues());
+    expect(h.calls.length).toBeGreaterThan(before); // the stale rehydrated key vouches for nothing
   });
 });

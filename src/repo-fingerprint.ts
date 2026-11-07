@@ -1,6 +1,7 @@
 import type { FingerprintResult, RepoFingerprint } from "./forge/github-fingerprint";
 import type { RateLimitSnapshot } from "./forge/rate-limit";
 import { countsKey, issuesKey, type GithubReadCache } from "./github-read-cache";
+import { inLiveColdRead } from "./repo-warmth";
 
 /** One tracked GitHub repo: its slug and every local repo path that resolves to it. */
 export interface FingerprintTarget {
@@ -41,6 +42,9 @@ export interface RepoFingerprintDeps {
   /** Minimum spacing between demanded runs. */
   minGapMs?: number;
   cache?: GithubReadCache;
+  /** Warm repo gate (#2837): fleet runs observe only warm slugs; {@link
+   *  RepoFingerprintService.ensureFresh} still reaches any tracked slug. Absent ⇒ all warm. */
+  isWarm?: (slug: string) => boolean;
 }
 
 /** Which backlog-count entries a fingerprint run should re-fetch and which it should merely
@@ -187,10 +191,13 @@ export class RepoFingerprintService {
     return this.pending;
   }
 
-  /** True when the slug's issue list may be served from cache until its content key moves. */
+  /** True when the slug's issue list may be served from cache until its content key moves. A cold
+   *  slug is never observed, so inside the manual refresh's live scope (#2837) its last reading —
+   *  possibly a days-old rehydrated one — vouches for nothing. */
   covered(slug: string): boolean {
     const s = this.state.get(slug);
     if (!s) return false;
+    if (inLiveColdRead() && this.deps.isWarm && !this.deps.isWarm(slug)) return false;
     return (
       !!s.rehydrated || this.now() - s.observedAt < 3 * this.intervalMs || this.backgroundPaused()
     );
@@ -246,11 +253,12 @@ export class RepoFingerprintService {
     return this.reserve + Math.round((foreign * left) / 3_600_000);
   }
 
-  /** Single-flight fleet run over every tracked repo. */
+  /** Single-flight fleet run over every warm tracked repo. */
   private run(): Promise<void> {
     if (this.inflight) return this.inflight;
     this.lastRunAt = this.now();
-    const p = this.observe(() => this.deps.listTargets(), this.lastRunAt, true)
+    const warm = (t: FingerprintTarget) => this.deps.isWarm?.(t.slug) ?? true;
+    const p = this.observe(() => this.deps.listTargets().filter(warm), this.lastRunAt, true)
       .catch((err: unknown) => {
         console.warn("[fingerprint] run failed:", err instanceof Error ? err.message : err);
       })

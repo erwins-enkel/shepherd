@@ -25,6 +25,9 @@ import {
 } from "#lib/api.js";
 import { upNextPrKey } from "#lib/up-next-ui.svelte.js";
 import { issueFilterSettings } from "#lib/issue-filter-settings.svelte.js";
+import { relativeTimeAgo } from "#lib/format.js";
+import { getLocale } from "#lib/i18n.js";
+import { clock } from "#lib/now.svelte.js";
 
 // Mock the API so mounting the demand-driven lens makes no real network call.
 vi.mock("#lib/api.js", async (importOriginal) => {
@@ -775,6 +778,69 @@ describe("UpNextPanel load failure", () => {
     render(UpNextPanel, {});
     await expect.element(page.getByText("#2")).toBeInTheDocument();
     await expect.element(page.getByText(m.common_issues_load_failed())).not.toBeInTheDocument();
+  });
+});
+
+describe("UpNextPanel cold repos (#2837)", () => {
+  // Relative to the shared coarse clock the rows read, half an hour inside "3 hours ago".
+  const asOf = clock.current - 3.5 * 3_600_000;
+  const rowOf = (n: number) =>
+    Array.from(document.querySelectorAll<HTMLElement>(".un-row")).find(
+      (row) => row.querySelector(".un-num")?.textContent === `#${n}`,
+    )!;
+  const coldSnapshot = (coldSkippedCount?: number): UpNextSnapshot => ({
+    ...SNAPSHOT,
+    coldSkippedCount,
+    sections: [
+      {
+        kind: "repo",
+        repoPath: "~/projects/homeassistant",
+        repoSlug: null,
+        repoLabel: "homeassistant",
+        totalCount: 2,
+        items: [
+          { ...item("~/projects/homeassistant", 2), asOf },
+          item("~/projects/homeassistant", 3),
+        ],
+      },
+    ],
+  });
+
+  it("chips a row from a cold repo's cache with its age; live rows get none", async () => {
+    upNext.snapshot = coldSnapshot();
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#2")).toBeInTheDocument();
+    expect(rowOf(2).querySelector(".un-asof")?.textContent).toBe(
+      m.upnext_as_of({ ago: relativeTimeAgo(asOf, clock.current, getLocale()) }),
+    );
+    expect(rowOf(3).querySelector(".un-asof")).toBeNull();
+    expect(document.querySelector('[data-testid="upnext-cold-skipped"]')).toBeNull();
+  });
+
+  // The [[cold-repo|…]] marker renders as a glossary term: compare the visible text only (the
+  // term's hidden definition popover sits inside the note).
+  const plain = (s: string) => s.replace(/\[\[[^|\]]+\|([^\]]+)\]\]/g, "$1");
+  const visibleText = (el: Element) => {
+    const copy = el.cloneNode(true) as Element;
+    copy.querySelectorAll("[popover]").forEach((n) => n.remove());
+    return copy.textContent?.replace(/\s+/g, " ").trim();
+  };
+
+  it("footnotes cold repos left out, pluralized, with the glossary term marked", async () => {
+    upNext.snapshot = coldSnapshot(3);
+    render(UpNextPanel, {});
+    const note = page.getByTestId("upnext-cold-skipped");
+    await expect.element(note).toBeInTheDocument();
+    expect(visibleText(note.element())).toBe(plain(m.upnext_cold_skipped({ count: 3 })));
+    expect(note.element().querySelector(".gloss-term")).not.toBeNull();
+  });
+
+  it("uses the singular for one skipped repo, and shows the note over an empty queue", async () => {
+    upNext.snapshot = { ...SNAPSHOT, sections: [], coldSkippedCount: 1 };
+    render(UpNextPanel, {});
+    const note = page.getByTestId("upnext-cold-skipped");
+    await expect.element(note).toBeInTheDocument();
+    expect(visibleText(note.element())).toBe(plain(m.upnext_cold_skipped_one()));
   });
 });
 

@@ -481,3 +481,27 @@ test("GET /api/backlog surfaces per-repo recentAgentCount (null when none)", asy
   expect(byPath[repoA]).toBe(4);
   expect(byPath[repoB]).toBeNull();
 });
+
+test("buildBacklogPayload: warm + countsAt per project (#2837)", async () => {
+  const deps = makeDeps({
+    [repoA]: { openIssues: 1, openPRs: 0 },
+    [repoB]: { openIssues: 2, openPRs: 0 },
+  });
+  deps.warmth = { isWarmPath: (p) => p === repoA, touch: () => false };
+  deps.backlog = { ...deps.backlog!, peekAt: (p) => (p === repoB ? 1234 : null) };
+  const res = await makeApp(deps).fetch(new Request("http://x/api/backlog"));
+  const body = (await res.json()) as {
+    projects: { path: string; warm: boolean; countsAt: number | null }[];
+  };
+  const byPath = Object.fromEntries(body.projects.map((p) => [p.path, p]));
+  expect(byPath[repoA]).toMatchObject({ warm: true, countsAt: null });
+  expect(byPath[repoB]).toMatchObject({ warm: false, countsAt: 1234 });
+});
+
+test("buildBacklogPayload: without a warmth dep every repo is warm", async () => {
+  const res = await makeApp(makeDeps({ [repoA]: { openIssues: 1, openPRs: 0 } })).fetch(
+    new Request("http://x/api/backlog"),
+  );
+  const body = (await res.json()) as { projects: { warm: boolean }[] };
+  expect(body.projects.every((p) => p.warm)).toBe(true);
+});

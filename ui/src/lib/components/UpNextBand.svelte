@@ -22,7 +22,8 @@
 </script>
 
 <script lang="ts">
-  import { formatAgo } from "#lib/format.js";
+  import { formatAgo, relativeTimeAgo } from "#lib/format.js";
+  import { getLocale } from "#lib/i18n.js";
   import { clock } from "#lib/now.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import type { UpNextPrActions } from "#lib/up-next-pr-actions.svelte.js";
@@ -154,13 +155,19 @@
               aria-current={current ? "true" : undefined}
               onclick={() => (upNextUi.previewKey = key)}>{it.title}</button
             >
-            {#if showRepo || it.kind === "epic" || it.fromFork || labels.length > 0}
+            {#if showRepo || it.kind === "epic" || it.fromFork || it.asOf !== undefined || labels.length > 0}
               <span class="un-sub">
                 {#if it.kind === "epic"}<span class="un-pill">{m.upnext_pill_epic()}</span>{/if}
                 {#if it.fromFork}<span class="un-pill un-fork"
                     >{it.mine ? m.upnext_filter_tag_fork() : m.upnext_filter_tag_upstream()}</span
                   >{/if}
                 {#if showRepo}<span>{it.repoLabel || repoBase(it.repoPath)}</span>{/if}
+                <!-- A cold repo's row (#2837) comes from its cache, fetched at asOf. -->
+                {#if it.asOf !== undefined}<span class="un-pill un-asof"
+                    >{m.upnext_as_of({
+                      ago: relativeTimeAgo(it.asOf, clock.current, getLocale()),
+                    })}</span
+                  >{/if}
                 <IssueLabelChips {labels} labelColors={it.labelColors} all />
               </span>
             {/if}
@@ -328,6 +335,12 @@
   /* Fork origin is context, not a call to action — quieter than the epic pill. */
   .un-fork {
     color: var(--color-muted);
+  }
+  /* Cache age is a footnote on the row, quieter still. */
+  .un-asof {
+    text-transform: none;
+    border-color: var(--color-line);
+    color: var(--color-faint);
   }
   .un-meta {
     flex: none;

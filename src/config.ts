@@ -1,3 +1,4 @@
+import { WARM_REPO_DAYS_DEFAULT } from "./repo-warmth";
 import { normalizeStoredAssistantRuntime } from "./operator-assistant-settings";
 import { dirname, join } from "node:path";
 import { resolveBunBin, resolveNodeBin } from "./node-bin";
@@ -1000,6 +1001,9 @@ export const config = {
   autopilotCli: normalizeRoleCli(process.env.SHEPHERD_AUTOPILOT_CLI) ?? "claude",
   autopilotModel: normalizeRoleModelToken(process.env.SHEPHERD_AUTOPILOT_MODEL) ?? "haiku",
   autopilotEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_AUTOPILOT_EFFORT) ?? "low",
+  // Warm window in days (#2837): only repos with activity inside it get background GitHub reads.
+  // 0 turns gating off. UI-configurable + persisted (`warmRepoDays`).
+  warmRepoDays: WARM_REPO_DAYS_DEFAULT,
   // Max PR-critic auto-address rounds before escalating to a human (drives ReviewService).
   // UI-configurable + persisted; the env seeds the initial value on a fresh DB.
   prReviewCyclesCap: clampCap(

@@ -97,7 +97,7 @@ export class OpenPrSnapshotService {
     const slug = forge.slug!;
     this.syncReadCache(slug);
     const entry = this.entry(forge);
-    if (opts?.background && entry && graphRateLimit.blocked()) return entry.value;
+    if (entry && this.servedAsCached(forge, opts?.background)) return entry.value;
     const fpKey = forge.kind === "github" ? this.readCache?.contentKey("prs", slug) : null;
     if (
       entry &&
@@ -324,7 +324,7 @@ export class OpenPrSnapshotService {
     this.settlePending.add(slug);
     this.schedule(() => {
       this.settlePending.delete(slug);
-      if (graphRateLimit.blocked() || (this.readCache && !this.readCache.canRefresh())) return;
+      if (graphRateLimit.blocked() || !this.canReRead(forge)) return;
       void this.refresh(forge);
     }, SETTLE_DELAYS_MS[attempt]!);
   }
@@ -351,7 +351,7 @@ export class OpenPrSnapshotService {
     this.checksPending.add(slug);
     this.schedule(() => {
       this.checksPending.delete(slug);
-      if (graphRateLimit.blocked() || (this.readCache && !this.readCache.canRefresh())) return;
+      if (graphRateLimit.blocked() || !this.canReRead(forge)) return;
       // Empty when another read saw CI finish, or every pending PR is covered by now.
       const due = this.dueChecks(slug);
       if (due.length === 0) return;
@@ -366,6 +366,22 @@ export class OpenPrSnapshotService {
     if (!tries?.size) return [];
     const covered = this.prCoverage(slug);
     return [...tries.values()].filter((t) => t.spent < t.budget && !covered.has(t.number));
+  }
+
+  /** The cached snapshot is served as-is: a cold repo (#2837), or a background read while GraphQL
+   *  is limited. */
+  private servedAsCached(forge: GitForge, background?: boolean): boolean {
+    return this.isFrozen(forge) || (!!background && graphRateLimit.blocked());
+  }
+
+  /** A cold repo's snapshot (#2837) is served as cached and never re-read on its own. */
+  private isFrozen(forge: GitForge): boolean {
+    return forge.kind === "github" && !!this.readCache?.frozen(forge.slug!);
+  }
+
+  /** A timer's re-read may run: background refresh allowed and the repo not cold. */
+  private canReRead(forge: GitForge): boolean {
+    return (!this.readCache || this.readCache.canRefresh()) && !this.isFrozen(forge);
   }
 
   /** True when the forge can supply a snapshot (non-null slug + method present). */

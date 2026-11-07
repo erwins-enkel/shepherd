@@ -584,6 +584,7 @@ import { scanInstalled, installPlugin, uninstallPlugin } from "./plugins/manage"
 import { isPublicHttpsUrl, type LookupFn } from "./browser-origin-policy";
 import { randomUUID } from "node:crypto";
 import { apnsEndpoint, isApnsToken, parseApnsEndpoint } from "./apns";
+import { WARM_REPO_DAYS_SETTING, clampWarmRepoDays, type RepoWarmthService } from "./repo-warmth";
 import { APNS_FIELDS, type ApnsSaveInput, type ApnsSettings } from "./apns-settings";
 import {
   JUDGE_FIELDS,
@@ -983,6 +984,8 @@ export interface AppDeps {
   upNext?: {
     snapshot(): UpNextSnapshot | null;
     refresh(): Promise<UpNextSnapshot>;
+    /** The manual refresh: recompute reading cold repos live too (#2837). */
+    refreshLive?(): Promise<UpNextSnapshot>;
     /** Lens-open recompute, skipped while the snapshot is younger than `maxAgeMs` (#2658). */
     refreshIfStale(maxAgeMs: number): void;
     /** Recompute (guaranteed-fresh, verify-and-retry) until the just-started items drop from
@@ -1005,7 +1008,7 @@ export interface AppDeps {
   /** House Stack version resolver (#3108); defaults to the process-wide registry-backed one. */
   houseStackResolver?: Pick<HouseStackResolver, "resolve">;
   /** Backlog counts service; absent in tests that don't exercise it. */
-  backlog?: Pick<CountsService, "counts">;
+  backlog?: Pick<CountsService, "counts"> & Partial<Pick<CountsService, "peekAt">>;
   /** Read a repo's committed `.shepherd/roles.json` (#2299). Seam over `readRepoRoles` so the
    *  manual-merge gate is testable without a real repo whose default branch carries the file.
    *  Absent ⇒ the real reader. */
@@ -1026,6 +1029,9 @@ export interface AppDeps {
     ensureFresh(slug: string, demand?: boolean): Promise<void>;
     coversRepo(repoDir: string): boolean;
   };
+  /** The warm repo set (#2837): `isWarmPath` gates background reads; `touch` records the operator
+   *  opening a repo (true when that promoted a cold one). Absent ⇒ every repo is warm. */
+  warmth?: Pick<RepoWarmthService, "isWarmPath" | "touch">;
   /** Force-refresh one repo's backlog counts (bypassing the read-TTL) and push the
    *  rebuilt overview to every client. Fired after a mutation that changes a repo's
    *  open issue/PR counts (e.g. a merge) so the counters + headline drop the item
@@ -2697,7 +2703,9 @@ async function handleUpNext(ctx: Ctx): Promise<Response | null> {
 
   if (req.method === "POST" && parts[2] === "refresh") {
     if (!deps.upNext) return json({ error: "up-next unavailable" }, 503);
-    void deps.upNext.refresh().catch((err) => console.warn("[up-next] manual refresh:", err));
+    // The manual refresh is the one read of cold repos (#2837); older stubs only refresh.
+    const manual = deps.upNext.refreshLive?.() ?? deps.upNext.refresh();
+    void manual.catch((err) => console.warn("[up-next] manual refresh:", err));
     return json({ ok: true }, 202);
   }
 
@@ -9897,6 +9905,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       autoReviveEnabled: config.autoReviveEnabled,
       prReviewCyclesCap: config.prReviewCyclesCap,
       planReviewCyclesCap: config.planReviewCyclesCap,
+      warmRepoDays: config.warmRepoDays,
       // display-only: each cap's valid bounds, so the UI steppers read min/max off the
       // payload instead of hardcoding a mirror of the server constants.
       prReviewCyclesMin: PR_REVIEW_CYCLES_MIN,
@@ -10034,6 +10043,7 @@ const SETTING_PATCHES: [
   ["autoReviveEnabled", putAutoRevive],
   ["prReviewCyclesCap", putPrReviewCyclesCap],
   ["planReviewCyclesCap", putPlanReviewCyclesCap],
+  ["warmRepoDays", putWarmRepoDays],
   ["defaultModel", putDefaultModel],
   ["defaultCodexModel", putDefaultCodexModel],
   ["defaultEffort", putDefaultEffort],
@@ -10184,6 +10194,15 @@ function putPrReviewCyclesCap(value: unknown, deps: Ctx["deps"]): Response {
   config.prReviewCyclesCap = cap; // live: the next critic run reads it
   deps.store.setSetting("prReviewCyclesCap", String(cap)); // persist across restarts
   return json({ prReviewCyclesCap: config.prReviewCyclesCap });
+}
+
+function putWarmRepoDays(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return json({ error: "warmRepoDays must be a number" }, 400);
+  }
+  config.warmRepoDays = clampWarmRepoDays(value); // live: the warm set reads it per compute
+  deps.store.setSetting(WARM_REPO_DAYS_SETTING, String(config.warmRepoDays));
+  return json({ warmRepoDays: config.warmRepoDays });
 }
 
 function putPlanReviewCyclesCap(value: unknown, deps: Ctx["deps"]): Response {
@@ -11055,6 +11074,15 @@ async function issuesResponse(forge: GitForge): Promise<Response> {
   }
 }
 
+/** The operator opened `dir`'s view (#2837): it turns warm. A cold repo's counts are re-read and
+ *  the overview re-broadcast, so REPOS drops its cold badge within seconds. */
+function promoteRepo(deps: Ctx["deps"], dir: string): void {
+  if (!deps.warmth?.touch(dir)) return;
+  void deps.refreshBacklog?.(dir).catch((err: unknown) => {
+    console.warn("[warmth] backlog refresh after promotion failed:", err);
+  });
+}
+
 async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "issues" && !parts[2]) {
     const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
@@ -11066,8 +11094,10 @@ async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | 
     // list is current without a timed re-list (#2756). Just this repo — fingerprinting every
     // tracked repo here held the view for seconds. Only `fresh=1` (the operator opening the view)
     // gets the short gap; a client polling waits out the background cadence (#2869).
+    const demand = url.searchParams.get("fresh") === "1";
+    if (demand) promoteRepo(deps, dir);
     if (forge.kind === "github" && forge.slug)
-      await deps.fingerprint?.ensureFresh(forge.slug, url.searchParams.get("fresh") === "1");
+      await deps.fingerprint?.ensureFresh(forge.slug, demand);
     return issuesResponse(forge);
   }
   return null;
@@ -11321,6 +11351,7 @@ async function handlePrsList({ req, parts, url, deps }: Ctx): Promise<Response |
   if (!dir) return json({ error: "invalid repo" }, 400);
   const forge = deps.resolveForge?.(dir) ?? null;
   if (!forge) return json({ slug: null, webUrl: null, prs: [] });
+  promoteRepo(deps, dir); // the operator opened the repo's PRs tab (#2837)
   try {
     const snap = deps.openPrSnapshot ? await deps.openPrSnapshot.get(forge) : null;
     const prs = snap ? snap.prs : await forge.listPullRequests();
@@ -11770,6 +11801,10 @@ export interface BacklogProject {
   /** Auto-merge holds this repo's PRs for lack of PR CI (#3305) — flagged on the repo's chip,
    *  tile and Automation tab until the operator adds CI or turns on "Merge without CI". */
   noPrCiHold: boolean;
+  /** Background GitHub reads cover this repo (#2837); a cold repo shows last-known counts. */
+  warm: boolean;
+  /** When the shown counts were fetched; null when none are cached (or no forge). */
+  countsAt: number | null;
 }
 export interface BacklogPayload {
   pinnedPath: string | null;
@@ -11806,6 +11841,10 @@ export interface BacklogPayloadInputs {
   /** A repo's persisted config by its realpath — store.getRepoConfig. */
   repoConfig: (repoDir: string) => Pick<RepoConfig, "repoMode" | "mergeWithoutCi">;
   repoRoot: string;
+  /** Warm repo gate (#2837); absent ⇒ every repo is warm. */
+  isWarm?: (repoDir: string) => boolean;
+  /** When a repo's cached counts were fetched (CountsService.peekAt); absent ⇒ null. */
+  countsAt?: (repoDir: string) => number | null;
 }
 
 /**
@@ -11887,6 +11926,8 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
         r.forge?.kind,
         r.path,
       ),
+      warm: inputs.isWarm?.(r.path) ?? true,
+      countsAt: r.forge ? (inputs.countsAt?.(r.path) ?? null) : null,
     };
   });
 
@@ -12116,6 +12157,8 @@ async function handleBacklog({ req, parts, deps }: Ctx): Promise<Response | null
       pinnedRepoPaths: () => deps.store.pinnedRepoPaths(),
       repoConfig: (p) => deps.store.getRepoConfig(p),
       repoRoot: config.repoRoot,
+      isWarm: deps.warmth ? (p) => deps.warmth!.isWarmPath(p) : undefined,
+      countsAt: backlog.peekAt ? (p) => backlog.peekAt!(p) : undefined,
     }),
   );
 }
@@ -12710,8 +12753,10 @@ async function handleEpicsList({ req, parts, url, deps }: Ctx): Promise<Response
   if (!deps.drain) return json({ epics: [], subIssues: [] });
   const forge = deps.resolveForge?.(dir) ?? null;
   if (!forge) return json({ epics: [], subIssues: [] });
+  const demand = url.searchParams.get("fresh") === "1";
+  if (demand) promoteRepo(deps, dir);
   if (forge.kind === "github" && forge.slug)
-    await deps.fingerprint?.ensureFresh(forge.slug, url.searchParams.get("fresh") === "1"); // see handleIssues
+    await deps.fingerprint?.ensureFresh(forge.slug, demand); // see handleIssues
 
   const storedRun = deps.store.getEpicRun(dir);
   let openIssues: Awaited<ReturnType<typeof forge.listIssues>>;
@@ -13473,8 +13518,10 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
 
   // A repo the fingerprint covers is reconciled when its issues change (#2756), so this GET
   // never lists its issues; only uncovered repos (no fingerprint, e.g. Gitea) reconcile here.
+  // A cold repo (#2837) serves its stored rows; it reconciles once it turns warm.
   for (const repo of scopeRepos) {
-    if (!deps.fingerprint?.coversRepo(repo)) await reconcileCompletedEpicsForRepo(deps, repo);
+    if (deps.fingerprint?.coversRepo(repo) || deps.warmth?.isWarmPath(repo) === false) continue;
+    await reconcileCompletedEpicsForRepo(deps, repo);
   }
 
   // Re-query post-reconcile so the response reflects dismiss + backfill.

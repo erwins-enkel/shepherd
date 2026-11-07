@@ -17,6 +17,8 @@ export type SteerKind =
 export interface SteerLogEntry {
   ts: number;
   kind: SteerKind;
+  /** The PR head the message was sent on (#2863); absent when no PR was cached. */
+  headSha?: string;
 }
 
 /** Opening words → channel, most specific first ("You're in autopilot" alone is the generic
@@ -45,8 +47,14 @@ export function classifySteer(text: string): SteerKind {
 }
 
 /** The recorded `reply` signals of one session as a steer log, oldest first. */
-export function steerLog(rows: readonly { ts: number; payload: string }[]): SteerLogEntry[] {
-  return rows.map(({ ts, payload }) => ({ ts, kind: classifySteer(payload) }));
+export function steerLog(
+  rows: readonly { ts: number; payload: string; headSha?: string | null }[],
+): SteerLogEntry[] {
+  return rows.map(({ ts, payload, headSha }) => ({
+    ts,
+    kind: classifySteer(payload),
+    ...(headSha ? { headSha } : {}),
+  }));
 }
 
 /** Claude Code logs a long or multi-line paste wrapped as

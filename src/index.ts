@@ -1131,6 +1131,7 @@ const service = new SessionService({
   // Live PR snapshot for server-derived merge-train participant marking; lazy (prPoller
   // defined below). reconcileTrainMarks reads this to mark sessions whose PR is open.
   prSnapshot: (): Record<string, import("./forge/types").GitState> => prPoller.snapshot(),
+  prHead: (id) => prPoller.get(id)?.headSha ?? null,
   egressWatcher,
   netnsDevForward,
   // Best-effort pre-teardown recap: generate a durable recap while the worktree still

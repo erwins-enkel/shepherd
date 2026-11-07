@@ -47,6 +47,8 @@ export type SteerKind =
 export interface SteerLogEntry {
   ts: number;
   kind: SteerKind;
+  /** The PR head the message was sent on (#2863); absent when unknown. */
+  headSha?: string;
 }
 
 export interface BuildQueue {

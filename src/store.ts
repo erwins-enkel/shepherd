@@ -1910,6 +1910,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, sessionId TEXT,
       kind TEXT NOT NULL, payload TEXT NOT NULL, ts INTEGER NOT NULL)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS signals_repo_ts ON signals (repoPath, ts)`);
+    // #2863: the PR head a steer (`reply` signal) was sent on, so the loop check can tell "same
+    // failure, same head" from "new head, new failure". NULL when no PR was cached.
+    this.addMissingColumns("signals", { headSha: "TEXT" });
     // Maintain loop (#2157). Readings are UPSERTED per band key — one row per band, bounded by the
     // band count, so they need no retention sweep. They deliberately do NOT live in `signals`: the
     // `incident_spike` band counts `signals` BY KIND, so a breach written there would feed the very
@@ -6630,12 +6633,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   // ── signals ──────────────────────────────────────────────────────────────────
   /** Every message typed into `sessionId` since it was created (the `reply` signals sendSteerTo
    *  records), oldest first. Scoped by the session's repo so the (repoPath, ts) index serves it. */
-  listSessionSteers(sessionId: string): { ts: number; payload: string }[] {
+  listSessionSteers(sessionId: string): { ts: number; payload: string; headSha: string | null }[] {
     const s = this.get(sessionId);
     if (!s) return [];
     return this.db
-      .query<{ ts: number; payload: string }, [string, string, number]>(
-        `SELECT ts, payload FROM signals
+      .query<{ ts: number; payload: string; headSha: string | null }, [string, string, number]>(
+        `SELECT ts, payload, headSha FROM signals
          WHERE repoPath = ? AND sessionId = ? AND kind = 'reply' AND ts >= ?
          ORDER BY ts, rowid`,
       )
@@ -6647,6 +6650,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     sessionId: string | null;
     kind: SignalKind;
     payload: string;
+    /** The PR head a steer was sent on (#2863); omitted/null when unknown. */
+    headSha?: string | null;
   }): Signal {
     const sig: Signal = {
       id: randomUUID(),
@@ -6657,8 +6662,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       ts: Date.now(),
     };
     this.db.run(
-      `INSERT INTO signals (id, repoPath, sessionId, kind, payload, ts) VALUES (?,?,?,?,?,?)`,
-      [sig.id, sig.repoPath, sig.sessionId, sig.kind, sig.payload, sig.ts],
+      `INSERT INTO signals (id, repoPath, sessionId, kind, payload, ts, headSha) VALUES (?,?,?,?,?,?,?)`,
+      [sig.id, sig.repoPath, sig.sessionId, sig.kind, sig.payload, sig.ts, input.headSha ?? null],
     );
     return sig;
   }

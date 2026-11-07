@@ -414,6 +414,9 @@ export interface ServiceDeps {
    *  still-open PR. Absent → reconcile sees an empty snapshot (marks nothing). Wired
    *  from the poller in src/index.ts. */
   prSnapshot?: () => Record<string, GitState>;
+  /** One session's cached PR head (= prPoller.get(id)?.headSha), recorded with every steer so the
+   *  status panel's loop check can tell an unmoved head from a new one (#2863). Absent → null. */
+  prHead?: (id: string) => string | null;
   /** Plugin ids to disable on trimmed auto spawns; defaults to the memoized read of
    *  ~/.claude/settings.json `enabledPlugins` (installedPluginIds). Inject point for tests. */
   pluginIds?: () => Promise<string[]>;
@@ -7657,6 +7660,7 @@ export class SessionService {
         sessionId: s.id,
         kind: "reply",
         payload: signalPayload,
+        headSha: this.deps.prHead?.(s.id) ?? null,
       });
     if (!prelude) signal();
     const safe = sanitizeSteerText(text);

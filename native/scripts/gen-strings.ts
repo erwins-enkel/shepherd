@@ -636,6 +636,7 @@ export const KEYS_IOS_ACTIONS: readonly string[] = [
 
 // #3542 — iOS merge card above the steer capsule (web: viewport/pr-action-row.ts).
 export const KEYS_IOS_MERGE_CARD: readonly string[] = [
+  "gitrail_decommission_action",
   "gitrail_merge_blocked_busy",
   "gitrail_merge_blocked_pending",
   "gitrail_ready_to_merge",
@@ -659,15 +660,28 @@ export const KEYS_IOS_MERGE_CARD: readonly string[] = [
   "prrow_fact_critic_reviewed",
   "prrow_fact_critic_reviewing",
   "prrow_fact_no_conflicts",
+  "prrow_fix_ci",
+  "prrow_locked_critic",
+  "prrow_locked_not_live",
+  "prrow_logs_aria",
+  "prrow_logs_link",
   "prrow_merging",
   "prrow_more_aria",
+  "prrow_passive_ci",
+  "prrow_passive_rebase",
   "prrow_pr_link",
+  "prrow_rebase",
+  "prrow_sent",
   "prrow_state_behind",
   "prrow_state_ci_failed",
   "prrow_state_ci_running",
   "prrow_state_conflict",
   "prrow_state_draft",
+  "prrow_state_merged",
   "prrow_state_protected",
+  "prrow_tip_decommission",
+  "prrow_tip_fix_ci",
+  "prrow_tip_rebase",
 ];
 
 /** S5 — local server detection, install, start/stop/restart and the log tail. */

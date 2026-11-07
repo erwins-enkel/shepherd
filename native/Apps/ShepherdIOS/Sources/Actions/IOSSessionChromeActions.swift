@@ -17,7 +17,8 @@ struct IOSSessionChromeActions: View {
                 canMerge: state.canMerge(session, git: MergeInputs.git(app), reviewing: MergeInputs.reviewing(app, session.id)),
                 placement: placement, git: MergeInputs.git(app)[session.id],
                 verdict: app.extension(HerdSignals.self)?.verdicts[session.id],
-                reviewing: MergeInputs.reviewing(app, session.id))
+                reviewing: MergeInputs.reviewing(app, session.id),
+                alive: app.extension(HerdSignals.self)?.agentAlive(session.id))
             .onAppear {
                 if placement == .menu, let note = app.extension(ActionsModel.self)?.consumeOutcomeNote(forSessionID: session.id) {
                     state.outcome.note = .success(note)
@@ -43,6 +44,7 @@ struct IOSSessionChromeActionContent: View {
     var git: GitState?
     var verdict: ReviewVerdict?
     var reviewing = false
+    var alive: Bool?
     @State private var showsRecap = false
 
     var body: some View {
@@ -59,7 +61,8 @@ struct IOSSessionChromeActionContent: View {
                 .onDisappear { state.detailDidDisappear() }
         case .inline:
             if let git, MergeRowRules.visible(git), session.status.known != .archived {
-                IOSMergeCard(session: session, state: state, git: git, verdict: verdict, reviewing: reviewing, canMerge: canMerge)
+                IOSMergeCard(session: session, state: state, git: git, verdict: verdict, reviewing: reviewing, canMerge: canMerge,
+                    alive: alive)
             } else if state.busy || state.error != nil || state.outcome.note != nil || !state.allowsWrites || primaryReady {
                 VStack(alignment: .leading, spacing: 2) {
                     IOSActionFeedback(error: state.error, note: state.outcome.note, busy: state.busy)

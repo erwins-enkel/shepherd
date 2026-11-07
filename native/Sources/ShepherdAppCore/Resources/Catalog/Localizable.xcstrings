@@ -6260,6 +6260,23 @@
         }
       }
     },
+    "gitrail_decommission_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stilllegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decommission"
+          }
+        }
+      }
+    },
     "gitrail_merge": {
       "extractionState": "manual",
       "localizations": {
@@ -34739,6 +34756,91 @@
         }
       }
     },
+    "prrow_fix_ci": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI reparieren lassen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix CI"
+          }
+        }
+      }
+    },
+    "prrow_locked_critic": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Kritiker prüft diesen Stand. Sein Befund-Steer trägt den CI-Fehler womöglich schon, deshalb wartet die Reparatur, bis die Prüfung durch ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The critic is reviewing this head. Its findings steer may already carry the CI failure, so the fix waits until the review settles."
+          }
+        }
+      }
+    },
+    "prrow_locked_not_live": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent läuft nicht, es gibt nichts zu steuern. Setze ihn zuerst fort."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent is not running, so there is nothing to steer. Resume it first."
+          }
+        }
+      }
+    },
+    "prrow_logs_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logs des fehlgeschlagenen Checks beim Git-Host öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the failing check's logs on the git host"
+          }
+        }
+      }
+    },
+    "prrow_logs_link": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logs ↗"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logs ↗"
+          }
+        }
+      }
+    },
     "prrow_merging": {
       "extractionState": "manual",
       "localizations": {
@@ -34773,6 +34875,40 @@
         }
       }
     },
+    "prrow_passive_ci": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot repariert CI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot is fixing CI"
+          }
+        }
+      }
+    },
+    "prrow_passive_rebase": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot rebased"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot is rebasing"
+          }
+        }
+      }
+    },
     "prrow_pr_link": {
       "extractionState": "manual",
       "localizations": {
@@ -34786,6 +34922,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "PR ↗"
+          }
+        }
+      }
+    },
+    "prrow_rebase": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebase lassen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebase"
+          }
+        }
+      }
+    },
+    "prrow_sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesendet ✓"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent ✓"
           }
         }
       }
@@ -34876,6 +35046,23 @@
         }
       }
     },
+    "prrow_state_merged": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemergt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merged"
+          }
+        }
+      }
+    },
     "prrow_state_protected": {
       "extractionState": "manual",
       "localizations": {
@@ -34889,6 +35076,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Protected"
+          }
+        }
+      }
+    },
+    "prrow_tip_decommission": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnet die Stilllegen-Bestätigung. Es wird nichts an den Agenten gesendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens the decommission confirmation. Nothing is sent to the agent."
+          }
+        }
+      }
+    },
+    "prrow_tip_fix_ci": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steuert den Agenten einmal: Logs der fehlschlagenden Checks lesen, Ursache beheben, pushen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steers the agent once to read the failing checks' logs, fix the cause and push."
+          }
+        }
+      }
+    },
+    "prrow_tip_rebase": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steuert den Agenten einmal: Branch auf die Base rebasen und pushen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steers the agent once to rebase its branch onto the base branch and push."
           }
         }
       }

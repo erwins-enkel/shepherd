@@ -96,6 +96,8 @@ public final class HerdSignals: AppExtension {
     }
 
     public func isReviewing(_ id: String) -> Bool { reviewing.contains(id) }
+    /// The swept agent liveness: nil while unknown, false for a husk or strand.
+    public func agentAlive(_ id: String) -> Bool? { claudeAlive[id] }
 
     /// Raw rollup, matching tab-signal.svelte.ts: a conflict cannot mask a red CI co-signal.
     var ciRed: Set<String> { Set(git.filter { $0.value.checks.known == .failure }.keys) }

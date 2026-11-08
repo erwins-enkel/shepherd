@@ -22,27 +22,31 @@
     repoPath,
     sessionId,
     drain = null,
+    globals: given,
     armCoachmarks = false,
   }: {
     repoPath: string;
     /** The task the window was opened from: "Open shared browser" opens at its dev server. */
     sessionId?: string;
     drain?: DrainStatus | null;
+    /** The global settings, when the host loaded them; absent = loaded here. */
+    globals?: Settings | null;
     armCoachmarks?: boolean;
   } = $props();
 
-  let fableAvailable = $state(true);
-  let globals = $state<Settings | null>(null);
+  let loaded = $state<Settings | null>(null);
+  const globals = $derived(given === undefined ? loaded : given);
+  // Fail open while unknown: this is guidance only, and the spawn path still enforces availability.
+  const fableAvailable = $derived(globals?.fableAvailable ?? true);
   let openingBrowser = $state(false);
 
-  onMount(async () => {
-    try {
-      const settings = await getSettings();
-      fableAvailable = settings.fableAvailable;
-      globals = settings;
-    } catch {
-      // Fail open: this is guidance only, and the spawn path still enforces availability.
-    }
+  onMount(() => {
+    if (given !== undefined) return;
+    getSettings()
+      .then((s) => (loaded = s))
+      .catch(() => {
+        // Fail open, as above.
+      });
   });
 
   const SANDBOX_NAMES: Record<SandboxProfile, () => string> = {

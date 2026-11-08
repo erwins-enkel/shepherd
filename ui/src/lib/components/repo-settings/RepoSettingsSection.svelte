@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { DrainStatus, Session } from "#lib/types.js";
+  import type { DrainStatus, Session, Settings } from "#lib/types.js";
   import type { RepoSettingsSection } from "./sections";
   import AgentSection from "./AgentSection.svelte";
   import StartSection from "./StartSection.svelte";
@@ -17,6 +17,7 @@
     sessionId,
     planPhase = null,
     drain = null,
+    globals,
     armCoachmarks = false,
   }: {
     section: RepoSettingsSection;
@@ -24,13 +25,15 @@
     sessionId?: string;
     planPhase?: Session["planPhase"];
     drain?: DrainStatus | null;
+    /** The global settings, when the host loaded them; absent = the agent section loads its own. */
+    globals?: Settings | null;
     /** Register the coach-target anchors (sandbox-profile / draft-mode): the window only. */
     armCoachmarks?: boolean;
   } = $props();
 </script>
 
 {#if section === "agent"}
-  <AgentSection {repoPath} {sessionId} {drain} {armCoachmarks} />
+  <AgentSection {repoPath} {sessionId} {drain} {globals} {armCoachmarks} />
 {:else if section === "start"}
   <StartSection {repoPath} {sessionId} {planPhase} {drain} />
 {:else if section === "schedules"}

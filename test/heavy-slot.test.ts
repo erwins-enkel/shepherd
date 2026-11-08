@@ -846,7 +846,7 @@ describe("own scope per heavy run (#3555)", () => {
     return { h, calls, outcome, enabled };
   }
 
-  test("a session's run is told to gate; the operator CLI and a closed gate are not", async () => {
+  test("a session's run and the operator CLI are told to gate; a closed gate is not", async () => {
     const { h, enabled } = scoped();
     await h.svc.start();
     expect(await h.svc.acquire("s1", "bun run test", "/wt/s1")).toEqual({
@@ -858,6 +858,7 @@ describe("own scope per heavy run (#3555)", () => {
     expect(await h.svc.acquireOperator("cargo clippy", "/repo")).toEqual({
       decision: "run",
       jobId: "j2",
+      scope: true,
     });
     await h.svc.finish("operator", "j2", 0);
     enabled.value = false;
@@ -925,7 +926,7 @@ describe("own scope per heavy run (#3555)", () => {
     expect(await h.svc.oomNote("s1", "j2")).toBeNull();
   });
 
-  test("ingress: bind and finished carry the scope answers; the operator never binds", async () => {
+  test("ingress: bind and finished carry the scope answers", async () => {
     const { h } = scoped();
     await h.svc.start();
     const app = makeApp({ heavySlot: h.svc } as unknown as AppDeps);
@@ -947,6 +948,42 @@ describe("own scope per heavy run (#3555)", () => {
     expect(done).toMatchObject({ ok: true, oom: true });
     expect(done.message).toContain("memory limit");
     expect(await post("s1", { op: "bind" })).toMatchObject({ error: expect.any(String) });
+  });
+
+  test("operator route (#3784): bind scopes the operator's run and finished carries the note", async () => {
+    const { h, calls } = scoped();
+    await h.svc.start();
+    const app = makeApp({ heavySlot: h.svc } as unknown as AppDeps);
+    const post = async (url: string, body: unknown) =>
+      app.fetch(
+        new Request(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    const op = async (body: unknown) =>
+      (await post("http://127.0.0.1/api/heavy-slot/operator", body)).json();
+    expect(await op({ op: "acquire", command: "cargo clippy", cwd: "/repo" })).toEqual({
+      decision: "run",
+      jobId: "j1",
+      scope: true,
+    });
+    h.alive.set("j1", { count: 1, rssBytes: 1024, pids: [4242] });
+    // A session can never reach the operator holder's job: neither by its own id nor by "operator".
+    expect(await h.svc.bind("s1", "j1")).toEqual({ ok: false, scoped: false });
+    const viaSession = await post("http://127.0.0.1/api/sessions/operator/heavy-slot", {
+      op: "bind",
+      jobId: "j1",
+    });
+    expect(viaSession.status).toBe(404);
+    expect(calls.start).toEqual([]);
+    expect(await op({ op: "bind", jobId: "j1" })).toEqual({ ok: true, scoped: true });
+    expect(calls.start).toEqual([["j1", [4242], 6 * GIB]]);
+    h.alive.delete("j1");
+    const done = await op({ op: "finished", jobId: "j1", exitCode: 137 });
+    expect(done).toMatchObject({ ok: true, oom: true });
+    expect(done.message).toContain("memory limit (6 GiB)");
   });
 
   test("ingress: the OOM note survives a sweep that settled the job before the exit report", async () => {

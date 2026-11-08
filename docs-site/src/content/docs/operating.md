@@ -632,8 +632,13 @@ memory and swap until the host stalled.
      toward the agents' limits and stop with herdr.
    - The runner holds the command until Shepherd has moved it into the scope.
      If that fails, the check runs without its own limit.
-   - macOS, hosts without agent scopes and `shepherd slot run` from a
-     terminal run checks without a scope of their own.
+   - `shepherd slot run` gets the same scope, from a session and from an
+     operator terminal
+     ([#3784](https://github.com/erwins-enkel/shepherd/issues/3784)). A
+     terminal run stops with herdr too, and prints the memory-limit note
+     itself.
+   - macOS and hosts without agent scopes run checks without a scope of
+     their own.
 
 **Where you see it**
 - The **check-slot chip** in the top bar shows slots held and waiting, plus

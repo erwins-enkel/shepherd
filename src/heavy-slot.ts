@@ -385,7 +385,7 @@ export class HeavySlotService {
     }
     await this.#changed();
     if (out.kind === "unmanaged") return { decision: "run", unmanaged: true };
-    if (out.kind === "run") return this.#runAnswer(holder, out.job.id);
+    if (out.kind === "run") return this.#runAnswer(out.job.id);
     const etaMs = this.#ledgerView().jobs.find((j) => j.id === out.job.id)?.etaMs ?? null;
     return {
       decision: "queued",
@@ -427,10 +427,10 @@ export class HeavySlotService {
     return this.#deps.scope ?? DEFAULT_SCOPE;
   }
 
-  /** A session's run on a scope-capable host starts behind the runner's gate and asks to be bound
-   *  (#3555); the operator CLI never gates. */
-  #runAnswer(holder: string, jobId: string): AcquireResponse {
-    const scope = holder !== OPERATOR_HOLDER && this.#scopeReady();
+  /** A run on a scope-capable host starts behind the runner's gate and asks to be bound (#3555) —
+   *  a session's runner and the operator's `shepherd slot run` alike (#3784). */
+  #runAnswer(jobId: string): AcquireResponse {
+    const scope = this.#scopeReady();
     return { decision: "run", jobId, ...(scope ? { scope: true as const } : {}) };
   }
 

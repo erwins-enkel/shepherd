@@ -135,6 +135,7 @@ import type {
   Schedule,
   ScheduleInput,
   ScheduleRun,
+  RepoAgentProviderSetting,
 } from "./types";
 import type { MergeConfirmPayload } from "#lib/components/merge-confirm.js";
 import { m } from "#lib/paraglide/messages.js";
@@ -3282,6 +3283,22 @@ export interface AgentExtensions {
 
 export async function getAgentExtensions(): Promise<AgentExtensions> {
   return getJson("/api/agent-extensions", "agent-extensions");
+}
+
+/** A repo's own coding CLI, default model, effort and execution effort as stored (#3447);
+ *  "inherit" follows the global default. `repoPath` is the realpath the repo config keys on. */
+export interface RepoRunDefaults {
+  repoPath: string;
+  name: string;
+  agentProvider: RepoAgentProviderSetting;
+  defaultModel: string;
+  defaultEffort: string;
+  defaultExecutionEffort: string;
+}
+
+/** The repos with at least one own value, sorted by name — Settings › Coding CLI's list. */
+export async function getRepoRunDefaults(): Promise<{ repos: RepoRunDefaults[] }> {
+  return getJson("/api/repo-run-defaults", "repo-run-defaults");
 }
 
 /** Project-bootstrap state of a repo (#3105) — mirrors the server's RepoBootstrapView. */

@@ -8549,5 +8549,20 @@
   "reposettings_merge_goto_autopilot": "Zum Autopilot",
   "reposettings_signoff_reset_human": "„Freigabe durch“ steht jetzt auf „Mensch“: „Kritiker“ und „Mensch oder Kritiker“ brauchen einen aktiven Kritiker.",
   "feat_merge_mode_choice_title": "Eine Wahl für fertige PRs",
-  "feat_merge_mode_choice_body": "Der Bereich Merge der Repo-Einstellungen fragt einmal, wie fertige PRs landen: Du mergst, Entwurf bis Freigabe oder Voll-Auto-Merge – Entwurfsmodus und Voll-Auto-Merge sind so nie gleichzeitig an. Einstellungen, die ein Repo im Modus „Nur lokal“ oder ein ausgeschalteter Kritiker ausschließt, nennen den Grund jetzt direkt in ihrer Zeile."
+  "feat_merge_mode_choice_body": "Der Bereich Merge der Repo-Einstellungen fragt einmal, wie fertige PRs landen: Du mergst, Entwurf bis Freigabe oder Voll-Auto-Merge – Entwurfsmodus und Voll-Auto-Merge sind so nie gleichzeitig an. Einstellungen, die ein Repo im Modus „Nur lokal“ oder ein ausgeschalteter Kritiker ausschließt, nennen den Grund jetzt direkt in ihrer Zeile.",
+  "feat_repo_own_run_defaults_title": "Repos mit eigenem Coding-CLI auf einen Blick",
+  "feat_repo_own_run_defaults_body": "Einstellungen › Coding-CLI listet jetzt unter den globalen Standards jedes Repository mit eigenem Coding-CLI, Modell, Aufwand oder Ausführungsaufwand; geerbte Werte stehen als „erbt“ da. Öffnen führt zur Agent-Umgebung in den Einstellungen dieses Repositorys.",
+  "settings_repo_run_defaults_title": "Repos mit eigenen Werten",
+  "settings_repo_run_defaults_hint": "Diese Repos starten neue Aufgaben mit eigenem Coding-CLI, Modell oder Aufwand statt mit den globalen Standards oben. Ändern lässt sich das in den Einstellungen des Repos.",
+  "settings_repo_run_defaults_col_repo": "Repo",
+  "settings_repo_run_defaults_col_cli": "Coding-CLI",
+  "settings_repo_run_defaults_col_model": "Modell",
+  "settings_repo_run_defaults_col_effort": "Aufwand",
+  "settings_repo_run_defaults_col_execution": "Ausführung",
+  "settings_repo_run_defaults_col_actions": "Aktionen",
+  "settings_repo_run_defaults_inherits": "erbt",
+  "settings_repo_run_defaults_open": "Öffnen",
+  "settings_repo_run_defaults_open_aria": "Agent-Umgebung von {repo} öffnen",
+  "settings_repo_run_defaults_none": "Alle Repos folgen dem Standard.",
+  "settings_repo_run_defaults_load_failed": "Die Repos mit eigenen Werten ließen sich nicht laden."
 }

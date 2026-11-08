@@ -3519,6 +3519,24 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
+  /** The parent epic # when this child is integrated and its epic can still land (no completion
+   *  row, or landingState pending/open/error), else null. Such a child keeps its claim on purpose
+   *  until the landing PR closes it (#1037), so it is not an orphan and must not be released
+   *  (#3808). `merged`/`none` are terminal: a still-claimed child of those epics IS orphaned. */
+  epicClaimHoldParent(repoPath: string, childNumber: number): number | null {
+    const row = this.db
+      .query(
+        `SELECT ei.parentIssueNumber AS parent FROM epic_integrated ei
+         LEFT JOIN epic_completed ec
+           ON ec.repoPath = ei.repoPath AND ec.parentIssueNumber = ei.parentIssueNumber
+         WHERE ei.repoPath = ? AND ei.childNumber = ?
+           AND COALESCE(ec.landingState, 'pending') NOT IN ('merged', 'none')
+         LIMIT 1`,
+      )
+      .get(repoPath, childNumber) as { parent: number } | null;
+    return row?.parent ?? null;
+  }
+
   /** All integrated child rows for one epic, with PR details and mergedAt timestamp. */
   listEpicIntegratedDetails(
     repoPath: string,

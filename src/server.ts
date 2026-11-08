@@ -11383,6 +11383,13 @@ async function issueDrainReleaseError(
 ): Promise<Response | null> {
   if (issueHasSession(deps, dir, forge, number))
     return json({ error: "issue still has a session" }, 409);
+  // #3808: the claim of an integrated child is kept until its epic lands; releasing re-spawns it.
+  const epicParent = deps.store.epicClaimHoldParent(dir, number);
+  if (epicParent !== null)
+    return json(
+      { error: `issue is an integrated epic child held until epic #${epicParent} lands` },
+      409,
+    );
   if (!forge.hasOpenPrForIssue)
     return json({ error: "strict open PR verification unavailable" }, 503);
   if (await forge.hasOpenPrForIssue(number))

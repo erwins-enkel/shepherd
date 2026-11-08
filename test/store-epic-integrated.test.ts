@@ -139,3 +139,28 @@ test("epic base-mismatch markers: record/get/list/clear round-trip (#645)", () =
     { childNumber: 321, actualBase: "main", prNumber: null },
   ]);
 });
+
+test("epicClaimHoldParent: held only while the parent epic can still land (#3808)", () => {
+  const s = new SessionStore(":memory:");
+  expect(s.epicClaimHoldParent("/r", 12)).toBeNull(); // not integrated
+  s.recordEpicIntegrated("/r", 1, 12);
+  expect(s.epicClaimHoldParent("/r", 12)).toBe(1); // no completion row yet
+  expect(s.epicClaimHoldParent("/other", 12)).toBeNull(); // scoped by repo
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 1,
+    parentTitle: "Epic",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  const land = (state: "pending" | "open" | "error" | "merged" | "none") =>
+    s.setEpicLandingPr("/r", 1, { state, prNumber: null, prUrl: null, attempts: 0 });
+  for (const state of ["pending", "open", "error"] as const) {
+    land(state);
+    expect(s.epicClaimHoldParent("/r", 12)).toBe(1);
+  }
+  for (const state of ["merged", "none"] as const) {
+    land(state);
+    expect(s.epicClaimHoldParent("/r", 12)).toBeNull();
+  }
+});

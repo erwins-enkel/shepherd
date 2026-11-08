@@ -139,6 +139,27 @@ test("release refuses manual, auto, paused, done and other-checkout sessions", a
   }
 });
 
+test("release refuses an integrated child until its epic lands (#3808)", async () => {
+  const h = setup(["shepherd:active"]);
+  h.store.recordEpicIntegrated(h.dir, 522, 42);
+  const res = await h.post({ operation: "release" });
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({
+    error: "issue is an integrated epic child held until epic #522 lands",
+  });
+  expect(h.writes).toEqual([]);
+  h.store.recordEpicCompleted({
+    repoPath: h.dir,
+    parentIssueNumber: 522,
+    parentTitle: "epic",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  h.store.setEpicLandingPr(h.dir, 522, { state: "merged", prNumber: 9, prUrl: "pr", attempts: 0 });
+  expect((await h.post({ operation: "release" })).status).toBe(200);
+  expect(h.writes).toEqual(["-shepherd:active"]);
+});
+
 test("archived sessions do not prevent releasing an orphan", async () => {
   const h = setup(["shepherd:active"]);
   h.store.update(h.session().id, { status: "archived" });

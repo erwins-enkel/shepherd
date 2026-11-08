@@ -2827,6 +2827,59 @@ describe("claim diagnostics and explicit resolution", () => {
   });
 });
 
+test("integrated children of an unlanded epic are held, not orphaned claims (#3808)", async () => {
+  let refReads = 0;
+  const h = makeHarness({
+    issues: [issue(487, { labels: [ACTIVE_LABEL] }), issue(133, { labels: [ACTIVE_LABEL] })],
+    get claimReferences() {
+      refReads++;
+      return [];
+    },
+  });
+  h.store.recordEpicIntegrated(REPO, 522, 487);
+  const [status] = await h.drain.snapshot();
+  expect(status!.claimDiagnostics!.map((c) => c.number)).toEqual([133]);
+  expect(refReads).toBe(1); // the held child's PR references are never read
+  expect(await h.drain.resolveClaim(REPO, 487, "release")).toEqual({
+    ok: false,
+    error: "changed",
+  });
+  expect(h.forgeRec.removed).toEqual([]);
+  h.store.recordEpicCompleted({
+    repoPath: REPO,
+    parentIssueNumber: 522,
+    parentTitle: "epic",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  h.store.setEpicLandingPr(REPO, 522, { state: "merged", prNumber: 9, prUrl: "pr", attempts: 0 });
+  expect(await h.drain.resolveClaim(REPO, 487, "release")).toEqual({ ok: true });
+});
+
+test("only held epic children yield no orphaned-claims status (#3808)", async () => {
+  const h = makeHarness({ issues: [issue(487, { labels: [ACTIVE_LABEL] })], claimReferences: [] });
+  h.store.recordEpicIntegrated(REPO, 522, 487);
+  const [status] = await h.drain.snapshot();
+  expect(status!.claimDiagnostics).toEqual([]);
+  expect(status!.reason).not.toBe("orphaned_claims");
+});
+
+test("a landed epic's still-claimed child is listed again from the cached read (#3808)", async () => {
+  const h = makeHarness({ issues: [issue(487, { labels: [ACTIVE_LABEL] })], claimReferences: [] });
+  h.store.recordEpicCompleted({
+    repoPath: REPO,
+    parentIssueNumber: 522,
+    parentTitle: "epic",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  h.store.setEpicLandingPr(REPO, 522, { state: "none", prNumber: null, prUrl: null, attempts: 0 });
+  h.store.recordEpicIntegrated(REPO, 522, 487);
+  expect((await h.drain.snapshot())[0]!.claimDiagnostics!.map((c) => c.number)).toEqual([487]);
+  h.store.setEpicLandingPr(REPO, 522, { state: "open", prNumber: 9, prUrl: "pr", attempts: 0 });
+  expect((await h.drain.snapshot())[0]!.claimDiagnostics).toEqual([]); // cached, still filtered
+});
+
 test("claim resolution rechecks PRs and requires merge evidence to close", async () => {
   const refs: import("../src/forge/types").IssuePullRequestReference[] = [];
   const h = makeHarness({

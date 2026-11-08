@@ -341,6 +341,11 @@ mod tests {
             json!({"pluginAllowlist": null})
         );
         assert_eq!(r("skillAllowlist", "[]"), json!({"skillAllowlist": []}));
+        // #3441: the repo's coding CLI is plain text.
+        assert_eq!(
+            r("agentProvider", "codex"),
+            json!({"agentProvider": "codex"})
+        );
     }
 
     #[test]

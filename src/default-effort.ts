@@ -110,6 +110,23 @@ export function resolveDefaultEffortSetting(
 }
 
 /**
+ * The effective default-effort SETTING for a spawn on `provider` (#3441): the repo override when
+ * that engine offers the tier, else the engine's own default (→ the global default). A repo tier
+ * the engine lacks ("ultra" on Claude) never reaches the spawn.
+ */
+export function resolveProviderDefaultEffortSetting(
+  repoSetting: string | null | undefined,
+  provider: AgentProvider,
+  s: EngineEffortSettings,
+): string {
+  const engine = engineDefaultEffortSetting(provider, s);
+  const resolved = resolveDefaultEffortSetting(repoSetting, engine);
+  return resolved === "default" || effortsForProvider(provider).includes(resolved)
+    ? resolved
+    : engine;
+}
+
+/**
  * The argv-build seam: normalize a resolved effort tier, or return null to emit no flag.
  * Pure; the argv builders format the actual flag
  * (`--effort <tier>` for Claude, `-c model_reasoning_effort=<tier>` for Codex).

@@ -121,6 +121,7 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
     usageCeilingPct: 80,
     sandboxProfile: "inherit",
     sandboxDefaultProfile: "trusted", // pinned by test/setup-test-env.ts
+    agentProvider: "inherit",
     defaultModel: "inherit",
     defaultEffort: "inherit",
     defaultExecutionEffort: "inherit",
@@ -211,6 +212,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     usageCeilingPct: 80,
     sandboxProfile: "inherit",
     sandboxDefaultProfile: "trusted", // pinned by test/setup-test-env.ts
+    agentProvider: "inherit",
     defaultModel: "inherit",
     defaultEffort: "inherit",
     defaultExecutionEffort: "inherit",
@@ -255,6 +257,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     usageCeilingPct: 80,
     sandboxProfile: "inherit",
     sandboxDefaultProfile: "trusted", // pinned by test/setup-test-env.ts
+    agentProvider: "inherit",
     defaultModel: "inherit",
     defaultEffort: "inherit",
     defaultExecutionEffort: "inherit",
@@ -309,6 +312,7 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
     usageCeilingPct: 80,
     sandboxProfile: "inherit",
     sandboxDefaultProfile: "trusted", // pinned by test/setup-test-env.ts
+    agentProvider: "inherit",
     defaultModel: "inherit",
     defaultEffort: "inherit",
     defaultExecutionEffort: "inherit",

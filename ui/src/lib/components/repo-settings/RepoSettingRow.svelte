@@ -172,7 +172,7 @@
     margin-top: 3px;
   }
   .rs-control {
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     min-width: 0;
     max-width: 55%;
     display: flex;

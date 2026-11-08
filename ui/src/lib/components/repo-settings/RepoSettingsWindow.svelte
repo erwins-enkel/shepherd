@@ -132,7 +132,7 @@
         <h2 class="repo">{repoName}</h2>
         <span class="sub">{m.automation_panel_subtitle()}</span>
       </div>
-      <RepoModeChoice {repoPath} armCoachmarks />
+      <div class="mode-slot"><RepoModeChoice {repoPath} armCoachmarks /></div>
       <button type="button" class="x" onclick={onclose} aria-label={m.common_close()}>✕</button>
     </header>
     <div class="body">
@@ -278,8 +278,14 @@
       padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
     }
     .x {
+      order: 1;
       min-width: 44px;
       min-height: 44px;
+    }
+    /* title and ✕ share the first line, the repo mode takes the second */
+    .mode-slot {
+      order: 2;
+      flex-basis: 100%;
     }
     .body {
       flex-direction: column;

@@ -34,9 +34,11 @@
   // svelte-ignore state_referenced_locally
   let drainCeiling = $state(repoConfig.usageCeilingFor(repoPath));
   $effect(() => {
-    // untrack the store reads so committing a field (which writes back to the
-    // store) never retriggers this effect and clobbers an in-flight edit.
+    // Re-seed when the repo changes, and once its stored config arrives (the rails can mount
+    // before it loaded). The store reads are untracked so committing a field (which writes back
+    // to the store) never retriggers this effect and clobbers an in-flight edit.
     const repo = repoPath;
+    void repoConfig.isConfigLoaded(repo);
     untrack(() => {
       drainCap = repoConfig.maxAutoFor(repo);
       drainLabel = repoConfig.autoLabelFor(repo);

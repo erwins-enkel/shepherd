@@ -12,7 +12,7 @@ export const AUTONOMY_LEVELS = ["onCall", "review", "backlog", "full"] as const;
 export type AutonomyLevel = (typeof AUTONOMY_LEVELS)[number];
 
 /** The five values a level sets. */
-export interface AutonomyValues {
+interface AutonomyValues {
   critic: boolean;
   autoAddress: boolean;
   autopilot: boolean;
@@ -41,7 +41,7 @@ type AutonomyFlags = Pick<
 
 /** The five values as they take effect, by the rules the settings' rows apply: Auto-Address only
  *  with the Critic on, Auto-Drain only in a GitHub repo, a local-only repo's draft as you merge. */
-export function effectiveAutonomy(flags: AutonomyFlags, lightweight: boolean): AutonomyValues {
+function effectiveAutonomy(flags: AutonomyFlags, lightweight: boolean): AutonomyValues {
   return {
     critic: flags.critic,
     autoAddress: flags.autoAddress && flags.critic,

@@ -79,7 +79,7 @@ export function mergeModeName(mode: MergeMode): string {
   return mode === "auto" ? m.automation_automerge_name() : m.reposettings_merge_mode_manual();
 }
 
-export function cliName(cli: AgentProvider): string {
+function cliName(cli: AgentProvider): string {
   return cli === "codex" ? m.agent_provider_codex() : m.agent_provider_claude();
 }
 

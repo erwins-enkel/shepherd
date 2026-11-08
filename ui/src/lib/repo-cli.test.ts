@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   effectiveRepoProvider,
+  ownRunDefaults,
   repoEffortFitsProvider,
   repoModelFitsProvider,
   repoPinnedProvider,
@@ -32,5 +33,44 @@ describe("repo coding CLI (#3441)", () => {
     expect(repoEffortFitsProvider("ultra", "codex")).toBe(true);
     expect(repoEffortFitsProvider("max", "claude")).toBe(true);
     expect(repoEffortFitsProvider("inherit", "claude")).toBe(true);
+  });
+});
+
+describe("ownRunDefaults (#3447)", () => {
+  const row = (over: Partial<Parameters<typeof ownRunDefaults>[0][number]> = {}) => ({
+    repoPath: "/r/app",
+    agentProvider: "inherit" as const,
+    defaultModel: "inherit",
+    defaultEffort: "inherit",
+    defaultExecutionEffort: "inherit",
+    ...over,
+  });
+
+  it("keeps a pinned CLI and an own execution effort", () => {
+    expect(ownRunDefaults([row({ agentProvider: "codex" })], "claude")).toHaveLength(1);
+    expect(ownRunDefaults([row({ defaultExecutionEffort: "high" })], "claude")).toHaveLength(1);
+  });
+
+  it("a model or effort the effective CLI cannot run reads inherit", () => {
+    const [r] = ownRunDefaults(
+      [row({ agentProvider: "codex", defaultModel: "opus", defaultEffort: "low" })],
+      "claude",
+    );
+    expect(r).toMatchObject({
+      agentProvider: "codex",
+      defaultModel: "inherit",
+      defaultEffort: "low",
+    });
+    const [u] = ownRunDefaults(
+      [row({ defaultEffort: "ultra", defaultExecutionEffort: "high" })],
+      "claude",
+    );
+    expect(u?.defaultEffort).toBe("inherit");
+  });
+
+  it("drops a repo left with nothing of its own", () => {
+    expect(ownRunDefaults([row({ defaultModel: "opus" })], "codex")).toEqual([]);
+    expect(ownRunDefaults([row({ defaultModel: "opus" })], "claude")).toHaveLength(1);
+    expect(ownRunDefaults([row()], "claude")).toEqual([]);
   });
 });

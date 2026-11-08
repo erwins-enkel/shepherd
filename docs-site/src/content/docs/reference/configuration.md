@@ -173,7 +173,9 @@ the repo's **Coding CLI** (automation settings; `agentProvider` on `PUT /api/rep
 `SHEPHERD_DEFAULT_AGENT_PROVIDER`. A repo on **Inherit** follows a later change of the global
 default. New task preselects the repo's CLI and marks it **Repo default**. A repo default model or
 effort the CLI cannot run is skipped, and switching the repo's CLI resets such a value to
-**Inherit**.
+**Inherit**. **Settings › Coding CLI** lists the repos with their own coding CLI, model, effort or
+execution effort under the global defaults (`GET /api/repo-run-defaults`); **Open** goes to that
+repo's Agent environment settings.
 
 For model and effort, Shepherd walks this list top to bottom and takes the first level that has a
 value:

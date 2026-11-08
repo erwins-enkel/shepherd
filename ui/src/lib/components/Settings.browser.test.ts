@@ -37,6 +37,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     getSettings: vi.fn(),
     listAccessTokens: vi.fn(async () => ({ tokens: [] })),
     listRepos: vi.fn(async () => ({ repos: [] })),
+    getRepoRunDefaults: vi.fn(async () => ({ repos: [] })),
     createAccessToken: vi.fn(),
     putRoleCli: vi.fn(async (key, value) => ({ [key]: value })),
     putRoleModel: vi.fn(async (key, value) => ({ [key]: value })),

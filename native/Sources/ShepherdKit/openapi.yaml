@@ -10073,6 +10073,46 @@ components:
           items:
             $ref: "#/components/schemas/AgentExtensionEntry"
           description: Personal skills of every CLI (~/.claude/skills, ~/.agents/skills), one entry per name, sorted.
+    RepoRunDefaults:
+      type: object
+      additionalProperties: false
+      required:
+        - repoPath
+        - name
+        - agentProvider
+        - defaultModel
+        - defaultEffort
+        - defaultExecutionEffort
+      properties:
+        repoPath:
+          type: string
+          description: The repo's resolved path (realpath), the key /api/repo-config and sessions use.
+        name:
+          type: string
+          description: The repo's directory name under the repo root.
+        agentProvider:
+          type: string
+          description: inherit | claude | codex, as stored (see RepoConfig.agentProvider).
+        defaultModel:
+          type: string
+          description: inherit | auto | default | a model alias, as stored. A model the repo's effective CLI cannot run is skipped at spawn time.
+        defaultEffort:
+          type: string
+          description: inherit | default | an effort tier, as stored. A tier the repo's effective CLI does not offer is skipped at spawn time.
+        defaultExecutionEffort:
+          type: string
+          description: inherit | default | an effort tier — the tier a plan-gated session switches to at Go, as stored.
+    RepoRunDefaultsList:
+      type: object
+      additionalProperties: false
+      required:
+        - repos
+      properties:
+        repos:
+          type: array
+          items:
+            $ref: "#/components/schemas/RepoRunDefaults"
+          description: Repos under the repo root with at least one of agentProvider, defaultModel, defaultEffort or defaultExecutionEffort not set to inherit, sorted by name.
     RepoConfigPatch:
       type: object
       additionalProperties: false
@@ -16574,6 +16614,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AgentExtensions"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/repo-run-defaults:
+    get:
+      operationId: getRepoRunDefaults
+      description: The repos whose coding CLI, default model, effort or execution effort is their own rather than inherited (#3447) — Settings › Coding CLI's list. Stored values.
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoRunDefaultsList"
         "401":
           $ref: "#/components/responses/Unauthorized"
   /api/repo-bootstrap:

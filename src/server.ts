@@ -3771,6 +3771,23 @@ async function handleAgentExtensions({ req, parts, deps }: Ctx): Promise<Respons
   return json(await (deps.agentExtensions ?? readAgentExtensions)());
 }
 
+/** GET /api/repo-run-defaults (#3447): the repos under the repo root whose coding CLI, default
+ *  model, effort or execution effort is their own (stored values), for Settings › Coding CLI. */
+async function handleRepoRunDefaults({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "repo-run-defaults" && !parts[2])) return null;
+  if (req.method !== "GET") return null;
+  // repo_config keys are realpath-resolved; rows for a repo no longer under the root drop out.
+  const names = new Map(listRepos(config.repoRoot).map((r) => [r.realPath, r.name]));
+  const repos = deps.store
+    .reposWithOwnRunDefaults()
+    .flatMap((d) => {
+      const name = names.get(d.repoPath);
+      return name === undefined ? [] : [{ ...d, name }];
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return json({ repos });
+}
+
 /** #3221: derived, read-only — the repo is on GitHub and no workflow runs on a PR head, so its
  *  PRs carry no checks. The automation pane warns next to `mergeWithoutCi`. */
 function withNoPrCi<T extends object>(
@@ -14744,6 +14761,7 @@ const ROUTE_HANDLERS = [
   handleEpicQueueReorder,
   handleRepoConfig,
   handleAgentExtensions,
+  handleRepoRunDefaults,
   handleRepoBootstrap,
   handleSchedules,
   handleRepoBrowserOpen,

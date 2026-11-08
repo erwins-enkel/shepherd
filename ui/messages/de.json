@@ -2212,7 +2212,7 @@
   "feat_usage_task_names_title": "Aufgabennamen in der Nutzung",
   "feat_usage_task_names_body": "Die Zeilen pro Aufgabe in den Ansichten Nutzung → Verbrauch und Overhead zeigen jetzt den Kurznamen jeder Aufgabe neben ihrer Kennung — damit du Aufgaben auf einen Blick auseinanderhältst, statt IDs lesen zu müssen.",
   "firsttask_confirm_title": "Automatisierung bestätigen",
-  "firsttask_confirm_intro": "Shepherd hat {repo} noch nie gesteuert. Überprüfe die Automatisierungseinstellungen unten — sie gelten für jede Aufgabe in diesem Repository — und bestätige, um diese Aufgabe zu starten.",
+  "firsttask_confirm_intro": "Shepherd hat {repo} noch nie gesteuert. Wähle, wie viel Shepherd hier allein macht — die Stufe gilt für jede Aufgabe in diesem Repository, jeden einzelnen Schalter findest du in den Repo-Einstellungen — und bestätige, um diese Aufgabe zu starten.",
   "firsttask_confirm_cta": "Bestätigen & Aufgabe starten",
   "feat_first_task_confirm_title": "Einstellungen vor der ersten Aufgabe prüfen",
   "feat_first_task_confirm_body": "Das Starten einer Aufgabe in einem neuen Repository zeigt nun einen kurzen Überprüfungsschritt, damit du die Automatisierungseinstellungen vor dem ersten Durchlauf prüfen kannst. Nach einmaliger Bestätigung starten weitere Aufgaben im selben Repository ohne Unterbrechung.",

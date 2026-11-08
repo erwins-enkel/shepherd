@@ -399,7 +399,7 @@
 "guardtl_marker_auto" = "Auto";
 "guardtl_marker_conditional" = "Conditional";
 "guardtl_marker_you" = "You";
-"guardtl_open_automation" = "Open automation settings for this repo";
+"guardtl_open_automation" = "Open repo settings for this repo";
 "guardtl_step_critic_auto" = "Shepherd works through critic findings itself, up to the round limit; after that they come to you";
 "guardtl_step_critic_manual" = "The critic reviews once CI is green; anything it finds comes to you";
 "guardtl_step_critic_off" = "No automatic code review — you review it yourself";

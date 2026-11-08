@@ -8260,5 +8260,19 @@
   "tooltip_agent_ext_risk": "Achtung",
   "tooltip_agent_ext_risk_body": "Verweist CLAUDE.md auf einen Skill, den du hier abgeschaltet hast, suchen die Agents danach und finden ihn nicht.",
   "feat_agent_extensions_title": "Plugins und Skills pro Repo",
-  "feat_agent_extensions_body": "In den Automatisierungs-Einstellungen eines Repos wählst du jetzt, welche deiner Plugins und persönlichen Skills seine Claude-Sessions laden. Alles andere bleibt dort aus, so trägt jeder Turn weniger Kontext."
+  "feat_agent_extensions_body": "In den Automatisierungs-Einstellungen eines Repos wählst du jetzt, welche deiner Plugins und persönlichen Skills seine Claude-Sessions laden. Alles andere bleibt dort aus, so trägt jeder Turn weniger Kontext.",
+  "experiment_machine_label": "Rechner",
+  "experiment_move_note": "Zieht mit dem Arbeitsstand um: Nicht Committetes wird committet, der Branch gepusht, dort setzt eine neue Session auf demselben Branch fort, und diese wird archiviert.",
+  "experiment_move_confirm": "Auf {machine} weiterführen",
+  "experiment_move_held": "{machine} hält die umgezogene Session zurück und startet sie, sobald Platz ist. Das Original ist archiviert.",
+  "experiment_move_not_archived": "Die Session läuft auf {machine} weiter, aber das Original konnte nicht archiviert werden. Archiviere es selbst.",
+  "experiment_move_unknown": "Keine Antwort von {machine} – die Session ist dort vielleicht gestartet. Das Original bleibt gestoppt: Archiviere es, sobald die neue Session erscheint, oder setze es fort.",
+  "experiment_move_merging": "Diese Session wird gerade gemergt. Ziehe sie um, wenn der Merge fertig ist.",
+  "experiment_move_no_branch": "Diese Session hat keinen eigenen Arbeitsbranch und kann deshalb nicht auf einen anderen Rechner umziehen.",
+  "experiment_move_unsupported": "Diese Art von Session kann nicht auf einen anderen Rechner umziehen.",
+  "experiment_move_in_progress": "Diese Session zieht bereits um.",
+  "experiment_move_push_failed": "Der Arbeitsstand konnte nicht gepusht werden. Nichts ist umgezogen, der Agent arbeitet hier weiter: {reason}",
+  "experiment_move_project_missing_here": "Dieser Rechner hat keinen Checkout dieses Projekts, deshalb kann die Session nicht hierher umziehen.",
+  "feat_continue_on_machine_title": "Session auf einem anderen Rechner weiterführen",
+  "feat_continue_on_machine_body": "„Weiterführen mit…“ hat jetzt ein Feld „Rechner“, sobald ein weiterer Rechner verbunden ist. Wähle einen anderen, und die Session zieht mit ihrem Arbeitsstand um: Nicht Committetes wird committet, der Branch gepusht, dort setzt eine neue Session auf demselben Branch fort (ein offener PR bleibt derselbe) – mit der gewählten CLI und dem Modell, die Anhänge reisen mit, und das Original wird archiviert."
 }

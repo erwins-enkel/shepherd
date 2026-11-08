@@ -99,10 +99,18 @@ import type {
   RelaunchOverrides,
   Session,
   SessionArchiveReason,
+  SessionContinuation,
   SessionLaunchMetadata,
   EffortSwitchError,
   PlanGate,
 } from "./types";
+import {
+  HANDOFF_WIP_SUBJECT,
+  HandoffRefusedError,
+  commitAndPushForHandoff,
+  handoffFiles,
+  type HandoffSource,
+} from "./session-handoff";
 import {
   copyStagedIntoWorktree,
   stagingDir,
@@ -339,6 +347,21 @@ const UNIQUE_NAME_MAX_PROBES = 100;
  *  sanitize can cut the trailing issue number off. */
 const ISSUE_NAME_MAX = HERDR_AGENT_NAME_MAX - `-${UNIQUE_NAME_MAX_PROBES + 1}`.length;
 
+/** A continuation create's carried amendments as the argv block relaunch uses (#2225). */
+function withContinuationAmendments(input: StandardCreateInput): StandardCreateInput {
+  const texts = input.continuation?.amendments ?? [];
+  if (texts.length === 0) return input;
+  const now = Date.now();
+  const carriedAmendments = texts.map((text, i) => ({
+    id: `carried-${i}`,
+    sessionId: "",
+    text,
+    createdAt: now + i,
+    retractedAt: null,
+  }));
+  return { ...input, carriedAmendments };
+}
+
 /** The commit a new session's worktree actually starts from (#2761). An explicitly requested one
  *  is never silently replaced: when the worktree came up anywhere else (a non-git repo, or the
  *  retry path reusing an older orphan branch) the create fails as an unusable base (422) and the
@@ -369,6 +392,7 @@ export interface ServiceDeps {
     | "currentBranch"
     | "gitCommonDir"
     | "restoreExisting"
+    | "createOnBranch"
   >;
   herdr: Pick<
     HerdrDriver,
@@ -390,6 +414,8 @@ export interface ServiceDeps {
   events?: Pick<EventHub, "emit">;
   /** Inject point for tests; defaults to the real fs copy (copyStagedIntoWorktree). */
   copyUploads?: (uploads: string[], worktreePath: string) => UploadCopyResult[];
+  /** The WIP-commit + push of a session move's source; defaults to `commitAndPushForHandoff`. */
+  handoffGit?: typeof commitAndPushForHandoff;
   /** Detects/terminates leftover subprocesses at close; absent in tests that skip it. */
   // `refresh`/`health` are Partial so existing non-`as any` reaper fakes (which
   // supply only detect/reap/stopListenersOnPort) still satisfy the type; call sites
@@ -2885,6 +2911,28 @@ function composeProviderHandoffPrompt(
   return `${prompt}\n\n${lines.join("\n")}`;
 }
 
+/**
+ * The argv task of a session moved here from another machine (a continuation create): the original
+ * task — or, for `summarize`, the orient-and-wait prompt around it — plus where the work came from.
+ * `sessions.prompt` keeps the original task; this text only reaches the agent.
+ */
+function composeMachineHandoffPrompt(prompt: string, c: SessionContinuation): string {
+  const task = c.handoffMode === "summarize" ? composeHandoffSummaryPrompt(prompt) : prompt;
+  const lines = [
+    "Machine handoff context:",
+    "- This Shepherd session was moved here from another machine. It is not a native provider conversation resume.",
+    `- Source machine: ${c.from.machine}`,
+    `- Source session: ${c.from.desig}`,
+    `- Source provider: ${c.from.provider}`,
+    `- Branch: ${c.branch} — it already holds the previous agent's work. A commit whose subject starts with "${HANDOFF_WIP_SUBJECT}" holds its uncommitted changes, if there were any.`,
+    `- Pushed head: ${c.headCommit}`,
+    "- Keep working on this branch: an open pull request for it stays the same.",
+  ];
+  if (c.missingFiles?.length)
+    lines.push(`- Attached files that could not be carried over: ${c.missingFiles.join(", ")}`);
+  return `${task}\n\n${lines.join("\n")}`;
+}
+
 /** #3245: the repo whose tracker holds the create's issue — `issueRepoPath` for a routed ticket. */
 function issueTrackerRepo(input: StandardCreateInput): string {
   return input.issueRepoPath ?? input.repoPath;
@@ -4681,6 +4729,36 @@ export class SessionService {
     return { composeInput: { ...input, prompt: split.task }, held: split.condition };
   }
 
+  /** The input the spawn prompt is composed from: `#heldGoal`'s, and for a session moved here
+   *  from another machine the handoff around its task (the row keeps the task itself). */
+  #composeInputFor(input: StandardCreateInput): {
+    composeInput: StandardCreateInput;
+    held: string | null;
+  } {
+    const { composeInput, held } = this.#heldGoal(input);
+    const c = input.continuation;
+    if (!c) return { composeInput, held };
+    return {
+      composeInput: {
+        ...composeInput,
+        prompt: composeMachineHandoffPrompt(composeInput.prompt, c),
+      },
+      held,
+    };
+  }
+
+  /** A fresh worktree on a new branch — or, for a session moved here, one on its pushed branch. */
+  #worktreeFor(input: StandardCreateInput, baseRef: string, name: string) {
+    const c = input.continuation;
+    if (!c) return this.deps.worktree.create(input.repoPath, baseRef, name);
+    return this.deps.worktree.createOnBranch(input.repoPath, {
+      branch: c.branch,
+      headCommit: c.headCommit,
+      baseRef,
+      name,
+    });
+  }
+
   /** #2596: the row's goal after a provider replace. A held goal stays held only when the
    *  replacement holds it too; a Codex replacement runs no Claude goal and its Stop is never read,
    *  so any goal is cleared. A Claude replacement keeps an active goal for its transcript to
@@ -5036,11 +5114,35 @@ export class SessionService {
     if (input.terminal === true) return this.createTerminalSession(input);
     const phases = tracker ?? new SpawnPhaseTracker();
     try {
-      const session = await this.createAgentSession(await this.withBootstrapStack(input), phases);
+      const session = await this.createAgentSession(
+        withContinuationAmendments(await this.withBootstrapStack(input)),
+        phases,
+      );
       phases.finish("ok");
+      await this.persistContinuationAmendments(session, input);
       return session;
     } catch (e) {
       phases.finish(e instanceof SpawnCanceled ? "canceled" : "failed");
+      throw e;
+    }
+  }
+
+  /** #2225 for a moved session: the source's amendments become this session's own rows, the same
+   *  set its agent was just shown, so its critic reads what the agent read. A failed copy tears the
+   *  new session down rather than leave it half-authorized. */
+  private async persistContinuationAmendments(
+    session: Session,
+    input: StandardCreateInput,
+  ): Promise<void> {
+    const texts = input.continuation?.amendments ?? [];
+    if (texts.length === 0) return;
+    try {
+      const now = Date.now();
+      for (const [i, text] of texts.entries())
+        this.deps.store.addTaskAmendment(session.id, text, now + i);
+      emitSessionAmendments(this.deps.events, this.deps.store, session.id);
+    } catch (e) {
+      await this.archive(session.id).catch(() => {});
       throw e;
     }
   }
@@ -5086,9 +5188,7 @@ export class SessionService {
     const base = await this.baseName(input);
     const name = this.uniqueName(await this.takenHerdrNames(), base, herdSlug, input.repoPath);
     const baseRef = await phases.phase("base", () => this.resolveBaseRef(input));
-    const wt = await phases.phase("worktree", () =>
-      this.deps.worktree.create(input.repoPath, baseRef, name),
-    );
+    const wt = await phases.phase("worktree", () => this.#worktreeFor(input, baseRef, name));
     let taskFile: string | null = null;
     // The worktree is created before the agent can start, so any failure past this
     // point (e.g. herdr `tab create` rejecting) would otherwise leave an orphan
@@ -5102,7 +5202,7 @@ export class SessionService {
 
       // #2596: a prompt-leading `/goal X` on a plan-gated Claude spawn is held until Go — the
       // agent plans with `X` as its task, and the goal never sees the attached/issue blocks.
-      const { composeInput, held } = this.#heldGoal(input);
+      const { composeInput, held } = this.#composeInputFor(input);
       const composed = await phases.phase("prompt", () =>
         this.composePromptArg(composeInput, wt.worktreePath),
       );
@@ -6257,6 +6357,86 @@ export class SessionService {
     }
   }
 
+  /** Sessions handing off to another machine, until (epoch ms): no automatic resume brings their
+   *  agent back while the move is in flight. Bounded so a coordinator that died mid-move cannot
+   *  leave a session stopped for good. */
+  private readonly handoffHolds = new Map<string, number>();
+  static readonly HANDOFF_HOLD_MS = 10 * 60_000;
+
+  /** Whether `id` is in a handoff right now (an expired hold is dropped). */
+  handoffHeld(id: string): boolean {
+    const until = this.handoffHolds.get(id);
+    if (until === undefined) return false;
+    if (until > Date.now()) return true;
+    this.handoffHolds.delete(id);
+    return false;
+  }
+
+  /**
+   * The source half of a session move, step 1: hold automatic resumes, stop the agent, commit
+   * whatever it left uncommitted and push the work branch. Returns what the target needs to
+   * continue there. On any failure the hold is released and the agent resumed — nothing moved.
+   * The issue is not resolved here: the caller re-resolves it like a replace does.
+   */
+  async prepareHandoff(id: string, to: { name: string }): Promise<HandoffSource> {
+    const s = this.deps.store.get(id);
+    if (!s || s.status === "archived") throw new HandoffRefusedError("not_found");
+    this.assertNotTerminal(s, "move");
+    this.assertNotOperatorAssistant(s, "move");
+    if (!s.isolated || !s.branch) throw new HandoffRefusedError("move_no_branch");
+    if (s.mergingSince) throw new HandoffRefusedError("move_merging");
+    if (s.landingRepair || s.bootstrap || (s.mergeTrainPrs?.length ?? 0) > 0)
+      throw new HandoffRefusedError("move_unsupported_kind");
+    if (this.handoffHeld(id)) throw new HandoffRefusedError("handoff_in_progress");
+    this.handoffHolds.set(id, Date.now() + SessionService.HANDOFF_HOLD_MS);
+    try {
+      await this.deps.herdr.stop(s.herdrAgentId);
+      const pushed = await (this.deps.handoffGit ?? commitAndPushForHandoff)({
+        repoPath: s.repoPath,
+        worktreePath: s.worktreePath,
+        branch: s.branch,
+        targetName: to.name,
+      });
+      return {
+        branch: s.branch,
+        headCommit: pushed.headCommit,
+        committed: pushed.committed,
+        repoPath: s.repoPath,
+        baseBranch: s.baseBranch,
+        prompt: s.prompt,
+        desig: s.desig,
+        agentProvider: s.agentProvider ?? "claude",
+        // An approved plan is not planned again there: it travels as an attachment instead.
+        planGateEnabled: s.planPhase === "executing" ? false : s.planGateEnabled,
+        autopilotEnabled: s.autopilotEnabled,
+        research: s.research,
+        epicAuthoring: s.epicAuthoring,
+        plain: s.plain ?? false,
+        amendments: this.deps.store.listActiveTaskAmendments(s.id).map((a) => a.text),
+        files: handoffFiles(s.worktreePath),
+      };
+    } catch (e) {
+      await this.abortHandoff(id);
+      throw e;
+    }
+  }
+
+  /** Release a handoff that did not go through and bring the agent back. Never throws. */
+  async abortHandoff(id: string): Promise<Session | null> {
+    this.handoffHolds.delete(id);
+    try {
+      return await this.resume(id);
+    } catch (e) {
+      console.warn(`[handoff] ${id}: resuming after an aborted move failed: ${e}`);
+      return null;
+    }
+  }
+
+  /** Drop the hold once the moved session runs elsewhere (its archive follows). */
+  releaseHandoff(id: string): void {
+    this.handoffHolds.delete(id);
+  }
+
   /** Persist a replaceAgent spawn onto the reused row; stop the new agent if that fails. */
   private async persistReplacementOrStop(
     s: Session,
@@ -6757,6 +6937,8 @@ export class SessionService {
     id: string,
     opts: { force?: boolean; automatic?: boolean } = {},
   ): Promise<Session | null> {
+    // A session moving to another machine stays stopped: only the move itself brings it back.
+    if (opts.automatic && this.handoffHeld(id)) return null;
     const existing = this.resumeInFlight.get(id);
     if (existing) return existing; // coalesce: a resume for this id is already running
     const p = this.resumeInner(id, opts).finally(() => this.resumeInFlight.delete(id));

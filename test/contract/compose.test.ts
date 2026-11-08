@@ -8,6 +8,13 @@ import { clearBranchStatusCacheForTests } from "../../src/server";
 import { SpawnPhaseTracker, registerSpawn, releaseSpawn } from "../../src/spawn-progress";
 import type { Epic, EpicRun } from "../../src/epic-core";
 import * as fx from "./compose-fixtures";
+import { FEDERATION_API_VERSION } from "../../src/remote-instances/identity";
+import type {
+  RemoteInstanceService,
+  RemoteInstanceSummary,
+} from "../../src/remote-instances/service";
+import type { RemoteOutcome } from "../../src/remote-instances/dispatch";
+import { HandoffGitError, type HandoffSource } from "../../src/session-handoff";
 import {
   bearer,
   coverage,
@@ -949,6 +956,167 @@ describe("compose session actions", () => {
       }
     });
   }
+});
+
+describe("session move", () => {
+  const request = (path: string, body?: unknown, auth = true) =>
+    fetch(`${s.baseUrl}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(auth ? bearer(token) : {}) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  const route = "/api/sessions/{id}/move";
+  async function check(path: string, status: number, body?: unknown, auth = true) {
+    const res = await request(path, body, auth);
+    expect(res.status).toBe(status);
+    return validateResponse("POST", route, res);
+  }
+  async function seed() {
+    const res = await request("/api/sessions", {
+      repoPath: s.validRepo,
+      baseBranch: "main",
+      prompt: "Move me",
+    });
+    expect(res.status).toBe(201);
+    const { id } = (await res.json()) as { id: string };
+    return s.deps.store.get(id)!;
+  }
+
+  test("started, held, unanswered, refused, failed source, conflicts, validation and auth", async () => {
+    const host = {
+      instanceId: "11111111-2222-4333-8444-555555555555",
+      name: "MacBook",
+      platform: "macos",
+    };
+    const machine: RemoteInstanceSummary = {
+      instanceId: host.instanceId,
+      name: host.name,
+      label: null,
+      reportedName: host.name,
+      url: "http://mac.test",
+      tokenHint: null,
+      createdAt: 1,
+      status: "connected",
+      reason: null,
+      checkedAt: 1,
+      lastSeenAt: 1,
+      info: {
+        version: "2.2.0",
+        federationApi: FEDERATION_API_VERSION,
+        platform: "macos",
+        arch: "arm64",
+      },
+      projects: ["acme/app"],
+      capabilities: null,
+      released: true,
+    };
+    const choice = {
+      target: { instanceId: host.instanceId },
+      agentProvider: "codex",
+      model: null,
+      handoffMode: "resume",
+    };
+    validateRequest("POST", route, choice);
+    const service = s.deps.service;
+    const saved = {
+      prepare: service.prepareHandoff,
+      archiveMany: service.archiveMany,
+      abort: service.abortHandoff,
+      forge: s.stubs.resolveForge.forge,
+      instances: s.deps.remoteInstances,
+    };
+    let outcome: RemoteOutcome = { kind: "refused", code: "remote_target_unknown", reason: null };
+    let prepareError: Error | null = null;
+    service.prepareHandoff = async (id): Promise<HandoffSource> => {
+      if (prepareError) throw prepareError;
+      const original = s.deps.store.get(id)!;
+      return {
+        branch: original.branch ?? "shepherd/move-me",
+        headCommit: "f".repeat(40),
+        committed: false,
+        repoPath: original.repoPath,
+        baseBranch: original.baseBranch,
+        prompt: original.prompt,
+        desig: original.desig,
+        agentProvider: "claude",
+        planGateEnabled: null,
+        autopilotEnabled: null,
+        research: false,
+        epicAuthoring: false,
+        plain: false,
+        amendments: [],
+        files: [],
+      };
+    };
+    service.archiveMany = async (ids) => {
+      for (const id of ids) s.deps.store.archive(id);
+      return { cleared: ids, leftovers: 0 };
+    };
+    service.abortHandoff = async () => null;
+    s.stubs.resolveForge.forge = { slug: "acme/app" };
+    s.deps.remoteInstances = {
+      list: () => [machine],
+      get: () => machine,
+      refreshLoads: async () => {},
+    } as unknown as RemoteInstanceService;
+    s.deps.remoteDispatch = {
+      submit: async () => outcome,
+      list: () => [],
+    } as unknown as NonNullable<typeof s.deps.remoteDispatch>;
+    try {
+      const started = await seed();
+      outcome = { kind: "started", session: { ...started, id: "moved-1", host } };
+      const ok = (await check(`/api/sessions/${started.id}/move`, 201, choice)) as {
+        session: { id: string };
+        archived: boolean;
+      };
+      expect(ok.session.id).toBe("moved-1");
+      expect(ok.archived).toBe(true);
+
+      const held = await seed();
+      outcome = { kind: "held", id: "h1", count: 1, host };
+      expect(await check(`/api/sessions/${held.id}/move`, 200, choice)).toMatchObject({
+        held: true,
+        archived: true,
+      });
+
+      const unanswered = await seed();
+      outcome = { kind: "unknown", host, dispatchKey: "d1" };
+      expect(await check(`/api/sessions/${unanswered.id}/move`, 504, choice)).toMatchObject({
+        code: "move_target_unknown",
+      });
+
+      const refused = await seed();
+      outcome = {
+        kind: "rejected",
+        host,
+        reason: "stale",
+        remoteStatus: 409,
+        remoteCode: "continuation_stale",
+      };
+      expect(await check(`/api/sessions/${refused.id}/move`, 422, choice)).toMatchObject({
+        code: "remote_rejected",
+      });
+
+      prepareError = new HandoffGitError("handoff_push_failed", "rejected");
+      expect(await check(`/api/sessions/${refused.id}/move`, 502, choice)).toMatchObject({
+        code: "handoff_push_failed",
+      });
+      prepareError = null;
+
+      await check(`/api/sessions/${started.id}/move`, 409, choice);
+      await check(`/api/sessions/missing/move`, 404, choice);
+      await check(`/api/sessions/${refused.id}/move`, 400, { model: null });
+      await check(`/api/sessions/${refused.id}/move`, 401, choice, false);
+    } finally {
+      service.prepareHandoff = saved.prepare;
+      service.archiveMany = saved.archiveMany;
+      service.abortHandoff = saved.abort;
+      s.stubs.resolveForge.forge = saved.forge;
+      s.deps.remoteInstances = saved.instances;
+      s.deps.remoteDispatch = undefined;
+    }
+  });
 });
 
 describe("optional voice plugin contract", () => {

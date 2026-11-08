@@ -23,7 +23,12 @@
     model: string | null;
     effort?: string | null;
     handoffMode?: HandoffMode;
+    /** Set only when a machine other than the session's own was picked: move the session there. */
+    target?: { instanceId: string };
   };
+
+  /** A machine "Continue with…" can continue on; `name` is what the confirm button names. */
+  export type MachineOption = { instanceId: string; label: string; name: string };
 
   // Small anchored, non-blocking popover for picking an agent provider + model — used to
   // start a comparison VARIANT, continue a session with another CLI, or spawn a COMPARISON run. Per the design
@@ -40,6 +45,7 @@
     initialModel = "default",
     initialEffort = "default",
     handoff = false,
+    machines = [],
     usageLimits = null,
     nowMs = Date.now(),
     holdLikely = false,
@@ -59,6 +65,8 @@
     initialEffort?: string;
     /** Show the in-place continuation handoff mode picker. */
     handoff?: boolean;
+    /** Where the session can continue, its own machine first. The field shows from two on. */
+    machines?: MachineOption[];
     usageLimits?: UsageLimits | null;
     nowMs?: number;
     holdLikely?: boolean;
@@ -74,6 +82,17 @@
   // svelte-ignore state_referenced_locally
   let effort = $state<string>(initialEffort);
   let handoffMode = $state<HandoffMode>("resume");
+  // svelte-ignore state_referenced_locally
+  let machine = $state<string | undefined>(machines[0]?.instanceId);
+  // The list can change while open (a machine drops off): fall back to the session's own machine.
+  $effect(() => {
+    if (!machines.some((o) => o.instanceId === machine)) machine = machines[0]?.instanceId;
+  });
+  const moveTo = $derived(
+    machines.length > 1 && machine !== machines[0]?.instanceId
+      ? machines.find((o) => o.instanceId === machine)
+      : undefined,
+  );
 
   const provModels = $derived(providerModels(agentProvider));
   const provEfforts = $derived(providerEfforts(agentProvider, model));
@@ -99,6 +118,7 @@
       model: model === "default" ? null : model,
       effort: effort === "default" ? null : effort,
       ...(handoff ? { handoffMode } : {}),
+      ...(moveTo ? { target: { instanceId: moveTo.instanceId } } : {}),
     });
   }
 
@@ -150,7 +170,18 @@
 >
   <p class="mcp-title">{title}</p>
   {#if handoff}
-    <p class="mcp-note">{m.experiment_continue_scope()}</p>
+    <p class="mcp-note">{moveTo ? m.experiment_move_note() : m.experiment_continue_scope()}</p>
+  {/if}
+
+  {#if machines.length > 1}
+    <div class="mcp-field">
+      <label class="micro" for="mcp-machine">{m.experiment_machine_label()}</label>
+      <select id="mcp-machine" bind:value={machine}>
+        {#each machines as option (option.instanceId)}
+          <option value={option.instanceId}>{option.label}</option>
+        {/each}
+      </select>
+    </div>
   {/if}
 
   <div class="mcp-field">
@@ -263,7 +294,9 @@
 
   <div class="mcp-actions">
     <button class="gbtn" type="button" onclick={onclose}>{m.common_cancel()}</button>
-    <button class="gbtn primary" type="button" onclick={confirm}>{confirmLabel}</button>
+    <button class="gbtn primary" type="button" onclick={confirm}>
+      {moveTo ? m.experiment_move_confirm({ machine: moveTo.name }) : confirmLabel}
+    </button>
   </div>
 </div>
 

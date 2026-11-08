@@ -157,6 +157,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/repo-config", `/api/repo-config?repo=${r}`),
   get("/api/repo-bootstrap", `/api/repo-bootstrap?repo=${r}`),
   get("/api/agent-extensions"),
+  get("/api/repo-run-defaults"),
   get("/api/schedules", `/api/schedules?repo=${r}`),
   get("/api/commands", `/api/commands?repo=${r}`),
   get("/api/todo", `/api/todo?repo=${r}`),

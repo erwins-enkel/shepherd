@@ -6898,13 +6898,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatisierungs-Einstellungen für dieses Repo öffnen"
+            "value": "Repo-Einstellungen für dieses Repo öffnen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open automation settings for this repo"
+            "value": "Open repo settings for this repo"
           }
         }
       }

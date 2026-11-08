@@ -37,3 +37,6 @@ export const loadRemoteSessionDetail = lazy(
   () => import("#lib/components/RemoteSessionDetail.svelte"),
 );
 export const loadReposSheet = lazy(() => import("#lib/components/ReposSheet.svelte"));
+export const loadRepoSettings = lazy(
+  () => import("#lib/components/repo-settings/RepoSettingsWindow.svelte"),
+);

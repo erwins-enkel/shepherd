@@ -400,7 +400,7 @@
 "guardtl_marker_auto" = "Auto";
 "guardtl_marker_conditional" = "Bedingt";
 "guardtl_marker_you" = "Du";
-"guardtl_open_automation" = "Automatisierungs-Einstellungen für dieses Repo öffnen";
+"guardtl_open_automation" = "Repo-Einstellungen für dieses Repo öffnen";
 "guardtl_step_critic_auto" = "Shepherd arbeitet Critic-Befunde selbst ab, bis zum Rundenlimit; danach kommen sie zu dir";
 "guardtl_step_critic_manual" = "Der Critic prüft, sobald CI grün ist; was er findet, kommt zu dir";
 "guardtl_step_critic_off" = "Keine automatische Code-Prüfung — du reviewst selbst";

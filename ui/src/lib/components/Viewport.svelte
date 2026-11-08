@@ -275,8 +275,8 @@
      *  callers): always yes for a session, always no for the assistant variant, which
      *  must never take the keyboard from the session terminal beside it on its own. */
     consumeAutoFocusTerm?: () => boolean;
-    /** Live drain status for this session's repo; passed through to GitRail →
-     *  AutomationPanel so the epic-mode precedence indicator can render. */
+    /** Live drain status for this session's repo; passed through to GitRail for the rail's
+     *  epic-stopped mark. */
     drain?: DrainStatus | null;
     /** Live merge-train status per repo (the whole store.autoMerge record); this session's repo
      *  entry drives the auto-merge strip, the terminal dim and the recap relabel. */

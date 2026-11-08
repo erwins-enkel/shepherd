@@ -16,7 +16,7 @@
   import { canOfferPlanReview, canTriggerPlanReview } from "./plan-gate-badge";
   import RailStatusActions from "./git-rail/RailStatusActions.svelte";
   import PrFindingsDialog from "./PrFindingsDialog.svelte";
-  import AutomationPanel from "./AutomationPanel.svelte";
+  import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
   import { automationCount, AUTOMATION_TOTAL } from "./git-rail-automation";
   import { coachTarget, coachTargets } from "#lib/actions/coachTarget.svelte.js";
   import { featureDiscovery } from "#lib/featureDiscovery.svelte.js";
@@ -49,7 +49,7 @@
     /** Phone width: the ⚙ pill drops its word label to `⚙ n/N` (aria-label keeps it). */
     phone?: boolean;
     planPhase?: Session["planPhase"];
-    /** Live drain status for this session's repo; passed through to AutomationPanel. */
+    /** Live drain status for this session's repo (the epic-stopped rail mark). */
     drain?: DrainStatus | null;
     /** Effective autopilot state. When on, the agent opens the PR itself, so the manual
         Open-PR button is redundant noise and is hidden. */
@@ -81,13 +81,8 @@
   let prTitle = $state("");
   let prBody = $state("");
 
-  // Critic-findings dialog (PrFindingsDialog); the outside-click dismiss below is the
-  // automation popover's.
+  // Critic-findings dialog (PrFindingsDialog).
   let showReview = $state(false);
-  let wrapEl = $state<HTMLElement | null>(null);
-
-  // Repo-automation panel (pill-anchored popover; replaces the icon-toggle horde)
-  let showAutomation = $state(false);
 
   // two-step confirm for destructive actions (mirrors decommission UX). Merge is NOT among them:
   // it lives in the merge row above the steer bar (#3540), behind MergeConfirmDialog (#2299).
@@ -153,7 +148,6 @@
     armed = null;
     showPr = false;
     showReview = false;
-    showAutomation = false;
     awaitingPlanReview = false;
     loadFailed = false;
     load(id);
@@ -171,7 +165,6 @@
     prBody = prompt;
     showPr = true;
     showReview = false; // one popover at a time
-    showAutomation = false; // one popover at a time
     err = null;
     retry = null;
   }
@@ -183,32 +176,30 @@
       // browser, so focus it explicitly.
       (e?.currentTarget as HTMLElement | null)?.focus();
       showPr = false; // one popover at a time
-      showAutomation = false;
     }
   }
 
-  function toggleAutomation() {
-    showAutomation = !showAutomation;
-    if (showAutomation) {
-      showPr = false;
-      showReview = false; // one popover at a time
-      // The critic/auto-address toggles now live behind this pill, so their
-      // discovery coachmarks re-home onto it: arm the first still-unseen one on open.
-      armFirstUnseenAutomation();
-    }
+  // The ⚙ pill opens the repo settings window (#3443) at Start & flow, bound to this task (its
+  // review pulse and plan gate show there).
+  let armAfterSettings = false;
+  function openRepoSettings(e: MouseEvent) {
+    showPr = false;
+    showReview = false; // one popover at a time
+    armAfterSettings = true;
+    repoSettingsWindow.open(repoPath, {
+      section: "start",
+      sessionId,
+      opener: e.currentTarget as HTMLElement,
+    });
   }
-
-  // Escape / click-outside dismiss the automation popover (PrFindingsDialog dismisses itself)
-  function onWindowKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      if (showAutomation) showAutomation = false;
-    }
-  }
-  function onWindowPointerdown(e: PointerEvent) {
-    if (wrapEl && !wrapEl.contains(e.target as Node)) {
-      if (showAutomation) showAutomation = false;
-    }
-  }
+  const settingsOpen = $derived(repoSettingsWindow.isOpenFor(repoPath));
+  // The critic/auto-address toggles live behind this pill, so their discovery coachmarks re-home
+  // onto it: arm the first still-unseen one once the window it opened is closed again.
+  $effect(() => {
+    if (settingsOpen || !armAfterSettings) return;
+    armAfterSettings = false;
+    armFirstUnseenAutomation();
+  });
 
   // server message, when meaningful, becomes the {reason} clause; otherwise a generic fallback
   function reason(e: unknown, fallback: string): string {
@@ -433,17 +424,17 @@
      beside the autopilot toggle as one control cluster. -->
 {#snippet autoPill()}
   <button
-    class={["gbtn", "auto-pill", { reviewing: pillReviewing, armed: showAutomation }]}
+    class={["gbtn", "auto-pill", { reviewing: pillReviewing, armed: settingsOpen }]}
     type="button"
     aria-haspopup="dialog"
-    aria-expanded={showAutomation}
+    aria-expanded={settingsOpen}
     aria-busy={pillReviewing}
     aria-label={pillReviewing
       ? m.automation_pill_reviewing_aria()
       : m.automation_pill_aria({ count: autoCount, total: AUTOMATION_TOTAL })}
     use:coachTarget={"critic"}
     use:coachTarget={"auto-address"}
-    onclick={toggleAutomation}
+    onclick={openRepoSettings}
   >
     ⚙{phone ? "" : ` ${m.automation_pill_label()}`}
     <span class="auto-count" class:on={autoCount > 0}>{autoCount}/{AUTOMATION_TOTAL}</span>
@@ -453,18 +444,8 @@
   </button>
 {/snippet}
 
-<svelte:window onkeydown={onWindowKeydown} onpointerdown={onWindowPointerdown} />
-
 {#if git}
-  <!-- touch-only dim+blur behind the automation sheet. It sits
-       OUTSIDE wrapEl so a backdrop tap trips the existing click-outside dismiss.
-       Desktop keeps the lightweight anchored popover (non-modal, no scrim); only the
-       coarse-pointer layout — where the panel becomes a centered fixed sheet — shows
-       it (CSS-gated). Reuses the canonical .scrim primitive. Purely visual → aria-hidden. -->
-  {#if showAutomation}
-    <div class="auto-scrim scrim" aria-hidden="true"></div>
-  {/if}
-  <span class="git-rail-wrap" class:mobile bind:this={wrapEl}>
+  <span class="git-rail-wrap" class:mobile>
     <span class="rail" class:mobile use:edgeFades={mobile}>
       <RailStatusActions
         {git}
@@ -536,17 +517,6 @@
         </div>
       </div>
     {/if}
-
-    {#if showAutomation}
-      <AutomationPanel
-        {repoPath}
-        {sessionId}
-        {planPhase}
-        {drain}
-        onClose={() => (showAutomation = false)}
-      />
-    {/if}
-
     {#if armedEntry}
       <!-- Lazy: the feature-catalog copy rides with Coachmark, off the boot bundle (#3242). -->
       <LazyMount load={loadCoachmark} onerror={() => (armedId = null)}>
@@ -596,7 +566,7 @@
 {/if}
 
 <style>
-  /* own positioning context so .pr-pop/.auto-pop anchor here in the
+  /* own positioning context so .pr-pop anchors here in the
      desktop (non-mobile) mount, not to some far ancestor. On mobile the wrapper
      is narrower than the strip, so it goes position:static and the popovers
      anchor to the wider .vp-git-strip instead — see .git-rail-wrap.mobile. */
@@ -722,7 +692,7 @@
      phones); the rail (.rail.mobile below) scrolls instead. Because the strip
      keeps .strip-controls on this same row, the wrapper is narrower than the
      viewport — so go position:static here and let the popovers
-     (.pr-pop/.auto-pop) anchor to the full-width .vp-git-strip
+     (.pr-pop) anchor to the full-width .vp-git-strip
      (itself position:relative). Anchored to this narrow wrapper, a right:8px
      popover would shoot off the left screen edge. The ⚙ pill sits after the
      rail (not in it), so it pins right beside the strip's autopilot toggle. */
@@ -886,20 +856,5 @@
     display: flex;
     justify-content: flex-end;
     gap: 6px;
-  }
-
-  /* backdrop behind the automation sheet — only on touch, where the panel becomes a
-     centered fixed sheet (see AutomationPanel's pointer:coarse block). The canonical
-     .scrim class supplies fixed/inset/dim/blur (and the reduced-transparency drop);
-     this rule only contributes the z-index and the coarse-pointer gate. Desktop keeps
-     the anchored non-modal popover, so it stays display:none there. */
-  .auto-scrim {
-    display: none;
-    z-index: 50;
-  }
-  @media (pointer: coarse) {
-    .auto-scrim {
-      display: block;
-    }
   }
 </style>

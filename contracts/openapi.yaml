@@ -7199,6 +7199,10 @@ components:
         sandboxProfile:
           description: "trusted | standard | autonomous, or inherit = follow the global default (sandboxDefaultProfile). A repo with no stored config reads inherit."
           type: string
+        agentProvider:
+          type: string
+          description: >-
+            The repo's coding CLI (#3441): inherit (default) follows the global defaultAgentProvider; claude or codex pins this repo's new task, drain and autopilot spawns to that CLI. A task's own pick and a running epic's CLI still win. Setting it resets a defaultModel / defaultEffort the new effective CLI cannot run to inherit in the same write.
         defaultModel:
           type: string
         defaultEffort:
@@ -7345,6 +7349,10 @@ components:
         sandboxProfile:
           description: "trusted | standard | autonomous | inherit."
           type: string
+        agentProvider:
+          type: string
+          description: >-
+            The repo's coding CLI (#3441): inherit (default) follows the global defaultAgentProvider; claude or codex pins this repo's new task, drain and autopilot spawns to that CLI. A task's own pick and a running epic's CLI still win. Setting it resets a defaultModel / defaultEffort the new effective CLI cannot run to inherit in the same write.
         defaultModel:
           type: string
         defaultEffort:

@@ -109,6 +109,7 @@ import {
 } from "./forge/types";
 import { readEpicStructureByParts } from "./forge/epic-structure";
 import { config } from "./config";
+import { resolveSpawnAgentProvider } from "./agent-provider";
 import { rebaseLandingBranch, isUnionDriverReady, branchBehindDefault } from "./landing-rebase";
 import { LandingPrReads } from "./landing-pr-reads";
 import { LandingGateWatch } from "./landing-gate-watch";
@@ -266,8 +267,8 @@ import {
 import { readCodexAuthMode } from "./codex-auth";
 import {
   drainSpawnEffort,
-  engineDefaultEffortSetting,
   resolveDefaultEffortSetting,
+  resolveProviderDefaultEffortSetting,
 } from "./default-effort";
 import { homedir } from "node:os";
 import {
@@ -798,12 +799,25 @@ export class DrainService {
     );
   }
 
+  /** The CLI a drain spawn into `spawnRepo` runs (#3441): the running epic's own CLI → that repo's
+   *  coding CLI → the global default, read live. */
+  private spawnProvider(
+    spawnRepo: string,
+    epicProvider: AgentProvider | null | undefined,
+  ): AgentProvider {
+    return resolveSpawnAgentProvider(
+      epicProvider,
+      this.deps.store.getRepoConfig(spawnRepo).agentProvider,
+      config.defaultAgentProvider,
+    );
+  }
+
   private resolvedSpawnModel(
     decision: Extract<DrainDecision, { kind: "spawn" }>,
+    provider: AgentProvider,
     repoDefaultModel: string,
   ): string | null {
     const settings = decision.epicProviderSettings;
-    const provider = settings?.agentProvider ?? config.defaultAgentProvider;
     const model = settings
       ? modelForProviderOrDefault(settings.model, settings.agentProvider)
       : drainSpawnModel(
@@ -1454,7 +1468,7 @@ export class DrainService {
     let epicStackBases: DrainRepoState["epicStackBases"] = null;
     let stackHeldSessions: ReadonlySet<string> = EMPTY_SESSION_SET;
     let epicIncrementalParent: number | null = null;
-    let spawnAgentProvider = config.defaultAgentProvider;
+    let spawnAgentProvider = this.spawnProvider(repoPath, null);
     let builtEpic: Epic | null = null;
     // Read-only runSummary.next source: the epic's candidates even while the run is PAUSED (the
     // decision `candidates` above stay running-only, so `queued`/computeNext are unchanged).
@@ -1475,7 +1489,7 @@ export class DrainService {
               effort: epicRun!.effort ?? null,
             }
           : null;
-        spawnAgentProvider = epicRun!.agentProvider ?? config.defaultAgentProvider;
+        spawnAgentProvider = this.spawnProvider(repoPath, epicRun!.agentProvider);
         const branchState = this.epicBranchState(repoPath, cfg, epicRun!, builtEpic);
         epicIntegrationBranch = branchState.integrationBranch;
         epicStackBases = branchState.stackBases;
@@ -1506,7 +1520,7 @@ export class DrainService {
       summaryCandidates,
     );
     const spawnState = await this.spawnState(repoPath, candidates, mappedIssueNumbers, {
-      provider: spawnAgentProvider,
+      epicProvider: epicProviderSettings?.agentProvider ?? null,
       run: epicRun,
       epic: builtEpic,
       stackBases: epicStackBases,
@@ -4158,22 +4172,21 @@ export class DrainService {
     const coolingDown = lastFail !== undefined && this.now() - lastFail < SPAWN_FAIL_COOLDOWN_MS;
     if (coolingDown && !input.ignoreCooldown) return null; // recent refusal
     const cfg = this.deps.store.getRepoConfig(repoPath);
+    // #3441: the repo's coding CLI → global; no epic CLI here — the run may already be done.
+    const provider = this.spawnProvider(repoPath, null);
     const cfgModel = this.clampCodexModel(
       drainSpawnModel(
         resolveProviderDefaultModelSetting(
           cfg.defaultModel,
-          config.defaultAgentProvider,
+          provider,
           config.defaultModel,
           config.defaultCodexModel,
         ),
       ),
-      config.defaultAgentProvider,
+      provider,
     );
     const cfgEffort = drainSpawnEffort(
-      resolveDefaultEffortSetting(
-        cfg.defaultEffort,
-        engineDefaultEffortSetting(config.defaultAgentProvider, config),
-      ),
+      resolveProviderDefaultEffortSetting(cfg.defaultEffort, provider, config),
     );
     if (
       this.deps.capacity &&
@@ -4181,7 +4194,7 @@ export class DrainService {
         owner: "drain",
         key: input.capacityKey,
         target: repoPath,
-        provider: config.defaultAgentProvider,
+        provider,
         model: cfgModel,
         fingerprint: input.head || undefined,
       }))
@@ -4193,6 +4206,7 @@ export class DrainService {
         repoPath,
         baseBranch: input.branch,
         prompt: input.prompt,
+        agentProvider: provider,
         model: cfgModel,
         effort: cfgEffort,
         executionEffort: drainExecutionEffort(cfg.defaultExecutionEffort),
@@ -5343,7 +5357,11 @@ export class DrainService {
   autoBlockers(repoPath: string, run: Pick<EpicRun, "agentProvider">): AutoBlockers {
     const rc = this.deps.store.getRepoConfig(repoPath);
     const profile = resolveProfile(undefined, rc.sandboxProfile, this.defaultProfile);
-    const agentProvider = run.agentProvider ?? config.defaultAgentProvider;
+    const agentProvider = resolveSpawnAgentProvider(
+      run.agentProvider,
+      rc.agentProvider,
+      config.defaultAgentProvider,
+    );
     const trusted = profile === "trusted";
     const originUrl = this.deps.originUrl ?? ((path: string) => remoteUrl(path, "origin"));
     return autoBlockers(
@@ -5385,7 +5403,8 @@ export class DrainService {
     candidates: Issue[],
     mappedIssueNumbers: Set<number>,
     ctx: {
-      provider: AgentProvider;
+      /** The running epic's own CLI; null when it has none (and always in label mode). */
+      epicProvider: AgentProvider | null;
       run: EpicRun | null;
       epic: Epic | null;
       stackBases: DrainRepoState["epicStackBases"];
@@ -5397,7 +5416,7 @@ export class DrainService {
       .filter(([, w]) => w.prNumber === null)
       .map(([issueNumber, w]) => ({ issueNumber, ...w }));
     const gate = await this.nextSpawnGate(repoPath, candidates, mappedIssueNumbers, {
-      provider: ctx.provider,
+      epicProvider: ctx.epicProvider,
       machine: ctx.epic ? (ctx.run?.machine ?? null) : null,
       epicChildren: ctx.epic?.children ?? null,
       stackBases: ctx.stackBases,
@@ -5414,7 +5433,8 @@ export class DrainService {
     candidates: Issue[],
     mappedIssueNumbers: Set<number>,
     ctx: {
-      provider: AgentProvider;
+      /** The running epic's own CLI; null when it has none (and always in label mode). */
+      epicProvider: AgentProvider | null;
       /** The running epic's named machine; null = automatic, and always in label mode. */
       machine: string | null;
       /** The running epic's children; null in label mode. */
@@ -5431,7 +5451,8 @@ export class DrainService {
       return { spawnHold: { issue: next.number, reason: route.reason }, spawnRemote: null };
     }
     const remote = route.kind === "remote";
-    const reason = this.spawnGate(repoPath, spawnRepo, ctx.provider, remote);
+    const provider = this.spawnProvider(spawnRepo, ctx.epicProvider);
+    const reason = this.spawnGate(repoPath, spawnRepo, provider, remote);
     if (reason) return { spawnHold: { issue: next.number, reason }, spawnRemote: null };
     return {
       spawnHold: null,
@@ -5522,6 +5543,7 @@ export class DrainService {
   private async spawnCapacity(
     repoPath: string,
     decision: Extract<DrainDecision, { kind: "spawn" }>,
+    provider: AgentProvider,
     defaultModel: string,
   ): Promise<boolean> {
     // A spawn for another machine runs on that machine's engines, which it checks itself.
@@ -5531,8 +5553,8 @@ export class DrainService {
       owner: "drain",
       key: `drain:${repoPath}:${number}`,
       target: repoPath,
-      provider: decision.epicProviderSettings?.agentProvider ?? config.defaultAgentProvider,
-      model: this.resolvedSpawnModel(decision, defaultModel),
+      provider,
+      model: this.resolvedSpawnModel(decision, provider, defaultModel),
       fingerprint: String(number),
     });
   }
@@ -5563,13 +5585,13 @@ export class DrainService {
     const rc = this.deps.store.getRepoConfig(spawnRepo);
     // #3452: computeNext already holds on this gate (spawnHold); re-checked in case the config
     // changed since buildState.
-    const provider = decision.epicProviderSettings?.agentProvider ?? config.defaultAgentProvider;
+    const provider = this.spawnProvider(spawnRepo, decision.epicProviderSettings?.agentProvider);
     const hold = this.spawnGate(repoPath, spawnRepo, provider, !!decision.remote);
     if (hold) {
       console.warn(`[drain] issue #${number} held — ${hold.code} (${hold.detail})`);
       return;
     }
-    if (!(await this.spawnCapacity(repoPath, decision, rc.defaultModel))) return;
+    if (!(await this.spawnCapacity(repoPath, decision, provider, rc.defaultModel))) return;
     // Pre-spawn claim re-check (closes the stale-cache race). The candidate came
     // from the short-TTL issuesCache, which can be up to issuesTtlMs old — long
     // enough for a SECOND instance to have stamped ACTIVE_LABEL since. A fresh,
@@ -5627,15 +5649,13 @@ export class DrainService {
         repoPath: spawnRepo,
         baseBranch: plan.base,
         prompt: plan.prompt,
-        ...(epicSettings ? { agentProvider: epicSettings.agentProvider } : {}),
-        model: this.resolvedSpawnModel(decision, rc.defaultModel),
+        // #3441: the CLI the gates above already resolved (epic → spawn repo → global).
+        agentProvider: provider,
+        model: this.resolvedSpawnModel(decision, provider, rc.defaultModel),
         effort: epicSettings
           ? epicSettings.effort
           : drainSpawnEffort(
-              resolveDefaultEffortSetting(
-                rc.defaultEffort,
-                engineDefaultEffortSetting(config.defaultAgentProvider, config),
-              ),
+              resolveProviderDefaultEffortSetting(rc.defaultEffort, provider, config),
             ),
         executionEffort: drainExecutionEffort(rc.defaultExecutionEffort),
         images: [],

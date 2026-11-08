@@ -5,6 +5,7 @@ import type {
   RepoConfig,
   SandboxProfile,
   RepoSandboxSetting,
+  RepoAgentProviderSetting,
   SpawnNotice,
   SpawnNoticeKind,
 } from "./types";
@@ -415,6 +416,7 @@ class RepoConfigStore {
   repoMode = $state<Record<string, "forge" | "lightweight">>({}); // forge vs lightweight local mode (default "forge")
   sandboxProfile = $state<Record<string, RepoSandboxSetting>>({}); // per-repo sandbox confinement (default "inherit")
   sandboxDefault = $state<Record<string, SandboxProfile>>({}); // global default "inherit" resolves to (server-derived)
+  agentProvider = $state<Record<string, RepoAgentProviderSetting>>({}); // per-repo coding CLI (default "inherit", #3441)
   defaultModel = $state<Record<string, string>>({}); // per-repo default-model override (default "inherit")
   defaultEffort = $state<Record<string, string>>({}); // per-repo default-effort override (default "inherit")
   defaultExecutionEffort = $state<Record<string, string>>({}); // per-repo plan-gated execution effort (default "inherit")
@@ -471,6 +473,7 @@ class RepoConfigStore {
     this.sandboxProfile = { ...this.sandboxProfile, [repoPath]: c.sandboxProfile };
     if (c.sandboxDefaultProfile !== undefined)
       this.sandboxDefault = { ...this.sandboxDefault, [repoPath]: c.sandboxDefaultProfile };
+    this.agentProvider = { ...this.agentProvider, [repoPath]: c.agentProvider ?? "inherit" };
     this.defaultModel = { ...this.defaultModel, [repoPath]: c.defaultModel };
     this.defaultEffort = { ...this.defaultEffort, [repoPath]: c.defaultEffort };
     if (c.defaultExecutionEffort !== undefined)
@@ -577,6 +580,7 @@ class RepoConfigStore {
         | "draftMode"
         | "signoffAuthority"
         | "sandboxProfile"
+        | "agentProvider"
         | "defaultModel"
         | "defaultEffort"
         | "defaultExecutionEffort"
@@ -774,6 +778,16 @@ class RepoConfigStore {
     this.sandboxProfile = { ...this.sandboxProfile, [repoPath]: profile }; // optimistic
     await this.apply(repoPath, { sandboxProfile: profile }, () => {
       this.sandboxProfile = { ...this.sandboxProfile, [repoPath]: prev };
+    });
+  }
+
+  /** Pick the repo's coding CLI (#3441). The response may also reset a default model / effort the
+   *  new CLI cannot run to "inherit" — ingest() takes those from it. */
+  async setAgentProvider(repoPath: string, value: RepoAgentProviderSetting) {
+    const prev = this.agentProvider[repoPath];
+    this.agentProvider = { ...this.agentProvider, [repoPath]: value }; // optimistic
+    await this.apply(repoPath, { agentProvider: value }, () => {
+      this.agentProvider = { ...this.agentProvider, [repoPath]: prev };
     });
   }
 
@@ -1044,6 +1058,11 @@ class RepoConfigStore {
   effectiveSandboxProfileFor(repoPath: string): SandboxProfile | null {
     const setting = this.sandboxProfileFor(repoPath);
     return setting === "inherit" ? this.sandboxDefaultFor(repoPath) : setting;
+  }
+
+  /** The repo's coding-CLI SETTING ("inherit" | <provider>, #3441). */
+  agentProviderFor(repoPath: string): RepoAgentProviderSetting {
+    return this.agentProvider[repoPath] ?? "inherit";
   }
 
   /** The repo's default-model override SETTING ("inherit" | "auto" | "default" | <model>). */

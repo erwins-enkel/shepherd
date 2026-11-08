@@ -8467,5 +8467,12 @@
   "prbadge_merged_pr": "✓ PR #{number}",
   "prbadge_closed_pr": "✕ PR #{number}",
   "prbadge_merged_open_label": "Gemergten PR #{number} öffnen",
-  "prbadge_closed_open_label": "Geschlossenen PR #{number} öffnen"
+  "prbadge_closed_open_label": "Geschlossenen PR #{number} öffnen",
+  "automation_coding_cli_label": "Coding-CLI",
+  "automation_coding_cli_inherit": "Erben (globaler Standard)",
+  "automation_coding_cli_hint_inherit": "Folgt dem globalen Standard-CLI – aktuell {cli}.",
+  "automation_coding_cli_hint_repo": "Neue Aufgaben, Drain- und Autopilot-Starts in diesem Repository laufen mit {cli}. Ein laufendes Epic mit eigener CLI-Einstellung hat weiter Vorrang.",
+  "feat_repo_coding_cli_title": "Coding-CLI pro Repository",
+  "feat_repo_coding_cli_body": "Wähle im Automatisierungs-Panel eines Repositorys Claude Code oder Codex. Neue Aufgaben wählen es vor, und Drain- und Autopilot-Starts in diesem Repository laufen damit; Erben folgt weiter dem globalen Standard-CLI. Die Liste der Standardmodelle zeigt nur die Modelle dieses CLI.",
+  "newtask_agent_provider_repo_default": "Repo-Standard"
 }

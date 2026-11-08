@@ -81,6 +81,7 @@ import {
   isSandboxProfile,
 } from "./sandbox";
 import { normalizeRepoDefaultModelSetting } from "./default-model";
+import { normalizeRepoAgentProviderSetting, type RepoAgentProviderSetting } from "./agent-provider";
 import { normalizeRepoDefaultEffortSetting } from "./default-effort";
 import { decodeStoredRepoPaths, type AccessTokenRow } from "./access-tokens";
 import type { RemoteInstanceRow } from "./remote-instances/service";
@@ -674,6 +675,10 @@ export interface RepoConfig {
   /** OS-level sandbox membrane for spawned task agents. "inherit" (the default for a new repo,
    *  #2100) defers to the global default — see defaultSandboxProfile(). */
   sandboxProfile: RepoSandboxSetting;
+  /** Per-repo coding CLI (#3441): "inherit" (default) follows the global defaultAgentProvider; a
+   *  provider pins this repo's new spawns (an explicit task pick or a running epic's CLI still
+   *  wins). Optional so full-config literals stay valid; reads always fill it. */
+  agentProvider?: RepoAgentProviderSetting;
   /** Per-repo default-model override; "inherit" (default) defers to the global default setting. */
   defaultModel: string;
   /** Per-repo default-effort override; "inherit" (default) defers to the global default setting. */
@@ -1148,6 +1153,7 @@ type RepoCfgRow = {
   priorityLabels: string;
   usageCeilingPct: number;
   sandboxProfile: string;
+  agentProvider: string;
   defaultModel: string;
   defaultEffort: string;
   defaultExecutionEffort: string;
@@ -1377,6 +1383,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       priorityLabels: [],
       usageCeilingPct: 80,
       sandboxProfile: "inherit",
+      agentProvider: "inherit",
       defaultModel: "inherit",
       defaultEffort: "inherit",
       defaultExecutionEffort: "inherit",
@@ -1415,6 +1422,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     priorityLabels: parseStringListJson(r.priorityLabels),
     usageCeilingPct: r.usageCeilingPct,
     sandboxProfile: isRepoSandboxSetting(r.sandboxProfile) ? r.sandboxProfile : "trusted",
+    agentProvider: normalizeRepoAgentProviderSetting(r.agentProvider) ?? "inherit",
     defaultModel: normalizeRepoDefaultModelSetting(r.defaultModel) ?? "inherit",
     defaultEffort: normalizeRepoDefaultEffortSetting(r.defaultEffort) ?? "inherit",
     defaultExecutionEffort:
@@ -1457,6 +1465,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     JSON.stringify(cfg.priorityLabels ?? []),
     cfg.usageCeilingPct,
     cfg.sandboxProfile,
+    cfg.agentProvider ?? "inherit",
     cfg.defaultModel,
     cfg.defaultEffort,
     cfg.defaultExecutionEffort ?? "inherit",
@@ -2763,7 +2772,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .query(
         `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-                maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, repoMode,
+                maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, repoMode,
                 manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode,
                 pluginAllowlist, skillAllowlist
          FROM repo_config WHERE repoPath = ?`,
@@ -2777,9 +2786,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       `INSERT INTO repo_config
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-          maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, repoMode,
+          maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, repoMode,
           manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, pluginAllowlist, skillAllowlist, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -2796,6 +2805,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          priorityLabels = excluded.priorityLabels,
          usageCeilingPct = excluded.usageCeilingPct,
          sandboxProfile = excluded.sandboxProfile,
+         agentProvider = excluded.agentProvider,
          defaultModel = excluded.defaultModel,
          defaultEffort = excluded.defaultEffort,
          defaultExecutionEffort = excluded.defaultExecutionEffort,
@@ -7391,6 +7401,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("draftMode", `draftMode INTEGER NOT NULL DEFAULT 0`);
     add("signoffAuthority", `signoffAuthority TEXT NOT NULL DEFAULT 'human'`);
     add("sandboxProfile", `sandboxProfile TEXT NOT NULL DEFAULT 'trusted'`);
+    // #3441: per-repo coding CLI; 'inherit' follows the global defaultAgentProvider.
+    add("agentProvider", `agentProvider TEXT NOT NULL DEFAULT 'inherit'`);
     add("defaultModel", `defaultModel TEXT NOT NULL DEFAULT 'inherit'`);
     add("defaultEffort", `defaultEffort TEXT NOT NULL DEFAULT 'inherit'`);
     add("defaultExecutionEffort", `defaultExecutionEffort TEXT NOT NULL DEFAULT 'inherit'`);

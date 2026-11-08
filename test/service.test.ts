@@ -520,6 +520,37 @@ test("createSession: codex provider starts interactive codex; spawn argv carries
   expect(store.get(s.id)?.model).toBe("gpt-5.5");
 });
 
+test("#3441: a create with no CLI of its own starts the repo's coding CLI; an explicit pick wins", async () => {
+  const saved = config.defaultAgentProvider;
+  config.defaultAgentProvider = "claude";
+  try {
+    const { store, service, calls } = codexHarness(true);
+    store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), agentProvider: "codex" });
+    const s = await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "flatten it",
+      model: null,
+      images: [],
+    });
+    expect(calls.start.argv[0]).toBe("codex");
+    expect(store.get(s.id)?.agentProvider).toBe("codex");
+
+    const pinned = await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "flatten it",
+      agentProvider: "claude",
+      model: null,
+      images: [],
+    });
+    expect(calls.start.argv[0]).toBe("claude");
+    expect(store.get(pinned.id)?.agentProvider).toBe("claude");
+  } finally {
+    config.defaultAgentProvider = saved;
+  }
+});
+
 test("createSession: ChatGPT auth omits a blocked Codex model but preserves model intent", async () => {
   const { store, service, calls } = codexHarness(true, "chatgpt");
   const warn = spyOn(console, "warn").mockImplementation(() => {});

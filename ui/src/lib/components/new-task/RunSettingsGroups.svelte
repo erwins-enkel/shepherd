@@ -34,6 +34,7 @@
   // so mounting state can never influence payload validity.
   let {
     agentProvider,
+    repoDefaultProvider = null,
     model,
     effort,
     executionEffort,
@@ -71,6 +72,8 @@
     modelShortcut = undefined,
   }: {
     agentProvider: AgentProvider;
+    /** The repo's own coding CLI (#3441), null when it inherits the global default. */
+    repoDefaultProvider?: AgentProvider | null;
     model: string;
     effort: string;
     /** Plan-gated execution effort (#3434); "default" = same as planning. */
@@ -159,6 +162,11 @@
         <span class="chev" aria-hidden="true">▾</span>
       {/if}
     </div>
+
+    {#if repoDefaultProvider && agentProvider === repoDefaultProvider}
+      <!-- #3441: this repo pins its own coding CLI and it is the one selected. -->
+      <span class="repo-default-badge">{m.newtask_agent_provider_repo_default()}</span>
+    {/if}
 
     <EngineCapacityLine limits={usageLimits} provider={agentProvider} />
 
@@ -432,6 +440,15 @@
     border-radius: 2px;
     padding: 0 4px;
     pointer-events: none;
+  }
+  .repo-default-badge {
+    align-self: flex-start;
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.06em;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    padding: 0 4px;
   }
   .pair {
     display: flex;

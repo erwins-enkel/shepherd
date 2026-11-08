@@ -6,6 +6,8 @@ export type LivenessState = "alive" | "husk" | "stranded";
 export type SessionArchiveReason = "operator" | "merged" | "drain" | "relaunch" | "stale" | "noop";
 export const AGENT_PROVIDERS = ["claude", "codex"] as const;
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
+/** A repo's coding-CLI setting (#3441): "inherit" follows the global default CLI. */
+export type RepoAgentProviderSetting = "inherit" | AgentProvider;
 
 /** Capacity failover state. While `active`, `current` is the counterpart the default CLI was
  *  switched to and `from` the exhausted provider it will be restored to once that one has
@@ -1319,6 +1321,9 @@ export interface RepoConfig {
   signoffAuthority: "human" | "critic" | "either";
   /** Per-repo sandbox confinement; "inherit" (default for a new repo) follows the global default. */
   sandboxProfile: RepoSandboxSetting;
+  /** Per-repo coding CLI (#3441): "inherit" (default) follows the global default CLI. Absent from
+   *  older servers. */
+  agentProvider?: RepoAgentProviderSetting;
   /** Per-repo default-model override; "inherit" (default) defers to the global default. */
   defaultModel: string;
   /** Per-repo default-effort override; "inherit" (default) defers to the global default. */

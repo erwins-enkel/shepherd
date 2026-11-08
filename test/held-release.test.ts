@@ -347,6 +347,16 @@ test("Codex capacity: held Codex work does not block a free Claude task", async 
   expect(deps.store.listHeldTasks().map((t) => t.id)).toEqual(["cx"]);
 });
 
+test("#3441: a legacy held row without a CLI follows its repo's coding CLI", async () => {
+  const deps = makeDeps([{ id: "legacy", input: makeInput("legacy") }]);
+  deps.store.getRepoConfig = (() => ({ agentProvider: "codex" })) as never;
+  let asked = 0;
+  deps.codexCapacity = async () => (asked++, false);
+  await releaseHeldTasks(deps, { enabled: true, holdPct: 80, autoRelease: true }, 0);
+  expect(asked).toBe(1);
+  expect(deps.creates).toHaveLength(0);
+});
+
 test("Codex capacity review: held release preserves the account captured at admission", async () => {
   const { heldCodexCapacity } = await import("../src/codex-capacity");
   const settings = new Map([["codexHeldAccount:cx", "account-a"]]);

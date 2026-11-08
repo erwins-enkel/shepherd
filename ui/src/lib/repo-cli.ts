@@ -32,3 +32,35 @@ export function repoEffortFitsProvider(setting: string, provider: AgentProvider)
   if (setting === "inherit" || setting === "default") return true;
   return providerEfforts(provider).includes(setting);
 }
+
+interface RunDefaults {
+  agentProvider: RepoAgentProviderSetting;
+  defaultModel: string;
+  defaultEffort: string;
+  defaultExecutionEffort: string;
+}
+
+/** The repos with own values as they apply now (#3447): a stored model / effort the repo's
+ *  effective CLI cannot run reads "inherit" (the spawn skips it, the repo settings show Inherit);
+ *  a repo left with nothing of its own drops out. */
+export function ownRunDefaults<T extends RunDefaults>(
+  rows: readonly T[],
+  globalProvider: AgentProvider,
+): T[] {
+  return rows
+    .map((r) => {
+      const cli = effectiveRepoProvider(r.agentProvider, globalProvider);
+      return {
+        ...r,
+        defaultModel: repoModelFitsProvider(r.defaultModel, cli) ? r.defaultModel : "inherit",
+        defaultEffort: repoEffortFitsProvider(r.defaultEffort, cli) ? r.defaultEffort : "inherit",
+      };
+    })
+    .filter(
+      (r) =>
+        r.agentProvider !== "inherit" ||
+        r.defaultModel !== "inherit" ||
+        r.defaultEffort !== "inherit" ||
+        r.defaultExecutionEffort !== "inherit",
+    );
+}

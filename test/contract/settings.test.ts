@@ -102,6 +102,13 @@ test("repo config, role no-op, push refusal and collaborator fallback", async ()
     "/api/repo-config" + query,
   )) as { agentProvider: string };
   expect(cli.agentProvider).toBe("codex");
+  // #3447: the repo pinned to Codex shows in the list of repos with their own values.
+  const own = (await request("GET", "/api/repo-run-defaults", 200)) as {
+    repos: { name: string; agentProvider: string }[];
+  };
+  expect(own.repos).toContainEqual(
+    expect.objectContaining({ name: "repo", agentProvider: "codex" }),
+  );
   await request(
     "PUT",
     "/api/repo-config",

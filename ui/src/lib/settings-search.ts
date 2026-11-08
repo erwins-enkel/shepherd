@@ -124,6 +124,7 @@ export function codingCliRows(): {
       [m.settings_execution_effort_title(), m.settings_execution_effort_hint()],
       [m.settings_operator_language_title(), m.settings_operator_language_hint()],
       [m.settings_upnext_skip_cli_picker_label(), m.settings_upnext_skip_cli_picker_hint()],
+      [m.settings_repo_run_defaults_title(), m.settings_repo_run_defaults_hint()],
     ],
     engines: [
       [m.settings_engine_defaults_title(), m.settings_engine_defaults_hint()],

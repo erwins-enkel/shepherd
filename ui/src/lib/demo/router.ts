@@ -117,6 +117,8 @@ const bootstrapGetRoutes: Record<string, GetHandler> = {
   // Repo plugin/skill allowlist picker (#3780): a small plausible catalog, never the host's.
   "/api/agent-extensions": () =>
     json({ plugins: ["context7@claude-plugins-official"], skills: ["code-review", "tdd"] }),
+  // Settings › Coding CLI's repos with their own values (#3447): the demo repos all inherit.
+  "/api/repo-run-defaults": () => json({ repos: [] }),
   // Operator schedules (#3469): the demo seeds none; a list keeps `schedules.listFor` an array.
   "/api/schedules": () => json({ schedules: [] }),
   // The repo index. Fired on mount by `repos.load()`; without it `listRepos()` saw the

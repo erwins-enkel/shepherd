@@ -46,6 +46,7 @@
   import SettingToggle from "./SettingToggle.svelte";
   import SettingsGroup from "./SettingsGroup.svelte";
   import HighlightText from "./HighlightText.svelte";
+  import SettingsRepoRunDefaultsBlock from "./SettingsRepoRunDefaultsBlock.svelte";
   import "./settings-controls.css";
   import { toasts } from "#lib/toasts.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
@@ -748,6 +749,8 @@
     />
   {/snippet}
 </SettingRow>
+
+<SettingsRepoRunDefaultsBlock {defaultAgentProvider} {query} />
 
 <div class="glabel engines-label">
   <HighlightText text={m.settings_engine_defaults_title()} query={q} />

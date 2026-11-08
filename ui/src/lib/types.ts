@@ -399,6 +399,10 @@ export interface HeavyResourceSettings {
   enabled: boolean;
   slots: number | null;
   waitMinutes: number;
+  /** Memory limit of one heavy run's own scope (#3555); null = the hardware default. */
+  runMemoryMaxMiB: number | null;
+  /** Read-only: does this host give each heavy run its own memory-limited scope? */
+  runScope: boolean;
   brake: {
     minAvailableMiB: number | null;
     psiFullMax: number | null;
@@ -410,6 +414,7 @@ export interface HeavyResourceSettings {
     minAvailableMiB: number;
     psiFullMax: number;
     releaseHoldSec: number;
+    runMemoryMaxMiB: number;
     heavyList: { command: string; subcommands: string[] }[];
   };
   peaks: Record<string, number>;

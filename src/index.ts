@@ -119,6 +119,7 @@ import { HerdrUpdateService } from "./herdr-update";
 import { CodexUpdateService, parseCodexUpdateChannel } from "./codex-update";
 import { refreshMiseClaude } from "./mise-claude";
 import { refreshAgentScope } from "./agent-scope";
+import { reapHeavyScopes, refreshHeavyScope } from "./heavy-scope";
 import { PluginUpdateService } from "./plugin-update";
 import { RestartService } from "./restart";
 import { DiagnosticsService, defaultReadHerdrFleet, nextDiagnosticsDelay } from "./diagnostics";
@@ -4075,8 +4076,13 @@ setTimeout(
 // `buildWrappedArgv`, cold = unscoped. ONE kick at boot: the slice + herdr drop-in are installed by
 // provision/update.sh, which restart Shepherd afterwards, so the host fact cannot change under a
 // running server.
+// Heavy-run scopes (#3555) ride on the same host fact, so they latch right after it; failed scopes
+// a restart left behind are reset then (their outcome has no reader any more).
 setTimeout(
-  timerTask("agent-scope", async () => void (await refreshAgentScope())),
+  timerTask("agent-scope", async () => {
+    await refreshAgentScope();
+    if (await refreshHeavyScope()) await reapHeavyScopes();
+  }),
   1_000,
 );
 

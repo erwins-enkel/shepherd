@@ -4043,5 +4043,7 @@ export const switchOperatorAssistants = (): Promise<{
 }> => postOperatorAssistant("/api/operator-assistant/switch", "assistant runtime switch", null);
 
 export const putHeavyResources = (
-  heavySlot: Partial<Omit<import("./types").HeavyResourceSettings, "defaults" | "peaks">>,
+  heavySlot: Partial<
+    Omit<import("./types").HeavyResourceSettings, "defaults" | "peaks" | "runScope">
+  >,
 ): Promise<{ heavySlot: import("./types").HeavyResourceSettings }> => patchSettings({ heavySlot });

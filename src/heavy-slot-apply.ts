@@ -17,6 +17,7 @@ import {
 } from "./heavy-slot-settings";
 import { heavyDefaults } from "../scripts/tool-guard.mjs";
 import type { HeavySlotConfig } from "./heavy-slot";
+import { heavyScopeEnabled } from "./heavy-scope";
 
 type SettingsStore = {
   getSetting(key: string): string | null;
@@ -60,6 +61,8 @@ export function heavySlotSettingsView(store: Pick<SettingsStore, "getSetting">) 
   return {
     ...settings,
     enabled: settings.enabled ?? config.heavySlot,
+    /** Does this host give heavy runs their own memory-limited scope (#3555)? */
+    runScope: heavyScopeEnabled(),
     defaults: {
       ...heavySlotDefaults(hardware()),
       ...(config.heavySlots > 0 ? { slots: config.heavySlots } : {}),

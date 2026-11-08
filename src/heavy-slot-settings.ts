@@ -5,9 +5,14 @@
  *   - `null` means "the hardware default"; `enabled: null` means "what SHEPHERD_HEAVY_SLOT says".
  *   - The heavy list holds only the operator's EDITS (custom entries, switched-off built-ins); the
  *     built-in list itself lives in scripts/tool-guard.mjs and is never copied here.
- *   - A patch replaces `enabled` / `slots` / `heavyList` when named and merges `brake` per field.
+ *   - A patch replaces `enabled` / `slots` / `runMemoryMaxMiB` / `heavyList` when named and merges
+ *     `brake` per field.
  */
-import { defaultHeavySlotBudget, type HeavySlotBudget } from "./heavy-slot-core";
+import {
+  defaultHeavySlotBudget,
+  defaultRunMemoryMaxBytes,
+  type HeavySlotBudget,
+} from "./heavy-slot-core";
 
 export const HEAVY_SLOT_SETTING = "heavySlot";
 export const HEAVY_SLOT_PEAKS_SETTING = "heavySlotPeaks";
@@ -24,6 +29,8 @@ export interface HeavySlotSettings {
   enabled: boolean | null;
   slots: number | null;
   waitMinutes: number;
+  /** Memory limit of one heavy run's own scope (#3555); null = the hardware default. */
+  runMemoryMaxMiB: number | null;
   brake: {
     minAvailableMiB: number | null;
     psiFullMax: number | null;
@@ -36,6 +43,7 @@ export const EMPTY_HEAVY_SLOT_SETTINGS: HeavySlotSettings = {
   enabled: null,
   slots: null,
   waitMinutes: 0,
+  runMemoryMaxMiB: null,
   brake: { minAvailableMiB: null, psiFullMax: null, releaseHoldSec: null },
   heavyList: { custom: [], disabled: [] },
 };
@@ -136,18 +144,30 @@ export function parseHeavySlotPatch(
   return { ok: true, value: next };
 }
 
+/** The top-level fields that are null (= the default) or an integer in a range. */
+const NULLABLE_INTS = { slots: [1, 64], runMemoryMaxMiB: [512, 1024 * 1024] } as const;
+
+function setNullableInt(
+  next: HeavySlotSettings,
+  key: keyof typeof NULLABLE_INTS,
+  value: unknown,
+): string | null {
+  const [min, max] = NULLABLE_INTS[key];
+  if (value !== null && !intInRange(value, min, max))
+    return `heavySlot.${key} must be null or an integer in ${min}–${max}`;
+  next[key] = value;
+  return null;
+}
+
 /** Validate one field before mutating the cloned settings. */
 function applyField(next: HeavySlotSettings, key: string, value: unknown): string | null {
+  if (Object.hasOwn(NULLABLE_INTS, key))
+    return setNullableInt(next, key as keyof typeof NULLABLE_INTS, value);
   switch (key) {
     case "enabled":
       if (value !== null && typeof value !== "boolean")
         return "heavySlot.enabled must be a boolean or null";
       next.enabled = value;
-      return null;
-    case "slots":
-      if (value !== null && !intInRange(value, 1, 64))
-        return "heavySlot.slots must be null or an integer in 1–64";
-      next.slots = value;
       return null;
     case "waitMinutes":
       if (!intInRange(value, 0, 60)) return "heavySlot.waitMinutes must be an integer in 0–60";
@@ -195,7 +215,7 @@ export function effectiveHeavySlot(
   settings: HeavySlotSettings,
   hw: HeavySlotHardware,
   env: { enabled: boolean; slots: number },
-): { enabled: boolean; budget: HeavySlotBudget } {
+): { enabled: boolean; budget: HeavySlotBudget; runMemoryMaxBytes: number } {
   const base = defaultHeavySlotBudget(hw, settings.slots ?? (env.slots > 0 ? env.slots : null));
   const { minAvailableMiB, psiFullMax, releaseHoldSec } = settings.brake;
   return {
@@ -206,6 +226,10 @@ export function effectiveHeavySlot(
       psiFullMax: psiFullMax ?? base.psiFullMax,
       releaseHoldMs: releaseHoldSec === null ? base.releaseHoldMs : releaseHoldSec * 1000,
     },
+    runMemoryMaxBytes:
+      settings.runMemoryMaxMiB === null
+        ? defaultRunMemoryMaxBytes(hw.memTotalBytes)
+        : settings.runMemoryMaxMiB * MIB,
   };
 }
 
@@ -217,6 +241,7 @@ export function heavySlotDefaults(hw: HeavySlotHardware) {
     minAvailableMiB: Math.round(b.minAvailableBytes / MIB),
     psiFullMax: b.psiFullMax,
     releaseHoldSec: Math.round(b.releaseHoldMs / 1000),
+    runMemoryMaxMiB: Math.round(defaultRunMemoryMaxBytes(hw.memTotalBytes) / MIB),
   };
 }
 

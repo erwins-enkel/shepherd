@@ -107,12 +107,20 @@
       : String(settings!.waitMinutes);
   }
 
-  async function numberChange(event: Event, key: "slots" | keyof HeavyResourceSettings["brake"]) {
+  async function numberChange(
+    event: Event,
+    key: "slots" | "runMemoryMaxMiB" | keyof HeavyResourceSettings["brake"],
+  ) {
     const input = event.currentTarget as HTMLInputElement;
     if (!settings || !input.reportValidity()) return;
     const value = input.value === "" ? null : input.valueAsNumber;
-    await save(key === "slots" ? { slots: value } : { brake: { ...settings.brake, [key]: value } });
-    input.value = String((key === "slots" ? settings.slots : settings.brake[key]) ?? "");
+    if (key === "slots" || key === "runMemoryMaxMiB") {
+      await save(key === "slots" ? { slots: value } : { runMemoryMaxMiB: value });
+      input.value = String(settings[key] ?? "");
+      return;
+    }
+    await save({ brake: { ...settings.brake, [key]: value } });
+    input.value = String(settings.brake[key] ?? "");
   }
 </script>
 
@@ -209,6 +217,25 @@
           />{/snippet}
       </SettingRow>
     {/if}
+    <SettingRow
+      title={m.resources_run_memory()}
+      description={settings!.runScope
+        ? m.resources_run_memory_hint({ value: settings!.defaults.runMemoryMaxMiB })
+        : m.resources_run_memory_inactive({ value: settings!.defaults.runMemoryMaxMiB })}
+      {query}
+    >
+      {#snippet control()}<input
+          class="set-num"
+          type="number"
+          min="512"
+          max="1048576"
+          step="1"
+          aria-label={m.resources_run_memory()}
+          value={settings!.runMemoryMaxMiB ?? ""}
+          placeholder={String(settings!.defaults.runMemoryMaxMiB)}
+          onchange={(e) => numberChange(e, "runMemoryMaxMiB")}
+        />{/snippet}
+    </SettingRow>
     <h3>{m.resources_heavy()}</h3>
     <ResourceCommandList {settings} {disabled} onsave={(heavyList) => save({ heavyList })} />
     <h3>{m.resources_brake()}</h3>

@@ -491,3 +491,98 @@ test("a queued direct command supplies shell-quoted rerun instructions without s
     slot.stop();
   }
 });
+
+describe.skipIf(process.platform !== "linux")("gated start for the run's own scope (#3555)", () => {
+  // A fake server that grants every check with `scope: true` and lets each test choose how the
+  // bind behaves; the real HeavySlotService side is covered in heavy-slot.test.ts.
+  let bindMode: "ok" | "fail" | "hold" = "ok";
+  let ranAtBind: boolean | null = null;
+  let bindMarker: string | null = null;
+  let releaseHold: () => void = () => {};
+  let finishedMessage: string | null = null;
+  let gateServer: ReturnType<typeof Bun.serve>;
+  const ran = f("G.ran");
+
+  beforeAll(() => {
+    gateServer = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      async fetch(req) {
+        const body = (await req.json()) as Record<string, unknown>;
+        if (body.op === "acquire")
+          return Response.json({ decision: "run", jobId: "g1", scope: true });
+        if (body.op === "bind") {
+          ranAtBind = existsSync(ran);
+          bindMarker = String(body.jobId);
+          if (bindMode === "fail") return new Response("boom", { status: 500 });
+          if (bindMode === "hold") await new Promise<void>((r) => (releaseHold = r));
+          return Response.json({ ok: true, scoped: true });
+        }
+        if (body.op === "finished")
+          return Response.json(
+            finishedMessage ? { ok: true, oom: true, message: finishedMessage } : { ok: true },
+          );
+        return Response.json({ ok: true });
+      },
+    });
+  });
+  afterAll(() => gateServer.stop(true));
+
+  const url = () => `http://127.0.0.1:${gateServer.port}`;
+  const reset = () => {
+    rmSync(ran, { force: true });
+    ranAtBind = null;
+    bindMarker = null;
+    finishedMessage = null;
+  };
+
+  test("the command execs only after the bind answered, with argv and exit code intact", async () => {
+    reset();
+    bindMode = "ok";
+    const out = await runner(
+      ["--exec", "sh", "-c", 'printf %s "$1" > "$2"; exit 7', "x", "a b'c", ran],
+      "s1",
+      url(),
+    );
+    expect(ranAtBind).toBe(false);
+    expect(bindMarker).toBe("g1");
+    expect(out.code).toBe(7);
+    expect(readFileSync(ran, "utf8")).toBe("a b'c");
+  });
+
+  test("a failing bind still runs the command (fail open)", async () => {
+    reset();
+    bindMode = "fail";
+    const out = await runner(`touch ${ran}`, "s1", url());
+    expect(ranAtBind).toBe(false);
+    expect(out.code).toBe(0);
+    expect(existsSync(ran)).toBe(true);
+  });
+
+  test("the exit report's OOM note reaches the agent", async () => {
+    reset();
+    bindMode = "ok";
+    finishedMessage = "Shepherd: this heavy check hit its memory limit (6 GiB) and was stopped";
+    const out = await runner("exit 137", "s1", url());
+    expect(out.code).toBe(137);
+    expect(out.stderr).toContain("hit its memory limit (6 GiB)");
+  });
+
+  test("a runner killed before it opens the gate leaves no orphaned command", async () => {
+    reset();
+    bindMode = "hold";
+    const env: Record<string, string> = {
+      PATH: process.env.PATH ?? "/usr/bin:/bin",
+      SHEPHERD_AGENT_API_URL: url(),
+      SHEPHERD_SESSION_ID: "s1",
+      SHEPHERD_INGRESS_HEADER_FILE: headerFile,
+    };
+    const child = spawn("node", [RUNNER, "--", `touch ${ran}`], { cwd: dir, env });
+    await until(() => bindMarker !== null);
+    child.kill("SIGKILL");
+    await new Promise((r) => setTimeout(r, 300));
+    releaseHold();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(existsSync(ran)).toBe(false);
+  });
+});

@@ -24,6 +24,12 @@ import type { DarwinMarkerScan } from "./proc-markers-darwin-core";
 import { sampleMemoryDarwin } from "./heavy-slot-darwin";
 import { captureRevision } from "./heavy-slot-revision";
 import {
+  heavyScopeEnabled,
+  heavyScopeOutcome,
+  startHeavyScope,
+  type HeavyScopeOutcome,
+} from "./heavy-scope";
+import {
   type HeavySlotHolder,
   type HeavySlotSnapshot,
   OPERATOR_HOLDER,
@@ -40,6 +46,7 @@ import {
   disabledSteer,
   estimateWaits,
   heavyEtaKey,
+  heavyOomMessage,
   nextBrake,
   offerSteer,
   queuedMessage,
@@ -69,11 +76,26 @@ const SCAN_CONCURRENCY = 8;
 export interface ProcStat {
   count: number;
   rssBytes: number;
+  /** Host PIDs of the marker processes (Linux scan only). */
+  pids?: number[];
 }
+
+/** The systemd side of heavy-run scopes (#3555); defaults to src/heavy-scope.ts. */
+export interface HeavyScopeOps {
+  enabled(): boolean;
+  start(jobId: string, pids: readonly number[], maxBytes: number): Promise<boolean>;
+  outcome(jobId: string): Promise<HeavyScopeOutcome>;
+}
+
+const DEFAULT_SCOPE: HeavyScopeOps = {
+  enabled: heavyScopeEnabled,
+  start: (jobId, pids, maxBytes) => startHeavyScope(jobId, pids, maxBytes),
+  outcome: (jobId) => heavyScopeOutcome(jobId),
+};
 
 /** What the agent ingress route answers the runner. */
 export type AcquireResponse =
-  | { decision: "run"; jobId: string }
+  | { decision: "run"; jobId: string; scope?: true }
   | { decision: "run"; unmanaged: true }
   | {
       decision: "queued";
@@ -108,10 +130,16 @@ export interface HeavySlotDeps {
   platform?: NodeJS.Platform;
   /** A job ended; `peakRssBytes` is the largest summed RSS the scans saw (Settings → Resources). */
   onPeak?: (command: string, peakRssBytes: number) => void;
+  /** Memory limit of one heavy run's own scope (#3555); absent = runs are never scoped. */
+  runMemoryMaxBytes?: number;
+  scope?: HeavyScopeOps;
 }
 
 /** The part of the deps the operator changes at runtime (Settings → Resources, #3552). */
-export type HeavySlotConfig = Pick<HeavySlotDeps, "enabled" | "budget" | "waitMinutes">;
+export type HeavySlotConfig = Pick<
+  HeavySlotDeps,
+  "enabled" | "budget" | "waitMinutes" | "runMemoryMaxBytes"
+>;
 
 export class HeavySlotService {
   #deps: HeavySlotDeps;
@@ -132,6 +160,8 @@ export class HeavySlotService {
   #filling = false;
   #refill = false;
   #lastEmitted = "";
+  /** Jobs started inside their own scope → the session that bound them, until the exit report. */
+  #scoped = new Map<string, string>();
 
   constructor(deps: HeavySlotDeps) {
     this.#deps = deps;
@@ -355,7 +385,7 @@ export class HeavySlotService {
     }
     await this.#changed();
     if (out.kind === "unmanaged") return { decision: "run", unmanaged: true };
-    if (out.kind === "run") return { decision: "run", jobId: out.job.id };
+    if (out.kind === "run") return this.#runAnswer(holder, out.job.id);
     const etaMs = this.#ledgerView().jobs.find((j) => j.id === out.job.id)?.etaMs ?? null;
     return {
       decision: "queued",
@@ -391,6 +421,48 @@ export class HeavySlotService {
     const ok = this.#ledger.started(jobId, sessionId, pgid);
     if (ok) await this.#changed();
     return ok;
+  }
+
+  #scope(): HeavyScopeOps {
+    return this.#deps.scope ?? DEFAULT_SCOPE;
+  }
+
+  /** A session's run on a scope-capable host starts behind the runner's gate and asks to be bound
+   *  (#3555); the operator CLI never gates. */
+  #runAnswer(holder: string, jobId: string): AcquireResponse {
+    const scope = holder !== OPERATOR_HOLDER && this.#scopeReady();
+    return { decision: "run", jobId, ...(scope ? { scope: true as const } : {}) };
+  }
+
+  #scopeReady(): boolean {
+    return this.#platform === "linux" && !!this.#deps.runMemoryMaxBytes && this.#scope().enabled();
+  }
+
+  /**
+   * The runner holds its command at a gate and asks for its own scope (#3555): find the gated
+   * process by its marker and start the job's memory-limited scope around it. `scoped: false` —
+   * the run goes on unscoped (the runner opens the gate either way).
+   */
+  async bind(sessionId: string, jobId: string): Promise<{ ok: boolean; scoped: boolean }> {
+    const job = this.#ledger.get(jobId);
+    if (!job || job.sessionId !== sessionId || job.state !== "running")
+      return { ok: false, scoped: false };
+    const limit = this.#deps.runMemoryMaxBytes;
+    if (!limit || !this.#scopeReady()) return { ok: true, scoped: false };
+    const scan = this.#deps.scanMarkers ?? scanMarkersLinux;
+    const pids = (await scan(new Set([jobId])))?.get(jobId)?.pids ?? [];
+    const scoped = pids.length > 0 && (await this.#scope().start(jobId, pids, limit));
+    if (scoped) this.#scoped.set(jobId, sessionId);
+    return { ok: true, scoped };
+  }
+
+  /** After the exit report of a scoped run: the message for the agent when its limit stopped it. */
+  async oomNote(sessionId: string, jobId: string): Promise<string | null> {
+    if (this.#scoped.get(jobId) !== sessionId) return null;
+    this.#scoped.delete(jobId);
+    const outcome = await this.#scope().outcome(jobId);
+    const limit = this.#deps.runMemoryMaxBytes;
+    return outcome === "oom" && limit ? heavyOomMessage(limit) : null;
   }
 
   /** The runner reports its command's exit; leftover marker processes keep the slot bound. */
@@ -632,9 +704,10 @@ export async function scanMarkersLinux(
     if (!id || !jobIds.has(id)) return;
     const status = await readFile(`/proc/${pid}/status`, "utf8").catch(() => "");
     const kb = status.match(/^VmRSS:\s+(\d+)\s+kB$/m);
-    const stat = out.get(id) ?? { count: 0, rssBytes: 0 };
+    const stat = out.get(id) ?? { count: 0, rssBytes: 0, pids: [] };
     stat.count++;
     stat.rssBytes += kb ? Number(kb[1]) * 1024 : 0;
+    stat.pids?.push(Number(pid));
     out.set(id, stat);
   });
   return out;

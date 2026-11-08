@@ -21,6 +21,8 @@ beforeEach(() => {
     enabled: true,
     slots: 2,
     waitMinutes: 0,
+    runMemoryMaxMiB: null,
+    runScope: true,
     brake: { minAvailableMiB: null, psiFullMax: null, releaseHoldSec: null },
     heavyList: { custom: [], disabled: [] },
     defaults: {
@@ -28,6 +30,7 @@ beforeEach(() => {
       minAvailableMiB: 4096,
       psiFullMax: 20,
       releaseHoldSec: 30,
+      runMemoryMaxMiB: 8192,
       heavyList: [{ command: "cargo", subcommands: ["test", "build"] }],
     },
     peaks: { cargo: 1024 ** 3 },
@@ -99,4 +102,23 @@ it("edits a built-in command and saves only list overrides", async () => {
   expect(putHeavyResources).toHaveBeenCalledWith({
     heavyList: { custom: [{ command: "cargo", subcommands: ["bench"] }], disabled: [] },
   });
+});
+
+it("memory per heavy run: shows the default and saves an override", async () => {
+  render(SettingsResourcesPanel);
+  const input = page.getByRole("spinbutton", { name: m.resources_run_memory() });
+  await expect.element(input).toHaveAttribute("placeholder", "8192");
+  await expect.element(page.getByText(m.resources_run_memory_hint({ value: 8192 }))).toBeVisible();
+  await input.fill("6144");
+  await page.getByRole("heading", { name: m.resources_now(), exact: true }).click();
+  await vi.waitFor(() => expect(putHeavyResources).toHaveBeenCalledWith({ runMemoryMaxMiB: 6144 }));
+  await expect.element(input).toHaveValue(6144);
+});
+
+it("memory per heavy run: says when this host does not scope heavy runs", async () => {
+  settings = { ...settings, runScope: false };
+  render(SettingsResourcesPanel);
+  await expect
+    .element(page.getByText(m.resources_run_memory_inactive({ value: 8192 })))
+    .toBeVisible();
 });

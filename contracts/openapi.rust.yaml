@@ -6403,7 +6403,7 @@ components:
     HeavySlotSettings:
       type: object
       additionalProperties: true
-      description: Settings → Resources (#3552). enabled is the resolved master switch; slots null = derived from the hardware. defaults and peaks are read-only.
+      description: Settings → Resources (#3552). enabled is the resolved master switch; slots null = derived from the hardware. runMemoryMaxMiB null = the hardware default (#3555). defaults, peaks and runScope are read-only.
       properties:
         enabled:
           type: boolean
@@ -6414,6 +6414,12 @@ components:
           type: integer
           minimum: 0
           maximum: 60
+        runMemoryMaxMiB:
+          type: integer
+          nullable: true
+        runScope:
+          type: boolean
+          description: Whether this host runs each heavy check in its own memory-limited systemd scope (Linux with agent scopes).
         brake:
           $ref: "#/components/schemas/HeavySlotBrake"
         heavyList:
@@ -6440,6 +6446,8 @@ components:
               type: integer
             releaseHoldSec:
               type: integer
+            runMemoryMaxMiB:
+              type: integer
             heavyList:
               type: array
               items:
@@ -6453,7 +6461,7 @@ components:
       type: object
       additionalProperties: false
       minProperties: 1
-      description: enabled null = back to SHEPHERD_HEAVY_SLOT; slots 1–64 or null; brake merges per field; heavyList replaces the operator's edits. Applies to the next slot decision — running checks are untouched.
+      description: enabled null = back to SHEPHERD_HEAVY_SLOT; slots 1–64 or null; runMemoryMaxMiB 512–1048576 or null; brake merges per field; heavyList replaces the operator's edits. Applies to the next slot decision — running checks are untouched.
       properties:
         enabled:
           type: boolean
@@ -6467,6 +6475,11 @@ components:
           type: integer
           minimum: 0
           maximum: 60
+        runMemoryMaxMiB:
+          type: integer
+          nullable: true
+          minimum: 512
+          maximum: 1048576
         brake:
           $ref: "#/components/schemas/HeavySlotBrake"
         heavyList:

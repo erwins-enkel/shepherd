@@ -572,6 +572,7 @@ describe("marker scan", () => {
       const found = await scanMarkersLinux(new Set([marker, "other"]));
       expect(found?.get(marker)?.count).toBeGreaterThanOrEqual(2);
       expect(found?.get(marker)?.rssBytes).toBeGreaterThan(0);
+      expect(found?.get(marker)?.pids).toContain(child.pid!);
       expect(found?.has("other")).toBe(false);
       process.kill(-child.pid!, "SIGKILL");
       await new Promise((r) => setTimeout(r, 200));
@@ -817,4 +818,161 @@ test("GET heavy-slot refreshes idle pressure and shares it with status events", 
     memFullAvg10: 2,
   });
   expect(h.emitted.at(-1)?.pressure.ramAvailableBytes).toBe(14 * GIB);
+});
+
+describe("own scope per heavy run (#3555)", () => {
+  function scoped(over: Partial<HeavySlotDeps> = {}, moved = true) {
+    const calls: { start: [string, number[], number][]; outcome: string[] } = {
+      start: [],
+      outcome: [],
+    };
+    const outcome = { value: "oom" as "oom" | "ok" | "unknown" };
+    const enabled = { value: true };
+    const h = harness({
+      runMemoryMaxBytes: 6 * GIB,
+      scope: {
+        enabled: () => enabled.value,
+        start: async (jobId, pids, max) => {
+          calls.start.push([jobId, [...pids], max]);
+          return moved;
+        },
+        outcome: async (jobId) => {
+          calls.outcome.push(jobId);
+          return outcome.value;
+        },
+      },
+      ...over,
+    });
+    return { h, calls, outcome, enabled };
+  }
+
+  test("a session's run is told to gate; the operator CLI and a closed gate are not", async () => {
+    const { h, enabled } = scoped();
+    await h.svc.start();
+    expect(await h.svc.acquire("s1", "bun run test", "/wt/s1")).toEqual({
+      decision: "run",
+      jobId: "j1",
+      scope: true,
+    });
+    await h.svc.finish("s1", "j1", 0);
+    expect(await h.svc.acquireOperator("cargo clippy", "/repo")).toEqual({
+      decision: "run",
+      jobId: "j2",
+    });
+    await h.svc.finish("operator", "j2", 0);
+    enabled.value = false;
+    expect(await h.svc.acquire("s1", "bun run test", "/wt/s1")).toEqual({
+      decision: "run",
+      jobId: "j3",
+    });
+  });
+
+  test("no limit configured or not Linux ⇒ never gated", async () => {
+    for (const over of [{ runMemoryMaxBytes: undefined }, { platform: "darwin" as const }]) {
+      const { h } = scoped(over);
+      expect(await h.svc.acquire("s1", "bun run test", "/wt/s1")).toEqual({
+        decision: "run",
+        jobId: "j1",
+      });
+    }
+  });
+
+  test("bind starts the scope around the marker PIDs with the configured limit", async () => {
+    const { h, calls } = scoped();
+    await h.svc.start();
+    await h.svc.acquire("s1", "bun run test", "/wt/s1");
+    h.alive.set("j1", { count: 1, rssBytes: 1024, pids: [4242] });
+    expect(await h.svc.bind("s2", "j1")).toEqual({ ok: false, scoped: false });
+    expect(await h.svc.bind("s1", "nope")).toEqual({ ok: false, scoped: false });
+    expect(calls.start).toEqual([]);
+    expect(await h.svc.bind("s1", "j1")).toEqual({ ok: true, scoped: true });
+    expect(calls.start).toEqual([["j1", [4242], 6 * GIB]]);
+  });
+
+  test("no marker process found or the move fails ⇒ scoped false, no exit note", async () => {
+    const { h, calls } = scoped({}, false);
+    await h.svc.start();
+    await h.svc.acquire("s1", "bun run test", "/wt/s1");
+    expect(await h.svc.bind("s1", "j1")).toEqual({ ok: true, scoped: false });
+    expect(calls.start).toEqual([]);
+    h.alive.set("j1", { count: 1, rssBytes: 1024, pids: [4242] });
+    expect(await h.svc.bind("s1", "j1")).toEqual({ ok: true, scoped: false });
+    expect(await h.svc.oomNote("s1", "j1")).toBeNull();
+    expect(calls.outcome).toEqual([]);
+  });
+
+  test("a scoped run its limit stopped gets the OOM note once; a clean one none", async () => {
+    const { h, calls, outcome } = scoped();
+    await h.svc.start();
+    await h.svc.acquire("s1", "bun run test", "/wt/s1");
+    h.alive.set("j1", { count: 1, rssBytes: 1024, pids: [4242] });
+    await h.svc.bind("s1", "j1");
+    h.alive.delete("j1");
+    expect(await h.svc.finish("s1", "j1", 137)).toBe(true);
+    expect(await h.svc.oomNote("s2", "j1")).toBeNull();
+    const note = await h.svc.oomNote("s1", "j1");
+    expect(note).toContain("memory limit (6 GiB)");
+    expect(note).toContain("not a test result");
+    expect(await h.svc.oomNote("s1", "j1")).toBeNull();
+    expect(calls.outcome).toEqual(["j1"]);
+
+    outcome.value = "ok";
+    await h.svc.acquire("s1", "bun run test", "/wt/s1");
+    h.alive.set("j2", { count: 1, rssBytes: 1024, pids: [4243] });
+    await h.svc.bind("s1", "j2");
+    h.alive.delete("j2");
+    await h.svc.finish("s1", "j2", 0);
+    expect(await h.svc.oomNote("s1", "j2")).toBeNull();
+  });
+
+  test("ingress: bind and finished carry the scope answers; the operator never binds", async () => {
+    const { h } = scoped();
+    await h.svc.start();
+    const app = makeApp({ heavySlot: h.svc } as unknown as AppDeps);
+    const post = async (id: string, body: unknown) =>
+      (
+        await app.fetch(
+          new Request(`http://127.0.0.1/api/sessions/${id}/heavy-slot`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          }),
+        )
+      ).json();
+    await h.svc.acquire("s1", "bun run test", "/wt/s1");
+    h.alive.set("j1", { count: 1, rssBytes: 1024, pids: [4242] });
+    expect(await post("s1", { op: "bind", jobId: "j1" })).toEqual({ ok: true, scoped: true });
+    h.alive.delete("j1");
+    const done = await post("s1", { op: "finished", jobId: "j1", exitCode: 137 });
+    expect(done).toMatchObject({ ok: true, oom: true });
+    expect(done.message).toContain("memory limit");
+    expect(await post("s1", { op: "bind" })).toMatchObject({ error: expect.any(String) });
+  });
+
+  test("ingress: the OOM note survives a sweep that settled the job before the exit report", async () => {
+    const { h, calls } = scoped();
+    await h.svc.start();
+    const app = makeApp({ heavySlot: h.svc } as unknown as AppDeps);
+    const post = async (body: unknown) =>
+      (
+        await app.fetch(
+          new Request("http://127.0.0.1/api/sessions/s1/heavy-slot", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          }),
+        )
+      ).json();
+    await h.svc.acquire("s1", "bun run test", "/wt/s1");
+    h.alive.set("j1", { count: 1, rssBytes: 1024, pids: [4242] });
+    await post({ op: "bind", jobId: "j1" });
+    // The OOM stop took every marker process; a sweep settles the job before the runner reports.
+    h.alive.delete("j1");
+    await advance(h, RUNNING_GRACE_MS + 60_000);
+    expect(h.svc.snapshot().holders).toEqual([]);
+    const done = await post({ op: "finished", jobId: "j1", exitCode: 143 });
+    expect(done).toMatchObject({ ok: false, oom: true });
+    expect(done.message).toContain("memory limit");
+    expect(calls.outcome).toEqual(["j1"]);
+  });
 });

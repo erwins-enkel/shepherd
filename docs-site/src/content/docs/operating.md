@@ -616,6 +616,24 @@ memory and swap until the host stalled.
    - **Spawn now** on a held task starts it at once.
    - The master switch in Settings → Resources turns this off together with
      the slot.
+6. **Own memory limit (Linux).** On a host with agent scopes (see [Agent sessions run in their own slice](#agent-sessions-run-in-their-own-slice)), each
+   check runs in its own systemd scope,
+   `shepherd-heavy-<job>.scope` under `shepherd_agents-heavy.slice`
+   ([#3555](https://github.com/erwins-enkel/shepherd/issues/3555)).
+   - The scope has a hard `MemoryMax` and `MemorySwapMax=0`. A check that
+     goes over its limit is stopped as a whole (`OOMPolicy=stop`), so no
+     browsers or workers are left behind. herdr, the agent itself and other
+     sessions keep running.
+   - The agent is told the check hit its memory limit, so it doesn't read
+     the exit code as a test failure.
+   - The limit is **Memory per heavy run** in Settings → Resources. The
+     default is a quarter of RAM, at least 4 GiB and at most 16 GiB.
+   - The slice sits inside `shepherd_agents.slice`, so heavy checks count
+     toward the agents' limits and stop with herdr.
+   - The runner holds the command until Shepherd has moved it into the scope.
+     If that fails, the check runs without its own limit.
+   - macOS, hosts without agent scopes and `shepherd slot run` from a
+     terminal run checks without a scope of their own.
 
 **Where you see it**
 - The **check-slot chip** in the top bar shows slots held and waiting, plus
@@ -657,8 +675,6 @@ without queuing.
   than blocking the agent.
 - A sandboxed session spawned before the update can't see the runner until it
   is respawned.
-- Heavy runs don't get a memory limit of their own yet
-  ([#3555](https://github.com/erwins-enkel/shepherd/issues/3555)).
 
 ## Auto-merge without PR CI
 

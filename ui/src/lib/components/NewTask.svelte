@@ -55,6 +55,7 @@
     commandProviders,
   } from "#lib/slash.js";
   import { matchIssueTrigger } from "#lib/issue-trigger.js";
+  import { keyboardOccluded } from "#lib/keyboard-scroll.js";
   import { steers } from "#lib/steers.svelte.js";
   import { steerAppliesToRepo } from "#lib/steer-scope.js";
   import { matchRepoForLinks } from "#lib/github-link.js";
@@ -1009,18 +1010,14 @@
   // the region above the keyboard; mirror its height + offsetTop onto the overlay so
   // the card fills it and the fixed bottom sheet (contained by the overlay via that
   // transform) re-anchors above the keyboard. Same pattern as ComposeBar.
-  // Soft-keyboard occlusion in CSS px: innerHeight − vv.height×scale is ≈ 0 under
-  // pure pinch zoom (vv.height shrinks by exactly 1/scale) and ≈ keyboard height
-  // when the keyboard is up, zoomed or not. The threshold sits between transient
-  // browser-chrome/vv jitter (≤ ~100 px, and innerHeight moves with it) and the
-  // smallest real keyboards (iPhone landscape ≥ ~160 px).
-  const KEYBOARD_MIN_OCCLUSION = 100;
+  // Keyboard detection (occlusion vs pinch zoom) is shared with the global
+  // scroll restore in keyboard-scroll.ts.
   function syncViewport() {
     const vv = typeof window !== "undefined" ? window.visualViewport : null;
     if (!vv || !overlayEl) return;
     overlayEl.style.height = `${vv.height}px`;
     overlayEl.style.transform = `translateY(${vv.offsetTop}px)`;
-    keyboardOpen = Math.round(window.innerHeight - vv.height * vv.scale) > KEYBOARD_MIN_OCCLUSION;
+    keyboardOpen = keyboardOccluded(window.innerHeight, vv);
   }
   function resetViewport() {
     keyboardOpen = false;
@@ -4373,6 +4370,8 @@
          100dvh is the no-keyboard fallback (overlay ≈ full viewport then). */
       max-height: 100%;
       height: 100dvh;
+      /* clear the status bar / Dynamic Island in a standalone PWA (#3795) */
+      padding-top: env(safe-area-inset-top);
       margin: 0;
       border: 0;
       /* Degenerate backstop: at a region so short that the pinned header/footer +

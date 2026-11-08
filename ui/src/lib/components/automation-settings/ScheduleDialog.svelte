@@ -399,6 +399,8 @@
       max-width: 100%;
       height: 100dvh;
       max-height: 100dvh;
+      /* clear the status bar / Dynamic Island in a standalone PWA (#3795) */
+      padding-top: calc(16px + env(safe-area-inset-top));
       border: 0;
     }
     .grid {

@@ -781,7 +781,8 @@ in its own state. Ask it in plain words why the herd stalled, why an epic won't 
 why an agent died, or whether this node is healthy. It reads, explains and tells you
 what to do. Ask it to get something done in a repo and it starts a session for it, as New
 Task would. What else it may change itself — steer a session, approve a plan, merge a PR,
-flip repo automation — you decide under **Settings → Assistant**.
+flip repo automation or set a repo's coding CLI, model and effort — you decide under
+**Settings → Assistant**.
 
 Set its preferred provider, model and reasoning effort under **Settings → Assistant**.
 One configuration applies to the global and all repo assistants, independently of coding

@@ -12,6 +12,7 @@ import {
   type OperatorDiagDeps,
 } from "../src/operator-assistant-tools";
 import { SessionStore } from "../src/store";
+import { config } from "../src/config";
 import type { DrainStatus } from "../src/drain";
 import type { GitState } from "../src/forge/types";
 import type { DiagnosticsSnapshot, HoldReason, PlanGate, Recap } from "../src/types";
@@ -398,10 +399,13 @@ test("repo_automation reports every repo's knobs, drain and epic state", async (
   });
   expect(Object.keys(alpha.config).sort()).toEqual(
     [
+      "agentProvider",
       "autoDrainEnabled",
       "autoLabel",
       "autoMergeEnabled",
       "criticEnabled",
+      "defaultEffort",
+      "defaultModel",
       "maxAuto",
       "repoMode",
       "sandboxProfile",
@@ -409,6 +413,11 @@ test("repo_automation reports every repo's knobs, drain and epic state", async (
       "usageCeilingPct",
     ].sort(),
   );
+  expect(beta.config).toMatchObject({
+    agentProvider: "inherit",
+    defaultModel: "inherit",
+    defaultEffort: "inherit",
+  });
   expect(alpha.drain).toMatchObject({ paused: true, reason: "blocked", detail: "TASK-03" });
   expect(alpha.drain.runSummary.slots.holders).toEqual([
     { desig: "TASK-03", issueNumber: 41, epicParent: 40 },
@@ -549,6 +558,117 @@ test("repo_automation: a failing drain read still reports the config", async () 
   expect(out.repos[0].drain).toBeNull();
   expect(out.drainError).toContain("HTTP 502");
   expect(out.drainError).not.toContain("ghp_");
+});
+
+/** Run `fn` with the global coding defaults pinned, restoring them afterwards. */
+async function withGlobalDefaults(over: Partial<typeof config>, fn: () => Promise<void>) {
+  const keys = [
+    "defaultAgentProvider",
+    "defaultModel",
+    "defaultCodexModel",
+    "defaultEffort",
+    "defaultClaudeEffort",
+    "defaultCodexEffort",
+    "fableAvailable",
+  ] as const;
+  const saved = Object.fromEntries(keys.map((k) => [k, config[k]]));
+  Object.assign(config, {
+    defaultAgentProvider: "claude",
+    defaultModel: "opus",
+    defaultCodexModel: "gpt-5.5",
+    defaultEffort: "high",
+    defaultClaudeEffort: "inherit",
+    defaultCodexEffort: "xhigh",
+    fableAvailable: true,
+    ...over,
+  });
+  try {
+    await fn();
+  } finally {
+    Object.assign(config, saved);
+  }
+}
+
+test("repo_automation resolves the next drain start: epic → repo → global (#3442)", async () => {
+  await withGlobalDefaults({}, async () => {
+    const { store, deps } = setup({ codexAuthMode: () => "apikey" });
+    const next = async (repo: string) =>
+      data(await applyRepoAutomation(deps, { repo })).repos[0].nextDrainStart;
+    const setRepo = (patch: Record<string, unknown>) =>
+      store.setRepoConfig("/r/alpha", { ...store.getRepoConfig("/r/alpha"), ...patch });
+
+    // Nothing set: the global CLI with its engine's model and effort.
+    expect(await next("beta")).toEqual({
+      agentProvider: "claude",
+      agentProviderFrom: "global",
+      model: "opus",
+      effort: "high",
+    });
+    // A repo pinned to Codex keeps a stale Claude model out: Codex's own default runs.
+    setRepo({ agentProvider: "codex", defaultModel: "opus", defaultEffort: "inherit" });
+    expect(await next("alpha")).toEqual({
+      agentProvider: "codex",
+      agentProviderFrom: "repo",
+      model: "gpt-5.5",
+      effort: "xhigh",
+    });
+    setRepo({ defaultModel: "gpt-6.1-sol", defaultEffort: "ultra" });
+    expect(await next("alpha")).toEqual({
+      agentProvider: "codex",
+      agentProviderFrom: "repo",
+      model: "gpt-6.1-sol",
+      effort: "ultra",
+    });
+    // A running or paused epic's own CLI wins, with its model and effort.
+    for (const status of ["running", "paused"] as const) {
+      store.setEpicRun({
+        repoPath: "/r/alpha",
+        parentIssueNumber: 40,
+        mode: "auto",
+        status,
+        agentProvider: "claude",
+        model: "sonnet",
+        effort: "low",
+      });
+      expect(await next("alpha")).toEqual({
+        agentProvider: "claude",
+        agentProviderFrom: "epic",
+        model: "sonnet",
+        effort: "low",
+      });
+    }
+    // An idle run, or one without a CLI of its own, falls through to the repo.
+    for (const run of [
+      { status: "idle", agentProvider: "claude" },
+      { status: "running", agentProvider: null },
+    ] as const) {
+      store.setEpicRun({ repoPath: "/r/alpha", parentIssueNumber: 40, mode: "auto", ...run });
+      expect((await next("alpha")).agentProviderFrom).toBe("repo");
+    }
+  });
+});
+
+test("repo_automation's next drain start applies the spawn-time model clamps (#3442)", async () => {
+  // A Codex model a ChatGPT login rejects runs Codex's own default.
+  await withGlobalDefaults({ defaultAgentProvider: "codex" }, async () => {
+    const { store, deps } = setup({ codexAuthMode: () => "chatgpt" });
+    store.setRepoConfig("/r/alpha", {
+      ...store.getRepoConfig("/r/alpha"),
+      defaultModel: "gpt-5.3-codex",
+    });
+    const out = data(await applyRepoAutomation(deps, { repo: "alpha" }));
+    expect(out.repos[0].nextDrainStart).toMatchObject({
+      agentProvider: "codex",
+      agentProviderFrom: "global",
+      model: null,
+    });
+  });
+  // Fable without access runs Opus with 1M context.
+  await withGlobalDefaults({ defaultModel: "fable", fableAvailable: false }, async () => {
+    const { deps } = setup();
+    const out = data(await applyRepoAutomation(deps, { repo: "beta" }));
+    expect(out.repos[0].nextDrainStart.model).toBe("opus[1m]");
+  });
 });
 
 // ── system_health ────────────────────────────────────────────────────────────

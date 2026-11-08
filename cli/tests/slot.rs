@@ -177,3 +177,112 @@ async fn bounded_wait_claims_the_slot_before_running() {
     assert_eq!(code, 0, "stderr: {}", h.err.text());
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
+
+/// A server that grants with `scope: true` (#3784); records whether the command had already run
+/// when the bind arrived, answers the bind with `bind_status`, and `finished` with `finished`.
+#[cfg(target_os = "linux")]
+async fn scoped_server(
+    ran: std::path::PathBuf,
+    bind_status: u16,
+    finished: serde_json::Value,
+) -> (MockServer, std::sync::Arc<std::sync::Mutex<Option<bool>>>) {
+    use std::sync::{Arc, Mutex};
+    let s = MockServer::start().await;
+    answer(
+        &s,
+        OPERATOR,
+        "acquire",
+        200,
+        json!({ "decision": "run", "jobId": "g1", "scope": true }),
+    )
+    .await;
+    let ran_at_bind = Arc::new(Mutex::new(None));
+    let seen = ran_at_bind.clone();
+    Mock::given(method("POST"))
+        .and(path(OPERATOR))
+        .and(body_partial_json(json!({ "op": "bind", "jobId": "g1" })))
+        .respond_with(move |_: &wiremock::Request| {
+            *seen.lock().unwrap() = Some(ran.exists());
+            ResponseTemplate::new(bind_status).set_body_json(json!({ "ok": true, "scoped": true }))
+        })
+        .expect(1)
+        .mount(&s)
+        .await;
+    answer(&s, OPERATOR, "finished", 200, finished).await;
+    (s, ran_at_bind)
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_scoped_run_execs_only_after_the_bind_answered() {
+    let dir = tempfile::tempdir().unwrap();
+    let ran = dir.path().join("ran");
+    let (s, ran_at_bind) = scoped_server(ran.clone(), 200, json!({ "ok": true })).await;
+    let h = Harness::new();
+    let cmd = format!(
+        "test \"$SHEPHERD_HEAVY_JOB\" = g1 && touch '{}' && exit 7; exit 9",
+        ran.display()
+    );
+    let code = h.run(&["--url", &s.uri(), "slot", "run", "--", &cmd]).await;
+    assert_eq!(code, 7, "stderr: {}", h.err.text());
+    assert_eq!(*ran_at_bind.lock().unwrap(), Some(false));
+    assert!(ran.exists());
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_failing_bind_still_runs_the_command() {
+    let dir = tempfile::tempdir().unwrap();
+    let ran = dir.path().join("ran");
+    let (s, ran_at_bind) = scoped_server(ran.clone(), 500, json!({ "ok": true })).await;
+    let h = Harness::new();
+    let cmd = format!("touch '{}'", ran.display());
+    let code = h.run(&["--url", &s.uri(), "slot", "run", "--", &cmd]).await;
+    assert_eq!(code, 0, "stderr: {}", h.err.text());
+    assert_eq!(*ran_at_bind.lock().unwrap(), Some(false));
+    assert!(ran.exists());
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn the_exit_reports_oom_note_is_printed() {
+    let dir = tempfile::tempdir().unwrap();
+    let (s, _) = scoped_server(
+        dir.path().join("ran"),
+        200,
+        json!({ "ok": true, "oom": true, "message": "Shepherd: this heavy check hit its memory limit (6 GiB)" }),
+    )
+    .await;
+    let h = Harness::new();
+    let code = h
+        .run(&["--url", &s.uri(), "slot", "run", "--", "exit 137"])
+        .await;
+    assert_eq!(code, 137);
+    assert!(h.err.text().contains("hit its memory limit (6 GiB)"));
+}
+
+#[tokio::test]
+async fn no_scope_answer_means_no_bind() {
+    let s = MockServer::start().await;
+    answer(
+        &s,
+        OPERATOR,
+        "acquire",
+        200,
+        json!({ "decision": "run", "jobId": "j1" }),
+    )
+    .await;
+    answer(&s, OPERATOR, "finished", 200, json!({ "ok": true })).await;
+    Mock::given(method("POST"))
+        .and(path(OPERATOR))
+        .and(body_partial_json(json!({ "op": "bind" })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "ok": true })))
+        .expect(0)
+        .mount(&s)
+        .await;
+    let h = Harness::new();
+    let code = h
+        .run(&["--url", &s.uri(), "slot", "run", "--", "exit 0"])
+        .await;
+    assert_eq!(code, 0, "stderr: {}", h.err.text());
+}

@@ -2674,12 +2674,17 @@ components:
         busy: { type: boolean }
     HeavySlotOperatorAnswer:
       type: object
-      description: An `acquire` answer (`decision` run/queued, `jobId`, and for queued `message`, `position`, `total`, `etaMs`, `reason`) or a `started`/`finished` answer (`ok`).
+      description: An `acquire` answer (`decision` run/queued, `jobId`, `scope` when the command must start behind a gate and be bound, and for queued `message`, `position`, `total`, `etaMs`, `reason`), a `bind` answer (`ok`, `scoped`) or a `started`/`finished` answer (`ok`; `finished` adds `oom` and `message` when the run's own scope was stopped for exceeding its memory limit).
       additionalProperties: true
       properties:
         decision: { type: string, enum: [run, queued] }
         jobId: { type: string }
         unmanaged: { type: boolean }
+        scope:
+          type: boolean
+          description: "Linux with heavy-run scopes (#3555, #3784): start the command behind a gate, send `op: bind`, then let it exec."
+        scoped: { type: boolean }
+        oom: { type: boolean }
         message: { type: string }
         position: { type: integer }
         total: { type: integer }
@@ -10006,7 +10011,10 @@ paths:
       description: |
         `shepherd slot run` outside any session (#3550): ask for the slot (`op: acquire`) and report
         the command's start (`started`, macOS process group) and exit (`finished`). A command that
-        would have to wait is answered `queued` with place and estimate and is NOT queued.
+        would have to wait is answered `queued` with place and estimate and is NOT queued. On a
+        Linux host with heavy-run scopes (#3784) the answer carries `scope: true`: the CLI holds the
+        command at a gate, `bind` moves it into its own memory-limited systemd scope, and
+        `finished` carries an OOM note when that limit stopped it.
       requestBody:
         required: true
         content:
@@ -10015,7 +10023,7 @@ paths:
               type: object
               required: [op]
               properties:
-                op: { type: string, enum: [acquire, started, finished] }
+                op: { type: string, enum: [acquire, started, bind, finished] }
                 command: { type: string }
                 cwd: { type: string }
                 jobId: { type: string }
@@ -10023,7 +10031,7 @@ paths:
                 exitCode: { type: integer }
       responses:
         "200":
-          description: "`acquire`: { decision: run, jobId? } or { decision: queued, message, position, total, etaMs }; `started`/`finished`: { ok }."
+          description: "`acquire`: { decision: run, jobId?, scope? } or { decision: queued, message, position, total, etaMs }; `bind`: { ok, scoped }; `started`: { ok }; `finished`: { ok, oom?, message? }."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/HeavySlotOperatorAnswer" }

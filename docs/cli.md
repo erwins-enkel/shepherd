@@ -598,6 +598,13 @@ runs: the place and estimate are printed to stderr and the exit code is **75**. 
 code is the command's own (128 + signal when it was killed). If the server cannot be reached or
 answers with an error, the command runs unmanaged with a one-line note.
 
+On a Linux host with agent scopes the command runs in its own memory-limited systemd scope
+(`shepherd-heavy-<job>.scope`, #3784): it starts behind a gate until Shepherd has moved it into the
+scope (if that fails, it runs without the limit). A run that goes over **Settings → Resources →
+Memory per heavy run** is stopped as a whole, and a note on stderr says so — the exit code is then
+not a test result. Only Shepherd's local host can scope: against a remote server the command runs
+without a scope.
+
 - **In a session** (`SHEPHERD_SESSION_ID`, `SHEPHERD_AGENT_API_URL` and
   `SHEPHERD_INGRESS_HEADER_FILE` set — also inside a sandbox membrane) it uses the session's own
   ingress key; a session that has to wait is steered when it is its turn.

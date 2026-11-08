@@ -6948,11 +6948,12 @@ const HEAVY_SLOT_OPS: Record<
       return json({ error: "jobId and a positive integer pgid are required" }, 400);
     return json({ ok: await slot.started(id, jobId, pgid) });
   },
-  // Linux, #3555: the gated command asks for its own memory-limited scope before it execs.
+  // Linux, #3555: the gated command asks for its own memory-limited scope before it execs. The
+  // operator's `shepherd slot run` binds too (#3784); bind() checks the job belongs to `id`.
   async bind(slot, id, body) {
     const jobId = boundedString(body.jobId, 200);
     if (!jobId) return json({ error: "jobId must be a non-empty string" }, 400);
-    if (id === OPERATOR_HOLDER || !slot.bind) return json({ ok: false, scoped: false });
+    if (!slot.bind) return json({ ok: false, scoped: false });
     return json(await slot.bind(id, jobId));
   },
   async finished(slot, id, body) {
@@ -8966,7 +8967,8 @@ function codexUsageResponse(deps: AppDeps, action: string): Response {
 }
 
 // POST /api/heavy-slot/operator — `shepherd slot run` outside any session (#3550): the runner's
-// acquire/started/finished ops for the host operator. Host-wide: a repo-scoped token gets 404.
+// acquire/started/bind/finished ops for the host operator (bind: own scope, #3784). Host-wide: a
+// repo-scoped token gets 404.
 async function handleHeavySlotOperator(
   req: Request,
   deps: AppDeps,

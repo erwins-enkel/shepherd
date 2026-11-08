@@ -7,6 +7,13 @@
 //!   - queued → do NOT run it: print the server's message (place, estimate) and exit 75;
 //!   - unmanaged → run it.
 //!
+//! Linux hosts with heavy-run scopes (#3555, #3784) answer `scope: true`: the command then starts
+//! behind a gate — a shell blocked on fd 3 that already carries the job marker — while the server
+//! moves it into the run's own memory-limited systemd scope (`op: "bind"`). Only after that answer
+//! (or its failure) does the gate exec the command, so everything it forks is born inside the scope.
+//! A gate that never hears `go` (this CLI died) exits 125 instead of running the command orphaned.
+//! When the scope's limit stopped the run, the `finished` answer carries a note that is printed.
+//!
 //! Auth: inside a Shepherd session (`SHEPHERD_SESSION_ID`, `SHEPHERD_AGENT_API_URL` and
 //! `SHEPHERD_INGRESS_HEADER_FILE` all set) the session's own ingress route is used, with the key
 //! header from that file — the only credential a membrane session has. Outside a session the
@@ -27,6 +34,13 @@ use crate::error::Result;
 pub const EXIT_QUEUED: i32 = 75;
 const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(15);
 const REPORT_TIMEOUT: Duration = Duration::from_secs(5);
+const BIND_TIMEOUT: Duration = Duration::from_secs(5);
+/// Waits for "go" on fd 3, then execs its arguments unchanged (same as `scripts/heavy-slot.mjs`).
+/// Exits 125 when its CLI went away before releasing it.
+#[cfg(unix)]
+const GATE_SCRIPT: &str = r#"IFS= read -r t <&3; exec 3<&-; [ "$t" = go ] || exit 125; exec "$@""#;
+#[cfg(unix)]
+const GATE_FD: std::os::fd::RawFd = 3;
 
 /// Where and how the slot is asked.
 struct Route {
@@ -169,22 +183,30 @@ pub async fn run(ctx: &mut Ctx<'_>, args: Vec<String>) -> Result<i32> {
     }
     let job = match (decision, answer.get("jobId").and_then(Value::as_str)) {
         (Some("run"), Some(job)) => job.to_string(),
-        _ => return Ok(spawn(ctx, &command, None, None).await),
+        _ => return Ok(spawn(ctx, &command, None, None, false).await),
     };
+    // macOS has no scopes; its process-group report (`started`) stays as it is.
+    let gate =
+        !cfg!(target_os = "macos") && answer.get("scope").and_then(Value::as_bool) == Some(true);
 
     let report = Report {
         http: &http,
         route: &route,
         job: &job,
     };
-    let code = spawn(ctx, &command, Some(&job), Some(&report)).await;
-    let _ = post(
+    let code = spawn(ctx, &command, Some(&job), Some(&report), gate).await;
+    let done = post(
         &http,
         &route,
         &json!({ "op": "finished", "jobId": job, "exitCode": code }),
         REPORT_TIMEOUT,
     )
     .await;
+    if let Ok(done) = done
+        && let Some(message) = done.get("message").and_then(Value::as_str)
+    {
+        ctx.io.warn(message);
+    }
     Ok(code)
 }
 
@@ -214,18 +236,58 @@ struct Report<'a> {
 async fn unmanaged(ctx: &mut Ctx<'_>, command: &str, why: &str) -> i32 {
     ctx.io
         .warn(&format!("Shepherd: {why}; running without the slot."));
-    spawn(ctx, command, None, None).await
+    spawn(ctx, command, None, None, false).await
+}
+
+/// `shell -c command`, or with `gate` (the read end of the gate pipe) the same command behind
+/// [`GATE_SCRIPT`], with that pipe as the gate's fd 3.
+#[cfg(unix)]
+fn shell_command(
+    shell: &str,
+    command: &str,
+    gate: Option<std::os::fd::RawFd>,
+) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new(shell);
+    let Some(fd) = gate else {
+        cmd.arg("-c").arg(command);
+        return cmd;
+    };
+    cmd.args(["-c", GATE_SCRIPT, "heavy-gate", shell, "-c", command]);
+    // SAFETY: the closure runs between fork and exec and calls only dup2/fcntl, both
+    // async-signal-safe. Both pipe ends are close-on-exec; dup2 gives fd 3 a copy without the flag
+    // (and closes whatever fd 3 was, e.g. the write end), and an fd that already IS 3 has the flag
+    // cleared instead.
+    unsafe {
+        cmd.pre_exec(move || {
+            let r = if fd == GATE_FD {
+                libc::fcntl(fd, libc::F_SETFD, 0)
+            } else {
+                libc::dup2(fd, GATE_FD)
+            };
+            if r < 0 {
+                Err(std::io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        });
+    }
+    cmd
 }
 
 /// Run `command` through the shell with stdio passed straight through and the job stamped on it.
-/// Signals the CLI receives are forwarded to the command. 128 + signal when it was killed.
+/// Signals the CLI receives are forwarded to the command. 128 + signal when it was killed. `gate`:
+/// start it behind the gate, ask the server to bind it into its own scope, then open the gate —
+/// whatever the bind answered (fail open).
 #[cfg(unix)]
 async fn spawn(
     ctx: &mut Ctx<'_>,
     command: &str,
     job: Option<&str>,
     report: Option<&Report<'_>>,
+    gate: bool,
 ) -> i32 {
+    use std::io::Write;
+    use std::os::fd::AsRawFd;
     use std::os::unix::process::ExitStatusExt;
     use tokio::signal::unix::{SignalKind, signal};
 
@@ -234,8 +296,14 @@ async fn spawn(
     } else {
         "/bin/sh"
     };
-    let mut cmd = tokio::process::Command::new(shell);
-    cmd.arg("-c").arg(command).current_dir(&ctx.io.cwd);
+    // A pipe that cannot be made just runs the command ungated (fail open).
+    let gate_pipe = if gate { std::io::pipe().ok() } else { None };
+    let mut cmd = shell_command(
+        shell,
+        command,
+        gate_pipe.as_ref().map(|(reader, _)| reader.as_raw_fd()),
+    );
+    cmd.current_dir(&ctx.io.cwd);
     if let Some(job) = job {
         cmd.env("SHEPHERD_HEAVY_JOB", job);
     }
@@ -251,6 +319,12 @@ async fn spawn(
             return 127;
         }
     };
+    // The child holds its own copy of the read end now; the CLI keeps only the write end, so the
+    // gate sees EOF (and exits 125) if the CLI dies before opening it.
+    let writer = gate_pipe.map(|(reader, writer)| {
+        drop(reader);
+        writer
+    });
     let pid = child.id();
     if let (true, Some(pid), Some(r)) = (darwin, pid, report) {
         let _ = post(
@@ -271,9 +345,26 @@ async fn spawn(
             unsafe { libc::kill(target, sig) };
         }
     };
+    let release = async move {
+        let Some(mut writer) = writer else { return };
+        if let Some(r) = report {
+            let _ = post(
+                r.http,
+                r.route,
+                &json!({ "op": "bind", "jobId": r.job }),
+                BIND_TIMEOUT,
+            )
+            .await;
+        }
+        // A gate that already died makes this fail (EPIPE); its exit is reported below.
+        let _ = writer.write_all(b"go\n");
+    };
+    let mut release = std::pin::pin!(release);
+    let mut released = false;
     let status = loop {
         tokio::select! {
             s = child.wait() => break s,
+            _ = &mut release, if !released => released = true,
             _ = recv(&mut sigint) => forward(libc::SIGINT),
             _ = recv(&mut sigterm) => forward(libc::SIGTERM),
             _ = recv(&mut sighup) => forward(libc::SIGHUP),
@@ -304,6 +395,7 @@ async fn spawn(
     _command: &str,
     _job: Option<&str>,
     _report: Option<&Report<'_>>,
+    _gate: bool,
 ) -> i32 {
     ctx.io.warn("error: `shepherd slot run` needs a Unix shell");
     1
@@ -340,5 +432,39 @@ mod tests {
         assert_eq!(r.header, Some(("X-Shepherd-Agent-Key".into(), "k1".into())));
         std::fs::write(&file, "garbage").unwrap();
         assert!(ingress_route(&env).is_none());
+    }
+
+    #[cfg(unix)]
+    async fn gated_run(open: bool) -> (Option<i32>, bool) {
+        use std::io::Write;
+        use std::os::fd::AsRawFd;
+        let dir = tempfile::tempdir().unwrap();
+        let ran = dir.path().join("ran");
+        let (reader, mut writer) = std::io::pipe().unwrap();
+        let mut cmd = shell_command(
+            "/bin/sh",
+            &format!("touch '{}'; exit 7", ran.display()),
+            Some(reader.as_raw_fd()),
+        );
+        let mut child = cmd.spawn().unwrap();
+        drop(reader);
+        if open {
+            writer.write_all(b"go\n").unwrap();
+        }
+        drop(writer);
+        let code = child.wait().await.unwrap().code();
+        (code, ran.exists())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_gate_execs_the_command_only_on_go() {
+        assert_eq!(gated_run(true).await, (Some(7), true));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_abandoned_gate_exits_125_without_running_the_command() {
+        assert_eq!(gated_run(false).await, (Some(125), false));
     }
 }

@@ -5,6 +5,7 @@ import {
   repoEffortFitsProvider,
   repoModelFitsProvider,
   repoPinnedProvider,
+  reposStayingOn,
 } from "./repo-cli";
 
 describe("repo coding CLI (#3441)", () => {
@@ -72,5 +73,54 @@ describe("ownRunDefaults (#3447)", () => {
     expect(ownRunDefaults([row({ defaultModel: "opus" })], "codex")).toEqual([]);
     expect(ownRunDefaults([row({ defaultModel: "opus" })], "claude")).toHaveLength(1);
     expect(ownRunDefaults([row()], "claude")).toEqual([]);
+  });
+});
+
+describe("reposStayingOn (#3448)", () => {
+  const repo = (repoPath: string, agentProvider: "inherit" | "claude" | "codex") => ({
+    repoPath,
+    name: repoPath.slice(1),
+    agentProvider,
+  });
+  const live = (repoPath: string, n: number, status: "running" | "idle" | "archived" = "running") =>
+    Array.from({ length: n }, () => ({ repoPath, status }));
+
+  it("names a repo pinned to the exhausted CLI with its session count", () => {
+    expect(reposStayingOn([repo("/app", "claude")], live("/app", 2), "claude")).toEqual([
+      { repoPath: "/app", name: "app", agentProvider: "claude", sessions: 2 },
+    ]);
+  });
+
+  it("drops a pinned repo without sessions, archived ones not counting", () => {
+    expect(reposStayingOn([repo("/app", "claude")], [], "claude")).toEqual([]);
+    expect(reposStayingOn([repo("/app", "claude")], live("/app", 3, "archived"), "claude")).toEqual(
+      [],
+    );
+    const [r] = reposStayingOn(
+      [repo("/app", "claude")],
+      [...live("/app", 1, "idle"), ...live("/app", 1, "archived")],
+      "claude",
+    );
+    expect(r?.sessions).toBe(1);
+  });
+
+  it("never names a repo that inherits or is pinned to the target CLI", () => {
+    const sessions = [...live("/inh", 2), ...live("/cdx", 2)];
+    expect(
+      reposStayingOn([repo("/inh", "inherit"), repo("/cdx", "codex")], sessions, "claude"),
+    ).toEqual([]);
+  });
+
+  it("counts only the repo's own sessions and keeps the rows' order", () => {
+    const rows = [repo("/b", "claude"), repo("/a", "claude")];
+    const out = reposStayingOn(
+      rows,
+      [...live("/a", 1), ...live("/b", 2), ...live("/c", 5)],
+      "claude",
+    );
+    expect(out.map((r) => [r.repoPath, r.sessions])).toEqual([
+      ["/b", 2],
+      ["/a", 1],
+    ]);
   });
 });

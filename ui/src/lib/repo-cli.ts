@@ -1,4 +1,4 @@
-import type { AgentProvider, RepoAgentProviderSetting } from "#lib/types.js";
+import type { AgentProvider, RepoAgentProviderSetting, Session } from "#lib/types.js";
 import { providerModels } from "#lib/provider-models.js";
 import { providerEfforts } from "#lib/effort-guidance.js";
 
@@ -63,4 +63,23 @@ export function ownRunDefaults<T extends RunDefaults>(
         r.defaultEffort !== "inherit" ||
         r.defaultExecutionEffort !== "inherit",
     );
+}
+
+/** The repos a failover away from `provider` leaves behind (#3448): pinned to `provider`, with
+ *  sessions on this machine. Counts the non-archived sessions, as the repo chip does; a repo
+ *  without any drops out. Rows keep their order. Both sides carry the realpath'd repo path. */
+export function reposStayingOn<
+  T extends { repoPath: string; agentProvider: RepoAgentProviderSetting },
+>(
+  rows: readonly T[],
+  sessions: readonly Pick<Session, "repoPath" | "status">[],
+  provider: AgentProvider,
+): (T & { sessions: number })[] {
+  const counts = new Map<string, number>();
+  for (const s of sessions)
+    if (s.status !== "archived") counts.set(s.repoPath, (counts.get(s.repoPath) ?? 0) + 1);
+  return rows.flatMap((r) => {
+    const count = r.agentProvider === provider ? (counts.get(r.repoPath) ?? 0) : 0;
+    return count > 0 ? [{ ...r, sessions: count }] : [];
+  });
 }

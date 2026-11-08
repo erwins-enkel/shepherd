@@ -853,3 +853,12 @@ a.issue-list-title:hover {
 html.pull-contain {
   overscroll-behavior-y: contain;
 }
+
+/* Desktop/tablet shell is exactly one viewport (.shell height: 100dvh): the document itself
+   must never scroll or rubber-band — a trackpad gesture chained out of a list at its edge
+   would otherwise move the whole page (#3794). Toggled by +page.svelte, so other routes
+   keep document scroll. */
+html.fixed-shell {
+  overflow: hidden;
+  overscroll-behavior: none;
+}

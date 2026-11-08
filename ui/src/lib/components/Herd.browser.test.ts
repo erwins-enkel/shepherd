@@ -109,6 +109,15 @@ function changesReview(sessionId: string): ReviewVerdict {
   };
 }
 
+describe("Herd scroll containment (#3794)", () => {
+  it("contains overscroll on the list so trackpad scroll never chains to the page", async () => {
+    render(Herd, { ...base, sessions: [session({ id: "s1" })], git: {} });
+    await expect.poll(() => document.querySelector(".units")).not.toBeNull();
+    const units = document.querySelector(".units") as HTMLElement;
+    expect(getComputedStyle(units).overscrollBehaviorY).toBe("contain");
+  });
+});
+
 describe("Herd merging group", () => {
   it("renders a Merging group for in-train sessions", async () => {
     const merging = session({

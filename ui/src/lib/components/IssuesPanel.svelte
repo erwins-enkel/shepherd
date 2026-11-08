@@ -1042,6 +1042,7 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 0 12px 10px;
     display: flex;
     flex-direction: column;
@@ -1144,6 +1145,7 @@
     min-width: 0;
     min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
     background: var(--color-bg);
   }
   /* Mobile second level: an opaque full-cover view swap over the list (the scrim-exempt

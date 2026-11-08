@@ -129,6 +129,23 @@ describe("IssuesPanel header (#2639)", () => {
   });
 });
 
+describe("IssuesPanel scroll containment (#3794)", () => {
+  it("contains overscroll so trackpad scroll never chains to the page", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: "https://github.com/owner/repo",
+      issues: [],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelector(".issues-list")).not.toBeNull();
+    const list = document.querySelector(".issues-list") as HTMLElement;
+    expect(getComputedStyle(list).overscrollBehaviorY).toBe("contain");
+  });
+});
+
 describe("IssuesPanel empty vs fetch-failed", () => {
   it("shows the no-open-issues message when the listing is a genuine zero", async () => {
     mockListIssues.mockResolvedValue({

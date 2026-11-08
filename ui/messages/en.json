@@ -8302,5 +8302,6 @@
   "reposettings_hide_desc": "Keeps it out of the Backlog's repo list. Sessions and Auto-Drain are unaffected.",
   "cardmenu_repo_group": "Repo · {repo}",
   "feat_repo_settings_window_title": "All repo settings in one window",
-  "feat_repo_settings_window_body": "Repo settings now open in one window, ordered by how work flows: agent environment, start & flow, schedules, review, merge, epics and display. Open it from a repo tab's or a session row's context menu, the ⚙ pill, New Task's guard timeline or an epic's landing CI. What needs attention shows at the top, and the section it concerns is marked."
+  "feat_repo_settings_window_body": "Repo settings now open in one window, ordered by how work flows: agent environment, start & flow, schedules, review, merge, epics and display. Open it from a repo tab's or a session row's context menu, the ⚙ pill, New Task's guard timeline or an epic's landing CI. What needs attention shows at the top, and the section it concerns is marked.",
+  "cardmenu_repo_group_kicker": "Repo"
 }

@@ -933,7 +933,7 @@ class RepoConfigStore {
   }
 
   /** All automation on/off flags for a repo, in one read — shared by the pill's
-   *  count (GitRail) and the panel's switch rows (AutomationPanel). */
+   *  count (GitRail) and the repo settings' switch rows. */
   flags(repoPath: string): AutomationFlags {
     return {
       critic: this.isEnabled(repoPath),

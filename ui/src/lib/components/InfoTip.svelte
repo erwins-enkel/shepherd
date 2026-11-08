@@ -152,7 +152,7 @@
 {/if}
 
 <style>
-  /* Clickable "ⓘ" — matches the AutomationPanel `.info` affordance. */
+  /* Clickable "ⓘ" — matches AutomationInfoTip's `.info` affordance. */
   .info {
     flex: 0 0 auto;
     display: inline-flex;

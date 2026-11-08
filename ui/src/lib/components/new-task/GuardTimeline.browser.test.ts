@@ -4,13 +4,14 @@ import { tick } from "svelte";
 import "../../../app.css";
 import { m } from "#lib/paraglide/messages.js";
 import GuardTimeline from "./GuardTimeline.svelte";
+import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
 import RunSettingsGroups from "./RunSettingsGroups.svelte";
 import type { GuardRepoConfig } from "#lib/guard-timeline.js";
 
 // Rendering seam for the guard timeline. The derivation itself is covered without a DOM in
 // guard-timeline.test.ts; this file asserts the collapse/expand contract, the marker classes
-// that carry the human-vs-automatic distinction, and the nested automation popover — which
-// must never close the surrounding New Task dialog (the typed prompt would be lost).
+// that carry the human-vs-automatic distinction, and the repo steps' way into the repo settings
+// window, which opens over the New Task dialog (the typed prompt stays).
 
 const REPO: GuardRepoConfig = {
   critic: true,
@@ -122,49 +123,28 @@ describe("GuardTimeline — markers", () => {
   });
 });
 
-describe("GuardTimeline — automation popover", () => {
-  it("opens the automation panel from a repo step", async () => {
+describe("GuardTimeline — repo settings window (#3443)", () => {
+  afterEach(() => {
+    repoSettingsWindow.target = null;
+  });
+
+  it("opens the window at the section of the repo step: Review, then Merge", async () => {
     await expand({ autopilot: true });
     expect(openBtns().length).toBe(2);
-    expect(document.querySelector(".auto-pop")).toBeNull();
     openBtns()[0]!.click();
-    await expect.poll(() => document.querySelector(".auto-pop")).toBeTruthy();
-    expect(openBtns()[0]!.getAttribute("aria-expanded")).toBe("true");
+    expect(repoSettingsWindow.target).toMatchObject({ repoPath: "/tmp/repo", section: "review" });
+    expect(repoSettingsWindow.target?.opener).toBe(openBtns()[0]);
+    openBtns()[1]!.click();
+    expect(repoSettingsWindow.target).toMatchObject({ repoPath: "/tmp/repo", section: "merge" });
+    expect(document.querySelector(".auto-pop"), "no popover any more").toBeNull();
   });
 
-  // The card's use:dialog Escape handler bails on defaultPrevented, so consuming Escape here
-  // is what keeps the dialog (and the typed prompt) alive while the popover closes.
-  it("consumes Escape so the surrounding dialog stays open", async () => {
-    await expand({ autopilot: true });
-    openBtns()[0]!.click();
-    await expect.poll(() => document.querySelector(".auto-pop")).toBeTruthy();
-
-    const target = document.querySelector<HTMLElement>(".auto-pop")!;
-    const ev = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
-    target.dispatchEvent(ev);
-    await tick();
-
-    expect(ev.defaultPrevented).toBe(true);
-    expect(document.querySelector(".auto-pop")).toBeNull();
-    // The timeline itself survives — only the popover closed.
-    expect(head()).toBeTruthy();
-  });
-
-  it("leaves Escape alone when no popover is open, so the dialog can close", async () => {
+  it("leaves Escape to the surrounding dialog", async () => {
     await expand({ autopilot: true });
     const ev = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
     document.querySelector<HTMLElement>(".gtl")!.dispatchEvent(ev);
     await tick();
     expect(ev.defaultPrevented).toBe(false);
-  });
-
-  it("closes on a click outside the block", async () => {
-    await expand({ autopilot: true });
-    openBtns()[0]!.click();
-    await expect.poll(() => document.querySelector(".auto-pop")).toBeTruthy();
-    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    await tick();
-    expect(document.querySelector(".auto-pop")).toBeNull();
   });
 });
 

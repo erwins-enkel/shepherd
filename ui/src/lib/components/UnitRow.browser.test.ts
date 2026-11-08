@@ -6,6 +6,7 @@ import UnitRow from "./UnitRow.svelte";
 import { projectIcons } from "#lib/projectIcons.svelte.js";
 import type { GitState, HoldReason, PlanGate, Session } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
+import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
 import type { ReviewVerdict } from "#lib/types.js";
 import { overwriteGetLocale } from "#lib/paraglide/runtime.js";
 import { clearDecommissioning, markDecommissioning } from "#lib/decommissioning.svelte.js";
@@ -2014,6 +2015,38 @@ describe("UnitRow awaits-operator attention wash", () => {
     const bg = getComputedStyle(unit).backgroundColor;
     expect(bg).not.toBe(resolvedBackgroundColor("var(--color-sel)"));
     expect(bg).not.toBe("rgba(0, 0, 0, 0)");
+  });
+});
+
+describe("UnitRow repo settings (#3443)", () => {
+  afterEach(() => {
+    repoSettingsWindow.target = null;
+  });
+
+  it("opens the repo settings window for the session's repo from the Repo group", async () => {
+    render(UnitRow, {
+      session: session({ id: "rs-row", name: "rs row", repoPath: "/work/murmur" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      oncleanTerminal: vi.fn(),
+    });
+    const hit = page.getByRole("button", { name: m.unit_open_aria({ name: "rs row" }) }).element();
+    hit.dispatchEvent(
+      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+    );
+
+    const group = page.getByRole("group", { name: m.cardmenu_repo_group({ repo: "murmur" }) });
+    await expect.element(group).toBeVisible();
+    // the clean terminal shares the repo's group, apart from the session's own actions
+    await expect
+      .element(group.getByRole("menuitem", { name: m.cardmenu_clean_terminal() }))
+      .toBeVisible();
+    await group.getByRole("menuitem", { name: m.reposettings_menu_open() }).click();
+
+    expect(repoSettingsWindow.target).toMatchObject({ repoPath: "/work/murmur" });
+    expect(repoSettingsWindow.target?.opener).toBe(hit);
+    expect(document.querySelector(".card-menu"), "menu closed").toBeNull();
   });
 });
 

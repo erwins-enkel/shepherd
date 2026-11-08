@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { DrainStatus } from "#lib/types.js";
 
-// Pure helper mirroring the `epicActive` derived in AutomationPanel: true when
+// Pure helper mirroring the `epicActive` derived in the repo settings' Start & flow: true when
 // drain.epicParent is set (non-null/non-undefined). Extracted here so it can be
 // unit-tested without spinning up a Svelte component.
 function isEpicActive(drain: DrainStatus | null | undefined): boolean {
@@ -22,12 +22,12 @@ function makeDrain(epicParent: number | null): DrainStatus {
   };
 }
 
-// Pure helper mirroring the `lightweight` derived in AutomationPanel.
+// Pure helper mirroring the `lightweight` derived in the repo settings sections.
 function isLightweight(repoMode: "forge" | "lightweight" | undefined): boolean {
   return (repoMode ?? "forge") === "lightweight";
 }
 
-describe("AutomationPanel epic-mode precedence indicator", () => {
+describe("Repo settings epic-mode precedence indicator", () => {
   it("epicActive is true when epicParent is set", () => {
     expect(isEpicActive(makeDrain(42))).toBe(true);
   });
@@ -49,7 +49,7 @@ describe("AutomationPanel epic-mode precedence indicator", () => {
   });
 });
 
-describe("AutomationPanel lightweight-mode derived", () => {
+describe("Repo settings lightweight-mode derived", () => {
   it("isLightweight is true when repoMode is 'lightweight'", () => {
     expect(isLightweight("lightweight")).toBe(true);
   });

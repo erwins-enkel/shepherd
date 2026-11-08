@@ -8302,5 +8302,6 @@
   "reposettings_hide_desc": "Nimmt es aus der Repo-Liste des Backlogs. Sessions und Backlog-Abarbeitung bleiben unberührt.",
   "cardmenu_repo_group": "Repo · {repo}",
   "feat_repo_settings_window_title": "Alle Repo-Einstellungen in einem Fenster",
-  "feat_repo_settings_window_body": "Repo-Einstellungen öffnen sich jetzt in einem Fenster, geordnet nach dem Ablauf der Arbeit: Agent-Umgebung, Start & Ablauf, Zeitpläne, Review, Merge, Epics und Darstellung. Du öffnest es über das Kontextmenü eines Repo-Tabs oder einer Session-Zeile, den ⚙-Knopf, die Guard-Timeline in Neue Aufgabe oder das Landing-CI eines Epics. Was Aufmerksamkeit braucht, steht oben, und der betroffene Bereich ist markiert."
+  "feat_repo_settings_window_body": "Repo-Einstellungen öffnen sich jetzt in einem Fenster, geordnet nach dem Ablauf der Arbeit: Agent-Umgebung, Start & Ablauf, Zeitpläne, Review, Merge, Epics und Darstellung. Du öffnest es über das Kontextmenü eines Repo-Tabs oder einer Session-Zeile, den ⚙-Knopf, die Guard-Timeline in Neue Aufgabe oder das Landing-CI eines Epics. Was Aufmerksamkeit braucht, steht oben, und der betroffene Bereich ist markiert.",
+  "cardmenu_repo_group_kicker": "Repo"
 }

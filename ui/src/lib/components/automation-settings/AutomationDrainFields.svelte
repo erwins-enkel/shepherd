@@ -4,7 +4,10 @@
   import { repoConfig } from "#lib/reviews.svelte.js";
   import { automationFocus } from "#lib/automation-focus.js";
   import { clampCap, clampCeiling, sanitizeLabel } from "../git-rail-drain";
+  import { checkPriorityLabel, PRIORITY_LABEL } from "#lib/list-entries.js";
+  import { priorityLabelsExplanation } from "#lib/tooltips/explanations.js";
   import RepoSettingRow from "../repo-settings/RepoSettingRow.svelte";
+  import ListField from "../repo-settings/ListField.svelte";
   import "./automation-fields.css";
 
   // The Auto-Drain "rails" (cap / label / usage ceiling). Rendered inline directly
@@ -72,6 +75,11 @@
     await repoConfig.setAutoLabel(repoPath, t);
     drainLabel = repoConfig.autoLabelFor(repoPath);
   }
+  const PRIORITY_LABEL_ERRORS = {
+    empty: () => m.automation_priority_labels_err_empty(),
+    duplicate: () => m.automation_priority_labels_err_duplicate(),
+  };
+
   async function commitDrainCeiling() {
     const n = clampCeiling(drainCeiling);
     drainCeiling = n;
@@ -120,6 +128,21 @@
           <p id="{uid}-label" class="drain-hint">{m.drain_label_hint()}</p>
         {/snippet}
       </RepoSettingRow>
+      <!-- Like the label, the priority labels only order label-drain, which a running epic suspends. -->
+      <ListField
+        field="priorityLabels"
+        name={m.automation_priority_labels_label()}
+        explanation={priorityLabelsExplanation()}
+        fixed={[PRIORITY_LABEL]}
+        items={repoConfig.priorityLabelsFor(repoPath)}
+        check={checkPriorityLabel}
+        errors={PRIORITY_LABEL_ERRORS}
+        placeholder={m.automation_priority_labels_placeholder()}
+        addLabel={m.automation_priority_labels_add()}
+        removeLabel={(label) => m.automation_priority_labels_remove({ label })}
+        hint={m.automation_priority_labels_hint()}
+        onchange={(labels) => repoConfig.setPriorityLabels(repoPath, labels)}
+      />
     {/if}
     <RepoSettingRow field="usageCeilingPct" name={m.drain_ceiling_label()} indent>
       {#snippet control()}

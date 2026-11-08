@@ -388,7 +388,7 @@ class SpawnNoticeStore {
 export const spawnNotices = new SpawnNoticeStore();
 
 /** Which per-repo overlay map RepoConfigStore.write() updates optimistically for each patch field.
- *  A field without one (egress hosts, priority labels, preview script) is PUT + ingest only. */
+ *  A field without one (the preview script) is PUT + ingest only. */
 const OVERLAY_MAPS = {
   criticEnabled: "enabled",
   criticAllPrs: "allPrs",
@@ -404,6 +404,7 @@ const OVERLAY_MAPS = {
   epicStacksEnabled: "epicStacks",
   sharedBrowserEnabled: "sharedBrowser",
   browserAllowedHosts: "browserAllowedHosts",
+  egressExtraHosts: "egressExtraHosts",
   claudeAiConnectorsEnabled: "claudeAiConnectors",
   pluginAllowlist: "pluginAllowlist",
   skillAllowlist: "skillAllowlist",
@@ -421,6 +422,7 @@ const OVERLAY_MAPS = {
   previewOpenMode: "previewOpenMode",
   maxAuto: "maxAuto",
   autoLabel: "autoLabel",
+  priorityLabels: "priorityLabels",
   usageCeilingPct: "usageCeiling",
   automationConfirmed: "confirmed",
 } as const satisfies Partial<Record<keyof RepoConfigPatch, keyof RepoConfigStore>>;
@@ -444,6 +446,7 @@ class RepoConfigStore {
   epicStacks = $state<Record<string, boolean>>({}); // stack epic children on their predecessor's PR branch (default off, #2069)
   sharedBrowser = $state<Record<string, boolean>>({}); // per-repo Shared Browser (default off; agents can read its logins)
   browserAllowedHosts = $state<Record<string, string[]>>({}); // autonomous Browser Attach origin allowlist
+  egressExtraHosts = $state<Record<string, string[]>>({}); // extra hosts on the Autonomous egress allowlist (#3446)
   claudeAiConnectors = $state<Record<string, boolean>>({}); // claude.ai account connectors for this repo's Claude sessions (default off)
   pluginAllowlist = $state<Record<string, string[] | null>>({}); // plugins this repo's spawns keep (null = all, #3780)
   skillAllowlist = $state<Record<string, string[] | null>>({}); // personal skills this repo's spawns keep (null = all, #3780)
@@ -462,6 +465,7 @@ class RepoConfigStore {
   previewOpenMode = $state<Record<string, RepoConfig["previewOpenMode"]>>({}); // Preview chip action (default ask)
   maxAuto = $state<Record<string, number>>({}); // max concurrent auto sessions (default 1)
   autoLabel = $state<Record<string, string>>({}); // label used to pick drain issues (default "shepherd:auto")
+  priorityLabels = $state<Record<string, string[]>>({}); // labels drained first, besides shepherd:priority (#3446)
   usageCeiling = $state<Record<string, number>>({}); // usage % ceiling before pausing drain (default 80)
   confirmed = $state<Record<string, boolean>>({}); // automation reviewed+confirmed for this repo (issue #1025)
   rowExists = $state<Record<string, boolean>>({}); // a repo_config row exists server-side
@@ -497,6 +501,7 @@ class RepoConfigStore {
       ...this.browserAllowedHosts,
       [repoPath]: c.browserAllowedHosts ?? [],
     };
+    this.egressExtraHosts = { ...this.egressExtraHosts, [repoPath]: c.egressExtraHosts ?? [] };
     this.claudeAiConnectors = {
       ...this.claudeAiConnectors,
       [repoPath]: c.claudeAiConnectorsEnabled,
@@ -523,6 +528,7 @@ class RepoConfigStore {
     this.previewOpenMode = { ...this.previewOpenMode, [repoPath]: c.previewOpenMode };
     this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
     this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
+    this.priorityLabels = { ...this.priorityLabels, [repoPath]: c.priorityLabels ?? [] };
     this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
     if (c.automationConfirmed !== undefined)
       this.confirmed = { ...this.confirmed, [repoPath]: c.automationConfirmed };
@@ -767,6 +773,10 @@ class RepoConfigStore {
     await this.write(repoPath, { browserAllowedHosts: hosts });
   }
 
+  async setEgressExtraHosts(repoPath: string, hosts: string[]) {
+    await this.write(repoPath, { egressExtraHosts: hosts });
+  }
+
   /** Set (or clear with `null`) the repo's plugin allowlist (#3780); optimistic, reverted on failure. */
   async setPluginAllowlist(repoPath: string, list: string[] | null) {
     await this.write(repoPath, { pluginAllowlist: list });
@@ -787,6 +797,10 @@ class RepoConfigStore {
 
   async setAutoLabel(repoPath: string, s: string) {
     await this.write(repoPath, { autoLabel: s });
+  }
+
+  async setPriorityLabels(repoPath: string, labels: string[]) {
+    await this.write(repoPath, { priorityLabels: labels });
   }
 
   async setUsageCeiling(repoPath: string, n: number) {
@@ -864,6 +878,9 @@ class RepoConfigStore {
   }
   browserAllowedHostsFor(repoPath: string): string[] {
     return this.browserAllowedHosts[repoPath] ?? [];
+  }
+  egressExtraHostsFor(repoPath: string): string[] {
+    return this.egressExtraHosts[repoPath] ?? [];
   }
   pluginAllowlistFor(repoPath: string): string[] | null {
     return this.pluginAllowlist[repoPath] ?? null;
@@ -955,6 +972,11 @@ class RepoConfigStore {
 
   autoLabelFor(repoPath: string): string {
     return this.autoLabel[repoPath] ?? "shepherd:auto";
+  }
+
+  /** The repo's extra priority labels; shepherd:priority always applies on top. */
+  priorityLabelsFor(repoPath: string): string[] {
+    return this.priorityLabels[repoPath] ?? [];
   }
 
   usageCeilingFor(repoPath: string): number {

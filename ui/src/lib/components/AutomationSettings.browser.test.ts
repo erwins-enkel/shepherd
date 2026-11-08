@@ -379,6 +379,141 @@ describe("AutomationSettings — browser allowed hosts", () => {
   });
 });
 
+describe("AutomationSettings — extra allowed hosts (#3446)", () => {
+  const REPO = "/tmp/repo";
+  const hostInput = () => page.getByRole("textbox", { name: m.automation_egress_hosts_label() });
+  const addButton = () =>
+    page.getByRole("button", { name: m.automation_egress_hosts_add(), exact: true });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    repoConfig.sandboxProfile = {};
+    repoConfig.sandboxDefault = {};
+    repoConfig.egressExtraHosts = {};
+  });
+
+  // Fake only the repo-config PUT: echo the patch back as the stored config, still Autonomous.
+  const realFetch = globalThis.fetch;
+  function stubFetch() {
+    const puts: Record<string, unknown>[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith("/api/repo-config") && init?.method === "PUT") {
+        const patch = JSON.parse(String(init.body)) as Record<string, unknown>;
+        puts.push(patch);
+        return Response.json({ sandboxProfile: "autonomous", ...patch });
+      }
+      return realFetch(input, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return puts;
+  }
+
+  async function addHost(value: string) {
+    const input = hostInput().element() as HTMLInputElement;
+    input.value = value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await tick();
+    (addButton().element() as HTMLButtonElement).click();
+    await tick();
+  }
+
+  it("is shown only while the repo runs Autonomous, an inherited default included", async () => {
+    stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "trusted" };
+    await mount();
+    expect(hostInput().query()).toBeNull();
+    repoConfig.sandboxProfile = { [REPO]: "standard" };
+    await tick();
+    expect(hostInput().query()).toBeNull();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    await expect.element(hostInput()).toBeVisible();
+    await expect.element(page.getByText(m.automation_egress_hosts_empty())).toBeVisible();
+    repoConfig.sandboxProfile = { [REPO]: "inherit" };
+    await tick();
+    expect(hostInput().query()).toBeNull(); // the inherited default is still unknown
+    repoConfig.sandboxDefault = { [REPO]: "autonomous" };
+    await expect.element(hostInput()).toBeVisible();
+  });
+
+  it("adds a normalized host and persists the full list", async () => {
+    const puts = stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    repoConfig.egressExtraHosts = { [REPO]: ["a.example.com"] };
+    await mount();
+    await addHost(" Registry.Example.com ");
+    await vi.waitFor(() =>
+      expect(puts).toEqual([{ egressExtraHosts: ["a.example.com", "registry.example.com"] }]),
+    );
+    await expect.element(page.getByText("registry.example.com", { exact: true })).toBeVisible();
+    expect((hostInput().element() as HTMLInputElement).value).toBe("");
+  });
+
+  it("takes a dotted-quad, as the server does", async () => {
+    const puts = stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    await mount();
+    await addHost("10.0.0.1");
+    await vi.waitFor(() => expect(puts).toEqual([{ egressExtraHosts: ["10.0.0.1"] }]));
+  });
+
+  it("removes a host and persists the rest", async () => {
+    const puts = stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    repoConfig.egressExtraHosts = { [REPO]: ["a.example.com", "b.example.com"] };
+    await mount();
+    const remove = page.getByRole("button", {
+      name: m.automation_egress_hosts_remove({ host: "a.example.com" }),
+    });
+    (remove.element() as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(puts).toEqual([{ egressExtraHosts: ["b.example.com"] }]));
+    expect(page.getByText("a.example.com", { exact: true }).query()).toBeNull();
+  });
+
+  it.each([
+    ["localhost", () => m.automation_egress_hosts_err_invalid()],
+    ["-x.com", () => m.automation_egress_hosts_err_invalid()],
+    ["https://x.com", () => m.automation_egress_hosts_err_invalid()],
+    ["   ", () => m.automation_egress_hosts_err_empty()],
+    ["A.example.com", () => m.automation_egress_hosts_err_duplicate()],
+  ])("rejects %j inline without saving", async (value, message) => {
+    const puts = stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    repoConfig.egressExtraHosts = { [REPO]: ["a.example.com"] };
+    await mount();
+    await addHost(value);
+    await expect.element(page.getByRole("alert")).toHaveTextContent(message());
+    expect(hostInput().element().getAttribute("aria-invalid")).toBe("true");
+    expect(puts).toEqual([]);
+  });
+
+  it("renders a repeat the API stored, and removing it removes every copy", async () => {
+    const puts = stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    repoConfig.egressExtraHosts = { [REPO]: ["a.example.com", "a.example.com", "b.example.com"] };
+    await mount();
+    await expect.element(page.getByText("b.example.com", { exact: true })).toBeVisible();
+    const removes = page.getByRole("button", {
+      name: m.automation_egress_hosts_remove({ host: "a.example.com" }),
+    });
+    expect(removes.elements()).toHaveLength(2);
+    (removes.elements()[0] as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(puts).toEqual([{ egressExtraHosts: ["b.example.com"] }]));
+  });
+
+  it("hides on a non-Autonomous profile without touching the stored hosts", async () => {
+    const puts = stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    repoConfig.egressExtraHosts = { [REPO]: ["a.example.com"] };
+    await mount();
+    await expect.element(page.getByText("a.example.com", { exact: true })).toBeVisible();
+    repoConfig.sandboxProfile = { [REPO]: "standard" };
+    await tick();
+    expect(hostInput().query()).toBeNull();
+    expect(puts).toEqual([]);
+    expect(repoConfig.egressExtraHostsFor(REPO)).toEqual(["a.example.com"]);
+  });
+});
+
 describe("AutomationSettings — merge without CI (#3104)", () => {
   afterEach(() => {
     vi.restoreAllMocks();

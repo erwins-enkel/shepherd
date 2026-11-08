@@ -163,4 +163,7 @@ test("epicClaimHoldParent: held only while the parent epic can still land (#3808
     land(state);
     expect(s.epicClaimHoldParent("/r", 12)).toBeNull();
   }
+  land("open");
+  s.dismissEpicCompleted("/r", 1); // parent closed: landing never advances
+  expect(s.epicClaimHoldParent("/r", 12)).toBeNull();
 });

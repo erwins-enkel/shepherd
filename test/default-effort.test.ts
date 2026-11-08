@@ -6,6 +6,7 @@ import {
   normalizeProviderDefaultEffortSetting,
   engineDefaultEffortSetting,
   resolveDefaultEffortSetting,
+  resolveProviderDefaultEffortSetting,
   drainSpawnEffort,
   effortForSpawn,
   effortsForProvider,
@@ -109,6 +110,22 @@ describe("resolveDefaultEffortSetting (session/repo/global precedence)", () => {
     expect(resolveDefaultEffortSetting(null, "medium")).toBe("medium");
     expect(resolveDefaultEffortSetting(undefined, "default")).toBe("default");
     expect(resolveDefaultEffortSetting("bogus", "xhigh")).toBe("xhigh");
+  });
+});
+
+describe("resolveProviderDefaultEffortSetting (#3441: clamped to the spawn's CLI)", () => {
+  const s = { defaultEffort: "high", defaultClaudeEffort: "inherit", defaultCodexEffort: "low" };
+  test("a tier the engine offers wins", () => {
+    expect(resolveProviderDefaultEffortSetting("max", "claude", s)).toBe("max");
+    expect(resolveProviderDefaultEffortSetting("ultra", "codex", s)).toBe("ultra");
+    expect(resolveProviderDefaultEffortSetting("default", "claude", s)).toBe("default");
+  });
+  test("a tier the engine lacks falls back to that engine's default", () => {
+    expect(resolveProviderDefaultEffortSetting("ultra", "claude", s)).toBe("high");
+  });
+  test("'inherit' follows the engine's own default", () => {
+    expect(resolveProviderDefaultEffortSetting("inherit", "codex", s)).toBe("low");
+    expect(resolveProviderDefaultEffortSetting("inherit", "claude", s)).toBe("high");
   });
 });
 

@@ -1,4 +1,5 @@
 import { config } from "./config";
+import { resolveSpawnAgentProvider } from "./agent-provider";
 /**
  * Auto-release sweeper for usage-aware task holding (#825).
  *
@@ -23,7 +24,9 @@ export interface HeldReleaseDeps {
   store: Pick<
     SessionStore,
     "listHeldTasks" | "removeHeldTask" | "countHeldTasks" | "markHeldDispatchStarted"
-  >;
+  > &
+    /** Repo coding CLI (#3441) for a legacy held row that froze no provider; absent → global. */
+    Partial<Pick<SessionStore, "getRepoConfig">>;
   service: { create(input: CreateSessionInput): Promise<Session> };
   usageLimits: { limits(now: number): UsageLimits };
   events: { emit(event: string, data: unknown): void };
@@ -42,8 +45,12 @@ async function heldCapacityAvailable(
   cfg: { enabled: boolean; holdPct: number; autoRelease: boolean },
   now: number,
 ): Promise<boolean> {
-  if ((task.input.agentProvider ?? config.defaultAgentProvider) === "codex")
-    return deps.codexCapacity?.(task.id) ?? true;
+  const provider = resolveSpawnAgentProvider(
+    task.input.agentProvider,
+    deps.store.getRepoConfig?.(task.repoPath).agentProvider,
+    config.defaultAgentProvider,
+  );
+  if (provider === "codex") return deps.codexCapacity?.(task.id) ?? true;
   if (!cfg.enabled) return true;
   // A dependency or memory hold is not the operator's manual-release queue: once its predecessor
   // landed or the pressure eased it only waits for usage headroom.

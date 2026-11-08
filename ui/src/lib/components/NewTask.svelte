@@ -82,6 +82,7 @@
   import type { ComposeMode, NewTaskKeymapCtx } from "#lib/keymap/types.js";
   import { dialog } from "#lib/a11yDialog.js";
   import { repoConfig } from "#lib/reviews.svelte.js";
+  import { repoPinnedProvider } from "#lib/repo-cli.js";
   import { repoBootstrap } from "#lib/repo-bootstrap.svelte.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
@@ -318,6 +319,12 @@
   let agentProvider = $state<AgentProvider>(
     draft?.agentProvider ?? initialAgentProvider ?? defaultAgentProvider,
   );
+  // #3441: the once-seeded global CLI an "inherit" repo falls back to on a repo switch — kept
+  // non-reactive so a later capacity suggestion never flips an open composer.
+  // svelte-ignore state_referenced_locally
+  const seededGlobalProvider = defaultAgentProvider;
+  // A hand-picked CLI (select, or a CLI-specific command) survives repo switches.
+  let providerTouched = $state(draft?.providerTouched ?? false);
 
   // Model/effort preselect + reseed + validity correction all live HERE (run-config.ts),
   // never in the conditionally-mounted settings component — a mobile session that never
@@ -422,6 +429,7 @@
         attachedRepoPath,
         images: [...images],
         agentProvider,
+        providerTouched,
         model,
         modelTouched,
         effort,
@@ -1249,6 +1257,20 @@
   const repoEffortOverride = $derived(repoPath ? repoConfig.defaultEffortFor(repoPath) : "inherit");
   const effectiveEffortSetting = $derived(effortSettingFor(agentProvider, repoEffortOverride));
 
+  // #3441: the repo's own coding CLI preselects (marked "Repo default" in the settings); an
+  // "inherit" repo takes the seeded global CLI. Re-derived on every repo change until the CLI is
+  // pinned by hand or by an explicit relaunch/edit-held seed, and never against an active
+  // CLI-specific command.
+  const repoDefaultProvider = $derived(
+    repoPath ? repoPinnedProvider(repoConfig.agentProviderFor(repoPath)) : null,
+  );
+  $effect(() => {
+    if (providerTouched || initialAgentProvider != null) return;
+    const want = repoDefaultProvider ?? seededGlobalProvider;
+    if (activeProviderConstraint && !activeProviderConstraint.providers.includes(want)) return;
+    if (want !== agentProvider) agentProvider = want;
+  });
+
   // Untouched-reseed: repo/provider change re-derives model+effort until pinned.
   $effect(() => {
     const seeded = reseedRunConfig({
@@ -1303,6 +1325,7 @@
    *  unconditionally (touched or not) — each engine has its own default effort. */
   function providerChanged(p: AgentProvider) {
     agentProvider = p;
+    providerTouched = true;
     effort = preselectEffort(effortSettingFor(p, repoEffortOverride));
     executionEffort = preselectEffort(effectiveExecutionEffortSetting);
     model = modelForManualProviderChange(p, modelSettingFor(p), fableAvailable);
@@ -1744,6 +1767,7 @@
     const providers = commandProviders(cmd);
     const pickedProvider = providerForPick(cmd, trigger?.trigger ?? "/");
     agentProvider = pickedProvider;
+    providerTouched = true;
     const token = commandInvocation(cmd, pickedProvider);
     const next =
       pickedProvider === "codex"
@@ -1776,6 +1800,7 @@
       ? agentProvider
       : (providers[0] ?? agentProvider);
     agentProvider = provider;
+    providerTouched = true;
     const token = commandInvocation(cmd, provider);
     prompt = `${token} `;
     providerTokenConstraints =
@@ -3405,6 +3430,7 @@
        one place at a time (desktop rail or the mobile engine sheet). -->
   <RunSettingsGroups
     {agentProvider}
+    {repoDefaultProvider}
     {model}
     {effort}
     {executionEffort}

@@ -343,10 +343,14 @@ describe("AutomationRepoFields roles on a protected default branch", () => {
   });
 });
 
-it("saves ultra as a shared repository effort preference", async () => {
+it("saves ultra as a shared repository effort preference on a Codex repo", async () => {
   const save = vi.spyOn(repoConfig, "setDefaultEffort").mockResolvedValue(undefined);
   try {
-    render(AutomationRepoFields, { repoPath: "/repo/ultra", fableAvailable: false });
+    render(AutomationRepoFields, {
+      repoPath: "/repo/ultra",
+      fableAvailable: false,
+      globalAgentProvider: "codex",
+    });
     await page
       .getByRole("combobox", { name: m.automation_default_effort_label() })
       .selectOptions("ultra");
@@ -354,4 +358,75 @@ it("saves ultra as a shared repository effort preference", async () => {
   } finally {
     save.mockRestore();
   }
+});
+
+describe("AutomationRepoFields coding CLI (#3441)", () => {
+  const cliSelect = () => page.getByRole("combobox", { name: m.automation_coding_cli_label() });
+  const modelSelect = () =>
+    page.getByRole("combobox", { name: m.automation_default_model_label() });
+  const effortSelect = () =>
+    page.getByRole("combobox", { name: m.automation_default_effort_label() });
+  const optionValues = (el: HTMLElement) =>
+    Array.from((el as HTMLSelectElement).options).map((o) => o.value);
+  const pin = (repo: string, cli: "inherit" | "claude" | "codex", model = "inherit") => {
+    repoConfig.agentProvider = { ...repoConfig.agentProvider, [repo]: cli };
+    repoConfig.defaultModel = { ...repoConfig.defaultModel, [repo]: model };
+  };
+
+  it("offers Inherit / Claude Code / Codex above the model and saves a pick", async () => {
+    const save = vi.spyOn(repoConfig, "setAgentProvider").mockResolvedValue(undefined);
+    try {
+      render(AutomationRepoFields, { repoPath: "/repo/cli-pick", fableAvailable: false });
+      await expect.element(cliSelect()).toHaveValue("inherit");
+      expect(optionValues(cliSelect().element() as HTMLElement)).toEqual([
+        "inherit",
+        "claude",
+        "codex",
+      ]);
+      await expect
+        .element(page.getByText(m.automation_coding_cli_hint_inherit({ cli: "Claude Code" })))
+        .toBeVisible();
+      await cliSelect().selectOptions("codex");
+      expect(save).toHaveBeenCalledWith("/repo/cli-pick", "codex");
+    } finally {
+      save.mockRestore();
+    }
+  });
+
+  it("lists only the effective CLI's models and efforts", async () => {
+    pin("/repo/cli-codex", "codex", "gpt-5.4");
+    render(AutomationRepoFields, { repoPath: "/repo/cli-codex", fableAvailable: false });
+    await expect.element(modelSelect()).toHaveValue("gpt-5.4");
+    const models = optionValues(modelSelect().element() as HTMLElement);
+    expect(models).toContain("gpt-5.4");
+    expect(models).not.toContain("opus");
+    expect(optionValues(effortSelect().element() as HTMLElement)).toContain("ultra");
+    await expect
+      .element(page.getByText(m.automation_coding_cli_hint_repo({ cli: "Codex" })))
+      .toBeVisible();
+  });
+
+  it("shows Inherit for a stored model the effective CLI cannot run", async () => {
+    pin("/repo/cli-unfit", "inherit", "opus");
+    render(AutomationRepoFields, {
+      repoPath: "/repo/cli-unfit",
+      fableAvailable: false,
+      globalAgentProvider: "codex",
+    });
+    await expect.element(modelSelect()).toHaveValue("inherit");
+    expect(optionValues(modelSelect().element() as HTMLElement)).not.toContain("opus");
+    expect(optionValues(effortSelect().element() as HTMLElement)).toContain("ultra");
+  });
+
+  it("drops ultra from the effort list on a Claude repo", async () => {
+    pin("/repo/cli-claude", "claude");
+    render(AutomationRepoFields, {
+      repoPath: "/repo/cli-claude",
+      fableAvailable: false,
+      globalAgentProvider: "codex",
+    });
+    await expect.element(cliSelect()).toHaveValue("claude");
+    expect(optionValues(effortSelect().element() as HTMLElement)).not.toContain("ultra");
+    expect(optionValues(modelSelect().element() as HTMLElement)).toContain("opus");
+  });
 });

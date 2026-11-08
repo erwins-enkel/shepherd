@@ -8464,5 +8464,12 @@
   "prbadge_merged_pr": "✓ PR #{number}",
   "prbadge_closed_pr": "✕ PR #{number}",
   "prbadge_merged_open_label": "Open merged PR #{number}",
-  "prbadge_closed_open_label": "Open closed PR #{number}"
+  "prbadge_closed_open_label": "Open closed PR #{number}",
+  "automation_coding_cli_label": "Coding CLI",
+  "automation_coding_cli_inherit": "Inherit (global default)",
+  "automation_coding_cli_hint_inherit": "Follows the global default CLI — currently {cli}.",
+  "automation_coding_cli_hint_repo": "New tasks, drain and autopilot starts in this repo run on {cli}. A running epic with its own CLI still wins.",
+  "feat_repo_coding_cli_title": "Coding CLI per repository",
+  "feat_repo_coding_cli_body": "Pick Claude Code or Codex for a repository in its automation panel. New tasks preselect it, and drain and autopilot starts in that repo run on it; Inherit keeps following the global default CLI. The default model list shows only that CLI's models.",
+  "newtask_agent_provider_repo_default": "Repo default"
 }

@@ -600,8 +600,7 @@ import {
   normalizeProviderDefaultEffortSetting,
   normalizeRepoDefaultEffortSetting,
   drainSpawnEffort,
-  engineDefaultEffortSetting,
-  resolveDefaultEffortSetting,
+  resolveProviderDefaultEffortSetting,
   effortBelowHigh,
 } from "./default-effort";
 import { startSerially } from "./up-next";
@@ -610,7 +609,13 @@ import { issueSpawnPrompt } from "./issue-spawn-prompt";
 import { excludeHiddenSections } from "./up-next-core";
 import type { UpNextSnapshot } from "./up-next-core";
 import { prFixPrompt, prsHeldBySessions, type UpNextPr } from "./up-next-prs";
-import { normalizeAgentProvider } from "./agent-provider";
+import {
+  clampRunDefaultsToCli,
+  normalizeAgentProvider,
+  normalizeRepoAgentProviderSetting,
+  resolveSpawnAgentProvider,
+  type RepoAgentProviderSetting,
+} from "./agent-provider";
 import { normalizeAuthModeSetting, writeApiKeyHelper, clearApiKeyHelper } from "./auth-mode";
 import { normalizeOperatorLanguage } from "./operator-language";
 import {
@@ -2686,6 +2691,15 @@ async function resolveFixablePr(
   return { dir, pr: { ...pr, headRefName: pr.headRefName }, steer: steer as string | undefined };
 }
 
+/** The CLI a new task in a repo starts on (#3441): `explicit` (the task's own pick or a held row's
+ *  frozen CLI) → the repo's coding CLI → the global default, read live. */
+function spawnProvider(
+  rc: Pick<RepoConfig, "agentProvider">,
+  explicit?: AgentProvider | null,
+): AgentProvider {
+  return resolveSpawnAgentProvider(explicit, rc.agentProvider, config.defaultAgentProvider);
+}
+
 /** The fix session's create input: repo default model and effort, as an Up Next start uses. */
 function prFixInput(
   dir: string,
@@ -2695,7 +2709,7 @@ function prFixInput(
   deps: AppDeps,
 ): StandardCreateInput {
   const rc = deps.store.getRepoConfig(dir);
-  const provider = config.defaultAgentProvider;
+  const provider = spawnProvider(rc);
   return {
     repoPath: dir,
     baseBranch: pr.headRefName,
@@ -2709,7 +2723,7 @@ function prFixInput(
       ),
     ),
     effort: drainSpawnEffort(
-      resolveDefaultEffortSetting(rc.defaultEffort, engineDefaultEffortSetting(provider, config)),
+      resolveProviderDefaultEffortSetting(rc.defaultEffort, provider, config),
     ),
     images: [],
     auto: false,
@@ -3012,7 +3026,7 @@ async function redirectHere(
 }
 
 async function usageHoldApplies(value: StandardCreateInput, deps: AppDeps): Promise<boolean> {
-  const provider = normalizeAgentProvider(value.agentProvider ?? config.defaultAgentProvider);
+  const provider = spawnProvider(deps.store.getRepoConfig(value.repoPath), value.agentProvider);
   if (provider === "codex") return deps.codexCapacity ? !(await deps.codexCapacity()) : false;
   const lim = deps.usageLimits.limits(Date.now());
   return shouldHold({
@@ -3055,7 +3069,10 @@ function holdUpNextIssue(
   deps.store.addHeldTask({
     id,
     repoPath: input.repoPath,
-    input: { ...input, agentProvider: input.agentProvider ?? config.defaultAgentProvider },
+    input: {
+      ...input,
+      agentProvider: spawnProvider(deps.store.getRepoConfig(input.repoPath), input.agentProvider),
+    },
     createdAt: Date.now(),
     reason,
   });
@@ -3144,7 +3161,7 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
       // (documented v1 scoping, #1169).
       const base = await forge.defaultBranch();
       const rc = deps.store.getRepoConfig(it.dir);
-      const provider = choice?.agentProvider ?? config.defaultAgentProvider;
+      const provider = spawnProvider(rc, choice?.agentProvider);
       const draft: StandardCreateInput = {
         repoPath: it.dir,
         baseBranch: base,
@@ -3167,10 +3184,7 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
           choice && "effort" in choice
             ? choice.effort
             : drainSpawnEffort(
-                resolveDefaultEffortSetting(
-                  rc.defaultEffort,
-                  engineDefaultEffortSetting(provider, config),
-                ),
+                resolveProviderDefaultEffortSetting(rc.defaultEffort, provider, config),
               ),
         images: [],
         auto: false,
@@ -3335,6 +3349,14 @@ function parseSandboxProfile(v: unknown): RepoSandboxSetting | { error: string }
   return v;
 }
 
+// agentProvider (#3441): the repo's coding CLI ("inherit" | <AgentProvider>)
+function parseRepoAgentProvider(v: unknown): RepoAgentProviderSetting | { error: string } {
+  const r = normalizeRepoAgentProviderSetting(v);
+  if (r === null)
+    return { error: `agentProvider must be one of: inherit, ${AGENT_PROVIDERS.join(", ")}` };
+  return r;
+}
+
 // defaultModel: a per-repo override SETTING ("inherit" | "auto" | "default" | <model alias>)
 function parseRepoDefaultModel(v: unknown): string | { error: string } {
   const r = normalizeRepoDefaultModelSetting(v);
@@ -3411,6 +3433,7 @@ type RepoCfgBody = {
   pinned?: unknown;
   signoffAuthority?: unknown;
   sandboxProfile?: unknown;
+  agentProvider?: unknown;
   defaultModel?: unknown;
   defaultEffort?: unknown;
   defaultExecutionEffort?: unknown;
@@ -3444,6 +3467,7 @@ type RepoCfgScalars = {
   usageCeilingPct?: number;
   signoffAuthority?: "human" | "critic" | "either";
   sandboxProfile?: RepoSandboxSetting;
+  agentProvider?: RepoAgentProviderSetting;
   defaultModel?: string;
   defaultEffort?: string;
   defaultExecutionEffort?: string;
@@ -3495,6 +3519,7 @@ const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => u
   ["usageCeilingPct", parseUsageCeiling],
   ["signoffAuthority", parseSignoffAuthority],
   ["sandboxProfile", parseSandboxProfile],
+  ["agentProvider", parseRepoAgentProvider],
   ["defaultModel", parseRepoDefaultModel],
   ["defaultEffort", parseRepoDefaultEffort],
   ["defaultExecutionEffort", parseRepoDefaultExecutionEffort],
@@ -3544,6 +3569,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       pinned?: boolean;
       signoffAuthority?: "human" | "critic" | "either";
       sandboxProfile?: RepoSandboxSetting;
+      agentProvider?: RepoAgentProviderSetting;
       defaultModel?: string;
       defaultEffort?: string;
       defaultExecutionEffort?: string;
@@ -3584,6 +3610,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     usageCeilingPct,
     signoffAuthority,
     sandboxProfile,
+    agentProvider,
     defaultModel,
     defaultEffort,
     defaultExecutionEffort,
@@ -3604,7 +3631,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
       },
       400,
     );
@@ -3630,6 +3657,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     pinned: body.pinned as boolean | undefined,
     signoffAuthority,
     sandboxProfile,
+    agentProvider,
     defaultModel,
     defaultEffort,
     defaultExecutionEffort,
@@ -3681,7 +3709,12 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
     }
   }
   const before = deps.store.getRepoConfig(dir);
-  const r = repoConfigSvc(deps).patch(dir, cfgPatch, { automationConfirmed });
+  // #3441: a CLI change drops a repo model/effort the new effective CLI cannot run to "inherit".
+  const clamped = {
+    ...cfgPatch,
+    ...clampRunDefaultsToCli(before, cfgPatch, config.defaultAgentProvider),
+  };
+  const r = repoConfigSvc(deps).patch(dir, clamped, { automationConfirmed });
   if (!r.ok) return json({ error: r.error }, 400);
   // Turning the Shared Browser off revokes it now: stop the repo's Chromium, which closes every
   // attached agent socket. Later attaches are refused by the broker's opt-in check.
@@ -4714,7 +4747,8 @@ function afterGate(
 }
 
 function bindHeldCodexAccount(deps: AppDeps, id: string, input: StandardCreateInput): void {
-  if ((input.agentProvider ?? config.defaultAgentProvider) !== "codex") return;
+  if (spawnProvider(deps.store.getRepoConfig(input.repoPath), input.agentProvider) !== "codex")
+    return;
   const account = deps.codexAccountId?.();
   if (account) deps.store.setSetting(`codexHeldAccount:${id}`, account);
 }
@@ -4745,7 +4779,10 @@ function holdTask(
   deps.store.addHeldTask({
     id,
     repoPath: value.repoPath,
-    input: { ...value, agentProvider: value.agentProvider ?? config.defaultAgentProvider },
+    input: {
+      ...value,
+      agentProvider: spawnProvider(deps.store.getRepoConfig(value.repoPath), value.agentProvider),
+    },
     createdAt,
     reason,
   });
@@ -4774,7 +4811,7 @@ async function tryHoldNewTask(
   value: StandardCreateInput,
   deps: AppDeps,
 ): Promise<HeldTaskRef | null> {
-  const provider = normalizeAgentProvider(value.agentProvider ?? config.defaultAgentProvider);
+  const provider = spawnProvider(deps.store.getRepoConfig(value.repoPath), value.agentProvider);
   if (provider === "codex") {
     if (deps.codexCapacity && !(await deps.codexCapacity()))
       return holdTask(value, deps, "capacity");
@@ -8575,7 +8612,7 @@ function operatorActionDeps(deps: AppDeps): OperatorActionDeps {
     taskDefaults(repoPath) {
       const b = listBranches(repoPath);
       const rc = deps.store.getRepoConfig(repoPath);
-      const provider = config.defaultAgentProvider;
+      const provider = spawnProvider(rc);
       return {
         baseBranch: b.default ?? b.current ?? b.branches[0] ?? "main",
         agentProvider: provider,
@@ -8588,10 +8625,7 @@ function operatorActionDeps(deps: AppDeps): OperatorActionDeps {
           ),
         ),
         effort: drainSpawnEffort(
-          resolveDefaultEffortSetting(
-            rc.defaultEffort,
-            engineDefaultEffortSetting(provider, config),
-          ),
+          resolveProviderDefaultEffortSetting(rc.defaultEffort, provider, config),
         ),
       };
     },

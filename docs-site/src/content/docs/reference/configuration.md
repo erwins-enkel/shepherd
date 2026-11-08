@@ -167,7 +167,15 @@ effort. Both engine cards stay editable whichever CLI is the default.
 
 ### Where a new session's model and effort come from
 
-Shepherd walks this list top to bottom and takes the first level that has a value:
+The **coding CLI** comes first, in the same order: the task's own pick, a running epic's own CLI,
+the repo's **Coding CLI** (automation settings; `agentProvider` on `PUT /api/repo-config`), then
+`SHEPHERD_DEFAULT_AGENT_PROVIDER`. A repo on **Inherit** follows a later change of the global
+default. New task preselects the repo's CLI and marks it **Repo default**. A repo default model or
+effort the CLI cannot run is skipped, and switching the repo's CLI resets such a value to
+**Inherit**.
+
+For model and effort, Shepherd walks this list top to bottom and takes the first level that has a
+value:
 
 1. **This task** — a model or effort picked by hand in **New task** (or passed with an Up Next
    start). It applies to that one task only and never changes a default.
@@ -183,7 +191,7 @@ The engine's default is what you get in these places:
 - **New task** preselects the chosen engine's model and effort when it opens and again on every
   engine switch, even after you changed the effort by hand. A dialog reopened within two
   minutes restores what you had picked.
-- **Drain and autopilot starts** use the default engine's values.
+- **Drain and autopilot starts** use the values of the engine the repo starts on.
 - **Automatic switch at the weekly limit.** When the default CLI drops below 30% weekly capacity
   and you accept the switch, the substitute becomes the default CLI until the original has room
   again. Everything started in that window runs on the substitute's **own** default — not on the

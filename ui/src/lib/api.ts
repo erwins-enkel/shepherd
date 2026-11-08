@@ -3257,6 +3257,7 @@ export async function putRepoConfig(
       | "planGateEnabled"
       | "signoffAuthority"
       | "sandboxProfile"
+      | "agentProvider"
       | "defaultModel"
       | "maxAuto"
       | "autoLabel"

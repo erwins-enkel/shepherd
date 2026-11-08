@@ -690,6 +690,16 @@ export interface RepoConfig {
   skillAllowlist?: string[] | null;
 }
 
+/** A repo's own coding CLI, default model, effort and execution effort (#3447), as stored —
+ *  "inherit" follows the global default. `repoPath` is the repo_config key (realpath). */
+export interface RepoRunDefaults {
+  repoPath: string;
+  agentProvider: RepoAgentProviderSetting;
+  defaultModel: string;
+  defaultEffort: string;
+  defaultExecutionEffort: string;
+}
+
 export interface LocalPr {
   number: number;
   repoPath: string;
@@ -2792,6 +2802,35 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       repoPath: string;
     }[];
     return new Set(rows.map((r) => r.repoPath));
+  }
+
+  /** Repos whose coding CLI, default model, effort or execution effort is not "inherit" (#3447) —
+   *  one batch read, normalized like getRepoConfig. */
+  reposWithOwnRunDefaults(): RepoRunDefaults[] {
+    const rows = this.db
+      .query(
+        `SELECT repoPath, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort
+         FROM repo_config
+         WHERE agentProvider <> 'inherit' OR defaultModel <> 'inherit'
+            OR defaultEffort <> 'inherit' OR defaultExecutionEffort <> 'inherit'`,
+      )
+      .all() as Record<keyof RepoRunDefaults, string>[];
+    return rows
+      .map((r) => ({
+        repoPath: r.repoPath,
+        agentProvider: normalizeRepoAgentProviderSetting(r.agentProvider) ?? "inherit",
+        defaultModel: normalizeRepoDefaultModelSetting(r.defaultModel) ?? "inherit",
+        defaultEffort: normalizeRepoDefaultEffortSetting(r.defaultEffort) ?? "inherit",
+        defaultExecutionEffort:
+          normalizeRepoDefaultEffortSetting(r.defaultExecutionEffort) ?? "inherit",
+      }))
+      .filter(
+        (d) =>
+          d.agentProvider !== "inherit" ||
+          d.defaultModel !== "inherit" ||
+          d.defaultEffort !== "inherit" ||
+          d.defaultExecutionEffort !== "inherit",
+      );
   }
 
   /** repoPaths pinned to the top of the Backlog repos panel — one batch read, like

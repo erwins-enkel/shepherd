@@ -956,7 +956,8 @@ export interface GitForge {
    *  `shepherd:active`-only. Optional: only hosts with the GraphQL field implement it. */
   listOpenPrClosingIssues?(): Promise<number[]>;
   /** Fresh, strict existence check for claim release. Throws on unknown/error; never returns
-   *  a best-effort false. Includes manually linked and keyword-linked OPEN PRs. */
+   *  a best-effort false. Includes manually linked and keyword-linked OPEN PRs; MERGED and
+   *  CLOSED links never count. */
   hasOpenPrForIssue?(issueNumber: number): Promise<boolean>;
   /** Like {@link listOpenPrClosingIssues} but keyed by closed-issue number and carrying the
    *  open PR's number + author — the epic-summary route's "someone else is already working

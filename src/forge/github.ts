@@ -451,6 +451,42 @@ function collectIssueRelationsPage(
   };
 }
 
+/** Parse one strict closedByPullRequestsReferences page for {@link GithubForge.hasOpenPrForIssue}:
+ *  every linked PR's state plus the next cursor (null on the last page). Throws on anything
+ *  short of a complete, error-free page. */
+function parseLinkedPrStatesPage(raw: string): { states: string[]; next: string | null } {
+  const response = JSON.parse(raw) as {
+    errors?: unknown[];
+    data?: {
+      repository?: {
+        issue?: {
+          closedByPullRequestsReferences?: {
+            pageInfo?: { hasNextPage?: unknown; endCursor?: unknown };
+            nodes?: unknown;
+          };
+        };
+      };
+    };
+  } | null;
+  const conn = response?.data?.repository?.issue?.closedByPullRequestsReferences;
+  const nodes = conn?.nodes;
+  const info = conn?.pageInfo;
+  const states = Array.isArray(nodes)
+    ? nodes.map((n) => (n as { state?: unknown } | null)?.state)
+    : [];
+  const valid =
+    !response?.errors?.length &&
+    Array.isArray(nodes) &&
+    states.every((s) => typeof s === "string") &&
+    typeof info?.hasNextPage === "boolean" &&
+    (!info.hasNextPage || (typeof info.endCursor === "string" && info.endCursor !== ""));
+  if (!valid) throw new Error("open PR links could not be verified");
+  return {
+    states: states as string[],
+    next: info!.hasNextPage ? (info!.endCursor as string) : null,
+  };
+}
+
 /** Parse one page of the open-PR closingIssuesReferences GraphQL response: for every open PR,
  *  push its {prNumber, author} onto each issue number it would close (keyed by that issue
  *  number in `into`), and return the page's cursor info. The numbers-only
@@ -4348,34 +4384,35 @@ export class GithubForge implements GitForge {
     };
   }
 
-  /** Direct, uncached existence check. totalCount covers the whole connection regardless of
-   *  first:1; GraphQL errors must never turn a failed verification into permission to release. */
+  /** Direct, uncached existence check. Only OPEN links count: `includeClosedPrs:false` still
+   *  returns MERGED PRs and the connection has no state filter, so every node's state is read
+   *  (paged, stopping at the first OPEN). GraphQL errors, malformed pages or an unbounded
+   *  connection must never turn a failed verification into permission to release. */
   async hasOpenPrForIssue(issueNumber: number): Promise<boolean> {
     const [owner, repo] = this.slug.split("/");
     const query =
-      "query($owner:String!,$repo:String!,$num:Int!){repository(owner:$owner,name:$repo){issue(number:$num){closedByPullRequestsReferences(first:1,includeClosedPrs:false){totalCount}}}}";
-    const raw = await this.run([
-      "api",
-      "graphql",
-      "-f",
-      `query=${withRateLimit(query)}`,
-      "-f",
-      `owner=${owner}`,
-      "-f",
-      `repo=${repo}`,
-      "-F",
-      `num=${issueNumber}`,
-    ]);
-    const response = JSON.parse(raw) as {
-      errors?: unknown[];
-      data?: {
-        repository?: { issue?: { closedByPullRequestsReferences?: { totalCount?: number } } };
-      };
-    } | null;
-    const count = response?.data?.repository?.issue?.closedByPullRequestsReferences?.totalCount;
-    if (response?.errors?.length || !Number.isSafeInteger(count) || count! < 0)
-      throw new Error("open PR links could not be verified");
-    return count! > 0;
+      "query($owner:String!,$repo:String!,$num:Int!,$cursor:String){repository(owner:$owner,name:$repo){issue(number:$num){closedByPullRequestsReferences(first:100,after:$cursor,includeClosedPrs:false){pageInfo{hasNextPage endCursor}nodes{state}}}}}";
+    let cursor: string | null = null;
+    for (let page = 0; page < 10; page++) {
+      const raw = await this.run([
+        "api",
+        "graphql",
+        "-f",
+        `query=${withRateLimit(query)}`,
+        "-f",
+        `owner=${owner}`,
+        "-f",
+        `repo=${repo}`,
+        "-F",
+        `num=${issueNumber}`,
+        ...(cursor ? ["-f", `cursor=${cursor}`] : []),
+      ]);
+      const links = parseLinkedPrStatesPage(raw);
+      if (links.states.includes("OPEN")) return true;
+      if (!links.next) return false;
+      cursor = links.next;
+    }
+    throw new Error("open PR links could not be verified");
   }
 
   async listClaimedIssues(): Promise<Issue[]> {

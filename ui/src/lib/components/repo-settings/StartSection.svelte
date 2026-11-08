@@ -28,14 +28,6 @@
   const lightweight = $derived(repoConfig.repoModeFor(repoPath) === "lightweight");
   const epicParent = $derived(drain?.epicParent ?? null);
   const epicActive = $derived(epicParent != null);
-  const drainOff = $derived(epicActive || lightweight);
-  const drainTitle = $derived(
-    lightweight
-      ? m.automation_lightweight_unavailable()
-      : epicParent != null
-        ? m.epic_mode_active({ parent: epicParent })
-        : undefined,
-  );
   const planReviewing = $derived(sessionId ? planGates.isReviewing(sessionId) : false);
   // The switch is a repo default; the plan gate is also a per-task one-shot set at creation, so a
   // gated task says its own phase — a New Task tick then doesn't read as "off".
@@ -80,9 +72,10 @@
   }}
   warn={m.automation_autodrain_sandbox_held()}
   warnShown={drainSandboxHeld(repoPath, drain)}
-  disabled={drainOff}
-  disabledTitle={drainTitle}
-  checked={flags.autoDrain && !drainOff}
+  locked={lightweight ? m.automation_lightweight_unavailable() : undefined}
+  disabled={epicActive}
+  disabledTitle={epicParent != null ? m.epic_mode_active({ parent: epicParent }) : undefined}
+  checked={flags.autoDrain && !epicActive && !lightweight}
   ontoggle={() => repoConfig.toggleAutoDrain(repoPath)}
 />
 <!-- The rails (cap / label / usage ceiling) stay while an epic runs: both cap and ceiling are

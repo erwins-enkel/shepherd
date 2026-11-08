@@ -150,6 +150,10 @@
       min-height: 100dvh;
       /* clear the status bar / Dynamic Island in a standalone PWA (#3795) */
       padding-top: calc(18px + env(safe-area-inset-top));
+      /* clear the home indicator / landscape notch in a standalone PWA (#3798) */
+      padding-right: calc(18px + env(safe-area-inset-right));
+      padding-bottom: calc(18px + env(safe-area-inset-bottom));
+      padding-left: calc(18px + env(safe-area-inset-left));
       border: 0;
       overflow-y: auto;
     }

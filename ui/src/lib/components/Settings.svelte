@@ -731,7 +731,12 @@
      the shell stays stable across section switches; the pane body scrolls. */
   .card {
     position: relative;
-    width: min(780px, 92vw);
+    /* landscape phone: keep clear of the notch / home indicator in a standalone PWA (#3798) */
+    width: min(
+      780px,
+      92vw,
+      calc(100vw - 2 * max(env(safe-area-inset-left), env(safe-area-inset-right)))
+    );
     height: min(680px, 86vh);
     border: 1px solid var(--color-line-bright);
     background: var(--color-panel);
@@ -823,6 +828,10 @@
       height: 100dvh;
       /* clear the status bar / Dynamic Island in a standalone PWA (#3795) */
       padding-top: env(safe-area-inset-top);
+      /* clear the home indicator / landscape notch in a standalone PWA (#3798) */
+      padding-right: env(safe-area-inset-right);
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-left: env(safe-area-inset-left);
       max-height: none;
       border: 0;
       box-shadow: none;

@@ -423,7 +423,12 @@
 
   .card {
     position: relative;
-    width: min(760px, 94vw);
+    /* landscape phone: keep clear of the notch / home indicator in a standalone PWA (#3798) */
+    width: min(
+      760px,
+      94vw,
+      calc(100vw - 2 * max(env(safe-area-inset-left), env(safe-area-inset-right)))
+    );
     max-height: 86vh;
     border: 1px solid var(--color-line-bright);
     background: var(--color-panel);
@@ -637,6 +642,10 @@
       height: 100dvh;
       /* clear the status bar / Dynamic Island in a standalone PWA (#3795) */
       padding-top: calc(16px + env(safe-area-inset-top));
+      /* clear the home indicator / landscape notch in a standalone PWA (#3798) */
+      padding-right: calc(16px + env(safe-area-inset-right));
+      padding-bottom: calc(16px + env(safe-area-inset-bottom));
+      padding-left: calc(16px + env(safe-area-inset-left));
       max-height: none;
       border: 0;
       overflow: hidden;

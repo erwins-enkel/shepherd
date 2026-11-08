@@ -3554,6 +3554,31 @@ test("repo-config priorityLabels normalizes, preserves omitted fields, and clear
   expect(deps.store.getRepoConfig(validRepo).priorityLabels).toEqual([]);
 });
 
+// #3446: the repo settings' extra-allowed-hosts list writes through this PUT and reads it back.
+test("repo-config egressExtraHosts normalizes, survives other writes, clears, and rejects bad hosts", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, {
+    egressExtraHosts: [" Registry.Example.com ", "10.0.0.1"],
+  });
+  expect(res.status).toBe(200);
+  expect((await res.json()).egressExtraHosts).toEqual(["registry.example.com", "10.0.0.1"]);
+  expect((await putRepoConfig(app, validRepo, { maxAuto: 3 })).status).toBe(200);
+  const get = await app.fetch(
+    new Request(`http://localhost:7330/api/repo-config?repo=${encodeURIComponent(validRepo)}`),
+  );
+  expect((await get.json()).egressExtraHosts).toEqual(["registry.example.com", "10.0.0.1"]);
+  const bad = await putRepoConfig(app, validRepo, { egressExtraHosts: ["localhost"] });
+  expect(bad.status).toBe(400);
+  expect(deps.store.getRepoConfig(validRepo).egressExtraHosts).toEqual([
+    "registry.example.com",
+    "10.0.0.1",
+  ]);
+  const cleared = await putRepoConfig(app, validRepo, { egressExtraHosts: [] });
+  expect(cleared.status).toBe(200);
+  expect(deps.store.getRepoConfig(validRepo).egressExtraHosts).toEqual([]);
+});
+
 for (const invalid of [null, "ci-gate-rot", 42, {}, [""], ["  "], [1], ["ci-gate-rot", false]]) {
   test(`repo-config priorityLabels rejects ${JSON.stringify(invalid)} without mutation`, async () => {
     const deps = makeDeps();

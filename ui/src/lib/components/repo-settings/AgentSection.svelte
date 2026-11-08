@@ -5,13 +5,16 @@
   import { ApiError, getSettings, openRepoBrowser } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import {
+    browserAllowedHostsExplanation,
     claudeAiConnectorsExplanation,
+    egressExtraHostsExplanation,
     sharedBrowserExplanation,
   } from "#lib/tooltips/explanations.js";
+  import { checkBrowserHost, checkEgressHost } from "#lib/list-entries.js";
   import type { DrainStatus, RepoSandboxSetting, SandboxProfile, Settings } from "#lib/types.js";
   import RepoSettingRow from "./RepoSettingRow.svelte";
   import AgentModelFields from "./AgentModelFields.svelte";
-  import BrowserAllowedHosts from "../automation-settings/BrowserAllowedHosts.svelte";
+  import ListField from "./ListField.svelte";
   import AgentExtensions from "../automation-settings/AgentExtensions.svelte";
   import { drainSandboxHeld } from "./drain-hold";
   import "../automation-settings/automation-fields.css";
@@ -64,6 +67,21 @@
   });
   const held = $derived(drainSandboxHeld(repoPath, drain));
   const browserOn = $derived(repoConfig.sharedBrowserOn(repoPath));
+  // The extra hosts only widen the Autonomous egress firewall; Trusted and Standard don't restrict
+  // the network, so the list hides there (its stored hosts stay).
+  const autonomous = $derived(repoConfig.effectiveSandboxProfileFor(repoPath) === "autonomous");
+
+  const BROWSER_HOST_ERRORS = {
+    empty: () => m.automation_browser_hosts_err_empty(),
+    invalid: () => m.automation_browser_hosts_err_invalid(),
+    ip: () => m.automation_browser_hosts_err_ip(),
+    duplicate: () => m.automation_browser_hosts_err_duplicate(),
+  };
+  const EGRESS_HOST_ERRORS = {
+    empty: () => m.automation_egress_hosts_err_empty(),
+    invalid: () => m.automation_egress_hosts_err_invalid(),
+    duplicate: () => m.automation_egress_hosts_err_duplicate(),
+  };
 
   /** Toast copy for a failed "Open shared browser", keyed by the server's refusal code. */
   function sharedBrowserOpenError(e: unknown): string {
@@ -127,6 +145,22 @@
     </select>
   {/snippet}
 </RepoSettingRow>
+{#if autonomous}
+  <ListField
+    field="egressExtraHosts"
+    name={m.automation_egress_hosts_label()}
+    explanation={egressExtraHostsExplanation()}
+    items={repoConfig.egressExtraHostsFor(repoPath)}
+    check={checkEgressHost}
+    errors={EGRESS_HOST_ERRORS}
+    placeholder={m.automation_egress_hosts_placeholder()}
+    addLabel={m.automation_egress_hosts_add()}
+    removeLabel={(host) => m.automation_egress_hosts_remove({ host })}
+    empty={m.automation_egress_hosts_empty()}
+    hint={m.automation_egress_hosts_hint()}
+    onchange={(hosts) => repoConfig.setEgressExtraHosts(repoPath, hosts)}
+  />
+{/if}
 
 <RepoSettingRow
   field="sharedBrowserEnabled"
@@ -148,7 +182,23 @@
     {/if}
   {/snippet}
 </RepoSettingRow>
-<BrowserAllowedHosts {repoPath} />
+<!-- Only meaningful while the Shared browser is on: the allowlist governs its autonomous attaches. -->
+{#if browserOn}
+  <ListField
+    field="browserAllowedHosts"
+    name={m.automation_browser_hosts_label()}
+    explanation={browserAllowedHostsExplanation()}
+    items={repoConfig.browserAllowedHostsFor(repoPath)}
+    check={checkBrowserHost}
+    errors={BROWSER_HOST_ERRORS}
+    placeholder={m.automation_browser_hosts_placeholder()}
+    addLabel={m.automation_browser_hosts_add()}
+    removeLabel={(host) => m.automation_browser_hosts_remove({ host })}
+    empty={m.automation_browser_hosts_empty()}
+    hint={m.automation_browser_hosts_hint()}
+    onchange={(hosts) => repoConfig.setBrowserAllowedHosts(repoPath, hosts)}
+  />
+{/if}
 
 <RepoSettingRow
   field="claudeAiConnectorsEnabled"

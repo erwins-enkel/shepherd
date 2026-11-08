@@ -476,6 +476,32 @@ export function browserAllowedHostsExplanation(): TooltipExplanation {
   };
 }
 
+/** Repo settings › Sandbox › Extra allowed hosts (#3446): the per-repo egress allowlist extras. */
+export function egressExtraHostsExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_egress_hosts_title(),
+    summary: m.tooltip_egress_hosts_summary(),
+    sections: [
+      { label: m.tooltip_egress_hosts_enter(), text: m.tooltip_egress_hosts_enter_body() },
+      { label: m.tooltip_egress_hosts_builtin(), text: m.tooltip_egress_hosts_builtin_body() },
+      { label: m.tooltip_egress_hosts_applies(), text: m.tooltip_egress_hosts_applies_body() },
+    ],
+  };
+}
+
+/** Repo settings › Auto-Drain › Priority labels (#3446): labels drained before the rest. */
+export function priorityLabelsExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_priority_labels_title(),
+    summary: m.tooltip_priority_labels_summary(),
+    sections: [
+      { label: m.tooltip_priority_labels_match(), text: m.tooltip_priority_labels_match_body() },
+      { label: m.tooltip_priority_labels_needs(), text: m.tooltip_priority_labels_needs_body() },
+      { label: m.tooltip_priority_labels_limits(), text: m.tooltip_priority_labels_limits_body() },
+    ],
+  };
+}
+
 /** Browser View "Pop out" (#2896): where it opens and what happens to the other view. */
 export function browserPopoutExplanation(): TooltipExplanation {
   return {

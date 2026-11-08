@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page, userEvent } from "vitest/browser";
+import { page } from "vitest/browser";
 import "../../app.css";
 import type { CompletedEpic } from "#lib/types.js";
 import IntegratedEpicLanding from "./IntegratedEpicLanding.svelte";
+import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
 const epic = (over: Partial<CompletedEpic> = {}): CompletedEpic => ({
   repoPath: "/repo",
   parentIssueNumber: 327,
@@ -329,7 +330,7 @@ describe("#2872 red landing CI", () => {
     expect(stage("reruns").textContent).toContain("✓ 2 of 2 · still red");
   });
 
-  it("Auto-Drain off: explains the skipped repair, opens the repo automation and starts a repair", async () => {
+  it("Auto-Drain off: explains the skipped repair, opens the repo settings and starts a repair", async () => {
     const p = ciProps(red(automation({}, { status: "skipped", skipReason: "auto-drain-off" })));
     await render(IntegratedEpicLanding, p);
     await expect
@@ -337,10 +338,10 @@ describe("#2872 red landing CI", () => {
       .toBeInTheDocument();
     expect(stage("repair").querySelector(".gtl-marker.conditional")).toBeTruthy();
     expect(stage("repair").textContent).toContain("runs only with Auto-Drain on");
-    await page.getByRole("button", { name: "Open repo automation" }).click();
-    expect(document.querySelector(".lcs-who .auto-pop")).toBeTruthy();
-    await userEvent.keyboard("{Escape}");
-    expect(document.querySelector(".lcs-who .auto-pop")).toBeNull();
+    await page.getByRole("button", { name: "Open repo settings" }).click();
+    // #3443: the repo settings window, at Start & flow where Auto-Drain lives
+    expect(repoSettingsWindow.target).toMatchObject({ repoPath: "/repo", section: "start" });
+    repoSettingsWindow.target = null;
 
     const fix = button("Fix CI failures")!;
     expect(fix.classList.contains("primary")).toBe(true);

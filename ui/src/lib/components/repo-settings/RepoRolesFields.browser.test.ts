@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
-import { repoConfig } from "#lib/reviews.svelte.js";
 import { m } from "#lib/paraglide/messages.js";
 import {
   enableRepoRolesAutoMerge,
@@ -23,7 +22,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
   };
 });
 
-const { default: AutomationRepoFields } = await import("./AutomationRepoFields.svelte");
+const { default: RepoRolesFields } = await import("./RepoRolesFields.svelte");
 const mockCollaborators = vi.mocked(getRepoCollaborators);
 const mockRoles = vi.mocked(getRepoRoles);
 const mockPutRoles = vi.mocked(putRepoRoles);
@@ -70,13 +69,13 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-describe("AutomationRepoFields repository roles", () => {
+describe("RepoRolesFields repository roles", () => {
   it("loads stored roles independently and keeps dropdowns usable when people fail", async () => {
     const pendingRoles = deferred<ReturnType<typeof roleResult>>();
     const pendingPeople = deferred<never>();
     mockRoles.mockReturnValue(pendingRoles.promise);
     mockCollaborators.mockReturnValue(pendingPeople.promise);
-    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+    render(RepoRolesFields, { repoPath: "/repo/a" });
 
     await expect.element(reviewer()).toBeDisabled();
     await expect.element(merger()).toBeDisabled();
@@ -88,8 +87,8 @@ describe("AutomationRepoFields repository roles", () => {
 
     pendingPeople.resolve(peopleResult([], { collaboratorsUnavailable: true, source: undefined }));
     await expect.element(page.getByRole("button", { name: m.common_retry() })).toBeVisible();
-    expect(document.querySelectorAll("#repo-roles ~ .auto-row select")).toHaveLength(2);
-    expect(document.querySelector("#repo-roles ~ .auto-row input")).toBeNull();
+    expect(document.querySelectorAll("#repo-roles ~ .rs-row select")).toHaveLength(2);
+    expect(document.querySelector("#repo-roles ~ .rs-row input")).toBeNull();
   });
 
   it("retries whichever independent loads failed and restores both saved roles and people", async () => {
@@ -99,7 +98,7 @@ describe("AutomationRepoFields repository roles", () => {
     mockCollaborators
       .mockRejectedValueOnce(new Error("people offline"))
       .mockResolvedValueOnce(peopleResult(["ReviewerOne", "MergerOne", "AnotherPerson"]));
-    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+    render(RepoRolesFields, { repoPath: "/repo/a" });
 
     await page.getByRole("button", { name: m.common_retry() }).click();
 
@@ -116,7 +115,7 @@ describe("AutomationRepoFields repository roles", () => {
     mockCollaborators.mockResolvedValue(peopleResult(["kai", "Alice"], { me: "ME" }));
     const save = deferred<ReturnType<typeof roleResult>>();
     mockPutRoles.mockReturnValue(save.promise);
-    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+    render(RepoRolesFields, { repoPath: "/repo/a" });
 
     await expect.element(reviewer()).toHaveValue("LegacyCase");
     await expect
@@ -148,14 +147,13 @@ describe("AutomationRepoFields repository roles", () => {
       .mockReturnValueOnce(bPeople.promise)
       .mockReturnValueOnce(aFreshPeople.promise);
 
-    const screen = await render(AutomationRepoFields, {
+    const screen = await render(RepoRolesFields, {
       repoPath: "/repo/a",
-      fableAvailable: false,
     });
     await vi.waitFor(() => expect(mockRoles.mock.calls.length).toBe(1));
-    await screen.rerender({ repoPath: "/repo/b", fableAvailable: false });
+    await screen.rerender({ repoPath: "/repo/b" });
     await vi.waitFor(() => expect(mockRoles.mock.calls.length).toBe(2));
-    await screen.rerender({ repoPath: "/repo/a", fableAvailable: false });
+    await screen.rerender({ repoPath: "/repo/a" });
     await vi.waitFor(() => expect(mockRoles.mock.calls.length).toBe(3));
 
     aFreshRoles.resolve(roleResult("FreshA", null));
@@ -183,17 +181,16 @@ describe("AutomationRepoFields repository roles", () => {
     const save = deferred<ReturnType<typeof roleResult>>();
     mockPutRoles.mockReturnValue(save.promise);
 
-    const screen = await render(AutomationRepoFields, {
+    const screen = await render(RepoRolesFields, {
       repoPath: "/repo/a",
-      fableAvailable: false,
     });
     await expect.element(reviewer()).toHaveValue("InitialA");
     await reviewer().selectOptions("Owner");
     await expect.element(reviewer()).toBeDisabled();
 
-    await screen.rerender({ repoPath: "/repo/b", fableAvailable: false });
+    await screen.rerender({ repoPath: "/repo/b" });
     await expect.element(reviewer()).toHaveValue("CurrentB");
-    await screen.rerender({ repoPath: "/repo/a", fableAvailable: false });
+    await screen.rerender({ repoPath: "/repo/a" });
     await expect.element(reviewer()).toHaveValue("FreshA");
 
     save.resolve(roleResult("StaleSavedA", "StaleSavedMerger"));
@@ -209,7 +206,7 @@ describe("AutomationRepoFields repository roles", () => {
         isFork: true,
       }),
     );
-    render(AutomationRepoFields, { repoPath: "/repo/fork", fableAvailable: false });
+    render(RepoRolesFields, { repoPath: "/repo/fork" });
 
     await expect
       .element(reviewer().getByRole("option", { name: "@UpstreamMaintainer" }))
@@ -219,7 +216,7 @@ describe("AutomationRepoFields repository roles", () => {
   });
 });
 
-describe("AutomationRepoFields roles on a protected default branch", () => {
+describe("RepoRolesFields roles on a protected default branch", () => {
   const settings = (over: Partial<RepoMergeSettings> = {}): RepoMergeSettings => ({
     requiresPr: true,
     autoMergeAllowed: false,
@@ -240,7 +237,7 @@ describe("AutomationRepoFields roles on a protected default branch", () => {
       pending: pendingPr("Owner", "scoop"),
       mergeSettings: settings({ autoMergeAllowed: true }),
     });
-    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+    render(RepoRolesFields, { repoPath: "/repo/a" });
 
     await expect.element(reviewer()).toHaveValue("Owner");
     await expect.element(merger()).toHaveValue("scoop");
@@ -259,7 +256,7 @@ describe("AutomationRepoFields roles on a protected default branch", () => {
       pending: { ...pendingPr("Owner", "scoop"), autoMerge: "disallowed" },
       mergeSettings: settings(),
     });
-    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+    render(RepoRolesFields, { repoPath: "/repo/a" });
 
     await expect.element(reviewer()).toHaveValue("scoop");
     await reviewer().selectOptions("Owner");
@@ -279,7 +276,7 @@ describe("AutomationRepoFields roles on a protected default branch", () => {
       mergeSettings: settings({ autoMergeAllowed: true }),
       pending: { ...pendingPr("Owner", "scoop"), autoMerge: "enabled" },
     });
-    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+    render(RepoRolesFields, { repoPath: "/repo/a" });
 
     await expect.element(page.getByText(m.roles_automerge_off())).toBeVisible();
     await page.getByRole("button", { name: m.roles_automerge_enable() }).click();
@@ -294,7 +291,7 @@ describe("AutomationRepoFields roles on a protected default branch", () => {
       ...roleResult("scoop", "scoop"),
       mergeSettings: settings({ canAdminister: false }),
     });
-    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+    render(RepoRolesFields, { repoPath: "/repo/a" });
 
     await expect.element(page.getByText(m.roles_automerge_admin_needed())).toBeVisible();
     expect(page.getByRole("button", { name: m.roles_automerge_enable() }).query()).toBeNull();
@@ -303,7 +300,7 @@ describe("AutomationRepoFields roles on a protected default branch", () => {
   it("surfaces a refused auto-merge switch inline", async () => {
     mockRoles.mockResolvedValue({ ...roleResult("scoop", "scoop"), mergeSettings: settings() });
     mockEnableAutoMerge.mockRejectedValue(new Error("auto_merge_enable_failed"));
-    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+    render(RepoRolesFields, { repoPath: "/repo/a" });
 
     await page.getByRole("button", { name: m.roles_automerge_enable() }).click();
     await expect.element(page.getByText(m.roles_automerge_enable_failed())).toBeVisible();
@@ -315,7 +312,7 @@ describe("AutomationRepoFields roles on a protected default branch", () => {
       pending: pendingPr("Owner", "scoop"),
       mergeSettings: settings({ planLimited: true }),
     });
-    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+    render(RepoRolesFields, { repoPath: "/repo/a" });
 
     await expect.element(page.getByText(m.roles_automerge_plan_needed())).toBeVisible();
     expect(page.getByRole("button", { name: m.roles_automerge_enable() }).query()).toBeNull();
@@ -324,7 +321,7 @@ describe("AutomationRepoFields roles on a protected default branch", () => {
   it("says so when the host accepts the switch but keeps auto-merge off", async () => {
     mockRoles.mockResolvedValue({ ...roleResult("scoop", "scoop"), mergeSettings: settings() });
     mockEnableAutoMerge.mockResolvedValue({ mergeSettings: settings() });
-    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+    render(RepoRolesFields, { repoPath: "/repo/a" });
 
     await page.getByRole("button", { name: m.roles_automerge_enable() }).click();
     await expect.element(page.getByText(m.roles_automerge_enable_ignored())).toBeVisible();
@@ -336,97 +333,9 @@ describe("AutomationRepoFields roles on a protected default branch", () => {
       ...roleResult("scoop", "scoop"),
       mergeSettings: settings({ requiresPr: false }),
     });
-    render(AutomationRepoFields, { repoPath: "/repo/a", fableAvailable: false });
+    render(RepoRolesFields, { repoPath: "/repo/a" });
 
     await expect.element(reviewer()).toHaveValue("scoop");
     expect(page.getByText(m.roles_branch_protected()).query()).toBeNull();
-  });
-});
-
-it("saves ultra as a shared repository effort preference on a Codex repo", async () => {
-  const save = vi.spyOn(repoConfig, "setDefaultEffort").mockResolvedValue(undefined);
-  try {
-    render(AutomationRepoFields, {
-      repoPath: "/repo/ultra",
-      fableAvailable: false,
-      globalAgentProvider: "codex",
-    });
-    await page
-      .getByRole("combobox", { name: m.automation_default_effort_label() })
-      .selectOptions("ultra");
-    expect(save).toHaveBeenCalledWith("/repo/ultra", "ultra");
-  } finally {
-    save.mockRestore();
-  }
-});
-
-describe("AutomationRepoFields coding CLI (#3441)", () => {
-  const cliSelect = () => page.getByRole("combobox", { name: m.automation_coding_cli_label() });
-  const modelSelect = () =>
-    page.getByRole("combobox", { name: m.automation_default_model_label() });
-  const effortSelect = () =>
-    page.getByRole("combobox", { name: m.automation_default_effort_label() });
-  const optionValues = (el: HTMLElement) =>
-    Array.from((el as HTMLSelectElement).options).map((o) => o.value);
-  const pin = (repo: string, cli: "inherit" | "claude" | "codex", model = "inherit") => {
-    repoConfig.agentProvider = { ...repoConfig.agentProvider, [repo]: cli };
-    repoConfig.defaultModel = { ...repoConfig.defaultModel, [repo]: model };
-  };
-
-  it("offers Inherit / Claude Code / Codex above the model and saves a pick", async () => {
-    const save = vi.spyOn(repoConfig, "setAgentProvider").mockResolvedValue(undefined);
-    try {
-      render(AutomationRepoFields, { repoPath: "/repo/cli-pick", fableAvailable: false });
-      await expect.element(cliSelect()).toHaveValue("inherit");
-      expect(optionValues(cliSelect().element() as HTMLElement)).toEqual([
-        "inherit",
-        "claude",
-        "codex",
-      ]);
-      await expect
-        .element(page.getByText(m.automation_coding_cli_hint_inherit({ cli: "Claude Code" })))
-        .toBeVisible();
-      await cliSelect().selectOptions("codex");
-      expect(save).toHaveBeenCalledWith("/repo/cli-pick", "codex");
-    } finally {
-      save.mockRestore();
-    }
-  });
-
-  it("lists only the effective CLI's models and efforts", async () => {
-    pin("/repo/cli-codex", "codex", "gpt-5.4");
-    render(AutomationRepoFields, { repoPath: "/repo/cli-codex", fableAvailable: false });
-    await expect.element(modelSelect()).toHaveValue("gpt-5.4");
-    const models = optionValues(modelSelect().element() as HTMLElement);
-    expect(models).toContain("gpt-5.4");
-    expect(models).not.toContain("opus");
-    expect(optionValues(effortSelect().element() as HTMLElement)).toContain("ultra");
-    await expect
-      .element(page.getByText(m.automation_coding_cli_hint_repo({ cli: "Codex" })))
-      .toBeVisible();
-  });
-
-  it("shows Inherit for a stored model the effective CLI cannot run", async () => {
-    pin("/repo/cli-unfit", "inherit", "opus");
-    render(AutomationRepoFields, {
-      repoPath: "/repo/cli-unfit",
-      fableAvailable: false,
-      globalAgentProvider: "codex",
-    });
-    await expect.element(modelSelect()).toHaveValue("inherit");
-    expect(optionValues(modelSelect().element() as HTMLElement)).not.toContain("opus");
-    expect(optionValues(effortSelect().element() as HTMLElement)).toContain("ultra");
-  });
-
-  it("drops ultra from the effort list on a Claude repo", async () => {
-    pin("/repo/cli-claude", "claude");
-    render(AutomationRepoFields, {
-      repoPath: "/repo/cli-claude",
-      fableAvailable: false,
-      globalAgentProvider: "codex",
-    });
-    await expect.element(cliSelect()).toHaveValue("claude");
-    expect(optionValues(effortSelect().element() as HTMLElement)).not.toContain("ultra");
-    expect(optionValues(modelSelect().element() as HTMLElement)).toContain("opus");
   });
 });

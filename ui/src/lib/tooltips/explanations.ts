@@ -411,6 +411,16 @@ export function integrationBranchExplanation(): TooltipExplanation {
   };
 }
 
+/** Repo settings → "Repo mode" (#3443): GitHub or local Git only — built from the former
+ *  Lightweight switch's copy. */
+export function repoModeExplanation(): TooltipExplanation {
+  return {
+    title: m.reposettings_mode_label(),
+    summary: m.reposettings_mode_tip_summary(),
+    sections: [{ label: m.reposettings_mode_local(), text: m.automation_lightweight_detail() }],
+  };
+}
+
 /** Automation → "Shared browser": what the per-repo logged-in Chromium is for, who can read its
  *  logins, and what it needs. */
 export function sharedBrowserExplanation(): TooltipExplanation {

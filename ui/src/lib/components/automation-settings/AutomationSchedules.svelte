@@ -2,14 +2,13 @@
   import { m } from "#lib/paraglide/messages.js";
   import { schedules } from "#lib/schedules.svelte.js";
   import { schedulesExplanation } from "#lib/tooltips/explanations.js";
-  import InfoTip from "../InfoTip.svelte";
+  import RepoSettingRow from "../repo-settings/RepoSettingRow.svelte";
   import ScheduleDialog from "./ScheduleDialog.svelte";
   import ScheduleRow from "./ScheduleRow.svelte";
   import type { Schedule } from "#lib/types.js";
 
   // Operator schedules (#3469): this repo's recurring prompts — list, enable switch, run now, and
-  // add/edit in ScheduleDialog; rows are ScheduleRow. Self-contained so AutomationSettings'
-  // template, which sits at its complexity bar, only gains one tag.
+  // add/edit in ScheduleDialog; rows are ScheduleRow. The repo settings' Schedules section (#3443).
   let { repoPath }: { repoPath: string } = $props();
 
   $effect(() => {
@@ -21,14 +20,18 @@
   let editing = $state<Schedule | "new" | null>(null);
 </script>
 
-<div class="sc-head">
-  <div class="sc-name">
-    ⏱ {m.schedules_title()}
-    <InfoTip text={schedulesExplanation()} label={m.tooltip_schedules_title()} />
-  </div>
-  <button type="button" class="sc-btn" onclick={() => (editing = "new")}>{m.schedules_add()}</button
-  >
-</div>
+<RepoSettingRow
+  field="schedules"
+  glyph="⏱"
+  name={m.schedules_title()}
+  explanation={schedulesExplanation()}
+>
+  {#snippet control()}
+    <button type="button" class="sc-btn" onclick={() => (editing = "new")}
+      >{m.schedules_add()}</button
+    >
+  {/snippet}
+</RepoSettingRow>
 {#if list.length === 0}
   <p class="sc-empty">{m.schedules_empty()}</p>
 {:else}
@@ -47,21 +50,6 @@
 {/if}
 
 <style>
-  .sc-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 8px 12px;
-    border-top: 1px solid var(--color-line);
-  }
-  .sc-name {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--fs-base);
-    color: var(--color-ink-bright);
-  }
   .sc-list {
     list-style: none;
     margin: 0;

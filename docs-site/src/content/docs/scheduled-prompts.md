@@ -13,7 +13,7 @@ start from New Task. The card shows a **Scheduled · \<name\>** badge.
 
 ## Setting one up
 
-Open the repo's **Repo automation** settings and find **Schedules**. **Add** opens
+Open the repo's **Repo settings** and pick the **Schedules** section. **Add** opens
 a dialog with:
 
 - **Name** and **Prompt** (free text or a leading `/skill`).
@@ -43,7 +43,7 @@ run first. Disabled schedules come last. Each row shows the repo, name, cadence,
 next run and last outcome, with the same switch, **Run now**, **Edit** and
 **Delete** as the repo's own list. When more than one repo has schedules, a
 **Repo** filter narrows the list to one. To add a schedule, use the repo's
-**Repo automation** settings.
+**Repo settings**.
 
 ## When a schedule runs
 

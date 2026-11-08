@@ -2,6 +2,7 @@ import { untrack } from "svelte";
 import type {
   DrainStatus,
   EpicAutoBlockers,
+  EpicAutoFixCauseCode,
   EpicAutoFixOption,
   EpicAutoFixOptionId,
   EpicAutoFixState,
@@ -171,14 +172,34 @@ class EpicAutoFixStore {
     option: EpicAutoFixOptionId,
     starting: number[],
   ): Promise<boolean> {
+    const chosen = this.#halted(repoPath, parent)?.blockers?.options.find((o) => o.id === option);
+    if (!chosen) return false;
+    return this.#apply(repoPath, parent, { option }, chosen.changes, starting);
+  }
+
+  /** Apply one cause's own fix (#3456) — for `sandbox_interactive` the repo's sandbox — as the
+   *  repo overview's banner does; the repo settings' halt note uses it (#3443). It need not start
+   *  the children: another scope may still hold. False (and a toast) when it didn't. */
+  async applyCause(repoPath: string, parent: number, code: EpicAutoFixCauseCode): Promise<boolean> {
+    const fix = this.#halted(repoPath, parent)?.blockers?.causes.find((c) => c.code === code)?.fix;
+    if (!fix) return false;
+    return this.#apply(repoPath, parent, { cause: code }, fix.changes, []);
+  }
+
+  async #apply(
+    repoPath: string,
+    parent: number,
+    body: { option: EpicAutoFixOptionId } | { cause: EpicAutoFixCauseCode },
+    changes: EpicAutoFixOption["changes"],
+    starting: number[],
+  ): Promise<boolean> {
     const e = this.#halted(repoPath, parent);
-    const chosen = e?.blockers?.options.find((o) => o.id === option);
-    if (!e || !chosen || e.busy) return false;
+    if (!e || e.busy) return false;
     e.busy = true;
     try {
-      const result = await applyEpicAutoFix(repoPath, parent, { option });
+      const result = await applyEpicAutoFix(repoPath, parent, body);
       this.#adopt(e, result.blockers);
-      e.fix = { parent, changes: chosen.changes, previous: result.previous, starting };
+      e.fix = { parent, changes, previous: result.previous, starting };
       void repoConfig.reload(repoPath);
       return true;
     } catch (err) {

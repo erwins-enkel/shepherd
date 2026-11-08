@@ -3243,44 +3243,53 @@ export async function openRepoBrowser(
   return r.json();
 }
 
+/** Every field PUT /api/repo-config accepts (mirrors the server's parseRepoConfigPatch). The
+ *  web client writes through RepoConfigStore.write() only — see reviews.svelte.ts. */
+export type RepoConfigPatch = Partial<
+  Pick<
+    RepoConfig,
+    | "criticEnabled"
+    | "criticAllPrs"
+    | "criticSmellLensEnabled"
+    | "autoAddressEnabled"
+    | "autopilotEnabled"
+    | "autoDrainEnabled"
+    | "autoMergeEnabled"
+    | "buildQueueEnabled"
+    | "planGateEnabled"
+    | "draftMode"
+    | "signoffAuthority"
+    | "sandboxProfile"
+    | "agentProvider"
+    | "defaultModel"
+    | "defaultEffort"
+    | "defaultExecutionEffort"
+    | "egressExtraHosts"
+    | "maxAuto"
+    | "autoLabel"
+    | "priorityLabels"
+    | "usageCeilingPct"
+    | "repoMode"
+    | "manualStepsIssueEnabled"
+    | "preWarmEpicLandingCi"
+    | "mergeWithoutCi"
+    | "epicStacksEnabled"
+    | "sharedBrowserEnabled"
+    | "browserAllowedHosts"
+    | "claudeAiConnectorsEnabled"
+    | "pluginAllowlist"
+    | "skillAllowlist"
+    | "hidden"
+    | "pinned"
+    | "previewStartScript"
+    | "previewStartCommand"
+    | "previewOpenMode"
+  >
+> & { automationConfirmed?: boolean };
+
 export async function putRepoConfig(
   repoPath: string,
-  patch: Partial<
-    Pick<
-      RepoConfig,
-      | "criticEnabled"
-      | "criticAllPrs"
-      | "autoAddressEnabled"
-      | "autopilotEnabled"
-      | "autoDrainEnabled"
-      | "autoMergeEnabled"
-      | "planGateEnabled"
-      | "signoffAuthority"
-      | "sandboxProfile"
-      | "agentProvider"
-      | "defaultModel"
-      | "maxAuto"
-      | "autoLabel"
-      | "priorityLabels"
-      | "usageCeilingPct"
-      | "repoMode"
-      | "criticSmellLensEnabled"
-      | "manualStepsIssueEnabled"
-      | "preWarmEpicLandingCi"
-      | "mergeWithoutCi"
-      | "epicStacksEnabled"
-      | "sharedBrowserEnabled"
-      | "browserAllowedHosts"
-      | "claudeAiConnectorsEnabled"
-      | "pluginAllowlist"
-      | "skillAllowlist"
-      | "hidden"
-      | "pinned"
-      | "previewStartScript"
-      | "previewStartCommand"
-      | "previewOpenMode"
-    >
-  > & { automationConfirmed?: boolean },
+  patch: RepoConfigPatch,
 ): Promise<RepoConfigResponse> {
   const r = await fetch(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`, {
     method: "PUT",

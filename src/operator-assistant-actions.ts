@@ -27,6 +27,16 @@
 import { basename } from "node:path";
 import { parseIssueDrainOperation } from "./issue-drain";
 import type { AgentControlDeps, ApplyResult, McpTool } from "./agent-control";
+import {
+  normalizeRepoAgentProviderSetting,
+  repoEffortFitsProvider,
+  repoModelFitsProvider,
+  resolveSpawnAgentProvider,
+  type RepoAgentProviderSetting,
+} from "./agent-provider";
+import { config } from "./config";
+import { effortsForProvider, normalizeRepoDefaultEffortSetting } from "./default-effort";
+import { normalizeRepoDefaultModelSetting } from "./default-model";
 import type { GitState } from "./forge/types";
 import {
   actionGroupOf,
@@ -42,7 +52,7 @@ import {
 } from "./operator-assistant-tools";
 import { redactSecretText } from "./redact";
 import { daysToMask, WEEKDAYS } from "./schedules-core";
-import type { AgentProvider } from "./types";
+import { AGENT_PROVIDERS, EFFORTS, MODELS_BY_PROVIDER, type AgentProvider } from "./types";
 
 export interface OperatorActionRequest {
   method: "POST" | "PUT" | "DELETE";
@@ -115,6 +125,9 @@ interface Resolve {
   /** The session's cached PR state, if any. */
   pr(sessionId: string): GitState | undefined;
   taskDefaults(repoPath: string): TaskDefaults;
+  /** The coding CLI a repo's new starts run with its CLI set to `setting` (absent ⇒ the stored
+   *  one): that CLI, or the global default for "inherit". */
+  repoCli(repoPath: string, setting?: RepoAgentProviderSetting): AgentProvider;
 }
 
 type Builder = (args: Record<string, unknown>, resolve: Resolve) => Built | Fail;
@@ -130,6 +143,9 @@ const REPO_AUTOMATION_FIELDS = [
   "autoLabel",
   "criticEnabled",
   "usageCeilingPct",
+  "agentProvider",
+  "defaultModel",
+  "defaultEffort",
 ] as const;
 
 const sessionPath = (id: string, sub = "") => `/api/sessions/${id}${sub ? `/${sub}` : ""}`;
@@ -202,6 +218,47 @@ function scheduleBody(
     ...(args.enabled !== undefined && { enabled: args.enabled }),
     ...(args.baseBranch !== undefined && { launch: { baseBranch: args.baseBranch } }),
   };
+}
+
+/**
+ * repo_automation_set's coding-CLI fields (#3442): each must be a valid setting, and a model or
+ * effort must run on the CLI the repo uses after this change (the patched agentProvider, else the
+ * stored one, else the global default). The route would store an unfit one and every spawn would
+ * then skip it, so it is refused here with the values that do fit. Null when the patch passes.
+ */
+function runDefaultsRefusal(
+  patch: Record<string, unknown>,
+  repoPath: string,
+  resolve: Resolve,
+): Fail | null {
+  const { agentProvider, defaultModel, defaultEffort } = patch;
+  if (agentProvider !== undefined && normalizeRepoAgentProviderSetting(agentProvider) === null)
+    return fail(400, `agentProvider must be one of: inherit, ${AGENT_PROVIDERS.join(", ")}`);
+  if (defaultModel !== undefined && normalizeRepoDefaultModelSetting(defaultModel) === null)
+    return fail(400, "defaultModel must be inherit, auto, default or a model alias");
+  if (defaultEffort !== undefined && normalizeRepoDefaultEffortSetting(defaultEffort) === null)
+    return fail(400, `defaultEffort must be one of: inherit, default, ${EFFORTS.join(", ")}`);
+  if (defaultModel === undefined && defaultEffort === undefined) return null;
+  const cli = resolve.repoCli(repoPath, agentProvider as RepoAgentProviderSetting | undefined);
+  const where = `${cli}, the coding CLI ${basename(repoPath)} uses after this change`;
+  const hint = agentProvider === undefined ? "; to switch the CLI as well, pass agentProvider" : "";
+  if (defaultModel !== undefined && !repoModelFitsProvider(defaultModel as string, cli)) {
+    const models = MODELS_BY_PROVIDER[cli].join(", ");
+    return fail(
+      400,
+      `defaultModel "${defaultModel as string}" does not run on ${where} — use inherit, auto, ` +
+        `default or a ${cli} model: ${models}${hint}`,
+    );
+  }
+  if (defaultEffort !== undefined && !repoEffortFitsProvider(defaultEffort as string, cli)) {
+    const efforts = effortsForProvider(cli).join(", ");
+    return fail(
+      400,
+      `defaultEffort "${defaultEffort as string}" does not run on ${where} — use inherit, ` +
+        `default or one of: ${efforts}${hint}`,
+    );
+  }
+  return null;
 }
 
 /** A created schedule's answer: its id and next firing — never the stored row. */
@@ -310,6 +367,8 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
     if (Object.keys(patch).length === 0) {
       return fail(400, `set at least one of ${REPO_AUTOMATION_FIELDS.join(", ")}`);
     }
+    const refusal = runDefaultsRefusal(patch, repo, resolve);
+    if (refusal) return refusal;
     return {
       requests: [
         { method: "PUT", path: `/api/repo-config?repo=${encodeURIComponent(repo)}`, body: patch },
@@ -495,6 +554,12 @@ function resolver(deps: ActionDeps, scope: AssistantScope): Resolve {
       return resolved[0]!;
     },
     taskDefaults: (repoPath) => deps.operatorActions!.taskDefaults(repoPath),
+    repoCli: (repoPath, setting) =>
+      resolveSpawnAgentProvider(
+        undefined,
+        setting ?? deps.store.getRepoConfig(repoPath).agentProvider,
+        config.defaultAgentProvider,
+      ),
     pr: (sessionId) => deps.prCache?.get(sessionId),
     held(id) {
       const task =
@@ -741,7 +806,12 @@ export const OPERATOR_ACTION_TOOLS: McpTool[] = [
   ),
   {
     name: "repo_automation_set",
-    description: `[automation] Change a repo's automation settings (what repo_automation reports).${NOTE}`,
+    description:
+      "[automation] Change a repo's automation settings and its coding CLI, default model and " +
+      "effort (what repo_automation reports). A model or effort the repo's CLI after the change " +
+      "can't run is refused; switching agentProvider resets a stored one it can't run to " +
+      "inherit. Applies from the next start: running sessions keep their CLI. Verify with " +
+      `repo_automation's nextDrainStart.${NOTE}`,
     inputSchema: {
       type: "object",
       properties: {
@@ -752,6 +822,22 @@ export const OPERATOR_ACTION_TOOLS: McpTool[] = [
         autoLabel: { type: "string" },
         criticEnabled: { type: "boolean" },
         usageCeilingPct: { type: "number", minimum: 0, maximum: 100 },
+        agentProvider: {
+          type: "string",
+          enum: ["inherit", ...AGENT_PROVIDERS],
+          description: "The repo's coding CLI for new starts; inherit follows the global default.",
+        },
+        defaultModel: {
+          type: "string",
+          description:
+            "inherit, auto, default or a model alias of the repo's CLI (claude: opus, sonnet, …; " +
+            "codex: gpt-…).",
+        },
+        defaultEffort: {
+          type: "string",
+          enum: ["inherit", "default", ...EFFORTS],
+          description: "ultra runs on codex only.",
+        },
       },
       required: ["repo"],
       additionalProperties: false,

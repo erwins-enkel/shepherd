@@ -19,9 +19,22 @@ import { cpus, freemem, loadavg, totalmem, uptime } from "node:os";
 import { basename } from "node:path";
 import { promisify } from "node:util";
 import type { AgentControlDeps, ApplyResult, McpTool } from "./agent-control";
+import { normalizeAgentProvider, resolveSpawnAgentProvider } from "./agent-provider";
+import { readCodexAuthMode } from "./codex-auth";
+import { config } from "./config";
+import { drainSpawnEffort, resolveProviderDefaultEffortSetting } from "./default-effort";
+import {
+  clampCodexModelForAuth,
+  drainSpawnModel,
+  modelForProviderOrDefault,
+  resolveProviderDefaultModelSetting,
+  spawnModelForAvailability,
+  type CodexAuthMode,
+} from "./default-model";
 import type { DiagnosticsService } from "./diagnostics";
 import type { DrainStatus } from "./drain";
 import type { RunSummaryHolder } from "./drain-core";
+import type { EpicRun } from "./epic-core";
 import type { EpicDiagnosis } from "./epic-diagnosis";
 import type { GitState, Issue } from "./forge/types";
 import { issueDrainState } from "./issue-drain";
@@ -35,6 +48,7 @@ import { defaultSandboxProfile } from "./sandbox-default";
 import type { HeldTask, HoldReason, PlanGate, Session } from "./types";
 import { fenceUntrusted, randomFenceToken } from "./untrusted";
 import { SHEPHERD_VERSION } from "./version";
+import type { RepoConfig } from "./store";
 
 const execFileAsync = promisify(execFile);
 
@@ -63,6 +77,8 @@ export interface OperatorDiagDeps {
   probeHerdr?: () => Promise<HerdrRuntimeStatus>;
   /** Run a command and resolve its stdout; rejects on failure or timeout. */
   exec?: (bin: string, args: string[]) => Promise<string>;
+  /** The Codex login kind (`~/.codex/auth.json`), for the model a Codex start really runs. */
+  codexAuthMode?: () => CodexAuthMode;
   /** Read a small text file whole (`/proc/*`). */
   readText?: (path: string) => Promise<string>;
   /** The last `maxBytes` of a file (`truncated` when it is longer), or null when it doesn't exist. */
@@ -417,7 +433,57 @@ function schedulesBlock(deps: DiagDeps, repoPath: string, fence: Fence, now = Da
   return { schedules, omittedSchedules: Math.max(0, all.length - MAX_LIST) };
 }
 
-function repoBlock(deps: DiagDeps, repoPath: string, drain: DrainStatus | undefined, fence: Fence) {
+/**
+ * The CLI, model and effort the repo's next drain start runs (#3442), resolved as DrainService
+ * does from the same primitives: a running or paused epic's own CLI (with its model and effort) →
+ * the repo's coding CLI → the global default, read live; then the repo's default model / effort
+ * when that CLI can run them, else the engine's own. model / effort null = no flag (the CLI's own
+ * default). Last, the spawn-time clamps: a Codex model a ChatGPT login rejects, Fable unavailable.
+ */
+function nextDrainStartBlock(cfg: RepoConfig, run: EpicRun | null, diag: OperatorDiagDeps) {
+  const epicCli =
+    run?.status === "running" || run?.status === "paused" ? (run.agentProvider ?? null) : null;
+  const agentProvider =
+    epicCli ?? resolveSpawnAgentProvider(undefined, cfg.agentProvider, config.defaultAgentProvider);
+  const agentProviderFrom = epicCli
+    ? "epic"
+    : normalizeAgentProvider(cfg.agentProvider)
+      ? "repo"
+      : "global";
+  const model = epicCli
+    ? modelForProviderOrDefault(run?.model ?? null, epicCli)
+    : drainSpawnModel(
+        resolveProviderDefaultModelSetting(
+          cfg.defaultModel,
+          agentProvider,
+          config.defaultModel,
+          config.defaultCodexModel,
+        ),
+      );
+  const effort = epicCli
+    ? (run?.effort ?? null)
+    : drainSpawnEffort(
+        resolveProviderDefaultEffortSetting(cfg.defaultEffort, agentProvider, config),
+      );
+  const authed =
+    agentProvider === "codex"
+      ? clampCodexModelForAuth(model, agentProvider, (diag.codexAuthMode ?? readCodexAuthMode)())
+      : model;
+  return {
+    agentProvider,
+    agentProviderFrom,
+    model: spawnModelForAvailability(authed, config.fableAvailable),
+    effort,
+  };
+}
+
+function repoBlock(
+  deps: DiagDeps,
+  diag: OperatorDiagDeps,
+  repoPath: string,
+  drain: DrainStatus | undefined,
+  fence: Fence,
+) {
   const cfg = deps.store.getRepoConfig(repoPath);
   const run = deps.store.getEpicRun(repoPath);
   return {
@@ -436,7 +502,12 @@ function repoBlock(deps: DiagDeps, repoPath: string, drain: DrainStatus | undefi
       sandboxProfileEffective: resolveProfile(undefined, cfg.sandboxProfile, () =>
         defaultSandboxProfile(),
       ),
+      // The stored settings (#3442); what they resolve to is nextDrainStart.
+      agentProvider: cfg.agentProvider ?? "inherit",
+      defaultModel: cfg.defaultModel,
+      defaultEffort: cfg.defaultEffort,
     },
+    nextDrainStart: nextDrainStartBlock(cfg, run, diag),
     drain: drainBlock(drain, fence),
     epicRun: run && {
       parentIssueNumber: run.parentIssueNumber,
@@ -535,6 +606,7 @@ export async function applyRepoAutomation(
   const blocks = repos.slice(0, MAX_REPOS).map((p) => ({
     ...repoBlock(
       deps,
+      diag,
       p,
       drain.statuses.find((d) => d.repoPath === p),
       fence,
@@ -798,7 +870,10 @@ const REPO_AUTOMATION: McpTool = {
   name: "repo_automation",
   description:
     "Drain and epic questions. Per repo: autoDrainEnabled, autoMergeEnabled, maxAuto, autoLabel, " +
-    "criticEnabled, usageCeilingPct, repoMode, sandboxProfile (+ sandboxProfileEffective), the drain status (null when the " +
+    "criticEnabled, usageCeilingPct, repoMode, sandboxProfile (+ sandboxProfileEffective), " +
+    "agentProvider, defaultModel, defaultEffort (the repo's coding CLI and run defaults; inherit " +
+    "= the global default), nextDrainStart (the CLI, its source epic|repo|global, model and effort " +
+    "the next drain start runs; null = the CLI's own default), the drain status (null when the " +
     "drain reports nothing for the repo), the epic run, how it last ended, the epic queue, and " +
     "its schedules (name, prompt, server-local days and times, enabled, nextAt, last run). " +
     "With epicParent (one repo): that epic's structural diagnosis — why its next child doesn't " +

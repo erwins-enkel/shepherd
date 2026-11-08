@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { m } from "#lib/paraglide/messages.js";
   import { dialog } from "#lib/a11yDialog.js";
   import { basename } from "#lib/basename.js";
@@ -16,6 +16,7 @@
     type RepoSettingsSection as SectionId,
   } from "./sections";
   import { provideOpenDetail } from "./detail-context.svelte.js";
+  import { focusSetting, provideSettingLink } from "./setting-link";
   import RepoModeChoice from "./RepoModeChoice.svelte";
   import RepoSettingsHints from "./RepoSettingsHints.svelte";
   import RepoSettingsNav, { type NavItem } from "./RepoSettingsNav.svelte";
@@ -96,6 +97,12 @@
 
   let card = $state<HTMLDivElement>();
   let pane = $state<HTMLDivElement>();
+  // A setting's link to another one (#3444): open that section, then focus its row's control.
+  provideSettingLink(async (id, field) => {
+    picked = id;
+    await tick();
+    if (card) focusSetting(card, field);
+  });
   // Open on the section's tab, so the arrow keys move between sections right away.
   onMount(() => card?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus());
   // A switched section starts at its top; the focus follows a tab the hints picked.

@@ -526,3 +526,72 @@ describe("AutomationSettings — epic halt hint (#3443)", () => {
     expect(document.querySelector("[data-epic-halt]")).toBeNull();
   });
 });
+
+describe("AutomationSettings — lock reasons (#3444)", () => {
+  const repo = "/tmp/repo";
+  afterEach(() => {
+    repoConfig.repoMode = {};
+    repoConfig.enabled = {};
+    repoConfig.autoMerge = {};
+    repoConfig.autopilot = {};
+  });
+
+  /** Every locked switch row by its field, with the reason it names in the row. */
+  function locks(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const s of document.querySelectorAll<HTMLButtonElement>(
+      '[role="switch"][aria-describedby]',
+    )) {
+      const row = s.closest<HTMLElement>("[data-field]")!;
+      const reason = document.getElementById(s.getAttribute("aria-describedby")!)!;
+      expect(s.disabled, row.dataset.field).toBe(true);
+      // the reason stays readable while the rest of the row dims
+      for (let el: HTMLElement | null = reason; el && el !== row; el = el.parentElement)
+        expect(getComputedStyle(el).opacity, row.dataset.field).toBe("1");
+      out[row.dataset.field!] = reason.textContent!.trim();
+    }
+    return out;
+  }
+
+  it("a local-only repo locks exactly the GitHub settings, each with its reason", async () => {
+    repoConfig.repoMode = { [repo]: "lightweight" };
+    await mount();
+    const reason = m.automation_lightweight_unavailable();
+    expect(locks()).toEqual({
+      autoDrainEnabled: reason,
+      criticAllPrs: reason,
+      mergeWithoutCi: reason,
+      manualStepsIssueEnabled: reason,
+      epicStacksEnabled: reason,
+      preWarmEpicLandingCi: reason,
+    });
+    const draft = page.getByRole("radio", { name: m.reposettings_merge_mode_draft(), exact: true });
+    await expect.element(draft).toBeDisabled();
+    await expect.element(draft).toHaveAccessibleDescription(new RegExp(`${reason}$`));
+    for (const name of [m.reposettings_merge_mode_manual(), m.automation_automerge_name()])
+      await expect.element(page.getByRole("radio", { name, exact: true })).toBeEnabled();
+  });
+
+  it("with the Critic off, exactly Auto-Address and the smell lens are locked", async () => {
+    repoConfig.enabled = { [repo]: false };
+    await mount();
+    expect(locks()).toEqual({
+      autoAddressEnabled: m.automation_autoaddress_needs_critic(),
+      criticSmellLensEnabled: m.automation_smelllens_needs_critic(),
+    });
+  });
+
+  it("locks nothing in a GitHub repo with the Critic on", async () => {
+    await mount();
+    expect(locks()).toEqual({});
+  });
+
+  it("Go to Autopilot focuses the Autopilot switch on the same page", async () => {
+    repoConfig.autoMerge = { [repo]: true };
+    await mount();
+    await page.getByRole("button", { name: m.reposettings_merge_goto_autopilot() }).click();
+    await expect
+      .element(page.getByRole("switch", { name: m.automation_autopilot_name() }))
+      .toHaveFocus();
+  });
+});

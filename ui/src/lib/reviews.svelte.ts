@@ -11,6 +11,7 @@ import type {
 } from "./types";
 import type { AutomationFlags } from "./components/git-rail-automation";
 import { handsOffPatch } from "./components/epic-handsoff";
+import { mergeModePatch, type MergeMode } from "./merge-mode";
 import type { RepoConfigPatch, RepoConfigResponse } from "./api";
 import { SAFE_ID, dropKey, setKey } from "./safe-keys";
 import {
@@ -619,8 +620,18 @@ class RepoConfigStore {
     }
   }
 
-  async toggle(repoPath: string) {
-    await this.write(repoPath, { criticEnabled: !this.isEnabled(repoPath) });
+  /** Flip the Critic. Turning it off while Draft mode waits on a Critic sign-off ("critic" /
+   *  "either") also sets the sign-off to "human" in the same patch (#3444) — the server refuses
+   *  that pair, and the draft could never be promoted. Resolves true when that fallback landed. */
+  async toggle(repoPath: string): Promise<boolean> {
+    const next = !this.isEnabled(repoPath);
+    const fallback =
+      !next && this.isDraftModeEnabled(repoPath) && this.signoffAuthorityFor(repoPath) !== "human";
+    const res = await this.write(
+      repoPath,
+      fallback ? { criticEnabled: false, signoffAuthority: "human" } : { criticEnabled: next },
+    );
+    return fallback && res !== null;
   }
 
   async toggleAllPrs(repoPath: string) {
@@ -667,22 +678,18 @@ class RepoConfigStore {
     await this.write(repoPath, { autoDrainEnabled: !this.isAutoDrainEnabled(repoPath) });
   }
 
-  async toggleAutoMerge(repoPath: string) {
-    const next = !this.isAutoMergeEnabled(repoPath);
-    // mutual exclusivity: turning autoMerge ON forces draftMode OFF
-    await this.write(
-      repoPath,
-      next ? { autoMergeEnabled: true, draftMode: false } : { autoMergeEnabled: false },
-    );
-  }
-
-  async toggleDraftMode(repoPath: string) {
-    const next = !this.isDraftModeEnabled(repoPath);
-    // mutual exclusivity: turning draftMode ON forces autoMerge OFF
-    await this.write(
-      repoPath,
-      next ? { draftMode: true, autoMergeEnabled: false } : { draftMode: false },
-    );
+  /** Pick how finished PRs land (#3444): draftMode and autoMergeEnabled in one patch, so the two
+   *  are never on together. Draft with the Critic off also sets a Critic sign-off to "human" —
+   *  the server refuses that pair otherwise. */
+  async setMergeMode(repoPath: string, mode: MergeMode) {
+    const patch: RepoConfigPatch = mergeModePatch(mode);
+    if (
+      mode === "draft" &&
+      !this.isEnabled(repoPath) &&
+      this.signoffAuthorityFor(repoPath) !== "human"
+    )
+      patch.signoffAuthority = "human";
+    await this.write(repoPath, patch);
   }
 
   /** Apply the recommended "hands-off epic" repo defaults in one atomic PUT: Autopilot on,

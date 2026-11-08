@@ -22,7 +22,13 @@
   import AutomationNoPrCiHold from "./automation-settings/AutomationNoPrCiHold.svelte";
   import "./automation-settings/automation-fields.css";
   import { onMount } from "svelte";
-  import type { Session, SandboxProfile, RepoSandboxSetting, DrainStatus } from "#lib/types.js";
+  import type {
+    AgentProvider,
+    Session,
+    SandboxProfile,
+    RepoSandboxSetting,
+    DrainStatus,
+  } from "#lib/types.js";
 
   let {
     repoPath,
@@ -95,6 +101,8 @@
   const reviewing = $derived(sessionId ? reviews.isReviewing(sessionId) : false);
   const planReviewing = $derived(sessionId ? planGates.isReviewing(sessionId) : false);
   let fableAvailable = $state(true);
+  // The CLI an "inherit" repo follows (#3441) — the hint under the repo's Coding CLI select.
+  let globalAgentProvider = $state<AgentProvider>("claude");
   let openingBrowser = $state(false);
 
   /** Toast copy for a failed "Open shared browser", keyed by the server's refusal code. */
@@ -126,7 +134,9 @@
 
   onMount(async () => {
     try {
-      fableAvailable = (await getSettings()).fableAvailable;
+      const settings = await getSettings();
+      fableAvailable = settings.fableAvailable;
+      globalAgentProvider = settings.defaultAgentProvider ?? "claude";
     } catch {
       // Fail open: this is guidance only, and the spawn path still enforces availability.
     }
@@ -777,7 +787,7 @@
   />
 </div>
 
-<AutomationRepoFields {repoPath} {fableAvailable} />
+<AutomationRepoFields {repoPath} {fableAvailable} {globalAgentProvider} />
 
 <style>
   .auto-head {

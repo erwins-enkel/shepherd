@@ -177,8 +177,9 @@
   }
   .frame {
     position: relative;
-    width: 96vw;
-    height: 92vh;
+    /* landscape phone: keep clear of the notch / home indicator in a standalone PWA (#3798) */
+    width: min(96vw, calc(100vw - 2 * max(env(safe-area-inset-left), env(safe-area-inset-right))));
+    height: min(92vh, calc(100dvh - 2 * env(safe-area-inset-bottom)));
     display: flex;
     flex-direction: column;
     background: var(--color-panel);
@@ -302,6 +303,10 @@
       height: 100dvh;
       /* clear the status bar / Dynamic Island in a standalone PWA (#3795) */
       padding-top: env(safe-area-inset-top);
+      /* clear the home indicator / landscape notch in a standalone PWA (#3798) */
+      padding-right: env(safe-area-inset-right);
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-left: env(safe-area-inset-left);
       border: 0;
     }
     .bracket::before,

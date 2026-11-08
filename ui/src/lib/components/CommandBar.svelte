@@ -1040,6 +1040,10 @@
       height: 100dvh;
       /* clear the status bar / Dynamic Island in a standalone PWA (#3795) */
       padding-top: calc(12px + env(safe-area-inset-top));
+      /* clear the home indicator / landscape notch in a standalone PWA (#3798) */
+      padding-right: calc(12px + env(safe-area-inset-right));
+      padding-bottom: calc(12px + env(safe-area-inset-bottom));
+      padding-left: calc(12px + env(safe-area-inset-left));
       border: 0;
       transition: transform 0.18s ease-out;
     }

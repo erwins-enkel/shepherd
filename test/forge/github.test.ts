@@ -4410,36 +4410,84 @@ test("GithubForge.createRepoLabel: gh label create", async () => {
   expect(calls[0]!.slice(0, 5)).toEqual(["label", "create", "shepherd:auto", "--repo", "o/r"]);
 });
 
-test("hasOpenPrForIssue strictly checks the issue's own open PR connection without listing unrelated PRs", async () => {
-  for (const totalCount of [0, 1, 250]) {
-    const { run, calls } = fakeRunner({
-      "api graphql": JSON.stringify({
-        data: { repository: { issue: { closedByPullRequestsReferences: { totalCount } } } },
-      }),
-    });
-    expect(await new GithubForge("o/r", {}, run).hasOpenPrForIssue(42)).toBe(totalCount > 0);
+/** One closedByPullRequestsReferences page for hasOpenPrForIssue. */
+function linkedPrPage(states: unknown[], endCursor: string | null = null): string {
+  return JSON.stringify({
+    data: {
+      repository: {
+        issue: {
+          closedByPullRequestsReferences: {
+            pageInfo: { hasNextPage: endCursor !== null, endCursor },
+            nodes: states.map((state) => ({ state })),
+          },
+        },
+      },
+    },
+  });
+}
+
+/** A runner answering successive graphql calls from `pages`, recording argv. */
+function pagedRunner(pages: string[]) {
+  const calls: string[][] = [];
+  const run = async (args: string[]): Promise<string> => {
+    calls.push(args);
+    return pages[calls.length - 1] ?? "";
+  };
+  return { run, calls };
+}
+
+test("hasOpenPrForIssue counts only OPEN linked PRs, never merged or closed ones", async () => {
+  for (const [states, expected] of [
+    [[], false],
+    [["MERGED"], false],
+    [["MERGED", "CLOSED"], false],
+    [["MERGED", "OPEN"], true],
+  ] as const) {
+    const { run, calls } = pagedRunner([linkedPrPage([...states])]);
+    expect(await new GithubForge("o/r", {}, run).hasOpenPrForIssue(42)).toBe(expected);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.join(" ")).toContain("num=42");
     expect(calls[0]!.join(" ")).toContain("includeClosedPrs:false");
   }
 });
 
+test("hasOpenPrForIssue pages through linked PRs and stops at the first OPEN one", async () => {
+  const paged = pagedRunner([linkedPrPage(["MERGED"], "c1"), linkedPrPage(["CLOSED", "OPEN"])]);
+  expect(await new GithubForge("o/r", {}, paged.run).hasOpenPrForIssue(42)).toBe(true);
+  expect(paged.calls).toHaveLength(2);
+  expect(paged.calls[0]!.join(" ")).not.toContain("cursor=");
+  expect(paged.calls[1]!.join(" ")).toContain("cursor=c1");
+
+  const early = pagedRunner([linkedPrPage(["OPEN"], "c1"), linkedPrPage(["MERGED"])]);
+  expect(await new GithubForge("o/r", {}, early.run).hasOpenPrForIssue(42)).toBe(true);
+  expect(early.calls).toHaveLength(1);
+
+  const none = pagedRunner([linkedPrPage(["MERGED"], "c1"), linkedPrPage(["MERGED"])]);
+  expect(await new GithubForge("o/r", {}, none.run).hasOpenPrForIssue(42)).toBe(false);
+  expect(none.calls).toHaveLength(2);
+});
+
 test("hasOpenPrForIssue never turns absent, malformed, partial-error or failed responses into no PR", async () => {
+  const connection = (c: unknown) =>
+    JSON.stringify({ data: { repository: { issue: { closedByPullRequestsReferences: c } } } });
   for (const response of [
     "",
     "{}",
+    "null",
     '{"data":{"repository":{"issue":null}}}',
-    JSON.stringify({
-      data: { repository: { issue: { closedByPullRequestsReferences: { totalCount: 0 } } } },
-      errors: [{ message: "partial failure" }],
-    }),
-    JSON.stringify({
-      data: { repository: { issue: { closedByPullRequestsReferences: { totalCount: -1 } } } },
-    }),
+    JSON.stringify({ ...JSON.parse(linkedPrPage([])), errors: [{ message: "partial failure" }] }),
+    connection({ pageInfo: { hasNextPage: false, endCursor: null } }),
+    connection({ pageInfo: { hasNextPage: false, endCursor: null }, nodes: [{}] }),
+    connection({ pageInfo: { hasNextPage: false, endCursor: null }, nodes: [null] }),
+    connection({ nodes: [{ state: "MERGED" }] }),
+    connection({ pageInfo: { hasNextPage: true, endCursor: null }, nodes: [] }),
   ]) {
-    const { run } = fakeRunner({ "api graphql": response });
+    const { run } = pagedRunner([response]);
     await expect(new GithubForge("o/r", {}, run).hasOpenPrForIssue(42)).rejects.toThrow();
   }
+  // A connection that never ends must not be read as "no open PR".
+  const endless = async () => linkedPrPage(["MERGED"], "again");
+  await expect(new GithubForge("o/r", {}, endless).hasOpenPrForIssue(42)).rejects.toThrow();
   await expect(
     new GithubForge("o/r", {}, async () => {
       throw new Error("offline");

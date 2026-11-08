@@ -1038,6 +1038,8 @@
       width: 100%;
       max-height: none;
       height: 100dvh;
+      /* clear the status bar / Dynamic Island in a standalone PWA (#3795) */
+      padding-top: calc(12px + env(safe-area-inset-top));
       border: 0;
       transition: transform 0.18s ease-out;
     }

@@ -10,6 +10,7 @@
   import { page } from "$app/state";
   import { theme } from "#lib/theme.svelte.js";
   import { motionSettle } from "#lib/motion-settle.js";
+  import { installKeyboardScrollRestore } from "#lib/keyboard-scroll.js";
   import { m } from "#lib/paraglide/messages.js";
   import { auth } from "#lib/auth.svelte.js";
   import { getMe } from "#lib/api.js";
@@ -36,13 +37,18 @@
     theme.init();
     // Endless animations rest after a quiet spell so an idle HUD stops producing frames (#3035).
     const stopMotionSettle = motionSettle.start();
+    // iOS leaves the document scrolled after the soft keyboard closes (#3795).
+    const stopKeyboardScroll = installKeyboardScrollRestore();
     // Single-operator auth (issue #1079): probe /api/me before rendering the app so an
     // unauthenticated session goes straight to the login view with no flash of failing calls.
     getMe()
       .then((ok) => (auth.unauthenticated = !ok))
       .catch(() => (auth.unauthenticated = true))
       .finally(() => (auth.checked = true));
-    return stopMotionSettle;
+    return () => {
+      stopMotionSettle();
+      stopKeyboardScroll();
+    };
   });
 </script>
 

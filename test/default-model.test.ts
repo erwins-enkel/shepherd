@@ -114,6 +114,17 @@ describe("resolveProviderDefaultModelSetting", () => {
       "gpt-5.4",
     );
   });
+
+  test("#3441: a repo Codex alias applies to a Codex spawn and is ignored for Claude", () => {
+    const codex = CODEX_MODELS[0]!;
+    expect(resolveProviderDefaultModelSetting(codex, "codex", "opus", "gpt-5.4")).toBe(codex);
+    expect(resolveProviderDefaultModelSetting(codex, "claude", "opus", "gpt-5.4")).toBe("opus");
+  });
+
+  test("an unknown repo value falls back to the provider's saved model", () => {
+    expect(resolveProviderDefaultModelSetting("gpt4", "codex", "opus", "gpt-5.4")).toBe("gpt-5.4");
+    expect(resolveProviderDefaultModelSetting(null, "claude", "opus", "gpt-5.4")).toBe("opus");
+  });
 });
 
 describe("drainSpawnModel", () => {
@@ -200,6 +211,10 @@ describe("normalizeRepoDefaultModelSetting", () => {
     for (const v of ["auto", "default", ...MODELS]) {
       expect(normalizeRepoDefaultModelSetting(v)).toBe(v);
     }
+  });
+
+  test("#3441: accepts each curated Codex alias", () => {
+    for (const v of CODEX_MODELS) expect(normalizeRepoDefaultModelSetting(v)).toBe(v);
   });
 
   test("returns null for unknown / wrong type", () => {

@@ -2,6 +2,7 @@ import { test, expect, describe } from "bun:test";
 import { DrainService, type DrainDeps, type DrainStatus } from "../src/drain";
 import { ACTIVE_LABEL } from "../src/drain-core";
 import { SessionStore } from "../src/store";
+import { config } from "../src/config";
 import type { GitForge, GitState, Issue, PrStatus, SubIssueRef } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { StandardCreateInput, ReviewDecision, Session } from "../src/types";
@@ -295,7 +296,7 @@ describe("epic-child spawns base on the integration branch", () => {
     const created = h.creates[0]!;
     expect(created.baseBranch).toBe(EPIC_BRANCH);
     expect(created.issueRef?.number).toBe(CHILD);
-    expect(created.agentProvider).toBeUndefined();
+    expect(created.agentProvider).toBe(config.defaultAgentProvider); // #3441: the resolved CLI
     // The spawn prompt carries the epic base directive so the agent opens its own PR
     // against the integration branch, not the default branch.
     expect(created.prompt).toContain(`--base ${EPIC_BRANCH}`);
@@ -473,7 +474,7 @@ describe("epic-child spawns base on the integration branch", () => {
     await h.drain.pump(REPO);
     expect(h.creates).toHaveLength(1);
     expect(h.creates[0]!.baseBranch).toBe("main");
-    expect(h.creates[0]!.agentProvider).toBeUndefined();
+    expect(h.creates[0]!.agentProvider).toBe(config.defaultAgentProvider); // #3441: the resolved CLI
     expect(h.forgeRec.ensured).toHaveLength(0);
     expect(h.forgeRec.added).toEqual([{ number: 1, label: ACTIVE_LABEL }]);
     // Regular spawn → prompt is just the title, no --base directive.

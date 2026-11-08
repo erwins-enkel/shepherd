@@ -375,6 +375,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     priorityLabels: [],
     usageCeilingPct: 80,
     sandboxProfile: "inherit",
+    agentProvider: "inherit",
     defaultModel: "inherit",
     defaultEffort: "inherit",
     defaultExecutionEffort: "inherit",
@@ -447,6 +448,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     priorityLabels: [],
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
+    agentProvider: "inherit",
     defaultModel: "inherit",
     defaultEffort: "inherit",
     defaultExecutionEffort: "inherit",
@@ -519,6 +521,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     priorityLabels: [],
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
+    agentProvider: "inherit",
     defaultModel: "inherit",
     defaultEffort: "inherit",
     defaultExecutionEffort: "inherit",
@@ -800,6 +803,29 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     priorityLabels: [],
     usageCeilingPct: 65,
   });
+});
+
+test("repo_config: agentProvider defaults to 'inherit', round-trips, junk reads back as inherit (#3441)", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getRepoConfig("/repo/cli").agentProvider).toBe("inherit");
+  const cfg = store.getRepoConfig("/repo/cli");
+  store.setRepoConfig("/repo/cli", { ...cfg, agentProvider: "codex" });
+  expect(store.getRepoConfig("/repo/cli").agentProvider).toBe("codex");
+  // a full-config literal without the field writes the default
+  const withoutCli = { ...store.getRepoConfig("/repo/cli") };
+  delete withoutCli.agentProvider;
+  store.setRepoConfig("/repo/cli", withoutCli);
+  expect(store.getRepoConfig("/repo/cli").agentProvider).toBe("inherit");
+  (store as unknown as { db: import("bun:sqlite").Database }).db.run(
+    `UPDATE repo_config SET agentProvider = 'gemini' WHERE repoPath = '/repo/cli'`,
+  );
+  expect(store.getRepoConfig("/repo/cli").agentProvider).toBe("inherit");
+});
+
+test("repo_config: defaultModel accepts a curated Codex alias (#3441)", () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo/cx", { ...store.getRepoConfig("/repo/cx"), defaultModel: "gpt-5.4" });
+  expect(store.getRepoConfig("/repo/cx").defaultModel).toBe("gpt-5.4");
 });
 
 test("repo_config: defaultModel defaults to 'inherit', persists an explicit override round-trip", () => {
@@ -1501,6 +1527,22 @@ test("repo_config migration: an old row without sandboxProfile gains the trusted
     // opening through the store runs migrateRepoConfigColumns, adding the column with its default
     const store = new SessionStore(dbPath);
     expect(store.getRepoConfig("/old").sandboxProfile).toBe("trusted");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("repo_config migration: an old row without agentProvider gains the inherit default (#3441)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-agent-provider-migrate-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE repo_config (
+      repoPath TEXT PRIMARY KEY, criticEnabled INTEGER NOT NULL DEFAULT 1,
+      updatedAt INTEGER NOT NULL)`);
+    raw.run(`INSERT INTO repo_config (repoPath, criticEnabled, updatedAt) VALUES ('/old', 1, 1)`);
+    raw.close();
+    expect(new SessionStore(dbPath).getRepoConfig("/old").agentProvider).toBe("inherit");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

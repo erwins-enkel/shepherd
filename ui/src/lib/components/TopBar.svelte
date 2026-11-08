@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type {
     Session,
     UsageLimits,
@@ -41,6 +42,7 @@
   } from "#lib/api.js";
   import type { AgentProvider, HeldTask } from "#lib/types.js";
   import { providerFailoverOffer } from "#lib/provider-capacity.js";
+  import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import { openFeedback } from "#lib/feedback-dialog.svelte.js";
   import type { FeedbackKind } from "#lib/feedback-link.js";
@@ -633,6 +635,16 @@
     }
   }
 
+  // A repo the failover leaves on the exhausted CLI (#3448): the panel gives way to that repo's
+  // settings at Agent environment. One tick first, so the panel's dialog has handed focus back
+  // to its trigger — that trigger then takes it again when the repo window closes.
+  async function openRepoFromFailover(repoPath: string) {
+    closePanel();
+    await tick();
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    repoSettingsWindow.open(repoPath, { section: "agent", opener });
+  }
+
   // ── Held tasks (the usage panel's waiting column) ──────────────────────────
   // Held tasks used to live in their own popover; they now sit in the usage panel beside the
   // numbers that hold them. The panel's open state is `popoverOpen` (below).
@@ -1141,6 +1153,8 @@
       {failoverFailed}
       onEngageFailover={() => void actFailover("engage")}
       onReleaseFailover={() => void actFailover("release")}
+      {sessions}
+      onOpenRepo={(repoPath) => void openRepoFromFailover(repoPath)}
       holdPct={holdLimit}
       heldCount={heldCount ?? 0}
       pausedCount={usagePausedDrains.length}

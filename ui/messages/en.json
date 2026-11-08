@@ -8600,5 +8600,11 @@
   "tooltip_autonomy_custom": "Custom mix",
   "tooltip_autonomy_custom_body": "Shown when the five settings match no level. Change any of them in its section and the level follows.",
   "feat_autonomy_levels_title": "Autonomy levels for each repo",
-  "feat_autonomy_levels_body": "The repo settings now open on Autonomy: pick On call, With review, Backlog or Full auto to set the Critic, Auto-Address, Autopilot, Auto-Drain and how finished PRs land in one click, and see who takes each step, Shepherd or you. Under Repo settings … in the repo tab's and the session row's context menu, a line shows the level, the coding CLI and the merge mode, plus any hint the settings raise."
+  "feat_autonomy_levels_body": "The repo settings now open on Autonomy: pick On call, With review, Backlog or Full auto to set the Critic, Auto-Address, Autopilot, Auto-Drain and how finished PRs land in one click, and see who takes each step, Shepherd or you. Under Repo settings … in the repo tab's and the session row's context menu, a line shows the level, the coding CLI and the merge mode, plus any hint the settings raise.",
+  "usage_failover_staying_title": "These repos are set to {provider} and stay on it:",
+  "usage_failover_staying_sessions_one": "1 session",
+  "usage_failover_staying_sessions_other": "{count} sessions",
+  "usage_failover_staying_open_aria": "{repo}, {sessions}: open Agent environment settings",
+  "feat_failover_staying_repos_title": "Repos that stay put at the weekly-limit switch",
+  "feat_failover_staying_repos_body": "When the usage panel offers or shows a switch of the default coding CLI, it now names the repos set to the exhausted CLI that have sessions running, with their count — they keep starting on that CLI. Each one opens that repository's Agent environment settings."
 }

@@ -8,6 +8,7 @@
     CreditWindow,
     ModelWeekWindow,
     ObservedLimitWindows,
+    Session,
     UsageProviderSnapshot,
   } from "#lib/types.js";
   import {
@@ -53,6 +54,8 @@
     failoverFailed,
     onEngageFailover,
     onReleaseFailover,
+    sessions,
+    onOpenRepo,
     holdPct,
     heldCount,
     pausedCount,
@@ -86,6 +89,10 @@
     failoverFailed: boolean;
     onEngageFailover: () => void;
     onReleaseFailover: () => void;
+    /** This machine's sessions, for the repos a failover leaves on the exhausted CLI. */
+    sessions: readonly Session[];
+    /** Open a repo's settings at Agent environment (from that list). */
+    onOpenRepo: (repoPath: string) => void;
     /** The hold limit (`usageHoldPct`) drawn on Claude's 5-hour and weekly bars; null = none. */
     holdPct: number | null;
     /** What the limit is holding back right now — the hero names it beside the number. */
@@ -140,6 +147,8 @@
     failed={failoverFailed}
     onEngage={onEngageFailover}
     onRelease={onReleaseFailover}
+    {sessions}
+    {onOpenRepo}
   />
 {/snippet}
 

@@ -124,3 +124,68 @@
   border-color: var(--color-amber);
   color: var(--color-amber);
 }
+
+/* A one-of choice in the repo settings (#3444 Finished PRs, #3445 Autonomy level): one option per
+   line — the radio, its name and what it does; amber when chosen. */
+.rs-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.rs-choice-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.rs-choice-opt.on {
+  border-color: var(--color-amber);
+  background: color-mix(in oklab, var(--color-amber) 10%, transparent);
+}
+.rs-choice-opt.locked {
+  cursor: not-allowed;
+}
+.rs-choice-opt input {
+  flex: 0 0 auto;
+  margin: 2px 0 0;
+  accent-color: var(--color-amber);
+}
+.rs-choice-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.rs-choice-name {
+  font-size: var(--fs-meta);
+  color: var(--color-ink-bright);
+}
+.rs-choice-opt.on .rs-choice-name {
+  color: var(--color-amber);
+}
+.rs-choice-desc {
+  font-size: var(--fs-meta);
+  color: var(--color-muted);
+}
+/* a locked option dims all but its reason, which stays readable */
+.rs-choice-opt.locked input,
+.rs-choice-opt.locked .rs-choice-name,
+.rs-choice-opt.locked .rs-choice-desc {
+  opacity: 0.45;
+}
+.rs-choice-lock {
+  font-size: var(--fs-meta);
+  color: var(--color-ink);
+}
+.rs-choice-opt:has(input:focus-visible) {
+  outline: 1px solid var(--color-amber);
+  outline-offset: 1px;
+}
+@media (pointer: coarse) {
+  .rs-choice-opt {
+    min-height: 44px;
+  }
+}

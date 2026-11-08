@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { m } from "#lib/paraglide/messages.js";
 import {
   REPO_SETTINGS_SECTIONS,
+  repoShortStatus,
   sectionLabel,
   sectionSummary,
   type SectionSnapshot,
@@ -34,6 +35,41 @@ const snap = (over: Partial<SectionSnapshot> = {}): SectionSnapshot => ({
 });
 
 describe("repo settings sections", () => {
+  it("puts Autonomy first", () => {
+    expect(REPO_SETTINGS_SECTIONS[0]).toBe("autonomy");
+  });
+
+  it("names the autonomy level, or the custom mix", () => {
+    const review = { ...flags, autoAddress: true, autopilot: true, autoDrain: false };
+    expect(sectionSummary("autonomy", snap({ flags: review }))).toBe(
+      m.reposettings_autonomy_review(),
+    );
+    expect(sectionSummary("autonomy", snap({ flags: { ...review, autoDrain: true } }))).toBe(
+      m.reposettings_autonomy_backlog(),
+    );
+    expect(
+      sectionSummary("autonomy", snap({ flags: { ...review, autoDrain: true, autoMerge: true } })),
+    ).toBe(m.reposettings_autonomy_full());
+    const off = { ...flags, critic: false, autoDrain: false };
+    expect(sectionSummary("autonomy", snap({ flags: off }))).toBe(m.reposettings_autonomy_oncall());
+    expect(sectionSummary("autonomy", snap())).toBe(m.reposettings_autonomy_custom());
+  });
+
+  it("says level · CLI · merge mode for the context menus", () => {
+    const full = { ...flags, autoAddress: true, autopilot: true, autoMerge: true };
+    expect(repoShortStatus({ cli: "codex", lightweight: false, flags: full })).toBe(
+      `${m.reposettings_autonomy_full()} · ${m.agent_provider_codex()} · ${m.automation_automerge_name()}`,
+    );
+    // a local-only repo never drains and has no drafts: With review, you merge
+    const draft = { ...flags, autoAddress: true, autopilot: true, draftMode: true };
+    expect(repoShortStatus({ cli: "claude", lightweight: true, flags: draft })).toBe(
+      `${m.reposettings_autonomy_review()} · ${m.agent_provider_claude()} · ${m.reposettings_merge_mode_manual()}`,
+    );
+    expect(repoShortStatus({ cli: "claude", lightweight: false, flags: draft })).toBe(
+      `${m.reposettings_autonomy_custom()} · ${m.agent_provider_claude()} · ${m.reposettings_merge_mode_draft()}`,
+    );
+  });
+
   it("labels every section", () => {
     for (const id of REPO_SETTINGS_SECTIONS) expect(sectionLabel(id)).not.toBe("");
   });

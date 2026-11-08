@@ -6,7 +6,7 @@ import type { RepoSettingsSection } from "#lib/components/repo-settings/sections
 
 interface RepoSettingsTarget {
   repoPath: string;
-  /** The section to show first; absent = the first one that needs attention, else the agent's. */
+  /** The section to show first; absent = the first one that needs attention, else Autonomy. */
   section?: RepoSettingsSection;
   /** The task it was opened from: its review pulse and its plan gate show in the window. */
   sessionId?: string;

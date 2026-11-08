@@ -1060,8 +1060,52 @@ test("write rethrows on request, after reverting", async () => {
   expect(repoConfig.isPlanGateEnabled("/w-throw")).toBe(false);
 });
 
-test("write PUTs a field without an overlay (egress hosts) as is", async () => {
-  vi.mocked(putRepoConfig).mockResolvedValueOnce(rc({ egressExtraHosts: ["a.example"] }));
-  await repoConfig.write("/w-egress", { egressExtraHosts: ["a.example"] });
-  expect(putRepoConfig).toHaveBeenCalledWith("/w-egress", { egressExtraHosts: ["a.example"] });
+test("write PUTs a field without an overlay (preview script) as is", async () => {
+  const script = "/w-script/.shepherd/preview-start.sh";
+  vi.mocked(putRepoConfig).mockResolvedValueOnce(rc({ previewStartScript: script }));
+  await repoConfig.write("/w-script", { previewStartScript: script });
+  expect(putRepoConfig).toHaveBeenCalledWith("/w-script", { previewStartScript: script });
+});
+
+// #3446: the repo settings' two newer list fields.
+test("ingest reads egress hosts and priority labels; an older server's absent field is empty", async () => {
+  vi.mocked(getRepoConfig).mockResolvedValueOnce(
+    rc({ egressExtraHosts: ["registry.example.com"], priorityLabels: ["ci-gate-rot"] }),
+  );
+  await repoConfig.ensure("/w-lists");
+  expect(repoConfig.egressExtraHostsFor("/w-lists")).toEqual(["registry.example.com"]);
+  expect(repoConfig.priorityLabelsFor("/w-lists")).toEqual(["ci-gate-rot"]);
+
+  vi.mocked(getRepoConfig).mockResolvedValueOnce(rc());
+  await repoConfig.ensure("/w-lists-old");
+  expect(repoConfig.egressExtraHostsFor("/w-lists-old")).toEqual([]);
+  expect(repoConfig.priorityLabelsFor("/w-lists-old")).toEqual([]);
+});
+
+test("the list setters PUT the whole list and overlay it optimistically", async () => {
+  let resolve!: (v: RepoConfig) => void;
+  vi.mocked(putRepoConfig).mockReturnValueOnce(new Promise((r) => (resolve = r)));
+  const pending = repoConfig.setEgressExtraHosts("/w-set", ["a.example.com", "b.example.com"]);
+  expect(repoConfig.egressExtraHostsFor("/w-set")).toEqual(["a.example.com", "b.example.com"]);
+  resolve(rc({ egressExtraHosts: ["a.example.com", "b.example.com"] }));
+  await pending;
+  expect(putRepoConfig).toHaveBeenCalledWith("/w-set", {
+    egressExtraHosts: ["a.example.com", "b.example.com"],
+  });
+
+  vi.mocked(putRepoConfig).mockResolvedValueOnce(rc({ priorityLabels: ["urgent"] }));
+  await repoConfig.setPriorityLabels("/w-set", ["urgent"]);
+  expect(putRepoConfig).toHaveBeenLastCalledWith("/w-set", { priorityLabels: ["urgent"] });
+  expect(repoConfig.priorityLabelsFor("/w-set")).toEqual(["urgent"]);
+});
+
+test("a failed list PUT puts the previous list back", async () => {
+  repoConfig.egressExtraHosts = { ...repoConfig.egressExtraHosts, "/w-revert": ["keep.example"] };
+  repoConfig.priorityLabels = { ...repoConfig.priorityLabels, "/w-revert": ["keep"] };
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  await repoConfig.setEgressExtraHosts("/w-revert", ["keep.example", "new.example"]);
+  expect(repoConfig.egressExtraHostsFor("/w-revert")).toEqual(["keep.example"]);
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  await repoConfig.setPriorityLabels("/w-revert", []);
+  expect(repoConfig.priorityLabelsFor("/w-revert")).toEqual(["keep"]);
 });

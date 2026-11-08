@@ -201,7 +201,8 @@ import Testing
     let line = try #require(await log.lines.first { $0.hasPrefix("pid=") })
     let pid = try #require(Int32(line.dropFirst(4)))
     #expect(!processIsAlive(pid))
-    #expect(processesInGroup(pid).isEmpty)
+    // A killed grandchild lingers as a zombie until launchd reaps it.
+    try await waitUntil(timeout: 3) { processesInGroup(pid).isEmpty }
   }
 
   @Test func applyCancellationReapsTheChildAndItsDescendants() async throws {
@@ -217,7 +218,8 @@ import Testing
     guard case .failure(let failure) = await task.value else { Issue.record("unexpected success"); return }
     #expect(failure == .updateFailed(exitCode: 130))
     #expect(!processIsAlive(pid))
-    #expect(processesInGroup(pid).isEmpty)
+    // A killed grandchild lingers as a zombie until launchd reaps it.
+    try await waitUntil(timeout: 3) { processesInGroup(pid).isEmpty }
   }
 
   @Test func applyCancellationBeforePIDPublicationStillKillsTheChild() async throws {

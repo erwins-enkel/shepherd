@@ -405,6 +405,8 @@ class RepoConfigStore {
   sharedBrowser = $state<Record<string, boolean>>({}); // per-repo Shared Browser (default off; agents can read its logins)
   browserAllowedHosts = $state<Record<string, string[]>>({}); // autonomous Browser Attach origin allowlist
   claudeAiConnectors = $state<Record<string, boolean>>({}); // claude.ai account connectors for this repo's Claude sessions (default off)
+  pluginAllowlist = $state<Record<string, string[] | null>>({}); // plugins this repo's spawns keep (null = all, #3780)
+  skillAllowlist = $state<Record<string, string[] | null>>({}); // personal skills this repo's spawns keep (null = all, #3780)
   hidden = $state<Record<string, boolean>>({}); // hidden from the Backlog repos panel (optimistic overlay over payload; default off)
   pinned = $state<Record<string, boolean>>({}); // pinned to the top of the Backlog repos panel (optimistic overlay over payload; default off)
   planGate = $state<Record<string, boolean>>({}); // pre-execution plan gate (default off)
@@ -458,6 +460,8 @@ class RepoConfigStore {
       ...this.claudeAiConnectors,
       [repoPath]: c.claudeAiConnectorsEnabled,
     };
+    this.pluginAllowlist = { ...this.pluginAllowlist, [repoPath]: c.pluginAllowlist ?? null };
+    this.skillAllowlist = { ...this.skillAllowlist, [repoPath]: c.skillAllowlist ?? null };
     this.hidden = { ...this.hidden, [repoPath]: c.hidden };
     this.pinned = { ...this.pinned, [repoPath]: c.pinned };
     this.planGate = { ...this.planGate, [repoPath]: c.planGateEnabled };
@@ -565,6 +569,8 @@ class RepoConfigStore {
         | "sharedBrowserEnabled"
         | "browserAllowedHosts"
         | "claudeAiConnectorsEnabled"
+        | "pluginAllowlist"
+        | "skillAllowlist"
         | "hidden"
         | "pinned"
         | "planGateEnabled"
@@ -879,6 +885,24 @@ class RepoConfigStore {
     });
   }
 
+  /** Set (or clear with `null`) the repo's plugin allowlist (#3780); optimistic, reverted on failure. */
+  async setPluginAllowlist(repoPath: string, list: string[] | null) {
+    const prev = this.pluginAllowlist[repoPath];
+    this.pluginAllowlist = { ...this.pluginAllowlist, [repoPath]: list }; // optimistic
+    await this.apply(repoPath, { pluginAllowlist: list }, () => {
+      this.pluginAllowlist = { ...this.pluginAllowlist, [repoPath]: prev ?? null };
+    });
+  }
+
+  /** Set (or clear with `null`) the repo's personal-skill allowlist (#3780). */
+  async setSkillAllowlist(repoPath: string, list: string[] | null) {
+    const prev = this.skillAllowlist[repoPath];
+    this.skillAllowlist = { ...this.skillAllowlist, [repoPath]: list }; // optimistic
+    await this.apply(repoPath, { skillAllowlist: list }, () => {
+      this.skillAllowlist = { ...this.skillAllowlist, [repoPath]: prev ?? null };
+    });
+  }
+
   async togglePlanGate(repoPath: string) {
     const prev = this.planGate[repoPath];
     const next = !this.isPlanGateEnabled(repoPath);
@@ -983,6 +1007,12 @@ class RepoConfigStore {
   }
   browserAllowedHostsFor(repoPath: string): string[] {
     return this.browserAllowedHosts[repoPath] ?? [];
+  }
+  pluginAllowlistFor(repoPath: string): string[] | null {
+    return this.pluginAllowlist[repoPath] ?? null;
+  }
+  skillAllowlistFor(repoPath: string): string[] | null {
+    return this.skillAllowlist[repoPath] ?? null;
   }
 
   isPlanGateEnabled(repoPath: string): boolean {

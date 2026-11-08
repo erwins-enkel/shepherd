@@ -677,6 +677,12 @@ export interface RepoConfig {
   previewStartCommand?: string | null;
   /** What clicking a live Preview chip does by default for this repo. */
   previewOpenMode: "ask" | "inline" | "tab";
+  /** #3780: operator plugin ids this repo's non-drain Claude spawns keep; every other installed
+   *  plugin is switched off per spawn. `null`/absent (default) → plugins untouched. */
+  pluginAllowlist?: string[] | null;
+  /** #3780: personal (~/.claude/skills) skill names this repo's non-drain Claude spawns keep;
+   *  every other personal skill is switched off. `null`/absent (default) → skills untouched. */
+  skillAllowlist?: string[] | null;
 }
 
 export interface LocalPr {
@@ -1115,6 +1121,8 @@ type RepoCfgRow = {
   previewStartScript: string | null;
   previewStartCommand: string | null;
   previewOpenMode: string;
+  pluginAllowlist: string | null;
+  skillAllowlist: string | null;
 };
 
 /** Tolerantly parse the persisted mergeTrainPrs JSON back to number[] | null (never throws). */
@@ -1280,6 +1288,22 @@ function parseStringListJson(raw: string | null | undefined): string[] {
   }
 }
 
+/** An allowlist column (#3780): SQL NULL — or anything unparseable — reads as `null` ("untouched"),
+ *  never as `[]`, which would switch every plugin/skill off. */
+function parseNullableStringListJson(raw: string | null | undefined): string[] | null {
+  if (raw === null || raw === undefined) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.every((x) => typeof x === "string") ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function nullableStringListJson(list: string[] | null | undefined): string | null {
+  return list ? JSON.stringify(list) : null;
+}
+
 function normalizePreviewOpenMode(raw: string | null | undefined): RepoConfig["previewOpenMode"] {
   return raw === "inline" || raw === "tab" || raw === "ask" ? raw : "ask";
 }
@@ -1326,6 +1350,8 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       previewStartScript: null,
       previewStartCommand: null,
       previewOpenMode: "ask",
+      pluginAllowlist: null,
+      skillAllowlist: null,
     };
   }
   return {
@@ -1363,6 +1389,8 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     previewStartScript: r.previewStartScript ?? null,
     previewStartCommand: r.previewStartCommand ?? null,
     previewOpenMode: normalizePreviewOpenMode(r.previewOpenMode),
+    pluginAllowlist: parseNullableStringListJson(r.pluginAllowlist),
+    skillAllowlist: parseNullableStringListJson(r.skillAllowlist),
   };
 }
 
@@ -1402,6 +1430,8 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     cfg.previewStartScript ?? null,
     cfg.previewStartCommand ?? null,
     cfg.previewOpenMode,
+    nullableStringListJson(cfg.pluginAllowlist),
+    nullableStringListJson(cfg.skillAllowlist),
     Date.now(),
   ];
 }
@@ -2689,7 +2719,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, repoMode,
-                manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode
+                manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode,
+                pluginAllowlist, skillAllowlist
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -2702,8 +2733,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, repoMode,
-          manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, pluginAllowlist, skillAllowlist, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -2737,6 +2768,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          previewStartScript = excluded.previewStartScript,
          previewStartCommand = excluded.previewStartCommand,
          previewOpenMode = excluded.previewOpenMode,
+         pluginAllowlist = excluded.pluginAllowlist,
+         skillAllowlist = excluded.skillAllowlist,
          updatedAt = excluded.updatedAt`,
       repoConfigParams(repoPath, cfg),
     );
@@ -7288,6 +7321,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("previewStartScript", `previewStartScript TEXT`);
     add("previewStartCommand", `previewStartCommand TEXT`);
     add("previewOpenMode", `previewOpenMode TEXT NOT NULL DEFAULT 'ask'`);
+    // #3780: plugin / personal-skill allowlists; JSON string array, NULL = untouched.
+    add("pluginAllowlist", `pluginAllowlist TEXT`);
+    add("skillAllowlist", `skillAllowlist TEXT`);
     // Issue #1025: first-task automation-confirmation. Nullable — new repos start unconfirmed.
     if (!cols.some((c) => c.name === "automationConfirmedAt")) {
       this.db.run(`ALTER TABLE repo_config ADD COLUMN automationConfirmedAt INTEGER`);

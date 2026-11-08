@@ -335,6 +335,12 @@ mod tests {
             r("previewStartCommand", "null"),
             json!({"previewStartCommand": null})
         );
+        // #3780: `null` (untouched) and `[]` (all off) are distinct allowlist values.
+        assert_eq!(
+            r("pluginAllowlist", "null"),
+            json!({"pluginAllowlist": null})
+        );
+        assert_eq!(r("skillAllowlist", "[]"), json!({"skillAllowlist": []}));
     }
 
     #[test]

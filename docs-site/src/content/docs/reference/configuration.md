@@ -788,3 +788,27 @@ effect without waiting for a new task. The conversation is restored; the pane's 
 is not. Sessions that have been idle for 15 seconds restart right away, sessions mid-turn or
 waiting on a question once they settle, so no turn is cut off. Each session records the setting it
 was started with, so a restart that was still pending when Shepherd restarted happens after boot.
+
+## Plugins and skills (per repo)
+
+Every plugin and personal skill you install rides along on each turn of every Claude session, so a
+repo that never deploys to Vercel still pays for the Vercel plugin. **Plugins and skills** in a
+repo's automation settings limits that repo to the ones its agents use (`pluginAllowlist` and
+`skillAllowlist` in the repo config).
+
+- **Plugins**: tick the plugins this repo keeps. The picker lists the plugins switched on in
+  `enabledPlugins` of `~/.claude/settings.json`. Every other one is switched off for the repo's
+  sessions, together with its skills, MCP tools and hooks.
+- **Personal skills**: tick the skills from `~/.claude/skills` this repo keeps. Every other personal
+  skill is switched off.
+- The two lists are independent. Leaving a list's limit off (`null`, the default) changes nothing.
+  An empty list (`[]`) switches every plugin or personal skill off. Plugins or skills you install
+  later stay off in a limited repo until you tick them.
+- Claude Code's bundled skills and the repo's own `.claude/skills` always stay.
+- It applies to the repo's Claude task sessions (attended, plan-gated, research) at their next start
+  or resume. Running sessions keep what they started with. Drain sessions keep their own stricter
+  trim (`SHEPHERD_TRIM_AUTO_CONTEXT`), which switches every plugin and personal skill off anyway.
+  Codex sessions, the Operator Assistant and the reviewer/critic agents are unaffected.
+
+If a repo's `CLAUDE.md` tells agents to use a skill you switched off, they look for it and don't find
+it. Measure the effect with `bun run scripts/opener-composition.ts --repo <path> --since <date>`.

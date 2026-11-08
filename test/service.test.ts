@@ -31,6 +31,7 @@ import {
   composeSystemPrompt,
   composeSystemPromptBlocks,
   readInstalledPluginIds,
+  readEnabledPluginIds,
   installedPluginIds,
   resetPluginIdsCacheForTests,
   readSkillNames,
@@ -7383,17 +7384,37 @@ test("spawnSettingsOverlay: disablePlugins ids map to false; absent/empty omits 
   expect(spawnSettingsOverlay()).not.toContain("enabledPlugins");
 });
 
-test("spawnSettingsOverlay: disableSkills → bundled off + name overrides; empty still hides bundled (#2001)", () => {
+test("spawnSettingsOverlay: disableSkills → name overrides; disableBundledSkills is its own switch (#2001, #3780)", () => {
   const withSkills = JSON.parse(spawnSettingsOverlay({ disableSkills: ["tdd", "obsidian-vault"] }));
-  expect(withSkills.disableBundledSkills).toBe(true);
+  expect(withSkills.disableBundledSkills).toBeUndefined();
   expect(withSkills.skillOverrides).toEqual({ tdd: "off", "obsidian-vault": "off" });
-  // present-but-empty (no personal skills installed) still drops Claude Code's bundled catalog
-  const empty = JSON.parse(spawnSettingsOverlay({ disableSkills: [] }));
+  const bundled = JSON.parse(
+    spawnSettingsOverlay({ disableSkills: ["tdd"], disableBundledSkills: true }),
+  );
+  expect(bundled.disableBundledSkills).toBe(true);
+  expect(bundled.skillOverrides).toEqual({ tdd: "off" });
+  // empty overrides → no key; the bundled switch alone still drops Claude Code's bundled catalog
+  expect(spawnSettingsOverlay({ disableSkills: [] })).toBe(spawnSettingsOverlay());
+  const empty = JSON.parse(spawnSettingsOverlay({ disableSkills: [], disableBundledSkills: true }));
   expect(empty.disableBundledSkills).toBe(true);
   expect(empty.skillOverrides).toBeUndefined();
   // absent → byte-identical to the no-opts overlay (both keys omitted)
   expect(spawnSettingsOverlay()).not.toContain("disableBundledSkills");
   expect(spawnSettingsOverlay()).not.toContain("skillOverrides");
+});
+
+test("readEnabledPluginIds: only keys set to true; [] on error or no key (#3780)", async () => {
+  const ids = await readEnabledPluginIds(async () =>
+    JSON.stringify({ enabledPlugins: { "x@r": true, "y@r": false, "z@r": "yes" } }),
+  );
+  expect(ids).toEqual(["x@r"]);
+  expect(
+    await readEnabledPluginIds(async () => {
+      throw new Error("ENOENT");
+    }),
+  ).toEqual([]);
+  expect(await readEnabledPluginIds(async () => "{not json")).toEqual([]);
+  expect(await readEnabledPluginIds(async () => '{"enabledPlugins":null}')).toEqual([]);
 });
 
 test("readInstalledPluginIds: enabledPlugins keys; [] on no key; null on read/parse error", async () => {
@@ -7678,6 +7699,117 @@ test("auto spawn with trimAutoContext off: identical to the untrimmed shape", as
   } finally {
     config.trimAutoContext = prev;
   }
+});
+
+/** Persist a repo's plugin/skill allowlists (#3780) on top of its current config. */
+function setAllowlists(
+  store: SessionStore,
+  repoPath: string,
+  pluginAllowlist: string[] | null,
+  skillAllowlist: string[] | null,
+): void {
+  store.setRepoConfig(repoPath, {
+    ...store.getRepoConfig(repoPath),
+    pluginAllowlist,
+    skillAllowlist,
+  });
+}
+
+async function createAttended(deps: unknown, auto = false): Promise<void> {
+  const svc = new SessionService(deps as any);
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do the thing",
+    model: null,
+    images: [],
+    auto,
+  });
+}
+
+test("attended spawn with allowlists: only unlisted plugins/personal skills off, bundled kept, no notice (#3780)", async () => {
+  const store = new SessionStore(":memory:");
+  setAllowlists(store, "/repo", ["context7@c7"], ["tdd"]);
+  const captured: { argv?: string[] } = {};
+  const { deps } = trimDeps(
+    store,
+    captured,
+    ["superpowers@sp", "context7@c7", "vercel@v"],
+    ["tdd", "obsidian-vault", "merge-train"],
+    ["merge-train"], // the checkout's own skill of that name must never be switched off
+  );
+  await createAttended(deps);
+  const argv = captured.argv!;
+  const overlay = settingsOverlay(argv);
+  expect(overlay.enabledPlugins).toEqual({ "superpowers@sp": false, "vercel@v": false });
+  expect(overlay.skillOverrides).toEqual({ "obsidian-vault": "off" });
+  expect(overlay.disableBundledSkills).toBeUndefined();
+  expect(sysPrompt(argv)).not.toContain("<context-trim-notice>");
+});
+
+test("attended spawn: plugin allowlist only leaves skills untouched; [] switches every plugin off (#3780)", async () => {
+  const store = new SessionStore(":memory:");
+  setAllowlists(store, "/repo", [], null);
+  const captured: { argv?: string[] } = {};
+  const { deps, skillReads } = trimDeps(store, captured, ["superpowers@sp", "vercel@v"], ["tdd"]);
+  await createAttended(deps);
+  const overlay = settingsOverlay(captured.argv!);
+  expect(overlay.enabledPlugins).toEqual({ "superpowers@sp": false, "vercel@v": false });
+  expect(overlay.skillOverrides).toBeUndefined();
+  expect(skillReads()).toBe(0);
+});
+
+test("drain with trim on ignores the allowlists: full trim as before (#3780)", async () => {
+  const prev = config.trimAutoContext;
+  try {
+    config.trimAutoContext = true;
+    const store = new SessionStore(":memory:");
+    setAllowlists(store, "/repo", ["superpowers@sp"], ["tdd"]);
+    const captured: { argv?: string[] } = {};
+    const { deps } = trimDeps(store, captured, ["superpowers@sp"], ["tdd"]);
+    await createAttended(deps, true);
+    const overlay = settingsOverlay(captured.argv!);
+    expect(overlay.enabledPlugins).toEqual({ "superpowers@sp": false });
+    expect(overlay.skillOverrides).toEqual({ tdd: "off" });
+    expect(overlay.disableBundledSkills).toBe(true);
+  } finally {
+    config.trimAutoContext = prev;
+  }
+});
+
+test("resume of an attended session re-applies the repo allowlists (#3780)", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = new SessionService({
+    transcriptExists: () => true,
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: async (_n: string, _c: string, argv: string[]) => {
+        calls.argv = inlineSpawnFiles(argv);
+        return { terminalId: "term_new", agentStatus: "working" } as any;
+      },
+      listAsync: async () => [],
+      stop: async () => {},
+      send: () => {},
+    } as any,
+    pluginIds: async () => ["superpowers@sp", "vercel@v"],
+    skillNames: async () => [],
+    userSkills: async () => ["tdd", "grilling"],
+  });
+  const s = resumable(store);
+  setAllowlists(store, s.repoPath, ["superpowers@sp"], ["grilling"]);
+  await svc.resume(s.id);
+  const overlay = settingsOverlay(calls.argv);
+  expect(overlay.enabledPlugins).toEqual({ "vercel@v": false });
+  expect(overlay.skillOverrides).toEqual({ tdd: "off" });
+  expect(overlay.disableBundledSkills).toBeUndefined();
 });
 
 test("resume of an auto session re-applies the trim: plugin-off + skill overlay", async () => {

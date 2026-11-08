@@ -3245,6 +3245,8 @@ export async function putRepoConfig(
       | "sharedBrowserEnabled"
       | "browserAllowedHosts"
       | "claudeAiConnectorsEnabled"
+      | "pluginAllowlist"
+      | "skillAllowlist"
       | "hidden"
       | "pinned"
       | "previewStartScript"
@@ -3260,6 +3262,16 @@ export async function putRepoConfig(
   });
   if (!r.ok) throw new Error(`repo-config put failed: ${r.status}`);
   return r.json();
+}
+
+/** The operator's enabled plugins + personal skills a repo's allowlists pick from (#3780). */
+export interface AgentExtensions {
+  plugins: string[];
+  skills: string[];
+}
+
+export async function getAgentExtensions(): Promise<AgentExtensions> {
+  return getJson("/api/agent-extensions", "agent-extensions");
 }
 
 /** Project-bootstrap state of a repo (#3105) — mirrors the server's RepoBootstrapView. */

@@ -35,6 +35,8 @@ import {
   OperatorAssistantNotFoundError,
   OperatorAssistantSessionError,
   PREVIEW_SETUP_STEER,
+  readEnabledPluginIds,
+  readSkillNames,
   RestoreError,
   TerminalExistsError,
   TerminalSessionError,
@@ -123,6 +125,7 @@ import {
   type EpicRunPatch,
   validateEgressExtraHosts,
   validateBrowserAllowedHosts,
+  validateNameAllowlist,
 } from "./validate";
 import {
   verifySessionCookie,
@@ -693,6 +696,9 @@ export interface AppDeps {
   proxyTrust?: (sock: RequestSocket) => Promise<ProxyTrust>;
   /** Test seam: the agent session behind a request's connection (#3623). */
   peerSessionId?: (req: Request) => Promise<string | null>;
+  /** Test seam (#3780): the operator's enabled plugins + personal skills the repo allowlist
+   *  picker offers. Absent ⇒ {@link readAgentExtensions} (fresh async reads under `~/.claude`). */
+  agentExtensions?: () => Promise<AgentExtensions>;
   /** Connected machines (#2759). Same memo-slot contract as `accessTokens`: the
    *  `remoteInstances(deps)` accessor lazily builds an unstarted one from `store`; `index.ts`
    *  injects the started singleton that runs the periodic probe. */
@@ -3356,6 +3362,8 @@ type RepoCfgBody = {
   defaultExecutionEffort?: unknown;
   egressExtraHosts?: unknown;
   browserAllowedHosts?: unknown;
+  pluginAllowlist?: unknown;
+  skillAllowlist?: unknown;
   maxAuto?: unknown;
   autoLabel?: unknown;
   priorityLabels?: unknown;
@@ -3387,6 +3395,8 @@ type RepoCfgScalars = {
   defaultExecutionEffort?: string;
   egressExtraHosts?: string[];
   browserAllowedHosts?: string[];
+  pluginAllowlist?: string[] | null;
+  skillAllowlist?: string[] | null;
   repoMode?: "forge" | "lightweight";
   previewStartScript?: string | null;
   previewStartCommand?: string | null;
@@ -3402,6 +3412,16 @@ function parseRepoEgressExtraHosts(v: unknown): unknown {
 
 function parseRepoBrowserAllowedHosts(v: unknown): unknown {
   const r = validateBrowserAllowedHosts(v);
+  return r.ok ? r.value : { error: r.error };
+}
+
+function parseRepoPluginAllowlist(v: unknown): unknown {
+  const r = validateNameAllowlist("pluginAllowlist", v);
+  return r.ok ? r.value : { error: r.error };
+}
+
+function parseRepoSkillAllowlist(v: unknown): unknown {
+  const r = validateNameAllowlist("skillAllowlist", v);
   return r.ok ? r.value : { error: r.error };
 }
 
@@ -3426,6 +3446,8 @@ const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => u
   ["defaultExecutionEffort", parseRepoDefaultExecutionEffort],
   ["egressExtraHosts", parseRepoEgressExtraHosts],
   ["browserAllowedHosts", parseRepoBrowserAllowedHosts],
+  ["pluginAllowlist", parseRepoPluginAllowlist],
+  ["skillAllowlist", parseRepoSkillAllowlist],
   ["repoMode", parseRepoMode],
   ["previewStartScript", parseNullableString],
   ["previewStartCommand", parseNullableString],
@@ -3473,6 +3495,8 @@ async function parseRepoConfigPatch(req: Request): Promise<
       defaultExecutionEffort?: string;
       egressExtraHosts?: string[];
       browserAllowedHosts?: string[];
+      pluginAllowlist?: string[] | null;
+      skillAllowlist?: string[] | null;
       maxAuto?: number;
       autoLabel?: string;
       priorityLabels?: string[];
@@ -3511,6 +3535,8 @@ async function parseRepoConfigPatch(req: Request): Promise<
     defaultExecutionEffort,
     egressExtraHosts,
     browserAllowedHosts,
+    pluginAllowlist,
+    skillAllowlist,
     repoMode,
     previewStartScript,
     previewStartCommand,
@@ -3524,7 +3550,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, browserAllowedHosts, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
       },
       400,
     );
@@ -3555,6 +3581,8 @@ async function parseRepoConfigPatch(req: Request): Promise<
     defaultExecutionEffort,
     egressExtraHosts,
     browserAllowedHosts,
+    pluginAllowlist,
+    skillAllowlist,
     maxAuto,
     autoLabel,
     priorityLabels,
@@ -3607,6 +3635,26 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   const view = withNoPrCi(deps, dir, r.config);
   if (before.claudeAiConnectorsEnabled === r.config.claudeAiConnectorsEnabled) return json(view);
   return json({ ...view, connectorRestart: kickConnectorRestart(deps, dir) });
+}
+
+/** What a repo's plugin/skill allowlists (#3780) can pick from. */
+type AgentExtensions = { plugins: string[]; skills: string[] };
+
+/** Fresh reads (not the spawn path's memoized ones), so a plugin or skill installed since the
+ *  server started shows up in the picker. Both sorted; an unreadable skills root lists nothing. */
+async function readAgentExtensions(): Promise<AgentExtensions> {
+  const [plugins, skills] = await Promise.all([
+    readEnabledPluginIds(),
+    readSkillNames(join(homedir(), ".claude", "skills")),
+  ]);
+  return { plugins: plugins.sort(), skills: [...new Set(skills ?? [])].sort() };
+}
+
+/** GET /api/agent-extensions (#3780): the repo allowlist picker's choices. */
+async function handleAgentExtensions({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "agent-extensions" && !parts[2])) return null;
+  if (req.method !== "GET") return null;
+  return json(await (deps.agentExtensions ?? readAgentExtensions)());
 }
 
 /** #3221: derived, read-only — the repo is on GitHub and no workflow runs on a PR head, so its
@@ -13977,6 +14025,7 @@ const ROUTE_HANDLERS = [
   handleEpicQueue,
   handleEpicQueueReorder,
   handleRepoConfig,
+  handleAgentExtensions,
   handleRepoBootstrap,
   handleSchedules,
   handleRepoBrowserOpen,

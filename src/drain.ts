@@ -417,6 +417,7 @@ export interface DrainDeps {
     | "setEpicBaseFreshness"
     | "listEpicIntegrated"
     | "isEpicIntegratedChild"
+    | "epicClaimHoldParent"
     | "recordEpicIntegrated"
     | "listEpicIntegratedDetails"
     | "recordEpicCompleted"
@@ -1247,7 +1248,11 @@ export class DrainService {
         .filter((s) => s.repoPath === repoPath && s.status !== "archived")
         .map((s) => s.issueNumber),
     );
-    return rows.filter((c) => !live.has(c.number));
+    // #3808: an integrated child of an unlanded epic keeps its claim on purpose — not an orphan.
+    return rows.filter(
+      (c) =>
+        !live.has(c.number) && this.deps.store.epicClaimHoldParent(repoPath, c.number) === null,
+    );
   }
 
   private async readClaimDiagnostics(
@@ -1280,7 +1285,12 @@ export class DrainService {
     const rows: ClaimDiagnostic[] = [];
     // Serial to bound GraphQL pressure to one active claim read per repo.
     for (const issue of issues) {
-      if (!issue.labels.includes(ACTIVE_LABEL) || live.has(issue.number)) continue;
+      if (
+        !issue.labels.includes(ACTIVE_LABEL) ||
+        live.has(issue.number) ||
+        this.deps.store.epicClaimHoldParent(repoPath, issue.number) !== null
+      )
+        continue;
       const refs =
         (await forge?.issuePullRequestReferences?.(issue.number).catch(() => null)) ?? null;
       const nowLive = this.deps.store
@@ -1323,7 +1333,8 @@ export class DrainService {
           .some(
             (s) => s.repoPath === repoPath && s.issueNumber === number && s.status !== "archived",
           ) ||
-        refs.some((p) => p.state === "open")
+        refs.some((p) => p.state === "open") ||
+        (action === "release" && this.deps.store.epicClaimHoldParent(repoPath, number) !== null)
       )
         return { ok: false, error: "changed" };
       const stateResult = this.claimStateResult(issue, action, key);

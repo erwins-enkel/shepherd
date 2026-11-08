@@ -8,6 +8,7 @@ import { infoTips } from "#lib/info-tips.svelte.js";
 import { m } from "#lib/paraglide/messages.js";
 import { repoConfig } from "#lib/reviews.svelte.js";
 import { toasts } from "#lib/toasts.svelte.js";
+import type { DrainStatus } from "#lib/types.js";
 
 afterEach(() => infoTips.set(false));
 
@@ -444,5 +445,84 @@ describe("AutomationSettings — no-PR-CI card (#3305)", () => {
     repoConfig.loaded = { "/tmp/repo": true };
     await mount();
     expect(card()).toBeNull();
+  });
+});
+
+describe("AutomationSettings — epic halt hint (#3443)", () => {
+  const REPO = "/tmp/halt-repo";
+  const drain: DrainStatus = {
+    repoPath: REPO,
+    enabled: true,
+    paused: true,
+    reason: "sandbox_interactive",
+    detail: "standard",
+    queued: 1,
+    inFlight: 0,
+    max: 1,
+    epicParent: 42,
+  };
+  const blockers = (enabled: boolean) => ({
+    causes: [
+      {
+        code: "sandbox_interactive",
+        scope: "repo",
+        detail: "standard",
+        fix: { changes: { sandboxProfile: "autonomous" }, enabled, checks: [] },
+      },
+    ],
+    options: [],
+    preselect: null,
+  });
+  const autonomous = () => page.getByRole("button", { name: m.repooverview_halt_autonomous() });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  // Fake the auto-fix model and its apply; every other request keeps its real path.
+  const realFetch = globalThis.fetch;
+  function stubAutoFix(enabled: boolean) {
+    const posts: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (!String(input).startsWith("/api/epic/auto-fix")) return realFetch(input, init);
+        if (init?.method === "POST") {
+          posts.push(JSON.parse(String(init.body)));
+          return Response.json({
+            previous: { sandboxProfile: "inherit" },
+            blockers: blockers(enabled),
+          });
+        }
+        return Response.json(blockers(enabled));
+      }),
+    );
+    return posts;
+  }
+
+  it("says what holds the epic and switches the repo to Autonomous through the auto-fix", async () => {
+    const posts = stubAutoFix(true);
+    render(AutomationSettings, { repoPath: REPO, drain });
+    await expect
+      .element(page.getByText(m.repooverview_halt_title({ repo: "halt-repo" })))
+      .toBeVisible();
+    await autonomous().click();
+    await vi.waitFor(() => expect(posts).toEqual([{ cause: "sandbox_interactive" }]));
+  });
+
+  it("offers no switch the model doesn't report effective here", async () => {
+    stubAutoFix(false);
+    render(AutomationSettings, { repoPath: REPO, drain });
+    await expect
+      .element(page.getByText(m.repooverview_halt_title({ repo: "halt-repo" })))
+      .toBeVisible();
+    expect(autonomous().query()).toBeNull();
+  });
+
+  it("stays away while nothing holds the repo's epic", async () => {
+    stubAutoFix(true);
+    render(AutomationSettings, { repoPath: REPO, drain: { ...drain, reason: null, detail: null } });
+    await expect
+      .element(page.getByRole("switch", { name: m.automation_critic_name() }))
+      .toBeVisible();
+    expect(document.querySelector("[data-epic-halt]")).toBeNull();
   });
 });

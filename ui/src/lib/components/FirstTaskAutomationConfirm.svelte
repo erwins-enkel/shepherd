@@ -28,7 +28,7 @@
     <p class="ftac-intro">{m.firsttask_confirm_intro({ repo: repoBaseName })}</p>
 
     <div class="ftac-settings">
-      <AutomationSettings {repoPath} showHeader={false} />
+      <AutomationSettings {repoPath} />
     </div>
 
     {#if error}

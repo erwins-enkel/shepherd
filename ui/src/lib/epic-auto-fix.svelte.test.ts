@@ -222,6 +222,45 @@ describe("epicAutoFix (#3455)", () => {
     b();
   });
 
+  it("applies a cause's own fix (#3443) as the repo overview's banner does", async () => {
+    const fixed: EpicAutoBlockers = {
+      ...FALL_A,
+      causes: [
+        {
+          code: "sandbox_interactive",
+          scope: "repo",
+          detail: "standard",
+          fix: { changes: { sandboxProfile: "autonomous" }, enabled: true, checks: [] },
+        },
+      ],
+    };
+    api.getEpicAutoFix.mockResolvedValue(fixed);
+    api.applyEpicAutoFix.mockResolvedValueOnce({ previous: PREVIOUS, blockers: CLEAR });
+    const r = repo();
+    const a = epicAutoFix.watch(r, drain(r));
+    await settle();
+    expect(await epicAutoFix.applyCause(r, B, "sandbox_interactive")).toBe(true);
+    expect(api.applyEpicAutoFix).toHaveBeenCalledWith(r, B, { cause: "sandbox_interactive" });
+    expect(epicAutoFix.blockers(r, B)).toEqual(CLEAR);
+    expect(epicAutoFix.applied(r, B)).toEqual({
+      parent: B,
+      changes: { sandboxProfile: "autonomous" },
+      previous: PREVIOUS,
+      starting: [],
+    });
+    a();
+  });
+
+  it("applies no cause that carries no fix of its own", async () => {
+    api.getEpicAutoFix.mockResolvedValue(FALL_A);
+    const r = repo();
+    const a = epicAutoFix.watch(r, drain(r));
+    await settle();
+    expect(await epicAutoFix.applyCause(r, B, "sandbox_interactive")).toBe(false);
+    expect(api.applyEpicAutoFix).not.toHaveBeenCalled();
+    a();
+  });
+
   it("asks nothing while the drain holds for another reason", async () => {
     const r = repo();
     const a = epicAutoFix.watch(r, drain(r, { reason: "cap", detail: null }));

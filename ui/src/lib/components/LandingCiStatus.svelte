@@ -3,7 +3,7 @@
   import type { CompletedEpic, LandingCiAutomation } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { formatAgo } from "#lib/format.js";
-  import AutomationPanel from "./AutomationPanel.svelte";
+  import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
   import GuardMarker from "./GuardMarker.svelte";
 
   // #2872: what is red on an epic's landing PR and who handles it — Shepherd's automatic reruns,
@@ -18,9 +18,6 @@
     nowMs: number;
     onopensession: (id: string) => void;
   } = $props();
-
-  let panelOpen = $state(false);
-  let wrapEl = $state<HTMLElement | null>(null);
 
   const checks = $derived(epic.landingCiChecks);
   const automation = $derived(epic.landingCiAutomation);
@@ -67,19 +64,14 @@
     return names ? `${running} · ${m.landing_ci_repair_fixing({ checks: names })}` : running;
   });
 
-  // The anchored, non-modal AutomationPanel popover: Escape and an outside click close it (as in
-  // GuardTimeline); Escape is consumed so an enclosing dialog stays open.
-  function onKeydown(e: KeyboardEvent) {
-    if (e.key !== "Escape" || !panelOpen) return;
-    e.preventDefault();
-    panelOpen = false;
-  }
-  function onWindowPointerdown(e: PointerEvent) {
-    if (panelOpen && wrapEl && !wrapEl.contains(e.target as Node)) panelOpen = false;
+  // Auto-Drain lives in the repo settings' Start & flow (#3443).
+  function openSettings(e: MouseEvent) {
+    repoSettingsWindow.open(epic.repoPath, {
+      section: "start",
+      opener: e.currentTarget as HTMLElement,
+    });
   }
 </script>
-
-<svelte:window onpointerdown={onWindowPointerdown} />
 
 {#if checks && (checks.failed.length > 0 || checks.running > 0)}
   <section class="lcs-checks" aria-label={m.landing_ci_checks_label()}>
@@ -109,12 +101,7 @@
 {/if}
 
 {#if automation}
-  <section
-    class="lcs-who"
-    aria-label={m.landing_ci_who_heading()}
-    bind:this={wrapEl}
-    onkeydowncapture={onKeydown}
-  >
+  <section class="lcs-who" aria-label={m.landing_ci_who_heading()}>
     <h5>{m.landing_ci_who_heading()}</h5>
     <ol>
       <li class="lcs-stage" data-stage="reruns" data-status={automation.reruns.status}>
@@ -133,11 +120,8 @@
           >
         {/if}
         {#if automation.repair.skipReason === "auto-drain-off"}
-          <button
-            type="button"
-            class="lcs-link"
-            aria-expanded={panelOpen}
-            onclick={() => (panelOpen = !panelOpen)}>{m.landing_ci_open_automation()}</button
+          <button type="button" class="lcs-link" aria-haspopup="dialog" onclick={openSettings}
+            >{m.landing_ci_open_automation()}</button
           >
         {/if}
       </li>
@@ -146,12 +130,6 @@
         <span class="lcs-label">{m.landing_ci_you_label()}</span>
       </li>
     </ol>
-    {#if panelOpen}
-      <!-- touch-only dim+blur behind the automation sheet (AutomationPanel turns into a fixed
-           full-screen sheet on coarse pointers); purely visual → aria-hidden. -->
-      <div class="lcs-scrim scrim" aria-hidden="true"></div>
-      <AutomationPanel repoPath={epic.repoPath} onClose={() => (panelOpen = false)} />
-    {/if}
   </section>
 {/if}
 
@@ -199,7 +177,6 @@
     color: var(--color-muted);
   }
   .lcs-who {
-    position: relative;
     margin-top: 10px;
     padding-top: 8px;
     border-top: 1px solid var(--color-line);
@@ -245,14 +222,7 @@
     outline: 2px solid var(--color-ink-bright);
     outline-offset: 2px;
   }
-  .lcs-scrim {
-    display: none;
-    z-index: 50;
-  }
   @media (pointer: coarse) {
-    .lcs-scrim {
-      display: block;
-    }
     .lcs-link {
       min-height: 44px;
     }

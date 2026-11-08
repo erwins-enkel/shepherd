@@ -5,6 +5,7 @@ import "../../../app.css";
 import AutomationDrainFields from "./AutomationDrainFields.svelte";
 import { automationFocus } from "#lib/automation-focus.js";
 import { m } from "#lib/paraglide/messages.js";
+import { repoConfig } from "#lib/reviews.svelte.js";
 
 const cap = () => page.getByRole("spinbutton", { name: m.drain_cap_label() });
 
@@ -40,5 +41,15 @@ describe("AutomationDrainFields — focus request", () => {
 
     await expect.element(cap()).toBeVisible();
     await expect.element(cap()).not.toHaveFocus();
+  });
+});
+
+describe("AutomationDrainFields — seeding (#3443)", () => {
+  it("takes the stored values once the repo config arrives after mount", async () => {
+    render(AutomationDrainFields, { repoPath: "/repo/late", active: true });
+    await expect.element(cap()).toHaveValue(1);
+    repoConfig.maxAuto = { ...repoConfig.maxAuto, "/repo/late": 3 };
+    repoConfig.loaded = { ...repoConfig.loaded, "/repo/late": true };
+    await expect.element(cap()).toHaveValue(3);
   });
 });

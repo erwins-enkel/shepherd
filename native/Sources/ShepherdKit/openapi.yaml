@@ -6476,6 +6476,8 @@ components:
             - "null"
           pattern: ^(?:[0-9a-f]{40}|[0-9a-f]{64})$
           description: Create the worktree at exactly this commit (full lowercase hex id) instead of freshening baseBranch to its upstream tip. Fetched from origin when missing; 422 when it cannot be used. baseBranch stays the PR target. null or absent = resolve from baseBranch.
+        continuation:
+          $ref: "#/components/schemas/SessionContinuation"
         prompt:
           type: string
           minLength: 1

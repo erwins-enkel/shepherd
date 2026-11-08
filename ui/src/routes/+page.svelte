@@ -1628,6 +1628,14 @@
     root.classList.add("pull-contain");
     return () => root.classList.remove("pull-contain");
   });
+  // Non-phone layouts are a fixed one-viewport shell: lock the document so trackpad scroll
+  // chained out of a list never moves the page (#3794). Phones keep document scroll.
+  $effect(() => {
+    if (mobile.current) return;
+    const root = document.documentElement;
+    root.classList.add("fixed-shell");
+    return () => root.classList.remove("fixed-shell");
+  });
 
   // Scroll-compress the chrome header on mobile list: hide on scroll-down, restore
   // on scroll-up or at/near top. Window (document) scroll only — the mobile list

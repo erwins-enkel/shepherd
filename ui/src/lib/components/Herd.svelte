@@ -1002,6 +1002,8 @@
 
   .units {
     overflow: auto;
+    /* keep trackpad scroll chaining out of the list from moving the page (#3794) */
+    overscroll-behavior: contain;
     padding: 6px;
     flex: 1;
     min-height: 0;

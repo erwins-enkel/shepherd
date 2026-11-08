@@ -4145,10 +4145,22 @@ export interface HeavySlotSnapshot {
     state?: "offered" | "running" | "lingering";
   }[];
   waiters: { sessionId: string; position: number; reason: "slot" | "pressure" }[];
-  brake: { active: boolean; reason: "memory" | null };
+  brake: {
+    active: boolean;
+    reason: "memory" | null;
+    /** The limit that engaged it; absent from older servers. */
+    cause?: "memory_available" | "memory_pressure" | null;
+    /** Readings are back under both limits: the brake lets go at this time if they stay there.
+     *  Null while off or while a reading is over a limit; absent from older servers. */
+    releaseAt?: number | null;
+    /** How long readings must stay under the limits; absent from older servers. */
+    releaseHoldMs?: number | null;
+  };
   pressure: {
     ramAvailableBytes: number | null;
     ramTotalBytes: number | null;
+    /** The brake engages below this much available RAM; absent from older servers. */
+    ramMinAvailableBytes?: number | null;
     swapUsedBytes: number | null;
     swapTotalBytes: number | null;
     memFullAvg10: number | null;

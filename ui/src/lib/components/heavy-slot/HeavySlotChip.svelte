@@ -4,15 +4,23 @@
   import {
     activeLanes,
     chipModel,
+    formatBytes,
     hasMachineLanes,
     laneTotals,
+    pipKinds,
     popoverLeft,
+    ramGauge,
+    secondsLeft,
     slotActive,
     slotEnabled,
     slotLanes,
+    slotStatus,
+    statusShort,
     type SlotLane,
   } from "./heavy-slot";
   import HostPopover from "./HostPopover.svelte";
+  import SlotPips from "./SlotPips.svelte";
+  import ZoneBar from "./ZoneBar.svelte";
 
   let {
     heavySlot = null,
@@ -47,11 +55,34 @@
   );
   const segments = $derived(byMachine ? activeLanes(lanes) : []);
   const idle = $derived(byMachine ? segments.length === 0 : !slotActive(heavySlot));
+  // One machine: what can start now, and how much RAM is left before the brake.
+  const status = $derived(slotEnabled(heavySlot) ? slotStatus(heavySlot, nowMs) : null);
+  const ram = $derived(slotEnabled(heavySlot) ? ramGauge(heavySlot) : null);
+  /** "18 s" until the brake lets go, while calm readings run out its hold; null otherwise. */
+  const holdText = (s: HeavySlotSnapshot) => {
+    const st = slotStatus(s, nowMs);
+    return st.kind === "brake" && st.leftMs != null
+      ? m.heavyslot_seconds({ n: secondsLeft(st.leftMs) })
+      : null;
+  };
+  /** One machine's status after its pips: in full on the wide chip, only a countdown compact. */
+  const statusText = $derived(
+    !status || !heavySlot ? null : compact ? holdText(heavySlot) : statusShort(status),
+  );
+  /** What a machine's segment adds after its pips: the brake's countdown, else its free RAM while
+   *  the brake holds. */
+  const laneExtra = (s: HeavySlotSnapshot) => {
+    const hold = holdText(s);
+    if (hold) return hold;
+    const r = s.brake.active ? ramGauge(s) : null;
+    return r ? `· ${m.heavyslot_ram_free({ bytes: formatBytes(r.freeBytes) })}` : null;
+  };
   const machineName = (l: SlotLane) => l.name ?? m.herd_machine_this();
   const ariaLabel = $derived.by(() => {
     if (!model) return "";
     if (!byMachine)
-      return m.heavyslot_chip_aria({
+      return m.heavyslot_chip_aria_status({
+        status: status ? statusShort(status) : "",
         held: model.held,
         capacity: model.capacity,
         waiting: model.waiting,
@@ -99,6 +130,11 @@
   }
 </script>
 
+{#snippet pips(s: HeavySlotSnapshot)}
+  {@const kinds = pipKinds(s)}
+  {#if kinds}<SlotPips {kinds} />{:else}<span>■ {s.holders.length}/{s.capacity}</span>{/if}
+{/snippet}
+
 <svelte:document onpointerdown={onDocPointer} onkeydown={onDocKey} />
 <svelte:window onresize={() => open && place()} />
 
@@ -127,22 +163,28 @@
             {#if l.stale}
               {m.heavyslot_offline()}
             {:else}
-              ■ {c.held}/{c.capacity}{#if c.waiting > 0}&nbsp;◔ {c.waiting}{/if}{#if c.braking && c.ramPct != null}
-                · {m.heavyslot_ram({ pct: c.ramPct })}{/if}
+              {@const extra = laneExtra(l.snapshot)}
+              {@render pips(l.snapshot)}
+              {#if c.waiting > 0}<span>◔ {c.waiting}</span>{/if}
+              {#if extra}<span>{extra}</span>{/if}
             {/if}
           </span>
         {:else}
-          <span>■ {model.held}/{model.capacity}</span>
+          <span class="hs-ok"
+            >{model.free > 0 ? m.heavyslot_free({ n: model.free }) : m.heavyslot_full()}</span
+          >
         {/each}
-      {:else}
+      {:else if heavySlot && status}
         {#if !compact}<span class="hs-lbl">{m.heavyslot_label()}</span>{/if}
-        <span>■ {model.held}/{model.capacity}</span>
-        {#if !compact || model.waiting > 0}<span class="hs-sep">│</span><span
-            >◔ {model.waiting}</span
-          >{/if}
-        {#if !compact && model.ramPct != null}
-          <span class="hs-sep">│</span><span class:hs-hot={model.braking}
-            >{m.heavyslot_ram({ pct: model.ramPct })}</span
+        {@render pips(heavySlot)}
+        {#if statusText}<span class:hs-ok={status.kind === "free"}>{statusText}</span>{/if}
+        {#if model.waiting > 0}<span class="hs-sep">│</span><span>◔ {model.waiting}</span>{/if}
+        {#if !compact && ram}
+          <span class="hs-sep">│</span><span class="hs-sep">{m.heavyslot_ram_row()}</span>
+          <!-- RAM at a glance: grey used, green free before the brake, red the brake zone. -->
+          <ZoneBar zones={ram.zones} mini />
+          <span class={ram.short ? "hs-hot" : "hs-ok"}
+            >{m.heavyslot_ram_free({ bytes: formatBytes(ram.freeBytes) })}</span
           >
         {/if}
       {/if}
@@ -213,6 +255,10 @@
   }
   .hs-hot {
     color: var(--color-red);
+  }
+  /* Free slots and free RAM read green wherever the chip shows them. */
+  .hs-ok {
+    color: var(--color-green);
   }
   .hs-seg {
     display: inline-flex;

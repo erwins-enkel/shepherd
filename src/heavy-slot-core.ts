@@ -664,6 +664,9 @@ export interface HeavySlotLedgerView {
     psiFullAvg10: number | null;
     minAvailableBytes: number;
     psiFullMax: number;
+    /** Start of the current calm run while engaged (see {@link BrakeState}); null otherwise. */
+    clearSince: number | null;
+    releaseHoldMs: number;
   };
   jobs: HeavySlotJobView[];
 }
@@ -708,6 +711,8 @@ export function buildSnapshot(
       psiFullAvg10: brake.sample?.psiFullAvg10 ?? null,
       minAvailableBytes: budget.minAvailableBytes,
       psiFullMax: budget.psiFullMax,
+      clearSince: brake.clearSince,
+      releaseHoldMs: budget.releaseHoldMs,
     },
     jobs: [...ledger.active(), ...queue].map(view),
   };

@@ -301,6 +301,26 @@ describe("HeavySlotService", () => {
     expect(h.steers.map(([id]) => id)).toEqual(["s1"]);
   });
 
+  test("the snapshot names the limit holding the brake, and when it lets go once readings calm", async () => {
+    const h = harness();
+    h.memory.sample = { availableBytes: 3 * GIB, psiFullAvg10: 0 };
+    await h.svc.start();
+    await h.svc.acquire("s1", "x", null);
+    expect(h.svc.snapshot()).toMatchObject({
+      brake: { active: true, cause: "memory_available", releaseAt: null, releaseHoldMs: 30_000 },
+      pressure: { ramAvailableBytes: 3 * GIB, ramMinAvailableBytes: 4 * GIB },
+    });
+    h.memory.sample = { ...HEALTHY };
+    await advance(h, 5_000);
+    expect(h.svc.snapshot().brake).toMatchObject({
+      active: true,
+      cause: "memory_available",
+      releaseAt: h.clock.t + 30_000,
+    });
+    await advance(h, 30_000);
+    expect(h.svc.snapshot().brake).toMatchObject({ active: false, cause: null, releaseAt: null });
+  });
+
   test("a waiter whose session has a prompt open is passed over, keeps place 1, and gets the next slot", async () => {
     const h = harness();
     await h.svc.start();

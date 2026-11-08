@@ -304,10 +304,20 @@ export class HeavySlotService {
           position: j.position!,
           reason: j.waitReason!,
         })),
-      brake: { active: view.brake.engaged, reason: view.brake.engaged ? "memory" : null },
+      brake: {
+        active: view.brake.engaged,
+        reason: view.brake.engaged ? "memory" : null,
+        cause: view.brake.engaged ? view.brake.reason : null,
+        releaseAt:
+          view.brake.engaged && view.brake.clearSince !== null
+            ? view.brake.clearSince + view.brake.releaseHoldMs
+            : null,
+        releaseHoldMs: view.brake.releaseHoldMs,
+      },
       pressure: {
         ramAvailableBytes: view.brake.availableBytes,
         ramTotalBytes: totalmem(),
+        ramMinAvailableBytes: view.brake.minAvailableBytes,
         swapUsedBytes: null,
         swapTotalBytes: null,
         memFullAvg10: view.brake.psiFullAvg10,

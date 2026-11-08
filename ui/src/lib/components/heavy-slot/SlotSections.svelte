@@ -3,22 +3,26 @@
   import { SvelteSet } from "svelte/reactivity";
   import { m } from "#lib/paraglide/messages.js";
   import StartQueueSection from "./StartQueueSection.svelte";
+  import SlotGauges from "./SlotGauges.svelte";
+  import SlotPips from "./SlotPips.svelte";
+  import SlotStatus from "./SlotStatus.svelte";
   import {
     brakeLine,
     commandLabel,
     formatBytes,
     formatRuntime,
     holderState,
-    memPressureBar,
     orderedWaiters,
-    ramUsedPct,
+    ramGauge,
     recentResults,
     resultView,
     shortRevision,
+    slotCells,
   } from "./heavy-slot";
 
-  // One check slot's sections in the host popover: who holds it, the queue, waiting starts,
-  // pressure, memory by origin and the last results.
+  // One check slot's sections in the host popover: whether a check can start now, its slots, the
+  // queue, waiting starts, RAM and pressure against the brake, memory by origin and the last
+  // results.
   let {
     heavySlot,
     own = true,
@@ -57,13 +61,11 @@
     if (state === "lingering") return m.heavyslot_state_lingering();
     return state === "offered" ? m.heavyslot_state_offered() : "";
   };
-  const bar = $derived(memPressureBar(heavySlot));
-  const ram = $derived(ramUsedPct(heavySlot));
-  const p = $derived(heavySlot.pressure);
-  const src = $derived(heavySlot.memoryBySource);
-  const brake = $derived(brakeLine(heavySlot));
-  // The brake let go and waiting starts follow one by one: amber, no longer red.
-  const pacing = $derived(!heavySlot.brake.active);
+  const cells = $derived(slotCells(heavySlot));
+  const ram = $derived(ramGauge(heavySlot));
+  // The status above already says the brake holds; under the queue only the waiting starts that
+  // follow one by one once it let go.
+  const pacingLine = $derived(heavySlot.brake.active ? null : brakeLine(heavySlot));
   const showAllResults = $derived(expanded.has("all"));
   const results = $derived(recentResults(heavySlot, showAllResults));
   const anyStale = $derived(results.rows.some((r) => r.stale));
@@ -75,7 +77,9 @@
   const pressureOpen = $derived(!folded || expanded.has("pressure"));
   const hasResults = $derived(results.rows.length > 0);
   const resultsOpen = $derived(hasResults && (!folded || expanded.has("results")));
-  const ramSummary = $derived(ram == null ? "–" : m.heavyslot_ram({ pct: ram }));
+  const ramSummary = $derived(
+    ram == null ? "–" : m.heavyslot_ram_free({ bytes: formatBytes(ram.freeBytes) }),
+  );
 
   async function release(id: string) {
     releaseFailed = false;
@@ -90,19 +94,18 @@
 
 {#snippet commandToggle(key: string, command: string)}
   {@const open = expanded.has(key)}
+  {@const text = open ? command : commandLabel(command)}
   <button
     type="button"
     class="hp-cmd"
     class:open
     aria-expanded={open}
+    aria-label="{open ? m.heavyslot_command_collapse() : m.heavyslot_command_expand()}: {text}"
     title={open ? undefined : command}
     onclick={() => toggle(key)}
   >
     <span class="hp-chev" aria-hidden="true">{open ? "▾" : "▸"}</span>
-    <span class="sr-only"
-      >{open ? m.heavyslot_command_collapse() : m.heavyslot_command_expand()}:
-    </span>
-    <span class="hp-cmd-text">{open ? command : commandLabel(command)}</span>
+    <span class="hp-cmd-text">{text}</span>
   </button>
 {/snippet}
 
@@ -114,37 +117,63 @@
   </button>
 {/snippet}
 
+<SlotStatus {heavySlot} {nowMs} />
+
 <section>
-  <h3>{m.heavyslot_holders()}</h3>
-  {#each heavySlot.holders as h, i (i)}
-    <div class="hp-row">
-      <span class="hp-name">{nameOf(h.sessionId)}</span>
-      <span class="hp-dim hp-state">{stateLabel(h)}</span>
-      <span class="hp-dim hp-mono"
-        >{formatRuntime(h.startedAt, nowMs)} · {formatBytes(h.rssBytes)}</span
-      >
-      <!-- Another machine's slot gets no release: none reaches it from here. -->
-      {#if own && confirming === h.sessionId}
-        <p class="hp-confirm">{m.heavyslot_release_confirm({ name: nameOf(h.sessionId) })}</p>
-        <span class="hp-actions">
-          <button type="button" class="hp-btn" onclick={() => void release(h.sessionId)}>
-            {m.heavyslot_release_confirm_yes()}
-          </button>
-          <button type="button" class="hp-btn" onclick={() => (confirming = null)}>
-            {m.heavyslot_release_cancel()}
-          </button>
-        </span>
-        {#if releaseFailed}<p class="hp-err" role="alert">{m.heavyslot_release_failed()}</p>{/if}
-      {:else if own}
-        <button type="button" class="hp-btn" onclick={() => (confirming = h.sessionId)}>
-          {m.heavyslot_release()}
-        </button>
+  <div class="hp-sec-head">
+    <h3>{m.heavyslot_slots()}</h3>
+    <span class="hp-push hp-dim hp-mono"
+      >{m.settings_machines_slot_held({
+        held: heavySlot.holders.length,
+        capacity: heavySlot.capacity,
+      })}</span
+    >
+  </div>
+  <div class="hp-cells">
+    {#each cells as cell, i (i)}
+      {#if cell.kind === "held"}
+        {@const h = cell.holder}
+        <div class="hp-cell hp-cell-held hp-row">
+          <SlotPips kinds={["held"]} />
+          <span class="hp-name">{nameOf(h.sessionId)}</span>
+          <span class="hp-dim hp-state">{stateLabel(h)}</span>
+          <span class="hp-dim hp-mono"
+            >{formatRuntime(h.startedAt, nowMs)} · {formatBytes(h.rssBytes)}</span
+          >
+          <!-- Another machine's slot gets no release: none reaches it from here. -->
+          {#if own && confirming === h.sessionId}
+            <p class="hp-confirm">{m.heavyslot_release_confirm({ name: nameOf(h.sessionId) })}</p>
+            <span class="hp-actions">
+              <button type="button" class="hp-btn" onclick={() => void release(h.sessionId)}>
+                {m.heavyslot_release_confirm_yes()}
+              </button>
+              <button type="button" class="hp-btn" onclick={() => (confirming = null)}>
+                {m.heavyslot_release_cancel()}
+              </button>
+            </span>
+            {#if releaseFailed}<p class="hp-err" role="alert">
+                {m.heavyslot_release_failed()}
+              </p>{/if}
+          {:else if own}
+            <button type="button" class="hp-btn" onclick={() => (confirming = h.sessionId)}>
+              {m.heavyslot_release()}
+            </button>
+          {/if}
+          {@render commandToggle(`h:${h.sessionId}`, h.command)}
+        </div>
+      {:else}
+        <div class="hp-cell hp-cell-{cell.kind}">
+          <SlotPips kinds={[cell.kind]} />
+          <span class="hp-cell-text">
+            <span class="hp-name">{m.heavyslot_slot_free({ n: cell.n })}</span>
+            <span class="hp-cell-sub"
+              >{cell.kind === "free" ? m.heavyslot_slot_ready() : m.heavyslot_slot_blocked()}</span
+            >
+          </span>
+        </div>
       {/if}
-      {@render commandToggle(`h:${h.sessionId}`, h.command)}
-    </div>
-  {:else}
-    <p class="hp-dim">{m.heavyslot_none_holding()}</p>
-  {/each}
+    {/each}
+  </div>
 </section>
 
 <section>
@@ -161,8 +190,8 @@
   {:else}
     <p class="hp-dim">{m.heavyslot_queue_empty()}</p>
   {/each}
-  {#if brake}
-    <p class="hp-brake" class:hp-pacing={pacing}>{brake}</p>
+  {#if pacingLine}
+    <p class="hp-pacing">{pacingLine}</p>
   {/if}
 </section>
 
@@ -172,48 +201,7 @@
   {@render fold("pressure", pressureOpen, m.heavyslot_pressure_memory(), ramSummary)}
 {/if}
 {#if pressureOpen}
-  <section>
-    <h3>{m.heavyslot_pressure()}</h3>
-    <dl class="hp-kv">
-      <dt>{m.heavyslot_ram_row()}</dt>
-      <dd>
-        {ram == null ? "–" : `${ram} %`} · {formatBytes(p.ramAvailableBytes)} / {formatBytes(
-          p.ramTotalBytes,
-        )}
-      </dd>
-      <dt>{m.heavyslot_swap_row()}</dt>
-      <dd>{formatBytes(p.swapUsedBytes)} / {formatBytes(p.swapTotalBytes)}</dd>
-      <dt>{m.heavyslot_mem_psi()}</dt>
-      <dd>
-        {p.memFullAvg10 == null ? "–" : `${p.memFullAvg10} %`}
-        {#if bar}
-          <span class="hp-bar" aria-hidden="true">
-            <span class="hp-fill" style:width="{bar.fill * 100}%"></span>
-            <span class="hp-limit" style:left="{bar.limit * 100}%"></span>
-          </span>
-          <span class="hp-dim hp-sans"
-            >{m.heavyslot_mem_psi_limit({ limit: p.memBrakeThreshold ?? 0 })}</span
-          >
-        {/if}
-      </dd>
-      <dt>{m.heavyslot_cpu_psi()}</dt>
-      <dd>{p.cpuSomeAvg10 == null ? "–" : `${p.cpuSomeAvg10} %`}</dd>
-    </dl>
-  </section>
-
-  <section>
-    <h3>{m.heavyslot_source()}</h3>
-    <dl class="hp-kv">
-      <dt>{m.heavyslot_source_agents()}</dt>
-      <dd>{formatBytes(src.agentsBytes)}</dd>
-      <dt>{m.heavyslot_source_foreign()}</dt>
-      <dd>{formatBytes(src.foreignBytes)}</dd>
-      {#each src.foreignTop as f (f.name)}
-        <dt class="hp-dim hp-mono">{f.name}</dt>
-        <dd class="hp-dim">{formatBytes(f.bytes)}</dd>
-      {/each}
-    </dl>
-  </section>
+  <SlotGauges {heavySlot} />
 {/if}
 
 {#if folded && hasResults}
@@ -263,6 +251,61 @@
     font-weight: 400;
     margin: 10px 0 4px;
   }
+  /* The slots heading with their count pushed right. */
+  .hp-sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin: 10px 0 4px;
+  }
+  .hp-sec-head h3 {
+    margin: 0;
+  }
+  .hp-sec-head > .hp-push {
+    margin-left: auto;
+  }
+  /* One cell per slot: a held one spans the row (name, runtime, release, command), free and
+     blocked ones sit side by side. */
+  .hp-cells {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .hp-cell {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 140px;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-chip);
+  }
+  .hp-cell.hp-cell-held {
+    flex-basis: 100%;
+    padding: 6px 8px;
+    border-color: color-mix(in srgb, var(--color-amber) 45%, transparent);
+  }
+  .hp-cell-free {
+    border-color: color-mix(in srgb, var(--color-green) 45%, transparent);
+  }
+  .hp-cell-blocked {
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--color-red) 50%, transparent);
+  }
+  .hp-cell-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+  .hp-cell-sub {
+    color: var(--color-green);
+  }
+  .hp-cell-blocked .hp-cell-sub {
+    color: color-mix(in srgb, var(--color-red) 75%, var(--color-ink-bright));
+  }
   .hp-row {
     display: flex;
     flex-wrap: wrap;
@@ -308,18 +351,6 @@
   .hp-cmd:focus-visible {
     outline: 1px solid var(--color-amber);
   }
-  /* no .sr-only util in app.css (same as CommandBar) */
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-    border: 0;
-  }
   .hp-chev {
     flex-shrink: 0;
   }
@@ -343,9 +374,6 @@
   .hp-mono {
     font-family: var(--font-mono);
   }
-  .hp-sans {
-    font-family: var(--font-sans);
-  }
   .hp-res {
     font-weight: 600;
   }
@@ -359,14 +387,14 @@
   .hp-res-aborted {
     color: var(--color-muted);
   }
-  .hp-brake,
   .hp-err {
     color: var(--color-red);
     margin: 4px 0 0;
   }
   /* Brake let go, waiting starts follow one by one: still waiting, no longer red. */
-  .hp-brake.hp-pacing {
+  .hp-pacing {
     color: var(--color-amber);
+    margin: 4px 0 0;
   }
   .hp-note {
     margin-bottom: 4px;
@@ -402,37 +430,6 @@
   }
   .hp-btn:focus-visible {
     outline: 1px solid var(--color-amber);
-  }
-  .hp-kv {
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 3px 12px;
-    margin: 0;
-  }
-  .hp-kv dd {
-    margin: 0;
-    font-family: var(--font-mono);
-  }
-  .hp-bar {
-    position: relative;
-    display: inline-block;
-    width: 80px;
-    height: 6px;
-    margin: 0 6px;
-    vertical-align: middle;
-    background: color-mix(in srgb, var(--color-line) 60%, transparent);
-  }
-  .hp-fill {
-    position: absolute;
-    inset: 0 auto 0 0;
-    background: var(--color-amber);
-  }
-  .hp-limit {
-    position: absolute;
-    top: -2px;
-    bottom: -2px;
-    width: 1px;
-    background: var(--color-red);
   }
   /* A machine among several: pressure and results fold behind a one-line summary each. */
   .hp-fold {

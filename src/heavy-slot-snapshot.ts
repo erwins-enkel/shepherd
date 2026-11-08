@@ -3,7 +3,7 @@
 
 import { DISABLED_HEAVY_SLOT as disabledSnapshot } from "./heavy-slot-default";
 import { captureRevision, type HeavySlotRevision, isStale } from "./heavy-slot-revision";
-import type { HeavyJob } from "./heavy-slot-core";
+import type { HeavyBrakeReason, HeavyJob } from "./heavy-slot-core";
 import type { SessionStore } from "./store";
 
 export interface HeavySlotHolder {
@@ -27,6 +27,8 @@ export interface HeavySlotWaiter {
 export interface HeavySlotPressure {
   ramAvailableBytes: number | null;
   ramTotalBytes: number | null;
+  /** The brake engages when `ramAvailableBytes` drops below this. */
+  ramMinAvailableBytes: number | null;
   swapUsedBytes: number | null;
   swapTotalBytes: number | null;
   /** Memory PSI `full` avg10, percent. */
@@ -35,6 +37,18 @@ export interface HeavySlotPressure {
   memBrakeThreshold: number | null;
   /** CPU PSI `some` avg10, percent. */
   cpuSomeAvg10: number | null;
+}
+
+export interface HeavySlotBrake {
+  active: boolean;
+  reason: "memory" | null;
+  /** The limit that engaged it (the latest over-limit reading); null while off. */
+  cause: HeavyBrakeReason | null;
+  /** Readings are back under both limits: the brake lets go at this time if they stay there.
+   *  Null while off or while a reading is still over a limit. */
+  releaseAt: number | null;
+  /** How long readings must stay under the limits before the brake lets go. */
+  releaseHoldMs: number | null;
 }
 
 export interface HeavySlotMemoryBySource {
@@ -77,7 +91,7 @@ export interface HeavySlotSnapshot {
   capacity: number;
   holders: HeavySlotHolder[];
   waiters: HeavySlotWaiter[];
-  brake: { active: boolean; reason: "memory" | null };
+  brake: HeavySlotBrake;
   pressure: HeavySlotPressure;
   memoryBySource: HeavySlotMemoryBySource;
   lastResults: HeavySlotLastResult[];
@@ -230,10 +244,20 @@ export function parseHeavySlotSnapshot(raw: unknown): HeavySlotSnapshot | null {
     capacity: raw.capacity,
     holders: parseList(raw.holders, parseHolder),
     waiters: parseList(raw.waiters, parseWaiter),
-    brake: { active: brake.active === true, reason: brake.reason === "memory" ? "memory" : null },
+    brake: {
+      active: brake.active === true,
+      reason: brake.reason === "memory" ? "memory" : null,
+      cause:
+        brake.cause === "memory_available" || brake.cause === "memory_pressure"
+          ? brake.cause
+          : null,
+      releaseAt: orNull(brake.releaseAt),
+      releaseHoldMs: orNull(brake.releaseHoldMs),
+    },
     pressure: {
       ramAvailableBytes: orNull(p.ramAvailableBytes),
       ramTotalBytes: orNull(p.ramTotalBytes),
+      ramMinAvailableBytes: orNull(p.ramMinAvailableBytes),
       swapUsedBytes: orNull(p.swapUsedBytes),
       swapTotalBytes: orNull(p.swapTotalBytes),
       memFullAvg10: orNull(p.memFullAvg10),

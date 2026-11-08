@@ -329,6 +329,9 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/sessions/:p/ci/restart",
     "/api/sessions/:p/rename",
     "/api/sessions/:p/replace",
+    // Continue with… offers a machine only while one is connected; the demo connects none,
+    // so the Machine field never shows and a move is never sent.
+    "/api/sessions/:p/move",
     "/api/sessions/:p/resume",
     "/api/sessions/:p/restore",
     "/api/sessions/:p/relaunch",

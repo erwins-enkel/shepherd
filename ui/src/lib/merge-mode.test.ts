@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MERGE_MODES, mergeModeOf, mergeModePatch } from "./merge-mode";
+import { MERGE_MODES, effectiveMergeMode, mergeModeOf, mergeModePatch } from "./merge-mode";
 
 describe("mergeModeOf", () => {
   it("reads each config shape", () => {
@@ -26,5 +26,13 @@ describe("mergeModePatch", () => {
       expect(patch.draftMode && patch.autoMergeEnabled).toBe(false);
       expect(mergeModeOf(patch)).toBe(mode);
     }
+  });
+});
+
+describe("effectiveMergeMode", () => {
+  it("reads a local-only repo's stored draft as you merge, and keeps the other modes", () => {
+    expect(effectiveMergeMode({ draftMode: true, autoMergeEnabled: false }, true)).toBe("manual");
+    expect(effectiveMergeMode({ draftMode: false, autoMergeEnabled: true }, true)).toBe("auto");
+    expect(effectiveMergeMode({ draftMode: true, autoMergeEnabled: false }, false)).toBe("draft");
   });
 });

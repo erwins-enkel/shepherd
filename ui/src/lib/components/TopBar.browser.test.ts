@@ -44,13 +44,17 @@ vi.mock("#lib/api.js", async (importOriginal) => {
       resetAt: 0,
       accounts: [],
     })),
+    // The failover block's repos that stay on the exhausted CLI (#3448); none unless a test says.
+    getRepoRunDefaults: vi.fn(async () => ({ repos: [] })),
   };
 });
 
 const { default: TopBar } = await import("./TopBarPhoneHarness.test.svelte");
 const { default: CapacityWait } = await import("./top-bar/CapacityWait.svelte");
 const { default: TopBarLimitsHarness } = await import("./TopBarLimitsHarness.svelte");
-const { refreshUsage, listHeld, getSettings, updateEpic } = await import("#lib/api.js");
+const { refreshUsage, listHeld, getSettings, updateEpic, getRepoRunDefaults } =
+  await import("#lib/api.js");
+const { repoSettingsWindow } = await import("#lib/repo-settings-window.svelte.js");
 
 // Deterministic measurement: pin the bar's font so CI (no Berkeley Mono) and
 // local agree. Mounted into a full-width container; widths come from page.viewport.
@@ -1203,6 +1207,56 @@ describe("Usage panel — held tasks and what the limit holds back", () => {
       .element(panel.getByText(m.capacity_nothing_waiting_body({ pct: 80 })))
       .toBeVisible();
     await expect.element(panel.getByText(m.capacity_below_limit())).toBeVisible();
+  });
+
+  it("desktop: a repo the failover leaves on Claude Code opens its Agent environment settings", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    vi.mocked(getSettings).mockResolvedValue({
+      ...holdSettings,
+      defaultAgentProvider: "codex",
+      providerFailover: { active: true, from: "claude", current: "codex" },
+    } as Settings);
+    vi.mocked(getRepoRunDefaults).mockResolvedValueOnce({
+      repos: [
+        {
+          repoPath: "/real/app",
+          name: "app",
+          agentProvider: "claude",
+          defaultModel: "inherit",
+          defaultEffort: "inherit",
+          defaultExecutionEffort: "inherit",
+        },
+      ],
+    });
+    const appSessions = ["a", "b"].map((id) => ({
+      id,
+      repoPath: "/real/app",
+      status: "running",
+    })) as unknown as Session[];
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: appSessions,
+      limits: fullLimits,
+    });
+    const toggle = document.querySelector<HTMLButtonElement>(".gauges-toggle")!;
+    toggle.focus();
+    toggle.click();
+
+    const panel = page.getByRole("dialog", { name: m.topbar_gauge_popover_title() });
+    const sessions = m.usage_failover_staying_sessions_other({ count: 2 });
+    await panel
+      .getByRole("button", { name: m.usage_failover_staying_open_aria({ repo: "app", sessions }) })
+      .click();
+
+    await expect.element(panel).not.toBeInTheDocument();
+    await vi.waitFor(() =>
+      expect(repoSettingsWindow.target).toMatchObject({ repoPath: "/real/app", section: "agent" }),
+    );
+    expect(repoSettingsWindow.target?.opener, "focus goes back to the usage trigger").toBe(toggle);
+    repoSettingsWindow.target = null;
   });
 
   it("shows an inline error when a held-task spawn was refused server-side", async () => {

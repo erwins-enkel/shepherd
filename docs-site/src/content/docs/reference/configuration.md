@@ -199,7 +199,9 @@ The engine's default is what you get in these places:
   and you accept the switch, the substitute becomes the default CLI until the original has room
   again. Everything started in that window runs on the substitute's **own** default — not on the
   effort you meant for the engine it stands in for. Settings names it in the note under
-  **Default coding CLI**.
+  **Default coding CLI**. A repo with its own **Coding CLI** stays on it: the usage panel names
+  the repos set to the exhausted CLI that have sessions running, with their count, and each opens
+  that repo's Agent environment settings.
 - **Role agents** on CLI `inherit` with effort `default` follow the effort of the engine they
   run on.
 

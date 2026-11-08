@@ -8388,5 +8388,11 @@
   "tooltip_autonomy_custom": "Eigene Mischung",
   "tooltip_autonomy_custom_body": "Steht da, wenn die fünf Einstellungen zu keiner Stufe passen. Ändere eine davon in ihrem Bereich, und die Stufe folgt.",
   "feat_autonomy_levels_title": "Autonomie-Stufen pro Repo",
-  "feat_autonomy_levels_body": "Die Repo-Einstellungen öffnen jetzt bei Autonomie: Auf Zuruf, Mit Review, Backlog oder Voll-Auto setzen Kritiker, Auto-Korrektur, Autopilot, Backlog-Abarbeitung und die Art, wie fertige PRs landen, mit einem Klick – und zeigen, wer welchen Schritt macht, Shepherd oder du. Unter „Repo-Einstellungen …“ im Kontextmenü von Repo-Tab und Session-Zeile steht eine Zeile mit Stufe, Coding-CLI und Merge-Art, dazu jeder Hinweis aus den Einstellungen."
+  "feat_autonomy_levels_body": "Die Repo-Einstellungen öffnen jetzt bei Autonomie: Auf Zuruf, Mit Review, Backlog oder Voll-Auto setzen Kritiker, Auto-Korrektur, Autopilot, Backlog-Abarbeitung und die Art, wie fertige PRs landen, mit einem Klick – und zeigen, wer welchen Schritt macht, Shepherd oder du. Unter „Repo-Einstellungen …“ im Kontextmenü von Repo-Tab und Session-Zeile steht eine Zeile mit Stufe, Coding-CLI und Merge-Art, dazu jeder Hinweis aus den Einstellungen.",
+  "usage_failover_staying_title": "Diese Repos sind fest auf {provider} eingestellt und bleiben dort:",
+  "usage_failover_staying_sessions_one": "1 Session",
+  "usage_failover_staying_sessions_other": "{count} Sessions",
+  "usage_failover_staying_open_aria": "{repo}, {sessions}: Einstellungen zur Agent-Umgebung öffnen",
+  "feat_failover_staying_repos_title": "Repos, die beim Wochenlimit-Wechsel nicht mitwechseln",
+  "feat_failover_staying_repos_body": "Bietet das Auslastungs-Panel einen Wechsel des Standard-Coding-CLI an oder zeigt es einen an, nennt es jetzt die Repos, die fest auf das erschöpfte CLI eingestellt sind und in denen Sessions laufen, samt Anzahl — sie starten weiter auf diesem CLI. Jeder Eintrag öffnet die Agent-Umgebung in den Einstellungen dieses Repositorys."
 }

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
   import type { ProviderFailoverOffer } from "#lib/provider-capacity.js";
-  import type { AgentProvider, ProviderFailoverStatus } from "#lib/types.js";
+  import type { AgentProvider, ProviderFailoverStatus, Session } from "#lib/types.js";
+  import FailoverStayingRepos from "./FailoverStayingRepos.svelte";
 
   // The capacity-failover control inside the usage hero: switch the default coding CLI to the
   // counterpart that still has weekly headroom, or undo a switch already in effect. Its own
@@ -12,6 +13,9 @@
   // the hottest window across all providers, which can be a 5h window or the non-default CLI,
   // while the trigger is always the default CLI's WEEKLY window. Without the line the button
   // could read as contradicting the number right above it.
+  //
+  // Below the button, the repos the switch leaves on the exhausted CLI (#3448). Outside the
+  // offer/active branches on purpose: engaging keeps the same list instead of reloading it.
   let {
     offer,
     failover,
@@ -19,6 +23,8 @@
     failed,
     onEngage,
     onRelease,
+    sessions,
+    onOpenRepo,
   }: {
     offer: ProviderFailoverOffer | null;
     failover: ProviderFailoverStatus | null;
@@ -26,11 +32,16 @@
     failed: boolean;
     onEngage: () => void;
     onRelease: () => void;
+    /** This machine's sessions — counted per repo for the repos that stay put. */
+    sessions: readonly Session[];
+    onOpenRepo: (repoPath: string) => void;
   } = $props();
 
   const providerName = (provider: AgentProvider) =>
     provider === "claude" ? m.agent_provider_claude() : m.agent_provider_codex();
   const active = $derived(failover?.active === true && failover.from !== null);
+  // The exhausted CLI: the one switched away from, or the one the offer would leave.
+  const exhausted = $derived(active ? (failover?.from ?? null) : (offer?.from ?? null));
 </script>
 
 {#if active || offer}
@@ -60,6 +71,9 @@
       <button type="button" class="failover-btn accent" disabled={busy} onclick={onEngage}>
         {m.usage_failover_engage({ provider: providerName(offer.to) })}
       </button>
+    {/if}
+    {#if exhausted}
+      <FailoverStayingRepos from={exhausted} {sessions} {onOpenRepo} />
     {/if}
   </div>
 {/if}

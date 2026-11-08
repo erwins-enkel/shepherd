@@ -42,7 +42,12 @@ import {
   TerminalSessionError,
   TerminalUnsupportedError,
 } from "./service";
-import { WorktreeMissingBaseError, WorktreeOccupiedError, WorktreeRestoreError } from "./worktree";
+import {
+  ContinuationBranchError,
+  WorktreeMissingBaseError,
+  WorktreeOccupiedError,
+  WorktreeRestoreError,
+} from "./worktree";
 import { SHEPHERD_VERSION } from "./version";
 import {
   SpawnCanceled,
@@ -106,6 +111,7 @@ import {
   taskKindConflict,
   validateModelChoice,
   validateReplaceAgentChoice,
+  validateSessionMove,
   validateCloneUrl,
   validateForkTarget,
   validateNewProject,
@@ -246,7 +252,27 @@ import {
   type RemoteRefusalCode,
   placementOf,
 } from "./remote-instances/dispatch";
-import { isRecord } from "./remote-instances/client";
+import {
+  isRecord,
+  postRemoteJson,
+  requestRemote,
+  type RemoteTarget,
+} from "./remote-instances/client";
+import {
+  type HandoffPrepared,
+  type MoveReply,
+  type MoveSourcePort,
+  type MoveTargetPort,
+  type TargetOutcome,
+  runMove,
+} from "./remote-instances/move";
+import {
+  HandoffGitError,
+  HandoffRefusedError,
+  copyHandoffFile,
+  isUploadName,
+  type HandoffSource,
+} from "./session-handoff";
 import { IncomingMirrors, type MirrorClaim, parseMirrorClaim } from "./remote-instances/incoming";
 import {
   clearMergedAcross,
@@ -364,7 +390,15 @@ import { sessionMessages } from "./agent-messages";
 import { SessionPhaseService } from "./session-phase";
 import { GoalTracker, PLAN_GATE_STOP_REASON } from "./goal";
 import { firstRun } from "./first-run";
-import { handleUpload, parseUploadFile, MAX_UPLOAD_BYTES, MAX_REQUEST_BODY_BYTES } from "./uploads";
+import {
+  handleUpload,
+  parseUploadFile,
+  MAX_UPLOAD_BYTES,
+  MAX_REQUEST_BODY_BYTES,
+  stagingDir,
+  uploadExtensionFromName,
+  uploadFilename,
+} from "./uploads";
 import type { UsageLimits, UsageLimitsService } from "./usage-limits";
 import type { UpdateRefusal, UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
@@ -519,7 +553,7 @@ import { SNAPSHOT_TTL_MS, type OpenPrSnapshotService } from "./open-pr-snapshot"
 import { landingPrCache } from "./landing-pr-cache";
 import { dirname, join, normalize, basename, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import type { BunFile, Server, ServerWebSocket } from "bun";
 import {
   ENCODING_SUFFIX,
@@ -4597,6 +4631,8 @@ function createErrorResponse(e: unknown): Response {
   // steps around that, so this is a conflict the operator resolves by retrying (which re-runs
   // selection), not a server fault — hence 409 rather than the 502 below.
   if (e instanceof WorktreeOccupiedError) return json({ error: e.message }, 409);
+  // A moved session's branch could not be checked out here (stale push, diverged or in use).
+  if (e instanceof ContinuationBranchError) return json({ error: e.message, code: e.code }, 409);
   // A bootstrap spawn whose House Stack did not resolve (#3109): the UI names the packages.
   if (e instanceof HouseStackUnresolvedError)
     return json({ error: e.message, code: "house_stack_unresolved", errors: e.errors }, 502);
@@ -7425,6 +7461,509 @@ async function handleSessionReplace({ req, parts, deps }: Ctx): Promise<Response
   } finally {
     inFlightReplace.delete(id);
   }
+}
+
+// ── Session move: "Continue with…" on another machine ──────────────────────────────────────────
+// The coordinator runs it (`POST /api/sessions/:id/move`, see remote-instances/move.ts); the
+// session's own machine prepares, completes or aborts it (`POST /api/sessions/:id/handoff/*`),
+// in-process when that is this Shepherd.
+
+/** The source pushes over a slow link and stops an agent first: give it the push's own timeout. */
+const HANDOFF_PREPARE_TIMEOUT_MS = 180_000;
+/** Archiving runs the recap and reaps leftovers. */
+const HANDOFF_COMPLETE_TIMEOUT_MS = 60_000;
+const HANDOFF_FILE_TIMEOUT_MS = 60_000;
+const MACHINE_NAME_MAX = 128;
+
+const HANDOFF_REFUSAL_STATUS: Record<HandoffRefusedError["code"], number> = {
+  not_found: 404,
+  move_no_branch: 422,
+  move_unsupported_kind: 422,
+  move_merging: 409,
+  handoff_in_progress: 409,
+};
+
+function handoffFailure(e: unknown): MoveReply {
+  if (e instanceof HandoffRefusedError)
+    return { status: HANDOFF_REFUSAL_STATUS[e.code], body: { error: e.message, code: e.code } };
+  if (e instanceof HandoffGitError) return { status: 502, body: { error: e.detail, code: e.code } };
+  if (e instanceof TerminalSessionError || e instanceof OperatorAssistantSessionError)
+    return { status: 422, body: { error: e.message, code: "move_unsupported_kind" } };
+  return { status: 500, body: { error: e instanceof Error ? e.message : "handoff failed" } };
+}
+
+/** Source, step 1, for a session of THIS Shepherd: the linked issue re-resolved first (a failure
+ *  touches nothing; a routed issue lives in another repo's tracker and is not carried), then stop,
+ *  snapshot and push. */
+async function prepareHandoffHere(
+  deps: AppDeps,
+  id: string,
+  to: { name: string },
+): Promise<{ ok: true; handoff: HandoffPrepared } | ({ ok: false } & MoveReply)> {
+  const s = deps.store.get(id);
+  if (!s || s.status === "archived")
+    return { ok: false, ...handoffFailure(new HandoffRefusedError("not_found")) };
+  let issueRef: IssueRef | null = null;
+  if (!s.homeIssueRepoPath || s.homeIssueRepoPath === s.repoPath) {
+    const resolved = await reResolveRelaunchIssue(s, deps);
+    if (resolved === false)
+      return {
+        ok: false,
+        status: 502,
+        body: { error: "could not re-resolve linked issue", code: "issue_unresolved" },
+      };
+    issueRef = resolved ?? null;
+  }
+  try {
+    const source = await deps.service.prepareHandoff(id, to);
+    const now = deps.store.get(id);
+    if (now) deps.events.emit("session:status", now);
+    return { ok: true, handoff: { ...source, issueRef } };
+  } catch (e) {
+    return { ok: false, ...handoffFailure(e) };
+  }
+}
+
+/** Source, step 3: the session runs elsewhere now — archive it like a relaunched original. */
+async function completeHandoffHere(
+  deps: AppDeps,
+  id: string,
+  carriedIssue: boolean,
+): Promise<boolean> {
+  const { cleared } = await deps.service.archiveMany([id], "relaunch");
+  const archived = cleared.includes(id);
+  if (!archived) {
+    // The hold stays until it expires: the target already runs this branch.
+    console.warn(`[move] teardown of moved original ${id} failed; left active`);
+    return false;
+  }
+  deps.service.releaseHandoff(id);
+  // Stamped before the archived event, which the drain consumes synchronously (see
+  // finalizeRelaunch): the moved session carries the issue, so this is not a retire.
+  if (carriedIssue) deps.drain?.retainClaim(id);
+  deps.prCache?.drop(id);
+  deps.events.emit("session:archived", { id });
+  return true;
+}
+
+async function abortHandoffHere(deps: AppDeps, id: string): Promise<void> {
+  const session = await deps.service.abortHandoff(id);
+  if (session) deps.events.emit("session:status", session);
+}
+
+function isMachineName(v: unknown): v is string {
+  return typeof v === "string" && v.length > 0 && v.length <= MACHINE_NAME_MAX;
+}
+
+/** POST /api/sessions/:id/handoff/{prepare,complete,abort} — the source half of a move, for a
+ *  session of this Shepherd. Called by the coordinator (another Shepherd with a full token, or
+ *  this one in-process); never by an agent or a repository-restricted token. */
+async function handleSessionHandoff({
+  req,
+  parts,
+  deps,
+  token,
+  agentIngress,
+}: Ctx): Promise<Response | null> {
+  const action = sessionLeafPost(req, parts, "handoff", 5) ? HANDOFF_ACTIONS.get(parts[4]!) : null;
+  if (action === null) return null;
+  if (agentIngress || (token && token.repoPaths !== null) || !action)
+    return json({ error: "not found" }, 404);
+  const id = parts[2]!;
+  if (!deps.store.get(id)) return json({ error: "not found" }, 404);
+  const body = (await req.json().catch(() => null)) as unknown;
+  return action(deps, id, isRecord(body) ? body : {});
+}
+
+/** `POST /api/sessions/:id/<leaf>…` with exactly `length` path parts. */
+function sessionLeafPost(req: Request, parts: readonly string[], leaf: string, length: number) {
+  return (
+    req.method === "POST" &&
+    parts[0] === "api" &&
+    parts[1] === "sessions" &&
+    !!parts[2] &&
+    parts[3] === leaf &&
+    parts.length === length
+  );
+}
+
+type HandoffAction = (
+  deps: AppDeps,
+  id: string,
+  body: Record<string, unknown>,
+) => Promise<Response>;
+
+/** A Map, not an object: a path segment like `constructor` never resolves through the prototype. */
+const HANDOFF_ACTIONS = new Map<string, HandoffAction>([
+  [
+    "prepare",
+    async (deps, id, body) => {
+      const to = isRecord(body.to) ? body.to : null;
+      if (!to || !isMachineName(to.name))
+        return json({ error: "to.name must be a machine name" }, 400);
+      const r = await prepareHandoffHere(deps, id, { name: to.name });
+      return r.ok ? json({ handoff: r.handoff }) : json(r.body, r.status);
+    },
+  ],
+  [
+    "complete",
+    async (deps, id, body) => {
+      if (typeof body.carriedIssue !== "boolean")
+        return json({ error: "carriedIssue must be a boolean" }, 400);
+      // Only a session this machine prepared for a move is archived this way.
+      if (!deps.service.handoffHeld(id))
+        return json({ error: "no move in progress", code: "handoff_not_in_progress" }, 409);
+      return json({ archived: await completeHandoffHere(deps, id, body.carriedIssue) });
+    },
+  ],
+  [
+    "abort",
+    async (deps, id) => {
+      await abortHandoffHere(deps, id);
+      return json({ ok: true });
+    },
+  ],
+]);
+
+/** A source's prepare answer, as far as a move relies on it; null when it is not one. Carried files
+ *  are only the plan and plain uploads — whatever else a machine names is dropped. */
+function parseHandoffPrepared(body: unknown): HandoffPrepared | null {
+  const h = isRecord(body) && isRecord(body.handoff) ? body.handoff : null;
+  if (!h) return null;
+  const str = (k: string) => typeof h[k] === "string";
+  const boolOrNull = (k: string) => typeof h[k] === "boolean" || h[k] === null;
+  if (!["branch", "headCommit", "repoPath", "baseBranch", "prompt", "desig"].every(str))
+    return null;
+  if (h.agentProvider !== "claude" && h.agentProvider !== "codex") return null;
+  if (!boolOrNull("planGateEnabled") || !boolOrNull("autopilotEnabled")) return null;
+  const strings = (v: unknown) =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  const issue = isRecord(h.issueRef) ? h.issueRef : null;
+  return {
+    ...(h as unknown as HandoffSource),
+    committed: h.committed === true,
+    research: h.research === true,
+    epicAuthoring: h.epicAuthoring === true,
+    plain: h.plain === true,
+    amendments: strings(h.amendments),
+    files: strings(h.files).filter((rel) => rel === PLAN_FILE || isUploadName(rel)),
+    issueRef:
+      issue &&
+      typeof issue.number === "number" &&
+      typeof issue.title === "string" &&
+      typeof issue.url === "string" &&
+      typeof issue.body === "string"
+        ? { number: issue.number, title: issue.title, url: issue.url, body: issue.body }
+        : null,
+  };
+}
+
+function localMoveSource(deps: AppDeps, id: string, host: SessionHost): MoveSourcePort {
+  return {
+    host,
+    prepare: (to) => prepareHandoffHere(deps, id, to),
+    fetchFile: async (rel, dest) => {
+      const s = deps.store.get(id);
+      return !!s && copyHandoffFile(s.worktreePath, rel, dest);
+    },
+    complete: (carriedIssue) => completeHandoffHere(deps, id, carriedIssue),
+    abort: () => abortHandoffHere(deps, id),
+  };
+}
+
+function remoteMoveSource(
+  route: MachineRoute & { target: RemoteTarget },
+  id: string,
+): MoveSourcePort {
+  const { target, host } = route;
+  const path = (leaf: string) => `/api/sessions/${encodeURIComponent(id)}/handoff/${leaf}`;
+  const abort = async () => {
+    await postRemoteJson(target, path("abort"), "{}", { timeoutMs: HANDOFF_COMPLETE_TIMEOUT_MS });
+  };
+  return {
+    host,
+    prepare: async (to) => {
+      const res = await postRemoteJson(
+        target,
+        path("prepare"),
+        JSON.stringify({ to: { name: to.name } }),
+        {
+          timeoutMs: HANDOFF_PREPARE_TIMEOUT_MS,
+        },
+      );
+      if (res.kind === "no_answer") {
+        // It may have stopped and pushed: bring its agent back rather than leave it held.
+        await abort().catch(() => {});
+        return {
+          ok: false,
+          status: 502,
+          body: {
+            error: `${host.name} did not answer`,
+            code: "machine_unreachable",
+            machine: host.name,
+          },
+        };
+      }
+      const handoff = res.status === 200 ? parseHandoffPrepared(res.body) : null;
+      if (handoff) return { ok: true, handoff };
+      if (res.status === 200) await abort().catch(() => {});
+      const body = isRecord(res.body) ? res.body : { error: `${host.name} refused the move` };
+      return {
+        ok: false,
+        status: res.status === 200 ? 502 : res.status,
+        body: { ...body, machine: host.name },
+      };
+    },
+    fetchFile: async (rel, dest) => {
+      const res = await requestRemote(
+        target,
+        `/api/sessions/${encodeURIComponent(id)}/worktree/download?path=${encodeURIComponent(rel)}`,
+        { method: "GET" },
+        { timeoutMs: HANDOFF_FILE_TIMEOUT_MS },
+      );
+      if (!res.ok) return false;
+      if (res.response.status !== 200) {
+        await res.response.body?.cancel().catch(() => {});
+        return false;
+      }
+      const bytes = await res.response.arrayBuffer().catch(() => null);
+      if (!bytes || bytes.byteLength > MAX_UPLOAD_BYTES) return false;
+      await Bun.write(dest, bytes);
+      return true;
+    },
+    complete: async (carriedIssue) => {
+      const res = await postRemoteJson(target, path("complete"), JSON.stringify({ carriedIssue }), {
+        timeoutMs: HANDOFF_COMPLETE_TIMEOUT_MS,
+      });
+      return (
+        res.kind === "answered" &&
+        res.status === 200 &&
+        isRecord(res.body) &&
+        res.body.archived === true
+      );
+    },
+    abort,
+  };
+}
+
+function localMoveTarget(deps: AppDeps, host: SessionHost): MoveTargetPort {
+  return {
+    host,
+    create: async (body) => {
+      const result = validateCreate(body, config.repoRoot);
+      if (!result.ok) return { kind: "failed", status: 400, body: { error: result.error } };
+      const value = result.value;
+      if (value.terminal === true)
+        return { kind: "failed", status: 400, body: { error: "not a task" } };
+      let session: Session;
+      try {
+        session = await deps.service.create(value);
+      } catch (e) {
+        const res = createErrorResponse(e);
+        return {
+          kind: "failed",
+          status: res.status,
+          body: (await res.json()) as Record<string, unknown>,
+        };
+      }
+      deps.events.emit("session:new", session);
+      if (value.issueRef) {
+        const number = value.issueRef.number;
+        setTimeout(
+          () => void claimLinkedIssue(deps.resolveForge?.(value.repoPath) ?? null, number),
+          0,
+        );
+      }
+      return { kind: "started", session: session as unknown as Record<string, unknown> };
+    },
+  };
+}
+
+function remoteMoveTarget(deps: AppDeps, host: SessionHost, project: string): MoveTargetPort {
+  return {
+    host,
+    create: async (body, key): Promise<TargetOutcome> => {
+      const outcome = await remoteDispatcher(deps).submit({
+        clientKey: key,
+        instanceId: host.instanceId,
+        project,
+        body,
+        payloadHash: payloadHash(body),
+      });
+      switch (outcome.kind) {
+        case "started":
+          return { kind: "started", session: outcome.session };
+        case "held":
+          return {
+            kind: "held",
+            body: { held: true, id: outcome.id, count: outcome.count, host: outcome.host },
+          };
+        case "unknown":
+          return { kind: "unknown", body: { dispatchId: outcome.dispatchKey, host: outcome.host } };
+        default: {
+          const res = remoteOutcomeResponse(outcome);
+          return {
+            kind: "failed",
+            status: res.status,
+            body: (await res.json()) as Record<string, unknown>,
+          };
+        }
+      }
+    },
+  };
+}
+
+/** This Shepherd's checkout of the project with forge slug `project`, or null. */
+function localRepoForProject(deps: AppDeps, project: string): string | null {
+  for (const repo of listRepos(config.repoRoot))
+    if (repoRemoteSlug(deps.resolveForge?.(repo.path)) === project) return repo.path;
+  return null;
+}
+
+function moveStagePath(rel: string): string {
+  const dir = stagingDir(config.repoRoot);
+  mkdirSync(dir, { recursive: true });
+  return join(dir, uploadFilename(uploadExtensionFromName(basename(rel))));
+}
+
+const inFlightMove = new Set<string>();
+
+/**
+ * POST /api/sessions/:id/move — "Continue with…" on another machine: the session's work moves
+ * there (same branch, same PR) and the original is archived. Handled HERE for a mirrored session
+ * too — before `handleRemoteSessionRoute`, which would forward or refuse it — because this Shepherd
+ * orchestrates both machines; a session's own machine may not reach the target at all.
+ */
+async function handleSessionMove({
+  req,
+  parts,
+  deps,
+  token,
+  agentIngress,
+}: Ctx): Promise<Response | null> {
+  if (!sessionLeafPost(req, parts, "move", 4)) return null;
+  if (agentIngress) return json({ error: "not found" }, 404);
+  const id = parts[2]!;
+  const parsed = validateSessionMove((await req.json().catch(() => null)) as unknown);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  if (inFlightMove.has(id))
+    return json({ error: "move already in progress", code: "in_progress" }, 409);
+  inFlightMove.add(id);
+  try {
+    return await moveSessionNow(deps, id, token, parsed.value);
+  } finally {
+    inFlightMove.delete(id);
+  }
+}
+
+function sessionMoveError(status: number, code: string, error: string): Response {
+  return json({ error, code }, status);
+}
+
+/** The session's machine as a move source: this Shepherd's session, or a mirrored one. */
+function moveSourceFor(
+  deps: AppDeps,
+  id: string,
+  token: Ctx["token"],
+  here: SessionHost,
+): { source: MoveSourcePort; project: string | undefined; repoPath: string } | Response {
+  const local = deps.store.get(id);
+  if (local) {
+    if (local.status === "archived") return json({ error: "already archived" }, 409);
+    if (!tokenRepoAllowed(token, local.repoPath)) return json({ error: "not found" }, 404);
+    return {
+      source: localMoveSource(deps, id, here),
+      project: repoRemoteSlug(deps.resolveForge?.(local.repoPath)),
+      repoPath: local.repoPath,
+    };
+  }
+  // A repository grant names local paths only: it reaches no mirrored session.
+  const mirror = deps.remoteSessions;
+  if (!SESSION_ID_RE.test(id) || !mirror?.has(id) || (token && token.repoPaths !== null))
+    return json({ error: "not found" }, 404);
+  const route = mirror.route(id);
+  if (!route)
+    return sessionMoveError(
+      409,
+      "remote_ambiguous",
+      "more than one connected machine reports this session",
+    );
+  if (!route.target)
+    return sessionMoveError(502, "machine_unreachable", `${route.host.name} is not reachable`);
+  const mirrored = mirror.list().find((s) => s.id === id);
+  return {
+    source: remoteMoveSource({ ...route, target: route.target }, id),
+    project: mirrored?.remoteSlug,
+    repoPath: typeof mirrored?.repoPath === "string" ? mirrored.repoPath : "",
+  };
+}
+
+/** The machine a move goes to: this Shepherd (needs a checkout of the project) or a connected
+ *  machine that fits it by the placement rules. */
+async function moveTargetFor(
+  deps: AppDeps,
+  instanceId: string,
+  here: SessionHost,
+  project: string,
+  ownCheckout: string | null,
+): Promise<MoveTargetPort | Response> {
+  if (instanceId === here.instanceId)
+    return ownCheckout
+      ? localMoveTarget(deps, here)
+      : sessionMoveError(
+          422,
+          "move_project_missing_here",
+          "this machine has no checkout of this project",
+        );
+  const decision = await decide(deps, { requirements: [], project, override: instanceId });
+  if (!decision.ok) {
+    const { status, body } = placementRefusal(decision.refusal);
+    return json(body, status);
+  }
+  const machine = remoteInstances(deps).get(instanceId);
+  if (!machine) return json(REMOTE_REFUSAL.remote_target_unknown, 422);
+  const host = {
+    instanceId: machine.instanceId,
+    name: machine.name,
+    platform: machine.info?.platform ?? "",
+  };
+  return remoteMoveTarget(deps, host, project);
+}
+
+async function moveSessionNow(
+  deps: AppDeps,
+  id: string,
+  token: Ctx["token"],
+  request: Extract<ReturnType<typeof validateSessionMove>, { ok: true }>["value"],
+): Promise<Response> {
+  const { target: wanted, ...choice } = request;
+  const self = instanceIdentity(deps.store, hostPlatform(deps));
+  const here: SessionHost = {
+    instanceId: self.instanceId,
+    name: self.name,
+    platform: self.platform,
+  };
+  const from = moveSourceFor(deps, id, token, here);
+  if (from instanceof Response) return from;
+  if (!from.project) return json(PROJECT_UNKNOWN, 422);
+  if (wanted.instanceId === from.source.host.instanceId)
+    return sessionMoveError(
+      422,
+      "move_same_machine",
+      "the session already runs there; continue it in place",
+    );
+  const ownCheckout = localRepoForProject(deps, from.project);
+  const target = await moveTargetFor(deps, wanted.instanceId, here, from.project, ownCheckout);
+  if (target instanceof Response) return target;
+  const reply = await runMove({
+    sessionId: id,
+    source: from.source,
+    target,
+    choice,
+    repoPath: ownCheckout ?? from.repoPath,
+    stagePath: moveStagePath,
+  });
+  return json(reply.body, reply.status);
 }
 
 // Serialize concurrent same-key calls behind a 409: add the key, run, always remove. Shared by
@@ -13990,9 +14529,12 @@ const ROUTE_HANDLERS = [
   handlePairing,
   handleInstance,
   handleRemoteInstances,
+  // The coordinator's move runs here for a mirrored session too, so it comes first (see there).
+  handleSessionMove,
   // Before every handler that matches `/api/sessions/:id…`: a mirrored session's id must never
   // reach a local handler, which would act on a session this instance does not have (#2765).
   handleRemoteSessionRoute,
+  handleSessionHandoff,
   handleMachineRead,
   handleSessionTerminal,
   handlePing,

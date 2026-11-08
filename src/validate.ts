@@ -18,6 +18,7 @@ import {
   type BuildStepStatus,
   type EpicDraftContent,
   type EpicDraftChild,
+  type SessionContinuation,
 } from "./types";
 import { modelCompatibleWithProvider } from "./default-model";
 import { stagingDir } from "./uploads";
@@ -80,6 +81,7 @@ const ALLOWED_KEYS = new Set([
   "afterSession",
   "requirements",
   "placement",
+  "continuation",
   "force", // transport-only: bypass hold gate; not forwarded to CreateSessionInput
 ]);
 
@@ -212,6 +214,34 @@ export function validateReplaceAgentChoice(body: unknown):
       effort: effort.value,
     },
   };
+}
+
+const INSTANCE_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
+
+/** Validate a `POST /api/sessions/:id/move` body: the replace choice plus the machine to move to. */
+export function validateSessionMove(body: unknown):
+  | {
+      ok: true;
+      value: {
+        target: { instanceId: string };
+        agentProvider?: AgentProvider;
+        model: string | null;
+        handoffMode: HandoffMode;
+        effort: string | null;
+      };
+    }
+  | { ok: false; error: string } {
+  if (body === null || typeof body !== "object" || Array.isArray(body))
+    return err("body must be a non-null object");
+  const { target, ...rest } = body as Record<string, unknown>;
+  if (target === null || typeof target !== "object" || Array.isArray(target))
+    return err("target must be an object");
+  const instanceId = (target as Record<string, unknown>).instanceId;
+  if (typeof instanceId !== "string" || !INSTANCE_ID_RE.test(instanceId))
+    return err("target.instanceId must be an instance ID");
+  const choice = validateReplaceAgentChoice(rest);
+  if (!choice.ok) return choice;
+  return { ok: true, value: { target: { instanceId }, ...choice.value } };
 }
 
 /** repoPath resolved and confined to the repoRoot — without touching the filesystem. */
@@ -592,7 +622,7 @@ export function validateCreate(
   const launch = validateCreateLaunchFields(obj, root, opts.remote === true);
   if (!launch.ok) return launch;
 
-  const options = validateOptions(obj);
+  const options = validateCreateOptions(obj);
   if (!options.ok) return options;
 
   return {
@@ -614,6 +644,123 @@ export function validateCreate(
       ...options.value,
     },
   };
+}
+
+const CONTINUATION_KEYS = new Set([
+  "branch",
+  "headCommit",
+  "handoffMode",
+  "from",
+  "amendments",
+  "missingFiles",
+]);
+const CONTINUATION_FROM_KEYS = new Set(["machine", "desig", "provider"]);
+const MAX_CONTINUATION_AMENDMENTS = 20;
+const CONTINUATION_AMENDMENT_MAX = 4000;
+const CONTINUATION_FILE_MAX = 255;
+
+/** A bounded list of non-empty strings, or the error naming `key`. */
+function boundedStrings(value: unknown, key: string, maxItems: number, maxLen: number) {
+  if (value === undefined) return field<string[] | undefined>(undefined);
+  if (
+    !Array.isArray(value) ||
+    value.length > maxItems ||
+    !value.every((v) => typeof v === "string" && v.length > 0 && v.length <= maxLen)
+  )
+    return err(`continuation.${key} must be ≤ ${maxItems} non-empty strings ≤ ${maxLen} chars`);
+  return field<string[] | undefined>(value as string[]);
+}
+
+/** The options of a create plus its `continuation`, which no held or chained kind can carry. */
+function validateCreateOptions(obj: Record<string, unknown>): Field<
+  Extract<ReturnType<typeof validateOptions>, { ok: true }>["value"] & {
+    continuation: SessionContinuation | undefined;
+  }
+> {
+  const options = validateOptions(obj);
+  if (!options.ok) return options;
+  const continuation = validateContinuation(obj.continuation);
+  if (!continuation.ok) return continuation;
+  const o = options.value;
+  if (continuation.value && (o.bootstrap || o.mergeTrainPrs || o.afterSessionId || o.baseCommit))
+    return err(
+      "continuation cannot be combined with bootstrap, mergeTrainPrs, afterSession or baseCommit",
+    );
+  return field({ ...o, continuation: continuation.value });
+}
+
+/** An object with only `keys`, or the error naming the stray one under `path`. */
+function plainObject(value: unknown, path: string, keys: ReadonlySet<string>) {
+  if (value == null || typeof value !== "object" || Array.isArray(value))
+    return err(`${path} must be an object`);
+  const o = value as Record<string, unknown>;
+  const stray = Object.keys(o).find((k) => !keys.has(k));
+  if (stray !== undefined) return err(`unknown key: ${path}.${stray}`);
+  return field(o);
+}
+
+function boundedName(value: unknown, path: string, max: number): Field<string> {
+  if (typeof value !== "string" || value.length === 0 || value.length > max)
+    return err(`${path} must be a string ≤ ${max} chars`);
+  return field(value);
+}
+
+/** continuation.from — the machine and session the work comes from. */
+function validateContinuationFrom(value: unknown): Field<SessionContinuation["from"]> {
+  const from = plainObject(value, "continuation.from", CONTINUATION_FROM_KEYS);
+  if (!from.ok) return from;
+  const machine = boundedName(from.value.machine, "continuation.from.machine", 128);
+  if (!machine.ok) return machine;
+  const desig = boundedName(from.value.desig, "continuation.from.desig", 64);
+  if (!desig.ok) return desig;
+  const provider = validateAgentProvider(from.value.provider);
+  if (!provider.ok) return provider;
+  if (!provider.value) return err("continuation.from.provider is required");
+  return field({ machine: machine.value, desig: desig.value, provider: provider.value });
+}
+
+/** continuation's branch, pushed head and handoff mode. */
+function validateContinuationHead(
+  o: Record<string, unknown>,
+): Field<Pick<SessionContinuation, "branch" | "headCommit" | "handoffMode">> {
+  if (typeof o.branch !== "string" || !BRANCH_RE.test(o.branch))
+    return err("continuation.branch must be a valid branch name");
+  if (typeof o.headCommit !== "string" || !COMMIT_RE.test(o.headCommit))
+    return err("continuation.headCommit must be a full lowercase hex commit id");
+  if (o.handoffMode !== "resume" && o.handoffMode !== "summarize")
+    return err("continuation.handoffMode must be one of: resume, summarize");
+  return field({ branch: o.branch, headCommit: o.headCommit, handoffMode: o.handoffMode });
+}
+
+/** continuation — a session moved here from another machine (see `SessionContinuation`). */
+function validateContinuation(value: unknown): Field<SessionContinuation | undefined> {
+  if (value == null) return field(undefined);
+  const o = plainObject(value, "continuation", CONTINUATION_KEYS);
+  if (!o.ok) return o;
+  const head = validateContinuationHead(o.value);
+  if (!head.ok) return head;
+  const from = validateContinuationFrom(o.value.from);
+  if (!from.ok) return from;
+  const amendments = boundedStrings(
+    o.value.amendments,
+    "amendments",
+    MAX_CONTINUATION_AMENDMENTS,
+    CONTINUATION_AMENDMENT_MAX,
+  );
+  if (!amendments.ok) return amendments;
+  const missingFiles = boundedStrings(
+    o.value.missingFiles,
+    "missingFiles",
+    MAX_IMAGES,
+    CONTINUATION_FILE_MAX,
+  );
+  if (!missingFiles.ok) return missingFiles;
+  return field({
+    ...head.value,
+    from: from.value,
+    ...(amendments.value && { amendments: amendments.value }),
+    ...(missingFiles.value && { missingFiles: missingFiles.value }),
+  });
 }
 
 const PLACEMENT_PREVIEW_KEYS = new Set(["repoPath", "requirements"]);

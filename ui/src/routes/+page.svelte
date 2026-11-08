@@ -3339,7 +3339,22 @@
     picker = { mode: "variant", id, x: anchor.x, y: anchor.y };
   }
   function onreplace(id: string, anchor: { x: number; y: number }) {
-    picker = { mode: "replace", id, x: anchor.x, y: anchor.y };
+    // Continue with… can move a session with a work branch of its own to another machine: it needs
+    // the session's machine and project (forge slug) to offer where it could go.
+    const remote = store.remoteSessions.find((s) => s.id === id);
+    const session = remote ?? store.sessions.find((s) => s.id === id);
+    const project = remote
+      ? remote.remoteSlug
+      : repos.entries.find((r) => r.path === session?.repoPath)?.remoteSlug;
+    const movable = !!session?.isolated && !!session.branch;
+    picker = {
+      mode: "replace",
+      id,
+      x: anchor.x,
+      y: anchor.y,
+      host: remote?.host,
+      project: movable ? project : undefined,
+    };
   }
   function oncompare(experimentId: string, anchor: { x: number; y: number }) {
     picker = { mode: "compare", experimentId, x: anchor.x, y: anchor.y };

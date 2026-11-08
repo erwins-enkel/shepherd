@@ -19,6 +19,7 @@ import {
   taskKindConflict,
   validateModelChoice,
   validateReplaceAgentChoice,
+  validateSessionMove,
 } from "../src/validate";
 import { stagingDir } from "../src/uploads";
 
@@ -146,6 +147,63 @@ test("validateCreate accepts an explicit full base commit and rejects anything e
   expect(
     validateCreate({ repoPath: validRepo, terminal: true, baseCommit: "a".repeat(40) }, root),
   ).toEqual({ ok: false, error: "unknown key: baseCommit" });
+});
+
+test("validateCreate accepts a session-move continuation and refuses malformed or conflicting ones", () => {
+  const continuation = {
+    branch: "shepherd/moved",
+    headCommit: "b".repeat(40),
+    handoffMode: "summarize" as const,
+    from: { machine: "moes-tavern", desig: "TASK-07", provider: "codex" as const },
+    amendments: ["Also cover iOS"],
+    missingFiles: ["shot.png"],
+  };
+  const create = (extra: Record<string, unknown>) =>
+    validateCreate({ repoPath: validRepo, baseBranch: "main", prompt: "go", ...extra }, root);
+  const r = create({ continuation });
+  expect(r.ok).toBe(true);
+  if (r.ok && r.value.terminal !== true) expect(r.value.continuation).toEqual(continuation);
+  const none = create({});
+  expect(none.ok && none.value.terminal !== true && none.value.continuation).toBeUndefined();
+
+  const bad = (c: unknown) => create({ continuation: c });
+  expect(bad({ ...continuation, branch: "-x" }).ok).toBe(false);
+  expect(bad({ ...continuation, headCommit: "abc" }).ok).toBe(false);
+  expect(bad({ ...continuation, handoffMode: "later" }).ok).toBe(false);
+  expect(bad({ ...continuation, from: { ...continuation.from, provider: "gpt" } }).ok).toBe(false);
+  expect(bad({ ...continuation, from: { machine: "m", desig: "d" } }).ok).toBe(false);
+  expect(bad({ ...continuation, extra: 1 })).toEqual({
+    ok: false,
+    error: "unknown key: continuation.extra",
+  });
+  expect(bad({ ...continuation, amendments: Array(21).fill("a") }).ok).toBe(false);
+  expect(bad({ ...continuation, amendments: [""] }).ok).toBe(false);
+  expect(bad({ ...continuation, missingFiles: Array(11).fill("f") }).ok).toBe(false);
+  expect(create({ continuation, baseCommit: "a".repeat(40) }).ok).toBe(false);
+  expect(create({ continuation, bootstrap: true }).ok).toBe(false);
+});
+
+test("validateSessionMove needs a target machine and validates the replace choice", () => {
+  const ok = validateSessionMove({
+    target: { instanceId: "1f0c2a4e-1111-4222-8333-444455556666" },
+    agentProvider: "codex",
+    model: null,
+    handoffMode: "summarize",
+  });
+  expect(ok).toEqual({
+    ok: true,
+    value: {
+      target: { instanceId: "1f0c2a4e-1111-4222-8333-444455556666" },
+      agentProvider: "codex",
+      model: null,
+      handoffMode: "summarize",
+      effort: null,
+    },
+  });
+  expect(validateSessionMove({ model: null }).ok).toBe(false);
+  expect(validateSessionMove({ target: { instanceId: "../x" } }).ok).toBe(false);
+  expect(validateSessionMove({ target: { instanceId: "a" }, handoffMode: "x" }).ok).toBe(false);
+  expect(validateSessionMove(null).ok).toBe(false);
 });
 
 test("validateCreate accepts index-aligned attachment names and visible launch checkbox state", () => {

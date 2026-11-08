@@ -8,7 +8,8 @@ MacBook with Xcode that takes macOS and iOS tasks.
 
 Shepherd picks the machine for each task by what it needs: a task that needs Xcode goes to the
 MacBook, any other to Linux. You can always name the machine yourself. A running session never
-moves to another machine.
+moves to another machine by itself; you can move it with **Continue with…**
+([Move a session to another machine](#move-a-session-to-another-machine)).
 
 ## How it works
 
@@ -337,8 +338,10 @@ machines.
 
 Select a session on another machine in the herd. From the coordinator you can use its terminal, steer, stop
 and archive it, read its activity, diff and files, answer its plan, and start or open its preview,
-which opens from the machine's own tailnet address. Merging, relaunching and the remaining actions
-are not offered for it yet: open the Shepherd on that machine for those.
+which opens from the machine's own tailnet address. **Continue with…** moves it here or to another
+machine ([Move a session to another machine](#move-a-session-to-another-machine)). Merging,
+relaunching and the remaining actions are not offered for it yet: open the Shepherd on that machine
+for those.
 
 When the machine drops off, for example asleep or offline, its sessions stay in the herd with their
 last known state, dimmed and marked **disconnected**. Nothing is sent while it is gone, and the terminal says
@@ -352,6 +355,44 @@ critic review or asks you to log in, the coordinator notifies the devices that a
 with that machine themselves. A device registered with both hears it once, from the machine.
 Anything that happened while the machine was disconnected is not announced afterwards. Browsers and
 iOS apps that predate this only get the coordinator's own notifications.
+
+## Move a session to another machine
+
+**Continue with…** in a session's menu shows a **Machine** field while another machine is connected:
+this Shepherd and every connected machine released for tasks. It starts on the machine the session
+runs on, and keeping it there continues the session in place, as before. Picking another machine
+moves the session with its work:
+
+1. **The session's machine snapshots the work.** It stops the agent, commits whatever the agent left
+   uncommitted as one commit `wip(shepherd): hand off to <machine>` (hooks are skipped; `.gitignore`
+   and Shepherd's own files stay out), and pushes the work branch with `--force-with-lease`. A branch
+   someone else advanced on origin is refused, never overwritten.
+2. **The target continues on the same branch.** It starts a new session (its own `TASK-…`) with a
+   worktree on that very branch, so an open pull request stays the same. The chosen CLI, model,
+   effort and handoff mode apply: **Continue the original task** gives the new agent the task again,
+   **Summarize first** has it orient itself and wait. Its prompt names the machine and session the
+   work came from. The plan file and the task's attachments travel along (up to 10), and so do the
+   task amendments, the plan gate setting (an approved plan is not planned again), Autopilot, the
+   task kind and the linked issue.
+3. **The original is archived.** Its drain claim stays with the moved session. Its unmerged local
+   branch is kept, and nothing on origin is removed.
+
+What can go wrong, and what then:
+
+| Outcome                                  | What happens                                                                                                                                          |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Refused before anything moved            | Same machine, no work branch (a shared checkout), a merge in progress, a landing repair, bootstrap or train session, an unfit machine: nothing stops. |
+| Commit or push failed                    | The agent is resumed where it was; the reason is shown.                                                                                               |
+| The target refused or failed to start it | The agent of the original is resumed; nothing was archived.                                                                                           |
+| The target holds it (usage, capacity)    | The work is pushed and the original archived; the target starts it once it has room.                                                                  |
+| The target did not answer                | Nothing is undone: it may have started there, and the dispatch keeps checking. The original stays stopped: archive it once the session appears.       |
+| A file did not come along                | The move goes on; the new agent's prompt names the missing file.                                                                                      |
+
+While a move is in flight (at most 10 minutes) no automatic steer or resume brings the original's
+agent back. Moving needs both machines on the same release: it raised the federation level to 4.
+A move to this Shepherd needs a checkout of the project here; a move to another machine clones it
+there first when it has none. From a script: `POST /api/sessions/{id}/move` with
+`{ "target": { "instanceId": "…" }, "agentProvider", "model", "effort", "handoffMode" }`.
 
 ## Update its Shepherd
 
@@ -394,8 +435,9 @@ someone your login.
 
 - **No unpushed changes.** The machine works from its own checkout and the base branch as pushed to
   origin. Commits and edits that exist only on the coordinator don't travel.
-- **No live migration.** A session stays on the machine it started on. To continue elsewhere, push
-  its branch and start a new task there.
+- **No live migration.** A session stays on the machine it started on until you move it with
+  **Continue with…**. A move hands over the pushed branch, not the agent's conversation: the new
+  agent starts fresh from the task and the work ([Move a session](#move-a-session-to-another-machine)).
 - **No silent fallback.** A task meant for a machine that is out of reach does not start on
   another one by itself: it waits for that machine until you cancel it or run it elsewhere.
 - **Follow-up work stays on the machine:** review, pull request and merge are its Shepherd's.

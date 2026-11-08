@@ -8255,5 +8255,19 @@
   "tooltip_agent_ext_risk": "Watch out",
   "tooltip_agent_ext_risk_body": "If CLAUDE.md tells agents to use a skill you switched off here, they will look for it and not find it.",
   "feat_agent_extensions_title": "Plugins and skills per repo",
-  "feat_agent_extensions_body": "In a repo's automation settings you can now pick which of your plugins and personal skills its Claude sessions load. Everything else stays off there, so each turn carries less context."
+  "feat_agent_extensions_body": "In a repo's automation settings you can now pick which of your plugins and personal skills its Claude sessions load. Everything else stays off there, so each turn carries less context.",
+  "experiment_machine_label": "Machine",
+  "experiment_move_note": "Moves the work: whatever is uncommitted is committed, the branch is pushed, a new session continues on that same branch there, and this one is archived.",
+  "experiment_move_confirm": "Continue on {machine}",
+  "experiment_move_held": "{machine} holds the moved session and starts it once it has room. The original is archived.",
+  "experiment_move_not_archived": "The session continues on {machine}, but the original could not be archived. Archive it yourself.",
+  "experiment_move_unknown": "No answer from {machine} — the session may have started there. The original stays stopped: archive it once the new session appears, or resume it.",
+  "experiment_move_merging": "This session is being merged. Move it once the merge is done.",
+  "experiment_move_no_branch": "This session has no work branch of its own, so it can't move to another machine.",
+  "experiment_move_unsupported": "This kind of session can't move to another machine.",
+  "experiment_move_in_progress": "This session is already moving.",
+  "experiment_move_push_failed": "The work could not be pushed, so nothing moved and the agent continues here: {reason}",
+  "experiment_move_project_missing_here": "This machine has no checkout of this project, so the session can't move here.",
+  "feat_continue_on_machine_title": "Continue a session on another machine",
+  "feat_continue_on_machine_body": "“Continue with…” now has a Machine field while another machine is connected. Pick another one and the session moves with its work: uncommitted changes are committed, the branch is pushed, a new session continues on the same branch there (an open PR stays the same) with the CLI and model you chose, its attachments travel along, and the original is archived."
 }

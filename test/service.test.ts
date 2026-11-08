@@ -3322,6 +3322,7 @@ test("archive without a reaper just closes the session (no leftover handling)", 
       currentBranch: () => null,
       gitCommonDir: () => "/wt/.git",
       restoreExisting: () => "",
+      createOnBranch: async () => ({}) as any,
     },
     herdr: {
       start: async () => ({}) as any,
@@ -3370,6 +3371,7 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
       currentBranch: () => null,
       gitCommonDir: () => "/wt/.git",
       restoreExisting: () => "",
+      createOnBranch: async () => ({}) as any,
     },
     herdr: {
       start: async () => ({}) as any,
@@ -3424,6 +3426,7 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
       currentBranch: () => null,
       gitCommonDir: () => "/wt/.git",
       restoreExisting: () => "",
+      createOnBranch: async () => ({}) as any,
     },
     herdr: {
       start: async () => ({}) as any,
@@ -3475,6 +3478,7 @@ test("archive with no reap keys never calls the reaper", async () => {
       currentBranch: () => null,
       gitCommonDir: () => "/wt/.git",
       restoreExisting: () => "",
+      createOnBranch: async () => ({}) as any,
     },
     herdr: {
       start: async () => ({}) as any,

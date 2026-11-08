@@ -1829,6 +1829,23 @@ export async function replaceSessionAgent(id: string, choice: VariantChoice): Pr
   return session;
 }
 
+/** What moving a session to another machine came to: the moved session (it runs there), or the
+ *  target holds it until it has room (`held`). `archived` = the original was archived. */
+export interface SessionMoveResult {
+  session?: Session;
+  held?: boolean;
+  archived: boolean;
+}
+
+/** "Continue with…" on another machine: the work moves there on the same branch, the original is
+ *  archived. Errors carry the server's `code` (move_*, handoff_*, remote_*). */
+export function moveSession(
+  id: string,
+  choice: VariantChoice & { target: { instanceId: string } },
+): Promise<SessionMoveResult> {
+  return postJson<SessionMoveResult>(`/api/sessions/${id}/move`, choice, "move");
+}
+
 /**
  * Start a parallel comparison VARIANT of a session: same task, different model/CLI. The original
  * stays alive; both are linked into one comparison experiment. Returns the new variant session.

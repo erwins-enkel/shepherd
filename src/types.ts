@@ -481,6 +481,25 @@ export interface StandardCreateInput {
    *  links its session to the schedule. Persisted as `Session.scheduleId`. Carried by a relaunch
    *  and by a held-task edit, so the run stays linked (overlap skip, badge). */
   scheduleId?: string | null;
+  /** A session moved here from another machine: the worktree checks out its pushed work branch
+   *  instead of a fresh one, and the agent is told it continues there (see `SessionContinuation`). */
+  continuation?: SessionContinuation;
+}
+
+/**
+ * The create-side half of a session move ("Continue with…" on another machine): the source pushed
+ * `branch` (its tip contains `headCommit`), and this create checks out that very branch so an open
+ * PR stays the same. `sessions.prompt` stays the original task; the handoff text is argv-only.
+ */
+export interface SessionContinuation {
+  branch: string;
+  headCommit: string;
+  handoffMode: "resume" | "summarize";
+  from: { machine: string; desig: string; provider: AgentProvider };
+  /** The source session's active task amendments, carried as this session's own (#2225). */
+  amendments?: string[];
+  /** Carried files that could not be fetched from the source: named in the handoff text. */
+  missingFiles?: string[];
 }
 
 /**

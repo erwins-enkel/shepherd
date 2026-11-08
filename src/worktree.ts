@@ -82,6 +82,20 @@ export class WorktreeOccupiedError extends Error {
   }
 }
 
+/** Why a moved session's branch cannot be checked out here (see `createOnBranch`). */
+export type ContinuationBranchCode =
+  | "continuation_stale"
+  | "continuation_diverged"
+  | "continuation_branch_in_use"
+  | "continuation_fetch_failed";
+
+export class ContinuationBranchError extends Error {
+  constructor(public readonly code: ContinuationBranchCode) {
+    super(`cannot continue the moved branch: ${code}`);
+    this.name = "ContinuationBranchError";
+  }
+}
+
 /** The worktree path `create()` derives for `name`. Exported so name selection can test a
  *  candidate against the directory without re-deriving (and drifting from) the shape. */
 export function worktreePathFor(repoPath: string, name: string): string {
@@ -131,6 +145,95 @@ export class WorktreeMgr {
         this.recoverFromAddFailure(repoPath, baseBranch, branch, worktreePath, err),
       );
     }
+  }
+
+  /**
+   * A worktree on an EXISTING work branch pushed by another machine (a session move): fetch
+   * `origin/<branch>`, require that it contains `headCommit` (what the source pushed — anything
+   * older is stale), and check it out under its own name so an open PR stays the same. A local
+   * branch of that name left here by an earlier session is reset to origin only when origin already
+   * contains it (never drops commits), and never while another worktree has it checked out.
+   * `baseCommit` is the fork point from `baseRef`, not HEAD: the branch already carries work.
+   */
+  async createOnBranch(
+    repoPath: string,
+    args: { branch: string; headCommit: string; baseRef: string; name: string },
+  ): Promise<WorktreeResult> {
+    const { branch, headCommit, baseRef, name } = args;
+    if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(branch)) throw new Error("invalid branch");
+    if (!FULL_COMMIT_RE.test(headCommit)) throw new Error("invalid headCommit");
+    if (!this.isGit(repoPath)) throw new Error("continuation needs a git checkout");
+    const remoteRef = `refs/remotes/origin/${branch}`;
+    try {
+      await timedAsync("git fetch", () =>
+        execGit(
+          [
+            "-c",
+            "http.lowSpeedLimit=1000",
+            "-c",
+            "http.lowSpeedTime=5",
+            "fetch",
+            "--no-write-fetch-head",
+            "origin",
+            `+refs/heads/${branch}:${remoteRef}`,
+          ],
+          { cwd: repoPath, timeout: 60_000, killSignal: "SIGKILL" },
+        ),
+      );
+    } catch (err) {
+      console.warn(`[worktree] createOnBranch: fetching ${branch} failed: ${err}`);
+      throw new ContinuationBranchError("continuation_fetch_failed");
+    }
+    if (!this.isAncestor(repoPath, headCommit, remoteRef))
+      throw new ContinuationBranchError("continuation_stale");
+    if (this.branchExists(repoPath, branch)) {
+      if (this.checkedOutIn(repoPath, branch))
+        throw new ContinuationBranchError("continuation_branch_in_use");
+      if (!this.isAncestor(repoPath, `refs/heads/${branch}`, remoteRef))
+        throw new ContinuationBranchError("continuation_diverged");
+    }
+    const worktreePath = worktreePathFor(repoPath, name);
+    if (existsSync(worktreePath)) throw new WorktreeOccupiedError(worktreePath);
+    ensureShepherdExclude(repoPath);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    execGitSync(["worktree", "add", "--track", "-B", branch, worktreePath, remoteRef], {
+      cwd: repoPath,
+      stdio: "pipe",
+    });
+    let baseCommit: string | null = null;
+    try {
+      baseCommit =
+        execGitSync(["merge-base", baseRef, "HEAD"], {
+          cwd: worktreePath,
+          stdio: "pipe",
+          encoding: "utf8",
+        }).trim() || null;
+    } catch {
+      /* unrelated histories or an unreadable base: recorded as unknown */
+    }
+    return { worktreePath, branch, isolated: true, baseCommit };
+  }
+
+  private isAncestor(repoPath: string, ancestor: string, descendant: string): boolean {
+    try {
+      execGitSync(["merge-base", "--is-ancestor", ancestor, descendant], {
+        cwd: repoPath,
+        stdio: "pipe",
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Whether any worktree of `repoPath` (the main checkout included) has `branch` checked out. */
+  private checkedOutIn(repoPath: string, branch: string): boolean {
+    const out = execGitSync(["worktree", "list", "--porcelain"], {
+      cwd: repoPath,
+      stdio: "pipe",
+      encoding: "utf8",
+    });
+    return out.split("\n").some((line) => line === `branch refs/heads/${branch}`);
   }
 
   /** Stamp the commit the fresh worktree's HEAD sits on. Read AFTER the add rather than resolved

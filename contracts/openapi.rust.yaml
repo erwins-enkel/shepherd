@@ -960,6 +960,8 @@ components:
           nullable: true
           pattern: ^[A-Za-z0-9-]{1,64}$
           description: "Predecessor task (#2589), by session id or designation (TASK-07). Until its PR has landed (merged, or squash-merged into its epic's integration branch) the task is held (200 HeldTask with reason `after`) and spawns once it lands. Already landed → spawns now. Unknown → 404 after_not_found; archived without landing → 409 after_not_landed. A predecessor running on a connected machine (#3633) takes the task there: it is held on that machine (HeldTask with `host`) and waits on the predecessor by session id. A designation matching more than one task (here and on a machine, or on several machines) → 409 after_ambiguous; pass the session id."
+        continuation:
+          $ref: "#/components/schemas/SessionContinuation"
         prompt:
           type: string
           minLength: 1
@@ -8056,6 +8058,102 @@ components:
           enum:
             - resume
             - summarize
+    SessionContinuation:
+      type: object
+      additionalProperties: false
+      required:
+        - branch
+        - headCommit
+        - handoffMode
+        - from
+      description: A session moved here from another machine (POST /api/sessions/{id}/move; the coordinator sends it, clients do not). The worktree checks out the existing work branch pushed by the source — origin's tip must contain headCommit (409 continuation_stale otherwise; continuation_diverged / continuation_branch_in_use / continuation_fetch_failed for a local branch that cannot be reset, one in use, or a failed fetch) — so an open PR stays the same. prompt stays the original task; the handoff text reaches only the agent. Not combinable with bootstrap, mergeTrainPrs, afterSession or baseCommit.
+      properties:
+        branch:
+          type: string
+          pattern: ^(?!-)[A-Za-z0-9._/-]{1,200}$
+        headCommit:
+          type: string
+          pattern: ^(?:[0-9a-f]{40}|[0-9a-f]{64})$
+        handoffMode:
+          type: string
+          enum:
+            - resume
+            - summarize
+        from:
+          type: object
+          additionalProperties: false
+          required:
+            - machine
+            - desig
+            - provider
+          properties:
+            machine:
+              type: string
+              minLength: 1
+              maxLength: 128
+            desig:
+              type: string
+              minLength: 1
+              maxLength: 64
+            provider:
+              $ref: "#/components/schemas/AgentProvider"
+        amendments:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            minLength: 1
+            maxLength: 4000
+          description: The source session's active task amendments; they become this session's own.
+        missingFiles:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            minLength: 1
+            maxLength: 255
+          description: Carried files that could not be fetched; named in the handoff text.
+    SessionMoveRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - target
+      properties:
+        target:
+          type: object
+          additionalProperties: false
+          required:
+            - instanceId
+          properties:
+            instanceId:
+              type: string
+        agentProvider:
+          $ref: "#/components/schemas/AgentProvider"
+        model:
+          type: string
+          nullable: true
+        effort:
+          type: string
+          nullable: true
+        handoffMode:
+          type: string
+          nullable: true
+          enum:
+            - resume
+            - summarize
+    SessionMoveResponse:
+      type: object
+      additionalProperties: true
+      required:
+        - archived
+      description: "201 carries the moved session (annotated with `host` when it runs on another machine); 200 means the target machine holds the task (held: true) and starts it once it has room. archived says whether the original was archived; false leaves it stopped for the operator to archive."
+      properties:
+        session:
+          $ref: "#/components/schemas/Session"
+        held:
+          type: boolean
+        archived:
+          type: boolean
     ComposeSessionResponse:
       type: object
       additionalProperties: true
@@ -15103,6 +15201,73 @@ paths:
                 $ref: "#/components/schemas/Error"
         "502":
           description: Agent launch failed; replace may return code issue_unresolved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/move:
+    post:
+      operationId: moveSession
+      description: "Continue a session on another machine (or here, for a session of a connected machine): the source stops its agent, commits whatever it left uncommitted as one `wip(shepherd): hand off to <machine>` commit and pushes the work branch; the target starts a session on that same branch (an open PR stays the same) with the chosen CLI/model/effort/handoff mode, carrying the plan and attachments; the original is archived. A failed create resumes the original. Both machines must speak the same federation level."
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionMoveRequest"
+      responses:
+        "200":
+          description: The target machine holds the task (usage or capacity) and starts it later.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionMoveResponse"
+        "201":
+          description: Moved; the session runs on the target.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionMoveResponse"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Session not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: in_progress, move_merging, handoff_in_progress, remote_ambiguous, already archived, or a continuation_* refusal from the target.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: move_same_machine, move_no_branch, move_unsupported_kind, remote_project_unknown, move_project_missing_here, or a refused machine choice (remote_target_*, remote_rejected).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: machine_unreachable, handoff_push_failed, handoff_commit_failed, issue_unresolved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: move_target_unknown — sent, but the target did not answer; it may have started there. The original stays stopped.
           content:
             application/json:
               schema:

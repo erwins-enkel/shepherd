@@ -47,6 +47,10 @@ struct ComposeEngineSheet: View {
                     Text(verbatim: L.t(provider == .claude ? "agent_provider_claude" : "agent_provider_codex")).tag(provider).disabled(!model.allowsProvider(provider))
                 }
             }.accessibilityIdentifier("compose.engine")
+            if model.showsRepoDefaultProvider {
+                Text(verbatim: L.t("newtask_agent_provider_repo_default")).font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("compose.engine.repoDefault")
+            }
             Picker(L.t("newtask_model_label"), selection: $model.model) {
                 ForEach(["default"] + ComposeRunConfig.providerModels(model.provider).filter { ComposeRunConfig.available($0, provider: model.provider, fableAvailable: model.runDefaults.fableAvailable, mythosAvailable: model.runDefaults.mythosAvailable) }, id: \.self) { value in
                     Text(verbatim: ModelGuidance.optionLabel(provider: model.provider, model: value)).tag(value)

@@ -29710,6 +29710,23 @@
         }
       }
     },
+    "newtask_agent_provider_repo_default": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo-Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo default"
+          }
+        }
+      }
+    },
     "newtask_alpha_caution": {
       "extractionState": "manual",
       "localizations": {

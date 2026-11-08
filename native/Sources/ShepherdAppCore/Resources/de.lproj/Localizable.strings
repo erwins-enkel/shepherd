@@ -1729,6 +1729,7 @@
 "newtask_agent_provider_codex_note" = "Codex startet als interaktive Terminal-Session und läuft unbeaufsichtigt mit --dangerously-bypass-approvals-and-sandbox (Sandbox-Profil auf trusted gesetzt). Plan Gate ist verfügbar. Autopilot arbeitet nach bestem Bemühen (Alpha) und führt die zugeordnete Unterhaltung in beiden Checkout-Arten bis zu einem offenen PR. Die Modellauswahl verwendet Codex-CLI-Modelle.";
 "newtask_agent_provider_codex_suggested_for_hold" = "Claude Code ist am Nutzungsrückhalt-Schwellenwert, daher umgeht das Ausführen dieser Aufgabe auf Codex den Rückhalt. Wechsle die Coding-CLI zurück zu Claude Code, um sie stattdessen bis zum Reset zurückzuhalten oder trotzdem einzureichen.";
 "newtask_agent_provider_label" = "Coding CLI";
+"newtask_agent_provider_repo_default" = "Repo-Standard";
 "newtask_alpha_caution" = "Alpha: läuft unbeaufsichtigt, Sandbox auf »trusted« erzwungen.";
 "newtask_alpha_details" = "Details";
 "newtask_attach_aria" = "Datei oder Bild anhängen";

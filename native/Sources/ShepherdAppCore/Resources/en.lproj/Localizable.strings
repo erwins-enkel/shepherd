@@ -1729,6 +1729,7 @@
 "newtask_agent_provider_codex_note" = "Codex starts as an interactive terminal session, running unattended under --dangerously-bypass-approvals-and-sandbox (sandbox profile forced to trusted). Plan Gate is available. Autopilot is best-effort (Alpha) and drives the identified task conversation toward an open PR in either checkout mode. The model picker uses Codex CLI models.";
 "newtask_agent_provider_codex_suggested_for_hold" = "Claude Code is at the usage-hold threshold, so running this task on Codex sidesteps the hold. Switch the coding CLI back to Claude Code to hold it until the reset or submit anyway instead.";
 "newtask_agent_provider_label" = "Coding CLI";
+"newtask_agent_provider_repo_default" = "Repo default";
 "newtask_alpha_caution" = "Alpha: runs unattended, sandbox forced to trusted.";
 "newtask_alpha_details" = "details";
 "newtask_attach_aria" = "Attach file or image";

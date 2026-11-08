@@ -1934,6 +1934,7 @@ export const KEYS_COMPOSE: readonly string[] = [
   "newtask_agent_provider_codex_alpha_note",
   "newtask_agent_provider_codex_note",
   "newtask_agent_provider_codex_suggested_for_hold",
+  "newtask_agent_provider_repo_default",
   "newtask_alpha_caution",
   "newtask_alpha_details",
   "newtask_autopilot_hint",

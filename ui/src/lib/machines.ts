@@ -1,3 +1,4 @@
+import { formatReadAt } from "#lib/components/heavy-slot/heavy-slot.js";
 import { m } from "#lib/paraglide/messages.js";
 import type { CapabilityReport, RemoteInstanceStatus } from "#lib/types.js";
 
@@ -25,6 +26,7 @@ const REASON_HINT: Record<string, () => string> = {
   token_restricted: m.settings_machines_hint_token_restricted,
   api_missing: m.settings_machines_hint_api_missing,
   api_version: m.settings_machines_hint_api_version,
+  battery_pause: m.settings_machines_hint_battery_pause,
 };
 
 const CONNECT_ERROR: Record<string, () => string> = {
@@ -52,6 +54,30 @@ export function machineStatusTone(status: string): "ok" | "warn" | "bad" | "idle
   if (status === "unreachable") return "warn";
   if (status === "checking") return "idle";
   return "bad";
+}
+
+/** Enough of a machine to say how it stands (a `RemoteInstance` or a `MachineUpdate`). */
+interface MachineState {
+  status: string;
+  reason?: string | null;
+  batteryPauseSince?: number | null;
+}
+
+/** Out of reach because its Mac app paused it on battery — on purpose, and it comes back. */
+export const batteryPaused = (machine: MachineState): boolean =>
+  machine.status === "unreachable" && machine.reason === "battery_pause";
+
+/** How a machine stands, in words: its status, or "Battery pause · since 14:32" while paused. */
+export function machineStateLabel(machine: MachineState): string {
+  if (!batteryPaused(machine)) return machineStatusLabel(machine.status);
+  return machine.batteryPauseSince != null
+    ? m.settings_machines_battery_pause_since({ time: formatReadAt(machine.batteryPauseSince) })
+    : m.settings_machines_status_battery_pause();
+}
+
+/** Badge colour family of `machineStateLabel`: a battery pause is quiet, nothing to fix. */
+export function machineStateTone(machine: MachineState): "ok" | "warn" | "bad" | "idle" {
+  return batteryPaused(machine) ? "idle" : machineStatusTone(machine.status);
 }
 
 /** The next step for a non-connected machine, or null when there is nothing to say. */

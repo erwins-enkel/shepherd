@@ -93,6 +93,12 @@ final class LocalServerModel {
     private(set) var batteryPauseActive = false
     var batteryPause: LocalBatteryPause { LocalBatteryPause(environment: environment) }
 
+    /// Tells the server it is about to be paused on battery, so connected Shepherds show this Mac
+    /// as paused rather than unreachable. Waits at most 1.5 s; the pause goes ahead either way.
+    func announceBatteryPause() async {
+        await LocalBatteryPauseNotice(directory: appUpdateHandoff.directory).announce()
+    }
+
     func setBatteryPauseActive(_ active: Bool) {
         guard batteryPauseActive != active else { return }
         batteryPauseActive = active

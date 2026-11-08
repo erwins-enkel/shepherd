@@ -53,7 +53,9 @@ recorded agent/terminal process trees, including local tools and previews. A bun
 automatically resumes only the processes it suspended when external power returns, even after
 quitting the app. Existing stopped processes stay stopped. Remote agent processes keep running,
 although a connection routed through the paused local server is unavailable until it resumes.
-Long-running network requests may time out during a pause and need retrying afterwards.
+Long-running network requests may time out during a pause and need retrying afterwards. Right
+before the pause the app tells the server, which tells every Shepherd that has this Mac
+connected; they show it as on battery pause rather than unreachable until it answers again.
 
 Ownership and private logs in `~/.shepherd/run/` are scoped by port and canonical installation
 and database paths. Adoption and every signal validate the kernel process start time, so a

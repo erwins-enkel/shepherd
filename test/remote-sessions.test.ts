@@ -86,6 +86,7 @@ function setup(
   const terminals: { url: string; headers: Record<string, string>; closed: boolean }[] = [];
   const requests: { url: string; init: RequestInit }[] = [];
   const checks: string[] = [];
+  const pauses: string[] = [];
   const fetch: FetchLike = async (url, init) => {
     requests.push({ url, init });
     const body = await (url.endsWith("/api/git") ? state.git() : state.snapshot());
@@ -113,6 +114,7 @@ function setup(
         return null;
       },
       repoSlugs: (id) => state.repoSlugs.get(id) ?? new Map(),
+      noteBatteryPause: (id) => pauses.push(id),
     },
     self: opts.self,
     fetch,
@@ -135,6 +137,7 @@ function setup(
     terminals,
     requests,
     checks,
+    pauses,
     events,
     tick: (ms: number) => (now += ms),
     /** sync, open the socket and wait for the snapshot. */
@@ -157,6 +160,14 @@ afterEach(() => {
 });
 
 describe("session mirror", () => {
+  test("a battery pause announced on the live socket reaches the machine's state", async () => {
+    const t = setup();
+    const socket = await t.live();
+    send(socket, "host:battery-pause", {});
+    expect(t.pauses).toEqual([B]);
+    expect(t.events).toEqual([["remote:sessions", { instanceId: B, sessions: t.mirror.list() }]]);
+  });
+
   test("nothing is opened until a machine is synced", () => {
     const { sockets, requests, mirror } = setup();
     expect(sockets).toEqual([]);

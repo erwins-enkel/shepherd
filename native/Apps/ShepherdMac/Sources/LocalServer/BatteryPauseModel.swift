@@ -87,13 +87,21 @@ final class BatteryPauseModel {
         guard canPause else { return }
         error = nil
         guard let helper = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("ShepherdPowerHelper") else { return }
-        do {
-            try pause.start(helper: helper)
-            requestedAt = Date()
-            phase = .pausing
-            local.setBatteryPauseActive(true)
-            panel?.orderOut(nil)
-        } catch { self.error = L.t("native_battery_pause_failed") }
+        requestedAt = Date()
+        phase = .pausing
+        local.setBatteryPauseActive(true)
+        panel?.orderOut(nil)
+        Task {
+            // Connected Shepherds hear of the pause before the server is suspended.
+            await local.announceBatteryPause()
+            // External power came back meanwhile: `refresh()` already called the pause off.
+            guard requestedAt != nil else { return }
+            do { try pause.start(helper: helper) } catch {
+                self.error = L.t("native_battery_pause_failed")
+                requestedAt = nil
+                refresh()
+            }
+        }
     }
 
     func resumeNow() {

@@ -276,6 +276,10 @@ export interface MachineUpdate {
   name: string;
   platform: string | null;
   status: RemoteInstanceStatus;
+  /** Machine code refining a non-connected status (`timeout`, `battery_pause`, …). */
+  reason?: string | null;
+  /** When the machine announced its battery pause; null unless it is paused now. */
+  batteryPauseSince?: number | null;
   update: UpdateStatus | null;
 }
 
@@ -304,6 +308,9 @@ export interface RemoteInstance {
   /** The machine's heavy-check slot as of its last answered check; `stale` = it is not connected
    *  now, so this is its last known state. Null if it never reported one. */
   heavySlot?: { snapshot: HeavySlotSnapshot; readAt: number; stale: boolean } | null;
+  /** When the machine announced its battery pause; null unless it is paused now (then `status`
+   *  is `unreachable` with reason `battery_pause`). */
+  batteryPauseSince?: number | null;
   /** False for platforms not cleared to run tasks (Windows) and while the platform is unknown. */
   released: boolean;
 }

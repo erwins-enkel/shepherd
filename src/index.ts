@@ -7,6 +7,7 @@ import { drainSpawnEffort, engineDefaultEffortSetting } from "./default-effort";
 import { recapSummary } from "./recap-core";
 import { SessionActivityPublisher } from "./activity-publisher";
 import { enablePowerPaneJournal } from "./power-panes";
+import { watchBatteryPauseNotice } from "./battery-pause-notice";
 import { CodexAccountClient } from "./codex-account";
 import { SharedBrowserManager, reapOrphanBrowsers } from "./shared-browser";
 import { LoginRequestService } from "./login-request";
@@ -788,6 +789,10 @@ deferredStarts.push(() => {
 const composeCleanup = new ComposeCleanup();
 const worktree = new WorktreeMgr(undefined, (path) => composeCleanup.cleanupWorktree(path));
 const events = new EventHub();
+// The Mac app announces a battery pause here before it suspends this server; peers that have
+// this Mac connected learn it from their /events socket instead of seeing a bare timeout.
+if (process.platform === "darwin" && config.localSupervision && config.appUpdateDir)
+  watchBatteryPauseNotice(config.appUpdateDir, (event, data) => events.emit(event, data));
 const onSessionGit = (listener: (input: { id: string; git: GitState }) => void): void => {
   events.subscribe((event, data) => {
     if (event !== "session:git") return;

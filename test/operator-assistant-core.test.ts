@@ -268,6 +268,17 @@ test("brief requires structured decision questions in both languages (#3179)", (
   }
 });
 
+test("brief teaches a session's CLI and model: precedence, the Codex recipe, no live switch (#3442)", () => {
+  const b = brief();
+  expect(b).toContain("## A session's CLI and model");
+  expect(b).toContain(
+    "a running or paused epic's own CLI (for its children), the repo's agentProvider, the global default",
+  );
+  expect(b).toContain("Running sessions never switch CLI");
+  expect(b).toContain('repo_automation_set({repo, agentProvider:"codex", autoDrainEnabled:true})');
+  expect(b).toContain("nextDrainStart");
+});
+
 test("brief teaches drain issue actions and verification without a shell bypass", () => {
   expect(brief()).toContain("drain_enqueue");
   expect(brief()).toContain("repo_automation({repo, issueNumber})");

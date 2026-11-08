@@ -10,12 +10,15 @@ import {
   type OperatorActionRequest,
 } from "../src/operator-assistant-actions";
 import {
+  actionGroupOf,
   ASSISTANT_ACTION_GROUPS,
   DEFAULT_ASSISTANT_PERMISSIONS,
   type AssistantActionTool,
   type AssistantPermissions,
 } from "../src/operator-assistant-permissions";
 import { SessionStore } from "../src/store";
+import { config } from "../src/config";
+import { EFFORTS } from "../src/types";
 import { EventHub } from "../src/events";
 import { ACTION_REQUEST_EVENT, ActionRequestService } from "../src/action-request";
 import type { AgentControlDeps } from "../src/agent-control";
@@ -306,12 +309,132 @@ test("repo_automation_set: a unique basename resolves, only the automation field
   for (const bad of [
     { repo: "alpha", sandboxProfile: "trusted" },
     { repo: "alpha", sharedBrowserEnabled: true },
+    { repo: "alpha", defaultExecutionEffort: "high" },
     { repo: "alpha" },
     { repo: "gamma", autoDrainEnabled: true },
   ]) {
     expect((await run("repo_automation_set", bad)).ok).toBe(false);
   }
   expect(requests).toHaveLength(1);
+});
+
+test("repo_automation_set's schema offers the coding CLI, model and effort (#3442)", () => {
+  const tool = OPERATOR_ACTION_TOOLS.find((t) => t.name === "repo_automation_set")!;
+  const schema = tool.inputSchema as {
+    properties: Record<string, { type: string; enum?: string[] }>;
+    required: string[];
+    additionalProperties: boolean;
+  };
+  expect(schema.properties.agentProvider).toMatchObject({
+    type: "string",
+    enum: ["inherit", "claude", "codex"],
+  });
+  expect(schema.properties.defaultModel).toMatchObject({ type: "string" });
+  expect(schema.properties.defaultEffort).toMatchObject({
+    type: "string",
+    enum: ["inherit", "default", ...EFFORTS],
+  });
+  expect(schema.required).toEqual(["repo"]);
+  expect(schema.additionalProperties).toBe(false);
+  expect(tool.description).toContain("nextDrainStart");
+});
+
+test("repo_automation_set: 'work alpha with Codex' is one PUT with the CLI and Auto-Drain (#3442)", async () => {
+  const { requests, run } = setup();
+  const res = await run("repo_automation_set", {
+    repo: "alpha",
+    agentProvider: "codex",
+    autoDrainEnabled: true,
+  });
+  expect(res).toMatchObject({
+    ok: true,
+    data: { target: "alpha", set: { autoDrainEnabled: true, agentProvider: "codex" } },
+  });
+  expect(requests).toEqual([
+    {
+      method: "PUT",
+      path: "/api/repo-config?repo=%2Fr%2Falpha",
+      body: { autoDrainEnabled: true, agentProvider: "codex" },
+    },
+  ]);
+});
+
+test("repo_automation_set refuses a model or effort the repo's CLI can't run (#3442)", async () => {
+  const saved = config.defaultAgentProvider;
+  config.defaultAgentProvider = "claude";
+  try {
+    const { store, requests, run } = setup();
+    const refused = async (args: Record<string, unknown>) => {
+      const res = await run("repo_automation_set", { repo: "alpha", ...args });
+      expect(res.ok).toBe(false);
+      return res as { ok: false; status: number; error: string };
+    };
+    // The patched CLI decides: a Claude model on Codex names the CLI and lists what fits.
+    const onCodex = await refused({ agentProvider: "codex", defaultModel: "opus" });
+    expect(onCodex.status).toBe(400);
+    expect(onCodex.error).toContain('defaultModel "opus" does not run on codex');
+    expect(onCodex.error).toContain("gpt-6.1-sol");
+    expect(onCodex.error).not.toContain("pass agentProvider");
+    // inherit → the global CLI (Claude), which has no Codex models and no "ultra".
+    expect((await refused({ defaultModel: "gpt-5.5" })).error).toContain(
+      "does not run on claude, the coding CLI alpha uses after this change",
+    );
+    expect((await refused({ agentProvider: "inherit", defaultModel: "gpt-5.5" })).error).toContain(
+      "does not run on claude",
+    );
+    const ultra = await refused({ defaultEffort: "ultra" });
+    expect(ultra.error).toContain('defaultEffort "ultra" does not run on claude');
+    expect(ultra.error).toContain("pass agentProvider");
+    // The stored CLI decides when the call leaves agentProvider out.
+    store.setRepoConfig("/r/alpha", { ...store.getRepoConfig("/r/alpha"), agentProvider: "codex" });
+    expect((await refused({ defaultModel: "sonnet" })).error).toContain("does not run on codex");
+    // Invalid values name the allowed set.
+    expect((await refused({ agentProvider: "gemini" })).error).toContain(
+      "agentProvider must be one of: inherit, claude, codex",
+    );
+    expect((await refused({ defaultModel: "nope" })).error).toContain("defaultModel must be");
+    expect((await refused({ defaultEffort: "extreme" })).error).toContain("defaultEffort must be");
+    expect(requests).toEqual([]);
+
+    // What fits passes: Codex models and ultra on the stored Codex CLI, sentinels anywhere, and
+    // a global switch to Codex makes inherit accept a Codex model.
+    for (const ok of [
+      { defaultModel: "gpt-5.5", defaultEffort: "ultra" },
+      { agentProvider: "claude", defaultModel: "sonnet", defaultEffort: "high" },
+      { agentProvider: "claude", defaultModel: "inherit", defaultEffort: "default" },
+    ])
+      expect((await run("repo_automation_set", { repo: "alpha", ...ok })).ok).toBe(true);
+    config.defaultAgentProvider = "codex";
+    expect(
+      (
+        await run("repo_automation_set", {
+          repo: "alpha",
+          agentProvider: "inherit",
+          defaultModel: "gpt-5.5",
+        })
+      ).ok,
+    ).toBe(true);
+    expect(requests).toHaveLength(4);
+  } finally {
+    config.defaultAgentProvider = saved;
+  }
+});
+
+test("repo_automation_set's CLI fields stay in the automation group: off refuses, ask asks (#3442)", async () => {
+  expect(actionGroupOf("repo_automation_set")).toBe("automation");
+  const args = { repo: "alpha", agentProvider: "codex", autoDrainEnabled: true };
+  const off = setup({ permissions: { automation: "off" } });
+  const res = await off.run("repo_automation_set", args);
+  expect(res).toMatchObject({ ok: false, status: 403 });
+  if (!res.ok) expect(res.error).toContain("automation actions are turned off");
+  expect(off.requests).toEqual([]);
+
+  const { service } = approvals();
+  const ask = setup({ permissions: { automation: "ask" }, actionRequests: service });
+  const pending = await ask.run("repo_automation_set", args);
+  expect(pending).toMatchObject({ ok: true, data: { status: "awaiting_approval" } });
+  expect(service.snapshot()[ASSISTANT_ID]).toMatchObject({ tool: "repo_automation_set", args });
+  expect(ask.requests).toEqual([]);
 });
 
 test("session_automation_set runs one route per toggle given", async () => {

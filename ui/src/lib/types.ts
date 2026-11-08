@@ -1329,8 +1329,8 @@ export interface RepoConfig {
   /** Per-repo execution-effort override (#3434): "inherit" (→ global) | "default" (same as
    *  planning) | <tier>. Absent from older servers. */
   defaultExecutionEffort?: string;
-  /** Extra hosts on this repo's autonomous egress allowlist. No UI edits it yet; absent from older
-   *  servers. */
+  /** Extra hosts on this repo's autonomous egress allowlist (repo settings › Sandbox, #3446);
+   *  absent from older servers. */
   egressExtraHosts?: string[];
   maxAuto: number;
   autoLabel: string;

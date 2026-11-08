@@ -734,7 +734,7 @@ describe("RepoSwitcher — no-PR-CI mark (#3305)", () => {
     await tick();
     const item = page.getByRole("menuitem", { name: m.reposettings_menu_open() });
     await expect.element(item).toBeVisible();
-    expect(item.element().querySelector(".rs-menu-hold")?.textContent).toContain(
+    expect(item.element().querySelector(".rms-hint")?.textContent).toContain(
       m.repo_chip_no_pr_ci(),
     );
     await item.click();

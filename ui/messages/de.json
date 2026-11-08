@@ -8386,5 +8386,7 @@
   "tooltip_autonomy_keeps": "Bleibt, wie es ist",
   "tooltip_autonomy_keeps_body": "Die Sandbox, das Plan-Gate und alle anderen Einstellungen. Backlog und Voll-Auto halten mit Sandbox „Standard“ trotzdem an.",
   "tooltip_autonomy_custom": "Eigene Mischung",
-  "tooltip_autonomy_custom_body": "Steht da, wenn die fünf Einstellungen zu keiner Stufe passen. Ändere eine davon in ihrem Bereich, und die Stufe folgt."
+  "tooltip_autonomy_custom_body": "Steht da, wenn die fünf Einstellungen zu keiner Stufe passen. Ändere eine davon in ihrem Bereich, und die Stufe folgt.",
+  "feat_autonomy_levels_title": "Autonomie-Stufen pro Repo",
+  "feat_autonomy_levels_body": "Die Repo-Einstellungen öffnen jetzt bei Autonomie: Auf Zuruf, Mit Review, Backlog oder Voll-Auto setzen Kritiker, Auto-Korrektur, Autopilot, Backlog-Abarbeitung und die Art, wie fertige PRs landen, mit einem Klick – und zeigen, wer welchen Schritt macht, Shepherd oder du. Unter „Repo-Einstellungen …“ im Kontextmenü von Repo-Tab und Session-Zeile steht eine Zeile mit Stufe, Coding-CLI und Merge-Art, dazu jeder Hinweis aus den Einstellungen."
 }

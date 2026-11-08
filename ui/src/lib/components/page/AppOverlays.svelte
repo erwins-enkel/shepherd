@@ -62,7 +62,10 @@
     loadWhatsNew,
     loadFableArrival,
     loadOnboarding,
+    loadRepoSettings,
   } from "#lib/components/page/overlay-loaders.js";
+  import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   type PendingTrain = {
     repoLabel: string;
@@ -468,6 +471,22 @@
     return store.sessions.find((s) => s.repoPath === repoPath && s.issueNumber === issue) ?? null;
   }
 
+  // The repo settings window (#3443), opened from anywhere through repoSettingsWindow. Its live
+  // inputs come from the store: the repo's drain and the plan gate of the task it was opened from.
+  const repoSettings = $derived(repoSettingsWindow.target);
+  const repoSettingsDrain = $derived(
+    repoSettings ? (store.drain[repoSettings.repoPath] ?? null) : null,
+  );
+  const repoSettingsPlanPhase = $derived(
+    repoSettings?.sessionId ? (store.byId(repoSettings.sessionId)?.planPhase ?? null) : null,
+  );
+  function repoSettingsSetupCi() {
+    const repoPath = repoSettings?.repoPath;
+    if (!repoPath) return;
+    repoSettingsWindow.close();
+    onadopt(repoPath, m.automation_no_pr_ci_task_prompt());
+  }
+
   // The update window: alone it shows only while this Shepherd is behind; with machines connected
   // it stays open until closed, so a machine that just finished (and now reads up to date) keeps
   // its row.
@@ -850,6 +869,25 @@
       />
     {/snippet}
   </LazyMount>
+{/if}
+
+{#if repoSettings}
+  {#key repoSettings}
+    <LazyMount load={loadRepoSettings} onerror={() => repoSettingsWindow.close()}>
+      {#snippet children(RepoSettingsWindow)}
+        <RepoSettingsWindow
+          repoPath={repoSettings.repoPath}
+          section={repoSettings.section}
+          sessionId={repoSettings.sessionId}
+          planPhase={repoSettingsPlanPhase}
+          drain={repoSettingsDrain}
+          globals={settings}
+          onsetupci={repoSettingsSetupCi}
+          onclose={() => repoSettingsWindow.close()}
+        />
+      {/snippet}
+    </LazyMount>
+  {/key}
 {/if}
 
 {#if store.starPrompt?.shouldPrompt}

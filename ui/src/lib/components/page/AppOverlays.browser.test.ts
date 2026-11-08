@@ -19,6 +19,7 @@ import { repos } from "#lib/repos.svelte.js";
 import { steersSettingsOpen } from "../../../routes/steers-settings-open";
 import { m } from "#lib/paraglide/messages.js";
 import { ApiError, restartHerdrServer, uploadFile } from "#lib/api.js";
+import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
 
 // Overlays mount lazily (#3233). Warm every chunk up front so a cold dev-server transform
 // can't outlast a test's poll window.
@@ -680,5 +681,26 @@ it.each([
     repoPath: "/repo/bootstrapping",
     prompt: "Next bootstrap phase",
     ...sent,
+  });
+});
+
+describe("AppOverlays — repo settings window (#3443)", () => {
+  afterEach(() => repoSettingsWindow.close());
+
+  it("mounts the window for the repo it was opened for; its ✕ closes it", async () => {
+    const live = { drain: {}, byId: () => undefined } as unknown as HerdStore;
+    render(AppOverlays, { ...baseProps(), store: live });
+    expect(page.getByRole("dialog").query()).toBeNull();
+    repoSettingsWindow.open("/repo/settings-a", { section: "epics" });
+    const dialog = page.getByRole("dialog", {
+      name: m.reposettings_dialog_label({ repo: "settings-a" }),
+    });
+    await expect.element(dialog).toBeVisible();
+    await expect
+      .element(page.getByRole("tab", { name: new RegExp(`^${m.reposettings_section_epics()}`) }))
+      .toHaveAttribute("aria-selected", "true");
+    await page.getByRole("button", { name: m.common_close() }).click();
+    await expect.element(dialog).not.toBeInTheDocument();
+    expect(repoSettingsWindow.target).toBeNull();
   });
 });

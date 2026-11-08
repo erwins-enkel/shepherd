@@ -1023,3 +1023,45 @@ test("noPrCiHeld: the payload flag until the config loads, then the loaded confi
   repoConfig.noPrCi = {};
   repoConfig.mergeWithoutCi = {};
 });
+
+// #3443: every repo-config write goes through RepoConfigStore.write().
+test("write overlays every patched field at once, then takes the server's answer", async () => {
+  let resolve!: (v: RepoConfig) => void;
+  vi.mocked(putRepoConfig).mockReturnValueOnce(new Promise((r) => (resolve = r)));
+  const pending = repoConfig.write("/w-multi", { epicStacksEnabled: true, usageCeilingPct: 55 });
+  // optimistic, before the PUT answers
+  expect(repoConfig.epicStacksOn("/w-multi")).toBe(true);
+  expect(repoConfig.usageCeilingFor("/w-multi")).toBe(55);
+  resolve(rc({ epicStacksEnabled: true, usageCeilingPct: 60 }));
+  const res = await pending;
+  expect(putRepoConfig).toHaveBeenCalledWith("/w-multi", {
+    epicStacksEnabled: true,
+    usageCeilingPct: 55,
+  });
+  expect(res?.usageCeilingPct).toBe(60);
+  expect(repoConfig.usageCeilingFor("/w-multi")).toBe(60); // reconciled from the response
+});
+
+test("write reverts only the fields it overlaid when the PUT fails, and answers null", async () => {
+  repoConfig.autoLabel = { ...repoConfig.autoLabel, "/w-fail": "keep:me" };
+  repoConfig.maxAuto = { ...repoConfig.maxAuto, "/w-fail": 2 };
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  const res = await repoConfig.write("/w-fail", { maxAuto: 4 });
+  expect(res).toBeNull();
+  expect(repoConfig.maxAutoFor("/w-fail")).toBe(2);
+  expect(repoConfig.autoLabelFor("/w-fail")).toBe("keep:me");
+});
+
+test("write rethrows on request, after reverting", async () => {
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("nope"));
+  await expect(
+    repoConfig.write("/w-throw", { planGateEnabled: true }, { rethrow: true }),
+  ).rejects.toThrow("nope");
+  expect(repoConfig.isPlanGateEnabled("/w-throw")).toBe(false);
+});
+
+test("write PUTs a field without an overlay (egress hosts) as is", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValueOnce(rc({ egressExtraHosts: ["a.example"] }));
+  await repoConfig.write("/w-egress", { egressExtraHosts: ["a.example"] });
+  expect(putRepoConfig).toHaveBeenCalledWith("/w-egress", { egressExtraHosts: ["a.example"] });
+});

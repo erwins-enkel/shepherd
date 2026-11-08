@@ -4,7 +4,7 @@ import type { RepoSettingsSection } from "#lib/components/repo-settings/sections
 // session row's context menus, the ⚙ pill, New Task's guard timeline, an epic's landing CI — and
 // the page mounts it once (AppOverlays), so no entry point threads a callback to the page.
 
-export interface RepoSettingsTarget {
+interface RepoSettingsTarget {
   repoPath: string;
   /** The section to show first; absent = the first one that needs attention, else the agent's. */
   section?: RepoSettingsSection;

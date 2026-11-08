@@ -54,6 +54,7 @@
     standard: m.sandbox_profile_standard,
     autonomous: m.sandbox_profile_autonomous,
   };
+  const PROFILES: SandboxProfile[] = ["trusted", "standard", "autonomous"];
   // "Inherit" names what it resolves to, so the operator sees the effective default.
   const sandboxInheritLabel = $derived.by(() => {
     const d = repoConfig.sandboxDefaultFor(repoPath);
@@ -120,9 +121,9 @@
         )}
     >
       <option value="inherit">{sandboxInheritLabel}</option>
-      <option value="trusted">{m.sandbox_profile_trusted()}</option>
-      <option value="standard">{m.sandbox_profile_standard()}</option>
-      <option value="autonomous">{m.sandbox_profile_autonomous()}</option>
+      {#each PROFILES as profile (profile)}
+        <option value={profile}>{SANDBOX_NAMES[profile]()}</option>
+      {/each}
     </select>
   {/snippet}
 </RepoSettingRow>

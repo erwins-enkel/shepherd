@@ -7,7 +7,7 @@ import { infoTips } from "#lib/info-tips.svelte.js";
 
 const KEY = Symbol("repo-settings-open-detail");
 
-export class OpenDetail {
+class OpenDetail {
   id = $state<string | null>(null);
 
   toggle(id: string) {

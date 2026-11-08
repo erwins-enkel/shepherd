@@ -49,36 +49,43 @@ const EFFORT_SETTINGS = new Set<string>(["default", ...EFFORTS]);
 const overrides = (setting: string): boolean =>
   setting !== "inherit" && EFFORT_SETTINGS.has(setting);
 
+/** The model: the repo's own when the CLI can run it, else the CLI's global default. */
+function startModel(repo: NextStartRepo, cli: AgentProvider, g: NextStartGlobals) {
+  const own = repo.defaultModel !== "inherit" && repoModelFitsProvider(repo.defaultModel, cli);
+  if (own) return { model: repo.defaultModel, modelFrom: "repo" as const };
+  return {
+    model: cli === "codex" ? g.defaultCodexModel : g.defaultModel,
+    modelFrom: "global" as const,
+  };
+}
+
+/** The effort: the repo's own when the CLI offers it, else the engine's default, else global. */
+function startEffort(repo: NextStartRepo, cli: AgentProvider, g: NextStartGlobals) {
+  const own = cli === "codex" ? g.defaultCodexEffort : g.defaultClaudeEffort;
+  const fits =
+    repo.defaultEffort === "default" || providerEfforts(cli).includes(repo.defaultEffort);
+  if (overrides(repo.defaultEffort) && fits)
+    return { effort: repo.defaultEffort, effortFrom: "repo" as const };
+  return { effort: overrides(own) ? own : g.defaultEffort, effortFrom: "global" as const };
+}
+
+/** The switch at Go: the repo's execution effort, else the global one; "default" = none. */
+function startGo(repo: NextStartRepo, g: NextStartGlobals) {
+  const own = overrides(repo.defaultExecutionEffort);
+  const go = own ? repo.defaultExecutionEffort : (g.defaultExecutionEffort ?? "default");
+  return {
+    goEffort: go === "default" ? null : go,
+    goFrom: own ? ("repo" as const) : ("global" as const),
+  };
+}
+
 export function nextStart(repo: NextStartRepo, g: NextStartGlobals): NextStart {
   const cli = effectiveRepoProvider(repo.agentProvider, g.defaultAgentProvider ?? "claude");
-  const cliFrom: SettingOrigin = repo.agentProvider === "inherit" ? "global" : "repo";
-
-  const repoModel =
-    repo.defaultModel !== "inherit" && repoModelFitsProvider(repo.defaultModel, cli);
-  const model = repoModel
-    ? repo.defaultModel
-    : cli === "codex"
-      ? g.defaultCodexModel
-      : g.defaultModel;
-
-  const own = cli === "codex" ? g.defaultCodexEffort : g.defaultClaudeEffort;
-  const engine = overrides(own) ? own : g.defaultEffort;
-  const repoEffort =
-    overrides(repo.defaultEffort) &&
-    (repo.defaultEffort === "default" || providerEfforts(cli).includes(repo.defaultEffort));
-  const effort = repoEffort ? repo.defaultEffort : engine;
-
-  const repoGo = overrides(repo.defaultExecutionEffort);
-  const go = repoGo ? repo.defaultExecutionEffort : (g.defaultExecutionEffort ?? "default");
-
   return {
     cli,
-    cliFrom,
-    model,
-    modelFrom: repoModel ? "repo" : "global",
-    effort,
-    effortFrom: repoEffort ? "repo" : "global",
-    goEffort: go === "default" ? null : go,
-    goFrom: repoGo ? "repo" : "global",
+    cliFrom: repo.agentProvider === "inherit" ? "global" : "repo",
+    ...startModel(repo, cli, g),
+    ...startEffort(repo, cli, g),
+    ...startGo(repo, g),
   };
 }

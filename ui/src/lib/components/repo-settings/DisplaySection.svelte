@@ -11,6 +11,7 @@
   let { repoPath }: { repoPath: string } = $props();
 
   // Until the config loaded, "off" is only a guess — a flip from it could pin a pinned repo again.
+  $effect(() => void repoConfig.ensure(repoPath));
   const loaded = $derived(repoConfig.isConfigLoaded(repoPath));
   const pinned = $derived(repoConfig.isPinned(repoPath, false));
   const hidden = $derived(repoConfig.isHidden(repoPath, false));

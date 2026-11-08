@@ -1001,6 +1001,7 @@
           oncleanTerminal: onCleanTerminal,
           onreposettings: repoSettingsAble ? repoSettingsFromMenu : undefined,
           repoName,
+          repoPath: session.repoPath,
           onshelve: shelvable ? shelveFromMenu : undefined,
           shelved: !!session.shelved,
           ondecommission: ondecommission ? decommissionFromMenu : undefined,

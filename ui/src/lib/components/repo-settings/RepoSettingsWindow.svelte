@@ -7,7 +7,6 @@
   import { repoConfig } from "#lib/reviews.svelte.js";
   import { epicAutoFix } from "#lib/epic-auto-fix.svelte.js";
   import { schedules } from "#lib/schedules.svelte.js";
-  import { DOCS_URL } from "#lib/build-info.js";
   import type { DrainStatus, Session, Settings } from "#lib/types.js";
   import {
     REPO_SETTINGS_SECTIONS,
@@ -38,7 +37,7 @@
     onclose,
   }: {
     repoPath: string;
-    /** The section to open at; absent = the first one a hint marks, else the agent environment. */
+    /** The section to open at; absent = the first one a hint marks, else Autonomy. */
     section?: SectionId;
     /** The task it was opened from: its review pulse and plan gate show here. */
     sessionId?: string;
@@ -67,7 +66,7 @@
   // svelte-ignore state_referenced_locally
   let picked = $state<SectionId | null>(section ?? null);
   const active = $derived(
-    picked ?? REPO_SETTINGS_SECTIONS.find((id) => flagged[id]) ?? ("agent" as SectionId),
+    picked ?? REPO_SETTINGS_SECTIONS.find((id) => flagged[id]) ?? REPO_SETTINGS_SECTIONS[0],
   );
 
   const items = $derived<NavItem[]>(
@@ -145,14 +144,6 @@
     <div class="body">
       <div class="rail">
         <RepoSettingsNav {items} bind:active={() => active, (id) => (picked = id)} {panelId} />
-        <!-- eslint-disable svelte/no-navigation-without-resolve -- external docs URL -->
-        <a
-          class="guide"
-          href={`${DOCS_URL}hands-off-epics/`}
-          target="_blank"
-          rel="noopener noreferrer">{m.automation_handsoff_hint()}</a
-        >
-        <!-- eslint-enable svelte/no-navigation-without-resolve -->
       </div>
       <div
         bind:this={pane}
@@ -254,20 +245,9 @@
     flex: 0 0 200px;
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
     border-right: 1px solid var(--color-line);
     background: var(--color-panel);
     overflow-y: auto;
-  }
-  .guide {
-    display: block;
-    padding: 8px 14px 12px;
-    font-size: var(--fs-micro);
-    color: var(--color-blue);
-    text-decoration: none;
-  }
-  .guide:hover {
-    text-decoration: underline;
   }
   .pane {
     flex: 1 1 auto;
@@ -303,9 +283,6 @@
       flex: 0 0 auto;
       border-right: 0;
       overflow: visible;
-    }
-    .guide {
-      display: none;
     }
     .pane {
       flex: 0 0 auto;

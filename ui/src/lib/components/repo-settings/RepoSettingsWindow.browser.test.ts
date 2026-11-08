@@ -8,6 +8,7 @@ import { sectionLabel } from "./sections";
 import { m } from "#lib/paraglide/messages.js";
 import { repoConfig } from "#lib/reviews.svelte.js";
 import { mergeModePatch, type MergeMode } from "#lib/merge-mode.js";
+import { AUTONOMY_LEVELS, autonomyPatch, type AutonomyLevel } from "#lib/autonomy.js";
 import type { DrainStatus, RepoConfig, Schedule, Settings } from "#lib/types.js";
 
 // #3443: the repo settings window — sections, saves through /api/repo-config, hints and their
@@ -161,7 +162,7 @@ async function open(props: Partial<{ section: string; drain: DrainStatus; onclos
 }
 
 describe("RepoSettingsWindow", () => {
-  it("names the repo, lists every section with its status and opens on the agent's", async () => {
+  it("names the repo, lists every section with its status and opens on Autonomy", async () => {
     mockApi();
     await open({});
     await expect
@@ -171,6 +172,7 @@ describe("RepoSettingsWindow", () => {
       t.textContent!.trim(),
     );
     expect(names).toEqual([
+      m.reposettings_section_autonomy(),
       m.reposettings_section_agent(),
       m.reposettings_section_start(),
       m.reposettings_section_schedules(),
@@ -180,9 +182,15 @@ describe("RepoSettingsWindow", () => {
       m.reposettings_section_display(),
     ]);
     await expect
-      .element(tab(m.reposettings_section_agent()))
+      .element(tab(m.reposettings_section_autonomy()))
       .toHaveAttribute("aria-selected", "true");
-    await expect.element(tab(m.reposettings_section_agent())).toHaveFocus();
+    await expect.element(tab(m.reposettings_section_autonomy())).toHaveFocus();
+    // the Critic alone is no level
+    await expect
+      .element(tab(m.reposettings_section_autonomy()))
+      .toMatchTextContent(m.reposettings_autonomy_custom());
+    // the hands-off guide moved into Full auto's description
+    expect(document.querySelector(".rail a")).toBeNull();
     await expect
       .element(tab(m.reposettings_section_review()))
       .toMatchTextContent(m.reposettings_summary_on({ on: 1, total: 4 }));
@@ -393,6 +401,153 @@ describe("RepoSettingsWindow — Finished PRs (#3444)", () => {
   });
 });
 
+const LEVEL_NAMES: Record<AutonomyLevel, () => string> = {
+  onCall: () => m.reposettings_autonomy_oncall(),
+  review: () => m.reposettings_autonomy_review(),
+  backlog: () => m.reposettings_autonomy_backlog(),
+  full: () => m.reposettings_autonomy_full(),
+};
+const level = (id: AutonomyLevel) =>
+  page.getByRole("radio", { name: LEVEL_NAMES[id](), exact: true });
+const LEVEL_KEYS = [
+  "criticEnabled",
+  "autoAddressEnabled",
+  "autopilotEnabled",
+  "autoDrainEnabled",
+  "draftMode",
+  "autoMergeEnabled",
+];
+/** The stored config without the five values a level sets. */
+const rest = (stored: Record<string, unknown>) =>
+  Object.fromEntries(Object.entries(stored).filter(([k]) => !LEVEL_KEYS.includes(k)));
+
+describe("RepoSettingsWindow — Autonomy (#3445)", () => {
+  it("a level writes exactly its five values in one patch and leaves every other setting", async () => {
+    const api = mockApi({
+      planGateEnabled: true,
+      buildQueueEnabled: true,
+      sandboxProfile: "autonomous",
+      mergeWithoutCi: true,
+      signoffAuthority: "critic",
+      draftMode: true,
+      maxAuto: 3,
+    });
+    await open({});
+    const before = rest(api.stored());
+    for (const id of ["full", "onCall", "backlog", "review", "full"] as const) {
+      const puts = api.puts.length;
+      await level(id).click();
+      await vi.waitFor(() => expect(api.puts).toHaveLength(puts + 1));
+      expect(api.puts.at(-1)).toEqual(autonomyPatch(id));
+      await expect.element(level(id)).toBeChecked();
+      await expect
+        .element(tab(m.reposettings_section_autonomy()))
+        .toMatchTextContent(LEVEL_NAMES[id]());
+      expect(rest(api.stored())).toEqual(before);
+    }
+  });
+
+  it("checks no level for a custom mix and says so", async () => {
+    mockApi({ autopilotEnabled: true });
+    await open({});
+    await expect.element(page.getByText(m.reposettings_autonomy_custom_note())).toBeVisible();
+    for (const id of AUTONOMY_LEVELS) await expect.element(level(id)).not.toBeChecked();
+  });
+
+  it("a local-only repo locks Backlog and Full auto with the reason", async () => {
+    // a drain stored before the repo went local takes no effect: With review
+    mockApi({
+      repoMode: "lightweight",
+      autoAddressEnabled: true,
+      autopilotEnabled: true,
+      autoDrainEnabled: true,
+    });
+    await open({});
+    await expect.element(level("review")).toBeChecked();
+    for (const id of ["backlog", "full"] as const) {
+      await expect.element(level(id)).toBeDisabled();
+      await expect
+        .element(level(id))
+        .toHaveAccessibleDescription(new RegExp(`${m.automation_lightweight_unavailable()}$`));
+    }
+    await expect.element(level("onCall")).toBeEnabled();
+  });
+
+  it("on Sandbox Standard Backlog and Full auto say the work halts; the level keeps the sandbox", async () => {
+    const api = mockApi({ sandboxProfile: "standard" });
+    await open({});
+    const halt = `${m.reposettings_autonomy_sandbox_halt()} ${m.reposettings_autonomy_sandbox_change()}`;
+    for (const id of ["backlog", "full"] as const)
+      await expect.element(level(id)).toHaveAccessibleDescription(new RegExp(halt));
+    for (const id of ["onCall", "review"] as const)
+      await expect
+        .element(level(id))
+        .not.toHaveAccessibleDescription(new RegExp(m.reposettings_autonomy_sandbox_halt()));
+    await level("backlog").click();
+    await vi.waitFor(() => expect(api.puts).toHaveLength(1));
+    expect(api.puts[0]).not.toHaveProperty("sandboxProfile");
+    expect(api.stored().sandboxProfile).toBe("standard");
+  });
+
+  it("with the sandbox-halt note on top, Backlog and Full auto point at it", async () => {
+    const blockers = {
+      causes: [
+        {
+          code: "sandbox_interactive",
+          scope: "repo",
+          detail: "standard",
+          fix: { changes: { sandboxProfile: "autonomous" }, enabled: true, checks: [] },
+        },
+      ],
+      options: [],
+      preselect: null,
+    };
+    mockApi({ sandboxProfile: "standard" }, blockers);
+    const drain: DrainStatus = {
+      repoPath: repo,
+      enabled: true,
+      paused: true,
+      reason: "sandbox_interactive",
+      detail: "standard",
+      queued: 1,
+      inFlight: 0,
+      max: 1,
+      epicParent: 7,
+    };
+    await open({ section: "autonomy", drain });
+    await expect
+      .element(page.getByText(m.repooverview_halt_title({ repo: `rs-${n}` })))
+      .toBeVisible();
+    for (const id of ["backlog", "full"] as const)
+      await expect
+        .element(level(id))
+        .toHaveAccessibleDescription(
+          new RegExp(
+            `${m.reposettings_autonomy_sandbox_halt()} ${m.reposettings_autonomy_sandbox_see_hint()}`,
+          ),
+        );
+  });
+
+  it("Full auto's description links to the hands-off guide", async () => {
+    mockApi();
+    await open({});
+    const link = page.getByRole("link", { name: m.reposettings_autonomy_full_guide() });
+    await expect.element(link).toHaveAttribute("href", expect.stringMatching(/hands-off-epics\/$/));
+  });
+
+  it("the chain follows a switch flipped in another section", async () => {
+    mockApi();
+    await open({});
+    const step = (s: string) => document.querySelector(`[data-step="${s}"]`)!.textContent!;
+    expect(step("stops")).toContain(m.guardtl_marker_you());
+    expect(step("review")).toContain(m.reposettings_chain_shepherd());
+    await tab(m.reposettings_section_start()).click();
+    await sw(m.automation_autopilot_name()).click();
+    await tab(m.reposettings_section_autonomy()).click();
+    await vi.waitFor(() => expect(step("stops")).toContain(m.reposettings_chain_shepherd()));
+  });
+});
+
 describe("RepoSettingsWindow — pin and hide follow the Backlog list", () => {
   it("shows a flip made in the list, and the list reads a flip made here", async () => {
     mockApi();
@@ -480,7 +635,7 @@ describe("RepoSettingsWindow — phone", () => {
     await open({ section: "agent" });
     const card = document.querySelector<HTMLElement>("[data-repo-settings]")!;
     await vi.waitFor(() => expect(card.getBoundingClientRect().width).toBe(375));
-    for (const id of ["agent", "start", "merge", "display"] as const) {
+    for (const id of ["autonomy", "agent", "start", "merge", "display"] as const) {
       await tab(sectionLabel(id)).click();
       await tick();
       for (const el of [card, ...card.querySelectorAll<HTMLElement>("*")]) {

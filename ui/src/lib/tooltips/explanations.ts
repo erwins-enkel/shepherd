@@ -502,6 +502,19 @@ export function egressExtraHostsExplanation(): TooltipExplanation {
   };
 }
 
+/** Repo settings › Autonomy (#3445): what a level sets, what it leaves, and the custom mix. */
+export function autonomyExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_autonomy_title(),
+    summary: m.tooltip_autonomy_summary(),
+    sections: [
+      { label: m.tooltip_autonomy_sets(), text: m.tooltip_autonomy_sets_body() },
+      { label: m.tooltip_autonomy_keeps(), text: m.tooltip_autonomy_keeps_body() },
+      { label: m.tooltip_autonomy_custom(), text: m.tooltip_autonomy_custom_body() },
+    ],
+  };
+}
+
 /** Repo settings › Auto-Drain › Priority labels (#3446): labels drained before the rest. */
 export function priorityLabelsExplanation(): TooltipExplanation {
   return {

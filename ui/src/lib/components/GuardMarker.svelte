@@ -4,15 +4,17 @@
 
   // The "who acts here" marker — ▲ YOU / ⚙ AUTO / ◈ CONDITIONAL. Shared by the New Task guard
   // timeline and the epic landing card's "who's handling it" bar (#2872), so both read alike.
-  let { kind }: { kind: GuardStepKind } = $props();
+  // `label` renames the mark (the repo settings' step chain says "Shepherd" for auto, #3445).
+  let { kind, label: given }: { kind: GuardStepKind; label?: string } = $props();
 
   const glyph = $derived(kind === "human" ? "▲" : kind === "auto" ? "⚙" : "◈");
   const label = $derived(
-    kind === "human"
-      ? m.guardtl_marker_you()
-      : kind === "auto"
-        ? m.guardtl_marker_auto()
-        : m.guardtl_marker_conditional(),
+    given ??
+      (kind === "human"
+        ? m.guardtl_marker_you()
+        : kind === "auto"
+          ? m.guardtl_marker_auto()
+          : m.guardtl_marker_conditional()),
   );
 </script>
 

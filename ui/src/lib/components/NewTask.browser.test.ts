@@ -2787,6 +2787,30 @@ describe("FirstTaskAutomationConfirm", () => {
     expect(onconfirm).not.toHaveBeenCalled();
   });
 
+  it("offers the autonomy level choice instead of every setting (#3445)", async () => {
+    // a brand-new repo after seedNewRepoDefaults
+    mockGetRepoConfig.mockResolvedValue({
+      ...unconfirmedNewRepoConfig(),
+      planGateEnabled: true,
+      autoAddressEnabled: true,
+      autopilotEnabled: true,
+      buildQueueEnabled: true,
+    });
+    render(FirstTaskAutomationConfirm, {
+      props: { active: true, repoPath: "/repo/ftac-levels", onconfirm: vi.fn(), oncancel: vi.fn() },
+    });
+
+    await expect
+      .element(page.getByRole("radiogroup", { name: m.reposettings_autonomy_name() }))
+      .toBeVisible();
+    // the seeded posture is With review
+    await expect
+      .element(page.getByRole("radio", { name: m.reposettings_autonomy_review(), exact: true }))
+      .toBeChecked();
+    expect(document.querySelector(".ftac [role='switch']")).toBeNull();
+    expect(document.querySelector(".ftac .stack-head")).toBeNull();
+  });
+
   it("Confirm button is disabled when submitting=true", async () => {
     const onconfirm = vi.fn();
     const oncancel = vi.fn();

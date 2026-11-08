@@ -4,7 +4,8 @@ import ShepherdAppCore
 import ShepherdKit
 
 /// The merge card above the steer capsule (#3542), iOS's `viewport/PrActionRow.svelte`:
-/// status, PR, prerequisites and one main action. Shown while the session's PR is open.
+/// status, PR, prerequisites and one main action. Shown while the session's PR is open, or merged
+/// and the session still stands. A PR that is not ready offers its next step (#3718).
 struct IOSMergeCard: View {
     let session: Session
     @Bindable var state: IOSSessionActionState
@@ -12,6 +13,8 @@ struct IOSMergeCard: View {
     let verdict: ReviewVerdict?
     let reviewing: Bool
     let canMerge: Bool
+    /// The herd's swept agent liveness; nil while unknown.
+    var alive: Bool?
     var rendersStaticFixture = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.openURL) private var openURL
@@ -21,6 +24,7 @@ struct IOSMergeCard: View {
             if dynamicTypeSize.isAccessibilitySize {
                 // Large text: everything stacks, nothing truncates.
                 summary
+                stepLockNote
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 8) { moreMenu; mainAction }
                     VStack(alignment: .leading, spacing: 8) { moreMenu; mainAction }
@@ -32,6 +36,7 @@ struct IOSMergeCard: View {
                     moreMenu
                     mainAction
                 }
+                stepLockNote
             }
             // After the status, so VoiceOver reads the state first.
             IOSActionFeedback(error: state.error, note: state.outcome.note, busy: state.busy && !state.merging,
@@ -50,6 +55,7 @@ struct IOSMergeCard: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L.t("prrow_aria", String(git.number ?? 0)))
         .accessibilityIdentifier("merge-card")
+        .task(id: session.id) { await state.loadRepoAutopilot() }
     }
 
     private var kind: MergeRowRules.Kind { MergeRowRules.kind(git, merging: state.merging) }
@@ -57,8 +63,15 @@ struct IOSMergeCard: View {
     private var facts: [MergeRowRules.Fact] {
         MergeRowRules.facts(git, verdict: verdict, reviewing: reviewing, base: base)
     }
-    /// The main slot asks for Ready first: a session not handed back cannot merge yet.
-    private var offersReady: Bool { !session.readyToMerge && state.actions.contains(.toggleReady) }
+    private var step: MergeRowRules.NextStep {
+        MergeRowRules.nextStep(kind, autopilot: state.autopilot, criticReviewing: reviewing,
+            live: MergeRowRules.agentLive(session, alive: alive))
+    }
+    /// A next step owns the main slot; otherwise it asks for Ready first: a session not handed
+    /// back cannot merge yet.
+    private var offersReady: Bool {
+        step.action == .merge && !session.readyToMerge && state.actions.contains(.toggleReady)
+    }
     /// Why Merge is locked, or nil when it is free. Read by VoiceOver as the button's hint.
     private var lockReason: String? {
         if let blocked = MergeRowRules.blockedText(kind) { return blocked }
@@ -90,8 +103,46 @@ struct IOSMergeCard: View {
         }
     }
 
+    /// A locked step names its reason in the card, not only to VoiceOver.
+    @ViewBuilder private var stepLockNote: some View {
+        if step.mode == .locked, let reason = step.reason {
+            Text(verbatim: reason).sessionFont(label: true).foregroundStyle(SessionListStyle.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("merge-card-step-reason")
+        }
+    }
+
     @ViewBuilder private var mainAction: some View {
-        if offersReady {
+        if step.action == .decommission {
+            Button { state.presentDecommission() } label: {
+                Label(L.t("gitrail_decommission_action"), systemImage: "archivebox")
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .buttonStyle(IOSActionButtonStyle(minHeight: 48))
+            .disabled(!state.canDecommission || state.busy)
+            .accessibilityHint(L.t("prrow_tip_decommission"))
+            .accessibilityIdentifier("action-decommission")
+        } else if step.mode == .passive {
+            Label(step.reason ?? "", systemImage: "steeringwheel")
+                .sessionFont(label: true, weight: .semibold).foregroundStyle(SessionListStyle.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minHeight: 48)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(step.reason ?? "")
+                .accessibilityHint(L.t("prrow_passive_tip_body"))
+                .accessibilityAddTraits(.isStaticText)
+                .accessibilityIdentifier("merge-card-passive")
+        } else if step.action != .merge {
+            Button { sendStep() } label: {
+                Label(state.stepSent ? L.t("prrow_sent") : stepTitle,
+                    systemImage: state.stepSent ? "checkmark" : (step.action == .fixCI ? "wrench.and.screwdriver" : "arrow.triangle.branch"))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .buttonStyle(IOSActionButtonStyle(minHeight: 48))
+            .disabled(step.mode == .locked || state.stepSent || state.busy || !state.allowsWrites)
+            .accessibilityHint(step.reason ?? L.t(step.action == .fixCI ? "prrow_tip_fix_ci" : "prrow_tip_rebase"))
+            .accessibilityIdentifier("action-step-\(step.action.rawValue)")
+        } else if offersReady {
             Button { Task { await state.execute(.toggleReady) } } label: {
                 Label(IOSSessionActionState.label(.toggleReady, session: session), systemImage: SessionAction.toggleReady.systemImage)
                     .fixedSize(horizontal: false, vertical: true)
@@ -116,20 +167,36 @@ struct IOSMergeCard: View {
         }
     }
 
+    private var stepTitle: String { L.t(step.action == .fixCI ? "prrow_fix_ci" : "prrow_rebase") }
+
+    private func sendStep() {
+        let action = step.action, git = git, base = base
+        Task {
+            if await state.sendStep(action, git: git, base: base) {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
+        }
+    }
+
     @ViewBuilder private var moreMenu: some View {
         if rendersStaticFixture { moreLabel }
         else {
             Menu {
-                if MergeRowRules.checksCleared(git) && !reviewing {
+                if kind != .merged && MergeRowRules.checksCleared(git) && !reviewing {
                     Button(L.t(verdict == nil ? "gitrail_review" : "gitrail_rereview"), systemImage: "arrow.clockwise") {
                         Task { await state.requestReview() }
                     }.disabled(state.busy || !state.allowsWrites)
                         .accessibilityIdentifier("merge-card-review")
                 }
-                if session.readyToMerge && state.actions.contains(.toggleReady) {
+                if (session.readyToMerge || step.action != .merge) && state.actions.contains(.toggleReady) {
                     Button(IOSSessionActionState.label(.toggleReady, session: session), systemImage: SessionAction.toggleReady.systemImage) {
                         Task { await state.execute(.toggleReady) }
                     }.disabled(state.busy || !state.allowsWrites)
+                }
+                if kind == .ciFailed, let logs = MergeRowRules.logsURL(git) {
+                    Button(L.t("prrow_logs_link"), systemImage: "doc.text.magnifyingglass") { openURL(logs) }
+                        .accessibilityLabel(L.t("prrow_logs_aria"))
+                        .accessibilityIdentifier("merge-card-logs")
                 }
                 if let url = git.url.flatMap(URL.init(string:)), url.scheme == "https" || url.scheme == "http" {
                     Button(L.t("prrow_pr_link"), systemImage: "arrow.up.right.square") { openURL(url) }
@@ -161,6 +228,7 @@ struct IOSMergeCard: View {
         case .behind: "arrow.down.circle"
         case .draft: "pencil.circle"
         case .protected: "lock"
+        case .merged: "circle"
         }
     }
 

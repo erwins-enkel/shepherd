@@ -594,6 +594,69 @@ final class IOSSessionActionsTests: XCTestCase {
         XCTAssertEqual(fixture.calls, ["review", "review", "review"])
     }
 
+    func testNextStepSteersOnceAndSaysSent() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        let red = try IOSActionFixture.decodeGit(extra: ["checks": "failure"])
+        fixture.hold = true
+        async let first = fixture.state.sendStep(.fixCI, git: red, base: "main")
+        await settle { fixture.calls == ["reply"] }
+        // A double tap while the first steer is in flight sends nothing.
+        let second = await fixture.state.sendStep(.fixCI, git: red, base: "main")
+        fixture.release()
+        let sent = await first
+        XCTAssertTrue(sent); XCTAssertFalse(second)
+        XCTAssertEqual(fixture.replies, [MergeRowRules.ciFixSteer(red)])
+        XCTAssertTrue(fixture.state.stepSent)
+        // Still "Sent": a later tap sends nothing either.
+        let third = await fixture.state.sendStep(.fixCI, git: red, base: "main")
+        XCTAssertFalse(third)
+        XCTAssertEqual(fixture.calls, ["reply"])
+        await settle { !fixture.state.stepSent }
+        let rebase = await fixture.state.sendStep(.rebase, git: try IOSActionFixture.decodeGit(extra: ["mergeStateStatus": "behind"]), base: "main")
+        XCTAssertTrue(rebase)
+        XCTAssertEqual(fixture.replies.last, MergeRowRules.rebaseSteer(base: "main", conflict: false))
+    }
+
+    func testNextStepFailureShowsInTheCardAndFreesTheButton() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.error = .notFound
+        let red = try IOSActionFixture.decodeGit(extra: ["checks": "failure"])
+        let failed = await fixture.state.sendStep(.fixCI, git: red, base: "main")
+        XCTAssertFalse(failed)
+        XCTAssertEqual(fixture.state.error, L.t("steerbar_send_failed"))
+        XCTAssertFalse(fixture.state.stepSent); XCTAssertFalse(fixture.state.busy)
+        // Nothing to send for the decommission step, and a read-only client sends nothing.
+        fixture.error = nil
+        let decommission = await fixture.state.sendStep(.decommission, git: red, base: "main")
+        XCTAssertFalse(decommission)
+        fixture.writable = false
+        let readOnly = await fixture.state.sendStep(.fixCI, git: red, base: "main")
+        XCTAssertFalse(readOnly)
+        XCTAssertEqual(fixture.calls, ["reply"])
+    }
+
+    func testAutopilotIsTheSessionOverrideElseTheRepoDefault() async {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        XCTAssertFalse(fixture.state.autopilot)
+        fixture.repoAutopilotDefault = true
+        await fixture.state.loadRepoAutopilot()
+        await fixture.state.loadRepoAutopilot()
+        XCTAssertTrue(fixture.state.autopilot)
+        XCTAssertEqual(fixture.calls, ["repoConfig"])
+        fixture.session.autopilotEnabled = false
+        XCTAssertFalse(fixture.state.autopilot)
+
+        let own = IOSActionFixture()
+        defer { own.merge.teardown() }
+        own.session.autopilotEnabled = true
+        await own.state.loadRepoAutopilot()
+        XCTAssertTrue(own.state.autopilot)
+        XCTAssertEqual(own.calls, [])
+    }
+
     func testRenderFixtureImages() async throws {
         let fixture = IOSActionFixture()
         defer { fixture.merge.teardown() }
@@ -633,9 +696,9 @@ final class IOSSessionActionsTests: XCTestCase {
         try render(IOSActionFeedback(error: L.t("recap_regenerate_failed"), busy: true, rendersStaticFixture: true), "progress-error", height: 250)
         try render(IOSActionFeedback(note: .success(L.t("prbadge_merged_toast", "42"))), "merge-success", height: 200)
         fixture.state.dismiss()
-        func card(_ git: GitState, canMerge: Bool = true) -> some View {
+        func card(_ git: GitState, canMerge: Bool = true, alive: Bool? = nil) -> some View {
             IOSMergeCard(session: fixture.session, state: fixture.state, git: git, verdict: nil, reviewing: false,
-                canMerge: canMerge, rendersStaticFixture: true)
+                canMerge: canMerge, alive: alive, rendersStaticFixture: true)
         }
         let ready = try IOSActionFixture.decodeGit(extra: ["mergeGate": NSNull(), "mergeStateStatus": "clean"])
         try render(card(ready), "merge-card-ready", height: 160)
@@ -647,6 +710,18 @@ final class IOSSessionActionsTests: XCTestCase {
         try render(card(try IOSActionFixture.decodeGit(extra: ["mergeStateStatus": "clean"])), "merge-card-takeover", height: 160)
         fixture.writable = false
         try render(card(ready, canMerge: false), "merge-card-read-only", height: 200)
+        // #3718: the next step in the main slot.
+        fixture.writable = true; fixture.session.readyToMerge = false; fixture.session.status = .init(known: .running)
+        let red = try IOSActionFixture.decodeGit(extra: ["mergeGate": NSNull(), "checks": "failure", "mergeStateStatus": "blocked"])
+        try render(card(red), "merge-card-fix-ci", height: 160)
+        try render(card(try IOSActionFixture.decodeGit(extra: ["mergeGate": NSNull(), "mergeStateStatus": "dirty"])),
+            "merge-card-rebase", height: 160)
+        try render(card(red, alive: false), "merge-card-locked-not-live", height: 200)
+        try render(card(red, alive: false), "merge-card-locked-large-type", large: true, height: 560)
+        fixture.session.autopilotEnabled = true
+        try render(card(red), "merge-card-autopilot", height: 160)
+        fixture.session.autopilotEnabled = nil
+        try render(card(try IOSActionFixture.decodeGit(extra: ["mergeGate": NSNull(), "state": "merged"])), "merge-card-merged", height: 160)
     }
 
     func testDecommissionIsOfferedForEveryLiveSessionButNeverArchivedOrReadOnly() {
@@ -975,6 +1050,8 @@ private final class IOSActionFixture {
     var reap: [String]?
     var decommissionedID: String?
     var failures: [String: ShepherdError] = [:]
+    var replies: [String] = []
+    var repoAutopilotDefault = false
     let merge: MergeModel
     init(merge: MergeModel? = nil) {
         self.merge = merge ?? MergeModel(reads: .init(snapshot: { MergeSnapshot() }))
@@ -1011,7 +1088,9 @@ private final class IOSActionFixture {
                 try await self.record("review"); return PrReviewResult(ok: true, status: PrReviewTriggerKnown(rawValue: self.reviewStatus).map { .init(known: $0) } ?? .init(unknown: self.reviewStatus))
             }, leftovers: { _ in try await self.record("leftovers"); return self.leftovers },
             closePR: { _ in try await self.record("closePR"); return self.git },
-            archive: { _, reap in self.reap = reap; try await self.record("archive") })
+            archive: { _, reap in self.reap = reap; try await self.record("archive") },
+            reply: { _, text in self.replies.append(text); try await self.record("reply") },
+            repoAutopilot: { _ in try await self.record("repoConfig"); return self.repoAutopilotDefault })
     }
     func record(_ call: String) async throws {
         calls.append(call)

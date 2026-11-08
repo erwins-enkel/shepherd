@@ -11,7 +11,8 @@ Mobile web uses `CardMenu.svelte` for Stop, Resume, Rename, Amend and Relaunch,
 its phone swipe for Decommission. That action is outside this stream.
 
 The iOS detail header menu holds every available command, including eligible Merge.
-While the session's PR is open, a **merge card** sits above the steer capsule (#3542),
+While the session's PR is open, or merged and the session still stands, a **merge card**
+sits above the steer capsule (#3542),
 the iOS counterpart of the web's merge row (`viewport/PrActionRow.svelte`). Without an
 open PR, only Ready is repeated above the terminal footer. Recap opens from Info. The header owns Rename, Amend,
 Relaunch and Merge confirmation sheets, keeping them reachable across tabs.
@@ -30,8 +31,8 @@ text sizes. Controls have at least a 44-point hit target.
 
 ## Merge card
 
-`MergeRowRules` ports `pr-action-row.ts`: the state (merging, draft, conflict, behind,
-CI failed, CI running, protected, ready), the lock reason (`gitrail_merge_blocked_*`)
+`MergeRowRules` ports `pr-action-row.ts` and `pr-next-step.ts`: the state (merging, draft,
+conflict, behind, CI failed, CI running, protected, ready, merged), the lock reason (`gitrail_merge_blocked_*`)
 and the fact line (CI · critic · base · conflicts). A fact the host did not measure is
 left out; the critic fact appears only with a verdict or a running review, because
 iOS does not know whether the repo runs the critic. Like the web row, any failing or
@@ -46,6 +47,18 @@ pending check locks Merge here.
   the same `confirm` stamp as the sheet, built from the PR the card shows, with the
   server's merge method and branch deletion. A drifted PR fails with the stale refusal
   and nothing is merged.
+- **Next step** (#3718): CI failed offers **CI reparieren lassen**, behind or conflict
+  **Rebase lassen**. Each is a plain tap that steers the agent once via
+  `replySession` with the web's fixed English text, shows "Gesendet ✓" with a success
+  haptic, and ignores a second tap. A failed send shows its error in the card. With
+  autopilot effectively on (the session's override, else the repo's `autopilotEnabled`
+  from `GET /api/repo-config`) a passive status replaces the button. A running critic
+  review locks the CI fix, and an agent that is not live (terminal, done, archived, or a
+  swept husk) locks both; the reason shows in the card and as the hint. The native
+  contract carries no per-job CI data, so the CI steer points the agent at
+  `gh pr checks`, and **Logs ↗** in the ⋯ menu opens the PR's checks tab.
+- **Merged:** no facts, a slate ring and **Stilllegen**, which opens the decommission
+  sheet and sends nothing.
 - **Takeovers** (`IOSMergeConfirmationFacts.isTakeover`) never hold: a tap opens the
   confirmation sheet with the responsibility notice.
 - **Locked:** the status and facts say why; VoiceOver reads the reason as the hint.

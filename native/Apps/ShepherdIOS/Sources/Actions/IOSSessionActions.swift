@@ -111,6 +111,10 @@ struct IOSActionOperations {
     var leftovers: (String) async throws -> ComposeLeftovers
     var closePR: (String) async throws -> GitState
     var archive: (String, [String]?) async throws -> Void
+    /// The merge card's next-step steer (#3718): typed into the agent like a chat reply.
+    var reply: (String, String) async throws -> Void = { _, _ in }
+    /// The repo's autopilot default, for sessions without their own override.
+    var repoAutopilot: (String) async throws -> Bool = { _ in false }
 
     static func live(_ store: SessionStore) -> Self {
         let client = store.client
@@ -126,7 +130,9 @@ struct IOSActionOperations {
             reviewPR: { try await client.reviewPr(sessionID: $0) },
             leftovers: { try await client.sessionLeftovers(id: $0) },
             closePR: { try await client.closePR(sessionID: $0) },
-            archive: { try await store.archive(id: $0, reap: $1) })
+            archive: { try await store.archive(id: $0, reap: $1) },
+            reply: { try await client.replySession(id: $0, text: $1) },
+            repoAutopilot: { try await client.getRepoConfig(repo: $0).autopilotEnabled })
     }
 }
 
@@ -182,6 +188,12 @@ final class IOSSessionActionState {
     /// A merge request is in flight (not just a confirmation being prepared).
     private(set) var merging = false
     private var mergeError: String?
+    /// The next-step steer went out; the card says so briefly, then follows the git state again.
+    private(set) var stepSent = false
+    private var stepSentReset: Task<Void, Never>?
+    /// `repoConfig.isAutopilotEnabled`: nil until the repo config is read.
+    private(set) var repoAutopilot: Bool?
+    private var repoAutopilotRequested = false
     private let operations: IOSActionOperations
     private let readSession: () -> Session?
     private let readActions: (Session) -> [SessionAction]
@@ -264,6 +276,7 @@ final class IOSSessionActionState {
         sheet = nil; candidate = nil; presentedAt = nil; outcome.note = nil; command.clear()
         decommission = IOSDecommissionDraft()
         mergeBusy = false; merging = false; mergeError = nil
+        stepSentReset?.cancel(); stepSentReset = nil; stepSent = false
     }
 
     /// Inline writes stay on their own session even if the operator opens another
@@ -587,6 +600,43 @@ final class IOSSessionActionState {
         }, failureCopy: { _ in L.t("gitrail_review_failed") },
             isCurrent: { self.allowsWrites && self.readSession()?.id == session.id })
         if ok, skipped { outcome.note = .warning(L.t("gitrail_review_skipped")) }
+    }
+
+    /// The session's effective autopilot: its own override, else the repo default. Like the web,
+    /// a repo config that is not read (yet) counts as off.
+    var autopilot: Bool {
+        guard let session = readSession() else { return false }
+        return session.autopilotEnabled ?? repoAutopilot ?? false
+    }
+
+    /// Reads the repo default once, only for a session that has no override of its own.
+    func loadRepoAutopilot() async {
+        guard !repoAutopilotRequested, let session = readSession(), session.autopilotEnabled == nil else { return }
+        repoAutopilotRequested = true
+        if let value = try? await operations.repoAutopilot(session.repoPath) { repoAutopilot = value }
+        else { repoAutopilotRequested = false }
+    }
+
+    /// `onStep` in PrActionRow.svelte: steers the agent once with the next step's text. A double
+    /// tap sends once; a failure shows in the card and frees the button again.
+    /// - Returns: whether the steer went out.
+    @discardableResult
+    func sendStep(_ action: MergeRowRules.NextAction, git: GitState, base: String) async -> Bool {
+        guard allowsWrites, !busy, !stepSent, let session = readSession(),
+              let text = MergeRowRules.steer(action, git: git, base: base) else { return false }
+        mergeError = nil; outcome.note = nil
+        let ok = await command.run({ try await operations.reply(session.id, text) },
+            failureCopy: { _ in L.t("steerbar_send_failed") },
+            isCurrent: { self.allowsWrites && self.readSession()?.id == session.id })
+        guard ok else { return false }
+        stepSent = true
+        stepSentReset?.cancel()
+        stepSentReset = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            self?.stepSent = false
+        }
+        return true
     }
 
     /// MergeModel still serializes all merge work. Only this session owns its

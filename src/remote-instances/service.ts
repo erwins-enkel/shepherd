@@ -51,6 +51,14 @@ import {
 
 const REMOTE_PROBE_INTERVAL_MS = 60_000;
 
+/** After a machine announced its battery pause, its answers are ignored this long: it keeps
+ *  answering until its Mac app has actually suspended it. A pause that then fails shows as one no
+ *  longer than this plus one probe round. */
+const BATTERY_PAUSE_GRACE_MS = 30_000;
+
+/** What a machine paused on battery reads as: out of reach, and why. */
+const BATTERY_PAUSE = { status: "unreachable", reason: "battery_pause" } as const;
+
 /** A relayed self-update request: starting it may first fingerprint the machine's dirty tree, and
  *  so may reading that tree — both take seconds where a status read takes milliseconds. */
 const SELF_UPDATE_TIMEOUT_MS = 30_000;
@@ -101,6 +109,9 @@ export interface RemoteInstanceSummary {
    *  machine is not connected right now, i.e. this is its last known state. Null when it never
    *  reported one (an older release). */
   heavySlot?: { snapshot: HeavySlotSnapshot; readAt: number; stale: boolean } | null;
+  /** When the machine announced its battery pause, on this clock; null unless it is paused now
+   *  (then `status` is `unreachable` with reason `battery_pause`). */
+  batteryPauseSince?: number | null;
   /** Whether the machine's platform is cleared to run tasks. Windows is listed but not released;
    *  pickers must offer only released machines. False while the platform is unknown. */
   released: boolean;
@@ -114,6 +125,10 @@ export interface MachineUpdate {
   /** `linux` | `macos` | `windows` | raw; null until the machine identified itself. */
   platform: string | null;
   status: RemoteInstanceStatus;
+  /** Machine code refining a non-connected status (`timeout`, `battery_pause`, …). */
+  reason: string | null;
+  /** See `RemoteInstanceSummary.batteryPauseSince`. */
+  batteryPauseSince: number | null;
   update: MachineSelfUpdate | null;
 }
 
@@ -236,6 +251,8 @@ export class RemoteInstanceService {
   >();
   private readonly loadInflight = new Map<string, Promise<void>>();
   private readonly listeners = new Set<(instanceId: string) => void>();
+  /** Machines paused on battery, by when they said so (this clock). In memory, like `states`. */
+  private readonly pauses = new Map<string, number>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly store: Store;
   private readonly fetch: FetchLike | undefined;
@@ -307,6 +324,7 @@ export class RemoteInstanceService {
   remove(instanceId: string): boolean {
     const removed = this.store.deleteRemoteInstance(instanceId);
     this.states.delete(instanceId);
+    this.pauses.delete(instanceId);
     this.loads.delete(instanceId);
     this.loadInflight.delete(instanceId);
     if (removed) this.notify(instanceId);
@@ -410,6 +428,15 @@ export class RemoteInstanceService {
     this.states.set(instanceId, { ...state, projects, repoSlugs });
   }
 
+  /** The machine said on its live socket that its Mac app is about to suspend it on battery. It
+   *  reads as paused at once — no task goes there — and stays so until it answers again. */
+  noteBatteryPause(instanceId: string): void {
+    const row = this.store.getRemoteInstance(instanceId);
+    if (!row || this.states.get(instanceId)?.status !== "connected") return;
+    this.pauses.set(instanceId, this.now());
+    this.apply(row, BATTERY_PAUSE);
+  }
+
   /** Every machine's self-update, for the update window. */
   updates(): MachineUpdate[] {
     return this.store.listRemoteInstances().map((row) => {
@@ -419,6 +446,8 @@ export class RemoteInstanceService {
         name: row.label ?? row.reportedName,
         platform: state?.info?.platform ?? null,
         status: state?.status ?? "checking",
+        reason: state?.reason ?? null,
+        batteryPauseSince: this.pauses.get(row.instanceId) ?? null,
         update: state?.update ?? null,
       };
     });
@@ -504,6 +533,7 @@ export class RemoteInstanceService {
     if (!current || current.createdAt !== row.createdAt) return;
     const latest = this.states.get(row.instanceId);
     if (latest !== before && latest?.status !== "connected") return;
+    if (this.inPauseGrace(row.instanceId, outcome)) return;
     if (outcome.status === "connected" && outcome.info.instanceId !== current.instanceId) {
       this.apply(current, { status: "identity_mismatch" }, null);
       return;
@@ -534,10 +564,11 @@ export class RemoteInstanceService {
    *  undefined keeps the last snapshot, null (answered, none given) clears it. */
   private apply(
     row: RemoteInstanceRow,
-    outcome: ProbeOutcome | { status: "identity_mismatch" },
+    result: ProbeOutcome | { status: "identity_mismatch" } | typeof BATTERY_PAUSE,
     update?: MachineSelfUpdate | null,
     slot?: HeavySlotSnapshot | null,
   ) {
+    const outcome = this.throughPause(row.instanceId, result);
     const prev = this.states.get(row.instanceId);
     if (outcome.status === "connected")
       this.noteLoad(row.instanceId, outcome.load, outcome.loadReadAt);
@@ -575,6 +606,29 @@ export class RemoteInstanceService {
     else console.warn(line);
   }
 
+  /** A result for a machine paused on battery: being out of reach keeps it paused, anything else
+   *  ends the pause. */
+  private throughPause<T extends { status: string }>(
+    instanceId: string,
+    result: T,
+  ): T | typeof BATTERY_PAUSE {
+    if (!this.pauses.has(instanceId)) return result;
+    if (result.status === "unreachable") return BATTERY_PAUSE;
+    this.pauses.delete(instanceId);
+    return result;
+  }
+
+  /** An answer soon after a battery pause notice is not news: the machine keeps answering until
+   *  its Mac app has actually suspended it. */
+  private inPauseGrace(instanceId: string, outcome: ProbeOutcome): boolean {
+    const pausedAt = this.pauses.get(instanceId);
+    return (
+      outcome.status === "connected" &&
+      pausedAt !== undefined &&
+      this.now() - pausedAt < BATTERY_PAUSE_GRACE_MS
+    );
+  }
+
   private notify(instanceId: string): void {
     for (const listener of this.listeners) listener(instanceId);
   }
@@ -603,6 +657,7 @@ export class RemoteInstanceService {
       capabilities: state?.capabilities ? capabilityReport(state.capabilities, this.now()) : null,
       load: this.loadReport(row.instanceId),
       heavySlot: heavySlotReport(state),
+      batteryPauseSince: this.pauses.get(row.instanceId) ?? null,
       released: state?.info ? platformReleased(state.info.platform) : false,
     };
   }

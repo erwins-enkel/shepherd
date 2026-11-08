@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   availableCapabilities,
+  batteryPaused,
   connectErrorMessage,
   machineHint,
+  machineStateLabel,
+  machineStateTone,
   machineStatusLabel,
   machineStatusTone,
   missingCapabilities,
@@ -33,6 +36,30 @@ describe("machines copy", () => {
     for (const s of ["unauthorized", "incompatible", "identity_mismatch"]) {
       expect(machineStatusTone(s)).toBe("bad");
     }
+  });
+
+  it("a battery pause reads as such, quietly, with when it started", () => {
+    const since = new Date(2026, 10, 8, 14, 32).getTime();
+    const paused = { status: "unreachable", reason: "battery_pause", batteryPauseSince: since };
+    const time = new Date(since).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    expect(batteryPaused(paused)).toBe(true);
+    expect(machineStateLabel(paused)).toBe(m.settings_machines_battery_pause_since({ time }));
+    expect(machineStateLabel({ ...paused, batteryPauseSince: null })).toBe(
+      m.settings_machines_status_battery_pause(),
+    );
+    expect(machineStateTone(paused)).toBe("idle");
+    expect(machineHint("unreachable", "battery_pause")).toBe(
+      m.settings_machines_hint_battery_pause(),
+    );
+    // Any other state reads exactly as its status.
+    const off = { status: "unreachable", reason: "timeout" };
+    expect(batteryPaused(off)).toBe(false);
+    expect(machineStateLabel(off)).toBe(m.settings_machines_status_unreachable());
+    expect(machineStateTone(off)).toBe("warn");
+    expect(machineStateLabel({ status: "connected" })).toBe(m.settings_machines_status_connected());
   });
 
   it("hints name the next step per reason", () => {

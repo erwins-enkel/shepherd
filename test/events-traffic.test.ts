@@ -122,6 +122,7 @@ test("180 s stationary traffic falls by at least half while full changes remain 
       list: () => machines,
       check: async () => machines[0]!,
       repoSlugs: () => new Map(),
+      noteBatteryPause: () => {},
     },
     fetch: async (url) => Response.json(url.endsWith("/api/git") ? {} : remoteRows),
     openSocket: (_url, _headers, on) => {

@@ -373,6 +373,8 @@ describe("connected machines", () => {
         name: expect.any(String),
         platform: expect.any(String),
         status: "connected",
+        reason: null,
+        batteryPauseSince: null,
         update: {
           behind: 2,
           current: "aaaaaaa",

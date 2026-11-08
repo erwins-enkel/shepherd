@@ -187,6 +187,30 @@ describe("SettingsMachinesPanel", () => {
       .toBeVisible();
   });
 
+  it("shows a Mac on battery pause quietly, with when it started and what happens next", async () => {
+    const since = new Date(2026, 10, 8, 14, 32).getTime();
+    stubApi({
+      machines: [
+        machine({
+          name: "Travel Air",
+          status: "unreachable",
+          reason: "battery_pause",
+          batteryPauseSince: since,
+        }),
+      ],
+    });
+    render(SettingsMachinesPanel);
+    await expect.element(page.getByText("Travel Air")).toBeVisible();
+    const badge = document.querySelector<HTMLElement>('[data-status="unreachable"]')!;
+    const time = new Date(since).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    expect(badge.textContent?.trim()).toBe(m.settings_machines_battery_pause_since({ time }));
+    expect(badge.classList.contains("mch-idle")).toBe(true);
+    await expect.element(page.getByText(m.settings_machines_hint_battery_pause())).toBeVisible();
+  });
+
   it("connects a machine and shows it, sending url, token and label", async () => {
     const added = machine({ name: "MacBook" });
     const calls = stubApi({ connect: () => ({ payload: { instance: added }, status: 201 }) });

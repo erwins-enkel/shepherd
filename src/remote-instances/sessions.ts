@@ -35,6 +35,7 @@
  * ID and name (#3056), so the machine can show who mirrors it; it never takes them as proof of
  * anything (`incoming.ts`).
  */
+import { BATTERY_PAUSE_EVENT } from "../battery-pause-notice";
 import type { SessionStore } from "../store";
 import { type FetchLike, getRemoteJson, isRecord, type RemoteTarget, UUID_RE } from "./client";
 import { mirrorIdentityHeaders } from "./identity";
@@ -108,7 +109,7 @@ export type OpenSocket = (
 ) => { close(): void };
 
 type Store = Pick<SessionStore, "getRemoteInstance">;
-type Instances = Pick<RemoteInstanceService, "list" | "check" | "repoSlugs">;
+type Instances = Pick<RemoteInstanceService, "list" | "check" | "repoSlugs" | "noteBatteryPause">;
 
 interface Link {
   publishedSessions?: string;
@@ -450,6 +451,9 @@ export class RemoteSessionMirror {
   private receive(link: Link, raw: unknown): void {
     const frame = parseFrame(raw);
     if (!frame) return;
+    // Its Mac app is about to suspend it on battery: the probe would only see a timeout.
+    if (frame.event === BATTERY_PAUSE_EVENT)
+      return this.instances.noteBatteryPause(link.instanceId);
     if (frame.event === "terminal:owners") {
       // Always the machine's full current map, so it never needs the snapshot buffer.
       link.owners = parseOwners(frame.data);

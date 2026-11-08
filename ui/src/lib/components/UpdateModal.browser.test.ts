@@ -31,6 +31,7 @@ import {
   getUpdateDirty,
 } from "#lib/api.js";
 import type { MachineUpdate } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 const mockApply = applyUpdate as unknown as ReturnType<typeof vi.fn>;
 const mockDirty = getUpdateDirty as unknown as ReturnType<typeof vi.fn>;
@@ -443,6 +444,32 @@ describe("UpdateModal", () => {
     expect(rowOf("nas").textContent).toContain("Unreachable");
     expect(rowOf("nas").querySelector("button")).toBeNull(); // nothing to start out of reach
     await vi.waitFor(() => expect(btn(/update all \(2\)/i)).toBeTruthy());
+  });
+
+  it("a Mac on battery pause reads as such, quietly, not as unreachable", async () => {
+    const since = new Date(2026, 10, 8, 14, 32).getTime();
+    const paused = machine({
+      instanceId: "air",
+      name: "macbook",
+      status: "unreachable",
+      reason: "battery_pause",
+      batteryPauseSince: since,
+    });
+    render(UpdateModal, {
+      props: { update, updating: false, deploy: null, machines: [paused] },
+    });
+
+    await vi.waitFor(() => expect(rowOf("macbook")).toBeTruthy());
+    const time = new Date(since).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    expect(rowOf("macbook").textContent).toContain(
+      m.settings_machines_battery_pause_since({ time }),
+    );
+    expect(rowOf("macbook").textContent).not.toContain("Unreachable");
+    expect(rowOf("macbook").querySelector(".warn")).toBeNull();
+    expect(rowOf("macbook").querySelector("button")).toBeNull();
   });
 
   it("a row's own button updates only that machine", async () => {

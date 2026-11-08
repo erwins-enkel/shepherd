@@ -8,7 +8,7 @@
     getMachineUpdateLog,
     StaleDirtyError,
   } from "#lib/api.js";
-  import { machineStatusLabel } from "#lib/machines.js";
+  import { batteryPaused, machineStateLabel, machineStatusLabel } from "#lib/machines.js";
   import { machineReachable, type MachinePhase } from "#lib/machine-updates.js";
   import { m } from "#lib/paraglide/messages.js";
   import { lastLogLine } from "./local-update.svelte.js";
@@ -148,7 +148,12 @@
 </script>
 
 {#snippet status()}
-  {#if !reachable}
+  {#if batteryPaused(machine)}
+    <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"
+      ><rect x="2.5" y="7" width="16.5" height="10" rx="2" /><path d="M21.5 10.5v3" /></svg
+    >
+    <span class="muted">{machineStateLabel(machine)}</span>
+  {:else if !reachable}
     <svg class="mark warn" viewBox="0 0 24 24" aria-hidden="true"
       ><circle cx="12" cy="12" r="9" /><path d="M12 7.5v5.5M12 16.5v.01" /></svg
     >

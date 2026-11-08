@@ -3,8 +3,8 @@
   import type { RemoteInstance } from "#lib/types.js";
   import {
     machineHint,
-    machineStatusLabel,
-    machineStatusTone,
+    machineStateLabel,
+    machineStateTone,
     platformLabel,
   } from "#lib/machines.js";
   import { formatAgo } from "#lib/format.js";
@@ -42,7 +42,7 @@
   let labelDraft = $state("");
   let error = $state("");
 
-  const tone = $derived(machineStatusTone(machine.status));
+  const tone = $derived(machineStateTone(machine));
   const sessions = $derived(
     sessionCount === 0
       ? m.settings_machines_sessions_none()
@@ -107,7 +107,7 @@
     <span class="mch-title">
       <span class="mch-name">{machine.name}</span>
       <span class="mch-badge mch-{tone}" data-status={machine.status}
-        >{machineStatusLabel(machine.status)}</span
+        >{machineStateLabel(machine)}</span
       >
       {#if machine.info && !machine.released}
         <span class="mch-badge" data-released="false">{m.settings_machines_not_released()}</span>

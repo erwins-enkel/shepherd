@@ -374,6 +374,7 @@ describe("RemoteInstanceService", () => {
       capabilities: null,
       load: null,
       heavySlot: null,
+      batteryPauseSince: null,
       released: true,
     });
     expect(JSON.stringify(instance)).not.toContain(TOKEN);
@@ -626,7 +627,15 @@ describe("RemoteInstanceService", () => {
     expect(svc.updates()).toEqual([]);
     await svc.connect(connectReq);
     expect(svc.updates()).toEqual([
-      { instanceId: REMOTE_ID, name: "MacBook", platform: "macos", status: "connected", update },
+      {
+        instanceId: REMOTE_ID,
+        name: "MacBook",
+        platform: "macos",
+        status: "connected",
+        reason: null,
+        batteryPauseSince: null,
+        update,
+      },
     ]);
 
     remote.status["/api/me"] = 500;
@@ -645,6 +654,100 @@ describe("RemoteInstanceService", () => {
     remote.update = { behind: -1, checkedAt: 7 };
     await svc.check(REMOTE_ID);
     expect(svc.updates()[0]).toMatchObject({ status: "connected", update: null });
+  });
+
+  describe("battery pause", () => {
+    test("the notice marks the machine paused at once, in its summary and the update list", async () => {
+      let t = 1_000;
+      const { svc } = setup(fakeShepherd(), () => t);
+      await svc.connect(connectReq);
+      const heard: string[] = [];
+      svc.onChange((id) => heard.push(id));
+      t = 2_000;
+      svc.noteBatteryPause(REMOTE_ID);
+      expect(heard).toEqual([REMOTE_ID]);
+      expect(svc.get(REMOTE_ID)).toMatchObject({
+        status: "unreachable",
+        reason: "battery_pause",
+        batteryPauseSince: 2_000,
+        lastSeenAt: 1_000,
+      });
+      expect(svc.updates()[0]).toMatchObject({
+        status: "unreachable",
+        reason: "battery_pause",
+        batteryPauseSince: 2_000,
+      });
+    });
+
+    test("no answer keeps the pause; an answer within the grace period is ignored", async () => {
+      let t = 1_000;
+      const { svc, remote } = setup(fakeShepherd(), () => t);
+      await svc.connect(connectReq);
+      svc.noteBatteryPause(REMOTE_ID);
+      // Still answering until the Mac app has actually suspended it.
+      t = 20_000;
+      await svc.check(REMOTE_ID);
+      expect(svc.get(REMOTE_ID)).toMatchObject({ status: "unreachable", reason: "battery_pause" });
+      remote.status["/api/me"] = 500;
+      t = 60_000;
+      await svc.check(REMOTE_ID);
+      expect(svc.get(REMOTE_ID)).toMatchObject({
+        status: "unreachable",
+        reason: "battery_pause",
+        batteryPauseSince: 1_000,
+        checkedAt: 60_000,
+      });
+    });
+
+    test("an answer after the grace period ends the pause", async () => {
+      let t = 1_000;
+      const { svc } = setup(fakeShepherd(), () => t);
+      await svc.connect(connectReq);
+      svc.noteBatteryPause(REMOTE_ID);
+      t = 31_000;
+      await svc.check(REMOTE_ID);
+      expect(svc.get(REMOTE_ID)).toMatchObject({
+        status: "connected",
+        reason: null,
+        batteryPauseSince: null,
+      });
+    });
+
+    test("any other answer ends the pause at once", async () => {
+      let t = 1_000;
+      const { svc, remote } = setup(fakeShepherd(), () => t);
+      await svc.connect(connectReq);
+      svc.noteBatteryPause(REMOTE_ID);
+      t = 2_000;
+      remote.status["/api/me"] = 401;
+      await svc.check(REMOTE_ID);
+      expect(svc.get(REMOTE_ID)).toMatchObject({
+        status: "unauthorized",
+        reason: "token_rejected",
+        batteryPauseSince: null,
+      });
+    });
+
+    test("only a connected machine can announce a pause; removal forgets it", async () => {
+      const { svc, remote } = setup();
+      svc.noteBatteryPause(REMOTE_ID);
+      expect(svc.list()).toEqual([]);
+      await svc.connect(connectReq);
+      remote.status["/api/me"] = 500;
+      await svc.check(REMOTE_ID);
+      svc.noteBatteryPause(REMOTE_ID);
+      expect(svc.get(REMOTE_ID)).toMatchObject({
+        reason: "bad_response",
+        batteryPauseSince: null,
+      });
+
+      delete remote.status["/api/me"];
+      await svc.check(REMOTE_ID);
+      svc.noteBatteryPause(REMOTE_ID);
+      expect(svc.remove(REMOTE_ID)).toBe(true);
+      await svc.connect(connectReq);
+      expect(svc.get(REMOTE_ID)).toMatchObject({ status: "connected", batteryPauseSince: null });
+    });
   });
 
   test("relayed self-update requests carry the machine's answer, never a lost token as one", async () => {

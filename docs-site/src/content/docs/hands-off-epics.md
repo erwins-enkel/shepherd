@@ -26,7 +26,7 @@ session row's context menu) and set:
 | Setting             | Recommended | Why |
 | ------------------- | ----------- | --- |
 | **Autopilot**       | **On**      | Drives each session through routine stops toward a PR instead of handing back to you. |
-| **Full-auto merge** | **On**      | The merge train lands each ready PR automatically. Turning it on forces **Draft mode off** (they are mutually exclusive). |
+| **Finished PRs**    | **Full-auto merge** | The merge train lands each ready PR automatically. It is one choice with **You merge** and **Draft until sign-off**, so Draft and Full-auto merge are never on together. |
 | **Critic**          | **On**      | Auto code-review of every push, in parallel with CI (on by default). Required for Auto-Address. |
 | **Auto-Address**    | **On**      | Feeds critic findings back to the agent automatically, so routine review comments don't need you. |
 | **Plan gate**       | **On** (keep) | Adversarial plan review before each session executes — see below. This is the seeded default; keep it. |
@@ -66,10 +66,11 @@ runs regardless.
 
 ### Sign-off authority — leave it on "human"
 
-You don't need to change **Sign-off by**. The sign-off gate only applies in **Draft mode**, and the
-hands-off recommendation runs with Draft mode **off** (Full-auto merge on). With Draft off, the
-sign-off authority is inert, so leaving it at the default "human" is safe and does not hold anything
-up.
+You don't need to change **Sign-off by**. The sign-off gate only applies under **Draft until
+sign-off** (the setting only shows there), and the hands-off recommendation picks **Full-auto merge**
+instead. With Draft off, the sign-off authority is inert, so leaving it at the default "human" is
+safe and does not hold anything up. Switching the Critic off while Draft waits on a Critic sign-off
+moves it to "human" in the same change.
 
 ## What still stops a hands-off epic
 

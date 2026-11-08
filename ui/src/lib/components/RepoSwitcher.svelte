@@ -13,6 +13,7 @@
   import { longPress } from "./longpress";
   import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
   import AssistantGlyph from "./AssistantGlyph.svelte";
+  import RepoMenuStatus from "./repo-settings/RepoMenuStatus.svelte";
 
   let {
     chips,
@@ -480,11 +481,10 @@
         <span class="rs-menu-icon" aria-hidden="true">⚙</span>
         <span class="rs-menu-text">
           {m.reposettings_menu_open()}
-          {#if noPrCiRepos.has(menu.chip.repoPath)}
-            <span class="rs-menu-hold"
-              ><span aria-hidden="true">⚠</span> {m.repo_chip_no_pr_ci()}</span
-            >
-          {/if}
+          <RepoMenuStatus
+            repoPath={menu.chip.repoPath}
+            noPrCiPayload={noPrCiRepos.has(menu.chip.repoPath)}
+          />
         </span>
       </button>
       <button
@@ -700,10 +700,6 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-  }
-  .rs-menu-hold {
-    color: var(--status-warn);
-    font-size: var(--fs-micro);
   }
   .rs-menu-icon {
     width: 1em;

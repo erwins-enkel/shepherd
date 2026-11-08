@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { DrainStatus, Session, Settings } from "#lib/types.js";
   import type { RepoSettingsSection } from "./sections";
+  import AutonomySection from "./AutonomySection.svelte";
   import AgentSection from "./AgentSection.svelte";
   import StartSection from "./StartSection.svelte";
   import AutomationSchedules from "../automation-settings/AutomationSchedules.svelte";
@@ -32,7 +33,9 @@
   } = $props();
 </script>
 
-{#if section === "agent"}
+{#if section === "autonomy"}
+  <AutonomySection {repoPath} />
+{:else if section === "agent"}
   <AgentSection {repoPath} {sessionId} {drain} {globals} {armCoachmarks} />
 {:else if section === "start"}
   <StartSection {repoPath} {sessionId} {planPhase} {drain} />

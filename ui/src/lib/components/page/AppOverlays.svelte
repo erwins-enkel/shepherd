@@ -473,9 +473,14 @@
 
   // The repo settings window (#3443), opened from anywhere through repoSettingsWindow. Its live
   // inputs come from the store: the repo's drain and the plan gate of the task it was opened from.
+  // The menus' short status (#3445) reads the same two inputs the window gets below.
+  repoSettingsWindow.provide({
+    drain: (repoPath) => store.drain[repoPath] ?? null,
+    globals: () => settings,
+  });
   const repoSettings = $derived(repoSettingsWindow.target);
   const repoSettingsDrain = $derived(
-    repoSettings ? (store.drain[repoSettings.repoPath] ?? null) : null,
+    repoSettings ? repoSettingsWindow.drainFor(repoSettings.repoPath) : null,
   );
   const repoSettingsPlanPhase = $derived(
     repoSettings?.sessionId ? (store.byId(repoSettings.sessionId)?.planPhase ?? null) : null,

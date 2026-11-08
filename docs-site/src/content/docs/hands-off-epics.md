@@ -32,6 +32,16 @@ session row's context menu) and set:
 | **Plan gate**       | **On** (keep) | Adversarial plan review before each session executes — see below. This is the seeded default; keep it. |
 | **Epic mode**       | **Auto**    | On the Epic panel, "auto" drains without asking. "Attended" waits for **Approve next** on every spawn. |
 
+**One click: the Full auto level.** The window's first section, **Autonomy**, offers four levels —
+**On call**, **With review**, **Backlog** and **Full auto** — that each set the Critic, Auto-Address,
+Autopilot, Auto-Drain and Finished PRs in one change. **Full auto** sets Autopilot, Full-auto
+merge, Critic and Auto-Address as recommended above and also turns on Auto-Drain, so labeled issues
+get picked up too. It leaves Plan gate, the sandbox and the epic's mode as they are. On the
+**Standard** sandbox the work still halts at the first unattended start (see below). When those settings match no level, the window says **Custom mix**.
+Below the levels, **Who does which step** shows for each step (pick up issue, check plan, go on at
+stops, review, fix findings, merge) whether Shepherd or you take it. The repo tab's and session
+row's context menus show the level, the coding CLI and the merge mode under **Repo settings …**.
+
 **Repos without CI.** In a GitHub repo where no workflow in `.github/workflows` runs on pull
 requests (none at all, or only scheduled or manual ones), nothing checks a PR. So the merge train and epic auto-land **hold** those PRs instead of merging them. The session
 banner says _no CI_ and the epic row shows **Auto-land held: no CI**. To lift the hold, add a CI

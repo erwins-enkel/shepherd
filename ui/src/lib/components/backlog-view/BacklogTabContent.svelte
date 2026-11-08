@@ -114,7 +114,6 @@
     <AutomationSettings
       repoPath={selectedPath}
       drain={drain?.[selectedPath] ?? null}
-      showHeader={false}
       onsetupci={() => onadopt(selectedPath, m.automation_no_pr_ci_task_prompt())}
     />
   </div>
@@ -124,8 +123,7 @@
 
 <style>
   /* Automation tab owns its scroll: AutomationSettings is height-neutral and
-     non-scrolling (so the in-task popover's own clamp stays the only scroller
-     there), and both .detail-pane / .overlay-body are overflow:hidden — so this
+     non-scrolling, and both .detail-pane / .overlay-body are overflow:hidden — so this
      wrapper is the scroll region that keeps the full rows + roles section
      reachable. Mirrors ReadinessPanel's .scroll. */
   .automation-scroll {

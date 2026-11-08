@@ -143,7 +143,7 @@ describe("AutomationSettings — sandbox default + auto-drain hold (#2100)", () 
     expect(
       page
         .getByRole("option", {
-          name: m.sandbox_profile_inherit({ profile: m.sandbox_profile_standard() }),
+          name: m.automation_sandbox_inherit({ profile: m.sandbox_profile_standard() }),
         })
         .query(),
     ).not.toBeNull();

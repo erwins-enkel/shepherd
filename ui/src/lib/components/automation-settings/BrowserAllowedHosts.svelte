@@ -3,7 +3,7 @@
   import { repoConfig } from "#lib/reviews.svelte.js";
   import { checkBrowserHost } from "#lib/browser-hosts.js";
   import { browserAllowedHostsExplanation } from "#lib/tooltips/explanations.js";
-  import InfoTip from "../InfoTip.svelte";
+  import RepoSettingRow from "../repo-settings/RepoSettingRow.svelte";
   import "./automation-fields.css";
 
   let { repoPath }: { repoPath: string } = $props();
@@ -42,62 +42,68 @@
 
 <!-- Only meaningful while the Shared browser is on: the allowlist governs its autonomous attaches. -->
 {#if repoConfig.sharedBrowserOn(repoPath)}
-  <div class="drain-fields browser-hosts">
-    <div class="drain-label hosts-label">
-      {m.automation_browser_hosts_label()}
-      <InfoTip text={browserAllowedHostsExplanation()} label={m.tooltip_browser_hosts_title()} />
-    </div>
-    {#if hosts.length}
-      <ul class="hosts">
-        {#each hosts as host (host)}
-          <li class="host">
-            <span class="host-name">{host}</span>
-            <button
-              class="host-remove"
-              type="button"
-              aria-label={m.automation_browser_hosts_remove({ host })}
-              onclick={() => remove(host)}>×</button
-            >
-          </li>
-        {/each}
-      </ul>
-    {:else}
-      <div class="hosts-note">{m.automation_browser_hosts_empty()}</div>
-    {/if}
-    <form
-      class="drain-field"
-      onsubmit={(e) => {
-        e.preventDefault();
-        add();
-      }}
-    >
-      <input
-        class="afield-num txt"
-        type="text"
-        autocomplete="off"
-        autocapitalize="off"
-        spellcheck="false"
-        placeholder={m.automation_browser_hosts_placeholder()}
-        aria-label={m.automation_browser_hosts_label()}
-        aria-invalid={error !== null}
-        aria-describedby={error ? errorId : undefined}
-        bind:value={draft}
-        oninput={() => (error = null)}
-      />
-      <button class="gbtn" type="submit">{m.automation_browser_hosts_add()}</button>
-    </form>
-    {#if error}
-      <div class="hosts-error" id={errorId} role="alert">{error}</div>
-    {/if}
-    <div class="hosts-note">{m.automation_browser_hosts_hint()}</div>
-  </div>
+  <RepoSettingRow
+    field="browserAllowedHosts"
+    name={m.automation_browser_hosts_label()}
+    explanation={browserAllowedHostsExplanation()}
+    indent
+  >
+    {#snippet below()}
+      <div class="browser-hosts">
+        {#if hosts.length}
+          <ul class="hosts">
+            {#each hosts as host (host)}
+              <li class="host">
+                <span class="host-name">{host}</span>
+                <button
+                  class="host-remove"
+                  type="button"
+                  aria-label={m.automation_browser_hosts_remove({ host })}
+                  onclick={() => remove(host)}>×</button
+                >
+              </li>
+            {/each}
+          </ul>
+        {:else}
+          <div class="hosts-note">{m.automation_browser_hosts_empty()}</div>
+        {/if}
+        <form
+          class="drain-field"
+          onsubmit={(e) => {
+            e.preventDefault();
+            add();
+          }}
+        >
+          <input
+            class="afield-num txt"
+            type="text"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            placeholder={m.automation_browser_hosts_placeholder()}
+            aria-label={m.automation_browser_hosts_label()}
+            aria-invalid={error !== null}
+            aria-describedby={error ? errorId : undefined}
+            bind:value={draft}
+            oninput={() => (error = null)}
+          />
+          <button class="bs-btn" type="submit">{m.automation_browser_hosts_add()}</button>
+        </form>
+        {#if error}
+          <div class="hosts-error" id={errorId} role="alert">{error}</div>
+        {/if}
+        <div class="hosts-note">{m.automation_browser_hosts_hint()}</div>
+      </div>
+    {/snippet}
+  </RepoSettingRow>
 {/if}
 
 <style>
-  .hosts-label {
+  .browser-hosts {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 6px;
+    margin-top: 6px;
   }
   .hosts {
     display: flex;
@@ -147,25 +153,5 @@
   .hosts-note {
     font-size: var(--fs-meta);
     color: var(--color-faint);
-  }
-  /* Canonical action-button recipe from /design-system (no global .gbtn in app.css). */
-  .gbtn {
-    flex: 0 0 auto;
-    background: transparent;
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    color: var(--color-muted);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.08em;
-    padding: 2px 8px;
-    cursor: pointer;
-  }
-  .gbtn:hover {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
-  .gbtn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 </style>

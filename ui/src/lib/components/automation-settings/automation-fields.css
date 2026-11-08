@@ -74,3 +74,53 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* A repo-settings row's select (#3443): prose options, so the `.afield-num` chrome without its
+   mono or fixed numeric width. */
+.afield-num.afield-select {
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  text-align: left;
+  cursor: pointer;
+  appearance: auto;
+  font-family: var(--font-sans);
+}
+
+/* A hint card above the repo settings' rows, not a row of its own (#3305's no-PR-CI hold, #3443's
+   epic halt). */
+.auto-hold {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-line-bright);
+  background: var(--color-panel-2);
+}
+.auto-hold-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-base);
+  color: var(--color-ink-bright);
+}
+.auto-hold-glyph {
+  color: var(--status-warn);
+}
+.auto-hold-text {
+  margin: 0;
+  font-size: var(--fs-meta);
+  color: var(--color-ink);
+}
+.auto-hold-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* .bs-btn (above) is the /design-system .gbtn recipe; .primary its accent */
+.auto-hold .primary {
+  border-color: var(--color-amber);
+  color: var(--color-amber);
+}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { m } from "#lib/paraglide/messages.js";
+  import RepoMenuStatus from "./repo-settings/RepoMenuStatus.svelte";
 
   // Small anchored, non-blocking context menu for a session card (right-click on
   // desktop, long-press → native `contextmenu` on touch). Per the design system's
@@ -27,6 +28,7 @@
     oncleanTerminal,
     onreposettings,
     repoName = "",
+    repoPath,
     onshelve,
     shelved = false,
     ondecommission,
@@ -81,6 +83,9 @@
     onreposettings?: () => void;
     // the repo the group names
     repoName?: string;
+    // when provided with onreposettings, the item carries the repo's short status and the hints
+    // the window shows on top (#3445)
+    repoPath?: string;
     // when provided, a one-click Shelve / Unshelve item appears (label by `shelved`) — reversible,
     // visibility + automation quiet only, so no arm step
     onshelve?: () => void;
@@ -363,7 +368,11 @@
           tabindex="-1"
           onclick={onreposettings}
         >
-          <span class="cm-icon" aria-hidden="true">⚙</span>{m.reposettings_menu_open()}
+          <span class="cm-icon" aria-hidden="true">⚙</span>
+          <span class="cm-text">
+            {m.reposettings_menu_open()}
+            {#if repoPath}<RepoMenuStatus {repoPath} />{/if}
+          </span>
         </button>
       {/if}
     </div>
@@ -454,6 +463,11 @@
   .cm-repo {
     font-family: var(--font-mono);
     letter-spacing: 0;
+  }
+  .cm-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
   .cm-icon {
     font-size: var(--fs-meta);

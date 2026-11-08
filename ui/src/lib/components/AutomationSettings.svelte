@@ -6,8 +6,8 @@
   import RepoSettingsHints from "./repo-settings/RepoSettingsHints.svelte";
   import RepoSettingsSection from "./repo-settings/RepoSettingsSection.svelte";
 
-  // Every repo setting on one scrolling page (#3443): the Backlog's Automation tab and the
-  // first-task confirm. The repo settings window shows the very same sections one at a time.
+  // Every repo setting on one scrolling page (#3443): the Backlog's Automation tab. The repo
+  // settings window shows the very same sections one at a time.
   let {
     repoPath,
     sessionId,

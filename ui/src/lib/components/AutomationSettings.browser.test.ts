@@ -730,3 +730,45 @@ describe("AutomationSettings — lock reasons (#3444)", () => {
       .toHaveFocus();
   });
 });
+
+describe("AutomationSettings — the autonomy chain follows the switches (#3445)", () => {
+  const REPO = "/tmp/repo-chain";
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("flipping Critic, Auto-Address or Autopilot moves its step at once", async () => {
+    let config: Record<string, unknown> = {
+      criticEnabled: false,
+      autoAddressEnabled: false,
+      autopilotEnabled: false,
+      autoDrainEnabled: false,
+      autoMergeEnabled: false,
+      draftMode: false,
+      signoffAuthority: "human",
+      repoMode: "forge",
+      sandboxProfile: "autonomous",
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (!String(input).startsWith("/api/repo-config")) return new Response("{}", { status: 404 });
+      if (init?.method === "PUT") config = { ...config, ...JSON.parse(String(init.body)) };
+      return Response.json(config);
+    });
+    render(AutomationSettings, { repoPath: REPO });
+    await vi.waitFor(() => expect(repoConfig.isConfigLoaded(REPO)).toBe(true));
+    const step = (s: string) => document.querySelector(`[data-step="${s}"]`)!.textContent!;
+    for (const s of ["review", "fix", "stops"]) expect(step(s)).toContain(m.guardtl_marker_you());
+
+    await page.getByRole("switch", { name: m.automation_critic_name(), exact: true }).click();
+    expect(step("review")).toContain(m.reposettings_chain_shepherd());
+    // Auto-Address only fixes what the Critic found
+    expect(step("fix")).toContain(m.guardtl_marker_you());
+    await page.getByRole("switch", { name: m.automation_autoaddress_name() }).click();
+    expect(step("fix")).toContain(m.reposettings_chain_shepherd());
+    await page.getByRole("switch", { name: m.automation_autopilot_name() }).click();
+    expect(step("stops")).toContain(m.reposettings_chain_shepherd());
+    // three switches and the level follows: With review
+    await expect
+      .element(page.getByRole("radio", { name: m.reposettings_autonomy_review(), exact: true }))
+      .toBeChecked();
+  });
+});

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import AutomationSettings from "./AutomationSettings.svelte";
+  import AutonomyLevels from "./repo-settings/AutonomyLevels.svelte";
 
   let {
     active = false,
@@ -27,8 +27,9 @@
     <p class="ftac-title micro">{m.firsttask_confirm_title()}</p>
     <p class="ftac-intro">{m.firsttask_confirm_intro({ repo: repoBaseName })}</p>
 
+    <!-- #3445: only the autonomy level — every single switch lives in the repo settings -->
     <div class="ftac-settings">
-      <AutomationSettings {repoPath} />
+      <AutonomyLevels {repoPath} />
     </div>
 
     {#if error}
@@ -75,6 +76,7 @@
     border-radius: 2px;
     background: var(--color-inset);
     overflow: hidden;
+    padding: 2px 10px 10px;
   }
 
   .err {

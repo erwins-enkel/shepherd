@@ -12,6 +12,7 @@ import type {
 import type { AutomationFlags } from "./components/git-rail-automation";
 import { handsOffPatch } from "./components/epic-handsoff";
 import { mergeModePatch, type MergeMode } from "./merge-mode";
+import { autonomyPatch, type AutonomyLevel } from "./autonomy";
 import type { RepoConfigPatch, RepoConfigResponse } from "./api";
 import { SAFE_ID, dropKey, setKey } from "./safe-keys";
 import {
@@ -696,6 +697,12 @@ class RepoConfigStore {
     )
       patch.signoffAuthority = "human";
     await this.write(repoPath, patch);
+  }
+
+  /** Set an autonomy level (#3445): exactly its five values — Critic, Auto-Address, Autopilot,
+   *  Auto-Drain and the merge mode — in one patch; every other setting stays. */
+  async setAutonomyLevel(repoPath: string, level: AutonomyLevel) {
+    await this.write(repoPath, autonomyPatch(level));
   }
 
   /** Apply the recommended "hands-off epic" repo defaults in one atomic PUT: Autopilot on,

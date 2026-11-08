@@ -21,3 +21,10 @@ export function mergeModeOf(cfg: MergeFields): MergeMode {
 export function mergeModePatch(mode: MergeMode): MergeFields {
   return { draftMode: mode === "draft", autoMergeEnabled: mode === "auto" };
 }
+
+/** The merge mode that takes effect: a local-only repo has no draft PRs, so its stored draft means
+ *  you merge. Full-auto merge stays — the merge train lands local pseudo-PRs (#1162). */
+export function effectiveMergeMode(cfg: MergeFields, lightweight: boolean): MergeMode {
+  const mode = mergeModeOf(cfg);
+  return mode === "draft" && lightweight ? "manual" : mode;
+}

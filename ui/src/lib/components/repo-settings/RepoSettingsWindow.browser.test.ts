@@ -7,6 +7,7 @@ import RepoSettingsWindow from "./RepoSettingsWindow.svelte";
 import { sectionLabel } from "./sections";
 import { m } from "#lib/paraglide/messages.js";
 import { repoConfig } from "#lib/reviews.svelte.js";
+import { mergeModePatch, type MergeMode } from "#lib/merge-mode.js";
 import type { DrainStatus, RepoConfig, Schedule, Settings } from "#lib/types.js";
 
 // #3443: the repo settings window — sections, saves through /api/repo-config, hints and their
@@ -82,14 +83,16 @@ const SCHEDULE: Schedule = {
 
 interface Api {
   puts: Record<string, unknown>[];
+  /** The config as the fake server holds it now. */
+  stored: () => Record<string, unknown>;
   scheduleWrites: { method: string; body: unknown }[];
   autoFixPosts: unknown[];
 }
 
 /** Fake the server: the repo's config (with `over`), its schedules, roles and the epic auto-fix. */
 function mockApi(over: Partial<RepoConfig & { noPrCi: boolean }> = {}, autoFix?: unknown): Api {
-  const api: Api = { puts: [], scheduleWrites: [], autoFixPosts: [] };
   let config: Record<string, unknown> = { ...BASE, ...over };
+  const api: Api = { puts: [], stored: () => config, scheduleWrites: [], autoFixPosts: [] };
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
     const method = init?.method ?? "GET";
@@ -97,7 +100,12 @@ function mockApi(over: Partial<RepoConfig & { noPrCi: boolean }> = {}, autoFix?:
     if (url.startsWith("/api/repo-config")) {
       if (method === "PUT") {
         api.puts.push(body);
-        config = { ...config, ...body };
+        const next = { ...config, ...body };
+        // the server's cross-field invariants (src/repo-config-service.ts)
+        if (next.draftMode && next.autoMergeEnabled) return new Response("{}", { status: 400 });
+        if (next.draftMode && !next.criticEnabled && next.signoffAuthority !== "human")
+          return new Response("{}", { status: 400 });
+        config = next;
       }
       return Response.json(config);
     }
@@ -130,6 +138,14 @@ afterEach(() => {
 
 const tab = (label: string) => page.getByRole("tab", { name: new RegExp(`^${label}`) });
 const sw = (name: string) => page.getByRole("switch", { name });
+const MODE_NAMES: Record<MergeMode, () => string> = {
+  manual: () => m.reposettings_merge_mode_manual(),
+  draft: () => m.reposettings_merge_mode_draft(),
+  auto: () => m.automation_automerge_name(),
+};
+const radio = (mode: MergeMode) =>
+  page.getByRole("radio", { name: MODE_NAMES[mode](), exact: true });
+const signoff = () => page.getByRole("combobox", { name: m.automation_signoff_authority_label() });
 
 async function open(props: Partial<{ section: string; drain: DrainStatus; onclose: () => void }>) {
   const onclose = props.onclose ?? vi.fn();
@@ -176,11 +192,11 @@ describe("RepoSettingsWindow", () => {
     mockApi();
     await open({ section: "merge" });
     await expect.element(tab(m.reposettings_section_merge())).toHaveFocus();
-    await expect.element(sw(m.automation_automerge_name())).toBeVisible();
+    await expect.element(radio("auto")).toBeVisible();
     await userEvent.keyboard("{ArrowDown}");
     await expect.element(tab(m.reposettings_section_epics())).toHaveFocus();
     await expect.element(sw(m.automation_epic_stacks_name())).toBeVisible();
-    expect(sw(m.automation_automerge_name()).query()).toBeNull();
+    expect(radio("auto").query()).toBeNull();
   });
 
   it("closes on Escape and on ✕, and keeps Tab inside", async () => {
@@ -265,6 +281,115 @@ describe("RepoSettingsWindow — every section saves through /api/repo-config", 
     await open({ section: "display" });
     await sw(m.reposettings_pin_name()).click();
     await vi.waitFor(() => expect(api.puts).toContainEqual({ pinned: true }));
+  });
+});
+
+describe("RepoSettingsWindow — Finished PRs (#3444)", () => {
+  it("every option writes both fields and never leaves draft and full-auto on together", async () => {
+    const api = mockApi();
+    await open({ section: "merge" });
+    for (const mode of ["draft", "auto", "manual", "auto", "draft", "manual"] as const) {
+      await radio(mode).click();
+      await vi.waitFor(() => expect(api.puts.at(-1)).toEqual(mergeModePatch(mode)));
+      await expect.element(radio(mode)).toBeChecked();
+      const stored = api.stored();
+      expect(stored.draftMode && stored.autoMergeEnabled).toBe(false);
+      expect({ draftMode: stored.draftMode, autoMergeEnabled: stored.autoMergeEnabled }).toEqual(
+        mergeModePatch(mode),
+      );
+    }
+  });
+
+  it("shows each saved option again after a reload", async () => {
+    const api = mockApi();
+    for (const mode of ["draft", "auto", "manual"] as const) {
+      const first = await render(RepoSettingsWindow, {
+        repoPath: repo,
+        section: "merge",
+        globals: GLOBALS,
+        onclose: vi.fn(),
+      });
+      await vi.waitFor(() => expect(repoConfig.isConfigLoaded(repo)).toBe(true));
+      await radio(mode).click();
+      await vi.waitFor(() => expect(api.puts.at(-1)).toEqual(mergeModePatch(mode)));
+      await first.unmount();
+      // a reload: the store forgets the repo and reads it from the server again
+      repoConfig.loaded = {};
+      repoConfig.settled = {};
+      repoConfig.draftMode = {};
+      repoConfig.autoMerge = {};
+      const again = await render(RepoSettingsWindow, {
+        repoPath: repo,
+        section: "merge",
+        globals: GLOBALS,
+        onclose: vi.fn(),
+      });
+      await vi.waitFor(() => expect(repoConfig.isConfigLoaded(repo)).toBe(true));
+      await expect.element(radio(mode)).toBeChecked();
+      for (const other of (["manual", "draft", "auto"] as const).filter((o) => o !== mode))
+        await expect.element(radio(other)).not.toBeChecked();
+      await again.unmount();
+    }
+  });
+
+  it("Sign-off by shows only under Draft; without the Critic its Critic options are locked", async () => {
+    mockApi({ criticEnabled: false });
+    await open({ section: "merge" });
+    expect(signoff().query()).toBeNull();
+    await radio("draft").click();
+    await expect.element(signoff()).toBeVisible();
+    const disabled = [...signoff().element().querySelectorAll("option")]
+      .filter((o) => o.disabled)
+      .map((o) => o.value);
+    expect(disabled).toEqual(["critic", "either"]);
+    await expect.element(page.getByText(m.automation_signoff_needs_critic())).toBeVisible();
+    await radio("auto").click();
+    await expect.element(signoff()).not.toBeInTheDocument();
+  });
+
+  it("switching the Critic off moves a Critic sign-off to Human in the same write, visibly", async () => {
+    const api = mockApi({ draftMode: true, signoffAuthority: "critic" });
+    await open({ section: "review" });
+    const reset = page.getByText(m.reposettings_signoff_reset_human());
+    await expect.element(reset).not.toBeVisible();
+    await sw(m.automation_critic_name()).click();
+    await vi.waitFor(() =>
+      expect(api.puts).toEqual([{ criticEnabled: false, signoffAuthority: "human" }]),
+    );
+    await expect.element(sw(m.automation_critic_name())).toHaveAttribute("aria-checked", "false");
+    await expect.element(reset).toBeVisible();
+    await tab(m.reposettings_section_merge()).click();
+    await expect.element(signoff()).toHaveValue("human");
+  });
+
+  it("Full-auto merge with Autopilot off warns and links to the Autopilot switch", async () => {
+    mockApi({ autoMergeEnabled: true });
+    await open({ section: "merge" });
+    const warning = page.getByText(m.reposettings_merge_auto_needs_autopilot());
+    await expect.element(warning).toBeVisible();
+    await page.getByRole("button", { name: m.reposettings_merge_goto_autopilot() }).click();
+    await expect
+      .element(tab(m.reposettings_section_start()))
+      .toHaveAttribute("aria-selected", "true");
+    await expect.element(sw(m.automation_autopilot_name())).toHaveFocus();
+    await userEvent.keyboard(" ");
+    await expect.element(sw(m.automation_autopilot_name())).toHaveAttribute("aria-checked", "true");
+    await tab(m.reposettings_section_merge()).click();
+    await expect.element(radio("auto")).toBeChecked();
+    await expect.element(warning).not.toBeInTheDocument();
+  });
+
+  it("a local-only repo locks Draft with its reason and keeps the other two", async () => {
+    mockApi({ repoMode: "lightweight" });
+    await open({ section: "merge" });
+    await expect.element(radio("draft")).toBeDisabled();
+    await expect
+      .element(radio("draft"))
+      .toHaveAccessibleDescription(
+        `${m.automation_draftmode_desc()} ${m.automation_lightweight_unavailable()}`,
+      );
+    await expect.element(radio("manual")).toBeEnabled();
+    await expect.element(radio("auto")).toBeEnabled();
   });
 });
 

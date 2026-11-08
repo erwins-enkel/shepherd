@@ -15,8 +15,7 @@
   glyph="☰"
   name={m.automation_epic_stacks_name()}
   desc={m.automation_epic_stacks_desc()}
-  disabled={lightweight}
-  disabledTitle={m.automation_lightweight_unavailable()}
+  locked={lightweight ? m.automation_lightweight_unavailable() : undefined}
   checked={repoConfig.epicStacksOn(repoPath) && !lightweight}
   ontoggle={() => repoConfig.toggleEpicStacks(repoPath)}
 />
@@ -25,8 +24,7 @@
   glyph="☑"
   name={m.automation_prewarm_epic_ci_name()}
   desc={m.automation_prewarm_epic_ci_desc()}
-  disabled={lightweight}
-  disabledTitle={m.automation_lightweight_unavailable()}
+  locked={lightweight ? m.automation_lightweight_unavailable() : undefined}
   checked={repoConfig.preWarmEpicLandingCiOn(repoPath) && !lightweight}
   ontoggle={() => repoConfig.togglePreWarmEpicLandingCi(repoPath)}
 />

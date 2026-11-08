@@ -35,6 +35,7 @@
     indent = false,
     disabled = false,
     disabledTitle,
+    locked,
     checked,
     busy = false,
     pending = false,
@@ -59,6 +60,9 @@
     /** Dims the row and locks its switch. */
     disabled?: boolean;
     disabledTitle?: string;
+    /** Why the row can't be used here (#3444: the Critic is off, a local-only repo). Shown in the
+     *  row itself; dims and locks it like `disabled`. */
+    locked?: string;
     /** Switch rows: the state, and the flip. */
     checked?: boolean;
     /** The switch pulses: a review this switch governs is running. */
@@ -75,9 +79,11 @@
   } = $props();
 
   const open = useOpenDetail();
+  const lockId = $props.id();
+  const off = $derived(disabled || !!locked);
 </script>
 
-<div class={["rs-row", { disabled, indent }]} data-field={field} use:coachTarget={coach}>
+<div class={["rs-row", { disabled: off, indent }]} data-field={field} use:coachTarget={coach}>
   <div class="rs-meta">
     <div class="rs-name">
       {#if glyph}<span class="rs-glyph" aria-hidden="true">{glyph}</span>{/if}{name}
@@ -92,6 +98,7 @@
       {#if explanation}<InfoTip text={explanation} label={explanation.title} />{/if}
     </div>
     {#if desc}<div class="rs-desc">{desc}</div>{/if}
+    {#if locked}<div class="rs-locked" id={lockId}>{locked}</div>{/if}
     {#if warn}<div class="rs-warn" role="status" hidden={!warnShown}>{warn}</div>{/if}
     {#if task}<div class="rs-task">{task}</div>{/if}
     {#if detail}
@@ -116,9 +123,10 @@
       aria-checked={checked}
       aria-busy={busy || pending}
       aria-label={name}
-      disabled={disabled || pending}
-      title={disabled ? disabledTitle : undefined}
-      onclick={() => !disabled && ontoggle()}
+      disabled={off || pending}
+      title={locked ?? (disabled ? disabledTitle : undefined)}
+      aria-describedby={locked ? lockId : undefined}
+      onclick={() => !off && ontoggle()}
     >
       <span class="knob"></span>
     </button>
@@ -137,7 +145,10 @@
   .rs-row.indent {
     padding-left: 26px;
   }
-  .rs-row.disabled {
+  /* a disabled row dims everything but its lock reason, which stays readable */
+  .rs-row.disabled > .rs-meta > :global(:not(.rs-locked)),
+  .rs-row.disabled > .rs-control,
+  .rs-row.disabled > .sw {
     opacity: 0.45;
   }
   .rs-meta {
@@ -157,6 +168,11 @@
   .rs-desc {
     font-size: var(--fs-meta);
     color: var(--color-muted);
+    margin-top: 2px;
+  }
+  .rs-locked {
+    font-size: var(--fs-meta);
+    color: var(--color-ink);
     margin-top: 2px;
   }
   .rs-warn {

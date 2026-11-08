@@ -12,6 +12,8 @@ export type NewTaskDraft = {
   attachedRepoPath: string | null;
   images: { path: string; name: string; previewFile?: File }[];
   agentProvider: AgentProvider;
+  /** CLI picked by hand (#3441) — a repo switch no longer reseeds it. Optional for older drafts. */
+  providerTouched?: boolean;
   model: string;
   modelTouched: boolean;
   effort: string;

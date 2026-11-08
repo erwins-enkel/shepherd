@@ -93,6 +93,22 @@ test("repo config, role no-op, push refusal and collaborator fallback", async ()
     { pluginAllowlist: "x" },
     "/api/repo-config" + query,
   );
+  // #3441: the repo's coding CLI round-trips; junk is a 400.
+  const cli = (await request(
+    "PUT",
+    "/api/repo-config",
+    200,
+    { agentProvider: "codex" },
+    "/api/repo-config" + query,
+  )) as { agentProvider: string };
+  expect(cli.agentProvider).toBe("codex");
+  await request(
+    "PUT",
+    "/api/repo-config",
+    400,
+    { agentProvider: "gemini" },
+    "/api/repo-config" + query,
+  );
   s.deps.agentExtensions = async () => ({ plugins: ["context7@c"], skills: ["tdd"] });
   expect(await request("GET", "/api/agent-extensions", 200)).toEqual({
     plugins: ["context7@c"],

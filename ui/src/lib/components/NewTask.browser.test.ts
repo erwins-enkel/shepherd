@@ -1978,6 +1978,91 @@ describe("NewTask fableAvailable prop", () => {
   });
 });
 
+describe("NewTask repo coding CLI (#3441)", () => {
+  const providerSelect = () => document.querySelector<HTMLSelectElement>("#nt-agent-provider")!;
+  const modelSelect = () => document.querySelector<HTMLSelectElement>("#nt-model")!;
+  const badge = () => document.querySelector(".repo-default-badge");
+  const repo = (name: string): RepoEntry => ({
+    name,
+    path: `/repo/cli-${name}`,
+    display: name,
+    realPath: `/repo/cli-${name}`,
+  });
+
+  /** Repos whose config pins `cli` per path; anything unlisted inherits. */
+  function reposWith(entries: [RepoEntry, "inherit" | "claude" | "codex"][]) {
+    mockListRepos.mockResolvedValue({ repos: entries.map(([r]) => r), recentWindowDays: 30 });
+    mockGetRepoConfig.mockImplementation(async (path: string) => ({
+      ...repoConfig(false),
+      agentProvider: entries.find(([r]) => r.path === path)?.[1] ?? "inherit",
+    }));
+  }
+
+  async function switchTo(r: RepoEntry) {
+    document.querySelector<HTMLButtonElement>(".rs-trigger")!.click();
+    const option = () =>
+      Array.from(document.querySelectorAll<HTMLLIElement>('[role="option"]')).find((el) =>
+        el.textContent?.includes(r.name),
+      );
+    await expect.poll(option).toBeTruthy();
+    option()!.click();
+  }
+
+  it("preselects the repo's own CLI, marks it, and submits it", async () => {
+    const a = repo("pin-codex");
+    reposWith([[a, "codex"]]);
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, {
+      props: {
+        onsubmit,
+        initialRepoPath: a.path,
+        defaultAgentProvider: "claude",
+        defaultCodexModel: "gpt-5.4",
+      },
+    });
+    await expect.poll(() => providerSelect().value).toBe("codex");
+    await expect
+      .poll(() => badge()?.textContent?.trim())
+      .toBe(m.newtask_agent_provider_repo_default());
+    await expect.poll(() => modelSelect().value).toBe("gpt-5.4");
+    await fillPromptAndClickRun();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]?.[0]).toMatchObject({ agentProvider: "codex", model: "gpt-5.4" });
+  });
+
+  it("re-derives on a repo switch while untouched", async () => {
+    const a = repo("switch-codex");
+    const b = repo("switch-inherit");
+    reposWith([
+      [a, "codex"],
+      [b, "inherit"],
+    ]);
+    render(NewTask, { props: base({ initialRepoPath: a.path, defaultAgentProvider: "claude" }) });
+    await expect.poll(() => providerSelect().value).toBe("codex");
+    await switchTo(b);
+    await expect.poll(() => providerSelect().value).toBe("claude");
+    expect(badge()).toBeNull(); // an inheriting repo marks nothing
+  });
+
+  it("keeps a hand-picked CLI across a repo switch", async () => {
+    const a = repo("touched-a");
+    const c = repo("touched-c");
+    reposWith([
+      [a, "codex"],
+      [c, "codex"],
+    ]);
+    render(NewTask, { props: base({ initialRepoPath: a.path, defaultAgentProvider: "claude" }) });
+    await expect.poll(() => providerSelect().value).toBe("codex");
+    providerSelect().value = "claude";
+    providerSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => badge()).toBeNull();
+    await switchTo(c);
+    await expect.poll(() => mockGetRepoConfig.mock.calls.some(([p]) => p === c.path)).toBe(true);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(providerSelect().value).toBe("claude");
+  });
+});
+
 describe("NewTask Codex model picker", () => {
   const providerSelect = () => document.querySelector<HTMLSelectElement>("#nt-agent-provider")!;
   const modelSelect = () => document.querySelector<HTMLSelectElement>("#nt-model")!;

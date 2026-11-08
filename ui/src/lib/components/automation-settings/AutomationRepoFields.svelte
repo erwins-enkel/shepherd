@@ -8,20 +8,35 @@
     getRepoCollaborators,
     putRepoRoles,
   } from "#lib/api.js";
-  import { EFFORTS } from "#lib/types.js";
+  import { AGENT_PROVIDERS, EFFORTS } from "#lib/types.js";
   import { modelGuidanceAlias, modelOptionLabel } from "#lib/model-guidance.js";
   import { pickerModels } from "#lib/provider-models.js";
-  import { effortLabel } from "#lib/effort-guidance.js";
+  import { effortLabel, providerEfforts } from "#lib/effort-guidance.js";
+  import {
+    effectiveRepoProvider,
+    repoEffortFitsProvider,
+    repoModelFitsProvider,
+  } from "#lib/repo-cli.js";
   import ModelGuidance from "#lib/components/ModelGuidance.svelte";
-  import type { RepoConfig, RepoMergeSettings, RepoRoles, RepoRolesPending } from "#lib/types.js";
+  import type {
+    AgentProvider,
+    RepoAgentProviderSetting,
+    RepoConfig,
+    RepoMergeSettings,
+    RepoRoles,
+    RepoRolesPending,
+  } from "#lib/types.js";
   import "./automation-fields.css";
 
   let {
     repoPath,
     fableAvailable,
+    globalAgentProvider = "claude",
   }: {
     repoPath: string;
     fableAvailable: boolean;
+    /** The global default CLI an "inherit" repo follows (#3441). */
+    globalAgentProvider?: AgentProvider;
   } = $props();
 
   // Repo responsibilities (.shepherd/roles.json): who reviews, who merges. Loaded
@@ -213,9 +228,25 @@
   /** A role as the pending note names it: "@login", or the unset option's label. */
   const roleLabel = (login: string | null) => (login ? `@${login}` : m.roles_unset_option());
 
-  const defaultModel = $derived(repoConfig.defaultModelFor(repoPath));
+  const providerName = (p: AgentProvider) =>
+    p === "codex" ? m.agent_provider_codex() : m.agent_provider_claude();
+  // #3441: the repo's coding CLI and the one its tasks actually start on.
+  const agentProvider = $derived(repoConfig.agentProviderFor(repoPath));
+  const cli = $derived(effectiveRepoProvider(agentProvider, globalAgentProvider));
+  const cliHint = $derived(
+    agentProvider === "inherit"
+      ? m.automation_coding_cli_hint_inherit({ cli: providerName(cli) })
+      : m.automation_coding_cli_hint_repo({ cli: providerName(cli) }),
+  );
+  // A stored model/effort the effective CLI cannot run (e.g. after a global CLI switch) is ignored
+  // at spawn time, so the select shows the Inherit it falls back to.
+  const storedModel = $derived(repoConfig.defaultModelFor(repoPath));
+  const defaultModel = $derived(repoModelFitsProvider(storedModel, cli) ? storedModel : "inherit");
   const guidanceModel = $derived(modelGuidanceAlias(defaultModel, fableAvailable));
-  const defaultEffort = $derived(repoConfig.defaultEffortFor(repoPath));
+  const storedEffort = $derived(repoConfig.defaultEffortFor(repoPath));
+  const defaultEffort = $derived(
+    repoEffortFitsProvider(storedEffort, cli) ? storedEffort : "inherit",
+  );
   const defaultExecutionEffort = $derived(repoConfig.defaultExecutionEffortFor(repoPath));
   const previewOpenMode = $derived(repoConfig.previewOpenModeFor(repoPath));
 </script>
@@ -224,6 +255,28 @@
      "Inherit" defers to the global setting; an explicit choice wins for both the
      New-Task picker preselect and autonomous drain/autopilot spawns in this repo. -->
 <div class="drain-fields">
+  <!-- Coding CLI (#3441): "Inherit" follows the global default; a pick drives this repo's new
+       tasks, drain and autopilot starts. The model and effort below list only what it runs. -->
+  <label class="drain-field">
+    <span class="drain-label">{m.automation_coding_cli_label()}</span>
+    <select
+      class="afield-num model-select"
+      aria-label={m.automation_coding_cli_label()}
+      value={agentProvider}
+      onchange={(e) =>
+        repoConfig.setAgentProvider(
+          repoPath,
+          (e.currentTarget as HTMLSelectElement).value as RepoAgentProviderSetting,
+        )}
+    >
+      <option value="inherit">{m.automation_coding_cli_inherit()}</option>
+      {#each AGENT_PROVIDERS as p (p)}
+        <option value={p}>{providerName(p)}</option>
+      {/each}
+    </select>
+  </label>
+  <div class="signoff-note coding-cli-hint">{cliHint}</div>
+
   <label class="drain-field">
     <span class="drain-label">{m.automation_default_model_label()}</span>
     <select
@@ -236,13 +289,13 @@
       <option value="inherit">{m.automation_default_model_inherit()}</option>
       <option value="auto">{m.settings_default_model_auto()}</option>
       <option value="default">{m.newtask_model_default()}</option>
-      {#each pickerModels("claude", defaultModel) as mdl (mdl)}
-        <option value={mdl}>{modelOptionLabel("claude", mdl)}</option>
+      {#each pickerModels(cli, defaultModel) as mdl (mdl)}
+        <option value={mdl}>{modelOptionLabel(cli, mdl)}</option>
       {/each}
     </select>
   </label>
   <div class="drain-model-guidance">
-    <ModelGuidance provider="claude" model={guidanceModel} context="repo" />
+    <ModelGuidance provider={cli} model={guidanceModel} context="repo" />
   </div>
   <div class="signoff-note">{m.automation_default_model_hint()}</div>
 
@@ -257,7 +310,7 @@
     >
       <option value="inherit">{m.automation_default_effort_inherit()}</option>
       <option value="default">{m.effort_default()}</option>
-      {#each EFFORTS as tier (tier)}
+      {#each providerEfforts(cli) as tier (tier)}
         <option value={tier}>{effortLabel(tier)}</option>
       {/each}
     </select>

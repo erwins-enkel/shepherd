@@ -143,7 +143,7 @@ function harness(
   opts: {
     codexAuthMode?: "chatgpt" | "apikey" | "unknown";
     judgeSettings?: AppDeps["judgeSettings"];
-    mythosAvailable?: boolean;
+    mythosAvailable?: boolean | ((model?: string) => boolean);
   } = {},
 ): {
   app: ReturnType<typeof makeApp>;
@@ -156,7 +156,10 @@ function harness(
     service: {} as any,
     usageLimits: { limits: () => ({}) } as any,
     readCodexAuthMode: () => opts.codexAuthMode ?? "unknown",
-    mythosAvailable: () => opts.mythosAvailable ?? false,
+    mythosAvailable:
+      typeof opts.mythosAvailable === "function"
+        ? opts.mythosAvailable
+        : () => (opts.mythosAvailable as boolean | undefined) ?? false,
     ...(opts.judgeSettings ? { judgeSettings: opts.judgeSettings } : {}),
   };
   return { app: makeApp(deps), store };
@@ -789,6 +792,18 @@ test.each([
     expect(read()).toBe("claude-mythos-5-1");
   },
 );
+
+test("PUT /api/settings checks the exact Mythos id: 5.2 refused when the account only has 5.1", async () => {
+  const before = config.defaultModel;
+  const only51 = (model?: string) => model === undefined || model === "claude-mythos-5-1";
+  const { app } = harness({ mythosAvailable: only51 });
+  const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(body.mythosAvailable).toBe(true);
+  const refused = await put(app, { defaultModel: "claude-mythos-5-2" });
+  expect(refused.status).toBe(422);
+  expect((await refused.json()).code).toBe("model_unavailable");
+  expect(config.defaultModel).toBe(before);
+});
 
 test("PUT /api/settings rejects an unknown defaultModel value", async () => {
   const { app } = harness();

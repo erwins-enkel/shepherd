@@ -704,9 +704,10 @@ export interface AppDeps {
   maxUploadBytes?: number;
   /** Live Codex auth mode; optional for tests and read on demand in production. */
   readCodexAuthMode?: () => CodexAuthMode;
-  /** Whether the logged-in Claude account can spawn Claude Mythos (claude-account-models.ts).
+  /** Without `model`: whether the logged-in Claude account has any Claude Mythos (the picker
+   *  switch). With `model`: whether it can spawn that exact Mythos id (claude-account-models.ts).
    *  Absent → unavailable: Mythos is hidden and refused. */
-  mythosAvailable?: () => boolean;
+  mythosAvailable?: (model?: string) => boolean;
   /** Anonymous product telemetry (Aptabase). `event()` itself no-ops unless consent is
    *  granted (config.telemetryConsent === "granted") and DO_NOT_TRACK isn't set. Optional
    *  so the many test `makeDeps()` builders need no change; wired to the real
@@ -4599,15 +4600,16 @@ function modelUnavailableJson(e: ModelUnavailableError): Response {
   return json({ error: e.message, code: "model_unavailable" }, 422);
 }
 
-/** Whether the logged-in Claude account can spawn Mythos; an unwired dep reads as unavailable. */
-function mythosAvailable(deps: Ctx["deps"]): boolean {
-  return deps.mythosAvailable?.() ?? false;
+/** Whether the logged-in Claude account has Mythos — any Mythos id, or exactly `model` when given;
+ *  an unwired dep reads as unavailable. */
+function mythosAvailable(deps: Ctx["deps"], model?: string): boolean {
+  return deps.mythosAvailable?.(model) ?? false;
 }
 
 /** The 422 for saving a model setting the logged-in Claude account cannot spawn, else null.
  *  Setting values that are not a model ("auto", "default", "inherit") pass. */
 function modelSettingUnavailable(value: string, deps: Ctx["deps"]): Response | null {
-  if (!isMythosModel(value) || mythosAvailable(deps)) return null;
+  if (!isMythosModel(value) || mythosAvailable(deps, value)) return null;
   return modelUnavailableJson(new ModelUnavailableError(value));
 }
 

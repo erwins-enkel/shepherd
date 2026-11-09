@@ -110,6 +110,18 @@ describe("modelGuidance", () => {
     );
   });
 
+  it("gives pinned Fable 5.2 and Mythos 5.2 the premium tier and their own copy", () => {
+    for (const alias of ["claude-fable-5-2", "claude-mythos-5-2"]) {
+      expect(modelGuidance("claude", alias).costTier).toBe(
+        modelGuidance("claude", "fable").costTier,
+      );
+      expect(modelGuidance("claude", alias).tag).toBe(modelGuidance("claude", "fable").tag);
+      expect(modelGuidance("claude", alias).detail).not.toBe(
+        modelGuidance("claude", "nope").detail,
+      );
+    }
+  });
+
   it("gives pinned Fable 5.1 the same tier and fit as the floating alias it pins", () => {
     expect(modelGuidance("claude", "claude-fable-5-1").costTier).toBe(
       modelGuidance("claude", "fable").costTier,
@@ -135,6 +147,8 @@ describe("modelGuidance", () => {
   it("distinguishes the floating and pinned Fable rows in the picker", () => {
     expect(modelOptionLabel("claude", "fable")).toBe("Fable (latest) · max · $$$$");
     expect(modelOptionLabel("claude", "claude-fable-5-1")).toBe("Fable 5.1 · max · $$$$");
+    expect(modelOptionLabel("claude", "claude-fable-5-2")).toBe("Fable 5.2 · max · $$$$");
+    expect(modelOptionLabel("claude", "claude-mythos-5-2")).toBe("Mythos 5.2 · max · $$$$");
     expect(modelOptionLabel("claude", "fable")).not.toBe(
       modelOptionLabel("claude", "claude-fable-5-1"),
     );
@@ -207,6 +221,8 @@ describe("record vs configured labels", () => {
       "claude-sonnet-5-5",
       "claude-sonnet-5-5[1m]",
       "claude-fable-5-1",
+      "claude-fable-5-2",
+      "claude-mythos-5-2",
     ]) {
       expect(configuredModelLabel(alias)).toBe(modelLabel(alias));
     }
@@ -217,6 +233,8 @@ describe("record vs configured labels", () => {
     expect(modelLabel("claude-opus-5")).toBe("Opus 5");
     expect(modelLabel("claude-opus-5[1m]")).toBe("Opus 5 (1M context)");
     expect(modelLabel("claude-fable-5-1")).toBe("Fable 5.1");
+    expect(modelLabel("claude-fable-5-2")).toBe("Fable 5.2");
+    expect(modelLabel("claude-mythos-5-2")).toBe("Mythos 5.2");
   });
 
   it("leaves every other alias untouched on both surfaces", () => {

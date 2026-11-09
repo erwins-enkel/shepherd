@@ -91,13 +91,19 @@ function claudeGuidance(model: string): {
   detail: string;
 } {
   switch (model) {
-    // Account-gated (only offered when the logged-in account has it); priced like Fable 5.1.
+    // Account-gated (only offered when the logged-in account has it); each Mythos is priced like
+    // the Fable of the same version.
+    case "claude-mythos-5-2":
+      return { costTier: "premium", tag: "max", detail: m.model_guidance_claude_mythos_5_2() };
     case "claude-mythos-5-1":
       return { costTier: "premium", tag: "max", detail: m.model_guidance_claude_mythos_5_1() };
     case "fable":
       return { costTier: "premium", tag: "max", detail: m.model_guidance_claude_fable() };
-    // Pinned Fable 5.1 mirrors the tier/fit of the floating alias it pins — same model,
-    // same price; only the version-drift guarantee differs.
+    // Pinned Fable 5.2 mirrors the tier/fit of the floating alias it pins — same model,
+    // same price; only the version-drift guarantee differs. Fable 5.1 is a retired pin that a
+    // saved value can still show, so it keeps its own row.
+    case "claude-fable-5-2":
+      return { costTier: "premium", tag: "max", detail: m.model_guidance_claude_fable_5_2() };
     case "claude-fable-5-1":
       return { costTier: "premium", tag: "max", detail: m.model_guidance_claude_fable_5_1() };
     case "opus":

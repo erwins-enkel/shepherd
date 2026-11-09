@@ -1891,17 +1891,18 @@ describe("NewTask account-gated Mythos", () => {
 
   it("hides Mythos when the logged-in account lacks it", async () => {
     render(NewTask, { props: base() });
+    expect(options()).not.toContain("claude-mythos-5-2");
+  });
+
+  it("offers Mythos 5.2 (not the retired 5.1 pin) when the logged-in account has it", async () => {
+    accountModels.mythosAvailable = true;
+    render(NewTask, { props: base() });
+    expect(options()).toContain("claude-mythos-5-2");
     expect(options()).not.toContain("claude-mythos-5-1");
   });
 
-  it("offers Mythos when the logged-in account has it", async () => {
-    accountModels.mythosAvailable = true;
-    render(NewTask, { props: base() });
-    expect(options()).toContain("claude-mythos-5-1");
-  });
-
   it("falls back from a Mythos initialModel to default when the account lacks it", async () => {
-    render(NewTask, { props: base({ initialModel: "claude-mythos-5-1" }) });
+    render(NewTask, { props: base({ initialModel: "claude-mythos-5-2" }) });
     expect(modelSelect().value).toBe("default");
   });
 });
@@ -1924,7 +1925,7 @@ describe("NewTask fableAvailable prop", () => {
     render(NewTask, { props: base({ fableAvailable: false }) });
 
     const options = Array.from(modelSelect().options).map((o) => o.value);
-    expect(options).not.toContain("claude-fable-5-1");
+    expect(options).not.toContain("claude-fable-5-2");
     // Non-Fable pinned entries are unaffected by the flag.
     expect(options).toContain("claude-opus-5");
   });
@@ -1932,6 +1933,16 @@ describe("NewTask fableAvailable prop", () => {
   it("offers the pinned Fable option when fableAvailable=true", async () => {
     render(NewTask, { props: base({ fableAvailable: true }) });
 
+    const options = Array.from(modelSelect().options).map((o) => o.value);
+    expect(options).toContain("claude-fable-5-2");
+    // 5.2 replaced the 5.1 pin in the picker.
+    expect(options).not.toContain("claude-fable-5-1");
+  });
+
+  it("keeps a saved retired Fable 5.1 pin selected instead of dropping it", async () => {
+    render(NewTask, { props: base({ initialModel: "claude-fable-5-1", fableAvailable: true }) });
+
+    expect(modelSelect().value).toBe("claude-fable-5-1");
     const options = Array.from(modelSelect().options).map((o) => o.value);
     expect(options).toContain("claude-fable-5-1");
   });

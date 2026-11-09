@@ -17,9 +17,12 @@ import {
   createAccountModels,
   isMythosModel,
   ModelUnavailableError,
-  MYTHOS_MODEL,
   parseCatalog,
 } from "../src/claude-account-models";
+
+/** The Mythos id most fixtures grant; the per-id tests below pair it with Mythos 5.2. */
+const MYTHOS_MODEL = "claude-mythos-5-1";
+const MYTHOS_5_2 = "claude-mythos-5-2";
 
 const ORG = "7d38fbdf-ef99-4f6a-b414-7780d17fb40f";
 const OTHER_ORG = "00000000-0000-4000-8000-000000000000";
@@ -81,6 +84,12 @@ describe("isMythosModel / assertModelAvailable", () => {
     expect(() => assertModelAvailable("opus", no)).not.toThrow();
     expect(() => assertModelAvailable(null, no)).not.toThrow();
   });
+
+  test("asks about the exact Mythos id", () => {
+    const only51 = (model: string) => model === MYTHOS_MODEL;
+    expect(() => assertModelAvailable(MYTHOS_MODEL, only51)).not.toThrow();
+    expect(() => assertModelAvailable(MYTHOS_5_2, only51)).toThrow(ModelUnavailableError);
+  });
 });
 
 describe("parseCatalog", () => {
@@ -97,6 +106,16 @@ describe("createAccountModels().mythosAvailable", () => {
     writeConfig(dir, loggedIn());
     writeCatalog(dir, `${ORG}-ea9b5ce3c4f1-cc.json`, ["claude-opus-5-5", MYTHOS_MODEL]);
     expect(available(dir)).toBe(true);
+  });
+
+  test("any known Mythos id flips the switch; an exact id needs that id", () => {
+    const dir = claudeDir();
+    writeConfig(dir, loggedIn());
+    writeCatalog(dir, `${ORG}-ea9b5ce3c4f1-cc.json`, ["claude-opus-5-5", MYTHOS_5_2]);
+    const models = createAccountModels({ home: "/nonexistent", claudeDir: dir });
+    expect(models.mythosAvailable()).toBe(true);
+    expect(models.mythosAvailable(MYTHOS_5_2)).toBe(true);
+    expect(models.mythosAvailable(MYTHOS_MODEL)).toBe(false);
   });
 
   test("served catalog without Mythos ⇒ unavailable, even if the options cache has it", () => {

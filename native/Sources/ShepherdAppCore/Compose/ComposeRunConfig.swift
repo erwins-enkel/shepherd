@@ -45,9 +45,13 @@ public enum ComposeRunConfig {
         var effort: String
     }
 
-    static let claudeModels = ["claude-mythos-5-1", "fable", "claude-fable-5-1", "opus", "opus[1m]", "claude-opus-5-5",
+    static let claudeModels = ["claude-mythos-5-2", "claude-mythos-5-1", "fable", "claude-fable-5-2", "claude-fable-5-1",
+                               "opus", "opus[1m]", "claude-opus-5-5",
                                "claude-opus-5-5[1m]", "claude-opus-5", "claude-opus-5[1m]", "sonnet",
                                "sonnet[1m]", "claude-sonnet-5-5", "claude-sonnet-5-5[1m]", "haiku"]
+    /// Pins a newer pin replaced (5.1 → 5.2): still valid values, so a saved one keeps running, but
+    /// the pickers only list one as the current value. Mirrors ui RETIRED_PICKER_MODELS.
+    static let retiredPickerModels: Set<String> = ["claude-mythos-5-1", "claude-fable-5-1"]
     static let codexModels = ["gpt-6.1-sol", "gpt-6.1-terra", "gpt-5.6-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4",
                               "gpt-5.3-codex", "gpt-5.1-codex", "gpt-5-codex", "gpt-5.1", "gpt-5", "o3"]
     static let efforts = ["low", "medium", "high", "xhigh", "max", "ultra"]
@@ -73,6 +77,16 @@ public enum ComposeRunConfig {
         if provider == .claude && isFable(model) && !fableAvailable { return false }
         if isMythos(model) && !mythosAvailable { return false }
         return providerModels(provider).contains(model)
+    }
+
+    /// The models a picker lists: every available curated model except a retired pin, which is
+    /// kept only as `current` so a saved choice stays selected. Mirrors ui `pickerModels`.
+    public static func pickerModels(_ provider: AgentProvider, current: String, fableAvailable: Bool,
+                                    mythosAvailable: Bool) -> [String] {
+        providerModels(provider).filter {
+            ($0 == current || !retiredPickerModels.contains($0))
+                && available($0, provider: provider, fableAvailable: fableAvailable, mythosAvailable: mythosAvailable)
+        }
     }
 
     static func preselectModel(_ configured: String?, provider: AgentProvider,

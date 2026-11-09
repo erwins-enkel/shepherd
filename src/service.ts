@@ -516,9 +516,10 @@ export interface ServiceDeps {
    *  Codex main sessions bypass pushModelFlag, so they are not downgraded. Wired from src/index.ts
    *  off usageLimits + config; absent in tests → no downgrade. Consumed by pushModelFlag. */
   usageDowngrade?: () => string | null;
-  /** Whether the logged-in Claude account can spawn Claude Mythos (claude-account-models.ts). A
-   *  Mythos spawn without it throws ModelUnavailableError. Absent → unavailable (fail closed). */
-  mythosAvailable?: () => boolean;
+  /** Whether the logged-in Claude account can spawn the given Claude Mythos id
+   *  (claude-account-models.ts). A Mythos spawn the account lacks throws ModelUnavailableError.
+   *  Absent → unavailable (fail closed). */
+  mythosAvailable?: (model?: string) => boolean;
   /** Live Codex auth mode. Read per resolution/spawn because login mode can change at runtime. */
   readCodexAuthMode?: () => CodexAuthMode;
   /** On-path Codex help output; tests can substitute an older CLI. */
@@ -4023,7 +4024,7 @@ export class SessionService {
 
   /** Refuse a model the logged-in Claude account is not entitled to (Mythos) with a typed error. */
   private assertModelAvailable(requested: string | null): void {
-    assertModelAvailable(requested, () => this.deps.mythosAvailable?.() ?? false);
+    assertModelAvailable(requested, (model) => this.deps.mythosAvailable?.(model) ?? false);
   }
 
   /** Refuse an account-gated model before any naming/worktree work; pushModelFlag re-checks it at

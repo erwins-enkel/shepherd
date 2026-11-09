@@ -62,7 +62,9 @@ struct SessionRowContent {
 
     private static func modelLabel(_ model: String) -> String {
         switch model {
+        case "claude-mythos-5-2": L.t("model_label_mythos_5_2")
         case "claude-mythos-5-1": L.t("model_label_mythos_5_1")
+        case "claude-fable-5-2": L.t("model_label_fable_5_2")
         case "claude-fable-5-1": L.t("model_label_fable_5_1")
         case "opus[1m]": L.t("model_label_opus_1m")
         case "sonnet[1m]": L.t("model_label_sonnet_1m")

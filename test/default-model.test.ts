@@ -152,6 +152,8 @@ describe("drainSpawnModel", () => {
       "claude-opus-5",
       "claude-opus-5[1m]",
       "claude-fable-5-1",
+      "claude-fable-5-2",
+      "claude-mythos-5-2",
     ]) {
       expect(normalizeDefaultModelSetting(alias)).toBe(alias);
       expect(drainSpawnModel(alias)).toBe(alias);
@@ -420,6 +422,8 @@ describe("spawnModelForAvailability", () => {
     // unspawnable as the alias while Fable is globally unavailable.
     expect(spawnModelForAvailability("claude-fable-5-1", false)).toBe("opus[1m]");
     expect(spawnModelForAvailability("claude-fable-5-1", true)).toBe("claude-fable-5-1");
+    expect(spawnModelForAvailability("claude-fable-5-2", false)).toBe("opus[1m]");
+    expect(spawnModelForAvailability("claude-fable-5-2", true)).toBe("claude-fable-5-2");
   });
 });
 
@@ -427,6 +431,7 @@ describe("isFableModel", () => {
   test("matches the floating alias and pinned Fable ids", () => {
     expect(isFableModel("fable")).toBe(true);
     expect(isFableModel("claude-fable-5-1")).toBe(true);
+    expect(isFableModel("claude-fable-5-2")).toBe(true);
   });
 
   test("does not match other tiers, null or undefined", () => {

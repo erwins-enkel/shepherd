@@ -35,6 +35,10 @@ export const CLAUDE_MODEL_MIN_CLI: Readonly<Record<string, string>> = {
   // and caps auto-compact at 200k tokens, so the stale-CLI cost is a silently shrunk window.
   "claude-sonnet-5-5": "2.1.284",
   "claude-sonnet-5-5[1m]": "2.1.284",
+  // Read off the compiled catalog: 2.1.319 carries neither 5.2 id, 2.1.320 was never published,
+  // and 2.1.321 carries both (and resolves the floating `fable` alias to claude-fable-5-2).
+  "claude-fable-5-2": "2.1.321",
+  "claude-mythos-5-2": "2.1.321",
 };
 
 /** The version floor for `model`, or null when it has none (unknown, floating alias, or a model

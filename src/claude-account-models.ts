@@ -26,8 +26,9 @@ import { claudeConfigPath } from "./claude-trust";
 import { config } from "./config";
 import { isApiKeyMode } from "./spawn-auth";
 
-/** The pinned Mythos id Shepherd offers. */
-export const MYTHOS_MODEL = "claude-mythos-5-1";
+/** The pinned Mythos ids Shepherd knows, newest first. The account catalog grants each one
+ *  separately, so availability is checked per id. */
+const MYTHOS_MODELS = ["claude-mythos-5-2", "claude-mythos-5-1"] as const;
 
 /** Whether a model value selects the Mythos family (any pinned `claude-mythos-*` id). */
 export function isMythosModel(model: string | null | undefined): model is string {
@@ -43,12 +44,13 @@ export class ModelUnavailableError extends Error {
 }
 
 /** Throw {@link ModelUnavailableError} for a Mythos model the account lacks; otherwise a no-op.
- *  `mythosAvailable` is a thunk so a non-Mythos spawn never touches the account caches. */
+ *  `mythosAvailable` is asked about the EXACT id (an account may have one Mythos and not another)
+ *  and is only called for a Mythos model, so a non-Mythos spawn never touches the account caches. */
 export function assertModelAvailable(
   model: string | null | undefined,
-  mythosAvailable: () => boolean,
+  mythosAvailable: (model: string) => boolean,
 ): void {
-  if (isMythosModel(model) && !mythosAvailable()) throw new ModelUnavailableError(model);
+  if (isMythosModel(model) && !mythosAvailable(model)) throw new ModelUnavailableError(model);
 }
 
 const CATALOG_VERSION = 2;
@@ -113,8 +115,9 @@ const nodeFs: AccountModelsFs = {
 };
 
 export interface AccountModels {
-  /** Whether the logged-in account can spawn {@link MYTHOS_MODEL}. */
-  mythosAvailable(): boolean;
+  /** With `model`: whether the logged-in account can spawn that exact Mythos id. Without it:
+   *  whether the account has any of {@link MYTHOS_MODELS} — the switch the pickers read. */
+  mythosAvailable(model?: string): boolean;
 }
 
 /**
@@ -160,15 +163,21 @@ export function createAccountModels(
     return newest?.ids ?? account.additional;
   }
 
-  return { mythosAvailable: () => accountModelIds()?.has(MYTHOS_MODEL) ?? false };
+  return {
+    mythosAvailable: (model) => {
+      const ids = accountModelIds();
+      if (ids === null) return false;
+      return model === undefined ? MYTHOS_MODELS.some((id) => ids.has(id)) : ids.has(model);
+    },
+  };
 }
 
 let shared: AccountModels | null = null;
-let forTest: (() => boolean) | null = null;
+let forTest: ((model?: string) => boolean) | null = null;
 
 /** Test seam: pin {@link accountMythosAvailable} so the suite never reads the developer's real
  *  Claude caches. Production never sets it. */
-export function __setAccountMythosAvailableForTest(fn: (() => boolean) | null): void {
+export function __setAccountMythosAvailableForTest(fn: ((model?: string) => boolean) | null): void {
   forTest = fn;
 }
 
@@ -177,9 +186,9 @@ export function __setAccountMythosAvailableForTest(fn: (() => boolean) | null): 
  * spawn: the account logged in under THIS process's Claude config dir. An api-key spawn runs under
  * a key that login does not describe, so Mythos never counts as available in api-key mode.
  */
-export function accountMythosAvailable(): boolean {
-  if (forTest) return forTest();
+export function accountMythosAvailable(model?: string): boolean {
+  if (forTest) return forTest(model);
   if (isApiKeyMode()) return false;
   shared ??= createAccountModels({ home: process.env.HOME ?? "", claudeDir: config.claudeDir });
-  return shared.mythosAvailable();
+  return shared.mythosAvailable(model);
 }

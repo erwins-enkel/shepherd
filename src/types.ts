@@ -562,7 +562,7 @@ export interface RelaunchOverrides {
  *    - FLOATING aliases ("fable"/"opus"/"sonnet"/"haiku") resolve to whatever the
  *      installed CLI calls the latest model of that tier — which is why they are
  *      NOT labelled with a version anywhere (see model-label.ts's tense split).
- *    - PINNED full model names ("claude-opus-5-5", "claude-fable-5-1") lock the exact
+ *    - PINNED full model names ("claude-opus-5-5", "claude-fable-5-2") lock the exact
  *      version, so a future Opus or Fable release can't silently change a task's
  *      model. The short form `opus-5` is NOT a valid CLI value (it errors) — only
  *      the full name is.
@@ -580,12 +580,19 @@ export interface RelaunchOverrides {
  *  lives in `claude-model-cli.ts` and surfaces as the `claude_model_cli` DIAGNOSE
  *  row; it is deliberately NOT enforced here, so the list stays a plain value space.
  *
- *  `claude-mythos-5-1` is ACCOUNT-GATED: only an account its served catalog grants can spawn it.
- *  It stays in the value space unconditionally; availability is checked at spawn and on the
- *  model-setting routes (claude-account-models.ts), and the pickers hide it otherwise. */
+ *  The `claude-mythos-*` ids are ACCOUNT-GATED: only an account whose served catalog grants that
+ *  exact id can spawn it. They stay in the value space unconditionally; availability is checked
+ *  per id at spawn and on the model-setting routes (claude-account-models.ts), and the pickers hide
+ *  Mythos when the account has none.
+ *
+ *  `claude-mythos-5-1` and `claude-fable-5-1` are RETIRED picker pins: 5.2 replaced them, so the
+ *  pickers no longer offer them (ui RETIRED_PICKER_MODELS), but they stay valid values here so a
+ *  saved default or task on 5.1 keeps validating and spawning. */
 const CLAUDE_MODELS = [
+  "claude-mythos-5-2",
   "claude-mythos-5-1",
   "fable",
+  "claude-fable-5-2",
   "claude-fable-5-1",
   "opus",
   "opus[1m]",

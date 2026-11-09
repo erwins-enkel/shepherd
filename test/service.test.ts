@@ -10335,6 +10335,23 @@ test("createSession: Mythos available → argv carries --model claude-mythos-5-1
   expect(argv[argv.indexOf("--model") + 1]).toBe("claude-mythos-5-1");
 });
 
+test("createSession: Mythos 5.2 refused when the account only has Mythos 5.1", async () => {
+  const calls: { argv?: string[] } = {};
+  const { service } = makeFableGuardService(calls, {
+    mythosAvailable: (model?: string) => model === "claude-mythos-5-1",
+  });
+  await expect(
+    service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "hard",
+      model: "claude-mythos-5-2",
+      images: [],
+    }),
+  ).rejects.toBeInstanceOf(ModelUnavailableError);
+  expect(calls.argv).toBeUndefined();
+});
+
 test("createSession: an active usage downgrade replacing Mythos is not refused", async () => {
   const calls: { argv?: string[] } = {};
   const { service } = makeFableGuardService(calls, {

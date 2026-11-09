@@ -84,10 +84,10 @@ struct IOSEpicSettingsContent: View {
                 }
                 if let provider = values.provider {
                     menu("epic_model_label", value: (values.model == "default" ? L.t("newtask_model_default") : ModelGuidance.optionLabel(provider: provider, model: values.model)).components(separatedBy: " · ")[0], selection: $values.model) {
-                        ForEach(["default"] + ComposeRunConfig.providerModels(provider).filter {
-                            ComposeRunConfig.available($0, provider: provider, fableAvailable: fableAvailable,
-                                                       mythosAvailable: mythosAvailable)
-                        }, id: \.self) { value in
+                        ForEach(["default"] + ComposeRunConfig.pickerModels(provider, current: values.model,
+                                                                             fableAvailable: fableAvailable,
+                                                                             mythosAvailable: mythosAvailable),
+                                id: \.self) { value in
                             Text(verbatim: value == "default" ? L.t("newtask_model_default") : ModelGuidance.optionLabel(provider: provider, model: value)).tag(value)
                         }
                     }

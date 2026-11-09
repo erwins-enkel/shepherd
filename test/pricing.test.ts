@@ -36,11 +36,12 @@ test("weightsFor — sentinel id like <synthetic> defaults silently, real unknow
   }
 });
 
-// ── Fable cache-read split (Fable 5 vs 5.1) ─────────────────────────────────
+// ── Fable cache-read split (Fable 5 vs 5.1 vs 5.2) ──────────────────────────
 // Fable 5.1 lists cache reads at $0.25/Mtok; Fable 5 charged $1. Both share
 // $10/$50 in/out and the same cache-WRITE rates, so cache read is the only
-// number that can go wrong — and it is the dominant token class in long
-// sessions, so a wrong weight visibly corrupts /usage money.
+// number that can go wrong between them — and it is the dominant token class in
+// long sessions, so a wrong weight visibly corrupts /usage money. Fable 5.2
+// cheapened every rate ($8/$40, cache read $0.20) and is the current generation.
 const cacheRead = (model: string) =>
   weightedUnits(
     { input: 0, output: 0, cacheRead: 1_000_000, cacheWrite5m: 0, cacheWrite1h: 0 },
@@ -51,10 +52,10 @@ test("cache read — pinned Fable 5.1 id costs $0.25/Mtok", () => {
   expect(cacheRead("claude-fable-5-1")).toBe(0.25);
 });
 
-test("cache read — the floating `fable` alias is priced as the CURRENT Fable (5.1)", () => {
+test("cache read — the floating `fable` alias is priced as the CURRENT Fable (5.2)", () => {
   // The alias resolves to whatever the CLI calls the latest Fable, so pricing it
-  // at the retired Fable 5 rate would overstate every new session 4x.
-  expect(cacheRead("fable")).toBe(0.25);
+  // at the retired Fable 5 rate would overstate every new session 5x.
+  expect(cacheRead("fable")).toBe(0.2);
 });
 
 test("cache read — retired Fable 5 records keep their own $1/Mtok rate", () => {
@@ -67,7 +68,43 @@ test("cache read — the anchored `-5` row does not swallow later Fable ids", ()
   // `/fable-5$/i` must not match `claude-fable-5-1`; an unknown future id falls
   // through to the current-generation row, not to the retired prices.
   expect(cacheRead("claude-fable-5-1")).not.toBe(cacheRead("claude-fable-5"));
-  expect(cacheRead("claude-fable-6")).toBe(0.25);
+  expect(cacheRead("claude-fable-6")).toBe(0.2);
+});
+
+test("Fable 5.2 and Mythos 5.2: $8 in / $40 out / $0.20 cache read / $10 + $16 writes per Mtok", () => {
+  const one = { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 };
+  // Wire ids carry date suffixes and cloud prefixes; all must land on the 5.2 row.
+  for (const id of [
+    "claude-fable-5-2",
+    "claude-fable-5-2-20261101",
+    "us.anthropic.claude-fable-5-2",
+    "claude-mythos-5-2",
+    "claude-mythos-5-2-20261101",
+  ]) {
+    expect(weightedUnits({ ...one, input: 1_000_000 }, id)).toBe(8);
+    expect(weightedUnits({ ...one, output: 1_000_000 }, id)).toBe(40);
+    expect(cacheRead(id)).toBe(0.2);
+    expect(cacheWriteUnits({ cacheWrite5m: 1_000_000, cacheWrite1h: 0 }, id)).toBe(10);
+    expect(cacheWriteUnits({ cacheWrite5m: 0, cacheWrite1h: 1_000_000 }, id)).toBe(16);
+  }
+});
+
+test("the 5.1 rows keep 5.1 prices and the retired row covers Mythos 5 too", () => {
+  expect(cacheRead("claude-fable-5-1-20261001")).toBe(0.25);
+  expect(cacheRead("us.anthropic.claude-mythos-5-1")).toBe(0.25);
+  expect(cacheRead("claude-mythos-5")).toBe(1);
+});
+
+test("Fable 5.2 stays heavier than every Opus", () => {
+  const bundle = {
+    input: 1_000_000,
+    output: 1_000_000,
+    cacheRead: 0,
+    cacheWrite5m: 0,
+    cacheWrite1h: 0,
+  };
+  for (const opus of ["claude-opus-5", "claude-opus-5-5", "opus"])
+    expect(weightedUnits(bundle, "claude-fable-5-2")).toBeGreaterThan(weightedUnits(bundle, opus));
 });
 
 test("Fable in/out and cache-write rates are identical across both rows", () => {

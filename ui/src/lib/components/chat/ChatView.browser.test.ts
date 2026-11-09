@@ -180,6 +180,34 @@ describe("ChatView layout", () => {
       .element(page.getByRole("button", { name: m.markdown_copy_code() }))
       .toBeInTheDocument();
   });
+
+  // The copy-status live region is `sr-only` (position: absolute). Unless the scroller is its
+  // containing block it escapes the thread's clip, and on desktop it stretched the document
+  // thousands of px below the shell for a scrollIntoView to scroll into.
+  it("keeps absolutely positioned thread content inside the scroller", async () => {
+    mockMessages.mockResolvedValue({
+      messages: Array.from({ length: 30 }, (_, i) => ({
+        role: "assistant" as const,
+        text: `line ${i}`,
+        ts: i,
+      })),
+      awaitingInput: false,
+      pendingQuestion: null,
+      unavailable: null,
+    });
+    const { container } = await render(ChatView, props({ status: "idle" }));
+    // Stands in for the docked assistant's positioned grid column.
+    Object.assign(container.style, {
+      position: "relative",
+      height: "240px",
+      display: "flex",
+      flexDirection: "column",
+    });
+    await expect.element(page.getByText("line 29")).toBeInTheDocument();
+    const status = document.querySelector<HTMLElement>('.ac-thread [role="status"].sr-only')!;
+    expect(getComputedStyle(status).position).toBe("absolute");
+    expect(container.scrollHeight).toBeLessThanOrEqual(container.clientHeight + 1);
+  });
 });
 
 describe("ChatView steers", () => {

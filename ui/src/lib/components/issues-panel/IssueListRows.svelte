@@ -5,7 +5,9 @@
     DrainStatus,
     Epic,
     EpicSummary,
+    GitState,
     Issue,
+    Session,
     Steer,
   } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
@@ -23,6 +25,8 @@
   } from "../issues-panel";
   import IssueMenuLayer from "../IssueMenuLayer.svelte";
   import MachineBadge from "../MachineBadge.svelte";
+  import { childJumpSession } from "../epic-child";
+  import SessionJumpChip from "./SessionJumpChip.svelte";
   import { issueMenuTrigger } from "../issue-menu-trigger";
   import EpicHeaderRow from "./EpicHeaderRow.svelte";
 
@@ -42,6 +46,7 @@
     running = undefined,
     oninject = undefined,
     onopensession = undefined,
+    sessionInfo = undefined,
     onopenautomation = undefined,
     onselect,
     ontoggle,
@@ -61,8 +66,11 @@
     /** Whether a single issue is being worked (a live session or the claim label). */
     running?: (issue: Issue) => boolean;
     oninject?: (issue: Issue, steer: Steer) => void;
-    /** An epic row's hold opens the stuck session (#3457). */
+    /** An epic row's hold opens the stuck session (#3457); a running child's task ID opens its
+     *  session. */
     onopensession?: (sessionId: string) => void;
+    /** A child's session (local or mirrored) by ID — names its task ID in the row. */
+    sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
     /** An epic row's bootstrap hold opens the Automation tab (#3457). */
     onopenautomation?: () => void;
     onselect: (key: string) => void;
@@ -136,6 +144,7 @@
   {:else if row.kind === "child"}
     {@const tone = chipFor(row.child.state).tone}
     {@const slot = slotHeldBy(runSummary, row.child.number)}
+    {@const jump = childJumpSession(row.child, sessionInfo)}
     <div
       class="child-row"
       class:selected={row.key === selectedKey}
@@ -157,6 +166,15 @@
           <span class="num">#{row.child.number}</span>
           <span class="title">{stripEpicPrefix(row.child.title, row.parent)}</span>
           {#if row.child.elsewhere}<MachineBadge host={row.child.elsewhere.host} />{/if}
+          <!-- The task ID jumps into the session. tabindex -1: the list container owns focus;
+               the keyboard path is the detail's open button. On a phone a tap opens that detail,
+               so the ID stays plain text there rather than a tiny tap target. -->
+          {#if jump && onopensession && !mobile}
+            {@const id = jump.id}
+            <SessionJumpChip session={jump} tabindex={-1} onopen={() => onopensession(id)} />
+          {:else if jump}
+            <span class="desig">{jump.desig}</span>
+          {/if}
         </span>
         {#if slot}
           <span class="status">{m.epic_slot_held({ index: slot.index, max: slot.max })}</span>
@@ -313,6 +331,13 @@
   }
   .child-line .title {
     flex: 1;
+  }
+
+  .desig {
+    font-family: var(--font-mono);
+    color: var(--color-faint);
+    font-size: var(--fs-micro);
+    white-space: nowrap;
   }
 
   /* "hält Platz i/m" (#2620) under the title: neutral — the dot beside the number carries the

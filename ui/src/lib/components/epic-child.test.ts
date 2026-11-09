@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { childAsIssue, childPrUrl, childUnlocks, childView, openBlockers } from "./epic-child";
-import type { EpicChild, EpicChildState, Issue } from "#lib/types.js";
+import {
+  childAsIssue,
+  childJumpSession,
+  childPrUrl,
+  childUnlocks,
+  childView,
+  openBlockers,
+} from "./epic-child";
+import type { EpicChild, EpicChildState, Issue, Session, SessionHost } from "#lib/types.js";
 
 function child(number: number, state: EpicChildState, blockedBy: number[] = []): EpicChild {
   return {
@@ -25,6 +32,43 @@ describe("childView", () => {
     expect(childView({ state: "in-review" })).toBe("session");
     expect(childView({ state: "ready" })).toBe("standing");
     expect(childView({ state: "blocked" })).toBe("standing");
+  });
+});
+
+describe("childJumpSession", () => {
+  const local = { id: "s-local", desig: "TASK-07" } as Session;
+  const host = { instanceId: "i-mac", name: "macbook" } as SessionHost;
+  const remote = { id: "s-remote", desig: "TASK-42", host } as Session;
+  const sessions = [local, remote];
+  const lookup = (id: string) => {
+    const session = sessions.find((s) => s.id === id);
+    return session ? { session } : null;
+  };
+
+  it("returns the local session of a running child", () => {
+    const c = { ...child(1, "running"), sessionId: "s-local" };
+    expect(childJumpSession(c, lookup)).toBe(local);
+  });
+  it("returns the mirrored session of an in-review child on another machine", () => {
+    const c = {
+      ...child(2, "in-review"),
+      elsewhere: { host, sessionId: "s-remote", prNumber: 12 },
+    };
+    expect(childJumpSession(c, lookup)).toBe(remote);
+  });
+  it("is null for a merged, ready or blocked child even with a session id", () => {
+    for (const state of ["merged", "ready", "blocked"] as const) {
+      expect(childJumpSession({ ...child(3, state), sessionId: "s-local" }, lookup)).toBeNull();
+    }
+  });
+  it("is null when the session is not in the store, unconfirmed, or there is no lookup", () => {
+    expect(childJumpSession({ ...child(4, "running"), sessionId: "gone" }, lookup)).toBeNull();
+    const unconfirmed = {
+      ...child(5, "running"),
+      elsewhere: { host, sessionId: null, prNumber: null },
+    };
+    expect(childJumpSession(unconfirmed, lookup)).toBeNull();
+    expect(childJumpSession({ ...child(6, "running"), sessionId: "s-local" })).toBeNull();
   });
 });
 

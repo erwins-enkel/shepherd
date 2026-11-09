@@ -158,7 +158,7 @@ describe("EpicChildRun — session", () => {
       child: e.children[1],
       epic: e,
       drain: drain([33]),
-      live: { session: session(), git },
+      live: { session: session({ desig: "TASK-32" }), git },
       titleFor,
       onopensession,
     });
@@ -174,10 +174,52 @@ describe("EpicChildRun — session", () => {
     expect(region().textContent).toContain(
       m.childrun_then({ handover: m.epic_run_handover({ issue: 33, epic: P }) }),
     );
-    [...region().querySelectorAll("button")]
-      .find((b) => b.textContent?.includes(m.epic_run_open_session()))!
-      .click();
+    const open = [...region().querySelectorAll("button")].find((b) =>
+      b.textContent?.includes(m.epic_run_open_session()),
+    )!;
+    expect(open.textContent).toContain("TASK-32");
+    expect(open.getAttribute("aria-label")).toBe(
+      m.childrun_open_session_desig({ desig: "TASK-32" }),
+    );
+    open.click();
     expect(onopensession).toHaveBeenCalledWith("sess-32");
+  });
+
+  it("names the machine in the open button of a child running elsewhere", async () => {
+    const e = epic();
+    const host = { instanceId: "i-mac", name: "macbook" } as Session["host"];
+    const c = {
+      ...e.children[1],
+      sessionId: null,
+      elsewhere: { host: host!, sessionId: "remote-32", prNumber: null },
+    };
+    const onopensession = vi.fn();
+    render(EpicChildRun, {
+      child: c,
+      epic: e,
+      live: { session: session({ id: "remote-32", desig: "TASK-42", host }) },
+      titleFor,
+      onopensession,
+    });
+    const open = [...region().querySelectorAll("button")].find((b) =>
+      b.textContent?.includes(m.epic_run_open_session()),
+    )!;
+    expect(open.textContent).toContain("TASK-42");
+    expect(open.getAttribute("aria-label")).toBe(
+      m.childrun_open_session_desig({ desig: "macbook · TASK-42" }),
+    );
+    open.click();
+    expect(onopensession).toHaveBeenCalledWith("remote-32");
+  });
+
+  it("keeps a plain open button without a live session", async () => {
+    const e = epic();
+    render(EpicChildRun, { child: e.children[1], epic: e, titleFor, onopensession: vi.fn() });
+    const open = [...region().querySelectorAll("button")].find((b) =>
+      b.textContent?.includes(m.epic_run_open_session()),
+    )!;
+    expect(open.textContent?.trim()).toBe(m.epic_run_open_session());
+    expect(open.hasAttribute("aria-label")).toBe(false);
   });
 
   it("falls back to the child state without a live session", async () => {

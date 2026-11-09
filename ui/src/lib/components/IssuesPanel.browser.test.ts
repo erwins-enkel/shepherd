@@ -1617,6 +1617,67 @@ describe("IssuesPanel epic badge", () => {
       steers.list = prev;
     }
   });
+
+  describe("a running child's task ID", () => {
+    const host = { instanceId: "i-mac", name: "macbook" } as Session["host"];
+    // #100 runs on another machine (mirrored session in the store), #101 runs here but its
+    // session isn't loaded, #102 is merged with a stale session ID.
+    function record(): Epic {
+      const e = liveEpic(10, ["running", "running", "merged"]);
+      e.children[0] = {
+        ...e.children[0],
+        elsewhere: { host: host!, sessionId: "remote-100", prNumber: null },
+      };
+      e.children[1] = { ...e.children[1], sessionId: "gone" };
+      e.children[2] = { ...e.children[2], sessionId: "local-102" };
+      return e;
+    }
+    const sessions: Record<string, Session> = {
+      "remote-100": { id: "remote-100", desig: "TASK-42", host } as Session,
+      "local-102": { id: "local-102", desig: "TASK-07" } as Session,
+    };
+    const sessionInfo = (id: string) => (sessions[id] ? { session: sessions[id] } : null);
+    const jump = (key: string) => option(key)?.querySelector<HTMLButtonElement>("button") ?? null;
+
+    it("jumps into the session from the list row without changing the selection", async () => {
+      const onopensession = vi.fn();
+      seed([issue(10, "Epic parent")], [epic(10, 1, 3, "native")]);
+      mockEpic.mockResolvedValue(record());
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, onopensession, sessionInfo });
+
+      await expect.poll(() => jump("c:10:100")).not.toBeNull();
+      const chip = jump("c:10:100")!;
+      expect(chip.textContent).toContain("TASK-42");
+      expect(chip.getAttribute("aria-label")).toBe(
+        m.childrun_open_session_desig({ desig: "macbook · TASK-42" }),
+      );
+      expect(chip.tabIndex).toBe(-1);
+      expect(jump("c:10:101")).toBeNull();
+      expect(jump("c:10:102")).toBeNull();
+      expect(option("c:10:102")!.textContent).not.toContain("TASK-07");
+
+      const selectedBefore = document.querySelector('[aria-selected="true"]')?.id ?? null;
+      chip.click();
+      expect(onopensession).toHaveBeenCalledWith("remote-100");
+      expect(option("c:10:100")!.getAttribute("aria-selected")).not.toBe("true");
+      expect(document.querySelector('[aria-selected="true"]')?.id ?? null).toBe(selectedBefore);
+    });
+
+    it("shows the task ID as plain text on a phone", async () => {
+      seed([issue(10, "Epic parent")], [epic(10, 1, 3, "native")]);
+      mockEpic.mockResolvedValue(record());
+      render(IssuesPanel, {
+        repoPath: "/repo",
+        onnewtask: noop,
+        mobile: true,
+        onopensession: noop,
+        sessionInfo,
+      });
+
+      await expect.poll(() => option("c:10:100")?.textContent).toContain("TASK-42");
+      expect(jump("c:10:100")).toBeNull();
+    });
+  });
 });
 
 describe("IssuesPanel blocked badge", () => {

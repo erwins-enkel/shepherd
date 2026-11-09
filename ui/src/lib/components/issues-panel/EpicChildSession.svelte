@@ -10,6 +10,7 @@
   import SessionPhaseBar from "./SessionPhaseBar.svelte";
   import MachineBadge from "../MachineBadge.svelte";
   import { childSessionId } from "../epic-child";
+  import { qualifiedDesig } from "#lib/remote-sessions.js";
 
   // Body of an epic child's "Sitzung" run area (#2622): phase bar, agent, start time, PR link,
   // "Open session", and — while it holds an agent slot — who gets that slot next. Without a
@@ -73,8 +74,16 @@
     <!-- eslint-enable svelte/no-navigation-without-resolve -->
   {/if}
   {#if sessionId && onopensession}
-    <button class="link" type="button" onclick={() => onopensession(sessionId)}
-      >{m.epic_run_open_session()}</button
+    <!-- Leads with the task ID, so the operator sees which session it opens. -->
+    <button
+      class="gbtn open"
+      type="button"
+      aria-label={live
+        ? m.childrun_open_session_desig({ desig: qualifiedDesig(live.session) })
+        : undefined}
+      onclick={() => onopensession(sessionId)}
+      >{#if live}<span class="desig">{live.session.desig}</span
+        >{/if}{m.epic_run_open_session()}</button
     >
   {/if}
 </div>
@@ -116,25 +125,39 @@
     text-decoration: underline;
   }
 
-  /* Text-link recipe (as EpicRunSteps' .link). */
-  .link {
-    padding: 0;
+  /* Canonical .gbtn recipe (/design-system) — scoped copy, as in IssueTaskBox. */
+  .gbtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
     background: transparent;
-    border: 0;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
     color: var(--color-muted);
-    font-size: var(--fs-micro);
-    text-decoration: underline;
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
     cursor: pointer;
   }
-  .link:hover,
-  .link:focus-visible {
+  .gbtn:hover {
+    border-color: var(--color-amber);
     color: var(--color-amber);
+  }
+  .gbtn:focus-visible {
     outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .open {
+    margin-left: auto;
+  }
+  .desig {
+    font-family: var(--font-mono);
+    letter-spacing: 0;
   }
 
   @media (max-width: 768px), (pointer: coarse) {
-    .link {
-      min-height: 32px;
+    .gbtn {
+      min-height: 44px;
     }
   }
 </style>

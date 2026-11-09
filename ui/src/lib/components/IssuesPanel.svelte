@@ -925,6 +925,7 @@
             running={isRunning}
             {oninject}
             {onopensession}
+            {sessionInfo}
             {onopenautomation}
             onselect={selectFromList}
             ontoggle={toggleEpic}

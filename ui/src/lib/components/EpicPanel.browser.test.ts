@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import EpicPanel from "./EpicPanel.svelte";
-import type { Epic, EpicChild } from "#lib/types.js";
+import type { Epic, EpicChild, Session } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 import { THEMES, expectQuietLegible } from "#lib/test-support/contrast.js";
 
@@ -70,6 +70,45 @@ describe("EpicPanel legibility lines (#1447)", () => {
     render(EpicPanel, { repoPath: "/repo", parent: 327, epic: e });
 
     await expect.element(page.getByText(m.epic_warn_no_deps({ count: 2 }))).toBeInTheDocument();
+  });
+});
+
+describe("EpicPanel child task IDs", () => {
+  const e: Epic = {
+    ...epic(),
+    children: [
+      child({ number: 1, state: "merged", sessionId: "s1" }),
+      child({ number: 2, state: "running", sessionId: "s2" }),
+      child({ number: 3, state: "ready" }),
+    ],
+  };
+  const sessions: Record<string, Session> = {
+    s1: { id: "s1", desig: "TASK-01" } as Session,
+    s2: { id: "s2", desig: "TASK-02" } as Session,
+  };
+  const sessionInfo = (id: string) => (sessions[id] ? { session: sessions[id] } : null);
+  const chips = () => [...document.querySelectorAll<HTMLButtonElement>(".epic-child .jump")];
+
+  it("puts a jump chip only on the running child with a session", async () => {
+    const onopensession = vi.fn();
+    render(EpicPanel, { repoPath: "/repo", parent: 327, epic: e, sessionInfo, onopensession });
+
+    await expect.poll(() => chips().length).toBe(1);
+    const chip = chips()[0];
+    expect(chip.closest("li")!.textContent).toContain("#2");
+    expect(chip.textContent).toContain("TASK-02");
+    expect(chip.getAttribute("aria-label")).toBe(
+      m.childrun_open_session_desig({ desig: "TASK-02" }),
+    );
+    chip.click();
+    expect(onopensession).toHaveBeenCalledWith("s2");
+  });
+
+  it("shows no chip without an open handler", async () => {
+    render(EpicPanel, { repoPath: "/repo", parent: 327, epic: e, sessionInfo });
+
+    await expect.poll(() => document.querySelectorAll(".epic-child").length).toBe(3);
+    expect(chips()).toHaveLength(0);
   });
 });
 

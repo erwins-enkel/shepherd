@@ -49,6 +49,7 @@ import type {
   UsageTimeline,
   DeliveryMetrics,
   GithubRateLimit,
+  GithubActionsBilling,
   PromptBudgetRecord,
 } from "#lib/types.js";
 
@@ -176,6 +177,8 @@ export interface DemoWorld {
   deliveryMetrics: DeliveryMetrics;
   /** GET /api/usage/github — REST/GraphQL/search rate-limit buckets. */
   githubRateLimit: GithubRateLimit;
+  /** GET /api/usage/github-actions — the monthly Actions allowance per account. */
+  githubActionsBilling: GithubActionsBilling;
   /** GET /api/prompt-budget — per-spawn assembled-directive breakdowns. */
   promptBudgets: PromptBudgetRecord[];
 }

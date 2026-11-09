@@ -78,6 +78,7 @@ import {
   buildUsageTimeline,
   buildDeliveryMetrics,
   buildGithubRateLimit,
+  buildGithubActionsBilling,
   buildPromptBudgets,
 } from "./seed-usage";
 import {
@@ -1995,6 +1996,7 @@ export function buildSeed(): DemoWorld {
     usageTimeline: buildUsageTimeline(),
     deliveryMetrics: buildDeliveryMetrics(allSessions, gitStates),
     githubRateLimit: buildGithubRateLimit(),
+    githubActionsBilling: buildGithubActionsBilling(),
     promptBudgets: buildPromptBudgets(sessions),
   };
 }

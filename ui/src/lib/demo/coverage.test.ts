@@ -241,6 +241,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/usage/timeline", "/api/usage/timeline?range=24h"),
   get("/api/usage/delivery", "/api/usage/delivery?range=7d"),
   get("/api/usage/github"),
+  get("/api/usage/github-actions"),
   get("/api/prompt-budget"),
 
   // ambient reads (#2295)

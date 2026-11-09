@@ -37,9 +37,10 @@ import type {
   DeliveryStats,
   DeliveryTaskRow,
   GithubRateLimit,
+  GithubActionsBilling,
   PromptBudgetRecord,
 } from "#lib/types.js";
-import { STOREFRONT, API, NOW, HOUR, DAY } from "./seed-constants";
+import { STOREFRONT, API, NOW, HOUR, DAY, DEMO_VIEWER } from "./seed-constants";
 
 /** The seeded session behind a usage row.
  *
@@ -231,6 +232,78 @@ export function buildUsageTimeline(): UsageTimeline {
     hours,
     totalUnits: hours.reduce((sum, h) => sum + h.units, 0),
     peakHourUnits: Math.max(...hours.map((h) => h.units)),
+  };
+}
+
+/** GET /api/usage/github-actions — the monthly Actions allowance: the demo org's private CI
+ *  burns toward its stopping budget (so the forecast has something to say), the viewer's own
+ *  account is quiet. */
+export function buildGithubActionsBilling(): GithubActionsBilling {
+  const d = new Date(NOW);
+  const periodStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+  const resetAt = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+  const elapsed = Math.max((NOW - periodStart) / DAY, 1);
+  const days = (resetAt - periodStart) / DAY;
+  // A pace that reaches the $300 included + $55 budget stop five days before the reset (or two
+  // days out, late in the month): the forecast always has a warning to show, never a stop.
+  const stopTarget = Math.max(resetAt - 5 * DAY, NOW + 2 * DAY);
+  const pace = 355 / ((stopTarget - periodStart) / DAY);
+  const used = Math.round(pace * elapsed * 100) / 100;
+  const at = (usd: number) => {
+    const t = NOW + ((usd - used) / pace) * DAY;
+    return used >= usd ? NOW : t < resetAt ? Math.round(t) : null;
+  };
+  return {
+    fetchedAt: NOW - 4 * 60_000,
+    periodStart,
+    resetAt,
+    accounts: [
+      {
+        login: DEMO_VIEWER,
+        kind: "user",
+        status: "ok",
+        plan: "pro",
+        includedUsd: 18,
+        budget: null,
+        usedUsd: 0,
+        paidUsd: 0,
+        stopAtUsd: null,
+        projection: { monthEndUsd: 0, includedOutAt: null, stopAt: null },
+        runners: [],
+        topRepos: [],
+        publicMinutes: 0,
+        publicGrossUsd: 0,
+        topPublicRepo: null,
+      },
+      {
+        login: "acme",
+        kind: "org",
+        status: "ok",
+        plan: "enterprise",
+        includedUsd: 300,
+        budget: { amountUsd: 55, stops: true },
+        usedUsd: used,
+        paidUsd: Math.max(Math.round((used - 300) * 100) / 100, 0),
+        stopAtUsd: 355,
+        projection: { monthEndUsd: pace * days, includedOutAt: at(300), stopAt: at(355) },
+        runners: [
+          { os: "macos", minutes: Math.round(used * 4), grossUsd: Math.round(used * 50) / 100 },
+          { os: "linux", minutes: Math.round(used * 75), grossUsd: Math.round(used * 45) / 100 },
+          { os: "windows", minutes: Math.round(used * 5), grossUsd: Math.round(used * 5) / 100 },
+        ],
+        topRepos: [
+          {
+            repo: "storefront",
+            minutes: Math.round(used * 40),
+            grossUsd: Math.round(used * 55) / 100,
+          },
+          { repo: "api", minutes: Math.round(used * 44), grossUsd: Math.round(used * 45) / 100 },
+        ],
+        publicMinutes: 8_400,
+        publicGrossUsd: 50.4,
+        topPublicRepo: { repo: "docs", minutes: 8_400 },
+      },
+    ],
   };
 }
 

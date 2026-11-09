@@ -298,6 +298,7 @@ import { hasCommittedChanges } from "./diff";
 import { HoldReasonService } from "./hold-service";
 import { graphRateLimit, restRateLimit, restWriteRateLimit } from "./forge/rate-limit";
 import { fetchGithubRateLimit } from "./forge/github-rate-limit";
+import { fetchGithubActionsBilling } from "./forge/github-actions-billing";
 import { labelGhCalls, UNATTRIBUTED, withGhCaller } from "./forge/gh-caller";
 import { sharedGhRunner } from "./forge/github";
 import { fetchRepoFingerprints } from "./forge/github-fingerprint";
@@ -4469,6 +4470,8 @@ const appDeps: AppDeps = {
   // Live GitHub REST + GraphQL buckets for the usage view, from response headers and in-query
   // readings — never `gh api rate_limit`, which misreports (#2743).
   githubRateLimit: () => fetchGithubRateLimit(ghRunnerAsync),
+  // The monthly Actions allowance per account, from the enhanced billing API (cached 10 min).
+  githubActionsBilling: () => fetchGithubActionsBilling(ghRunnerAsync),
   // #2860: the agents' truthful budget — `self_status` reads these, never `gh api rate_limit`.
   githubBackoff: () => ({
     graphql: graphRateLimit.snapshot(),

@@ -449,6 +449,7 @@ import { buildIssueUrl } from "./forge";
 import { MERGE_ASYNC_MAX_WAIT_MS } from "./forge/github";
 import { attemptsOf } from "./forge/gh-attempt";
 import type { GithubRateLimitPayload } from "./forge/github-rate-limit";
+import type { GithubActionsBillingPayload } from "./forge/github-actions-billing";
 import { BaseCheckoutBusyError, MergeConflictError } from "./forge/local";
 import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teardown";
 import { deadBaseSession } from "./dead-base";
@@ -813,6 +814,9 @@ export interface AppDeps {
   /** Live GitHub REST + GraphQL rate-limit buckets (via `gh api rate_limit`, which is
    *  itself quota-exempt); absent in tests → `/api/usage/github` 503s. */
   githubRateLimit?: () => Promise<GithubRateLimitPayload>;
+  /** This month's GitHub Actions allowance per account (personal + orgs); absent in tests →
+   *  `/api/usage/github-actions` 503s. */
+  githubActionsBilling?: () => Promise<GithubActionsBillingPayload>;
   /** Shepherd's GitHub backoff trackers, read live for `self_status` (#2860); absent in tests →
    *  its `github` block reads null. */
   githubBackoff?: () => GithubBackoff;
@@ -9441,6 +9445,22 @@ async function githubRateLimitResponse(deps: AppDeps): Promise<Response> {
   }
 }
 
+/** GET /api/usage/github-actions — the monthly Actions allowance per account. Never throws
+ *  upstream: an unreadable account carries its own status. */
+async function handleGithubActionsBilling({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(
+    req.method === "GET" &&
+    parts[0] === "api" &&
+    parts[1] === "usage" &&
+    parts[2] === "github-actions"
+  ))
+    return null;
+  if (!deps.githubActionsBilling) {
+    return json({ error: "github actions billing unavailable" }, 503);
+  }
+  return json(await deps.githubActionsBilling());
+}
+
 // POST /api/usage/refresh — re-scrape usage and return the fresh limits. Extracted from
 // handleUsageLimits so the multi-route dispatcher stays lean and this spawn-triggering path
 // (blocked while first-run pending) is a single focused unit.
@@ -14621,6 +14641,7 @@ const ROUTE_HANDLERS = [
   handleSessionGit,
   handleHeavySlot,
   handleUsageLimits,
+  handleGithubActionsBilling,
   handleUsageBreakdown,
   handleUsageDelivery,
   handleMaintainSweep,

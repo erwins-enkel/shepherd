@@ -256,6 +256,8 @@
                 "halted_sandbox"}
               headActions={false}
               {nowMs}
+              {sessionInfo}
+              {onopensession}
             />
           {:else}
             <div class="muted">{m.common_loading()}</div>

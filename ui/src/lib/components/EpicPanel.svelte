@@ -1,6 +1,6 @@
 <script lang="ts">
   import { firstSafeHttpUrl } from "#lib/url.js";
-  import type { DrainRunSummary, Epic } from "#lib/types.js";
+  import type { DrainRunSummary, Epic, GitState, Session } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { importEpic } from "#lib/api.js";
   import { chipFor, progress, slotHeldBy, stateLabel } from "./epic-panel";
@@ -9,6 +9,8 @@
   import EpicHandsOffIntro from "./EpicHandsOffIntro.svelte";
   import EpicDiagnosisModal from "./EpicDiagnosisModal.svelte";
   import MachineBadge from "./MachineBadge.svelte";
+  import { childJumpSession } from "./epic-child";
+  import SessionJumpChip from "./issues-panel/SessionJumpChip.svelte";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
 
   // An epic's children and structural warnings. Its run controls (state, Start/Pause, mode,
@@ -21,6 +23,8 @@
     sandboxHeld = false,
     headActions = true,
     nowMs = Date.now(),
+    sessionInfo = undefined,
+    onopensession = undefined,
   }: {
     repoPath: string;
     parent: number;
@@ -34,6 +38,9 @@
     headActions?: boolean;
     /** The host's tick — a running step's clock runs on it (#2939). */
     nowMs?: number;
+    /** A child's session (local or mirrored) by ID — its task ID then opens it. */
+    sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
+    onopensession?: (sessionId: string) => void;
   } = $props();
 
   const p = $derived(progress(epic.children));
@@ -82,6 +89,7 @@
     {#each epic.children as c (c.number)}
       {@const chip = chipFor(c.state)}
       {@const slot = slotHeldBy(runSummary, c.number)}
+      {@const jump = childJumpSession(c, sessionInfo)}
       <li class="epic-child">
         <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
         <a
@@ -94,6 +102,10 @@
         <span class="title">{c.title}</span>
         <span class="chip chip-{chip.tone}">{stateLabel(c.state)}</span>
         {#if c.elsewhere}<MachineBadge host={c.elsewhere.host} />{/if}
+        {#if jump && onopensession}
+          {@const id = jump.id}
+          <SessionJumpChip session={jump} onopen={() => onopensession(id)} />
+        {/if}
         {#if slot}
           <span class="slot">{m.epic_slot_held({ index: slot.index, max: slot.max })}</span>
         {/if}

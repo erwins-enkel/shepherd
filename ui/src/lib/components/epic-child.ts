@@ -1,4 +1,4 @@
-import type { EpicChild, Issue } from "#lib/types.js";
+import type { EpicChild, Issue, Session } from "#lib/types.js";
 
 // Pure derivations for the epic-child detail (#2622): which run area it shows, what it waits
 // on, what it frees, and the Issue handed to the New Task dialog for a manual start.
@@ -17,6 +17,18 @@ export function childView(child: Pick<EpicChild, "state">): ChildView {
  *  to once that machine confirmed the start; null otherwise. */
 export function childSessionId(child: Pick<EpicChild, "sessionId" | "elsewhere">): string | null {
   return child.sessionId ?? child.elsewhere?.sessionId ?? null;
+}
+
+/** The session a running / in-review child's task-ID chip jumps to: its own or its mirrored one,
+ *  as the store knows it. Null for any other state, an unconfirmed start, or a session the store
+ *  doesn't hold (archived / not loaded) — there is nothing to open then. */
+export function childJumpSession(
+  child: Pick<EpicChild, "state" | "sessionId" | "elsewhere">,
+  lookup?: (id: string) => { session: Session } | null,
+): Session | null {
+  if (childView(child) !== "session") return null;
+  const id = childSessionId(child);
+  return (id && lookup?.(id)?.session) || null;
 }
 
 /** The child's blockers that aren't merged yet. A blocker outside the epic (not a sibling)

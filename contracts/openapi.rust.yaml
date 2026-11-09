@@ -9011,6 +9011,20 @@ components:
         sandboxDefaultProfile:
           description: "Read-only: the global default profile an inherit sandboxProfile resolves to — SHEPHERD_SANDBOX_DEFAULT_PROFILE, else standard where the bwrap backend works, else trusted."
           $ref: "#/components/schemas/SandboxProfile"
+    AgentExtensionEntry:
+      type: object
+      required:
+        - name
+        - clis
+      properties:
+        name:
+          type: string
+          description: Plugin id or personal skill name.
+        clis:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentProvider"
+          description: The CLIs that have this plugin or skill installed, in provider order.
     AgentExtensions:
       type: object
       required:
@@ -9020,13 +9034,13 @@ components:
         plugins:
           type: array
           items:
-            type: string
-          description: Plugin ids set to true in enabledPlugins of ~/.claude/settings.json, sorted.
+            $ref: "#/components/schemas/AgentExtensionEntry"
+          description: Enabled plugins of every CLI (Claude enabledPlugins in ~/.claude/settings.json, Codex installs under $CODEX_HOME/plugins/cache), one entry per id, sorted.
         skills:
           type: array
           items:
-            type: string
-          description: Personal skill names under ~/.claude/skills, sorted.
+            $ref: "#/components/schemas/AgentExtensionEntry"
+          description: Personal skills of every CLI (~/.claude/skills, ~/.agents/skills), one entry per name, sorted.
     RepoConfigPatch:
       type: object
       additionalProperties: false
@@ -15437,7 +15451,7 @@ paths:
   /api/agent-extensions:
     get:
       operationId: getAgentExtensions
-      description: The operator's enabled plugins and personal skills a repo's pluginAllowlist / skillAllowlist can pick from (#3780).
+      description: The operator's enabled plugins and personal skills, across Claude and Codex, a repo's pluginAllowlist / skillAllowlist can pick from (#3780).
       responses:
         "200":
           description: Success.

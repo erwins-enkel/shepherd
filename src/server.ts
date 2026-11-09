@@ -76,6 +76,7 @@ import {
 import { advanceAfterEpicApproved, buildRepoBootstrapView } from "./bootstrap-phases";
 import { parseProjectDocs, type ProjectDoc } from "./project-docs";
 import {
+  AGENT_PROVIDERS,
   BLOCK_JUDGE_MODES,
   EFFORTS,
   isBlockJudgeMode,
@@ -332,7 +333,7 @@ import {
 } from "./readiness-drift";
 import { composeTaskBrief } from "./intent-shape";
 import { normalizeRound } from "./task-shape";
-import { listCommands } from "./commands";
+import { listCommands, readCodexExtensions } from "./commands";
 import { codexHome } from "./codex-usage";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
 import { scratchpadHasFiles } from "./tmp-sweep";
@@ -732,7 +733,8 @@ export interface AppDeps {
   /** Test seam: the agent session behind a request's connection (#3623). */
   peerSessionId?: (req: Request) => Promise<string | null>;
   /** Test seam (#3780): the operator's enabled plugins + personal skills the repo allowlist
-   *  picker offers. Absent ⇒ {@link readAgentExtensions} (fresh async reads under `~/.claude`). */
+   *  picker offers. Absent ⇒ {@link readAgentExtensions} (fresh reads under `~/.claude`, the Codex
+   *  home and `~/.agents/skills`). */
   agentExtensions?: () => Promise<AgentExtensions>;
   /** Connected machines (#2759). Same memo-slot contract as `accessTokens`: the
    *  `remoteInstances(deps)` accessor lazily builds an unstarted one from `store`; `index.ts`
@@ -3677,17 +3679,44 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   return json({ ...view, connectorRestart: kickConnectorRestart(deps, dir) });
 }
 
-/** What a repo's plugin/skill allowlists (#3780) can pick from. */
-type AgentExtensions = { plugins: string[]; skills: string[] };
+/** One allowlist choice (#3780): a plugin id or personal skill name, and the CLIs that have it. */
+type AgentExtensionEntry = { name: string; clis: AgentProvider[] };
+
+/** What a repo's plugin/skill allowlists (#3780) can pick from. The lists are shared by every CLI,
+ *  so each catalog merges all CLIs' entries by name. */
+type AgentExtensions = { plugins: AgentExtensionEntry[]; skills: AgentExtensionEntry[] };
+
+type CliCatalog = { plugins: string[]; skills: string[] };
+
+/** One entry per plugin id / skill name across the CLIs' catalogs, sorted by name, each listing the
+ *  CLIs that have it in {@link AGENT_PROVIDERS} order. */
+export function mergeAgentExtensions(
+  byCli: Partial<Record<AgentProvider, CliCatalog>>,
+): AgentExtensions {
+  const merge = (key: keyof CliCatalog): AgentExtensionEntry[] => {
+    const clis = new Map<string, AgentProvider[]>();
+    for (const cli of AGENT_PROVIDERS) {
+      for (const name of new Set(byCli[cli]?.[key] ?? [])) {
+        clis.set(name, [...(clis.get(name) ?? []), cli]);
+      }
+    }
+    return [...clis.keys()].sort().map((name) => ({ name, clis: clis.get(name)! }));
+  };
+  return { plugins: merge("plugins"), skills: merge("skills") };
+}
 
 /** Fresh reads (not the spawn path's memoized ones), so a plugin or skill installed since the
- *  server started shows up in the picker. Both sorted; an unreadable skills root lists nothing. */
+ *  server started shows up in the picker. An unreadable skills root lists nothing. */
 async function readAgentExtensions(): Promise<AgentExtensions> {
   const [plugins, skills] = await Promise.all([
     readEnabledPluginIds(),
     readSkillNames(join(homedir(), ".claude", "skills")),
   ]);
-  return { plugins: plugins.sort(), skills: [...new Set(skills ?? [])].sort() };
+  const codex = readCodexExtensions();
+  return mergeAgentExtensions({
+    claude: { plugins, skills: skills ?? [] },
+    codex: { plugins: codex.plugins, skills: codex.skills.map((skill) => skill.name) },
+  });
 }
 
 /** GET /api/agent-extensions (#3780): the repo allowlist picker's choices. */

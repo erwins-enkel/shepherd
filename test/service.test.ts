@@ -25,6 +25,7 @@ import {
   browserCdpUrl,
   RestoreError,
   spawnSettingsOverlay,
+  codexAllowlistArgs,
   UNUSED_BUILTIN_TOOLS,
   builtinToolsNeededBy,
   buildHooksFragment,
@@ -371,6 +372,7 @@ function codexHarness(
   isolated: boolean,
   authMode: "chatgpt" | "apikey" | "unknown" = "unknown",
   readCodexHelp = () => "      --no-daemon\n",
+  extra: Record<string, unknown> = {},
 ) {
   const store = new SessionStore(":memory:");
   const calls: any = {};
@@ -404,6 +406,7 @@ function codexHarness(
     } as any,
     readCodexAuthMode: () => authMode,
     readCodexHelp,
+    ...extra,
   });
   return { store, service, calls };
 }
@@ -3661,9 +3664,11 @@ async function resumeArgv(
   store: SessionStore,
   id: string,
   readCodexHelp = () => "      --no-daemon\n",
+  extra: Record<string, unknown> = {},
 ): Promise<string[]> {
   let argv: string[] = [];
   const svc = new SessionService({
+    ...extra,
     transcriptExists: () => true, // Fixture conversation is persisted.
     readCodexHelp,
     store,
@@ -7761,6 +7766,153 @@ test("attended spawn: plugin allowlist only leaves skills untouched; [] switches
   expect(overlay.enabledPlugins).toEqual({ "superpowers@sp": false, "vercel@v": false });
   expect(overlay.skillOverrides).toBeUndefined();
   expect(skillReads()).toBe(0);
+});
+
+/** A Codex catalog seam (#3780) that counts its reads. */
+function codexExtSeam(plugins: string[], skills: { name: string; path: string }[]) {
+  let reads = 0;
+  return {
+    codexExtensions: () => {
+      reads++;
+      return { plugins, skills };
+    },
+    reads: () => reads,
+  };
+}
+
+/** The value of the argv's `-c <key>=…` override, or undefined. */
+function codexOverride(argv: string[], key: string): string | undefined {
+  const i = argv.findIndex((a, n) => argv[n - 1] === "-c" && a.startsWith(`${key}=`));
+  return i === -1 ? undefined : argv[i]!.slice(key.length + 1);
+}
+
+const CODEX_SKILLS = [
+  { name: "tdd", path: "/h/.agents/skills/tdd/SKILL.md" },
+  { name: "grilling", path: "/h/.agents/skills/grilling/SKILL.md" },
+];
+
+test("codexAllowlistArgs: one plugins table + one skills.config array, TOML-quoted (#3780)", () => {
+  const args = codexAllowlistArgs(
+    { plugins: ["keep@m"], skills: ["tdd"] },
+    {
+      plugins: ["keep@m", "vercel@v", "a.b@local.mkt"],
+      skills: [
+        { name: "tdd", path: "/h/tdd/SKILL.md" },
+        { name: "odd", path: '/h/my "odd" dir/SKILL.md' },
+      ],
+    },
+  );
+  expect(args).toEqual([
+    "-c",
+    'plugins={"vercel@v"={enabled=false},"a.b@local.mkt"={enabled=false}}',
+    "-c",
+    'skills.config=[{path="/h/my \\"odd\\" dir/SKILL.md",enabled=false}]',
+  ]);
+  // Both values are the TOML Codex parses them as: ids and paths survive quoting intact.
+  const parsed = Bun.TOML.parse(`plugins = ${args[1]!.slice(8)}\nconfig = ${args[3]!.slice(14)}`);
+  expect(parsed).toEqual({
+    plugins: { "vercel@v": { enabled: false }, "a.b@local.mkt": { enabled: false } },
+    config: [{ path: '/h/my "odd" dir/SKILL.md', enabled: false }],
+  });
+});
+
+test("codexAllowlistArgs: null lists, or nothing outside them, add no flags (#3780)", () => {
+  const ext = { plugins: ["a@m"], skills: [{ name: "tdd", path: "/h/tdd/SKILL.md" }] };
+  expect(codexAllowlistArgs({ plugins: null, skills: null }, ext)).toEqual([]);
+  expect(codexAllowlistArgs({ plugins: ["a@m"], skills: ["tdd"] }, ext)).toEqual([]);
+});
+
+test("codex spawn with allowlists: unlisted Codex plugins/personal skills off, before the prompt (#3780)", async () => {
+  const seam = codexExtSeam(["canva@remote", "github@remote"], CODEX_SKILLS);
+  const { store, service, calls } = codexHarness(true, "unknown", undefined, seam);
+  setAllowlists(store, "/repo", ["github@remote"], ["tdd"]);
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "flatten it",
+    agentProvider: "codex",
+    model: null,
+    images: [],
+  });
+  const argv: string[] = calls.start.argv;
+  expect(codexOverride(argv, "plugins")).toBe('{"canva@remote"={enabled=false}}');
+  expect(codexOverride(argv, "skills.config")).toBe(
+    '[{path="/h/.agents/skills/grilling/SKILL.md",enabled=false}]',
+  );
+  expect(codexPrompt(argv)).toContain("flatten it");
+  expect(seam.reads()).toBe(1);
+});
+
+test("codex spawn: plugin allowlist [] switches every Codex plugin off, skills untouched (#3780)", async () => {
+  const seam = codexExtSeam(["canva@remote", "github@remote"], CODEX_SKILLS);
+  const { store, service, calls } = codexHarness(true, "unknown", undefined, seam);
+  setAllowlists(store, "/repo", [], null);
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "flatten it",
+    agentProvider: "codex",
+    model: null,
+    images: [],
+  });
+  const argv: string[] = calls.start.argv;
+  expect(codexOverride(argv, "plugins")).toBe(
+    '{"canva@remote"={enabled=false},"github@remote"={enabled=false}}',
+  );
+  expect(codexOverride(argv, "skills.config")).toBeUndefined();
+});
+
+test("codex spawn without allowlists: no overrides, catalog never read (#3780)", async () => {
+  const seam = codexExtSeam(["canva@remote"], CODEX_SKILLS);
+  const { service, calls } = codexHarness(true, "unknown", undefined, seam);
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "flatten it",
+    agentProvider: "codex",
+    model: null,
+    images: [],
+  });
+  const argv: string[] = calls.start.argv;
+  expect(codexOverride(argv, "plugins")).toBeUndefined();
+  expect(codexOverride(argv, "skills.config")).toBeUndefined();
+  expect(seam.reads()).toBe(0);
+});
+
+test("auto codex spawn honors the allowlists too: Codex has no drain trim (#3780)", async () => {
+  const prev = config.trimAutoContext;
+  try {
+    config.trimAutoContext = true;
+    const seam = codexExtSeam(["canva@remote"], CODEX_SKILLS);
+    const { store, service, calls } = codexHarness(true, "unknown", undefined, seam);
+    setAllowlists(store, "/repo", null, ["grilling"]);
+    await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "flatten it",
+      agentProvider: "codex",
+      model: null,
+      images: [],
+      auto: true,
+    });
+    const argv: string[] = calls.start.argv;
+    expect(codexOverride(argv, "plugins")).toBeUndefined();
+    expect(codexOverride(argv, "skills.config")).toBe(
+      '[{path="/h/.agents/skills/tdd/SKILL.md",enabled=false}]',
+    );
+  } finally {
+    config.trimAutoContext = prev;
+  }
+});
+
+test("codex resume re-applies the allowlists (#3780)", async () => {
+  const store = new SessionStore(":memory:");
+  const s = resumable(store, { agentProvider: "codex", claudeSessionId: "", model: null });
+  setAllowlists(store, s.repoPath, ["github@remote"], null);
+  const seam = codexExtSeam(["canva@remote", "github@remote"], CODEX_SKILLS);
+  const argv = await resumeArgv(store, s.id, undefined, seam);
+  expect(argv.slice(0, 3)).toEqual(["codex", "resume", "codex-pinned"]);
+  expect(codexOverride(argv, "plugins")).toBe('{"canva@remote"={enabled=false}}');
 });
 
 test("drain with trim on ignores the allowlists: full trim as before (#3780)", async () => {

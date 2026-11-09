@@ -3288,10 +3288,17 @@ export async function putRepoConfig(
   return r.json();
 }
 
-/** The operator's enabled plugins + personal skills a repo's allowlists pick from (#3780). */
+/** One allowlist choice (#3780): a plugin id or personal skill name, and the CLIs that have it. */
+export interface AgentExtensionEntry {
+  name: string;
+  clis: AgentProvider[];
+}
+
+/** The operator's enabled plugins + personal skills a repo's allowlists pick from (#3780), merged
+ *  across every CLI: the lists are shared, so one entry per name. */
 export interface AgentExtensions {
-  plugins: string[];
-  skills: string[];
+  plugins: AgentExtensionEntry[];
+  skills: AgentExtensionEntry[];
 }
 
 export async function getAgentExtensions(): Promise<AgentExtensions> {

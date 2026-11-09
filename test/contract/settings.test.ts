@@ -93,10 +93,13 @@ test("repo config, role no-op, push refusal and collaborator fallback", async ()
     { pluginAllowlist: "x" },
     "/api/repo-config" + query,
   );
-  s.deps.agentExtensions = async () => ({ plugins: ["context7@c"], skills: ["tdd"] });
+  s.deps.agentExtensions = async () => ({
+    plugins: [{ name: "context7@c", clis: ["claude"] }],
+    skills: [{ name: "tdd", clis: ["claude", "codex"] }],
+  });
   expect(await request("GET", "/api/agent-extensions", 200)).toEqual({
-    plugins: ["context7@c"],
-    skills: ["tdd"],
+    plugins: [{ name: "context7@c", clis: ["claude"] }],
+    skills: [{ name: "tdd", clis: ["claude", "codex"] }],
   });
   await request(
     "PUT",

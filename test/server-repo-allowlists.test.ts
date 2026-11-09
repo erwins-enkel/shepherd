@@ -1,7 +1,7 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { makeApp, type AppDeps } from "../src/server";
+import { makeApp, mergeAgentExtensions, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
@@ -27,7 +27,10 @@ function app() {
     events: new EventHub(),
     usageLimits: { limits: () => ({}) } as any,
     resolveForge: () => null,
-    agentExtensions: async () => ({ plugins: ["context7@c"], skills: ["tdd"] }),
+    agentExtensions: async () => ({
+      plugins: [{ name: "context7@c", clis: ["claude"] }],
+      skills: [{ name: "tdd", clis: ["claude", "codex"] }],
+    }),
   };
   return makeApp(deps);
 }
@@ -78,5 +81,27 @@ test("PUT rejects malformed allowlists", async () => {
 test("GET /api/agent-extensions returns the picker's choices", async () => {
   const r = await app().fetch(new Request("http://x/api/agent-extensions"));
   expect(r.status).toBe(200);
-  expect(await r.json()).toEqual({ plugins: ["context7@c"], skills: ["tdd"] });
+  expect(await r.json()).toEqual({
+    plugins: [{ name: "context7@c", clis: ["claude"] }],
+    skills: [{ name: "tdd", clis: ["claude", "codex"] }],
+  });
+});
+
+test("mergeAgentExtensions: one entry per name across CLIs, sorted, clis in provider order", () => {
+  expect(
+    mergeAgentExtensions({
+      codex: { plugins: ["canva@remote"], skills: ["tdd", "grilling", "tdd"] },
+      claude: { plugins: ["vercel@v", "context7@c"], skills: ["tdd"] },
+    }),
+  ).toEqual({
+    plugins: [
+      { name: "canva@remote", clis: ["codex"] },
+      { name: "context7@c", clis: ["claude"] },
+      { name: "vercel@v", clis: ["claude"] },
+    ],
+    skills: [
+      { name: "grilling", clis: ["codex"] },
+      { name: "tdd", clis: ["claude", "codex"] },
+    ],
+  });
 });

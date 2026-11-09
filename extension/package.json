@@ -24,7 +24,7 @@
     "@eslint/js": "^10.0.1",
     "@inlang/paraglide-js": "^2.29.3",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
-    "@tailwindcss/vite": "^4.3.4",
+    "@tailwindcss/vite": "^4.3.5",
     "@tsconfig/svelte": "^5.0.4",
     "@types/chrome": "^0.3.7",
     "eslint": "^10.14.0",
@@ -34,7 +34,7 @@
     "svelte-check": "^4.7.8",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.72.1",
-    "vite": "^8.3.5",
+    "vite": "^8.3.6",
     "axe-core": "^4.14.0",
     "esbuild": "^0.28.2",
     "vitest": "^5.1.0"

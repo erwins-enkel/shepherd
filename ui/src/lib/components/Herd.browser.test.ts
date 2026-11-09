@@ -14,6 +14,7 @@ import { expectMinPx } from "#lib/test-support/geometry.js";
 import { m } from "#lib/paraglide/messages.js";
 import type {
   CompletedEpic,
+  DrainStatus,
   Session,
   GitState,
   Epic,
@@ -918,6 +919,198 @@ describe("Herd epic grouping", () => {
     // local count fragment + the grouped annotation both present
     await expect.element(page.getByText("Ready to merge (1)")).toBeInTheDocument();
     await expect.element(page.getByText("1 in epics above")).toBeInTheDocument();
+  });
+});
+
+describe("Herd session-less epic groups (#3814)", () => {
+  const child = (number: number, over: Partial<EpicChild> = {}): EpicChild => ({
+    number,
+    title: `child ${number}`,
+    url: "",
+    order: number,
+    body: "",
+    blockedBy: [],
+    state: "merged",
+    sessionId: null,
+    prNumber: null,
+    issueClosed: false,
+    claimed: false,
+    ...over,
+  });
+  const epicOf = (
+    parent: number,
+    children: EpicChild[],
+    status: Epic["run"]["status"] = "running",
+    repoPath = "/repo/a",
+  ): Epic => ({
+    repoPath,
+    parentIssueNumber: parent,
+    parentTitle: `Epic ${parent}`,
+    source: "native",
+    children,
+    warnings: [],
+    run: { repoPath, parentIssueNumber: parent, mode: "auto", status },
+  });
+  // #3451 as observed: 8/10 merged, #3449 claimed with no session or PR, #3450 waits on it.
+  const observed = epicOf(3451, [
+    ...[3441, 3442, 3443, 3444, 3445, 3446, 3447, 3448].map((n) => child(n)),
+    child(3449, { state: "in-review", claimed: true }),
+    child(3450, { state: "blocked", blockedBy: [3449] }),
+  ]);
+  const drain: Record<string, DrainStatus> = {
+    "/repo/a": {
+      repoPath: "/repo/a",
+      enabled: true,
+      paused: false,
+      reason: "empty",
+      detail: null,
+      queued: 0,
+      inFlight: 0,
+      max: 2,
+      epicParent: 3451,
+    },
+  };
+  const key = "/repo/a#3451";
+  const loose = session({ id: "n1", name: "unrelated task", issueNumber: 999 });
+
+  it("shows a running epic without child sessions: status, honest reason, details access", async () => {
+    const onepic = vi.fn();
+    render(Herd, {
+      ...base,
+      sessions: [loose],
+      git: {},
+      epics: { [key]: observed },
+      activeEpicKeys: new Set([key]),
+      drain,
+      onepic,
+    });
+    await expect.element(page.getByText("Epic 3451")).toBeInTheDocument();
+    const body = document.querySelector(".epic-sessionless")!;
+    expect(body.textContent).toContain(m.epic_sessionless_running());
+    expect(body.textContent).toContain(m.epic_sessionless_claimed_unknown({ number: 3449 }));
+    expect(body.textContent).toContain(
+      m.epic_sessionless_waits_on({ number: 3450, blockers: "#3449" }),
+    );
+    expect(body.textContent).not.toContain(m.epic_state_in_review());
+    expect(document.querySelector(".cue-no-agent")).not.toBeNull();
+    // the unrelated session stays in the lifecycle list
+    await expect.element(page.getByText("unrelated task")).toBeInTheDocument();
+    await page.getByRole("button", { name: m.epic_sessionless_open() }).click();
+    expect(onepic).toHaveBeenCalledWith("/repo/a", 3451);
+  });
+
+  it("shows a paused epic as paused", async () => {
+    const paused = { ...observed, run: { ...observed.run, status: "paused" as const } };
+    render(Herd, {
+      ...base,
+      sessions: [loose],
+      git: {},
+      epics: { [key]: paused },
+      activeEpicKeys: new Set([key]),
+      drain,
+    });
+    await expect.element(page.getByText(m.epic_sessionless_paused())).toBeInTheDocument();
+    await expect.element(page.getByText(m.epic_sessionless_reason_paused())).toBeInTheDocument();
+  });
+
+  it("is hidden in the ready lens, under a status filter and on another machine", async () => {
+    const props = {
+      ...base,
+      sessions: [loose],
+      git: {},
+      epics: { [key]: observed },
+      activeEpicKeys: new Set([key]),
+      drain,
+    };
+    const ready = await render(Herd, { ...props, filter: "ready" as const });
+    await expect.element(page.getByText("unrelated task")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Epic 3451");
+    await ready.unmount();
+
+    const status = await render(Herd, { ...props, statusFilter: "idle" as const });
+    await expect.element(page.getByText("unrelated task")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Epic 3451");
+    await status.unmount();
+
+    render(Herd, { ...props, machineFilter: "inst-other" });
+    await expect.poll(() => document.querySelector(".units")).not.toBeNull();
+    expect(document.body.textContent).not.toContain("Epic 3451");
+  });
+
+  it("follows the repo filter", async () => {
+    const other = epicOf(7, [child(8, { state: "ready" })], "running", "/repo/b");
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "b1", name: "repo b task", repoPath: "/repo/b" })],
+      git: {},
+      epics: { [key]: observed, "/repo/b#7": other },
+      activeEpicKeys: new Set([key, "/repo/b#7"]),
+      drain,
+      repoFilter: new Set(["/repo/b"]),
+      filteredRepo: "b",
+    });
+    await expect.element(page.getByText("Epic 7")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Epic 3451");
+  });
+
+  it("renders above the empty state when the herd has no sessions", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [],
+      git: {},
+      epics: { [key]: observed },
+      activeEpicKeys: new Set([key]),
+      drain,
+      repoFilter: new Set(["/repo/a"]),
+      filteredRepo: "a",
+    });
+    await expect.element(page.getByText("Epic 3451")).toBeInTheDocument();
+    const empty = page.getByText(m.herd_repo_filter_empty({ repo: "a" }));
+    await expect.element(empty).toBeInTheDocument();
+    const head = document.querySelector(".epic-head")!;
+    expect(
+      head.compareDocumentPosition(empty.element()) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("follows the groups with sessions and reports the rendered order", async () => {
+    const onrenderedepicgroups = vi.fn();
+    // #9000 sorts after #3451 by number, so only "groups with sessions first" puts it ahead.
+    const populated = epicOf(9000, [child(9001, { state: "running" })]);
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "g1", name: "grouped child", issueNumber: 9001 })],
+      git: {},
+      epics: { [key]: observed, "/repo/a#9000": populated },
+      activeEpicKeys: new Set([key, "/repo/a#9000"]),
+      drain,
+      onrenderedepicgroups,
+    });
+    await expect.element(page.getByText("grouped child")).toBeInTheDocument();
+    await expect
+      .poll(() => onrenderedepicgroups.mock.calls.at(-1)?.[0])
+      .toEqual(["/repo/a#9000", key]);
+    const titles = [...document.querySelectorAll(".epic-head .title")].map((t) => t.textContent);
+    expect(titles).toEqual(["Epic 9000", "Epic 3451"]);
+  });
+
+  it("collapsed: keeps the header and its no-agent chip, hides the wait note", async () => {
+    const oncollapsetoggle = vi.fn();
+    render(Herd, {
+      ...base,
+      sessions: [loose],
+      git: {},
+      epics: { [key]: observed },
+      activeEpicKeys: new Set([key]),
+      drain,
+      collapsedKeys: new Set([key]),
+      oncollapsetoggle,
+    });
+    await expect.element(page.getByText("Epic 3451")).toBeInTheDocument();
+    expect(document.querySelector(".cue-no-agent")).not.toBeNull();
+    expect(document.querySelector(".epic-sessionless")).toBeNull();
+    (document.querySelector(".epic-toggle") as HTMLButtonElement).click();
+    expect(oncollapsetoggle).toHaveBeenCalledWith(key);
   });
 });
 

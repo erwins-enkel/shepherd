@@ -8371,5 +8371,18 @@
   "topbar_gha_tip_forecast": "Forecast: this month's spend per day so far, carried to the reset.",
   "topbar_gha_tip_source": "Source: GitHub billing API, re-read every 10 minutes.",
   "feat_github_actions_usage_title": "GitHub Actions minutes in the usage panel",
-  "feat_github_actions_usage_body": "The usage panel now shows the monthly Actions allowance of your personal account and every org – how much of the included amount is gone, what drives the cost, and when CI would stop before the reset."
+  "feat_github_actions_usage_body": "The usage panel now shows the monthly Actions allowance of your personal account and every org – how much of the included amount is gone, what drives the cost, and when CI would stop before the reset.",
+  "epic_group_cue_no_agent": "no agent",
+  "epic_group_cue_no_agent_title": "No agent of this epic is active here",
+  "epic_sessionless_running": "Running · no agent active here",
+  "epic_sessionless_paused": "Paused · no agent active here",
+  "epic_sessionless_reason_paused": "The run is paused — no child starts until it resumes.",
+  "epic_sessionless_claimed_unknown": "#{number} is claimed, but there is no session or PR here — ownership unknown.",
+  "epic_sessionless_inflight_unknown": "#{number} counts as in progress, but there is no session or PR here — ownership unknown.",
+  "epic_sessionless_pr_open": "#{number}: PR #{pr} awaits merge.",
+  "epic_sessionless_elsewhere": "#{number} is handled on {machine}.",
+  "epic_sessionless_waits_on": "#{number} waits on {blockers}.",
+  "epic_sessionless_next": "#{number} starts next.",
+  "epic_sessionless_unknown": "Why nothing runs is unknown — check the epic's details.",
+  "epic_sessionless_open": "Open epic details"
 }

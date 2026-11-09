@@ -63,6 +63,25 @@ describe("EpicGroupHeader", () => {
     await expect.element(page.getByText("EPIC 1/4")).toBeInTheDocument();
   });
 
+  it("shows the no-agent chip only for a session-less group (#3814)", async () => {
+    const props = {
+      epic: epic([child("in-review", 1)]),
+      collapsed: true,
+      cues: noCues,
+      nowMs: Date.now(),
+      ontoggle: () => {},
+    };
+    const plain = await render(EpicGroupHeader, props);
+    await expect.element(page.getByText("Ship the new map")).toBeInTheDocument();
+    expect(document.querySelector(".cue-no-agent")).toBeNull();
+    await plain.unmount();
+
+    render(EpicGroupHeader, { ...props, sessionless: true });
+    const chip = page.getByLabelText("No agent of this epic is active here");
+    await expect.element(chip).toBeInTheDocument();
+    await expect.element(chip).toHaveTextContent("no agent");
+  });
+
   it("clicking the toggle calls ontoggle", async () => {
     const ontoggle = vi.fn();
     render(EpicGroupHeader, {

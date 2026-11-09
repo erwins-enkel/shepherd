@@ -1,5 +1,8 @@
 import { test, expect } from "vitest";
-import { groupSessionsByEpic as groupSessionsByEpicRaw } from "./epic-grouping";
+import {
+  groupSessionsByEpic as groupSessionsByEpicRaw,
+  sessionlessEpicGroups,
+} from "./epic-grouping";
 import type { Session, GitState, Epic, EpicChild, SessionStatus } from "#lib/types.js";
 
 function session(
@@ -362,4 +365,111 @@ test("a shelved epic child stays in rest (renders in the Shelved group)", () => 
   );
   expect(out.groups).toHaveLength(0);
   expect(out.rest.map((x) => x.id)).toEqual(["s1"]);
+});
+
+// ── #3814: active epics without a child session ──────────────────────────────────────────────
+
+const none: ReadonlySet<string> = new Set();
+
+function sessionless(
+  sessions: Session[],
+  epics: Record<string, Epic>,
+  repoFilter: ReadonlySet<string> = none,
+  completedKeys: ReadonlySet<string> = none,
+) {
+  return sessionlessEpicGroups(
+    sessions,
+    epics,
+    new Set(Object.keys(epics)),
+    repoFilter,
+    completedKeys,
+  );
+}
+
+test("a member-less active epic still forms no groupSessionsByEpic group (the rail adds no rows)", () => {
+  const epics = { [key("/r", 100)]: epic("/r", 100, [101]) };
+  const out = groupSessionsByEpic([], epics, new Set([key("/r", 100)]), {}, () => false, now);
+  expect(out.groups).toEqual([]);
+});
+
+test("sessionless: running and paused active epics without a child session form empty groups", () => {
+  const paused = epic("/r", 200, [201]);
+  paused.run = { ...paused.run, status: "paused" };
+  const epics = { [key("/r", 100)]: epic("/r", 100, [101]), [key("/r", 200)]: paused };
+  const out = sessionless([session("other", "/r", 999)], epics);
+  expect(out.map((g) => g.key)).toEqual([key("/r", 100), key("/r", 200)]);
+  expect(out.every((g) => g.sessions.length === 0)).toBe(true);
+  expect(out[0].epic).toBe(epics[key("/r", 100)]);
+});
+
+test("sessionless: only keys in activeEpicKeys with a loaded record qualify", () => {
+  const epics = {
+    [key("/r", 100)]: epic("/r", 100, [101]),
+    [key("/r", 200)]: epic("/r", 200, [201]),
+  };
+  const out = sessionlessEpicGroups(
+    [],
+    epics,
+    new Set([key("/r", 100), key("/r", 300)]), // #300 has no record yet, #200 is not active
+    none,
+    none,
+  );
+  expect(out.map((g) => g.key)).toEqual([key("/r", 100)]);
+});
+
+test("sessionless: idle, all-merged and completed epics never show", () => {
+  const idle = epic("/r", 100, [101]);
+  idle.run = { ...idle.run, status: "idle" };
+  const merged = epic("/r", 200, [201, 202]);
+  merged.children = merged.children.map((c) => ({ ...c, state: "merged" }));
+  const completed = epic("/r", 300, [301]);
+  const out = sessionless(
+    [],
+    { [key("/r", 100)]: idle, [key("/r", 200)]: merged, [key("/r", 300)]: completed },
+    none,
+    new Set([key("/r", 300)]),
+  );
+  expect(out).toEqual([]);
+});
+
+test("sessionless: any session of a child suppresses the group — plain, shelved or experiment member", () => {
+  const epics = {
+    [key("/r", 100)]: epic("/r", 100, [101]),
+    [key("/r", 200)]: epic("/r", 200, [201]),
+    [key("/r", 300)]: epic("/r", 300, [301]),
+    [key("/r", 400)]: epic("/r", 400, [401]),
+  };
+  const shelved = { ...session("s", "/r", 201), shelved: true };
+  const variant = {
+    ...session("v", "/r", 301),
+    experimentId: "exp",
+    experimentRole: "variant" as const,
+  };
+  const out = sessionless([session("p", "/r", 101), shelved, variant], epics);
+  expect(out.map((g) => g.key)).toEqual([key("/r", 400)]);
+});
+
+test("sessionless: a session matching only the parent number or another repo does not count", () => {
+  const epics = { [key("/r", 100)]: epic("/r", 100, [101]) };
+  const out = sessionless([session("parent", "/r", 100), session("x", "/other", 101)], epics);
+  expect(out.map((g) => g.key)).toEqual([key("/r", 100)]);
+});
+
+test("sessionless: the repo filter scopes the groups (empty filter = all repos)", () => {
+  const epics = { [key("/a", 1)]: epic("/a", 1, [2]), [key("/b", 1)]: epic("/b", 1, [2]) };
+  expect(sessionless([], epics).map((g) => g.key)).toEqual([key("/a", 1), key("/b", 1)]);
+  expect(sessionless([], epics, new Set(["/b"])).map((g) => g.key)).toEqual([key("/b", 1)]);
+});
+
+test("sessionless: ordered by repo basename then parent number, like the member groups", () => {
+  const epics = {
+    [key("/x/zeta", 5)]: epic("/x/zeta", 5, [6]),
+    [key("/y/alpha", 9)]: epic("/y/alpha", 9, [10]),
+    [key("/y/alpha", 3)]: epic("/y/alpha", 3, [4]),
+  };
+  expect(sessionless([], epics).map((g) => g.key)).toEqual([
+    key("/y/alpha", 3),
+    key("/y/alpha", 9),
+    key("/x/zeta", 5),
+  ]);
 });

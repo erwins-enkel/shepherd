@@ -288,6 +288,7 @@ const usageGetRoutes: Record<string, GetHandler> = {
   "/api/usage/timeline": (url) => json(demoState.usageTimeline(rangeParam(url))),
   "/api/usage/delivery": (url) => json(demoState.deliveryMetrics(rangeParam(url))),
   "/api/usage/github": () => json(demoState.githubRateLimit()),
+  "/api/usage/github-actions": () => json(demoState.githubActionsBilling()),
   "/api/prompt-budget": () => json(demoState.promptBudgets()),
 };
 

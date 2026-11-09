@@ -2472,6 +2472,48 @@ export interface GithubRateLimit {
   callers: GhCallerTally[];
 }
 
+/** Whether an account's Actions billing could be read: `missing-scope` is the personal account
+ *  without the token's `user` scope, `no-access` an org you can't see billing for. */
+export type ActionsAccountStatus = "ok" | "missing-scope" | "no-access" | "error";
+export type ActionsRunnerOs = "linux" | "macos" | "windows" | "other";
+
+/** One account's GitHub Actions month. Mirrors the server `ActionsAccountBilling`. Amounts are
+ *  USD; `usedUsd` is the gross of private-repo minutes, the part that draws on the allowance. */
+export interface ActionsAccountBilling {
+  login: string;
+  kind: "user" | "org";
+  status: ActionsAccountStatus;
+  plan: string | null;
+  /** The plan's monthly included compute; null for an unknown plan. */
+  includedUsd: number | null;
+  budget: { amountUsd: number; stops: boolean } | null;
+  usedUsd: number;
+  paidUsd: number;
+  /** Private-repo spend at which workflows stop; null when no stop is known. */
+  stopAtUsd: number | null;
+  projection: {
+    monthEndUsd: number;
+    /** Epoch-ms the included compute runs (or ran) out; null when it lasts the month. */
+    includedOutAt: number | null;
+    /** Epoch-ms workflows stop (or stopped); null when not before the reset. */
+    stopAt: number | null;
+  };
+  runners: { os: ActionsRunnerOs; minutes: number; grossUsd: number }[];
+  topRepos: { repo: string; minutes: number; grossUsd: number }[];
+  publicMinutes: number;
+  publicGrossUsd: number;
+  topPublicRepo: { repo: string; minutes: number } | null;
+}
+
+/** GET /api/usage/github-actions. Mirrors the server `GithubActionsBillingPayload`. */
+export interface GithubActionsBilling {
+  fetchedAt: number;
+  periodStart: number;
+  /** Epoch-ms of the next reset (start of next month, UTC). */
+  resetAt: number;
+  accounts: ActionsAccountBilling[];
+}
+
 /** One caller's GitHub calls in the current window. Mirrors the server `GhCallerTally`. */
 export interface GhCallerTally {
   caller: string;

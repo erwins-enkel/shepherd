@@ -37,6 +37,13 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     listHeld: vi.fn(async () => []),
     getSettings: vi.fn(actual.getSettings),
     updateEpic: vi.fn(async () => undefined),
+    // No GitHub accounts: the panel's Actions section stays out of these layout/focus tests.
+    getGithubActionsBilling: vi.fn(async () => ({
+      fetchedAt: 0,
+      periodStart: 0,
+      resetAt: 0,
+      accounts: [],
+    })),
   };
 });
 

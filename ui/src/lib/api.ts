@@ -26,6 +26,7 @@ import type {
   UsageRange,
   PromptBudgetRecord,
   GithubRateLimit,
+  GithubActionsBilling,
   GitState,
   PrStatus,
   MergeMethod,
@@ -1650,6 +1651,12 @@ export async function refreshUsage(): Promise<UsageLimits> {
 export async function getGithubRateLimit(): Promise<GithubRateLimit> {
   const r = await fetch("/api/usage/github");
   if (!r.ok) throw await failed(r, "github");
+  return r.json();
+}
+
+export async function getGithubActionsBilling(): Promise<GithubActionsBilling> {
+  const r = await fetch("/api/usage/github-actions");
+  if (!r.ok) throw await failed(r, "github-actions");
   return r.json();
 }
 

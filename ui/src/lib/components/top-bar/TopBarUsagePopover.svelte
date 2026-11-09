@@ -22,6 +22,7 @@
   import UsageHero from "./UsageHero.svelte";
   import UsageCapacity from "./UsageCapacity.svelte";
   import UsageRefreshButton from "./UsageRefreshButton.svelte";
+  import GithubActionsUsage from "./GithubActionsUsage.svelte";
 
   // The usage panel: the numbers on one side and, through `wait`, everything they currently hold
   // back on the other. "desktop" is an anchored modal over a dimmed bar, "touch" the same panel
@@ -225,6 +226,9 @@
       <div class="pop-wait">{@render wait(false)}</div>
     {/if}
   </div>
+  <!-- CI capacity beside the agents': each account's monthly Actions allowance, with a forecast
+       of when it would stop CI before the reset. -->
+  <GithubActionsUsage {nowMs} />
 
   <footer class="usage-footer">
     <div class="usage-footer-actions">

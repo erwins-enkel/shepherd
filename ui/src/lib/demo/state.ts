@@ -72,6 +72,7 @@ import type {
   UsageRange,
   DeliveryMetrics,
   GithubRateLimit,
+  GithubActionsBilling,
   PromptBudgetRecord,
   QueuedItem,
   ForgeKind,
@@ -704,6 +705,9 @@ export const demoState = {
 
   /** GET /api/usage/github — REST/GraphQL/search rate-limit buckets. */
   githubRateLimit: (): GithubRateLimit => world.githubRateLimit,
+
+  /** GET /api/usage/github-actions — the monthly Actions allowance per account. */
+  githubActionsBilling: (): GithubActionsBilling => world.githubActionsBilling,
 
   /** GET /api/prompt-budget — per-spawn assembled-directive breakdowns. Wrapped under
    *  `records`: `getPromptBudgets()` reads `body.records ?? []`, so a bare array is

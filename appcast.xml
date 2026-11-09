@@ -3,12 +3,12 @@
     <channel>
         <title>Shepherd</title>
         <item>
-            <title>2.7.0-nightly.2664</title>
-            <pubDate>Sun, 08 Nov 2026 11:44:08 +0000</pubDate>
-            <sparkle:version>2664</sparkle:version>
-            <sparkle:shortVersionString>2.7.0-nightly.2664</sparkle:shortVersionString>
+            <title>2.7.0-nightly.2674</title>
+            <pubDate>Mon, 09 Nov 2026 13:30:31 +0000</pubDate>
+            <sparkle:version>2674</sparkle:version>
+            <sparkle:shortVersionString>2.7.0-nightly.2674</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/erwins-enkel/shepherd/releases/download/macos-nightly-2664/Shepherd-2664.zip" length="60804913" type="application/octet-stream" sparkle:edSignature="VZD5igoSTg7/9GHVfsvIGu0cb4toUOrchweOyMVjKq6Zy2lZGYswgyY14YmFal+V9FV20FGRPBoXy6MhL/qhDA=="/>
+            <enclosure url="https://github.com/erwins-enkel/shepherd/releases/download/macos-nightly-2674/Shepherd-2674.zip" length="61303804" type="application/octet-stream" sparkle:edSignature="LWxr8qyIke6yVfD9x+n3mct0XYXiPJ9NEZuYLszfW2QYDIUgZUZSJ5zKNs0JS6bfN1dLbeucmChwU7CFG4D4Cg=="/>
         </item>
     </channel>
 </rss>

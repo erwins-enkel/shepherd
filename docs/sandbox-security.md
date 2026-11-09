@@ -23,7 +23,9 @@ affected autonomous repos. Each DIAGNOSE check re-runs the self-test async
 read, so installing the packages + **Re-run checks** un-blocks them without a
 restart.
 The toolchain is bound read-only: node's bin dir and the server's own bun
-(`config.bunBin`, #3351) land on the membrane PATH. Under `autonomous`,
+(`config.bunBin`, #3351) land on the membrane PATH, as does the `claude` launcher's directory, resolved
+on Shepherd's own PATH and preferring the real binary over mise
+command-wrapper links (#3751). Under `autonomous`,
 `bun install` still fails, since no package registry is an egress host.
 
 This note records two residuals the operator has **accepted** after the audit.

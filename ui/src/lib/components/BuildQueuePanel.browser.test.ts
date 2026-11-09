@@ -1220,6 +1220,28 @@ describe("BuildQueuePanel — phone form (#2264)", () => {
     });
   }
 
+  it("is a flat band with a bottom hairline; an approval keeps its amber top hairline", async () => {
+    const border = () => {
+      const cs = getComputedStyle(panel());
+      return [cs.borderTopWidth, cs.borderRightWidth, cs.borderBottomWidth, cs.borderLeftWidth];
+    };
+    const { rerender } = await render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: q("active", true),
+      sessionStatus: "running",
+      onbootstrap: noop,
+      phone: true,
+    });
+    await expect.poll(() => document.querySelector(".bqp")).not.toBeNull();
+    expect(border()).toEqual(["0px", "0px", "1px", "0px"]);
+    await rerender({ queue: q("pending", false), sessionStatus: "blocked" });
+    await expect.poll(() => panel().classList.contains("is-awaiting")).toBe(true);
+    expect(border()).toEqual(["1px", "0px", "1px", "0px"]);
+    await rerender({ phone: false, queue: q("active", true), sessionStatus: "running" });
+    await expect.poll(() => border()).toEqual(["1px", "1px", "1px", "1px"]);
+  });
+
   it("expands for an approval and docks a full-width 44px button below the steps", async () => {
     buildQueueCollapse.set(true);
     const { rerender } = await render(BuildQueuePanel, {

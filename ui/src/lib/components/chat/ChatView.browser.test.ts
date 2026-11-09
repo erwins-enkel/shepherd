@@ -140,6 +140,34 @@ describe("ChatView layout", () => {
     expect(width(".md-body table")).toBeGreaterThan(width(".md-body p"));
   });
 
+  it("fades the thread's top edge only once scrolled away from the top", async () => {
+    mockMessages.mockResolvedValue({
+      messages: Array.from({ length: 30 }, (_, i) => ({
+        role: "assistant" as const,
+        text: `line ${i}`,
+        ts: i,
+      })),
+      awaitingInput: false,
+      pendingQuestion: null,
+      unavailable: null,
+    });
+    const { container } = await render(ChatView, props({ status: "idle" }));
+    Object.assign(container.style, { height: "240px", display: "flex", flexDirection: "column" });
+    await expect.element(page.getByText("line 29")).toBeInTheDocument();
+    const thread = document.querySelector<HTMLElement>(".ac-thread")!;
+    const scrollTo = (top: number) => {
+      thread.scrollTop = top;
+      thread.dispatchEvent(new Event("scroll"));
+    };
+    scrollTo(0);
+    await expect.poll(() => thread.classList.contains("ac-faded")).toBe(false);
+    scrollTo(100);
+    await expect.poll(() => thread.classList.contains("ac-faded")).toBe(true);
+    expect(getComputedStyle(thread).maskImage).toContain("linear-gradient");
+    scrollTo(0);
+    await expect.poll(() => thread.classList.contains("ac-faded")).toBe(false);
+  });
+
   it("gives an assistant code block a copy button", async () => {
     mockMessages.mockResolvedValue({
       messages: [{ role: "assistant", text: "```\necho hi\n```", ts: 0 }],

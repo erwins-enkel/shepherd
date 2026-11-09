@@ -271,6 +271,7 @@ Shadows are permitted in exactly one situation: a summoned overlay. Bottom sheet
 - **Shepherd steers** are an uppercase label marker (`--fs-micro`, +0.08em) with a Cold Blue disclosure chevron (informational, not a status hue), still collapsible to the full steer text.
 - **Tool runs** lead with an uppercase count; the latest call stays mono, amber while live. A failed count is subordinate red text only.
 - Cards, notices and questions indent to the content column so the gutter stays a clean time rail.
+- **Scroll edge:** once scrolled off the top, the thread's top 28px fade to transparent (a mask, no colour) so text never hard-clips against the chrome above. At the top of the log there is no fade.
 
 ### Live Terminal (signature)
 

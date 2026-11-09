@@ -862,3 +862,9 @@ html.fixed-shell {
   overflow: hidden;
   overscroll-behavior: none;
 }
+/* overflow:hidden only drops the scrollbar: scrollIntoView and focus() still scroll a document
+   that something inside the shell stretches (an absolute descendant escaping a list's clip
+   moved the whole page down). Clipping at the body leaves the document exactly one shell. */
+html.fixed-shell body {
+  overflow: clip;
+}

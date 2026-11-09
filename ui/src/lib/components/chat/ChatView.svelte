@@ -801,6 +801,10 @@
     flex-direction: column;
   }
   .ac-thread {
+    /* The containing block for absolute content in the thread (MarkdownBody's sr-only copy
+       status), so it is clipped and scrolls with the thread instead of anchoring to an outer
+       positioned column and stretching the desktop page far below the shell. */
+    position: relative;
     flex: 1;
     min-height: 0;
     overflow-y: auto;

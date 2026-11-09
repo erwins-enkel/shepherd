@@ -311,8 +311,12 @@
   let stack: HTMLDivElement | undefined = $state();
   let scrollHeight = 0;
   let clientHeight = 0;
+  // Fade the thread's top edge once text scrolls under the chrome above it, so a clipped line
+  // never butts against that boundary. At the top there is nothing beneath, so no fade.
+  let scrolledFromTop = $state(false);
   function onscroll() {
     if (!thread) return;
+    scrolledFromTop = thread.scrollTop > 1;
     // Layout/scroll anchoring can emit a scroll before ResizeObserver follows the new end.
     // Only a scroll within the last measured geometry changes the operator's follow intent.
     if (thread.scrollHeight !== scrollHeight || thread.clientHeight !== clientHeight) return;
@@ -329,6 +333,7 @@
     if (!el || !content) return;
     const ro = new ResizeObserver(() => {
       if (stick) el.scrollTop = el.scrollHeight;
+      scrolledFromTop = el.scrollTop > 1;
       scrollHeight = el.scrollHeight;
       clientHeight = el.clientHeight;
     });
@@ -626,7 +631,14 @@
   }}
   {ondrop}
 >
-  <div class="ac-thread" bind:this={thread} {onscroll} role="log" aria-label={copy.log()}>
+  <div
+    class="ac-thread"
+    class:ac-faded={scrolledFromTop}
+    bind:this={thread}
+    {onscroll}
+    role="log"
+    aria-label={copy.log()}
+  >
     <div class="ac-stack" class:ac-narrow={mobile} bind:this={stack}>
       {#if rows.length === 0 && waiting.length === 0 && !working && !ask}
         <p class="ac-empty">{copy.empty()}</p>
@@ -795,6 +807,11 @@
     display: flex;
     flex-direction: column;
     padding: 16px 18px;
+  }
+  /* Scroll-edge fade: #000/transparent are mask alpha, not theme colors. */
+  .ac-thread.ac-faded {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+    mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
   }
   /* Pinned to the composer, like a chat, without clipping a long conversation. A ledger: each row
      is a time gutter plus a content column held to a reading measure. */

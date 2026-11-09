@@ -1219,6 +1219,16 @@
      273px of chrome surround the panel on a 390×844 phone, so the default is a
      two-line bar (state line + the step being worked on), the action docks full
      width at the bottom, and step editing is a separate mode with 44px targets. */
+  /* A flat band, not a box: the outlined card read as sitting on the chat text below.
+     The bottom hairline is the seam; an actionable queue keeps its amber top hairline. */
+  .bqp.phone {
+    border-width: 0 0 1px;
+  }
+
+  .bqp.phone.is-awaiting {
+    border-top-width: 1px;
+  }
+
   .bqp.phone .bqp-banner {
     padding: 6px 10px;
   }

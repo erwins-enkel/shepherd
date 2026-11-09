@@ -58,7 +58,37 @@ describe("HerdDoneList bring-back context menu", () => {
     expect(document.querySelector(".card-menu")).toBeNull();
   });
 
-  it("leaves the native context menu alone without onbringback", async () => {
+  it("offers Ask the assistant, which asks about the row's desig and closes the menu", async () => {
+    const onaskassistant = vi.fn();
+    render(HerdDoneList, { props: props({ onaskassistant }) });
+
+    const e = new MouseEvent("contextmenu", {
+      clientX: 40,
+      clientY: 40,
+      bubbles: true,
+      cancelable: true,
+    });
+    row("b").dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(true);
+    expect(page.getByRole("menuitem", { name: m.donerecap_bringback() }).query()).toBeNull();
+    await page.getByRole("menuitem", { name: m.operator_assistant_ask() }).click();
+
+    expect(onaskassistant).toHaveBeenCalledExactlyOnceWith("TASK-b");
+    expect(document.querySelector(".card-menu")).toBeNull();
+  });
+
+  it("shows Bring back and Ask the assistant together when both are wired", async () => {
+    render(HerdDoneList, { props: props({ onbringback: vi.fn(), onaskassistant: vi.fn() }) });
+    row("a").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await expect
+      .element(page.getByRole("menuitem", { name: m.donerecap_bringback() }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.operator_assistant_ask() }))
+      .toBeInTheDocument();
+  });
+
+  it("leaves the native context menu alone without onbringback or onaskassistant", async () => {
     render(HerdDoneList, { props: props() });
     const e = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
     row("a").dispatchEvent(e);

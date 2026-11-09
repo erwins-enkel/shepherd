@@ -1965,6 +1965,9 @@
   function askAboutSession(desig: string) {
     askAssistant(m.operator_assistant_ask_session({ desig }));
   }
+  function askAboutDoneSession(desig: string) {
+    askAssistant(m.operator_assistant_ask_done_session({ desig }));
+  }
   function askFromSettings(question: string) {
     showSettings = false;
     askAssistant(question);
@@ -4036,6 +4039,7 @@
               mobileScreen = "detail";
             }}
             onbringback={onBringBack}
+            ondoneaskassistant={askAboutDoneSession}
             onackmigrationsepic={onAckEpicMigrations}
             onackmanualsteps={onAckManualSteps}
             onshowowed={onShowOwed}
@@ -4105,7 +4109,11 @@
           {#if doneSelected}
             <LazyMount load={loadDoneRecapPanel}>
               {#snippet children(DoneRecapPanel)}
-                <DoneRecapPanel session={doneSelected} onbringback={(id) => onBringBack(id)} />
+                <DoneRecapPanel
+                  session={doneSelected}
+                  onbringback={(id) => onBringBack(id)}
+                  onaskassistant={askAboutDoneSession}
+                />
               {/snippet}
             </LazyMount>
           {:else}
@@ -4262,6 +4270,7 @@
               {doneSelectedId}
               ondoneselect={(id) => (doneSelectedId = id)}
               onbringback={onBringBack}
+              ondoneaskassistant={askAboutDoneSession}
               onackmigrationsepic={onAckEpicMigrations}
               onackmanualsteps={onAckManualSteps}
               onshowowed={onShowOwed}
@@ -4324,7 +4333,11 @@
             {#if doneSelected}
               <LazyMount load={loadDoneRecapPanel}>
                 {#snippet children(DoneRecapPanel)}
-                  <DoneRecapPanel session={doneSelected} onbringback={(id) => onBringBack(id)} />
+                  <DoneRecapPanel
+                    session={doneSelected}
+                    onbringback={(id) => onBringBack(id)}
+                    onaskassistant={askAboutDoneSession}
+                  />
                 {/snippet}
               </LazyMount>
             {:else}

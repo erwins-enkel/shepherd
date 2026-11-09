@@ -73,6 +73,7 @@ export function laneTotals(lanes: readonly SlotLane[]): ChipModel {
     held: live.reduce((n, l) => n + l.snapshot.holders.length, 0),
     capacity: live.reduce((n, l) => n + l.snapshot.capacity, 0),
     waiting: live.reduce((n, l) => n + l.snapshot.waiters.length, 0),
+    free: live.reduce((n, l) => n + chipModel(l.snapshot).free, 0),
     ramPct: null,
     braking: live.some((l) => l.snapshot.brake.active),
   };
@@ -116,18 +117,148 @@ export function ramUsedPct(s: HeavySlotSnapshot): number | null {
   return Math.round(((total - free) / total) * 100);
 }
 
-/** Memory-PSI position as 0..1 of the scale ending at twice the brake threshold, plus the
- *  threshold's own position (always 0.5), for the popover's limit marker. */
-export function memPressureBar(s: HeavySlotSnapshot): { fill: number; limit: number } | null {
+/** A bar cut at the brake line, as fractions of its whole scale that sum to 1: used up to the line,
+ *  used past it, still free before it, and the brake zone beyond. */
+export interface Zones {
+  used: number;
+  over: number;
+  free: number;
+  reserve: number;
+}
+
+const unit = (x: number) => Math.min(1, Math.max(0, x));
+
+/** The zones of a bar filled to `used` with its brake line at `limit`, both 0..1 of the scale. */
+export function zones(used: number, limit: number): Zones {
+  const u = unit(used);
+  const b = unit(limit);
+  return {
+    used: Math.min(u, b),
+    over: Math.max(0, u - b),
+    free: Math.max(0, b - u),
+    reserve: 1 - Math.max(u, b),
+  };
+}
+
+export interface RamGauge {
+  zones: Zones;
+  freeBytes: number;
+  usedBytes: number;
+  totalBytes: number;
+  /** The brake engages below this much free RAM; null from an older server (no brake zone). */
+  minBytes: number | null;
+  /** Free before the brake engages: green on the bar. Null without `minBytes`. */
+  usableBytes: number | null;
+  /** Free RAM is below `minBytes`: this is what holds the brake. */
+  short: boolean;
+}
+
+/** RAM as used | free before the brake | brake zone, or null when the host didn't report it. */
+export function ramGauge(s: HeavySlotSnapshot): RamGauge | null {
+  const { ramAvailableBytes: free, ramTotalBytes: total } = s.pressure;
+  const min = s.pressure.ramMinAvailableBytes ?? null;
+  if (free == null || total == null || total <= 0) return null;
+  const used = Math.max(0, total - free);
+  return {
+    zones: zones(used / total, min == null ? 1 : (total - min) / total),
+    freeBytes: free,
+    usedBytes: used,
+    totalBytes: total,
+    minBytes: min,
+    usableBytes: min == null ? null : Math.max(0, free - min),
+    short: min != null && free < min,
+  };
+}
+
+/** The pressure bar's scale runs half again past the brake limit, so the brake zone stays a third. */
+const PSI_SCALE = 1.5;
+
+export interface PsiGauge {
+  zones: Zones;
+  /** Memory PSI `full` avg10, percent. */
+  value: number;
+  limit: number;
+  over: boolean;
+}
+
+/** Memory pressure against its brake limit, or null when either is unknown (macOS has no PSI). */
+export function psiGauge(s: HeavySlotSnapshot): PsiGauge | null {
   const { memFullAvg10: v, memBrakeThreshold: t } = s.pressure;
   if (v == null || t == null || t <= 0) return null;
-  return { fill: Math.min(1, v / (t * 2)), limit: 0.5 };
+  return { zones: zones(v / (t * PSI_SCALE), 1 / PSI_SCALE), value: v, limit: t, over: v > t };
+}
+
+export type SlotCell =
+  | { kind: "held"; holder: HeavySlotSnapshot["holders"][number] }
+  | { kind: "free" | "blocked"; n: number };
+
+/** Every slot in order: the held ones, then the free ones — blocked while the brake holds. */
+export function slotCells(s: HeavySlotSnapshot): SlotCell[] {
+  const held: SlotCell[] = s.holders.map((holder) => ({ kind: "held", holder }));
+  const kind: "free" | "blocked" = s.brake.active ? "blocked" : "free";
+  const free = Math.max(0, s.capacity - held.length);
+  return [...held, ...Array.from({ length: free }, (_, i) => ({ kind, n: held.length + i + 1 }))];
+}
+
+/** Above this many slots the chip counts them instead of drawing one pip each. */
+const PIPS_MAX = 8;
+
+/** One pip kind per slot, or null past `PIPS_MAX` (then the slots are counted instead). */
+export function pipKinds(s: HeavySlotSnapshot): SlotCell["kind"][] | null {
+  return s.capacity > PIPS_MAX ? null : slotCells(s).map((c) => c.kind);
+}
+
+/** Can a heavy check start here now: free, every slot taken, or the brake holds new starts back —
+ *  for a limit that is over (`ram` / `pressure`), or `hold` while calm readings run out their
+ *  hold (`leftMs` of `holdMs`). `cause` is null from an older server that doesn't say. */
+export type SlotStatus =
+  | { kind: "free"; free: number }
+  | { kind: "full"; waiting: number }
+  | {
+      kind: "brake";
+      cause: "ram" | "pressure" | "hold" | null;
+      leftMs: number | null;
+      holdMs: number | null;
+    };
+
+export function slotStatus(s: HeavySlotSnapshot, nowMs: number): SlotStatus {
+  const b = s.brake;
+  if (b.active) {
+    const releaseAt = b.releaseAt ?? null;
+    if (releaseAt != null)
+      return {
+        kind: "brake",
+        cause: "hold",
+        leftMs: Math.max(0, releaseAt - nowMs),
+        holdMs: b.releaseHoldMs ?? null,
+      };
+    const cause =
+      b.cause === "memory_available" ? "ram" : b.cause === "memory_pressure" ? "pressure" : null;
+    return { kind: "brake", cause, leftMs: null, holdMs: null };
+  }
+  const free = Math.max(0, s.capacity - s.holders.length);
+  return free > 0 ? { kind: "free", free } : { kind: "full", waiting: s.waiters.length };
+}
+
+/** Whole seconds left on a countdown, never below zero. */
+export function secondsLeft(ms: number): number {
+  return Math.max(0, Math.ceil(ms / 1000));
+}
+
+/** The status in a few words for the chip: "2 free", "full", "blocked · 18 s". */
+export function statusShort(st: SlotStatus): string {
+  if (st.kind === "free") return m.heavyslot_free({ n: st.free });
+  if (st.kind === "full") return m.heavyslot_full();
+  if (st.leftMs == null) return m.heavyslot_blocked();
+  return `${m.heavyslot_blocked()} · ${m.heavyslot_seconds({ n: secondsLeft(st.leftMs) })}`;
 }
 
 export interface ChipModel {
   held: number;
   capacity: number;
   waiting: number;
+  /** Slots nobody holds, whether or not the brake lets them be used. */
+  free: number;
   ramPct: number | null;
   braking: boolean;
 }
@@ -137,6 +268,7 @@ export function chipModel(s: HeavySlotSnapshot): ChipModel {
     held: s.holders.length,
     capacity: s.capacity,
     waiting: s.waiters.length,
+    free: Math.max(0, s.capacity - s.holders.length),
     ramPct: ramUsedPct(s),
     braking: s.brake.active,
   };

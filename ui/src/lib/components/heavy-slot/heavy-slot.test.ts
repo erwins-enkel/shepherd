@@ -8,8 +8,14 @@ import {
   formatBytes,
   formatRuntime,
   holderState,
-  memPressureBar,
   orderedWaiters,
+  pipKinds,
+  psiGauge,
+  ramGauge,
+  slotCells,
+  slotStatus,
+  statusShort,
+  zones,
   popoverLeft,
   recentResults,
   slotActive,
@@ -104,7 +110,7 @@ describe("heavy-slot logic", () => {
         ],
       }),
     );
-    expect(c).toEqual({ held: 1, capacity: 1, waiting: 2, ramPct: 93, braking: false });
+    expect(c).toEqual({ held: 1, capacity: 1, waiting: 2, free: 0, ramPct: 93, braking: false });
   });
 
   it("tolerates missing pressure values", () => {
@@ -112,11 +118,106 @@ describe("heavy-slot logic", () => {
     s.pressure.ramTotalBytes = null;
     s.pressure.memFullAvg10 = null;
     expect(chipModel(s).ramPct).toBeNull();
-    expect(memPressureBar(s)).toBeNull();
+    expect(ramGauge(s)).toBeNull();
+    expect(psiGauge(s)).toBeNull();
   });
 
-  it("places the brake limit at half the pressure scale", () => {
-    expect(memPressureBar(snap())).toEqual({ fill: 0.25, limit: 0.5 });
+  it("cuts a bar at the brake line into used, used past it, still free and brake zone", () => {
+    expect(zones(0.25, 0.75)).toEqual({ used: 0.25, over: 0, free: 0.5, reserve: 0.25 });
+    const past = zones(0.9, 0.75);
+    expect(past).toMatchObject({ used: 0.75, free: 0 });
+    expect(past.over).toBeCloseTo(0.15);
+    expect(past.reserve).toBeCloseTo(0.1);
+  });
+
+  const ram = (availableGiB: number, minGiB?: number) =>
+    snap({
+      pressure: {
+        ...snap().pressure,
+        ramAvailableBytes: availableGiB * GIB,
+        ramMinAvailableBytes: minGiB == null ? undefined : minGiB * GIB,
+      },
+    });
+
+  it("shows RAM still free before the brake, and the brake zone past it", () => {
+    const r = ramGauge(ram(10, 4))!;
+    expect(r).toMatchObject({ freeBytes: 10 * GIB, usableBytes: 6 * GIB, short: false });
+    expect(r.zones.used).toBeCloseTo(20 / 30);
+    expect(r.zones.free).toBeCloseTo(6 / 30);
+    expect(r.zones.reserve).toBeCloseTo(4 / 30);
+    expect(r.zones.over).toBe(0);
+  });
+
+  it("reads RAM under the limit as reaching into the brake zone", () => {
+    const r = ramGauge(ram(3, 4))!;
+    expect(r).toMatchObject({ usableBytes: 0, short: true });
+    expect(r.zones.over).toBeCloseTo(1 / 30);
+    expect(r.zones.reserve).toBeCloseTo(3 / 30);
+    expect(r.zones.free).toBe(0);
+  });
+
+  it("draws no brake zone for RAM when an older server doesn't name the limit", () => {
+    const r = ramGauge(ram(2))!;
+    expect(r).toMatchObject({ minBytes: null, usableBytes: null, short: false });
+    expect(r.zones).toMatchObject({ over: 0, reserve: 0 });
+    expect(r.zones.free).toBeCloseTo(2 / 30);
+  });
+
+  it("runs the pressure scale half again past its limit", () => {
+    const g = psiGauge(snap())!;
+    expect(g).toMatchObject({ value: 10, limit: 20, over: false });
+    expect(g.zones.used).toBeCloseTo(1 / 3);
+    expect(g.zones.free).toBeCloseTo(1 / 3);
+    expect(g.zones.reserve).toBeCloseTo(1 / 3);
+    const hot = snap({ pressure: { ...snap().pressure, memFullAvg10: 25 } });
+    expect(psiGauge(hot)?.over).toBe(true);
+  });
+
+  const holder = { sessionId: "a", command: "vitest", startedAt: 0, rssBytes: null };
+  const brakeOn = { active: true, reason: "memory" } as const;
+
+  it("lists held slots first, then the free ones, blocked while the brake holds", () => {
+    const cells = slotCells(snap({ capacity: 3, holders: [holder] }));
+    expect(cells.map((c) => c.kind)).toEqual(["held", "free", "free"]);
+    expect(cells.slice(1)).toEqual([
+      { kind: "free", n: 2 },
+      { kind: "free", n: 3 },
+    ]);
+    const braked = snap({ capacity: 3, holders: [holder], brake: brakeOn });
+    expect(pipKinds(braked)).toEqual(["held", "blocked", "blocked"]);
+    expect(pipKinds(snap({ capacity: 9 }))).toBeNull();
+  });
+
+  it("says whether a check can start, and why and how long the brake holds", () => {
+    expect(slotStatus(snap({ capacity: 2 }), 0)).toEqual({ kind: "free", free: 2 });
+    const waiting = [{ sessionId: "b", position: 1, reason: "slot" as const }];
+    expect(slotStatus(snap({ holders: [holder], waiters: waiting }), 0)).toEqual({
+      kind: "full",
+      waiting: 1,
+    });
+    const brake = (b: Partial<HeavySlotSnapshot["brake"]>) =>
+      slotStatus(snap({ brake: { ...brakeOn, ...b } }), 1_000);
+    expect(brake({ cause: "memory_available" })).toMatchObject({ cause: "ram", leftMs: null });
+    expect(brake({ cause: "memory_pressure" })).toMatchObject({ cause: "pressure" });
+    expect(brake({})).toMatchObject({ kind: "brake", cause: null });
+    expect(brake({ cause: "memory_available", releaseAt: 18_500, releaseHoldMs: 30_000 })).toEqual({
+      kind: "brake",
+      cause: "hold",
+      leftMs: 17_500,
+      holdMs: 30_000,
+    });
+    expect(brake({ releaseAt: 500 })).toMatchObject({ leftMs: 0 });
+  });
+
+  it("puts the status in a few words for the chip", () => {
+    expect(statusShort({ kind: "free", free: 2 })).toBe("2 free");
+    expect(statusShort({ kind: "full", waiting: 0 })).toBe("full");
+    expect(statusShort({ kind: "brake", cause: "ram", leftMs: null, holdMs: null })).toBe(
+      "blocked",
+    );
+    expect(statusShort({ kind: "brake", cause: "hold", leftMs: 17_500, holdMs: 30_000 })).toBe(
+      "blocked · 18 s",
+    );
   });
 
   it("formats runtime and bytes", () => {
@@ -330,6 +431,7 @@ describe("laneTotals", () => {
       held: 2,
       capacity: 4,
       waiting: 10,
+      free: 2,
       ramPct: null,
       braking: true,
     });

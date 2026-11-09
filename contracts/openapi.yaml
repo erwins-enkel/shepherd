@@ -2736,6 +2736,19 @@ components:
           properties:
             active: { type: boolean }
             reason: { type: string, enum: [memory, null], nullable: true }
+            cause:
+              type: string
+              enum: [memory_available, memory_pressure, null]
+              nullable: true
+              description: The limit that engaged the brake (the latest over-limit reading); null while off. Absent from older servers.
+            releaseAt:
+              type: integer
+              nullable: true
+              description: Readings are back under both limits; the brake lets go at this time (epoch ms) if they stay there. Null while off or while a reading is over a limit. Absent from older servers.
+            releaseHoldMs:
+              type: integer
+              nullable: true
+              description: How long readings must stay under the limits before the brake lets go. Absent from older servers.
         pressure:
           type: object
           required:
@@ -2751,6 +2764,10 @@ components:
           properties:
             ramAvailableBytes: { type: integer, nullable: true }
             ramTotalBytes: { type: integer, nullable: true }
+            ramMinAvailableBytes:
+              type: integer
+              nullable: true
+              description: The brake engages when ramAvailableBytes drops below this. Absent from older servers.
             swapUsedBytes: { type: integer, nullable: true }
             swapTotalBytes: { type: integer, nullable: true }
             memFullAvg10: { type: number, nullable: true }

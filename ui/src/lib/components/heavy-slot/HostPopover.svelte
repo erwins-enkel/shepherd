@@ -5,7 +5,16 @@
   import { dialog } from "#lib/a11yDialog.js";
   import { swipeBack } from "../swipe-back";
   import SlotSections from "./SlotSections.svelte";
-  import { chipModel, formatReadAt, hasMachineLanes, slotLanes } from "./heavy-slot";
+  import SlotPips from "./SlotPips.svelte";
+  import {
+    chipModel,
+    formatBytes,
+    formatReadAt,
+    hasMachineLanes,
+    pipKinds,
+    ramGauge,
+    slotLanes,
+  } from "./heavy-slot";
 
   let {
     heavySlot = null,
@@ -54,6 +63,8 @@
   {#if byMachine}
     {#each lanes as lane (lane.instanceId ?? "own")}
       {@const c = chipModel(lane.snapshot)}
+      {@const kinds = pipKinds(lane.snapshot)}
+      {@const ram = ramGauge(lane.snapshot)}
       {@const machine = lane.name ?? m.herd_machine_this()}
       <section class="hp-machine" aria-label={machine}>
         <div class="hp-lane">
@@ -64,10 +75,15 @@
               >{m.heavyslot_lane_offline({ time: formatReadAt(lane.readAt) })}</span
             >
           {:else}
-            <span class="hp-lane-count"
-              >■ {c.held}/{c.capacity} · ◔ {c.waiting}{#if c.ramPct != null}
-                · {m.heavyslot_ram({ pct: c.ramPct })}{/if}</span
-            >
+            <span class="hp-lane-count">
+              {#if kinds}<SlotPips {kinds} />{:else}■ {c.held}/{c.capacity}{/if}
+              <span>◔ {c.waiting}</span>
+              {#if ram}
+                <span class:hp-short={ram.short}
+                  >{m.heavyslot_ram_free({ bytes: formatBytes(ram.freeBytes) })}</span
+                >
+              {/if}
+            </span>
           {/if}
         </div>
         <SlotSections
@@ -201,9 +217,15 @@
     color: var(--color-ink-bright);
   }
   .hp-lane-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     margin-left: auto;
     font-family: var(--font-mono);
     color: var(--color-muted);
+  }
+  .hp-short {
+    color: var(--color-red);
   }
   .hp-off {
     margin-left: auto;

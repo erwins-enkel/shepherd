@@ -68,7 +68,8 @@ describe("HeavySlotChip", () => {
     render(HeavySlotChip, { heavySlot: snap(), sessions, nowMs: 134_000, onrelease: vi.fn() });
     const chip = page.getByRole("button", { name: /1 of 1 held, 2 waiting/i });
     await expect.element(chip).toBeVisible();
-    expect(chip.element().textContent).toContain("RAM 93 %");
+    expect(chip.element().textContent).toContain("full");
+    expect(chip.element().textContent).toContain("2.0 GiB free");
     await userEvent.click(chip);
     await expect.element(page.getByRole("dialog")).toBeVisible();
     await expect.element(page.getByText("holder-session")).toBeVisible();
@@ -160,6 +161,34 @@ describe("HeavySlotChip", () => {
     const { pop, box } = await openIn(600, 500);
     expect(pop.right).toBeLessThanOrEqual(box.right + 1);
     expect(pop.left).toBeGreaterThanOrEqual(box.left - 1);
+  });
+
+  it("shows free slots as green pips, and the brake's countdown while it holds on", async () => {
+    const props = { sessions, nowMs: 12_000, onrelease: vi.fn() };
+    render(HeavySlotChip, {
+      ...props,
+      heavySlot: snap({ capacity: 2, holders: [], waiters: [] }),
+    });
+    let chip = document.querySelector(".hs-chip")!;
+    expect(chip.querySelectorAll(".pip-free")).toHaveLength(2);
+    expect(chip.textContent).toContain("2 free");
+    document.body.innerHTML = "";
+    render(HeavySlotChip, {
+      ...props,
+      heavySlot: snap({
+        capacity: 2,
+        holders: [],
+        waiters: [],
+        brake: { active: true, reason: "memory", releaseAt: 30_000, releaseHoldMs: 30_000 },
+      }),
+    });
+    chip = document.querySelector(".hs-chip")!;
+    expect(chip.classList.contains("braking")).toBe(true);
+    expect(chip.querySelectorAll(".pip-blocked")).toHaveLength(2);
+    expect(chip.textContent).toContain("blocked · 18 s");
+    expect(chip.getAttribute("aria-label")).toBe(
+      "Check slot: blocked · 18 s; 0 of 2 held, 0 waiting. Open host details.",
+    );
   });
 
   it("asks before releasing and reports the session to onrelease", async () => {
@@ -259,6 +288,75 @@ describe("HeavySlotStrip", () => {
     document.body.innerHTML = "";
     render(HeavySlotStrip, { heavySlot: snap({ ...idle, startQueue }), sessions });
     await expect.element(page.getByText(/1 waiting starts follow one by one/)).toBeVisible();
+  });
+});
+
+describe("HostPopover — what is free", () => {
+  const props = (over: Partial<HeavySlotSnapshot>) => ({
+    heavySlot: snap({ capacity: 2, waiters: [], ...over }),
+    sessions,
+    nowMs: 12_000,
+    onrelease: vi.fn(),
+    onClose: vi.fn(),
+  });
+  const text = (sel: string) =>
+    [...document.querySelectorAll(sel)].map((n) => n.textContent?.replace(/\s+/g, " ").trim());
+
+  it("opens with a free status, a cell per slot and RAM cut at the brake line", async () => {
+    const pressure = {
+      ...snap().pressure,
+      ramAvailableBytes: 10 * GIB,
+      ramMinAvailableBytes: 4 * GIB,
+    };
+    render(HostPopover, props({ pressure }));
+    expect(document.querySelector(".hp-status")?.classList.contains("hp-status-free")).toBe(true);
+    await expect.element(page.getByText("Free: checks start right away")).toBeVisible();
+    expect(text(".hp-cell .hp-name")).toEqual(["holder-session", "Slot 2 free"]);
+    expect(text(".g-legend > span")).toEqual([
+      "used 20.0 GiB",
+      "usable 6.0 GiB",
+      "brake zone 4.0 GiB",
+    ]);
+    expect(document.querySelectorAll(".zb")).toHaveLength(2);
+  });
+
+  it("names the limit that holds the brake, and blocks the free slots", async () => {
+    const pressure = {
+      ...snap().pressure,
+      ramAvailableBytes: 3 * GIB,
+      ramMinAvailableBytes: 4 * GIB,
+    };
+    render(
+      HostPopover,
+      props({
+        holders: [],
+        pressure,
+        brake: { active: true, reason: "memory", cause: "memory_available" },
+      }),
+    );
+    await expect.element(page.getByText("New checks and starts held back")).toBeVisible();
+    await expect
+      .element(page.getByText("Only 3.0 GiB RAM free; the brake holds below 4.0 GiB."))
+      .toBeVisible();
+    expect(text(".hp-cell-blocked")).toEqual([
+      "Slot 1 free blocked · brake",
+      "Slot 2 free blocked · brake",
+    ]);
+    expect(document.querySelector(".zb .z-over")).not.toBeNull();
+    expect(document.body.textContent).toContain("1.0 GiB into the brake zone");
+  });
+
+  it("counts down while the brake holds on after readings calmed", async () => {
+    render(
+      HostPopover,
+      props({
+        holders: [],
+        brake: { active: true, reason: "memory", releaseAt: 30_000, releaseHoldMs: 30_000 },
+      }),
+    );
+    await expect.element(page.getByText("18 s left")).toBeVisible();
+    await expect.element(page.getByText("12 / 30 s calm")).toBeVisible();
+    await expect.element(page.getByText(/back under their limits/)).toBeVisible();
   });
 });
 
@@ -548,9 +646,10 @@ describe("HostPopover — last results", () => {
     render(HostPopover, props());
     const heads = [...document.querySelectorAll("h3")].map((h) => h.textContent);
     expect(heads).toEqual([
-      "Holding the slot",
+      "Slots",
       "Queue",
-      "Pressure",
+      "RAM",
+      "Memory pressure",
       "Memory by origin",
       "Last check results",
     ]);
@@ -685,7 +784,7 @@ describe("Check slots across connected machines", () => {
     });
     const chip = document.querySelector(".hs-chip");
     expect(chip?.classList.contains("idle")).toBe(true);
-    expect(chip?.textContent).toContain("■ 0/2");
+    expect(chip?.textContent).toContain("2 free");
     expect(document.querySelectorAll(".hs-seg")).toHaveLength(0);
   });
 

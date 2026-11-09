@@ -4,10 +4,11 @@ export const DISABLED_HEAVY_SLOT = {
   capacity: 0,
   holders: [],
   waiters: [],
-  brake: { active: false, reason: null },
+  brake: { active: false, reason: null, cause: null, releaseAt: null, releaseHoldMs: null },
   pressure: {
     ramAvailableBytes: null,
     ramTotalBytes: null,
+    ramMinAvailableBytes: null,
     swapUsedBytes: null,
     swapTotalBytes: null,
     memFullAvg10: null,

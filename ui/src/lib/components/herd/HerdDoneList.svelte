@@ -11,6 +11,7 @@
     doneSelectedId,
     ondoneselect,
     onbringback,
+    onaskassistant,
     nowMs,
   }: {
     doneList: Session[];
@@ -18,6 +19,8 @@
     ondoneselect?: (id: string) => void;
     // when provided, right-click / long-press on a row opens a menu with "Bring back"
     onbringback?: (id: string) => void;
+    // when provided, the same menu offers "Ask the assistant" about the row's desig
+    onaskassistant?: (desig: string) => void;
     nowMs: number;
   } = $props();
 
@@ -25,22 +28,34 @@
   // Row buttons by id: the long-press callback carries only coords, and the menu returns
   // focus to the row that opened it.
   const rowEls: Record<string, HTMLButtonElement | null> = {};
-  let menu = $state<{ id: string; x: number; y: number; opener?: HTMLElement } | null>(null);
+  let menu = $state<{
+    id: string;
+    desig: string;
+    x: number;
+    y: number;
+    opener?: HTMLElement;
+  } | null>(null);
+  const hasMenu = $derived(!!onbringback || !!onaskassistant);
   // Returns whether a menu opened, so the long-press knows to swallow the trailing tap.
-  function openMenuAt(id: string, x: number, y: number): boolean {
-    if (menu || !onbringback) return false;
-    menu = { id, x, y, opener: rowEls[id] ?? undefined };
+  function openMenuAt(s: Session, x: number, y: number): boolean {
+    if (menu || !hasMenu) return false;
+    menu = { id: s.id, desig: s.desig, x, y, opener: rowEls[s.id] ?? undefined };
     return true;
   }
-  function onContextMenu(e: MouseEvent, id: string) {
-    if (!onbringback) return; // nothing to offer → leave native menu
+  function onContextMenu(e: MouseEvent, s: Session) {
+    if (!hasMenu) return; // nothing to offer → leave native menu
     e.preventDefault();
-    openMenuAt(id, e.clientX, e.clientY);
+    openMenuAt(s, e.clientX, e.clientY);
   }
   function bringBackFromMenu() {
     const id = menu?.id;
     menu = null;
     if (id) onbringback?.(id);
+  }
+  function askAssistantFromMenu() {
+    const desig = menu?.desig;
+    menu = null;
+    if (desig) onaskassistant?.(desig);
   }
 
   // Done lens row chrome: a finished session's recap verdict drives a small chip.
@@ -76,8 +91,8 @@
       class:sel={ds.id === doneSelectedId}
       data-unit-id={ds.id}
       onclick={() => ondoneselect?.(ds.id)}
-      oncontextmenu={(e) => onContextMenu(e, ds.id)}
-      use:longPress={{ onTrigger: (x, y) => openMenuAt(ds.id, x, y) }}
+      oncontextmenu={(e) => onContextMenu(e, ds)}
+      use:longPress={{ onTrigger: (x, y) => openMenuAt(ds, x, y) }}
     >
       <div class="done-row-top">
         <span class="done-desig">{ds.desig}</span>
@@ -103,7 +118,8 @@
     y={menu.y}
     resumable={false}
     opener={menu.opener}
-    onbringback={bringBackFromMenu}
+    onbringback={onbringback ? bringBackFromMenu : undefined}
+    onaskassistant={onaskassistant ? askAssistantFromMenu : undefined}
     onclose={() => (menu = null)}
   />
 {/if}

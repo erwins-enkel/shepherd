@@ -324,6 +324,24 @@ describe("DoneRecapPanel bring-back button", () => {
   });
 });
 
+describe("DoneRecapPanel ask-the-assistant button", () => {
+  it("renders only with onaskassistant and asks about the session's desig in one click", async () => {
+    recaps.map = { aa1: recap({ sessionId: "aa1" }) };
+    const { rerender } = await render(DoneRecapPanel, { session: session({ id: "aa1" }) });
+    expect(
+      page.getByRole("button", { name: m.operator_assistant_ask() }).query(),
+      "no button without onaskassistant",
+    ).toBeNull();
+
+    const onaskassistant = vi.fn();
+    await rerender({ session: session({ id: "aa1" }), onaskassistant });
+    await page.getByRole("button", { name: m.operator_assistant_ask() }).click();
+    expect(onaskassistant).toHaveBeenCalledExactlyOnceWith("TASK-09");
+    // Bring back stays off without its own prop.
+    expect(page.getByRole("button", { name: m.donerecap_bringback() }).query()).toBeNull();
+  });
+});
+
 describe("DoneRecapPanel fail-closed", () => {
   it("technical failure shows actionable copy and closed redacted details", async () => {
     recaps.map = {

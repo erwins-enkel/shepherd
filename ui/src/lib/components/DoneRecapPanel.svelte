@@ -21,9 +21,12 @@
   let {
     session,
     onbringback,
+    onaskassistant,
   }: {
     session: Session;
     onbringback?: (id: string) => void;
+    // when provided, an "Ask the assistant" button opens the Operator Assistant about this desig
+    onaskassistant?: (desig: string) => void;
   } = $props();
 
   // Two-step arm → confirm for Bring back: mirroring CardMenu's relaunchArmed pattern.
@@ -164,11 +167,18 @@
     <span class="dr-desig">{session.desig}</span>
     <span class="dr-finished">{m.done_recap_finished({ ago: finishedAgo })}</span>
     <span class="dr-source">{archiveReasonLabel(session.archiveReason)}</span>
-    {#if onbringback}
+    {#if onbringback || onaskassistant}
       <div class="dr-actions">
-        <button type="button" class="gbtn" class:armed={bringBackArmed} onclick={onBringBackClick}
-          >{bringBackArmed ? m.donerecap_bringback_confirm() : m.donerecap_bringback()}</button
-        >
+        {#if onaskassistant}
+          <button type="button" class="gbtn" onclick={() => onaskassistant(session.desig)}
+            >{m.operator_assistant_ask()}</button
+          >
+        {/if}
+        {#if onbringback}
+          <button type="button" class="gbtn" class:armed={bringBackArmed} onclick={onBringBackClick}
+            >{bringBackArmed ? m.donerecap_bringback_confirm() : m.donerecap_bringback()}</button
+          >
+        {/if}
       </div>
     {/if}
     {#if session.issueNumber != null}
@@ -331,7 +341,7 @@
     gap: 6px;
   }
 
-  /* Bring-back button: canonical .gbtn recipe from the design system (token-only). */
+  /* Header actions (Ask the assistant, Bring back): canonical .gbtn recipe (token-only). */
   .gbtn {
     background: transparent;
     border: 1px solid var(--color-line);

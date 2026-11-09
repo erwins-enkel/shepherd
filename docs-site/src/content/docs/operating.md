@@ -819,6 +819,10 @@ until you ask.
   above the bottom bar; **Back** returns to where you were.
 - **Ask the assistant** in a herd row's right-click / long-press menu opens it with
   "What's going on with TASK-31, and is anything stuck?" typed into its prompt.
+- **Ask the assistant** on a finished session under **Done**, in its right-click /
+  long-press menu or in its recap, opens it with "Let's discuss TASK-31: what did it
+  deliver, does the result hold up, and is anything left open?" typed into its prompt. The
+  assistant reads that task's original prompt and recap.
 - **Ask the assistant** on a warning or error check under Settings → Diagnose does the
   same for that check.
 

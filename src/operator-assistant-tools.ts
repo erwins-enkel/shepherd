@@ -32,7 +32,7 @@ import { redactSecretText } from "./redact";
 import { resolveProfile } from "./sandbox";
 import { maskToDays, nextSlot } from "./schedules-core";
 import { defaultSandboxProfile } from "./sandbox-default";
-import type { HeldTask, HoldReason, PlanGate, Session } from "./types";
+import type { HeldTask, HoldReason, PlanGate, Recap, Session } from "./types";
 import { fenceUntrusted, randomFenceToken } from "./untrusted";
 import { SHEPHERD_VERSION } from "./version";
 
@@ -88,6 +88,8 @@ const MAX_SIGNALS = 20;
 const MAX_LIST = 20;
 const MAX_TEXT_CHARS = 500;
 const MAX_TITLE_CHARS = 120;
+const MAX_PROMPT_CHARS = 2000;
+const MAX_RECAP_CHARS = 4000;
 const LOG_TAIL_BYTES = 1024 * 1024;
 const LOG_DEFAULT_LINES = 80;
 const LOG_MAX_LINES = 400;
@@ -126,6 +128,12 @@ const UNAVAILABLE = fail(503, "operator diagnostics unavailable");
  *  only sessions the action tools may target (src/operator-assistant-actions.ts). */
 export function isHerdSession(s: Session): boolean {
   return s.status !== "archived" && !s.terminal && !isOperatorAssistant(s);
+}
+
+/** What `herd_status({desig})` may describe: a herd session, or a finished (archived) one the
+ *  operator wants to discuss. Read-only — the action tools stay on `isHerdSession`. */
+function isDescribableSession(s: Session): boolean {
+  return !s.terminal && !isOperatorAssistant(s);
 }
 
 // ── assistant scope ──────────────────────────────────────────────────────────
@@ -267,12 +275,30 @@ function prState(git: GitState | undefined, fence: Fence) {
   };
 }
 
+/** The session's recap — what a finished task delivered. Null when none was recorded. */
+function recapState(recap: Recap | null, fence: Fence) {
+  if (!recap) return null;
+  return {
+    state: recap.state,
+    verdict: recap.verdict,
+    headline: fence("recap headline", recap.headline, MAX_TITLE_CHARS),
+    body: fence("recap body", recap.body, MAX_RECAP_CHARS),
+    openItems: fence("recap open items", recap.openItems.join("\n")),
+    changedFiles: fence("changed files", recap.changedFiles.slice(0, MAX_LIST).join("\n")),
+    changedFileCount: recap.changedFiles.length,
+  };
+}
+
 function herdDetail(deps: DiagDeps, s: Session, holds: Record<string, HoldReason>) {
   const fence = makeFence();
   const gate = deps.store.getPlanGate(s.id);
   const row = herdRow(deps, s, holds, fence);
   return {
     ...row,
+    prompt: fence("task prompt", s.prompt, MAX_PROMPT_CHARS),
+    archivedAt: s.archivedAt == null ? null : iso(s.archivedAt),
+    archiveReason: s.archiveReason ?? null,
+    recap: recapState(deps.store.getRecap(s.id), fence),
     branch: s.branch,
     issueNumber: s.issueNumber,
     planGate: gate && {
@@ -301,7 +327,7 @@ export function applyHerdStatus(
   const holds = deps.operatorDiag?.holds?.snapshot() ?? {};
   if (typeof args.desig === "string") {
     const s = deps.store.getByDesig(args.desig);
-    if (!s || !isHerdSession(s)) return fail(404, `session "${args.desig}" not found`);
+    if (!s || !isDescribableSession(s)) return fail(404, `session "${args.desig}" not found`);
     if (!inScope(scope, s.repoPath))
       return fail(
         404,
@@ -781,9 +807,10 @@ const HERD_STATUS: McpTool = {
   description:
     "First stop for a stuck or stalled herd. Every live session: status, auto, plan phase, " +
     "plan-gate decision/round/open questions, hold reason and minutes since its last update; plus " +
-    "the held-task queue per repo (each task's heldId and first prompt line). With a desig: that " +
-    "session's plan-gate summary and questions (blockId, questionId, kind, indexed options), " +
-    "last 20 signals and PR/CI state." +
+    "the held-task queue per repo (each task's heldId and first prompt line). With a desig (also " +
+    "a finished, archived session): that session's prompt, recap (verdict, headline, body, open " +
+    "items, changed files), archivedAt, plan-gate summary and questions (blockId, questionId, " +
+    "kind, indexed options), last 20 signals and PR/CI state." +
     DIAG_READ_NOTE,
   inputSchema: {
     type: "object",

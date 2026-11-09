@@ -54,12 +54,7 @@ struct IOSComposeContent: View {
         self.app = app; self.store = store; self.activation = activation; self.fixtureCurrent = fixtureCurrent
         self.servers = servers; self.repoCatalogue = repoCatalogue; self.closeSheet = close; self.onCreated = onCreated; self.promptChanged = promptChanged
         let model = model ?? ComposeModel(client: store.client, defaults: app.composerDefaults,
-            runDefaults: ComposeRunConfig.defaults(from: store.settings),
-            initialProvider: store.settings.map { settings in
-                ComposeRunConfig.capacitySuggestedProvider(defaultProvider: settings.defaultAgentProvider,
-                    diagnostics: app.extension(BackendRecoveryModel.self)?.diagnostics,
-                    holdLikely: ComposeReadiness.holdLikely(limits: SessionSignals.usageLimits(for: app), settings: settings))
-            })
+            runDefaults: Self.runDefaults(app: app, settings: store.settings))
         if model.issueFilterSettings == nil { model.issueFilterSettings = app.extension(IssueFilterSettingsModel.self) }
         if !initialPrompt.isEmpty { model.prompt = initialPrompt }
         if !initialRepoPath.isEmpty { model.repoPath = initialRepoPath }
@@ -161,7 +156,7 @@ struct IOSComposeContent: View {
                 guard promptFocused, !voice.active, let trigger = ComposeModel.trigger(in: text, caret: text.endIndex) else { return }
                 if trigger.query.isEmpty { options = trigger.symbol == "#" ? .issues : .commands }
             }
-            .onChange(of: store.settings) { _, settings in model.runDefaults = ComposeRunConfig.defaults(from: settings) }
+            .onChange(of: store.settings) { _, settings in model.runDefaults = Self.runDefaults(app: app, settings: settings) }
             // Where the task will run (#2776): the preview follows the repo, the chips and the pick;
             // the requirements are read from the task a beat after the last edit.
             .task(id: model.placementKey) { if current { await model.refreshPlacement() } }
@@ -183,6 +178,18 @@ struct IOSComposeContent: View {
         guard !path.isEmpty, let config = try? await store.client.getRepoConfig(repo: path),
               !Task.isCancelled, model.repoPath == path else { return }
         model.applyRepoSandboxDefault(stored: config.sandboxProfile, globalDefault: config.sandboxDefaultProfile)
+        model.applyRepoProviderDefault(stored: config.agentProvider)
+    }
+    /// The global defaults, with the capacity-suggested CLI as the global one: like the web it stays a
+    /// default, so a repo's own CLI (#3449) still preselects over it.
+    static func runDefaults(app: AppModel, settings: ShepherdKit.Settings?) -> ComposeRunConfig.Defaults {
+        var defaults = ComposeRunConfig.defaults(from: settings)
+        if let settings {
+            defaults.provider = ComposeRunConfig.capacitySuggestedProvider(defaultProvider: settings.defaultAgentProvider,
+                diagnostics: app.extension(BackendRecoveryModel.self)?.diagnostics,
+                holdLikely: ComposeReadiness.holdLikely(limits: SessionSignals.usageLimits(for: app), settings: settings))
+        }
+        return defaults
     }
     private var formContent: some View {
                 VStack(alignment: .leading, spacing: 12) {
@@ -243,7 +250,7 @@ struct IOSComposeContent: View {
                 }.accessibilityIdentifier("compose.branch.open")
                     .accessibilityLabel(L.t("newtask_branch_label")).accessibilityValue(model.repoBranches.baseBranch)
                 Button { promptFocused = false; options = .engine } label: {
-                    Text(verbatim: "\(model.provider == .claude ? L.t("native_compose_engine_claude") : L.t("agent_provider_codex")) · \(L.t(model.planGateEnabled ? "native_compose_plan_on" : "native_compose_plan_off")) ▾").lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                    Text(verbatim: "\(model.provider == .claude ? L.t("native_compose_engine_claude") : L.t("agent_provider_codex"))\(model.showsRepoDefaultProvider ? " · " + L.t("newtask_agent_provider_repo_default") : "") · \(L.t(model.planGateEnabled ? "native_compose_plan_on" : "native_compose_plan_off")) ▾").lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                 }.accessibilityIdentifier("compose.engine.open")
             }.buttonStyle(ComposeControlStyle()).font(.system(.caption, design: .monospaced))
             modeBar

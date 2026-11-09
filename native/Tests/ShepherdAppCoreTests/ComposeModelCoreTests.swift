@@ -96,6 +96,52 @@ extension CoreSeamTests {
         #expect(model.effort == "high")
     }
 
+    @Test func preselectedProviderResolvesEpicThenRepoThenGlobal() {
+        #expect(ComposeRunConfig.preselectProvider(epic: nil, repo: nil, global: .claude) == .claude)
+        #expect(ComposeRunConfig.preselectProvider(epic: nil, repo: .codex, global: .claude) == .codex)
+        #expect(ComposeRunConfig.preselectProvider(epic: .claude, repo: .codex, global: .codex) == .claude)
+        #expect(ComposeRunConfig.repoPinnedProvider("inherit") == nil)
+        #expect(ComposeRunConfig.repoPinnedProvider(nil) == nil)
+        #expect(ComposeRunConfig.repoPinnedProvider("codex") == .codex)
+    }
+
+    @Test func repoCliPreselectsUntilPickedAndReseedsOnRepoSwitch() {
+        let model = Self.composer(runDefaults: .init(provider: .claude, claudeModel: "opus", codexModel: "gpt-6-astra", effort: "high"))
+        defer { model.teardown() }
+        model.repoPath = "/codex-repo"
+        model.applyRepoProviderDefault(stored: "codex")
+        #expect(model.provider == .codex)
+        #expect(model.model == "gpt-6-astra")
+        #expect(model.effort == "high")
+        #expect(model.showsRepoDefaultProvider)
+        model.repoPath = "/inherit-repo"
+        #expect(model.provider == .claude)
+        #expect(model.model == "opus")
+        model.applyRepoProviderDefault(stored: "inherit")
+        #expect(model.provider == .claude)
+        #expect(!model.showsRepoDefaultProvider)
+        model.repoPath = "/codex-repo"
+        model.applyRepoProviderDefault(stored: "codex")
+        model.selectProviderManually(.claude)
+        #expect(!model.showsRepoDefaultProvider)
+        model.repoPath = "/other-codex-repo"
+        model.applyRepoProviderDefault(stored: "codex")
+        #expect(model.provider == .claude)
+    }
+
+    @Test func epicCliWinsOverRepoCli() {
+        let model = Self.composer(runDefaults: .init(provider: .claude, codexModel: "gpt-6-astra"))
+        defer { model.teardown() }
+        model.epicProvider = .claude
+        model.repoPath = "/codex-repo"
+        model.applyRepoProviderDefault(stored: "codex")
+        #expect(model.provider == .claude)
+        #expect(!model.showsRepoDefaultProvider)
+        model.epicProvider = nil
+        #expect(model.provider == .codex)
+        #expect(model.model == "gpt-6-astra")
+    }
+
     @Test func replacementRefreshesAnAlreadyPopulatedStore() async throws {
         var original = PreviewData.session(id: "replace-existing")
         original.agentProvider = .claude

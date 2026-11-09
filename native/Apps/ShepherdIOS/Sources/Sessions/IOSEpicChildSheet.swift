@@ -98,6 +98,7 @@ private struct IOSEpicChildComposer: View {
             let value = ComposeModel(client: store.client, defaults: control.owner.composerDefaults,
                 runDefaults: ComposeRunConfig.defaults(from: store.settings))
             value.issueFilterSettings = control.owner.extension(IssueFilterSettingsModel.self)
+            value.epicProvider = control.digest?.epic.run.agentProvider
             value.repoPath = control.group.repoPath
             value.pickIssue(IOSEpicPolicy.issue(child))
             model = value

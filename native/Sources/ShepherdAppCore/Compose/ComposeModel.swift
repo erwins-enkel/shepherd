@@ -17,6 +17,7 @@ public final class ComposeModel {
             shaping.discard()
             repoGuardDefaults = nil
             repoSandboxDefault = nil
+            if repoDefaultProvider != nil { repoDefaultProvider = nil; reconcileRunDefaults() }
             repoBranches.selectRepo(repoPath)
             generation += 1
             listing = nil; issues = []; commandListings = [:]; commandErrors = [:]; epicParents = []; subIssues = []
@@ -40,6 +41,16 @@ public final class ComposeModel {
         normalizeRunConfig()
     } }
     public var runDefaults: ComposeRunConfig.Defaults { didSet { reconcileRunDefaults() } }
+    /// The running epic's CLI a child task starts on (#3449); wins over the repo's CLI.
+    public var epicProvider: AgentProvider? { didSet { if oldValue != epicProvider { reconcileRunDefaults() } } }
+    /// The repo's pinned CLI (#3449); nil while unloaded or when the repo inherits the global one.
+    public private(set) var repoDefaultProvider: AgentProvider?
+    /// The CLI an untouched compose preselects: epic → repo → global.
+    var preselectedProvider: AgentProvider {
+        ComposeRunConfig.preselectProvider(epic: epicProvider, repo: repoDefaultProvider, global: runDefaults.provider)
+    }
+    /// Whether the picker shows the repo's own CLI, marked "Repo default" as on the web.
+    public var showsRepoDefaultProvider: Bool { epicProvider == nil && repoDefaultProvider != nil && provider == repoDefaultProvider }
     @ObservationIgnored private var normalizingRunConfig = false
     private var providerTouched = false
     private var modelTouched = false
@@ -173,13 +184,22 @@ public final class ComposeModel {
     /// Bootstrap and reconnect may deliver defaults after the sheet is already visible.
     private func reconcileRunDefaults() {
         normalizingRunConfig = true
-        if !providerTouched { provider = providerConstraint?.provider ?? runDefaults.provider }
+        if !providerTouched { provider = providerConstraint?.provider ?? preselectedProvider }
         if !modelTouched {
             model = ComposeRunConfig.modelForManualProviderChange(provider, defaults: runDefaults)
         }
         if !effortTouched { effort = ComposeRunConfig.preselectEffort(runDefaults.effort) }
         normalizingRunConfig = false
         normalizeRunConfig()
+    }
+
+    /// Apply the loaded repo's stored `agentProvider` (#3449). An untouched compose re-derives CLI,
+    /// model and effort; a hand-picked CLI stays.
+    public func applyRepoProviderDefault(stored: String?) {
+        let pinned = ComposeRunConfig.repoPinnedProvider(stored)
+        guard pinned != repoDefaultProvider else { return }
+        repoDefaultProvider = pinned
+        reconcileRunDefaults()
     }
 
     func discardSubmittedDraft() {

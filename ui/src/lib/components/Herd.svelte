@@ -37,7 +37,8 @@
     GROUP_KEY_BY_STAGE,
     type HerdFilter,
   } from "./herd-partition";
-  import { groupSessionsByEpic } from "./epic-grouping";
+  import { groupSessionsByEpic, sessionlessEpicGroups } from "./epic-grouping";
+  import { sessionlessEpicWait } from "./epic-sessionless";
   import { groupSessionsByExperiment } from "./experiment-grouping";
   import { collectReadyPrs } from "./merge-train";
   import { displayStatus } from "#lib/display-status.js";
@@ -409,6 +410,29 @@
       nowMs,
     ),
   );
+  // #3814: a running or paused epic with no child session keeps an (empty) group, so the herd
+  // still shows it and why it waits. Only in the plain "all" view of this Shepherd's own
+  // sessions: the ready lens and the status filter pick sessions, which such a group has none
+  // of, and the epics are this Shepherd's own. Matched against every listed session
+  // (pre-experiment, shelved included) so an epic whose child renders anywhere never shows as
+  // session-less. They follow the member groups, so the default-open first group stays one
+  // with sessions. Rows: none — the keyboard rail (groupSessionsByEpic) is unaffected.
+  const showSessionless = $derived(
+    filter === "all" &&
+      statusFilter == null &&
+      (machineFilter === "all" || machineFilter === "local"),
+  );
+  const completedEpicKeys = $derived(
+    new Set(completedEpics.map((e) => `${e.repoPath}#${e.parentIssueNumber}`)),
+  );
+  const epicGroups = $derived([
+    ...grouped.groups,
+    ...(showSessionless
+      ? sessionlessEpicGroups(sessions, epics, activeEpicKeys, repoFilter, completedEpicKeys).map(
+          (g) => ({ ...g, wait: sessionlessEpicWait(g.epic, drain[g.epic.repoPath]) }),
+        )
+      : []),
+  ]);
   // Mirrored sessions skip epic/experiment grouping (both are this Shepherd's own) and join the
   // lifecycle groups by start time, with their machine's PR state — view-only (#3055).
   const joined = $derived(joinMirrored(grouped.rest, git, remoteShown));
@@ -445,7 +469,7 @@
   );
   let lastRenderedEpicGroupSig = "";
   $effect(() => {
-    const keys = grouped.groups.map((g) => g.key);
+    const keys = epicGroups.map((g) => g.key);
     const sig = keys.join("\u0000");
     if (sig === lastRenderedEpicGroupSig) return;
     lastRenderedEpicGroupSig = sig;
@@ -797,6 +821,18 @@
   });
 </script>
 
+{#snippet epicGroupList()}
+  <HerdEpicGroups
+    groups={epicGroups}
+    {collapsedKeys}
+    {cuesFor}
+    {onepic}
+    {oncollapsetoggle}
+    slotsFor={(repoPath) => drain[repoPath]?.max ?? null}
+    ctx={rowCtx}
+  />
+{/snippet}
+
 {#snippet integratedEpics()}
   <!-- this Shepherd's own epics: hidden while the machine bar narrows the herd to another machine -->
   {#if filter !== "done" && filter !== "owed" && (machineFilter === "all" || machineFilter === "local")}
@@ -891,7 +927,9 @@
       <!-- the status filter empties the list at PAGE level (herdSessions), so an
          empty status result lands HERE — it must outrank the repo note and the
          first-run EmptyHerd nudge, and name the active status so vanished
-         done/parked sessions read as intentional -->
+         done/parked sessions read as intentional. A session-less active epic (#3814) still
+         shows above it. -->
+      {@render epicGroupList()}
       <HerdEmptyState
         mode="sessions"
         {statusFilter}
@@ -902,6 +940,7 @@
         {onsettings}
       />
     {:else if shown.length + remoteShown.length + dispatchesShown.length === 0}
+      {@render epicGroupList()}
       <HerdEmptyState
         mode={machineFilterName ? "machine" : "shown"}
         machine={machineFilterName}
@@ -916,15 +955,7 @@
       {#each dispatchesShown as dispatch (dispatch.id)}
         <RemoteDispatchRow {dispatch} />
       {/each}
-      <HerdEpicGroups
-        groups={grouped.groups}
-        {collapsedKeys}
-        {cuesFor}
-        {onepic}
-        {oncollapsetoggle}
-        slotsFor={(repoPath) => drain[repoPath]?.max ?? null}
-        ctx={rowCtx}
-      />
+      {@render epicGroupList()}
       <HerdExperimentGroups groups={experimentGrouped.groups} {oncompare} ctx={rowCtx} />
       {#each partitionGroups as grp (grp.key)}
         <!-- flow: phone accordion (internal state). Desktop: independent per-group

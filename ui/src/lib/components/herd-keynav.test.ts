@@ -732,3 +732,16 @@ test("railOrder reaches mirrored sessions in their lifecycle sections, honouring
   );
   expect(where.get("rg")).toEqual({ kind: "stage", key: GROUP_KEY_BY_STAGE.awaitingMerge });
 });
+
+test("railOrder: an active epic without child sessions (#3814) adds no rows; the rest is unchanged", () => {
+  const epics = {
+    [epicKey("/r", 100)]: epic("/r", 100, [101]),
+    [epicKey("/r", 200)]: epic("/r", 200, [201]),
+  };
+  const g100 = session("g100", false, "running", 101);
+  const rest1 = session("rest1", false, "running", null);
+  // #200 is active but session-less; it renders as an empty header, which holds no row to visit
+  expect(
+    railOrder([rest1, g100], {}, noReview, 1000, "all", {}, epics, new Set(Object.keys(epics))),
+  ).toEqual(["g100", "rest1"]);
+});

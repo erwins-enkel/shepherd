@@ -11,6 +11,7 @@
     nowMs,
     slots = null,
     coachId = "",
+    sessionless = false,
     ontoggle,
     onepic,
   }: {
@@ -31,6 +32,9 @@
     slots?: number | null;
     /** The badge's coachmark anchor id ("" = none). */
     coachId?: string;
+    /** #3814: the epic runs (or is paused) with no child session here — a chip says so, also
+     *  while the group is collapsed. */
+    sessionless?: boolean;
     ontoggle: () => void;
     // an epic badge was clicked → open the backlog on this repo, scrolled to the epic
     onepic?: (repoPath: string, issueNumber: number) => void;
@@ -74,6 +78,13 @@
   />
 
   <span class="cues">
+    {#if sessionless}
+      <span
+        class="cue cue-no-agent"
+        title={m.epic_group_cue_no_agent_title()}
+        aria-label={m.epic_group_cue_no_agent_title()}>{m.epic_group_cue_no_agent()}</span
+      >
+    {/if}
     {#if cues.ciFailed > 0}
       <span
         class="cue cue-ci"
@@ -228,6 +239,10 @@
   .cue-needs-rework,
   .cue-branch-blocked {
     color: var(--color-amber);
+  }
+  /* No agent active (#3814) — muted: a fact about the run, not a call to act. */
+  .cue-no-agent {
+    color: var(--color-muted);
   }
   /* Needs you / blocked — the canonical blocked status token (--status-blocked). */
   .cue-blocked {

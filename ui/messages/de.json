@@ -8371,5 +8371,18 @@
   "topbar_gha_tip_forecast": "Prognose: bisheriger Verbrauch pro Tag, hochgerechnet bis zum Reset.",
   "topbar_gha_tip_source": "Quelle: GitHub-Billing-API, alle 10 Minuten neu abgefragt.",
   "feat_github_actions_usage_title": "GitHub-Actions-Minuten in der Auslastung",
-  "feat_github_actions_usage_body": "Die Auslastung zeigt jetzt das monatliche Actions-Kontingent deines persönlichen Kontos und aller Orgs – wie viel vom Inklusiv-Guthaben weg ist, was die Kosten treibt und wann CI vor dem Reset stoppen würde."
+  "feat_github_actions_usage_body": "Die Auslastung zeigt jetzt das monatliche Actions-Kontingent deines persönlichen Kontos und aller Orgs – wie viel vom Inklusiv-Guthaben weg ist, was die Kosten treibt und wann CI vor dem Reset stoppen würde.",
+  "epic_group_cue_no_agent": "kein Agent",
+  "epic_group_cue_no_agent_title": "Hier ist kein Agent dieses Epics aktiv",
+  "epic_sessionless_running": "Läuft · kein Agent hier aktiv",
+  "epic_sessionless_paused": "Pausiert · kein Agent hier aktiv",
+  "epic_sessionless_reason_paused": "Der Lauf ist pausiert — bis zur Fortsetzung startet keine Teilaufgabe.",
+  "epic_sessionless_claimed_unknown": "#{number} ist beansprucht, aber hier gibt es weder Session noch PR — Zuständigkeit unbekannt.",
+  "epic_sessionless_inflight_unknown": "#{number} gilt als in Arbeit, aber hier gibt es weder Session noch PR — Zuständigkeit unbekannt.",
+  "epic_sessionless_pr_open": "#{number}: PR #{pr} wartet auf den Merge.",
+  "epic_sessionless_elsewhere": "#{number} wird auf {machine} bearbeitet.",
+  "epic_sessionless_waits_on": "#{number} wartet auf {blockers}.",
+  "epic_sessionless_next": "#{number} startet als Nächstes.",
+  "epic_sessionless_unknown": "Warum nichts läuft, ist unbekannt — prüfe die Epic-Details.",
+  "epic_sessionless_open": "Epic-Details öffnen"
 }

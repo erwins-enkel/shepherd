@@ -55,8 +55,6 @@ export function groupSessionsByEpic(
     else members.set(epicKey, [s]);
   }
 
-  const basename = (p: string) => p.slice(p.lastIndexOf("/") + 1);
-
   const groups = [...members.entries()]
     .map(([key, memberSessions]) => ({
       key,
@@ -66,11 +64,50 @@ export function groupSessionsByEpic(
         partitionSessions(memberSessions, git, isReviewing, isReworkRunning, now),
       ),
     }))
-    .sort((a, b) => {
-      const byRepo = basename(a.epic.repoPath).localeCompare(basename(b.epic.repoPath));
-      if (byRepo !== 0) return byRepo;
-      return a.epic.parentIssueNumber - b.epic.parentIssueNumber;
-    });
+    .sort(byRepoThenParent);
 
   return { groups, rest };
+}
+
+const basename = (p: string) => p.slice(p.lastIndexOf("/") + 1);
+
+/** Group order: repo basename, then `parentIssueNumber`. */
+function byRepoThenParent(a: { epic: Epic }, b: { epic: Epic }): number {
+  const byRepo = basename(a.epic.repoPath).localeCompare(basename(b.epic.repoPath));
+  if (byRepo !== 0) return byRepo;
+  return a.epic.parentIssueNumber - b.epic.parentIssueNumber;
+}
+
+/** #3814: the active epics that have NO child session, as empty groups — so a running or paused
+ *  epic stays visible in the herd while nothing works on it. `groupSessionsByEpic` only forms
+ *  groups from members and stays the rail's source; these groups add no rows.
+ *
+ *  An epic qualifies when its key is in `activeEpicKeys`, its record is loaded, its run is
+ *  running or paused, it is not all-merged, it is not in `completedKeys` (the integrated band
+ *  shows it), its repo passes `repoFilter` (empty = all), and no session in `sessions` is one of
+ *  its children (same `repoPath`, `issueNumber` = a child number). Pass every local session the
+ *  view lists — shelved and experiment members included — so an epic whose child renders
+ *  elsewhere in the list never also shows as session-less. Sorted like `groupSessionsByEpic`. */
+export function sessionlessEpicGroups(
+  sessions: readonly Session[],
+  epics: Record<string, Epic>,
+  activeEpicKeys: ReadonlySet<string>,
+  repoFilter: ReadonlySet<string>,
+  completedKeys: ReadonlySet<string>,
+): Array<{ key: string; epic: Epic; sessions: Session[] }> {
+  const withSession = new Set(
+    sessions.flatMap((s) => (s.issueNumber == null ? [] : [`${s.repoPath}#${s.issueNumber}`])),
+  );
+  const groups: Array<{ key: string; epic: Epic; sessions: Session[] }> = [];
+  for (const key of activeEpicKeys) {
+    const epic = epics[key];
+    if (!epic || completedKeys.has(key)) continue;
+    if (epic.run.status !== "running" && epic.run.status !== "paused") continue;
+    if (repoFilter.size > 0 && !repoFilter.has(epic.repoPath)) continue;
+    const { children } = epic;
+    if (children.length > 0 && children.every((c) => c.state === "merged")) continue;
+    if (children.some((c) => withSession.has(`${epic.repoPath}#${c.number}`))) continue;
+    groups.push({ key, epic, sessions: [] });
+  }
+  return groups.sort(byRepoThenParent);
 }

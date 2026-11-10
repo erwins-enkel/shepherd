@@ -113,10 +113,11 @@ export class ReadyNotifier {
 
       const now = this.now();
       // The Operator Assistant is watched in its panel; it is never "ready for you" (#1446).
+      // A clean terminal is a bare shell — idle from creation, it has no turn to announce.
       // Shelved sessions are out of play until unshelved.
       const sessions = this.deps
         .listSessions()
-        .filter((s) => !isOperatorAssistant(s) && s.shelved !== true);
+        .filter((s) => !isOperatorAssistant(s) && s.terminal !== true && s.shelved !== true);
       const flags: DisplayFlags = {
         wb: this.deps.workingBlocked(),
         bg: this.deps.backgroundBusy(),

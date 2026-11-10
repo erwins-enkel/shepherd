@@ -13,12 +13,14 @@ import { instanceId } from "./remote-instances/identity";
 import type { Session } from "./types";
 
 /** Sessions parked for the operator's next command or blocked on their reaction. Shelved
- *  sessions are out of play and never count. */
+ *  sessions are out of play and never count, and neither does a clean terminal: a bare shell
+ *  sits idle from creation without waiting on anyone. */
 export function awaitingOperatorCount(
-  sessions: readonly Pick<Session, "status" | "shelved">[],
+  sessions: readonly Pick<Session, "status" | "shelved" | "terminal">[],
 ): number {
-  return sessions.filter((s) => !isShelved(s) && (s.status === "blocked" || s.status === "idle"))
-    .length;
+  return sessions.filter(
+    (s) => !isShelved(s) && s.terminal !== true && (s.status === "blocked" || s.status === "idle"),
+  ).length;
 }
 
 export interface PushPayload {

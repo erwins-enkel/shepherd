@@ -552,6 +552,17 @@ test('"ready" filter is unaffected by research flag (regression)', () => {
   expect(shown.map((s) => s.id)).toEqual(["r1", "n1"]);
 });
 
+test('"ready" filter always keeps a clean terminal, whatever status it reports', () => {
+  const list = [
+    { ...session("t-run"), terminal: true }, // a machine on an older build still says running
+    { ...session("t-idle", false, "idle"), terminal: true },
+    session("run"), // a running agent → dropped
+  ];
+  const shown = shownSessions(list, "ready", () => false);
+  expect(shown.map((s) => s.id)).toEqual(["t-run", "t-idle"]);
+  expect(shownMirrored(list, "ready", () => false).map((s) => s.id)).toEqual(["t-run", "t-idle"]);
+});
+
 test('"ready" filter drops a working-while-blocked session like a running one', () => {
   const list = [
     session("run"), // running → dropped

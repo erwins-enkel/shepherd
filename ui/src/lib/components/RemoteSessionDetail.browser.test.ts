@@ -646,6 +646,19 @@ describe("RemoteSessionDetail chat", () => {
     await expect.element(composer()).toBeVisible();
   });
 
+  it("a clean terminal has no Chat and opens on the terminal, even on the phone", async () => {
+    sessionStartTab.set("chat");
+    render(RemoteSessionDetail, {
+      session: remote({ terminal: true, status: "idle" }),
+      nowMs: Date.now(),
+      compact: true,
+    });
+    await expect.element(tab(m.viewport_terminal_tab())).toHaveAttribute("aria-selected", "true");
+    expect(tab(m.viewport_chat_tab()).query()).toBeNull();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(api.getSessionMessages).not.toHaveBeenCalled();
+  });
+
   it("takes the start tab when a session opens; a later change moves only the next one", async () => {
     const view = await render(RemoteSessionDetail, { session: remote(), nowMs: Date.now() });
     await expect.element(tab(m.viewport_terminal_tab())).toHaveAttribute("aria-selected", "true");

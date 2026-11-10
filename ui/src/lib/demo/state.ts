@@ -143,6 +143,8 @@ function terminalSession(num: number, repoPath: string): Session {
     worktreePath: repoPath,
     isolated: false,
     terminal: true,
+    // a bare shell has no agent turn: the server creates it idle
+    status: "idle",
     model: null,
     sandboxApplied: null,
     createdAt: Date.now(),

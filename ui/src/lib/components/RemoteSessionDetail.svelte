@@ -96,6 +96,9 @@
     { id: "files", label: m.viewport_files_tab },
     { id: "preview", label: m.viewport_preview_tab },
   ];
+  // A clean terminal is a bare shell: there is no agent to chat with, so it has no Chat tab.
+  const isTerminal = $derived(session.terminal === true);
+  const tabs = $derived(isTerminal ? TABS.filter((t) => t.id !== "chat") : TABS);
   // A string, so a fresh session object from every mirrored frame never counts as another session.
   const sessionId = $derived(session.id);
   // The chosen tab belongs to the session it was chosen on: another session opens on the start
@@ -107,7 +110,9 @@
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
     sessionId;
     return untrack(() =>
-      resolveStartTab(sessionStartTab.pref, { mobile: compact, touch: compact }),
+      session.terminal
+        ? "term"
+        : resolveStartTab(sessionStartTab.pref, { mobile: compact, touch: compact }),
     );
   });
   const tab = $derived(!live ? "term" : chosen.id === session.id ? chosen.tab : startTab);
@@ -173,7 +178,7 @@
     {/if}
     <div class="spacer"></div>
     <div class="tabs" role="tablist" aria-label={m.viewport_tablist_aria()}>
-      {#each TABS as t (t.id)}
+      {#each tabs as t (t.id)}
         <button
           type="button"
           class="tab"

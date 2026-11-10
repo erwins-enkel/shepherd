@@ -99,6 +99,8 @@ test("terminal create: shell tab at the MAIN checkout, no worktree, fenced-inert
   expect(row.planGateEnabled).toBe(false);
   expect(row.autopilotEnabled).toBe(false);
   expect(row.planPhase).toBeNull();
+  // No agent turn ever runs in a shell: it starts idle (and so lists under the Ready lens).
+  expect(row.status).toBe("idle");
 });
 
 test("terminal create: preflight fails closed on an old or unknown herdr — no tab is spawned", async () => {
@@ -261,6 +263,49 @@ test("store hydration: terminal pane target survives a restart-shaped re-read", 
     expect(row.terminalTabId).toBe("w1:t3");
     expect(row.terminalPaneId).toBe("w1:p3");
     expect(r.getLiveTerminalSession("/repo")?.id).toBe(s.id);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("store boot: a clean terminal left running by an older build reads idle; agents untouched", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-terminal-status-"));
+  const dbPath = join(dir, "s.db");
+  const base = {
+    prompt: "",
+    repoPath: "/repo",
+    baseBranch: "",
+    branch: null,
+    worktreePath: "/repo",
+    isolated: false,
+    herdrSession: "h",
+    claudeSessionId: "",
+    model: null,
+  };
+  try {
+    const w = new SessionStore(dbPath);
+    const term = w.create({
+      ...base,
+      id: crypto.randomUUID(),
+      name: "terminal-repo",
+      herdrAgentId: "term_x",
+      terminal: true,
+      terminalTabId: "w1:t3",
+      terminalPaneId: "w1:p3",
+    } as any);
+    const agent = w.create({
+      ...base,
+      id: crypto.randomUUID(),
+      name: "agent-task",
+      herdrAgentId: "agent_x",
+    } as any);
+    w.update(term.id, { status: "running" }); // the pre-fix shape
+    expect(w.get(term.id)!.status).toBe("running");
+    expect(w.get(agent.id)!.status).toBe("running");
+
+    const r = new SessionStore(dbPath); // fresh store over the same file = restart
+    expect(r.get(term.id)!.status).toBe("idle");
+    expect(r.get(agent.id)!.status).toBe("running");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

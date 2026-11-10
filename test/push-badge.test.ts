@@ -29,6 +29,16 @@ test("awaitingOperatorCount includes blocked and idle only, including an empty l
   ).toBe(3);
 });
 
+test("awaitingOperatorCount skips a clean terminal: idle from creation, it waits on no one", () => {
+  expect(
+    awaitingOperatorCount([
+      { status: "idle", terminal: true },
+      { status: "idle", terminal: false },
+      { status: "blocked" },
+    ]),
+  ).toBe(2);
+});
+
 test("badge sends bypass presence, categories, reduced mode and cooldown without touching web subs", async () => {
   const store = new SessionStore(":memory:");
   const badges: number[] = [];

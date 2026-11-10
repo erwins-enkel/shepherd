@@ -559,6 +559,13 @@ function isSettledStatus(status: SessionStatus): boolean {
   return status === "idle" || status === "done";
 }
 
+/** The status a new row starts in. A clean terminal is a bare shell with no agent turn: nothing
+ *  ever reconciles it, so it starts (and stays) idle, which is what lists it under the Ready lens.
+ *  A helper so the flat {@link SessionStore.buildSessionRow} gains no branch. */
+function initialStatus(input: Pick<Session, "terminal">): SessionStatus {
+  return input.terminal ? "idle" : "running";
+}
+
 function parseRecapBlocks(raw: string | null | undefined): VisualBlock[] {
   const parsed = safeJsonParse<unknown>(raw, []);
   return Array.isArray(parsed) ? (parsed as VisualBlock[]) : [];
@@ -1642,6 +1649,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       auto INTEGER NOT NULL DEFAULT 0, issueNumber INTEGER,
       createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, archivedAt INTEGER)`);
     this.migrateSessionColumns();
+    this.normalizeCleanTerminalStatus();
     this.db.run(`CREATE TABLE IF NOT EXISTS session_git_cache (
       sessionId TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
       gitJson TEXT NOT NULL,
@@ -4255,7 +4263,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       operatorAssistant: Boolean(input.operatorAssistant),
       assistantRepo: strOrNull(input.assistantRepo),
       baseCommit: strOrNull(input.baseCommit),
-      status: "running",
+      status: initialStatus(input),
       lastState: "idle",
       createdAt: now,
       updatedAt: now,
@@ -7094,6 +7102,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       this.db.run(`DELETE FROM sessions WHERE ${victims}`, params);
       return n;
     })();
+  }
+
+  /** Clean terminals used to be created `running` and nothing ever moved them, so they read as
+   *  working forever and never showed under the Ready lens. They now start idle (see
+   *  initialStatus); this brings rows from before that change along. Every boot, idempotent:
+   *  no path sets a clean terminal back to running (resume/relaunch refuse it, the poller skips it). */
+  private normalizeCleanTerminalStatus(): void {
+    this.db.run(`UPDATE sessions SET status = 'idle' WHERE terminal = 1 AND status = 'running'`);
   }
 
   // migrate reviews that predate the auto-address loop columns

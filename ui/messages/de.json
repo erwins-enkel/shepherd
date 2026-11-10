@@ -8688,5 +8688,12 @@
   "schedules_times_required": "Für jeden Termin eine gültige Uhrzeit eingeben.",
   "schedules_advanced_summary": "Autopilot: {autopilot} · Plan-Gate: {planGate} · Sandbox: {sandbox} · Basis: {base}",
   "feat_new_schedule_dialog_title": "Neuer Zeitplan-Dialog",
-  "feat_new_schedule_dialog_body": "Zeitpläne am Desktop in zwei Spalten anlegen und bearbeiten, auf dem Handy in den Tabs Was, Wann und Womit. Sieh die nächsten drei Läufe, vergleiche die Engine-Nutzung und erkenne einen möglichen Nutzungsrückhalt. Startoptionen findest du unter Erweitert."
+  "feat_new_schedule_dialog_body": "Zeitpläne am Desktop in zwei Spalten anlegen und bearbeiten, auf dem Handy in den Tabs Was, Wann und Womit. Sieh die nächsten drei Läufe, vergleiche die Engine-Nutzung und erkenne einen möglichen Nutzungsrückhalt. Startoptionen findest du unter Erweitert.",
+  "schedules_history": "Verlauf",
+  "schedules_history_empty": "Noch keine Läufe.",
+  "schedules_history_failed": "Verlauf konnte nicht geladen werden.",
+  "schedules_last_ago": "Zuletzt: {outcome} · {ago}",
+  "schedules_default_engine": "Standard-Engine",
+  "feat_schedule_history_title": "Verlauf der Zeitpläne",
+  "feat_schedule_history_body": "Klappe einen Zeitplan auf, um die letzten 20 Läufe mit Ergebnis und Session-Link zu sehen. Kompakte Zeilen zeigen Engine, Modus und Alter des letzten Laufs."
 }

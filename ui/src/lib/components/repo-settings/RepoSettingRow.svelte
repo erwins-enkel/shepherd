@@ -26,6 +26,7 @@
     field,
     name,
     glyph = "",
+    icon,
     desc = "",
     detail,
     explanation,
@@ -47,6 +48,7 @@
     field: string;
     name: string;
     glyph?: string;
+    icon?: Snippet;
     desc?: string;
     detail?: RowDetail;
     explanation?: TooltipExplanation;
@@ -86,7 +88,9 @@
 <div class={["rs-row", { disabled: off, indent }]} data-field={field} use:coachTarget={coach}>
   <div class="rs-meta">
     <div class="rs-name">
-      {#if glyph}<span class="rs-glyph" aria-hidden="true">{glyph}</span>{/if}{name}
+      {#if icon || glyph}<span class="rs-glyph" aria-hidden="true"
+          >{#if icon}{@render icon()}{:else}{glyph}{/if}</span
+        >{/if}{name}
       {#if detail}
         <AutomationInfoTip
           id={detail.id}

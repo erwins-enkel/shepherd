@@ -8688,5 +8688,12 @@
   "schedules_times_required": "Enter a valid time for each slot.",
   "schedules_advanced_summary": "Autopilot: {autopilot} · Plan gate: {planGate} · Sandbox: {sandbox} · Base: {base}",
   "feat_new_schedule_dialog_title": "New schedule dialog",
-  "feat_new_schedule_dialog_body": "Create and edit schedules in two columns on desktop or What, When and With tabs on your phone. Preview the next three runs, compare engine usage and see whether usage would hold a run. Launch options stay under Advanced."
+  "feat_new_schedule_dialog_body": "Create and edit schedules in two columns on desktop or What, When and With tabs on your phone. Preview the next three runs, compare engine usage and see whether usage would hold a run. Launch options stay under Advanced.",
+  "schedules_history": "History",
+  "schedules_history_empty": "No runs yet.",
+  "schedules_history_failed": "Couldn't load the history.",
+  "schedules_last_ago": "Last: {outcome} · {ago}",
+  "schedules_default_engine": "Default engine",
+  "feat_schedule_history_title": "Schedule history",
+  "feat_schedule_history_body": "Expand a schedule to review its last 20 runs, outcomes and session links. Compact rows show the engine, mode and time since the last run."
 }

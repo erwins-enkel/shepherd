@@ -433,10 +433,11 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     // Turning a repo's GitHub auto-merge on for a roles PR: the demo's repo-roles answer
     // carries no merge settings, so the button never renders.
     "/api/repo-roles/auto-merge",
-    // Editing, deleting or running a schedule (#3469): the demo seeds no schedule, so no row
-    // renders these actions.
+    // Editing, deleting, running or reading history for a schedule (#3469, #3865): the demo
+    // seeds no schedule, so no row renders these actions or its history disclosure.
     "/api/schedules/:p",
     "/api/schedules/:p/run",
+    "/api/schedules/:p/runs",
     // Answering a Login Request: no seeded session raises one, so the banner never renders.
     "/api/sessions/:p/login-request",
     // Answering an Action Request: the demo's Operator Assistant never runs, so none is raised.

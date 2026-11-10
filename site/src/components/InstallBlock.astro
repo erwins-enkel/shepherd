@@ -5,7 +5,7 @@
 const INSTALL_CMD = "curl -fsSL https://shepherd.run/install.sh | bash";
 ---
 
-<div class="install" id="install">
+<div class="install" id="install-cmd">
   <div class="bar">
     <span class="dots" aria-hidden="true">
       <span class="dot"></span><span class="dot"></span><span class="dot"></span>
@@ -28,7 +28,7 @@ const INSTALL_CMD = "curl -fsSL https://shepherd.run/install.sh | bash";
 <script>
   import { track } from "@vercel/analytics";
 
-  const block = document.getElementById("install");
+  const block = document.getElementById("install-cmd");
   const btn = block?.querySelector<HTMLButtonElement>(".copy");
   const label = btn?.querySelector<HTMLElement>(".copy-label");
   const affirm = block?.querySelector<HTMLElement>(".affirm");
@@ -70,7 +70,7 @@ const INSTALL_CMD = "curl -fsSL https://shepherd.run/install.sh | bash";
 
 <style>
   .install {
-    /* Fills its grid area — the hero widens this to a full-width bottom row. */
+    /* Fills its column of the hero's two-card #install row. */
     width: 100%;
     background: var(--panel);
     border: 1px solid var(--panel-2);

@@ -7,5 +7,11 @@
       "destination": "https://raw.githubusercontent.com/erwins-enkel/shepherd/main/deploy/install.sh",
       "statusCode": 302
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/download/mac",
+      "destination": "/api/download-mac"
+    }
   ]
 }

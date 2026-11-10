@@ -1,7 +1,8 @@
 # `shepherd.run` landing page
 
 The marketing landing page for **Shepherd**, served at the root of the
-`shepherd.run` domain. Static [Astro](https://astro.build) site — no backend,
+`shepherd.run` domain. Static [Astro](https://astro.build) site plus one Vercel
+Function (`api/download-mac.ts`, see [Routing](#routing-verceljson)) — no database,
 no secrets.
 
 This site is **not** part of the Shepherd app: it is exempt from the app's i18n
@@ -69,6 +70,20 @@ shepherd.run/install.sh  → 302 →  https://raw.githubusercontent.com/erwins-e
 so `curl -fsSL https://shepherd.run/install.sh | bash` keeps working. (The old
 bare-`/` → GitHub redirect from the redirect-only `deploy/vanity` project is
 intentionally dropped — the root now serves a page; GitHub is an on-page link.)
+
+The hero's **Download for macOS** button links to `/download/mac`, rewritten to the
+Vercel Function `api/download-mac.ts`. It reads the Mac app's Sparkle appcast
+(`https://raw.githubusercontent.com/erwins-enkel/shepherd/macos-update-feed/appcast.xml`,
+newest build only — often a nightly) and 302-redirects to the `Shepherd-<build>.dmg`
+next to that build's update ZIP. The Mac release workflow advances the feed only after
+the release carries its DMG, ZIP and appcast, so the derived DMG always exists. Only
+`macos-*` release assets of this repo are accepted. If the feed is unreachable,
+unparsable or names anything else, the function logs and redirects to the
+[Mac release list](https://github.com/erwins-enkel/shepherd/releases?q=macos-)
+instead. The CDN caches the redirect for 5 minutes (60 s for the fallback); browsers
+do not cache it. Its logic is unit-tested from the monorepo root in
+`test/site-download-mac.test.ts`. `astro dev`/`astro preview` do not run Vercel
+Functions — use `vercel dev` to exercise the route locally.
 
 ## Deployment status
 

@@ -1,0 +1,158 @@
+---
+// Shepherd for Mac download card, beside the server one-liner in the hero.
+// /download/mac is a Vercel Function (api/download-mac.ts, rewritten in
+// vercel.json) that 302s to the newest DMG; the release asset downloads as an
+// attachment, so the page stays put. No client JS: Base.astro's delegated
+// [data-track] handler records the click.
+import { RELEASES_URL } from "../../api/download-mac";
+
+const DOWNLOAD_URL = "/download/mac";
+---
+
+<div class="mac">
+  <p class="title">Shepherd for Mac</p>
+  <p class="meta">Native client · macOS 15+ · Apple silicon &amp; Intel</p>
+
+  <a
+    class="download"
+    href={DOWNLOAD_URL}
+    data-track="cta_download_mac"
+    data-track-location="hero"
+  >
+    <svg
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2.2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M12 4v11" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M5 20h14" />
+    </svg>
+    Download for macOS
+  </a>
+
+  <ol class="steps">
+    <li>Open the DMG and drag <strong>Shepherd.app</strong> into Applications.</li>
+    <li>Launch it. It's signed and notarized by Apple, and updates arrive automatically.</li>
+    <li>
+      Connect to your Shepherd server, or start one on this Mac with <strong
+        >Run on this Mac</strong
+      >.
+    </li>
+  </ol>
+
+  <a class="all" href={RELEASES_URL} rel="noopener noreferrer" target="_blank"
+    >All Mac releases →</a
+  >
+</div>
+
+<style>
+  .mac {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.85rem;
+    width: 100%;
+    padding: 1.1rem 1.15rem 1.2rem;
+    background: var(--panel);
+    border: 1px solid var(--panel-2);
+    border-radius: 0.75rem;
+    box-shadow: 0 1px 0 var(--panel-2) inset;
+  }
+
+  .title {
+    font-weight: 700;
+    font-size: 1.15rem;
+    letter-spacing: -0.01em;
+  }
+
+  .meta {
+    margin-top: -0.6rem;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--ink-muted);
+  }
+
+  .download {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.65rem 1.25rem;
+    border-radius: 0.6rem;
+    background: var(--gradient-amber-green);
+    color: var(--bg);
+    font-weight: 700;
+    box-shadow: 0 8px 24px -12px var(--green);
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+
+  .download:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 28px -12px var(--green);
+  }
+
+  .download:focus-visible,
+  .all:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 2px;
+  }
+
+  .steps {
+    list-style: none;
+    counter-reset: step;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.45rem;
+    color: var(--ink-muted);
+    font-size: 0.92rem;
+  }
+
+  .steps li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 1.6rem;
+  }
+
+  .steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    color: var(--green);
+    font-family: var(--font-mono);
+    font-weight: 500;
+  }
+
+  .steps strong {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .all {
+    font-size: 0.85rem;
+    color: var(--ink-muted);
+    border-bottom: 1px solid color-mix(in srgb, var(--ink-dim) 60%, transparent);
+  }
+
+  .all:hover {
+    color: var(--ink);
+    border-color: var(--green);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .download {
+      transition: none;
+    }
+    .download:hover {
+      transform: none;
+    }
+  }
+</style>

@@ -666,7 +666,7 @@
 "integrated_epics_status_repairing" = "Repair in progress";
 "integrated_epics_status_unknown" = "Checking status";
 "integrated_epics_turn_done" = "DONE";
-"integrated_epics_turn_nothing" = "NOTHING TO DO";
+"integrated_epics_turn_nothing" = "SHEPHERD IS ON IT";
 "integrated_epics_turn_ready" = "READY TO LAND";
 "integrated_epics_turn_you" = "YOUR TURN";
 "integrated_epics_view_checks" = "View checks ↗";

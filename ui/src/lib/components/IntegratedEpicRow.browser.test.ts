@@ -153,9 +153,9 @@ describe("IntegratedEpicRow", () => {
     ).toBeTruthy();
   });
   it.each([
-    [{ landingState: "pending" }, "NOTHING TO DO"],
-    [{ landingReady: false, landingChecks: "pending" }, "NOTHING TO DO"],
-    [{ landingRepairing: true }, "NOTHING TO DO"],
+    [{ landingState: "pending" }, "SHEPHERD IS ON IT"],
+    [{ landingReady: false, landingChecks: "pending" }, "SHEPHERD IS ON IT"],
+    [{ landingRepairing: true }, "SHEPHERD IS ON IT"],
     [{ landingChecks: "failure" }, "YOUR TURN"],
     [{ landingMergeable: false }, "YOUR TURN"],
     [{ landingState: "none" }, "YOUR TURN"],
@@ -165,6 +165,10 @@ describe("IntegratedEpicRow", () => {
     await render(IntegratedEpicRow, props(epic(over)));
     await expect.element(page.getByText(label, { exact: true })).toBeInTheDocument();
     expect(document.querySelector(".row")!.classList.contains("ready")).toBe(false);
+    // Only Shepherd's own turn is shown as alive: a pulsing pip and a sweep along the row.
+    const working = label === "SHEPHERD IS ON IT";
+    expect(document.querySelector(".turn-chip .work-pip") != null).toBe(working);
+    expect(document.querySelector(".row > .work-sweep") != null).toBe(working);
   });
   it("#2872: a red landing Shepherd still retries is nobody's turn yet", async () => {
     await render(
@@ -186,7 +190,7 @@ describe("IntegratedEpicRow", () => {
         }),
       ),
     );
-    await expect.element(page.getByText("NOTHING TO DO", { exact: true })).toBeInTheDocument();
+    await expect.element(page.getByText("SHEPHERD IS ON IT", { exact: true })).toBeInTheDocument();
     await expect
       .element(page.getByText("Shepherd is re-running the red checks", { exact: true }))
       .toBeInTheDocument();

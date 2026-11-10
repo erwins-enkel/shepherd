@@ -308,7 +308,15 @@ describe("#2872 red landing CI", () => {
       IntegratedEpicLanding,
       ciProps(red(automation({ status: "running", used: 1 }), { landingChecks: "pending" })),
     );
-    expect(stage("reruns").textContent).toContain("● attempt 1 of 2 running");
+    expect(stage("reruns").textContent).toContain("attempt 1 of 2 running");
+    // Visibly alive: a pulsing dot on the running stage, a pulsing marker on the landing step, a
+    // flowing connector into it and an indeterminate sweep under it.
+    expect(stage("reruns").querySelector(".lcs-live")).not.toBeNull();
+    expect(stage("repair").querySelector(".lcs-live")).toBeNull();
+    const items = [...document.querySelectorAll(".landing-path li")];
+    expect(items[2].querySelector(".marker.running")).not.toBeNull();
+    expect(items[1].classList.contains("flowing")).toBe(true);
+    expect(items[2].classList.contains("running")).toBe(true);
     expect(button("Fix CI failures")).toBeUndefined();
     await expect.element(page.getByRole("link", { name: "View checks ↗" })).toBeInTheDocument();
   });
@@ -423,7 +431,7 @@ describe("#2872 red landing CI", () => {
     await expect
       .element(page.getByRole("heading", { name: "An agent is repairing the landing PR" }))
       .toBeInTheDocument();
-    expect(stage("repair").textContent).toContain("● running for 4m · fixing: pr title");
+    expect(stage("repair").textContent).toContain("running for 4m · fixing: pr title");
     await page.getByRole("button", { name: "Open session →" }).click();
     expect(p.onopensession).toHaveBeenCalledExactlyOnceWith("s-2");
   });

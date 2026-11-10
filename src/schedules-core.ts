@@ -261,12 +261,27 @@ function validateInterval(raw: unknown): Result<ScheduleInterval | null> {
   };
 }
 
-function validateTimes(raw: unknown): Result<string[]> {
+function validateTimes(raw: unknown, interval = false): Result<string[]> {
+  if (interval) {
+    if (!Array.isArray(raw) || raw.length !== 0) return fail("times must be [] with an interval");
+    return { ok: true, value: [] };
+  }
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_TIMES)
     return fail(`times must be 1–${MAX_TIMES} "HH:MM" strings`);
   if (!raw.every((t) => typeof t === "string" && TIME_RE.test(t)))
     return fail('times must be "HH:MM" (00:00–23:59)');
   return { ok: true, value: [...new Set(raw as string[])].sort() };
+}
+
+function validateCadence(
+  timesRaw: unknown,
+  intervalRaw: unknown,
+): Result<{ times: string[]; interval: ScheduleInterval | null }> {
+  const interval = validateInterval(intervalRaw);
+  if (!interval.ok) return interval;
+  const times = validateTimes(timesRaw, interval.value !== null);
+  if (!times.ok) return times;
+  return { ok: true, value: { times: times.value, interval: interval.value } };
 }
 
 function nullableBool(v: unknown, name: string): Result<boolean | null> {
@@ -311,14 +326,8 @@ export function validateScheduleInput(body: unknown, repoRoot: string): Result<S
   if (typeof obj.prompt !== "string") return fail("prompt must be a string");
   if (!Number.isInteger(obj.days) || (obj.days as number) < 1 || (obj.days as number) > ALL_DAYS)
     return fail("days must be a weekday bitmask 1–127 (bit 0 = Monday)");
-  const interval = validateInterval(obj.interval);
-  if (!interval.ok) return interval;
-  const times = interval.value
-    ? Array.isArray(obj.times) && obj.times.length === 0
-      ? { ok: true as const, value: [] as string[] }
-      : fail("times must be [] with an interval")
-    : validateTimes(obj.times);
-  if (!times.ok) return times;
+  const cadence = validateCadence(obj.times, obj.interval);
+  if (!cadence.ok) return cadence;
   if (obj.enabled !== undefined && typeof obj.enabled !== "boolean")
     return fail("enabled must be a boolean");
   const launch = validateLaunch(obj.launch);
@@ -328,8 +337,7 @@ export function validateScheduleInput(body: unknown, repoRoot: string): Result<S
     name: obj.name.trim(),
     prompt: obj.prompt.trim(),
     days: obj.days as number,
-    times: times.value,
-    interval: interval.value,
+    ...cadence.value,
     enabled: obj.enabled ?? true,
     launch: launch.value,
   };

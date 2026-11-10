@@ -1750,7 +1750,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       createdAt INTEGER NOT NULL,
       updatedAt INTEGER NOT NULL
     )`);
-    this.addMissingColumns("schedules", { intervalJson: "TEXT" });
     this.db.run(`CREATE TABLE IF NOT EXISTS schedule_runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       scheduleId TEXT NOT NULL,
@@ -1761,10 +1760,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       at INTEGER NOT NULL,
       UNIQUE (scheduleId, slotKey)
     )`);
-    this.db.run(
-      `CREATE INDEX IF NOT EXISTS schedule_runs_history ON schedule_runs (scheduleId, at DESC, id DESC)`,
-    );
-    this.db.run(`CREATE INDEX IF NOT EXISTS schedule_runs_at ON schedule_runs (at)`);
     // Base-moved notice state (#2589): the base tip a session was last told about (or already
     // contains) and when it was last steered. No row = anchor at the session's baseCommit.
     this.db.run(`CREATE TABLE IF NOT EXISTS base_notices (
@@ -2343,6 +2338,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // A table created before #2766 has no `uploads`, before #2775 no `project`; a fresh one already
     // has both (no write here).
     this.addMissingColumns("remote_dispatches", { uploads: "TEXT", project: "TEXT" });
+    this.addMissingColumns("schedules", { intervalJson: "TEXT" });
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS schedule_runs_history ON schedule_runs (scheduleId, at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS schedule_runs_at ON schedule_runs (at);
+    `);
     // Commits the whole bootstrap (see the BEGIN above). No try/ROLLBACK: a throw here escapes the
     // constructor, so no caller ever holds this store, and SQLite discards the open transaction
     // when the handle is finalized. Deliberately no wrapping block — that would re-indent the

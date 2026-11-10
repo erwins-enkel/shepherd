@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getContext, onMount, tick, untrack } from "svelte";
   import "./schedule-fields.css";
+  import ScheduleIntervalFields from "./ScheduleIntervalFields.svelte";
   import ScheduleEngineFields from "./ScheduleEngineFields.svelte";
   import { MediaQuery } from "svelte/reactivity";
   import { basename } from "#lib/basename.js";
@@ -417,49 +418,13 @@
           >
         </div>
         {#if interval}
-          <div class="field">
-            <label for={`${uid}-every`}>{m.schedules_cadence_interval()}</label>
-            <select id={`${uid}-every`} bind:value={everyMinutes}>
-              {#each [5, 10, 15, 30, 60] as n (n)}
-                <option value={n}>{m.schedules_every_minutes({ n })}</option>
-              {/each}
-            </select>
-          </div>
-          <label class="all-day"
-            ><input type="checkbox" bind:checked={allDay} />{m.schedules_interval_all_day()}</label
-          >
-          {#if !allDay}
-            <div class="interval-window">
-              <div class="field">
-                <label for={`${uid}-from`}>{m.schedules_interval_from()}</label>
-                <input
-                  id={`${uid}-from`}
-                  type="time"
-                  required
-                  bind:value={intervalFrom}
-                  aria-invalid={!stats}
-                  aria-describedby={!stats ? `${uid}-interval-error` : undefined}
-                />
-              </div>
-              <div class="field">
-                <label for={`${uid}-until`}>{m.schedules_interval_until()}</label>
-                <input
-                  id={`${uid}-until`}
-                  type="time"
-                  required
-                  bind:value={intervalUntil}
-                  aria-invalid={!stats}
-                  aria-describedby={!stats ? `${uid}-interval-error` : undefined}
-                />
-              </div>
-            </div>
-            {#if !stats}<p class="error" id={`${uid}-interval-error`}>
-                {m.schedules_interval_end_error()}
-              </p>{/if}
-          {/if}
-          {#if stats}<p class="hint">{m.schedules_interval_stats(stats)}</p>{/if}
-          <p class="hint">{m.schedules_interval_overlap()}</p>
-          <p class="hint">{m.schedules_times_hint()}</p>
+          <ScheduleIntervalFields
+            bind:everyMinutes
+            bind:intervalFrom
+            bind:intervalUntil
+            bind:allDay
+            {stats}
+          />
         {:else}
           <fieldset class="field">
             <legend>{m.schedules_field_times()}</legend>
@@ -583,8 +548,7 @@
 </dialog>
 
 <style>
-  .cadence-modes,
-  .interval-window {
+  .cadence-modes {
     display: flex;
     gap: 8px;
   }
@@ -597,18 +561,6 @@
     color: var(--color-amber);
     border-color: var(--color-amber);
   }
-  .interval-window .field {
-    flex: 1;
-    min-width: 0;
-  }
-  .all-day {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-height: 44px;
-    font-size: var(--fs-base);
-  }
-
   .sched-dlg {
     width: min(960px, 94vw);
     max-height: 90dvh;

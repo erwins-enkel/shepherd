@@ -1,4 +1,4 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, spyOn } from "bun:test";
 import { DrainService, type DrainMachinePort, type DrainStatus } from "../src/drain";
 import { ACTIVE_LABEL } from "../src/drain-core";
 import type { RemoteWork } from "../src/drain-remote";
@@ -12,6 +12,8 @@ import type {
   SubIssueRef,
 } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
+import { GithubForge } from "../src/forge/github";
+import { graphqlSyntaxCheckedRunner, referenceTimelinePage } from "./helpers/github-graphql-runner";
 import type { StandardCreateInput, Session } from "../src/types";
 import type { UsageLimits } from "../src/usage-limits";
 import type { Capability } from "../src/remote-instances/capabilities";
@@ -127,6 +129,8 @@ function makeHarness(opts: {
   epic?: boolean;
   backlog?: Issue[];
   issuePrs?: Record<number, IssuePullRequestReference[]>;
+  /** Replaces the `issuePrs` lookup (e.g. a real forge read, or an unknown `null`). */
+  references?: NonNullable<GitForge["issuePullRequestReferences"]>;
   prBase?: Record<number, string>;
 }): Harness {
   const store = new SessionStore(":memory:");
@@ -238,8 +242,8 @@ function makeHarness(opts: {
     listSubIssues: async () =>
       opts.children.map((c) => ({ ...c, labels: labels.get(c.number) ?? [] })),
     listBlockedBy: async () => [],
-    ...(opts.issuePrs && {
-      issuePullRequestReferences: async (n: number) => opts.issuePrs![n] ?? [],
+    ...((opts.issuePrs || opts.references) && {
+      issuePullRequestReferences: opts.references ?? (async (n: number) => opts.issuePrs![n] ?? []),
       prReviewMeta: async (pr: number) => ({ baseRefName: opts.prBase?.[pr] ?? "main" }) as never,
     }),
   };
@@ -566,5 +570,50 @@ describe("an integration epic recognizes a child merged from another machine", (
   test("a merged PR into another branch does not", async () => {
     const h = await run("main");
     expect(h.store.isEpicIntegratedChild(REPO, 3731)).toBe(false);
+  });
+
+  test("found through the GitHub forge's own reference query, as GitHub parses it", async () => {
+    const github = new GithubForge(
+      "o/r",
+      {} as never,
+      graphqlSyntaxCheckedRunner((args) =>
+        referenceTimelinePage(
+          args.includes("number=3731")
+            ? [{ number: 91, url: "https://x/pull/91", state: "merged" }]
+            : [],
+        ),
+      ),
+    );
+    const h = makeHarness({
+      children,
+      port: fakePort({ active: false }),
+      landing: "integration",
+      references: (n) => github.issuePullRequestReferences(n),
+      prBase: { 91: PINNED },
+    });
+    h.store.getOrInitEpicIntegrationBranch(REPO, PARENT, PINNED);
+    await h.drain.tick();
+    expect(h.store.isEpicIntegratedChild(REPO, 3731)).toBe(true);
+    expect(h.store.isEpicIntegratedChild(REPO, 3732)).toBe(false);
+  });
+
+  test("an unknown reference read is not taken for no PRs: it warns and records nothing", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const h = makeHarness({
+        children,
+        port: fakePort({ active: false }),
+        landing: "integration",
+        references: async () => null,
+        prBase: { 91: PINNED },
+      });
+      h.store.getOrInitEpicIntegrationBranch(REPO, PARENT, PINNED);
+      await h.drain.tick();
+      expect(h.store.isEpicIntegratedChild(REPO, 3731)).toBe(false);
+      const warned = warn.mock.calls.map((c) => String(c[0]));
+      expect(warned.some((m) => m.includes("#3731") && m.includes("unknown"))).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

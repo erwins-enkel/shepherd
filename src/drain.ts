@@ -5831,7 +5831,8 @@ export class DrainService {
 
   /** {@link reconcileEpicIntegrations} for a child without a session here: a merged PR linked to
    *  its issue whose base is the pinned epic branch integrates it. A forge that cannot list an
-   *  issue's PRs or read a PR's base (Gitea) is not asked; a failed read waits for the next sweep. */
+   *  issue's PRs or read a PR's base (Gitea) is not asked; a failed or unknown (`null`) read warns
+   *  and waits for the next sweep — it is never taken for "no PRs". */
   private async probeElsewhereIntegration(
     forge: GitForge,
     repoPath: string,
@@ -5842,7 +5843,13 @@ export class DrainService {
     const pinned = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
     if (!pinned) return; // incremental: a child is done when its issue closes
     try {
-      const refs = (await forge.issuePullRequestReferences(childNumber)) ?? [];
+      const refs = await forge.issuePullRequestReferences(childNumber);
+      if (refs === null) {
+        console.warn(
+          `[drain] epic reconcile of #${childNumber} (elsewhere): its PR references are unknown (forge read failed or incomplete); retrying next sweep`,
+        );
+        return;
+      }
       for (const pr of refs.filter((r) => r.state === "merged")) {
         const base = (await forge.prReviewMeta(pr.number))?.baseRefName;
         if (base !== pinned) continue;

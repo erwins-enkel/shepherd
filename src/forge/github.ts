@@ -4448,7 +4448,7 @@ export class GithubForge implements GitForge {
     if (graphRateLimit.blocked()) return null;
     const [owner, name] = this.slug.split("/");
     const fields = "__typename ... on PullRequest {number url state}";
-    const query = `query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){issue(number:$number){timelineItems(first:100,after:$cursor,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT]){pageInfo{hasNextPage endCursor}nodes{__typename ... on CrossReferencedEvent{source{${fields}}} ... on ConnectedEvent{source{${fields}} subject{${fields}}}}}}}`;
+    const query = `query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){issue(number:$number){timelineItems(first:100,after:$cursor,itemTypes:[CROSS_REFERENCED_EVENT,CONNECTED_EVENT]){pageInfo{hasNextPage endCursor}nodes{__typename ... on CrossReferencedEvent{source{${fields}}} ... on ConnectedEvent{source{${fields}} subject{${fields}}}}}}}}`;
     const references = new Map<string, IssuePullRequestReference>();
     let cursor: string | null = null;
     try {

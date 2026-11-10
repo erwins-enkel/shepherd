@@ -114,7 +114,7 @@ struct RootView: View {
     @ViewBuilder private var selectedDetail: some View {
         if let id = app.selectedSessionID, let remote = app.store?.remoteSession(id: id) {
             IOSRemoteSessionDetailView(session: remote)
-                .id(id)
+                .id("\(app.activationGeneration):\(remote.host?.instanceId ?? ""):\(id)")
         } else if let id = app.selectedSessionID,
            let session = app.store?.session(id: id) ?? app.extension(QueuesModel.self)?.finishedSessions.first(where: { $0.id == id })
                 ?? (app.extension(QueuesModel.self)?.notificationSession).flatMap({ $0.id == id ? $0 : nil }),

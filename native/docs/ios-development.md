@@ -9,13 +9,20 @@ opens on Chat, with Terminal, Activity and Info (including the complete prompt) 
 separate tabs. Chat shows the latest 50 messages with Markdown, operator messages,
 Shepherd steers and collapsed tool runs. It polls only while selected and active
 (every 2 seconds while running, 8 seconds at rest). Its retained draft uses the
-reply endpoint and shared hold-to-talk dictation; dictation never sends. Attachments
-and terminal dialog keys remain in Terminal. The iOS SwiftTerm renderer is pinned to 1.20.0, like the Mac app.
+reply endpoint and shared hold-to-talk dictation; dictation never sends. Terminal dialog keys remain in Terminal. The iOS SwiftTerm renderer is pinned to 1.20.0, like the Mac app.
 Terminal font size is a per-device setting; the surrounding chrome, metadata and
 activity use Dynamic Type. Sessions with a plan phase or gate also expose a Plan tab;
 attention entries open it directly. See [plan decisions](ios-plan.md) for request ownership
 and question/gate controls. Session actions and ready-PR merge use the shared models; see
 [session actions](ios-session-actions.md) for placement, confirmation and parity limits.
+
+Sessions on connected machines also open on Chat, with machine identity and connection state
+above the conversation and a separate Info tab. Messages, replies, question answers and image
+uploads use the coordinator's forwarded routes; uploaded paths belong to the session's machine.
+Question polling uses `GET /api/blocks?host=<instanceId>`. Chat polls only while visible and
+active. A disconnected machine keeps its loaded conversation visible with input unavailable;
+reconnection resumes polling. Photos can be attached in both local and connected-machine chats,
+with upload progress, retry and removal; failed replies retain the draft and uploaded paths.
 
 The session list defaults to **All**, with the web/Mac lifecycle groups and
 collapsible headings. Shared native relevance ordering puts working and blocked

@@ -112,6 +112,70 @@ final class IOSChatTests: XCTestCase {
         XCTAssertFalse(model.sending)
     }
 
+    func testImagesWaitForUploadAndFailedRepliesKeepTheMachinePaths() async {
+        let model = IOSChatModel()
+        var uploadFails = true
+        let attachments = AttachmentModel(upload: { _, _ in
+            if uploadFails { throw Failure() }
+            return "/remote/worktree/image.png"
+        })
+        model.attachments = attachments
+        let stamp = attachments.beginImport()!
+        model.draft = "Look at this"
+        XCTAssertFalse(model.canSend)
+        attachments.finishImport(.init(name: "image.png", data: Data([1, 2])), error: nil, generation: stamp)
+        await attachments.settled()
+        XCTAssertTrue(attachments.hasFailedUploads)
+        XCTAssertFalse(model.canSend)
+        uploadFails = false
+        attachments.retryFailed()
+        await attachments.settled()
+        XCTAssertTrue(model.canSend)
+        await model.send(isCurrent: { true }, reply: { _ in throw Failure() })
+        XCTAssertEqual(model.draft, "Look at this")
+        XCTAssertEqual(attachments.rows.first?.path, "/remote/worktree/image.png")
+        var sent = ""
+        await model.send(isCurrent: { true }, reply: { sent = $0 })
+        XCTAssertEqual(sent, "/remote/worktree/image.png\nLook at this")
+        XCTAssertTrue(attachments.rows.isEmpty)
+        XCTAssertEqual(model.draft, "")
+        attachments.teardown()
+    }
+
+    func testImageOnlyReplyAndLateReplyRetainAttachments() async {
+        let model = IOSChatModel()
+        let attachments = AttachmentModel(upload: { _, _ in "/remote/image.png" })
+        model.attachments = attachments
+        attachments.addFiles([.init(name: "image.png", data: Data([1]))])
+        await attachments.settled()
+        XCTAssertTrue(model.canSend)
+        var current = true
+        await model.send(isCurrent: { current }, reply: { text in
+            XCTAssertEqual(text, "/remote/image.png")
+            current = false
+        })
+        XCTAssertEqual(attachments.rows.count, 1)
+        XCTAssertTrue(model.pending.isEmpty)
+        attachments.teardown()
+    }
+
+    func testRemoteQuestionsArePolledAndLateMachineResponsesAreDiscarded() async {
+        let model = IOSChatModel()
+        let ask = PendingAsk(toolUseId: "remote-question", questions: [])
+        var current = true
+        await model.poll(fetch: { self.empty }, running: { false }, isCurrent: { current },
+            fetchAsk: { ask }, wait: { _ in current = false })
+        XCTAssertEqual(model.ask?.toolUseId, "remote-question")
+        current = true
+        await model.poll(fetch: { self.empty }, running: { false }, isCurrent: { current },
+            fetchAsk: { current = false; return nil })
+        XCTAssertEqual(model.ask?.toolUseId, "remote-question")
+        current = true
+        await model.poll(fetch: { self.empty }, running: { false }, isCurrent: { current },
+            fetchAsk: { nil }, wait: { _ in current = false })
+        XCTAssertNil(model.ask)
+    }
+
     func testChatIsFirstDefaultAndMarkdownKeepsBlockStructure() {
         XCTAssertEqual(IOSSessionDetailTab.allCases.first, .chat)
         let session = PreviewData.session()

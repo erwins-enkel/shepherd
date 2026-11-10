@@ -34,6 +34,7 @@ struct SessionDetailView: View {
                 .offset(x: gesture.swipe.offset)
             if gesture.steersOpen { steerPanel }
         }
+        .onDisappear { chat.attachments?.teardown(); chat.attachments = nil }
         .sheet(item: $steerDraft) { draft in steerEditor(draft) }
         .sheet(isPresented: askPresented) { askSheet }
         .onAppear { configureGesture(); askFlow.sync(ask: ask) }

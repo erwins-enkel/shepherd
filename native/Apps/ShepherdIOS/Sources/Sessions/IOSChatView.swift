@@ -2,28 +2,47 @@ import ShepherdAppCore
 import ShepherdKit
 import SwiftUI
 import UIKit
+import PhotosUI
 
 /// Mounted only for the selected Chat tab. The feed and draft live in the detail
 /// so changing tabs retains pending echoes and unsent words without polling offscreen.
 struct IOSChatView: View {
     let session: Session
-    let detail: DetailModel
+    var detail: DetailModel? = nil
     let model: IOSChatModel
     let allowsInput: Bool
     @Environment(AppModel.self) private var app
     @Environment(\.scenePhase) private var scenePhase
+    private var askFlow: AskAnswerFlow { model.askFlow }
+
+    private var remote: Bool { RemoteSessionCopy.isMirrored(session) }
+    private var connected: Bool { !remote || session.connection?.state.known == .connected }
+    private var canWrite: Bool { allowsInput && connected && isCurrent && app.liveRequestAudit == nil }
 
     private var isCurrent: Bool {
         scenePhase == .active && app.selectedSessionID == session.id
-            && app.extension(DetailModel.self) === detail && detail.isActive
+            && (remote
+                ? app.store?.remoteSession(id: session.id)?.host?.instanceId == session.host?.instanceId
+                    && app.store?.remoteSession(id: session.id)?.connection?.state.known == .connected
+                : app.extension(DetailModel.self) === detail && detail?.isActive == true)
     }
 
     var body: some View {
-        IOSChatContent(model: model, allowsInput: allowsInput && isCurrent, send: send)
-            .task(id: "\(session.id):\(app.activationGeneration):\(scenePhase):\(session.status.rawValue)") {
-                guard isCurrent, let store = app.store else { return }
+        VStack(spacing: 0) {
+            if remote && canWrite {
+                IOSAskStrip(ask: model.ask, status: askFlow.status,
+                    open: { askFlow.reopen($0) }, clear: { askFlow.clearStatus(toolUseID: $0) })
+            }
+            IOSChatContent(model: model, allowsInput: canWrite, send: send)
+        }
+            .task(id: "\(session.id):\(app.activationGeneration):\(scenePhase):\(session.status.rawValue):\(connected)") {
+                if remote && !connected && model.data == nil { model.loadFailed = true }
+                guard isCurrent, connected, let store = app.store else { return }
                 let generation = app.activationGeneration
-                if allowsInput, app.liveRequestAudit == nil, model.dictation == nil {
+                if canWrite, model.attachments == nil {
+                    model.attachments = .forSession(client: store.client, sessionID: session.id)
+                }
+                if canWrite, !remote, model.dictation == nil {
                     model.dictation = IOSDictationSession(client: store.client, defaults: app.composerDefaults,
                         context: [session.repoPath, session.baseBranch],
                         whisperStatus: app.extension(IOSTerminalController.self)?.whisperStatus,
@@ -32,23 +51,38 @@ struct IOSChatView: View {
                     model.dictation?.engine.probeWhisper()
                 }
                 await model.poll(fetch: { try await store.client.messages(sessionID: session.id) },
-                    running: { store.sessions.first { $0.id == session.id }?.status.known == .running },
-                    isCurrent: { isCurrent && app.store === store && app.activationGeneration == generation })
+                    running: { (remote ? store.remoteSession(id: session.id) : store.session(id: session.id))?.status.known == .running },
+                    isCurrent: { isCurrent && connected && app.store === store && app.activationGeneration == generation },
+                    fetchAsk: remote ? { try await store.client.blocks(host: session.host?.instanceId)[session.id]?.ask } : nil)
             }
             .onChange(of: scenePhase) { _, phase in
                 guard phase != .active, let voice = model.dictation?.voice else { return }
                 if voice.capturing { voice.finalize() } else if voice.state == .arming { voice.cancel() }
             }
             .onChange(of: allowsInput) { _, allowed in if !allowed { model.stopDictation() } }
+            .onChange(of: connected) { _, connected in if !connected { model.stopDictation() } }
+            .onChange(of: model.ask?.toolUseId) { _, _ in askFlow.sync(ask: model.ask) }
+            .onAppear { askFlow.sync(ask: model.ask) }
+            .sheet(isPresented: Binding(get: { remote && canWrite && model.ask != nil && askFlow.presentedID == model.ask?.toolUseId },
+                set: { if !$0 { askFlow.dismiss() } })) {
+                if let ask = model.ask {
+                    IOSAskSheet(ask: ask, model: askFlow.form(sessionID: session.id, ask: ask), submit: submitAsk)
+                }
+            }
             .onDisappear { model.stopDictation() }
     }
 
+    private func submitAsk() {
+        guard canWrite, let ask = model.ask, let client = app.store?.client else { return }
+        Task { await askFlow.submit(sessionID: session.id, ask: ask, writer: .live(client: client)) }
+    }
+
     private func send() {
-        guard allowsInput, isCurrent, let store = app.store else { return }
+        guard canWrite, let store = app.store else { return }
         let generation = app.activationGeneration
         Task {
             await model.send(isCurrent: {
-                allowsInput && isCurrent && app.store === store && app.activationGeneration == generation
+                canWrite && app.store === store && app.activationGeneration == generation
             }, reply: { try await store.client.replySession(id: session.id, text: $0) })
         }
     }
@@ -61,6 +95,7 @@ struct IOSChatContent: View {
     var fixture = false
     var send: () -> Void = {}
     @FocusState private var focused: Bool
+    @State private var picked: [PhotosPickerItem] = []
     @Environment(\.openURL) private var openURL
     private var voice: DictationController? { model.dictation?.voice }
 
@@ -146,7 +181,22 @@ struct IOSChatContent: View {
                 Text(L.t(voice.state == .locked ? "native_compose_voice_locked" : "native_compose_voice_no_send"))
                     .font(.caption).foregroundStyle(ComposePalette.muted)
             }
+            if let attachments = model.attachments {
+                IOSReplyAttachmentChips(attachments: attachments, thumbnails: [:],
+                    rendersStaticFixture: fixture, enabled: !model.sending)
+                if let error = attachments.importError { Text(verbatim: error).foregroundStyle(ComposePalette.red) }
+                if attachments.inFlight { Text(L.t("common_loading")).foregroundStyle(ComposePalette.muted) }
+            }
             HStack(alignment: .bottom, spacing: 6) {
+                if model.attachments != nil {
+                    PhotosPicker(selection: $picked, selectionBehavior: .ordered, matching: .images) {
+                        Image(systemName: "photo.badge.plus").frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel(L.t("native_compose_attach"))
+                    .accessibilityIdentifier("chat-attach")
+                    .disabled(model.sending || voice?.active == true)
+                    .onChange(of: picked) { _, items in importPhotos(items); picked = [] }
+                }
                 Group {
                     if fixture {
                         Text(verbatim: model.draft.isEmpty ? L.t("session_chat_placeholder") : model.draft)
@@ -205,6 +255,21 @@ struct IOSChatContent: View {
         .font(.subheadline).padding(12).background(ComposePalette.bg)
         .overlay(alignment: .top) { Rectangle().fill(ComposePalette.line).frame(height: 1) }
         .accessibilityIdentifier("chat-composer")
+    }
+
+    private func importPhotos(_ items: [PhotosPickerItem]) {
+        guard allowsInput, !model.sending, let attachments = model.attachments else { return }
+        let reserved = items.compactMap { item in attachments.beginImport().map { (item, $0) } }
+        Task {
+            for (item, stamp) in reserved {
+                do {
+                    let data = try await item.loadTransferable(type: Data.self)
+                    let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+                    attachments.finishImport(data.map { .init(name: "photo-\(UUID().uuidString).\(ext)", data: $0) },
+                        error: data == nil ? L.t("native_ios_attachment_invalid") : nil, generation: stamp)
+                } catch { attachments.finishImport(nil, error: ShepherdErrorCopy.message(error), generation: stamp) }
+            }
+        }
     }
 
     @ViewBuilder private func operatorBubble(_ text: String) -> some View {

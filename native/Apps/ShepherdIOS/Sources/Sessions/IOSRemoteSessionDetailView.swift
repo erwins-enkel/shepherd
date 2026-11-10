@@ -2,24 +2,45 @@ import SwiftUI
 import ShepherdAppCore
 import ShepherdKit
 
-/// The detail of a session mirrored from a connected machine (#2768): what the machine reports,
-/// the state of its link, and the actions this app does not offer for it, shown disabled with
-/// the reason. Read-only — no terminal here yet (its replies would need the coordinator to bridge
-/// `/reply`), and nothing reads this server's per-session routes.
+/// Chat and machine-reported facts for a mirrored session. Session requests go through
+/// the coordinator's forwarded routes; no local terminal is attached.
 struct IOSRemoteSessionDetailView: View {
     let session: Session
     @State private var explaining = false
+    @State private var tab: IOSSessionDetailTab = .chat
+    @State private var chat = IOSChatModel()
+    @Environment(AppModel.self) private var app
 
     private var now: Int { Int(Date.now.timeIntervalSince1970 * 1_000) }
 
     var body: some View {
+        VStack(spacing: 0) {
+            header.padding(.horizontal).padding(.top, 8)
+            if let line = RemoteSessionCopy.disconnectedLine(session, now: now) {
+                Text(verbatim: line).sessionFont(label: true).foregroundStyle(SessionListStyle.amber)
+                    .padding(8).accessibilityIdentifier("remote-detail-disconnected")
+            }
+            Picker(L.t("remote_detail_status"), selection: $tab) {
+                Text(L.t("viewport_chat_tab")).tag(IOSSessionDetailTab.chat)
+                Text(L.t("native_ios_detail_info")).tag(IOSSessionDetailTab.info)
+            }
+            .pickerStyle(.segmented).padding()
+            if tab == .chat {
+                IOSChatView(session: session, model: chat, allowsInput: app.allowsTerminalInput)
+            } else { information }
+        }
+        .background(SessionListStyle.background)
+        .navigationTitle(RemoteSessionCopy.qualifiedDesig(session))
+        .navigationBarTitleDisplayMode(.inline)
+        .preferredColorScheme(.dark)
+        .sheet(isPresented: $explaining) { explanationSheet }
+        .onDisappear { chat.stopDictation(); chat.attachments?.teardown(); chat.attachments = nil }
+        .accessibilityIdentifier("remote-session-detail")
+    }
+
+    private var information: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                header
-                if let line = RemoteSessionCopy.disconnectedLine(session, now: now) {
-                    Text(verbatim: line).sessionFont(label: true).foregroundStyle(SessionListStyle.amber)
-                        .accessibilityIdentifier("remote-detail-disconnected")
-                }
                 facts
                 Text(verbatim: L.t("remote_detail_task").uppercased())
                     .sessionFont(label: true).foregroundStyle(SessionListStyle.muted)
@@ -30,12 +51,6 @@ struct IOSRemoteSessionDetailView: View {
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(SessionListStyle.background)
-        .navigationTitle(RemoteSessionCopy.qualifiedDesig(session))
-        .navigationBarTitleDisplayMode(.inline)
-        .preferredColorScheme(.dark)
-        .sheet(isPresented: $explaining) { explanationSheet }
-        .accessibilityIdentifier("remote-session-detail")
     }
 
     private var header: some View {
@@ -82,10 +97,10 @@ struct IOSRemoteSessionDetailView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// Steer, Stop and Archive stay visible but disabled; the info button says why.
+    /// Stop and Archive stay visible but disabled; the info button says why.
     private var actions: some View {
         HStack(spacing: 8) {
-            ForEach([L.t("remote_detail_steer"), L.t("remote_detail_stop"), L.t("remote_detail_archive")],
+            ForEach([L.t("remote_detail_stop"), L.t("remote_detail_archive")],
                     id: \.self) { label in
                 Button(label) {}
                     .buttonStyle(.bordered)

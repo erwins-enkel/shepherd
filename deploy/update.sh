@@ -158,6 +158,10 @@ bun scripts/fix-node-pty-perms.mjs
 (cd ui && retry 2 bun install --frozen-lockfile)
 
 note "building UI"
+# paraglide keys its persistent compile cache by the ABSOLUTE outdir and never prunes it. The Mac app
+# builds each update in a fresh staged dir, so every update added a file until the inlang project
+# exceeded Lix's 64 MiB read cap and the build failed ("buffered read cap"). Start every deploy clean.
+rm -rf "$REPO/ui/project.inlang/cache"
 (cd ui && bun run build)
 
 # ── shepherd CLI (#2484) ──────────────────────────────────────────────────────

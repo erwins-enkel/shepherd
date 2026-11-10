@@ -41,11 +41,20 @@ import {
   type AssistantScope,
 } from "./operator-assistant-tools";
 import { redactSecretText } from "./redact";
-import { daysToMask, WEEKDAYS } from "./schedules-core";
-import type { AgentProvider } from "./types";
+import { PROFILE_RANK, SANDBOX_PROFILES, type SandboxProfile } from "./sandbox";
+import {
+  daysToMask,
+  DEFAULT_LAUNCH,
+  SCHEDULE_LAUNCH_KEYS,
+  WEEKDAYS,
+  type Schedule,
+  type ScheduleInput,
+  type ScheduleLaunch,
+} from "./schedules-core";
+import { AGENT_PROVIDERS, type AgentProvider } from "./types";
 
 export interface OperatorActionRequest {
-  method: "POST" | "PUT" | "DELETE";
+  method: "POST" | "PUT" | "PATCH" | "DELETE";
   /** Path plus query, e.g. `/api/repo-config?repo=%2Fr%2Falpha`. */
   path: string;
   /** JSON body; absent ⇒ no body. */
@@ -61,13 +70,19 @@ export interface TaskDefaults {
   effort: string | null;
 }
 
+/** A schedule's firing sandbox and its repo's own, or the create validator's refusal. */
+export type ScheduleProfiles = { spawn: SandboxProfile; repo: SandboxProfile } | { error: string };
+
 /** What the action tools need beyond the store: the operator's current settings, a repo's New
- *  Task defaults, and a way to run an operator route in-process. Absent ⇒ every action answers
- *  "unavailable". */
+ *  Task defaults, a way to run an operator route in-process, and the sandbox a schedule's firing
+ *  would spawn under. Absent ⇒ every action answers "unavailable". */
 export interface OperatorActionDeps {
   permissions(): AssistantPermissions;
   taskDefaults(repoPath: string): TaskDefaults;
   dispatch(req: OperatorActionRequest): Promise<{ status: number; body: unknown }>;
+  /** The profile a firing of this schedule spawns under (the server's spawnProfile over the
+   *  schedule's create input) and its repo's own (repoEffectiveProfile). */
+  scheduleProfiles(s: Pick<ScheduleInput, "repoPath" | "prompt" | "launch">): ScheduleProfiles;
   /** The audit line sink; default `console.info` (Shepherd's log). */
   log?: (line: string) => void;
 }
@@ -115,6 +130,11 @@ interface Resolve {
   /** The session's cached PR state, if any. */
   pr(sessionId: string): GitState | undefined;
   taskDefaults(repoPath: string): TaskDefaults;
+  /** A stored schedule this assistant may reach. */
+  schedule(id: unknown): Schedule | Fail;
+  /** A session's designation, or null once it is gone. */
+  desig(sessionId: string): string | null;
+  scheduleProfiles: OperatorActionDeps["scheduleProfiles"];
 }
 
 type Builder = (args: Record<string, unknown>, resolve: Resolve) => Built | Fail;
@@ -170,46 +190,123 @@ function startAnswer(body: unknown): Record<string, unknown> {
   return typeof b.desig === "string" ? { desig: b.desig } : {};
 }
 
-const SCHEDULE_ARGS = new Set(["repo", "name", "prompt", "days", "times", "baseBranch", "enabled"]);
+const SCHEDULE_FIELDS = ["name", "prompt", "days", "times", "enabled"] as const;
+/** The launch options that decide a firing's sandbox: an explicit Codex provider runs trusted,
+ *  research opens an autonomous repo's egress (SessionService.spawnProfile). */
+const SANDBOX_LAUNCH_KEYS = ["agentProvider", "research", "sandboxProfile"] as const;
+const CREATE_REQUIRED = ["name", "prompt", "days", "times"] as const;
+const CREATE_ARGS = new Set<string>(["repo", ...SCHEDULE_FIELDS, ...SCHEDULE_LAUNCH_KEYS]);
+const UPDATE_ARGS = new Set<string>(["scheduleId", ...SCHEDULE_FIELDS, ...SCHEDULE_LAUNCH_KEYS]);
 
-/** schedule_create's body for POST /api/schedules, or the argument error. The route's validator
- *  stays the authority on times, lengths and the prompt; this only shapes the agent's arguments. */
-function scheduleBody(
+interface ScheduleFields {
+  /** The top-level fields given, days as the mask. */
+  fields: Record<string, unknown>;
+  /** The launch options given; null = the default at fire time. */
+  launch: Partial<ScheduleLaunch>;
+}
+
+/** Each top-level schedule field's shape check: the value the route gets (days as the mask), or
+ *  the argument error. */
+const SCHEDULE_FIELD_CHECKS: Record<(typeof SCHEDULE_FIELDS)[number], (v: unknown) => unknown> = {
+  name: (v) => nonEmptyText(v, "name"),
+  prompt: (v) => nonEmptyText(v, "prompt"),
+  days: (v) =>
+    (Array.isArray(v) && daysToMask(v)) ||
+    fail(400, `days must be a non-empty array of ${WEEKDAYS.join(", ")}`),
+  times: (v) => (Array.isArray(v) ? v : fail(400, 'times must be an array of "HH:MM" strings')),
+  enabled: (v) => (typeof v === "boolean" ? v : fail(400, "enabled must be a boolean")),
+};
+
+/** The schedule fields among the agent's arguments, shaped for the schedules routes: weekday names
+ *  become the mask, launch options go under `launch`. The route's validator stays the authority on
+ *  times, lengths, the prompt and the launch values; this only shapes the arguments. */
+function scheduleFields(
   args: Record<string, unknown>,
-  repoPath: string,
-): Record<string, unknown> | Fail {
-  const stray = Object.keys(args).filter((k) => !SCHEDULE_ARGS.has(k));
+  allowed: ReadonlySet<string>,
+): ScheduleFields | Fail {
+  const stray = Object.keys(args).filter((k) => !allowed.has(k));
   if (stray.length > 0) return fail(400, `not settable here: ${stray.join(", ")}`);
-  const name = nonEmptyText(args.name, "name");
-  if (isFail(name)) return name;
-  const prompt = nonEmptyText(args.prompt, "prompt");
-  if (isFail(prompt)) return prompt;
-  const days = Array.isArray(args.days) ? daysToMask(args.days) : null;
-  if (days === null) return fail(400, `days must be a non-empty array of ${WEEKDAYS.join(", ")}`);
-  if (!Array.isArray(args.times)) return fail(400, 'times must be an array of "HH:MM" strings');
-  if (args.enabled !== undefined && typeof args.enabled !== "boolean")
-    return fail(400, "enabled must be a boolean");
-  if (args.baseBranch !== undefined) {
-    const base = nonEmptyText(args.baseBranch, "baseBranch");
-    if (isFail(base)) return base;
+  const fields: Record<string, unknown> = {};
+  for (const key of SCHEDULE_FIELDS) {
+    if (args[key] === undefined) continue;
+    const value = SCHEDULE_FIELD_CHECKS[key](args[key]);
+    if (isFail(value)) return value;
+    fields[key] = value;
   }
+  const base = args.baseBranch;
+  if (base !== undefined && base !== null && isFail(nonEmptyText(base, "baseBranch")))
+    return fail(400, "baseBranch must be a non-empty string or null");
+  const launch = Object.fromEntries(
+    SCHEDULE_LAUNCH_KEYS.filter((k) => args[k] !== undefined).map((k) => [k, args[k]]),
+  ) as Partial<ScheduleLaunch>;
+  return { fields, launch };
+}
+
+/** A schedule route's body: the fields, plus `launch` only when an option was given. */
+const scheduleRouteBody = ({ fields, launch }: ScheduleFields) => ({
+  ...fields,
+  ...(Object.keys(launch).length > 0 && { launch }),
+});
+
+/**
+ * An assistant's schedule change may tighten a firing's sandbox, never loosen it below both the
+ * repo's profile and the schedule's current one (a create's current one is the repo's). Mirrors the
+ * below-`full` token rule (server.ts tokenProfileError → sandboxOverrideRefused); loosening stays
+ * the operator's. Only a change to a SANDBOX_LAUNCH_KEYS option is checked: no other field moves
+ * the profile, so an operator-loosened schedule stays editable.
+ */
+function sandboxRefusal(
+  resolve: Resolve,
+  given: Partial<ScheduleLaunch>,
+  next: Pick<ScheduleInput, "repoPath" | "prompt" | "launch">,
+  current: Schedule | null,
+): Fail | null {
+  if (!SANDBOX_LAUNCH_KEYS.some((k) => given[k] !== undefined)) return null;
+  const after = resolve.scheduleProfiles(next);
+  if ("error" in after) return fail(400, after.error);
+  // A current launch the validator now refuses sets no floor of its own: the repo's holds.
+  const before = current ? resolve.scheduleProfiles(current) : null;
+  const floor = Math.min(
+    PROFILE_RANK[after.repo],
+    before && !("error" in before) ? PROFILE_RANK[before.spawn] : PROFILE_RANK[after.repo],
+  );
+  if (PROFILE_RANK[after.spawn] >= floor) return null;
+  return fail(
+    403,
+    `sandbox_override_not_allowed: these launch options would run each firing ${after.spawn}, ` +
+      `below the repo's ${after.repo} profile — loosening a schedule's sandbox stays the ` +
+      "operator's (Repo automation → Schedules)",
+  );
+}
+
+const schedulePath = (id: string, sub = "") =>
+  `/api/schedules/${encodeURIComponent(id)}${sub ? `/${sub}` : ""}`;
+const scheduleTarget = (repoPath: string, name: string) =>
+  `${basename(repoPath)} schedule ${JSON.stringify(name)}`;
+
+const record = (body: unknown) =>
+  (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+
+/** A created or edited schedule's answer: its id, whether it is on and its next firing — never the
+ *  stored row. */
+function scheduleAnswer(body: unknown): Record<string, unknown> {
+  const b = record(body);
   return {
-    repoPath,
-    name,
-    prompt,
-    days,
-    times: args.times,
-    ...(args.enabled !== undefined && { enabled: args.enabled }),
-    ...(args.baseBranch !== undefined && { launch: { baseBranch: args.baseBranch } }),
+    ...(typeof b.id === "string" && { scheduleId: b.id }),
+    ...(typeof b.enabled === "boolean" && { enabled: b.enabled }),
+    nextAt: typeof b.nextAt === "number" ? new Date(b.nextAt).toISOString() : null,
   };
 }
 
-/** A created schedule's answer: its id and next firing — never the stored row. */
-function scheduleAnswer(body: unknown): Record<string, unknown> {
-  const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+/** A run-now's answer: its outcome, the started session's desig (never its id) and the reason,
+ *  redacted and clipped — it can carry a launch error. */
+function runAnswer(body: unknown, resolve: Resolve): Record<string, unknown> {
+  const b = record(body);
+  const desig = typeof b.sessionId === "string" ? resolve.desig(b.sessionId) : null;
   return {
-    ...(typeof b.id === "string" && { scheduleId: b.id }),
-    nextAt: typeof b.nextAt === "number" ? new Date(b.nextAt).toISOString() : null,
+    ...(typeof b.outcome === "string" && { outcome: b.outcome }),
+    ...(desig && { desig }),
+    ...(typeof b.reason === "string" && { reason: redactedClip(b.reason) }),
   };
 }
 
@@ -442,13 +539,75 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
   schedule_create: (args, resolve) => {
     const repo = resolve.repo(args.repo);
     if (isFail(repo)) return repo;
-    const body = scheduleBody(args, repo);
-    if (isFail(body)) return body;
+    const missing = CREATE_REQUIRED.filter((k) => args[k] === undefined);
+    if (missing.length > 0) return fail(400, `missing: ${missing.join(", ")}`);
+    const shaped = scheduleFields(args, CREATE_ARGS);
+    if (isFail(shaped)) return shaped;
+    const name = shaped.fields.name as string;
+    const next = {
+      repoPath: repo,
+      prompt: shaped.fields.prompt as string,
+      launch: { ...DEFAULT_LAUNCH, ...shaped.launch },
+    };
+    const refused = sandboxRefusal(resolve, shaped.launch, next, null);
+    if (refused) return refused;
     return {
-      requests: [{ method: "POST", path: "/api/schedules", body }],
-      target: `${basename(repo)} schedule ${JSON.stringify(body.name)}`,
+      requests: [
+        {
+          method: "POST",
+          path: "/api/schedules",
+          body: { repoPath: repo, ...scheduleRouteBody(shaped) },
+        },
+      ],
+      target: scheduleTarget(repo, name),
       echo: { days: args.days, times: args.times },
       answer: scheduleAnswer,
+    };
+  },
+  // PATCH merges the given fields and launch options over the stored ones; the route re-baselines
+  // a cadence change or an enable, so slots already past never fire.
+  schedule_update: (args, resolve) => {
+    const s = resolve.schedule(args.scheduleId);
+    if (isFail(s)) return s;
+    const shaped = scheduleFields(args, UPDATE_ARGS);
+    if (isFail(shaped)) return shaped;
+    const changed = Object.keys(args).filter((k) => k !== "scheduleId");
+    if (changed.length === 0) {
+      return fail(
+        400,
+        `set at least one of ${[...SCHEDULE_FIELDS, ...SCHEDULE_LAUNCH_KEYS].join(", ")}`,
+      );
+    }
+    const next = {
+      repoPath: s.repoPath,
+      prompt: (shaped.fields.prompt as string | undefined) ?? s.prompt,
+      launch: { ...s.launch, ...shaped.launch },
+    };
+    const refused = sandboxRefusal(resolve, shaped.launch, next, s);
+    if (refused) return refused;
+    return {
+      requests: [{ method: "PATCH", path: schedulePath(s.id), body: scheduleRouteBody(shaped) }],
+      target: scheduleTarget(s.repoPath, s.name),
+      echo: { changed },
+      answer: scheduleAnswer,
+    };
+  },
+  schedule_delete: (args, resolve) => {
+    const s = resolve.schedule(args.scheduleId);
+    if (isFail(s)) return s;
+    return {
+      requests: [{ method: "DELETE", path: schedulePath(s.id) }],
+      target: scheduleTarget(s.repoPath, s.name),
+    };
+  },
+  // The operator's Run now: fires even a disabled schedule, still skipped while its last run is open.
+  schedule_run: (args, resolve) => {
+    const s = resolve.schedule(args.scheduleId);
+    if (isFail(s)) return s;
+    return {
+      requests: [{ method: "POST", path: schedulePath(s.id, "run") }],
+      target: scheduleTarget(s.repoPath, s.name),
+      answer: (body) => runAnswer(body, resolve),
     };
   },
 };
@@ -461,6 +620,8 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
  *  - session_start, repo_automation_set, epic_run_set, schedule_create and issue_create resolve through
  *    `repo()`, which refuses another repo;
  *  - held_task resolves through `held()`, which refuses another repo's held task;
+ *  - schedule_update, schedule_delete and schedule_run resolve through `schedule()`, which refuses
+ *    another repo's schedule;
  *  - herd_halt interrupts every working session of every repo (`/api/halt` takes no target), so it
  *    is refused outright here — the global assistant halts the herd; a scoped one can interrupt
  *    its own sessions one by one.
@@ -505,16 +666,32 @@ function resolver(deps: ActionDeps, scope: AssistantScope): Resolve {
         ? task.id
         : outsideScope(`held task "${task.id}"`, scope!);
     },
+    schedule(id) {
+      const s = typeof id === "string" ? deps.store.getSchedule(id) : null;
+      if (!s) {
+        return fail(
+          404,
+          `schedule "${String(id)}" not found — repo_automation lists schedules with their id`,
+        );
+      }
+      return inScope(scope, s.repoPath) ? s : outsideScope(`schedule "${s.id}"`, scope!);
+    },
+    desig: (sessionId) => deps.store.get(sessionId)?.desig ?? null,
+    scheduleProfiles: (s) => deps.operatorActions!.scheduleProfiles(s),
   };
+}
+
+/** Text from a route the agent reads: redacted and clipped. */
+function redactedClip(text: string): string {
+  const clean = redactSecretText(text);
+  return clean.length > MAX_ERROR_CHARS ? `${clean.slice(0, MAX_ERROR_CHARS)}…` : clean;
 }
 
 /** A route's refusal as the agent reads it: `code: error`, redacted and clipped. */
 function routeError(status: number, body: unknown): string {
   const b = (body ?? {}) as { error?: unknown; code?: unknown };
   const error = typeof b.error === "string" ? b.error : `HTTP ${status}`;
-  const text = typeof b.code === "string" ? `${b.code}: ${error}` : error;
-  const clean = redactSecretText(text);
-  return clean.length > MAX_ERROR_CHARS ? `${clean.slice(0, MAX_ERROR_CHARS)}…` : clean;
+  return redactedClip(typeof b.code === "string" ? `${b.code}: ${error}` : error);
 }
 
 /** The whitelisted scalars of a route's answer — never the body itself. */
@@ -638,6 +815,59 @@ const TOGGLE = {
   type: ["boolean", "null"],
   description: "true or false overrides the repo default; null inherits it.",
 };
+
+const SCHEDULE_ID = {
+  type: "string",
+  description: "The schedule's id, as repo_automation lists it.",
+};
+const SCHEDULE_FIELD_PROPS = {
+  name: { type: "string", description: "A short name, up to 80 chars." },
+  prompt: {
+    type: "string",
+    description: "What each run's agent gets. Self-contained: it sees nothing of this chat.",
+  },
+  days: {
+    type: "array",
+    minItems: 1,
+    items: { type: "string", enum: [...WEEKDAYS] },
+    description: "Weekdays it fires on.",
+  },
+  times: {
+    type: "array",
+    minItems: 1,
+    maxItems: 12,
+    items: { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$" },
+    description: 'Server-local "HH:MM" times, e.g. ["09:00"].',
+  },
+};
+/** A schedule's launch options, flat; each run starts as New Task would with them. */
+const SCHEDULE_LAUNCH_PROPS = {
+  agentProvider: {
+    type: ["string", "null"],
+    enum: [...AGENT_PROVIDERS, null],
+    description: "null: the operator's default at fire time. An explicit codex runs unsandboxed.",
+  },
+  model: { type: ["string", "null"], description: "null: the default model at fire time." },
+  effort: { type: ["string", "null"], description: "null: the default effort at fire time." },
+  autopilotEnabled: {
+    type: ["boolean", "null"],
+    description: "true runs unattended; null inherits the repo default. Default false.",
+  },
+  planGateEnabled: { type: ["boolean", "null"], description: "null inherits the repo default." },
+  research: { type: "boolean", description: "A research run instead of a code task." },
+  sandboxProfile: {
+    type: ["string", "null"],
+    enum: [...SANDBOX_PROFILES, null],
+    description: "null inherits the repo's profile.",
+  },
+  baseBranch: {
+    type: ["string", "null"],
+    description: "The branch each run starts from; null: the repo's default branch.",
+  },
+};
+const SCHEDULE_SANDBOX_NOTE =
+  "Launch options may tighten a run's sandbox, never loosen it below the repo's profile " +
+  "(sandbox_override_not_allowed: loosening is the operator's).";
 
 const desigTool = (name: string, group: string, what: string): McpTool => ({
   name,
@@ -838,41 +1068,71 @@ export const OPERATOR_ACTION_TOOLS: McpTool[] = [
     name: "schedule_create",
     description:
       "[automation] Create a repo schedule: on the given weekdays and times Shepherd starts a " +
-      "fresh, attended session with the prompt (a task or a /skill), as the operator's Repo automation → " +
+      "fresh session with the prompt (a task or a /skill), as the operator's Repo automation → " +
       "Schedules would. Times are the SERVER's local time; the answer's nextAt " +
-      "(ISO, UTC) is the first firing — tell the operator. Model and effort: the operator's " +
-      "defaults at fire time; autopilot off. Check repo_automation's schedules first: never " +
-      "duplicate one. Editing, deleting or running a schedule stays the operator's." +
+      "(ISO, UTC) is the first firing — tell the operator. Launch options not given take the " +
+      "operator's defaults at fire time, autopilot off (attended). " +
+      SCHEDULE_SANDBOX_NOTE +
+      " Check repo_automation's schedules first: never duplicate one." +
       NOTE,
     inputSchema: {
       type: "object",
       properties: {
         repo: REPO,
-        name: { type: "string", description: "A short name, up to 80 chars." },
-        prompt: {
-          type: "string",
-          description: "What each run's agent gets. Self-contained: it sees nothing of this chat.",
-        },
-        days: {
-          type: "array",
-          minItems: 1,
-          items: { type: "string", enum: [...WEEKDAYS] },
-          description: "Weekdays it fires on.",
-        },
-        times: {
-          type: "array",
-          minItems: 1,
-          maxItems: 12,
-          items: { type: "string", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$" },
-          description: 'Server-local "HH:MM" times, e.g. ["09:00"].',
-        },
-        baseBranch: {
-          type: "string",
-          description: "The branch each run starts from; default the repo's default branch.",
-        },
+        ...SCHEDULE_FIELD_PROPS,
+        ...SCHEDULE_LAUNCH_PROPS,
         enabled: { type: "boolean", description: "Default true." },
       },
       required: ["repo", "name", "prompt", "days", "times"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "schedule_update",
+    description:
+      "[automation] Edit a repo schedule (repo_automation lists its id and current fields): pass " +
+      "only what changes; launch options merge over the stored ones, null resets one to its " +
+      "default. Changing days or times, or enabling it, never fires slots already past. Answers " +
+      "enabled and nextAt (ISO, UTC) — tell the operator. " +
+      SCHEDULE_SANDBOX_NOTE +
+      NOTE,
+    inputSchema: {
+      type: "object",
+      properties: {
+        scheduleId: SCHEDULE_ID,
+        ...SCHEDULE_FIELD_PROPS,
+        ...SCHEDULE_LAUNCH_PROPS,
+        enabled: { type: "boolean", description: "false pauses it; true resumes it." },
+      },
+      required: ["scheduleId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "schedule_delete",
+    description:
+      "[automation] Delete a repo schedule and its run history. Only when the operator asked to " +
+      "delete exactly this one; to pause it, schedule_update with enabled false." +
+      NOTE,
+    inputSchema: {
+      type: "object",
+      properties: { scheduleId: SCHEDULE_ID },
+      required: ["scheduleId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "schedule_run",
+    description:
+      "[automation] Fire a repo schedule now, outside its cadence — even a disabled one (the " +
+      "operator's Run now). Answers the outcome: spawned (with the new session's desig), held " +
+      "(queued by the usage or capacity hold), skipped:overlap (its previous run is still open) " +
+      "or error (with the reason)." +
+      NOTE,
+    inputSchema: {
+      type: "object",
+      properties: { scheduleId: SCHEDULE_ID },
+      required: ["scheduleId"],
       additionalProperties: false,
     },
   },

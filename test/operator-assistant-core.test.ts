@@ -191,6 +191,15 @@ test("brief names every action tool and the setting that governs it", () => {
   expect(b).toContain("Do not blindly retry failed or uncertain writes");
 });
 
+test("brief lets the assistant manage schedules, but not loosen their sandbox", () => {
+  const b = brief();
+  expect(b).toContain("schedule_update({scheduleId, …only what changes})");
+  expect(b).toContain("schedule_delete({scheduleId})");
+  expect(b).toContain("schedule_run({scheduleId})");
+  expect(b).toContain("sandbox_override_not_allowed");
+  expect(b).not.toContain("Editing, deleting or running a schedule now is the operator's");
+});
+
 test("brief carries the guardrails", () => {
   const b = brief();
   expect(b).toContain("File edits are denied");

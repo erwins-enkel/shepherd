@@ -95,7 +95,7 @@ export interface ScheduleInput {
   launch: ScheduleLaunch;
 }
 
-const DEFAULT_LAUNCH: ScheduleLaunch = {
+export const DEFAULT_LAUNCH: ScheduleLaunch = {
   agentProvider: null,
   model: null,
   effort: null,
@@ -109,7 +109,9 @@ const DEFAULT_LAUNCH: ScheduleLaunch = {
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const KEYS = new Set(["repoPath", "name", "prompt", "days", "times", "enabled", "launch"]);
-const LAUNCH_KEYS = new Set(Object.keys(DEFAULT_LAUNCH));
+/** The launch options a schedule carries, by name. */
+export const SCHEDULE_LAUNCH_KEYS = Object.keys(DEFAULT_LAUNCH) as (keyof ScheduleLaunch)[];
+const LAUNCH_KEYS = new Set<string>(SCHEDULE_LAUNCH_KEYS);
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 const fail = (error: string): { ok: false; error: string } => ({ ok: false, error });

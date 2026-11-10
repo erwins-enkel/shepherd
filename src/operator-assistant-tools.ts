@@ -422,8 +422,9 @@ function runEndBlock(deps: DiagDeps, repoPath: string, parent: number | undefine
   return end && { parentIssueNumber: parent, ...end, at: iso(end.at) };
 }
 
-/** The repo's schedules, so a schedule_create never duplicates one. Name and prompt are fenced;
- *  a run shows only its outcome and time (its reason can carry a route error). */
+/** The repo's schedules, so a schedule_create never duplicates one and a schedule_update starts
+ *  from what is stored. Name and prompt are fenced; the launch options are validated scalars; a run
+ *  shows only its outcome and time (its reason can carry a route error). */
 function schedulesBlock(deps: DiagDeps, repoPath: string, fence: Fence, now = Date.now()) {
   const all = deps.store.listSchedules(repoPath);
   const schedules = all.slice(0, MAX_LIST).map((s) => {
@@ -436,6 +437,7 @@ function schedulesBlock(deps: DiagDeps, repoPath: string, fence: Fence, now = Da
       days: maskToDays(s.days),
       times: s.times,
       enabled: s.enabled,
+      launch: s.launch,
       nextAt: next && iso(next.at),
       lastRun: last ? { outcome: last.outcome, at: iso(last.at) } : null,
     };
@@ -827,7 +829,8 @@ const REPO_AUTOMATION: McpTool = {
     "Drain and epic questions. Per repo: autoDrainEnabled, autoMergeEnabled, maxAuto, autoLabel, " +
     "criticEnabled, usageCeilingPct, repoMode, sandboxProfile (+ sandboxProfileEffective), the drain status (null when the " +
     "drain reports nothing for the repo), the epic run, how it last ended, the epic queue, and " +
-    "its schedules (name, prompt, server-local days and times, enabled, nextAt, last run). " +
+    "its schedules (id, name, prompt, server-local days and times, enabled, launch options, " +
+    "nextAt, last run). " +
     "With epicParent (one repo): that epic's structural diagnosis — why its next child doesn't " +
     "start. With issueNumber and an explicit repo: fresh issue state, queue membership, priority and claim labels." +
     DIAG_READ_NOTE,

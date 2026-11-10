@@ -320,7 +320,12 @@ import {
   type GithubAccessRunners,
 } from "./github-access";
 import { resolveDefaultBranch, fastForwardDefaultBranch } from "./pull";
-import { nextSlot, validateScheduleInput, type Schedule } from "./schedules-core";
+import {
+  nextSlot,
+  scheduleCreateInput,
+  validateScheduleInput,
+  type Schedule,
+} from "./schedules-core";
 import { hasLocalWork } from "./schedule-noop";
 import { analyzeReadiness } from "./readiness";
 import { applyForgeCheck, ForgeCheckNotApplicableError, forgeReadiness } from "./readiness-forge";
@@ -609,10 +614,10 @@ import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting, writeApiKeyHelper, clearApiKeyHelper } from "./auth-mode";
 import { normalizeOperatorLanguage } from "./operator-language";
 import {
+  PROFILE_RANK,
   SANDBOX_PROFILES,
   isRepoSandboxSetting,
   type RepoSandboxSetting,
-  type SandboxProfile,
   SandboxAutoRefused,
 } from "./sandbox";
 import { validateHookEvent, type HookEvent, type SubagentEntry } from "./hooks-ingest";
@@ -1693,9 +1698,6 @@ function repositoryInputError(
   }
   return null;
 }
-
-/** Weakest first: a spawn may move right of its repo's profile, never left. */
-const PROFILE_RANK: Record<SandboxProfile, number> = { trusted: 0, standard: 1, autonomous: 2 };
 
 /** Below `full`, a token may only tighten the profile a spawn runs under (audit run-2 R2-F07):
  *  a per-spawn override, an explicit Codex provider (always trusted) or an open-egress kind's
@@ -8607,6 +8609,15 @@ function operatorActionDeps(deps: AppDeps): OperatorActionDeps {
         }),
       );
       return { status: res.status, body: await res.json().catch(() => null) };
+    },
+    // What a firing would spawn under, through the validator a firing uses — and the repo's own.
+    scheduleProfiles(s) {
+      const input = scheduleCreateInput(s, s.launch.baseBranch ?? "main", config.repoRoot);
+      if (!input.ok) return { error: input.error };
+      return {
+        spawn: deps.service.spawnProfile(input.value),
+        repo: deps.service.repoEffectiveProfile(input.value.repoPath),
+      };
     },
   };
 }

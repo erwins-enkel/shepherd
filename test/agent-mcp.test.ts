@@ -1130,6 +1130,7 @@ for (const agentProvider of ["claude", "codex"] as const) {
         automation: level,
       }),
       taskDefaults: () => ({ baseBranch: "main", agentProvider, model: null, effort: null }),
+      scheduleProfiles: () => ({ spawn: "standard", repo: "standard" }),
       dispatch: async (req) => {
         expect(req).toEqual({
           method: "POST",

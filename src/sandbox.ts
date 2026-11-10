@@ -54,6 +54,13 @@ export const SANDBOX_PROFILES: readonly SandboxProfile[] = [
   "autonomous",
 ] as const;
 
+/** Weakest first: a spawn may move right of its repo's profile, never left. */
+export const PROFILE_RANK: Record<SandboxProfile, number> = {
+  trusted: 0,
+  standard: 1,
+  autonomous: 2,
+};
+
 export function isSandboxProfile(v: unknown): v is SandboxProfile {
   return typeof v === "string" && (SANDBOX_PROFILES as readonly string[]).includes(v);
 }

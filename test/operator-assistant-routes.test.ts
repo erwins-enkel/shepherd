@@ -23,7 +23,7 @@ import {
 } from "../src/service";
 import { SessionStore } from "../src/store";
 import type { EpicRun } from "../src/epic-core";
-import type { DiagnosticCheck, Session } from "../src/types";
+import type { DiagnosticCheck, Session, StandardCreateInput } from "../src/types";
 
 const OK_CHECKS: DiagnosticCheck[] = [
   { id: "herdr", state: "ok", hintKey: "diagnostics_hint_herdr_ok" },
@@ -1027,6 +1027,67 @@ test("schedule_create creates an attended schedule in-process that repo_automati
   expect(typeof made.data.nextAt).toBe("string");
   const read = await callTool(app, assistant.id, "repo_automation", { repo: "alpha" });
   expect(read.data.repos[0].schedules[0]).toMatchObject({ id: s!.id, days: ["mon", "fri"] });
+});
+
+test("schedule_update and schedule_delete edit and remove a schedule in-process; loosening its sandbox is refused", async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "oa-schedule-edit-")));
+  const repo = join(root, "alpha");
+  mkdirSync(repo);
+  const saved = { repoRoot: config.repoRoot, permissions: config.assistantPermissions };
+  restore = () => {
+    config.repoRoot = saved.repoRoot;
+    config.assistantPermissions = saved.permissions;
+    rmSync(root, { recursive: true, force: true });
+  };
+  config.repoRoot = root;
+  config.assistantPermissions = { ...saved.permissions, automation: "allow" };
+  const { deps, store } = setup();
+  // The repo runs autonomous; an explicit Codex provider runs trusted (SessionService.spawnProfile).
+  Object.assign(deps.service, {
+    spawnProfile: (i: StandardCreateInput) =>
+      i.agentProvider === "codex" ? "trusted" : (i.sandboxProfile ?? "autonomous"),
+    repoEffectiveProfile: () => "autonomous",
+  });
+  const assistant = assistantRow(store);
+  const app = makeApp(deps);
+  const made = await callTool(app, assistant.id, "schedule_create", {
+    repo: "alpha",
+    name: "Morning triage",
+    prompt: "/triage-feedback",
+    days: ["mon"],
+    times: ["09:00"],
+  });
+  const id = made.data.scheduleId as string;
+  const edited = await callTool(app, assistant.id, "schedule_update", {
+    scheduleId: id,
+    prompt: "/triage-feedback --all",
+    times: ["07:30"],
+    enabled: false,
+    effort: "high",
+  });
+  expect(edited.isError).toBe(false);
+  expect(edited.data).toMatchObject({ scheduleId: id, enabled: false, nextAt: null });
+  expect(store.getSchedule(id)).toMatchObject({
+    prompt: "/triage-feedback --all",
+    times: ["07:30"],
+    enabled: false,
+    launch: { effort: "high", autopilotEnabled: false, sandboxProfile: null },
+  });
+  for (const loosen of [{ sandboxProfile: "standard" }, { agentProvider: "codex" }]) {
+    const refused = await callTool(app, assistant.id, "schedule_update", {
+      scheduleId: id,
+      ...loosen,
+    });
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused.data)).toContain("sandbox_override_not_allowed");
+  }
+  expect(store.getSchedule(id)!.launch).toMatchObject({
+    sandboxProfile: null,
+    agentProvider: null,
+  });
+  const gone = await callTool(app, assistant.id, "schedule_delete", { scheduleId: id });
+  expect(gone.isError).toBe(false);
+  expect(store.listSchedules(repo)).toEqual([]);
 });
 
 test("F08: the ingress refuses an assistant action carrying only the session UUID", async () => {

@@ -7,6 +7,7 @@ import { expect, test } from "bun:test";
 import {
   applyOperatorAction,
   OPERATOR_ACTION_TOOLS,
+  type OperatorActionDeps,
   type OperatorActionRequest,
 } from "../src/operator-assistant-actions";
 import {
@@ -20,6 +21,8 @@ import { EventHub } from "../src/events";
 import { ACTION_REQUEST_EVENT, ActionRequestService } from "../src/action-request";
 import type { AgentControlDeps } from "../src/agent-control";
 import type { GitState } from "../src/forge/types";
+import type { SandboxProfile } from "../src/sandbox";
+import { DEFAULT_LAUNCH, type ScheduleLaunch } from "../src/schedules-core";
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
@@ -56,6 +59,8 @@ function setup(
     actionRequests?: AgentControlDeps["actionRequests"];
     /** Every session's cached PR state; default an open PR at HEAD onto main. */
     pr?: GitState | null;
+    /** The sandbox seam; default every launch runs at its repo's `standard`. */
+    scheduleProfiles?: OperatorActionDeps["scheduleProfiles"];
   } = {},
 ) {
   const store = new SessionStore(":memory:");
@@ -88,6 +93,9 @@ function setup(
         requests.push(req);
         return opts.answer?.(req) ?? { status: 200, body: { ok: true } };
       },
+      scheduleProfiles:
+        opts.scheduleProfiles ??
+        (() => ({ spawn: "standard" as const, repo: "standard" as const })),
       log: (line: string) => logs.push(line),
     },
   };
@@ -856,7 +864,7 @@ test("schedule_create refuses bad arguments before dispatching", async () => {
     { times: "09:00" },
     { enabled: "yes" },
     { baseBranch: "" },
-    { autopilotEnabled: true },
+    { launch: { autopilotEnabled: true } },
   ]) {
     expect(refusal(await run("schedule_create", { ...SCHEDULE, ...bad }))?.status).toBe(400);
   }
@@ -885,6 +893,212 @@ test("schedule_create: automation off refuses it; a scoped assistant creates onl
   );
   expect(elsewhere?.status).toBe(403);
   expect(requests).toHaveLength(1);
+});
+
+/** A fake sandbox seam: an explicit codex runs trusted, else the launch's profile or the repo's. */
+const profilesOf =
+  (repo: SandboxProfile = "standard"): OperatorActionDeps["scheduleProfiles"] =>
+  ({ launch }) => ({
+    spawn: launch.agentProvider === "codex" ? "trusted" : (launch.sandboxProfile ?? repo),
+    repo,
+  });
+
+function addSchedule(
+  store: SessionStore,
+  launch: Partial<ScheduleLaunch> = {},
+  repoPath = "/r/beta",
+) {
+  return store.insertSchedule(
+    {
+      repoPath,
+      name: "Morning triage",
+      prompt: "/triage-feedback",
+      days: 0b0010001,
+      times: ["09:00"],
+      enabled: true,
+      launch: { ...DEFAULT_LAUNCH, ...launch },
+    },
+    Date.now(),
+  );
+}
+
+test("schedule_create carries the launch options under launch and checks their sandbox", async () => {
+  const seen: unknown[] = [];
+  const { run, requests } = setup({
+    scheduleProfiles: (s) => (seen.push(s), profilesOf()(s)),
+  });
+  const launch = { model: "opus", autopilotEnabled: true, sandboxProfile: "autonomous" };
+  expect((await run("schedule_create", { ...SCHEDULE, ...launch })).ok).toBe(true);
+  expect(requests[0]!.body).toMatchObject({ repoPath: "/r/beta", launch });
+  expect(seen).toEqual([
+    { repoPath: "/r/beta", prompt: "/triage-feedback", launch: { ...DEFAULT_LAUNCH, ...launch } },
+  ]);
+  // No sandbox option given: nothing to check.
+  seen.length = 0;
+  expect((await run("schedule_create", { ...SCHEDULE, model: "opus" })).ok).toBe(true);
+  expect(seen).toEqual([]);
+});
+
+test("schedule_create refuses launch options that loosen the repo's sandbox", async () => {
+  const { run, requests } = setup({ scheduleProfiles: profilesOf("autonomous") });
+  for (const loosen of [{ agentProvider: "codex" }, { sandboxProfile: "standard" }]) {
+    const res = refusal(await run("schedule_create", { ...SCHEDULE, ...loosen }));
+    expect(res?.status).toBe(403);
+    expect(res?.error).toStartWith("sandbox_override_not_allowed");
+  }
+  const invalid = setup({ scheduleProfiles: () => ({ error: "unknown model" }) });
+  expect(
+    await invalid.run("schedule_create", { ...SCHEDULE, agentProvider: "claude" }),
+  ).toMatchObject({ ok: false, status: 400, error: "unknown model" });
+  expect([...requests, ...invalid.requests]).toEqual([]);
+});
+
+test("schedule_update patches only the given fields, answering enabled and nextAt only", async () => {
+  const nextAt = Date.UTC(2026, 10, 11, 9);
+  const { run, requests, store } = setup({
+    answer: () => ({
+      status: 200,
+      body: { id: "x", enabled: false, prompt: "secret", repoPath: "/r/beta", nextAt },
+    }),
+  });
+  const s = addSchedule(store);
+  const res = await run("schedule_update", {
+    scheduleId: s.id,
+    days: ["tue"],
+    times: ["10:00"],
+    enabled: false,
+    model: "opus",
+    baseBranch: null,
+  });
+  expect(requests).toEqual([
+    {
+      method: "PATCH",
+      path: `/api/schedules/${s.id}`,
+      body: {
+        days: 0b10,
+        times: ["10:00"],
+        enabled: false,
+        launch: { model: "opus", baseBranch: null },
+      },
+    },
+  ]);
+  expect(res).toEqual({
+    ok: true,
+    data: {
+      ok: true,
+      action: "schedule_update",
+      target: 'beta schedule "Morning triage"',
+      changed: ["days", "times", "enabled", "model", "baseBranch"],
+      scheduleId: "x",
+      enabled: false,
+      nextAt: new Date(nextAt).toISOString(),
+    },
+  });
+});
+
+test("schedule_update refuses no change, stray fields, bad values and unknown ids before dispatching", async () => {
+  const { run, requests, store } = setup();
+  const s = addSchedule(store);
+  for (const bad of [
+    {},
+    { repo: "beta" },
+    { launch: { model: "opus" } },
+    { name: "" },
+    { days: [] },
+    { times: "09:00" },
+    { enabled: "no" },
+    { baseBranch: "" },
+  ]) {
+    expect(refusal(await run("schedule_update", { scheduleId: s.id, ...bad }))?.status).toBe(400);
+  }
+  const missing = refusal(await run("schedule_update", { scheduleId: "nope", enabled: false }));
+  expect(missing?.status).toBe(404);
+  expect(missing?.error).toContain("repo_automation");
+  expect(requests).toEqual([]);
+});
+
+test("schedule_update may tighten a schedule's sandbox, never loosen it below the repo and its own", async () => {
+  const { run, requests, store } = setup({ scheduleProfiles: profilesOf("standard") });
+  const plain = addSchedule(store);
+  const loosened = refusal(
+    await run("schedule_update", { scheduleId: plain.id, agentProvider: "codex" }),
+  );
+  expect(loosened?.status).toBe(403);
+  expect(loosened?.error).toStartWith("sandbox_override_not_allowed");
+  expect(
+    refusal(await run("schedule_update", { scheduleId: plain.id, sandboxProfile: "trusted" }))
+      ?.status,
+  ).toBe(403);
+  expect(requests).toEqual([]);
+  // Tightening passes; so does any edit of a schedule the operator already loosened that leaves
+  // it no looser than it was.
+  expect(
+    (await run("schedule_update", { scheduleId: plain.id, sandboxProfile: "autonomous" })).ok,
+  ).toBe(true);
+  const codex = addSchedule(store, { agentProvider: "codex" });
+  expect((await run("schedule_update", { scheduleId: codex.id, times: ["07:00"] })).ok).toBe(true);
+  expect((await run("schedule_update", { scheduleId: codex.id, research: true })).ok).toBe(true);
+  expect((await run("schedule_update", { scheduleId: codex.id, agentProvider: null })).ok).toBe(
+    true,
+  );
+  expect(requests).toHaveLength(4);
+});
+
+test("schedule_delete deletes the schedule by id", async () => {
+  const { run, requests, store } = setup();
+  const s = addSchedule(store);
+  expect(await run("schedule_delete", { scheduleId: s.id })).toEqual({
+    ok: true,
+    data: { ok: true, action: "schedule_delete", target: 'beta schedule "Morning triage"' },
+  });
+  expect(requests).toEqual([{ method: "DELETE", path: `/api/schedules/${s.id}` }]);
+});
+
+test("schedule_run fires it now, answering the outcome, the session's desig and a redacted reason", async () => {
+  const token = `github_pat_${"a".repeat(30)}`;
+  let body: unknown = null;
+  const { run, requests, store, worker } = setup({ answer: () => ({ status: 200, body }) });
+  const s = addSchedule(store);
+  body = { id: 1, scheduleId: s.id, outcome: "spawned", sessionId: worker.id, reason: null };
+  const spawned = await run("schedule_run", { scheduleId: s.id });
+  expect(requests).toEqual([{ method: "POST", path: `/api/schedules/${s.id}/run` }]);
+  expect(spawned).toEqual({
+    ok: true,
+    data: {
+      ok: true,
+      action: "schedule_run",
+      target: 'beta schedule "Morning triage"',
+      outcome: "spawned",
+      desig: worker.desig,
+    },
+  });
+  expect(JSON.stringify(spawned)).not.toMatch(UUID_RE);
+  body = { outcome: "error", sessionId: null, reason: `push failed: ${token}` };
+  const failed = await run("schedule_run", { scheduleId: s.id });
+  expect(failed.ok && failed.data).toMatchObject({ outcome: "error" });
+  expect(JSON.stringify(failed)).not.toContain(token);
+});
+
+test("schedule_update, _delete, _run: automation off refuses them; a scoped assistant reaches only its repo's", async () => {
+  const off = setup({ permissions: { automation: "off" } });
+  const s = addSchedule(off.store);
+  for (const tool of ["schedule_update", "schedule_delete", "schedule_run"] as const) {
+    expect(refusal(await off.run(tool, { scheduleId: s.id, enabled: false }))?.status).toBe(403);
+  }
+  expect(off.requests).toEqual([]);
+  const { runScoped, requests, store } = setup();
+  const mine = addSchedule(store, {}, "/r/beta");
+  const theirs = addSchedule(store, {}, "/r/alpha");
+  for (const tool of ["schedule_delete", "schedule_run"] as const) {
+    expect(refusal(await runScoped("/r/beta", tool, { scheduleId: theirs.id }))?.status).toBe(403);
+    expect((await runScoped("/r/beta", tool, { scheduleId: mine.id })).ok).toBe(true);
+  }
+  const update = { scheduleId: theirs.id, enabled: false };
+  expect(refusal(await runScoped("/r/beta", "schedule_update", update))?.status).toBe(403);
+  expect(requests.map((r) => r.path)).toEqual([
+    `/api/schedules/${mine.id}`,
+    `/api/schedules/${mine.id}/run`,
+  ]);
 });
 
 test("handoff history cannot replay an allowed action before fresh operator input", async () => {

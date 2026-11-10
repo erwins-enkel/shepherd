@@ -882,7 +882,7 @@ test("repo_automation exposes claim uncertainty and fences issue titles", async 
   expect(text).toContain('"ownership":"unknown"');
 });
 
-test("repo_automation lists a repo's schedules: fenced name and prompt, weekday names, next and last run", async () => {
+test("repo_automation lists a repo's schedules: fenced name and prompt, weekday names, launch, next and last run", async () => {
   const { store, deps } = setup();
   const launch = {
     agentProvider: null,
@@ -902,7 +902,7 @@ test("repo_automation lists a repo's schedules: fenced name and prompt, weekday 
       days: 0b0010001,
       times: ["09:00"],
       enabled: true,
-      launch,
+      launch: { ...launch, model: "opus", baseBranch: "trunk" },
     },
     Date.now(),
   );
@@ -929,6 +929,7 @@ test("repo_automation lists a repo's schedules: fenced name and prompt, weekday 
     days: ["mon", "fri"],
     times: ["09:00"],
     enabled: true,
+    launch: { ...launch, model: "opus", baseBranch: "trunk" },
     lastRun: { outcome: "error" },
   });
   expect(triage.name).toContain("UNTRUSTED");

@@ -101,6 +101,15 @@ test("shaperPrompt asks for German questions only when the operator reads German
   expect(shaperPrompt("x", "/r", "en")).not.toContain("in German");
 });
 
+test("shaperPrompt states the question and option length caps in every language", () => {
+  for (const lang of ["en", "de"] as const) {
+    const p = shaperPrompt("x", "/r", lang);
+    expect(p).toContain("at most 300 characters");
+    expect(p).toContain("at most 160 characters");
+    expect(p).toContain("put detail in `draft`");
+  }
+});
+
 test("claude path: the repo rides --add-dir, dontAsk sits before the prompt, round returned", async () => {
   const { deps, calls } = makeDeps({ readRound: () => round });
   const r = await shapeTask(args(), deps);
@@ -224,8 +233,40 @@ test("normalizeRound clips oversized question text without changing what is vali
   expect(r?.block.questions.map((q) => q.id)).toEqual(["q1"]);
   const q = r!.block.questions[0]!;
   expect(q.prompt.length).toBe(300);
+  expect(q.prompt.endsWith("…")).toBe(true);
   expect(q.options!.length).toBe(8);
-  expect(q.options![0]!.length).toBe(120);
+  expect(q.options![0]!.length).toBe(160);
+  expect(q.options![0]!.endsWith("…")).toBe(true);
+});
+
+function oneQuestion(prompt: string, option: string) {
+  const r = normalizeRound({
+    draft: { problem: "p" },
+    questions: [{ id: "q1", prompt, kind: "single", options: [option] }],
+  });
+  return r!.block.questions[0]!;
+}
+
+test("normalizeRound clips overflow at a word boundary with a visible ellipsis", () => {
+  const q = oneQuestion("word ".repeat(100), "pick ".repeat(60));
+  expect(q.prompt.length).toBeLessThanOrEqual(300);
+  expect(q.prompt).toMatch(/ word…$/);
+  expect(q.options![0]!.length).toBeLessThanOrEqual(160);
+  expect(q.options![0]!).toMatch(/ pick…$/);
+});
+
+test("normalizeRound keeps a word that ends exactly at the cut", () => {
+  // 159 visible chars land at the end of "abc", followed by a space: no word is dropped.
+  const q = oneQuestion("p", `${"x".repeat(155)} abc defg`);
+  expect(q.options![0]).toBe(`${"x".repeat(155)} abc…`);
+});
+
+test("normalizeRound leaves text within the caps untouched", () => {
+  const prompt = "a".repeat(300);
+  const option = "b".repeat(160);
+  const q = oneQuestion(`  ${prompt} `, option);
+  expect(q.prompt).toBe(prompt);
+  expect(q.options![0]).toBe(option);
 });
 
 test("normalizeRound keeps a draft with no usable questions, but rejects an empty round", () => {

@@ -82,7 +82,8 @@ const MAX_BULLETS = 8;
  *  side wrote; a question is one line the operator answers, never a document. */
 const MAX_QUESTION_CHARS = 300;
 const MAX_OPTIONS = 8;
-const MAX_OPTION_CHARS = 120;
+/** Room for a concrete alternative plus the file path it touches (#3848). */
+const MAX_OPTION_CHARS = 160;
 
 /** The shaped round, or a stable error reason the UI maps to a localized message. */
 export type ShapeResult =
@@ -163,6 +164,9 @@ export function shaperPrompt(
     '  operator can settle. `kind` is "single" (pick one), "multi" (pick any) or "freeform"',
     "  (type an answer); single/multi MUST carry concrete `options` — offer the actual alternatives",
     "  you found, not placeholders. Prefer single/multi; use freeform at most once.",
+    `- Keep each \`prompt\` at most ${MAX_QUESTION_CHARS} characters and each option`,
+    `  at most ${MAX_OPTION_CHARS} characters, one line each; longer text is cut off. No`,
+    "  rationale or file lists in a question or option — put detail in `draft`.",
     "- Ask nothing you can decide yourself, and nothing whose answer would not change the work.",
     `- Write NOTHING except \`${SHAPE_FILE}\`: do not create, edit, or delete any file in the`,
     "  repository, even though it is readable.",
@@ -203,17 +207,28 @@ function strList(v: unknown): string[] {
     .slice(0, MAX_BULLETS);
 }
 
+/** Fit `s` (trimmed) into `max` chars. Overflow is cut VISIBLY — back to the last word boundary
+ *  when one sits in the final 40% of the window, then `…` — never silently mid-word (#3848). */
+function clipText(s: string, max: number): string {
+  const t = s.trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max - 1);
+  const space = /\s/.test(t[max - 1]!) ? cut.length : cut.search(/\s\S*$/);
+  const kept = space >= max * 0.6 ? cut.slice(0, space) : cut;
+  return `${kept.trimEnd()}…`;
+}
+
 /** Clip one raw question to size, leaving its SHAPE untouched so `parseVisualBlocks` still decides
  *  what is valid (a missing kind, a duplicate id, an option-less single are its calls, not ours). */
 function clipQuestion(raw: unknown): unknown {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
   const q = raw as Record<string, unknown>;
   const out: Record<string, unknown> = { ...q };
-  if (typeof q.prompt === "string") out.prompt = q.prompt.trim().slice(0, MAX_QUESTION_CHARS);
+  if (typeof q.prompt === "string") out.prompt = clipText(q.prompt, MAX_QUESTION_CHARS);
   if (Array.isArray(q.options)) {
     out.options = q.options
       .slice(0, MAX_OPTIONS)
-      .map((o) => (typeof o === "string" ? o.trim().slice(0, MAX_OPTION_CHARS) : o));
+      .map((o) => (typeof o === "string" ? clipText(o, MAX_OPTION_CHARS) : o));
   }
   return out;
 }

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cadenceSummary,
   outcomeLabel,
+  outcomeTone,
   schedules,
   upcomingOrder,
   upcomingSlots,
@@ -17,7 +18,58 @@ describe("outcomeLabel (#3469)", () => {
   });
 });
 
+describe("schedule outcome presentation", () => {
+  it("keeps future outcomes readable and neutral", () => {
+    expect(outcomeLabel("future:result")).toBe("future:result");
+    expect(outcomeTone("future:result")).toBe("neutral");
+  });
+
+  it.each([
+    ["error", "red"],
+    ["claimed", "red"],
+    ["held", "amber"],
+    ["skipped:overlap", "amber"],
+    ["skipped:stale", "amber"],
+    ["spawned", "neutral"],
+    ["noop", "neutral"],
+  ])("assigns %s its outcome tone", (outcome, tone) => {
+    expect(outcomeTone(outcome)).toBe(tone);
+    expect(outcomeLabel(outcome)).toBeTruthy();
+  });
+});
+
+describe("schedule history revisions", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("invalidates only the changed repo even if its list reload fails", async () => {
+    vi.resetModules();
+    const { schedules: fresh } = await import("./schedules.svelte");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("oops", { status: 500 }));
+    await fresh.load("/changed");
+    const before = fresh.revisionFor("/changed");
+    fresh.refresh("/changed");
+    expect(fresh.revisionFor("/changed")).toBe(before + 1);
+    expect(fresh.revisionFor("/other")).toBe(0);
+  });
+
+  it("invalidates history after running locally", async () => {
+    vi.resetModules();
+    const { schedules: fresh } = await import("./schedules.svelte");
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (_input, init) =>
+        new Response(
+          JSON.stringify(init?.method === "POST" ? { outcome: "spawned" } : { schedules: [] }),
+        ),
+    );
+    await fresh.runNow(sched("local", "/local", "Local", null));
+    expect(fresh.revisionFor("/local")).toBe(1);
+  });
+});
+
 describe("cadenceSummary (#3469)", () => {
+  it("formats a compact German workweek", () => {
+    expect(cadenceSummary(WORKDAYS, ["09:00", "18:00"], "de")).toBe("Mo–Fr · 09:00, 18:00");
+  });
   it("collapses contiguous days into a range", () => {
     expect(cadenceSummary(WORKDAYS, ["09:00", "18:00"], "en")).toBe("Mon–Fri · 09:00, 18:00");
     expect(cadenceSummary(ALL_DAYS, ["07:30"], "en")).toBe("Mon–Sun · 07:30");

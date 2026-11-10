@@ -33,7 +33,6 @@
     quotaKind = null,
     reviewing,
     openPanelTick = 0,
-    stepperTerminal,
     decom,
     coarsePointer,
     pressDecommission,
@@ -56,7 +55,6 @@
     reviewing: boolean;
     // monotonic tick bumped by the row's "Answer" hold CTA → opens this session's PlanPanel
     openPanelTick?: number;
-    stepperTerminal: boolean;
     decom: "idle" | "armed";
     coarsePointer: boolean;
     pressDecommission: () => void;
@@ -233,11 +231,7 @@
          the forge-derived issue URL, which is what the chip opens on rows whose launch
          metadata predates the field. -->
     <IssueBadge {session} {git} interactive={badgesInteractive} />
-    {#if !stepperTerminal}<PrBadge
-        {git}
-        sessionId={session.id}
-        interactive={badgesInteractive}
-      />{/if}
+    <PrBadge {git} sessionId={session.id} interactive={badgesInteractive} />
     <CriticBadge sessionId={session.id} tip interactive={badgesInteractive} prUrl={git?.url} />
     <BuildQueueBadge
       sessionId={session.id}

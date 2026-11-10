@@ -2294,6 +2294,37 @@ describe("UnitRow issue reference", () => {
   });
 });
 
+describe("UnitRow merged PR reference", () => {
+  it("keeps the merged PR's number and link beside the Stepper's Merged chip", async () => {
+    const onselect = vi.fn();
+    render(UnitRow, {
+      session: session({ id: "merged-pr", status: "done" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect,
+      git: {
+        kind: "github",
+        state: "merged",
+        number: 3820,
+        url: "https://example.test/pr/3820",
+        checks: "success",
+        deployConfigured: false,
+      } as GitState,
+    });
+
+    await expect.element(page.getByText(m.activity_merged(), { exact: true })).toBeVisible();
+    const link = page.getByRole("link", { name: m.prbadge_merged_open_label({ number: 3820 }) });
+    await expect.element(link).toHaveTextContent(m.prbadge_merged_pr({ number: 3820 }));
+    await expect.element(link).toHaveAttribute("href", "https://example.test/pr/3820");
+
+    const anchor = document.querySelector<HTMLAnchorElement>("a.pr-badge")!;
+    // Keep the browser on the test page: only "opening the PR does not select the card" is tested.
+    anchor.addEventListener("click", (e) => e.preventDefault());
+    anchor.click();
+    expect(onselect).not.toHaveBeenCalled();
+  });
+});
+
 // ── cold-resume chip (#2042) ────────────────────────────────────────────────
 // The Herd is where the operator PICKS which session to resume, so the chip has to be here — the
 // status bar only ever shows the session already open. Gated on the row's own `nowMs` tick.

@@ -16,11 +16,15 @@ describe("prBadgeLabel", () => {
   it("labels an open PR with its number", () => {
     expect(prBadgeLabel(git({ state: "open", number: 12 }))).toBe("PR #12");
   });
-  it("labels a merged PR", () => {
-    expect(prBadgeLabel(git({ state: "merged", number: 12 }))).toBe("✓ MERGED");
+  it("labels a merged PR with its number", () => {
+    expect(prBadgeLabel(git({ state: "merged", number: 12 }))).toBe("✓ PR #12");
   });
-  it("labels a closed PR", () => {
-    expect(prBadgeLabel(git({ state: "closed", number: 12 }))).toBe("CLOSED");
+  it("labels a closed PR with its number", () => {
+    expect(prBadgeLabel(git({ state: "closed", number: 12 }))).toBe("✕ PR #12");
+  });
+  it("falls back to the bare state word for a merged/closed PR without a number", () => {
+    expect(prBadgeLabel(git({ state: "merged" }))).toBe("✓ MERGED");
+    expect(prBadgeLabel(git({ state: "closed" }))).toBe("CLOSED");
   });
 });
 

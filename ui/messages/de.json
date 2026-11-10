@@ -8458,5 +8458,9 @@
   "feat_epic_success_ack_title": "Abgeschlossene Epics bleiben, bis du sie bestätigst",
   "feat_epic_success_ack_body": "Ein erfolgreich abgeschlossenes Epic bleibt jetzt mit seiner Abschlusszeit in der Herde, auch wenn seine Sessions weg sind. Mit „Abschluss bestätigen“ wandert es nach Fertig → Epics und behält dort seine Issues und PRs.",
   "feat_copy_on_select_chat_title": "Markieren kopiert auch im Chat und auf verbundenen Maschinen",
-  "feat_copy_on_select_chat_body": "Text markieren und die Maus loslassen: Er landet jetzt auch im Chat in der Zwischenablage, wie bisher schon im Terminal einer lokalen Session, und ebenso im Terminal einer Session auf einer verbundenen Maschine. Eine Markierung im Chat verschwindet außerdem nicht mehr, wenn eine Session startet oder endet."
+  "feat_copy_on_select_chat_body": "Text markieren und die Maus loslassen: Er landet jetzt auch im Chat in der Zwischenablage, wie bisher schon im Terminal einer lokalen Session, und ebenso im Terminal einer Session auf einer verbundenen Maschine. Eine Markierung im Chat verschwindet außerdem nicht mehr, wenn eine Session startet oder endet.",
+  "prbadge_merged_pr": "✓ PR #{number}",
+  "prbadge_closed_pr": "✕ PR #{number}",
+  "prbadge_merged_open_label": "Gemergten PR #{number} öffnen",
+  "prbadge_closed_open_label": "Geschlossenen PR #{number} öffnen"
 }

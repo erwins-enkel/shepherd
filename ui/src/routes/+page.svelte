@@ -108,6 +108,7 @@
     inRepoFilter,
     mirroredNeedsYou,
     projectKeySlug,
+    remoteBlocksReadKey,
     type MachineFilter,
   } from "#lib/remote-sessions.js";
   import { machines } from "#lib/machines.svelte.js";
@@ -969,18 +970,12 @@
   const selectedRemoteAsk = $derived(
     selectedRemote ? (store.remoteBlocks[selectedRemote.id]?.reason.ask ?? null) : null,
   );
-  // Its machine's block reasons are read once per connection (later ones arrive as events). Kept
-  // to primitives, so a status frame — a fresh session object — never re-reads them.
-  const remoteBlocksHost = $derived(
-    selectedRemote?.connection?.state === "connected"
-      ? (selectedRemote.host?.instanceId ?? null)
-      : null,
-  );
-  const remoteBlocksSince = $derived(selectedRemote?.connection?.since ?? null);
+  // Its machine's block reasons are read once per machine connection and per reopened socket of
+  // this page (later ones arrive as events); keyed on a string, so a status frame never re-reads.
+  const remoteBlocksKey = $derived(remoteBlocksReadKey(selectedRemote, store.connectionEpoch));
   $effect(() => {
-    const host = remoteBlocksHost;
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
-    remoteBlocksSince; // a reconnect re-reads
+    if (!remoteBlocksKey) return;
+    const host = untrack(() => selectedRemote?.host?.instanceId);
     if (!host) return;
     // Another machine (or none) selected meanwhile: that answer is no longer wanted.
     let current = true;

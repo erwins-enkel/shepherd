@@ -15,6 +15,7 @@ import {
   qualifiedDesig,
   reduceRemoteSessions,
   remoteActionMessage,
+  remoteBlocksReadKey,
 } from "./remote-sessions";
 import { m } from "#lib/paraglide/messages.js";
 import { slotFor } from "./session-pulse";
@@ -78,6 +79,29 @@ describe("remote sessions (#2762)", () => {
     ).toEqual({ id: "a", block: null });
     expect(mirroredBlockChange({ event: "session:block", data: { id: "l", block } })).toBeNull();
     expect(mirroredBlockChange({ event: "session:status", data: { ...frame, block } })).toBeNull();
+  });
+
+  test("a machine's block reasons are re-read per connection and per reopened page socket", () => {
+    const key = remoteBlocksReadKey(s("a"), 1);
+    expect(key).not.toBeNull();
+    // A status frame: a fresh session object, same machine and connection — no re-read.
+    expect(remoteBlocksReadKey(s("a", { status: "blocked" }), 1)).toBe(key);
+    // Another session on the same machine shares its snapshot.
+    expect(remoteBlocksReadKey(s("b"), 1)).toBe(key);
+    // The page's socket reopened: frames may have been missed.
+    expect(remoteBlocksReadKey(s("a"), 2)).not.toBe(key);
+    // The machine reconnected, or another machine is selected.
+    expect(
+      remoteBlocksReadKey(s("a", { connection: { state: "connected", since: 2 } }), 1),
+    ).not.toBe(key);
+    const other = { instanceId: "m2", name: "Studio", platform: "linux" };
+    expect(remoteBlocksReadKey(s("c", { host: other }), 1)).not.toBe(key);
+    // Nothing to read: no mirrored session, or its machine is not connected.
+    expect(remoteBlocksReadKey(null, 1)).toBeNull();
+    expect(remoteBlocksReadKey(s("a", { host: undefined }), 1)).toBeNull();
+    expect(
+      remoteBlocksReadKey(s("a", { connection: { state: "disconnected", since: 2 } }), 1),
+    ).toBeNull();
   });
 
   test("frames without host are left to the local store", () => {

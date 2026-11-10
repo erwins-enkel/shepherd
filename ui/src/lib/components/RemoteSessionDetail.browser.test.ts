@@ -67,6 +67,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     replySession: vi.fn(async () => {}),
     answerAsk: vi.fn(async () => "verified" as const),
     getCommands: vi.fn(async () => ({ commands: [] })),
+    uploadFile: vi.fn(async () => "/Users/kai/projects/app/.shepherd-uploads/u1.png"),
     getSessionUsage: vi.fn(async () => ({
       available: true,
       source: "live" as const,
@@ -106,6 +107,7 @@ afterEach(() => {
     api.replySession,
     api.answerAsk,
     api.getCommands,
+    api.uploadFile,
     api.getSessionUsage,
     api.getLeftovers,
     api.getDiff,
@@ -535,6 +537,7 @@ describe("RemoteSessionDetail chat", () => {
 
   afterEach(() => {
     sessionStartTab.set("auto");
+    localStorage.removeItem("shepherd-vp-phone-steers-open");
   });
 
   it("lists the Chat first, before the terminal, and opens the desktop on the terminal", async () => {
@@ -652,6 +655,47 @@ describe("RemoteSessionDetail chat", () => {
     expect(tab(m.viewport_terminal_tab()).element().getAttribute("aria-selected")).toBe("true");
     await view.rerender({ session: remote({ id: "r2", desig: "TASK-08" }) });
     await expect.element(tab(m.viewport_chat_tab())).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("uploads an attached image to the session's machine and lists it in the message", async () => {
+    render(RemoteSessionDetail, { session: remote(), nowMs: Date.now() });
+    await openChat();
+    await expect.element(composer()).toBeVisible();
+    const file = new File([new Uint8Array([1])], "shot.png", { type: "image/png" });
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    const paste = new ClipboardEvent("paste", {
+      clipboardData: dt,
+      bubbles: true,
+      cancelable: true,
+    });
+    composer().element().dispatchEvent(paste);
+    // The server forwards `/api/uploads?session=r1` to the machine, which stores it there.
+    expect(api.uploadFile).toHaveBeenCalledWith(file, "r1");
+    await composer().fill("what is this?");
+    const send = page.getByRole("button", { name: m.assistant_chat_send(), exact: true });
+    await expect.element(send).toBeEnabled();
+    await send.click();
+    await vi.waitFor(() =>
+      expect(api.replySession).toHaveBeenCalledWith(
+        "r1",
+        "what is this?\n\nAttached image: `/Users/kai/projects/app/.shepherd-uploads/u1.png`",
+      ),
+    );
+  });
+
+  it("on the phone, the composer's toggle opens the steer bar under the Chat", async () => {
+    render(RemoteSessionDetail, { session: remote(), nowMs: Date.now(), compact: true });
+    await openChat();
+    const show = page.getByRole("button", { name: m.viewport_steers_show_aria() });
+    await expect.element(show).toBeVisible();
+    expect(document.querySelector(".steer-row")).toBeNull();
+    (show.element() as HTMLElement).click();
+    await vi.waitFor(() => expect(document.querySelector(".steer-row")).not.toBeNull());
+    await expect
+      .element(page.getByRole("button", { name: m.viewport_steers_hide_aria() }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(localStorage.getItem("shepherd-vp-phone-steers-open")).toBe("1");
   });
 
   it("echoes a steer chip sent from the steer bar in the Chat", async () => {

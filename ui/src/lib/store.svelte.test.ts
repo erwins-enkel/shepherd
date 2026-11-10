@@ -2222,6 +2222,7 @@ test("a heavyslot:status event keeps the last results the GET delivered", () => 
 });
 
 test("a machine's block frames fill remoteBlocks, never blocks; since is kept (#3842)", () => {
+  vi.useFakeTimers();
   const s = new HerdStore();
   s.setAll([mirrored("r1")]);
   const annotate = { host: HOST, connection: LIVE };
@@ -2230,9 +2231,11 @@ test("a machine's block frames fill remoteBlocks, never blocks; since is kept (#
   expect(s.remoteBlocks.r1.reason).toBe(menu);
   expect(s.blocks).toEqual({});
   const since = s.remoteBlocks.r1.since;
+  vi.advanceTimersByTime(5_000); // a reset would stamp the later time
   const ask = { shape: "yes-no", options: [], tail: [] } as BlockReason;
   s.apply({ event: "session:block", data: { id: "r1", block: ask, ...annotate } as never });
   expect(s.remoteBlocks.r1).toEqual({ reason: ask, since });
+  expect(since).toBeLessThan(Date.now());
   s.apply({ event: "session:block", data: { id: "r1", block: null, ...annotate } as never });
   expect(s.remoteBlocks.r1).toBeUndefined();
 });
@@ -2251,6 +2254,7 @@ test("remoteBlocks drops sessions that were archived or left a machine's list (#
 });
 
 test("seedRemoteBlocks replaces only that machine's entries (#3842)", () => {
+  vi.useFakeTimers();
   const s = new HerdStore();
   const other = { instanceId: "m2", name: "Studio", platform: "linux" };
   s.setAll([mirrored("a"), mirrored("b"), mirrored("c", { host: other }), session("local")]);
@@ -2259,8 +2263,10 @@ test("seedRemoteBlocks replaces only that machine's entries (#3842)", () => {
   s.seedRemoteBlocks("m1", { a: r1, b: r1 });
   s.seedRemoteBlocks("m2", { c: r1 });
   const since = s.remoteBlocks.a.since;
+  vi.advanceTimersByTime(5_000); // a reset would stamp the later time
   s.seedRemoteBlocks("m1", { a: r2, c: r2, local: r2, ghost: r2 });
   expect(s.remoteBlocks.a).toEqual({ reason: r2, since });
+  expect(since).toBeLessThan(Date.now());
   expect(s.remoteBlocks.b).toBeUndefined();
   expect(s.remoteBlocks.c.reason).toBe(r1);
   expect(Object.keys(s.remoteBlocks).sort()).toEqual(["a", "c"]);

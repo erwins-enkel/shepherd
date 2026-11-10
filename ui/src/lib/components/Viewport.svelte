@@ -112,6 +112,7 @@
   import { ciBannerState } from "#lib/ci-banner.js";
   import ViewportTermControls from "./viewport/ViewportTermControls.svelte";
   import ViewportTabBar from "./viewport/ViewportTabBar.svelte";
+  import SteerToggle, { readPhoneSteers, writePhoneSteers } from "./viewport/SteerToggle.svelte";
   import BrowserPanel from "./viewport/BrowserPanel.svelte";
   import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
   import ClipboardPill from "./viewport/ClipboardPill.svelte";
@@ -402,9 +403,8 @@
   let phoneDetailsOpen = $state(readFlag(PHONE_DETAILS_KEY));
   $effect(() => writeFlag(PHONE_DETAILS_KEY, phoneDetailsOpen));
   // phone Chat only: the steer chips stay folded behind the composer's steer toggle until opened.
-  const PHONE_STEERS_KEY = "shepherd-vp-phone-steers-open";
-  let phoneSteersOpen = $state(readFlag(PHONE_STEERS_KEY));
-  $effect(() => writeFlag(PHONE_STEERS_KEY, phoneSteersOpen));
+  let phoneSteersOpen = $state(readPhoneSteers());
+  $effect(() => writePhoneSteers(phoneSteersOpen));
   let conn = $state<PtyConn | undefined>();
 
   // Compose sheet — owned here because its two entry points live on different rows:
@@ -3065,24 +3065,7 @@
     {#if renameNote}<span class="rename-note">{renameNote}</span>{/if}
   {/snippet}
   {#snippet steerToggle()}
-    <!-- phone Chat: opens or folds the steer row under the conversation -->
-    <button
-      type="button"
-      class="vp-steer-toggle"
-      aria-pressed={phoneSteersOpen}
-      aria-label={phoneSteersOpen ? m.viewport_steers_hide_aria() : m.viewport_steers_show_aria()}
-      title={phoneSteersOpen ? m.viewport_steers_hide_aria() : m.viewport_steers_show_aria()}
-      onclick={() => (phoneSteersOpen = !phoneSteersOpen)}
-    >
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linejoin="round"
-        aria-hidden="true"><path d="M13 3 5 13h6l-1 8 8-10h-6z" /></svg
-      >
-    </button>
+    <SteerToggle bind:open={phoneSteersOpen} />
   {/snippet}
   <!-- The session console's chrome: identity header, git strip, build queue, epic-draft bar. The
        Operator Assistant shows none of it, only the terminal below. -->
@@ -4792,41 +4775,6 @@
   .vp-phone-recap {
     max-height: 45dvh;
     overflow-y: auto;
-  }
-  /* the phone Chat's steer toggle, at the composer field's leading edge */
-  .vp-steer-toggle {
-    flex: none;
-    align-self: center;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    margin-left: -6px;
-    padding: 0;
-    border: 0;
-    border-radius: 2px;
-    background: transparent;
-    color: var(--color-muted);
-    cursor: pointer;
-    touch-action: manipulation;
-  }
-  .vp-steer-toggle svg {
-    width: 16px;
-    height: 16px;
-  }
-  .vp-steer-toggle[aria-pressed="true"] {
-    color: var(--color-amber);
-  }
-  .vp-steer-toggle:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-  @media (pointer: coarse) {
-    .vp-steer-toggle {
-      width: 44px;
-      height: 44px;
-    }
   }
   /* lifecycle cluster (autopilot toggle + decommission) at the strip's trailing
      edge. It continues GitRail's ⚙ pill as one control cluster; the single

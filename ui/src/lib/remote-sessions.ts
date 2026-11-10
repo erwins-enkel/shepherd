@@ -236,6 +236,20 @@ export function mirroredBlockChange(ev: {
 }
 
 /**
+ * When the selected mirrored session's machine block reasons need reading (`GET /api/blocks?host=`):
+ * a key that changes once per machine connection and once per socket of this page (`epoch`, the
+ * store's `connectionEpoch`): a reopened socket may have missed `session:block` frames. Null while
+ * there is nothing to read. A string, so a status frame — a fresh session object — never re-reads.
+ */
+export function remoteBlocksReadKey(
+  s: Pick<Session, "host" | "connection"> | null,
+  epoch: number,
+): string | null {
+  if (!s?.host || s.connection?.state !== "connected") return null;
+  return JSON.stringify([s.host.instanceId, s.connection.since, epoch]);
+}
+
+/**
  * The remote list after `ev`, or `null` when `ev` is not about mirrored sessions (the caller then
  * applies it as a local frame). `remote:sessions` replaces one machine's set; a `session:*` frame
  * whose data carries `host` is consumed here even when it changes nothing, so it can never fall

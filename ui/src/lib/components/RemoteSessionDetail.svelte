@@ -24,6 +24,7 @@
   import SessionStatusBar from "./SessionStatusBar.svelte";
   import SteerBar from "./SteerBar.svelte";
   import ViewportFootHints from "./viewport/ViewportFootHints.svelte";
+  import SteerToggle, { readPhoneSteers, writePhoneSteers } from "./viewport/SteerToggle.svelte";
   import RemoteSessionActions from "./remote-session/RemoteSessionActions.svelte";
   import RemotePreview from "./remote-session/RemotePreview.svelte";
 
@@ -140,8 +141,10 @@
   $effect(() => {
     if (tab === "chat") chatFor = session.id;
   });
-  // On the phone the Chat's quick replies stand in for the steer bar, as in the Viewport.
-  const steerShown = $derived(tab === "term" || (tab === "chat" && !compact));
+  // On the phone the steer row waits behind the composer's toggle, as in the Viewport.
+  let phoneSteersOpen = $state(readPhoneSteers());
+  $effect(() => writePhoneSteers(phoneSteersOpen));
+  const steerShown = $derived(tab === "term" || (tab === "chat" && (!compact || phoneSteersOpen)));
 
   let terminal = $state<RemoteTerminal>();
   let chatView = $state<ReturnType<typeof ChatView>>();
@@ -150,6 +153,10 @@
     if (tab === "term") terminal?.focus();
   }
 </script>
+
+{#snippet steerToggle()}
+  <SteerToggle bind:open={phoneSteersOpen} />
+{/snippet}
 
 <section class="remote-detail" aria-label={qualifiedDesig(session)}>
   <header class="head" class:compact>
@@ -231,6 +238,7 @@
               onkeys={(seq) => terminal?.sendKeys(seq) ?? false}
               oninterrupt={() => interruptSession(mirrored.id).catch(() => {})}
               onterminal={() => (chosen = { id: mirrored.id, tab: "term" })}
+              composerLead={compact ? steerToggle : undefined}
             />
           {/key}
         </div>

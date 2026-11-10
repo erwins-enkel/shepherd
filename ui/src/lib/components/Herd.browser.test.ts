@@ -1618,28 +1618,45 @@ describe("Herd epics to land", () => {
     await render(Herd, { ...p, completedEpics: [completed()] });
     expect(document.querySelector(".band-head")!.getAttribute("aria-expanded")).toBe("true");
   });
-  it("positions actionable epics before partitions and preserves collapse while moving", async () => {
+  it("keeps epics to land above epic groups and partitions in every landing state", async () => {
+    // A queued epic paused until this landing merges, with no child session yet.
+    const queued: Epic = {
+      repoPath: "/repo/a",
+      parentIssueNumber: 3871,
+      parentTitle: "Queued epic",
+      source: "native",
+      children: [],
+      warnings: [],
+      run: { repoPath: "/repo/a", parentIssueNumber: 3871, mode: "auto", status: "paused" },
+    };
+    const onTop = () => {
+      const band = document.querySelector(".band")!;
+      for (const below of [".epic-sessionless", ".ready-head"])
+        expect(
+          band.compareDocumentPosition(document.querySelector(below)!) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+      expect(document.querySelectorAll(".band")).toHaveLength(1);
+    };
+    // Shepherd is still landing it (nothing for the operator to do): auto-collapsed, yet on top.
     const { rerender } = await render(Herd, {
       ...p,
-      completedEpics: [completed({ landingState: "none" })],
+      epics: { "/repo/a#3871": queued },
+      activeEpicKeys: new Set(["/repo/a#3871"]),
+      completedEpics: [completed()],
     });
-    const head = document.querySelector<HTMLButtonElement>(".band-head")!;
-    expect(head.getAttribute("aria-expanded")).toBe("true");
-    expect(
-      head.compareDocumentPosition(document.querySelector(".ready-head")!) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    await page.getByRole("button", { name: "Epics to land (1)", exact: true }).click();
-    await rerender({ completedEpics: [completed()] });
-    const band = document.querySelector(".band")!;
-    expect(
-      document.querySelector(".ready-head")!.compareDocumentPosition(band) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    onTop();
     expect(document.querySelector(".band-head")!.getAttribute("aria-expanded")).toBe("false");
     await rerender({ completedEpics: [completed({ landingState: "none" })] });
+    onTop();
+    expect(document.querySelector(".band-head")!.getAttribute("aria-expanded")).toBe("true");
+    await page.getByRole("button", { name: "Epics to land (1)", exact: true }).click();
+    await rerender({ completedEpics: [completed()] });
+    onTop();
     expect(document.querySelector(".band-head")!.getAttribute("aria-expanded")).toBe("false");
-    expect(document.querySelectorAll(".band")).toHaveLength(1);
+    await rerender({ completedEpics: [completed({ landingState: "none" })] });
+    onTop();
+    expect(document.querySelector(".band-head")!.getAttribute("aria-expanded")).toBe("false");
   });
   it("renders actionable epics even without live sessions", async () => {
     await render(Herd, {

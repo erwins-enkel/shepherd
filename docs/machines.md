@@ -154,11 +154,11 @@ Shepherd's own check of a machine with that ID. Only an operator signed in here 
 ## Start a task on a machine
 
 In **New Task**, **Run on** starts on **Automatic**: Shepherd chooses the machine (see
-[Automatic choice](#automatic-choice)) and shows which one and why before you start, for example
-"Runs on MacBook — Needs Xcode". To choose yourself, pick **This machine** or any connected machine
-that runs a platform released for tasks (Linux, macOS). A machine without a checkout of the project
-is marked **clones first**. A machine you pick must have what the task needs, or nothing starts and
-the dialog says what is missing.
+[Automatic choice](#automatic-choice)) and shows which one before you start, for example
+"→ MacBook"; hover it for why ("Needs Xcode"). To choose yourself, pick **This machine** or any
+connected machine that runs a platform released for tasks (Linux, macOS). A machine without a
+checkout of the project is marked **clones first**. A machine you pick must have what the task
+needs, or nothing starts and the dialog says what is missing.
 
 - The machine starts from the base branch **as pushed to origin**. Push first.
 - A machine without a checkout clones the project from origin into its own project folder first,
@@ -537,14 +537,14 @@ coordinator, the Mac the machine; the project is checked out on both.
 | 11  | Connect the iOS app to both Shepherds.                                                                           | Every session appears exactly once.                                                                                                                                         |
 | 12  | Archive the task from Linux.                                                                                     | It is archived on the Mac and leaves both herds.                                                                                                                            |
 | 13  | When testing a branch: check the live instance.                                                                  | It kept running throughout; its database, herdr session, checkouts and preview mappings were never touched.                                                                 |
-| 14  | On Linux and on the Mac, open New Task on **Automatic**, add the **Xcode** requirement.                          | Both say "Runs on MacBook — Needs Xcode"; started from either side, it runs on the Mac.                                                                                     |
-| 15  | Remove the requirement and start it on each side.                                                                | Both say "No special requirements – preferred: Linux"; it runs on Linux, and the session shows that reason.                                                                 |
+| 14  | On Linux and on the Mac, open New Task on **Automatic**, add the **Xcode** requirement.                          | Both show "→ MacBook", hover: "Needs Xcode"; started from either side, it runs on the Mac.                                                                                  |
+| 15  | Remove the requirement and start it on each side.                                                                | Both show the Linux machine, hover: "No special requirements – preferred: Linux"; it runs on Linux, and the session shows that reason.                                      |
 | 16  | Put the Mac to sleep and start the Xcode task on Linux.                                                          | It waits: Linux shows **Waiting** in the MacBook's group, with "Needs Xcode". Nothing runs on Linux instead.                                                                |
 | 17  | Restart the Linux Shepherd, then wake the Mac.                                                                   | The task is still waiting after the restart; once the Mac is back it starts there, once.                                                                                    |
 | 18  | Put the Mac to sleep again, start another Xcode task and pick **Run here** on Linux.                             | Not offered: Linux lacks Xcode. Through the API the redirect is refused with `missing_capabilities`; the task keeps waiting.                                                |
 | 19  | Cancel that waiting task, then wake the Mac.                                                                     | It never starts anywhere.                                                                                                                                                   |
-| 20  | On Linux, type "Erweitere die native macOS-App" in New Task.                                                     | The chip **Xcode** appears, and it says "Runs on MacBook — Needs Xcode".                                                                                                    |
-| 21  | Replace the prompt with "Implementiere die Web-Einstellungen".                                                   | No chip, and "No special requirements – preferred: Linux".                                                                                                                  |
+| 20  | On Linux, type "Erweitere die native macOS-App" in New Task.                                                     | The chip **Xcode** appears, tagged "from task", and it shows "→ MacBook" (hover: "Needs Xcode").                                                                            |
+| 21  | Replace the prompt with "Implementiere die Web-Einstellungen".                                                   | No chip, and the Linux machine (hover: "No special requirements – preferred: Linux").                                                                                       |
 | 22  | Replace it with "Passe die App an das neue Logo an".                                                             | New Task asks what the task needs; **Start** stays disabled until you pick an answer.                                                                                       |
 | 23  | On Linux, add the **Xcode** chip and pick **This machine** under **Run on**.                                     | New Task warns that the Linux machine is missing Xcode; starting it anyway starts nothing.                                                                                  |
 | 24  | Make Xcode go missing while a task waits ([below](#xcode-missing-on-purpose)).                                   | **Blocked** in the MacBook's group, naming Xcode: only the Command Line Tools. Nothing starts.                                                                              |

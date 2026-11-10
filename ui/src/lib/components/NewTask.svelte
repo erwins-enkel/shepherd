@@ -128,9 +128,7 @@
     runOnMachines,
     type PendingSend,
   } from "./new-task/run-on";
-  import RequirementChips from "./new-task/RequirementChips.svelte";
-  import PlacementLine from "./new-task/PlacementLine.svelte";
-  import RequirementsDerivation from "./new-task/RequirementsDerivation.svelte";
+  import PlacementStrip from "./new-task/PlacementStrip.svelte";
 
   type TaskAttachment = {
     path: string;
@@ -2591,18 +2589,17 @@
 
             {#if runOnAvailable}
               <!-- The machine choice (#2772): what the task needs, and where it will run and why. -->
-              <RequirementChips {requirements} onchange={setRequirements} />
-              {#if deriveApplies}
-                <RequirementsDerivation
-                  pending={deriveHasTask && currentDerivation === null}
-                  derivation={currentDerivation}
-                  touched={requirementsTouched}
-                  {requirements}
-                  onanswer={setRequirements}
-                  onadopt={adoptDerivation}
-                />
-              {/if}
-              <PlacementLine preview={currentPreview} failed={previewFailed} />
+              <PlacementStrip
+                {requirements}
+                onrequirements={setRequirements}
+                derive={deriveApplies}
+                derivePending={deriveHasTask && currentDerivation === null}
+                derivation={currentDerivation}
+                touched={requirementsTouched}
+                onadopt={adoptDerivation}
+                preview={currentPreview}
+                {previewFailed}
+              />
             {/if}
             {#if remoteTarget}
               <span class="nt-upstream"
@@ -4581,8 +4578,7 @@
        viewport. `.err` is intentionally KEPT — attach is usable during compose,
        so failure feedback must stay visible. */
     .card.composing .nt-upstream,
-    .card.composing :global(.nt-requirements),
-    .card.composing :global(.nt-placement),
+    .card.composing :global(.nt-strip),
     .card.composing :global(.nt-base-repair),
     .card.composing :global(.nt-video-brief),
     .card.composing .relaunch-note,

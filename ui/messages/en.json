@@ -6205,6 +6205,8 @@
   "newtask_requirements_none": "none",
   "newtask_requirements_add": "+ Add",
   "newtask_requirements_remove": "Remove {capability}",
+  "newtask_requirements_heading": "[[requirement|Requirements]]",
+  "newtask_requirements_add_aria": "Add requirement",
   "placement_runs_on": "Runs on {machine} — {reason}",
   "placement_this_machine": "this machine ({machine})",
   "placement_choosing": "Choosing a machine…",
@@ -8410,5 +8412,10 @@
   "epic_sessionless_waits_on": "#{number} waits on {blockers}.",
   "epic_sessionless_next": "#{number} starts next.",
   "epic_sessionless_unknown": "Why nothing runs is unknown — check the epic's details.",
-  "epic_sessionless_open": "Open epic details"
+  "epic_sessionless_open": "Open epic details",
+  "placement_qual_busy": "high load",
+  "placement_qual_unreachable": "unreachable",
+  "placement_route_none": "no machine",
+  "newtask_derive_tag_pending": "reading task…",
+  "newtask_derive_tag": "from task"
 }

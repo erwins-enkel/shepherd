@@ -181,7 +181,16 @@ async function submit() {
   run.click();
 }
 
-const placementText = () => document.querySelector(".nt-placement")?.textContent?.trim();
+/** The placement's sentence: the strip's second line when there is one, else the route's name. */
+const placementText = () => {
+  const note = document.querySelector(".nt-placement-note");
+  if (note) return note.textContent?.trim();
+  const route = document.querySelector(".nt-placement");
+  return (route?.getAttribute("aria-label") ?? route?.textContent)?.trim();
+};
+/** What the route shows on screen: the machine and one qualifier, never the reason. */
+const routeText = () =>
+  document.querySelector(".nt-placement")?.textContent?.replace(/\s+/g, " ").trim() ?? "";
 
 async function addRequirement(id: string) {
   await expect.poll(() => addSelect()).not.toBeNull();
@@ -191,7 +200,9 @@ async function addRequirement(id: string) {
 }
 
 const addSelect = () =>
-  document.querySelector<HTMLSelectElement>(`select[aria-label="${m.newtask_requirements_add()}"]`);
+  document.querySelector<HTMLSelectElement>(
+    `select[aria-label="${m.newtask_requirements_add_aria()}"]`,
+  );
 
 async function pickMachine(instanceId: string) {
   await expect.poll(() => runOnSelect()).not.toBeNull();
@@ -233,6 +244,9 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
         reason: m.placement_basis_preference_none({ platform: "Linux" }),
       }),
     );
+    expect(routeText()).toContain("moes-tavern");
+    expect(routeText()).toContain(m.newtask_runon_here());
+    expect(routeText()).not.toContain(m.placement_basis_preference_none({ platform: "Linux" }));
     expect(previewPlacement).toHaveBeenLastCalledWith({ repoPath: repo.path });
 
     // Its explanation rides the select itself, so focus and assistive tech reach it.
@@ -414,8 +428,9 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
     vi.mocked(previewPlacement).mockResolvedValue(waits);
     render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
     await expect.poll(placementText).toBe(placementWaitText(waits.placement!, waits.wait!));
-    const line = document.querySelector(".nt-placement")!;
+    const line = document.querySelector(".nt-placement-note")!;
     expect(line.classList.contains("warn")).toBe(true);
+    expect(routeText()).toContain(m.placement_qual_unreachable());
     expect(line.getAttribute("aria-description")).toContain(
       m.tooltip_waiting_start_body({ machine: "MacBook" }),
     );
@@ -562,6 +577,8 @@ describe("host load in New Task", () => {
       expect(document.querySelector(".nt-placement")!.classList.contains("warn")).toBe(
         state === "busy",
       );
+      // High load is said in words too, not by color alone.
+      expect(routeText().includes(m.placement_qual_busy())).toBe(state === "busy");
       expect(document.querySelector(".nt-placement")!.getAttribute("aria-description")).toContain(
         m.placement_load_recheck(),
       );

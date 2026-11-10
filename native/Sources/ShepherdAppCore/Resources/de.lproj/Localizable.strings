@@ -666,7 +666,7 @@
 "integrated_epics_status_repairing" = "Reparatur läuft";
 "integrated_epics_status_unknown" = "Status wird geprüft";
 "integrated_epics_turn_done" = "ERLEDIGT";
-"integrated_epics_turn_nothing" = "NICHTS ZU TUN";
+"integrated_epics_turn_nothing" = "SHEPHERD ARBEITET";
 "integrated_epics_turn_ready" = "BEREIT ZUM LANDEN";
 "integrated_epics_turn_you" = "DU BIST DRAN";
 "integrated_epics_view_checks" = "Checks ansehen ↗";

@@ -37,6 +37,9 @@
   const total = $derived(epic.children.length);
   const included = $derived(epic.children.filter((c) => c.integrated).length);
   const status = $derived(deriveIntegratedEpicStatus(epic, false, landing));
+  // Nobody's turn means Shepherd is acting (preparing, checking, retrying, repairing, landing) — show
+  // that it is alive instead of a static chip.
+  const working = $derived(status.turn === "nothing-to-do");
   const turnLabel = $derived(
     {
       "nothing-to-do": m.integrated_epics_turn_nothing(),
@@ -111,6 +114,7 @@
   class="row"
   class:ready={status.tone === "ready"}
   class:warn={status.tone === "warn"}
+  class:working
   role="region"
   aria-label={epic.parentTitle}
 >
@@ -147,8 +151,13 @@
         }}>{turnLabel}</button
       >
     {:else}
-      <button type="button" class="turn-chip" aria-expanded={open} onclick={() => (open = true)}
-        >{turnLabel}</button
+      <button
+        type="button"
+        class="turn-chip"
+        class:working
+        aria-expanded={open}
+        onclick={() => (open = true)}
+        >{#if working}<span class="work-pip" aria-hidden="true"></span>{/if}{turnLabel}</button
       >
     {/if}
     {#if landingStrandedNow(epic, nowMs)}<button
@@ -245,6 +254,7 @@
       </section>
     </IntegratedEpicLanding>
   {/if}
+  {#if working && !open}<span class="work-sweep" aria-hidden="true"></span>{/if}
 </div>
 
 <style>
@@ -257,6 +267,10 @@
     padding: 10px;
     border: 1px solid var(--color-line);
     font-size: var(--fs-meta);
+  }
+  .row.working {
+    position: relative;
+    overflow: hidden;
   }
   .row.ready {
     --epic-tone: var(--color-green);
@@ -355,6 +369,71 @@
   .turn-chip:hover {
     background: color-mix(in srgb, var(--epic-tone) 24%, transparent);
     color: var(--color-ink-bright);
+  }
+  .turn-chip.working {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-color: var(--status-running);
+    background: color-mix(in srgb, var(--status-running) 12%, transparent);
+    color: var(--status-running);
+  }
+  /* Live pip: a solid dot whose opacity pulse is functional status motion (exempt from the
+     reduced-motion blanket in app.css, like StatusPip); its expanding halo is decoration. */
+  .work-pip {
+    position: relative;
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: dot-pulse 1.4s ease-in-out infinite !important;
+  }
+  .work-pip::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: currentColor;
+    pointer-events: none;
+    animation: pip-pulse 1.8s ease-out infinite;
+  }
+  /* Indeterminate progress along the bottom edge of a collapsed working row (decorative). */
+  .work-sweep {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: var(--color-line);
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .work-sweep::after {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 38%;
+    background: var(--status-running);
+    animation: work-sweep 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+  @keyframes work-sweep {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(265%);
+    }
+  }
+  /* Reduced motion: a frozen sweep would read as a stuck progress bar, so it goes; the pip keeps
+     pulsing. Same two branches as the blanket in app.css. */
+  @media (prefers-reduced-motion: reduce) {
+    :global(html:not([data-motion="full"])) .work-sweep {
+      display: none;
+    }
+  }
+  :global(html[data-motion="reduced"]) .work-sweep {
+    display: none;
   }
   .waiting-chip {
     border-color: var(--status-warn);

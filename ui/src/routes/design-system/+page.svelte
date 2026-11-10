@@ -964,9 +964,10 @@ const overview: TooltipExplanation = {
   <section class="panel">
     <h2>Epics to land · whose turn</h2>
     <p class="when">
-      <strong>When:</strong> identifying who acts next. NOTHING TO DO is quiet, YOUR TURN is warn, READY
-      TO LAND is green, DONE is slate. The additional waiting chip reports elapsed time from completion.
-      Neither replaces the next-step explanation.
+      <strong>When:</strong> identifying who acts next. SHEPHERD IS ON IT is amber with a pulsing pip
+      (and a sweep along the collapsed row) while Shepherd acts, YOUR TURN is warn, READY TO LAND is green,
+      DONE is slate. The additional waiting chip reports elapsed time from completion. Neither replaces
+      the next-step explanation.
     </p>
     <pre><code>{epicTurnMarkup}</code></pre>
   </section>

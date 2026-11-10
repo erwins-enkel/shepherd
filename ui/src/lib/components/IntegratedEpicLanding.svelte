@@ -298,7 +298,10 @@
     <h4>{m.integrated_epics_path_heading()}</h4>
     <ol class="landing-path">
       {#each steps as step, i (i)}
-        <li>
+        <li
+          class:running={step.marker === "running"}
+          class:flowing={steps[i + 1]?.marker === "running"}
+        >
           <span class="marker {step.marker}" aria-hidden="true"
             >{step.marker === "done" ? "✓" : ""}</span
           >
@@ -550,20 +553,68 @@
     border-color: var(--status-done);
   }
   .marker.running {
-    background: var(--color-amber);
-    border-color: var(--color-amber);
+    position: relative;
+    background: var(--status-running);
+    border-color: var(--status-running);
   }
-  .marker.failure {
-    background: var(--color-red);
-    border-color: var(--color-red);
+  /* Shepherd is acting on this step: an expanding halo (decorative) around the solid marker. */
+  .marker.running::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--status-running) 70%, transparent);
+    pointer-events: none;
+    animation: pip-pulse 1.8s ease-out infinite;
   }
-  .marker.warn {
-    background: var(--status-warn);
-    border-color: var(--status-warn);
+  /* The connector into the running step carries a downward flow; reduced motion freezes it into a
+     dashed amber line, which still reads as "in progress". */
+  .landing-path li.flowing::before {
+    width: 2px;
+    left: 6.5px;
+    background: repeating-linear-gradient(
+      to bottom,
+      var(--status-running) 0 4px,
+      transparent 4px 10px
+    );
+    background-size: 2px 10px;
+    animation: path-flow 0.9s linear infinite;
   }
-  .marker.ready {
-    background: var(--color-green);
-    border-color: var(--color-green);
+  @keyframes path-flow {
+    from {
+      background-position: 0 0;
+    }
+    to {
+      background-position: 0 10px;
+    }
+  }
+  /* Indeterminate progress under the running step (decorative; hidden under reduced motion). */
+  .landing-path li.running .step-content::after {
+    content: "";
+    display: block;
+    height: 2px;
+    margin-top: 6px;
+    background-color: var(--color-line);
+    background-image: linear-gradient(var(--status-running), var(--status-running));
+    background-size: 38% 100%;
+    background-repeat: no-repeat;
+    animation: step-sweep 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+  @keyframes step-sweep {
+    from {
+      background-position: -62% 0;
+    }
+    to {
+      background-position: 162% 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :global(html:not([data-motion="full"])) .landing-path li.running .step-content::after {
+      display: none;
+    }
+  }
+  :global(html[data-motion="reduced"]) .landing-path li.running .step-content::after {
+    display: none;
   }
   .step-content {
     flex: 1;

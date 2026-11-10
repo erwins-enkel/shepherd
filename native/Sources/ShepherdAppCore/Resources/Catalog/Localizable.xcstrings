@@ -11486,13 +11486,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "NICHTS ZU TUN"
+            "value": "SHEPHERD ARBEITET"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "NOTHING TO DO"
+            "value": "SHEPHERD IS ON IT"
           }
         }
       }

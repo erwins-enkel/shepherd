@@ -120,12 +120,18 @@
       <li class="lcs-stage" data-stage="reruns" data-status={automation.reruns.status}>
         <GuardMarker kind={automation.reruns.status === "skipped" ? "conditional" : "auto"} />
         <span class="lcs-label">{m.landing_ci_reruns_label()}</span>
-        <span class="lcs-state">{rerunText}</span>
+        <span class="lcs-state"
+          >{#if automation.reruns.status === "running"}<span class="lcs-live" aria-hidden="true"
+            ></span>{/if}{rerunText}</span
+        >
       </li>
       <li class="lcs-stage" data-stage="repair" data-status={automation.repair.status}>
         <GuardMarker kind={automation.repair.status === "skipped" ? "conditional" : "auto"} />
         <span class="lcs-label">{m.landing_ci_repair_label()}</span>
-        <span class="lcs-state">{repairText}</span>
+        <span class="lcs-state"
+          >{#if automation.repair.status === "running"}<span class="lcs-live" aria-hidden="true"
+            ></span>{/if}{repairText}</span
+        >
         {#if automation.repair.status === "done" && automation.repair.sessionId}
           {@const id = automation.repair.sessionId}
           <button type="button" class="lcs-link" onclick={() => onopensession(id)}
@@ -228,6 +234,21 @@
     color: var(--color-muted);
     overflow-wrap: anywhere;
     min-width: 0;
+  }
+  .lcs-stage[data-status="running"] .lcs-state {
+    color: var(--status-running);
+  }
+  /* The stage Shepherd is on right now: a pulsing dot (functional status motion, exempt from the
+     reduced-motion blanket in app.css). */
+  .lcs-live {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    vertical-align: 0.1em;
+    animation: dot-pulse 1.4s ease-in-out infinite !important;
   }
   .lcs-link {
     margin: 0;

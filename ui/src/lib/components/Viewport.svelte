@@ -3564,7 +3564,8 @@
       <!-- Non-blocking review-in-flight banner: reserved bottom strip. The terminal
          (.term-mount) shrinks by this banner's height (--review-banner-h) so the
          strip sits BELOW the live prompt, not over it. Stays mounted across tab
-         switches (state survives); it suppresses its own render off the term tab.
+         switches (state survives); it renders on the term and chat tabs only (the
+         .chat-wrap shrinks by the same height, so it sits below the composer there).
          (issue #1022) -->
       <ReviewInFlightBanner
         {session}
@@ -3717,7 +3718,7 @@
        (the foldable swipe-up compose gesture starts on the bottom-most element). -->
   {#if !assistant && !mobile}
     <!-- a phone shows it in the session details under the header instead -->
-    <SessionStatusBar {session} {usage} {activity} joined={reviewActive && tab === "term"} />
+    <SessionStatusBar {session} {usage} {activity} joined={reviewActive} />
   {/if}
 
   <!-- The merge decision sits right above the steer chips it competes with; the steer and ctrl
@@ -4825,6 +4826,9 @@
     overflow: hidden;
   }
   .chat-wrap {
+    /* Reserve the bottom strip (review / CI / auto-merge) like .term-mount does, so it sits
+       below the composer instead of over it. 0px when no strip shows. */
+    bottom: var(--review-banner-h, 0px);
     display: flex;
     flex-direction: column;
     background: var(--color-bg);

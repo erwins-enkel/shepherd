@@ -1374,6 +1374,85 @@ describe("Viewport active REWORK terminal strip", () => {
   });
 });
 
+// The bottom strip (review / CI / auto-merge) shows on the chat tab too, so a running critic or CI
+// run is visible there. .chat-wrap reserves its height like .term-mount, so the strip sits below
+// the composer instead of over it; off the term and chat tabs it stays hidden.
+describe("Viewport bottom strip on the chat tab", () => {
+  function clearReviewState() {
+    reviews.map = {};
+    reviews.reviewing = {};
+    reviews.activity = {};
+    planGates.map = {};
+    planGates.reviewing = {};
+  }
+
+  beforeEach(clearReviewState);
+  afterEach(clearReviewState);
+
+  function stripHeight(container: HTMLElement): number {
+    const body = container.querySelector<HTMLElement>(".vp-body");
+    expect(body, ".vp-body should render").not.toBeNull();
+    return parseFloat(body!.style.getPropertyValue("--review-banner-h"));
+  }
+
+  it("shows a running review below the chat composer, never over it", async () => {
+    const id = "chat-strip-review";
+    planGates.applyReviewing(id, true);
+
+    const { container } = await render(Viewport, {
+      session: session({ id, status: "running", planPhase: "planning" }),
+      activity: activity("read .shepherd-plan.md"),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    (container.querySelector(".viewport")!.parentElement as HTMLElement).style.height = "600px";
+    await page.getByRole("tab", { name: m.viewport_chat_tab() }).click();
+
+    const banner = await vi.waitFor(() => {
+      const b = container.querySelector<HTMLElement>(".review-banner");
+      expect(b, "review strip on the chat tab").not.toBeNull();
+      return b!;
+    });
+    await vi.waitFor(() => expect(stripHeight(container)).toBeGreaterThan(0));
+    const chat = container.querySelector<HTMLElement>(".chat-wrap");
+    expect(chat, "chat panel mounted").not.toBeNull();
+    await vi.waitFor(() => {
+      const c = chat!.getBoundingClientRect();
+      expect(c.height).toBeGreaterThan(0);
+      expect(c.bottom).toBeLessThanOrEqual(banner.getBoundingClientRect().top + 0.5);
+    });
+    expect(container.querySelector('.ssb[data-joined="true"]'), "status bar joins").not.toBeNull();
+
+    await page.getByRole("tab", { name: m.viewport_diff_tab() }).click();
+    await vi.waitFor(() => expect(container.querySelector(".review-banner")).toBeNull());
+    await vi.waitFor(() => expect(stripHeight(container)).toBe(0));
+  });
+
+  it("shows the running-CI strip on the chat tab", async () => {
+    const id = "chat-strip-ci";
+    const { container } = await render(Viewport, {
+      session: session({ id, status: "running" }),
+      git: {
+        kind: "github",
+        state: "open",
+        number: 12,
+        url: "https://example.test/pr/12",
+        checks: "pending",
+        deployConfigured: false,
+        runningChecks: ["verify / test"],
+      },
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await page.getByRole("tab", { name: m.viewport_chat_tab() }).click();
+
+    await vi.waitFor(() =>
+      expect(container.querySelector(".ci-banner"), "CI strip on the chat tab").not.toBeNull(),
+    );
+    await vi.waitFor(() => expect(stripHeight(container)).toBeGreaterThan(0));
+  });
+});
+
 // ── Mobile page-swipe is scoped to the terminal/panel body (allow-list) ───────
 // Regression: the horizontal "switch task side-by-side" swipe used to arm for ANY
 // touch outside a small deny-set, so a drag starting on the top chrome (header/tabs,

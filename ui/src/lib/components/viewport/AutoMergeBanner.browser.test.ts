@@ -109,6 +109,11 @@ describe("AutoMergeBanner", () => {
     expect(banner()).toBeNull();
   });
 
+  it("shows on the chat tab too", async () => {
+    mount("behind", { tab: "chat" });
+    await expect.poll(() => banner()?.textContent ?? "").toContain(m.automergebanner_behind());
+  });
+
   it("renders nothing when the train does not hold this PR or off the terminal tab", async () => {
     mount(null);
     mount("behind", { tab: "diff" });

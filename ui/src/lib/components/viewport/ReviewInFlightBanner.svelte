@@ -23,6 +23,7 @@
   import { addressStallStatus } from "#lib/review-status.js";
   import { clock } from "#lib/now.svelte.js";
   import { environmentLabel } from "#lib/reviewer-env.js";
+  import { showsBottomStrip } from "#lib/bottom-strip.js";
 
   // Non-blocking signal that an in-flight PR-critic / plan-gate review is running and
   // may steer this session when it concludes (issue #1022). A critic review that cannot
@@ -377,13 +378,13 @@
   // current across reflows (e.g. an orientation change re-wrapping the text).
   let bannerEl = $state<HTMLDivElement>();
   $effect(() => {
-    const shown = view.show && tab === "term";
+    const shown = view.show && showsBottomStrip(tab);
     if (active !== shown) active = shown; // logical occupancy signal for a sibling status banner (pre-paint)
     // Terminal-dim signal: only the in-flight tier (review runs off-screen, PTY idle). Narrowed
     // off `view` directly so TS sees the discriminant; NOT during addressing/conclusion.
     // Not while held: the operator holds a review precisely so they can work in the terminal.
     const preview =
-      view.show && view.phase === "in-flight" && view.tone !== "held" && tab === "term";
+      view.show && view.phase === "in-flight" && view.tone !== "held" && showsBottomStrip(tab);
     if (inflight !== preview) inflight = preview;
     if (!shown) {
       height = 0; // hidden branch: reset (the only place height is zeroed)
@@ -413,7 +414,7 @@
   </svg>
 {/snippet}
 
-{#if view.show && tab === "term"}
+{#if view.show && showsBottomStrip(tab)}
   <div
     class="review-banner"
     data-tone={view.tone}

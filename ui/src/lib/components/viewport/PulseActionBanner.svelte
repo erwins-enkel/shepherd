@@ -7,6 +7,7 @@
   import { typicalMinutes } from "#lib/pulse-text.js";
   import { ApiError, interruptSession, restartCiJob, setSessionAutopilot } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
+  import { showsBottomStrip } from "#lib/bottom-strip.js";
 
   // The actions the hover status panel can't carry (#2863): it is pointer-transparent, so the
   // "CI overdue" and "going in circles" verdicts get their buttons here, in the detail view's
@@ -111,7 +112,7 @@
 
   let bannerEl = $state<HTMLDivElement>();
   $effect(() => {
-    if (!kind || tab !== "term") {
+    if (!kind || !showsBottomStrip(tab)) {
       height = 0;
       return;
     }
@@ -119,7 +120,7 @@
   });
 </script>
 
-{#if kind && tab === "term"}
+{#if kind && showsBottomStrip(tab)}
   <div
     class="term-strip pa-banner"
     data-kind={kind}

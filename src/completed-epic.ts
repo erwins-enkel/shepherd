@@ -19,6 +19,16 @@ export interface CompletedEpicChild {
  *  none=nothing to land / human-closed, error=last open attempt failed/retrying. */
 export type EpicLandingState = "pending" | "open" | "merged" | "none" | "error";
 
+/** #3838: how an epic's run ended. `landed` = its landing PR merged; `incremental` = every child
+ *  merged on its own (no landing PR); `closed-unlanded` = its parent closed before anything landed. */
+export type EpicOutcome = "landed" | "incremental" | "closed-unlanded";
+
+/** #3838: the outcomes that count as success — such a row stays in the band until the operator
+ *  acknowledges it. */
+export function isSucceededOutcome(o: EpicOutcome | null | undefined): boolean {
+  return o === "landed" || o === "incremental";
+}
+
 export interface CompletedEpic {
   repoPath: string;
   parentIssueNumber: number;
@@ -48,6 +58,13 @@ export interface CompletedEpic {
   // #1841: lifetime count of conflict-rework sessions dispatched for this landing (auto cap 1;
   // the manual "Resolve conflicts" dispatch bypasses the cap). Independent of landingRepairCount.
   landingConflictReworkCount: number;
+  /** #3838: how the epic ended; null while its landing is still open. Optional, like the two
+   *  stamps below, so pre-existing fixtures stay valid. */
+  outcome?: EpicOutcome | null;
+  /** #3838: when it succeeded — its landing PR's merge, or an incremental epic's completion. */
+  succeededAt?: number | null;
+  /** #3838: when the operator explicitly confirmed the success; null until then. */
+  acknowledgedAt?: number | null;
   /** #1841: when the current conflict pause began (null outside a conflict pause). Optional so
    *  pre-existing fixtures/backfills stay valid. */
   landingConflictSince?: number | null;
@@ -569,27 +586,41 @@ export function completedEpicRows(
   store: Pick<CompletedEpicStore, "listEpicCompleted" | "getEpicIntegrationBranch">,
   repoPath?: string,
 ): CompletedEpicRow[] {
-  return store.listEpicCompleted(repoPath).map((row) => {
-    // landingAttempts, landingRebaseCount, landingRebaseDriverMisses are internal counters,
-    // not part of the CompletedEpic response. landingRebasePauseReason is API-facing and passes through.
-    const {
-      childrenJson,
-      landingAttempts,
-      landingRebaseCount,
-      landingRebaseDriverMisses,
-      landingConflictEscalatedAt,
-      ...rest
-    } = row;
-    void landingAttempts;
-    void landingRebaseCount;
-    void landingRebaseDriverMisses;
-    void landingConflictEscalatedAt;
-    return {
-      ...rest,
-      integrationBranch: store.getEpicIntegrationBranch(row.repoPath, row.parentIssueNumber),
-      children: JSON.parse(childrenJson) as CompletedEpic["children"],
-    };
-  });
+  return store.listEpicCompleted(repoPath).map((row) => toCompletedEpicRow(store, row));
+}
+
+/** #3838: every epic whose run ended — succeeded (acknowledged or not) or closed without landing —
+ *  mapped like {@link completedEpicRows}, newest first. Dismissal does not hide a row here. */
+export function epicHistoryRows(
+  store: Pick<SessionStore, "listEpicHistory" | "getEpicIntegrationBranch">,
+  repoPath?: string,
+): CompletedEpicRow[] {
+  return store.listEpicHistory(repoPath).map((row) => toCompletedEpicRow(store, row));
+}
+
+function toCompletedEpicRow(
+  store: Pick<CompletedEpicStore, "getEpicIntegrationBranch">,
+  row: ReturnType<SessionStore["listEpicCompleted"]>[number],
+): CompletedEpicRow {
+  // landingAttempts, landingRebaseCount, landingRebaseDriverMisses are internal counters,
+  // not part of the CompletedEpic response. landingRebasePauseReason is API-facing and passes through.
+  const {
+    childrenJson,
+    landingAttempts,
+    landingRebaseCount,
+    landingRebaseDriverMisses,
+    landingConflictEscalatedAt,
+    ...rest
+  } = row;
+  void landingAttempts;
+  void landingRebaseCount;
+  void landingRebaseDriverMisses;
+  void landingConflictEscalatedAt;
+  return {
+    ...rest,
+    integrationBranch: store.getEpicIntegrationBranch(row.repoPath, row.parentIssueNumber),
+    children: JSON.parse(childrenJson) as CompletedEpic["children"],
+  };
 }
 
 /** #2872: the raw automation counters are folded into landingCiAutomation — not part of the API. */
@@ -650,6 +681,22 @@ export function storeEnrichDeps(
     repoConfig: (repoPath) => store.getRepoConfig(repoPath),
     now,
   };
+}
+
+/** #3838: an incremental epic's rollup — every child merged straight into the default branch, so
+ *  each counts as included; its PR number when the drain knew it, no integration-merge facts. */
+export function incrementalRollup(
+  children: Pick<EpicChild, "number" | "title" | "url" | "prNumber">[],
+): CompletedEpicChild[] {
+  return children.map((c) => ({
+    number: c.number,
+    title: c.title,
+    url: c.url,
+    prNumber: c.prNumber,
+    prUrl: null,
+    mergedAt: null,
+    integrated: true,
+  }));
 }
 
 export function buildRollup(

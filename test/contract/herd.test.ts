@@ -441,6 +441,66 @@ describe("completed epics", () => {
     }
   });
 
+  test("acknowledge confirms a succeeded epic, which history keeps (#3838)", async () => {
+    const ACK = `${LIST}/acknowledge`;
+    const HISTORY = "/api/epics/history";
+    seed(210);
+    s.deps.store.setEpicLandingPr(s.validRepo, 210, {
+      state: "merged",
+      prNumber: 31,
+      prUrl: "https://github.com/acme/widgets/pull/31",
+      attempts: 1,
+    });
+    validateRequest("POST", ACK, target(210));
+    const band = (await validateResponse("GET", LIST, await get(LIST))) as Record<string, any>[];
+    expect(band.find((r) => r.parentIssueNumber === 210)).toMatchObject({
+      outcome: "landed",
+      acknowledgedAt: null,
+    });
+
+    let ok: Response | undefined;
+    const frames = await collectEvents(s, token, async () => {
+      ok = await act("acknowledge", target(210));
+    });
+    expect(ok!.status).toBe(200);
+    await validateResponse("POST", ACK, ok!);
+    const cleared = frames.find((f) => f.event === "epic:completed-cleared")!;
+    expect(cleared.data).toEqual({ repoPath: s.validRepo, parentIssueNumber: 210 });
+    validateEvent(cleared.event, cleared.data);
+    const after = (await validateResponse("GET", LIST, await get(LIST))) as Record<string, any>[];
+    expect(after.some((r) => r.parentIssueNumber === 210)).toBe(false);
+
+    const history = await get(`${HISTORY}?repo=${encodeURIComponent(s.validRepo)}`);
+    expect(history.status).toBe(200);
+    const rows = (await validateResponse("GET", HISTORY, history)) as Record<string, any>[];
+    const row = rows.find((r) => r.parentIssueNumber === 210)!;
+    expect(row).toMatchObject({ outcome: "landed", landingPrNumber: 31 });
+    expect(row.succeededAt).toBeNumber();
+    expect(row.acknowledgedAt).toBeNumber();
+  });
+
+  test("acknowledge answers 400, 401 and 409; history answers 400 and 401", async () => {
+    const ACK = `${LIST}/acknowledge`;
+    const HISTORY = "/api/epics/history";
+    seed(212);
+    const unfinished = await act("acknowledge", target(212));
+    expect(unfinished.status).toBe(409);
+    await validateResponse("POST", ACK, unfinished);
+    const bad = await act("acknowledge", { repo: s.validRepo, parent: 0 });
+    expect(bad.status).toBe(400);
+    await validateResponse("POST", ACK, bad);
+    const anon = await act("acknowledge", target(212), false);
+    expect(anon.status).toBe(401);
+    await validateResponse("POST", ACK, anon);
+
+    const badRepo = await get(`${HISTORY}?repo=${encodeURIComponent("../../etc")}`);
+    expect(badRepo.status).toBe(400);
+    await validateResponse("GET", HISTORY, badRepo);
+    const anonHistory = await get(HISTORY, false);
+    expect(anonHistory.status).toBe(401);
+    await validateResponse("GET", HISTORY, anonHistory);
+  });
+
   test("land answers 400, 401, 409 and 502", async () => {
     const LAND = `${LIST}/land`;
     const bad = await act("land", { repo: s.validRepo, parent: 0 });

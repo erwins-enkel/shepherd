@@ -185,6 +185,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/epics/completed"),
 
   // lenses / drawers
+  get("/api/epics/history"),
   get("/api/settings"),
   get("/api/plugins"),
   get("/api/diagnostics"),
@@ -387,6 +388,7 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/epic/diagnose",
     "/api/epic/import",
     "/api/epics/completed/ack-migrations",
+    "/api/epics/completed/acknowledge",
     "/api/epics/completed/dismiss",
     "/api/epics/completed/land",
     "/api/epics/completed/resolve-conflicts",

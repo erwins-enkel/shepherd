@@ -376,6 +376,19 @@ export function epicsToLandExplanation(): TooltipExplanation {
   };
 }
 
+/** #3838: the "Successfully completed" band — what lands an epic there and what confirming does. */
+export function succeededEpicsExplanation(): TooltipExplanation {
+  return {
+    title: m.succeeded_epics_help_title(),
+    summary: m.succeeded_epics_help_summary(),
+    sections: [
+      { label: m.succeeded_epics_ack(), text: m.succeeded_epics_help_confirm() },
+      { label: m.succeeded_epics_help_not_label(), text: m.succeeded_epics_help_not() },
+      { label: m.succeeded_epics_help_scope_label(), text: m.succeeded_epics_help_scope() },
+    ],
+  };
+}
+
 export function landingPrExplanation(): TooltipExplanation {
   return {
     title: m.gloss_landing_pr_term(),

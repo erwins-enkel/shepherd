@@ -1771,6 +1771,13 @@ export interface CompletedEpic {
   // ask for acknowledgement before it can be cleared — never gates the completion flip.
   migrationPaths: string[];
   migrationsAckedAt: number | null;
+  /** #3838: how the epic ended (mirrors server EpicOutcome); null/absent while its landing is open.
+   *  `landed`/`incremental` is a success that stays in view until the operator acknowledges it. */
+  outcome?: "landed" | "incremental" | "closed-unlanded" | null;
+  /** #3838: when it succeeded (landing PR merged, or an incremental epic completed); epoch ms. */
+  succeededAt?: number | null;
+  /** #3838: when the operator confirmed the success; null until then. */
+  acknowledgedAt?: number | null;
   // Live, display-only landing-PR gate signals from GET /api/epics/completed and the
   // `epic:landing-gate` frame (server #1039, #2858); present only for open-landing rows the server
   // could read. Drive the "Land epic" CTA + escalation.

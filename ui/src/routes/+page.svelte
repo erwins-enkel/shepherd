@@ -64,6 +64,7 @@
     getCompletedEpics,
     dismissCompletedEpic,
     ackEpicMigrations,
+    acknowledgeCompletedEpic,
     ackManualSteps,
     landEpic,
     resolveLandingConflicts,
@@ -3603,6 +3604,24 @@
     }
   }
 
+  // #3838: confirm a succeeded epic's completion. Not optimistic: the row stays (busy) until the
+  // server records the confirmation, then leaves the band — the epic:completed-cleared frame would
+  // take it out too. False tells the row to show its own retry hint.
+  async function onAcknowledgeEpic(repoPath: string, parent: number): Promise<boolean> {
+    try {
+      await acknowledgeCompletedEpic(repoPath, parent);
+    } catch {
+      return false;
+    }
+    store.completedEpics = store.completedEpics.filter(
+      (e) => e.repoPath !== repoPath || e.parentIssueNumber !== parent,
+    );
+    toasts.info(m.succeeded_epics_acked_toast({ number: parent }), {
+      key: `epic-acked:${repoPath}#${parent}`,
+    });
+    return true;
+  }
+
   // Acknowledge a session's manual operator steps (#1060), clearing its auto-merge gate. The
   // server emits session:manual-steps with the fresh ackedAt on success, so the chip/CTA clear
   // live via the WS handler — no optimistic mutation needed. On failure, a 12s, tone-
@@ -4071,6 +4090,7 @@
             onbringback={onBringBack}
             ondoneaskassistant={askAboutDoneSession}
             onackmigrationsepic={onAckEpicMigrations}
+            onacknowledgeepic={onAcknowledgeEpic}
             onackmanualsteps={onAckManualSteps}
             onshowowed={onShowOwed}
             {owedFocusId}
@@ -4305,6 +4325,7 @@
               onbringback={onBringBack}
               ondoneaskassistant={askAboutDoneSession}
               onackmigrationsepic={onAckEpicMigrations}
+              onacknowledgeepic={onAcknowledgeEpic}
               onackmanualsteps={onAckManualSteps}
               onshowowed={onShowOwed}
               {owedFocusId}

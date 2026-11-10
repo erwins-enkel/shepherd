@@ -538,6 +538,7 @@ import {
   completedEpicRows,
   computeLandingReady,
   enrichLandingEpics,
+  epicHistoryRows,
   overlayPushedGate,
   publicCompletedEpic,
   storeEnrichDeps,
@@ -14260,7 +14261,7 @@ function landingPrStatus(deps: AppDeps, repoPath: string, branch: string): Promi
 }
 
 // GET /api/epics/completed[?repo=] — durable completed-epics band. Primarily pure-DB; for a repo
-// no fingerprint covers it also runs a bounded, best-effort, fail-safe reconcile (auto-dismiss
+// no fingerprint covers it also runs a bounded, best-effort, fail-safe reconcile (settle
 // confidently-closed parents + backfill an all-merged idle run that never got recorded). Always
 // serves DB rows; never 500s on forge/network failure and never 503s just because drain is absent.
 async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise<Response | null> {
@@ -14354,6 +14355,40 @@ async function handleEpicsCompletedDismiss(ctx: Ctx): Promise<Response | null> {
   deps.store.dismissEpicCompleted(dir, parent);
   deps.events?.emit("epic:completed-cleared", { repoPath: dir, parentIssueNumber: parent });
   return json({ ok: true });
+}
+
+// POST /api/epics/completed/acknowledge — body { repo, parent }. #3838: the operator confirms a
+// succeeded epic, which then leaves the band (GET /api/epics/history keeps it). The only way a
+// success leaves the band: viewing, reloading or archiving a session never acknowledges.
+async function handleEpicsCompletedAcknowledge(ctx: Ctx): Promise<Response | null> {
+  const target = await completedEpicPost(ctx, "acknowledge");
+  if (!target || target instanceof Response) return target;
+  const { dir, parent } = target;
+  if (!ctx.deps.store.acknowledgeEpicCompleted(dir, parent))
+    return json({ error: "not a succeeded epic" }, 409);
+  ctx.deps.events?.emit("epic:completed-cleared", { repoPath: dir, parentIssueNumber: parent });
+  return json({ ok: true });
+}
+
+// GET /api/epics/history[?repo=] — #3838: every epic whose run ended (succeeded, acknowledged or
+// not, or closed without landing), newest first. Pure DB: no reconcile, no live landing signals.
+async function handleEpicsHistory({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(
+    req.method === "GET" &&
+    parts[0] === "api" &&
+    parts[1] === "epics" &&
+    parts[2] === "history" &&
+    !parts[3]
+  ))
+    return null;
+  const repoParam = url.searchParams.get("repo");
+  let repoFilter: string | undefined;
+  if (repoParam !== null) {
+    const dir = safeRepoDir(repoParam, config.repoRoot);
+    if (!dir) return json({ error: "invalid repo" }, 400);
+    repoFilter = dir;
+  }
+  return json(epicHistoryRows(deps.store, repoFilter).map(publicCompletedEpic));
 }
 
 // POST /api/epics/completed/ack-migrations — body { repo, parent }. Acknowledge the landing PR's
@@ -14506,6 +14541,9 @@ async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Resp
         landingRepairCount: updatedRow.landingRepairCount,
         landingRepairHead: updatedRow.landingRepairHead,
         landingConflictReworkCount: updatedRow.landingConflictReworkCount,
+        outcome: updatedRow.outcome,
+        succeededAt: updatedRow.succeededAt,
+        acknowledgedAt: updatedRow.acknowledgedAt,
       };
       deps.events?.emit("epic:completed", completed);
     } catch {
@@ -14640,6 +14678,8 @@ const ROUTE_HANDLERS = [
   handleAutoMerge,
   handleEpicsList,
   handleEpicsCompletedDismiss,
+  handleEpicsCompletedAcknowledge,
+  handleEpicsHistory,
   handleEpicsCompletedAckMigrations,
   handleSessionsAckManualSteps,
   handleManualSteps,

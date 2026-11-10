@@ -1,4 +1,8 @@
 import { test, expect } from "bun:test";
+import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { SessionStore } from "../src/store";
 
 test("recordEpicCompleted + listEpicCompleted basic round-trip", () => {
@@ -592,4 +596,168 @@ test("listEpicRuns returns all persisted epic_run rows", () => {
       landing: "integration",
     },
   ]);
+});
+
+// ── #3838: success outcome, acknowledgement and history ──
+
+function landed(s: SessionStore, parent: number, repoPath = "/r"): void {
+  s.recordEpicCompleted({
+    repoPath,
+    parentIssueNumber: parent,
+    parentTitle: `Epic ${parent}`,
+    completedAt: 1000 + parent,
+    childrenJson: "[]",
+  });
+  s.setEpicLandingPr(repoPath, parent, {
+    state: "merged",
+    prNumber: 40 + parent,
+    prUrl: null,
+    attempts: 1,
+  });
+}
+
+test("#3838: a merged landing marks the row landed with a success time, once", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 1,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  expect(s.listEpicCompleted()[0]).toMatchObject({
+    outcome: null,
+    succeededAt: null,
+    acknowledgedAt: null,
+  });
+  s.setEpicLandingPr("/r", 1, { state: "open", prNumber: 5, prUrl: null, attempts: 1 });
+  expect(s.listEpicCompleted()[0]!.outcome).toBeNull();
+  s.setEpicLandingPr("/r", 1, { state: "merged", prNumber: 5, prUrl: null, attempts: 1 });
+  const first = s.listEpicCompleted()[0]!;
+  expect(first.outcome).toBe("landed");
+  expect(first.succeededAt).toBeNumber();
+  s.setEpicLandingPr("/r", 1, { state: "merged", prNumber: 5, prUrl: null, attempts: 1 });
+  expect(s.listEpicCompleted()[0]!.succeededAt).toBe(first.succeededAt);
+});
+
+test("#3838: acknowledging takes a success out of the band; history keeps it", () => {
+  const s = new SessionStore(":memory:");
+  landed(s, 1);
+  landed(s, 2, "/other");
+  expect(s.listEpicCompleted("/r").map((r) => r.parentIssueNumber)).toEqual([1]);
+  expect(s.acknowledgeEpicCompleted("/r", 1)).toBe(true);
+  expect(s.listEpicCompleted("/r")).toEqual([]);
+  expect(s.listEpicHistory("/r")).toMatchObject([{ parentIssueNumber: 1, outcome: "landed" }]);
+  expect(s.listEpicHistory("/r")[0]!.acknowledgedAt).toBeNumber();
+  // History respects the repo filter; the unacknowledged one is listed too.
+  expect(s.listEpicHistory("/other")).toMatchObject([
+    { parentIssueNumber: 2, acknowledgedAt: null },
+  ]);
+  expect(s.listEpicHistory().map((r) => r.parentIssueNumber)).toEqual([2, 1]);
+});
+
+test("#3838: only a success can be acknowledged", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 1,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  expect(s.acknowledgeEpicCompleted("/r", 1)).toBe(false);
+  expect(s.acknowledgeEpicCompleted("/r", 99)).toBe(false);
+  expect(s.listEpicCompleted()).toHaveLength(1);
+});
+
+test("#3838: an operator's remove or migrations ack of a success also acknowledges it", () => {
+  const s = new SessionStore(":memory:");
+  landed(s, 1);
+  landed(s, 2);
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 3,
+    parentTitle: "open",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  s.dismissEpicCompleted("/r", 1);
+  s.ackEpicMigrations("/r", 2);
+  s.dismissEpicCompleted("/r", 3);
+  const acked = s
+    .listEpicHistory("/r")
+    .map((r) => [r.parentIssueNumber, r.acknowledgedAt !== null]);
+  expect(acked).toEqual([
+    [2, true],
+    [1, true],
+  ]);
+});
+
+test("#3838: an incremental success is terminal with nothing to land", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 7,
+    parentTitle: "Inc",
+    completedAt: 500,
+    childrenJson: "[]",
+  });
+  s.markEpicIncrementalSucceeded("/r", 7, 500);
+  expect(s.listEpicCompleted()[0]).toMatchObject({
+    landingState: "none",
+    outcome: "incremental",
+    succeededAt: 500,
+  });
+});
+
+test("#3838: outcome, success time and acknowledgement survive a store reopen", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-epic-success-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const s1 = new SessionStore(dbPath);
+    landed(s1, 1);
+    landed(s1, 2);
+    s1.acknowledgeEpicCompleted("/r", 2);
+    const before = s1.listEpicHistory("/r");
+
+    const s2 = new SessionStore(dbPath);
+    expect(s2.listEpicHistory("/r")).toEqual(before);
+    expect(s2.listEpicCompleted("/r")).toMatchObject([
+      { parentIssueNumber: 1, outcome: "landed", acknowledgedAt: null },
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("#3838: a pre-existing merged row backfills to landed at its clock's landedAt", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-epic-backfill-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const s1 = new SessionStore(dbPath);
+    landed(s1, 1);
+    s1.recordEpicCompleted({
+      repoPath: "/r",
+      parentIssueNumber: 2,
+      parentTitle: "open",
+      completedAt: 7,
+      childrenJson: "[]",
+    });
+    // Rewind to the schema before #3838: no outcome columns.
+    const db = new Database(dbPath);
+    db.run(`UPDATE epic_completed SET dismissedAt = 99 WHERE parentIssueNumber = 1`);
+    db.run(`INSERT INTO epic_clock (repoPath, parentIssueNumber, startedAt, landedAt)
+            VALUES ('/r', 1, 0, 4242)`);
+    for (const c of ["outcome", "succeededAt", "acknowledgedAt"])
+      db.run(`ALTER TABLE epic_completed DROP COLUMN ${c}`);
+    db.close();
+
+    const s2 = new SessionStore(dbPath);
+    expect(s2.listEpicHistory("/r")).toMatchObject([
+      { parentIssueNumber: 1, outcome: "landed", succeededAt: 4242, acknowledgedAt: null },
+    ]);
+    expect(s2.listEpicCompleted("/r")).toMatchObject([{ parentIssueNumber: 2, outcome: null }]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

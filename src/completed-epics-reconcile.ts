@@ -1,4 +1,11 @@
-import { buildRollup, type CompletedEpic } from "./completed-epic";
+import {
+  buildRollup,
+  completedEpicRows,
+  incrementalRollup,
+  isSucceededOutcome,
+  publicCompletedEpic,
+  type CompletedEpic,
+} from "./completed-epic";
 import { effectiveEpicLanding, type Epic, type EpicRun } from "./epic-core";
 import type { EventHub } from "./events";
 import type { GitForge } from "./forge/types";
@@ -9,7 +16,10 @@ export interface CompletedEpicsReconcileDeps {
   store: Pick<
     SessionStore,
     | "listEpicCompleted"
-    | "dismissEpicCompleted"
+    | "settleEpicClosedUnlanded"
+    | "setEpicLandingPr"
+    | "markEpicIncrementalSucceeded"
+    | "getEpicIntegrationBranch"
     | "listEpicRuns"
     | "getEpicRun"
     | "hasEpicCompleted"
@@ -35,30 +45,65 @@ export function completedEpicScopeRepos(store: CompletedEpicsReconcileDeps["stor
   ];
 }
 
-// Auto-dismiss: a completed epic whose parent is confidently closed (absent from a complete
-// open set) gets cleared + emitted. openTruncated → can't be confident, so this is a no-op.
-function autoDismissClosed(
+// A completed epic whose parent is confidently closed (absent from a complete open set) settles
+// (#3838): a landing PR found merged makes it a success, which stays in the band until the
+// operator acknowledges it; anything else closed without landing and leaves the band. A success
+// is never touched. openTruncated → can't be confident, so this is a no-op.
+async function settleClosedParents(
   deps: CompletedEpicsReconcileDeps,
   repo: string,
+  forge: GitForge,
   openNumbers: Set<number>,
   openTruncated: boolean,
-): void {
+): Promise<void> {
   if (openTruncated) return;
   for (const row of deps.store.listEpicCompleted(repo)) {
-    if (!openNumbers.has(row.parentIssueNumber)) {
-      deps.store.dismissEpicCompleted(repo, row.parentIssueNumber);
-      deps.events?.emit("epic:completed-cleared", {
-        repoPath: repo,
-        parentIssueNumber: row.parentIssueNumber,
-      });
+    const parent = row.parentIssueNumber;
+    if (openNumbers.has(parent) || isSucceededOutcome(row.outcome)) continue;
+    const landed = await landingMerged(deps, forge, row);
+    if (landed === undefined) continue; // forge read failed — the next reconcile retries
+    if (landed) {
+      deps.store.setEpicLandingPr(repo, parent, { ...landed, attempts: row.landingAttempts });
+      const pushed = completedEpicRows(deps.store, repo).find(
+        (r) => r.parentIssueNumber === parent,
+      );
+      if (pushed) deps.events?.emit("epic:completed", publicCompletedEpic(pushed));
+      continue;
     }
+    deps.store.settleEpicClosedUnlanded(repo, parent);
+    deps.events?.emit("epic:completed-cleared", { repoPath: repo, parentIssueNumber: parent });
+  }
+}
+
+/** The merged landing PR of a closed-parent row — the landing PR's own `Closes #<parent>` closes
+ *  the parent, often before the drain observed the merge. Null when nothing landed; undefined when
+ *  the forge could not be read. */
+async function landingMerged(
+  deps: CompletedEpicsReconcileDeps,
+  forge: GitForge,
+  row: ReturnType<SessionStore["listEpicCompleted"]>[number],
+): Promise<{ state: "merged"; prNumber: number | null; prUrl: string | null } | null | undefined> {
+  if (row.landingState === "merged")
+    return { state: "merged", prNumber: row.landingPrNumber, prUrl: row.landingPrUrl };
+  const branch = deps.store.getEpicIntegrationBranch(row.repoPath, row.parentIssueNumber);
+  if (branch === null) return null;
+  try {
+    const pr = await forge.prStatus(branch);
+    if (pr.state !== "merged") return null;
+    return {
+      state: "merged",
+      prNumber: pr.number ?? row.landingPrNumber,
+      prUrl: pr.url ?? row.landingPrUrl,
+    };
+  } catch {
+    return undefined;
   }
 }
 
 // Backfill: an idle run whose all-merged epic never got recorded (e.g. completion happened
 // across a restart). Needs buildEpic — no-op when drain is absent. Records the completed epic
 // when all children are merged; otherwise logs a visible skip (never silently dropped).
-// #3191: an incremental epic never records a row — its retry is closing the still-open parent.
+// #3191/#3838: an incremental epic records its success and retries closing the still-open parent.
 async function backfillIdleEpic(
   deps: CompletedEpicsReconcileDeps,
   repo: string,
@@ -73,7 +118,7 @@ async function backfillIdleEpic(
   // and never re-fires buildEpic (a forge round-trip) on every reconcile.
   if (deps.store.hasEpicCompleted(repo, run.parentIssueNumber)) return;
   // Parent confidently still open? If we have a complete open set and the parent is absent,
-  // it's about to be auto-dismissed anyway — skip the flash of recording it.
+  // it's about to be settled anyway — skip the flash of recording it.
   if (!openTruncated && !openNumbers.has(run.parentIssueNumber)) return;
 
   const epic = await deps.drain.buildEpic(repo, run);
@@ -87,8 +132,10 @@ async function backfillIdleEpic(
     );
     return;
   }
-  if (effectiveEpicLanding(run) !== "incremental") recordBackfilledEpic(deps, repo, run, epic);
-  else if (!openTruncated) await closeIncrementalParent(forge, repo, run.parentIssueNumber);
+  const incremental = effectiveEpicLanding(run) === "incremental";
+  recordBackfilledEpic(deps, repo, run, epic, incremental);
+  if (incremental && !openTruncated)
+    await closeIncrementalParent(forge, repo, run.parentIssueNumber);
 }
 
 /** #3191: retry closing an all-merged incremental epic's parent (the drain's close failed, or
@@ -107,11 +154,11 @@ function recordBackfilledEpic(
   repo: string,
   run: EpicRun,
   epic: Epic,
+  incremental: boolean,
 ): void {
-  const rollup = buildRollup(
-    epic.children,
-    deps.store.listEpicIntegratedDetails(repo, run.parentIssueNumber),
-  );
+  const rollup = incremental
+    ? incrementalRollup(epic.children)
+    : buildRollup(epic.children, deps.store.listEpicIntegratedDetails(repo, run.parentIssueNumber));
   // completedAt: latest non-null child mergedAt, else now (not in the sync pump → Date.now OK).
   const mergedAts = rollup.map((c) => c.mergedAt).filter((m): m is number => m !== null);
   const completedAt = mergedAts.length > 0 ? Math.max(...mergedAts) : Date.now();
@@ -133,18 +180,23 @@ function recordBackfilledEpic(
     landingRepairHead: null,
     landingConflictReworkCount: 0,
   };
-  deps.store.recordEpicCompleted({
-    repoPath: completed.repoPath,
-    parentIssueNumber: completed.parentIssueNumber,
-    parentTitle: completed.parentTitle,
-    completedAt: completed.completedAt,
-    childrenJson: JSON.stringify(rollup),
-  });
+  deps.store.recordEpicCompleted(
+    {
+      repoPath: completed.repoPath,
+      parentIssueNumber: completed.parentIssueNumber,
+      parentTitle: completed.parentTitle,
+      completedAt: completed.completedAt,
+      childrenJson: JSON.stringify(rollup),
+    },
+    { stampLanding: !incremental },
+  );
+  if (incremental)
+    deps.store.markEpicIncrementalSucceeded(repo, run.parentIssueNumber, completedAt);
 }
 
 /**
  * Bounded, best-effort, fail-safe per-repo reconcile: resolve the forge (skip if none), fetch
- * the open set (forge throw → skip this repo; its DB rows are still served), then auto-dismiss
+ * the open set (forge throw → skip this repo; its DB rows are still served), then settle
  * confidently-closed parents + backfill an all-merged idle run that never got recorded.
  *
  * Runs when the repo's issues change (#2756: the fingerprint observed it) — and, for a repo no
@@ -166,6 +218,6 @@ export async function reconcileCompletedEpicsForRepo(
   const openNumbers = new Set(open.map((i) => i.number));
   const openTruncated = open.length >= 200;
 
-  autoDismissClosed(deps, repo, openNumbers, openTruncated);
+  await settleClosedParents(deps, repo, forge, openNumbers, openTruncated);
   await backfillIdleEpic(deps, repo, forge, openNumbers, openTruncated);
 }

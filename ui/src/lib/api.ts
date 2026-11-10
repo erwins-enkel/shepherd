@@ -3851,6 +3851,24 @@ export async function dismissCompletedEpic(
   );
 }
 
+/** #3838: confirm a succeeded epic. The server then clears it from the band (epic:completed-cleared);
+ *  GET /api/epics/history keeps it. */
+export async function acknowledgeCompletedEpic(
+  repoPath: string,
+  parent: number,
+): Promise<{ ok: boolean }> {
+  return postJson(
+    "/api/epics/completed/acknowledge",
+    { repo: repoPath, parent },
+    "acknowledge completed epic",
+  );
+}
+
+/** #3838: every epic whose run ended — succeeded (acknowledged or not) or closed without landing. */
+export async function getEpicHistory(): Promise<CompletedEpic[]> {
+  return getJson("/api/epics/history", "get epic history");
+}
+
 /** Acknowledge the migrations detected in a completed epic's landing PR (#645). Like dismiss,
  *  this clears the band row — one operator action both records the acknowledgement and dismisses. */
 export async function ackEpicMigrations(

@@ -82,6 +82,7 @@ import { detectMigrationPaths } from "./epic-migrations";
 import {
   anyLiveRepairSession,
   buildRollup,
+  incrementalRollup,
   completedEpicRows,
   computeLandingReady,
   enrichLandingEpics,
@@ -421,6 +422,7 @@ export interface DrainDeps {
     | "recordEpicIntegrated"
     | "listEpicIntegratedDetails"
     | "recordEpicCompleted"
+    | "markEpicIncrementalSucceeded"
     | "clearEpicCompletedOnRestart"
     | "listEpicCompleted"
     | "setEpicLandingPr"
@@ -2381,12 +2383,9 @@ export class DrainService {
       epicRun.status === "running" &&
       epic.children.length > 0 &&
       epic.children.every((c) => c.state === "merged");
-    // #3191: an incremental epic's children already landed on the default branch — there is no
-    // rollup to record and no landing PR; pumpStep closes its parent instead.
-    const recorded =
-      allMerged &&
-      (effectiveEpicLanding(epicRun) === "incremental" ||
-        this.recordEpicCompletion(repoPath, epicRun, epic));
+    // #3191: an incremental epic's children already landed on the default branch — no landing
+    // PR; pumpStep closes its parent. #3838: it still records its row, as an immediate success.
+    const recorded = allMerged && this.recordEpicCompletion(repoPath, epicRun, epic);
     if (!recorded) {
       // Not done — or CONTRACT(#635): the record failed, stay running and retry next pump.
       this.emitEpicIfChanged(repoPath, epic);
@@ -2409,15 +2408,19 @@ export class DrainService {
    *  all-merged and retries the idempotent upsert, rather than silently losing the rollup. */
   private recordEpicCompletion(repoPath: string, epicRun: EpicRun, epic: Epic): boolean {
     try {
-      const rollup = buildRollup(
-        epic.children,
-        this.deps.store.listEpicIntegratedDetails(repoPath, epicRun.parentIssueNumber),
-      );
+      const incremental = effectiveEpicLanding(epicRun) === "incremental";
+      const rollup = incremental
+        ? incrementalRollup(epic.children)
+        : buildRollup(
+            epic.children,
+            this.deps.store.listEpicIntegratedDetails(repoPath, epicRun.parentIssueNumber),
+          );
+      const now = this.now();
       const completed: CompletedEpic = {
         repoPath,
         parentIssueNumber: epicRun.parentIssueNumber,
         parentTitle: epic.parentTitle,
-        completedAt: this.now(),
+        completedAt: now,
         children: rollup,
         integrationBranch: this.deps.store.getEpicIntegrationBranch(
           repoPath,
@@ -2425,9 +2428,13 @@ export class DrainService {
         ),
         // Recorded as pending — its final state here; ensureLandingPr (driven by the
         // autonomous tick) opens the landing PR and transitions landingState/landingPrNumber.
+        // #3838: an incremental epic has nothing to land — it succeeded right here.
         landingPrNumber: null,
         landingPrUrl: null,
-        landingState: "pending",
+        landingState: incremental ? "none" : "pending",
+        outcome: incremental ? "incremental" : null,
+        succeededAt: incremental ? now : null,
+        acknowledgedAt: null,
         // Migration detection (#645) runs at landing-open, not completion — see ensureLandingPr.
         migrationPaths: [],
         migrationsAckedAt: null,
@@ -2436,13 +2443,18 @@ export class DrainService {
         landingRepairHead: null,
         landingConflictReworkCount: 0,
       };
-      this.deps.store.recordEpicCompleted({
-        repoPath: completed.repoPath,
-        parentIssueNumber: completed.parentIssueNumber,
-        parentTitle: completed.parentTitle,
-        completedAt: completed.completedAt,
-        childrenJson: JSON.stringify(rollup),
-      });
+      this.deps.store.recordEpicCompleted(
+        {
+          repoPath: completed.repoPath,
+          parentIssueNumber: completed.parentIssueNumber,
+          parentTitle: completed.parentTitle,
+          completedAt: completed.completedAt,
+          childrenJson: JSON.stringify(rollup),
+        },
+        { stampLanding: !incremental },
+      );
+      if (incremental)
+        this.deps.store.markEpicIncrementalSucceeded(repoPath, epicRun.parentIssueNumber, now);
       this.deps.emitEpicCompleted?.(completed);
       return true;
     } catch (err) {
@@ -2529,6 +2541,9 @@ export class DrainService {
       landingRepairCount: row.landingRepairCount,
       landingRepairHead: row.landingRepairHead,
       landingConflictReworkCount: row.landingConflictReworkCount,
+      outcome: row.outcome,
+      succeededAt: row.succeededAt,
+      acknowledgedAt: row.acknowledgedAt,
     };
     this.deps.emitEpicCompleted?.(completed);
   }

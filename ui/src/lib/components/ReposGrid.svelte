@@ -185,20 +185,26 @@
   >
 {/snippet}
 
+<!-- Cold leads the age line, not the title row: in the title it squeezed the repo name out. -->
+{#snippet coldLine(project: BacklogProject)}
+  {@const age = asOf(project)}
+  <span class="rg-cold-line">
+    {@render coldPill()}
+    {#if age}<span class="rg-asof">{age}</span>{/if}
+  </span>
+{/snippet}
+
 {#snippet bigTile(project: BacklogProject)}
   {@const id = repoOwnerName(project)}
   {@const run = runLine(project)}
-  {@const age = asOf(project)}
   <button class="rg-tile rg-tile-big" type="button" onclick={() => onselect(project.path)}>
     <span class="rg-title">
       <RepoMark path={project.path} name={id.name} favicon={project.faviconUrl} />
       <span class="rg-name">{id.name}</span>
-      {#if cold(project)}{@render coldPill()}{/if}
     </span>
     {#if id.owner}<span class="rg-owner">{id.owner}</span>{/if}
-    <span class="rg-counts"
-      >{counts(project)}{#if age}<span class="rg-asof"> · {age}</span>{/if}</span
-    >
+    <span class="rg-counts">{counts(project)}</span>
+    {#if cold(project)}{@render coldLine(project)}{/if}
     {#if run}
       <span class="rg-run" class:paused={run.paused}>
         <span aria-hidden="true">●</span>
@@ -288,7 +294,10 @@
       <div class="rg-small">
         {#each rest as project (project.path)}
           {@const name = repoOwnerName(project).name}
-          {@const age = asOf(project)}
+          {@const smallCounts = m.repos_switcher_tile_counts({
+            issues: project.openIssues ?? "—",
+            prs: prCount(project),
+          })}
           <button
             class="rg-tile rg-tile-small"
             type="button"
@@ -297,21 +306,17 @@
             <span class="rg-small-row">
               <span class="rg-title">
                 <RepoMark path={project.path} {name} favicon={project.faviconUrl} />
-                <span class="rg-name">{name}</span>
-                {#if cold(project)}{@render coldPill()}{/if}
+                <span class="rg-name" style:--rg-name-ch={Math.min(name.length, 7)}>{name}</span>
               </span>
               <span class="rg-small-counts">
-                {m.repos_switcher_tile_counts({
-                  issues: project.openIssues ?? "—",
-                  prs: prCount(project),
-                })}
+                <span class="rg-small-counts-text" title={smallCounts}>{smallCounts}</span>
                 {#if held(project)}
                   <span class="rg-hold-mark" role="img" aria-label={m.repos_grid_no_pr_ci()}>⚠</span
                   >
                 {/if}
               </span>
             </span>
-            {#if age}<span class="rg-asof">{age}</span>{/if}
+            {#if cold(project)}{@render coldLine(project)}{/if}
             <span class="rg-size" aria-hidden="true">
               <span
                 class="rg-size-fill"
@@ -533,6 +538,12 @@
     border-radius: 2px;
     color: var(--color-muted);
   }
+  .rg-cold-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
   .rg-asof {
     color: var(--color-faint);
     font-size: var(--fs-micro);
@@ -560,6 +571,7 @@
     letter-spacing: 0.04em;
   }
   .rg-hold-mark {
+    flex-shrink: 0;
     margin-left: 6px;
     color: var(--status-warn);
   }
@@ -602,11 +614,33 @@
     gap: 10px;
     min-width: 0;
   }
+  /* The name gives way first; the counts clip only once it is down to its own width or
+     6 chars + ellipsis (--rg-name-ch = min(length, 7)), whichever is less. Basis 0 hands the title
+     all the slack; inline-size containment makes the name's minimum that guard instead of its
+     full text. Past the guard the counts text ellipsizes; the ⚠ stays. */
+  .rg-small-row > .rg-title {
+    flex: 1 1 0;
+    min-width: auto;
+  }
+  .rg-small-row .rg-name {
+    flex: 1 1 auto;
+    contain: inline-size;
+    min-width: calc(var(--rg-name-ch) * (1ch + 0.03em));
+  }
   .rg-small-counts {
-    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    flex: 0 1 auto;
+    min-width: 0;
     color: var(--color-muted);
     font-size: var(--fs-meta);
     font-variant-numeric: tabular-nums;
+  }
+  .rg-small-counts-text {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   .rg-size {
     display: block;

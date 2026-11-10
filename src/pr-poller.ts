@@ -961,9 +961,12 @@ export class PrPoller implements PrCache {
     const typed = withTypicalDurations(raw, this.store.typicalCiJobDurations(s.repoPath));
     // Who's up (open+green): computed from .shepherd/roles.json + the operator's
     // login, so the herd can show "waiting on scoop" instead of "your turn".
-    const handed = annotateHandoff(typed, s.repoPath, me, prev);
     // After annotateHandoff: the start-failure overlay needs the `noCi` it stamps.
-    const stamped = this.ciStartup ? await this.ciStartup.stamp(s.id, handed, forge) : handed;
+    const stamped = await this.stampCiStartup(
+      s,
+      forge,
+      annotateHandoff(typed, s.repoPath, me, prev),
+    );
     const git = withIssueUrl(await this.stampMergeQueue(s, forge, stamped, prev), forge, s);
     if (provenance.revision !== this.readProvenance(forge).revision) return; // moved during the queue read
     this.trackTransient(s.id, git);
@@ -1008,6 +1011,11 @@ export class PrPoller implements PrCache {
    *  before `refresh` stamps its own poll. */
   private freshPrefetch(id: string, pre: Prefetched | undefined): Prefetched | undefined {
     return pre && (this.lastPolledAt.get(id) ?? -Infinity) < pre.at ? pre : undefined;
+  }
+
+  /** #3831: a CI run that failed before creating any job, made visible (see ci-startup-failure). */
+  private stampCiStartup(s: Session, forge: GitForge, git: GitState): Promise<GitState> {
+    return this.ciStartup ? this.ciStartup.stamp(s.id, git, forge) : Promise.resolve(git);
   }
 
   /** `base`'s merge queue, cached per (repo, base). A failed read is "unknown". */

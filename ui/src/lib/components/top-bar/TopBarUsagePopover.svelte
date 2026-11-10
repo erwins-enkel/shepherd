@@ -296,6 +296,11 @@
     display: flex;
     flex-direction: column;
   }
+  /* The panel scrolls when its content is taller; it must never squeeze a block instead (the hero
+     clips its overflow, so it would shrink to a thin strip). */
+  .gauge-pop > :global(*) {
+    flex-shrink: 0;
+  }
   /* .scrim (app.css) supplies the fixed inset:0, dim and blur; only the stacking is ours. */
   .pop-scrim-anchored {
     z-index: 49;

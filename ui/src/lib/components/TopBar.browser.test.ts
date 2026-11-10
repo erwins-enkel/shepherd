@@ -2209,6 +2209,29 @@ describe("TopBar — CR extra-credit gauge", () => {
     ).toBe(true);
   });
 
+  it("keeps the hero at full height when the panel's content overflows and scrolls", async () => {
+    // The panel is a scrolling flex column. The hero clips its own overflow, which lets a flex
+    // item shrink to nothing, so a tall panel used to crush it to a thin strip.
+    const hud = await renderDesktop({
+      session5h: { pct: 42, resetAt: 1_700_003_600_000 },
+      week: { pct: 30, resetAt: 1_700_600_000_000 },
+      perModelWeek: [],
+      credits: null,
+      stale: false,
+      calibratedAt: 1_700_000_000_000,
+      subscriptionOnly: false,
+    });
+    openDesktopPopover(hud);
+    await nextFrame();
+    const pop = hud.querySelector<HTMLElement>(".gauge-pop-desk")!;
+    pop.style.maxHeight = "160px";
+    await nextFrame();
+    expect(pop.scrollHeight, "the panel really overflows").toBeGreaterThan(pop.clientHeight);
+    const hero = pop.querySelector<HTMLElement>(".usage-hero");
+    expect(hero, "hero renders").not.toBeNull();
+    expect(hero!.clientHeight, "hero is not clipped").toBeGreaterThanOrEqual(hero!.scrollHeight);
+  });
+
   it("a stale Claude snapshot dims only the Claude section, not fresh Codex usage", async () => {
     // Claude limits stale + a fresh Codex provider: the Claude subsection dims, but the Codex
     // section (own codexUsage.stale=false) must stay lit — the stale must not ride the popover root.

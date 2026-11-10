@@ -4,6 +4,7 @@ import {
   outcomeLabel,
   schedules,
   upcomingOrder,
+  upcomingSlots,
   weekdayNames,
   WORKDAYS,
   ALL_DAYS,
@@ -129,5 +130,40 @@ describe("schedules store: every-repo list load failure (#3475)", () => {
     fresh.refresh("/r");
     await vi.waitFor(() => expect(fresh.all()?.map((s) => s.id)).toEqual(["a"]));
     expect(fresh.allFailed()).toBe(false);
+  });
+});
+
+describe("upcomingSlots", () => {
+  const at = (day: number, hour = 9, minute = 0) => new Date(2026, 10, day, hour, minute).getTime();
+
+  it("crosses Sunday into Monday and only includes active days", () => {
+    expect(upcomingSlots(WORKDAYS, ["09:00"], at(8, 20), 3)).toEqual([at(9), at(10), at(11)]);
+  });
+
+  it("fills the preview across multiple weeks for a single active day", () => {
+    expect(upcomingSlots(1, ["09:00"], at(9), 3)).toEqual([at(16), at(23), at(30)]);
+  });
+
+  it("sorts times, excludes now, and never mutates the input", () => {
+    const times = ["18:00", "09:00", "12:00", "18:00"];
+    expect(upcomingSlots(ALL_DAYS, times, at(9), 3)).toEqual([at(9, 12), at(9, 18), at(10)]);
+    expect(times).toEqual(["18:00", "09:00", "12:00", "18:00"]);
+  });
+
+  it("uses local calendar dates across daylight saving changes", () => {
+    const now = new Date(2026, 2, 28, 18).getTime();
+    expect(upcomingSlots(ALL_DAYS, ["09:00"], now, 3)).toEqual([
+      new Date(2026, 2, 29, 9).getTime(),
+      new Date(2026, 2, 30, 9).getTime(),
+      new Date(2026, 2, 31, 9).getTime(),
+    ]);
+  });
+
+  it("ignores incomplete or invalid times and handles empty cadences", () => {
+    expect(upcomingSlots(0, ["09:00"], at(9), 3)).toEqual([]);
+    expect(upcomingSlots(ALL_DAYS, [], at(9), 3)).toEqual([]);
+    expect(upcomingSlots(ALL_DAYS, ["", "25:00", "09:"], at(9), 3)).toEqual([]);
+    expect(upcomingSlots(ALL_DAYS, ["", "18:00"], at(9), 1)).toEqual([at(9, 18)]);
+    expect(upcomingSlots(ALL_DAYS, ["09:00"], at(9), 0)).toEqual([]);
   });
 });

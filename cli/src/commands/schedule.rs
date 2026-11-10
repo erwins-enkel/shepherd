@@ -56,7 +56,7 @@ async fn list(ctx: &mut Ctx<'_>, repo: Option<String>) -> Result<()> {
                         "every {}m {}",
                         *interval.every_minutes,
                         match (&interval.from, &interval.until) {
-                            (Some(from), Some(until)) => format!("{}-{}", &**from, &**until),
+                            (Some(from), Some(until)) => format!("{}-{}", **from, **until),
                             _ => "all day".into(),
                         }
                     ),

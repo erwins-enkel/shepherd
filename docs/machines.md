@@ -113,14 +113,14 @@ name. Only an operator signed in to the coordinator can connect a machine; an ac
 
 Shepherd checks the machine at once and every minute after:
 
-| Status             | Meaning and next step                                                                                                                                                   |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Connected          | It answers, accepts the token and speaks the same interface. Its version, platform, projects and capabilities are shown.                                                |
-| Unreachable        | No answer within 5 seconds, no connection, a redirect (enter the final `https://` address) or something that isn't a Shepherd. Check the address and that it's running. |
-| Battery pause      | A Mac whose app paused its Shepherd on battery said so before it was suspended. Shown with the time it started, it clears on its own once the Mac answers again.        |
-| Not authorized     | The token was rejected (revoked, expired, incomplete), isn't scope Full, or is limited to some repositories. Create a new one, remove the machine and connect it again. |
-| Incompatible       | That Shepherd is too old or speaks another version of the machine interface. Update both to the same release.                                                           |
-| Different instance | Another Shepherd now answers at this address. If that's intended, remove the machine and connect it again.                                                              |
+| Status             | Meaning and next step                                                                                                                                                                                                                           |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Connected          | It answers, accepts the token and speaks the same interface. Its version, platform, projects and capabilities are shown.                                                                                                                        |
+| Unreachable        | No answer within 5 seconds, no connection, a redirect (enter the final `https://` address) or something that isn't a Shepherd, e.g. a 404 from `tailscale serve` with no mapping (set it up as above). Check the address and that it's running. |
+| Battery pause      | A Mac whose app paused its Shepherd on battery said so before it was suspended. Shown with the time it started, it clears on its own once the Mac answers again.                                                                                |
+| Not authorized     | The token was rejected (revoked, expired, incomplete), isn't scope Full, or is limited to some repositories. Create a new one, remove the machine and connect it again.                                                                         |
+| Incompatible       | That Shepherd is too old or speaks another version of the machine interface. Update both to the same release.                                                                                                                                   |
+| Different instance | Another Shepherd now answers at this address. If that's intended, remove the machine and connect it again.                                                                                                                                      |
 
 To work the other way round too, connect the coordinator on the machine with a token from the
 coordinator. **Settings → Machines** shows which directions are connected

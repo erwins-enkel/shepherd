@@ -166,6 +166,7 @@ describe("SettingsMachinesPanel", () => {
         machine({ name: "Mac off", status: "unreachable", reason: "timeout" }),
         machine({ name: "Mac 401", status: "unauthorized", reason: "token_rejected" }),
         machine({ name: "Mac old", status: "incompatible", reason: "api_missing" }),
+        machine({ name: "Mac unserved", status: "unreachable", reason: "not_shepherd" }),
       ],
     });
     render(SettingsMachinesPanel);
@@ -182,6 +183,7 @@ describe("SettingsMachinesPanel", () => {
     await expect.element(page.getByText(m.settings_machines_hint_timeout())).toBeVisible();
     await expect.element(page.getByText(m.settings_machines_hint_token_rejected())).toBeVisible();
     await expect.element(page.getByText(m.settings_machines_hint_api_missing())).toBeVisible();
+    await expect.element(page.getByText(m.settings_machines_hint_not_shepherd())).toBeVisible();
     await expect
       .element(page.getByText(m.settings_machines_projects({ count: 2 })).first())
       .toBeVisible();
@@ -253,6 +255,28 @@ describe("SettingsMachinesPanel", () => {
       );
     // A refusal keeps the form open so the operator can fix what it names.
     await expect.element(page.getByLabelText(m.settings_machines_url_label())).toBeVisible();
+  });
+
+  it("says no Shepherd answers when the address serves something else (#3844)", async () => {
+    stubApi({
+      connect: () => ({
+        payload: { error: "remote_unreachable", reason: "not_shepherd" },
+        status: 422,
+      }),
+    });
+    render(SettingsMachinesPanel);
+    await connectToggle().click();
+    await page.getByLabelText(m.settings_machines_url_label()).fill("https://mac.example.ts.net");
+    await page.getByLabelText(m.settings_machines_token_label()).fill("shp_secret");
+    await connectButton().click();
+    await expect
+      .element(page.getByRole("alert"))
+      .toHaveTextContent(
+        `${m.settings_machines_status_unreachable()}: ${m.settings_machines_hint_not_shepherd()}`,
+      );
+    await expect
+      .element(page.getByText(m.settings_machines_hint_api_missing()))
+      .not.toBeInTheDocument();
   });
 
   it("removes a machine after confirmation", async () => {

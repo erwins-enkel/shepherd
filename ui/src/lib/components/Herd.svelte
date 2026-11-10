@@ -27,7 +27,6 @@
   import RemoteDispatchRow from "./herd/RemoteDispatchRow.svelte";
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
   import SucceededEpicsBand from "./SucceededEpicsBand.svelte";
-  import { deriveIntegratedEpicStatus } from "#lib/integrated-epic-status.js";
   import { isSucceededEpic } from "#lib/succeeded-epics.js";
   import PostMergeStepsPanel from "./PostMergeStepsPanel.svelte";
   import UpNextPanel from "./UpNextPanel.svelte";
@@ -261,7 +260,7 @@
     // coarse-pointer/touch input (page's `(pointer: coarse)` MediaQuery, same signal as
     // Viewport's `touch`) — keeps 44px touch targets on touch-wide desktop layouts
     touch?: boolean;
-    // fully-integrated epics for this repo scope — rendered as the bottom
+    // fully-integrated epics for this repo scope — rendered as the top
     // "integrated epics" band (self-hides when empty)
     completedEpics?: CompletedEpic[];
     // dismiss a completed epic from the band; page owns the optimistic remove + reconcile
@@ -632,9 +631,6 @@
   );
   // #3838: a succeeded epic has its own band; the "Epics to land" band keeps the rest.
   const landingEpics = $derived(completedEpics.filter((epic) => !isSucceededEpic(epic)));
-  const epicNeedsOperator = $derived(
-    landingEpics.some((epic) => deriveIntegratedEpicStatus(epic).needsOperator),
-  );
 
   const partitionGroups = $derived<PartitionGroupEntry[]>(
     [
@@ -932,7 +928,8 @@
     {/if}
   {/if}
   <div class="units" class:flow>
-    {#if epicNeedsOperator}{@render integratedEpics()}{/if}
+    <!-- on top in every landing state, so an epic waiting on this landing never hides it -->
+    {@render integratedEpics()}
     {@render succeededEpics()}
     {#if filter === "next"}
       <!-- Up Next lens (#1169): cross-repo ranked queue of un-started work, no session list. -->
@@ -1027,7 +1024,6 @@
         />
       {/each}
     {/if}
-    {#if !epicNeedsOperator}{@render integratedEpics()}{/if}
   </div>
   {@render footer?.()}
 </div>

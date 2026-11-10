@@ -9,7 +9,7 @@ import {
 import { SvelteMap } from "svelte/reactivity";
 import { toasts } from "#lib/toasts.svelte.js";
 import { basename } from "#lib/basename.js";
-import type { Schedule, ScheduleInput, ScheduleOutcome } from "#lib/types.js";
+import type { Schedule, ScheduleInput } from "#lib/types.js";
 
 /**
  * Per-repo operator schedules (#3469) for the automation settings. Loaded on demand per repo and
@@ -19,10 +19,16 @@ import type { Schedule, ScheduleInput, ScheduleOutcome } from "#lib/types.js";
  * (#3475, Settings → Schedules) is loaded on demand too, and re-read alongside once loaded.
  */
 class SchedulesStore {
+  #revisions = new SvelteMap<string, number>();
   #lists = new SvelteMap<string, Schedule[]>();
   #all = $state<Schedule[] | null>(null);
   /** The last every-repo read failed (a list shown before it stays as it was). */
   #allFailed = $state(false);
+
+  /** Invalidates an open history independently of whether the schedule list can reload. */
+  revisionFor(repoPath: string): number {
+    return this.#revisions.get(repoPath) ?? 0;
+  }
 
   listFor(repoPath: string): Schedule[] | null {
     return this.#lists.get(repoPath) ?? null;
@@ -61,6 +67,7 @@ class SchedulesStore {
 
   /** The server says `repoPath`'s schedules changed: re-read when a view shows them. */
   refresh(repoPath: string): void {
+    this.#revisions.set(repoPath, this.revisionFor(repoPath) + 1);
     if (this.#lists.has(repoPath)) void this.load(repoPath);
     if (this.#allWanted) void this.loadAll();
   }
@@ -102,6 +109,7 @@ class SchedulesStore {
   }
 
   async #reload(repoPath: string): Promise<void> {
+    this.#revisions.set(repoPath, this.revisionFor(repoPath) + 1);
     await Promise.all([this.load(repoPath), this.#allWanted && this.loadAll()]);
   }
 }
@@ -125,7 +133,7 @@ export function upcomingOrder(list: readonly Schedule[]): Schedule[] {
 }
 
 /** A run outcome as the operator reads it. */
-export function outcomeLabel(outcome: ScheduleOutcome): string {
+export function outcomeLabel(outcome: string): string {
   switch (outcome) {
     case "claimed":
       return m.schedules_outcome_interrupted();
@@ -141,6 +149,23 @@ export function outcomeLabel(outcome: ScheduleOutcome): string {
       return m.schedules_outcome_error();
     case "noop":
       return m.schedules_outcome_noop();
+    default:
+      return outcome;
+  }
+}
+
+/** Shared by the last-run disclosure and its history entries. */
+export function outcomeTone(outcome: string): "red" | "amber" | "neutral" {
+  switch (outcome) {
+    case "error":
+    case "claimed":
+      return "red";
+    case "held":
+    case "skipped:overlap":
+    case "skipped:stale":
+      return "amber";
+    default:
+      return "neutral";
   }
 }
 

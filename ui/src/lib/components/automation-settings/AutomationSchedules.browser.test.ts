@@ -10,7 +10,7 @@ import ScheduleDialog from "./ScheduleDialog.svelte";
 import { SCHEDULE_USAGE } from "#lib/schedules.svelte.js";
 import { repoConfig } from "#lib/reviews.svelte.js";
 import type { UsageLimits, Settings, RepoConfig } from "#lib/types.js";
-import type { Schedule } from "#lib/types.js";
+import type { ScheduleRun, Schedule } from "#lib/types.js";
 
 const store = new HerdStore();
 
@@ -72,7 +72,10 @@ const REPO: RepoConfig = {
 };
 
 /** Fake the schedules API: GET answers `list`; writes are recorded and answer `{}`. */
-function mockApi(list: Schedule[]) {
+function mockApi(
+  list: Schedule[],
+  history: () => Promise<Response> = async () => new Response(JSON.stringify({ runs: [] })),
+) {
   const calls: { method: string; url: string; body: unknown }[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const method = init?.method ?? "GET";
@@ -81,6 +84,10 @@ function mockApi(list: Schedule[]) {
       url: String(input),
       body: init?.body ? JSON.parse(String(init.body)) : null,
     });
+    if (method === "GET" && String(input).endsWith("/runs")) return history();
+    if (method === "POST" && String(input).endsWith("/run")) {
+      return new Response(JSON.stringify({ ...RUN, outcome: "spawned" }));
+    }
     const body =
       method === "GET"
         ? String(input).includes("/api/repo-config")
@@ -478,5 +485,302 @@ describe("schedule responsive behavior", () => {
       .getBoundingClientRect();
     expect(mobileSave.bottom).toBeLessThanOrEqual(700);
     expect(body.scrollHeight).toBeGreaterThan(body.clientHeight);
+  });
+});
+
+const RUN: ScheduleRun = {
+  id: 1,
+  scheduleId: "s1",
+  slotKey: "manual:now",
+  at: Date.UTC(2026, 10, 9, 7),
+  outcome: "noop",
+  sessionId: "session/a ?",
+  reason: "Keine Änderungen <script> & evidence",
+};
+const response = (runs: ScheduleRun[]) => new Response(JSON.stringify({ runs }));
+const historyButton = () => page.getByRole("button", { name: "History", exact: true });
+const historyList = () => document.querySelector(".sc-history");
+
+describe("schedule row history", () => {
+  it("loads lazily, shows an empty history, and uses both disclosure buttons", async () => {
+    const calls = mockApi([{ ...TRIAGE, lastRun: RUN }]);
+    render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+    await expect.element(page.getByText("Triage", { exact: true })).toBeVisible();
+    expect(calls.some((c) => c.url.endsWith("/runs"))).toBe(false);
+    const last = page.getByRole("button", { name: /Last: nothing to do ·/ });
+    await last.click();
+    await expect.element(page.getByText("No runs yet.", { exact: true })).toBeVisible();
+    await expect.element(historyButton()).toHaveAttribute("aria-expanded", "true");
+    expect(last.element().getAttribute("aria-controls")).toBe(
+      historyButton().element().getAttribute("aria-controls"),
+    );
+    await historyButton().click();
+    expect(historyList()).toBeNull();
+    await expect.element(last).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("shows failures and recovers on reopening", async () => {
+    let fail = true;
+    mockApi([TRIAGE], async () => (fail ? new Response("oops", { status: 500 }) : response([])));
+    render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+    await historyButton().click();
+    await expect
+      .element(page.getByText("Couldn't load the history.", { exact: true }))
+      .toBeVisible();
+    expect(historyList()?.textContent).not.toContain("No runs yet.");
+    await historyButton().click();
+    fail = false;
+    await historyButton().click();
+    await expect.element(page.getByText("No runs yet.", { exact: true })).toBeVisible();
+  });
+
+  it("shows the newest twenty runs with local time, escaped summaries and session links", async () => {
+    const runs = Array.from({ length: 50 }, (_, i) => ({
+      ...RUN,
+      id: 50 - i,
+      at: RUN.at - i * 60_000,
+      reason: `Summary ${i} <script>`,
+      sessionId: i === 0 ? RUN.sessionId : null,
+    }));
+    mockApi([TRIAGE], async () => response(runs));
+    render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+    await historyButton().click();
+    await expect.poll(() => historyList()?.querySelectorAll("li").length).toBe(20);
+    const items = historyList()!.querySelectorAll("li");
+    expect(items[0].textContent).toContain("Summary 0 <script>");
+    expect(items[19].textContent).toContain("Summary 19 <script>");
+    expect(historyList()!.querySelector("script")).toBeNull();
+    const time = items[0].querySelector("time")!;
+    expect(time.textContent).toBe(
+      new Intl.DateTimeFormat("en", { dateStyle: "short", timeStyle: "short" }).format(RUN.at),
+    );
+    expect(time.dateTime).toBe(new Date(RUN.at).toISOString());
+    const link = page.getByRole("link", { name: RUN.sessionId!, exact: true });
+    await expect.element(link).toHaveAttribute("href", "/?session=session%2Fa%20%3F");
+    // The app reads ?session on mount, so same-route SPA navigation must be bypassed.
+    await expect.element(link).toHaveAttribute("data-sveltekit-reload");
+  });
+
+  it("keeps future outcomes neutral in both the row and history", async () => {
+    const run = { ...RUN, outcome: "future:result" } as unknown as ScheduleRun;
+    mockApi([{ ...TRIAGE, lastRun: run }], async () => response([run]));
+    render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+    const last = page.getByRole("button", { name: /Last: future:result ·/ });
+    await last.click();
+    await expect.element(page.getByText("future:result", { exact: true })).toBeVisible();
+    expect(last.element().classList.contains("neutral")).toBe(true);
+    expect(historyList()!.querySelector(".sc-outcome")!.classList.contains("neutral")).toBe(true);
+  });
+
+  it.each([
+    ["error", "red"],
+    ["claimed", "red"],
+    ["held", "amber"],
+    ["skipped:overlap", "amber"],
+    ["skipped:stale", "amber"],
+    ["spawned", "neutral"],
+  ] as const)(
+    "uses the same outcome color for %s in the row and history",
+    async (outcome, tone) => {
+      const run = { ...RUN, outcome };
+      mockApi([{ ...TRIAGE, lastRun: run }], async () => response([run]));
+      render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+      const last = page.getByRole("button", { name: /Last:/ });
+      await last.click();
+      await expect
+        .poll(() => historyList()?.querySelector(".sc-outcome")?.classList.contains(tone))
+        .toBe(true);
+      expect(last.element().classList.contains(tone)).toBe(true);
+    },
+  );
+
+  it("reloads an open history through real events and local run-now, but ignores other repos and closed histories", async () => {
+    let runs: ScheduleRun[] = [];
+    const calls = mockApi([TRIAGE], async () => response(runs));
+    render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+    await historyButton().click();
+    await expect.element(page.getByText("No runs yet.", { exact: true })).toBeVisible();
+    const count = () => calls.filter((c) => c.url.endsWith("/runs")).length;
+    store.apply({ event: "schedules:changed", data: { repoPath: "/another" } });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(count()).toBe(1);
+    runs = [RUN];
+    store.apply({ event: "schedules:changed", data: { repoPath: TRIAGE.repoPath } });
+    await expect.element(page.getByRole("link", { name: RUN.sessionId! })).toBeVisible();
+    expect(count()).toBe(2);
+    runs = [];
+    await page.getByRole("button", { name: m.schedules_run_now(), exact: true }).click();
+    await expect.element(page.getByText("No runs yet.", { exact: true })).toBeVisible();
+    expect(count()).toBe(3);
+    await historyButton().click();
+    store.apply({ event: "schedules:changed", data: { repoPath: TRIAGE.repoPath } });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(count()).toBe(3);
+  });
+
+  it("recovers from an event reload failure on the next event", async () => {
+    let fail = false;
+    mockApi([TRIAGE], async () => (fail ? new Response("oops", { status: 500 }) : response([RUN])));
+    render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+    await historyButton().click();
+    await expect.element(page.getByRole("link", { name: RUN.sessionId! })).toBeVisible();
+    fail = true;
+    store.apply({ event: "schedules:changed", data: { repoPath: TRIAGE.repoPath } });
+    await expect
+      .element(page.getByText("Couldn't load the history.", { exact: true }))
+      .toBeVisible();
+    fail = false;
+    store.apply({ event: "schedules:changed", data: { repoPath: TRIAGE.repoPath } });
+    await expect.element(page.getByRole("link", { name: RUN.sessionId! })).toBeVisible();
+    expect(historyList()!.textContent).not.toContain("Couldn't load");
+  });
+
+  it("discards a slow older response after a newer event response", async () => {
+    let finish!: (r: Response) => void;
+    let first = true;
+    mockApi([TRIAGE], async () => {
+      if (!first) return response([RUN]);
+      first = false;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    });
+    render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+    await historyButton().click();
+    await expect.element(page.getByText(m.common_loading(), { exact: true })).toBeVisible();
+    store.apply({ event: "schedules:changed", data: { repoPath: TRIAGE.repoPath } });
+    await expect.element(page.getByRole("link", { name: RUN.sessionId! })).toBeVisible();
+    finish(response([]));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await expect.element(page.getByRole("link", { name: RUN.sessionId! })).toBeVisible();
+  });
+});
+
+describe("schedule history lifecycle", () => {
+  it("invalidates a pending response when closed and reloads on reopening", async () => {
+    let finish!: (r: Response) => void;
+    let first = true;
+    mockApi([TRIAGE], async () => {
+      if (!first) return response([RUN]);
+      first = false;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    });
+    const view = await render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+    await historyButton().click();
+    await expect.element(page.getByText(m.common_loading(), { exact: true })).toBeVisible();
+    await historyButton().click();
+    await historyButton().click();
+    await expect.element(page.getByRole("link", { name: RUN.sessionId! })).toBeVisible();
+    finish(response([]));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await expect.element(page.getByRole("link", { name: RUN.sessionId! })).toBeVisible();
+    await view.unmount();
+    expect(historyList()).toBeNull();
+  });
+
+  it("renders a local next time and a clock-driven age", async () => {
+    const { clock } = await import("#lib/now.svelte.js");
+    const previous = clock.current;
+    clock.current = RUN.at + 2 * 3_600_000;
+    try {
+      mockApi([
+        {
+          ...TRIAGE,
+          nextAt: RUN.at + 86_400_000,
+          lastRun: RUN,
+          launch: { ...TRIAGE.launch, agentProvider: "claude" },
+        },
+      ]);
+      render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+      await expect.element(page.getByText("Claude Code", { exact: true })).toBeVisible();
+      await expect
+        .element(
+          page.getByRole("button", { name: "Last: nothing to do · 2 hours ago", exact: true }),
+        )
+        .toBeVisible();
+      const next = new Intl.DateTimeFormat("en", {
+        weekday: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(RUN.at + 86_400_000);
+      await expect.element(page.getByText(`Next: ${next}`, { exact: true })).toBeVisible();
+      clock.current += 3_600_000;
+      await expect
+        .element(
+          page.getByRole("button", { name: "Last: nothing to do · 3 hours ago", exact: true }),
+        )
+        .toBeVisible();
+    } finally {
+      clock.current = previous;
+    }
+  });
+});
+
+describe("schedule row controls", () => {
+  it("uses named SVG actions and shows engine and mode chips", async () => {
+    mockApi([{ ...TRIAGE, launch: { ...TRIAGE.launch, agentProvider: "codex", research: true } }]);
+    render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+    await expect.element(page.getByText("Triage", { exact: true })).toBeVisible();
+    for (const name of [m.schedules_run_now(), m.schedules_edit(), m.schedules_delete()]) {
+      expect(
+        page.getByRole("button", { name, exact: true }).element().querySelector("svg"),
+      ).not.toBeNull();
+    }
+    expect(document.querySelector(".rs-glyph svg")).not.toBeNull();
+    expect(document.querySelector(".rs-glyph")!.textContent).not.toContain("⏱");
+    await expect.element(page.getByText("Codex", { exact: true })).toBeVisible();
+    await expect
+      .element(page.getByText(m.schedules_mode_research(), { exact: true }))
+      .toBeVisible();
+    expect(getComputedStyle(document.querySelector(".sc-cadence")!).fontFamily).toBe(
+      getComputedStyle(document.documentElement).getPropertyValue("--font-mono").trim(),
+    );
+  });
+
+  it("resets delete confirmation after four seconds", async () => {
+    const nativeTimeout = globalThis.setTimeout;
+    let expire!: () => void;
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      fn: () => void,
+      ms?: number,
+      ...args: unknown[]
+    ) => {
+      if (ms === 4000) expire = fn;
+      return nativeTimeout(fn, ms, ...args);
+    }) as typeof setTimeout);
+    const calls = mockApi([TRIAGE]);
+    render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+    await page.getByRole("button", { name: m.schedules_delete(), exact: true }).click();
+    await expect
+      .element(page.getByRole("button", { name: m.schedules_delete_confirm(), exact: true }))
+      .toBeVisible();
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+    expire();
+    await page.getByRole("button", { name: m.schedules_delete(), exact: true }).click();
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+    await page.getByRole("button", { name: m.schedules_delete_confirm(), exact: true }).click();
+    await vi.waitFor(() => expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(1));
+  });
+
+  it.each([320, 390, 768, 1280])("keeps long content and actions within %i px", async (width) => {
+    await page.viewport(width, 900);
+    mockApi([{ ...TRIAGE, name: "LongName".repeat(35), lastRun: RUN }]);
+    render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+    await historyButton().click();
+    await expect.element(page.getByText("No runs yet.", { exact: true })).toBeVisible();
+    const row = document.querySelector<HTMLElement>(".sc-row")!;
+    expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
+    for (const button of row.querySelectorAll<HTMLButtonElement>(".icon-btn")) {
+      const rect = button.getBoundingClientRect();
+      expect(rect.left).toBeGreaterThanOrEqual(0);
+      expect(rect.right).toBeLessThanOrEqual(width);
+      if (width <= 768) {
+        expect(rect.width).toBeGreaterThanOrEqual(44);
+        expect(rect.height).toBeGreaterThanOrEqual(44);
+      }
+    }
+    expect(getComputedStyle(row.querySelector(".sc-chips")!).flexWrap).toBe("wrap");
   });
 });

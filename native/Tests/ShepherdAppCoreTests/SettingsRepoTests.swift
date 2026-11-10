@@ -126,6 +126,42 @@ extension CoreSeamTests {
         #expect(draft.text == (status == 200 ? "80.0" : "80.5"))
         #expect(other.text == "unsaved model alias")
     }
+    @Test func repoSettingsChoicesSaveAndShowTheReloadedConfig() async throws {
+        let server = SettingsFakeServer(); defer { server.tearDown() }
+        let client = try client(server), model = model(); defer { model.teardown() }
+        let saved = Data(#"{"criticEnabled":false,"criticAllPrs":false,"criticSmellLensEnabled":false,"autoAddressEnabled":false,"autopilotEnabled":false,"planGateEnabled":false,"autoDrainEnabled":false,"autoMergeEnabled":true,"buildQueueEnabled":false,"draftMode":false,"manualStepsIssueEnabled":false,"preWarmEpicLandingCi":false,"mergeWithoutCi":false,"epicStacksEnabled":false,"sharedBrowserEnabled":false,"claudeAiConnectorsEnabled":false,"hidden":false,"pinned":false,"signoffAuthority":"either","maxAuto":1,"autoLabel":"auto","usageCeilingPct":80,"sandboxProfile":"autonomous","agentProvider":"codex","defaultModel":"gpt-6.1-sol","defaultEffort":"ultra","egressExtraHosts":["registry.example.com"],"browserAllowedHosts":[],"repoMode":"github","previewOpenMode":"tab"}"#.utf8)
+        model.repo = "/srv/project"
+        server.on("PUT", "/api/repo-config") { request in
+            let data = try #require(request.body)
+            let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(body["automationConfirmed"] as? Bool == true)
+            return SettingsFakeResponse(body: saved)
+        }
+        let patches: [RepoConfigPatch] = [
+            .init(agentProvider: "codex"), .init(defaultModel: "gpt-6.1-sol"), .init(defaultEffort: "ultra"),
+            .init(sandboxProfile: "autonomous"), .init(egressExtraHosts: ["registry.example.com"]),
+            .init(previewOpenMode: "tab"), RepoSettingsForm.mergePatch(.auto),
+        ]
+        for patch in patches {
+            model.requestWorkspaceAction("config", config: patch)
+            model.applyWorkspaceAction(client: client)
+            await settingsEventually { !model.busy }
+        }
+        #expect(server.requests().count == patches.count)
+        let last = try #require(server.requests().last?.body)
+        let merge = try #require(JSONSerialization.jsonObject(with: last) as? [String: Any])
+        #expect(merge["draftMode"] as? Bool == false); #expect(merge["autoMergeEnabled"] as? Bool == true)
+        let config = try #require(model.repoConfig)
+        #expect(config.agentProvider == "codex")
+        #expect(RepoSettingsForm.effectiveProvider(config, global: .claude) == .codex)
+        #expect(RepoSettingsForm.shownModel(config.defaultModel, provider: .codex) == "gpt-6.1-sol")
+        #expect(RepoSettingsForm.shownEffort(config.defaultEffort, provider: .codex) == "ultra")
+        #expect(RepoSettingsForm.shownSandbox(config) == "autonomous")
+        #expect(RepoSettingsForm.showsEgressHosts(config))
+        #expect(config.egressExtraHosts == ["registry.example.com"])
+        #expect(RepoSettingsForm.effectiveMergeMode(config) == .auto)
+        #expect(config.previewOpenMode == "tab")
+    }
     @Test func failedRoleSaveRefreshesDraftsBeforeRetry() async throws {
         let server = SettingsFakeServer(); defer { server.tearDown() }
         let client = try client(server), model = model(); defer { model.teardown() }

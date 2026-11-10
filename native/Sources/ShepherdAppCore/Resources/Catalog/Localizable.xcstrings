@@ -789,6 +789,382 @@
         }
       }
     },
+    "automation_automerge_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertige PRs automatisch mergen (vorher rebasen & erneut prüfen)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Land ready PRs automatically (rebases & re-verifies first)."
+          }
+        }
+      }
+    },
+    "automation_automerge_name": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voll-Auto-Merge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full-auto merge"
+          }
+        }
+      }
+    },
+    "automation_coding_cli_inherit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erben (globaler Standard)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inherit (global default)"
+          }
+        }
+      }
+    },
+    "automation_coding_cli_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding-CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding CLI"
+          }
+        }
+      }
+    },
+    "automation_default_effort_inherit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "erben (globaler Standard)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "inherit (global default)"
+          }
+        }
+      }
+    },
+    "automation_default_effort_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denkaufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reasoning effort"
+          }
+        }
+      }
+    },
+    "automation_default_model_inherit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erben (globaler Standard)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inherit (global default)"
+          }
+        }
+      }
+    },
+    "automation_default_model_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmodell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default model"
+          }
+        }
+      }
+    },
+    "automation_draftmode_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRs als Entwurf öffnen; aus der Merge-Queue heraushalten, bis sie freigegeben werden (menschliche Freigabe und/oder Kritiker gemäß Auswahl unten)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open PRs as drafts; held out of the merge queue until signed off (human approval and/or Critic per the selector below)."
+          }
+        }
+      }
+    },
+    "automation_egress_hosts_add": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinzufügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add"
+          }
+        }
+      }
+    },
+    "automation_egress_hosts_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine zusätzlichen Hosts für dieses Repo."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No extra hosts for this repo."
+          }
+        }
+      }
+    },
+    "automation_egress_hosts_err_duplicate": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Host steht schon in der Liste."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This host is already in the list."
+          }
+        }
+      }
+    },
+    "automation_egress_hosts_err_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib einen Hostnamen ein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a host name."
+          }
+        }
+      }
+    },
+    "automation_egress_hosts_err_invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib einen Hostnamen wie registry.example.com ein: mindestens zwei durch Punkte getrennte Teile aus Buchstaben, Ziffern und Bindestrichen, ohne Bindestrich am Anfang oder Ende eines Teils. Ohne Schema, Port, Pfad oder Platzhalter."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a host name like registry.example.com: at least two dot-separated parts of letters, digits and hyphens, with no hyphen at the start or end of a part. No scheme, port, path or wildcard."
+          }
+        }
+      }
+    },
+    "automation_egress_hosts_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusätzlich erlaubte Hosts"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extra allowed hosts"
+          }
+        }
+      }
+    },
+    "automation_egress_hosts_placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "registry.example.com"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "registry.example.com"
+          }
+        }
+      }
+    },
+    "automation_egress_hosts_remove": {
+      "comment": "%1$@ = host",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove %1$@"
+          }
+        }
+      }
+    },
+    "automation_lightweight_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht verfügbar im Lightweight-Modus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unavailable in lightweight mode"
+          }
+        }
+      }
+    },
+    "automation_preview_open_mode_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschau-Chip"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview chip"
+          }
+        }
+      }
+    },
+    "automation_sandbox_inherit": {
+      "comment": "%1$@ = profile",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erben (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inherit (%1$@)"
+          }
+        }
+      }
+    },
+    "automation_sandbox_inherit_unresolved": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inherit"
+          }
+        }
+      }
+    },
+    "automation_sandbox_profile_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox"
+          }
+        }
+      }
+    },
     "automerge_state_merge_error": {
       "extractionState": "manual",
       "localizations": {
@@ -27800,23 +28176,6 @@
         }
       }
     },
-    "native_settings_repo_automergeenabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Automatischer Merge"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Automatic merge"
-          }
-        }
-      }
-    },
     "native_settings_repo_autopilotenabled": {
       "extractionState": "manual",
       "localizations": {
@@ -27932,74 +28291,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Critic smell checks"
-          }
-        }
-      }
-    },
-    "native_settings_repo_defaulteffort": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standardaufwand des Repositories"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Repository default effort"
-          }
-        }
-      }
-    },
-    "native_settings_repo_defaultmodel": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standardmodell des Repositories"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Repository default model"
-          }
-        }
-      }
-    },
-    "native_settings_repo_draftmode": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Entwurfsmodus"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Draft mode"
-          }
-        }
-      }
-    },
-    "native_settings_repo_egressextrahosts": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zusätzlich erlaubte Hosts, kommagetrennt"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Extra allowed hosts, comma separated"
           }
         }
       }
@@ -28170,23 +28461,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Repository mode"
-          }
-        }
-      }
-    },
-    "native_settings_repo_sandboxprofile": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sandbox-Profil"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sandbox profile"
           }
         }
       }
@@ -34516,6 +34790,57 @@
         }
       }
     },
+    "preview_open_mode_ask": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Immer nachfragen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always ask"
+          }
+        }
+      }
+    },
+    "preview_open_mode_inline": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inline-Vorschau"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inline preview"
+          }
+        }
+      }
+    },
+    "preview_open_mode_tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Browser-Tab"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New browser tab"
+          }
+        }
+      }
+    },
     "promptsources_collapse_row": {
       "extractionState": "manual",
       "localizations": {
@@ -37122,6 +37447,176 @@
         }
       }
     },
+    "reposettings_merge_mode_draft": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwurf bis Freigabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draft until sign-off"
+          }
+        }
+      }
+    },
+    "reposettings_merge_mode_manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du mergst"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You merge"
+          }
+        }
+      }
+    },
+    "reposettings_merge_mode_manual_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertige PRs warten, bis du sie mergst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finished PRs wait for you to merge them."
+          }
+        }
+      }
+    },
+    "reposettings_merge_mode_name": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertige PRs"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finished PRs"
+          }
+        }
+      }
+    },
+    "reposettings_section_agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Umgebung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent environment"
+          }
+        }
+      }
+    },
+    "reposettings_section_display": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Darstellung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display"
+          }
+        }
+      }
+    },
+    "reposettings_section_epics": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epics"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epics"
+          }
+        }
+      }
+    },
+    "reposettings_section_merge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge"
+          }
+        }
+      }
+    },
+    "reposettings_section_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
+          }
+        }
+      }
+    },
+    "reposettings_section_start": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start & Ablauf"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start & flow"
+          }
+        }
+      }
+    },
     "research_badge_label": {
       "extractionState": "manual",
       "localizations": {
@@ -38032,6 +38527,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Subscription (OAuth)"
+          }
+        }
+      }
+    },
+    "settings_default_model_auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto (Standard im Einführungszeitraum)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto (launch-window default)"
           }
         }
       }

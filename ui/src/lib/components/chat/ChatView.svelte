@@ -623,14 +623,14 @@
 {/snippet}
 
 {#snippet sent(p: PendingSend, turn: boolean)}
-  <div class="ac-row" class:ac-turn={turn}>
+  <div class="ac-row ac-full" class:ac-turn={turn}>
     <span class="ac-gutter"></span>
     <div class="ac-msg ac-mine ac-waiting">
+      <span class="ac-meta">{m.assistant_chat_sent()}</span>
       <div class="ac-bubble">
         {@render caret()}
         <p>{p.text}</p>
       </div>
-      <span class="ac-meta">{m.assistant_chat_sent()}</span>
     </div>
   </div>
 {/snippet}
@@ -663,12 +663,19 @@
         <p class="ac-empty">{copy.empty()}</p>
       {/if}
       {#each rows as e, i (e.key)}
+        <!-- The operator and Shepherd are set apart from the agent's column, their time by their name. -->
+        {@const aside = e.kind === "user" || e.kind === "steer"}
         {#each slots.before[i] as p, j (p.at)}
           {@render sent(p, i + j > 0)}
         {/each}
-        <div class="ac-row" class:ac-turn={marks[i].turn} class:ac-wide={e.kind === "assistant"}>
+        <div
+          class="ac-row"
+          class:ac-turn={marks[i].turn}
+          class:ac-wide={e.kind === "assistant"}
+          class:ac-full={aside}
+        >
           <span class="ac-gutter">
-            <time class="ac-time">{marks[i].time}</time>
+            {#if !aside}<time class="ac-time">{marks[i].time}</time>{/if}
           </span>
           {#if e.kind === "assistant"}
             <div class="ac-msg">
@@ -684,6 +691,10 @@
             </div>
           {:else if e.kind === "user"}
             <div class="ac-msg ac-mine">
+              <span class="ac-meta">
+                {#if marks[i].time}<time class="ac-time">{marks[i].time}</time>{/if}
+                <span>{[m.assistant_chat_you(), chipOf(e.text)].filter(Boolean).join(" · ")}</span>
+              </span>
               <div class="ac-bubble">
                 {@render caret()}
                 {#if e.initial}
@@ -699,14 +710,11 @@
                   <p>{e.text}</p>
                 {/if}
               </div>
-              <span class="ac-meta"
-                >{[m.assistant_chat_you(), chipOf(e.text)].filter(Boolean).join(" · ")}</span
-              >
             </div>
           {:else if e.kind === "tools"}
             <ToolRun calls={e.calls} live={working && e === lastRow} />
           {:else}
-            <NoteRow entry={e} />
+            <NoteRow entry={e} time={marks[i].time} />
           {/if}
         </div>
       {/each}
@@ -854,8 +862,10 @@
     align-items: baseline;
   }
   /* An assistant reply spans the thread so code and tables scroll less; its prose keeps the
-     measure. */
-  .ac-wide {
+     measure. The operator's message and a Shepherd steer span it too: one sits at its right
+     edge, the other centered across it. */
+  .ac-wide,
+  .ac-full {
     grid-template-columns: var(--ac-gutter) minmax(0, 1fr);
   }
   /* Phone: the time gutter would cost a sixth of the width, so a row's time sits on its own line
@@ -876,17 +886,16 @@
   .ac-wide :global(.md-body > :not(pre):not(table):not(.md-code)) {
     max-width: var(--ac-measure);
   }
-  /* The operator's message or a Shepherd steer opens a turn. */
+  /* The operator's message or a Shepherd steer opens a turn: room above it, and its position says
+     who wrote it. */
   .ac-turn {
-    margin-top: 8px;
-    padding-top: 14px;
-    border-top: 1px solid var(--color-line);
+    margin-top: 12px;
   }
   .ac-gutter {
     min-width: 0;
   }
   .ac-time {
-    color: var(--color-faint);
+    color: var(--color-muted);
     font-family: var(--font-mono);
     font-size: var(--fs-micro);
     font-variant-numeric: tabular-nums;
@@ -912,18 +921,24 @@
   .ac-msg :global(.md-body) {
     line-height: 1.65;
   }
+  /* The operator's words across from the agent's: at the thread's right edge, named above. */
   .ac-mine {
-    align-items: flex-start;
+    align-items: flex-end;
+    gap: 6px;
   }
-  /* The operator's words as a prompt line: what they typed into the live pane. */
+  /* A step off the surface, behind the prompt caret of what they typed into the live pane; the
+     square corner points at the speaker's side. */
   .ac-bubble {
     display: flex;
     gap: 8px;
-    max-width: 100%;
-    padding: 6px 10px;
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    background: var(--color-inset);
+    max-width: min(64ch, 78%);
+    padding: 10px 14px;
+    border: 1px solid var(--wash-assistant-edge);
+    border-radius: var(--radius-chip) var(--radius-chip) 2px var(--radius-chip);
+    background: var(--wash-assistant-bubble);
+  }
+  .ac-narrow .ac-bubble {
+    max-width: 85%;
   }
   .ac-bubble p {
     margin: 0;
@@ -948,11 +963,23 @@
   .ac-waiting .ac-bubble {
     opacity: 0.7;
   }
+  /* Who wrote it, read before the words: its time, then the speaker. */
   .ac-meta {
-    color: var(--color-muted);
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    color: var(--color-ink-bright);
     font-size: var(--fs-micro);
-    letter-spacing: 0.08em;
+    font-weight: 600;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
+  }
+  .ac-meta .ac-time {
+    font-weight: 400;
+  }
+  .ac-waiting .ac-meta {
+    color: var(--color-muted);
+    font-weight: 400;
   }
   .ac-working {
     margin: 0;

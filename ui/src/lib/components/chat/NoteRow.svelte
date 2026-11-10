@@ -6,7 +6,14 @@
   // A quiet row between the messages: a background task's notice, or a steer Shepherd typed into
   // the session, folded to its kind (open it for the full text). Plain text, never Markdown: a
   // critic steer quotes the PR's untrusted content.
-  let { entry }: { entry: Extract<ChatEntry, { kind: "event" | "steer" }> } = $props();
+  let {
+    entry,
+    time = null,
+  }: {
+    entry: Extract<ChatEntry, { kind: "event" | "steer" }>;
+    /** The row's clock time: a steer names it in its marker; an event's sits in the gutter. */
+    time?: string | null;
+  } = $props();
 </script>
 
 {#if entry.kind === "steer"}
@@ -22,6 +29,7 @@
         aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg
       >
       <span>{m.session_chat_steer_by({ kind: steerKindLabel(entry.steer) })}</span>
+      {#if time}<time class="ac-steer-time">{time}</time>{/if}
     </summary>
     <p class="ac-steer-text">{entry.text}</p>
   </details>
@@ -75,6 +83,27 @@
   }
   .ac-steer summary::-webkit-details-marker {
     display: none;
+  }
+  /* Shepherd writes to the agent, neither the operator nor the agent: its marker sits centered
+     between hairlines, apart from both sides of the conversation. */
+  .ac-steer summary::before,
+  .ac-steer summary::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--color-line);
+  }
+  .ac-steer summary::before {
+    margin-right: 6px;
+  }
+  .ac-steer summary::after {
+    margin-left: 6px;
+  }
+  .ac-steer-time {
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
   }
   .ac-steer summary:hover {
     color: var(--color-ink-bright);

@@ -3,6 +3,7 @@
   import { projectIcons } from "#lib/projectIcons.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import EpicBadge from "./EpicBadge.svelte";
+  import { longPress } from "./longpress";
 
   let {
     epic,
@@ -14,6 +15,7 @@
     sessionless = false,
     ontoggle,
     onepic,
+    onmenu,
   }: {
     epic: Epic;
     collapsed: boolean;
@@ -38,7 +40,23 @@
     ontoggle: () => void;
     // an epic badge was clicked → open the backlog on this repo, scrolled to the epic
     onepic?: (repoPath: string, issueNumber: number) => void;
+    /** Right-click / long-press on the toggle opens the epic's menu at (x, y); returns whether it
+     *  opened. Absent → the native context menu stays. */
+    onmenu?: (x: number, y: number, opener: HTMLElement) => boolean;
   } = $props();
+
+  let toggleEl = $state<HTMLButtonElement>();
+  function onContextMenu(e: MouseEvent) {
+    if (!onmenu || !toggleEl) return;
+    e.preventDefault();
+    // The context-menu key / Shift+F10 reports 0,0 — anchor that menu under the toggle instead.
+    const r = toggleEl.getBoundingClientRect();
+    const key = e.clientX === 0 && e.clientY === 0;
+    onmenu(key ? r.left : e.clientX, key ? r.bottom : e.clientY, toggleEl);
+  }
+  function onLongPress(x: number, y: number): boolean {
+    return onmenu && toggleEl ? onmenu(x, y, toggleEl) : false;
+  }
 
   // repo the epic lives in — last path segment of its repoPath (e.g. "community-map")
   const repoName = $derived(epic.repoPath.split("/").filter(Boolean).at(-1) ?? epic.repoPath);
@@ -50,6 +68,7 @@
        there are no nested interactive elements. EpicBadge stops propagation and
        opens the backlog on its own. -->
   <button
+    bind:this={toggleEl}
     type="button"
     class="epic-toggle"
     aria-expanded={!collapsed}
@@ -57,6 +76,8 @@
       ? m.epic_group_expand_aria({ number: epic.parentIssueNumber })
       : m.epic_group_collapse_aria({ number: epic.parentIssueNumber })}
     onclick={ontoggle}
+    oncontextmenu={onContextMenu}
+    use:longPress={{ onTrigger: onLongPress }}
   >
     <span class="chev" class:collapsed aria-hidden="true">▾</span>
     {#if repoIcon}

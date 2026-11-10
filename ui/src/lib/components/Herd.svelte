@@ -68,6 +68,7 @@
     onopenbrowser = undefined,
     epics = {},
     onepic = undefined,
+    onaskepic = undefined,
     drain = {},
     activeEpicKeys = new Set(),
     collapsedKeys = new Set(),
@@ -159,6 +160,8 @@
     epics?: Record<string, Epic>;
     // an epic group header's badge was clicked → open the backlog
     onepic?: (repoPath: string, issueNumber: number) => void;
+    // an epic group's menu → "Ask the assistant" about that epic
+    onaskepic?: (repoPath: string, issueNumber: number) => void;
     // live drain status keyed by repoPath (store.drain) — the epic badge's forecast names the
     // repo's agent slots
     drain?: Record<string, DrainStatus>;
@@ -829,6 +832,8 @@
     {onepic}
     {oncollapsetoggle}
     slotsFor={(repoPath) => drain[repoPath]?.max ?? null}
+    drainFor={(repoPath) => drain[repoPath]}
+    {onaskepic}
     ctx={rowCtx}
   />
 {/snippet}

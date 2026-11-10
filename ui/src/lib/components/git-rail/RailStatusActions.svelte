@@ -208,12 +208,14 @@
     <span class="status-chip parked"
       ><span class="dot" aria-hidden="true"></span>{local
         ? m.gitrail_merged_locally()
-        : m.gitrail_merged()}</span
+        : m.gitrail_merged()}
+      {#if git.number}<span class="chip-num">#{git.number}</span>{/if}</span
     >
   {/if}
   {#if closedSpan}
     <span class="status-chip parked"
-      ><span class="dot" aria-hidden="true"></span>{m.gitrail_closed()}</span
+      ><span class="dot" aria-hidden="true"></span>{m.gitrail_closed()}
+      {#if git.number}<span class="chip-num">#{git.number}</span>{/if}</span
     >
   {/if}
   {#if epicStopped}

@@ -23,6 +23,20 @@
   }: { git?: GitState; sessionId?: string; interactive?: boolean } = $props();
   const label = $derived(prBadgeLabel(git));
   const actionable = $derived(interactive && !!sessionId && git?.state === "open" && !!git.number);
+  // A merged/closed PR has no actions left, but the card should still lead to it: its badge
+  // becomes a plain link to the PR. Same `interactive` gate as the open badge (D4 above).
+  const terminalHref = $derived(
+    interactive && (git?.state === "merged" || git?.state === "closed") && git.number
+      ? firstSafeHttpUrl(git.url)
+      : null,
+  );
+  const terminalOpenLabel = $derived(
+    !git?.number
+      ? ""
+      : git.state === "merged"
+        ? m.prbadge_merged_open_label({ number: git.number })
+        : m.prbadge_closed_open_label({ number: git.number }),
+  );
   const canToggleDraft = $derived(git?.kind === "github" || git?.kind === "gitea");
   const canRequestReview = $derived(git?.kind === "github");
   // CI only matters on an open PR; `none` means no checks reported.
@@ -200,6 +214,20 @@
     >
       {@render content()}
     </button>
+  {:else if terminalHref}
+    <!-- eslint-disable svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
+    <a
+      class="pr-badge pr-{git!.state} as-button"
+      href={terminalHref}
+      target="_blank"
+      rel="noopener"
+      title={terminalOpenLabel}
+      aria-label={terminalOpenLabel}
+      onclick={(e) => e.stopPropagation()}
+    >
+      {@render content()}
+    </a>
+    <!-- eslint-enable svelte/no-navigation-without-resolve -->
   {:else}
     <span class="pr-badge pr-{git!.state}">
       {@render content()}
@@ -261,6 +289,7 @@
     line-height: inherit;
     background: transparent;
     cursor: pointer;
+    text-decoration: none;
   }
   .as-button:hover,
   .as-button.open {

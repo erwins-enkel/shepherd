@@ -578,6 +578,20 @@ describe("GitRail — controls stay within the cell", () => {
     assertControlsWithin(h);
   });
 
+  it.each(["merged", "closed"] as const)("state:%s chip names the PR number", async (state) => {
+    gitStateFn.mockResolvedValue({
+      kind: "github",
+      state,
+      number: 42,
+      checks: "none",
+      deployConfigured: false,
+    } satisfies GitState);
+    const h = host(600);
+    await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const label = state === "merged" ? m.gitrail_merged() : m.gitrail_closed();
+    await expect.element(page.getByText(label)).toHaveTextContent(`${label} #42`);
+  });
+
   // ── open: lifecycle decisions moved to the merge row above the steer bar (#3540) ──
   it("desktop 600px — open PR: no Merge, Ready or critic trigger; readouts + settings stay", async () => {
     repoConfig.enabled = { ...repoConfig.enabled, [baseProps.repoPath]: true };

@@ -4,16 +4,17 @@ import { m } from "#lib/paraglide/messages.js";
 
 /** Badge text for a session's PR state, or null when there is nothing to show.
  *  Both an absent entry and the `none` state render nothing; only open/merged/closed
- *  produce a visible badge. */
+ *  produce a visible badge. A merged/closed PR keeps its number so the card still names
+ *  the PR it produced; only a number-less one (e.g. a local merge) falls back to the state word. */
 export function prBadgeLabel(git: GitState | undefined): string | null {
   if (!git) return null;
   switch (git.state) {
     case "open":
       return m.prbadge_open({ number: git.number ?? 0 });
     case "merged":
-      return m.prbadge_merged();
+      return git.number ? m.prbadge_merged_pr({ number: git.number }) : m.prbadge_merged();
     case "closed":
-      return m.prbadge_closed();
+      return git.number ? m.prbadge_closed_pr({ number: git.number }) : m.prbadge_closed();
     default:
       return null;
   }

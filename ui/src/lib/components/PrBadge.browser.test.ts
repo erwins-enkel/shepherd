@@ -340,3 +340,53 @@ describe("PrBadge", () => {
     expect(document.querySelector(".stale-marker")).toBeNull();
   });
 });
+
+describe("PrBadge on a merged or closed PR", () => {
+  it("links a merged PR's numbered badge to the PR in a new tab", async () => {
+    render(PrBadge, { props: { git: git({ state: "merged" }), sessionId: "s1" } });
+
+    const link = page.getByRole("link", { name: m.prbadge_merged_open_label({ number: 12 }) });
+    await expect.element(link).toHaveTextContent(m.prbadge_merged_pr({ number: 12 }));
+    await expect.element(link).toHaveAttribute("href", "https://example.test/pr/12");
+    await expect.element(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("links a closed PR's numbered badge to the PR", async () => {
+    render(PrBadge, { props: { git: git({ state: "closed" }), sessionId: "s1" } });
+
+    const link = page.getByRole("link", { name: m.prbadge_closed_open_label({ number: 12 }) });
+    await expect.element(link).toHaveTextContent(m.prbadge_closed_pr({ number: 12 }));
+    await expect.element(link).toHaveAttribute("href", "https://example.test/pr/12");
+  });
+
+  it("keeps the click from reaching the card behind the badge", async () => {
+    const onParentClick = vi.fn();
+    document.body.addEventListener("click", onParentClick);
+    render(PrBadge, { props: { git: git({ state: "merged" }), sessionId: "s1" } });
+    const link = document.querySelector<HTMLAnchorElement>("a.pr-badge")!;
+    // Keep the browser on the test page: only the propagation is under test here.
+    link.addEventListener("click", (e) => e.preventDefault());
+
+    link.click();
+
+    expect(onParentClick).not.toHaveBeenCalled();
+    document.body.removeEventListener("click", onParentClick);
+  });
+
+  it("renders a plain readout when not interactive or without a URL", async () => {
+    render(PrBadge, {
+      props: { git: git({ state: "merged" }), sessionId: "s1", interactive: false },
+    });
+    expect(document.querySelector("a.pr-badge")).toBeNull();
+    expect(document.querySelector(".pr-badge")?.textContent?.trim()).toBe(
+      m.prbadge_merged_pr({ number: 12 }),
+    );
+
+    document.body.innerHTML = "";
+    render(PrBadge, { props: { git: git({ state: "closed", url: undefined }), sessionId: "s2" } });
+    expect(document.querySelector("a.pr-badge")).toBeNull();
+    expect(document.querySelector(".pr-badge")?.textContent?.trim()).toBe(
+      m.prbadge_closed_pr({ number: 12 }),
+    );
+  });
+});

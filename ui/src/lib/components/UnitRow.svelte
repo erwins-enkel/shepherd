@@ -725,12 +725,6 @@
   const showStepper = $derived(
     dStatus === "running" || dStatus === "blocked" || dStatus === "done",
   );
-  // PrBadge's merged/closed state duplicates the Stepper's terminal chip; when
-  // that chip renders (same git.state), drop PrBadge so the terminal state shows
-  // once (the semantic green/faint chip). Open/draft PRs keep PrBadge as normal.
-  const stepperTerminal = $derived(
-    showStepper && !session.readyToMerge && (git?.state === "merged" || git?.state === "closed"),
-  );
 
   // Decommission is deferred behind an undo window: while it's open, the row is
   // doomed-but-still-present. Dim it so the operator sees it's on its way out — and keep it
@@ -1352,7 +1346,6 @@
       {quotaKind}
       {reviewing}
       {openPanelTick}
-      {stepperTerminal}
       {decom}
       coarsePointer={coarse.current}
       {pressDecommission}

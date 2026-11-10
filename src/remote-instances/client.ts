@@ -20,7 +20,10 @@ import { FEDERATION_API_VERSION, INSTANCE_NAME_MAX, type InstanceIdentity } from
 export const REMOTE_REQUEST_TIMEOUT_MS = 5_000;
 
 export type ProbeFailure =
-  | { status: "unreachable"; reason: "timeout" | "network" | "redirect" | "bad_response" }
+  | {
+      status: "unreachable";
+      reason: "timeout" | "network" | "redirect" | "bad_response" | "not_shepherd";
+    }
   | { status: "unauthorized"; reason: "token_rejected" | "token_scope" | "token_restricted" }
   | { status: "incompatible"; reason: "api_missing" | "api_version" };
 
@@ -67,14 +70,28 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 
 const defaultFetch: FetchLike = (input, init) => fetch(input, init);
 
-/** A non-2xx answer, classified. 403 is the scope gate (`insufficient_scope`); 404 means the
- *  route does not exist there, i.e. a Shepherd too old for this. */
+/** A non-2xx answer other than 404, classified. 403 is the scope gate (`insufficient_scope`). */
 function statusFailure(status: number): ProbeFailure {
   if (status >= 300 && status < 400) return { status: "unreachable", reason: "redirect" };
   if (status === 401) return { status: "unauthorized", reason: "token_rejected" };
   if (status === 403) return { status: "unauthorized", reason: "token_scope" };
-  if (status === 404) return { status: "incompatible", reason: "api_missing" };
   return BAD_RESPONSE;
+}
+
+/** A 404, classified by who sent it (#3844). Every Shepherd — one too old to have the route
+ *  included — answers an unknown API route with a JSON `{error}`, so only that means the route is
+ *  missing there. Anything else (Tailscale Serve's plain-text 404 with no mapping on the port, a
+ *  web server's page) means no Shepherd answers at this address. */
+async function notFoundFailure(res: Response): Promise<ProbeFailure> {
+  const notShepherd: ProbeFailure = { status: "unreachable", reason: "not_shepherd" };
+  if (!res.headers.get("content-type")?.includes("application/json")) {
+    await res.body?.cancel().catch(() => {});
+    return notShepherd;
+  }
+  const body: unknown = await res.json().catch(() => null);
+  return isRecord(body) && typeof body.error === "string"
+    ? { status: "incompatible", reason: "api_missing" }
+    : notShepherd;
 }
 
 /** A redirect, 401 or 403 answering a POST: this server's token lost its reach on the machine.
@@ -111,6 +128,7 @@ export async function getRemoteJson(
       failure: { status: "unreachable", reason: timedOut ? "timeout" : "network" },
     };
   }
+  if (res.status === 404) return { ok: false, failure: await notFoundFailure(res) };
   if (!res.ok) {
     await res.body?.cancel().catch(() => {});
     return { ok: false, failure: statusFailure(res.status) };

@@ -69,6 +69,9 @@ describe("machines copy", () => {
     expect(machineHint("identity_mismatch", null)).toBe(
       m.settings_machines_hint_identity_mismatch(),
     );
+    expect(machineHint("unreachable", "not_shepherd")).toBe(
+      m.settings_machines_hint_not_shepherd(),
+    );
     expect(machineHint("connected", null)).toBeNull();
     expect(machineHint("unreachable", "unheard_of")).toBeNull();
   });
@@ -79,6 +82,9 @@ describe("machines copy", () => {
     );
     expect(connectErrorMessage("remote_unauthorized", "token_scope")).toBe(
       `${m.settings_machines_status_unauthorized()}: ${m.settings_machines_hint_token_scope()}`,
+    );
+    expect(connectErrorMessage("remote_unreachable", "not_shepherd")).toBe(
+      `${m.settings_machines_status_unreachable()}: ${m.settings_machines_hint_not_shepherd()}`,
     );
     expect(connectErrorMessage("remote_unreachable", null)).toBe(
       m.settings_machines_status_unreachable(),

@@ -232,6 +232,7 @@ describe("probeRemote", () => {
       "incompatible",
       "api_missing",
     ],
+    ["a Shepherd without /api/me", { status: { "/api/me": 404 } }, "incompatible", "api_missing"],
     [
       "another federation level",
       {
@@ -257,6 +258,41 @@ describe("probeRemote", () => {
     test(`${name} ⇒ ${status}/${reason}`, async () => {
       const outcome = await probeRemote(TARGET, { fetch: stubFetch(fakeShepherd(over)) });
       expect(outcome).toEqual({ status, reason } as never);
+    });
+  }
+
+  // A 404 that isn't a Shepherd's JSON error is no Shepherd at all (#3844), e.g. Tailscale Serve
+  // with no mapping on the port.
+  const notShepherd: [string, () => Response][] = [
+    [
+      "Tailscale Serve's plain-text 404",
+      () =>
+        new Response("404 page not found\n", {
+          status: 404,
+          headers: { "content-type": "text/plain; charset=utf-8" },
+        }),
+    ],
+    [
+      "an HTML 404 page",
+      () =>
+        new Response("<html><body><h1>404 Not Found</h1></body></html>", {
+          status: 404,
+          headers: { "content-type": "text/html" },
+        }),
+    ],
+    ["a JSON 404 without an error string", () => jsonRes({ message: "missing" }, 404)],
+    [
+      "a 404 claiming JSON that doesn't parse",
+      () =>
+        new Response("not json", { status: 404, headers: { "content-type": "application/json" } }),
+    ],
+  ];
+  for (const [name, answer] of notShepherd) {
+    test(`${name} ⇒ unreachable/not_shepherd`, async () => {
+      const outcome = await probeRemote(TARGET, {
+        fetch: stubFetch(() => Promise.resolve(answer())),
+      });
+      expect(outcome).toEqual({ status: "unreachable", reason: "not_shepherd" });
     });
   }
 

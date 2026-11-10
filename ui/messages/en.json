@@ -5988,6 +5988,7 @@
   "settings_machines_hint_token_restricted": "The token is limited to selected repositories, so the project list would be incomplete. Use a token with access to all repositories.",
   "settings_machines_hint_api_missing": "That Shepherd is too old to be connected as a machine. Update it.",
   "settings_machines_hint_api_version": "That Shepherd uses a different version of the machine interface. Update both to the same release.",
+  "settings_machines_hint_not_shepherd": "No Shepherd answers at this address. Check the address and port, or the forwarding (e.g. tailscale serve --bg 7330).",
   "settings_machines_status_battery_pause": "Battery pause",
   "settings_machines_battery_pause_since": "Battery pause · since {time}",
   "settings_machines_hint_battery_pause": "The Mac paused its Shepherd to save battery. It answers again on its own once it is on external power.",

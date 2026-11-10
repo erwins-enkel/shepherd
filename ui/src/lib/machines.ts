@@ -26,6 +26,7 @@ const REASON_HINT: Record<string, () => string> = {
   token_restricted: m.settings_machines_hint_token_restricted,
   api_missing: m.settings_machines_hint_api_missing,
   api_version: m.settings_machines_hint_api_version,
+  not_shepherd: m.settings_machines_hint_not_shepherd,
   battery_pause: m.settings_machines_hint_battery_pause,
 };
 

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { GithubForge } from "../../src/forge/github";
+import { graphqlSyntaxCheckedRunner } from "../helpers/github-graphql-runner";
 
 function page(nodes: unknown[], next: string | null = null) {
   return JSON.stringify({
@@ -59,6 +60,16 @@ test("incomplete, inaccessible and failing reads cannot establish no open PR", a
       throw Error("offline");
     }).issuePullRequestReferences(133),
   ).toBeNull();
+});
+test("the reference query is a document GitHub can parse, so a merged PR is found", async () => {
+  const forge = new GithubForge(
+    "o/r",
+    {} as never,
+    graphqlSyntaxCheckedRunner(() => page([{ source: merged }])),
+  );
+  expect(await forge.issuePullRequestReferences(133)).toEqual([
+    { number: 212, url: merged.url, state: "merged" },
+  ]);
 });
 test("a complete empty read establishes no references", async () => {
   expect(

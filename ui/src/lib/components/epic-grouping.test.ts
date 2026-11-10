@@ -473,3 +473,120 @@ test("sessionless: ordered by repo basename then parent number, like the member 
     key("/x/zeta", 5),
   ]);
 });
+
+// A session the drain sent to another machine for an epic child (`child.elsewhere`) is mirrored
+// back here with the remote checkout's repoPath — it joins its epic by the dispatch record.
+const MAC = { instanceId: "mac-1", name: "macbook", platform: "macos" };
+function mirroredSession(id: string, issueNumber: number | null, host = MAC): Session {
+  return { ...session(id, "/Users/x/repo", issueNumber), host };
+}
+function epicSentTo(childNumber: number, sessionId: string | null, host = MAC): Epic {
+  const e = epic("/r", 100, [childNumber, childNumber + 1]);
+  e.children[0] = {
+    ...e.children[0],
+    elsewhere: { host, sessionId, prNumber: null },
+  };
+  return e;
+}
+
+test("mirrored: a session the drain sent for a child joins its epic group, not mirroredRest", () => {
+  const epics = { [key("/r", 100)]: epicSentTo(101, "remote-1") };
+  const local = session("local", "/r", 102);
+  const remote = mirroredSession("remote-1", 101);
+  const loose = mirroredSession("remote-2", 7);
+  const out = groupSessionsByEpicRaw(
+    [local],
+    epics,
+    new Set([key("/r", 100)]),
+    {},
+    () => false,
+    () => false,
+    now,
+    [remote, loose],
+  );
+  expect(out.groups).toHaveLength(1);
+  expect(out.groups[0].sessions.map((s) => s.id).sort()).toEqual(["local", "remote-1"]);
+  expect(out.rest).toEqual([]);
+  expect(out.mirroredRest.map((s) => s.id)).toEqual(["remote-2"]);
+});
+
+test("mirrored: a mirrored session alone forms its epic group", () => {
+  const epics = { [key("/r", 100)]: epicSentTo(101, "remote-1") };
+  const out = groupSessionsByEpicRaw(
+    [],
+    epics,
+    new Set([key("/r", 100)]),
+    {},
+    () => false,
+    () => false,
+    now,
+    [mirroredSession("remote-1", 101)],
+  );
+  expect(out.groups.map((g) => g.key)).toEqual([key("/r", 100)]);
+  expect(out.groups[0].sessions.map((s) => s.id)).toEqual(["remote-1"]);
+  expect(out.mirroredRest).toEqual([]);
+});
+
+test("mirrored: no match on another machine, an unconfirmed start, a shelved row or an inactive epic", () => {
+  const other = { instanceId: "other-1", name: "studio", platform: "macos" };
+  const run = (e: Epic, s: Session, active = new Set([key("/r", 100)])) =>
+    groupSessionsByEpicRaw(
+      [],
+      { [key("/r", 100)]: e },
+      active,
+      {},
+      () => false,
+      () => false,
+      now,
+      [s],
+    );
+  // same session id, reported by another machine
+  expect(run(epicSentTo(101, "remote-1"), mirroredSession("remote-1", 101, other)).groups).toEqual(
+    [],
+  );
+  // start not confirmed yet: no session id to match
+  expect(run(epicSentTo(101, null), mirroredSession("remote-1", 101)).groups).toEqual([]);
+  // shelved renders in the Shelved group, like a local child
+  const shelved = { ...mirroredSession("remote-1", 101), shelved: true };
+  expect(run(epicSentTo(101, "remote-1"), shelved).mirroredRest).toEqual([shelved]);
+  // the epic is not active
+  expect(
+    run(epicSentTo(101, "remote-1"), mirroredSession("remote-1", 101), new Set()).groups,
+  ).toEqual([]);
+});
+
+test("mirrored: a mirrored member is staged by the PR state its machine reports", () => {
+  const epics = { [key("/r", 100)]: epicSentTo(101, "remote-1") };
+  const ready = session("a", "/r", 102, "idle", true);
+  // still "running" by status: only its machine's merged PR state moves it past the ready row
+  const merged = { ...mirroredSession("remote-1", 101, MAC), git: git("merged") };
+  const out = groupSessionsByEpicRaw(
+    [ready],
+    epics,
+    new Set([key("/r", 100)]),
+    {},
+    () => false,
+    () => false,
+    now,
+    [merged],
+  );
+  // merged sits after ready (STAGE_ORDER) — read off the mirrored session's own git
+  expect(out.groups[0].sessions.map((s) => s.id)).toEqual(["a", "remote-1"]);
+});
+
+test("sessionless: an epic whose child runs as a listed mirrored session is not session-less", () => {
+  const epics = { [key("/r", 100)]: epicSentTo(101, "remote-1") };
+  const active = new Set([key("/r", 100)]);
+  expect(sessionlessEpicGroups([], epics, active, none, none).map((g) => g.key)).toEqual([
+    key("/r", 100),
+  ]);
+  expect(
+    sessionlessEpicGroups([], epics, active, none, none, [mirroredSession("remote-1", 101)]),
+  ).toEqual([]);
+  // a mirrored session the epic did not send does not count
+  expect(
+    sessionlessEpicGroups([], epics, active, none, none, [mirroredSession("remote-9", 101)]).map(
+      (g) => g.key,
+    ),
+  ).toEqual([key("/r", 100)]);
+});

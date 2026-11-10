@@ -2,6 +2,7 @@ import { test, expect, describe } from "bun:test";
 import { DrainService, type DrainMachinePort, type DrainStatus } from "../src/drain";
 import { ACTIVE_LABEL } from "../src/drain-core";
 import type { RemoteWork } from "../src/drain-remote";
+import type { Epic } from "../src/epic-core";
 import { SessionStore } from "../src/store";
 import type {
   GitForge,
@@ -110,6 +111,8 @@ interface Harness {
   drain: DrainService;
   creates: StandardCreateInput[];
   statuses: DrainStatus[];
+  /** Every `epic:update` the drain emitted, oldest first. */
+  epics: Epic[];
   added: number[];
   removed: number[];
 }
@@ -175,6 +178,7 @@ function makeHarness(opts: {
   const removed: number[] = [];
   const creates: StandardCreateInput[] = [];
   const statuses: DrainStatus[] = [];
+  const epics: Epic[] = [];
   const parent: Issue = {
     number: PARENT,
     title: "Epic: iOS parity",
@@ -271,11 +275,11 @@ function makeHarness(opts: {
     emitStatus: (s) => statuses.push(s),
     emitArchived: () => {},
     dropPrCache: () => {},
-    emitEpic: () => {},
+    emitEpic: (e) => epics.push(e),
     rebaseCap: 5,
     ...(opts.port && { machines: opts.port }),
   });
-  return { store, drain, creates, statuses, added, removed };
+  return { store, drain, creates, statuses, epics, added, removed };
 }
 
 const lastStatus = (h: Harness) => h.statuses.at(-1)!;
@@ -419,6 +423,34 @@ describe("children on another machine hold a slot until their PR opens", () => {
     });
     await h.drain.pump(REPO);
     expect(port.submitted.map((s) => s.issue)).toEqual([3732]);
+  });
+
+  test("the confirmed start re-emits the epic with the session there", async () => {
+    // Sent, start not yet confirmed: no session id there yet.
+    const port = fakePort({});
+    port.remote.set(3731, { host: macHost, sessionId: null, desig: null, prNumber: null });
+    const h = makeHarness({ children: [sub(3731, ["requires-macos", ACTIVE_LABEL])], port });
+    await h.drain.pump(REPO);
+    const sentTo = (e: Epic | undefined) =>
+      e?.children.find((c) => c.number === 3731)?.elsewhere ?? null;
+    expect(sentTo(h.epics.at(-1))).toMatchObject({ host: macHost, sessionId: null });
+    const before = h.epics.length;
+
+    // The machine confirms the start: same child state ("running"), but the UI needs the id
+    // to place the mirrored session in its epic group.
+    port.remote.set(3731, {
+      host: macHost,
+      sessionId: "mac-3731",
+      desig: "TASK-1",
+      prNumber: null,
+    });
+    await h.drain.pump(REPO);
+    expect(h.epics.length).toBe(before + 1);
+    expect(sentTo(h.epics.at(-1))).toMatchObject({ host: macHost, sessionId: "mac-3731" });
+
+    // Nothing changed: still de-duplicated.
+    await h.drain.pump(REPO);
+    expect(h.epics.length).toBe(before + 1);
   });
 
   test("a child sent there is never sent twice, even before its claim is visible", async () => {

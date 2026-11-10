@@ -999,6 +999,43 @@ describe("Herd session-less epic groups (#3814)", () => {
     expect(onepic).toHaveBeenCalledWith("/repo/a", 3451);
   });
 
+  it("renders a child the drain sent to another machine inside the epic group", async () => {
+    const mac = { instanceId: "m1", name: "macbook", platform: "macos" };
+    const sent = epicOf(3451, [
+      ...[3441, 3442, 3443, 3444, 3445, 3446, 3447, 3448, 3449].map((n) => child(n)),
+      child(3450, {
+        state: "running",
+        claimed: true,
+        elsewhere: { host: mac, sessionId: "r3450", prNumber: null },
+      }),
+    ]);
+    render(Herd, {
+      ...base,
+      sessions: [loose],
+      remoteSessions: [
+        session({
+          id: "r3450",
+          name: "repo-einstellungen-3450",
+          issueNumber: 3450,
+          repoPath: "/Users/x/shepherd",
+          host: mac,
+          connection: { state: "connected" as const, since: 0 },
+        }),
+      ],
+      git: {},
+      epics: { [key]: sent },
+      activeEpicKeys: new Set([key]),
+      drain,
+    });
+    await expect.element(page.getByText("Epic 3451")).toBeInTheDocument();
+    await expect.element(page.getByText("repo-einstellungen-3450")).toBeInTheDocument();
+    expect(document.querySelector('.epic-children [data-unit-id="r3450"]')).not.toBeNull();
+    expect(document.querySelector(".epic-sessionless")).toBeNull();
+    expect(document.querySelector(".cue-no-agent")).toBeNull();
+    // the unrelated session stays in the lifecycle list
+    expect(document.querySelector('.epic-children [data-unit-id="n1"]')).toBeNull();
+  });
+
   it("shows a paused epic as paused", async () => {
     const paused = { ...observed, run: { ...observed.run, status: "paused" as const } };
     render(Herd, {

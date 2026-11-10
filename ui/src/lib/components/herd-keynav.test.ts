@@ -745,3 +745,51 @@ test("railOrder: an active epic without child sessions (#3814) adds no rows; the
     railOrder([rest1, g100], {}, noReview, 1000, "all", {}, epics, new Set(Object.keys(epics))),
   ).toEqual(["g100", "rest1"]);
 });
+
+// A session the drain sent to another machine for an epic child joins that epic's group
+// (matched by `child.elsewhere`), so keyboard navigation finds it in the epic block.
+test("railOrder/railLocationsOf: a mirrored epic child sits in its epic group, not the lifecycle tail", () => {
+  const host = { instanceId: "m1", name: "MacBook", platform: "macos" };
+  const connection = { state: "connected" as const, since: 1 };
+  const e = epic("/r", 100, [101, 102]);
+  e.children[1] = { ...e.children[1], elsewhere: { host, sessionId: "rc", prNumber: null } };
+  const epics = { [epicKey("/r", 100)]: e };
+  const active = new Set([epicKey("/r", 100)]);
+  const local = [session("g101", false, "running", 101), session("rest", false, "running")];
+  const remoteChild = {
+    ...session("rc", false, "running", 102, "/Users/x/r"),
+    host,
+    connection,
+  } as Session;
+  const remoteLoose = {
+    ...session("rl", false, "running", 7, "/Users/x/r"),
+    host,
+    connection,
+  } as Session;
+  const order = (collapsed: Set<string> = new Set()) =>
+    railOrderRaw(
+      local,
+      {},
+      noReview,
+      noRework,
+      1000,
+      "all",
+      {},
+      epics,
+      active,
+      collapsed,
+      new Set(),
+      {},
+      [remoteChild, remoteLoose],
+    );
+  const open = order();
+  expect(open.slice(0, 2).sort()).toEqual(["g101", "rc"]);
+  expect(open.slice(2).sort()).toEqual(["rest", "rl"]);
+  expect(order(new Set([epicKey("/r", 100)])).sort()).toEqual(["rest", "rl"]);
+  const where = railLocationsOf(local, {}, noReview, noRework, 1000, epics, active, [
+    remoteChild,
+    remoteLoose,
+  ]);
+  expect(where.get("rc")).toEqual({ kind: "epic", key: epicKey("/r", 100) });
+  expect(where.get("rl")?.kind).toBe("stage");
+});

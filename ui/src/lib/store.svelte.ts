@@ -58,7 +58,11 @@ import { buildQueues as buildQueuesStore } from "./buildQueues.svelte";
 import { epicDrafts as epicDraftsStore } from "./epic-draft.svelte";
 import { postMergeSteps as postMergeStepsStore } from "./post-merge-steps.svelte";
 import { SAFE_ID, dropKey, safeMerge, setKey, setPathKey } from "./safe-keys";
-import { mirroredPreviewChange, reduceRemoteSessions } from "./remote-sessions";
+import {
+  mirroredBlockChange,
+  mirroredPreviewChange,
+  reduceRemoteSessions,
+} from "./remote-sessions";
 import { machines } from "./machines.svelte";
 import { reduceRemoteDispatches, resolvedMessage } from "./remote-dispatches";
 import { wakeMotionOn } from "./motion-settle";
@@ -198,6 +202,9 @@ export class HerdStore {
    *  detail re-reads where the preview opens. Holds no port: a machine's slot is never this
    *  server's, so it stays out of `preview`. */
   remotePreviewTick = $state<Record<string, number>>({});
+  /** Block reasons of mirrored sessions, kept apart from `blocks` so no local consumer (attention
+   *  queue, merge train) ever sees a mirrored id. */
+  remoteBlocks = $state<Record<string, BlockState>>({});
   /** Live per-session tailscale-serve registration status (sessionId → "ok"|"failed"),
    *  pushed by the server's `session:preview-serve` event and merged from the
    *  /api/preview bootstrap. "failed" → the preview is reachable on loopback only
@@ -341,6 +348,19 @@ export class HerdStore {
     this.blocks = Object.fromEntries(
       Object.entries(map).map(([id, reason]) => [id, { reason, since: now }]),
     );
+  }
+  /** Replace one machine's mirrored block reasons with its snapshot (`GET /api/blocks?host=`).
+   *  Only that machine's known mirrored sessions are touched; `since` carries over like live events. */
+  seedRemoteBlocks(instanceId: string, map: Record<string, BlockReason>) {
+    let next = this.remoteBlocks;
+    for (const s of this.remoteSessions) {
+      if (s.host?.instanceId !== instanceId) continue;
+      const reason = Object.hasOwn(map, s.id) ? map[s.id] : null;
+      next = reason
+        ? setKey(next, s.id, { reason, since: next[s.id]?.since ?? Date.now() })
+        : dropKey(next, s.id);
+    }
+    this.remoteBlocks = next;
   }
   /** Seed (or replace) the hold-reason map after a bootstrap GET. */
   setHolds(map: Record<string, HoldReason>): void {
@@ -609,6 +629,7 @@ export class HerdStore {
     const remote = reduceRemoteSessions(this.remoteSessions, ev);
     if (!remote) return this.applyLocal(ev);
     this.remoteSessions = remote;
+    this.applyRemoteBlock(ev);
     const previewed = mirroredPreviewChange(ev);
     if (previewed) {
       this.remotePreviewTick = setKey(
@@ -616,6 +637,25 @@ export class HerdStore {
         previewed,
         (this.remotePreviewTick[previewed] ?? 0) + 1,
       );
+    }
+  }
+
+  /** Track a mirrored session's block reason, and prune those of sessions that left the list. */
+  private applyRemoteBlock(ev: WsEvent) {
+    const change = mirroredBlockChange(ev);
+    if (change) {
+      const prev = this.remoteBlocks[change.id];
+      this.remoteBlocks = change.block
+        ? setKey(this.remoteBlocks, change.id, {
+            reason: change.block,
+            since: prev?.since ?? Date.now(),
+          })
+        : dropKey(this.remoteBlocks, change.id);
+    }
+    if (ev.event !== "remote:sessions" && ev.event !== "session:archived") return;
+    const live = this.remoteSessions.map((s) => s.id);
+    for (const id of Object.keys(this.remoteBlocks)) {
+      if (!live.includes(id)) this.remoteBlocks = dropKey(this.remoteBlocks, id);
     }
   }
 

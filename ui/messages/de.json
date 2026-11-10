@@ -8417,5 +8417,7 @@
   "placement_qual_unreachable": "nicht erreichbar",
   "placement_route_none": "kein Rechner",
   "newtask_derive_tag_pending": "liest Aufgabe …",
-  "newtask_derive_tag": "aus der Aufgabe"
+  "newtask_derive_tag": "aus der Aufgabe",
+  "feat_remote_chat_title": "Chat für Sessions auf verbundenen Maschinen",
+  "feat_remote_chat_body": "Sessions auf einer verbundenen Maschine haben jetzt den Chat-Tab: Unterhaltung lesen, antworten, Rückfragen beantworten und Bilder anhängen. Alles läuft auf dieser Maschine."
 }

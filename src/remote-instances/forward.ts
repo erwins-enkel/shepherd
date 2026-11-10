@@ -17,6 +17,9 @@
  * download is always an attachment, everything else must be JSON — a machine never gets to render a
  * page here.
  *
+ * An attachment for a mirrored session's chat (`POST /api/uploads?session=`) goes to its machine the
+ * same way: stored there, where the agent reads it, so the answer's `path` is the machine's.
+ *
  * Collective actions (`clear-merged`) ask every machine with `?host=local`, so two machines connected
  * to each other never pass a collective request back and forth, and report one outcome per machine:
  * a machine that cannot be reached makes the result partial rather than a claimed success.
@@ -114,6 +117,8 @@ export const MACHINE_READS: ReadonlySet<string> = new Set([
   "/api/queues",
   "/api/repos",
   "/api/settings",
+  // The chat composer's slash commands, read from the machine's repo and home (`repo` is its path).
+  "/api/commands",
 ]);
 
 const SESSION_ANSWERS = new Set([
@@ -136,14 +141,20 @@ export async function forwardMachineRead(url: URL, route: MachineRoute): Promise
   query.set("host", "local");
   const result = await requestRemote(route.target, `${url.pathname}?${query}`, { method: "GET" });
   if (!result.ok) return machineFailure(route.host.name, result.failure.reason);
-  const answer = passBack("", result.response);
-  if (answer) return answer;
-  await result.response.body?.cancel().catch(() => {});
-  return machineFailure(route.host.name, "bad_response");
+  return machineAnswer(route.host.name, "", result.response);
 }
 
 /** Request headers the machine needs to read the body and shape the answer; nothing else passes. */
 const REQUEST_HEADERS = ["content-type", "accept"] as const;
+
+function forwardedHeaders(req: Request): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const name of REQUEST_HEADERS) {
+    const value = req.headers.get(name);
+    if (value) headers[name] = value;
+  }
+  return headers;
+}
 
 export interface ForwardOptions {
   fetch?: FetchLike;
@@ -215,11 +226,7 @@ export async function forwardSessionRequest(
     );
   }
   if (!route.target) return machineFailure(machine, "disconnected");
-  const headers: Record<string, string> = {};
-  for (const name of REQUEST_HEADERS) {
-    const value = req.headers.get(name);
-    if (value) headers[name] = value;
-  }
+  const headers = forwardedHeaders(req);
   const body = req.method === "GET" || req.method === "HEAD" ? undefined : await req.arrayBuffer();
   const path = `/api/sessions/${parts[2]}${leaf ? `/${leaf}` : ""}${url.search}`;
   const res = await requestRemote(
@@ -237,10 +244,30 @@ export async function forwardSessionRequest(
       leaf === "relaunch" || leaf === "rename",
     );
   }
-  const answer = passBack(leaf, res.response);
-  if (answer) return answer;
-  await res.response.body?.cancel().catch(() => {});
-  return machineFailure(machine, "bad_response");
+  return machineAnswer(machine, leaf, res.response);
+}
+
+/**
+ * Forward an attachment for a mirrored session (`POST /api/uploads?session=`) to its machine and
+ * pass the answer back. The path is rebuilt from the session ID alone — no other caller query
+ * passes — and the answer must be JSON; its `path` names the file on the machine.
+ */
+export async function forwardSessionUpload(
+  req: Request,
+  sessionId: string,
+  route: MachineRoute,
+  opts: Pick<ForwardOptions, "fetch" | "timeoutMs"> = {},
+): Promise<Response> {
+  const machine = route.host.name;
+  if (!route.target) return machineFailure(machine, "disconnected");
+  const res = await requestRemote(
+    route.target,
+    `/api/uploads?session=${encodeURIComponent(sessionId)}`,
+    { method: "POST", headers: forwardedHeaders(req), body: await req.arrayBuffer() },
+    { fetch: opts.fetch, timeoutMs: opts.timeoutMs ?? FORWARD_TIMEOUT_MS },
+  );
+  if (!res.ok) return machineFailure(machine, res.failure.reason);
+  return machineAnswer(machine, "", res.response);
 }
 
 async function annotatedSessionAnswer(
@@ -294,6 +321,14 @@ function passBack(leaf: string, res: Response): Response | null {
     return null;
   }
   return new Response(res.body, { status: res.status, headers });
+}
+
+/** `passBack`, or a 502 when the machine's answer is not one this server serves (body dropped). */
+async function machineAnswer(machine: string, leaf: string, res: Response): Promise<Response> {
+  const answer = passBack(leaf, res);
+  if (answer) return answer;
+  await res.body?.cancel().catch(() => {});
+  return machineFailure(machine, "bad_response");
 }
 
 // ── clear-merged across machines ────────────────────────────────────────────────────────────────

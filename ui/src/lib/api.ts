@@ -2144,11 +2144,12 @@ export async function cancelWorkflowRun(repoPath: string, runId: number): Promis
 /** Installed slash commands (skills + command files) for the New Task picker. */
 export async function getCommands(
   repoPath: string,
-  opts: { provider?: AgentProvider } = {},
+  opts: { provider?: AgentProvider; host?: string } = {},
 ): Promise<{ commands: SlashCommand[] }> {
   const params = new URLSearchParams();
   if (repoPath) params.set("repo", repoPath);
   if (opts.provider) params.set("provider", opts.provider);
+  if (opts.host) params.set("host", opts.host);
   const qs = params.toString();
   const r = await fetch(`/api/commands${qs ? `?${qs}` : ""}`);
   if (!r.ok) throw await failed(r, "commands");
@@ -2245,9 +2246,10 @@ export async function backgroundBusyStates(): Promise<Record<string, boolean>> {
 
 /** Snapshot of the last-emitted block reason per session, keyed by session id (client
  *  bootstrap). Blocks are otherwise edge-emitted via `session:block`, so a fresh page load
- *  / push-then-open needs this to surface a live block (incl. an MCP-auth `authUrl`). */
-export async function blockStates(): Promise<Record<string, BlockReason>> {
-  const r = await fetch("/api/blocks");
+ *  / push-then-open needs this to surface a live block (incl. an MCP-auth `authUrl`). With
+ *  `host` (a machine's instance ID) it is that machine's snapshot, read through the coordinator. */
+export async function blockStates(host?: string): Promise<Record<string, BlockReason>> {
+  const r = await fetch(host ? `/api/blocks?host=${encodeURIComponent(host)}` : "/api/blocks");
   if (!r.ok) throw await failed(r, "block states");
   return r.json();
 }

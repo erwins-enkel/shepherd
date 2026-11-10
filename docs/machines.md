@@ -28,9 +28,10 @@ moves to another machine by itself; you can move it with **Continue with…**
   out only on another machine gets a chip of its own (its menu offers only pin and filter, since
   there is no checkout here). The Herd, Busy, Idle and Blocked tallies in the top bar count
   every machine's sessions; the emergency stop still halts only your own.
-- **Actions go to the machine.** The terminal, steering, stopping, archiving, the diff, the files
-  and the preview are sent to the machine and run there. While the machine can't be reached,
-  nothing is sent and nothing runs on your side in its place.
+- **Actions go to the machine.** The terminal, the chat (its messages, replies, answers,
+  attachments and slash commands), steering, stopping, archiving, the diff, the files and the
+  preview are sent to the machine and run there. While the machine can't be reached, nothing is
+  sent and nothing runs on your side in its place.
 - **A new task is handed over once.** It goes out with a dispatch ID, so sending it again never
   starts it twice there, even after a lost answer or a restart.
 - **A task waits for its machine.** If the machine a task is meant for is asleep or out of reach,

@@ -26,6 +26,9 @@
   let el = $state<HTMLDivElement>();
   let termRef = $state<Terminal | undefined>();
   let conn: PtyConn | undefined;
+  // True once the current attach has delivered output, i.e. its socket is open and a send lands
+  // (connectPty drops sends on a socket that isn't); reset on every rebuild, park and end.
+  let attached = false;
   let parked = $state(false);
   let ended = $state(false);
   let endReason = $state<PtyEndReason>("gone");
@@ -47,6 +50,13 @@
   export function focus() {
     termRef?.focus();
   }
+  /** Type raw keys into the machine's terminal — a blocked prompt's answer from the Chat. False
+   *  when no attached terminal can carry them (not attached yet, parked, or ended). */
+  export function sendKeys(seq: string): boolean {
+    if (!conn || !attached || parked || ended) return false;
+    conn.send(seq);
+    return true;
+  }
 
   $effect(() => {
     const { state, since } = session.connection;
@@ -61,6 +71,7 @@
     if (!el) return;
     const mount = el;
     parked = false;
+    attached = false;
     // Untracked like the Viewport's: a theme, font or Text Size change never recreates the PTY.
     const initialTheme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
     const fontSize = (untrack(() => terminalFontSize.size) ?? 12.5) * untrack(() => uiScale.value);
@@ -77,11 +88,18 @@
       id,
       term.cols,
       term.rows,
-      (d) => term.write(d),
+      (d) => {
+        attached = true;
+        term.write(d);
+      },
       refit,
-      () => (parked = true),
+      () => {
+        parked = true;
+        attached = false;
+      },
       (reason) => {
         endReason = reason;
+        attached = false;
         endedSince = untrack(() => session.connection.since);
         const line =
           reason === "machine"

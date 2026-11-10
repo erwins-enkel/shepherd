@@ -140,6 +140,15 @@ describe("getCommands", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/commands?repo=%2Frepo+path&provider=codex");
   });
 
+  it("adds the machine to read a mirrored session's commands from", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ commands: [] }));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await getCommands("/repo", { host: "m 1" });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/commands?repo=%2Frepo&host=m+1");
+  });
+
   it("preserves the legacy no-provider command URL", async () => {
     const fetchMock = vi.fn(async () => Response.json({ commands: [] }));
     globalThis.fetch = fetchMock as typeof fetch;

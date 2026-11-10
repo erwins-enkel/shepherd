@@ -1,4 +1,5 @@
 import type {
+  BlockReason,
   HeavySlotSnapshot,
   RemoteInstance,
   RepoEntry,
@@ -218,6 +219,34 @@ function applyMirroredFrame(list: Session[], event: string, data: Session): Sess
 export function mirroredPreviewChange(ev: { event: string; data: unknown }): string | null {
   if (ev.event !== "session:preview" && ev.event !== "session:preview-serve") return null;
   return isMirroredFrame(ev.data) ? ev.data.id : null;
+}
+
+/**
+ * The block change a machine reported for one of its mirrored sessions, or null. Exists so the
+ * store keeps the reason apart from its local `blocks` (nothing local may see a mirrored id) and
+ * the remote detail can show what the machine is waiting on; `block` is null once it cleared.
+ */
+export function mirroredBlockChange(ev: {
+  event: string;
+  data: unknown;
+}): { id: string; block: BlockReason | null } | null {
+  if (ev.event !== "session:block" || !isMirroredFrame(ev.data)) return null;
+  const { id, block } = ev.data as { id: string; block?: BlockReason | null };
+  return { id, block: block ?? null };
+}
+
+/**
+ * When the selected mirrored session's machine block reasons need reading (`GET /api/blocks?host=`):
+ * a key that changes once per machine connection and once per socket of this page (`epoch`, the
+ * store's `connectionEpoch`): a reopened socket may have missed `session:block` frames. Null while
+ * there is nothing to read. A string, so a status frame — a fresh session object — never re-reads.
+ */
+export function remoteBlocksReadKey(
+  s: Pick<Session, "host" | "connection"> | null,
+  epoch: number,
+): string | null {
+  if (!s?.host || s.connection?.state !== "connected") return null;
+  return JSON.stringify([s.host.instanceId, s.connection.since, epoch]);
 }
 
 /**

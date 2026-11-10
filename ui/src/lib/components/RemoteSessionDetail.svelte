@@ -1,7 +1,15 @@
 <script lang="ts">
-  import type { Session, SessionUsage, TerminalClientInfo } from "#lib/types.js";
+  import { untrack } from "svelte";
+  import type {
+    BlockReason,
+    PendingAsk,
+    Session,
+    SessionUsage,
+    TerminalClientInfo,
+  } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { getSessionUsage } from "#lib/api.js";
+  import { getSessionUsage, interruptSession, replySession } from "#lib/api.js";
+  import { resolveStartTab, sessionStartTab } from "#lib/session-start-tab.svelte.js";
   import { pollWhileVisible } from "#lib/visibility.js";
   import { isMirrored, qualifiedDesig } from "#lib/remote-sessions.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
@@ -10,20 +18,23 @@
   import MachineBadge from "./MachineBadge.svelte";
   import RemoteConnectionNote from "./RemoteConnectionNote.svelte";
   import RemoteTerminal from "./RemoteTerminal.svelte";
+  import ChatView from "./chat/ChatView.svelte";
   import DiffPanel from "./DiffPanel.svelte";
   import FilesPanel from "./viewport/FilesPanel.svelte";
   import SessionStatusBar from "./SessionStatusBar.svelte";
   import SteerBar from "./SteerBar.svelte";
   import ViewportFootHints from "./viewport/ViewportFootHints.svelte";
+  import SteerToggle, { readPhoneSteers, writePhoneSteers } from "./viewport/SteerToggle.svelte";
   import RemoteSessionActions from "./remote-session/RemoteSessionActions.svelte";
   import RemotePreview from "./remote-session/RemotePreview.svelte";
 
   // The detail of a session mirrored from a connected machine (#2762), mounted in place of the
   // Viewport and laid out like it: one header row (identity, tabs, machine, status, stop and
-  // archive), the live terminal (bridged by this server, #2764) filling the body, then the status
-  // bar, the steer bar and the keyboard hints. What the machine reports about the task sits in the
-  // designator's hover panel, as the Viewport's meta popover does locally. Every action and read is
-  // forwarded to the machine and runs there (#2765, #2767). While it is disconnected only the
+  // archive), the Chat or the live terminal (bridged by this server, #2764) filling the body, then
+  // the status bar, the steer bar and the keyboard hints. What the machine reports about the task
+  // sits in the designator's hover panel, as the Viewport's meta popover does locally. Every
+  // action and read — the Chat's transcript, replies, answers, attachments and commands included —
+  // is forwarded to the machine and runs there (#2765, #2767). While it is disconnected only the
   // terminal tab (which says so) and the disabled, explained actions remain.
   let {
     session,
@@ -31,6 +42,8 @@
     terminalOwners = null,
     previewTick = 0,
     compact = false,
+    block = null,
+    ask = null,
     onback = undefined,
     ondecommission = undefined,
     onedit = undefined,
@@ -43,6 +56,12 @@
     previewTick?: number;
     /** Phone or touch layout, as the Viewport's: the header wraps, the keyboard hints go. */
     compact?: boolean;
+    /** This session's block reason (store.remoteBlocks): the Chat answers its menu or (y/n)
+     *  prompt with keys on the machine's terminal. */
+    block?: BlockReason | null;
+    /** The open AskUserQuestion on this session's block: the Chat shows its form and the machine
+     *  types the answer. */
+    ask?: PendingAsk | null;
     onback?: () => void;
     /** Archive the session on its machine — the page's undo-windowed decommission. */
     ondecommission?: (id: string, reap?: string[]) => void;
@@ -69,23 +88,34 @@
   const branchLabel = $derived(session.branch?.replace(/^shepherd\//, ""));
   const showBranch = $derived(!!branchLabel && slug(branchLabel) !== slug(session.name));
 
-  type Tab = "term" | "diff" | "files" | "preview";
+  type Tab = "chat" | "term" | "diff" | "files" | "preview";
   const TABS: { id: Tab; label: () => string }[] = [
+    { id: "chat", label: m.viewport_chat_tab },
     { id: "term", label: m.viewport_terminal_tab },
     { id: "diff", label: m.viewport_diff_tab },
     { id: "files", label: m.viewport_files_tab },
     { id: "preview", label: m.viewport_preview_tab },
   ];
-  // The chosen tab belongs to the session it was chosen on: another session — or a lost link,
-  // which leaves nothing to read — shows the terminal again.
+  // A string, so a fresh session object from every mirrored frame never counts as another session.
+  const sessionId = $derived(session.id);
+  // The chosen tab belongs to the session it was chosen on: another session opens on the start
+  // tab again (the operator's Settings → Device choice, as the Viewport's), and a lost link —
+  // which leaves nothing to read — shows the terminal. The start tab is taken when the session
+  // opens, so a later layout or Settings change never moves it.
   let chosen = $state<{ id: string; tab: Tab }>({ id: "", tab: "term" });
-  const tab = $derived(live && chosen.id === session.id ? chosen.tab : "term");
+  const startTab = $derived.by(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
+    sessionId;
+    return untrack(() =>
+      resolveStartTab(sessionStartTab.pref, { mobile: compact, touch: compact }),
+    );
+  });
+  const tab = $derived(!live ? "term" : chosen.id === session.id ? chosen.tab : startTab);
   const panelId = $derived(`remote-panel-${session.id}`);
   const tabId = (t: Tab) => `remote-tab-${session.id}-${t}`;
 
   // Token usage for the status bar, read from the machine (forwarded like the other reads) while it
   // is connected; kept per session, so another session never shows this one's numbers.
-  const sessionId = $derived(session.id);
   let usageOf = $state<{ id: string; usage: SessionUsage } | null>(null);
   const usage = $derived(usageOf?.id === session.id ? usageOf.usage : null);
   $effect(() => {
@@ -106,12 +136,27 @@
     };
   });
 
+  // The Chat mounts on its first open for a session and then stays, hidden, keeping its draft.
+  let chatFor = $state("");
+  $effect(() => {
+    if (tab === "chat") chatFor = session.id;
+  });
+  // On the phone the steer row waits behind the composer's toggle, as in the Viewport.
+  let phoneSteersOpen = $state(readPhoneSteers());
+  $effect(() => writePhoneSteers(phoneSteersOpen));
+  const steerShown = $derived(tab === "term" || (tab === "chat" && (!compact || phoneSteersOpen)));
+
   let terminal = $state<RemoteTerminal>();
+  let chatView = $state<ReturnType<typeof ChatView>>();
   /** Hand the keyboard back to the terminal — the page's Enter, as the Viewport's focusTerminal. */
   export function focusTerminal() {
     if (tab === "term") terminal?.focus();
   }
 </script>
+
+{#snippet steerToggle()}
+  <SteerToggle bind:open={phoneSteersOpen} />
+{/snippet}
 
 <section class="remote-detail" aria-label={qualifiedDesig(session)}>
   <header class="head" class:compact>
@@ -167,6 +212,37 @@
           />
         {/key}
       </div>
+      {#if tab === "chat" || chatFor === mirrored.id}
+        <div class="chat" hidden={tab !== "chat"}>
+          <!-- Keyed: another session never inherits this one's draft. -->
+          {#key mirrored.id}
+            <ChatView
+              bind:this={chatView}
+              sessionId={mirrored.id}
+              status={mirrored.status}
+              variant="session"
+              {block}
+              {ask}
+              tools
+              active={tab === "chat"}
+              mobile={compact}
+              touch={compact}
+              repoPath={mirrored.repoPath}
+              host={mirrored.host.instanceId}
+              agentProvider={mirrored.agentProvider ?? "claude"}
+              onsend={(text) =>
+                replySession(mirrored.id, text).then(
+                  () => true,
+                  () => false,
+                )}
+              onkeys={(seq) => terminal?.sendKeys(seq) ?? false}
+              oninterrupt={() => interruptSession(mirrored.id).catch(() => {})}
+              onterminal={() => (chosen = { id: mirrored.id, tab: "term" })}
+              composerLead={compact ? steerToggle : undefined}
+            />
+          {/key}
+        </div>
+      {/if}
     {/if}
     {#if tab === "diff"}
       <DiffPanel sessionId={session.id} />
@@ -179,13 +255,14 @@
     {/if}
   </div>
   <SessionStatusBar {session} {usage} />
-  {#if tab === "term"}
+  {#if steerShown}
     {#if live}
       <SteerBar
         focusedId={session.id}
         repoPath={session.repoPath}
         agentProvider={session.agentProvider ?? "claude"}
         {onedit}
+        onsent={(text, sent) => chatView?.echo(text, sent)}
       />
     {:else if tip}
       <!-- Where the steer bar stands: disabled, saying why, like the header's actions. -->
@@ -340,6 +417,17 @@
     min-height: 0;
   }
   .term[hidden] {
+    display: none;
+  }
+  /* The Viewport's .chat-wrap: the conversation fills the body like the terminal. */
+  .chat {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    background: var(--color-bg);
+  }
+  .chat[hidden] {
     display: none;
   }
   /* Stands where the steer bar would (SteerBar .steer-row). */

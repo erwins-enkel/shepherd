@@ -141,13 +141,17 @@ describe("RemoteTerminal", () => {
     expect(pty.attaches).toHaveLength(2);
   });
 
-  it("types a blocked prompt's answer from the Chat, never into a parked or ended terminal", async () => {
+  it("types a blocked prompt's answer from the Chat only into an attached terminal", async () => {
     const { component } = await render(RemoteTerminal, {
       session: remote(),
       owner: { kind: "mac-app", platform: "macos" },
     });
     const term = component as { sendKeys: (seq: string) => boolean };
     await vi.waitFor(() => expect(pty.attaches).toHaveLength(1));
+    // Still connecting: the socket would drop the keys, so the Chat must not count them as sent.
+    expect(term.sendKeys("2")).toBe(false);
+    expect(last().conn.send).not.toHaveBeenCalled();
+    last().args[3]!("$ ");
     expect(term.sendKeys("2")).toBe(true);
     expect(last().conn.send).toHaveBeenLastCalledWith("2");
 
@@ -155,6 +159,8 @@ describe("RemoteTerminal", () => {
     last().args[5]!(); // taken over elsewhere
     expect(term.sendKeys("y\r")).toBe(false);
     await page.getByRole("button", { name: /Active in the Mac app/ }).click();
+    expect(term.sendKeys("1")).toBe(false); // taken back, not yet attached again
+    last().args[3]!("$ ");
     expect(term.sendKeys("1")).toBe(true);
     last().args[6]!("machine");
     expect(term.sendKeys("y\r")).toBe(false);

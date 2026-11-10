@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type {
     BlockReason,
     PendingAsk,
@@ -94,20 +95,26 @@
     { id: "files", label: m.viewport_files_tab },
     { id: "preview", label: m.viewport_preview_tab },
   ];
+  // A string, so a fresh session object from every mirrored frame never counts as another session.
+  const sessionId = $derived(session.id);
   // The chosen tab belongs to the session it was chosen on: another session opens on the start
   // tab again (the operator's Settings → Device choice, as the Viewport's), and a lost link —
-  // which leaves nothing to read — shows the terminal.
+  // which leaves nothing to read — shows the terminal. The start tab is taken when the session
+  // opens, so a later layout or Settings change never moves it.
   let chosen = $state<{ id: string; tab: Tab }>({ id: "", tab: "term" });
-  const startTab = $derived(
-    resolveStartTab(sessionStartTab.pref, { mobile: compact, touch: compact }),
-  );
+  const startTab = $derived.by(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
+    sessionId;
+    return untrack(() =>
+      resolveStartTab(sessionStartTab.pref, { mobile: compact, touch: compact }),
+    );
+  });
   const tab = $derived(!live ? "term" : chosen.id === session.id ? chosen.tab : startTab);
   const panelId = $derived(`remote-panel-${session.id}`);
   const tabId = (t: Tab) => `remote-tab-${session.id}-${t}`;
 
   // Token usage for the status bar, read from the machine (forwarded like the other reads) while it
   // is connected; kept per session, so another session never shows this one's numbers.
-  const sessionId = $derived(session.id);
   let usageOf = $state<{ id: string; usage: SessionUsage } | null>(null);
   const usage = $derived(usageOf?.id === session.id ? usageOf.usage : null);
   $effect(() => {
@@ -137,6 +144,7 @@
   const steerShown = $derived(tab === "term" || (tab === "chat" && !compact));
 
   let terminal = $state<RemoteTerminal>();
+  let chatView = $state<ReturnType<typeof ChatView>>();
   /** Hand the keyboard back to the terminal — the page's Enter, as the Viewport's focusTerminal. */
   export function focusTerminal() {
     if (tab === "term") terminal?.focus();
@@ -202,6 +210,7 @@
           <!-- Keyed: another session never inherits this one's draft. -->
           {#key mirrored.id}
             <ChatView
+              bind:this={chatView}
               sessionId={mirrored.id}
               status={mirrored.status}
               variant="session"
@@ -245,6 +254,7 @@
         repoPath={session.repoPath}
         agentProvider={session.agentProvider ?? "claude"}
         {onedit}
+        onsent={(text, sent) => chatView?.echo(text, sent)}
       />
     {:else if tip}
       <!-- Where the steer bar stands: disabled, saying why, like the header's actions. -->

@@ -7,6 +7,7 @@ import RemoteSessionDetail from "./RemoteSessionDetail.svelte";
 import { m } from "#lib/paraglide/messages.js";
 import { statusLabel } from "#lib/format.js";
 import { sessionStartTab } from "#lib/session-start-tab.svelte.js";
+import { steers } from "#lib/steers.svelte.js";
 import type { BlockReason, PendingAsk, Session, SessionMessages } from "#lib/types.js";
 
 // The terminal's socket is the server's business (bridged to the machine); here it is a spy.
@@ -600,6 +601,7 @@ describe("RemoteSessionDetail chat", () => {
     });
     await vi.waitFor(() => expect(connectPty).toHaveBeenCalledTimes(1));
     const send = vi.mocked(connectPty).mock.results[0]!.value.send as ReturnType<typeof vi.fn>;
+    vi.mocked(connectPty).mock.calls[0]![3]("$ "); // attached: the socket carries keys
     await openChat();
     await expect.element(page.getByText("Do you want to proceed?")).toBeVisible();
     await page.getByRole("button", { name: "No", exact: true }).click();
@@ -639,5 +641,42 @@ describe("RemoteSessionDetail chat", () => {
     render(RemoteSessionDetail, { session: remote(), nowMs: Date.now() });
     await expect.element(tab(m.viewport_chat_tab())).toHaveAttribute("aria-selected", "true");
     await expect.element(composer()).toBeVisible();
+  });
+
+  it("takes the start tab when a session opens; a later change moves only the next one", async () => {
+    const view = await render(RemoteSessionDetail, { session: remote(), nowMs: Date.now() });
+    await expect.element(tab(m.viewport_terminal_tab())).toHaveAttribute("aria-selected", "true");
+    sessionStartTab.set("chat");
+    await view.rerender({ compact: true });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(tab(m.viewport_terminal_tab()).element().getAttribute("aria-selected")).toBe("true");
+    await view.rerender({ session: remote({ id: "r2", desig: "TASK-08" }) });
+    await expect.element(tab(m.viewport_chat_tab())).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("echoes a steer chip sent from the steer bar in the Chat", async () => {
+    const previous = steers.list;
+    steers.list = [
+      { id: "t", label: "Retest", text: "Run the tests again", inSteerBar: true, onIssues: false },
+    ];
+    try {
+      render(RemoteSessionDetail, { session: remote(), nowMs: Date.now() });
+      await openChat();
+      const chip = page.getByRole("button", { name: m.steerbar_send_aria({ label: "Retest" }) });
+      await expect.element(chip).toBeVisible();
+      // SteerBar's own tap wiring (pointerdown → pointerup), as its tests drive it.
+      const el = chip.element() as HTMLElement;
+      const at = { pointerId: 1, button: 0, bubbles: true };
+      el.dispatchEvent(new PointerEvent("pointerdown", at));
+      el.dispatchEvent(new PointerEvent("pointerup", at));
+      await vi.waitFor(() =>
+        expect(api.replySession).toHaveBeenCalledWith("r1", "Run the tests again"),
+      );
+      const log = page.getByRole("log");
+      await expect.element(log.getByText("Run the tests again")).toBeVisible();
+      await expect.element(log.getByText(m.assistant_chat_sent(), { exact: true })).toBeVisible();
+    } finally {
+      steers.list = previous;
+    }
   });
 });

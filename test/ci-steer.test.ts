@@ -79,6 +79,25 @@ describe("ciFinishedSteer", () => {
   it("falls back to a one-shot read when no per-job data exists", () => {
     expect(ciFinishedSteer(git("failure"))).toContain("run `gh pr checks 12` once");
   });
+
+  it("#3831: a run that failed before any job gets the start-failure steer, on one line", () => {
+    const t = ciFinishedSteer(
+      git("failure", "abcdef1234", {
+        jobs: [
+          {
+            name: "CI",
+            state: "failure",
+            url: "https://github.com/o/r/actions/runs/42672130324",
+            startupFailure: true,
+          },
+        ],
+      }),
+    );
+    expect(t).toContain("failed before starting any job");
+    expect(t).toContain("gh run view 42672130324");
+    expect(t).not.toContain("--log-failed");
+    expect(t).not.toContain("\n");
+  });
 });
 
 describe("attachCiSteer", () => {

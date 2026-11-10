@@ -966,6 +966,8 @@ export interface WorkflowJob {
   completedAt?: number;
   /** Median duration (ms) of this job's recent green runs on the same repo. */
   typicalMs?: number;
+  /** Stands for a whole run that failed before creating any job; `url` is the run (#3831). */
+  startupFailure?: boolean;
 }
 
 /** Latest run of one workflow on the default branch (mirrors server `WorkflowRun`). */

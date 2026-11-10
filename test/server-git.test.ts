@@ -1071,3 +1071,29 @@ test("POST git/merge fails closed when the operator's login cannot be resolved",
   expect((await app.fetch(post("/api/sessions/s1/git/merge", {}))).status).toBe(409);
   expect(f.log.some((l) => l.startsWith("merge:"))).toBe(false);
 });
+
+test("#3831: GET git applies the start-failure overlay, so its write-through never reverts it", async () => {
+  const f = fakeForge({
+    kind: "github",
+    prStatus: async () => ({
+      state: "open",
+      number: 34,
+      checks: "none",
+      headSha: "9b5426b",
+      deployConfigured: false,
+    }),
+  });
+  const deps = makeDeps(f);
+  const stamped: string[] = [];
+  deps.ciStartupFailure = {
+    stamp: async (id, git, forge) => {
+      expect(forge).toBe(f);
+      stamped.push(`${id}:${git.checks}`);
+      return { ...git, checks: "failure" };
+    },
+  };
+  const res = await makeApp(deps).fetch(new Request("http://localhost/api/sessions/s1/git"));
+  expect(stamped).toEqual(["s1:none"]);
+  expect((await res.json()).checks).toBe("failure");
+  expect(deps.snap.s1?.checks).toBe("failure");
+});

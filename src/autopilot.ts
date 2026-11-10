@@ -9,6 +9,7 @@ import { signedOff } from "./signoff";
 import { checksCleared } from "./checks-gate";
 import { isConflicting, isDefiniteConflict } from "./pr-conflict";
 import { OWNERSHIP_TTL_MS } from "./automerge-core";
+import { ciStartupSteer } from "./ci-startup-failure";
 import { DRAFT_PR_NOTE } from "./service";
 import { resumeThenSteer } from "./resume-then-steer";
 import { isOperatorAssistant } from "./operator-assistant-core";
@@ -120,6 +121,12 @@ export const CI_FIX_STEER = [
   "watch the new run — Shepherd tells you when CI finishes. Don't stop to ask — only surface if",
   "it's a genuine blocker you can't resolve, and then say exactly what you need.",
 ].join("\n");
+
+/** The CI-fix steer for a red head: a run that failed before creating any job has no checks or
+ *  logs to read, so it gets its own text (#3831, src/ci-startup-failure.ts). */
+function ciFixSteer(git: GitState): string {
+  return ciStartupSteer(git) ?? CI_FIX_STEER;
+}
 
 /** Agent-facing steer when an idle, review-passed PR can't merge because it's behind its base
  *  (or conflicting) and the session is in autopilot but NOT full-auto — so the merge train isn't
@@ -991,7 +998,7 @@ export class AutopilotService {
     // Fire-and-forget (the caller chain onGit→considerCi is sync). driveSteer's best-effort
     // only covers falsy returns, not throws — resume() can reject (herdr down on the
     // dead-pane path) and onGit's chain has no catch, so net rejections here.
-    void this.driveSteer(s, CI_FIX_STEER)
+    void this.driveSteer(s, ciFixSteer(git))
       .then((landed) => {
         if (!landed) skip("not-delivered");
       })
@@ -1087,7 +1094,7 @@ export class AutopilotService {
     // (the steer coalesces at the PTY) and bounded by the cap — it only ever hastens the clean
     // hand-back, never a silent hang.
     this.bump(s);
-    void this.sendSteer(s, CI_FIX_STEER)
+    void this.sendSteer(s, ciFixSteer(git))
       .then((landed) => {
         if (!landed) this.skipCi(s, git, "not-delivered", true);
       })
@@ -1139,7 +1146,7 @@ export class AutopilotService {
     };
     this.deps.store.setAutopilotState(s.id, { paused: false, complete: false, question: null });
     this.deps.onState?.(s.id);
-    const landed = await this.sendSteer(s, CI_FIX_STEER).catch((err) => {
+    const landed = await this.sendSteer(s, ciFixSteer(git)).catch((err) => {
       console.warn("[autopilot] ci reclaim steer:", err);
       return false;
     });

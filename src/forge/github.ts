@@ -2365,6 +2365,15 @@ export class GithubForge implements GitForge {
     return (parsed.workflow_runs ?? []).filter((r) => r.id > sinceId).map((r) => mapGhApiRun(r));
   }
 
+  async headWorkflowRuns(headSha: string): Promise<ForgeRun[]> {
+    const out = await this.run([
+      "api",
+      `repos/${this.slug}/actions/runs?head_sha=${encodeURIComponent(headSha)}&per_page=50`,
+    ]);
+    const parsed = JSON.parse(out || "{}") as { workflow_runs?: GhApiRun[] };
+    return (parsed.workflow_runs ?? []).map((r) => mapGhApiRun(r));
+  }
+
   /** One run with its jobs, fresh. A 404 (unknown / deleted run) → null. */
   async getRunDetail(runId: number): Promise<ForgeRun | null> {
     let out: string;

@@ -4668,3 +4668,42 @@ test("GithubForge.repoVisibility: known values, anything else or a failure is un
     }),
   ).toBe("unknown");
 });
+
+test("GithubForge.headWorkflowRuns: lists every run of one head commit (#3831)", async () => {
+  const sha = "9b5426ba98a8629263d48a9592a385a769bad657";
+  const { run, calls } = fakeRunner({
+    [`api repos/o/r/actions/runs?head_sha=${sha}&per_page=50`]: JSON.stringify({
+      total_count: 1,
+      workflow_runs: [
+        {
+          id: 42672130324,
+          name: "CI",
+          path: ".github/workflows/ci.yml",
+          event: "pull_request",
+          status: "completed",
+          conclusion: "failure",
+          run_attempt: 1,
+          head_sha: sha,
+          created_at: "2026-11-09T18:13:27Z",
+          html_url: "https://github.com/o/r/actions/runs/42672130324",
+        },
+      ],
+    }),
+  });
+  const runs = await new GithubForge("o/r", {}, run).headWorkflowRuns(sha);
+  expect(calls).toEqual([["api", `repos/o/r/actions/runs?head_sha=${sha}&per_page=50`]]);
+  expect(runs).toEqual([
+    {
+      id: 42672130324,
+      workflowName: "CI",
+      workflowFile: ".github/workflows/ci.yml",
+      event: "pull_request",
+      status: "completed",
+      conclusion: "failure",
+      attempt: 1,
+      headSha: sha,
+      createdAt: Date.parse("2026-11-09T18:13:27Z"),
+      url: "https://github.com/o/r/actions/runs/42672130324",
+    },
+  ]);
+});

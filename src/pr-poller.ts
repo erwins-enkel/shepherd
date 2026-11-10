@@ -4,6 +4,7 @@ import type { Session } from "./types";
 import { buildIssueUrl } from "./forge";
 import type { GitForge, GitState, PrStatus, WorkflowJob } from "./forge/types";
 import { annotateHandoff } from "./repo-roles";
+import type { CiStartupFailureService } from "./ci-startup-failure";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import type { GithubReadCache } from "./github-read-cache";
 import { withGhCaller } from "./forge/gh-caller";
@@ -412,6 +413,9 @@ export class PrPoller implements PrCache {
     /** Warm repo gate (#2837): the full sweep leaves sessions in cold repos alone. A session
      *  holding an open PR keeps its repo warm; turn-end and `pollNow` polls still run. */
     private isWarmRepo: (repoPath: string) => boolean = () => true,
+    /** #3831: makes a CI run that failed before creating any job visible (one re-run, then red
+     *  CI). Shared with the on-demand `/git` read. Absent (older test wiring) ⇒ raw state. */
+    private ciStartup?: Pick<CiStartupFailureService, "stamp">,
   ) {
     this.cache = new Map(Object.entries(this.store.listSessionGitCache()));
     this.hydrateTransientWindows();
@@ -957,11 +961,10 @@ export class PrPoller implements PrCache {
     const typed = withTypicalDurations(raw, this.store.typicalCiJobDurations(s.repoPath));
     // Who's up (open+green): computed from .shepherd/roles.json + the operator's
     // login, so the herd can show "waiting on scoop" instead of "your turn".
-    const git = withIssueUrl(
-      await this.stampMergeQueue(s, forge, annotateHandoff(typed, s.repoPath, me, prev), prev),
-      forge,
-      s,
-    );
+    const handed = annotateHandoff(typed, s.repoPath, me, prev);
+    // After annotateHandoff: the start-failure overlay needs the `noCi` it stamps.
+    const stamped = this.ciStartup ? await this.ciStartup.stamp(s.id, handed, forge) : handed;
+    const git = withIssueUrl(await this.stampMergeQueue(s, forge, stamped, prev), forge, s);
     if (provenance.revision !== this.readProvenance(forge).revision) return; // moved during the queue read
     this.trackTransient(s.id, git);
     if (gitStateChanged(prev, git) && this.set(s.id, git)) {

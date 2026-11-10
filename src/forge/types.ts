@@ -389,6 +389,9 @@ export interface WorkflowJob {
   /** Median duration (ms) of this job's recent green runs on the same repo, as observed by
    *  Shepherd's own PR polls; absent until one has been seen. Stamped by the PR poller. */
   typicalMs?: number;
+  /** This "job" stands for a whole workflow run that failed before creating any job, so no
+   *  check rollup shows it; `url` is the run (#3831, src/ci-startup-failure.ts). Absent ⇒ false. */
+  startupFailure?: boolean;
 }
 
 /** The latest run of one workflow on a repo's default branch, broken into its
@@ -755,6 +758,10 @@ export interface GitForge {
   /** Default-branch runs in ANY status with id > `sinceId` (one page, unordered). Summary
    *  rows may omit `jobs`. Optional: `ctx.forge.runs` refuses `unsupported` without it. */
   listDefaultBranchRuns?(o: { sinceId?: number }): Promise<ForgeRun[]>;
+  /** Every workflow run of one head commit, any status (one REST page, summary rows without
+   *  `jobs`). Finds a run that failed before creating any job, which no check rollup shows
+   *  (#3831). Rejects on a failed read. Optional: GitHub only. */
+  headWorkflowRuns?(headSha: string): Promise<ForgeRun[]>;
   /** One run with its jobs, fresh (reflects a rerun's new attempt); null when not found. */
   getRunDetail?(runId: number): Promise<ForgeRun | null>;
   /** Raw jobs of one run, for summary rows from {@link listDefaultBranchRuns}. */

@@ -144,6 +144,7 @@ import {
 } from "./push";
 import { attachCiSteer } from "./ci-steer";
 import { CiRestartHolds } from "./ci-restart-hold";
+import { CiStartupFailureService } from "./ci-startup-failure";
 import { createRateLimitSteer } from "./rate-limit-steer";
 import { HeavySlotService } from "./heavy-slot";
 import { recordHeavyPeak, resolveHeavySlotConfig, writeHeavyListFile } from "./heavy-slot-apply";
@@ -1891,6 +1892,8 @@ const prFreshness = (path: string): string | null => {
   const key = githubReadCache.contentKey("prs", forge.slug);
   return key === null ? null : `${key}|${githubReadCache.revision(forge.slug)}`;
 };
+// #3831: shared by the poller and the on-demand /git read, so a PR is re-run at most once.
+const ciStartupFailure = new CiStartupFailureService();
 const prPoller = new PrPoller(
   store,
   resolveForge,
@@ -1914,6 +1917,7 @@ const prPoller = new PrPoller(
   undefined, // terminalPollMs (default)
   () => fingerprint.belowReserve(), // below the GraphQL reserve: background PR polling pauses
   (repoPath) => repoWarmth.isWarmPath(repoPath), // full sweep skips sessions in cold repos (#2837)
+  ciStartupFailure, // #3831: a CI run that failed before any job is re-run once, then reads red
 );
 deferredStarts.push(() => {
   labelGhCalls("pr-poller:full");
@@ -4489,6 +4493,7 @@ const appDeps: AppDeps = {
   herdrSocketActive,
   resolveForge,
   prCache: prPoller,
+  ciStartupFailure,
   ciRestart: { holds: ciRestartHolds, refreshPr: (id) => prPoller.pollSession(id) },
   materializeManualSteps,
   ownsPr,

@@ -233,7 +233,9 @@ async function foldAuxPatch(
       parentSessionId: args.descriptor.parentSessionId,
       repoRoot: args.repoPath,
       model: args.descriptor.model ?? null,
-      agentProvider: args.descriptor.agentProvider ?? config.defaultAgentProvider,
+      // The argv binary is what actually launches; the global default only for an unknown one.
+      agentProvider:
+        args.descriptor.agentProvider ?? membraneAgentOf(args.argv) ?? config.defaultAgentProvider,
       argv: [...args.argv],
       env: baseEnv ?? {},
       isolated: true,

@@ -5,12 +5,15 @@ import type {
   RepoConfig,
   SandboxProfile,
   RepoSandboxSetting,
+  RepoAgentProviderSetting,
   SpawnNotice,
   SpawnNoticeKind,
 } from "./types";
 import type { AutomationFlags } from "./components/git-rail-automation";
 import { handsOffPatch } from "./components/epic-handsoff";
-import type { RepoConfigResponse } from "./api";
+import { mergeModePatch, type MergeMode } from "./merge-mode";
+import { autonomyPatch, type AutonomyLevel } from "./autonomy";
+import type { RepoConfigPatch, RepoConfigResponse } from "./api";
 import { SAFE_ID, dropKey, setKey } from "./safe-keys";
 import {
   getReviews,
@@ -386,6 +389,47 @@ class SpawnNoticeStore {
 }
 export const spawnNotices = new SpawnNoticeStore();
 
+/** Which per-repo overlay map RepoConfigStore.write() updates optimistically for each patch field.
+ *  A field without one (the preview script) is PUT + ingest only. */
+const OVERLAY_MAPS = {
+  criticEnabled: "enabled",
+  criticAllPrs: "allPrs",
+  criticSmellLensEnabled: "smellLens",
+  autoAddressEnabled: "autoAddress",
+  autopilotEnabled: "autopilot",
+  autoDrainEnabled: "autoDrain",
+  autoMergeEnabled: "autoMerge",
+  buildQueueEnabled: "buildQueue",
+  manualStepsIssueEnabled: "manualStepsIssue",
+  preWarmEpicLandingCi: "preWarmEpicLandingCi",
+  mergeWithoutCi: "mergeWithoutCi",
+  epicStacksEnabled: "epicStacks",
+  sharedBrowserEnabled: "sharedBrowser",
+  browserAllowedHosts: "browserAllowedHosts",
+  egressExtraHosts: "egressExtraHosts",
+  claudeAiConnectorsEnabled: "claudeAiConnectors",
+  pluginAllowlist: "pluginAllowlist",
+  skillAllowlist: "skillAllowlist",
+  hidden: "hidden",
+  pinned: "pinned",
+  planGateEnabled: "planGate",
+  draftMode: "draftMode",
+  signoffAuthority: "signoffAuthority",
+  repoMode: "repoMode",
+  sandboxProfile: "sandboxProfile",
+  agentProvider: "agentProvider",
+  defaultModel: "defaultModel",
+  defaultEffort: "defaultEffort",
+  defaultExecutionEffort: "defaultExecutionEffort",
+  previewOpenMode: "previewOpenMode",
+  maxAuto: "maxAuto",
+  autoLabel: "autoLabel",
+  priorityLabels: "priorityLabels",
+  usageCeilingPct: "usageCeiling",
+  automationConfirmed: "confirmed",
+} as const satisfies Partial<Record<keyof RepoConfigPatch, keyof RepoConfigStore>>;
+type OverlayMap = (typeof OVERLAY_MAPS)[keyof typeof OVERLAY_MAPS];
+
 /** Per-repo critic + auto-address + autopilot + drain + automerge + build-queue +
  *  plan-gate + draft-mode (+ sign-off authority) config, cached lazily by repoPath. */
 class RepoConfigStore {
@@ -404,6 +448,7 @@ class RepoConfigStore {
   epicStacks = $state<Record<string, boolean>>({}); // stack epic children on their predecessor's PR branch (default off, #2069)
   sharedBrowser = $state<Record<string, boolean>>({}); // per-repo Shared Browser (default off; agents can read its logins)
   browserAllowedHosts = $state<Record<string, string[]>>({}); // autonomous Browser Attach origin allowlist
+  egressExtraHosts = $state<Record<string, string[]>>({}); // extra hosts on the Autonomous egress allowlist (#3446)
   claudeAiConnectors = $state<Record<string, boolean>>({}); // claude.ai account connectors for this repo's Claude sessions (default off)
   pluginAllowlist = $state<Record<string, string[] | null>>({}); // plugins this repo's spawns keep (null = all, #3780)
   skillAllowlist = $state<Record<string, string[] | null>>({}); // personal skills this repo's spawns keep (null = all, #3780)
@@ -415,12 +460,14 @@ class RepoConfigStore {
   repoMode = $state<Record<string, "forge" | "lightweight">>({}); // forge vs lightweight local mode (default "forge")
   sandboxProfile = $state<Record<string, RepoSandboxSetting>>({}); // per-repo sandbox confinement (default "inherit")
   sandboxDefault = $state<Record<string, SandboxProfile>>({}); // global default "inherit" resolves to (server-derived)
+  agentProvider = $state<Record<string, RepoAgentProviderSetting>>({}); // per-repo coding CLI (default "inherit", #3441)
   defaultModel = $state<Record<string, string>>({}); // per-repo default-model override (default "inherit")
   defaultEffort = $state<Record<string, string>>({}); // per-repo default-effort override (default "inherit")
   defaultExecutionEffort = $state<Record<string, string>>({}); // per-repo plan-gated execution effort (default "inherit")
   previewOpenMode = $state<Record<string, RepoConfig["previewOpenMode"]>>({}); // Preview chip action (default ask)
   maxAuto = $state<Record<string, number>>({}); // max concurrent auto sessions (default 1)
   autoLabel = $state<Record<string, string>>({}); // label used to pick drain issues (default "shepherd:auto")
+  priorityLabels = $state<Record<string, string[]>>({}); // labels drained first, besides shepherd:priority (#3446)
   usageCeiling = $state<Record<string, number>>({}); // usage % ceiling before pausing drain (default 80)
   confirmed = $state<Record<string, boolean>>({}); // automation reviewed+confirmed for this repo (issue #1025)
   rowExists = $state<Record<string, boolean>>({}); // a repo_config row exists server-side
@@ -456,6 +503,7 @@ class RepoConfigStore {
       ...this.browserAllowedHosts,
       [repoPath]: c.browserAllowedHosts ?? [],
     };
+    this.egressExtraHosts = { ...this.egressExtraHosts, [repoPath]: c.egressExtraHosts ?? [] };
     this.claudeAiConnectors = {
       ...this.claudeAiConnectors,
       [repoPath]: c.claudeAiConnectorsEnabled,
@@ -471,6 +519,7 @@ class RepoConfigStore {
     this.sandboxProfile = { ...this.sandboxProfile, [repoPath]: c.sandboxProfile };
     if (c.sandboxDefaultProfile !== undefined)
       this.sandboxDefault = { ...this.sandboxDefault, [repoPath]: c.sandboxDefaultProfile };
+    this.agentProvider = { ...this.agentProvider, [repoPath]: c.agentProvider ?? "inherit" };
     this.defaultModel = { ...this.defaultModel, [repoPath]: c.defaultModel };
     this.defaultEffort = { ...this.defaultEffort, [repoPath]: c.defaultEffort };
     if (c.defaultExecutionEffort !== undefined)
@@ -481,6 +530,7 @@ class RepoConfigStore {
     this.previewOpenMode = { ...this.previewOpenMode, [repoPath]: c.previewOpenMode };
     this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
     this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
+    this.priorityLabels = { ...this.priorityLabels, [repoPath]: c.priorityLabels ?? [] };
     this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
     if (c.automationConfirmed !== undefined)
       this.confirmed = { ...this.confirmed, [repoPath]: c.automationConfirmed };
@@ -548,91 +598,59 @@ class RepoConfigStore {
     return this.loaded[repoPath] ?? false;
   }
 
-  /** Optimistically apply a patch, then reconcile from the server (or revert on error). */
-  private async apply(
+  /** THE write path for repo config (#3443): every toggle and setter below, the repo-settings
+   *  window, the Backlog tab and the first-task confirm all land here. Optimistically overlays each
+   *  patched field, PUTs the patch, then reconciles from the server's answer — or, when the PUT
+   *  fails, puts back exactly the fields it overlaid. `rethrow` surfaces the failure to callers that
+   *  must not proceed on it (the hands-off apply, the first-task confirm); everyone else gets null. */
+  async write(
     repoPath: string,
-    patch: Partial<
-      Pick<
-        RepoConfig,
-        | "criticEnabled"
-        | "criticAllPrs"
-        | "criticSmellLensEnabled"
-        | "autoAddressEnabled"
-        | "autopilotEnabled"
-        | "autoDrainEnabled"
-        | "autoMergeEnabled"
-        | "buildQueueEnabled"
-        | "manualStepsIssueEnabled"
-        | "preWarmEpicLandingCi"
-        | "mergeWithoutCi"
-        | "epicStacksEnabled"
-        | "sharedBrowserEnabled"
-        | "browserAllowedHosts"
-        | "claudeAiConnectorsEnabled"
-        | "pluginAllowlist"
-        | "skillAllowlist"
-        | "hidden"
-        | "pinned"
-        | "planGateEnabled"
-        | "draftMode"
-        | "signoffAuthority"
-        | "sandboxProfile"
-        | "defaultModel"
-        | "defaultEffort"
-        | "defaultExecutionEffort"
-        | "previewOpenMode"
-        | "maxAuto"
-        | "autoLabel"
-        | "usageCeilingPct"
-        | "repoMode"
-      >
-    >,
-    revert: () => void,
+    patch: RepoConfigPatch,
+    opts: { rethrow?: boolean } = {},
   ): Promise<RepoConfigResponse | null> {
+    const maps = this as unknown as Record<OverlayMap, Record<string, unknown>>;
+    const prev: [OverlayMap, unknown][] = [];
+    for (const [key, value] of Object.entries(patch)) {
+      const map = OVERLAY_MAPS[key as keyof typeof OVERLAY_MAPS];
+      if (!map) continue;
+      prev.push([map, maps[map][repoPath]]);
+      maps[map] = { ...maps[map], [repoPath]: value }; // optimistic
+    }
     try {
       const res = await putRepoConfig(repoPath, patch);
       this.ingest(repoPath, res);
       return res;
-    } catch {
-      revert();
+    } catch (e) {
+      for (const [map, value] of prev.reverse()) maps[map] = { ...maps[map], [repoPath]: value };
+      if (opts.rethrow) throw e;
       return null;
     }
   }
 
-  async toggle(repoPath: string) {
-    const prev = this.enabled[repoPath];
+  /** Flip the Critic. Turning it off while Draft mode waits on a Critic sign-off ("critic" /
+   *  "either") also sets the sign-off to "human" in the same patch (#3444) — the server refuses
+   *  that pair, and the draft could never be promoted. Resolves true when that fallback landed. */
+  async toggle(repoPath: string): Promise<boolean> {
     const next = !this.isEnabled(repoPath);
-    this.enabled = { ...this.enabled, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { criticEnabled: next }, () => {
-      this.enabled = { ...this.enabled, [repoPath]: prev };
-    });
+    const fallback =
+      !next && this.isDraftModeEnabled(repoPath) && this.signoffAuthorityFor(repoPath) !== "human";
+    const res = await this.write(
+      repoPath,
+      fallback ? { criticEnabled: false, signoffAuthority: "human" } : { criticEnabled: next },
+    );
+    return fallback && res !== null;
   }
 
   async toggleAllPrs(repoPath: string) {
-    const prev = this.allPrs[repoPath];
-    const next = !this.isAllPrsEnabled(repoPath);
-    this.allPrs = { ...this.allPrs, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { criticAllPrs: next }, () => {
-      this.allPrs = { ...this.allPrs, [repoPath]: prev };
-    });
+    await this.write(repoPath, { criticAllPrs: !this.isAllPrsEnabled(repoPath) });
   }
 
   async toggleSmellLens(repoPath: string) {
-    const prev = this.smellLens[repoPath];
-    const next = !this.smellLensOn(repoPath);
-    this.smellLens = { ...this.smellLens, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { criticSmellLensEnabled: next }, () => {
-      this.smellLens = { ...this.smellLens, [repoPath]: prev };
-    });
+    await this.write(repoPath, { criticSmellLensEnabled: !this.smellLensOn(repoPath) });
   }
 
   async toggleAutoAddress(repoPath: string) {
-    const prev = this.autoAddress[repoPath];
-    const next = !this.isAutoAddressEnabled(repoPath);
-    this.autoAddress = { ...this.autoAddress, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { autoAddressEnabled: next }, () => {
-      this.autoAddress = { ...this.autoAddress, [repoPath]: prev };
-    });
+    await this.write(repoPath, { autoAddressEnabled: !this.isAutoAddressEnabled(repoPath) });
   }
 
   /** Effective hidden state for a repo: the optimistic overlay if this client has
@@ -644,12 +662,7 @@ class RepoConfigStore {
   /** Hide/unhide a repo from the Backlog panel. `current` is the effective state being
    *  flipped (overlay or payload baseline). Optimistic, reverts on a failed PUT. */
   async toggleHidden(repoPath: string, current: boolean) {
-    const prev = this.hidden[repoPath];
-    const next = !current;
-    this.hidden = { ...this.hidden, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { hidden: next }, () => {
-      this.hidden = { ...this.hidden, [repoPath]: prev };
-    });
+    await this.write(repoPath, { hidden: !current });
   }
 
   /** Effective pinned state for a repo: the optimistic overlay if this client has
@@ -661,64 +674,35 @@ class RepoConfigStore {
   /** Pin/unpin a repo to the top of the Backlog panel. `current` is the effective state
    *  being flipped (overlay or payload baseline). Optimistic, reverts on a failed PUT. */
   async togglePinned(repoPath: string, current: boolean) {
-    const prev = this.pinned[repoPath];
-    const next = !current;
-    this.pinned = { ...this.pinned, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { pinned: next }, () => {
-      this.pinned = { ...this.pinned, [repoPath]: prev };
-    });
+    await this.write(repoPath, { pinned: !current });
   }
 
   async toggleAutopilot(repoPath: string) {
-    const prev = this.autopilot[repoPath];
-    const next = !this.isAutopilotEnabled(repoPath);
-    this.autopilot = { ...this.autopilot, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { autopilotEnabled: next }, () => {
-      this.autopilot = { ...this.autopilot, [repoPath]: prev };
-    });
+    await this.write(repoPath, { autopilotEnabled: !this.isAutopilotEnabled(repoPath) });
   }
 
   async toggleAutoDrain(repoPath: string) {
-    const prev = this.autoDrain[repoPath];
-    const next = !this.isAutoDrainEnabled(repoPath);
-    this.autoDrain = { ...this.autoDrain, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { autoDrainEnabled: next }, () => {
-      this.autoDrain = { ...this.autoDrain, [repoPath]: prev };
-    });
+    await this.write(repoPath, { autoDrainEnabled: !this.isAutoDrainEnabled(repoPath) });
   }
 
-  async toggleAutoMerge(repoPath: string) {
-    const prev = this.autoMerge[repoPath];
-    const next = !this.isAutoMergeEnabled(repoPath);
-    this.autoMerge = { ...this.autoMerge, [repoPath]: next }; // optimistic
-    // mutual exclusivity: turning autoMerge ON forces draftMode OFF
-    const prevDraft = this.draftMode[repoPath];
-    if (next) this.draftMode = { ...this.draftMode, [repoPath]: false };
-    await this.apply(
-      repoPath,
-      next ? { autoMergeEnabled: true, draftMode: false } : { autoMergeEnabled: false },
-      () => {
-        this.autoMerge = { ...this.autoMerge, [repoPath]: prev };
-        if (next) this.draftMode = { ...this.draftMode, [repoPath]: prevDraft };
-      },
-    );
+  /** Pick how finished PRs land (#3444): draftMode and autoMergeEnabled in one patch, so the two
+   *  are never on together. Draft with the Critic off also sets a Critic sign-off to "human" —
+   *  the server refuses that pair otherwise. */
+  async setMergeMode(repoPath: string, mode: MergeMode) {
+    const patch: RepoConfigPatch = mergeModePatch(mode);
+    if (
+      mode === "draft" &&
+      !this.isEnabled(repoPath) &&
+      this.signoffAuthorityFor(repoPath) !== "human"
+    )
+      patch.signoffAuthority = "human";
+    await this.write(repoPath, patch);
   }
 
-  async toggleDraftMode(repoPath: string) {
-    const prev = this.draftMode[repoPath];
-    const next = !this.isDraftModeEnabled(repoPath);
-    this.draftMode = { ...this.draftMode, [repoPath]: next }; // optimistic
-    // mutual exclusivity: turning draftMode ON forces autoMerge OFF
-    const prevAutoMerge = this.autoMerge[repoPath];
-    if (next) this.autoMerge = { ...this.autoMerge, [repoPath]: false };
-    await this.apply(
-      repoPath,
-      next ? { draftMode: true, autoMergeEnabled: false } : { draftMode: false },
-      () => {
-        this.draftMode = { ...this.draftMode, [repoPath]: prev };
-        if (next) this.autoMerge = { ...this.autoMerge, [repoPath]: prevAutoMerge };
-      },
-    );
+  /** Set an autonomy level (#3445): exactly its five values — Critic, Auto-Address, Autopilot,
+   *  Auto-Drain and the merge mode — in one patch; every other setting stays. */
+  async setAutonomyLevel(repoPath: string, level: AutonomyLevel) {
+    await this.write(repoPath, autonomyPatch(level));
   }
 
   /** Apply the recommended "hands-off epic" repo defaults in one atomic PUT: Autopilot on,
@@ -728,139 +712,65 @@ class RepoConfigStore {
    *  rethrows (unlike the fire-and-forget toggles) so the caller can surface the failure and NOT
    *  latch the intro as done — mirrors confirmAutomation(). */
   async applyHandsOffDefaults(repoPath: string) {
-    const prev = {
-      autopilot: this.autopilot[repoPath],
-      autoMerge: this.autoMerge[repoPath],
-      draftMode: this.draftMode[repoPath],
-      critic: this.enabled[repoPath],
-      autoAddress: this.autoAddress[repoPath],
-    };
-    // optimistic
-    this.autopilot = { ...this.autopilot, [repoPath]: true };
-    this.autoMerge = { ...this.autoMerge, [repoPath]: true };
-    this.draftMode = { ...this.draftMode, [repoPath]: false };
-    this.enabled = { ...this.enabled, [repoPath]: true };
-    this.autoAddress = { ...this.autoAddress, [repoPath]: true };
-    try {
-      this.ingest(repoPath, await putRepoConfig(repoPath, handsOffPatch()));
-    } catch (e) {
-      this.autopilot = { ...this.autopilot, [repoPath]: prev.autopilot };
-      this.autoMerge = { ...this.autoMerge, [repoPath]: prev.autoMerge };
-      this.draftMode = { ...this.draftMode, [repoPath]: prev.draftMode };
-      this.enabled = { ...this.enabled, [repoPath]: prev.critic };
-      this.autoAddress = { ...this.autoAddress, [repoPath]: prev.autoAddress };
-      throw e; // surface to the caller so the intro shows the failure toast and stays open
-    }
+    await this.write(repoPath, handsOffPatch(), { rethrow: true });
   }
 
   async setSignoffAuthority(repoPath: string, value: "human" | "critic" | "either") {
-    const prev = this.signoffAuthority[repoPath];
-    this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: value }; // optimistic
-    await this.apply(repoPath, { signoffAuthority: value }, () => {
-      this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: prev };
-    });
+    await this.write(repoPath, { signoffAuthority: value });
   }
 
   async setRepoMode(repoPath: string, mode: "forge" | "lightweight") {
-    const prev = this.repoMode[repoPath];
-    this.repoMode = { ...this.repoMode, [repoPath]: mode }; // optimistic
-    await this.apply(repoPath, { repoMode: mode }, () => {
-      this.repoMode = { ...this.repoMode, [repoPath]: prev };
-    });
+    await this.write(repoPath, { repoMode: mode });
   }
 
   async setSandboxProfile(repoPath: string, profile: RepoSandboxSetting) {
-    const prev = this.sandboxProfile[repoPath];
-    this.sandboxProfile = { ...this.sandboxProfile, [repoPath]: profile }; // optimistic
-    await this.apply(repoPath, { sandboxProfile: profile }, () => {
-      this.sandboxProfile = { ...this.sandboxProfile, [repoPath]: prev };
-    });
+    await this.write(repoPath, { sandboxProfile: profile });
+  }
+
+  /** Pick the repo's coding CLI (#3441). The response may also reset a default model / effort the
+   *  new CLI cannot run to "inherit" — ingest() takes those from it. */
+  async setAgentProvider(repoPath: string, value: RepoAgentProviderSetting) {
+    await this.write(repoPath, { agentProvider: value });
   }
 
   async setDefaultModel(repoPath: string, value: string) {
-    const prev = this.defaultModel[repoPath];
-    this.defaultModel = { ...this.defaultModel, [repoPath]: value }; // optimistic
-    await this.apply(repoPath, { defaultModel: value }, () => {
-      this.defaultModel = { ...this.defaultModel, [repoPath]: prev };
-    });
+    await this.write(repoPath, { defaultModel: value });
   }
 
   async setDefaultEffort(repoPath: string, value: string) {
-    const prev = this.defaultEffort[repoPath];
-    this.defaultEffort = { ...this.defaultEffort, [repoPath]: value }; // optimistic
-    await this.apply(repoPath, { defaultEffort: value }, () => {
-      this.defaultEffort = { ...this.defaultEffort, [repoPath]: prev };
-    });
+    await this.write(repoPath, { defaultEffort: value });
   }
 
   async setDefaultExecutionEffort(repoPath: string, value: string) {
-    const prev = this.defaultExecutionEffort[repoPath];
-    this.defaultExecutionEffort = { ...this.defaultExecutionEffort, [repoPath]: value }; // optimistic
-    await this.apply(repoPath, { defaultExecutionEffort: value }, () => {
-      this.defaultExecutionEffort = { ...this.defaultExecutionEffort, [repoPath]: prev };
-    });
+    await this.write(repoPath, { defaultExecutionEffort: value });
   }
 
   async setPreviewOpenMode(repoPath: string, value: RepoConfig["previewOpenMode"]) {
-    const prev = this.previewOpenMode[repoPath];
-    this.previewOpenMode = { ...this.previewOpenMode, [repoPath]: value }; // optimistic
-    await this.apply(repoPath, { previewOpenMode: value }, () => {
-      this.previewOpenMode = { ...this.previewOpenMode, [repoPath]: prev };
-    });
+    await this.write(repoPath, { previewOpenMode: value });
   }
 
   async toggleBuildQueue(repoPath: string) {
-    const prev = this.buildQueue[repoPath];
-    const next = !this.isBuildQueueEnabled(repoPath);
-    this.buildQueue = { ...this.buildQueue, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { buildQueueEnabled: next }, () => {
-      this.buildQueue = { ...this.buildQueue, [repoPath]: prev };
-    });
+    await this.write(repoPath, { buildQueueEnabled: !this.isBuildQueueEnabled(repoPath) });
   }
 
   async toggleManualStepsIssue(repoPath: string) {
-    const prev = this.manualStepsIssue[repoPath];
-    const next = !this.manualStepsIssueOn(repoPath);
-    this.manualStepsIssue = { ...this.manualStepsIssue, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { manualStepsIssueEnabled: next }, () => {
-      this.manualStepsIssue = { ...this.manualStepsIssue, [repoPath]: prev };
-    });
+    await this.write(repoPath, { manualStepsIssueEnabled: !this.manualStepsIssueOn(repoPath) });
   }
 
   async togglePreWarmEpicLandingCi(repoPath: string) {
-    const prev = this.preWarmEpicLandingCi[repoPath];
-    const next = !this.preWarmEpicLandingCiOn(repoPath);
-    this.preWarmEpicLandingCi = { ...this.preWarmEpicLandingCi, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { preWarmEpicLandingCi: next }, () => {
-      this.preWarmEpicLandingCi = { ...this.preWarmEpicLandingCi, [repoPath]: prev };
-    });
+    await this.write(repoPath, { preWarmEpicLandingCi: !this.preWarmEpicLandingCiOn(repoPath) });
   }
 
   async toggleMergeWithoutCi(repoPath: string) {
-    const prev = this.mergeWithoutCi[repoPath];
-    const next = !this.mergeWithoutCiOn(repoPath);
-    this.mergeWithoutCi = { ...this.mergeWithoutCi, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { mergeWithoutCi: next }, () => {
-      this.mergeWithoutCi = { ...this.mergeWithoutCi, [repoPath]: prev };
-    });
+    await this.write(repoPath, { mergeWithoutCi: !this.mergeWithoutCiOn(repoPath) });
   }
 
   async toggleEpicStacks(repoPath: string) {
-    const prev = this.epicStacks[repoPath];
-    const next = !this.epicStacksOn(repoPath);
-    this.epicStacks = { ...this.epicStacks, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { epicStacksEnabled: next }, () => {
-      this.epicStacks = { ...this.epicStacks, [repoPath]: prev };
-    });
+    await this.write(repoPath, { epicStacksEnabled: !this.epicStacksOn(repoPath) });
   }
 
   async toggleSharedBrowser(repoPath: string) {
-    const prev = this.sharedBrowser[repoPath];
-    const next = !this.sharedBrowserOn(repoPath);
-    this.sharedBrowser = { ...this.sharedBrowser, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { sharedBrowserEnabled: next }, () => {
-      this.sharedBrowser = { ...this.sharedBrowser, [repoPath]: prev };
-    });
+    await this.write(repoPath, { sharedBrowserEnabled: !this.sharedBrowserOn(repoPath) });
   }
 
   /** Flip the repo's claude.ai-connector switch. Resolves to the server's restart counts when the
@@ -868,72 +778,47 @@ class RepoConfigStore {
   async toggleClaudeAiConnectors(
     repoPath: string,
   ): Promise<RepoConfigResponse["connectorRestart"] | null> {
-    const prev = this.claudeAiConnectors[repoPath];
     const next = !this.claudeAiConnectorsOn(repoPath);
-    this.claudeAiConnectors = { ...this.claudeAiConnectors, [repoPath]: next }; // optimistic
-    const res = await this.apply(repoPath, { claudeAiConnectorsEnabled: next }, () => {
-      this.claudeAiConnectors = { ...this.claudeAiConnectors, [repoPath]: prev };
-    });
+    const res = await this.write(repoPath, { claudeAiConnectorsEnabled: next });
     return res ? res.connectorRestart : null;
   }
 
   async setBrowserAllowedHosts(repoPath: string, hosts: string[]) {
-    const prev = this.browserAllowedHosts[repoPath];
-    this.browserAllowedHosts = { ...this.browserAllowedHosts, [repoPath]: hosts }; // optimistic
-    await this.apply(repoPath, { browserAllowedHosts: hosts }, () => {
-      this.browserAllowedHosts = { ...this.browserAllowedHosts, [repoPath]: prev };
-    });
+    await this.write(repoPath, { browserAllowedHosts: hosts });
+  }
+
+  async setEgressExtraHosts(repoPath: string, hosts: string[]) {
+    await this.write(repoPath, { egressExtraHosts: hosts });
   }
 
   /** Set (or clear with `null`) the repo's plugin allowlist (#3780); optimistic, reverted on failure. */
   async setPluginAllowlist(repoPath: string, list: string[] | null) {
-    const prev = this.pluginAllowlist[repoPath];
-    this.pluginAllowlist = { ...this.pluginAllowlist, [repoPath]: list }; // optimistic
-    await this.apply(repoPath, { pluginAllowlist: list }, () => {
-      this.pluginAllowlist = { ...this.pluginAllowlist, [repoPath]: prev ?? null };
-    });
+    await this.write(repoPath, { pluginAllowlist: list });
   }
 
   /** Set (or clear with `null`) the repo's personal-skill allowlist (#3780). */
   async setSkillAllowlist(repoPath: string, list: string[] | null) {
-    const prev = this.skillAllowlist[repoPath];
-    this.skillAllowlist = { ...this.skillAllowlist, [repoPath]: list }; // optimistic
-    await this.apply(repoPath, { skillAllowlist: list }, () => {
-      this.skillAllowlist = { ...this.skillAllowlist, [repoPath]: prev ?? null };
-    });
+    await this.write(repoPath, { skillAllowlist: list });
   }
 
   async togglePlanGate(repoPath: string) {
-    const prev = this.planGate[repoPath];
-    const next = !this.isPlanGateEnabled(repoPath);
-    this.planGate = { ...this.planGate, [repoPath]: next }; // optimistic
-    await this.apply(repoPath, { planGateEnabled: next }, () => {
-      this.planGate = { ...this.planGate, [repoPath]: prev };
-    });
+    await this.write(repoPath, { planGateEnabled: !this.isPlanGateEnabled(repoPath) });
   }
 
   async setMaxAuto(repoPath: string, n: number) {
-    const prev = this.maxAuto[repoPath];
-    this.maxAuto = { ...this.maxAuto, [repoPath]: n }; // optimistic
-    await this.apply(repoPath, { maxAuto: n }, () => {
-      this.maxAuto = { ...this.maxAuto, [repoPath]: prev };
-    });
+    await this.write(repoPath, { maxAuto: n });
   }
 
   async setAutoLabel(repoPath: string, s: string) {
-    const prev = this.autoLabel[repoPath];
-    this.autoLabel = { ...this.autoLabel, [repoPath]: s }; // optimistic
-    await this.apply(repoPath, { autoLabel: s }, () => {
-      this.autoLabel = { ...this.autoLabel, [repoPath]: prev };
-    });
+    await this.write(repoPath, { autoLabel: s });
+  }
+
+  async setPriorityLabels(repoPath: string, labels: string[]) {
+    await this.write(repoPath, { priorityLabels: labels });
   }
 
   async setUsageCeiling(repoPath: string, n: number) {
-    const prev = this.usageCeiling[repoPath];
-    this.usageCeiling = { ...this.usageCeiling, [repoPath]: n }; // optimistic
-    await this.apply(repoPath, { usageCeilingPct: n }, () => {
-      this.usageCeiling = { ...this.usageCeiling, [repoPath]: prev };
-    });
+    await this.write(repoPath, { usageCeilingPct: n });
   }
 
   isEnabled(repoPath: string): boolean {
@@ -1008,6 +893,9 @@ class RepoConfigStore {
   browserAllowedHostsFor(repoPath: string): string[] {
     return this.browserAllowedHosts[repoPath] ?? [];
   }
+  egressExtraHostsFor(repoPath: string): string[] {
+    return this.egressExtraHosts[repoPath] ?? [];
+  }
   pluginAllowlistFor(repoPath: string): string[] | null {
     return this.pluginAllowlist[repoPath] ?? null;
   }
@@ -1046,6 +934,11 @@ class RepoConfigStore {
     return setting === "inherit" ? this.sandboxDefaultFor(repoPath) : setting;
   }
 
+  /** The repo's coding-CLI SETTING ("inherit" | <provider>, #3441). */
+  agentProviderFor(repoPath: string): RepoAgentProviderSetting {
+    return this.agentProvider[repoPath] ?? "inherit";
+  }
+
   /** The repo's default-model override SETTING ("inherit" | "auto" | "default" | <model>). */
   defaultModelFor(repoPath: string): string {
     return this.defaultModel[repoPath] ?? "inherit";
@@ -1071,7 +964,7 @@ class RepoConfigStore {
   }
 
   /** All automation on/off flags for a repo, in one read — shared by the pill's
-   *  count (GitRail) and the panel's switch rows (AutomationPanel). */
+   *  count (GitRail) and the repo settings' switch rows. */
   flags(repoPath: string): AutomationFlags {
     return {
       critic: this.isEnabled(repoPath),
@@ -1095,6 +988,11 @@ class RepoConfigStore {
     return this.autoLabel[repoPath] ?? "shepherd:auto";
   }
 
+  /** The repo's extra priority labels; shepherd:priority always applies on top. */
+  priorityLabelsFor(repoPath: string): string[] {
+    return this.priorityLabels[repoPath] ?? [];
+  }
+
   usageCeilingFor(repoPath: string): number {
     return this.usageCeiling[repoPath] ?? 80;
   }
@@ -1112,45 +1010,18 @@ class RepoConfigStore {
    *  row exists yet — guarded by automationRowExists() at the call site (Task 3) — so it never
    *  clobbers an existing repo's choices. */
   async seedNewRepoDefaults(repoPath: string) {
-    const prev = {
-      planGate: this.planGate[repoPath],
-      autoAddress: this.autoAddress[repoPath],
-      autopilot: this.autopilot[repoPath],
-      buildQueue: this.buildQueue[repoPath],
-    };
-    // optimistic
-    this.planGate = { ...this.planGate, [repoPath]: true };
-    this.autoAddress = { ...this.autoAddress, [repoPath]: true };
-    this.autopilot = { ...this.autopilot, [repoPath]: true };
-    this.buildQueue = { ...this.buildQueue, [repoPath]: true };
-    await this.apply(
-      repoPath,
-      {
-        planGateEnabled: true,
-        autoAddressEnabled: true,
-        autopilotEnabled: true,
-        buildQueueEnabled: true,
-      },
-      () => {
-        this.planGate = { ...this.planGate, [repoPath]: prev.planGate };
-        this.autoAddress = { ...this.autoAddress, [repoPath]: prev.autoAddress };
-        this.autopilot = { ...this.autopilot, [repoPath]: prev.autopilot };
-        this.buildQueue = { ...this.buildQueue, [repoPath]: prev.buildQueue };
-      },
-    );
+    await this.write(repoPath, {
+      planGateEnabled: true,
+      autoAddressEnabled: true,
+      autopilotEnabled: true,
+      buildQueueEnabled: true,
+    });
   }
 
   /** Mark this repo's automation as reviewed+confirmed (issue #1025). PUT returns the wrapped
    *  response; ingest() updates the confirmed/rowExists maps from it. */
   async confirmAutomation(repoPath: string) {
-    const prev = this.confirmed[repoPath];
-    this.confirmed = { ...this.confirmed, [repoPath]: true }; // optimistic
-    try {
-      this.ingest(repoPath, await putRepoConfig(repoPath, { automationConfirmed: true }));
-    } catch (e) {
-      this.confirmed = { ...this.confirmed, [repoPath]: prev };
-      throw e; // surface to the caller so the spawn doesn't proceed on a failed confirm
-    }
+    await this.write(repoPath, { automationConfirmed: true }, { rethrow: true });
   }
 }
 export const repoConfig = new RepoConfigStore();

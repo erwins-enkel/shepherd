@@ -14,27 +14,38 @@ stop the epic (so hands-off never means unsafe).
 > Don't have an epic yet? See [Authoring an epic](/authoring-epics/) to structure one Shepherd
 > recognizes, then come back here to drain it.
 
-> The automation pane holds **repo-wide** defaults — "Repo automation", not this task alone.
+> The repo settings window holds **repo-wide** defaults — "Repo settings", not this task alone.
 > The "Apply hands-off defaults" button on the Epic panel writes these same repo-wide defaults, so
 > they apply to every task in the repo, not only the epic you launched it from.
 
 ## Recommended settings
 
-Open the automation pane (the **⚙ automation** pill) and set:
+Open the repo settings window (the **⚙ automation** pill, or **Repo settings …** in a repo tab's or
+session row's context menu) and set:
 
 | Setting             | Recommended | Why |
 | ------------------- | ----------- | --- |
 | **Autopilot**       | **On**      | Drives each session through routine stops toward a PR instead of handing back to you. |
-| **Full-auto merge** | **On**      | The merge train lands each ready PR automatically. Turning it on forces **Draft mode off** (they are mutually exclusive). |
+| **Finished PRs**    | **Full-auto merge** | The merge train lands each ready PR automatically. It is one choice with **You merge** and **Draft until sign-off**, so Draft and Full-auto merge are never on together. |
 | **Critic**          | **On**      | Auto code-review of every push, in parallel with CI (on by default). Required for Auto-Address. |
 | **Auto-Address**    | **On**      | Feeds critic findings back to the agent automatically, so routine review comments don't need you. |
 | **Plan gate**       | **On** (keep) | Adversarial plan review before each session executes — see below. This is the seeded default; keep it. |
 | **Epic mode**       | **Auto**    | On the Epic panel, "auto" drains without asking. "Attended" waits for **Approve next** on every spawn. |
 
+**One click: the Full auto level.** The window's first section, **Autonomy**, offers four levels —
+**On call**, **With review**, **Backlog** and **Full auto** — that each set the Critic, Auto-Address,
+Autopilot, Auto-Drain and Finished PRs in one change. **Full auto** sets Autopilot, Full-auto
+merge, Critic and Auto-Address as recommended above and also turns on Auto-Drain, so labeled issues
+get picked up too. It leaves Plan gate, the sandbox and the epic's mode as they are. On the
+**Standard** sandbox the work still halts at the first unattended start (see below). When those settings match no level, the window says **Custom mix**.
+Below the levels, **Who does which step** shows for each step (pick up issue, check plan, go on at
+stops, review, fix findings, merge) whether Shepherd or you take it. The repo tab's and session
+row's context menus show the level, the coding CLI and the merge mode under **Repo settings …**.
+
 **Repos without CI.** In a GitHub repo where no workflow in `.github/workflows` runs on pull
 requests (none at all, or only scheduled or manual ones), nothing checks a PR. So the merge train and epic auto-land **hold** those PRs instead of merging them. The session
 banner says _no CI_ and the epic row shows **Auto-land held: no CI**. To lift the hold, add a CI
-workflow, merge yourself, or turn on **Merge without CI** in the automation pane (see
+workflow, merge yourself, or turn on **Merge without CI** in the repo settings (see
 [Auto-merge without PR CI](/operating/#auto-merge-without-pr-ci)). Child PRs still
 merge into the epic branch, so a project can grow its own CI before anything reaches main.
 
@@ -60,15 +71,16 @@ requires an isolated worktree, so that session waits for your Go regardless. For
 
 So Plan gate gives you an adversarial plan review on every session **for free**, without blocking a
 hands-off drain. Keep it on. If you want to skip plan review entirely, you *can* turn it off in the
-automation pane — you'll trade away that pre-execution check; Critic (code review of every push) still
+repo settings — you'll trade away that pre-execution check; Critic (code review of every push) still
 runs regardless.
 
 ### Sign-off authority — leave it on "human"
 
-You don't need to change **Sign-off by**. The sign-off gate only applies in **Draft mode**, and the
-hands-off recommendation runs with Draft mode **off** (Full-auto merge on). With Draft off, the
-sign-off authority is inert, so leaving it at the default "human" is safe and does not hold anything
-up.
+You don't need to change **Sign-off by**. The sign-off gate only applies under **Draft until
+sign-off** (the setting only shows there), and the hands-off recommendation picks **Full-auto merge**
+instead. With Draft off, the sign-off authority is inert, so leaving it at the default "human" is
+safe and does not hold anything up. Switching the Critic off while Draft waits on a Critic sign-off
+moves it to "human" in the same change.
 
 ## What still stops a hands-off epic
 
@@ -249,7 +261,7 @@ The forecast plays the rest of the epic through in three parts:
    the mean, so the epic's own pace takes over as its steps finish. A running step is given what is left of the estimate, but never less than a
    tenth of it; a step running past 1.5× the estimate is flagged as taking much longer than usual.
 2. **The order.** The open steps are laid out in epic order over the repo's agent slots — the
-   **Cap** in the automation pane, the concurrency cap above. A step starts once the steps it
+   **Cap** in the repo settings, the concurrency cap above. A step starts once the steps it
    depends on are done and a slot is free, so with one slot the steps run one after another. The
    forecast assumes the epic has the slots to itself: an auto-started task outside the epic that
    takes a slot pushes the real finish later.
@@ -334,7 +346,7 @@ still takes before it hands over:
 2. **Agent repair** — if CI is still red, Shepherd starts **one** repair agent. It fixes the cause
    (or the PR's metadata, e.g. a too-long title) and pushes straight to the integration branch —
    no new PR. This step runs **only with Auto-Drain on**; with it off, the card says it was skipped
-   and links to the repo automation.
+   and links to the repo settings.
 3. **You** — only once nothing automatic is left does the card say **your turn**.
 
 **Fix CI failures** on the card starts a repair agent yourself at any time — it bypasses Auto-Drain

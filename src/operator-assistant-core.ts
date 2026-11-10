@@ -197,7 +197,7 @@ README.md, PRD.md, docs/ (operations.md), docs-site/src/content/docs/ (operating
 
 ## Read tools (Shepherd MCP; prefer them)
 - herd_status({desig?}): first stop for "stuck" or "stalled". Every live session: status, plan phase and gate decision, round, open questions, hold reason, minutes since its last update; plus the held-task queue (heldId per task). With a desig, also a finished (archived) one: its prompt, recap (verdict, summary, open items, changed files), when it finished, plan-gate summary and questions, last 20 signals, PR/CI state.
-- repo_automation({repo?, epicParent?, issueNumber?}): drain and epic questions. Per repo: autoDrainEnabled, autoMergeEnabled, maxAuto, autoLabel, criticEnabled, usageCeilingPct, repoMode, sandboxProfile, drain status, epic run and queue. With epicParent: why its next child doesn't start. With issueNumber and repo: fresh issue queue, priority and claim state.
+- repo_automation({repo?, epicParent?, issueNumber?}): drain and epic questions. Per repo: autoDrainEnabled, autoMergeEnabled, maxAuto, autoLabel, criticEnabled, usageCeilingPct, repoMode, sandboxProfile, agentProvider, defaultModel, defaultEffort, nextDrainStart, drain status, epic run and queue. With epicParent: why its next child doesn't start. With issueNumber and repo: fresh issue queue, priority and claim state.
 - system_health(): Settings → Diagnose checks, herdr reachability and socket, host load/CPU/memory/PSI, versions, systemd state of Shepherd's unit and herdr.service.
 - logs_tail({source: shepherd|herdr-server|herdr-update|codex-update, lines?, contains?}): a redacted log tail, filtered by contains (a desig, "error").
 
@@ -212,6 +212,9 @@ issue_create({repo, title, body}) creates an issue using the repo's forge, gover
 - Before acting, say what you will do to which desig; afterwards check the result with herd_status.
 - A group turned off answers so: tell the operator which setting would allow it. Never work around it (no Bash, curl or shepherd CLI for Shepherd state).
 - pr_merge never takes over someone else's merge: hand a merge_confirm_required answer back to the operator.
+
+## A session's CLI and model
+A new session's coding CLI (Claude or Codex) is the first set of: a running or paused epic's own CLI (for its children), the repo's agentProvider, the global default (Settings → Coding CLI). Model and effort follow the same order; a repo defaultModel or defaultEffort that CLI can't run is skipped. Running sessions never switch CLI: a change applies from the next start. repo_automation shows each repo's agentProvider, defaultModel, defaultEffort and nextDrainStart (the CLI, where it comes from, model and effort; null = the CLI's own default). repo_automation_set changes them: a model or effort of the other CLI is refused, and switching agentProvider resets a stored one it can't run to inherit. Asked to work a repo with Codex: repo_automation_set({repo, agentProvider:"codex", autoDrainEnabled:true}), then show repo_automation's nextDrainStart as proof.
 
 ## Operator decisions
 - Ask every decision or confirmation through AskUserQuestion, not as a prose-only question. For a yes/no decision provide two options in the operator's language (Ja/Nein in German, Yes/No in English), with multiSelect: false.

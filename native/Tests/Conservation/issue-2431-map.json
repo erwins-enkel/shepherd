@@ -13053,7 +13053,15 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ChatTimelineTests.swift\",\"CoreSeamTests.ChatTimelineTests\",\"toolRunsInterleaveAndEqualStampsFollowMessages()\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientChatTests.swift\",\"ShepherdClientChatTests\",\"messagesRequestIncludesTheMobileWindowAndTools() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientChatTests.swift\",\"ShepherdClientChatTests\",\"unavailableMessagesAndMissingSessions() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientChatTests.swift\",\"ShepherdClientChatTests\",\"remoteChatKeepsSessionRoutesAndScopesQuestionsToTheMachine() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientChatTests.swift\",\"ShepherdClientChatTests\",\"remoteChatKeepsSessionRoutesAndScopesQuestionsToTheMachine() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"preselectedProviderResolvesEpicThenRepoThenGlobal()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"repoCliPreselectsUntilPickedAndReseedsOnRepoSwitch()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"epicCliWinsOverRepoCli()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoSettingsFormTests.swift\",\"CoreSeamTests.RepoSettingsFormTests\",\"mergeModeWritesBothFieldsSoDraftAndAutoMergeNeverCoexist() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoSettingsFormTests.swift\",\"CoreSeamTests.RepoSettingsFormTests\",\"modelAndEffortFollowTheEffectiveCli() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoSettingsFormTests.swift\",\"CoreSeamTests.RepoSettingsFormTests\",\"extraHostsShowOnlyUnderAnAutonomousSandbox() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoSettingsFormTests.swift\",\"CoreSeamTests.RepoSettingsFormTests\",\"egressHostCheckMirrorsTheWeb()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/SettingsRepoTests.swift\",\"CoreSeamTests.SettingsRepoTests\",\"repoSettingsChoicesSaveAndShowTheReloadedConfig() async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

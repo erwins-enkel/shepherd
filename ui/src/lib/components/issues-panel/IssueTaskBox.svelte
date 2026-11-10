@@ -10,6 +10,7 @@
   } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { repoConfig } from "#lib/reviews.svelte.js";
+  import { repoPinnedProvider } from "#lib/repo-cli.js";
   import { pickerModels } from "#lib/provider-models.js";
   import {
     providerEfforts,
@@ -60,8 +61,12 @@
 
   const claimed = $derived(session != null || (issue.labels ?? []).includes(ACTIVE_LABEL));
 
+  // The composer's preselect (#3441): the repo's own coding CLI wins over the global default.
   const provider = $derived<AgentProvider>(
-    run.agentProvider ?? defaults?.agentProvider ?? "claude",
+    run.agentProvider ??
+      repoPinnedProvider(repoConfig.agentProviderFor(repoPath)) ??
+      defaults?.agentProvider ??
+      "claude",
   );
   const modelOptions = $derived(["default", ...pickerModels(provider, run.model)]);
   const model = $derived.by(() => {

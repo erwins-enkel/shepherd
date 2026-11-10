@@ -1,31 +1,22 @@
 <script lang="ts">
   import { firstSafeHttpUrl } from "#lib/url.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { repoConfig } from "#lib/reviews.svelte.js";
   import {
     enableRepoRolesAutoMerge,
     getRepoRoles,
     getRepoCollaborators,
     putRepoRoles,
   } from "#lib/api.js";
-  import { EFFORTS } from "#lib/types.js";
-  import { modelGuidanceAlias, modelOptionLabel } from "#lib/model-guidance.js";
-  import { pickerModels } from "#lib/provider-models.js";
-  import { effortLabel } from "#lib/effort-guidance.js";
-  import ModelGuidance from "#lib/components/ModelGuidance.svelte";
-  import type { RepoConfig, RepoMergeSettings, RepoRoles, RepoRolesPending } from "#lib/types.js";
-  import "./automation-fields.css";
+  import type { RepoMergeSettings, RepoRoles, RepoRolesPending } from "#lib/types.js";
+  import RepoSettingRow from "./RepoSettingRow.svelte";
+  import "../automation-settings/automation-fields.css";
 
-  let {
-    repoPath,
-    fableAvailable,
-  }: {
-    repoPath: string;
-    fableAvailable: boolean;
-  } = $props();
+  // Repo responsibilities (#3443 moved them here from AutomationRepoFields): who reviews, who
+  // merges — committed to .shepherd/roles.json through their own endpoint (PUT /api/repo-roles,
+  // a commit or a PR of its own), not the repo config.
+  let { repoPath }: { repoPath: string } = $props();
 
-  // Repo responsibilities (.shepherd/roles.json): who reviews, who merges. Loaded
-  // lazily when the panel mounts / the repo changes — the herd reads the computed
+  // Loaded lazily when the panel mounts / the repo changes — the herd reads the computed
   // handoff off the cached git state, so this fetch is panel-only.
   let roles = $state<RepoRoles>({ reviewer: null, merger: null });
   // A default branch that refuses the direct push takes the change as a PR: until it merges,
@@ -212,126 +203,34 @@
 
   /** A role as the pending note names it: "@login", or the unset option's label. */
   const roleLabel = (login: string | null) => (login ? `@${login}` : m.roles_unset_option());
-
-  const defaultModel = $derived(repoConfig.defaultModelFor(repoPath));
-  const guidanceModel = $derived(modelGuidanceAlias(defaultModel, fableAvailable));
-  const defaultEffort = $derived(repoConfig.defaultEffortFor(repoPath));
-  const defaultExecutionEffort = $derived(repoConfig.defaultExecutionEffortFor(repoPath));
-  const previewOpenMode = $derived(repoConfig.previewOpenModeFor(repoPath));
 </script>
 
-<!-- Default model: a repo-wide override of the global default (Settings → Session).
-     "Inherit" defers to the global setting; an explicit choice wins for both the
-     New-Task picker preselect and autonomous drain/autopilot spawns in this repo. -->
-<div class="drain-fields">
-  <label class="drain-field">
-    <span class="drain-label">{m.automation_default_model_label()}</span>
-    <select
-      class="afield-num model-select"
-      aria-label={m.automation_default_model_label()}
-      value={defaultModel}
-      onchange={(e) =>
-        repoConfig.setDefaultModel(repoPath, (e.currentTarget as HTMLSelectElement).value)}
-    >
-      <option value="inherit">{m.automation_default_model_inherit()}</option>
-      <option value="auto">{m.settings_default_model_auto()}</option>
-      <option value="default">{m.newtask_model_default()}</option>
-      {#each pickerModels("claude", defaultModel) as mdl (mdl)}
-        <option value={mdl}>{modelOptionLabel("claude", mdl)}</option>
-      {/each}
-    </select>
-  </label>
-  <div class="drain-model-guidance">
-    <ModelGuidance provider="claude" model={guidanceModel} context="repo" />
-  </div>
-  <div class="signoff-note">{m.automation_default_model_hint()}</div>
-
-  <label class="drain-field">
-    <span class="drain-label">{m.automation_default_effort_label()}</span>
-    <select
-      class="afield-num model-select"
-      aria-label={m.automation_default_effort_label()}
-      value={defaultEffort}
-      onchange={(e) =>
-        repoConfig.setDefaultEffort(repoPath, (e.currentTarget as HTMLSelectElement).value)}
-    >
-      <option value="inherit">{m.automation_default_effort_inherit()}</option>
-      <option value="default">{m.effort_default()}</option>
-      {#each EFFORTS as tier (tier)}
-        <option value={tier}>{effortLabel(tier)}</option>
-      {/each}
-    </select>
-  </label>
-  <div class="signoff-note">{m.automation_default_effort_hint()}</div>
-
-  <label class="drain-field">
-    <span class="drain-label">{m.automation_execution_effort_label()}</span>
-    <select
-      class="afield-num model-select"
-      aria-label={m.automation_execution_effort_label()}
-      value={defaultExecutionEffort}
-      onchange={(e) =>
-        repoConfig.setDefaultExecutionEffort(
-          repoPath,
-          (e.currentTarget as HTMLSelectElement).value,
-        )}
-    >
-      <option value="inherit">{m.automation_default_effort_inherit()}</option>
-      <option value="default">{m.execution_effort_same_as_planning()}</option>
-      {#each EFFORTS as tier (tier)}
-        <option value={tier}>{effortLabel(tier)}</option>
-      {/each}
-    </select>
-  </label>
-  <div class="signoff-note">{m.automation_execution_effort_hint()}</div>
-
-  <label class="drain-field">
-    <span class="drain-label">{m.automation_preview_open_mode_label()}</span>
-    <select
-      class="afield-num model-select"
-      aria-label={m.automation_preview_open_mode_label()}
-      value={previewOpenMode}
-      onchange={(e) =>
-        repoConfig.setPreviewOpenMode(
-          repoPath,
-          (e.currentTarget as HTMLSelectElement).value as RepoConfig["previewOpenMode"],
-        )}
-    >
-      <option value="ask">{m.preview_open_mode_ask()}</option>
-      <option value="inline">{m.preview_open_mode_inline()}</option>
-      <option value="tab">{m.preview_open_mode_tab()}</option>
-    </select>
-  </label>
-  <div class="signoff-note">{m.automation_preview_open_mode_hint()}</div>
-</div>
-
 <!-- Repo responsibilities: reviewer + merger (committed to .shepherd/roles.json) -->
-<div class="auto-group" id="repo-roles">{m.automation_group_roles()}</div>
+<div class="roles-head" id="repo-roles">{m.automation_group_roles()}</div>
 {#snippet roleRow(label: string, role: "reviewer" | "merger", value: string | null)}
-  <div class="auto-row">
-    <div class="auto-meta">
-      <div class="auto-name">{label}</div>
-    </div>
-    <select
-      class="role-select"
-      aria-label={label}
-      aria-busy={rolesLoading || collaboratorsLoading || saving}
-      disabled={rolesLoading || saving}
-      value={optionValue(value)}
-      onchange={(e) => setRole(role, e.currentTarget.value || null)}
-    >
-      <option value="">{m.roles_unset_option()}</option>
-      {#if me}
-        <option value={me}>{m.roles_self_option()} (@{me})</option>
-      {/if}
-      {#each collaborators.filter((c) => !eqLogin(c, me)) as login (login)}
-        <option value={login}>@{login}</option>
-      {/each}
-      {#if value && !eqLogin(value, me) && !collaborators.some((c) => eqLogin(c, value))}
-        <option {value}>@{value}</option>
-      {/if}
-    </select>
-  </div>
+  <RepoSettingRow field={`roles.${role}`} name={label}>
+    {#snippet control()}
+      <select
+        class="role-select"
+        aria-label={label}
+        aria-busy={rolesLoading || collaboratorsLoading || saving}
+        disabled={rolesLoading || saving}
+        value={optionValue(value)}
+        onchange={(e) => setRole(role, e.currentTarget.value || null)}
+      >
+        <option value="">{m.roles_unset_option()}</option>
+        {#if me}
+          <option value={me}>{m.roles_self_option()} (@{me})</option>
+        {/if}
+        {#each collaborators.filter((c) => !eqLogin(c, me)) as login (login)}
+          <option value={login}>@{login}</option>
+        {/each}
+        {#if value && !eqLogin(value, me) && !collaborators.some((c) => eqLogin(c, value))}
+          <option {value}>@{value}</option>
+        {/if}
+      </select>
+    {/snippet}
+  </RepoSettingRow>
 {/snippet}
 {@render roleRow(m.roles_reviewer_label(), "reviewer", shownRoles.reviewer)}
 {@render roleRow(m.roles_merger_label(), "merger", shownRoles.merger)}
@@ -369,7 +268,7 @@
         <span>{m.roles_automerge_plan_needed()}</span>
       {:else if mergeSettings?.canAdminister}
         <button
-          class="gbtn"
+          class="bs-btn"
           type="button"
           disabled={enablingAutoMerge}
           aria-busy={enablingAutoMerge}
@@ -411,49 +310,23 @@
         <span>{m.roles_people_unavailable()}</span>
       {/if}
     </div>
-    <button class="gbtn" type="button" onclick={retryFailedLoads}>{m.common_retry()}</button>
+    <button class="bs-btn" type="button" onclick={retryFailedLoads}>{m.common_retry()}</button>
   </div>
 {/if}
 
 <style>
-  /* Option labels are prose (model names, effort tiers, modes), not numbers: drop the
-     `.afield-num` mono these selects borrow for their chrome. */
-  .model-select {
-    font-family: var(--font-sans);
-  }
-  /* Generic per-row layout classes — duplicated from the parent (every toggle row
-     there uses them); the role rows here reuse the same conventions. */
-  .auto-group {
+  .roles-head {
     font-size: var(--fs-micro);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-amber);
     padding: 8px 12px 4px;
-  }
-  .auto-row {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 8px 12px;
     border-top: 1px solid var(--color-line);
   }
-  .auto-meta {
-    min-width: 0;
-  }
-  .auto-name {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--fs-base);
-    color: var(--color-ink-bright);
-  }
-  /* .drain-fields / .drain-field / .drain-label / .afield-num come from
-     ./automation-fields.css (imported in <script>). */
   .role-select {
     flex: 0 0 auto;
     width: 140px;
-    max-width: 50%;
+    max-width: 100%;
     background: var(--color-panel);
     border: 1px solid var(--color-line);
     border-radius: 2px;
@@ -505,42 +378,7 @@
     flex-direction: column;
     gap: 2px;
   }
-  .roles-load-status .gbtn {
+  .roles-load-status .bs-btn {
     flex: 0 0 auto;
-  }
-  /* Canonical action-button recipe from /design-system. Styles are scoped here
-     because app.css deliberately does not define a global .gbtn. */
-  .gbtn {
-    background: transparent;
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    color: var(--color-muted);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.08em;
-    padding: 2px 8px;
-    cursor: pointer;
-    transition:
-      border-color 0.12s,
-      color 0.12s;
-  }
-  .gbtn:hover:not(:disabled) {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
-  .gbtn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-  .gbtn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-  .signoff-note {
-    font-size: var(--fs-meta);
-    color: var(--color-faint);
-    padding: 0 12px 6px;
-  }
-  .drain-model-guidance {
-    padding: 0 12px 6px;
   }
 </style>

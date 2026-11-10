@@ -43,6 +43,7 @@
   } from "#lib/api.js";
   import { prMergeAvailable } from "./pr-badge";
   import { basename } from "#lib/basename.js";
+  import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
   import { mergeConfirmFromGit } from "./merge-confirm";
   import { MergeConfirmFlow } from "./merge-confirm-flow.svelte";
   import MergeConfirmHost from "./MergeConfirmHost.svelte";
@@ -927,6 +928,9 @@
   // terminal row (focusing itself is pointless).
   const cleanTerminalAble = $derived(!!oncleanTerminal && !session.terminal);
   const onCleanTerminal = $derived(cleanTerminalAble ? cleanTerminalFromMenu : undefined);
+  // #3443: the repo settings window for this session's repo — grouped with the clean terminal under
+  // "Repo · <name>", apart from the session's own actions.
+  const repoSettingsAble = $derived(!!session.repoPath);
   // Same cap rationale for "Ask the assistant".
   const askable = $derived(
     !!onaskassistant &&
@@ -969,6 +973,7 @@
           variantable ||
           replaceable ||
           cleanTerminalAble ||
+          repoSettingsAble ||
           askable ||
           shelvable,
   );
@@ -994,6 +999,9 @@
           onvariant: variantable ? variantFromMenu : undefined,
           onreplace: replaceable ? replaceFromMenu : undefined,
           oncleanTerminal: onCleanTerminal,
+          onreposettings: repoSettingsAble ? repoSettingsFromMenu : undefined,
+          repoName,
+          repoPath: session.repoPath,
           onshelve: shelvable ? shelveFromMenu : undefined,
           shelved: !!session.shelved,
           ondecommission: ondecommission ? decommissionFromMenu : undefined,
@@ -1124,6 +1132,11 @@
   function cleanTerminalFromMenu() {
     menu = null;
     oncleanTerminal?.(session.repoPath);
+  }
+  function repoSettingsFromMenu() {
+    const opener = menu?.opener;
+    menu = null;
+    repoSettingsWindow.open(session.repoPath, { opener });
   }
   function askAssistantFromMenu() {
     menu = null;

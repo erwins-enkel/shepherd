@@ -2,7 +2,7 @@ import { CODEX_MODELS, MODELS, RETIRED_PICKER_MODELS, type AgentProvider } from 
 import { accountModels } from "#lib/account-models.svelte.js";
 
 /** The selectable model aliases for a provider (Claude vs Codex curated lists). */
-function providerModels(provider: AgentProvider): readonly string[] {
+export function providerModels(provider: AgentProvider): readonly string[] {
   return provider === "codex" ? CODEX_MODELS : MODELS;
 }
 

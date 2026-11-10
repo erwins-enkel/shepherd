@@ -159,6 +159,7 @@ struct ComposeSheetContent: View {
         if let config {
             model.applyRepoGuardDefaults(planGate: config.planGateEnabled, autopilot: config.autopilotEnabled)
             model.applyRepoSandboxDefault(stored: config.sandboxProfile, globalDefault: config.sandboxDefaultProfile)
+            model.applyRepoProviderDefault(stored: config.agentProvider)
         }
     }
 

@@ -1,4 +1,4 @@
-import { test, expect, describe, spyOn } from "bun:test";
+import { test, expect, describe, spyOn, afterEach } from "bun:test";
 import { DrainService, type DrainStatus } from "../src/drain";
 import { ACTIVE_LABEL, ARCHIVED_MAPPING_GRACE_MS } from "../src/drain-core";
 import { SessionStore } from "../src/store";
@@ -433,6 +433,68 @@ test("ChatGPT auth clamps a blocked Codex global default before drain create", a
     config.defaultAgentProvider = savedProvider;
     config.defaultCodexModel = savedCodexModel;
   }
+});
+
+describe("#3441: a repo's own coding CLI", () => {
+  const saved = {
+    provider: config.defaultAgentProvider,
+    model: config.defaultModel,
+    codexModel: config.defaultCodexModel,
+  };
+  afterEach(() => {
+    config.defaultAgentProvider = saved.provider;
+    config.defaultModel = saved.model;
+    config.defaultCodexModel = saved.codexModel;
+  });
+
+  test("a Codex repo starts Codex under a global Claude default; another repo keeps Claude", async () => {
+    config.defaultAgentProvider = "claude";
+    config.defaultModel = "sonnet";
+    config.defaultCodexModel = "gpt-5.4";
+    const asked: string[] = [];
+    const capacity = async (i: { provider: string }) => (asked.push(i.provider), true);
+    const codexRepo = makeHarness({ issues: [issue(1)], maxAuto: 1, capacity });
+    codexRepo.store.setRepoConfig(REPO, {
+      ...codexRepo.store.getRepoConfig(REPO),
+      agentProvider: "codex",
+    });
+    await codexRepo.drain.pump(REPO);
+    expect(codexRepo.creates[0]).toMatchObject({ agentProvider: "codex", model: "gpt-5.4" });
+    expect(asked).toEqual(["codex"]);
+
+    const otherRepo = makeHarness({ issues: [issue(1)], maxAuto: 1 });
+    await otherRepo.drain.pump(REPO);
+    expect(otherRepo.creates[0]).toMatchObject({ agentProvider: "claude", model: "sonnet" });
+  });
+
+  test("a repo on inherit follows a later switch of the global default", async () => {
+    config.defaultAgentProvider = "claude";
+    const h = makeHarness({ issues: [issue(1), issue(2)], maxAuto: 1 });
+    await h.drain.pump(REPO);
+    expect(h.creates.map((c) => c.agentProvider)).toEqual(["claude"]);
+    config.defaultAgentProvider = "codex";
+    h.store.setRepoConfig(REPO, { ...h.store.getRepoConfig(REPO), maxAuto: 2 });
+    await h.drain.pump(REPO);
+    expect(h.creates.map((c) => c.agentProvider)).toEqual(["claude", "codex"]);
+  });
+
+  test("a Claude model on a Codex repo is ignored; ultra is never sent to Claude", async () => {
+    config.defaultAgentProvider = "claude";
+    config.defaultCodexModel = "gpt-5.4";
+    const codex = makeHarness({ issues: [issue(1)], maxAuto: 1, repoDefaultModel: "opus" });
+    codex.store.setRepoConfig(REPO, { ...codex.store.getRepoConfig(REPO), agentProvider: "codex" });
+    await codex.drain.pump(REPO);
+    expect(codex.creates[0]!.model).toBe("gpt-5.4");
+
+    const claude = makeHarness({ issues: [issue(1)], maxAuto: 1 });
+    claude.store.setRepoConfig(REPO, {
+      ...claude.store.getRepoConfig(REPO),
+      defaultEffort: "ultra",
+    });
+    await claude.drain.pump(REPO);
+    expect(claude.creates[0]!.agentProvider).toBe("claude");
+    expect(claude.creates[0]!.effort).not.toBe("ultra");
+  });
 });
 
 test("drain spawns with the active engine's own default effort (e.g. during a Codex failover)", async () => {
@@ -2021,6 +2083,25 @@ describe("drain epic mode", () => {
     });
   });
 
+  test("#3441: a running epic's own CLI beats the repo's; without one the repo's applies", async () => {
+    const own = epicHarness("running", "auto", { agentProvider: "claude" });
+    own.store.setRepoConfig(REPO, { ...own.store.getRepoConfig(REPO), agentProvider: "codex" });
+    await own.drain.pump(REPO);
+    expect(own.creates[0]!.agentProvider).toBe("claude");
+
+    const inherit = epicHarness("running", "auto");
+    inherit.store.setRepoConfig(REPO, {
+      ...inherit.store.getRepoConfig(REPO),
+      agentProvider: "codex",
+    });
+    await inherit.drain.pump(REPO);
+    expect(inherit.creates[0]!.agentProvider).toBe("codex");
+    expect(inherit.drain.autoBlockers(REPO, {}).agentProvider).toBe("codex");
+    expect(inherit.drain.autoBlockers(REPO, { agentProvider: "claude" }).agentProvider).toBe(
+      "claude",
+    );
+  });
+
   test("running epic inheriting global Codex default spawns despite Claude usage ceiling", async () => {
     const saved = config.defaultAgentProvider;
     const savedClaudeModel = config.defaultModel;
@@ -2035,7 +2116,7 @@ describe("drain epic mode", () => {
       });
       await h.drain.pump(REPO);
       expect(h.creates).toHaveLength(1);
-      expect(h.creates[0]!.agentProvider).toBeUndefined();
+      expect(h.creates[0]!.agentProvider).toBe("codex");
       expect(h.creates[0]!.model).toBe("gpt-5.4");
       const last = h.statuses.at(-1)!;
       expect(last.paused).toBe(false);

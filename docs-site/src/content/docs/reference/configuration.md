@@ -24,7 +24,8 @@ schema and deliberately absent from this page.
 
 ## Drain priority labels
 
-Each repository can configure additional urgent labels through the existing repo-config API:
+Each repository can configure additional urgent labels in its repo settings (Start & flow ›
+Auto-Drain › Priority labels, shown while Auto-Drain is on) or through the existing repo-config API:
 `PUT /api/repo-config?repo=<URL-encoded absolute repo path>` with
 `{ "priorityLabels": ["ci-gate-rot"] }`, for example for calendar. Read the setting with
 `GET /api/repo-config?repo=<URL-encoded absolute repo path>`. Use your normal authenticated
@@ -78,7 +79,7 @@ example `[{ "number": 181, "labels": ["ci-gate-rot"] }]`; it includes only prior
 | `SHEPHERD_LOG` | `~/.shepherd/shepherd.log` (next to the DB) | Shepherd's app log. The systemd unit appends to it, `shepherd-logrotate.timer` rotates it, and the Operator Assistant reads its tail. Set it only if your unit writes the log somewhere else |
 | `SHEPHERD_ASSISTANT_DIR` | `~/.shepherd/assistant` (next to the DB) | Working directory of HUD assistant sessions (Claude or Codex), created with mode `0700` on first use. Provider/model/effort are configured independently under Settings → Assistant. Codex uses private per-session `.codex-runtime/` homes with read-only tools. Shepherd owns its `.claude/settings.local.json`: the rules of Settings → Assistant, rewritten on every change (no env var — set it in the UI) |
 | `SHEPHERD_SANDBOX_DEFAULT_PROFILE` | `standard` (`trusted` without a working bwrap backend) | Global default sandbox profile (`trusted` / `standard` / `autonomous`) for every repo whose Sandbox setting is **Default** — new repos included. Set `trusted` to restore the old unconfined default — see below |
-| `SHEPHERD_SANDBOX_EXTRA_HOSTS` | _(none)_ | Comma-separated extra hostnames always allowlisted by the **autonomous** profile's egress firewall, on top of the built-in Anthropic + forge hosts (e.g. `registry.corp.com,pypi.corp.io` for a private package registry). Operator escape hatch; no effect on `trusted`/`standard`, which are not network-confined |
+| `SHEPHERD_SANDBOX_EXTRA_HOSTS` | _(none)_ | Comma-separated extra hostnames always allowlisted by the **autonomous** profile's egress firewall, on top of the built-in Anthropic + forge hosts (e.g. `registry.corp.com,pypi.corp.io` for a private package registry). Operator escape hatch; no effect on `trusted`/`standard`, which are not network-confined. Per repo, add hosts in the repo settings under Agent environment › Sandbox › Extra allowed hosts (shown while the repo runs Autonomous) |
 | `SHEPHERD_TRUST_ISSUE_AUTHORS` | `0` (off) | Opt-in escape hatch for the fail-closed author-trust gate on autonomous (`auto=true`) drain. Set `1` to treat issue authors as trusted on forges that can't supply a GitHub-style `authorAssociation` (non-GitHub — Gitea/local), where autonomous drain would otherwise be silently disabled. Does **not** relax the gate on GitHub, where author trust is verifiable — a GitHub miss or untrusted author still refuses. See the [Security](/reference/security/) page |
 | `SHEPHERD_TRIM_AUTO_CONTEXT` | `true` | Trim the per-turn context of auto-spawned (drain) agents (optional plugins, bundled skills and your personal `~/.claude/skills` disabled per-spawn; the repo's own skills stay available). Interactive sessions untouched. Set `false`/`0`/`off` if drain quality regresses |
 | `SHEPHERD_TRIM_BUILTIN_TOOLS` | `true` | Drop Claude Code built-in tools a Shepherd agent never calls from every spawn's per-turn context (task sessions: Artifact, Workflow, SendFeedback, ScheduleWakeup, ReportFindings, ListAgents; transient roles: only the tools they can run). A session whose task invokes `/design`, `/workflow-authoring` or `/loop` keeps the tool that command needs. Set `false`/`0`/`off` to restore the full tool set, e.g. to use Artifact from any session |
@@ -167,7 +168,17 @@ effort. Both engine cards stay editable whichever CLI is the default.
 
 ### Where a new session's model and effort come from
 
-Shepherd walks this list top to bottom and takes the first level that has a value:
+The **coding CLI** comes first, in the same order: the task's own pick, a running epic's own CLI,
+the repo's **Coding CLI** (automation settings; `agentProvider` on `PUT /api/repo-config`), then
+`SHEPHERD_DEFAULT_AGENT_PROVIDER`. A repo on **Inherit** follows a later change of the global
+default. New task preselects the repo's CLI and marks it **Repo default**. A repo default model or
+effort the CLI cannot run is skipped, and switching the repo's CLI resets such a value to
+**Inherit**. **Settings › Coding CLI** lists the repos with their own coding CLI, model, effort or
+execution effort under the global defaults (`GET /api/repo-run-defaults`); **Open** goes to that
+repo's Agent environment settings.
+
+For model and effort, Shepherd walks this list top to bottom and takes the first level that has a
+value:
 
 1. **This task** — a model or effort picked by hand in **New task** (or passed with an Up Next
    start). It applies to that one task only and never changes a default.
@@ -183,12 +194,14 @@ The engine's default is what you get in these places:
 - **New task** preselects the chosen engine's model and effort when it opens and again on every
   engine switch, even after you changed the effort by hand. A dialog reopened within two
   minutes restores what you had picked.
-- **Drain and autopilot starts** use the default engine's values.
+- **Drain and autopilot starts** use the values of the engine the repo starts on.
 - **Automatic switch at the weekly limit.** When the default CLI drops below 30% weekly capacity
   and you accept the switch, the substitute becomes the default CLI until the original has room
   again. Everything started in that window runs on the substitute's **own** default — not on the
   effort you meant for the engine it stands in for. Settings names it in the note under
-  **Default coding CLI**.
+  **Default coding CLI**. A repo with its own **Coding CLI** stays on it: the usage panel names
+  the repos set to the exhausted CLI that have sessions running, with their count, and each opens
+  that repo's Agent environment settings.
 - **Role agents** on CLI `inherit` with effort `default` follow the effort of the engine they
   run on.
 

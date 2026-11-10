@@ -8,6 +8,7 @@ import { infoTips } from "#lib/info-tips.svelte.js";
 import { m } from "#lib/paraglide/messages.js";
 import { repoConfig } from "#lib/reviews.svelte.js";
 import { toasts } from "#lib/toasts.svelte.js";
+import type { DrainStatus } from "#lib/types.js";
 
 afterEach(() => infoTips.set(false));
 
@@ -143,7 +144,7 @@ describe("AutomationSettings — sandbox default + auto-drain hold (#2100)", () 
     expect(
       page
         .getByRole("option", {
-          name: m.sandbox_profile_inherit({ profile: m.sandbox_profile_standard() }),
+          name: m.automation_sandbox_inherit({ profile: m.sandbox_profile_standard() }),
         })
         .query(),
     ).not.toBeNull();
@@ -378,6 +379,141 @@ describe("AutomationSettings — browser allowed hosts", () => {
   });
 });
 
+describe("AutomationSettings — extra allowed hosts (#3446)", () => {
+  const REPO = "/tmp/repo";
+  const hostInput = () => page.getByRole("textbox", { name: m.automation_egress_hosts_label() });
+  const addButton = () =>
+    page.getByRole("button", { name: m.automation_egress_hosts_add(), exact: true });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    repoConfig.sandboxProfile = {};
+    repoConfig.sandboxDefault = {};
+    repoConfig.egressExtraHosts = {};
+  });
+
+  // Fake only the repo-config PUT: echo the patch back as the stored config, still Autonomous.
+  const realFetch = globalThis.fetch;
+  function stubFetch() {
+    const puts: Record<string, unknown>[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith("/api/repo-config") && init?.method === "PUT") {
+        const patch = JSON.parse(String(init.body)) as Record<string, unknown>;
+        puts.push(patch);
+        return Response.json({ sandboxProfile: "autonomous", ...patch });
+      }
+      return realFetch(input, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return puts;
+  }
+
+  async function addHost(value: string) {
+    const input = hostInput().element() as HTMLInputElement;
+    input.value = value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await tick();
+    (addButton().element() as HTMLButtonElement).click();
+    await tick();
+  }
+
+  it("is shown only while the repo runs Autonomous, an inherited default included", async () => {
+    stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "trusted" };
+    await mount();
+    expect(hostInput().query()).toBeNull();
+    repoConfig.sandboxProfile = { [REPO]: "standard" };
+    await tick();
+    expect(hostInput().query()).toBeNull();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    await expect.element(hostInput()).toBeVisible();
+    await expect.element(page.getByText(m.automation_egress_hosts_empty())).toBeVisible();
+    repoConfig.sandboxProfile = { [REPO]: "inherit" };
+    await tick();
+    expect(hostInput().query()).toBeNull(); // the inherited default is still unknown
+    repoConfig.sandboxDefault = { [REPO]: "autonomous" };
+    await expect.element(hostInput()).toBeVisible();
+  });
+
+  it("adds a normalized host and persists the full list", async () => {
+    const puts = stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    repoConfig.egressExtraHosts = { [REPO]: ["a.example.com"] };
+    await mount();
+    await addHost(" Registry.Example.com ");
+    await vi.waitFor(() =>
+      expect(puts).toEqual([{ egressExtraHosts: ["a.example.com", "registry.example.com"] }]),
+    );
+    await expect.element(page.getByText("registry.example.com", { exact: true })).toBeVisible();
+    expect((hostInput().element() as HTMLInputElement).value).toBe("");
+  });
+
+  it("takes a dotted-quad, as the server does", async () => {
+    const puts = stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    await mount();
+    await addHost("10.0.0.1");
+    await vi.waitFor(() => expect(puts).toEqual([{ egressExtraHosts: ["10.0.0.1"] }]));
+  });
+
+  it("removes a host and persists the rest", async () => {
+    const puts = stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    repoConfig.egressExtraHosts = { [REPO]: ["a.example.com", "b.example.com"] };
+    await mount();
+    const remove = page.getByRole("button", {
+      name: m.automation_egress_hosts_remove({ host: "a.example.com" }),
+    });
+    (remove.element() as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(puts).toEqual([{ egressExtraHosts: ["b.example.com"] }]));
+    expect(page.getByText("a.example.com", { exact: true }).query()).toBeNull();
+  });
+
+  it.each([
+    ["localhost", () => m.automation_egress_hosts_err_invalid()],
+    ["-x.com", () => m.automation_egress_hosts_err_invalid()],
+    ["https://x.com", () => m.automation_egress_hosts_err_invalid()],
+    ["   ", () => m.automation_egress_hosts_err_empty()],
+    ["A.example.com", () => m.automation_egress_hosts_err_duplicate()],
+  ])("rejects %j inline without saving", async (value, message) => {
+    const puts = stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    repoConfig.egressExtraHosts = { [REPO]: ["a.example.com"] };
+    await mount();
+    await addHost(value);
+    await expect.element(page.getByRole("alert")).toHaveTextContent(message());
+    expect(hostInput().element().getAttribute("aria-invalid")).toBe("true");
+    expect(puts).toEqual([]);
+  });
+
+  it("renders a repeat the API stored, and removing it removes every copy", async () => {
+    const puts = stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    repoConfig.egressExtraHosts = { [REPO]: ["a.example.com", "a.example.com", "b.example.com"] };
+    await mount();
+    await expect.element(page.getByText("b.example.com", { exact: true })).toBeVisible();
+    const removes = page.getByRole("button", {
+      name: m.automation_egress_hosts_remove({ host: "a.example.com" }),
+    });
+    expect(removes.elements()).toHaveLength(2);
+    (removes.elements()[0] as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(puts).toEqual([{ egressExtraHosts: ["b.example.com"] }]));
+  });
+
+  it("hides on a non-Autonomous profile without touching the stored hosts", async () => {
+    const puts = stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    repoConfig.egressExtraHosts = { [REPO]: ["a.example.com"] };
+    await mount();
+    await expect.element(page.getByText("a.example.com", { exact: true })).toBeVisible();
+    repoConfig.sandboxProfile = { [REPO]: "standard" };
+    await tick();
+    expect(hostInput().query()).toBeNull();
+    expect(puts).toEqual([]);
+    expect(repoConfig.egressExtraHostsFor(REPO)).toEqual(["a.example.com"]);
+  });
+});
+
 describe("AutomationSettings — merge without CI (#3104)", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -444,5 +580,195 @@ describe("AutomationSettings — no-PR-CI card (#3305)", () => {
     repoConfig.loaded = { "/tmp/repo": true };
     await mount();
     expect(card()).toBeNull();
+  });
+});
+
+describe("AutomationSettings — epic halt hint (#3443)", () => {
+  const REPO = "/tmp/halt-repo";
+  const drain: DrainStatus = {
+    repoPath: REPO,
+    enabled: true,
+    paused: true,
+    reason: "sandbox_interactive",
+    detail: "standard",
+    queued: 1,
+    inFlight: 0,
+    max: 1,
+    epicParent: 42,
+  };
+  const blockers = (enabled: boolean) => ({
+    causes: [
+      {
+        code: "sandbox_interactive",
+        scope: "repo",
+        detail: "standard",
+        fix: { changes: { sandboxProfile: "autonomous" }, enabled, checks: [] },
+      },
+    ],
+    options: [],
+    preselect: null,
+  });
+  const autonomous = () => page.getByRole("button", { name: m.repooverview_halt_autonomous() });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  // Fake the auto-fix model and its apply; every other request keeps its real path.
+  const realFetch = globalThis.fetch;
+  function stubAutoFix(enabled: boolean) {
+    const posts: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (!String(input).startsWith("/api/epic/auto-fix")) return realFetch(input, init);
+        if (init?.method === "POST") {
+          posts.push(JSON.parse(String(init.body)));
+          return Response.json({
+            previous: { sandboxProfile: "inherit" },
+            blockers: blockers(enabled),
+          });
+        }
+        return Response.json(blockers(enabled));
+      }),
+    );
+    return posts;
+  }
+
+  it("says what holds the epic and switches the repo to Autonomous through the auto-fix", async () => {
+    const posts = stubAutoFix(true);
+    render(AutomationSettings, { repoPath: REPO, drain });
+    await expect
+      .element(page.getByText(m.repooverview_halt_title({ repo: "halt-repo" })))
+      .toBeVisible();
+    await autonomous().click();
+    await vi.waitFor(() => expect(posts).toEqual([{ cause: "sandbox_interactive" }]));
+  });
+
+  it("offers no switch the model doesn't report effective here", async () => {
+    stubAutoFix(false);
+    render(AutomationSettings, { repoPath: REPO, drain });
+    await expect
+      .element(page.getByText(m.repooverview_halt_title({ repo: "halt-repo" })))
+      .toBeVisible();
+    expect(autonomous().query()).toBeNull();
+  });
+
+  it("stays away while nothing holds the repo's epic", async () => {
+    stubAutoFix(true);
+    render(AutomationSettings, { repoPath: REPO, drain: { ...drain, reason: null, detail: null } });
+    await expect
+      .element(page.getByRole("switch", { name: m.automation_critic_name() }))
+      .toBeVisible();
+    expect(document.querySelector("[data-epic-halt]")).toBeNull();
+  });
+});
+
+describe("AutomationSettings — lock reasons (#3444)", () => {
+  const repo = "/tmp/repo";
+  afterEach(() => {
+    repoConfig.repoMode = {};
+    repoConfig.enabled = {};
+    repoConfig.autoMerge = {};
+    repoConfig.autopilot = {};
+  });
+
+  /** Every locked switch row by its field, with the reason it names in the row. */
+  function locks(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const s of document.querySelectorAll<HTMLButtonElement>(
+      '[role="switch"][aria-describedby]',
+    )) {
+      const row = s.closest<HTMLElement>("[data-field]")!;
+      const reason = document.getElementById(s.getAttribute("aria-describedby")!)!;
+      expect(s.disabled, row.dataset.field).toBe(true);
+      // the reason stays readable while the rest of the row dims
+      for (let el: HTMLElement | null = reason; el && el !== row; el = el.parentElement)
+        expect(getComputedStyle(el).opacity, row.dataset.field).toBe("1");
+      out[row.dataset.field!] = reason.textContent!.trim();
+    }
+    return out;
+  }
+
+  it("a local-only repo locks exactly the GitHub settings, each with its reason", async () => {
+    repoConfig.repoMode = { [repo]: "lightweight" };
+    await mount();
+    const reason = m.automation_lightweight_unavailable();
+    expect(locks()).toEqual({
+      autoDrainEnabled: reason,
+      criticAllPrs: reason,
+      mergeWithoutCi: reason,
+      manualStepsIssueEnabled: reason,
+      epicStacksEnabled: reason,
+      preWarmEpicLandingCi: reason,
+    });
+    const draft = page.getByRole("radio", { name: m.reposettings_merge_mode_draft(), exact: true });
+    await expect.element(draft).toBeDisabled();
+    await expect.element(draft).toHaveAccessibleDescription(new RegExp(`${reason}$`));
+    for (const name of [m.reposettings_merge_mode_manual(), m.automation_automerge_name()])
+      await expect.element(page.getByRole("radio", { name, exact: true })).toBeEnabled();
+  });
+
+  it("with the Critic off, exactly Auto-Address and the smell lens are locked", async () => {
+    repoConfig.enabled = { [repo]: false };
+    await mount();
+    expect(locks()).toEqual({
+      autoAddressEnabled: m.automation_autoaddress_needs_critic(),
+      criticSmellLensEnabled: m.automation_smelllens_needs_critic(),
+    });
+  });
+
+  it("locks nothing in a GitHub repo with the Critic on", async () => {
+    await mount();
+    expect(locks()).toEqual({});
+  });
+
+  it("Go to Autopilot focuses the Autopilot switch on the same page", async () => {
+    repoConfig.autoMerge = { [repo]: true };
+    await mount();
+    await page.getByRole("button", { name: m.reposettings_merge_goto_autopilot() }).click();
+    await expect
+      .element(page.getByRole("switch", { name: m.automation_autopilot_name() }))
+      .toHaveFocus();
+  });
+});
+
+describe("AutomationSettings — the autonomy chain follows the switches (#3445)", () => {
+  const REPO = "/tmp/repo-chain";
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("flipping Critic, Auto-Address or Autopilot moves its step at once", async () => {
+    let config: Record<string, unknown> = {
+      criticEnabled: false,
+      autoAddressEnabled: false,
+      autopilotEnabled: false,
+      autoDrainEnabled: false,
+      autoMergeEnabled: false,
+      draftMode: false,
+      signoffAuthority: "human",
+      repoMode: "forge",
+      sandboxProfile: "autonomous",
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (!String(input).startsWith("/api/repo-config")) return new Response("{}", { status: 404 });
+      if (init?.method === "PUT") config = { ...config, ...JSON.parse(String(init.body)) };
+      return Response.json(config);
+    });
+    render(AutomationSettings, { repoPath: REPO });
+    await vi.waitFor(() => expect(repoConfig.isConfigLoaded(REPO)).toBe(true));
+    const step = (s: string) => document.querySelector(`[data-step="${s}"]`)!.textContent!;
+    for (const s of ["review", "fix", "stops"]) expect(step(s)).toContain(m.guardtl_marker_you());
+
+    await page.getByRole("switch", { name: m.automation_critic_name(), exact: true }).click();
+    expect(step("review")).toContain(m.reposettings_chain_shepherd());
+    // Auto-Address only fixes what the Critic found
+    expect(step("fix")).toContain(m.guardtl_marker_you());
+    await page.getByRole("switch", { name: m.automation_autoaddress_name() }).click();
+    expect(step("fix")).toContain(m.reposettings_chain_shepherd());
+    await page.getByRole("switch", { name: m.automation_autopilot_name() }).click();
+    expect(step("stops")).toContain(m.reposettings_chain_shepherd());
+    // three switches and the level follows: With review
+    await expect
+      .element(page.getByRole("radio", { name: m.reposettings_autonomy_review(), exact: true }))
+      .toBeChecked();
   });
 });

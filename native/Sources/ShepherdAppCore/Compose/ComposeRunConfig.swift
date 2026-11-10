@@ -15,6 +15,17 @@ public enum ComposeRunConfig {
         return .codex
     }
 
+    /// The CLI a new task preselects (#3449), as the web and the server resolve it: a running epic's
+    /// CLI, else the repo's pinned CLI, else the global default.
+    public static func preselectProvider(epic: AgentProvider?, repo: AgentProvider?, global: AgentProvider) -> AgentProvider {
+        epic ?? repo ?? global
+    }
+
+    /// The repo's own CLI from its stored `agentProvider`; "inherit", absent (older server) → nil.
+    public static func repoPinnedProvider(_ setting: String?) -> AgentProvider? {
+        setting.flatMap(AgentProvider.init(rawValue:))
+    }
+
     public struct Defaults {
         public init(provider: AgentProvider = .claude, claudeModel: String = "auto",
                     codexModel: String = "gpt-5.6-sol", effort: String = "default", fableAvailable: Bool = true,
@@ -22,7 +33,7 @@ public enum ComposeRunConfig {
             self.provider = provider; self.claudeModel = claudeModel; self.codexModel = codexModel
             self.effort = effort; self.fableAvailable = fableAvailable; self.mythosAvailable = mythosAvailable
         }
-        var provider: AgentProvider = .claude
+        public var provider: AgentProvider = .claude
         var claudeModel = "auto"
         var codexModel = "gpt-5.6-sol"
         var effort = "default"

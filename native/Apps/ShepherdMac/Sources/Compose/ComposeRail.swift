@@ -23,6 +23,10 @@ struct ComposeRail: View {
             VStack(alignment: .leading, spacing: 10) {
                 ComposeSectionLabel(key: "newtask_group_engine")
                 EnginePicker(model: model).modifier(ComposeKeycap(ids: ["engine"]))
+                if model.showsRepoDefaultProvider {
+                    Text(verbatim: L.t("newtask_agent_provider_repo_default")).font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("compose.engine.repoDefault")
+                }
                 CapacityLine(provider: model.provider)
                 ModelPicker(model: model).modifier(ComposeKeycap(ids: ["model"]))
                 HStack(alignment: .top, spacing: 12) {

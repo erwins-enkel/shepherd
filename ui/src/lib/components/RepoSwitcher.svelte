@@ -11,8 +11,9 @@
   import { chipRailVisible, chipHasTelemetry, pausedText } from "./queue-strip";
   import RepoChipTelemetry from "./repo-switcher/RepoChipTelemetry.svelte";
   import { longPress } from "./longpress";
-  import AutomationPanel from "./AutomationPanel.svelte";
+  import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
   import AssistantGlyph from "./AssistantGlyph.svelte";
+  import RepoMenuStatus from "./repo-settings/RepoMenuStatus.svelte";
 
   let {
     chips,
@@ -42,7 +43,7 @@
     onrepoassistant?: (repoPath: string) => void;
     // repos whose assistant runs: their item opens it instead of starting one
     assistantRepos?: ReadonlySet<string>;
-    // repos whose PRs auto-merge holds for lack of PR CI (#3305): their chip and automation item
+    // repos whose PRs auto-merge holds for lack of PR CI (#3305): their chip and settings item
     // carry a mark until the operator adds CI or turns on "Merge without CI"
     noPrCiRepos?: ReadonlySet<string>;
     // true when rendered on a phone-sized viewport — suppresses the lone-repo
@@ -154,15 +155,6 @@
   } | null>(null);
   let menuEl = $state<HTMLDivElement | null>(null);
   let menuPos = $state<{ left: number; top: number } | null>(null);
-  // Automation stays in the shared panel, while this component owns the
-  // chip-context-menu entry point and the selected repo's anchoring state.
-  let automation = $state<{
-    chip: RepoChip;
-    left: number;
-    top: number;
-    opener: HTMLElement;
-  } | null>(null);
-  let automationAnchor = $state<HTMLDivElement | null>(null);
 
   function repoLabel(chip: RepoChip): string {
     return basename(chip.repoPath);
@@ -304,28 +296,15 @@
     oncleanterminal(repoPath);
   }
 
-  function openAutomation() {
+  // The repo settings window (#3443); a repo whose PRs wait for PR CI opens at Merge, where the
+  // way out is.
+  function openRepoSettings() {
     if (!menu) return;
-    // AutomationPanel is right-aligned to its positioned parent. Put that parent
-    // on the click's right edge when there is room, otherwise let the panel open
-    // back toward the viewport instead of overflowing past the right edge.
-    const panelWidth = 320;
-    const gap = 8;
-    const opensRight = menu.x + panelWidth + gap <= window.innerWidth - gap;
-    automation = {
-      chip: menu.chip,
-      left: opensRight ? menu.x + panelWidth + gap : menu.x,
-      top: menu.y,
-      opener: menu.opener,
-    };
+    const { chip, opener } = menu;
     closeMenu();
-  }
-
-  function closeAutomation() {
-    const opener = automation?.opener;
-    automation = null;
-    queueMicrotask(() => {
-      if (opener?.isConnected) opener.focus();
+    repoSettingsWindow.open(chip.repoPath, {
+      section: noPrCiRepos.has(chip.repoPath) ? "merge" : undefined,
+      opener,
     });
   }
 
@@ -382,36 +361,6 @@
       queueMicrotask(() => {
         if (opener?.isConnected && document.activeElement === document.body) opener.focus();
       });
-    };
-  });
-
-  $effect(() => {
-    const current = automation;
-    if (!current) return;
-    function onKeydown(e: KeyboardEvent) {
-      if (e.key === "Escape") closeAutomation();
-    }
-    function onPointer(e: Event) {
-      if (automationAnchor && !automationAnchor.contains(e.target as Node)) closeAutomation();
-    }
-    // The panel hangs off a fixed anchor at the click point, so a scroll behind it
-    // strands it from the chip it belongs to — hence the dismissal. But the panel is
-    // itself a scroll container (.auto-pop, or .auto-pop-body on touch), and scroll
-    // events capture from window down to their target even though they don't bubble:
-    // unscoped, this closed the panel the instant a wheel or a scrollbar drag moved
-    // its content. Scope it the same way onPointer scopes itself. A document-level
-    // scroll arrives with target === document, which contains() reports as outside.
-    function onScroll(e: Event) {
-      if (automationAnchor && automationAnchor.contains(e.target as Node)) return;
-      closeAutomation();
-    }
-    window.addEventListener("keydown", onKeydown);
-    window.addEventListener("pointerdown", onPointer, true);
-    window.addEventListener("scroll", onScroll, true);
-    return () => {
-      window.removeEventListener("keydown", onKeydown);
-      window.removeEventListener("pointerdown", onPointer, true);
-      window.removeEventListener("scroll", onScroll, true);
     };
   });
 </script>
@@ -527,16 +476,15 @@
         type="button"
         role="menuitem"
         tabindex="-1"
-        onclick={openAutomation}
+        onclick={openRepoSettings}
       >
         <span class="rs-menu-icon" aria-hidden="true">⚙</span>
         <span class="rs-menu-text">
-          {m.repo_chip_automation_settings()}
-          {#if noPrCiRepos.has(menu.chip.repoPath)}
-            <span class="rs-menu-hold"
-              ><span aria-hidden="true">⚠</span> {m.repo_chip_no_pr_ci()}</span
-            >
-          {/if}
+          {m.reposettings_menu_open()}
+          <RepoMenuStatus
+            repoPath={menu.chip.repoPath}
+            noPrCiPayload={noPrCiRepos.has(menu.chip.repoPath)}
+          />
         </span>
       </button>
       <button
@@ -568,23 +516,6 @@
         ? m.repo_chip_remove_filter()
         : m.repo_chip_add_filter()}
     </button>
-  </div>
-{/if}
-
-{#if automation}
-  <!-- The shared panel becomes a blocking sheet only on coarse pointers; its
-       desktop form remains the same anchored, non-modal popover as the rail. -->
-  <div class="rs-auto-scrim scrim" aria-hidden="true"></div>
-  <div
-    class="rs-auto-anchor"
-    bind:this={automationAnchor}
-    style="left:{automation.left}px;top:{automation.top}px"
-  >
-    <AutomationPanel
-      repoPath={automation.chip.repoPath}
-      drain={automation.chip.drain}
-      onClose={closeAutomation}
-    />
   </div>
 {/if}
 
@@ -770,10 +701,6 @@
     flex-direction: column;
     gap: 2px;
   }
-  .rs-menu-hold {
-    color: var(--status-warn);
-    font-size: var(--fs-micro);
-  }
   .rs-menu-icon {
     width: 1em;
     color: var(--color-muted);
@@ -788,21 +715,6 @@
     color: var(--color-amber);
   }
 
-  /* A zero-size fixed anchor lets AutomationPanel keep its established desktop
-     positioning and viewport clamp while this context menu supplies the origin. */
-  .rs-auto-anchor {
-    position: fixed;
-    z-index: 60;
-    width: 0;
-    height: 0;
-  }
-  /* Desktop is a non-modal anchored popover. On touch, AutomationPanel becomes
-     a full-screen blocking sheet and this shared scrim supplies the required
-     dim + blur backdrop. */
-  .rs-auto-scrim {
-    display: none;
-  }
-
   /* Coarse pointers: ≥44px tap targets on the chips (mirrors the QueueStrip /
      TopBar coarse-pointer pattern). */
   @media (pointer: coarse) {
@@ -814,10 +726,6 @@
     /* The menu is reached via long-press on touch, so its items are tap targets too. */
     .rs-menu-item {
       min-height: 44px;
-    }
-    .rs-auto-scrim {
-      display: block;
-      z-index: 50;
     }
   }
 </style>

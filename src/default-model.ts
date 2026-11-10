@@ -29,8 +29,10 @@ const CLAUDE_MODEL_VALUES = new Set<string>(MODELS);
 const CODEX_MODEL_VALUES = new Set<string>(CODEX_MODELS);
 
 // The per-repo override space is the global space plus an "inherit" sentinel,
-// which means "no repo override — fall back to the global default setting".
-const REPO_SETTING_VALUES = new Set<string>(["inherit", ...SETTING_VALUES]);
+// which means "no repo override — fall back to the global default setting" — plus the curated
+// Codex aliases, for a repo whose coding CLI is Codex (#3441). A model the spawn's CLI cannot run
+// is ignored at resolve time (resolveProviderDefaultModelSetting).
+const REPO_SETTING_VALUES = new Set<string>(["inherit", ...SETTING_VALUES, ...CODEX_MODELS]);
 
 /**
  * Normalize an arbitrary value (env var, DB row, request body) to a valid
@@ -126,8 +128,8 @@ export function normalizeFableAvailable(value: unknown): boolean | null {
 /**
  * Normalize a per-repo default-model override to a valid REPO SETTING string,
  * or null if unrecognised. Accepted: "inherit" plus everything the global
- * setting accepts ("auto", "default", each MODELS alias). "inherit" (the
- * default) means the repo defers to the global default.
+ * setting accepts ("auto", "default", each MODELS alias) and each curated Codex
+ * alias. "inherit" (the default) means the repo defers to the global default.
  */
 export function normalizeRepoDefaultModelSetting(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -153,7 +155,8 @@ export function resolveDefaultModelSetting(
   return globalSetting;
 }
 
-/** Resolve the selected provider's saved default, honoring only compatible repo overrides. */
+/** Resolve the selected provider's saved default, honoring only compatible repo overrides — a
+ *  Claude alias on a Codex spawn (or the reverse) falls back to that provider's global setting. */
 export function resolveProviderDefaultModelSetting(
   repoSetting: string | null | undefined,
   provider: AgentProvider,
@@ -161,9 +164,14 @@ export function resolveProviderDefaultModelSetting(
   codexSetting: string,
 ): string {
   const globalSetting = provider === "codex" ? codexSetting : claudeSetting;
-  const resolved = resolveDefaultModelSetting(repoSetting, globalSetting);
-  return modelCompatibleWithProvider(drainSpawnModel(resolved), provider)
-    ? resolved
+  if (
+    typeof repoSetting !== "string" ||
+    repoSetting === "inherit" ||
+    !REPO_SETTING_VALUES.has(repoSetting)
+  )
+    return globalSetting;
+  return modelCompatibleWithProvider(drainSpawnModel(repoSetting), provider)
+    ? repoSetting
     : globalSetting;
 }
 

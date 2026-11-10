@@ -358,6 +358,21 @@ test("POST /api/up-next/start uses the saved model for the global default provid
   expect(createCalls[0]!.model).toBeNull();
 });
 
+test("#3441: POST /api/up-next/start in a Codex repo resolves the Codex model default", async () => {
+  config.defaultAgentProvider = "claude";
+  config.defaultModel = "sonnet";
+  config.defaultCodexModel = "gpt-5.4";
+  const { app, store, createCalls } = harness();
+  store.setRepoConfig(repoDir, { ...store.getRepoConfig(repoDir), agentProvider: "codex" });
+  const res = await app.fetch(
+    startReq([{ repoPath: repoDir, issueRef: { number: 7, url: "u", title: "t", body: "b" } }]),
+  );
+  expect(res.status).toBe(201);
+  // No CLI of its own: the service resolves the repo's (#3441), so the model must be Codex's.
+  expect(createCalls[0]!.agentProvider).toBeUndefined();
+  expect(createCalls[0]!.model).toBe("gpt-5.4");
+});
+
 test("POST /api/up-next/start rejects invalid provider/model/effort choices", async () => {
   const { app, createCalls } = harness();
   const item = { repoPath: repoDir, issueRef: { number: 7, url: "u", title: "t", body: "b" } };

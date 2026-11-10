@@ -136,6 +136,7 @@ import type {
   Schedule,
   ScheduleInput,
   ScheduleRun,
+  RepoAgentProviderSetting,
 } from "./types";
 import type { MergeConfirmPayload } from "#lib/components/merge-confirm.js";
 import { m } from "#lib/paraglide/messages.js";
@@ -3243,43 +3244,53 @@ export async function openRepoBrowser(
   return r.json();
 }
 
+/** Every field PUT /api/repo-config accepts (mirrors the server's parseRepoConfigPatch). The
+ *  web client writes through RepoConfigStore.write() only — see reviews.svelte.ts. */
+export type RepoConfigPatch = Partial<
+  Pick<
+    RepoConfig,
+    | "criticEnabled"
+    | "criticAllPrs"
+    | "criticSmellLensEnabled"
+    | "autoAddressEnabled"
+    | "autopilotEnabled"
+    | "autoDrainEnabled"
+    | "autoMergeEnabled"
+    | "buildQueueEnabled"
+    | "planGateEnabled"
+    | "draftMode"
+    | "signoffAuthority"
+    | "sandboxProfile"
+    | "agentProvider"
+    | "defaultModel"
+    | "defaultEffort"
+    | "defaultExecutionEffort"
+    | "egressExtraHosts"
+    | "maxAuto"
+    | "autoLabel"
+    | "priorityLabels"
+    | "usageCeilingPct"
+    | "repoMode"
+    | "manualStepsIssueEnabled"
+    | "preWarmEpicLandingCi"
+    | "mergeWithoutCi"
+    | "epicStacksEnabled"
+    | "sharedBrowserEnabled"
+    | "browserAllowedHosts"
+    | "claudeAiConnectorsEnabled"
+    | "pluginAllowlist"
+    | "skillAllowlist"
+    | "hidden"
+    | "pinned"
+    | "previewStartScript"
+    | "previewStartCommand"
+    | "previewOpenMode"
+  >
+> & { automationConfirmed?: boolean };
+
 export async function putRepoConfig(
   repoPath: string,
-  patch: Partial<
-    Pick<
-      RepoConfig,
-      | "criticEnabled"
-      | "criticAllPrs"
-      | "autoAddressEnabled"
-      | "autopilotEnabled"
-      | "autoDrainEnabled"
-      | "autoMergeEnabled"
-      | "planGateEnabled"
-      | "signoffAuthority"
-      | "sandboxProfile"
-      | "defaultModel"
-      | "maxAuto"
-      | "autoLabel"
-      | "priorityLabels"
-      | "usageCeilingPct"
-      | "repoMode"
-      | "criticSmellLensEnabled"
-      | "manualStepsIssueEnabled"
-      | "preWarmEpicLandingCi"
-      | "mergeWithoutCi"
-      | "epicStacksEnabled"
-      | "sharedBrowserEnabled"
-      | "browserAllowedHosts"
-      | "claudeAiConnectorsEnabled"
-      | "pluginAllowlist"
-      | "skillAllowlist"
-      | "hidden"
-      | "pinned"
-      | "previewStartScript"
-      | "previewStartCommand"
-      | "previewOpenMode"
-    >
-  > & { automationConfirmed?: boolean },
+  patch: RepoConfigPatch,
 ): Promise<RepoConfigResponse> {
   const r = await fetch(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`, {
     method: "PUT",
@@ -3305,6 +3316,22 @@ export interface AgentExtensions {
 
 export async function getAgentExtensions(): Promise<AgentExtensions> {
   return getJson("/api/agent-extensions", "agent-extensions");
+}
+
+/** A repo's own coding CLI, default model, effort and execution effort as stored (#3447);
+ *  "inherit" follows the global default. `repoPath` is the realpath the repo config keys on. */
+export interface RepoRunDefaults {
+  repoPath: string;
+  name: string;
+  agentProvider: RepoAgentProviderSetting;
+  defaultModel: string;
+  defaultEffort: string;
+  defaultExecutionEffort: string;
+}
+
+/** The repos with at least one own value, sorted by name — Settings › Coding CLI's list. */
+export async function getRepoRunDefaults(): Promise<{ repos: RepoRunDefaults[] }> {
+  return getJson("/api/repo-run-defaults", "repo-run-defaults");
 }
 
 /** Project-bootstrap state of a repo (#3105) — mirrors the server's RepoBootstrapView. */

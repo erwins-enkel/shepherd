@@ -1,0 +1,79 @@
+import Foundation
+import Testing
+import ShepherdKit
+@testable import ShepherdAppCore
+
+extension CoreSeamTests {
+struct RepoSettingsFormTests {
+    private func config(_ overrides: [String: Any] = [:]) throws -> RepoConfig {
+        var json: [String: Any] = [
+            "criticEnabled": false, "criticAllPrs": false, "criticSmellLensEnabled": false,
+            "autoAddressEnabled": false, "autopilotEnabled": false, "planGateEnabled": false,
+            "autoDrainEnabled": false, "autoMergeEnabled": false, "buildQueueEnabled": false,
+            "draftMode": false, "manualStepsIssueEnabled": false, "preWarmEpicLandingCi": false,
+            "mergeWithoutCi": false, "epicStacksEnabled": false, "sharedBrowserEnabled": false,
+            "claudeAiConnectorsEnabled": false, "hidden": false, "pinned": false,
+            "signoffAuthority": "either", "maxAuto": 1, "autoLabel": "shepherd", "usageCeilingPct": 90,
+            "sandboxProfile": "inherit", "defaultModel": "inherit", "defaultEffort": "inherit",
+            "egressExtraHosts": [String](), "browserAllowedHosts": [String](), "repoMode": "github",
+            "previewOpenMode": "ask",
+        ]
+        json.merge(overrides) { $1 }
+        return try JSONDecoder().decode(RepoConfig.self, from: JSONSerialization.data(withJSONObject: json))
+    }
+
+    private func encoded(_ patch: RepoConfigPatch) throws -> [String: Any] {
+        try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(patch)) as? [String: Any])
+    }
+
+    @Test func mergeModeWritesBothFieldsSoDraftAndAutoMergeNeverCoexist() throws {
+        for mode in RepoSettingsForm.MergeMode.allCases {
+            let body = try encoded(RepoSettingsForm.mergePatch(mode))
+            #expect(body.count == 2)
+            #expect(body["draftMode"] as? Bool == (mode == .draft))
+            #expect(body["autoMergeEnabled"] as? Bool == (mode == .auto))
+            #expect(!((body["draftMode"] as? Bool ?? false) && (body["autoMergeEnabled"] as? Bool ?? false)))
+        }
+        #expect(RepoSettingsForm.mergeMode(draftMode: true, autoMergeEnabled: true) == .draft)
+        #expect(RepoSettingsForm.mergeMode(draftMode: false, autoMergeEnabled: true) == .auto)
+        #expect(RepoSettingsForm.mergeMode(draftMode: false, autoMergeEnabled: false) == .manual)
+        #expect(RepoSettingsForm.effectiveMergeMode(try config(["draftMode": true, "repoMode": "lightweight"])) == .manual)
+        #expect(RepoSettingsForm.effectiveMergeMode(try config(["autoMergeEnabled": true, "repoMode": "lightweight"])) == .auto)
+    }
+
+    @Test func modelAndEffortFollowTheEffectiveCli() throws {
+        let inherits = try config()
+        #expect(RepoSettingsForm.effectiveProvider(inherits, global: .codex) == .codex)
+        let pinned = try config(["agentProvider": "claude", "defaultModel": "gpt-6.1-sol", "defaultEffort": "ultra"])
+        let cli = RepoSettingsForm.effectiveProvider(pinned, global: .codex)
+        #expect(cli == .claude)
+        #expect(RepoSettingsForm.shownModel(pinned.defaultModel, provider: cli) == "inherit")
+        #expect(RepoSettingsForm.shownEffort(pinned.defaultEffort, provider: cli) == "inherit")
+        #expect(RepoSettingsForm.shownModel("gpt-6.1-sol", provider: .codex) == "gpt-6.1-sol")
+        #expect(RepoSettingsForm.shownEffort("ultra", provider: .codex) == "ultra")
+        let claudeModels = RepoSettingsForm.modelOptions(shown: "inherit", provider: .claude,
+                                                         fableAvailable: true, mythosAvailable: false)
+        #expect(Array(claudeModels.prefix(3)) == ["inherit", "auto", "default"])
+        #expect(claudeModels.contains("opus") && !claudeModels.contains("gpt-6.1-sol"))
+        #expect(!RepoSettingsForm.effortOptions(provider: .claude).contains("ultra"))
+        #expect(RepoSettingsForm.effortOptions(provider: .codex).contains("ultra"))
+        #expect(RepoSettingsForm.providerOptions == ["inherit", "claude", "codex"])
+    }
+
+    @Test func extraHostsShowOnlyUnderAnAutonomousSandbox() throws {
+        #expect(RepoSettingsForm.showsEgressHosts(try config(["sandboxProfile": "autonomous"])))
+        #expect(!RepoSettingsForm.showsEgressHosts(try config(["sandboxProfile": "standard"])))
+        #expect(RepoSettingsForm.showsEgressHosts(try config(["sandboxDefaultProfile": "autonomous"])))
+        #expect(!RepoSettingsForm.showsEgressHosts(try config()))
+        #expect(RepoSettingsForm.shownSandbox(try config(["sandboxProfile": "bogus"])) == "inherit")
+    }
+
+    @Test func egressHostCheckMirrorsTheWeb() {
+        #expect(RepoSettingsForm.checkEgressHost("  Registry.Example.com ", existing: []) == .success("registry.example.com"))
+        #expect(RepoSettingsForm.checkEgressHost("   ", existing: []) == .failure(.empty))
+        #expect(RepoSettingsForm.checkEgressHost("localhost", existing: []) == .failure(.invalid))
+        #expect(RepoSettingsForm.checkEgressHost("https://a.example.com", existing: []) == .failure(.invalid))
+        #expect(RepoSettingsForm.checkEgressHost("a.example.com", existing: ["a.example.com"]) == .failure(.duplicate))
+    }
+}
+}

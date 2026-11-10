@@ -1,7 +1,7 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
   import { keyedMessages } from "#lib/keyed-messages.js";
-  import AutomationPanel from "#lib/components/AutomationPanel.svelte";
+  import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
   import GuardMarker from "#lib/components/GuardMarker.svelte";
   import { buildGuardTimeline, type GuardRepoConfig } from "#lib/guard-timeline.js";
   import type { AgentProvider } from "#lib/types.js";
@@ -31,8 +31,6 @@
   } = $props();
 
   let expanded = $state(false);
-  let panelOpen = $state(false);
-  let wrapEl = $state<HTMLDivElement | null>(null);
 
   const timeline = $derived(
     buildGuardTimeline({ planGate, autopilot, provider, baseBranch, repo }),
@@ -46,25 +44,17 @@
   const guardMessage = keyedMessages(m, ["guardtl_"]);
   const msg = (key: string) => guardMessage(key)!();
 
-  // The card's use:dialog Escape handler bails on defaultPrevented, so consuming the
-  // event here closes the popover first and leaves the dialog open.
-  function onKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape" && panelOpen) {
-      e.preventDefault();
-      panelOpen = false;
-    }
-  }
-
-  // Click-outside dismiss, mirroring GitRail's automation popover. Window-scoped because
-  // the popover has no backdrop of its own on desktop.
-  function onWindowPointerdown(e: PointerEvent) {
-    if (panelOpen && wrapEl && !wrapEl.contains(e.target as Node)) panelOpen = false;
+  // A repo-scoped step opens the repo settings window (#3443) where its switch lives; the typed
+  // prompt stays, as the window sits over the New Task card.
+  function openSettings(e: MouseEvent, step: string) {
+    repoSettingsWindow.open(repoPath, {
+      section: step === "critic" ? "review" : "merge",
+      opener: e.currentTarget as HTMLElement,
+    });
   }
 </script>
 
-<svelte:window onpointerdown={onWindowPointerdown} />
-
-<div class="gtl" bind:this={wrapEl} onkeydowncapture={onKeydown}>
+<div class="gtl">
   <!-- No aria-label: the visible line IS the answer, so it must be the button's
        accessible name rather than being replaced by a generic one. -->
   <button
@@ -98,29 +88,18 @@
               type="button"
               class="gtl-open"
               aria-label={m.guardtl_open_automation()}
-              aria-expanded={panelOpen}
-              onclick={() => (panelOpen = !panelOpen)}>↗</button
+              aria-haspopup="dialog"
+              onclick={(e) => openSettings(e, step.id)}>↗</button
             >
           </li>
         {/each}
       </ol>
     {/if}
   {/if}
-
-  {#if panelOpen}
-    <!-- touch-only dim+blur behind the automation sheet: on coarse pointers
-         AutomationPanel becomes a centered fixed sheet rather than the desktop's
-         anchored, non-modal popover. Purely visual → aria-hidden. -->
-    <div class="gtl-auto-scrim scrim" aria-hidden="true"></div>
-    <div class="gtl-anchor">
-      <AutomationPanel {repoPath} onClose={() => (panelOpen = false)} />
-    </div>
-  {/if}
 </div>
 
 <style>
   .gtl {
-    position: relative;
     display: flex;
     flex-direction: column;
     margin-top: 8px;
@@ -198,14 +177,5 @@
     letter-spacing: 0.2em;
     text-transform: uppercase;
     color: var(--color-faint);
-  }
-  .gtl-auto-scrim {
-    display: none;
-    z-index: 50;
-  }
-  @media (pointer: coarse) {
-    .gtl-auto-scrim {
-      display: block;
-    }
   }
 </style>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { m } from "#lib/paraglide/messages.js";
+  import RepoMenuStatus from "./repo-settings/RepoMenuStatus.svelte";
 
   // Small anchored, non-blocking context menu for a session card (right-click on
   // desktop, long-press → native `contextmenu` on touch). Per the design system's
@@ -25,6 +26,9 @@
     onvariant,
     onreplace,
     oncleanTerminal,
+    onreposettings,
+    repoName = "",
+    repoPath,
     onshelve,
     shelved = false,
     ondecommission,
@@ -73,6 +77,15 @@
     // when provided, a "Clean terminal in main repo" item appears — opens (or focuses) the
     // repo's bare-shell session in the MAIN checkout; one-click, the action is cheap+reversible
     oncleanTerminal?: () => void;
+    // when provided, a "Repo settings …" item opens the repo settings window for the session's repo
+    // (#3443). It and the clean terminal sit in a "Repo · <name>" group at the menu's foot, apart
+    // from the session's own actions, so it reads as applying to the whole repo.
+    onreposettings?: () => void;
+    // the repo the group names
+    repoName?: string;
+    // when provided with onreposettings, the item carries the repo's short status and the hints
+    // the window shows on top (#3445)
+    repoPath?: string;
     // when provided, a one-click Shelve / Unshelve item appears (label by `shelved`) — reversible,
     // visibility + automation quiet only, so no arm step
     onshelve?: () => void;
@@ -311,11 +324,6 @@
       <span class="cm-icon" aria-hidden="true">⇆</span>{m.cardmenu_replace_with()}
     </button>
   {/if}
-  {#if oncleanTerminal}
-    <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={oncleanTerminal}>
-      <span class="cm-icon" aria-hidden="true">❯</span>{m.cardmenu_clean_terminal()}
-    </button>
-  {/if}
   {#if onshelve}
     <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onshelve}>
       <span class="cm-icon" aria-hidden="true">{shelved ? "⤒" : "⤓"}</span>{shelved
@@ -334,6 +342,40 @@
     >
       <span class="cm-icon" aria-hidden="true">✕</span>{m.cardmenu_decommission()}
     </button>
+  {/if}
+  {#if oncleanTerminal || onreposettings}
+    <div class="cm-sep" role="separator"></div>
+    <div class="cm-group" role="group" aria-label={m.cardmenu_repo_group({ repo: repoName })}>
+      <div class="cm-group-head" aria-hidden="true">
+        {m.cardmenu_repo_group_kicker()} · <span class="cm-repo">{repoName}</span>
+      </div>
+      {#if oncleanTerminal}
+        <button
+          class="cm-item"
+          type="button"
+          role="menuitem"
+          tabindex="-1"
+          onclick={oncleanTerminal}
+        >
+          <span class="cm-icon" aria-hidden="true">❯</span>{m.cardmenu_clean_terminal()}
+        </button>
+      {/if}
+      {#if onreposettings}
+        <button
+          class="cm-item"
+          type="button"
+          role="menuitem"
+          tabindex="-1"
+          onclick={onreposettings}
+        >
+          <span class="cm-icon" aria-hidden="true">⚙</span>
+          <span class="cm-text">
+            {m.reposettings_menu_open()}
+            {#if repoPath}<RepoMenuStatus {repoPath} />{/if}
+          </span>
+        </button>
+      {/if}
+    </div>
   {/if}
 </div>
 
@@ -401,6 +443,31 @@
   .cm-item.armed:hover,
   .cm-item.armed:focus-visible {
     background: color-mix(in srgb, var(--color-red) 22%, var(--color-panel));
+  }
+  .cm-sep {
+    height: 1px;
+    margin: 4px 2px;
+    background: var(--color-line);
+  }
+  .cm-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .cm-group-head {
+    padding: 4px 11px 2px;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    color: var(--color-muted);
+  }
+  .cm-repo {
+    font-family: var(--font-mono);
+    letter-spacing: 0;
+  }
+  .cm-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
   .cm-icon {
     font-size: var(--fs-meta);

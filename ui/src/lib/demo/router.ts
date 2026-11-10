@@ -126,6 +126,8 @@ const bootstrapGetRoutes: Record<string, GetHandler> = {
         { name: "tdd", clis: ["claude", "codex"] },
       ],
     }),
+  // Settings › Coding CLI's repos with their own values (#3447): the demo repos all inherit.
+  "/api/repo-run-defaults": () => json({ repos: [] }),
   // Operator schedules (#3469): the demo seeds none; a list keeps `schedules.listFor` an array.
   "/api/schedules": () => json({ schedules: [] }),
   // The repo index. Fired on mount by `repos.load()`; without it `listRepos()` saw the

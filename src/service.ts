@@ -72,6 +72,7 @@ import {
   sanitizeHerdrAgentName,
 } from "./herdr";
 import { config } from "./config";
+import { normalizeAgentProvider, resolveSpawnAgentProvider } from "./agent-provider";
 import { HEAVY_SLOT_SETTING, storedHeavySlotSettings } from "./heavy-slot-settings";
 import { ensureSlotShims } from "./slot-shims";
 import {
@@ -3517,7 +3518,10 @@ export class SessionService {
         kind: "session",
         repoRoot: ctx.repoPath,
         model: ctx.model ?? null,
-        agentProvider: ctx.agentProvider ?? config.defaultAgentProvider,
+        agentProvider: this.spawnAgentProvider(
+          ctx.repoPath,
+          normalizeAgentProvider(ctx.agentProvider),
+        ),
         argv: [...innerArgv],
         env: descriptorEnv,
         isolated: ctx.isolated,
@@ -4076,8 +4080,21 @@ export class SessionService {
   /** Refuse an account-gated model before any naming/worktree work; pushModelFlag re-checks it at
    *  spawn. Claude only — a Codex create never runs a Claude model. */
   private assertCreateModelAvailable(input: StandardCreateInput): void {
-    if ((input.agentProvider ?? config.defaultAgentProvider) === "claude")
+    if (this.spawnAgentProvider(input.repoPath, input.agentProvider) === "claude")
       this.assertModelAvailable(this.deps.usageDowngrade?.() ?? input.model);
+  }
+
+  /** The CLI a new session in `repoPath` runs (#3441): the explicit choice → the repo's coding
+   *  CLI → the global default, read live. */
+  private spawnAgentProvider(
+    repoPath: string,
+    explicit: AgentProvider | null | undefined,
+  ): AgentProvider {
+    return resolveSpawnAgentProvider(
+      explicit,
+      this.deps.store.getRepoConfig(repoPath).agentProvider,
+      config.defaultAgentProvider,
+    );
   }
 
   private codexAuthMode(): CodexAuthMode {
@@ -4772,7 +4789,7 @@ export class SessionService {
   } {
     const split = heldGoalSplit(
       input.prompt,
-      input.agentProvider ?? config.defaultAgentProvider,
+      this.spawnAgentProvider(input.repoPath, input.agentProvider),
       this.resolvePlanGateOn(input, this.deps.store.getRepoConfig(input.repoPath)),
     );
     if (!split) return { composeInput: input, held: null };
@@ -4955,7 +4972,7 @@ export class SessionService {
     profileOverride: string | null | undefined;
     argv: string[];
   }> {
-    const agentProvider = input.agentProvider ?? config.defaultAgentProvider;
+    const agentProvider = this.spawnAgentProvider(input.repoPath, input.agentProvider);
     const model = modelForProviderOrDefault(input.model, agentProvider);
     const resolvedInput = model === input.model ? input : { ...input, model };
     if (input.model && model === null) {

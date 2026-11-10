@@ -411,6 +411,16 @@ export function integrationBranchExplanation(): TooltipExplanation {
   };
 }
 
+/** Repo settings → "Repo mode" (#3443): GitHub or local Git only — built from the former
+ *  Lightweight switch's copy. */
+export function repoModeExplanation(): TooltipExplanation {
+  return {
+    title: m.reposettings_mode_label(),
+    summary: m.reposettings_mode_tip_summary(),
+    sections: [{ label: m.reposettings_mode_local(), text: m.automation_lightweight_detail() }],
+  };
+}
+
 /** Automation → "Shared browser": what the per-repo logged-in Chromium is for, who can read its
  *  logins, and what it needs. */
 export function sharedBrowserExplanation(): TooltipExplanation {
@@ -475,6 +485,45 @@ export function browserAllowedHostsExplanation(): TooltipExplanation {
       { label: m.tooltip_browser_hosts_allowed(), text: m.tooltip_browser_hosts_allowed_body() },
       { label: m.tooltip_browser_hosts_refused(), text: m.tooltip_browser_hosts_refused_body() },
       { label: m.tooltip_browser_hosts_needs(), text: m.tooltip_browser_hosts_needs_body() },
+    ],
+  };
+}
+
+/** Repo settings › Sandbox › Extra allowed hosts (#3446): the per-repo egress allowlist extras. */
+export function egressExtraHostsExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_egress_hosts_title(),
+    summary: m.tooltip_egress_hosts_summary(),
+    sections: [
+      { label: m.tooltip_egress_hosts_enter(), text: m.tooltip_egress_hosts_enter_body() },
+      { label: m.tooltip_egress_hosts_builtin(), text: m.tooltip_egress_hosts_builtin_body() },
+      { label: m.tooltip_egress_hosts_applies(), text: m.tooltip_egress_hosts_applies_body() },
+    ],
+  };
+}
+
+/** Repo settings › Autonomy (#3445): what a level sets, what it leaves, and the custom mix. */
+export function autonomyExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_autonomy_title(),
+    summary: m.tooltip_autonomy_summary(),
+    sections: [
+      { label: m.tooltip_autonomy_sets(), text: m.tooltip_autonomy_sets_body() },
+      { label: m.tooltip_autonomy_keeps(), text: m.tooltip_autonomy_keeps_body() },
+      { label: m.tooltip_autonomy_custom(), text: m.tooltip_autonomy_custom_body() },
+    ],
+  };
+}
+
+/** Repo settings › Auto-Drain › Priority labels (#3446): labels drained before the rest. */
+export function priorityLabelsExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_priority_labels_title(),
+    summary: m.tooltip_priority_labels_summary(),
+    sections: [
+      { label: m.tooltip_priority_labels_match(), text: m.tooltip_priority_labels_match_body() },
+      { label: m.tooltip_priority_labels_needs(), text: m.tooltip_priority_labels_needs_body() },
+      { label: m.tooltip_priority_labels_limits(), text: m.tooltip_priority_labels_limits_body() },
     ],
   };
 }

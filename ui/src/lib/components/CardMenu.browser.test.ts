@@ -46,6 +46,70 @@ describe("CardMenu shelve action", () => {
   });
 });
 
+describe("CardMenu repo group (#3443)", () => {
+  it("sets the clean terminal and Repo settings apart under Repo · <name>, last", async () => {
+    const onreposettings = vi.fn();
+    await render(CardMenu, {
+      props: base({
+        onshelve: vi.fn(),
+        oncleanTerminal: vi.fn(),
+        onreposettings,
+        repoName: "murmur",
+      }),
+    });
+    const group = page.getByRole("group", { name: m.cardmenu_repo_group({ repo: "murmur" }) });
+    await expect.element(group).toBeVisible();
+    const names = [...group.element().querySelectorAll(".cm-item")].map((b) => b.textContent);
+    expect(names).toEqual([
+      expect.stringContaining(m.cardmenu_clean_terminal()),
+      expect.stringContaining(m.reposettings_menu_open()),
+    ]);
+    // the session's own actions stay above the separator
+    const menu = document.querySelector(".card-menu")!;
+    expect(menu.querySelector('[role="separator"]')).not.toBeNull();
+    expect(menu.lastElementChild).toBe(group.element());
+    await group.getByRole("menuitem", { name: m.reposettings_menu_open() }).click();
+    expect(onreposettings).toHaveBeenCalledOnce();
+  });
+
+  it("carries the repo's short status and hints under Repo settings … (#3445)", async () => {
+    const repoPath = "/work/cardmenu-status";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+      String(input).startsWith("/api/repo-config")
+        ? Response.json({
+            criticEnabled: true,
+            autoAddressEnabled: true,
+            autopilotEnabled: true,
+            autoDrainEnabled: false,
+            autoMergeEnabled: false,
+            draftMode: false,
+            repoMode: "forge",
+            agentProvider: "codex",
+            mergeWithoutCi: false,
+            noPrCi: true,
+          })
+        : new Response("{}", { status: 404 }),
+    );
+    await render(CardMenu, {
+      props: base({ onreposettings: vi.fn(), repoName: "murmur", repoPath }),
+    });
+    const item = page.getByRole("menuitem", { name: m.reposettings_menu_open() });
+    await expect
+      .element(item)
+      .toMatchTextContent(
+        `${m.reposettings_autonomy_review()} · ${m.agent_provider_codex()} · ${m.reposettings_merge_mode_manual()}`,
+      );
+    await expect.element(item).toMatchTextContent(m.repo_chip_no_pr_ci());
+    vi.restoreAllMocks();
+  });
+
+  it("shows no group without a repo action", async () => {
+    await render(CardMenu, { props: base({ onshelve: vi.fn() }) });
+    expect(document.querySelector(".cm-group")).toBeNull();
+    expect(document.querySelector('[role="separator"]')).toBeNull();
+  });
+});
+
 describe("CardMenu relaunch action", () => {
   it("renders the Relaunch item only when onrelaunch is provided", async () => {
     const { rerender } = await render(CardMenu, { props: base() });

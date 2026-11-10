@@ -661,70 +661,91 @@ test("repoConfig.ensure caches draftMode and signoffAuthority", async () => {
   expect(repoConfig.signoffAuthorityFor("/repo")).toBe("critic");
 });
 
-test("repoConfig.toggleDraftMode flips draftMode and sends the field", async () => {
-  vi.mocked(putRepoConfig).mockResolvedValue(rc({ draftMode: true }));
-  repoConfig.draftMode = { "/repo": false };
-  await repoConfig.toggleDraftMode("/repo");
-  expect(repoConfig.isDraftModeEnabled("/repo")).toBe(true);
+test("repoConfig.setMergeMode writes both fields for every mode", async () => {
+  for (const [mode, patch] of [
+    ["manual", { draftMode: false, autoMergeEnabled: false }],
+    ["draft", { draftMode: true, autoMergeEnabled: false }],
+    ["auto", { draftMode: false, autoMergeEnabled: true }],
+  ] as const) {
+    vi.mocked(putRepoConfig).mockClear();
+    vi.mocked(putRepoConfig).mockResolvedValue(rc(patch));
+    await repoConfig.setMergeMode("/repo", mode);
+    expect(putRepoConfig).toHaveBeenCalledWith("/repo", patch);
+    expect(repoConfig.isDraftModeEnabled("/repo")).toBe(patch.draftMode);
+    expect(repoConfig.isAutoMergeEnabled("/repo")).toBe(patch.autoMergeEnabled);
+  }
+});
+
+test("repoConfig.setMergeMode draft with the Critic off sets a Critic sign-off to human", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(
+    rc({ criticEnabled: false, draftMode: true, signoffAuthority: "human" }),
+  );
+  repoConfig.enabled = { "/repo": false };
+  repoConfig.signoffAuthority = { "/repo": "either" };
+  await repoConfig.setMergeMode("/repo", "draft");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", {
+    draftMode: true,
+    autoMergeEnabled: false,
+    signoffAuthority: "human",
+  });
+  expect(repoConfig.signoffAuthorityFor("/repo")).toBe("human");
+});
+
+test("repoConfig.setMergeMode keeps a Critic sign-off while the Critic is on", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(rc({ draftMode: true, signoffAuthority: "critic" }));
+  repoConfig.enabled = { "/repo": true };
+  repoConfig.signoffAuthority = { "/repo": "critic" };
+  await repoConfig.setMergeMode("/repo", "draft");
   expect(putRepoConfig).toHaveBeenCalledWith("/repo", { draftMode: true, autoMergeEnabled: false });
 });
 
-test("repoConfig.toggleDraftMode ON forces autoMerge OFF", async () => {
-  vi.mocked(putRepoConfig).mockResolvedValue(rc({ draftMode: true, autoMergeEnabled: false }));
-  repoConfig.draftMode = { "/repo": false };
-  repoConfig.autoMerge = { "/repo": true };
-  await repoConfig.toggleDraftMode("/repo");
+test("repoConfig.setMergeMode restores both fields when the PUT fails", async () => {
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  repoConfig.draftMode = { "/repo": true };
+  repoConfig.autoMerge = { "/repo": false };
+  await repoConfig.setMergeMode("/repo", "auto");
+  expect(repoConfig.isDraftModeEnabled("/repo")).toBe(true);
   expect(repoConfig.isAutoMergeEnabled("/repo")).toBe(false);
 });
 
-test("repoConfig.toggleDraftMode OFF does NOT touch autoMerge", async () => {
-  vi.mocked(putRepoConfig).mockResolvedValue(rc({ draftMode: false, autoMergeEnabled: false }));
+test("repoConfig.toggle off under a Critic sign-off in Draft falls back to human", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(
+    rc({ criticEnabled: false, draftMode: true, signoffAuthority: "human" }),
+  );
+  repoConfig.enabled = { "/repo": true };
   repoConfig.draftMode = { "/repo": true };
-  repoConfig.autoMerge = { "/repo": false };
-  await repoConfig.toggleDraftMode("/repo");
-  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { draftMode: false });
+  repoConfig.signoffAuthority = { "/repo": "critic" };
+  expect(await repoConfig.toggle("/repo")).toBe(true);
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", {
+    criticEnabled: false,
+    signoffAuthority: "human",
+  });
+  expect(repoConfig.signoffAuthorityFor("/repo")).toBe("human");
 });
 
-test("repoConfig.toggleDraftMode reverts on error", async () => {
-  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
-  repoConfig.draftMode = { "/repo": false };
-  await repoConfig.toggleDraftMode("/repo");
-  expect(repoConfig.isDraftModeEnabled("/repo")).toBe(false); // reverted
+test("repoConfig.toggle off leaves the sign-off alone when nothing needs the Critic", async () => {
+  for (const [draft, authority] of [
+    [true, "human"],
+    [false, "critic"],
+  ] as const) {
+    vi.mocked(putRepoConfig).mockClear();
+    vi.mocked(putRepoConfig).mockResolvedValue(rc({ criticEnabled: false }));
+    repoConfig.enabled = { "/repo": true };
+    repoConfig.draftMode = { "/repo": draft };
+    repoConfig.signoffAuthority = { "/repo": authority };
+    expect(await repoConfig.toggle("/repo")).toBe(false);
+    expect(putRepoConfig).toHaveBeenCalledWith("/repo", { criticEnabled: false });
+  }
 });
 
-test("repoConfig.toggleDraftMode ON reverts the paired autoMerge:false on error", async () => {
+test("repoConfig.toggle reports no fallback when the PUT fails", async () => {
   vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
-  repoConfig.draftMode = { "/repo": false };
-  repoConfig.autoMerge = { "/repo": true };
-  await repoConfig.toggleDraftMode("/repo");
-  expect(repoConfig.isDraftModeEnabled("/repo")).toBe(false); // reverted
-  expect(repoConfig.isAutoMergeEnabled("/repo")).toBe(true); // paired field restored
-});
-
-test("repoConfig.toggleAutoMerge ON reverts the paired draftMode:false on error", async () => {
-  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
-  repoConfig.autoMerge = { "/repo": false };
+  repoConfig.enabled = { "/repo": true };
   repoConfig.draftMode = { "/repo": true };
-  await repoConfig.toggleAutoMerge("/repo");
-  expect(repoConfig.isAutoMergeEnabled("/repo")).toBe(false); // reverted
-  expect(repoConfig.isDraftModeEnabled("/repo")).toBe(true); // paired field restored
-});
-
-test("repoConfig.toggleAutoMerge ON forces draftMode OFF", async () => {
-  vi.mocked(putRepoConfig).mockResolvedValue(rc({ autoMergeEnabled: true, draftMode: false }));
-  repoConfig.autoMerge = { "/repo": false };
-  repoConfig.draftMode = { "/repo": true };
-  await repoConfig.toggleAutoMerge("/repo");
-  expect(repoConfig.isDraftModeEnabled("/repo")).toBe(false);
-  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { autoMergeEnabled: true, draftMode: false });
-});
-
-test("repoConfig.toggleAutoMerge OFF does NOT touch draftMode", async () => {
-  vi.mocked(putRepoConfig).mockResolvedValue(rc({ autoMergeEnabled: false }));
-  repoConfig.autoMerge = { "/repo": true };
-  repoConfig.draftMode = { "/repo": false };
-  await repoConfig.toggleAutoMerge("/repo");
-  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { autoMergeEnabled: false });
+  repoConfig.signoffAuthority = { "/repo": "either" };
+  expect(await repoConfig.toggle("/repo")).toBe(false);
+  expect(repoConfig.signoffAuthorityFor("/repo")).toBe("either"); // reverted
+  expect(repoConfig.isEnabled("/repo")).toBe(true);
 });
 
 test("repoConfig.setSignoffAuthority updates the value", async () => {
@@ -1022,4 +1043,90 @@ test("noPrCiHeld: the payload flag until the config loads, then the loaded confi
 
   repoConfig.noPrCi = {};
   repoConfig.mergeWithoutCi = {};
+});
+
+// #3443: every repo-config write goes through RepoConfigStore.write().
+test("write overlays every patched field at once, then takes the server's answer", async () => {
+  let resolve!: (v: RepoConfig) => void;
+  vi.mocked(putRepoConfig).mockReturnValueOnce(new Promise((r) => (resolve = r)));
+  const pending = repoConfig.write("/w-multi", { epicStacksEnabled: true, usageCeilingPct: 55 });
+  // optimistic, before the PUT answers
+  expect(repoConfig.epicStacksOn("/w-multi")).toBe(true);
+  expect(repoConfig.usageCeilingFor("/w-multi")).toBe(55);
+  resolve(rc({ epicStacksEnabled: true, usageCeilingPct: 60 }));
+  const res = await pending;
+  expect(putRepoConfig).toHaveBeenCalledWith("/w-multi", {
+    epicStacksEnabled: true,
+    usageCeilingPct: 55,
+  });
+  expect(res?.usageCeilingPct).toBe(60);
+  expect(repoConfig.usageCeilingFor("/w-multi")).toBe(60); // reconciled from the response
+});
+
+test("write reverts only the fields it overlaid when the PUT fails, and answers null", async () => {
+  repoConfig.autoLabel = { ...repoConfig.autoLabel, "/w-fail": "keep:me" };
+  repoConfig.maxAuto = { ...repoConfig.maxAuto, "/w-fail": 2 };
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  const res = await repoConfig.write("/w-fail", { maxAuto: 4 });
+  expect(res).toBeNull();
+  expect(repoConfig.maxAutoFor("/w-fail")).toBe(2);
+  expect(repoConfig.autoLabelFor("/w-fail")).toBe("keep:me");
+});
+
+test("write rethrows on request, after reverting", async () => {
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("nope"));
+  await expect(
+    repoConfig.write("/w-throw", { planGateEnabled: true }, { rethrow: true }),
+  ).rejects.toThrow("nope");
+  expect(repoConfig.isPlanGateEnabled("/w-throw")).toBe(false);
+});
+
+test("write PUTs a field without an overlay (preview script) as is", async () => {
+  const script = "/w-script/.shepherd/preview-start.sh";
+  vi.mocked(putRepoConfig).mockResolvedValueOnce(rc({ previewStartScript: script }));
+  await repoConfig.write("/w-script", { previewStartScript: script });
+  expect(putRepoConfig).toHaveBeenCalledWith("/w-script", { previewStartScript: script });
+});
+
+// #3446: the repo settings' two newer list fields.
+test("ingest reads egress hosts and priority labels; an older server's absent field is empty", async () => {
+  vi.mocked(getRepoConfig).mockResolvedValueOnce(
+    rc({ egressExtraHosts: ["registry.example.com"], priorityLabels: ["ci-gate-rot"] }),
+  );
+  await repoConfig.ensure("/w-lists");
+  expect(repoConfig.egressExtraHostsFor("/w-lists")).toEqual(["registry.example.com"]);
+  expect(repoConfig.priorityLabelsFor("/w-lists")).toEqual(["ci-gate-rot"]);
+
+  vi.mocked(getRepoConfig).mockResolvedValueOnce(rc());
+  await repoConfig.ensure("/w-lists-old");
+  expect(repoConfig.egressExtraHostsFor("/w-lists-old")).toEqual([]);
+  expect(repoConfig.priorityLabelsFor("/w-lists-old")).toEqual([]);
+});
+
+test("the list setters PUT the whole list and overlay it optimistically", async () => {
+  let resolve!: (v: RepoConfig) => void;
+  vi.mocked(putRepoConfig).mockReturnValueOnce(new Promise((r) => (resolve = r)));
+  const pending = repoConfig.setEgressExtraHosts("/w-set", ["a.example.com", "b.example.com"]);
+  expect(repoConfig.egressExtraHostsFor("/w-set")).toEqual(["a.example.com", "b.example.com"]);
+  resolve(rc({ egressExtraHosts: ["a.example.com", "b.example.com"] }));
+  await pending;
+  expect(putRepoConfig).toHaveBeenCalledWith("/w-set", {
+    egressExtraHosts: ["a.example.com", "b.example.com"],
+  });
+
+  vi.mocked(putRepoConfig).mockResolvedValueOnce(rc({ priorityLabels: ["urgent"] }));
+  await repoConfig.setPriorityLabels("/w-set", ["urgent"]);
+  expect(putRepoConfig).toHaveBeenLastCalledWith("/w-set", { priorityLabels: ["urgent"] });
+  expect(repoConfig.priorityLabelsFor("/w-set")).toEqual(["urgent"]);
+});
+
+test("a failed list PUT puts the previous list back", async () => {
+  repoConfig.egressExtraHosts = { ...repoConfig.egressExtraHosts, "/w-revert": ["keep.example"] };
+  repoConfig.priorityLabels = { ...repoConfig.priorityLabels, "/w-revert": ["keep"] };
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  await repoConfig.setEgressExtraHosts("/w-revert", ["keep.example", "new.example"]);
+  expect(repoConfig.egressExtraHostsFor("/w-revert")).toEqual(["keep.example"]);
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  await repoConfig.setPriorityLabels("/w-revert", []);
+  expect(repoConfig.priorityLabelsFor("/w-revert")).toEqual(["keep"]);
 });

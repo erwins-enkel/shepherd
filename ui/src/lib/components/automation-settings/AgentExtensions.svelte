@@ -5,7 +5,7 @@
   import { getAgentExtensions, type AgentExtensions } from "#lib/api.js";
   import type { AgentProvider } from "#lib/types.js";
   import { agentExtensionsExplanation } from "#lib/tooltips/explanations.js";
-  import InfoTip from "../InfoTip.svelte";
+  import RepoSettingRow from "../repo-settings/RepoSettingRow.svelte";
   import "./automation-fields.css";
 
   // #3780: per-repo plugin / personal-skill allowlists. `null` = no limit (every installed one
@@ -71,91 +71,96 @@
   }
 </script>
 
-<div class="drain-fields agent-ext">
-  <div class="drain-label ext-label">
-    {m.automation_agent_ext_name()}
-    <InfoTip text={agentExtensionsExplanation()} label={m.tooltip_agent_ext_title()} />
-  </div>
-  <div class="ext-note">{m.automation_agent_ext_desc()}</div>
-  {#if loadFailed}
-    <div class="ext-note">{m.automation_agent_ext_load_failed()}</div>
-  {:else if installed}
-    {#each groups as g (g.key)}
-      {@const list = items(g)}
-      <div class="ext-group" role="group" aria-label={g.label}>
-        <div class="ext-head">
-          <span class="ext-legend">{g.label}</span>
-          {#if g.allow !== null && list.length}
-            {@const allow = g.allow}
-            <button
-              type="button"
-              class="bs-btn"
-              aria-label={m.automation_agent_ext_select_all_aria({ group: g.label })}
-              disabled={list.every((it) => allow.includes(it.name))}
-              onclick={() => g.set(list.map((it) => it.name))}
-            >
-              {m.automation_agent_ext_select_all()}
-            </button>
-            <button
-              type="button"
-              class="bs-btn"
-              aria-label={m.automation_agent_ext_select_none_aria({ group: g.label })}
-              disabled={allow.length === 0}
-              onclick={() => g.set([])}
-            >
-              {m.automation_agent_ext_select_none()}
-            </button>
-          {/if}
-        </div>
-        <label class="ext-check">
-          <input
-            type="checkbox"
-            checked={g.allow !== null}
-            onchange={(e) => limit(g, e.currentTarget.checked)}
-          />
-          {m.automation_agent_ext_limit()}
-        </label>
-        {#if g.allow !== null}
-          {#if g.key === "plugins" && list.some((it) => it.clis.includes("codex"))}
-            <!-- Verified against codex-cli 0.164: a per-spawn override reaches local-marketplace
-                 plugins only; remote-catalog plugins keep their server-managed on/off state. -->
-            <div class="ext-note">{m.automation_agent_ext_codex_remote_hint()}</div>
-          {/if}
-          {#if list.length}
-            <ul class="ext-items">
-              {#each list as it (it.name)}
-                <li>
-                  <label class={["ext-check", "ext-item", { stale: it.stale }]}>
-                    <input
-                      type="checkbox"
-                      checked={g.allow.includes(it.name)}
-                      onchange={(e) => pick(g, it.name, e.currentTarget.checked)}
-                    />
-                    <span class="ext-name">{it.name}</span>
-                    {#each it.clis as cli (cli)}
-                      <span class="ext-cli">{cliLabel(cli)}</span>
-                    {/each}
-                    {#if it.stale}
-                      <span class="ext-stale">{m.automation_agent_ext_not_installed()}</span>
-                    {/if}
-                  </label>
-                </li>
-              {/each}
-            </ul>
-          {:else}
-            <div class="ext-note">{m.automation_agent_ext_none_installed()}</div>
-          {/if}
-        {/if}
-      </div>
-    {/each}
-  {/if}
-</div>
+<RepoSettingRow
+  field="pluginAllowlist skillAllowlist"
+  name={m.automation_agent_ext_name()}
+  explanation={agentExtensionsExplanation()}
+  desc={m.automation_agent_ext_desc()}
+>
+  {#snippet below()}
+    <div class="agent-ext">
+      {#if loadFailed}
+        <div class="ext-note">{m.automation_agent_ext_load_failed()}</div>
+      {:else if installed}
+        {#each groups as g (g.key)}
+          {@const list = items(g)}
+          <div class="ext-group" role="group" aria-label={g.label}>
+            <div class="ext-head">
+              <span class="ext-legend">{g.label}</span>
+              {#if g.allow !== null && list.length}
+                {@const allow = g.allow}
+                <button
+                  type="button"
+                  class="bs-btn"
+                  aria-label={m.automation_agent_ext_select_all_aria({ group: g.label })}
+                  disabled={list.every((it) => allow.includes(it.name))}
+                  onclick={() => g.set(list.map((it) => it.name))}
+                >
+                  {m.automation_agent_ext_select_all()}
+                </button>
+                <button
+                  type="button"
+                  class="bs-btn"
+                  aria-label={m.automation_agent_ext_select_none_aria({ group: g.label })}
+                  disabled={allow.length === 0}
+                  onclick={() => g.set([])}
+                >
+                  {m.automation_agent_ext_select_none()}
+                </button>
+              {/if}
+            </div>
+            <label class="ext-check">
+              <input
+                type="checkbox"
+                checked={g.allow !== null}
+                onchange={(e) => limit(g, e.currentTarget.checked)}
+              />
+              {m.automation_agent_ext_limit()}
+            </label>
+            {#if g.allow !== null}
+              {#if g.key === "plugins" && list.some((it) => it.clis.includes("codex"))}
+                <!-- Verified against codex-cli 0.164: a per-spawn override reaches local-marketplace
+                     plugins only; remote-catalog plugins keep their server-managed on/off state. -->
+                <div class="ext-note">{m.automation_agent_ext_codex_remote_hint()}</div>
+              {/if}
+              {#if list.length}
+                <ul class="ext-items">
+                  {#each list as it (it.name)}
+                    <li>
+                      <label class={["ext-check", "ext-item", { stale: it.stale }]}>
+                        <input
+                          type="checkbox"
+                          checked={g.allow.includes(it.name)}
+                          onchange={(e) => pick(g, it.name, e.currentTarget.checked)}
+                        />
+                        <span class="ext-name">{it.name}</span>
+                        {#each it.clis as cli (cli)}
+                          <span class="ext-cli">{cliLabel(cli)}</span>
+                        {/each}
+                        {#if it.stale}
+                          <span class="ext-stale">{m.automation_agent_ext_not_installed()}</span>
+                        {/if}
+                      </label>
+                    </li>
+                  {/each}
+                </ul>
+              {:else}
+                <div class="ext-note">{m.automation_agent_ext_none_installed()}</div>
+              {/if}
+            {/if}
+          </div>
+        {/each}
+      {/if}
+    </div>
+  {/snippet}
+</RepoSettingRow>
 
 <style>
-  .ext-label {
+  .agent-ext {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 6px;
+    margin-top: 6px;
   }
   .ext-note {
     font-size: var(--fs-meta);

@@ -146,6 +146,33 @@ describe("MarkdownBody session links", () => {
     await expect.poll(() => container.querySelector("p")?.textContent).toBe("TASK-31");
     expect(container.querySelector("a")).toBeNull();
   });
+
+  // The Chat passes a fresh herd index on every session:new / archived / resync. An equal one
+  // must not rebuild the body, or the operator's selection in it vanishes before it is copied.
+  it("keeps the rendered body, and a selection in it, when an equal herd index arrives", async () => {
+    const { container, rerender } = await render(MarkdownBody, {
+      source: "Hallo **Welt**, TASK-31 ist fertig.\n\n```ts\nconst a = 1;\n```",
+      sessionDesigs: new Map(sessionDesigs),
+      onSessionLink: vi.fn(),
+    });
+    await expect
+      .poll(() => container.querySelectorAll("pre code span[style*='color']").length, {
+        timeout: 5000,
+      })
+      .toBeGreaterThan(0);
+    const p = container.querySelector(".md-body p")!;
+    const range = document.createRange();
+    range.selectNodeContents(p);
+    getSelection()!.removeAllRanges();
+    getSelection()!.addRange(range);
+    const selected = getSelection()!.toString();
+    expect(selected).toBe("Hallo Welt, TASK-31 ist fertig.");
+    await rerender({ sessionDesigs: new Map(sessionDesigs) });
+    // Long enough for a (wrongful) re-render and re-highlight with Shiki already loaded.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(container.querySelector(".md-body p")).toBe(p);
+    expect(getSelection()!.toString()).toBe(selected);
+  });
 });
 
 describe("MarkdownBody code copy", () => {

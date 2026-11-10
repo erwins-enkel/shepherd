@@ -100,6 +100,10 @@
   }
 
   let rendered = $state("");
+  // The uncolored HTML behind what `rendered` shows. A re-run whose output is unchanged (the
+  // Chat hands over a fresh but equal herd index on every session:new / archived / resync) then
+  // writes nothing, so the DOM — and a selection the operator is about to copy — stays put.
+  let shownPlain = "";
   // A failed load falls back to the plain (escaped) text — never to unsanitized markup.
   let failed = $state(false);
   // Polite announcement for a finished copy (the button's own label swap isn't announced).
@@ -111,7 +115,6 @@
     const withCopy = copyCode;
     const mode = theme.resolved;
     const lineBreaks = breaks;
-    rendered = "";
     failed = false;
     if (!body.trim()) return;
     let alive = true;
@@ -124,8 +127,13 @@
         root.innerHTML = html;
         if (linkSessions && live.size > 0) linkifySessionDesignations(root, live);
         if (withCopy) addCopyButtons(root);
-        // Plain first, colors once Shiki is ready.
-        rendered = root.innerHTML;
+        // Plain first, colors once Shiki is ready. Unchanged plain HTML keeps what is shown
+        // (possibly already colored) until the color pass, which then writes the same string.
+        const plain = root.innerHTML;
+        if (plain !== shownPlain) {
+          shownPlain = plain;
+          rendered = plain;
+        }
         return highlightFences(root, mode).then(
           (changed) => {
             if (alive && changed) rendered = root.innerHTML;

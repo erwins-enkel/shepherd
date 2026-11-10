@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import type { Terminal } from "@xterm/xterm";
-import { canFit, openXterm } from "./xterm-setup";
+import { canFit, openXterm, wireTerminalCopy } from "./xterm-setup";
 
 // Regression: a phone opens a session on the Chat tab, so the terminal mount is display:none when
 // openXterm runs. iOS WebKit reports such a mount's computed width/height as "100%", which
@@ -58,5 +58,70 @@ describe("canFit", () => {
     expect(canFit(mount(true))).toBe(false);
     host.remove();
     expect(canFit(mount(false))).toBe(true);
+  });
+});
+
+describe("wireTerminalCopy", () => {
+  // A selection as a TUI paints it: rows padded with real spaces, which the copy drops.
+  async function selected(): Promise<{ el: HTMLDivElement; term: Terminal }> {
+    const el = mount(false);
+    ({ term } = openXterm(el, { fontSize: 12, theme: "dark" }));
+    const t = term;
+    await new Promise<void>((r) => t.write("hello   \r\nworld  ", r));
+    t.selectLines(0, 1);
+    return { el, term: t };
+  }
+  const press = (el: HTMLElement) =>
+    el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  const release = () => document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  const nativeCopy = (el: HTMLElement) => {
+    const ev = new ClipboardEvent("copy", {
+      clipboardData: new DataTransfer(),
+      bubbles: true,
+      cancelable: true,
+    });
+    el.dispatchEvent(ev);
+    return ev;
+  };
+
+  it("copies the trimmed selection when a drag that began in the terminal is released", async () => {
+    const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const { el, term } = await selected();
+    const off = wireTerminalCopy(term, el);
+    press(el);
+    release();
+    expect(write).toHaveBeenCalledExactlyOnceWith("hello\nworld");
+    off();
+  });
+
+  it("ignores a release whose press began elsewhere, and an empty selection", async () => {
+    const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const { el, term } = await selected();
+    const off = wireTerminalCopy(term, el);
+    release();
+    term.clearSelection();
+    press(el);
+    release();
+    expect(write).not.toHaveBeenCalled();
+    off();
+  });
+
+  it("puts the trimmed selection on a native copy", async () => {
+    const { el, term } = await selected();
+    const off = wireTerminalCopy(term, el);
+    const ev = nativeCopy(el);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(ev.clipboardData!.getData("text/plain")).toBe("hello\nworld");
+    off();
+  });
+
+  it("stops copying once disposed", async () => {
+    const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const { el, term } = await selected();
+    wireTerminalCopy(term, el)();
+    press(el);
+    release();
+    expect(write).not.toHaveBeenCalled();
+    expect(nativeCopy(el).defaultPrevented).toBe(false);
   });
 });

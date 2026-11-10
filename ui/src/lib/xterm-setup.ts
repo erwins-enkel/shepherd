@@ -5,6 +5,8 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { theme, xtermTheme, xtermMinContrast } from "./theme.svelte";
 import { oscLinkHandler, openTerminalLink } from "./terminalLinks";
+import { trimTrailingWhitespace } from "./terminalSelection";
+import { copyOnSelect } from "./copy-on-select";
 
 /**
  * Whether `el` has a real size to fit a terminal to. A hidden (display:none) or mid-layout mount
@@ -78,6 +80,34 @@ export function openXterm(
     console.warn("webgl renderer unavailable; using DOM renderer", err);
   }
   return { term, fit };
+}
+
+/**
+ * An agent terminal's selection → clipboard paths, shared by a local session's Viewport and the
+ * terminal of a session on a connected machine: copy-on-select, and a native copy of the same
+ * trimmed text. Returns a disposer.
+ */
+export function wireTerminalCopy(term: Terminal, el: HTMLElement): () => void {
+  const read = () => trimTrailingWhitespace(term.getSelection());
+  const offSelect = copyOnSelect(el, read);
+  // Native copy (macOS Cmd+C, right-click → Copy, Ctrl+Insert) bypasses the programmatic copy
+  // paths: xterm binds its own `copy` handler (bubble phase, on its terminal element — a
+  // descendant of `el`) that writes the raw, untrimmed selection to the clipboard. Intercept in
+  // the capture phase on `el` so we run first, write the trimmed text, and
+  // stopImmediatePropagation() to keep xterm's handler from overwriting it. No selection → fall
+  // through.
+  const onCopy = (e: ClipboardEvent) => {
+    const sel = read();
+    if (!sel) return;
+    e.clipboardData?.setData("text/plain", sel);
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
+  el.addEventListener("copy", onCopy, true);
+  return () => {
+    offSelect();
+    el.removeEventListener("copy", onCopy, true);
+  };
 }
 
 /** Repaint a live terminal in the active theme, in place (no recreation). Reads the theme state,

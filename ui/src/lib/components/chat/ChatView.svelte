@@ -22,6 +22,7 @@
     matchChatTrigger,
   } from "#lib/slash.js";
   import { handleImagePaste } from "#lib/clipboard.js";
+  import { copyOnSelect } from "#lib/copy-on-select.js";
   import { pollWhileVisible } from "#lib/visibility.js";
   import {
     assistantChatMessage,
@@ -127,6 +128,20 @@
   let sendFailed = $state(false);
   let thread: HTMLDivElement | undefined = $state();
   let input: HTMLTextAreaElement | undefined = $state();
+
+  // A finished selection in the thread lands on the clipboard on release, as in the terminal. The
+  // composer sits outside the thread, so a draft's selection never copies.
+  $effect(() => {
+    const el = thread;
+    if (!el) return;
+    return copyOnSelect(el, () => {
+      const sel = getSelection();
+      if (!sel || sel.isCollapsed || !el.contains(sel.anchorNode) || !el.contains(sel.focusNode))
+        return "";
+      const text = sel.toString();
+      return text.trim() ? text : "";
+    });
+  });
 
   // Images for the next message: each uploads into the assistant's dir at once; Send lists the
   // stored paths after the text (assistantChatMessage) so the assistant can Read them.

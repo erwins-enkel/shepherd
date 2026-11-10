@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Terminal } from "@xterm/xterm";
   import { untrack } from "svelte";
-  import { canFit, openXterm, repaintXterm } from "#lib/xterm-setup.js";
+  import { canFit, openXterm, repaintXterm, wireTerminalCopy } from "#lib/xterm-setup.js";
   import { connectPty, type PtyConn, type PtyEndReason } from "#lib/pty.js";
   import { terminalFontSize } from "#lib/terminal-font-size.svelte.js";
   import { uiScale } from "#lib/ui-scale.svelte.js";
@@ -135,6 +135,8 @@
     const offPageReturn = onPageReturn(() => c.poke());
     const onTap = () => term.focus();
     mount.addEventListener("click", onTap);
+    // A finished selection (⌥-drag past the agent's mouse tracking) copies, as a local session's.
+    const offCopy = wireTerminalCopy(term, mount);
     const ro = new ResizeObserver(refit);
     ro.observe(mount);
     requestAnimationFrame(refit);
@@ -142,6 +144,7 @@
     return () => {
       offPageReturn();
       mount.removeEventListener("click", onTap);
+      offCopy();
       ro.disconnect();
       c.close();
       conn = undefined;

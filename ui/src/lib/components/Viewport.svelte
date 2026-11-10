@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Terminal, IBufferLine, IBufferCell } from "@xterm/xterm";
   import type { FitAddon } from "@xterm/addon-fit";
-  import { canFit, openXterm, repaintXterm } from "#lib/xterm-setup.js";
+  import { canFit, openXterm, repaintXterm, wireTerminalCopy } from "#lib/xterm-setup.js";
   import type {
     TerminalClientInfo,
     DrainStatus,
@@ -2320,32 +2320,8 @@
     };
     el.addEventListener("click", onTap);
 
-    // copy-on-select: Ctrl+C in a focused terminal sends SIGINT to the agent
-    // rather than copying, so copy the xterm selection to the clipboard when a
-    // drag-select finishes. xterm tracks the drag with document-level listeners,
-    // so the pointer can be released outside the terminal element — listen for
-    // mouseup on the document (gated to drags that began in the terminal) rather
-    // than on el, so those releases still copy. The mousedown gate is capture-
-    // phase: xterm stops the mousedown from bubbling to el, so a bubble-phase
-    // listener never sees it — capture fires top-down before xterm can swallow
-    // it. A plain click clears xterm's selection first, so getSelection() is
-    // empty → no spurious copy.
-    let selectingInTerm = false;
-    const onTermMouseDown = () => {
-      selectingInTerm = true;
-    };
-    const onDocMouseUp = () => {
-      if (!selectingInTerm) return;
-      selectingInTerm = false;
-      const sel = trimTrailingWhitespace(term.getSelection());
-      if (sel) {
-        navigator.clipboard?.writeText(sel)?.catch((err) => {
-          console.warn("copy-on-select: clipboard write failed", err);
-        });
-      }
-    };
-    el.addEventListener("mousedown", onTermMouseDown, true);
-    document.addEventListener("mouseup", onDocMouseUp);
+    // Copy-on-select and a trimmed native copy — the same as a connected machine's terminal.
+    const offCopy = wireTerminalCopy(term, el);
 
     // Cmd/Ctrl+V of an image: xterm only pastes text, so a copied screenshot is
     // silently dropped. Intercept in the capture phase (before xterm's textarea
@@ -2359,21 +2335,6 @@
       attachFiles(imgs);
     };
     el.addEventListener("paste", onPaste, true);
-
-    // Native copy (macOS Cmd+C, right-click → Copy, Ctrl+Insert) bypasses the two
-    // programmatic copy paths above: xterm binds its own `copy` handler (bubble
-    // phase, on its terminal element — a descendant of `el`) that writes the raw,
-    // untrimmed selection to the clipboard. Intercept in the capture phase on `el`
-    // so we run first, write the trimmed text, and stopImmediatePropagation() to
-    // keep xterm's handler from overwriting it. No selection → fall through.
-    const onCopy = (e: ClipboardEvent) => {
-      const sel = trimTrailingWhitespace(term.getSelection());
-      if (!sel) return;
-      e.clipboardData?.setData("text/plain", sel);
-      e.preventDefault();
-      e.stopImmediatePropagation();
-    };
-    el.addEventListener("copy", onCopy, true);
 
     // Claude Code runs as a full-screen TUI with mouse tracking on (it stays on
     // the normal buffer, keeping scrollback, but grabs the wheel): scrolling
@@ -2608,10 +2569,8 @@
       offPageReturn();
       document.removeEventListener("visibilitychange", onHidden);
       el?.removeEventListener("click", onTap);
-      el?.removeEventListener("mousedown", onTermMouseDown, true);
-      document.removeEventListener("mouseup", onDocMouseUp);
+      offCopy();
       el?.removeEventListener("paste", onPaste, true);
-      el?.removeEventListener("copy", onCopy, true);
       el?.removeEventListener("touchstart", onTouchStart);
       el?.removeEventListener("touchmove", onTouchMove);
       el?.removeEventListener("touchend", onTouchEnd);

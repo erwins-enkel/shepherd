@@ -210,6 +210,59 @@ describe("ChatView layout", () => {
   });
 });
 
+describe("ChatView copy-on-select", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const said = (text: string) =>
+    mockMessages.mockResolvedValue({
+      messages: [{ role: "assistant", text, ts: 0 }],
+      awaitingInput: false,
+      pendingQuestion: null,
+      unavailable: null,
+    });
+  const select = (node: Node) => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    getSelection()!.removeAllRanges();
+    getSelection()!.addRange(range);
+  };
+  // A drag that starts on `from`; the release lands on the document, wherever the pointer is.
+  const drag = (from: Element) => {
+    from.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  };
+
+  it("copies a finished selection in the thread on release, as the terminal does", async () => {
+    const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    said("Run **bun test** now.");
+    render(ChatView, props({ status: "idle" }));
+    await expect.poll(() => document.querySelector(".md-body p")).not.toBeNull();
+    const p = document.querySelector(".md-body p")!;
+    select(p);
+    drag(p);
+    expect(write).toHaveBeenCalledExactlyOnceWith("Run bun test now.");
+  });
+
+  it("leaves the clipboard alone for a plain click and for a selection in the composer", async () => {
+    const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    said("Run **bun test** now.");
+    render(ChatView, props({ status: "idle" }));
+    await expect.poll(() => document.querySelector(".md-body p")).not.toBeNull();
+    getSelection()!.removeAllRanges();
+    drag(document.querySelector(".md-body p")!);
+    const input = page
+      .getByRole("textbox", { name: m.session_chat_input_label() })
+      .element() as HTMLTextAreaElement;
+    input.value = "a draft";
+    input.focus();
+    input.select();
+    drag(input);
+    expect(write).not.toHaveBeenCalled();
+  });
+});
+
 describe("ChatView steers", () => {
   const critic =
     "The PR critic reviewed your latest push. These are the BLOCKING points:\n\n1. fix it";

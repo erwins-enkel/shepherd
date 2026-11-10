@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
@@ -27,7 +27,20 @@ vi.mock("#lib/pty.js", () => ({
   }),
 }));
 
+// The real copy wiring, spied on: a test reaches the live xterm through its arguments.
+vi.mock("#lib/xterm-setup.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/xterm-setup.js")>();
+  return {
+    ...actual,
+    wireTerminalCopy: vi.fn((...args: Parameters<typeof actual.wireTerminalCopy>) =>
+      vi.fn(actual.wireTerminalCopy(...args)),
+    ),
+  };
+});
+
 const { default: RemoteTerminal } = await import("./RemoteTerminal.svelte");
+const { wireTerminalCopy } = await import("#lib/xterm-setup.js");
+const wired = vi.mocked(wireTerminalCopy);
 
 const host = { instanceId: "m1", name: "MacBook", platform: "macos" };
 
@@ -63,7 +76,12 @@ function keydown(init: KeyboardEventInit, keyCode: number): KeyboardEvent {
 
 beforeEach(() => {
   pty.attaches.length = 0;
+  wired.mockClear();
   document.body.innerHTML = "";
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("RemoteTerminal", () => {
@@ -165,5 +183,22 @@ describe("RemoteTerminal", () => {
     last().args[6]!("machine");
     expect(term.sendKeys("y\r")).toBe(false);
     expect(last().conn.send.mock.calls).toEqual([["1"]]);
+  });
+
+  it("copies a finished selection to the clipboard, as a local session's terminal does", async () => {
+    const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const view = await render(RemoteTerminal, { session: remote() });
+    await vi.waitFor(() => expect(wired).toHaveBeenCalledTimes(1));
+    const [term, mount] = wired.mock.calls[0]!;
+    expect(mount).toBe(
+      page.getByRole("region", { name: m.remote_terminal_aria({ machine: "MacBook" }) }).element(),
+    );
+    await new Promise<void>((r) => term.write("ok   ", r));
+    term.selectLines(0, 0);
+    mount.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    expect(write).toHaveBeenCalledExactlyOnceWith("ok");
+    view.unmount();
+    expect(wired.mock.results[0]!.value).toHaveBeenCalledTimes(1);
   });
 });

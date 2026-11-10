@@ -1,3 +1,4 @@
+import { DEFAULT_LAUNCH, nextSlot } from "../src/schedules-core";
 /**
  * The Operator Assistant's diagnostic read tools (#1446), driven through injected deps: a real
  * in-memory store, fake drain / holds / diagnostics, and fs + exec seams in place of the host.
@@ -1021,6 +1022,7 @@ test("repo_automation lists a repo's schedules: fenced name and prompt, weekday 
       prompt: "/triage-feedback",
       days: 0b0010001,
       times: ["09:00"],
+      interval: null,
       enabled: true,
       launch: { ...launch, model: "opus", baseBranch: "trunk" },
     },
@@ -1035,6 +1037,7 @@ test("repo_automation lists a repo's schedules: fenced name and prompt, weekday 
       prompt: "x",
       days: 1,
       times: ["10:00"],
+      interval: null,
       enabled: false,
       launch,
     },
@@ -1060,4 +1063,28 @@ test("repo_automation lists a repo's schedules: fenced name and prompt, weekday 
   expect(JSON.stringify(out)).not.toContain("secret route error");
   expect(alpha.omittedSchedules).toBe(0);
   expect(beta.schedules).toEqual([]);
+});
+
+test("repo_automation includes interval cadence and its next slot", async () => {
+  const { store, deps } = setup();
+  const interval = { everyMinutes: 15 as const, from: null, until: null };
+  const schedule = store.insertSchedule(
+    {
+      repoPath: "/r/alpha",
+      name: "Interval",
+      prompt: "x",
+      days: 127,
+      times: [],
+      interval,
+      enabled: true,
+      launch: DEFAULT_LAUNCH,
+    },
+    Date.now(),
+  );
+  const out = data(await applyRepoAutomation(deps, {}));
+  const actual = out.repos[0].schedules[0];
+  expect(actual).toMatchObject({ interval, times: [] });
+  expect(new Date(actual.nextAt).getTime()).toBe(
+    nextSlot(schedule.days, [], Date.now(), interval)!.at,
+  );
 });

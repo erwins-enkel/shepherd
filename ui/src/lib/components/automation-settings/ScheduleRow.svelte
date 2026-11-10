@@ -81,7 +81,7 @@
       {#if showRepo}<span class="sc-repo" title={s.repoPath}>{basename(s.repoPath)}</span>{/if}
       {s.name}
     </div>
-    <div class="sc-cadence">{cadenceSummary(s.days, s.times, getLocale())}</div>
+    <div class="sc-cadence">{cadenceSummary(s.days, s.times, getLocale(), s.interval)}</div>
     <div class="sc-chips">
       <span class="sc-chip"
         >{s.launch.agentProvider === "claude"
@@ -106,7 +106,7 @@
           aria-controls={historyId}
           onclick={() => (historyOpen = !historyOpen)}
           >{m.schedules_last_ago({
-            outcome: outcomeLabel(s.lastRun.outcome),
+            outcome: outcomeLabel(s.lastRun.outcome, s.lastRun.reason),
             ago: relativeTimeAgo(s.lastRun.at, clock.current, getLocale()),
           })}</button
         >
@@ -208,7 +208,7 @@
                 >{historyFmt.format(new Date(run.at))}</time
               >
               <span class={["sc-outcome", outcomeTone(run.outcome)]}
-                >{outcomeLabel(run.outcome)}</span
+                >{outcomeLabel(run.outcome, run.reason)}</span
               >
               {#if run.outcome === "noop" && run.reason}<span class="sc-summary">{run.reason}</span
                 >{/if}

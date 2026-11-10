@@ -9,7 +9,7 @@ import {
 import { SvelteMap } from "svelte/reactivity";
 import { toasts } from "#lib/toasts.svelte.js";
 import { basename } from "#lib/basename.js";
-import type { Schedule, ScheduleInput } from "#lib/types.js";
+import type { Schedule, ScheduleInput, ScheduleInterval } from "#lib/types.js";
 
 /**
  * Per-repo operator schedules (#3469) for the automation settings. Loaded on demand per repo and
@@ -89,7 +89,12 @@ class SchedulesStore {
   async runNow(s: Schedule): Promise<void> {
     try {
       const run = await runScheduleNow(s.id);
-      toasts.info(m.schedules_run_now_result({ name: s.name, outcome: outcomeLabel(run.outcome) }));
+      toasts.info(
+        m.schedules_run_now_result({
+          name: s.name,
+          outcome: outcomeLabel(run.outcome, run.reason),
+        }),
+      );
     } catch {
       toasts.info(m.schedules_failed(), { alert: true });
     }
@@ -133,7 +138,7 @@ export function upcomingOrder(list: readonly Schedule[]): Schedule[] {
 }
 
 /** A run outcome as the operator reads it. */
-export function outcomeLabel(outcome: string): string {
+export function outcomeLabel(outcome: string, reason?: string | null): string {
   switch (outcome) {
     case "claimed":
       return m.schedules_outcome_interrupted();
@@ -144,7 +149,9 @@ export function outcomeLabel(outcome: string): string {
     case "skipped:overlap":
       return m.schedules_outcome_overlap();
     case "skipped:stale":
-      return m.schedules_outcome_stale();
+      return reason === "missed by more than one interval"
+        ? m.schedules_outcome_interval_stale()
+        : m.schedules_outcome_stale();
     case "error":
       return m.schedules_outcome_error();
     case "noop":
@@ -182,7 +189,12 @@ export const WORKDAYS = 0b0011111;
 export const ALL_DAYS = 0b1111111;
 
 /** "Mon–Fri · 09:00, 18:00": contiguous day runs collapse to a range. */
-export function cadenceSummary(days: number, times: string[], locale?: string): string {
+export function cadenceSummary(
+  days: number,
+  times: string[],
+  locale?: string,
+  interval: ScheduleInterval | null = null,
+): string {
   const names = weekdayNames(locale);
   const runs: string[] = [];
   let i = 0;
@@ -196,7 +208,51 @@ export function cadenceSummary(days: number, times: string[], locale?: string): 
     runs.push(j - i >= 2 ? `${names[i]}–${names[j]}` : names.slice(i, j + 1).join(", "));
     i = j + 1;
   }
-  return `${runs.join(", ")} · ${times.join(", ")}`;
+  const dayLabel = runs.join(", ");
+  if (interval)
+    return interval.from === null
+      ? m.schedules_cadence_interval_all_day({ days: dayLabel, n: interval.everyMinutes })
+      : m.schedules_cadence_interval_window({
+          days: dayLabel,
+          n: interval.everyMinutes,
+          from: interval.from,
+          until: interval.until!,
+        });
+  return `${dayLabel} · ${times.join(", ")}`;
+}
+
+/** Nominal daily times; invalid drafts produce no slots. */
+function intervalTimes(interval: ScheduleInterval): string[] {
+  const { from, until, everyMinutes } = interval;
+  const valid = (time: string | null): time is string =>
+    time !== null && /^([01]\d|2[0-3]):[0-5]\d$/.test(time);
+  if (!(from === null && until === null) && (!valid(from) || !valid(until) || until <= from))
+    return [];
+  const minutes = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
+  const start = from === null ? 0 : minutes(from);
+  const end = until === null ? 1440 : minutes(until);
+  const times: string[] = [];
+  for (let minute = start; minute < end; minute += everyMinutes)
+    times.push(
+      `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`,
+    );
+  return times;
+}
+
+export function intervalStats(
+  days: number,
+  interval: ScheduleInterval,
+): { perDay: number; perWeek: number; last: string } | null {
+  const times = intervalTimes(interval);
+  if (!times.length) return null;
+  const activeDays = Array.from({ length: 7 }, (_, i) => !!(days & (1 << i))).filter(
+    Boolean,
+  ).length;
+  return {
+    perDay: times.length,
+    perWeek: times.length * activeDays,
+    last: times[times.length - 1]!,
+  };
 }
 
 /* eslint-disable svelte/prefer-svelte-reactivity -- pure calculation; Dates/Sets are local scratch values. */
@@ -206,8 +262,11 @@ export function upcomingSlots(
   times: readonly string[],
   now: number,
   n: number,
+  interval: ScheduleInterval | null = null,
 ): number[] {
-  const clockTimes = [...new Set(times.filter((t) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t)))];
+  const clockTimes = interval
+    ? intervalTimes(interval)
+    : [...new Set(times.filter((t) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t)))];
   if (!(days & ALL_DAYS) || !clockTimes.length || n <= 0) return [];
   const base = new Date(now);
   const result: number[] = [];

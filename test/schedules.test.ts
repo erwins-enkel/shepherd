@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { mkdtempSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { Database } from "bun:sqlite";
 import { SessionStore } from "../src/store";
 import { ScheduleService } from "../src/schedules";
 import { validateScheduleInput, type ScheduleInput } from "../src/schedules-core";
@@ -326,4 +327,105 @@ describe("ScheduleService", () => {
       sessionId: "fresh",
     });
   });
+});
+
+describe("interval schedules", () => {
+  const interval = { everyMinutes: 15 as const, from: "08:00", until: "18:00" };
+  test("fires forty window slots, catches up once and records interval staleness", async () => {
+    const s = makeSchedule(at(10, 25, 23), { times: [], interval });
+    await runDay(at(10, 26, 0), at(10, 26, 23, 59));
+    expect(launches).toHaveLength(40);
+    expect(store.listScheduleRuns(s.id, 100).filter((r) => r.outcome === "spawned")).toHaveLength(
+      40,
+    );
+    now = at(10, 27, 12, 7);
+    await svc.tick();
+    archiveAll();
+    await svc.tick();
+    expect(launches).toHaveLength(41);
+    now = at(10, 27, 20);
+    await svc.tick();
+    const last = store.listScheduleRuns(s.id, 1)[0];
+    expect(last).toMatchObject({
+      slotKey: "2026-10-27T17:45",
+      outcome: "skipped:stale",
+      reason: "missed by more than one interval",
+    });
+    expect(launches).toHaveLength(41);
+  });
+  test.each([
+    [3, 29, 92],
+    [10, 25, 96],
+  ])("service deduplicates DST %i/%i", async (mo, day, count) => {
+    const s = makeSchedule(at(mo, day, 0) - 1, {
+      days: 127,
+      times: [],
+      interval: { everyMinutes: 15, from: null, until: null },
+    });
+    await runDay(at(mo, day, 0), at(mo, day + 1, 0) - 60_000);
+    expect(launches).toHaveLength(count);
+    const rows = store.listScheduleRuns(s.id, 300);
+    expect(rows).toHaveLength(count);
+    expect(new Set(rows.map((r) => r.slotKey)).size).toBe(count);
+  });
+  test("interval overlap retains claim-before-launch", async () => {
+    const s = makeSchedule(at(10, 26, 7), { times: [], interval });
+    now = at(10, 26, 8);
+    await svc.tick();
+    now = at(10, 26, 8, 15);
+    await svc.tick();
+    expect(launches).toHaveLength(1);
+    expect(store.listScheduleRuns(s.id, 1)[0]!.outcome).toBe("skipped:overlap");
+  });
+});
+
+test("legacy database migration and interval roundtrip retain baseline and indexed history", () => {
+  const path = join(root, "legacy.sqlite");
+  const db = new Database(path);
+  db.run(`CREATE TABLE schedules (id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, name TEXT NOT NULL,
+    prompt TEXT NOT NULL, days INTEGER NOT NULL, timesJson TEXT NOT NULL, enabled INTEGER NOT NULL,
+    launchJson TEXT NOT NULL, baselineAt INTEGER NOT NULL, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)`);
+  const input = makeSchedule(100);
+  db.run(`INSERT INTO schedules VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+    "legacy",
+    repo,
+    "Old",
+    "hello",
+    31,
+    '["09:00"]',
+    1,
+    JSON.stringify(input.launch),
+    100,
+    100,
+    100,
+  ]);
+  const migrated = new SessionStore(path);
+  expect(migrated.getSchedule("legacy")).toMatchObject({
+    times: ["09:00"],
+    interval: null,
+    baselineAt: 100,
+  });
+  const interval = { everyMinutes: 15 as const, from: null, until: null };
+  migrated.updateSchedule("legacy", { ...input, times: [], interval }, 200, true);
+  const reopened = new SessionStore(path);
+  expect(reopened.getSchedule("legacy")).toMatchObject({ interval, baselineAt: 200 });
+  for (const [key, timestamp] of [
+    ["a", 1],
+    ["b", 2],
+    ["c", 2],
+  ] as const)
+    reopened.claimScheduleRun("legacy", key, timestamp);
+  expect(reopened.listScheduleRuns("legacy", 2).map((r) => r.slotKey)).toEqual(["c", "b"]);
+  reopened.pruneScheduleRuns(2);
+  expect(reopened.listScheduleRuns("legacy", 10).map((r) => r.slotKey)).toEqual(["c", "b"]);
+  const plan = db
+    .query(
+      "EXPLAIN QUERY PLAN SELECT * FROM schedule_runs WHERE scheduleId = ? ORDER BY at DESC, id DESC LIMIT ?",
+    )
+    .all("legacy", 2);
+  expect(JSON.stringify(plan)).toContain("schedule_runs_history");
+  expect(
+    JSON.stringify(db.query("EXPLAIN QUERY PLAN DELETE FROM schedule_runs WHERE at < ?").all(2)),
+  ).toContain("schedule_runs_at");
+  db.close();
 });

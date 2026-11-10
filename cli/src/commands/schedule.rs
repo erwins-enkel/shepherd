@@ -5,7 +5,7 @@ use serde_json::{Map, Value};
 use super::{VersionCheck, print_done, repo_path};
 use crate::Ctx;
 use crate::api::Client;
-use crate::api::types::{ScheduleInput, ScheduleList, ScheduleRun};
+use crate::api::types::{CreateScheduleBody, ScheduleList, ScheduleRun};
 use crate::cli::{ScheduleAddArgs, ScheduleCmd, WEEKDAYS};
 use crate::error::{CliError, Exit, Op, Result, Scope, api_error};
 use crate::output::{self, Mode};
@@ -51,7 +51,17 @@ async fn list(ctx: &mut Ctx<'_>, repo: Option<String>) -> Result<()> {
                 s.name.clone(),
                 s.repo_path.clone(),
                 days_label(s.days),
-                s.times.join(","),
+                match &s.interval {
+                    Some(interval) => format!(
+                        "every {}m {}",
+                        *interval.every_minutes,
+                        match (&interval.from, &interval.until) {
+                            (Some(from), Some(until)) => format!("{}-{}", **from, **until),
+                            _ => "all day".into(),
+                        }
+                    ),
+                    None => s.times.join(","),
+                },
                 if s.enabled { "yes" } else { "no" }.into(),
                 output::or_dash(s.next_at.map(output::until)),
                 output::or_dash(
@@ -108,12 +118,13 @@ fn launch(args: &ScheduleAddArgs) -> Map<String, Value> {
 async fn add(ctx: &mut Ctx<'_>, args: ScheduleAddArgs) -> Result<()> {
     let repo = repo_path(ctx, args.repo.clone())?;
     let prompt = ctx.io.text_arg(&args.prompt)?;
-    let body = ScheduleInput {
-        repo_path: Some(repo),
-        name: Some(args.name.clone()),
-        prompt: Some(prompt),
-        days: Some(args.days),
+    let body = CreateScheduleBody {
+        repo_path: repo,
+        name: args.name.clone(),
+        prompt,
+        days: args.days,
         times: args.times.clone(),
+        interval: None,
         enabled: Some(!args.disabled),
         launch: launch(&args),
     };

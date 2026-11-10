@@ -263,6 +263,7 @@ describe("schedule launch compatibility", () => {
           prompt: "/triage-feedback",
           days: 31,
           times: ["09:00", "18:00"],
+          interval: null,
           launch,
         }),
       );
@@ -561,6 +562,27 @@ describe("schedule row history", () => {
     await expect.element(link).toHaveAttribute("data-sveltekit-reload");
   });
 
+  it("uses each historical stale reason even after changing cadence", async () => {
+    const run: ScheduleRun = {
+      ...RUN,
+      outcome: "skipped:stale",
+      reason: "missed by more than one interval",
+    };
+    mockApi([{ ...TRIAGE, lastRun: run }], async () =>
+      response([run, { ...run, id: run.id + 1, reason: "missed slot older than 12h" }]),
+    );
+    render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+    await page
+      .getByRole("button", { name: /Last: skipped, missed by more than one interval/ })
+      .click();
+    await expect
+      .element(page.getByText(m.schedules_outcome_interval_stale(), { exact: true }))
+      .toBeVisible();
+    await expect
+      .element(page.getByText(m.schedules_outcome_stale(), { exact: true }))
+      .toBeVisible();
+  });
+
   it("keeps future outcomes neutral in both the row and history", async () => {
     const run = { ...RUN, outcome: "future:result" } as unknown as ScheduleRun;
     mockApi([{ ...TRIAGE, lastRun: run }], async () => response([run]));
@@ -782,5 +804,86 @@ describe("schedule row controls", () => {
       }
     }
     expect(getComputedStyle(row.querySelector(".sc-chips")!).flexWrap).toBe("wrap");
+  });
+});
+
+describe("schedule interval editor", () => {
+  it("retains both drafts, validates the end and saves only interval cadence", async () => {
+    const calls = await edit();
+    await page.getByRole("button", { name: m.schedules_cadence_interval(), exact: true }).click();
+    await expect
+      .element(
+        page.getByText(m.schedules_interval_stats({ perDay: 40, perWeek: 200, last: "17:45" })),
+      )
+      .toBeVisible();
+    await expect.element(page.getByText(m.schedules_interval_overlap())).toBeVisible();
+    await page.getByLabelText(m.schedules_interval_from(), { exact: true }).fill("10:00");
+    await page.getByLabelText(m.schedules_interval_until(), { exact: true }).fill("09:00");
+    await expect.element(page.getByText(m.schedules_interval_end_error())).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: m.schedules_save(), exact: true }))
+      .toBeDisabled();
+    await page.getByRole("button", { name: m.schedules_cadence_fixed(), exact: true }).click();
+    await expect
+      .element(page.getByLabelText(m.schedules_field_time_n({ n: 1 })))
+      .toHaveValue("09:00");
+    await page.getByRole("button", { name: m.schedules_cadence_interval(), exact: true }).click();
+    await expect
+      .element(page.getByLabelText(m.schedules_interval_from(), { exact: true }))
+      .toHaveValue("10:00");
+    await page.getByLabelText(m.schedules_interval_all_day()).click();
+    await page.getByLabelText(m.schedules_interval_all_day()).click();
+    await expect
+      .element(page.getByLabelText(m.schedules_interval_until(), { exact: true }))
+      .toHaveValue("09:00");
+    await page.getByLabelText(m.schedules_interval_all_day()).click();
+    await page.getByRole("button", { name: m.schedules_save(), exact: true }).click();
+    await vi.waitFor(() =>
+      expect(calls.find((c) => c.method === "PATCH")?.body).toMatchObject({
+        times: [],
+        interval: { everyMinutes: 15, from: null, until: null },
+      }),
+    );
+  });
+  it("saves a bounded interval and updates counts with cadence and weekdays", async () => {
+    const calls = await edit();
+    await page.getByRole("button", { name: m.schedules_cadence_interval(), exact: true }).click();
+    await page
+      .getByRole("combobox", { name: m.schedules_cadence_interval(), exact: true })
+      .selectOptions("30");
+    await page.getByRole("button", { name: m.schedules_preset_daily(), exact: true }).click();
+    await expect
+      .element(
+        page.getByText(m.schedules_interval_stats({ perDay: 20, perWeek: 140, last: "17:30" })),
+      )
+      .toBeVisible();
+    await page.getByRole("button", { name: m.schedules_save(), exact: true }).click();
+    await vi.waitFor(() =>
+      expect(calls.find((c) => c.method === "PATCH")?.body).toMatchObject({
+        days: 127,
+        times: [],
+        interval: { everyMinutes: 30, from: "08:00", until: "18:00" },
+      }),
+    );
+  });
+  it("edits an existing interval on mobile and can save fixed times", async () => {
+    await page.viewport(390, 700);
+    const calls = await edit({
+      ...TRIAGE,
+      times: [],
+      interval: { everyMinutes: 30, from: "08:00", until: "18:00" },
+    });
+    await page.getByRole("tab", { name: m.schedules_tab_when(), exact: true }).click();
+    await expect
+      .element(page.getByRole("button", { name: m.schedules_cadence_interval(), exact: true }))
+      .toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: m.schedules_cadence_fixed(), exact: true }).click();
+    await page.getByRole("button", { name: m.schedules_save(), exact: true }).click();
+    await vi.waitFor(() =>
+      expect(calls.find((c) => c.method === "PATCH")?.body).toMatchObject({
+        times: ["09:00"],
+        interval: null,
+      }),
+    );
   });
 });

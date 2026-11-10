@@ -15,7 +15,7 @@ struct SettingsWorkspaceView: View {
                 ForEach(model.snapshot?.repos ?? [],id:\.path) { Text(verbatim:$0.display).tag($0.path) }
             }
             if let config = model.repoConfig {
-                SettingsRepoFields(config:config) { patch, commit in
+                SettingsRepoFields(config:config, defaults: ComposeRunConfig.defaults(from: model.snapshot?.settings)) { patch, commit in
                     model.requestWorkspaceAction("config", config: patch, configCommit: commit)
                 }
             }

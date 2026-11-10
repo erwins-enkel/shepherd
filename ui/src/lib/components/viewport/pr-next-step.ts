@@ -65,7 +65,10 @@ export function nextStepSteer(action: NextAction, git: GitState, base: string): 
 }
 
 /** A steerable agent: a live pane of a non-terminal, non-shelved session. Resuming a dead agent
- *  stays on the existing Resume path — a steer must never be the thing that revives it. */
+ *  stays on the existing Resume path — a steer must never be the thing that revives it.
+ *  herdr's `done` means "turn finished", not "agent gone": the agent may still sit at its prompt.
+ *  It counts only when the /proc sweep confirms `alive` — the one `done` state for which
+ *  `canResume()` offers no Resume either. */
 export function agentLive(
   s: Pick<Session, "terminal" | "shelved" | "status">,
   liveness?: LivenessState,
@@ -73,7 +76,10 @@ export function agentLive(
   return (
     !s.terminal &&
     !s.shelved &&
-    (s.status === "running" || s.status === "idle" || s.status === "blocked") &&
+    (s.status === "running" ||
+      s.status === "idle" ||
+      s.status === "blocked" ||
+      (s.status === "done" && liveness === "alive")) &&
     liveness !== "husk" &&
     liveness !== "stranded"
   );

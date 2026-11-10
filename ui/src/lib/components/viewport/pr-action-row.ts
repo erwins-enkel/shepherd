@@ -13,6 +13,7 @@ export type PrRowKind =
   | "behind"
   | "ci_failed"
   | "ci_running"
+  | "no_checks"
   | "protected"
   | "ready"
   | "merged";
@@ -39,8 +40,16 @@ export function prRowStatus(git: GitState, merging: boolean): PrRowKind {
   if (block === "draft" || block === "conflict" || block === "behind") return block;
   if (git.checks === "failure") return "ci_failed";
   if (git.checks === "pending") return "ci_running";
+  if (awaitsChecks(git)) return "no_checks";
   if (block === "blocked") return "protected";
   return "ready";
+}
+
+/** A GitHub PR in a repo with PR CI that reports no checks at all (#3831): CI has not started,
+ *  skipped this PR, or failed before creating a job. Not mergeable-looking — the merge train
+ *  holds it too. A repo without PR CI (`noCi`), Gitea and local forges keep `none` as "no CI". */
+function awaitsChecks(git: GitState): boolean {
+  return git.checks === "none" && git.kind === "github" && !git.noCi;
 }
 
 /** Why Merge is locked in this state, or null when it is free. */
@@ -60,6 +69,8 @@ export function mergeBlockedText(kind: PrRowKind): string | null {
       return m.gitrail_merge_blocked_pending();
     case "protected":
       return m.gitrail_merge_blocked_protected();
+    case "no_checks":
+      return m.gitrail_merge_blocked_no_checks();
     case "ready":
     case "merged":
       return null;
@@ -83,6 +94,8 @@ export function prRowLabel(kind: PrRowKind, base: string): string {
       return m.prrow_state_ci_running();
     case "protected":
       return m.prrow_state_protected();
+    case "no_checks":
+      return m.prrow_state_no_checks();
     case "ready":
       return m.gitrail_ready_to_merge();
     case "merged":
@@ -114,10 +127,12 @@ export const FACT_GLYPH: Record<PrRowFactTone, string> = { ok: "✓", pending: "
 // not a measurement — a fact there would be a guess, so it is left out instead.
 const MEASURED_CLEAN: ReadonlySet<MergeStateStatus> = new Set(["clean", "unstable", "has_hooks"]);
 
-function ciFact(checks: GitState["checks"]): PrRowFact {
+function ciFact(git: GitState): PrRowFact {
+  const { checks } = git;
   if (checks === "success") return { id: "ci", tone: "ok", text: m.prrow_fact_ci_passing() };
   if (checks === "failure") return { id: "ci", tone: "fail", text: m.prrow_fact_ci_failed() };
   if (checks === "pending") return { id: "ci", tone: "pending", text: m.prrow_fact_ci_running() };
+  if (awaitsChecks(git)) return { id: "ci", tone: "pending", text: m.prrow_fact_ci_no_checks() };
   return { id: "ci", tone: "pending", text: m.prrow_fact_ci_none() };
 }
 
@@ -161,10 +176,7 @@ export function prRowFacts(input: {
 }): PrRowFact[] {
   const { git, chip, criticOn, base } = input;
   if (git.state === "merged") return [];
-  return [
-    ciFact(git.checks),
-    criticFact(chip, criticOn),
-    baseFact(git, base),
-    conflictFact(git),
-  ].filter((f): f is PrRowFact => f !== null);
+  return [ciFact(git), criticFact(chip, criticOn), baseFact(git, base), conflictFact(git)].filter(
+    (f): f is PrRowFact => f !== null,
+  );
 }

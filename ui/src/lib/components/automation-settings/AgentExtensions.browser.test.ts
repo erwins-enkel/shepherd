@@ -30,7 +30,14 @@ function stubFetch(): Record<string, unknown>[] {
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/agent-extensions")
-        return Response.json({ plugins: ["context7@c", "vercel@v"], skills: ["tdd"] });
+        return Response.json({
+          plugins: [
+            { name: "canva@remote", clis: ["codex"] },
+            { name: "context7@c", clis: ["claude"] },
+            { name: "vercel@v", clis: ["claude"] },
+          ],
+          skills: [{ name: "tdd", clis: ["claude", "codex"] }],
+        });
       if (url.startsWith("/api/repo-config") && init?.method === "PUT") {
         const patch = JSON.parse(String(init.body)) as Record<string, unknown>;
         puts.push(patch);
@@ -44,6 +51,16 @@ function stubFetch(): Record<string, unknown>[] {
 }
 
 const limitBoxes = () => page.getByRole("checkbox", { name: m.automation_agent_ext_limit() });
+const allButton = (group: string) =>
+  page.getByRole("button", {
+    name: m.automation_agent_ext_select_all_aria({ group }),
+    exact: true,
+  });
+const noneButton = (group: string) =>
+  page.getByRole("button", {
+    name: m.automation_agent_ext_select_none_aria({ group }),
+    exact: true,
+  });
 
 describe("AgentExtensions", () => {
   it("unlimited by default: no item checkboxes until the limit is on", async () => {
@@ -54,17 +71,70 @@ describe("AgentExtensions", () => {
     expect(page.getByRole("checkbox", { name: "vercel@v" }).query()).toBeNull();
   });
 
-  it("turning the limit on seeds every installed plugin; unticking PUTs the shrunk list", async () => {
+  it("turning the limit on seeds every installed plugin of every CLI; unticking PUTs the shrunk list", async () => {
     const puts = stubFetch();
     render(AgentExtensions, { repoPath: REPO });
     await expect.element(limitBoxes().first()).toBeVisible();
     (limitBoxes().first().element() as HTMLInputElement).click();
-    await vi.waitFor(() => expect(puts).toEqual([{ pluginAllowlist: ["context7@c", "vercel@v"] }]));
-    const vercel = page.getByRole("checkbox", { name: "vercel@v" });
+    await vi.waitFor(() =>
+      expect(puts).toEqual([{ pluginAllowlist: ["canva@remote", "context7@c", "vercel@v"] }]),
+    );
+    const vercel = page.getByRole("checkbox", { name: /vercel@v/ });
     await expect.element(vercel).toBeChecked();
     (vercel.element() as HTMLInputElement).click();
-    await vi.waitFor(() => expect(puts.at(-1)).toEqual({ pluginAllowlist: ["context7@c"] }));
+    await vi.waitFor(() =>
+      expect(puts.at(-1)).toEqual({ pluginAllowlist: ["canva@remote", "context7@c"] }),
+    );
     await expect.element(vercel).not.toBeChecked();
+  });
+
+  it("each entry names the CLIs that have it; a shared skill carries both", async () => {
+    repoConfig.pluginAllowlist = { [REPO]: [] };
+    repoConfig.skillAllowlist = { [REPO]: [] };
+    stubFetch();
+    render(AgentExtensions, { repoPath: REPO });
+    const claude = m.agent_provider_claude();
+    const codex = m.agent_provider_codex();
+    await expect
+      .element(page.getByRole("checkbox", { name: `canva@remote ${codex}` }))
+      .toBeVisible();
+    await expect
+      .element(page.getByRole("checkbox", { name: `context7@c ${claude}` }))
+      .toBeVisible();
+    await expect
+      .element(page.getByRole("checkbox", { name: `tdd ${claude} ${codex}` }))
+      .toBeVisible();
+    // A Codex plugin is listed: the remote-catalog caveat shows.
+    await expect.element(page.getByText(m.automation_agent_ext_codex_remote_hint())).toBeVisible();
+  });
+
+  it("All ticks every listed entry, None clears the list; each is disabled once it holds", async () => {
+    repoConfig.pluginAllowlist = { [REPO]: ["context7@c", "gone@x"] };
+    const puts = stubFetch();
+    const plugins = m.automation_agent_ext_plugins();
+    render(AgentExtensions, { repoPath: REPO });
+    await expect.element(allButton(plugins)).toBeEnabled();
+    (allButton(plugins).element() as HTMLButtonElement).click();
+    // Every visible entry, the stale one included, so nothing the operator still sees drops out.
+    await vi.waitFor(() =>
+      expect(puts.at(-1)).toEqual({
+        pluginAllowlist: ["canva@remote", "context7@c", "vercel@v", "gone@x"],
+      }),
+    );
+    await expect.element(allButton(plugins)).toBeDisabled();
+    (noneButton(plugins).element() as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(puts.at(-1)).toEqual({ pluginAllowlist: [] }));
+    await expect.element(noneButton(plugins)).toBeDisabled();
+    await expect.element(page.getByRole("checkbox", { name: /canva@remote/ })).not.toBeChecked();
+  });
+
+  it("All/None only show while the limit is on", async () => {
+    stubFetch();
+    render(AgentExtensions, { repoPath: REPO });
+    await expect.element(limitBoxes().first()).toBeVisible();
+    expect(allButton(m.automation_agent_ext_plugins()).query()).toBeNull();
+    expect(noneButton(m.automation_agent_ext_skills()).query()).toBeNull();
+    expect(page.getByText(m.automation_agent_ext_codex_remote_hint()).query()).toBeNull();
   });
 
   it("a stale allowlisted skill shows as unavailable; limit off clears to null", async () => {

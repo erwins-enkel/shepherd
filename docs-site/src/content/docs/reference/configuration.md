@@ -791,24 +791,33 @@ was started with, so a restart that was still pending when Shepherd restarted ha
 
 ## Plugins and skills (per repo)
 
-Every plugin and personal skill you install rides along on each turn of every Claude session, so a
-repo that never deploys to Vercel still pays for the Vercel plugin. **Plugins and skills** in a
-repo's automation settings limits that repo to the ones its agents use (`pluginAllowlist` and
-`skillAllowlist` in the repo config).
+Every plugin and personal skill you install rides along on each turn of every Claude or Codex
+session, so a repo that never deploys to Vercel still pays for the Vercel plugin. **Plugins and
+skills** in a repo's automation settings limits that repo to the ones its agents use
+(`pluginAllowlist` and `skillAllowlist` in the repo config). One selection serves both CLIs: each
+entry in the picker shows which CLI has it installed, and a skill both CLIs have is a single entry.
 
-- **Plugins**: tick the plugins this repo keeps. The picker lists the plugins switched on in
-  `enabledPlugins` of `~/.claude/settings.json`. Every other one is switched off for the repo's
-  sessions, together with its skills, MCP tools and hooks.
-- **Personal skills**: tick the skills from `~/.claude/skills` this repo keeps. Every other personal
-  skill is switched off.
+- **Plugins**: tick the plugins this repo keeps. The picker lists the Claude plugins switched on in
+  `enabledPlugins` of `~/.claude/settings.json` and the Codex plugins installed under
+  `$CODEX_HOME/plugins/cache` that `config.toml` does not switch off. Every other one is switched
+  off for the repo's sessions, together with its skills, MCP tools and hooks.
+- **Personal skills**: tick the skills this repo keeps, from `~/.claude/skills` (Claude) and
+  `~/.agents/skills` (Codex). Every other personal skill is switched off.
+- **All** and **None** tick or clear a whole group at once. They show while the group's limit is on.
 - The two lists are independent. Leaving a list's limit off (`null`, the default) changes nothing.
   An empty list (`[]`) switches every plugin or personal skill off. Plugins or skills you install
   later stay off in a limited repo until you tick them.
-- Claude Code's bundled skills and the repo's own `.claude/skills` always stay.
-- It applies to the repo's Claude task sessions (attended, plan-gated, research) at their next start
-  or resume. Running sessions keep what they started with. Drain sessions keep their own stricter
-  trim (`SHEPHERD_TRIM_AUTO_CONTEXT`), which switches every plugin and personal skill off anyway.
-  Codex sessions, the Operator Assistant and the reviewer/critic agents are unaffected.
+- The skills bundled with Claude Code and Codex always stay, and so do the repo's own
+  `.claude/skills` and `.agents/skills`, even when a personal skill of the same name is switched off.
+- It applies to the repo's Claude and Codex task sessions at their next start or resume. Running
+  sessions keep what they started with. Claude drain sessions keep their own stricter trim
+  (`SHEPHERD_TRIM_AUTO_CONTEXT`), which switches every plugin and personal skill off anyway. Codex
+  has no such trim, so Codex drain sessions use the lists too. The Operator Assistant and the
+  reviewer/critic agents are unaffected.
+- Codex switches off only plugins from a local marketplace. Plugins from its remote catalog (ids
+  ending in `@openai-curated-remote`) keep the on/off state Codex manages for them and stay on in
+  Codex sessions; the picker says so when it lists a Codex plugin.
 
-If a repo's `CLAUDE.md` tells agents to use a skill you switched off, they look for it and don't find
-it. Measure the effect with `bun run scripts/opener-composition.ts --repo <path> --since <date>`.
+If a repo's `CLAUDE.md` or `AGENTS.md` tells agents to use a skill you switched off, they look for it
+and don't find it. Measure the effect on Claude sessions with
+`bun run scripts/opener-composition.ts --repo <path> --since <date>`.

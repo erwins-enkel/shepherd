@@ -311,7 +311,10 @@ const BUILTINS: ReadonlyArray<{ name: string; description: string; argumentHint?
   },
 ];
 
-type CodexConfig = { skills?: { config?: Array<{ path?: unknown; enabled?: unknown }> } };
+type CodexConfig = {
+  skills?: { config?: Array<{ path?: unknown; enabled?: unknown }> };
+  plugins?: Record<string, { enabled?: unknown } | undefined>;
+};
 
 function commandContentHash(path: string): string | undefined {
   try {
@@ -327,13 +330,16 @@ function codexHomeDefault(): string {
   return process.env.CODEX_HOME || join(homedir(), ".codex");
 }
 
-function disabledSkillPaths(codexHome: string): Set<string> {
-  let parsed: CodexConfig;
+/** `$CODEX_HOME/config.toml`, or `{}` when it is missing or unparseable. */
+function readCodexConfig(codexHome: string): CodexConfig {
   try {
-    parsed = Bun.TOML.parse(readFileSync(join(codexHome, "config.toml"), "utf8")) as CodexConfig;
+    return Bun.TOML.parse(readFileSync(join(codexHome, "config.toml"), "utf8")) as CodexConfig;
   } catch {
-    return new Set();
+    return {};
   }
+}
+
+function disabledSkillPaths(codexHome: string, parsed = readCodexConfig(codexHome)): Set<string> {
   const out = new Set<string>();
   for (const entry of parsed.skills?.config ?? []) {
     if (typeof entry.path !== "string" || entry.enabled !== false) continue;
@@ -496,6 +502,76 @@ function collectCodexPlugins(codexHome: string, disabled: Set<string>, out: Slas
         out,
       );
     }
+  }
+}
+
+/** What a repo's plugin / skill allowlists (#3780) can switch off in a Codex spawn. */
+export interface CodexExtensions {
+  /** `<plugin>@<marketplace>` ids of the installed plugins whose effective state is on. */
+  plugins: string[];
+  /** The operator's personal skills (`~/.agents/skills`): front-matter name + `SKILL.md` path. */
+  skills: { name: string; path: string }[];
+}
+
+/** A plugin's effective on/off state: its own `enabled`, else `plugins._default.enabled`, else on. */
+function codexPluginEnabled(config: CodexConfig, id: string): boolean {
+  const own = config.plugins?.[id]?.enabled;
+  if (typeof own === "boolean") return own;
+  return config.plugins?._default?.enabled !== false;
+}
+
+/**
+ * The operator's Codex plugins and personal skills (#3780), read fresh from disk.
+ *
+ * A plugin is installed when `$CODEX_HOME/plugins/cache/<marketplace>/<plugin>/` holds a version
+ * with `.codex-plugin/plugin.json`: remote-catalog installs (which also carry
+ * `.codex-remote-plugin-install.json`) and local-marketplace installs alike. Personal skills are
+ * `~/.agents/skills/<dir>/SKILL.md` with a front-matter `name`, minus those `[[skills.config]]`
+ * already disables. Bundled (`.system`), admin and repo skills are not personal and never listed.
+ */
+export function readCodexExtensions(
+  opts: { codexHome?: string; userHome?: string } = {},
+): CodexExtensions {
+  const codexHome = opts.codexHome ?? codexHomeDefault();
+  const config = readCodexConfig(codexHome);
+  return {
+    plugins: enabledCodexPlugins(codexHome, config),
+    skills: personalCodexSkills(
+      join(opts.userHome ?? homedir(), ".agents", "skills"),
+      disabledSkillPaths(codexHome, config),
+    ),
+  };
+}
+
+function enabledCodexPlugins(codexHome: string, config: CodexConfig): string[] {
+  const cacheDir = join(codexHome, "plugins", "cache");
+  const plugins: string[] = [];
+  for (const marketplace of safeReaddir(cacheDir)) {
+    for (const entry of safeReaddir(join(cacheDir, marketplace))) {
+      const id = `${entry}@${marketplace}`;
+      if (pluginVersionRoot(join(cacheDir, marketplace, entry)) && codexPluginEnabled(config, id))
+        plugins.push(id);
+    }
+  }
+  return plugins;
+}
+
+function personalCodexSkills(root: string, disabled: Set<string>): CodexExtensions["skills"] {
+  const skills: CodexExtensions["skills"] = [];
+  for (const entry of safeReaddir(root)) {
+    const path = join(root, entry, "SKILL.md");
+    const name = isDisabledSkill(path, disabled) ? undefined : skillFrontmatterName(path);
+    if (name) skills.push({ name, path });
+  }
+  return skills;
+}
+
+/** A `SKILL.md`'s front-matter `name`, or undefined when unreadable or nameless. */
+function skillFrontmatterName(path: string): string | undefined {
+  try {
+    return parseFrontmatter(readFileSync(path, "utf8")).fm.name?.trim() || undefined;
+  } catch {
+    return undefined;
   }
 }
 

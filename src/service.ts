@@ -80,7 +80,7 @@ import {
   type OperatorLanguage,
 } from "./operator-language";
 import { joinPromptBlocks, measurePromptBlocks, type PromptBlock } from "./prompt-budget";
-import { skillNameFrom } from "./commands";
+import { readCodexExtensions, skillNameFrom, type CodexExtensions } from "./commands";
 import { buildToolGuardFragment, toolGuardMembranePaths } from "./tool-guard-hook";
 import {
   AGENT_SKILL_NAMES,
@@ -453,6 +453,9 @@ export interface ServiceDeps {
   /** The operator's user-level skill names, disabled on trimmed auto spawns; defaults to the
    *  memoized read of ~/.claude/skills (userSkillNames). Inject point for tests. */
   userSkills?: () => Promise<string[]>;
+  /** The operator's Codex plugins + personal skills a repo's allowlists (#3780) can switch off in a
+   *  Codex spawn; defaults to a fresh readCodexExtensions(). Inject point for tests. */
+  codexExtensions?: () => CodexExtensions;
   /** Server-side plugin spawn-hook runner (issue #1124): runs every plugin `onSpawn`
    *  hook and returns the merged, bounded SpawnPatch. Absent (no plugins / tests) → no
    *  hooks fire. May reject with PluginSpawnAborted to hard-block the spawn. Wired from
@@ -945,10 +948,43 @@ export interface SpawnTrimOverlay {
 }
 
 /** A repo's plugin / personal-skill allowlists (#3780): `null` leaves that catalog untouched, a
- *  list keeps only its entries (see trimDecision). */
+ *  list keeps only its entries (see trimDecision; Codex spawns: codexAllowlistArgs). */
 interface TrimAllowlists {
   plugins: string[] | null;
   skills: string[] | null;
+}
+
+/**
+ * The `-c` config overrides that apply a repo's plugin / skill allowlists (#3780) to a Codex spawn
+ * or resume. Codex has no drain trim, so every Codex task spawn, auto included, honors them. A set
+ * plugin allowlist switches off every installed Codex plugin outside it; a set skill allowlist every
+ * personal skill (`~/.agents/skills`) whose name is outside it. Skills are matched by `path`, so the
+ * repo's own `.agents/skills` entry of the same name stays; bundled system skills stay too. Both
+ * lists `null` (or nothing to switch off) → no flags.
+ *
+ * Each list goes in as ONE table / array value. `-c plugins={"<id>"={enabled=false}}` merges with the
+ * operator's `[plugins.*]` in config.toml; the dotted form `plugins."<id>".enabled=false` keeps the
+ * quotes inside the key and switches nothing off (codex-cli 0.164). A JSON string literal is a
+ * valid TOML basic string, so ids and paths are quoted with JSON.stringify.
+ *
+ * Verified live against codex-cli 0.164: the plugin override reaches local-marketplace plugins only.
+ * Remote-catalog plugins (`@openai-curated-remote`) keep their server-managed on/off state, so they
+ * stay on; the picker says so.
+ */
+export function codexAllowlistArgs(allow: TrimAllowlists, ext: CodexExtensions): string[] {
+  const args: string[] = [];
+  const { plugins, skills } = allow;
+  const offPlugins = plugins ? ext.plugins.filter((id) => !plugins.includes(id)) : [];
+  if (offPlugins.length > 0) {
+    const entries = offPlugins.map((id) => `${JSON.stringify(id)}={enabled=false}`);
+    args.push("-c", `plugins={${entries.join(",")}}`);
+  }
+  const offSkills = skills ? ext.skills.filter((skill) => !skills.includes(skill.name)) : [];
+  if (offSkills.length > 0) {
+    const entries = offSkills.map((skill) => `{path=${JSON.stringify(skill.path)},enabled=false}`);
+    args.push("-c", `skills.config=[${entries.join(",")}]`);
+  }
+  return args;
 }
 
 /**
@@ -993,7 +1029,8 @@ interface TrimAllowlists {
  * {@link TrimAllowlists}): a set plugin allowlist disables every operator plugin outside it, a set
  * skill allowlist every personal skill outside it — through the same project-skill guard as the
  * drain trim. Bundled skills stay, and there is no trim notice: the operator chose what this repo
- * keeps. Neither set → no overlay keys at all, so the spawn is unchanged.
+ * keeps. Neither set → no overlay keys at all, so the spawn is unchanged. Codex spawns take the same
+ * lists, auto included, through {@link codexAllowlistArgs}.
  */
 async function trimDecision(
   auto: boolean,
@@ -3265,6 +3302,15 @@ export class SessionService {
     );
   }
 
+  /** The repo's plugin / skill allowlists (#3780) as Codex `-c` overrides (codexAllowlistArgs).
+   *  The operator's Codex catalog is read only when at least one list is set. */
+  private codexAllowlistFor(repoPath: string): string[] {
+    const cfg = this.deps.store.getRepoConfig(repoPath);
+    const allow = { plugins: cfg.pluginAllowlist ?? null, skills: cfg.skillAllowlist ?? null };
+    if (!allow.plugins && !allow.skills) return [];
+    return codexAllowlistArgs(allow, (this.deps.codexExtensions ?? readCodexExtensions)());
+  }
+
   /** Sandbox backend probe: injected seam (tests) or the real cached self-test. Checks
    *  for the dep's PRESENCE rather than `?? real()` — the seam legitimately returns null
    *  (no backend), which `??` would collapse into the real probe. */
@@ -4343,6 +4389,7 @@ export class SessionService {
     const model = clampCodexModelForAuth(input.model, "codex", this.codexAuthMode());
     if (model) argv.push("--model", model);
     this.pushEffortFlag(argv, input.effort, "codex");
+    argv.push(...this.codexAllowlistFor(input.repoPath));
     const autopilotActive = effectiveAutopilot(
       { autopilotEnabled: input.autopilotEnabled ?? null },
       repoConfig.autopilotEnabled,
@@ -4372,6 +4419,7 @@ export class SessionService {
     model: string | null,
     effort: string | null,
     sessionId: string,
+    repoPath: string,
   ): string[] {
     // Never select by cwd: even an isolated worktree can contain an operator-started session.
     const argv = [
@@ -4389,6 +4437,7 @@ export class SessionService {
       );
     if (spawnModel) argv.push("--model", spawnModel);
     this.pushEffortFlag(argv, effort, "codex");
+    argv.push(...this.codexAllowlistFor(repoPath));
     return argv;
   }
 
@@ -4457,7 +4506,7 @@ export class SessionService {
   ): Promise<string[]> {
     if (isOperatorAssistant(s)) return this.operatorAssistantArgv(s, true);
     return provider === "codex"
-      ? this.buildCodexResumeArgv(s.model, phaseEffort(s), codexSessionId!)
+      ? this.buildCodexResumeArgv(s.model, phaseEffort(s), codexSessionId!, s.repoPath)
       : this.buildClaudeResumeArgv(s, trim);
   }
 

@@ -1038,6 +1038,7 @@ function addSchedule(
       prompt: "/triage-feedback",
       days: 0b0010001,
       times: ["09:00"],
+      interval: null,
       enabled: true,
       launch: { ...DEFAULT_LAUNCH, ...launch },
     },

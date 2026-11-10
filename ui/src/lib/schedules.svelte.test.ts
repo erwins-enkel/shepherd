@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cadenceSummary,
+  intervalStats,
   outcomeLabel,
   outcomeTone,
   schedules,
@@ -217,5 +218,54 @@ describe("upcomingSlots", () => {
     expect(upcomingSlots(ALL_DAYS, ["", "25:00", "09:"], at(9), 3)).toEqual([]);
     expect(upcomingSlots(ALL_DAYS, ["", "18:00"], at(9), 1)).toEqual([at(9, 18)]);
     expect(upcomingSlots(ALL_DAYS, ["09:00"], at(9), 0)).toEqual([]);
+  });
+});
+
+describe("interval presentation", () => {
+  const interval = { everyMinutes: 15 as const, from: "08:00", until: "18:00" };
+  it("counts slots and formats a window and all day", () => {
+    expect(intervalStats(WORKDAYS, interval)).toEqual({ perDay: 40, perWeek: 200, last: "17:45" });
+    expect(intervalStats(ALL_DAYS, { ...interval, from: null, until: null })).toEqual({
+      perDay: 96,
+      perWeek: 672,
+      last: "23:45",
+    });
+    expect(cadenceSummary(WORKDAYS, [], "en", interval)).toBe(
+      "Mon–Fri · every 15 min · 08:00–18:00",
+    );
+    expect(cadenceSummary(ALL_DAYS, [], "en", { ...interval, from: null, until: null })).toBe(
+      "Mon–Sun · every 15 min · around the clock",
+    );
+  });
+  it("previews exclusive window slots and skips inactive days", () => {
+    const now = new Date(2026, 9, 30, 17, 30).getTime();
+    expect(upcomingSlots(WORKDAYS, [], now, 3, interval)).toEqual([
+      new Date(2026, 9, 30, 17, 45).getTime(),
+      new Date(2026, 10, 2, 8).getTime(),
+      new Date(2026, 10, 2, 8, 15).getTime(),
+    ]);
+    expect(upcomingSlots(ALL_DAYS, [], now, 3, { ...interval, until: "08:00" })).toEqual([]);
+    expect(intervalStats(WORKDAYS, { ...interval, until: "08:00" })).toBeNull();
+  });
+  it.each([
+    [2, 29],
+    [9, 25],
+  ])("previews unique instants across DST month %i day %i", (month, day) => {
+    const start = new Date(2026, month, day).getTime();
+    const end = new Date(2026, month, day + 1).getTime();
+    const slots = upcomingSlots(ALL_DAYS, [], start - 1, 300, {
+      everyMinutes: 15,
+      from: null,
+      until: null,
+    }).filter((at) => at < end);
+    expect(slots).toHaveLength(Math.min(96, (end - start) / 900_000));
+    expect(new Set(slots).size).toBe(slots.length);
+    expect(slots[0]).toBe(start);
+  });
+  it("distinguishes historical stale reasons", () => {
+    expect(outcomeLabel("skipped:stale", "missed by more than one interval")).toBe(
+      "skipped, missed by more than one interval",
+    );
+    expect(outcomeLabel("skipped:stale", "missed slot older than 12h")).toContain("12h");
   });
 });

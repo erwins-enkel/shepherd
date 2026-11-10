@@ -9,7 +9,8 @@
  * The scheduler only ever considers the LATEST due slot. That one rule gives on-time firing and
  * catch-up-once: a missed slot fires when Shepherd comes back, unless a newer slot already arrived
  * (then only the newer one). A missed slot older than {@link STALE_MS} is recorded as stale
- * instead — a weekend-old run is never what the operator wants on Monday morning.
+ * instead — a weekend-old run is never what the operator wants on Monday morning. Intervals use
+ * one interval as their stale cap and collapse spring-forward collisions to one nominal slot.
  */
 import { AGENT_PROVIDERS, type AgentProvider, type StandardCreateInput } from "./types";
 import type { SandboxProfile } from "./sandbox";
@@ -56,6 +57,12 @@ export interface ScheduleLaunch {
   baseBranch: string | null;
 }
 
+export interface ScheduleInterval {
+  everyMinutes: 5 | 10 | 15 | 30 | 60;
+  from: string | null;
+  until: string | null;
+}
+
 export interface Schedule {
   id: string;
   repoPath: string;
@@ -63,6 +70,7 @@ export interface Schedule {
   prompt: string;
   days: number;
   times: string[];
+  interval: ScheduleInterval | null;
   enabled: boolean;
   launch: ScheduleLaunch;
   /** Slots before this instant never fire — stamped on create, enable and cadence edits. */
@@ -91,6 +99,7 @@ export interface ScheduleInput {
   prompt: string;
   days: number;
   times: string[];
+  interval: ScheduleInterval | null;
   enabled: boolean;
   launch: ScheduleLaunch;
 }
@@ -108,7 +117,16 @@ export const DEFAULT_LAUNCH: ScheduleLaunch = {
 };
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-const KEYS = new Set(["repoPath", "name", "prompt", "days", "times", "enabled", "launch"]);
+const KEYS = new Set([
+  "repoPath",
+  "name",
+  "prompt",
+  "days",
+  "times",
+  "interval",
+  "enabled",
+  "launch",
+]);
 /** The launch options a schedule carries, by name. */
 export const SCHEDULE_LAUNCH_KEYS = Object.keys(DEFAULT_LAUNCH) as (keyof ScheduleLaunch)[];
 const LAUNCH_KEYS = new Set<string>(SCHEDULE_LAUNCH_KEYS);
@@ -140,26 +158,53 @@ export interface Slot {
 }
 
 /** The slots of one local day (`offset` days from `now`'s day), in time order. */
-function slotsOn(days: number, times: readonly string[], now: number, offset: number): Slot[] {
+function slotsOn(
+  days: number,
+  times: readonly string[],
+  now: number,
+  offset: number,
+  interval: ScheduleInterval | null,
+): Slot[] {
   const base = new Date(now);
   const day = new Date(base.getFullYear(), base.getMonth(), base.getDate() + offset);
   if (!(days & dayBit(day))) return [];
-  return times.map((t) => ({ slotKey: slotKeyOf(day, t), at: slotAt(day, t) }));
+  if (!interval) return times.map((t) => ({ slotKey: slotKeyOf(day, t), at: slotAt(day, t) }));
+  const minuteOf = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
+  const start = interval.from === null ? 0 : minuteOf(interval.from);
+  const end = interval.until === null ? 1440 : minuteOf(interval.until);
+  const slots = new Map<number, Slot>();
+  for (let minute = start; minute < end; minute += interval.everyMinutes) {
+    const time = `${pad(Math.floor(minute / 60))}:${pad(minute % 60)}`;
+    const at = slotAt(day, time);
+    // Spring-forward normalization can map two nominal times onto the same instant.
+    if (!slots.has(at)) slots.set(at, { slotKey: slotKeyOf(day, time), at });
+  }
+  return [...slots.values()].sort((a, b) => a.at - b.at);
 }
 
 /** The latest slot at or before `now`, or null when none falls within the last week. */
-export function latestDueSlot(days: number, times: readonly string[], now: number): Slot | null {
+export function latestDueSlot(
+  days: number,
+  times: readonly string[],
+  now: number,
+  interval: ScheduleInterval | null = null,
+): Slot | null {
   for (let back = 0; back <= 7; back++) {
-    const due = slotsOn(days, times, now, -back).filter((s) => s.at <= now);
+    const due = slotsOn(days, times, now, -back, interval).filter((s) => s.at <= now);
     if (due.length) return due.reduce((a, b) => (b.at > a.at ? b : a));
   }
   return null;
 }
 
 /** The next slot strictly after `now`, or null for an empty cadence. */
-export function nextSlot(days: number, times: readonly string[], now: number): Slot | null {
+export function nextSlot(
+  days: number,
+  times: readonly string[],
+  now: number,
+  interval: ScheduleInterval | null = null,
+): Slot | null {
   for (let ahead = 0; ahead <= 7; ahead++) {
-    const later = slotsOn(days, times, now, ahead).filter((s) => s.at > now);
+    const later = slotsOn(days, times, now, ahead, interval).filter((s) => s.at > now);
     if (later.length) return later.reduce((a, b) => (b.at < a.at ? b : a));
   }
   return null;
@@ -171,10 +216,49 @@ export function decideFiring(args: {
   baselineAt: number;
   hasRow: boolean;
   now: number;
+  interval?: ScheduleInterval | null;
 }): "none" | "stale" | "fire" {
   const { slot, baselineAt, hasRow, now } = args;
   if (!slot || slot.at < baselineAt || hasRow) return "none";
-  return now - slot.at > STALE_MS ? "stale" : "fire";
+  return now - slot.at > (args.interval ? args.interval.everyMinutes * 60_000 : STALE_MS)
+    ? "stale"
+    : "fire";
+}
+
+function validateInterval(raw: unknown): Result<ScheduleInterval | null> {
+  if (raw === undefined || raw === null) return { ok: true, value: null };
+  if (typeof raw !== "object" || Array.isArray(raw))
+    return fail("interval must be an object or null");
+  const obj = raw as Record<string, unknown>;
+  if (Object.keys(obj).some((key) => !["everyMinutes", "from", "until"].includes(key)))
+    return fail("unknown interval key");
+  if (![5, 10, 15, 30, 60].includes(obj.everyMinutes as number))
+    return fail("interval.everyMinutes must be 5, 10, 15, 30 or 60");
+  if (obj.from === null && obj.until === null)
+    return {
+      ok: true,
+      value: {
+        everyMinutes: obj.everyMinutes as ScheduleInterval["everyMinutes"],
+        from: null,
+        until: null,
+      },
+    };
+  if (
+    typeof obj.from !== "string" ||
+    !TIME_RE.test(obj.from) ||
+    typeof obj.until !== "string" ||
+    !TIME_RE.test(obj.until)
+  )
+    return fail('interval.from and interval.until must both be "HH:MM" or both null');
+  if (obj.until <= obj.from) return fail("until must be after from");
+  return {
+    ok: true,
+    value: {
+      everyMinutes: obj.everyMinutes as ScheduleInterval["everyMinutes"],
+      from: obj.from,
+      until: obj.until,
+    },
+  };
 }
 
 function validateTimes(raw: unknown): Result<string[]> {
@@ -227,7 +311,13 @@ export function validateScheduleInput(body: unknown, repoRoot: string): Result<S
   if (typeof obj.prompt !== "string") return fail("prompt must be a string");
   if (!Number.isInteger(obj.days) || (obj.days as number) < 1 || (obj.days as number) > ALL_DAYS)
     return fail("days must be a weekday bitmask 1–127 (bit 0 = Monday)");
-  const times = validateTimes(obj.times);
+  const interval = validateInterval(obj.interval);
+  if (!interval.ok) return interval;
+  const times = interval.value
+    ? Array.isArray(obj.times) && obj.times.length === 0
+      ? { ok: true as const, value: [] as string[] }
+      : fail("times must be [] with an interval")
+    : validateTimes(obj.times);
   if (!times.ok) return times;
   if (obj.enabled !== undefined && typeof obj.enabled !== "boolean")
     return fail("enabled must be a boolean");
@@ -239,6 +329,7 @@ export function validateScheduleInput(body: unknown, repoRoot: string): Result<S
     prompt: obj.prompt.trim(),
     days: obj.days as number,
     times: times.value,
+    interval: interval.value,
     enabled: obj.enabled ?? true,
     launch: launch.value,
   };

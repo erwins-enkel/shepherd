@@ -188,3 +188,13 @@ test("app-managed update pulls, installs and builds without units or premature h
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+// paraglide's persistent cache is keyed by the absolute outdir; the Mac app builds each update in a
+// fresh staged dir, so the cache grew one file per update until Lix's 64 MiB read cap broke the UI
+// build. update.sh must clear it before building.
+test("update.sh clears the paraglide cache before the UI build", () => {
+  const clear = src.indexOf('rm -rf "$REPO/ui/project.inlang/cache"');
+  const build = src.indexOf("(cd ui && bun run build)");
+  expect(clear).toBeGreaterThan(-1);
+  expect(build).toBeGreaterThan(clear);
+});

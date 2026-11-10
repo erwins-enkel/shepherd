@@ -403,6 +403,34 @@ describe("ChatView steers", () => {
   });
 });
 
+describe("ChatView speakers", () => {
+  it("the operator's message sits at the right edge, named above it; the agent stays left", async () => {
+    mockMessages.mockResolvedValue({
+      messages: [
+        { role: "assistant", text: "The export is done.", ts: 1000 },
+        { role: "user", text: "Ship it", ts: 2000 },
+      ],
+      awaitingInput: false,
+      pendingQuestion: null,
+      unavailable: null,
+    });
+    render(ChatView, props({ status: "idle" }));
+    const mine = page.getByText("Ship it");
+    const theirs = page.getByText("The export is done.");
+    await expect.element(mine).toBeVisible();
+    await expect.element(theirs).toBeVisible();
+    const thread = page.getByRole("log").element().getBoundingClientRect();
+    const bubble = mine.element().getBoundingClientRect();
+    const reply = theirs.element().getBoundingClientRect();
+    expect(thread.right - bubble.right).toBeLessThan(48);
+    expect(bubble.left).toBeGreaterThan(reply.left);
+    const you = page.getByText(m.assistant_chat_you(), { exact: true }).element();
+    expect(you.compareDocumentPosition(mine.element()) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+});
+
 describe("ChatView command menu", () => {
   const command = (name: string, provider: "claude" | "codex" = "claude"): SlashCommand => ({
     id: `test:${provider}:${name}`,

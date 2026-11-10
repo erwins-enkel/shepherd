@@ -352,3 +352,31 @@ async fn run_of_a_missing_schedule_is_not_found() {
     let h = Harness::new();
     assert_eq!(h.run(&["--url", &s.uri(), "schedule", "run", ID]).await, 5);
 }
+
+#[tokio::test]
+async fn schedule_ls_displays_intervals() {
+    for (from, until, label) in [
+        (Some("08:00"), Some("18:00"), "every 15m 08:00-18:00"),
+        (None, None, "every 15m all day"),
+    ] {
+        let server = MockServer::start().await;
+        let mut schedule = schedule_json(ID, "Interval");
+        schedule["times"] = json!([]);
+        schedule["interval"] = json!({"everyMinutes": 15, "from": from, "until": until});
+        mount_list(&server, json!([schedule])).await;
+        let h = Harness {
+            tty: true,
+            ..Harness::new()
+        };
+        assert_eq!(
+            h.run(&["--url", &server.uri(), "schedule", "ls"]).await,
+            0,
+            "{}",
+            h.err.text()
+        );
+        assert!(h.out.text().contains(label), "{}", h.out.text());
+        let h = Harness::new();
+        assert_eq!(h.run(&["--url", &server.uri(), "schedule", "ls"]).await, 0);
+        assert_eq!(h.json()["schedules"][0]["interval"]["everyMinutes"], 15);
+    }
+}

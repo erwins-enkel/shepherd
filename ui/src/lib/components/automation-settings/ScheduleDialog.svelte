@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getContext, onMount, tick, untrack } from "svelte";
   import "./schedule-fields.css";
+  import ScheduleIntervalFields from "./ScheduleIntervalFields.svelte";
   import ScheduleEngineFields from "./ScheduleEngineFields.svelte";
   import { MediaQuery } from "svelte/reactivity";
   import { basename } from "#lib/basename.js";
@@ -16,6 +17,7 @@
     schedules,
     weekdayNames,
     upcomingSlots,
+    intervalStats,
     SCHEDULE_USAGE,
     WORKDAYS,
     ALL_DAYS,
@@ -25,6 +27,7 @@
     SandboxProfile,
     Schedule,
     ScheduleInput,
+    ScheduleInterval,
     UsageLimits,
   } from "#lib/types.js";
 
@@ -49,7 +52,22 @@
   let name = $state(init?.name ?? "");
   let prompt = $state(init?.prompt ?? "");
   let days = $state(init?.days ?? WORKDAYS);
-  let times = $state<string[]>(init ? [...init.times] : ["09:00"]);
+  let times = $state<string[]>(init?.times.length ? [...init.times] : ["09:00"]);
+  let cadenceMode = $state<"fixed" | "interval">(init?.interval ? "interval" : "fixed");
+  let everyMinutes = $state<ScheduleInterval["everyMinutes"]>(init?.interval?.everyMinutes ?? 15);
+  let intervalFrom = $state(init?.interval?.from ?? "08:00");
+  let intervalUntil = $state(init?.interval?.until ?? "18:00");
+  let allDay = $state(!!init?.interval && init.interval.from === null);
+  const interval = $derived<ScheduleInterval | null>(
+    cadenceMode === "interval"
+      ? {
+          everyMinutes,
+          from: allDay ? null : intervalFrom,
+          until: allDay ? null : intervalUntil,
+        }
+      : null,
+  );
+  const stats = $derived(interval ? intervalStats(days, interval) : null);
   let autopilot = $state<Tri>(triOf(init ? init.launch.autopilotEnabled : false));
   let planGate = $state<Tri>(triOf(init?.launch.planGateEnabled ?? null));
   let research = $state(init?.launch.research ?? false);
@@ -93,7 +111,7 @@
   );
   const verdictKnown = $derived(!!capacity && (effectiveProvider === "codex" || !!globals));
   const names = $derived(weekdayNames(getLocale()));
-  const slots = $derived(upcomingSlots(days, times, now, 3));
+  const slots = $derived(upcomingSlots(days, times, now, 3, interval));
   const slotLabels = $derived(
     slots.map((at) => {
       const date = new Date(at);
@@ -104,7 +122,7 @@
   const timesValid = $derived(
     times.length > 0 && times.every((t) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t)),
   );
-  const whenValid = $derived(days !== 0 && timesValid);
+  const whenValid = $derived(days !== 0 && (interval ? stats !== null : timesValid));
   const valid = $derived(whatValid && whenValid);
   const sandboxOptions = $derived([
     { value: "", label: m.sandbox_profile_inherit_unresolved() },
@@ -237,7 +255,8 @@
       name: name.trim(),
       prompt: prompt.trim(),
       days,
-      times: times.filter(Boolean),
+      times: interval ? [] : times.filter(Boolean),
+      interval,
       launch: {
         agentProvider: provider || null,
         model: model || null,
@@ -384,41 +403,67 @@
           </div>
           {#if touched.when && !days}<p class="error">{m.schedules_days_required()}</p>{/if}
         </fieldset>
-        <fieldset class="field">
-          <legend>{m.schedules_field_times()}</legend>
-          <div class="times">
-            {#each times as t, i (i)}
-              <span class="time">
-                <input
-                  type="time"
-                  value={t}
-                  required
-                  aria-label={m.schedules_field_time_n({ n: i + 1 })}
-                  aria-invalid={touched.when && !t}
-                  onchange={(e) => setTime(i, e.currentTarget.value)}
-                />
-                {#if times.length > 1}
-                  <button
-                    type="button"
-                    class="gbtn"
-                    aria-label={m.schedules_time_remove()}
-                    onclick={() => {
-                      times.splice(i, 1);
-                      touched.when = true;
-                    }}>×</button
-                  >
-                {/if}
-              </span>
-            {/each}
-            {#if times.length < 12}
-              <button type="button" class="text-link" onclick={() => times.push("18:00")}
-                >{m.schedules_time_add()}</button
-              >
-            {/if}
-          </div>
-          {#if touched.when && !timesValid}<p class="error">{m.schedules_times_required()}</p>{/if}
-          <p class="hint">{m.schedules_times_hint()}</p>
-        </fieldset>
+        <div class="cadence-modes" role="group" aria-label={m.schedules_tab_when()}>
+          <button
+            type="button"
+            class="gbtn"
+            aria-pressed={cadenceMode === "fixed"}
+            onclick={() => (cadenceMode = "fixed")}>{m.schedules_cadence_fixed()}</button
+          >
+          <button
+            type="button"
+            class="gbtn"
+            aria-pressed={cadenceMode === "interval"}
+            onclick={() => (cadenceMode = "interval")}>{m.schedules_cadence_interval()}</button
+          >
+        </div>
+        {#if interval}
+          <ScheduleIntervalFields
+            bind:everyMinutes
+            bind:intervalFrom
+            bind:intervalUntil
+            bind:allDay
+            {stats}
+          />
+        {:else}
+          <fieldset class="field">
+            <legend>{m.schedules_field_times()}</legend>
+            <div class="times">
+              {#each times as t, i (i)}
+                <span class="time">
+                  <input
+                    type="time"
+                    value={t}
+                    required
+                    aria-label={m.schedules_field_time_n({ n: i + 1 })}
+                    aria-invalid={touched.when && !t}
+                    onchange={(e) => setTime(i, e.currentTarget.value)}
+                  />
+                  {#if times.length > 1}
+                    <button
+                      type="button"
+                      class="gbtn"
+                      aria-label={m.schedules_time_remove()}
+                      onclick={() => {
+                        times.splice(i, 1);
+                        touched.when = true;
+                      }}>×</button
+                    >
+                  {/if}
+                </span>
+              {/each}
+              {#if times.length < 12}
+                <button type="button" class="text-link" onclick={() => times.push("18:00")}
+                  >{m.schedules_time_add()}</button
+                >
+              {/if}
+            </div>
+            {#if touched.when && !timesValid}<p class="error">
+                {m.schedules_times_required()}
+              </p>{/if}
+            <p class="hint">{m.schedules_times_hint()}</p>
+          </fieldset>
+        {/if}
         <div class="preview">
           <h3>{m.schedules_upcoming()}</h3>
           <p>{slotLabels.length ? slotLabels.join(" · ") : m.schedules_upcoming_empty()}</p>
@@ -503,6 +548,19 @@
 </dialog>
 
 <style>
+  .cadence-modes {
+    display: flex;
+    gap: 8px;
+  }
+  .cadence-modes .gbtn {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+  }
+  .cadence-modes [aria-pressed="true"] {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+  }
   .sched-dlg {
     width: min(960px, 94vw);
     max-height: 90dvh;

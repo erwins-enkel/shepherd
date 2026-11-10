@@ -104,6 +104,7 @@ import type { GitState, WorkflowJob } from "./forge/types";
 import type {
   Schedule,
   ScheduleInput,
+  ScheduleInterval,
   ScheduleLaunch,
   ScheduleOutcome,
   ScheduleRun,
@@ -927,6 +928,7 @@ type ScheduleRow = {
   prompt: string;
   days: number;
   timesJson: string;
+  intervalJson: string | null;
   enabled: number;
   launchJson: string;
   baselineAt: number;
@@ -2336,6 +2338,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // A table created before #2766 has no `uploads`, before #2775 no `project`; a fresh one already
     // has both (no write here).
     this.addMissingColumns("remote_dispatches", { uploads: "TEXT", project: "TEXT" });
+    this.addMissingColumns("schedules", { intervalJson: "TEXT" });
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS schedule_runs_history ON schedule_runs (scheduleId, at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS schedule_runs_at ON schedule_runs (at);
+    `);
     // Commits the whole bootstrap (see the BEGIN above). No try/ROLLBACK: a throw here escapes the
     // constructor, so no caller ever holds this store, and SQLite discards the open transaction
     // when the handle is finalized. Deliberately no wrapping block — that would re-indent the
@@ -8387,6 +8394,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       prompt: r.prompt,
       days: r.days,
       times: JSON.parse(r.timesJson) as string[],
+      interval: r.intervalJson ? (JSON.parse(r.intervalJson) as ScheduleInterval) : null,
       enabled: !!r.enabled,
       launch: JSON.parse(r.launchJson) as ScheduleLaunch,
       baselineAt: r.baselineAt,
@@ -8416,8 +8424,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   insertSchedule(input: ScheduleInput, now: number): Schedule {
     const id = randomUUID();
     this.db.run(
-      `INSERT INTO schedules (id, repoPath, name, prompt, days, timesJson, enabled, launchJson,
-         baselineAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO schedules (id, repoPath, name, prompt, days, timesJson, intervalJson, enabled, launchJson,
+         baselineAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         input.repoPath,
@@ -8425,6 +8433,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         input.prompt,
         input.days,
         JSON.stringify(input.times),
+        input.interval ? JSON.stringify(input.interval) : null,
         input.enabled ? 1 : 0,
         JSON.stringify(input.launch),
         now,
@@ -8439,7 +8448,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
    *  — the caller passes it on enable and on a cadence change. */
   updateSchedule(id: string, input: ScheduleInput, now: number, rebaseline: boolean): void {
     this.db.run(
-      `UPDATE schedules SET name = ?, prompt = ?, days = ?, timesJson = ?, enabled = ?,
+      `UPDATE schedules SET name = ?, prompt = ?, days = ?, timesJson = ?, intervalJson = ?, enabled = ?,
          launchJson = ?, baselineAt = CASE WHEN ? THEN ? ELSE baselineAt END, updatedAt = ?
        WHERE id = ?`,
       [
@@ -8447,6 +8456,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         input.prompt,
         input.days,
         JSON.stringify(input.times),
+        input.interval ? JSON.stringify(input.interval) : null,
         input.enabled ? 1 : 0,
         JSON.stringify(input.launch),
         rebaseline ? 1 : 0,

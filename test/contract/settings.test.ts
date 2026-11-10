@@ -687,6 +687,29 @@ test("schedules CRUD, run now and runs (#3469)", async () => {
   await request("GET", base, 200, undefined, `${base}?repo=${encodeURIComponent(s.validRepo)}`);
   await request("PATCH", one, 200, { enabled: false }, at());
   await request("PATCH", one, 400, { times: [] }, at());
+  await request(
+    "PATCH",
+    one,
+    200,
+    { times: [], interval: { everyMinutes: 15, from: "08:00", until: "18:00" } },
+    at(),
+  );
+  await request("GET", base, 200);
+  await request(
+    "PATCH",
+    one,
+    200,
+    { interval: { everyMinutes: 5, from: null, until: null } },
+    at(),
+  );
+  await request(
+    "PATCH",
+    one,
+    400,
+    { interval: { everyMinutes: 7, from: null, until: null } },
+    at(),
+  );
+  await request("PATCH", one, 200, { times: ["09:00"], interval: null }, at());
   await request("PATCH", one, 404, { name: "x" }, "/api/schedules/nope");
   const saved = s.deps.schedules;
   s.deps.schedules = {

@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { BootstrapStepKind } from "#lib/components/bootstrap-checklist.js";
   import type { ClearMergedProbes } from "#lib/components/clear-merged-scope.js";
-  import type { ComponentProps } from "svelte";
+  import { setContext, type ComponentProps } from "svelte";
+  import { SCHEDULE_USAGE } from "#lib/schedules.svelte.js";
   import { displayStatus } from "#lib/display-status.js";
   import { repos } from "#lib/repos.svelte.js";
   import { capacitySuggestedProvider } from "#lib/provider-capacity.js";
@@ -427,6 +428,8 @@
       composeModel == null &&
       composeImages.length === 0,
   );
+  setContext(SCHEDULE_USAGE, () => store.usageLimits);
+
   // Bumped by "Discard & new task" to remount the composer blank.
   let newTaskGeneration = $state(0);
   const newTaskFableAvailable = $derived(settings?.fableAvailable ?? true);

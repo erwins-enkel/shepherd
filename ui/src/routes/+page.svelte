@@ -4196,6 +4196,7 @@
             attended={store.attended}
             ontab={(t) => (sessionTab = t)}
             session={selected}
+            herd={store.sessions}
             autoMergeTrain={store.autoMerge}
             mobile={mobile.current}
             connected={store.connected}
@@ -4444,6 +4445,7 @@
               ontab={(t) => (sessionTab = t)}
               bind:this={viewportRef}
               session={selected}
+              herd={store.sessions}
               autoMergeTrain={store.autoMerge}
               touch={touch.current}
               git={store.git[selected.id]}

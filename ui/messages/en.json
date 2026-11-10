@@ -8456,5 +8456,7 @@
   "epic_history_closed_chip": "CLOSED WITHOUT LANDING",
   "epic_history_closed_body": "The epic issue closed before its landing PR merged — not counted as a success.",
   "feat_epic_success_ack_title": "Completed epics stay until you confirm them",
-  "feat_epic_success_ack_body": "A successfully completed epic now stays in the Herd with its completion time, even after its sessions are gone. Click “Confirm completion” to move it to Done → Epics, where it keeps its issues and PRs."
+  "feat_epic_success_ack_body": "A successfully completed epic now stays in the Herd with its completion time, even after its sessions are gone. Click “Confirm completion” to move it to Done → Epics, where it keeps its issues and PRs.",
+  "feat_copy_on_select_chat_title": "Selecting copies in the Chat and on connected machines",
+  "feat_copy_on_select_chat_body": "Select text and release the mouse: it now lands on the clipboard in the Chat too, as it already did in a local session's terminal, and in the terminal of a session on a connected machine. A selection in the Chat also no longer disappears when a session starts or ends."
 }

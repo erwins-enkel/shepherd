@@ -8456,5 +8456,7 @@
   "epic_history_closed_chip": "OHNE LANDING GESCHLOSSEN",
   "epic_history_closed_body": "Das Epic-Issue wurde geschlossen, bevor sein Landing-PR gemergt war – das zählt nicht als Erfolg.",
   "feat_epic_success_ack_title": "Abgeschlossene Epics bleiben, bis du sie bestätigst",
-  "feat_epic_success_ack_body": "Ein erfolgreich abgeschlossenes Epic bleibt jetzt mit seiner Abschlusszeit in der Herde, auch wenn seine Sessions weg sind. Mit „Abschluss bestätigen“ wandert es nach Fertig → Epics und behält dort seine Issues und PRs."
+  "feat_epic_success_ack_body": "Ein erfolgreich abgeschlossenes Epic bleibt jetzt mit seiner Abschlusszeit in der Herde, auch wenn seine Sessions weg sind. Mit „Abschluss bestätigen“ wandert es nach Fertig → Epics und behält dort seine Issues und PRs.",
+  "feat_copy_on_select_chat_title": "Markieren kopiert auch im Chat und auf verbundenen Maschinen",
+  "feat_copy_on_select_chat_body": "Text markieren und die Maus loslassen: Er landet jetzt auch im Chat in der Zwischenablage, wie bisher schon im Terminal einer lokalen Session, und ebenso im Terminal einer Session auf einer verbundenen Maschine. Eine Markierung im Chat verschwindet außerdem nicht mehr, wenn eine Session startet oder endet."
 }

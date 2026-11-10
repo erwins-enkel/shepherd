@@ -962,6 +962,37 @@
   const selectedAsk = $derived(selected ? (store.blocks[selected.id]?.reason.ask ?? null) : null);
   // The selected session's plan waiting for approval (#2779), shown above its terminal.
   const selectedPlan = $derived(selected ? (store.blocks[selected.id]?.reason.plan ?? null) : null);
+  // A mirrored session's block reason and open AskUserQuestion, answered from its Chat tab.
+  const selectedRemoteBlock = $derived(
+    selectedRemote ? (store.remoteBlocks[selectedRemote.id]?.reason ?? null) : null,
+  );
+  const selectedRemoteAsk = $derived(
+    selectedRemote ? (store.remoteBlocks[selectedRemote.id]?.reason.ask ?? null) : null,
+  );
+  // Its machine's block reasons are read once per connection (later ones arrive as events). Kept
+  // to primitives, so a status frame — a fresh session object — never re-reads them.
+  const remoteBlocksHost = $derived(
+    selectedRemote?.connection?.state === "connected"
+      ? (selectedRemote.host?.instanceId ?? null)
+      : null,
+  );
+  const remoteBlocksSince = $derived(selectedRemote?.connection?.since ?? null);
+  $effect(() => {
+    const host = remoteBlocksHost;
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
+    remoteBlocksSince; // a reconnect re-reads
+    if (!host) return;
+    // Another machine (or none) selected meanwhile: that answer is no longer wanted.
+    let current = true;
+    blockStates(host)
+      .then((map) => {
+        if (current) store.seedRemoteBlocks(host, map);
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  });
   // Every session's open question, listed beside the selected one's in that dialog.
   const pendingAsks = $derived(pendingAskEntries(store.sessions, store.blocks));
 
@@ -4134,6 +4165,8 @@
                 terminalOwners={store.terminalOwners}
                 previewTick={store.remotePreviewTick[selectedRemote.id]}
                 compact={remoteDetailCompact}
+                block={selectedRemoteBlock}
+                ask={selectedRemoteAsk}
                 onback={() => (mobileScreen = "list")}
                 ondecommission={onarchive}
                 onedit={openSteersEditor}
@@ -4358,6 +4391,8 @@
                   terminalOwners={store.terminalOwners}
                   previewTick={store.remotePreviewTick[selectedRemote.id]}
                   compact={remoteDetailCompact}
+                  block={selectedRemoteBlock}
+                  ask={selectedRemoteAsk}
                   ondecommission={onarchive}
                   onedit={openSteersEditor}
                 />

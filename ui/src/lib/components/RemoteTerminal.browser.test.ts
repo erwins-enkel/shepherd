@@ -140,4 +140,24 @@ describe("RemoteTerminal", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(pty.attaches).toHaveLength(2);
   });
+
+  it("types a blocked prompt's answer from the Chat, never into a parked or ended terminal", async () => {
+    const { component } = await render(RemoteTerminal, {
+      session: remote(),
+      owner: { kind: "mac-app", platform: "macos" },
+    });
+    const term = component as { sendKeys: (seq: string) => boolean };
+    await vi.waitFor(() => expect(pty.attaches).toHaveLength(1));
+    expect(term.sendKeys("2")).toBe(true);
+    expect(last().conn.send).toHaveBeenLastCalledWith("2");
+
+    last().conn.send.mockClear();
+    last().args[5]!(); // taken over elsewhere
+    expect(term.sendKeys("y\r")).toBe(false);
+    await page.getByRole("button", { name: /Active in the Mac app/ }).click();
+    expect(term.sendKeys("1")).toBe(true);
+    last().args[6]!("machine");
+    expect(term.sendKeys("y\r")).toBe(false);
+    expect(last().conn.send.mock.calls).toEqual([["1"]]);
+  });
 });

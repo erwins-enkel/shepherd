@@ -65,6 +65,7 @@
     onprefilled,
     consumeAutoFocus,
     repoPath,
+    host,
     agentProvider = "claude",
     onsend,
     onkeys,
@@ -96,6 +97,9 @@
     consumeAutoFocus?: () => boolean;
     /** The repo whose commands the composer's menu offers; without one there is no menu. */
     repoPath?: string;
+    /** The connected machine whose commands the menu offers — a mirrored session's repo path is
+     *  that machine's. */
+    host?: string;
     /** Whose commands the menu offers and how a pick is written. */
     agentProvider?: "claude" | "codex";
     /** Submit a message at the agent's prompt; false (now or once settled) when it could not be
@@ -390,7 +394,7 @@
 
   function loadCommands(repo: string) {
     const request = ++commandsRequest;
-    getCommands(repo, { provider: agentProvider })
+    getCommands(repo, { provider: agentProvider, host })
       .then((r) => {
         if (request === commandsRequest) commands = r.commands;
       })

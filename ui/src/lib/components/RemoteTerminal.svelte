@@ -47,6 +47,13 @@
   export function focus() {
     termRef?.focus();
   }
+  /** Type raw keys into the machine's terminal — a blocked prompt's answer from the Chat. False
+   *  when no attached terminal can carry them (none yet, parked, or ended). */
+  export function sendKeys(seq: string): boolean {
+    if (!conn || parked || ended) return false;
+    conn.send(seq);
+    return true;
+  }
 
   $effect(() => {
     const { state, since } = session.connection;

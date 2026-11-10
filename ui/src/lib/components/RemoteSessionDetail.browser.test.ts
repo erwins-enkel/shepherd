@@ -6,7 +6,8 @@ import { connectPty } from "#lib/pty.js";
 import RemoteSessionDetail from "./RemoteSessionDetail.svelte";
 import { m } from "#lib/paraglide/messages.js";
 import { statusLabel } from "#lib/format.js";
-import type { Session } from "#lib/types.js";
+import { sessionStartTab } from "#lib/session-start-tab.svelte.js";
+import type { BlockReason, PendingAsk, Session, SessionMessages } from "#lib/types.js";
 
 // The terminal's socket is the server's business (bridged to the machine); here it is a spy.
 vi.mock("#lib/pty.js", () => ({
@@ -43,12 +44,28 @@ function factsOf(el: Element): string {
   return el.getAttribute("aria-description") ?? "";
 }
 
+// The machine's transcript, as the forwarded messages route returns it.
+const transcript: SessionMessages = {
+  messages: [
+    { role: "user", text: "fix the redirect", ts: 1000 },
+    { role: "assistant", text: "Found the loop in the auth guard.", ts: 2000 },
+  ],
+  awaitingInput: false,
+  pendingQuestion: null,
+  unavailable: null,
+  tools: [],
+};
+
 // The forwarded reads and actions (#2765) go through the api module; the server forwards them.
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     interruptSession: vi.fn(async () => {}),
+    getSessionMessages: vi.fn(async () => transcript),
+    replySession: vi.fn(async () => {}),
+    answerAsk: vi.fn(async () => "verified" as const),
+    getCommands: vi.fn(async () => ({ commands: [] })),
     getSessionUsage: vi.fn(async () => ({
       available: true,
       source: "live" as const,
@@ -84,6 +101,10 @@ afterEach(() => {
   vi.mocked(connectPty).mockClear();
   for (const fn of [
     api.interruptSession,
+    api.getSessionMessages,
+    api.replySession,
+    api.answerAsk,
+    api.getCommands,
     api.getSessionUsage,
     api.getLeftovers,
     api.getDiff,
@@ -323,7 +344,12 @@ describe("RemoteSessionDetail (#2762)", () => {
         m.tooltip_remote_forwarded_body({ machine: "MacBook" }),
       );
     }
-    for (const tab of [m.viewport_diff_tab(), m.viewport_files_tab(), m.viewport_preview_tab()])
+    for (const tab of [
+      m.viewport_chat_tab(),
+      m.viewport_diff_tab(),
+      m.viewport_files_tab(),
+      m.viewport_preview_tab(),
+    ])
       await expect.element(page.getByRole("tab", { name: tab })).toBeDisabled();
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(api.interruptSession).not.toHaveBeenCalled();
@@ -471,5 +497,147 @@ describe("RemoteSessionDetail preview (#2767)", () => {
     await expect
       .element(page.getByText(m.remote_action_unreachable({ machine: "MacBook" })))
       .toBeInTheDocument();
+  });
+});
+
+describe("RemoteSessionDetail chat", () => {
+  const menu: BlockReason = {
+    shape: "menu",
+    options: [
+      { label: "Yes", send: "1" },
+      { label: "No", send: "2" },
+    ],
+    tail: ["● Bash(rm -rf dist)", "Do you want to proceed?", "❯ 1. Yes", "  2. No"],
+  };
+  const ask: PendingAsk = {
+    toolUseId: "ask-1",
+    questions: [
+      {
+        question: "Keep the old redirect?",
+        header: "Redirect",
+        multiSelect: false,
+        options: [
+          { label: "Keep", description: "Leave it in place" },
+          { label: "Drop", description: "Remove it" },
+        ],
+      },
+    ],
+  };
+  const tab = (name: string) => page.getByRole("tab", { name, exact: true });
+  // A programmatic click: the shared browser cursor may hover the designator's panel over the tabs.
+  async function openChat() {
+    await expect.element(tab(m.viewport_chat_tab())).toBeInTheDocument();
+    (tab(m.viewport_chat_tab()).element() as HTMLElement).click();
+    await expect.element(tab(m.viewport_chat_tab())).toHaveAttribute("aria-selected", "true");
+  }
+  const composer = () => page.getByRole("textbox", { name: m.session_chat_input_label() });
+
+  afterEach(() => {
+    sessionStartTab.set("auto");
+  });
+
+  it("lists the Chat first, before the terminal, and opens the desktop on the terminal", async () => {
+    render(RemoteSessionDetail, { session: remote(), nowMs: Date.now() });
+    await expect.element(tab(m.viewport_terminal_tab())).toHaveAttribute("aria-selected", "true");
+    const tabs = page.getByRole("tab").elements();
+    expect(tabs.map((t) => t.textContent)).toEqual([
+      m.viewport_chat_tab(),
+      m.viewport_terminal_tab(),
+      m.viewport_diff_tab(),
+      m.viewport_files_tab(),
+      m.viewport_preview_tab(),
+    ]);
+    expect(api.getSessionMessages).not.toHaveBeenCalled();
+  });
+
+  it("reads this session's transcript from the machine", async () => {
+    render(RemoteSessionDetail, { session: remote(), nowMs: Date.now() });
+    await openChat();
+    await expect.element(page.getByText("Found the loop in the auth guard.")).toBeVisible();
+    expect(api.getSessionMessages).toHaveBeenCalledWith("r1", 50, { tools: true });
+  });
+
+  it("sends the composer's message to the session on its machine", async () => {
+    render(RemoteSessionDetail, { session: remote(), nowMs: Date.now() });
+    await openChat();
+    await composer().fill("run the tests");
+    await page.getByRole("button", { name: m.assistant_chat_send(), exact: true }).click();
+    await vi.waitFor(() => expect(api.replySession).toHaveBeenCalledWith("r1", "run the tests"));
+    await expect.element(page.getByText(m.assistant_chat_sent(), { exact: true })).toBeVisible();
+  });
+
+  it("Stop interrupts the working agent on its machine", async () => {
+    render(RemoteSessionDetail, { session: remote({ status: "running" }), nowMs: Date.now() });
+    await openChat();
+    // The header's Stop is the session's; the Chat's sits in the body.
+    await page.getByRole("tabpanel").getByRole("button", { name: m.assistant_chat_stop() }).click();
+    expect(api.interruptSession).toHaveBeenCalledWith("r1");
+  });
+
+  it("answers an open question form through the machine", async () => {
+    render(RemoteSessionDetail, {
+      session: remote({ status: "blocked" }),
+      nowMs: Date.now(),
+      ask,
+      block: { shape: "awaiting-input", options: [], tail: [], ask },
+    });
+    await openChat();
+    await expect.element(page.getByText("Keep the old redirect?")).toBeVisible();
+    await page.getByRole("radio", { name: "Drop Remove it" }).click();
+    await page.getByRole("button", { name: m.qform_submit(), exact: true }).click();
+    await vi.waitFor(() =>
+      expect(api.answerAsk).toHaveBeenCalledWith("r1", "ask-1", [
+        { blockId: "ask-1", questionId: "0", optionIndices: [1] },
+      ]),
+    );
+  });
+
+  it("answers a blocked menu with keys on the machine's terminal", async () => {
+    render(RemoteSessionDetail, {
+      session: remote({ status: "blocked" }),
+      nowMs: Date.now(),
+      block: menu,
+    });
+    await vi.waitFor(() => expect(connectPty).toHaveBeenCalledTimes(1));
+    const send = vi.mocked(connectPty).mock.results[0]!.value.send as ReturnType<typeof vi.fn>;
+    await openChat();
+    await expect.element(page.getByText("Do you want to proceed?")).toBeVisible();
+    await page.getByRole("button", { name: "No", exact: true }).click();
+    expect(send).toHaveBeenLastCalledWith("2");
+    await expect.element(page.getByRole("button", { name: "No", exact: true })).toBeDisabled();
+    expect(api.replySession).not.toHaveBeenCalled();
+  });
+
+  it("offers the machine's commands in the slash menu", async () => {
+    render(RemoteSessionDetail, { session: remote({ status: "idle" }), nowMs: Date.now() });
+    await openChat();
+    await composer().fill("/");
+    await vi.waitFor(() =>
+      expect(api.getCommands).toHaveBeenCalledWith("/Users/kai/projects/app", {
+        provider: "claude",
+        host: "m1",
+      }),
+    );
+  });
+
+  it("is disabled while the machine is disconnected, which shows the terminal", async () => {
+    sessionStartTab.set("chat");
+    render(RemoteSessionDetail, {
+      session: remote({ connection: { state: "disconnected", since: Date.now() } }),
+      nowMs: Date.now(),
+    });
+    await expect.element(tab(m.viewport_chat_tab())).toBeDisabled();
+    await expect.element(tab(m.viewport_terminal_tab())).toHaveAttribute("aria-selected", "true");
+    await expect
+      .element(page.getByRole("region", { name: m.remote_terminal_aria({ machine: "MacBook" }) }))
+      .toBeVisible();
+    expect(api.getSessionMessages).not.toHaveBeenCalled();
+  });
+
+  it("opens on the Chat when that is the operator's start tab", async () => {
+    sessionStartTab.set("chat");
+    render(RemoteSessionDetail, { session: remote(), nowMs: Date.now() });
+    await expect.element(tab(m.viewport_chat_tab())).toHaveAttribute("aria-selected", "true");
+    await expect.element(composer()).toBeVisible();
   });
 });

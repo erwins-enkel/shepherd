@@ -112,6 +112,12 @@ describe("PulseActionBanner", () => {
     expect(button(m.pulseactions_stop())).toBeUndefined();
   });
 
+  it("claims the slot on the chat tab too", async () => {
+    const h = mount({ tab: "chat" });
+    await expect.poll(() => banner()?.dataset.kind).toBe("ci_overdue");
+    expect(h.shown()).toBe(true);
+  });
+
   it("stays out of the slot for a mirrored session, under the review banner, or off the term tab", async () => {
     for (const over of [
       { session: session({ host: { name: "mac" } as Session["host"] }) },

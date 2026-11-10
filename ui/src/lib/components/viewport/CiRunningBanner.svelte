@@ -3,6 +3,7 @@
   import type { GitState } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { ciBannerState } from "#lib/ci-banner.js";
+  import { showsBottomStrip } from "#lib/bottom-strip.js";
 
   // Non-blocking "CI is running" signal: a bottom strip over the terminal, above
   // the steer bar — the SAME spot as ReviewInFlightBanner, so status/automation
@@ -33,7 +34,7 @@
   // element; bind:offsetHeight below keeps it current across reflows.
   let bannerEl = $state<HTMLDivElement>();
   $effect(() => {
-    const shown = view.show && tab === "term";
+    const shown = view.show && showsBottomStrip(tab);
     if (!shown) {
       height = 0;
       return;
@@ -42,7 +43,7 @@
   });
 </script>
 
-{#if view.show && tab === "term"}
+{#if view.show && showsBottomStrip(tab)}
   <div
     class="term-strip ci-banner"
     role="status"

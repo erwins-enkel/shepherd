@@ -384,3 +384,19 @@ describe("ReviewInFlightBanner — hold / cancel / restart", () => {
     await expect.poll(() => banner()).toBeNull();
   });
 });
+
+describe("ReviewInFlightBanner — tabs", () => {
+  it("shows on the chat tab too, so a running review is visible there", async () => {
+    planGates.applyReviewing(ID, true);
+    render(ReviewInFlightBanner, props({ tab: "chat" }) as never);
+    await expect.poll(() => banner()?.getAttribute("data-phase")).toBe("in-flight");
+    expect(banner()!.textContent).toContain(m.reviewbanner_calm());
+  });
+
+  it("stays hidden off the term and chat tabs", async () => {
+    planGates.applyReviewing(ID, true);
+    render(ReviewInFlightBanner, props({ tab: "diff" }) as never);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(banner()).toBeNull();
+  });
+});

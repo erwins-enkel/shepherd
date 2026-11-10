@@ -3,6 +3,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import { reviews, repoConfig } from "#lib/reviews.svelte.js";
   import { autoMergeView } from "#lib/auto-merge-banner.js";
+  import { showsBottomStrip } from "#lib/bottom-strip.js";
   import { autoMergeStripExplanation } from "#lib/tooltips/explanations.js";
   import InfoTip from "#lib/components/InfoTip.svelte";
   import { mergePr, MergeRefusedError } from "#lib/api.js";
@@ -93,7 +94,7 @@
     return PLAIN[code]();
   }
 
-  const shown = $derived(view.show && tab === "term");
+  const shown = $derived(view.show && showsBottomStrip(tab));
 
   // #3221: the PR carries no checks (no PR CI, or CI skipped it) — offer the manual merge here,
   // through the same confirmation dialog as the PR badge, instead of a dead-end wait.

@@ -5,11 +5,14 @@
   import { derivedRequirementsExplanation } from "#lib/tooltips/explanations.js";
   import type { RequirementsDerivation } from "#lib/types.js";
 
-  // What the server read from the task (#2773), under the requirement chips: while it reads, what
-  // it found (the chips above hold it, correctable), the question when the task was unclear —
-  // nothing starts before it is answered — or that nothing could be read. Once the chips are the
-  // operator's own (`touched`), an answer that differs from them is only offered, to take over.
+  // What the server read from the task (#2773), in two places of the machine strip. The `tag`
+  // part sits right after the chips: "reading task…" while it reads, "from task" once the chips
+  // above hold what it found (correctable). The `notice` part is the strip's second line, only
+  // when something needs the operator: the question when the task was unclear — nothing starts
+  // before it is answered — or that nothing could be read. Once the chips are the operator's own
+  // (`touched`), an answer that differs from them is only offered there, to take over.
   let {
+    part,
     pending,
     derivation,
     touched = false,
@@ -17,6 +20,7 @@
     onanswer,
     onadopt,
   }: {
+    part: "tag" | "notice";
     pending: boolean;
     derivation: RequirementsDerivation | null;
     touched?: boolean;
@@ -39,25 +43,27 @@
     option.length > 0 ? capabilityList(option) : m.newtask_derive_option_none();
 </script>
 
-{#if pending}
-  <span class="nt-derive" role="status">{m.newtask_derive_pending()}</span>
-{:else if derivation?.status === "derived" && differs}
-  <div class="nt-derive-ask" role="group" aria-label={foundText}>
+{#if part === "tag"}
+  {#if pending}
+    <span class="nt-derive tag" role="status">{m.newtask_derive_tag_pending()}</span>
+  {:else if derivation?.status === "derived" && !differs}
+    <button
+      type="button"
+      class="nt-derive tag"
+      use:statusTip={{ text: derivedRequirementsExplanation(), wide: true }}
+    >
+      {m.newtask_derive_tag()}
+    </button>
+  {/if}
+{:else if !pending && derivation?.status === "derived" && differs}
+  <div class="nt-derive-ask nt-strip-note" role="group" aria-label={foundText}>
     <span class="nt-derive">{foundText}</span>
     <button type="button" class="gbtn" onclick={() => onadopt?.([...found])}>
       {m.newtask_derive_adopt()}
     </button>
   </div>
-{:else if derivation?.status === "derived"}
-  <button
-    type="button"
-    class="nt-derive"
-    use:statusTip={{ text: derivedRequirementsExplanation(), wide: true }}
-  >
-    {foundText}
-  </button>
-{:else if derivation?.status === "unclear"}
-  <div class="nt-derive-ask" role="group" aria-label={m.newtask_derive_question()}>
+{:else if !pending && derivation?.status === "unclear"}
+  <div class="nt-derive-ask nt-strip-note" role="group" aria-label={m.newtask_derive_question()}>
     <span class="question">{m.newtask_derive_question()}</span>
     {#each derivation.options ?? [] as option (option.join(","))}
       <button type="button" class="gbtn" onclick={() => onanswer([...option])}>
@@ -65,23 +71,31 @@
       </button>
     {/each}
   </div>
-{:else if derivation && derivation.status !== "skipped"}
+{:else if !pending && derivation && derivation.status !== "derived" && derivation.status !== "skipped"}
   <!-- failed, or a status this client does not know: nothing was derived, and it says so. -->
-  <span class="nt-derive warn" role="status">{m.newtask_derive_failed()}</span>
+  <span class="nt-derive warn nt-strip-note" role="status">{m.newtask_derive_failed()}</span>
 {/if}
 
 <style>
   .nt-derive {
-    font-size: var(--fs-micro);
+    font-size: var(--fs-meta);
     color: var(--color-muted);
   }
-  button.nt-derive {
+  .tag {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  button.tag {
     background: transparent;
     border: none;
     padding: 0;
     font-family: inherit;
-    text-align: left;
     cursor: help;
+  }
+  button.tag:hover,
+  button.tag:focus-visible {
+    color: var(--color-ink);
   }
   .nt-derive.warn {
     color: var(--status-warn);
@@ -91,7 +105,7 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 6px;
-    font-size: var(--fs-micro);
+    font-size: var(--fs-meta);
   }
   .question {
     color: var(--status-warn);

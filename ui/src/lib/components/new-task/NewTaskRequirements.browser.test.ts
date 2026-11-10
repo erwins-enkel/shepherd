@@ -194,7 +194,7 @@ const removeChip = (ids: string[]) =>
 async function addRequirement(id: string) {
   const addSelect = () =>
     document.querySelector<HTMLSelectElement>(
-      `select[aria-label="${m.newtask_requirements_add()}"]`,
+      `select[aria-label="${m.newtask_requirements_add_aria()}"]`,
     );
   await expect.poll(addSelect).not.toBeNull();
   const select = addSelect()!;
@@ -220,9 +220,11 @@ describe("requirements read from the task (#2773)", () => {
     });
     const onsubmit = open();
     await typePrompt("Implementiere die Ansicht in der iOS-App");
-    await expect
-      .poll(deriveText, READ)
-      .toBe(m.newtask_derive_found({ list: capabilityList(["sdk:ios", "xcode"]) }));
+    // The chips say what it found; the strip only tags where they came from.
+    await expect.poll(deriveText, READ).toBe(m.newtask_derive_tag());
+    expect(document.body.textContent).not.toContain(
+      m.newtask_derive_found({ list: capabilityList(["sdk:ios", "xcode"]) }),
+    );
     expect(deriveRequirements).toHaveBeenCalledWith(
       { repoPath: repo.path, prompt: "Implementiere die Ansicht in der iOS-App" },
       expect.any(AbortSignal),
@@ -287,7 +289,7 @@ describe("requirements read from the task (#2773)", () => {
     );
     const onsubmit = open();
     await typePrompt("Ändere die Android-App");
-    await expect.poll(deriveText).toBe(m.newtask_derive_pending());
+    await expect.poll(deriveText).toBe(m.newtask_derive_tag_pending());
     expect(runButton().disabled).toBe(true);
     expect(readinessText()).toContain(m.newtask_readiness_requirements_pending());
     await expect.poll(() => vi.mocked(deriveRequirements).mock.calls.length, READ).toBe(1);

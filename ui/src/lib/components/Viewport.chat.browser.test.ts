@@ -132,6 +132,23 @@ async function mount(props: Record<string, unknown> = {}) {
 }
 
 describe("Viewport Chat tab", () => {
+  it("links another task in the chat and navigates to its session", async () => {
+    mockMessages.mockResolvedValue({
+      ...transcript,
+      messages: [{ role: "assistant", text: "Continue in **TASK-2903**.", ts: 4000 }],
+    });
+    const onnavigate = vi.fn();
+    await mount({
+      herd: [session({ id: "other-session", desig: "TASK-2903" })],
+      onnavigate,
+    });
+    await open(m.viewport_chat_tab());
+    const link = page.getByRole("link", { name: "TASK-2903", exact: true });
+    await expect.element(link).toBeVisible();
+    await link.click();
+    expect(onnavigate).toHaveBeenCalledWith("other-session");
+  });
+
   it("shows the sub-agent fan-out above the chat; no Activity tab", async () => {
     await mount({ subagents: { s1: [{ agentId: "a1", agentType: "Explore", startedAt: 0 }] } });
     expect(page.getByRole("tab", { name: "Activity", exact: true }).query()).toBeNull();

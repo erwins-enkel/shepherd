@@ -24,8 +24,12 @@ import { m } from "#lib/paraglide/messages.js";
  */
 export function modelLabel(alias: string): string {
   switch (alias) {
+    case "claude-mythos-5-2":
+      return m.model_label_mythos_5_2();
     case "claude-mythos-5-1":
       return m.model_label_mythos_5_1();
+    case "claude-fable-5-2":
+      return m.model_label_fable_5_2();
     case "claude-fable-5-1":
       return m.model_label_fable_5_1();
     case "opus[1m]":

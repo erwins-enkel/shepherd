@@ -8269,7 +8269,8 @@
       ],
       "reason": "Mac view/adapter/host/live scenario retained in ShepherdTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
       "assertionChanges": [
-        "current-module: Account-gated Mythos now leads the curated Claude list and is hidden by default, so the Fable-off picker drops three leading entries; add the Mythos-available picker assertion; preserve all previous assertions."
+        "current-module: Account-gated Mythos now leads the curated Claude list and is hidden by default, so the Fable-off picker drops three leading entries; add the Mythos-available picker assertion; preserve all previous assertions.",
+        "current-module: Mythos 5.2 and Fable 5.2 join the curated Claude list and the 5.1 pins are retired from the picker, so the Fable-off picker drops five leading entries and the Mythos-available picker offers claude-mythos-5-2; preserve all previous assertions."
       ]
     },
     {
@@ -12998,6 +12999,7 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextPrsTests.swift\",\"CoreSeamTests.UpNextPrsTests\",\"reviewRequestNamesThePrAndItsBaseAndSkipsThePlanGate()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextPrsTests.swift\",\"CoreSeamTests.UpNextPrsTests\",\"trainTakesUnblockedGreenDependabotPrsOfTheBiggestRepo()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ModelGuidanceCoreTests.swift\",\"CoreSeamTests.ModelGuidanceTests\",\"mythosIsOfferedOnlyWhenTheAccountHasIt()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ModelGuidanceCoreTests.swift\",\"CoreSeamTests.ModelGuidanceTests\",\"retiredPinsLeaveThePickerButStayValid()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/HostStatusFormatTests.swift\",\"HostStatusFormatTests\",\"absentMetricsStayUnknownRatherThanZero()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/HostStatusFormatTests.swift\",\"HostStatusFormatTests\",\"ramShowsUsedShareButRetainsSmallPressureReadings()\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientHeavySlotTests.swift\",\"ShepherdClientHeavySlotTests\",\"errorsAreNotPresentedAsAnEmptyHost(_ status: Int) async throws\"]",

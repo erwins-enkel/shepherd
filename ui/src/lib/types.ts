@@ -3887,11 +3887,14 @@ export interface HeldResult {
  *  Floating aliases ("opus") track the latest model of their tier; pinned full
  *  names ("claude-opus-5-5") lock an exact version. Mirrors src/types.ts
  *  CLAUDE_MODELS — keep both lists identical (see the note there).
- *  `claude-mythos-5-1` is account-gated: pickers list Claude models through
- *  `pickerModels` (provider-models.ts), which hides it unless the account has it. */
+ *  The `claude-mythos-*` ids are account-gated: pickers list Claude models through
+ *  `pickerModels` (provider-models.ts), which hides them unless the account has Mythos.
+ *  The 5.1 pins are retired from the pickers (see RETIRED_PICKER_MODELS) but stay valid values. */
 const CLAUDE_MODELS = [
+  "claude-mythos-5-2",
   "claude-mythos-5-1",
   "fable",
+  "claude-fable-5-2",
   "claude-fable-5-1",
   "opus",
   "opus[1m]",
@@ -3908,6 +3911,11 @@ const CLAUDE_MODELS = [
 
 /** Back-compat alias used throughout the existing Claude default-model settings. */
 export const MODELS = CLAUDE_MODELS;
+
+/** Pinned Claude models a newer pin replaced (5.1 → 5.2). They stay in MODELS — a saved default,
+ *  repo override or task on one keeps validating and spawning — but pickers no longer offer them,
+ *  except as the current value so a saved choice stays visible instead of blanking the select. */
+export const RETIRED_PICKER_MODELS: readonly string[] = ["claude-mythos-5-1", "claude-fable-5-1"];
 
 /** Known reasoning-effort tiers across the coding CLIs, ordered least→most effort.
  *  Provider/model pickers offer the supported subset; explicit spawn values pass through.
@@ -3947,8 +3955,10 @@ export const MODELS_BY_PROVIDER: Record<AgentProvider, readonly string[]> = {
  *  Every 1M variant is premium: the >200K long-context regime is the unattended-default
  *  cost case the warning exists for, so sonnet[1m] is premium even though plain sonnet is not. */
 export const PREMIUM_MODELS: readonly string[] = [
+  "claude-mythos-5-2",
   "claude-mythos-5-1",
   "fable",
+  "claude-fable-5-2",
   "claude-fable-5-1",
   "opus",
   "opus[1m]",

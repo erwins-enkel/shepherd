@@ -18,7 +18,7 @@
   import { verifyFailureMessage } from "#lib/verify-key.js";
   import { configuredModelLabel } from "#lib/model-label.js";
   import { modelGuidanceAlias, modelOptionLabel } from "#lib/model-guidance.js";
-  import { modelAvailableForProvider, pickerModels, providerModels } from "#lib/provider-models.js";
+  import { modelAvailableForProvider, pickerModels } from "#lib/provider-models.js";
   import {
     effortLabel,
     effortAvailableForProvider,
@@ -325,12 +325,13 @@
     }
   }
 
-  /** Models offered for a quick start; a stored model the list hides (Fable off) stays selectable. */
+  /** Models offered for a quick start; a stored model the list hides (Fable off, a retired pin)
+   *  stays selectable. */
   function quickStartModels(provider: AgentProvider): readonly string[] {
-    const offered = providerModels(provider).filter((mdl) =>
+    const current = quickStart[provider].model;
+    const offered = pickerModels(provider, current).filter((mdl) =>
       modelAvailableForProvider(provider, mdl, fableAvailable),
     );
-    const current = quickStart[provider].model;
     return current !== "default" && !offered.includes(current) ? [current, ...offered] : offered;
   }
   function quickStartTiers(provider: AgentProvider): readonly string[] {

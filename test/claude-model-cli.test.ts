@@ -7,6 +7,8 @@ describe("minCliFor", () => {
     expect(minCliFor("claude-opus-5-5[1m]")).toBe("2.1.280");
     expect(minCliFor("claude-sonnet-5-5")).toBe("2.1.284");
     expect(minCliFor("claude-sonnet-5-5[1m]")).toBe("2.1.284");
+    expect(minCliFor("claude-fable-5-2")).toBe("2.1.321");
+    expect(minCliFor("claude-mythos-5-2")).toBe("2.1.321");
   });
 
   it("returns null for models with no floor — floating aliases, older pins, junk", () => {
@@ -76,5 +78,12 @@ describe("modelNeedingNewerCli", () => {
       required: "2.1.284",
     });
     expect(modelNeedingNewerCli(["claude-sonnet-5-5"], "2.1.284")).toBeNull();
+  });
+
+  it("flags the 5.2 pins on 2.1.319 (2.1.320 was never published), not on 2.1.321", () => {
+    for (const model of ["claude-fable-5-2", "claude-mythos-5-2"]) {
+      expect(modelNeedingNewerCli([model], "2.1.319")).toEqual({ model, required: "2.1.321" });
+      expect(modelNeedingNewerCli([model], "2.1.321")).toBeNull();
+    }
   });
 });

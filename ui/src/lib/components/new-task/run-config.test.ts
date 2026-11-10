@@ -132,6 +132,17 @@ describe("normalizeRunConfig (validity correction, touched or not)", () => {
     expect(out.model).toBe("default");
   });
 
+  it("a retired 5.1 pin stays selected — the pickers stop offering it, but a saved one still runs", () => {
+    const out = normalizeRunConfig(
+      normalizeInput({
+        model: "claude-fable-5-1",
+        fableAvailable: true,
+        claudeModelSetting: "auto",
+      }),
+    );
+    expect(out.model).toBe("claude-fable-5-1");
+  });
+
   it("an unsupported effort tier snaps to default on Codex (max)", () => {
     const out = normalizeRunConfig(normalizeInput({ provider: "codex", effort: "max" }));
     expect(out.effort).toBe("default");

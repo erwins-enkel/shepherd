@@ -9,10 +9,9 @@ struct ModelPicker: View {
     @FocusState private var pickerFocused: Bool
 
     var options: [String] {
-        ["default"] + ComposeRunConfig.providerModels(model.provider).filter {
-            ComposeRunConfig.available($0, provider: model.provider, fableAvailable: model.runDefaults.fableAvailable,
-                                       mythosAvailable: model.runDefaults.mythosAvailable)
-        }
+        ["default"] + ComposeRunConfig.pickerModels(model.provider, current: model.model,
+                                                    fableAvailable: model.runDefaults.fableAvailable,
+                                                    mythosAvailable: model.runDefaults.mythosAvailable)
     }
 
     var body: some View {

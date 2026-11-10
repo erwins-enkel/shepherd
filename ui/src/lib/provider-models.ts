@@ -1,13 +1,13 @@
-import { CODEX_MODELS, MODELS, type AgentProvider } from "#lib/types.js";
+import { CODEX_MODELS, MODELS, RETIRED_PICKER_MODELS, type AgentProvider } from "#lib/types.js";
 import { accountModels } from "#lib/account-models.svelte.js";
 
 /** The selectable model aliases for a provider (Claude vs Codex curated lists). */
-export function providerModels(provider: AgentProvider): readonly string[] {
+function providerModels(provider: AgentProvider): readonly string[] {
   return provider === "codex" ? CODEX_MODELS : MODELS;
 }
 
 /** Whether a model value selects the Fable family — the floating alias `fable` or any pinned
- *  Fable model id (`claude-fable-5-1`). Mirrors `isFableModel` in src/default-model.ts: the
+ *  Fable model id (`claude-fable-5-2`). Mirrors `isFableModel` in src/default-model.ts: the
  *  availability guard keys off the FAMILY, so a pinned id is hidden and rerouted exactly like
  *  the alias. */
 export function isFableModel(value: string | null | undefined): boolean {
@@ -36,10 +36,13 @@ export function modelAvailableForProvider(
 }
 
 /** The models a picker lists for `provider`: the curated list minus an account-gated model the
- *  logged-in account lacks — except `current`, kept so a saved value stays visible (and
- *  changeable) instead of leaving the select blank. */
+ *  logged-in account lacks and minus a retired pin (RETIRED_PICKER_MODELS) — except `current`,
+ *  kept so a saved value stays visible (and changeable) instead of leaving the select blank. */
 export function pickerModels(provider: AgentProvider, current?: string | null): readonly string[] {
   return providerModels(provider).filter(
-    (mdl) => !isMythosModel(mdl) || accountModels.mythosAvailable || mdl === current,
+    (mdl) =>
+      mdl === current ||
+      (!RETIRED_PICKER_MODELS.includes(mdl) &&
+        (!isMythosModel(mdl) || accountModels.mythosAvailable)),
   );
 }

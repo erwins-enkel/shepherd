@@ -13518,6 +13518,23 @@
         }
       }
     },
+    "model_guidance_claude_fable_5_2": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixiert genau Fable 5.2, damit ein künftiges Fable-Release dieses Modell nicht still ändert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pins Fable 5.2 exactly, so a future Fable release can't quietly change this model."
+          }
+        }
+      }
+    },
     "model_guidance_claude_haiku": {
       "extractionState": "manual",
       "localizations": {
@@ -13536,6 +13553,23 @@
       }
     },
     "model_guidance_claude_mythos_5_1": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angeboten, weil dein Claude-Konto Zugriff hat. Für die härtesten, langlaufenden Aufgaben; höchste unbeaufsichtigte Kosten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offered because your Claude account has access. For the hardest long-running work; highest unattended burn."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_mythos_5_2": {
       "extractionState": "manual",
       "localizations": {
         "de": {
@@ -14062,6 +14096,23 @@
         }
       }
     },
+    "model_label_fable_5_2": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fable 5.2"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fable 5.2"
+          }
+        }
+      }
+    },
     "model_label_mythos_5_1": {
       "extractionState": "manual",
       "localizations": {
@@ -14075,6 +14126,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mythos 5.1"
+          }
+        }
+      }
+    },
+    "model_label_mythos_5_2": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mythos 5.2"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mythos 5.2"
           }
         }
       }

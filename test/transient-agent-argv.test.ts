@@ -59,6 +59,11 @@ test("Mythos role model: refused when the account lacks it, passed through when 
       prompt: "P",
     });
     expect(argv[argv.indexOf("--model") + 1]).toBe("claude-mythos-5-1");
+    // The check is per id: an account holding only Mythos 5.1 cannot run a 5.2 role agent.
+    __setAccountMythosAvailableForTest((model) => model === "claude-mythos-5-1");
+    expect(() =>
+      buildTransientAgentArgv("reviewer", { model: "claude-mythos-5-2", prompt: "P" }),
+    ).toThrow(ModelUnavailableError);
   } finally {
     __setAccountMythosAvailableForTest(null);
   }

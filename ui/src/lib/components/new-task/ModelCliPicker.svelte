@@ -8,7 +8,7 @@
     type AgentProvider,
     type UsageLimits,
   } from "#lib/types.js";
-  import { providerModels, modelAvailableForProvider } from "#lib/provider-models.js";
+  import { pickerModels, modelAvailableForProvider } from "#lib/provider-models.js";
   import {
     providerEfforts,
     effortLabel,
@@ -94,7 +94,9 @@
       : undefined,
   );
 
-  const provModels = $derived(providerModels(agentProvider));
+  // pickerModels drops retired pins (5.1) unless one is the current value, so a saved 5.1 choice
+  // stays selected; modelAvailableForProvider then applies the Fable/Mythos availability gates.
+  const provModels = $derived(pickerModels(agentProvider, model));
   const provEfforts = $derived(providerEfforts(agentProvider, model));
   const claudeGauges = $derived(gaugeList(usageLimits));
   const codexUsage = $derived(codexTokenUsage(usageLimits));

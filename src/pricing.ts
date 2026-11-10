@@ -73,33 +73,33 @@ const TABLE: { match: RegExp; w: ModelWeights }[] = [
     w: { input: 1, output: 5, cacheRead: 0.1, cacheWrite5m: 1.25, cacheWrite1h: 2 },
   },
   {
-    // Fable 5 — the RETIRED-price row, matched by the `-5` suffix ANCHORED so it
-    // cannot swallow `claude-fable-5-1`. Covers the pinned id `claude-fable-5`
-    // (plus its bedrock/mantle-prefixed forms, which also end in `-5`) at its own
-    // list price: $10/$50 with cache read at the usual 0.1× ratio. Records from
-    // Fable 5 sessions must keep costing what they cost, so this row exists
-    // separately from the row below instead of being repriced with it.
-    match: /fable-5$/i,
+    // Fable 5 / Mythos 5 — the RETIRED-price row, matched by the `-5` suffix ANCHORED so it
+    // cannot swallow `claude-fable-5-1` / `claude-fable-5-2`. Covers the pinned ids
+    // `claude-fable-5` and `claude-mythos-5` (plus their bedrock/mantle-prefixed forms, which
+    // also end in `-5`) at their own list price — the CLI's `tier_10_50`: $10/$50 with cache read
+    // at the usual 0.1× ratio. Records from those sessions must keep costing what they cost, so
+    // this row exists separately from the rows below instead of being repriced with them.
+    match: /(fable|mythos)-5$/i,
     w: { input: 10, output: 50, cacheRead: 1, cacheWrite5m: 12.5, cacheWrite1h: 20 },
   },
   {
-    // Fable, CURRENT generation — $10 in / $50 out per Mtok with cache read at
-    // $0.25 (Fable 5.1 cheapened cache reads from the 0.1× ratio Fable 5 used;
-    // cache WRITES kept the 1.25× / 2× ratios). Covers the pinned id
-    // `claude-fable-5-1` and the floating alias `fable`, which resolves to
-    // whatever the installed CLI calls the latest Fable — 5.1 today. An
-    // unrecognised future id (`claude-fable-6`) lands here rather than on the
-    // retired prices above; give it its own row when its price is known.
-    match: /fable/i,
+    // Fable 5.1 / Mythos 5.1 — $10 in / $50 out per Mtok with cache read at $0.25 (the CLI's
+    // `tier_10_50_cache_read_0_25`); cache WRITES keep the 1.25× / 2× ratios. Their own row
+    // because 5.2 cheapened every rate and 5.1 records must keep their price. Unanchored for the
+    // same wire-id reason as the Opus 5.5 row (`claude-fable-5-1-20261001`,
+    // `us.anthropic.claude-mythos-5-1`); the lookahead keeps a hypothetical `-5-10` out.
+    match: /(fable|mythos)-5-1(?![0-9])/i,
     w: { input: 10, output: 50, cacheRead: 0.25, cacheWrite5m: 12.5, cacheWrite1h: 20 },
   },
   {
-    // Mythos 5.1 — the account-gated model (claude-account-models.ts), priced like Fable 5.1:
-    // $10/$50 per Mtok, cache read $0.25, writes 1.25× / 2×. Read off the CLI's compiled
-    // `tier_10_50_cache_read_0_25` pricing tier for `claude-mythos-5-1`. Unanchored for the same
-    // wire-id reason as the Opus 5.5 row.
-    match: /mythos/i,
-    w: { input: 10, output: 50, cacheRead: 0.25, cacheWrite5m: 12.5, cacheWrite1h: 20 },
+    // Fable and Mythos, CURRENT generation (5.2) — $8 in / $40 out per Mtok, cache read $0.20,
+    // writes 1.25× / 2× ($10 / $16): the CLI's `tier_8_40_cache_read_0_20`, shared by
+    // `claude-fable-5-2` and the account-gated `claude-mythos-5-2` (claude-account-models.ts).
+    // Also covers the floating alias `fable`, which resolves to whatever the installed CLI calls
+    // the latest Fable — 5.2 today. An unrecognised future id (`claude-fable-6`) lands here
+    // rather than on the older prices above; give it its own row when its price is known.
+    match: /fable|mythos/i,
+    w: { input: 8, output: 40, cacheRead: 0.2, cacheWrite5m: 10, cacheWrite1h: 16 },
   },
 ];
 

@@ -650,7 +650,7 @@ describe("Settings default coding environment", () => {
       const values = (engine: string) =>
         [...(qsModel(engine).element() as HTMLSelectElement).options].map((o) => o.value);
       expect(values(claude())).toContain("fable");
-      expect(values(claude())).not.toContain("claude-fable-5-1");
+      expect(values(claude())).not.toContain("claude-fable-5-2");
     });
   });
 

@@ -1,4 +1,5 @@
 import type {
+  BlockReason,
   HeavySlotSnapshot,
   RemoteInstance,
   RepoEntry,
@@ -218,6 +219,20 @@ function applyMirroredFrame(list: Session[], event: string, data: Session): Sess
 export function mirroredPreviewChange(ev: { event: string; data: unknown }): string | null {
   if (ev.event !== "session:preview" && ev.event !== "session:preview-serve") return null;
   return isMirroredFrame(ev.data) ? ev.data.id : null;
+}
+
+/**
+ * The block change a machine reported for one of its mirrored sessions, or null. Exists so the
+ * store keeps the reason apart from its local `blocks` (nothing local may see a mirrored id) and
+ * the remote detail can show what the machine is waiting on; `block` is null once it cleared.
+ */
+export function mirroredBlockChange(ev: {
+  event: string;
+  data: unknown;
+}): { id: string; block: BlockReason | null } | null {
+  if (ev.event !== "session:block" || !isMirroredFrame(ev.data)) return null;
+  const { id, block } = ev.data as { id: string; block?: BlockReason | null };
+  return { id, block: block ?? null };
 }
 
 /**

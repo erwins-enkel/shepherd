@@ -6,6 +6,7 @@ import {
   machineColorVar,
   machineDisplayNames,
   machineHeavySlot,
+  mirroredBlockChange,
   mirroredNeedsYou,
   mirroredPreviewChange,
   platformName,
@@ -17,7 +18,7 @@ import {
 } from "./remote-sessions";
 import { m } from "#lib/paraglide/messages.js";
 import { slotFor } from "./session-pulse";
-import type { HeavySlotSnapshot, Session } from "./types";
+import type { BlockReason, HeavySlotSnapshot, Session } from "./types";
 
 const HOST = { instanceId: "m1", name: "MacBook", platform: "macos" };
 const LIVE = { state: "connected" as const, since: 1 };
@@ -63,6 +64,20 @@ describe("remote sessions (#2762)", () => {
       mirroredPreviewChange({ event: "session:preview", data: { id: "l", previewPort: 1 } }),
     ).toBeNull();
     expect(mirroredPreviewChange({ event: "session:status", data: s("a") })).toBeNull();
+  });
+
+  test("a machine's block frames name the session and its reason, null once cleared", () => {
+    const block: BlockReason = { shape: "menu", options: [], tail: [] };
+    const frame = { id: "a", host: HOST, connection: LIVE };
+    expect(mirroredBlockChange({ event: "session:block", data: { ...frame, block } })).toEqual({
+      id: "a",
+      block,
+    });
+    expect(
+      mirroredBlockChange({ event: "session:block", data: { ...frame, block: null } }),
+    ).toEqual({ id: "a", block: null });
+    expect(mirroredBlockChange({ event: "session:block", data: { id: "l", block } })).toBeNull();
+    expect(mirroredBlockChange({ event: "session:status", data: { ...frame, block } })).toBeNull();
   });
 
   test("frames without host are left to the local store", () => {

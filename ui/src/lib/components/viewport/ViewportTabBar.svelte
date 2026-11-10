@@ -55,16 +55,19 @@
     aria-label={m.viewport_tablist_aria()}
     aria-owns={hasPreview ? tabId("preview") : undefined}
   >
-    <button
-      class="tab-btn"
-      class:active={tab === "chat"}
-      role="tab"
-      id={tabId("chat")}
-      aria-selected={tab === "chat"}
-      aria-controls={vpBodyId}
-      use:coachTarget={"chat-tab"}
-      onclick={() => (tab = "chat")}>{m.viewport_chat_tab()}</button
-    >
+    {#if !session.terminal}
+      <!-- a clean terminal is a bare shell: there is no agent to chat with -->
+      <button
+        class="tab-btn"
+        class:active={tab === "chat"}
+        role="tab"
+        id={tabId("chat")}
+        aria-selected={tab === "chat"}
+        aria-controls={vpBodyId}
+        use:coachTarget={"chat-tab"}
+        onclick={() => (tab = "chat")}>{m.viewport_chat_tab()}</button
+      >
+    {/if}
     <button
       class="tab-btn"
       class:active={tab === "term"}

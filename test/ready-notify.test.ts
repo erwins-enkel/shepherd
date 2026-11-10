@@ -25,6 +25,8 @@ function makeHarness(opts?: {
   ready?: string[];
   /** Ids listed as Operator Assistant rows. */
   assistants?: string[];
+  /** Ids listed as clean-terminal rows. */
+  terminals?: string[];
 }): Harness {
   let t = 1_000_000;
   let reduced = true;
@@ -33,10 +35,15 @@ function makeHarness(opts?: {
   let sessionIds = new Set<string>(opts?.sessions ?? []);
   const notifyCalls: NotifyInput[] = [];
   const assistants = new Set(opts?.assistants ?? []);
+  const terminals = new Set(opts?.terminals ?? []);
 
   const deps: ReadyNotifierDeps = {
     listSessions: () =>
-      [...sessionIds].map((id) => ({ ...sess(id), operatorAssistant: assistants.has(id) })),
+      [...sessionIds].map((id) => ({
+        ...sess(id),
+        operatorAssistant: assistants.has(id),
+        terminal: terminals.has(id),
+      })),
     workingBlocked: () => ({}),
     backgroundBusy: () => ({}),
     gitSnapshot: () => ({}),
@@ -115,6 +122,17 @@ describe("ReadyNotifier", () => {
     await h.notifier.tick(); // arm
     h.advance(READY_WARMUP_MS + 1);
     h.set("a", "oa");
+    await h.notifier.tick(); // dwell starts
+    h.advance(READY_DWELL_MS + 1);
+    await h.notifier.tick();
+    expect(readyCalls(h).map((c) => c.sessionId)).toEqual(["a"]);
+  });
+
+  it("a clean terminal never fires; a ready task beside it does", async () => {
+    const h = makeHarness({ sessions: ["a", "term"], ready: [], terminals: ["term"] });
+    await h.notifier.tick(); // arm
+    h.advance(READY_WARMUP_MS + 1);
+    h.set("a", "term");
     await h.notifier.tick(); // dwell starts
     h.advance(READY_DWELL_MS + 1);
     await h.notifier.tick();

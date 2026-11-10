@@ -167,6 +167,16 @@ describe("Viewport Chat tab", () => {
     expect(mockMessages).not.toHaveBeenCalled();
   });
 
+  it("a clean terminal has no Chat: touch and a Chat start tab both open the terminal", async () => {
+    sessionStartTab.set("chat");
+    await mount({ session: session({ id: "t1", terminal: true }), touch: true });
+    await expect.element(tab(m.viewport_terminal_tab())).toHaveAttribute("aria-selected", "true");
+    expect(tab(m.viewport_chat_tab()).query()).toBeNull();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.querySelector(".chat-wrap")).toBeNull();
+    expect(mockMessages).not.toHaveBeenCalled();
+  });
+
   it("touch opens on the Chat: text and tool runs in order", async () => {
     await mount({ touch: true });
     await expect.element(tab(m.viewport_chat_tab())).toHaveAttribute("aria-selected", "true");

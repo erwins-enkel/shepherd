@@ -341,9 +341,11 @@
   // the drag has cleared the commit threshold: releasing now navigates (reveal turns amber)
   let swipeArmed = $state(false);
   // The operator's Settings → Device choice; its Auto opens a phone or touch screen on the Chat,
-  // desktop on the terminal. The assistant has no tabs.
+  // desktop on the terminal. The assistant has no tabs; a clean terminal has no Chat.
   const defaultTab = (): ViewTab =>
-    assistant ? "term" : resolveStartTab(sessionStartTab.pref, { mobile, touch });
+    assistant || session.terminal
+      ? "term"
+      : resolveStartTab(sessionStartTab.pref, { mobile, touch });
   let tab = $state<ViewTab>(defaultTab());
   // The Chat mounts on its first open and then stays, hidden, keeping its draft and echoes.
   let chatOpened = $state(false);
@@ -3608,7 +3610,7 @@
         bind:owned={autoMergeOwned}
       />
     {/if}
-    {#if chatOpened && !assistant}
+    {#if chatOpened && !assistant && !session.terminal}
       <div class="panel-wrap chat-wrap" style:display={tab === "chat" ? undefined : "none"}>
         <SubagentFanout sessionId={session.id} {subagents} />
         {#key session.id}

@@ -1,6 +1,8 @@
 // DRIFT: keep in sync with ui/src/lib/components/herd-partition.ts (stageOf/shownSessions ready filter)
 // + ui/src/lib/display-status.ts (backgroundBusy: server-side first; the UI port follows)
 // Intentional delta vs the UI: `merged` is also excluded from isReadyForNotify (terminal ≠ your turn).
+// Second delta: the UI's Ready lens always lists a clean terminal (`s.terminal`), but it never
+// notifies — ReadyNotifier filters clean terminals out before this predicate runs.
 import type { Session, SessionStatus } from "./types";
 import type { GitState } from "./forge/types";
 import { inMergeQueue, isMerging } from "./attention-core";

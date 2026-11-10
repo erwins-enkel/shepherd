@@ -1,6 +1,7 @@
 // DRIFT: keep in sync with src/ready-stage.ts (isReadyForNotify ≙ shownSessions "ready";
 // stageOf/terminalStage; both display flags — workingBlocked + backgroundBusy — fold in via
-// displayStatus). Intentional delta: the server also excludes `merged` from notify.
+// displayStatus). Intentional delta: the server also excludes `merged` from notify. Second delta:
+// the "ready" lens always lists a clean terminal, which the server never notifies about.
 import type { Session, GitState } from "#lib/types.js";
 import { displayStatus } from "#lib/display-status.js";
 import { checksCleared } from "#lib/checks-cleared.js";
@@ -89,8 +90,9 @@ const NOT_YOUR_TURN: ReadonlySet<Stage> = new Set([
 
 /** The sessions the rail actually lists under `filter` — "ready" keeps only sessions
  *  awaiting the operator (not running, not under review, and not handed off to another
- *  party or mid-merge-train — see NOT_YOUR_TURN). Single source of truth shared by
- *  Herd.svelte's list and herd-keynav's
+ *  party or mid-merge-train — see NOT_YOUR_TURN). A clean terminal is always kept: it is the
+ *  operator's own shell, and a machine on an older build still reports it as running.
+ *  Single source of truth shared by Herd.svelte's list and herd-keynav's
  *  rail order, so keyboard navigation can never land on a row the rail isn't showing. Goes
  *  through `displayStatus` (a working-while-blocked session is actually mid-turn, so it is
  *  NOT awaiting the operator), and so is a background-busy one (resting but its claude still
@@ -110,9 +112,10 @@ export function shownSessions(
   if (filter === "ready")
     return sessions.filter(
       (s) =>
-        displayStatus(s, workingBlocked, backgroundBusy) !== "running" &&
-        !inReview(s.id) &&
-        !NOT_YOUR_TURN.has(stageOf(s, git[s.id], inReview, () => false, now)),
+        s.terminal === true ||
+        (displayStatus(s, workingBlocked, backgroundBusy) !== "running" &&
+          !inReview(s.id) &&
+          !NOT_YOUR_TURN.has(stageOf(s, git[s.id], inReview, () => false, now))),
     );
   // Owed + Up Next are panel-only lenses (a dedicated panel, no session list).
   if (filter === "owed" || filter === "next") return [];

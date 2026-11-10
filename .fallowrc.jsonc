@@ -80,7 +80,11 @@
     // Starlight route middleware adding per-page og:image meta. Loaded via the
     // `routeMiddleware: "./src/routeData.ts"` string path in astro.config.mjs — same
     // string-path-root class as the component overrides above.
-    "docs-site/src/routeData.ts"
+    "docs-site/src/routeData.ts",
+    // Vercel Functions of the shepherd.run marketing site (site/). Vercel loads each
+    // file in site/api/ by its path at runtime (rewritten from /download/mac in
+    // site/vercel.json); nothing imports them statically — genuine roots.
+    "site/api/*.ts"
   ],
 
   // sw.js is the service worker: never imported statically — the browser fetches

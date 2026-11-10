@@ -1,6 +1,7 @@
 ---
 import InstallBlock from "./InstallBlock.astro";
 import HeroScreenshot from "./HeroScreenshot.astro";
+import MacDownload from "./MacDownload.astro";
 
 const GITHUB_URL = "https://github.com/erwins-enkel/shepherd";
 // First-party docs site — same-tab navigation (no target="_blank").
@@ -70,8 +71,20 @@ const DEMO_URL = "https://demo.shepherd.run";
     </div>
   </div>
 
-  <div class="install-slot">
-    <InstallBlock />
+  <!-- #install wraps both ways in: the server that runs the agents, and the
+       native Mac client that connects to it. -->
+  <div class="install-slot" id="install">
+    <div class="install-col">
+      <h2 class="slot-label">Install the server</h2>
+      <InstallBlock />
+      <p class="slot-note">
+        Runs your agents. Linux is fully supported; macOS runs core-only.
+      </p>
+    </div>
+    <div class="install-col">
+      <h2 class="slot-label">Get the Mac app</h2>
+      <MacDownload />
+    </div>
   </div>
 
   <div class="visual">
@@ -105,6 +118,40 @@ const DEMO_URL = "https://demo.shepherd.run";
 
   .install-slot {
     grid-area: install;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.75rem 1.25rem;
+    align-items: start;
+    /* Clear the sticky nav (taller when its links wrap on mobile) on #install jumps,
+       so the two card labels stay visible. */
+    scroll-margin-top: 6.5rem;
+  }
+
+  .install-col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    min-width: 0;
+  }
+
+  .slot-label {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--amber);
+  }
+
+  .slot-note {
+    font-size: 0.9rem;
+    color: var(--ink-muted);
+  }
+
+  @media (min-width: 760px) {
+    .install-slot {
+      grid-template-columns: 1fr 1fr;
+    }
   }
 
   .announce {

@@ -151,6 +151,34 @@ describe("validateScheduleInput", () => {
     if (!r.ok) expect(r.error).toContain(msg);
   });
 
+  test("validates interval bodies and retains required times", () => {
+    for (const everyMinutes of [5, 10, 15, 30, 60]) {
+      expect(
+        validateScheduleInput(
+          { ...base, times: [], interval: { everyMinutes, from: null, until: null } },
+          root,
+        ).ok,
+      ).toBe(true);
+    }
+    for (const interval of [
+      { everyMinutes: 7, from: null, until: null },
+      { everyMinutes: "15", from: null, until: null },
+      { everyMinutes: 15, from: null, until: "18:00" },
+      { everyMinutes: 15, from: "08:00", until: null },
+      { everyMinutes: 15, from: "08:00", until: "08:00" },
+      { everyMinutes: 15, from: "18:00", until: "08:00" },
+      { everyMinutes: 15, from: "24:00", until: "18:00" },
+      { everyMinutes: 15 },
+      { everyMinutes: 15, from: null, until: null, extra: true },
+    ])
+      expect(validateScheduleInput({ ...base, times: [], interval }, root).ok).toBe(false);
+    const interval = { everyMinutes: 15, from: "08:00", until: "18:00" };
+    expect(validateScheduleInput({ ...base, interval }, root).ok).toBe(false);
+    expect(validateScheduleInput({ ...base, times: undefined, interval }, root).ok).toBe(false);
+    expect(validateScheduleInput({ ...base, times: [], interval }, root).ok).toBe(true);
+    expect(validateScheduleInput({ ...base, interval: null }, root).ok).toBe(true);
+  });
+
   test("create input carries launch options through the New Task validator", () => {
     const v = validateScheduleInput(
       { ...base, launch: { autopilotEnabled: null, planGateEnabled: true, research: true } },
@@ -179,5 +207,63 @@ describe("weekday names", () => {
     expect(daysToMask([])).toBeNull();
     expect(daysToMask(["monday"])).toBeNull();
     expect(daysToMask([1])).toBeNull();
+  });
+});
+
+describe("interval cadence", () => {
+  const interval = { everyMinutes: 15 as const, from: "08:00", until: "18:00" };
+  function daySlots(
+    day: number,
+    cadence: { everyMinutes: 5 | 15; from: string | null; until: string | null } = interval,
+  ) {
+    const slots = [];
+    let cursor = at(2026, 10, day, 0) - 1;
+    for (;;) {
+      const slot = nextSlot(ALL_DAYS, [], cursor, cadence);
+      if (!slot || new Date(slot.at).getDate() !== day) break;
+      slots.push(slot);
+      cursor = slot.at;
+    }
+    return slots;
+  }
+  test("window is exclusive and all-day counts are nominal", () => {
+    const slots = daySlots(26);
+    expect(slots).toHaveLength(40);
+    expect(slots.at(-1)?.slotKey).toBe("2026-10-26T17:45");
+    expect(daySlots(26, { everyMinutes: 15, from: null, until: null })).toHaveLength(96);
+    expect(daySlots(26, { everyMinutes: 5, from: null, until: null })).toHaveLength(288);
+    expect(daySlots(26, { everyMinutes: 15, from: "08:07", until: "09:00" }).at(-1)?.slotKey).toBe(
+      "2026-10-26T08:52",
+    );
+    expect(nextSlot(WORKDAYS, [], at(2026, 10, 30, 18), interval)?.slotKey).toBe(
+      "2026-11-02T08:00",
+    );
+  });
+  test("stale threshold is strictly greater than one interval", () => {
+    const slot = { slotKey: "x", at: 1 };
+    expect(decideFiring({ slot, baselineAt: 0, hasRow: false, now: 900001, interval })).toBe(
+      "fire",
+    );
+    expect(decideFiring({ slot, baselineAt: 0, hasRow: false, now: 900002, interval })).toBe(
+      "stale",
+    );
+  });
+  test.each([
+    [3, 29, 92],
+    [10, 25, 96],
+  ])("DST day %i/%i has unique consistent slots", (mo, d, count) => {
+    const cadence = { everyMinutes: 15 as const, from: null, until: null };
+    const slots = [];
+    let cursor = at(2026, mo, d, 0) - 1;
+    for (;;) {
+      const slot = nextSlot(ALL_DAYS, [], cursor, cadence);
+      if (!slot || new Date(slot.at).getDate() !== d) break;
+      expect(latestDueSlot(ALL_DAYS, [], slot.at, cadence)).toEqual(slot);
+      slots.push(slot);
+      cursor = slot.at;
+    }
+    expect(slots).toHaveLength(count);
+    expect(new Set(slots.map((s) => s.at)).size).toBe(count);
+    expect(new Set(slots.map((s) => s.slotKey)).size).toBe(count);
   });
 });

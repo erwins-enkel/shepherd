@@ -86,14 +86,20 @@ export class ScheduleService {
   }
 
   private async evaluate(s: Schedule, now: number): Promise<void> {
-    const slot = latestDueSlot(s.days, s.times, now);
+    const slot = latestDueSlot(s.days, s.times, now, s.interval);
     const hasRow = slot ? this.deps.store.hasScheduleRun(s.id, slot.slotKey) : false;
-    const decision = decideFiring({ slot, baselineAt: s.baselineAt, hasRow, now });
+    const decision = decideFiring({
+      slot,
+      baselineAt: s.baselineAt,
+      hasRow,
+      now,
+      interval: s.interval,
+    });
     if (decision === "none" || !slot) return;
     if (decision === "stale") {
       if (!this.deps.store.claimScheduleRun(s.id, slot.slotKey, now)) return;
       this.deps.store.settleScheduleRun(s.id, slot.slotKey, "skipped:stale", {
-        reason: "missed slot older than 12h",
+        reason: s.interval ? "missed by more than one interval" : "missed slot older than 12h",
       });
       this.log(`[schedules] ${s.name} ${slot.slotKey}: skipped:stale`);
       this.changed(s);

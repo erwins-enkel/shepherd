@@ -132,3 +132,23 @@ test("run now delegates to the scheduler", async () => {
   expect(ranNow).toEqual([s.id]);
   expect((await call("POST", "/api/schedules/nope/run")).status).toBe(404);
 });
+
+test("interval CRUD preserves omitted cadence and rebaselines only on changes", async () => {
+  const interval = { everyMinutes: 15, from: "08:00", until: "18:00" };
+  const response = await call("POST", "/api/schedules", { ...valid(), times: [], interval });
+  expect(response.status).toBe(201);
+  const s = await response.json();
+  expect(s.interval).toEqual(interval);
+  expect(typeof s.nextAt).toBe("number");
+  const patch = (body: unknown) => call("PATCH", `/api/schedules/${s.id}`, body);
+  await patch({ name: "Changed" });
+  await patch({ interval });
+  expect(store.getSchedule(s.id)!.baselineAt).toBe(s.baselineAt);
+  await Bun.sleep(2);
+  await patch({ interval: { ...interval, everyMinutes: 30 } });
+  expect(store.getSchedule(s.id)!.baselineAt).toBeGreaterThan(s.baselineAt);
+  expect((await patch({ interval: null })).status).toBe(400);
+  expect((await patch({ interval: null, times: ["09:00"] })).status).toBe(200);
+  expect(store.getSchedule(s.id)!.interval).toBeNull();
+  expect((await patch({ interval: { ...interval, until: "08:00" }, times: [] })).status).toBe(400);
+});

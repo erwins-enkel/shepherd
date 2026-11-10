@@ -3900,7 +3900,7 @@ function scheduleDto(s: Schedule, deps: AppDeps, now = Date.now()) {
   return {
     ...s,
     lastRun: deps.store.listScheduleRuns(s.id, 1)[0] ?? null,
-    nextAt: s.enabled ? (nextSlot(s.days, s.times, now)?.at ?? null) : null,
+    nextAt: s.enabled ? (nextSlot(s.days, s.times, now, s.interval)?.at ?? null) : null,
   };
 }
 
@@ -3969,6 +3969,7 @@ async function patchSchedule(req: Request, s: Schedule | null, deps: AppDeps): P
     prompt: s.prompt,
     days: s.days,
     times: s.times,
+    interval: s.interval,
     enabled: s.enabled,
   };
   const launch = isRecord(body.launch) ? { ...s.launch, ...body.launch } : body.launch;
@@ -3982,7 +3983,10 @@ async function patchSchedule(req: Request, s: Schedule | null, deps: AppDeps): P
   if (!parsed.ok) return json({ error: parsed.error }, 400);
   const v = parsed.value;
   const rebaseline =
-    (v.enabled && !s.enabled) || v.days !== s.days || v.times.join() !== s.times.join();
+    (v.enabled && !s.enabled) ||
+    v.days !== s.days ||
+    v.times.join() !== s.times.join() ||
+    JSON.stringify(v.interval) !== JSON.stringify(s.interval);
   const now = Date.now();
   deps.store.updateSchedule(s.id, v, now, rebaseline);
   deps.events.emit("schedules:changed", { repoPath: s.repoPath });

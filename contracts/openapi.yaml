@@ -6977,10 +6977,25 @@ components:
         sessionId: { type: [string, "null"] }
         reason: { type: [string, "null"] }
         at: { type: integer }
+    ScheduleInterval:
+      type: object
+      additionalProperties: false
+      description: Server-local minute cadence. Both bounds null means all day; otherwise until must be after from on the same day and is exclusive. Requires times to be empty.
+      required: [everyMinutes, from, until]
+      properties:
+        everyMinutes:
+          type: integer
+          enum: [5, 10, 15, 30, 60]
+        from:
+          type: [string, "null"]
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+        until:
+          type: [string, "null"]
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
     Schedule:
       type: object
       additionalProperties: true
-      description: An operator schedule (#3469) — a prompt or /skill run in one repo on weekdays × server-local times.
+      description: An operator schedule (#3469) — a prompt or /skill run in one repo on weekdays × server-local fixed times or minute intervals.
       required:
         [
           id,
@@ -7008,6 +7023,10 @@ components:
         times:
           type: array
           items: { type: string }
+        interval:
+          oneOf:
+            - $ref: "#/components/schemas/ScheduleInterval"
+            - type: "null"
         enabled: { type: boolean }
         launch:
           $ref: "#/components/schemas/ScheduleLaunch"
@@ -7051,6 +7070,10 @@ components:
         times:
           type: array
           items: { type: string }
+        interval:
+          oneOf:
+            - $ref: "#/components/schemas/ScheduleInterval"
+            - type: "null"
         enabled: { type: boolean }
         launch:
           type: object
@@ -13261,7 +13284,10 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ScheduleInput"
+              allOf:
+                - $ref: "#/components/schemas/ScheduleInput"
+                - type: object
+                  required: [repoPath, name, prompt, days, times]
       responses:
         "201":
           description: Created.
@@ -13280,7 +13306,7 @@ paths:
   /api/schedules/{id}:
     patch:
       operationId: updateSchedule
-      description: Edit a schedule; repoPath cannot change. Enabling or changing days/times re-baselines.
+      description: Edit a schedule; repoPath cannot change. Enabling or changing days/times/interval re-baselines.
       parameters:
         - name: id
           in: path

@@ -4160,6 +4160,12 @@ export interface ScheduleRun {
   at: number;
 }
 
+export interface ScheduleInterval {
+  everyMinutes: 5 | 10 | 15 | 30 | 60;
+  from: string | null;
+  until: string | null;
+}
+
 /** A schedule as GET /api/schedules returns it. `days`: bit 0 = Monday … bit 6 = Sunday. */
 export interface Schedule {
   id: string;
@@ -4168,6 +4174,7 @@ export interface Schedule {
   prompt: string;
   days: number;
   times: string[];
+  interval?: ScheduleInterval | null;
   enabled: boolean;
   launch: ScheduleLaunch;
   createdAt: number;
@@ -4183,6 +4190,7 @@ export interface ScheduleInput {
   prompt: string;
   days: number;
   times: string[];
+  interval?: ScheduleInterval | null;
   enabled?: boolean;
   launch?: Partial<ScheduleLaunch>;
 }

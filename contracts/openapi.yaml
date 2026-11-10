@@ -12002,13 +12002,18 @@ paths:
   /api/uploads:
     post:
       operationId: uploadFile
-      description: Stage a file before session creation, or attach to an existing session.
+      description: >-
+        Stage a file before session creation, or attach to an existing session. A session
+        mirrored from a connected machine has the upload forwarded there and the file stored on
+        that machine; the returned path is the machine's. A machine that is unreachable, no
+        longer accepts this server's token or gives no JSON answer returns 502; a session more
+        than one connected machine reports returns 409 with code remote_ambiguous.
       parameters:
         - name: session
           in: query
           required: false
           schema: { type: string }
-          description: Optional existing session. The composer omits this parameter.
+          description: Optional existing session, local or mirrored from a connected machine (forwarded there; 502 when the machine fails, 409 remote_ambiguous when several machines report it). The composer omits this parameter.
       requestBody:
         required: true
         content:
@@ -12031,7 +12036,7 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":
-          description: 'error is "unknown session"; only reachable with the optional session query.'
+          description: 'error is "unknown session", or "not found" for a mirrored session the caller may not reach; only reachable with the optional session query.'
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -12130,7 +12135,9 @@ paths:
       operationId: listCommands
       description: >-
         Installed slash commands and skills for one repo and engine. An absent or unresolvable
-        `repo` is NOT an error — the route then answers user-scope commands only.
+        `repo` is NOT an error — the route then answers user-scope commands only. With `host`
+        naming a connected machine the read is forwarded there, and `repo` is a path on that
+        machine.
       parameters:
         - name: repo
           in: query
@@ -12141,6 +12148,10 @@ paths:
           required: false
           schema: { $ref: "#/components/schemas/AgentProvider" }
           description: Defaults to claude when absent.
+        - name: host
+          in: query
+          description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
+          schema: { type: string }
       responses:
         "200":
           description: The commands, possibly empty.

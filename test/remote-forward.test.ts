@@ -4,6 +4,7 @@ import {
   clearMergedAcross,
   clearMergedSummaryAcross,
   forwardSessionRequest,
+  forwardSessionUpload,
   forwardedLeaf,
 } from "../src/remote-instances/forward";
 import type { MachineRoute } from "../src/remote-instances/sessions";
@@ -321,6 +322,104 @@ describe("forwardSessionRequest", () => {
     });
     expect(timedOut.status).toBe(502);
     expect(await timedOut.json()).toMatchObject({ code: "machine_timeout", reason: "timeout" });
+  });
+});
+
+describe("forwardSessionUpload", () => {
+  /** A chat attachment as the composer posts it: multipart, with the caller's own credentials. */
+  async function attachment(query = "") {
+    const form = new FormData();
+    form.append("file", new File(["png-bytes"], "shot.png", { type: "image/png" }));
+    const original = new Request("http://x.test/", { method: "POST", body: form });
+    const contentType = original.headers.get("content-type")!;
+    const bytes = await original.arrayBuffer();
+    const req = new Request(`http://coordinator.test/api/uploads${query}`, {
+      method: "POST",
+      headers: {
+        "content-type": contentType,
+        accept: "application/json",
+        cookie: "shepherd_session=caller",
+        authorization: "Bearer caller-token",
+        origin: "https://coordinator.test",
+      },
+      body: bytes,
+    });
+    return { req, contentType, bytes };
+  }
+
+  test("posts the multipart body intact to the rebuilt path with the machine's token only", async () => {
+    const m = machine(Response.json({ path: "/b/worktree/.shepherd-uploads/x.png" }));
+    const { req, contentType, bytes } = await attachment(
+      `?session=${ID}&repo=/etc&session=other&host=local`,
+    );
+    const res = await forwardSessionUpload(req, ID, live, { fetch: m.fetch, timeoutMs: 50 });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await res.json()).toEqual({ path: "/b/worktree/.shepherd-uploads/x.png" });
+    expect(m.sent).toEqual([
+      {
+        url: `http://b.test:7777/api/uploads?session=${ID}`,
+        method: "POST",
+        headers: {
+          "content-type": contentType,
+          accept: "application/json",
+          authorization: `Bearer ${TOKEN}`,
+        },
+        body: new TextDecoder().decode(bytes),
+      },
+    ]);
+  });
+
+  test("the session id is encoded into the path, never spliced in raw", async () => {
+    const m = machine(Response.json({ path: "x" }));
+    const { req } = await attachment();
+    await forwardSessionUpload(req, "a&b=c/../d", live, { fetch: m.fetch, timeoutMs: 50 });
+    expect(m.sent[0]!.url).toBe("http://b.test:7777/api/uploads?session=a%26b%3Dc%2F..%2Fd");
+  });
+
+  test("the machine's JSON answer passes back with its status", async () => {
+    const { req } = await attachment();
+    const res = await forwardSessionUpload(req, ID, live, {
+      fetch: machine(Response.json({ error: "file too large" }, { status: 413 })).fetch,
+    });
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: "file too large" });
+  });
+
+  test("an answer that is not JSON is refused as a bad response", async () => {
+    const { req } = await attachment();
+    const page = new Response("<script>alert(1)</script>", {
+      headers: { "content-type": "text/html" },
+    });
+    const res = await forwardSessionUpload(req, ID, live, { fetch: machine(page).fetch });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({
+      code: "machine_unreachable",
+      machine: "MacBook",
+      reason: "bad_response",
+    });
+  });
+
+  test("a machine without a link is reported unreachable without a request", async () => {
+    const m = machine();
+    const { req } = await attachment();
+    const res = await forwardSessionUpload(req, ID, down, { fetch: m.fetch });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({
+      code: "machine_unreachable",
+      machine: "MacBook",
+      reason: "disconnected",
+    });
+    expect(m.sent).toEqual([]);
+  });
+
+  test("a machine that refuses the token is a 502, never its 401", async () => {
+    const { req } = await attachment();
+    const res = await forwardSessionUpload(req, ID, live, {
+      fetch: machine(new Response("no", { status: 401 })).fetch,
+    });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({ code: "machine_unauthorized" });
   });
 });
 

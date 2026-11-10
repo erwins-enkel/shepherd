@@ -15,6 +15,7 @@ import { RemoteInstanceService } from "../src/remote-instances/service";
 import { MACHINE_READS } from "../src/remote-instances/forward";
 import { RemoteSessionMirror } from "../src/remote-instances/sessions";
 import { sessionScratchpadDir } from "../src/tmp-sweep";
+import { worktreeUploadsDir } from "../src/uploads";
 import type { GitState } from "../src/forge/types";
 import type { Session, SessionPreviewState } from "../src/types";
 
@@ -386,6 +387,65 @@ describe("actions on a mirrored session reach its machine", () => {
   });
 });
 
+describe("the chat composer of a mirrored session", () => {
+  const attachment = () => {
+    const form = new FormData();
+    form.append("file", new File(["png from a"], "shot.png", { type: "image/png" }));
+    return form;
+  };
+
+  test("an attachment is stored on the machine, and the answer names its path there", async () => {
+    const { a, b, remote } = await pair();
+    const res = await call(a, "POST", `/api/uploads?session=${remote.id}`, { body: attachment() });
+    expect(res.status).toBe(200);
+    const { path } = (await res.json()) as { path: string };
+    expect(outbound).toEqual([`${b.base}/api/uploads?session=${remote.id}`]);
+    expect(path.startsWith(`${worktreeUploadsDir(repo)}/`)).toBe(true);
+    expect(path.endsWith(".png")).toBe(true);
+    expect(readFileSync(path, "utf8")).toBe("png from a");
+    untouched(a);
+  });
+
+  test("a repository-restricted token reaches no mirrored session's uploads", async () => {
+    const { a, remote } = await pair();
+    const restricted = a.deps.accessTokens.mint("restricted", null, "full", [repo]);
+    const res = await call(a, "POST", `/api/uploads?session=${remote.id}`, {
+      token: restricted.token,
+      body: attachment(),
+    });
+    expect(res.status).toBe(404);
+    expect(outbound).toEqual([]);
+  });
+
+  test("an attachment for this server's own session is stored here, as before", async () => {
+    const { a } = await pair();
+    const local = startSession(a, "on-a");
+    const res = await call(a, "POST", `/api/uploads?session=${local.id}`, { body: attachment() });
+    expect(res.status).toBe(200);
+    const { path } = (await res.json()) as { path: string };
+    expect(path.startsWith(`${worktreeUploadsDir(local.worktreePath)}/`)).toBe(true);
+    expect(readFileSync(path, "utf8")).toBe("png from a");
+    expect(outbound).toEqual([]);
+  });
+
+  test("slash commands are read on the machine, for its repo and engine", async () => {
+    const { a, b, remote } = await pair();
+    const host = a.deps.remoteSessions.route(remote.id)!.host.instanceId;
+    const res = await call(a, "GET", `/api/commands?host=${host}&repo=/x&provider=codex`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(((await res.json()) as { commands: unknown[] }).commands)).toBe(true);
+    expect(outbound).toHaveLength(1);
+    const sent = new URL(outbound[0]!);
+    expect(`${sent.origin}${sent.pathname}`).toBe(`${b.base}/api/commands`);
+    expect(Object.fromEntries(sent.searchParams)).toEqual({
+      host: "local",
+      repo: "/x",
+      provider: "codex",
+    });
+    untouched(a);
+  });
+});
+
 describe("what is not forwarded", () => {
   test.each([
     ["POST", "hooks"],
@@ -625,6 +685,17 @@ describe("a session id more than one machine reports", () => {
       expect(res.status).toBe(409);
       expect(await res.json()).toMatchObject({ code: "remote_ambiguous" });
     }
+    const form = new FormData();
+    form.append("file", new File(["x"], "x.txt", { type: "text/plain" }));
+    const upload = await makeApp(deps).fetch(
+      new Request(`http://localhost/api/uploads?session=${DUP}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+        body: form,
+      }),
+    );
+    expect(upload.status).toBe(409);
+    expect(await upload.json()).toMatchObject({ code: "remote_ambiguous" });
     expect(archive).not.toHaveBeenCalled();
     expect(outbound).toEqual([]);
   });

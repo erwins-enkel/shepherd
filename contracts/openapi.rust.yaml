@@ -14523,7 +14523,7 @@ paths:
   /api/commands:
     get:
       operationId: listCommands
-      description: Installed slash commands and skills for one repo and engine. An absent or unresolvable `repo` is NOT an error — the route then answers user-scope commands only.
+      description: Installed slash commands and skills for one repo and engine. An absent or unresolvable `repo` is NOT an error — the route then answers user-scope commands only. With `host` naming a connected machine the read is forwarded there, and `repo` is a path on that machine.
       parameters:
         - name: repo
           in: query
@@ -14536,6 +14536,11 @@ paths:
           schema:
             $ref: "#/components/schemas/AgentProvider"
           description: Defaults to claude when absent.
+        - name: host
+          in: query
+          description: Registered machine instance ID, or local (default). Unknown or restricted machines return 404; unreachable machines return 502.
+          schema:
+            type: string
       responses:
         "200":
           description: The commands, possibly empty.

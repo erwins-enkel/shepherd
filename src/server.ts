@@ -279,6 +279,7 @@ import {
   clearMergedAcross,
   clearMergedSummaryAcross,
   forwardSessionRequest,
+  forwardSessionUpload,
   MACHINE_READS,
   forwardMachineRead,
 } from "./remote-instances/forward";
@@ -2320,34 +2321,41 @@ function handleBackgroundBusySnapshot({ req, parts, deps }: Ctx): Response | nul
  * only past `checkAuth` (scope) and `requestBoundaryError` (origin, repository boundary), so the
  * caller's reach is exactly what it is for a local session. A local session with the same id wins.
  */
-async function handleRemoteSessionRoute({
-  req,
-  parts,
-  url,
-  deps,
-  token,
-  agentIngress,
-}: Ctx): Promise<Response | null> {
+async function handleRemoteSessionRoute(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, url, deps } = ctx;
   if (parts[0] !== "api" || parts[1] !== "sessions") return null;
-  // Session IDs only: a literal segment (`clear-merged`, `done`, `archived`) is this server's own
-  // route, whatever a machine reports (the mirror holds UUIDs alone; this is the second fence).
   const id = parts[2] ?? "";
-  if (!SESSION_ID_RE.test(id) || !deps.remoteSessions?.has(id) || deps.store.get(id)) return null;
-  // An agent acts on its own session, which is never another machine's; and a repository grant
-  // names local paths only, so a restricted token reaches no mirrored session (as in its listing).
-  if (agentIngress || (token && token.repoPaths !== null)) return json({ error: "not found" }, 404);
-  const route = deps.remoteSessions.route(id);
-  if (!route) {
-    return json(
-      { error: "more than one connected machine reports this session", code: "remote_ambiguous" },
-      409,
-    );
-  }
+  if (!isMirroredSession(deps, id)) return null;
+  const route = mirroredSessionRoute(ctx, id);
+  if (route instanceof Response) return route;
   return forwardSessionRequest(req, url, parts, route, {
-    annotateSession: deps.remoteSessions.acceptSession
+    annotateSession: deps.remoteSessions?.acceptSession
       ? (session) => deps.remoteSessions!.acceptSession!(route.host.instanceId, session, id)
       : undefined,
   });
+}
+
+/** A session a connected machine reports and this server does not have — a local session with the
+ *  same id wins. Session IDs only: a literal segment (`clear-merged`, `done`, `archived`) is this
+ *  server's own route, whatever a machine reports (the mirror holds UUIDs alone; a second fence). */
+function isMirroredSession(deps: AppDeps, id: string): boolean {
+  return SESSION_ID_RE.test(id) && !!deps.remoteSessions?.has(id) && !deps.store.get(id);
+}
+
+/** The machine a mirrored session's request goes to, or why it goes nowhere. An agent acts on its
+ *  own session, which is never another machine's; and a repository grant names local paths only,
+ *  so a restricted token reaches no mirrored session (as in its listing). */
+function mirroredSessionRoute(
+  { deps, token, agentIngress }: Ctx,
+  id: string,
+): MachineRoute | Response {
+  if (agentIngress || (token && token.repoPaths !== null)) return json({ error: "not found" }, 404);
+  const route = deps.remoteSessions?.route(id);
+  if (route) return route;
+  return json(
+    { error: "more than one connected machine reports this session", code: "remote_ambiguous" },
+    409,
+  );
 }
 
 async function handleMachineRead({
@@ -10329,18 +10337,25 @@ async function handleProviderFailover({ req, parts, deps }: Ctx): Promise<Respon
   return json(writeProviderFailover(deps.store, { defaultProvider: offer.to, from: offer.from }));
 }
 
-function handleUploads({ req, parts, deps, token }: Ctx): Promise<Response> | null {
-  if (parts[0] === "api" && parts[1] === "uploads" && !parts[2]) {
-    if (req.method === "POST") {
-      return handleUpload(req, {
-        store: deps.store,
-        stagingTokenId: token && token.repoPaths !== null ? token.id : undefined,
-        repoRoot: config.repoRoot,
-        maxUploadBytes: deps.maxUploadBytes,
-      });
-    }
-  }
-  return null;
+function handleUploads(ctx: Ctx): Promise<Response> | null {
+  const { req, parts, url, deps, token } = ctx;
+  if (parts[0] !== "api" || parts[1] !== "uploads" || parts[2] || req.method !== "POST")
+    return null;
+  const session = url.searchParams.get("session");
+  if (session && isMirroredSession(deps, session)) return uploadToMachine(ctx, session);
+  return handleUpload(req, {
+    store: deps.store,
+    stagingTokenId: token && token.repoPaths !== null ? token.id : undefined,
+    repoRoot: config.repoRoot,
+    maxUploadBytes: deps.maxUploadBytes,
+  });
+}
+
+/** A chat attachment for a session mirrored from a connected machine is stored on that machine,
+ *  where its agent reads it — behind the same fences as the session's own routes. */
+async function uploadToMachine(ctx: Ctx, id: string): Promise<Response> {
+  const route = mirroredSessionRoute(ctx, id);
+  return route instanceof Response ? route : forwardSessionUpload(ctx.req, id, route);
 }
 
 // HTTP status per clone-failure code; anything unlisted falls back to 422.

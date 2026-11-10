@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import { m } from "#lib/paraglide/messages.js";
   import { placementReason, placementRefusalText, placementWaitText } from "#lib/placement.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
@@ -9,9 +10,13 @@
   // very choice the create makes. The route ("→ MoneyPenny-2  this machine") closes the machine
   // strip's first line; the reason lives in its tooltip and accessible name. A refusal reads as a
   // warning on the strip's second line — submitting would start nothing. A machine out of reach
-  // (#2775) does too: the task would wait for it.
-  let { preview, failed = false }: { preview: PlacementPreview | null; failed?: boolean } =
-    $props();
+  // (#2775) does too: the task would wait for it. A `picker` (the machine choice, desktop) docks
+  // onto the route as one chip and stays there in every state, also while nothing is placed.
+  let {
+    preview,
+    failed = false,
+    picker,
+  }: { preview: PlacementPreview | null; failed?: boolean; picker?: Snippet } = $props();
 
   const placement = $derived(preview?.placement ?? null);
   // Placed on the Shepherd that decided: this one.
@@ -44,11 +49,45 @@
   {/if}
 {/snippet}
 
-{#if placement && preview?.wait}
-  <!-- The note below says it in full; the route only repeats it at a glance. -->
-  <span class="nt-placement warn" aria-hidden="true">
-    {@render route(placement.target.name, m.placement_qual_unreachable())}
+{#snippet routePart()}
+  {#if placement && preview?.wait}
+    <!-- The note below says it in full; the route only repeats it at a glance. -->
+    <span class="nt-placement warn" aria-hidden="true">
+      {@render route(placement.target.name, m.placement_qual_unreachable())}
+    </span>
+  {:else if placement}
+    <button
+      type="button"
+      class="nt-placement"
+      class:warn={busy}
+      aria-label={m.placement_runs_on({ machine, reason: placementReason(placement) })}
+      use:statusTip={{ text: placementExplanation(placement, true), wide: true }}
+    >
+      {@render route(placement.target.name, qualifier)}
+    </button>
+  {:else if preview?.refusal}
+    <span class="nt-placement warn" aria-hidden="true">
+      <span class="arrow">→</span>
+      <span>{m.placement_route_none()}</span>
+    </span>
+  {:else if !preview && !failed}
+    <span class="nt-placement" role="status">
+      <span class="arrow" aria-hidden="true">→</span>
+      {m.placement_choosing()}
+    </span>
+  {/if}
+{/snippet}
+
+{#if picker}
+  <span class="nt-route-pick">
+    {@render routePart()}
+    {@render picker()}
   </span>
+{:else}
+  {@render routePart()}
+{/if}
+
+{#if placement && preview?.wait}
   <button
     type="button"
     class="nt-placement-note nt-strip-note warn"
@@ -56,31 +95,12 @@
   >
     {placementWaitText(placement, preview.wait)}
   </button>
-{:else if placement}
-  <button
-    type="button"
-    class="nt-placement"
-    class:warn={busy}
-    aria-label={m.placement_runs_on({ machine, reason: placementReason(placement) })}
-    use:statusTip={{ text: placementExplanation(placement, true), wide: true }}
-  >
-    {@render route(placement.target.name, qualifier)}
-  </button>
-{:else if preview?.refusal}
-  <span class="nt-placement warn" aria-hidden="true">
-    <span class="arrow">→</span>
-    <span>{m.placement_route_none()}</span>
-  </span>
+{:else if !placement && preview?.refusal}
   <span class="nt-placement-note nt-strip-note warn" role="status">
     {placementRefusalText(preview.refusal)}
   </span>
 {:else if failed && !preview}
   <span class="nt-placement-note nt-strip-note" role="status">{m.placement_preview_failed()}</span>
-{:else if !preview}
-  <span class="nt-placement" role="status">
-    <span class="arrow" aria-hidden="true">→</span>
-    {m.placement_choosing()}
-  </span>
 {/if}
 
 <style>
@@ -122,6 +142,21 @@
   .nt-placement-note {
     font-size: var(--fs-meta);
     color: var(--color-muted);
+  }
+  /* The route with the machine choice docked on: one chip, the picker's segment full height. */
+  .nt-route-pick {
+    display: inline-flex;
+    align-items: stretch;
+    max-width: 100%;
+    min-width: 0;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    background: var(--color-panel-2);
+  }
+  .nt-route-pick > .nt-placement {
+    align-self: center;
+    min-width: 0;
+    padding: 3px 8px;
   }
   .warn,
   .warn .host {

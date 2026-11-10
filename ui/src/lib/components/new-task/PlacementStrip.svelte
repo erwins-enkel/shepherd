@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import RequirementChips from "./RequirementChips.svelte";
   import RequirementsDerivation from "./RequirementsDerivation.svelte";
   import PlacementLine from "./PlacementLine.svelte";
@@ -18,6 +19,7 @@
     onadopt,
     preview,
     previewFailed,
+    picker,
   }: {
     requirements: readonly string[];
     onrequirements: (next: string[]) => void;
@@ -29,6 +31,8 @@
     onadopt: (next: string[]) => void;
     preview: PlacementPreview | null;
     previewFailed: boolean;
+    /** The machine choice, docked onto the route (desktop); without it the route stands alone. */
+    picker?: Snippet;
   } = $props();
 </script>
 
@@ -55,7 +59,7 @@
     quietEmpty={derive && derivePending}
     tag={derive ? tag : undefined}
   />
-  <PlacementLine {preview} failed={previewFailed} />
+  <PlacementLine {preview} failed={previewFailed} {picker} />
   {#if derive}
     {@render derived("notice")}
   {/if}

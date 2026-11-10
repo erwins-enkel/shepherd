@@ -156,7 +156,8 @@ Shepherd's own check of a machine with that ID. Only an operator signed in here 
 
 In **New Task**, **Run on** starts on **Automatic**: Shepherd chooses the machine (see
 [Automatic choice](#automatic-choice)) and shows which one before you start, for example
-"→ MacBook"; hover it for why ("Needs Xcode"). To choose yourself, pick **This machine** or any
+"→ MacBook"; hover it for why ("Needs Xcode"). To choose yourself, open the **▾** at the end of
+that route (on a phone: tap the project chip) and pick **This machine** or any
 connected machine that runs a platform released for tasks (Linux, macOS). A machine without a
 checkout of the project is marked **clones first**. A machine you pick must have what the task
 needs, or nothing starts and the dialog says what is missing.

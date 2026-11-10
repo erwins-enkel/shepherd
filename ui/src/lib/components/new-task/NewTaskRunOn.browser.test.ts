@@ -251,6 +251,10 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
 
     // Its explanation rides the select itself, so focus and assistive tech reach it.
     expect(runOnSelect()!.getAttribute("aria-description")).toContain(m.tooltip_runon_summary());
+    // The route keeps its own: why this machine.
+    expect(document.querySelector(".nt-placement")!.getAttribute("aria-description")).toContain(
+      m.placement_basis_preference_none({ platform: "Linux" }),
+    );
     await typePrompt("change the settings page");
     await submit();
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
@@ -258,6 +262,28 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
     // Automatic: the server decides, so the task names no machine — but carries a key.
     expect(input.target).toBeUndefined();
     expect(input.dispatchKey).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("puts the machine choice on the route, so the left column never scrolls sideways", async () => {
+    // The narrowest desktop dialog with a long base branch: when the context row also carried the
+    // machine select, it outgrew the column and the column scrolled sideways.
+    await page.viewport(769, 900);
+    vi.mocked(listBranches).mockResolvedValue({
+      current: "feature/a-rather-long-branch-name",
+      branches: ["main", "feature/a-rather-long-branch-name"],
+      default: null,
+    });
+    vi.mocked(listRemoteInstances).mockResolvedValue({ incoming: [], instances: [machine()] });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
+    await expect.poll(() => runOnSelect()?.options.length).toBe(3);
+    await expect.poll(routeText).toContain("moes-tavern");
+    const left = document.querySelector<HTMLElement>(".cbody > .left")!;
+    expect(left.scrollWidth).toBeLessThanOrEqual(left.clientWidth);
+    expect(runOnSelect()!.closest(".ctx-row")).toBeNull();
+    expect(runOnSelect()!.closest(".nt-strip")).not.toBeNull();
+    // The invisible select lies over its segment instead of widening the chip and cutting the name.
+    const host = document.querySelector<HTMLElement>(".nt-placement .host")!;
+    expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth);
   });
 
   it("feeds the requirement chips to the preview and the task", async () => {

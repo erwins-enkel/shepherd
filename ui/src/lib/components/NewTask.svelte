@@ -2382,6 +2382,19 @@
         {/each}
       </select>
     {/snippet}
+    <!-- Desktop: the machine choice docks onto the placement route ("→ MacBook | AUTOMATIC ▾")
+         instead of a fourth chip in the context row, which then outgrew the left column and
+         scrolled it sideways. The select lies invisible over the segment, so a click opens the
+         native list; the segment names Automatic, a pick is named by the route itself. -->
+    {#snippet runOnPick()}
+      <span class="runon-seg">
+        {#if pickedId === null}
+          <span aria-hidden="true">{m.newtask_runon_auto()}</span>
+        {/if}
+        <span class="chev" aria-hidden="true">▾</span>
+        {@render runOnSelect("runon-overlay", true)}
+      </span>
+    {/snippet}
     {#snippet draftNotice()}
       <span class="draft-tag">{m.newtask_draft_restored()}</span>
       <button type="button" class="tool-btn" onclick={ondiscarddraft}
@@ -2553,13 +2566,6 @@
                   <span class="chev" aria-hidden="true">▾</span>
                 {/if}
               </span>
-              {#if runOnAvailable}
-                <span class="ctx-from">{m.newtask_runon_on()}</span>
-                <span class="branch-chip">
-                  {@render runOnSelect(undefined, true)}
-                  <span class="chev" aria-hidden="true">▾</span>
-                </span>
-              {/if}
             </div>
           {/if}
 
@@ -2599,6 +2605,7 @@
                 onadopt={adoptDerivation}
                 preview={currentPreview}
                 {previewFailed}
+                picker={mobile ? undefined : runOnPick}
               />
             {/if}
             {#if remoteTarget}
@@ -3816,6 +3823,8 @@
   .branch-chip select,
   .branch-chip input {
     appearance: none;
+    /* Shrinks with its chip instead of sticking out of it over the next control. */
+    min-width: 0;
     max-width: 22ch;
     border: 1px solid var(--color-line);
     background: var(--color-panel-2);
@@ -3835,6 +3844,45 @@
     position: absolute;
     right: 8px;
     pointer-events: none;
+  }
+  /* The machine choice's segment of the placement route (see `runOnPick`). */
+  .runon-seg {
+    position: relative;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border-left: 1px solid var(--color-line);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    white-space: nowrap;
+  }
+  .runon-seg:hover,
+  .runon-seg:focus-within {
+    color: var(--color-ink);
+  }
+  .runon-seg:has(.runon-overlay:focus-visible) {
+    outline: 1px solid var(--color-line-bright);
+    outline-offset: -1px;
+  }
+  .runon-overlay {
+    /* statusTip sets an inline `position: relative` on its trigger; in flow, the invisible
+       select would widen the segment by its longest option. */
+    position: absolute !important;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    cursor: pointer;
+    font: inherit;
+    font-size: var(--fs-meta);
   }
   .chev {
     color: var(--color-muted);

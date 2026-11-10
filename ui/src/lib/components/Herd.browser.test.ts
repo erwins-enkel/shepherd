@@ -1112,6 +1112,45 @@ describe("Herd session-less epic groups (#3814)", () => {
     (document.querySelector(".epic-toggle") as HTMLButtonElement).click();
     expect(oncollapsetoggle).toHaveBeenCalledWith(key);
   });
+
+  it("opens the epic menu from the header and from the session-less note", async () => {
+    const onaskepic = vi.fn();
+    const oncollapsetoggle = vi.fn();
+    await render(Herd, {
+      ...base,
+      sessions: [loose],
+      git: {},
+      epics: { [key]: observed },
+      activeEpicKeys: new Set([key]),
+      drain,
+      onaskepic,
+      oncollapsetoggle,
+    });
+    const rightClick = (el: Element) => {
+      const e = new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 40,
+        clientY: 40,
+      });
+      el.dispatchEvent(e);
+      return e;
+    };
+    const menu = page.getByRole("menu", { name: m.epicmenu_label() });
+
+    expect(rightClick(document.querySelector(".epic-toggle")!).defaultPrevented).toBe(true);
+    await expect.element(menu).toBeVisible();
+    expect(oncollapsetoggle).not.toHaveBeenCalled();
+    await page.getByRole("menuitem", { name: m.operator_assistant_ask() }).click();
+    expect(onaskepic).toHaveBeenCalledWith("/repo/a", 3451);
+    await expect.element(menu).not.toBeInTheDocument();
+
+    expect(rightClick(document.querySelector(".epic-sessionless")!).defaultPrevented).toBe(true);
+    await expect.element(menu).toBeVisible();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.epic_pause(), exact: true }))
+      .toBeVisible();
+  });
 });
 
 describe("Herd epic-child preview badge", () => {

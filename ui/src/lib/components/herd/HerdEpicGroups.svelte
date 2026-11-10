@@ -1,8 +1,10 @@
 <script lang="ts">
-  import type { Epic } from "#lib/types.js";
+  import type { DrainStatus, Epic } from "#lib/types.js";
   import HerdGroup from "./HerdGroup.svelte";
   import type { HerdRowCtx } from "./HerdGroup.svelte";
   import EpicGroupHeader from "../EpicGroupHeader.svelte";
+  import EpicGroupMenu from "../EpicGroupMenu.svelte";
+  import EpicDiagnosisModal from "../EpicDiagnosisModal.svelte";
   import type { SessionlessEpicWait } from "../epic-sessionless";
   import { m } from "#lib/paraglide/messages.js";
 
@@ -22,6 +24,8 @@
     onepic,
     oncollapsetoggle,
     slotsFor = () => null,
+    drainFor = () => undefined,
+    onaskepic,
     ctx,
   }: {
     groups: EpicGroupEntry[];
@@ -37,8 +41,47 @@
     oncollapsetoggle?: (key: string) => void;
     /** A repo's agent slots (its drain cap); null when unknown. */
     slotsFor?: (repoPath: string) => number | null;
+    /** A repo's drain status — the epic menu reads its run picture. */
+    drainFor?: (repoPath: string) => DrainStatus | undefined;
+    /** Opens the Operator Assistant with a question about an epic typed in. */
+    onaskepic?: (repoPath: string, parent: number) => void;
     ctx: HerdRowCtx;
   } = $props();
+
+  // The epic menu (right-click / long-press on a group's header or session-less note). Keyed by
+  // group, so a group that leaves the herd takes its menu with it.
+  let menu = $state<{ key: string; x: number; y: number; opener: HTMLElement } | null>(null);
+  const menuGroup = $derived(menu ? groups.find((g) => g.key === menu!.key) : undefined);
+  let diagnosing = $state<{ repoPath: string; parent: number } | null>(null);
+  // The session-less note's details button, per group: focus returns there from its menu.
+  const noteButtons: Record<string, HTMLButtonElement> = {};
+
+  function openMenu(key: string, x: number, y: number, opener: HTMLElement): boolean {
+    if (menuGroup) return false;
+    menu = { key, x, y, opener };
+    return true;
+  }
+  function onNoteMenu(e: MouseEvent, key: string) {
+    const opener = noteButtons[key];
+    if (!opener) return;
+    e.preventDefault();
+    openMenu(key, e.clientX, e.clientY, opener);
+  }
+  function closeMenu() {
+    menu = null;
+  }
+  function openMenuEpic() {
+    const epic = menuGroup?.epic;
+    if (epic) onepic?.(epic.repoPath, epic.parentIssueNumber);
+  }
+  function askMenuEpic() {
+    const epic = menuGroup?.epic;
+    if (epic) onaskepic?.(epic.repoPath, epic.parentIssueNumber);
+  }
+  function diagnoseMenuEpic() {
+    const epic = menuGroup?.epic;
+    if (epic) diagnosing = { repoPath: epic.repoPath, parent: epic.parentIssueNumber };
+  }
 </script>
 
 {#each groups as g, i (g.key)}
@@ -53,15 +96,20 @@
     sessionless={!!g.wait}
     ontoggle={() => oncollapsetoggle?.(g.key)}
     {onepic}
+    onmenu={(x, y, opener) => openMenu(g.key, x, y, opener)}
   />
   {#if !collapsedKeys.has(g.key)}
     {#if g.wait}
-      <div class="epic-sessionless">
+      <!-- Right-click here is a pointer shortcut to the header's menu, which keyboard users
+           reach from the header toggle (context-menu key / Shift+F10). -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="epic-sessionless" oncontextmenu={(e) => onNoteMenu(e, g.key)}>
         <p class="sl-status">{g.wait.status}</p>
         {#each g.wait.lines as line, j (j)}
           <p class="sl-line">{line}</p>
         {/each}
         <button
+          bind:this={noteButtons[g.key]}
           type="button"
           class="gbtn"
           onclick={() => onepic?.(g.epic.repoPath, g.epic.parentIssueNumber)}
@@ -75,6 +123,27 @@
     {/if}
   {/if}
 {/each}
+
+{#if menu && menuGroup}
+  <EpicGroupMenu
+    epic={menuGroup.epic}
+    drain={drainFor(menuGroup.epic.repoPath)}
+    x={menu.x}
+    y={menu.y}
+    opener={menu.opener}
+    onopen={onepic ? openMenuEpic : undefined}
+    onask={onaskepic ? askMenuEpic : undefined}
+    ondiagnose={diagnoseMenuEpic}
+    onclose={closeMenu}
+  />
+{/if}
+{#if diagnosing}
+  <EpicDiagnosisModal
+    repoPath={diagnosing.repoPath}
+    parent={diagnosing.parent}
+    onclose={() => (diagnosing = null)}
+  />
+{/if}
 
 <style>
   /* Child rows of an epic group nest by indentation alone: their pips shift one --nest step

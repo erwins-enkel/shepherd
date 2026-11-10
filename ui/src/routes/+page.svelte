@@ -1968,6 +1968,9 @@
   function askAboutDoneSession(desig: string) {
     askAssistant(m.operator_assistant_ask_done_session({ desig }));
   }
+  function askAboutEpic(repoPath: string, number: number) {
+    askAssistant(m.operator_assistant_ask_epic({ number, repo: basename(repoPath) }));
+  }
   function askFromSettings(question: string) {
     showSettings = false;
     askAssistant(question);
@@ -3999,6 +4002,7 @@
             onamend={openAmend}
             epics={store.epics}
             onepic={openEpicInBacklog}
+            onaskepic={askAboutEpic}
             drain={store.drain}
             {activeEpicKeys}
             collapsedKeys={collapsedEpics}
@@ -4229,6 +4233,7 @@
               onamend={openAmend}
               epics={store.epics}
               onepic={openEpicInBacklog}
+              onaskepic={askAboutEpic}
               drain={store.drain}
               {activeEpicKeys}
               collapsedKeys={collapsedEpics}

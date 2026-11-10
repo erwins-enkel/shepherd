@@ -424,6 +424,19 @@ describe("ReposGrid warm/cold (#2837)", () => {
     }
   });
 
+  it("puts the pill on the age line, never in the title row beside the name", async () => {
+    await render(ReposGrid, props({ projects: mixed() }));
+    for (const name of ["alpha", "charlie"]) {
+      const tile = tileOf(name);
+      expect(tile.querySelector(".rg-title .rg-cold")).toBeNull();
+      const line = tile.querySelector(".rg-cold-line")!;
+      expect([...line.children].map((c) => c.className.split(" ")[0])).toEqual([
+        "rg-cold",
+        "rg-asof",
+      ]);
+    }
+  });
+
   it("shows neither on a warm repo, nor on one from a server that omits `warm`", async () => {
     await render(ReposGrid, props({ projects: mixed() }));
     for (const name of ["bravo", "delta"]) {
@@ -442,10 +455,57 @@ describe("ReposGrid warm/cold (#2837)", () => {
 
   it("a cold repo with nothing cached shows the pill but no age", async () => {
     const ps = projects().map((p) =>
-      p.path === "/r/alpha" ? { ...p, warm: false, countsAt: null } : p,
+      p.path === "/r/alpha" || p.path === "/r/charlie" ? { ...p, warm: false, countsAt: null } : p,
     );
     await render(ReposGrid, props({ projects: ps }));
-    expect(tileOf("alpha").querySelector(".rg-cold")).not.toBeNull();
-    expect(tileOf("alpha").querySelector(".rg-asof")).toBeNull();
+    for (const name of ["alpha", "charlie"]) {
+      expect(tileOf(name).querySelector(".rg-cold-line .rg-cold")).not.toBeNull();
+      expect(tileOf(name).querySelector(".rg-asof")).toBeNull();
+    }
+  });
+});
+
+describe("ReposGrid small-tile name guard", () => {
+  it("keeps room for the name when the counts are long; the counts ellipsize, the ⚠ stays", async () => {
+    const long = "a-very-long-repository-name-for-the-guard";
+    const ps = [
+      ...projects(),
+      project(long, { openIssues: 1725, openPRs: 2073, noPrCiHold: true }),
+    ];
+    const { container } = await render(ReposGrid, props({ projects: ps }));
+    // 252px dialog − 2×16px scroll padding → one 220px tile, the grid's shipped minimum.
+    container.querySelector<HTMLElement>(".rg")!.style.width = "252px";
+    await tick();
+    const tileEl = qa(".rg-tile").find(
+      (t) => t.querySelector(".rg-name")?.textContent?.trim() === long,
+    )!;
+    const tile = tileEl.getBoundingClientRect();
+    const text = tileEl.querySelector<HTMLElement>(".rg-small-counts-text")!;
+    expect(text.scrollWidth).toBeGreaterThan(text.clientWidth);
+    expect(text.title).toBe(m.repos_switcher_tile_counts({ issues: 1725, prs: 2073 }));
+    expect(tileEl.querySelector(".rg-name")!.getBoundingClientRect().width).toBeGreaterThanOrEqual(
+      40,
+    );
+    expect(
+      tileEl.querySelector(".rg-small-counts")!.getBoundingClientRect().right,
+    ).toBeLessThanOrEqual(tile.right);
+    const mark = tileEl.querySelector(".rg-hold-mark")!.getBoundingClientRect();
+    expect(mark.width).toBeGreaterThan(0);
+    expect(mark.left).toBeGreaterThanOrEqual(tile.left);
+    expect(mark.right).toBeLessThanOrEqual(tile.right);
+  });
+
+  it("reserves no more than a short name needs: its long counts stay whole", async () => {
+    const ps = [...projects(), project("ui", { openIssues: 1725, openPRs: 2073 })];
+    const { container } = await render(ReposGrid, props({ projects: ps }));
+    container.querySelector<HTMLElement>(".rg")!.style.width = "252px";
+    await tick();
+    const tileEl = qa(".rg-tile").find(
+      (t) => t.querySelector(".rg-name")?.textContent?.trim() === "ui",
+    )!;
+    const text = tileEl.querySelector<HTMLElement>(".rg-small-counts-text")!;
+    const name = tileEl.querySelector<HTMLElement>(".rg-name")!;
+    expect(text.scrollWidth).toBeLessThanOrEqual(text.clientWidth);
+    expect(name.scrollWidth).toBeLessThanOrEqual(name.clientWidth);
   });
 });

@@ -5,6 +5,8 @@ import "../../../app.css";
 import SettingsSchedulesPanel from "./SettingsSchedulesPanel.svelte";
 import { m } from "#lib/paraglide/messages.js";
 import { schedules } from "#lib/schedules.svelte.js";
+import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
+import type { RepoConfig, Settings } from "#lib/types.js";
 import type { Schedule } from "#lib/types.js";
 
 function sched(id: string, repoPath: string, name: string, nextAt: number | null): Schedule {
@@ -40,8 +42,41 @@ const LIST = [
   sched("soon", "/w/beta", "Triage", NOW + 3_600_000),
 ];
 
+const REPO: RepoConfig = {
+  criticEnabled: true,
+  criticAllPrs: false,
+  criticSmellLensEnabled: false,
+  autoAddressEnabled: false,
+  autopilotEnabled: false,
+  autoDrainEnabled: false,
+  autoMergeEnabled: false,
+  buildQueueEnabled: false,
+  planGateEnabled: false,
+  draftMode: false,
+  signoffAuthority: "human",
+  sandboxProfile: "inherit",
+  agentProvider: "inherit",
+  defaultModel: "inherit",
+  defaultEffort: "inherit",
+  defaultExecutionEffort: "inherit",
+  maxAuto: 1,
+  autoLabel: "shepherd:auto",
+  usageCeilingPct: 80,
+  repoMode: "forge",
+  manualStepsIssueEnabled: false,
+  preWarmEpicLandingCi: false,
+  mergeWithoutCi: false,
+  epicStacksEnabled: false,
+  sharedBrowserEnabled: false,
+  browserAllowedHosts: [],
+  claudeAiConnectorsEnabled: false,
+  hidden: false,
+  pinned: false,
+  previewOpenMode: "ask",
+};
+
 /** Fake the schedules API: GET answers `list`; writes are recorded and answer `{}`. */
-function mockApi(list: Schedule[]) {
+function mockApi(list: Schedule[], agentProvider: "inherit" | "claude" | "codex" = "inherit") {
   const calls: { method: string; url: string; body: unknown }[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const method = init?.method ?? "GET";
@@ -50,7 +85,12 @@ function mockApi(list: Schedule[]) {
       url: String(input),
       body: init?.body ? JSON.parse(String(init.body)) : null,
     });
-    const body = method === "GET" ? { schedules: list } : {};
+    const body =
+      method === "GET"
+        ? String(input).includes("/api/repo-config")
+          ? { ...REPO, agentProvider }
+          : { schedules: list }
+        : {};
     return new Response(JSON.stringify(body), { status: 200 });
   });
   return calls;
@@ -59,7 +99,10 @@ function mockApi(list: Schedule[]) {
 const titles = () =>
   Array.from(document.querySelectorAll(".sc-title")).map((e) => e.textContent?.trim());
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  repoSettingsWindow.provide({ globals: () => null, drain: () => null });
+});
 
 describe("SettingsSchedulesPanel (#3475)", () => {
   it("lists every repo's schedules, soonest first, paused last", async () => {
@@ -119,6 +162,44 @@ describe("SettingsSchedulesPanel (#3475)", () => {
     await page.getByRole("button", { name: m.schedules_edit() }).first().click();
     await expect.element(page.getByLabelText(m.schedules_field_name())).toHaveValue("Triage");
   });
+
+  it.each(["repo", "global"])(
+    "resolves the %s default when editing from global schedules",
+    async (source) => {
+      await page.viewport(1280, 900);
+      const schedule = sched(
+        `default-${source}`,
+        `/w/default-${source}`,
+        "Inherited engine",
+        NOW + 3_600_000,
+      );
+      const calls = mockApi([schedule], source === "repo" ? "codex" : "inherit");
+      repoSettingsWindow.provide({
+        globals: () =>
+          ({ defaultAgentProvider: source === "global" ? "codex" : "claude" }) as Settings,
+        drain: () => null,
+      });
+      render(SettingsSchedulesPanel, {});
+      await page.getByRole("button", { name: m.schedules_edit(), exact: true }).click();
+      await expect
+        .element(page.getByRole("button", { name: /Codex/ }))
+        .toHaveAttribute("aria-pressed", "true");
+      await expect
+        .element(page.getByRole("button", { name: /Codex/ }))
+        .toMatchTextContent(/Default/);
+      expect(
+        calls.some((c) =>
+          c.url.includes(`/api/repo-config?repo=${encodeURIComponent(schedule.repoPath)}`),
+        ),
+      ).toBe(true);
+      await page.getByRole("button", { name: m.schedules_save(), exact: true }).click();
+      await vi.waitFor(() =>
+        expect(calls.find((c) => c.method === "PATCH")?.body).toMatchObject({
+          launch: { agentProvider: null },
+        }),
+      );
+    },
+  );
 
   it("Tab and Escape in the edit dialog never reach the Settings card", async () => {
     mockApi(LIST);

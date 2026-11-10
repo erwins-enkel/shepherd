@@ -108,6 +108,9 @@ class SchedulesStore {
 
 export const schedules = new SchedulesStore();
 
+/** Read-only live usage supplied by AppOverlays to both schedule-dialog entry points. */
+export const SCHEDULE_USAGE = Symbol("schedule-usage");
+
 /** Soonest next run first; disabled schedules (no next run) last, by repo then name. */
 export function upcomingOrder(list: readonly Schedule[]): Schedule[] {
   const key = (s: Schedule) => `${basename(s.repoPath)}\u0000${s.name}`;
@@ -170,3 +173,30 @@ export function cadenceSummary(days: number, times: string[], locale?: string): 
   }
   return `${runs.join(", ")} · ${times.join(", ")}`;
 }
+
+/* eslint-disable svelte/prefer-svelte-reactivity -- pure calculation; Dates/Sets are local scratch values. */
+/** Browser-local preview of the server's nextSlot rule. Does not normalize saved times. */
+export function upcomingSlots(
+  days: number,
+  times: readonly string[],
+  now: number,
+  n: number,
+): number[] {
+  const clockTimes = [...new Set(times.filter((t) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t)))];
+  if (!(days & ALL_DAYS) || !clockTimes.length || n <= 0) return [];
+  const base = new Date(now);
+  const result: number[] = [];
+  // Even one active weekday with one time supplies n slots within n weeks plus today.
+  for (let ahead = 0; ahead <= 7 * n && result.length < n; ahead++) {
+    const day = new Date(base.getFullYear(), base.getMonth(), base.getDate() + ahead);
+    if (!(days & (1 << ((day.getDay() + 6) % 7)))) continue;
+    const slots = clockTimes.map((time) => {
+      const [hour, minute] = time.split(":").map(Number);
+      return new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, minute).getTime();
+    });
+    result.push(...[...new Set(slots)].filter((at) => at > now).sort((a, b) => a - b));
+  }
+  return result.slice(0, n);
+}
+
+/* eslint-enable svelte/prefer-svelte-reactivity */

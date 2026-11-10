@@ -16,6 +16,8 @@ import type { SessionStore } from "./store";
 import type { StandardCreateInput } from "./types";
 import {
   decideFiring,
+  decideUsageLimit,
+  scheduleUsageWindows,
   latestDueSlot,
   scheduleCreateInput,
   type Schedule,
@@ -40,7 +42,12 @@ export interface ScheduleServiceDeps {
     | "listHeldTasks"
     | "pruneScheduleRuns"
   >;
-  launch: (input: StandardCreateInput) => Promise<LaunchOutcome>;
+  launch: (
+    input: StandardCreateInput,
+    opts?: { skipUsageHold?: boolean },
+  ) => Promise<LaunchOutcome>;
+  usageLimits: Pick<import("./usage-limits").UsageLimitsService, "limits">;
+  resolveProvider: (schedule: Schedule) => import("./types").AgentProvider;
   /** The repo's default branch, for a schedule without a pinned base branch. */
   defaultBranch: (repoPath: string) => Promise<string | null>;
   repoRoot: () => string;
@@ -114,10 +121,10 @@ export class ScheduleService {
     const s = this.deps.store.getSchedule(id);
     if (!s) return null;
     const slotKey = `manual:${new Date(this.now()).toISOString()}`;
-    return this.fire(s, slotKey);
+    return this.fire(s, slotKey, true);
   }
 
-  private async fire(s: Schedule, slotKey: string): Promise<ScheduleRun | null> {
+  private async fire(s: Schedule, slotKey: string, manual = false): Promise<ScheduleRun | null> {
     const { store } = this.deps;
     // Claim FIRST, synchronously — before any await.
     if (!store.claimScheduleRun(s.id, slotKey, this.now()))
@@ -132,7 +139,19 @@ export class ScheduleService {
     }
     this.inFlight.add(s.id);
     try {
-      await this.launch(s, slotKey);
+      let provider: import("./types").AgentProvider | undefined;
+      const limited = !manual && s.usageLimit !== null;
+      if (limited) {
+        provider = this.deps.resolveProvider(s);
+        const windows = scheduleUsageWindows(this.deps.usageLimits.limits(this.now()), provider);
+        const decision = decideUsageLimit(s.usageLimit!, provider, windows);
+        store.settleScheduleRun(s.id, slotKey, decision.allowed ? "claimed" : "skipped:limit", {
+          reason: decision.reason,
+          usage: decision.usage,
+        });
+        if (!decision.allowed) return store.getScheduleRun(s.id, slotKey);
+      }
+      await this.launch(s, slotKey, provider, limited);
     } catch (err) {
       store.settleScheduleRun(s.id, slotKey, "error", { reason: String(err) });
     } finally {
@@ -150,7 +169,12 @@ export class ScheduleService {
     );
   }
 
-  private async launch(s: Schedule, slotKey: string): Promise<void> {
+  private async launch(
+    s: Schedule,
+    slotKey: string,
+    provider?: import("./types").AgentProvider,
+    skipUsageHold = false,
+  ): Promise<void> {
     const { store } = this.deps;
     const base = s.launch.baseBranch ?? (await this.deps.defaultBranch(s.repoPath));
     if (!base) {
@@ -163,7 +187,10 @@ export class ScheduleService {
       this.log(`[schedules] ${s.name} ${slotKey}: error ${input.error}`);
       return;
     }
-    const out = await this.deps.launch({ ...input.value, scheduleId: s.id });
+    const out = await this.deps.launch(
+      { ...input.value, ...(provider && { agentProvider: provider }), scheduleId: s.id },
+      { skipUsageHold },
+    );
     if (out.kind === "spawned") {
       store.settleScheduleRun(s.id, slotKey, "spawned", { sessionId: out.session.id });
       this.log(`[schedules] ${s.name} ${slotKey}: spawned ${out.session.desig}`);

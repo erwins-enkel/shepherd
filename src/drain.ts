@@ -1119,12 +1119,23 @@ export class DrainService {
     }
   }
 
-  /** Emit the epic only when something meaningful changed (de-dup by signature). */
+  /** Emit the epic only when something meaningful changed (de-dup by signature). A child sent to
+   *  another machine counts its session there: the confirmed start keeps the child's state but
+   *  gives the UI the id that places the mirrored session in its epic group. */
   private emitEpicIfChanged(repoPath: string, epic: Epic): void {
     const sig = JSON.stringify({
       st: epic.run.status,
       md: epic.run.mode,
-      kids: epic.children.map((c) => [c.number, c.state, c.prNumber] as const),
+      kids: epic.children.map(
+        (c) =>
+          [
+            c.number,
+            c.state,
+            c.prNumber,
+            c.elsewhere?.host.instanceId ?? null,
+            c.elsewhere?.sessionId ?? null,
+          ] as const,
+      ),
       warn: epic.warnings.length,
     });
     if (this.lastEpicSig.get(repoPath) === sig) return;

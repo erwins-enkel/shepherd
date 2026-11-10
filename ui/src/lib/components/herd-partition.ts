@@ -138,9 +138,11 @@ export function shownMirrored(
 }
 
 /** The lifecycle partition's input with mirrored sessions joined in (#3055): the local `rest`
- *  (what epic and experiment grouping left — mirrored sessions skip both, they are this Shepherd's
- *  own) with the mirrored ones interleaved by start time, the local order kept; and the PR map
- *  extended by theirs. Shared by Herd.svelte and herd-keynav so render and nav cannot drift. */
+ *  (what epic and experiment grouping left) with the mirrored ones epic grouping left
+ *  interleaved by start time, the local order kept; and the PR map extended by theirs. Mirrored
+ *  sessions skip experiment grouping (experiments are this Shepherd's own); epic grouping keeps
+ *  only those the drain sent for an epic child. Shared by Herd.svelte and herd-keynav so render
+ *  and nav cannot drift. */
 export function joinMirrored(
   rest: Session[],
   git: Record<string, GitState>,

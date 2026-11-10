@@ -1,5 +1,62 @@
 import type { Session, GitState, Epic } from "#lib/types.js";
-import { partitionSessions, flattenByStage } from "./herd-partition";
+import { partitionSessions, flattenByStage, mirroredGit } from "./herd-partition";
+
+/** A mirrored session's identity as an epic child's `elsewhere` names it: the machine and the
+ *  session there. */
+const sentKey = (instanceId: string, sessionId: string) => `${instanceId}#${sessionId}`;
+
+/** `sentKey` → epic key for every child of the given epics that the drain sent to another machine
+ *  and whose start there is confirmed (`elsewhere.sessionId` set). */
+function sentIndex(epics: Record<string, Epic>, keys: Iterable<string>): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const epicKey of keys) {
+    for (const c of epics[epicKey]?.children ?? []) {
+      const sent = c.elsewhere;
+      if (sent?.sessionId) index.set(sentKey(sent.host.instanceId, sent.sessionId), epicKey);
+    }
+  }
+  return index;
+}
+
+/** The epic key a mirrored session belongs to, or undefined — never for a shelved one. */
+function sentEpicOf(s: Session, index: ReadonlyMap<string, string>): string | undefined {
+  return s.host && !s.shelved ? index.get(sentKey(s.host.instanceId, s.id)) : undefined;
+}
+
+/** `${repoPath}#${childIssueNumber}` → epic key, from the given epics' children (repo-scoped). */
+function childIndex(epics: Record<string, Epic>, keys: Iterable<string>): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const epicKey of keys) {
+    const epic = epics[epicKey];
+    if (!epic) continue;
+    for (const c of epic.children) index.set(`${epic.repoPath}#${c.number}`, epicKey);
+  }
+  return index;
+}
+
+/** The epic key a local session belongs to, or undefined. A shelved child renders in the Shelved
+ *  group, never its epic. */
+function localEpicOf(s: Session, index: ReadonlyMap<string, string>): string | undefined {
+  return s.shelved || s.issueNumber == null
+    ? undefined
+    : index.get(`${s.repoPath}#${s.issueNumber}`);
+}
+
+/** Adds each session `epicOf` places to its epic's bucket in `members`; returns the others in
+ *  input order. */
+function collectMembers(
+  sessions: readonly Session[],
+  epicOf: (s: Session) => string | undefined,
+  members: Map<string, Session[]>,
+): Session[] {
+  const rest: Session[] = [];
+  for (const s of sessions) {
+    const epicKey = epicOf(s);
+    if (epicKey === undefined) rest.push(s);
+    else members.set(epicKey, [...(members.get(epicKey) ?? []), s]);
+  }
+  return rest;
+}
 
 /** Group sessions under their parent epic. Pure; shared by the Herd render and the
  *  keyboard-nav rail so the two can never drift on membership or order.
@@ -10,13 +67,20 @@ import { partitionSessions, flattenByStage } from "./herd-partition";
  *  number, never the parent — a session whose `issueNumber` equals an epic's
  *  `parentIssueNumber` must NOT group. A `null` `issueNumber` is never a child.
  *
+ *  A session mirrored from a connected machine (`mirrored`, #3055) carries that machine's
+ *  checkout as `repoPath`, so it matches differently: it belongs to `E` iff `E`'s key is in
+ *  `activeEpicKeys` and some child's `elsewhere` (the drain sent it there) names this session —
+ *  same `host.instanceId` and `sessionId === session.id`. A shelved one never groups. Mirrored
+ *  members are staged by the PR state their machine reports (`session.git`).
+ *
  *  `epics` is keyed `${repoPath}#${parentIssueNumber}`; it can hold stale/idle
  *  epics, and FINISHED epics are pruned from it (HerdStore.setEpic drops
  *  idle+all-merged records) — so an `activeEpicKeys` entry may briefly lack its
  *  record here (skipped below). `activeEpicKeys` (same key shape) gates which
  *  epics group. Groups are sorted by repo basename then `parentIssueNumber`; each group's
  *  sessions are ordered by lifecycle stage via `flattenByStage(partitionSessions(...))`.
- *  `rest` (non-members) preserves input order and is NOT reordered. */
+ *  `rest` (local non-members) and `mirroredRest` (mirrored non-members) preserve input order and
+ *  are NOT reordered. */
 export function groupSessionsByEpic(
   sessions: Session[],
   epics: Record<string, Epic>,
@@ -25,48 +89,31 @@ export function groupSessionsByEpic(
   isReviewing: (id: string) => boolean,
   isReworkRunning: (session: Session) => boolean,
   now: number,
-): { groups: Array<{ key: string; epic: Epic; sessions: Session[] }>; rest: Session[] } {
-  // Build a child→epicKey index from the ACTIVE epics only.
-  // Keyed `${repoPath}#${childIssueNumber}` so membership respects repoPath.
-  const childIndex = new Map<string, string>();
-  for (const epicKey of activeEpicKeys) {
-    const epic = epics[epicKey];
-    if (!epic) continue;
-    for (const c of epic.children) {
-      childIndex.set(`${epic.repoPath}#${c.number}`, epicKey);
-    }
-  }
-
+  mirrored: readonly Session[] = [],
+): {
+  groups: Array<{ key: string; epic: Epic; sessions: Session[] }>;
+  rest: Session[];
+  mirroredRest: Session[];
+} {
   const members = new Map<string, Session[]>(); // epicKey → member sessions (input order)
-  const rest: Session[] = [];
-
-  for (const s of sessions) {
-    // A shelved child renders in the Shelved group, never its epic.
-    const epicKey =
-      s.shelved || s.issueNumber == null
-        ? undefined
-        : childIndex.get(`${s.repoPath}#${s.issueNumber}`);
-    if (epicKey === undefined) {
-      rest.push(s);
-      continue;
-    }
-    const bucket = members.get(epicKey);
-    if (bucket) bucket.push(s);
-    else members.set(epicKey, [s]);
-  }
+  const local = childIndex(epics, activeEpicKeys);
+  const rest = collectMembers(sessions, (s) => localEpicOf(s, local), members);
+  const sent = sentIndex(epics, activeEpicKeys);
+  const mirroredRest = collectMembers(mirrored, (s) => sentEpicOf(s, sent), members);
+  const groupGit = mirrored.length > 0 ? { ...git, ...mirroredGit(mirrored) } : git;
 
   const groups = [...members.entries()]
     .map(([key, memberSessions]) => ({
       key,
-      // key came from childIndex, which is built only from epics present above → defined.
+      // key came from childIndex or sentIndex, both built only from loaded epics → defined.
       epic: epics[key],
       sessions: flattenByStage(
-        partitionSessions(memberSessions, git, isReviewing, isReworkRunning, now),
+        partitionSessions(memberSessions, groupGit, isReviewing, isReworkRunning, now),
       ),
     }))
     .sort(byRepoThenParent);
 
-  return { groups, rest };
+  return { groups, rest, mirroredRest };
 }
 
 const basename = (p: string) => p.slice(p.lastIndexOf("/") + 1);
@@ -85,29 +132,45 @@ function byRepoThenParent(a: { epic: Epic }, b: { epic: Epic }): number {
  *  An epic qualifies when its key is in `activeEpicKeys`, its record is loaded, its run is
  *  running or paused, it is not all-merged, it is not in `completedKeys` (the integrated band
  *  shows it), its repo passes `repoFilter` (empty = all), and no session in `sessions` is one of
- *  its children (same `repoPath`, `issueNumber` = a child number). Pass every local session the
- *  view lists — shelved and experiment members included — so an epic whose child renders
- *  elsewhere in the list never also shows as session-less. Sorted like `groupSessionsByEpic`. */
+ *  its children (same `repoPath`, `issueNumber` = a child number) and no session in `mirrored` is
+ *  one the drain sent for a child (matched as in `groupSessionsByEpic`). Pass every local session
+ *  the view lists — shelved and experiment members included — and the mirrored ones it lists, so
+ *  an epic whose child renders elsewhere in the list never also shows as session-less. Sorted like
+ *  `groupSessionsByEpic`. */
 export function sessionlessEpicGroups(
   sessions: readonly Session[],
   epics: Record<string, Epic>,
   activeEpicKeys: ReadonlySet<string>,
   repoFilter: ReadonlySet<string>,
   completedKeys: ReadonlySet<string>,
+  mirrored: readonly Session[] = [],
 ): Array<{ key: string; epic: Epic; sessions: Session[] }> {
   const withSession = new Set(
     sessions.flatMap((s) => (s.issueNumber == null ? [] : [`${s.repoPath}#${s.issueNumber}`])),
   );
+  const listedThere = new Set(
+    mirrored.flatMap((s) => (s.host ? [sentKey(s.host.instanceId, s.id)] : [])),
+  );
+  const listed = (epic: Epic) =>
+    epic.children.some(
+      (c) =>
+        withSession.has(`${epic.repoPath}#${c.number}`) ||
+        (!!c.elsewhere?.sessionId &&
+          listedThere.has(sentKey(c.elsewhere.host.instanceId, c.elsewhere.sessionId))),
+    );
   const groups: Array<{ key: string; epic: Epic; sessions: Session[] }> = [];
   for (const key of activeEpicKeys) {
     const epic = epics[key];
-    if (!epic || completedKeys.has(key)) continue;
-    if (epic.run.status !== "running" && epic.run.status !== "paused") continue;
-    if (repoFilter.size > 0 && !repoFilter.has(epic.repoPath)) continue;
-    const { children } = epic;
-    if (children.length > 0 && children.every((c) => c.state === "merged")) continue;
-    if (children.some((c) => withSession.has(`${epic.repoPath}#${c.number}`))) continue;
+    if (!epic || completedKeys.has(key) || !waitsInView(epic, repoFilter) || listed(epic)) continue;
     groups.push({ key, epic, sessions: [] });
   }
   return groups.sort(byRepoThenParent);
+}
+
+/** A running or paused epic, not all-merged, whose repo passes `repoFilter` (empty = all). */
+function waitsInView(epic: Epic, repoFilter: ReadonlySet<string>): boolean {
+  if (epic.run.status !== "running" && epic.run.status !== "paused") return false;
+  if (repoFilter.size > 0 && !repoFilter.has(epic.repoPath)) return false;
+  const { children } = epic;
+  return !(children.length > 0 && children.every((c) => c.state === "merged"));
 }

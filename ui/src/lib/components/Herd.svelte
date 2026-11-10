@@ -36,6 +36,7 @@
     shownSessions,
     shownMirrored,
     joinMirrored,
+    mirroredGit,
     GROUP_KEY_BY_STAGE,
     type HerdFilter,
   } from "./herd-partition";
@@ -408,6 +409,8 @@
   // being pulled into its epic, which would strand the remaining variant(s) (a lone variant won't
   // form a group). Epic grouping then runs over the remainder; a session is never double-grouped.
   const experimentGrouped = $derived(groupSessionsByExperiment(shown));
+  // A mirrored session the drain sent for an active epic's child joins that epic's group; the
+  // other mirrored sessions come back as `mirroredRest`.
   const grouped = $derived(
     groupSessionsByEpic(
       experimentGrouped.rest,
@@ -417,15 +420,17 @@
       inReview,
       isReworkRunning,
       nowMs,
+      remoteShown,
     ),
   );
   // #3814: a running or paused epic with no child session keeps an (empty) group, so the herd
   // still shows it and why it waits. Only in the plain "all" view of this Shepherd's own
   // sessions: the ready lens and the status filter pick sessions, which such a group has none
   // of, and the epics are this Shepherd's own. Matched against every listed session
-  // (pre-experiment, shelved included) so an epic whose child renders anywhere never shows as
-  // session-less. They follow the member groups, so the default-open first group stays one
-  // with sessions. Rows: none — the keyboard rail (groupSessionsByEpic) is unaffected.
+  // (pre-experiment, shelved included, and the mirrored ones shown) so an epic whose child renders
+  // anywhere never shows as session-less. They follow the member groups, so the default-open
+  // first group stays one with sessions. Rows: none — the keyboard rail (groupSessionsByEpic) is
+  // unaffected.
   const showSessionless = $derived(
     filter === "all" &&
       statusFilter == null &&
@@ -437,14 +442,19 @@
   const epicGroups = $derived([
     ...grouped.groups,
     ...(showSessionless
-      ? sessionlessEpicGroups(sessions, epics, activeEpicKeys, repoFilter, completedEpicKeys).map(
-          (g) => ({ ...g, wait: sessionlessEpicWait(g.epic, drain[g.epic.repoPath]) }),
-        )
+      ? sessionlessEpicGroups(
+          sessions,
+          epics,
+          activeEpicKeys,
+          repoFilter,
+          completedEpicKeys,
+          remoteShown,
+        ).map((g) => ({ ...g, wait: sessionlessEpicWait(g.epic, drain[g.epic.repoPath]) }))
       : []),
   ]);
-  // Mirrored sessions skip epic/experiment grouping (both are this Shepherd's own) and join the
-  // lifecycle groups by start time, with their machine's PR state — view-only (#3055).
-  const joined = $derived(joinMirrored(grouped.rest, git, remoteShown));
+  // Mirrored sessions skip experiment grouping (this Shepherd's own); those epic grouping left join
+  // the lifecycle groups by start time, with their machine's PR state — view-only (#3055).
+  const joined = $derived(joinMirrored(grouped.rest, git, grouped.mirroredRest));
   const partition = $derived(
     partitionSessions(joined.sessions, joined.git, inReview, isReworkRunning, nowMs),
   );
@@ -467,12 +477,14 @@
   // ONE partition per epic group, keyed by group key — the cue chips, the grouped
   // ready/merged tallies, and the "in epics above" annotation all read from it, so we
   // partition each small group exactly once. Re-derives on the same inputs the per-group
-  // partition depends on (grouped, git, inReview, nowMs).
+  // partition depends on (grouped, git, inReview, nowMs). A mirrored member reads its machine's
+  // PR state, as in groupSessionsByEpic.
+  const groupGit = $derived({ ...git, ...mirroredGit(remoteShown) });
   const groupParts = $derived(
     new Map(
       grouped.groups.map((g) => [
         g.key,
-        partitionSessions(g.sessions, git, inReview, isReworkRunning, nowMs),
+        partitionSessions(g.sessions, groupGit, inReview, isReworkRunning, nowMs),
       ]),
     ),
   );

@@ -6149,7 +6149,7 @@
   "native_remote_terminal_lost_title": "{machine} ist nicht erreichbar",
   "native_remote_terminal_lost_body": "{machine} ist nicht erreichbar. Das Terminal öffnet sich von selbst wieder, sobald der Rechner zurück ist.",
   "native_remote_terminal_ended_body": "Die Session auf {machine} hat keinen laufenden Agenten mehr. Ihre Ausgabe ist eingefroren; setze sie im Shepherd auf {machine} fort.",
-  "native_ios_remote_actions_body": "Diese App zeigt die Session so, wie {machine} sie meldet. Terminal, Steuern, Stoppen, Archivieren und Mergen gibt es hier noch nicht, und nichts davon wird stellvertretend auf diesem Server ausgeführt – öffne dafür den Shepherd auf {machine}.",
+  "native_ios_remote_actions_body": "Lies hier den Chat, antworte, beantworte Rückfragen und hänge Bilder an; diese Anfragen laufen auf {machine}. Terminal, Stoppen, Archivieren und Mergen gibt es hier noch nicht – öffne dafür Shepherd auf {machine}.",
   "remote_detail_actions_live_aria": "Aktionen auf {machine}",
   "tooltip_remote_forwarded_body": "Terminal, Steuern, Stoppen, Archivieren, Aktivität, Diff, Dateien und Vorschau funktionieren von hier aus: Alles geht an {machine} und läuft dort – die Vorschau öffnet sich unter der eigenen Adresse von {machine}. Mergen, Neustarten und die übrigen Aktionen gibt es hier noch nicht – öffne dafür den Shepherd auf {machine}. Solange {machine} getrennt ist, wird nichts gesendet, und nichts davon läuft stellvertretend auf diesem Rechner.",
   "remote_detail_actions_unavailable_aria": "Aktionen – nicht verfügbar, solange {machine} getrennt ist",

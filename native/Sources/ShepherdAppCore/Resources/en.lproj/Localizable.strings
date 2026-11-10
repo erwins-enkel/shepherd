@@ -1163,7 +1163,7 @@
 "native_ios_reconnect_reconnected" = "Reconnected";
 "native_ios_reconnect_try_again" = "Try again";
 "native_ios_reconnect_unreachable" = "%1$@ unreachable";
-"native_ios_remote_actions_body" = "This app shows the session as %1$@ reports it. Its terminal, steering, stopping, archiving and merging are not offered here yet, and nothing is run on this server in their place — open the Shepherd on %1$@ for those.";
+"native_ios_remote_actions_body" = "Read the conversation, reply, answer questions and attach images here; these requests run on %1$@. Its terminal, stopping, archiving and merging are not offered here yet — open Shepherd on %1$@ for those.";
 "native_ios_remove_body" = "This removes the saved sign-in from this device. Server-side revocation is not confirmed.";
 "native_ios_reply_draft" = "Draft saved";
 "native_ios_server_connected" = "Connected";

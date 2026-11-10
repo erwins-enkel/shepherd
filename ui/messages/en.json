@@ -6149,7 +6149,7 @@
   "native_remote_terminal_lost_title": "{machine} is unreachable",
   "native_remote_terminal_lost_body": "{machine} can't be reached. The terminal reopens by itself once the machine is back.",
   "native_remote_terminal_ended_body": "The session on {machine} no longer has a running agent. Its output is frozen; resume it in the Shepherd on {machine}.",
-  "native_ios_remote_actions_body": "This app shows the session as {machine} reports it. Its terminal, steering, stopping, archiving and merging are not offered here yet, and nothing is run on this server in their place — open the Shepherd on {machine} for those.",
+  "native_ios_remote_actions_body": "Read the conversation, reply, answer questions and attach images here; these requests run on {machine}. Its terminal, stopping, archiving and merging are not offered here yet — open Shepherd on {machine} for those.",
   "remote_detail_actions_live_aria": "Actions on {machine}",
   "tooltip_remote_forwarded_body": "The terminal, steering, stopping, archiving, the activity, the diff, the files and the preview work from here: each is sent to {machine} and runs there — the preview opens from {machine}'s own address. Merging, relaunching and the other actions are not offered here yet — open the Shepherd on {machine} for those. While {machine} is disconnected nothing is sent, and nothing ever runs on this machine in its place.",
   "remote_detail_actions_unavailable_aria": "Actions — unavailable while {machine} is disconnected",

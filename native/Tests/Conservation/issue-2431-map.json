@@ -13052,7 +13052,8 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ChatTimelineTests.swift\",\"CoreSeamTests.ChatTimelineTests\",\"repeatedSendsNeedSeparateTranscriptEchoes()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ChatTimelineTests.swift\",\"CoreSeamTests.ChatTimelineTests\",\"toolRunsInterleaveAndEqualStampsFollowMessages()\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientChatTests.swift\",\"ShepherdClientChatTests\",\"messagesRequestIncludesTheMobileWindowAndTools() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientChatTests.swift\",\"ShepherdClientChatTests\",\"unavailableMessagesAndMissingSessions() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientChatTests.swift\",\"ShepherdClientChatTests\",\"unavailableMessagesAndMissingSessions() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientChatTests.swift\",\"ShepherdClientChatTests\",\"remoteChatKeepsSessionRoutesAndScopesQuestionsToTheMachine() async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",
@@ -13081,6 +13082,9 @@
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testFailedSendKeepsDraftAndSuccessEchoSettlesPermanently() async\"]",
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testSendingLocksComposerAndReadOnlyNeverReplies() async\"]",
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testChatIsFirstDefaultAndMarkdownKeepsBlockStructure()\"]",
-    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testRenderChatFixture() throws\"]"
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testRenderChatFixture() throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testImagesWaitForUploadAndFailedRepliesKeepTheMachinePaths() async\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testImageOnlyReplyAndLateReplyRetainAttachments() async\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testRemoteQuestionsArePolledAndLateMachineResponsesAreDiscarded() async\"]"
   ]
 }

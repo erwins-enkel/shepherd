@@ -79,6 +79,14 @@ describe("agentLive", () => {
     expect(agentLive({ ...s, terminal: true })).toBe(false);
     expect(agentLive({ ...s, status: "done" })).toBe(false);
   });
+  it("a finished turn (herdr `done`) is steerable only while the agent is confirmed alive", () => {
+    const done = { ...s, status: "done" as const };
+    expect(agentLive(done, "alive")).toBe(true);
+    expect(agentLive(done)).toBe(false);
+    expect(agentLive(done, "husk")).toBe(false);
+    expect(agentLive(done, "stranded")).toBe(false);
+    expect(agentLive({ ...done, shelved: true }, "alive")).toBe(false);
+  });
 });
 
 describe("prNextStep", () => {

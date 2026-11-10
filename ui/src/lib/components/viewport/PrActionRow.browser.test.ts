@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 import "../../../app.css";
 import type { GitState, Recap, ReviewVerdict, Session } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
+import { rebaseSteer } from "./pr-next-step";
 
 // The merge row reads the PR from its `git` prop (the WS store), so only the actions are mocked.
 const mergePrFn = vi.fn();
@@ -963,6 +964,25 @@ describe("PrActionRow — next step (#3541)", () => {
       expect(replySessionFn).not.toHaveBeenCalled();
       await screen.unmount();
     }
+  });
+
+  it("a finished turn (done) with its agent confirmed alive: Rebase is live and steers", async () => {
+    const h = host();
+    await render(PrActionRow, {
+      target: h,
+      props: {
+        session: session({ status: "done" }),
+        git: conflict,
+        status: "done",
+        liveness: "alive",
+      },
+    });
+    const b = primary(h);
+    expect(b.textContent?.trim()).toBe(m.prrow_rebase());
+    expect(b.getAttribute("aria-disabled")).toBeNull();
+    b.click();
+    await expect.poll(() => replySessionFn.mock.calls.length).toBe(1);
+    expect(replySessionFn.mock.calls[0]).toEqual(["sess-A", rebaseSteer("main", true)]);
   });
 
   it("a failed send toasts with Retry and re-enables the button", async () => {

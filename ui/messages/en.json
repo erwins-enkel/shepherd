@@ -8417,5 +8417,7 @@
   "placement_qual_unreachable": "unreachable",
   "placement_route_none": "no machine",
   "newtask_derive_tag_pending": "reading task…",
-  "newtask_derive_tag": "from task"
+  "newtask_derive_tag": "from task",
+  "feat_remote_chat_title": "Chat for sessions on connected machines",
+  "feat_remote_chat_body": "Sessions on a connected machine now have the Chat tab: read the conversation, reply, answer its questions and attach images. Everything runs on that machine."
 }

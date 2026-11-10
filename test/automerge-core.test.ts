@@ -83,6 +83,32 @@ test("#3221: checksAbsent turns a CI repo's checks:none into checks_absent", () 
   expect(mergeWaitReason(t, state([t]))).toBe("checks_pending");
 });
 
+test("#3831: TASK-2966's PR — a CI run that failed before any job waits as checks_failed, not checks_absent", () => {
+  // The live view: CI repo, clean, current, clean critic verdict for this head. Raw rollup was
+  // empty (checks_absent); the start-failure overlay reads it as red CI instead.
+  const live = {
+    number: 34,
+    headSha: "9b5426b",
+    mergeStateStatus: "clean" as const,
+    reviewDecision: "commented" as const,
+    reviewHeadSha: "9b5426b",
+  };
+  const critic = { criticEnabled: true };
+  const raw = sess({ ...live, checks: "none", checksAbsent: true });
+  expect(mergeWaitReason(raw, state([raw], critic))).toBe("checks_absent");
+  const red = sess({ ...live, checks: "failure" });
+  expect(mergeWaitReason(red, state([red], critic))).toBe("checks_failed");
+  expect(computeMerge(state([red], critic)).kind).toBe("hold");
+  // Once the re-run is green, the same PR lands on the next pump.
+  const green = sess({ ...live, checks: "success" });
+  expect(computeMerge(state([green], critic))).toEqual({
+    kind: "merge",
+    sessionId: "s1",
+    prNumber: 34,
+    headSha: "9b5426b",
+  });
+});
+
 test("#3104: noCiHold never holds a green PR (repo gained CI)", () => {
   const d = computeMerge(state([sess({ checks: "success", noCi: true, noCiHold: true })]));
   expect(d).toEqual({ kind: "merge", sessionId: "s1", prNumber: 7, headSha: "h1" });

@@ -24,6 +24,7 @@ import type { AutopilotVerdict, Session, ReviewVerdict } from "../src/types";
 import { classifyBlocked, type BlockReason } from "../src/blocked";
 import type { GitState } from "../src/forge/types";
 import { OWNERSHIP_TTL_MS } from "../src/automerge-core";
+import { ciStartupSteer } from "../src/ci-startup-failure";
 
 /** Drain the microtask queue to the end. considerCi (the onGit CI-fix path) fire-and-forgets
  *  driveSteer, which bumps the step only AFTER awaiting the now-async steer — two microtask hops
@@ -3574,4 +3575,54 @@ test("every classified stop logs its verdict and PR state", async () => {
     console.log = orig;
   }
   expect(lines).toContain("[autopilot] verdict TASK-01 kind=unknown pr=open");
+});
+
+// ── #3831: a CI run that failed before any job gets its own steer ─────────────────────────────
+
+const startupRed = (): GitState =>
+  git({
+    jobs: [
+      {
+        name: "CI",
+        state: "failure",
+        url: "https://github.com/o/r/actions/runs/42672130324",
+        startupFailure: true,
+      },
+    ],
+  });
+
+test("#3831 onGit: a start-failure red head gets the start-failure steer, not CI_FIX_STEER", async () => {
+  const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
+  h.svc.onGit("s1", startupRed());
+  await flush();
+  expect(h.events).toContainEqual({ steer: ciStartupSteer(startupRed())! });
+  expect(h.events.some((e) => e.steer === CI_FIX_STEER)).toBe(false);
+  expect(h.state().autopilotStepCount).toBe(1);
+});
+
+test("#3831 tick: the idle re-engage steers the start-failure text", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    prGit: startupRed(),
+    verdict: { kind: "finished", summary: "done" },
+  });
+  await h.svc.tick();
+  await flush();
+  expect(h.events).toContainEqual({ steer: ciStartupSteer(startupRed())! });
+  expect(h.events.some((e) => e.steer === CI_FIX_STEER)).toBe(false);
+});
+
+test("#3831 reclaim: a soft-paused session on a start-failure head is reclaimed with that steer", async () => {
+  const h = harness({
+    session: softPaused(),
+    repoEnabled: true,
+    fullAuto: true,
+    openPr: true,
+    prGit: startupRed(),
+  });
+  h.svc.onGit("s1", startupRed());
+  await flush();
+  expect(h.events.filter((e) => e.steer === ciStartupSteer(startupRed()))).toHaveLength(1);
+  expect(ciSteers(h.events)).toHaveLength(0);
 });

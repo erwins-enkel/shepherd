@@ -711,6 +711,18 @@ the PR's latest commit has no checks for 10 minutes and GitHub reports it mergea
 says CI apparently doesn't run for this PR and offers **Merge without CI**. Pushing a commit that
 triggers CI clears it.
 
+**CI fails before it starts.** GitHub can end a workflow run as failed without creating a single
+job, for example on an internal error while starting it. No check reports it, so the PR looks
+as if CI had not started. Once a PR's latest commit has shown no checks for two minutes, Shepherd
+looks at that commit's workflow runs. A run that failed without jobs is re-run once, and the PR
+reads as CI running meanwhile. If it fails again, or GitHub refuses the re-run, the PR reads as
+red CI with the run linked: the merge train holds it, autopilot asks the agent to check the run
+instead of reading job logs, and the session shows up as CI failed. Shepherd never re-runs a
+run a second time.
+
+In a repo with PR CI, a PR without any checks never reads as ready to merge: its merge row says
+**No checks** and its Merge button stays locked until checks report.
+
 ## Warm and cold repos
 
 Shepherd reads GitHub in the background only for **warm** repos. A repo is warm when any of these

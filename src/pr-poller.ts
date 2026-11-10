@@ -4,6 +4,7 @@ import type { Session } from "./types";
 import { buildIssueUrl } from "./forge";
 import type { GitForge, GitState, PrStatus, WorkflowJob } from "./forge/types";
 import { annotateHandoff } from "./repo-roles";
+import type { CiStartupFailureService } from "./ci-startup-failure";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import type { GithubReadCache } from "./github-read-cache";
 import { withGhCaller } from "./forge/gh-caller";
@@ -412,6 +413,9 @@ export class PrPoller implements PrCache {
     /** Warm repo gate (#2837): the full sweep leaves sessions in cold repos alone. A session
      *  holding an open PR keeps its repo warm; turn-end and `pollNow` polls still run. */
     private isWarmRepo: (repoPath: string) => boolean = () => true,
+    /** #3831: makes a CI run that failed before creating any job visible (one re-run, then red
+     *  CI). Shared with the on-demand `/git` read. Absent (older test wiring) ⇒ raw state. */
+    private ciStartup?: Pick<CiStartupFailureService, "stamp">,
   ) {
     this.cache = new Map(Object.entries(this.store.listSessionGitCache()));
     this.hydrateTransientWindows();
@@ -957,11 +961,13 @@ export class PrPoller implements PrCache {
     const typed = withTypicalDurations(raw, this.store.typicalCiJobDurations(s.repoPath));
     // Who's up (open+green): computed from .shepherd/roles.json + the operator's
     // login, so the herd can show "waiting on scoop" instead of "your turn".
-    const git = withIssueUrl(
-      await this.stampMergeQueue(s, forge, annotateHandoff(typed, s.repoPath, me, prev), prev),
-      forge,
+    // After annotateHandoff: the start-failure overlay needs the `noCi` it stamps.
+    const stamped = await this.stampCiStartup(
       s,
+      forge,
+      annotateHandoff(typed, s.repoPath, me, prev),
     );
+    const git = withIssueUrl(await this.stampMergeQueue(s, forge, stamped, prev), forge, s);
     if (provenance.revision !== this.readProvenance(forge).revision) return; // moved during the queue read
     this.trackTransient(s.id, git);
     if (gitStateChanged(prev, git) && this.set(s.id, git)) {
@@ -1005,6 +1011,11 @@ export class PrPoller implements PrCache {
    *  before `refresh` stamps its own poll. */
   private freshPrefetch(id: string, pre: Prefetched | undefined): Prefetched | undefined {
     return pre && (this.lastPolledAt.get(id) ?? -Infinity) < pre.at ? pre : undefined;
+  }
+
+  /** #3831: a CI run that failed before creating any job, made visible (see ci-startup-failure). */
+  private stampCiStartup(s: Session, forge: GitForge, git: GitState): Promise<GitState> {
+    return this.ciStartup ? this.ciStartup.stamp(s.id, git, forge) : Promise.resolve(git);
   }
 
   /** `base`'s merge queue, cached per (repo, base). A failed read is "unknown". */

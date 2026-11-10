@@ -4550,3 +4550,48 @@ test("full sweep skips sessions in cold repos but keeps their cached state (#283
   expect(poller.get(coldS.id)?.state).toBe("none");
   expect(warmS.id).toBeDefined();
 });
+
+test("#3831: the start-failure overlay sees the noCi stamp and its result is what gets cached and emitted", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const seen: GitState[] = [];
+  const emitted: GitState[] = [];
+  const ciStartup = {
+    stamp: async (id: string, git: GitState) => {
+      expect(id).toBe(s.id);
+      seen.push(git);
+      return { ...git, checks: "failure" as const };
+    },
+  };
+  const raw: PrStatus = { ...OPEN, checks: "none", headSha: "abc1234" };
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => raw),
+    (_id, git) => emitted.push(git),
+    undefined, // intervalMs
+    undefined, // pollDelayMs
+    undefined, // reconcileBranch
+    undefined, // fastIntervalMs
+    undefined, // ownsPr
+    undefined, // warm
+    undefined, // rateLimited
+    undefined, // idleIntervalMs
+    undefined, // transientMaxMs
+    undefined, // batchOpenRatio
+    undefined, // noneRecheckMs
+    undefined, // snapshotSvc
+    undefined, // repoFreshness
+    undefined, // readCache
+    undefined, // terminalPollMs
+    undefined, // budgetPaused
+    undefined, // isWarmRepo
+    ciStartup,
+  );
+
+  await poller.tick();
+  expect(seen).toHaveLength(1);
+  expect(seen[0]!.checks).toBe("none");
+  expect(seen[0]!.noCi).toBeDefined(); // annotateHandoff ran first
+  expect(poller.get(s.id)?.checks).toBe("failure");
+  expect(emitted.map((g) => g.checks)).toEqual(["failure"]);
+});

@@ -5064,6 +5064,11 @@ components:
         startedAt: { type: integer }
         completedAt: { type: integer }
         typicalMs: { type: integer }
+        startupFailure:
+          type: boolean
+          description: >-
+            Stands for a whole workflow run that failed before creating any job (no check rollup
+            shows it); `url` is the run. Shepherd re-ran it once and it failed again (#3831).
     UpNextPrBand:
       type: string
       enum: [ready, review, blocked, dependabot]

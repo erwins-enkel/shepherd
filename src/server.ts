@@ -560,6 +560,7 @@ import { invalidateIssuePeek, peekIssue } from "./issue-peek";
 import { createIssueWithLabels, issueForgeGap } from "./issue-create";
 import { SNAPSHOT_TTL_MS, type OpenPrSnapshotService } from "./open-pr-snapshot";
 import { landingPrCache } from "./landing-pr-cache";
+import type { CiStartupFailureService } from "./ci-startup-failure";
 import { dirname, join, normalize, basename, resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
@@ -900,6 +901,9 @@ export interface AppDeps {
   /** In-memory PR-status cache surfaced in the list overview; absent in tests
    *  that don't exercise it. */
   prCache?: PrCache;
+  /** #3831: the PR poller's start-failure overlay, applied to the on-demand `/git` read too so
+   *  its write-through never reverts it. Absent ⇒ the raw forge state. */
+  ciStartupFailure?: Pick<CiStartupFailureService, "stamp">;
   /** #2863: operator CI restart (POST /api/sessions/:id/ci/restart) — the shared hold that keeps
    *  red-CI steers off the cancelled run, a PR re-poll, and the background flow (injectable for
    *  tests). Absent → 503. */
@@ -9426,6 +9430,7 @@ async function resolveGitState(
       );
     }
   }
+  if (deps.ciStartupFailure) result = await deps.ciStartupFailure.stamp(session.id, result, forge);
   const issueUrl = buildIssueUrl(forge.webUrl, session.issueNumber);
   if (issueUrl) result.issueUrl = issueUrl;
   return result;

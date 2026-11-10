@@ -11,6 +11,7 @@ import {
 } from "./pr-action-row";
 import type { CriticChip } from "../critic-badge";
 import type { GitState } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 function git(over: Partial<GitState> = {}): GitState {
   return {
@@ -97,6 +98,17 @@ describe("prRowStatus", () => {
       prRowStatus(git({ kind: "local", checks: "none", mergeStateStatus: undefined }), false),
     ).toBe("ready");
   });
+
+  it("#3831: a GitHub PR without checks in a repo with PR CI is not ready — it has no checks", () => {
+    expect(prRowStatus(git({ checks: "none" }), false)).toBe("no_checks");
+    expect(prRowStatus(git({ checks: "none", noCi: false }), false)).toBe("no_checks");
+    // A GitHub repo with no PR CI at all: none is terminal, Merge stays free.
+    expect(prRowStatus(git({ checks: "none", noCi: true }), false)).toBe("ready");
+    expect(prRowStatus(git({ kind: "gitea", checks: "none" }), false)).toBe("ready");
+    // The readiness blocks and a merge in flight still win.
+    expect(prRowStatus(git({ checks: "none", mergeStateStatus: "behind" }), false)).toBe("behind");
+    expect(prRowStatus(git({ checks: "none" }), true)).toBe("merging");
+  });
 });
 
 describe("mergeBlockedText / prRowLabel", () => {
@@ -107,6 +119,7 @@ describe("mergeBlockedText / prRowLabel", () => {
     "behind",
     "ci_failed",
     "ci_running",
+    "no_checks",
     "protected",
   ];
 
@@ -160,6 +173,19 @@ describe("prRowFacts", () => {
       tones(prRowFacts({ git: git({ checks: "none" }), chip: NONE, criticOn: false, base: "main" }))
         .ci,
     ).toBe("pending");
+  });
+
+  it("#3831: no checks reads 'no checks reported' where the repo has CI, 'no CI' where it has none", () => {
+    const ciText = (over: Partial<GitState>) =>
+      prRowFacts({
+        git: git({ checks: "none", ...over }),
+        chip: NONE,
+        criticOn: false,
+        base: "main",
+      }).find((f) => f.id === "ci")?.text;
+    expect(ciText({})).toBe(m.prrow_fact_ci_no_checks());
+    expect(ciText({ noCi: true })).toBe(m.prrow_fact_ci_none());
+    expect(ciText({ kind: "local" })).toBe(m.prrow_fact_ci_none());
   });
 
   it("the critic fact follows the chip, and is left out where no critic runs", () => {

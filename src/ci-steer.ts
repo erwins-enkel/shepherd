@@ -1,5 +1,6 @@
 import type { EventHub } from "./events";
 import type { ChecksState, GitState, PrStatus } from "./forge/types";
+import { ciStartupSteer } from "./ci-startup-failure";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import { isShelved } from "./shelve";
 import type { SessionStore } from "./store";
@@ -62,6 +63,8 @@ export function ciFinishedSteer(git: GitState): string {
   if (git.checks === "success") {
     return `Shepherd: CI finished on ${head}: all checks passed. No need to check CI again for this head.`;
   }
+  const startup = ciStartupSteer(git); // #3831: no checks, no logs — say so instead
+  if (startup) return startup;
   return (
     `Shepherd: CI finished on ${head}: failed — ${failingChecks(git)}. Read the logs with ` +
     "`gh run view <run-id> --log-failed`, fix the root cause, rebase onto your PR's base and push. " +

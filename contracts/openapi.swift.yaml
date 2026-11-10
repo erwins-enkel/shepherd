@@ -4476,7 +4476,7 @@ components:
     CompletedEpicChild:
       type: object
       additionalProperties: true
-      description: One sub-issue of a completed epic (CompletedEpicChild in src/completed-epic.ts). `integrated` is true when Shepherd merged its PR into the integration branch; a child closed without such a PR is not in the landing PR. Its `title` is `#<number>` when the forge never named it.
+      description: "One sub-issue of a completed epic (CompletedEpicChild in src/completed-epic.ts). `integrated` is true when Shepherd merged its PR into the integration branch (an incremental epic: into the default branch); a child closed without such a PR is not in the landing PR. Its `title` is `#<number>` when the forge never named it."
       required:
         - number
         - title
@@ -4633,7 +4633,7 @@ components:
     CompletedEpic:
       type: object
       additionalProperties: true
-      description: 'One row of the "Epics to land" band (CompletedEpic in src/completed-epic.ts): every sub-issue is done and their PRs sit on the epic''s integration branch; one landing PR brings that branch to the default branch. The `landingChecks` … `landingCiAutomation` gate signals are live: GET /api/epics/completed and the epic:landing-gate frame carry them, and only for a row whose landing PR is open and could be read. The epic:completed frame never carries them. Time-based states need no frame: compare `landingStrandedAt` and `landingConflictStrandedAt` with the client clock.'
+      description: 'One row of the "Epics to land" band (CompletedEpic in src/completed-epic.ts): every sub-issue is done and their PRs sit on the epic''s integration branch; one landing PR brings that branch to the default branch. The `landingChecks` … `landingCiAutomation` gate signals are live: GET /api/epics/completed and the epic:landing-gate frame carry them, and only for a row whose landing PR is open and could be read. The epic:completed frame never carries them. Time-based states need no frame: compare `landingStrandedAt` and `landingConflictStrandedAt` with the client clock. A row whose `outcome` is landed or incremental succeeded: it stays until the operator acknowledges it (#3838).'
       required:
         - repoPath
         - parentIssueNumber
@@ -4701,6 +4701,25 @@ components:
             - "null"
         landingConflictReworkCount:
           type: integer
+        outcome:
+          description: "How the epic ended (EpicOutcome in src/completed-epic.ts): landed = its landing PR merged, incremental = every child merged into the default branch on its own, closed-unlanded = its parent closed before anything landed. Null while the landing is still open."
+          anyOf:
+            - type: string
+              enum:
+                - landed
+                - incremental
+                - closed-unlanded
+            - type: string
+        succeededAt:
+          type:
+            - integer
+            - "null"
+          description: When the epic succeeded (its landing PR merged, or an incremental epic completed), epoch ms; null otherwise.
+        acknowledgedAt:
+          type:
+            - integer
+            - "null"
+          description: When the operator confirmed the success; null until then.
         landingConflictSince:
           type:
             - integer
@@ -4765,7 +4784,7 @@ components:
     CompletedEpicClearedEvent:
       type: object
       additionalProperties: true
-      description: A completed epic left the band (dismissed, migrations acknowledged, or its parent issue closed).
+      description: A completed epic left the band (dismissed, migrations acknowledged, success acknowledged, or its parent issue closed without landing).
       required:
         - repoPath
         - parentIssueNumber
@@ -13816,6 +13835,63 @@ paths:
                 $ref: "#/components/schemas/Ok"
         "400":
           description: error is "invalid repo" or "parent must be a positive integer".
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/epics/completed/acknowledge:
+    post:
+      operationId: acknowledgeCompletedEpic
+      description: "Confirm a succeeded epic (`outcome` landed or incremental): it leaves the band and stays in GET /api/epics/history. Only this call (or removing the row) acknowledges a success; it is no merge approval. Lands as epic:completed-cleared."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompletedEpicTarget"
+      responses:
+        "200":
+          description: Acknowledged (also when it already was).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: error is "invalid repo" or "parent must be a positive integer".
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: 'error is "not a succeeded epic": no such row, or it has not succeeded.'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/epics/history:
+    get:
+      operationId: listEpicHistory
+      description: "Every epic whose run ended, newest success first: succeeded (acknowledged or not) or closed without landing. Removing a row from the band never hides it here. Rows carry no live landing signals."
+      parameters:
+        - name: repo
+          in: query
+          required: false
+          description: Only this repo's rows.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The rows, possibly empty.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompletedEpicList"
+        "400":
+          description: error is "invalid repo".
           content:
             application/json:
               schema:

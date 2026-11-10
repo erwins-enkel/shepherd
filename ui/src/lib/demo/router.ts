@@ -175,6 +175,7 @@ const bootstrapGetRoutes: Record<string, GetHandler> = {
   "/api/drain": () => json(demoState.drain()),
   "/api/automerge": () => json(demoState.autoMerge()),
   "/api/epics/completed": () => json(demoState.completedEpics()),
+  "/api/epics/history": () => json(demoState.completedEpics().filter((e) => e.outcome != null)),
 };
 
 // ── lenses / drawers ─────────────────────────────────────────────────────

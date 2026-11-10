@@ -279,14 +279,31 @@ describe("epic auto-complete → record before idle flip (#635)", () => {
 });
 
 describe("incremental epic completion (#3191)", () => {
-  test("all merged: no epic_completed row, parent closed, run idle(completed), queue promoted", async () => {
+  test("all merged: a succeeded row, parent closed, run idle(completed), queue promoted", async () => {
     const h = makeHarness({ subIssues: [sub(320, true), sub(321, true)], landing: "incremental" });
     h.store.enqueueEpic({ repoPath: REPO, parentIssueNumber: 400, mode: "auto" });
 
     await h.drain.pump(REPO);
 
-    expect(h.store.listEpicCompleted(REPO)).toHaveLength(0);
-    expect(h.completedEmits).toHaveLength(0);
+    // #3838: an incremental epic succeeds at completion — nothing to land, nothing acknowledged.
+    const [row] = h.store.listEpicCompleted(REPO);
+    expect(row).toMatchObject({
+      parentIssueNumber: PARENT,
+      landingState: "none",
+      outcome: "incremental",
+      acknowledgedAt: null,
+    });
+    expect(row!.succeededAt).toBeNumber();
+    expect(JSON.parse(row!.childrenJson).map((c: { integrated: boolean }) => c.integrated)).toEqual(
+      [true, true],
+    );
+    expect(h.completedEmits).toHaveLength(1);
+    expect(h.completedEmits[0]).toMatchObject({ outcome: "incremental", landingState: "none" });
+    // No landing phase: the clock keeps no landing stamps, so landing forecasts stay unskewed.
+    expect(h.store.getEpicClock(REPO, PARENT)).toMatchObject({
+      landingStartedAt: null,
+      landedAt: null,
+    });
     expect(h.closed).toEqual([PARENT]);
     expect(h.store.getEpicRunEnd(REPO, PARENT)).toMatchObject({ cause: "completed" });
     expect(h.store.getEpicIntegrationBranch(REPO, PARENT)).toBeNull();
@@ -309,6 +326,6 @@ describe("incremental epic completion (#3191)", () => {
 
     expect(h.closed).toEqual([PARENT]);
     expect(h.store.getEpicRun(REPO)?.status).toBe("idle");
-    expect(h.store.listEpicCompleted(REPO)).toHaveLength(0);
+    expect(h.store.listEpicCompleted(REPO)).toHaveLength(1);
   });
 });

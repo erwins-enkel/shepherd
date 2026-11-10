@@ -317,8 +317,8 @@ in one `shepherd:manual-steps` block:
 - **Done stays done.** A step ticked in its child PR, in that child's **Owed** card, or in the
   landing PR body itself is listed as `- [x]`. A body refresh keeps those ticks.
 
-When the landing PR merges (from Shepherd, or directly on GitHub once the closed parent clears the
-epic), its open steps become one **Owed** card for the epic (`EPIC-<n>`),
+When the landing PR merges (from Shepherd, or directly on GitHub), its open steps become one
+**Owed** card for the epic (`EPIC-<n>`),
 with done steps already ticked. The child Owed cards those steps cover are cleared, so nothing is
 listed twice.
 
@@ -341,3 +341,20 @@ still takes before it hands over:
 and the one-repair limit, and is refused only while a repair agent is already working. After a
 repair that did not help, the card offers **Try again** and a link to the last repair session. A
 landing PR that conflicts with main has the counterpart, **Resolve conflicts**.
+
+## When the epic is done
+
+A successful epic stays in the Herd on the **Successfully completed** band, with its completion
+time, even when its child sessions are archived and only the draft session is left. An epic counts
+as successful once its landing PR merged into `main` or, in incremental mode, once every child
+merged. Integrated children with the landing PR still open are no success: that epic stays on
+**Epics to land**.
+
+**Confirm completion** takes it off the band. Only that click confirms it: opening or viewing the
+epic, reloading, switching devices or archiving a related session does not. Confirming merges
+nothing and does not hold back the next epic. If the landing PR carries migrations, the button
+confirms them together with the completion.
+
+**Done → Epics** lists every finished epic, confirmed or not: when it completed, when you confirmed
+it, and links to the epic issue, the landing PR and each sub-task. An epic whose issue was closed
+before its landing PR merged is listed there as **Closed without landing**.

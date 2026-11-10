@@ -95,7 +95,7 @@ import {
   type EpicRunEnd,
   type EpicSettings,
 } from "./epic-core";
-import type { EpicLandingState } from "./completed-epic";
+import type { EpicLandingState, EpicOutcome } from "./completed-epic";
 import type { LandingManualStep } from "./epic-landing";
 import { epicParentFromBranch } from "./epic-branch";
 import { BOOTSTRAP_OFF, type BootstrapSessionPhase, type RepoBootstrap } from "./bootstrap";
@@ -107,6 +107,43 @@ import type {
   ScheduleOutcome,
   ScheduleRun,
 } from "./schedules-core";
+
+/** #3838: a SET clause stamping `acknowledgedAt` (its one `?`) on a succeeded row only. */
+const ACK_IF_SUCCEEDED = `acknowledgedAt = CASE WHEN outcome IN ('landed', 'incremental')
+  THEN COALESCE(acknowledgedAt, ?) ELSE acknowledgedAt END`;
+
+/** One `epic_completed` row as {@link SessionStore.listEpicCompleted} reads it. */
+export interface EpicCompletedRow {
+  repoPath: string;
+  parentIssueNumber: number;
+  parentTitle: string;
+  completedAt: number;
+  childrenJson: string;
+  landingPrNumber: number | null;
+  landingPrUrl: string | null;
+  landingState: EpicLandingState;
+  landingAttempts: number;
+  landingRebaseCount: number;
+  landingRebaseDriverMisses: number;
+  landingRebasePauseReason: "cap" | "conflict" | "driver" | null;
+  migrationPaths: string[];
+  migrationsAckedAt: number | null;
+  landingRepairCount: number;
+  landingRepairHead: string | null;
+  landingRepairSessionId: string | null;
+  landingRerunHead: string | null;
+  landingRerunCount: number;
+  landingRerunUnavailable: boolean;
+  landingConflictReworkCount: number;
+  landingConflictSince: number | null;
+  landingConflictEscalatedAt: number | null;
+  /** #3838: how the epic ended; null while its landing is still open. */
+  outcome: EpicOutcome | null;
+  /** #3838: when it succeeded; null unless `outcome` is a success. */
+  succeededAt: number | null;
+  /** #3838: when the operator confirmed the success; null until then. */
+  acknowledgedAt: number | null;
+}
 
 /** One cached Up Next readiness score (#2535). `hash` is `readinessHash(model, item)`. */
 export interface ReadinessRow {
@@ -3778,14 +3815,18 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   /** Record a completed epic (all children done-in-epic). Idempotent upsert.
    *  On conflict, refreshes parentTitle/completedAt/childrenJson but leaves dismissedAt untouched
    *  so a previously dismissed epic never resurrects. The completion is where the epic's landing
-   *  begins: the first one stamps its clock's `landingStartedAt`. */
-  recordEpicCompleted(row: {
-    repoPath: string;
-    parentIssueNumber: number;
-    parentTitle: string;
-    completedAt: number;
-    childrenJson: string;
-  }): void {
+   *  begins: the first one stamps its clock's `landingStartedAt` — unless `stampLanding` is false
+   *  (#3838: an incremental epic has no landing phase, so its clock never shows one). */
+  recordEpicCompleted(
+    row: {
+      repoPath: string;
+      parentIssueNumber: number;
+      parentTitle: string;
+      completedAt: number;
+      childrenJson: string;
+    },
+    { stampLanding = true }: { stampLanding?: boolean } = {},
+  ): void {
     this.db.transaction(() => {
       this.db.run(
         `INSERT INTO epic_completed (repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson)
@@ -3796,11 +3837,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
            childrenJson = excluded.childrenJson`,
         [row.repoPath, row.parentIssueNumber, row.parentTitle, row.completedAt, row.childrenJson],
       );
-      this.db.run(
-        `UPDATE epic_clock SET landingStartedAt = COALESCE(landingStartedAt, ?)
-         WHERE repoPath = ? AND parentIssueNumber = ?`,
-        [row.completedAt, row.repoPath, row.parentIssueNumber],
-      );
+      if (stampLanding)
+        this.db.run(
+          `UPDATE epic_clock SET landingStartedAt = COALESCE(landingStartedAt, ?)
+           WHERE repoPath = ? AND parentIssueNumber = ?`,
+          [row.completedAt, row.repoPath, row.parentIssueNumber],
+        );
     })();
   }
 
@@ -3855,69 +3897,43 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   /** All non-dismissed completed epics, optionally filtered by repoPath, newest-completed first. */
-  listEpicCompleted(repoPath?: string): {
-    repoPath: string;
-    parentIssueNumber: number;
-    parentTitle: string;
-    completedAt: number;
-    childrenJson: string;
-    landingPrNumber: number | null;
-    landingPrUrl: string | null;
-    landingState: EpicLandingState;
-    landingAttempts: number;
-    landingRebaseCount: number;
-    landingRebaseDriverMisses: number;
-    landingRebasePauseReason: "cap" | "conflict" | "driver" | null;
-    migrationPaths: string[];
-    migrationsAckedAt: number | null;
-    landingRepairCount: number;
-    landingRepairHead: string | null;
-    landingRepairSessionId: string | null;
-    landingRerunHead: string | null;
-    landingRerunCount: number;
-    landingRerunUnavailable: boolean;
-    landingConflictReworkCount: number;
-    landingConflictSince: number | null;
-    landingConflictEscalatedAt: number | null;
-  }[] {
+  listEpicCompleted(repoPath?: string): EpicCompletedRow[] {
+    const byRepo = repoPath !== undefined;
+    return this.queryEpicCompleted(
+      `dismissedAt IS NULL${byRepo ? " AND repoPath = ?" : ""} ORDER BY completedAt DESC`,
+      byRepo ? [repoPath] : [],
+    );
+  }
+
+  /** #3838: every epic whose run ended (an `outcome` is set), dismissed or not, optionally one
+   *  repo's — newest success (else completion) first, capped. */
+  listEpicHistory(repoPath?: string, limit = 200): EpicCompletedRow[] {
+    const byRepo = repoPath !== undefined;
+    return this.queryEpicCompleted(
+      `outcome IS NOT NULL${byRepo ? " AND repoPath = ?" : ""}
+       ORDER BY COALESCE(succeededAt, completedAt) DESC, completedAt DESC LIMIT ?`,
+      byRepo ? [repoPath, limit] : [limit],
+    );
+  }
+
+  private queryEpicCompleted(where: string, params: (string | number)[]): EpicCompletedRow[] {
     const sql = `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson,
                 landingPrNumber, landingPrUrl, landingState, landingAttempts,
                 landingRebaseCount, landingRebaseDriverMisses, landingRebasePauseReason,
                 migrationPathsJson, migrationsAckedAt, landingRepairCount, landingRepairHead,
                 landingRepairSessionId, landingRerunHead, landingRerunCount, landingRerunUnavailable,
-                landingConflictReworkCount, landingConflictSince, landingConflictEscalatedAt
-         FROM epic_completed WHERE dismissedAt IS NULL`;
-    type Raw = {
-      repoPath: string;
-      parentIssueNumber: number;
-      parentTitle: string;
-      completedAt: number;
-      childrenJson: string;
-      landingPrNumber: number | null;
-      landingPrUrl: string | null;
-      landingState: EpicLandingState;
-      landingAttempts: number;
-      landingRebaseCount: number;
-      landingRebaseDriverMisses: number;
+                landingConflictReworkCount, landingConflictSince, landingConflictEscalatedAt,
+                outcome, succeededAt, acknowledgedAt
+         FROM epic_completed WHERE ${where}`;
+    type Raw = Omit<
+      EpicCompletedRow,
+      "landingRebasePauseReason" | "landingRerunUnavailable" | "migrationPaths"
+    > & {
       landingRebasePauseReason: string | null;
       migrationPathsJson: string | null;
-      migrationsAckedAt: number | null;
-      landingRepairCount: number;
-      landingRepairHead: string | null;
-      landingRepairSessionId: string | null;
-      landingRerunHead: string | null;
-      landingRerunCount: number;
       landingRerunUnavailable: number;
-      landingConflictReworkCount: number;
-      landingConflictSince: number | null;
-      landingConflictEscalatedAt: number | null;
     };
-    const rows =
-      repoPath !== undefined
-        ? (this.db
-            .query(`${sql} AND repoPath = ? ORDER BY completedAt DESC`)
-            .all(repoPath) as Raw[])
-        : (this.db.query(`${sql} ORDER BY completedAt DESC`).all() as Raw[]);
+    const rows = this.db.query(sql).all(...params) as Raw[];
     return rows.map(
       ({ migrationPathsJson, landingRebasePauseReason, landingRerunUnavailable, ...rest }) => ({
         ...rest,
@@ -3930,7 +3946,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   /** Write the Stage B (#635) landing-PR resolution onto a completed epic.
    *  Direct UPDATE (not part of recordEpicCompleted's preserve-by-omission upsert). The only
-   *  writer of `merged`, so it stamps the epic clock's `landedAt` (first observation wins). */
+   *  writer of `merged`, so it stamps the epic clock's `landedAt` and the row's #3838 success
+   *  (`landed`, `succeededAt`) — first observation wins. */
   setEpicLandingPr(
     repoPath: string,
     parentIssueNumber: number,
@@ -3947,13 +3964,58 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          WHERE repoPath = ? AND parentIssueNumber = ?`,
         [fields.state, fields.prNumber, fields.prUrl, fields.attempts, repoPath, parentIssueNumber],
       );
-      if (fields.state === "merged" && r.changes > 0)
+      if (fields.state === "merged" && r.changes > 0) {
+        const now = Date.now();
         this.db.run(
           `UPDATE epic_clock SET landedAt = COALESCE(landedAt, ?)
            WHERE repoPath = ? AND parentIssueNumber = ?`,
-          [Date.now(), repoPath, parentIssueNumber],
+          [now, repoPath, parentIssueNumber],
         );
+        this.db.run(
+          `UPDATE epic_completed SET outcome = 'landed', succeededAt = COALESCE(succeededAt, ?)
+           WHERE repoPath = ? AND parentIssueNumber = ?`,
+          [now, repoPath, parentIssueNumber],
+        );
+      }
     })();
+  }
+
+  /** #3838: an incremental epic's children all merged on their own — it succeeded with no landing
+   *  PR. Marks its completion row terminal (`none`: nothing left to land) and stamps the success
+   *  (first observation wins). Its clock is left alone: there was no landing phase to time. */
+  markEpicIncrementalSucceeded(repoPath: string, parentIssueNumber: number, at: number): void {
+    this.db.run(
+      `UPDATE epic_completed SET landingState = 'none', outcome = 'incremental',
+         succeededAt = COALESCE(succeededAt, ?)
+       WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [at, repoPath, parentIssueNumber],
+    );
+  }
+
+  /** #3838: the parent closed before anything landed — record that outcome (never over a success)
+   *  and take the row out of the band. */
+  settleEpicClosedUnlanded(repoPath: string, parentIssueNumber: number): void {
+    this.db.run(
+      `UPDATE epic_completed SET outcome = COALESCE(outcome, 'closed-unlanded'),
+         dismissedAt = COALESCE(dismissedAt, ?)
+       WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [Date.now(), repoPath, parentIssueNumber],
+    );
+  }
+
+  /** #3838: the operator explicitly confirms a succeeded epic — stamps `acknowledgedAt` and takes
+   *  the row out of the band (history keeps it). False when the row is not a success. Nothing but
+   *  an operator action calls this: viewing, reloading or archiving a session never does. */
+  acknowledgeEpicCompleted(repoPath: string, parentIssueNumber: number): boolean {
+    const now = Date.now();
+    return (
+      this.db.run(
+        `UPDATE epic_completed SET acknowledgedAt = COALESCE(acknowledgedAt, ?),
+           dismissedAt = COALESCE(dismissedAt, ?)
+         WHERE repoPath = ? AND parentIssueNumber = ? AND outcome IN ('landed', 'incremental')`,
+        [now, now, repoPath, parentIssueNumber],
+      ).changes > 0
+    );
   }
 
   /** Persist the children's aggregated manual steps last written into the landing PR (#3103). */
@@ -4101,25 +4163,27 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   /** Acknowledge a completed epic's landing-PR migrations (#645): stamp `migrationsAckedAt` AND
    *  dismiss the row in one operator action. `migrationsAckedAt` is the durable audit record of
    *  WHEN the human acknowledged; the coupled `dismissedAt` is what actually clears the band and
-   *  prevents a re-prompt (listEpicCompleted filters `dismissedAt IS NULL`). */
+   *  prevents a re-prompt (listEpicCompleted filters `dismissedAt IS NULL`). On a succeeded row
+   *  (#3838) that operator action also acknowledges the success. */
   ackEpicMigrations(repoPath: string, parentIssueNumber: number): void {
     const now = Date.now();
     this.db.run(
-      `UPDATE epic_completed SET migrationsAckedAt = ?, dismissedAt = ?
+      `UPDATE epic_completed SET migrationsAckedAt = ?, dismissedAt = ?, ${ACK_IF_SUCCEEDED}
        WHERE repoPath = ? AND parentIssueNumber = ?`,
-      [now, now, repoPath, parentIssueNumber],
+      [now, now, now, repoPath, parentIssueNumber],
     );
   }
 
-  /** Mark a completed epic as dismissed (hides it from listEpicCompleted).
-   *  At land-time there's no explicit dismiss call: the aggregate landing PR's
-   *  `Closes #<parent>` closes the parent on merge, and the autoDismissClosed
-   *  reconcile (src/server.ts) then dismisses the band once the parent is
-   *  confidently closed. */
+  /** Mark a completed epic as dismissed (hides it from listEpicCompleted) — the operator's
+   *  "Remove from list". A succeeded row (#3838) leaves the band only when the operator removes
+   *  it, so that removal also acknowledges the success; the parent-close reconcile never
+   *  dismisses one. */
   dismissEpicCompleted(repoPath: string, parentIssueNumber: number): void {
+    const now = Date.now();
     this.db.run(
-      `UPDATE epic_completed SET dismissedAt = ? WHERE repoPath = ? AND parentIssueNumber = ?`,
-      [Date.now(), repoPath, parentIssueNumber],
+      `UPDATE epic_completed SET dismissedAt = ?, ${ACK_IF_SUCCEEDED}
+       WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [now, now, repoPath, parentIssueNumber],
     );
   }
 
@@ -7534,6 +7598,26 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // LandingManualStep[]). Nullable: absence = never aggregated. Read back at landing merge when
     // the landing PR body itself can't be fetched, so the Owed record never loses them.
     add("manualStepsJson", `manualStepsJson TEXT`);
+    // #3838: how the epic ended, when it succeeded and when the operator confirmed it. All
+    // nullable. On first add, a row whose landing PR already merged backfills to `landed` at its
+    // clock's landedAt (else its completion); nothing backfills an acknowledgement.
+    add("succeededAt", `succeededAt INTEGER`);
+    add("acknowledgedAt", `acknowledgedAt INTEGER`);
+    if (!cols.some((c) => c.name === "outcome")) {
+      this.db.run(`ALTER TABLE epic_completed ADD COLUMN outcome TEXT`);
+      const clock = this.db
+        .query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'epic_clock'`)
+        .get();
+      const landedAt = clock
+        ? `(SELECT c.landedAt FROM epic_clock c WHERE c.repoPath = epic_completed.repoPath
+             AND c.parentIssueNumber = epic_completed.parentIssueNumber)`
+        : "NULL";
+      this.db.run(
+        `UPDATE epic_completed SET outcome = 'landed',
+           succeededAt = COALESCE(${landedAt}, completedAt)
+         WHERE landingState = 'merged'`,
+      );
+    }
   }
 
   /** Retained first-push CI columns (#2159) for a DB created before they existed. Both are

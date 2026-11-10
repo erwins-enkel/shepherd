@@ -21,12 +21,14 @@
   import HerdLensStrip from "./herd/HerdLensStrip.svelte";
   import HerdEpicGroups from "./herd/HerdEpicGroups.svelte";
   import HerdExperimentGroups from "./herd/HerdExperimentGroups.svelte";
-  import HerdDoneList from "./herd/HerdDoneList.svelte";
+  import HerdDoneViews from "./herd/HerdDoneViews.svelte";
   import HerdEmptyState from "./herd/HerdEmptyState.svelte";
   import HerdMachineBar from "./herd/HerdMachineBar.svelte";
   import RemoteDispatchRow from "./herd/RemoteDispatchRow.svelte";
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
+  import SucceededEpicsBand from "./SucceededEpicsBand.svelte";
   import { deriveIntegratedEpicStatus } from "#lib/integrated-epic-status.js";
+  import { isSucceededEpic } from "#lib/succeeded-epics.js";
   import PostMergeStepsPanel from "./PostMergeStepsPanel.svelte";
   import UpNextPanel from "./UpNextPanel.svelte";
   import {
@@ -119,6 +121,7 @@
     onbringback = undefined,
     ondoneaskassistant = undefined,
     onackmigrationsepic = undefined,
+    onacknowledgeepic = undefined,
     onackmanualsteps = undefined,
     onshowowed = undefined,
     owedFocusId = null,
@@ -283,7 +286,10 @@
     // a done row's context menu picked "Ask the assistant" → page opens it about that desig
     ondoneaskassistant?: (desig: string) => void;
     // acknowledge a completed epic's landing-PR migrations (#645); also clears the row
-    onackmigrationsepic?: (repoPath: string, parent: number) => void;
+    onackmigrationsepic?: (repoPath: string, parent: number) => void | Promise<void>;
+    // #3838: confirm a succeeded epic's completion — the only way it leaves the active view;
+    // resolves false when the confirmation did not go through
+    onacknowledgeepic?: (repoPath: string, parent: number) => Promise<boolean>;
     // acknowledge a session's manual operator steps (#1060); clears its auto-merge gate
     onackmanualsteps?: (id: string) => void;
     // manual-steps chip -> Owed lens (#1275)
@@ -605,8 +611,17 @@
       /* localStorage unavailable (private mode) — choice stays in-memory only */
     }
   });
+  // The epic bands are this Shepherd's own epics: hidden in the Done/Owed lenses and while the
+  // machine bar narrows the herd to another machine.
+  const epicBandsShown = $derived(
+    filter !== "done" &&
+      filter !== "owed" &&
+      (machineFilter === "all" || machineFilter === "local"),
+  );
+  // #3838: a succeeded epic has its own band; the "Epics to land" band keeps the rest.
+  const landingEpics = $derived(completedEpics.filter((epic) => !isSucceededEpic(epic)));
   const epicNeedsOperator = $derived(
-    completedEpics.some((epic) => deriveIntegratedEpicStatus(epic).needsOperator),
+    landingEpics.some((epic) => deriveIntegratedEpicStatus(epic).needsOperator),
   );
 
   const partitionGroups = $derived<PartitionGroupEntry[]>(
@@ -838,11 +853,23 @@
   />
 {/snippet}
 
+{#snippet succeededEpics()}
+  <!-- #3838: stays until the operator confirms each success -->
+  {#if epicBandsShown}
+    <SucceededEpicsBand
+      epics={completedEpics}
+      onacknowledge={onacknowledgeepic ?? (async () => false)}
+      onackmigrations={onackmigrationsepic}
+      {nowMs}
+    />
+  {/if}
+{/snippet}
+
 {#snippet integratedEpics()}
   <!-- this Shepherd's own epics: hidden while the machine bar narrows the herd to another machine -->
-  {#if filter !== "done" && filter !== "owed" && (machineFilter === "all" || machineFilter === "local")}
+  {#if epicBandsShown}
     <IntegratedEpicsBand
-      epics={completedEpics}
+      epics={landingEpics}
       bind:collapsed={epicsBandCollapsed}
       ondismiss={ondismissepic ?? (() => {})}
       onackmigrations={onackmigrationsepic ?? (() => {})}
@@ -894,6 +921,7 @@
   {/if}
   <div class="units" class:flow>
     {#if epicNeedsOperator}{@render integratedEpics()}{/if}
+    {@render succeededEpics()}
     {#if filter === "next"}
       <!-- Up Next lens (#1169): cross-repo ranked queue of un-started work, no session list. -->
       <UpNextPanel
@@ -919,14 +947,19 @@
       />
     {:else if filter === "done"}
       <!-- Done lens: archived sessions from the page's lazy doneSessions store (NOT the
-         live `sessions` list). Read-only rows; clicking opens the DoneRecapPanel. -->
-      <HerdDoneList
+         live `sessions` list). Read-only rows; clicking opens the DoneRecapPanel. Its Epics
+         view (#3838) lists every finished epic. -->
+      <HerdDoneViews
         {doneList}
         {doneSelectedId}
         {ondoneselect}
         {onbringback}
         onaskassistant={ondoneaskassistant}
         {nowMs}
+        {repoFilter}
+        touchTarget={flow || touch}
+        onacknowledge={onacknowledgeepic}
+        onackmigrations={onackmigrationsepic}
       />
     {:else if sessions.length + remoteSessions.length + remoteDispatches.length === 0}
       <!-- the status filter empties the list at PAGE level (herdSessions), so an

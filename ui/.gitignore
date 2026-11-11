@@ -24,6 +24,7 @@ vite.config.ts.timestamp-*
 
 # Paraglide (generated)
 /src/lib/paraglide
+/project.inlang/cache
 
 # Vitest browser-test failure artifacts (regenerated on failing runs)
 # vitest 5 writes these under .vitest/attachments (v4 used .vitest-attachments).

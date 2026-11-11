@@ -7,8 +7,22 @@ import { paraglideVitePlugin } from "@inlang/paraglide-js";
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { playwright } from "@vitest/browser-playwright";
+import type { Plugin } from "vite";
 import { configDefaults, defineConfig } from "vitest/config";
 import { paraglideSplit } from "./vite/paraglide-split.ts";
+
+function paraglide(
+  outputStructure: "message-modules" | "locale-modules",
+  apply: "build" | "serve",
+): Plugin[] {
+  const plugins = paraglideVitePlugin({
+    project: "./project.inlang",
+    outdir: "./src/lib/paraglide",
+    outputStructure,
+    strategy: ["localStorage", "preferredLanguage", "baseLocale"],
+  });
+  return [plugins].flat().map((plugin) => ({ ...plugin, apply }));
+}
 
 function gitSha(): string {
   try {
@@ -63,11 +77,12 @@ export default defineConfig({
     __DEMO__: JSON.stringify(process.env.SHEPHERD_DEMO === "1"),
   },
   plugins: [
-    paraglideVitePlugin({
-      project: "./project.inlang",
-      outdir: "./src/lib/paraglide",
-      strategy: ["localStorage", "preferredLanguage", "baseLocale"],
-    }),
+    // Paraglide 3 defaults Vite to virtual modules. Keep v2's physical layouts:
+    // per-message files for the build (paraglideSplit reads them from disk), one
+    // file per locale for dev/vitest — per-message files there make every browser
+    // test import the ~8.6k-module catalog, which crashed the browser shards.
+    ...paraglide("message-modules", "build"),
+    ...paraglide("locale-modules", "serve"),
     tailwindcss(),
     sveltekit({
       preprocess: vitePreprocess(),

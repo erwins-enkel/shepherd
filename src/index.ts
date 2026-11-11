@@ -143,6 +143,7 @@ import {
   notifySessionDone,
 } from "./push";
 import { attachCiSteer } from "./ci-steer";
+import { attachMergeSteer } from "./merge-steer";
 import { CiRestartHolds } from "./ci-restart-hold";
 import { CiStartupFailureService } from "./ci-startup-failure";
 import { createRateLimitSteer } from "./rate-limit-steer";
@@ -2505,6 +2506,11 @@ const ciSteer = attachCiSteer(events, store, {
   criticReviewing: (id, headSha) => reviewService.ciSteerHeld(id, headSha),
   ciRestartHeld: (id) => ciRestartHolds.held(id),
   onRestartRelease: (cb) => ciRestartHolds.onRelease(cb),
+});
+// Tell a live attended agent once when its PR merges, so it stops pushing to a landed branch.
+attachMergeSteer(events, store, {
+  reply: (id, text) => service.reply(id, text, { automatic: true }),
+  seed: prPoller.snapshot(),
 });
 // #2946: tell working agents once per GraphQL backoff episode when the budget resets. Local only.
 const rateLimitSteer = createRateLimitSteer({

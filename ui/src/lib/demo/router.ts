@@ -278,6 +278,8 @@ const repoLensGetRoutes: Record<string, GetHandler> = {
   "/api/repo-web": (url) => json(demoState.repoWeb(repoParam(url))),
   "/api/repo-roles": (url) => json(demoState.repoRoles(repoParam(url))),
   "/api/repo-collaborators": (url) => json(demoState.repoCollaborators(repoParam(url))),
+  // The demo has no egress firewall, so nothing was blocked (#3922).
+  "/api/repo-egress-blocks": () => json({ hosts: [] }),
   "/api/drain/queue": (url) => json(demoState.drainQueue(repoParam(url))),
   "/api/doc-agent/runs": (url) => json(demoState.docAgentRuns(repoParam(url))),
 };

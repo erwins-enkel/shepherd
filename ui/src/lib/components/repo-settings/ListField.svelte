@@ -1,6 +1,20 @@
-<script lang="ts" generics="R extends string">
+<script lang="ts" module>
   import type { TooltipExplanation } from "#lib/tooltips/content.js";
+
+  /** Why a valid entry deserves a second look (#3922: a risky egress host). */
+  export interface ListItemWarning {
+    /** Inline note shown when adding it; the next submit of the same entry adds it. */
+    text: string;
+    /** The ⚠ marker's accessible name on a listed entry. */
+    label: string;
+    /** The ⚠ marker's hover explanation. */
+    explanation: TooltipExplanation;
+  }
+</script>
+
+<script lang="ts" generics="R extends string">
   import type { ListEntryCheck } from "#lib/list-entries.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import RepoSettingRow from "./RepoSettingRow.svelte";
   import "../automation-settings/automation-fields.css";
 
@@ -21,6 +35,8 @@
     removeLabel,
     empty = "",
     hint = "",
+    warn,
+    addAnywayLabel,
     onchange,
   }: {
     /** The repo-config key the list writes. */
@@ -39,6 +55,10 @@
     /** Shown while the list (fixed entries included) is empty. */
     empty?: string;
     hint?: string;
+    /** Flags a valid entry as risky: adding it takes a second submit, and its chip gets a ⚠. */
+    warn?: (item: string) => ListItemWarning | null;
+    /** The add button while a warned entry waits for that second submit. */
+    addAnywayLabel?: string;
     onchange: (next: string[]) => void;
   } = $props();
 
@@ -47,6 +67,8 @@
 
   let draft = $state("");
   let error = $state<string | null>(null);
+  /** The warned entry the next submit adds, and its note. */
+  let pending = $state<{ value: string; text: string } | null>(null);
 
   function add() {
     const r = check(draft, [...fixed, ...items]);
@@ -55,6 +77,12 @@
       return;
     }
     error = null;
+    const w = warn?.(r.value);
+    if (w && pending?.value !== r.value) {
+      pending = { value: r.value, text: w.text };
+      return;
+    }
+    pending = null;
     draft = "";
     onchange([...items, r.value]);
   }
@@ -75,7 +103,16 @@
           <!-- Keyed by position: the server doesn't dedupe host lists, so a list set through the API
                can hold a repeat. Removing one removes every copy. -->
           {#each items as item, i (i)}
-            <li class="item">
+            {@const w = warn?.(item)}
+            <li class={["item", { warned: !!w }]}>
+              {#if w}
+                <button
+                  class="item-warn"
+                  type="button"
+                  aria-label={w.label}
+                  use:statusTip={{ text: w.explanation }}>⚠</button
+                >
+              {/if}
               <span class="item-name">{item}</span>
               <button
                 class="item-remove"
@@ -108,12 +145,20 @@
           aria-invalid={error !== null}
           aria-describedby={error ? errorId : undefined}
           bind:value={draft}
-          oninput={() => (error = null)}
+          oninput={() => {
+            error = null;
+            pending = null;
+          }}
         />
-        <button class="bs-btn" type="submit">{addLabel}</button>
+        <button class="bs-btn" type="submit"
+          >{pending ? (addAnywayLabel ?? addLabel) : addLabel}</button
+        >
       </form>
       {#if error}
         <div class="items-error" id={errorId} role="alert">{error}</div>
+      {/if}
+      {#if pending}
+        <div class="items-warn" role="status">{pending.text}</div>
       {/if}
       {#if hint}
         <div class="items-note">{hint}</div>
@@ -158,6 +203,22 @@
   .item-name {
     overflow-wrap: anywhere;
   }
+  .item.warned {
+    border-color: var(--color-red);
+  }
+  .item-warn {
+    background: transparent;
+    border: none;
+    color: var(--color-red);
+    cursor: help;
+    font-size: var(--fs-meta);
+    line-height: 1;
+    padding: 0;
+  }
+  .item-warn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-red);
+  }
   .item-remove {
     background: transparent;
     border: none;
@@ -178,6 +239,10 @@
   .items-error {
     font-size: var(--fs-meta);
     color: var(--color-red);
+  }
+  .items-warn {
+    font-size: var(--fs-meta);
+    color: var(--status-warn);
   }
   .items-note {
     font-size: var(--fs-meta);

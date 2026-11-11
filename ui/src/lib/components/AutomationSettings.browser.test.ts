@@ -448,11 +448,17 @@ describe("AutomationSettings — extra allowed hosts (#3446)", () => {
     expect((hostInput().element() as HTMLInputElement).value).toBe("");
   });
 
-  it("takes a dotted-quad, as the server does", async () => {
+  it("takes a dotted-quad, as the server does, after a risky-host warning (#3922)", async () => {
     const puts = stubFetch();
     repoConfig.sandboxProfile = { [REPO]: "autonomous" };
     await mount();
     await addHost("10.0.0.1");
+    await expect
+      .element(page.getByText(m.automation_egress_hosts_warn({ reason: m.egress_risk_ip() })))
+      .toBeVisible();
+    expect(puts).toEqual([]);
+    const anyway = page.getByRole("button", { name: m.automation_egress_hosts_add_anyway() });
+    (anyway.element() as HTMLButtonElement).click();
     await vi.waitFor(() => expect(puts).toEqual([{ egressExtraHosts: ["10.0.0.1"] }]));
   });
 

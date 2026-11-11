@@ -787,8 +787,9 @@ class RepoConfigStore {
     await this.write(repoPath, { browserAllowedHosts: hosts });
   }
 
-  async setEgressExtraHosts(repoPath: string, hosts: string[]) {
-    await this.write(repoPath, { egressExtraHosts: hosts });
+  /** Resolves false when the write failed (and was reverted). */
+  async setEgressExtraHosts(repoPath: string, hosts: string[]): Promise<boolean> {
+    return (await this.write(repoPath, { egressExtraHosts: hosts })) !== null;
   }
 
   /** Set (or clear with `null`) the repo's plugin allowlist (#3780); optimistic, reverted on failure. */

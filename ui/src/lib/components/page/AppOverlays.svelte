@@ -884,6 +884,7 @@
         <RepoSettingsWindow
           repoPath={repoSettings.repoPath}
           section={repoSettings.section}
+          field={repoSettings.field}
           sessionId={repoSettings.sessionId}
           planPhase={repoSettingsPlanPhase}
           drain={repoSettingsDrain}

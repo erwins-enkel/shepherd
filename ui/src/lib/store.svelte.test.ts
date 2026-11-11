@@ -5,6 +5,7 @@ import { repoBootstrap } from "./repo-bootstrap.svelte";
 import { schedules } from "./schedules.svelte";
 import { dropKey } from "./safe-keys";
 import { toasts } from "./toasts.svelte";
+import { repoSettingsWindow } from "./repo-settings-window.svelte";
 import { m } from "#lib/paraglide/messages.js";
 import { motionSettle } from "./motion-settle";
 import { isDecommissioning, markDecommissioning } from "./decommissioning.svelte";
@@ -481,6 +482,28 @@ test("session:ci-restart-failed tells the operator which stage of the restart fa
   expect(toasts.items.map((t) => t.text)).toEqual([m.toast_ci_restart_rerun_failed({ name: "n" })]);
   s.apply({ event: "session:ci-restart-failed", data: { id: "s1", reason: "cancel" } });
   expect(toasts.items.at(-1)?.text).toBe(m.toast_ci_restart_cancel_failed({ name: "n" }));
+});
+
+test("session:egress-drop offers Review, which opens the repo's blocked hosts (#3922)", () => {
+  toasts.items = [];
+  repoSettingsWindow.target = null;
+  const s = new HerdStore();
+  s.setAll([session("s1")]); // repoPath "/r"
+  s.apply({ event: "session:egress-drop", data: { id: "s1", host: "evil.example" } });
+  const t = toasts.items.at(-1)!;
+  expect(t.text).toBe(m.toast_egress_drop({ host: "evil.example" }));
+  expect(t.actionLabel).toBe(m.toast_egress_drop_review());
+  toasts.act(t.id);
+  expect(repoSettingsWindow.target).toMatchObject({
+    repoPath: "/r",
+    section: "agent",
+    field: "egressBlockedHosts",
+  });
+
+  // an unknown session has no repo to open: the toast stays plain
+  s.apply({ event: "session:egress-drop", data: { id: "gone", host: "x.example" } });
+  expect(toasts.items.at(-1)?.actionLabel).toBeUndefined();
+  repoSettingsWindow.target = null;
 });
 
 test("session:renamed adopts a new branch silently when the display name is unchanged", () => {

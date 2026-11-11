@@ -1717,6 +1717,17 @@ export interface Signal {
   ts: number;
 }
 
+/** One host the Autonomous egress firewall blocked for a repo, aggregated from its `egress_drop`
+ *  signals (#3922). `count` is signal rows (the watcher reports a host once per session, so it
+ *  is close to `sessions`); `sessionIds` holds up to 5 of the newest sessions that hit it. */
+export interface EgressBlock {
+  host: string;
+  count: number;
+  sessions: number;
+  sessionIds: string[];
+  lastSeen: number;
+}
+
 /** A manually-submitted task held in the queue pending usage headroom. */
 export interface HeldTask {
   id: string;

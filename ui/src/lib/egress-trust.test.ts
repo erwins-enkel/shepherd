@@ -1,0 +1,57 @@
+import { describe, expect, test } from "vitest";
+import { classifyEgressHost } from "./egress-trust";
+
+describe("classifyEgressHost", () => {
+  test.each([
+    ["10.0.0.1", "ip"],
+    ["xn--80ak6aa92e.com", "idn"],
+    ["api.xn--p1ai", "idn"],
+    ["pastebin.com", "paste"],
+    ["gist.github.com", "paste"],
+    ["dl.dropboxusercontent.com", "paste"],
+    ["abc123.ngrok.io", "tunnel"],
+    ["x.trycloudflare.com", "tunnel"],
+    ["webhook.site", "oast"],
+    ["abc.oast.fun", "oast"],
+    ["my-app.vercel.app", "hosting"],
+    ["d1234.cloudfront.net", "hosting"],
+    ["api.telegram.org", "chatbot"],
+    ["someone.github.io", "subdomain"],
+    ["bucket.s3.amazonaws.com", "subdomain"],
+    ["storage.googleapis.com", "subdomain"],
+    ["pypi.org", "subdomain"],
+  ])("%s is risky (%s)", (host, reason) => {
+    expect(classifyEgressHost(host)).toEqual({ tier: "risky", reason });
+  });
+
+  test.each([
+    "registry.npmjs.org",
+    "files.pythonhosted.org",
+    "crates.io",
+    "static.crates.io",
+    "proxy.golang.org",
+    "sum.golang.org",
+    "api.nuget.org",
+    "nodejs.org",
+    "static.rust-lang.org",
+    "ghcr.io",
+    "registry-1.docker.io",
+  ])("%s is trusted", (host) => {
+    expect(classifyEgressHost(host)).toEqual({ tier: "trusted" });
+  });
+
+  test("normalizes case and whitespace", () => {
+    expect(classifyEgressHost("  Registry.NPMJS.org ")).toEqual({ tier: "trusted" });
+    expect(classifyEgressHost(" WEBHOOK.SITE")).toEqual({ tier: "risky", reason: "oast" });
+  });
+
+  test.each([
+    "registry.npmjs.org.attacker.com",
+    "evil.registry.npmjs.org",
+    "notgithub.io",
+    "api.example.com",
+    "registry.corp.example",
+  ])("%s is normal (no lookalike or suffix trust)", (host) => {
+    expect(classifyEgressHost(host)).toEqual({ tier: "normal" });
+  });
+});

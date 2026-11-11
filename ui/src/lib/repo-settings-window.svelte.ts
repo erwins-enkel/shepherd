@@ -10,6 +10,9 @@ interface RepoSettingsTarget {
   repoPath: string;
   /** The section to show first; absent = the first one that needs attention, else Autonomy. */
   section?: RepoSettingsSection;
+  /** A setting row (its `data-field`) to scroll into view once it renders, e.g. the blocked egress
+   *  hosts a toast points at (#3922). */
+  field?: string;
   /** The task it was opened from: its review pulse and its plan gate show in the window. */
   sessionId?: string;
   /** Takes the focus back when the window closes. */

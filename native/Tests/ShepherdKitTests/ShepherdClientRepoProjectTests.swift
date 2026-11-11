@@ -9,7 +9,7 @@ struct ShepherdClientRepoProjectTests {
     }
     static let rules = #"{"criticEnabled":false,"criticAllPrs":false,"criticSmellLensEnabled":false,"autoAddressEnabled":false,"autopilotEnabled":false,"planGateEnabled":false,"autoDrainEnabled":false,"autoMergeEnabled":false,"buildQueueEnabled":false,"draftMode":false,"signoffAuthority":"either","manualStepsIssueEnabled":false,"preWarmEpicLandingCi":false,"epicStacksEnabled":false,"autoLabel":"shepherd","defaultModel":"inherit","defaultEffort":"inherit"}"#
 
-    @Test func projectReadUsesRemoteIdentityAndKeepsOfflineMachines() async throws {
+    @Test(.timeLimit(.minutes(1))) func projectReadUsesRemoteIdentityAndKeepsOfflineMachines() async throws {
         let server = FakeShepherdServer(); defer { server.tearDown() }
         server.on("GET", "/api/repo-config/project") { request in
             #expect(request.query?.contains("remoteSlug=owner%2Frepo") == true || request.query?.contains("remoteSlug=owner/repo") == true)
@@ -21,7 +21,7 @@ struct ShepherdClientRepoProjectTests {
         #expect(!project.complete)
     }
 
-    @Test func projectWriteSendsTwoRulesInOneRequestToExplicitMachine() async throws {
+    @Test(.timeLimit(.minutes(1))) func projectWriteSendsTwoRulesInOneRequestToExplicitMachine() async throws {
         let server = FakeShepherdServer(); defer { server.tearDown() }
         server.on("PUT", "/api/repo-config/project") { request in
             #expect(request.query?.contains("instanceId=mac") == true)
@@ -38,7 +38,7 @@ struct ShepherdClientRepoProjectTests {
         #expect(result.notifications.first?.ok == false)
     }
 
-    @Test func protectedRuleWriteKeepsEffectiveRulesUntilMerge() async throws {
+    @Test(.timeLimit(.minutes(1))) func protectedRuleWriteKeepsEffectiveRulesUntilMerge() async throws {
         let server = FakeShepherdServer(); defer { server.tearDown() }
         server.on("PUT", "/api/repo-config/project") { _ in
             let json = #"{"rules":RULES,"repoConfigCommit":"previous","leitrechner":null,"notifications":[],"pendingRepoConfig":{"number":42,"url":"https://host/pr/42","changes":{"criticEnabled":true}}}"#
@@ -53,7 +53,7 @@ struct ShepherdClientRepoProjectTests {
         #expect(result.notifications.isEmpty)
     }
 
-    @Test func responsibilitiesUseTheSameCoordinatorAndPreserveExplicitNull() async throws {
+    @Test(.timeLimit(.minutes(1))) func responsibilitiesUseTheSameCoordinatorAndPreserveExplicitNull() async throws {
         let server = FakeShepherdServer(); defer { server.tearDown() }
         server.on("GET", "/api/repo-config/roles") { request in
             #expect(request.query?.contains("instanceId=mac") == true)
@@ -75,7 +75,7 @@ struct ShepherdClientRepoProjectTests {
         #expect(result.roles.merger == "merger")
     }
 
-    @Test func machineFailureRetainsTheReasonAndNeverFallsBack() async throws {
+    @Test(.timeLimit(.minutes(1))) func machineFailureRetainsTheReasonAndNeverFallsBack() async throws {
         let server = FakeShepherdServer(); defer { server.tearDown() }
         server.on("PUT", "/api/repo-config/machine") { request in
             #expect(request.query?.contains("instanceId=linux") == true)

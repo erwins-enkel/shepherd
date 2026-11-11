@@ -1,6 +1,8 @@
 import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
 import { RepoConfigService } from "../src/repo-config-service";
+import { configForge } from "./helpers/repo-config-forge";
+import { invalidateRepoConfigFile } from "../src/repo-config-file";
 
 function harness() {
   const store = new SessionStore(":memory:");
@@ -177,7 +179,13 @@ test("read: no-origin repositories expose no shared-rule target", () => {
 test("read: target branch is origin/HEAD even before a file exists", async () => {
   const { configRepo } = await import("./helpers/repo-config-git");
   const repo = configRepo(undefined, "trunk");
-  const { store, svc } = harness();
+  const store = new SessionStore(":memory:");
+  const svc = new RepoConfigService(
+    store,
+    () => "standard",
+    undefined,
+    () => configForge().forge,
+  );
   try {
     expect(svc.read(repo.a).repoConfigBranch).toBe("trunk");
     expect(svc.read(repo.a).repoConfigCommit).toBeNull();
@@ -186,5 +194,35 @@ test("read: target branch is origin/HEAD even before a file exists", async () =>
     expect(store.getLocalRepoConfig(repo.a).repoMode).toBe("lightweight");
   } finally {
     repo.close();
+  }
+});
+
+test("origins without a supported forge keep rules local until a config file exists", async () => {
+  const { configRepo, git } = await import("./helpers/repo-config-git");
+  for (const forge of [null, { ...configForge().forge, kind: "local" as const }]) {
+    const repo = configRepo();
+    const store = new SessionStore(":memory:");
+    const svc = new RepoConfigService(
+      store,
+      () => "standard",
+      undefined,
+      () => forge,
+    );
+    try {
+      const head = git(repo.a, "rev-parse", "HEAD");
+      expect(svc.read(repo.a).repoConfigBranch).toBeNull();
+      const result = await svc.patch(repo.a, { criticEnabled: false });
+      expect(result.ok && result.config.repoConfigBranch).toBeNull();
+      expect(store.getLocalRepoConfig(repo.a).criticEnabled).toBe(false);
+      expect(git(repo.a, "rev-parse", "HEAD")).toBe(head);
+      repo.commit(JSON.stringify({ criticEnabled: true }));
+      invalidateRepoConfigFile(repo.a);
+      expect(svc.read(repo.a).repoConfigBranch).toBe("main");
+      const shared = await svc.patch(repo.a, { criticEnabled: false });
+      expect(shared.ok && shared.config.repoConfigCommit).toBeTruthy();
+      expect(git(repo.origin, "log", "-1", "--format=%s")).toBe("chore(shepherd): set repo rules");
+    } finally {
+      repo.close();
+    }
   }
 });

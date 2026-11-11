@@ -237,7 +237,9 @@ export class RepoConfigService {
       fieldSources,
       repoConfigCommit: file?.commit ?? null,
       repoConfigBranch:
-        local.repoMode === "lightweight" ? null : (repoConfigGitContext(dir)?.branch ?? null),
+        local.repoMode !== "lightweight" && (this.ruleForge(dir, local.repoMode) || file)
+          ? (repoConfigGitContext(dir)?.branch ?? null)
+          : null,
       leitrechner: file?.leitrechner ?? null,
       pendingRepoConfig:
         local.repoMode === "lightweight"

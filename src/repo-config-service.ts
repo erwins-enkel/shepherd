@@ -4,6 +4,7 @@ import {
   isRepoRuleKey,
   repoConfigGitContext,
   repoRulesFromConfig,
+  repoRuleValidationError,
   withRepoConfigLock,
   writeRepoConfigFile,
   readRepoConfigFile,
@@ -161,7 +162,8 @@ export class RepoConfigService {
     const localRunDefaults =
       file || !provider ? {} : clampRunDefaultsToCli(current, patch, provider);
     const config = this.merge(current, { ...patch, ...localRunDefaults });
-    validate(config);
+    const error = repoRuleValidationError(config);
+    if (error) throw new ConfigValidationError(error);
     return { config, localRunDefaults };
   }
 
@@ -177,13 +179,3 @@ export class RepoConfigService {
 }
 
 class ConfigValidationError extends Error {}
-
-function validate(merged: RepoConfig): void {
-  if (merged.draftMode && merged.autoMergeEnabled)
-    throw new ConfigValidationError("draftMode and autoMergeEnabled are mutually exclusive");
-  // A critic-reliant signoff with critic disabled would leave drafts stuck forever.
-  if (merged.draftMode && !merged.criticEnabled && merged.signoffAuthority !== "human")
-    throw new ConfigValidationError(
-      `signoffAuthority "${merged.signoffAuthority}" requires criticEnabled — it would never sign off (use "human")`,
-    );
-}

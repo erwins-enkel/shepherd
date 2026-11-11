@@ -168,15 +168,16 @@ test("a competing remote commit rejects our push instead of being overwritten", 
   expect(tip(r)).toBe(competing);
 });
 
-test("switching from lightweight validates the newly active file view", async () => {
+test("switching from lightweight ignores invariant-invalid files and retains DB rules", async () => {
   const { r, store, svc } = fixture();
   r.commit('{"draftMode":true,"autoMergeEnabled":true}');
   git(r.b, "fetch", "origin");
   invalidateRepoConfigFile(r.b);
   store.setRepoConfig(r.b, { ...store.getLocalRepoConfig(r.b), repoMode: "lightweight" });
   const result = await svc.patch(r.b, { repoMode: "forge" });
-  expect(result.ok).toBe(false);
-  expect(store.getLocalRepoConfig(r.b).repoMode).toBe("lightweight");
+  expect(result.ok).toBe(true);
+  expect(store.getLocalRepoConfig(r.b).repoMode).toBe("forge");
+  expect(store.getRepoConfig(r.b).draftMode).toBe(false);
 });
 
 test("a newly active file is not overwritten by stale local CLI clamping", async () => {
@@ -190,3 +191,36 @@ test("a newly active file is not overwritten by stale local CLI clamping", async
   expect(result.ok).toBe(true);
   expect(store.getRepoConfig(r.b).defaultModel).toBe("opus");
 });
+
+for (const rules of [
+  { draftMode: true, autoMergeEnabled: true },
+  { draftMode: true, criticEnabled: false, signoffAuthority: "critic" },
+  { draftMode: true, criticEnabled: false, signoffAuthority: "either" },
+])
+  test(`invalid rule file cannot block machine safety edits: ${JSON.stringify(rules)}`, async () => {
+    const { r, store, svc } = fixture();
+    const before = r.commit(JSON.stringify(rules));
+    git(r.b, "fetch", "origin");
+    store.setRepoConfig(r.b, {
+      ...store.getLocalRepoConfig(r.b),
+      sharedBrowserEnabled: true,
+      sandboxProfile: "trusted",
+      maxAuto: 7,
+    });
+    const patch = {
+      sharedBrowserEnabled: false,
+      sandboxProfile: "standard",
+      maxAuto: 1,
+      hidden: true,
+    } as const;
+    const result = await svc.patch(r.b, patch);
+    expect(result.ok).toBe(true);
+    expect(svc.read(r.b)).toMatchObject({
+      ...patch,
+      draftMode: false,
+      repoConfigCommit: null,
+      fieldSources: { draftMode: "rechner", sandboxProfile: "rechner" },
+    });
+    expect(store.getLocalRepoConfig(r.b)).toMatchObject(patch);
+    expect(tip(r)).toBe(before);
+  });

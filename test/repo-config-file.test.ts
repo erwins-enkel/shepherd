@@ -80,3 +80,17 @@ test("cached absence expires after sixty seconds without an explicit invalidatio
     Date.now = now;
   }
 });
+
+test("rule files that violate draft/merge or critic/signoff invariants are invalid", () => {
+  for (const rules of [
+    { draftMode: true, autoMergeEnabled: true },
+    { draftMode: true, criticEnabled: false, signoffAuthority: "critic" },
+    { draftMode: true, criticEnabled: false, signoffAuthority: "either" },
+  ])
+    expect(parseRepoRules(JSON.stringify(rules))).toBeNull();
+  expect(parseRepoRules('{"draftMode":true}')).toEqual({ draftMode: true });
+  expect(parseRepoRules('{"draftMode":true,"criticEnabled":false}')).toEqual({
+    draftMode: true,
+    criticEnabled: false,
+  });
+});

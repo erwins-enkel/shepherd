@@ -1,5 +1,5 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
-import { effectiveRepoConfig, readRepoConfigFile } from "./repo-config-file";
+import { effectiveRepoConfig, readRepoConfigFile, REPO_RULE_DEFAULTS } from "./repo-config-file";
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -1391,32 +1391,16 @@ export function repoConfigDefaults(): RepoConfig {
 function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
   if (!r) {
     return {
-      criticEnabled: true,
-      criticAllPrs: false,
-      criticSmellLensEnabled: false,
-      autoAddressEnabled: false,
-      autopilotEnabled: false,
-      planGateEnabled: false,
-      autoDrainEnabled: false,
-      autoMergeEnabled: false,
-      buildQueueEnabled: false,
-      draftMode: false,
-      signoffAuthority: "human",
+      ...REPO_RULE_DEFAULTS,
       maxAuto: 1,
-      autoLabel: "shepherd:auto",
       priorityLabels: [],
       usageCeilingPct: 80,
       sandboxProfile: "inherit",
       agentProvider: "inherit",
-      defaultModel: "inherit",
-      defaultEffort: "inherit",
       defaultExecutionEffort: "inherit",
       egressExtraHosts: [],
       repoMode: "forge",
-      manualStepsIssueEnabled: false,
-      preWarmEpicLandingCi: false,
       mergeWithoutCi: false,
-      epicStacksEnabled: false,
       sharedBrowserEnabled: false,
       browserAllowedHosts: [],
       claudeAiConnectorsEnabled: false,

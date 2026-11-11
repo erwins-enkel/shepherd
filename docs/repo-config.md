@@ -37,8 +37,10 @@ the existing provider-specific fallback when starting sessions.
 Unknown file keys are ignored and are not emitted on save. Retired `learningsEnabled` and
 `autoOptimizeFlagged` keys have no effect. The JSON must be an object; known fields require
 valid types and setting values. Malformed JSON or invalid known values makes the whole file
-ineffective, preserving the previous database behavior. Existing database rules are retained
-as a fallback. With no `origin`, or in lightweight mode, all settings remain local and no
+ineffective, preserving the previous database behavior. Draft mode combined with auto-merge,
+or with critic-dependent signoff while the critic is disabled, also makes the file invalid.
+Such files cannot block local safety edits such as revoking Shared Browser or tightening
+the sandbox. Existing database rules are retained as a fallback. With no `origin`, or in lightweight mode, all settings remain local and no
 configuration file is read or created.
 
 ## Reading and saving

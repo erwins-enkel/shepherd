@@ -29,6 +29,37 @@ export const REPO_RULE_FIELDS = [
 export type RepoRuleKey = (typeof REPO_RULE_FIELDS)[number];
 export type RepoRules = Pick<RepoConfig, RepoRuleKey>;
 export type RepoConfigFile = { rules: Partial<RepoRules>; commit: string };
+/** Defaults are shared by the DB fallback, partial-file reads and invariant validation. */
+export const REPO_RULE_DEFAULTS: Readonly<RepoRules> = Object.freeze({
+  criticEnabled: true,
+  criticAllPrs: false,
+  criticSmellLensEnabled: false,
+  autoAddressEnabled: false,
+  autopilotEnabled: false,
+  planGateEnabled: false,
+  autoDrainEnabled: false,
+  autoMergeEnabled: false,
+  buildQueueEnabled: false,
+  draftMode: false,
+  signoffAuthority: "human",
+  manualStepsIssueEnabled: false,
+  preWarmEpicLandingCi: false,
+  epicStacksEnabled: false,
+  autoLabel: "shepherd:auto",
+  defaultModel: "inherit",
+  defaultEffort: "inherit",
+});
+
+/** Same cross-field rules for committed files and explicit settings edits. */
+export function repoRuleValidationError(config: RepoRules): string | null {
+  if (config.draftMode && config.autoMergeEnabled)
+    return "draftMode and autoMergeEnabled are mutually exclusive";
+  // A critic-reliant signoff with critic disabled would leave drafts stuck forever.
+  if (config.draftMode && !config.criticEnabled && config.signoffAuthority !== "human")
+    return `signoffAuthority "${config.signoffAuthority}" requires criticEnabled — it would never sign off (use "human")`;
+  return null;
+}
+
 const CONFIG_PATH = ".shepherd/config.json";
 const TTL_MS = 60_000;
 const ruleKeys = new Set<string>(REPO_RULE_FIELDS);
@@ -66,7 +97,8 @@ export function parseRepoRules(raw: string): Partial<RepoRules> | null {
       if (!valid) return null;
       out[key] = v;
     }
-    return out as Partial<RepoRules>;
+    const rules = out as Partial<RepoRules>;
+    return repoRuleValidationError({ ...REPO_RULE_DEFAULTS, ...rules }) ? null : rules;
   } catch {
     return null;
   }

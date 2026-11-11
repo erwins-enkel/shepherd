@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { shapeBlocker, shapeErrorKey, SHAPE_ERRORS, type ShapeAvailability } from "./shape";
+import {
+  shapeBlocker,
+  shapeErrorKey,
+  shapeRemainingMs,
+  shapeTipIndex,
+  shapeWait,
+  SHAPE_ERRORS,
+  SHAPE_TIMEOUT_MS,
+  SHAPE_TIP_COUNT,
+  type ShapeAvailability,
+} from "./shape";
 
 const ok: ShapeAvailability = {
   promptEmpty: false,
@@ -39,5 +49,42 @@ describe("shapeErrorKey", () => {
   it("collapses an unknown slug to timeout rather than inventing a state", () => {
     expect(shapeErrorKey("teapot")).toBe("timeout");
     expect(shapeErrorKey("")).toBe("timeout");
+  });
+});
+
+describe("shapeWait", () => {
+  it("reads as plain work for the first 45 s", () => {
+    expect(shapeWait(0)).toBe("reading");
+    expect(shapeWait(44_999)).toBe("reading");
+  });
+
+  it("reads as long from 45 s, and counts down from 2:30", () => {
+    expect(shapeWait(45_000)).toBe("long");
+    expect(shapeWait(149_999)).toBe("long");
+    expect(shapeWait(150_000)).toBe("closing");
+    expect(shapeWait(SHAPE_TIMEOUT_MS + 5_000)).toBe("closing");
+  });
+});
+
+describe("shapeRemainingMs", () => {
+  it("counts down to the server's deadline and never goes negative", () => {
+    expect(shapeRemainingMs(0)).toBe(SHAPE_TIMEOUT_MS);
+    expect(shapeRemainingMs(155_000)).toBe(25_000);
+    expect(shapeRemainingMs(SHAPE_TIMEOUT_MS + 1)).toBe(0);
+  });
+});
+
+describe("shapeTipIndex", () => {
+  it("advances by itself every 7 s and wraps", () => {
+    expect(shapeTipIndex(0, 0)).toBe(0);
+    expect(shapeTipIndex(6_999, 0)).toBe(0);
+    expect(shapeTipIndex(7_000, 0)).toBe(1);
+    expect(shapeTipIndex(7_000 * SHAPE_TIP_COUNT, 0)).toBe(0);
+  });
+
+  it("follows the operator's paging in both directions", () => {
+    expect(shapeTipIndex(0, 1)).toBe(1);
+    expect(shapeTipIndex(0, -1)).toBe(SHAPE_TIP_COUNT - 1);
+    expect(shapeTipIndex(7_000, -1)).toBe(0);
   });
 });

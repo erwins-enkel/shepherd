@@ -98,6 +98,7 @@
   import { assignedOthers } from "./issues-panel";
   import { projectIcons } from "#lib/projectIcons.svelte.js";
   import { modelOptionLabel } from "#lib/model-guidance.js";
+  import { configuredModelLabel } from "#lib/model-label.js";
   import { selectedProviderCapacity } from "#lib/components/usage-gauges.js";
   import { elapsed } from "#lib/format.js";
   import { deriveReadiness } from "./new-task/readiness";
@@ -1455,11 +1456,39 @@
     }) !== null,
   );
 
+  // The round runs on the engine picked when it started, so its label is captured then: changing
+  // the picker mid-round changes the NEXT round, and the chip must not claim otherwise.
+  let shapeEngine = $state("");
+  // The server reports nothing until the round is done, so the clock is what the card can show.
+  let shapeStartedAt = $state(0);
+  let shapeNow = $state(0);
+  const shapeElapsedMs = $derived(Math.max(0, shapeNow - shapeStartedAt));
+  $effect(() => {
+    if (shapeStatus !== "running") return;
+    const id = setInterval(() => (shapeNow = Date.now()), 1000);
+    return () => clearInterval(id);
+  });
+  // "Show me the engine": the chip's click focuses the engine picker and lights its group up.
+  let engineFlash = $state(false);
+  let engineFlashTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => () => clearTimeout(engineFlashTimer));
+
+  function showShapeEngine() {
+    document.getElementById("nt-agent-provider")?.focus();
+    clearTimeout(engineFlashTimer);
+    engineFlash = true;
+    engineFlashTimer = setTimeout(() => (engineFlash = false), 2400);
+  }
+
   async function runShape() {
     if (shapeDisabled) return;
     const seq = ++shapeSeq;
     shapeStatus = "running";
     shapeRound = null;
+    shapeEngine = `${agentProvider === "codex" ? m.agent_provider_codex() : m.agent_provider_claude()} · ${
+      model === "default" ? m.newtask_model_default() : configuredModelLabel(model)
+    }`;
+    shapeStartedAt = shapeNow = Date.now();
     // `model` is the PICKER's value, which includes the literal "default" — normalise it the way
     // every other spawn path does (buildSpawnInput below) so the CLI never sees `--model default`.
     const res = await apiShapeTask(
@@ -1506,6 +1535,13 @@
     shapeSeq++; // invalidate anything still in flight
     shapeStatus = "idle";
     shapeRound = null;
+  }
+
+  /** Drop the round and start with the rough prompt — through the normal submit path, so every
+   *  readiness check and confirmation still applies. */
+  function startWithoutShaping() {
+    dismissShape();
+    if (cardEl instanceof HTMLFormElement) cardEl.requestSubmit();
   }
 
   function blockerCopy(blocker: NonNullable<typeof readiness.blocker>): string {
@@ -2669,6 +2705,12 @@
             {#if !mobile}
               <div class="prompt-label-row">
                 <label class="prompt-label" for="nt-prompt">{m.newtask_prompt_label()}</label>
+                {#if shapeStatus === "running"}
+                  <span class="prompt-reading"
+                    ><span class="live-dot" aria-hidden="true"
+                    ></span>{m.newtask_prompt_reading()}</span
+                  >
+                {/if}
                 {#if held}
                   <Keycap id="focus-prompt" ctx={keymapCtx} flash={hold.flash === "focus-prompt"} />
                   <span class="prompt-caps">
@@ -2712,6 +2754,10 @@
                     slashOpen = false;
                     issueSearchOpen = false;
                   }}></textarea>
+                {#if shapeStatus === "running"}
+                  <!-- The shaping agent is reading this prompt: a slow line passes over it. -->
+                  <span class="prompt-scan" aria-hidden="true"></span>
+                {/if}
                 {#if slashOpen}
                   <SlashCommandMenu
                     commands={slashMatches}
@@ -2772,33 +2818,40 @@
                      control wraps the row (pinned by the mobile no-wrap test). Shaping is
                      optional by design, so mobile keeps the freeform path. -->
                 {#if mode === "code" && !mobile}
+                  <!-- While the round runs the button is visibly busy (turning glyph, amber,
+                       the clock) rather than merely disabled. -->
                   <button
                     type="button"
                     class="tool-btn"
+                    class:shaping={shapeStatus === "running"}
                     use:coachTarget={"nt-shape"}
                     aria-label={m.newtask_shape_aria()}
+                    aria-busy={shapeStatus === "running"}
                     title={m.newtask_shape_hint()}
                     onclick={runShape}
                     disabled={shapeDisabled}
                   >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18"
+                      />
+                    </svg>
                     {#if shapeStatus === "running"}
-                      …
-                    {:else}
-                      <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
+                      <span class="tool-label">{m.newtask_shape_running_label()}</span>
+                      <span class="shape-btn-clock" aria-hidden="true"
+                        >{elapsed(0, shapeElapsedMs)}</span
                       >
-                        <path
-                          d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18"
-                        />
-                      </svg>
+                    {:else}
+                      <span class="tool-label">{m.newtask_shape_label()}</span>
                     {/if}
-                    <span class="tool-label">{m.newtask_shape_label()}</span>
                   </button>
                 {/if}
                 <!-- Epic mode's optional default prompt. Icon-only on mobile: the toolbar's
@@ -2932,8 +2985,13 @@
               status={shapeStatus}
               round={shapeRound ?? undefined}
               errorKey={shapeErr}
+              elapsedMs={shapeElapsedMs}
+              engineLabel={shapeEngine}
               onuse={useBrief}
               ondismiss={dismissShape}
+              onshowengine={showShapeEngine}
+              onretry={runShape}
+              onstartplain={startWithoutShaping}
             />
           {/if}
 
@@ -3437,6 +3495,8 @@
        one place at a time (desktop rail or the mobile engine sheet). -->
   <RunSettingsGroups
     {agentProvider}
+    shaping={shapeStatus === "running"}
+    {engineFlash}
     {repoDefaultProvider}
     {model}
     {effort}
@@ -3967,6 +4027,48 @@
     display: flex;
     flex-direction: column;
   }
+  /* A shape round is reading the prompt. The dot pulse encodes "work happening", so it keeps
+     running under reduced motion (see the guard in app.css); the passing line is decoration. */
+  .prompt-reading {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--fs-micro);
+    color: var(--color-amber);
+  }
+  .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-amber);
+    animation: dot-pulse 1.4s ease-in-out infinite !important;
+  }
+  .prompt-scan {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 1px;
+    background: var(--color-amber);
+    opacity: 0;
+    pointer-events: none;
+    animation: prompt-scan 3.6s ease-in-out infinite;
+  }
+  @keyframes prompt-scan {
+    0% {
+      top: 0;
+      opacity: 0;
+    }
+    12%,
+    70% {
+      opacity: 0.6;
+    }
+    82%,
+    100% {
+      top: 100%;
+      opacity: 0;
+    }
+  }
   textarea {
     background: transparent;
     border: 0;
@@ -4040,6 +4142,24 @@
   .tool-btn:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  /* A running shape round: busy, not dimmed like an unavailable control. */
+  .tool-btn.shaping:disabled {
+    opacity: 1;
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+  }
+  .tool-btn.shaping svg {
+    animation: shape-btn-turn 2.4s linear infinite;
+  }
+  .shape-btn-clock {
+    font-family: var(--font-mono);
+    letter-spacing: 0;
+  }
+  @keyframes shape-btn-turn {
+    to {
+      transform: rotate(360deg);
+    }
   }
   /* Inline mic (MicButton's inline variant) matches the tool-btn footprint. */
   .toolbar :global(.micbtn-anchor.inline) {

@@ -301,7 +301,7 @@ export async function shapeTask(args: ShapeArgs, deps: ShapeDeps): Promise<Shape
     cleanup = cleanupHelperDir,
     now = Date.now,
     sleep = realSleep,
-    timeoutMs = 180_000,
+    timeoutMs = 180_000, // mirrored by SHAPE_TIMEOUT_MS in the UI (new-task/shape.ts)
     pollMs = 1_500,
   } = deps;
 

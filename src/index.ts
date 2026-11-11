@@ -2231,6 +2231,9 @@ const standaloneCritic = new StandalonePrCriticService({
         .filter((s) => s.repoPath === repoPath && s.branch)
         .map((s) => s.branch!),
     ),
+  // #3957: the drain's remote epic-child PRs that wait for a verdict here. `drain` is declared
+  // below and only read by a sweep, which starts long after construction.
+  remoteEpicChildPrs: (repoPath) => drain.remoteChildReviewPrs(repoPath),
 });
 deferredStarts.push(() => {
   standaloneCritic.reapOrphans(); // issue #1136: close orphaned pr-critic tabs left by a prior lifetime

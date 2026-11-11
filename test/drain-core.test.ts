@@ -1054,6 +1054,44 @@ describe("computeNext: epic base freshness (#3101)", () => {
   });
 });
 
+// ── #3957: a child on another machine whose critic blocks ───────────────────────────────────────
+
+describe("computeNext: a remote epic child's critic blocks (#3957)", () => {
+  const B = "epic/9-thing";
+  const remote = { code: "changes_requested", detail: "macbook · TASK-145" } as const;
+
+  test("halts new spawns naming the session there, ahead of the base holds", () => {
+    const d = computeNext(
+      state({
+        candidates: [issue(1)],
+        epicIntegrationBranch: B,
+        epicBaseStale: B,
+        remoteTrouble: remote,
+      }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: remote });
+  });
+
+  test("a local session in trouble is named first; a ready PR still retires", () => {
+    const local = computeNext(
+      state({
+        autoSessions: [autoSession({ id: "b", desig: "TASK-9", status: "blocked" })],
+        candidates: [issue(1)],
+        remoteTrouble: remote,
+      }),
+    );
+    expect(local).toEqual({ kind: "hold", reason: { code: "blocked", detail: "TASK-9" } });
+    const retire = computeNext(
+      state({
+        autoSessions: [autoSession({ id: "ok", issueNumber: 2, git: MERGEABLE })],
+        candidates: [issue(1)],
+        remoteTrouble: remote,
+      }),
+    );
+    expect(retire.kind).toBe("retire");
+  });
+});
+
 describe("buildRunSummary", () => {
   const child = (number: number, blockedBy: number[] = [], over = {}) => ({
     number,

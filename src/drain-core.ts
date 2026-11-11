@@ -129,6 +129,13 @@ export interface AutoSessionView {
   usagePaused?: boolean;
 }
 
+/** What {@link readyToRetire} reads of a session: its PR and the verdicts on it. A remote epic child
+ *  (#3957) has no session here, so its view is built from the forge and this host's critic. */
+export type RetireView = Pick<
+  AutoSessionView,
+  "git" | "reviewDecision" | "reviewHeadSha" | "humanApproved" | "findings"
+>;
+
 /** The auto sessions that hold an agent slot — all but landing repairs (#2973). */
 export function slotHolders<T extends Pick<AutoSessionView, "landingRepair">>(
   sessions: readonly T[],
@@ -204,6 +211,10 @@ export interface DrainRepoState {
    *  and the epic is not quiescent. Null/undefined otherwise (incl. an operator override). */
   epicBaseConflict?: string | null;
   epicBaseStale?: string | null;
+  /** #3957: the leading epic's child on another machine whose PR the critic here blocks for its
+   *  current head (`changes_requested` / `error`, detail = where it runs). A trouble pause like a
+   *  local auto session's; null/undefined otherwise. */
+  remoteTrouble?: HoldReason | null;
   /** #3101: other epics whose landing PR is still open, while THIS epic has not begun; null when
    *  none, the epic is under way, or the operator overrode it. */
   epicPredecessorUnlanded?: readonly number[] | null;
@@ -271,7 +282,7 @@ export function nextCandidate(
 /** Sign-off view for a draft-mode gate, projected off the flat AutoSessionView (head from
  *  the cached PR snapshot). Mirrors automerge-core's `signoffView` so the two cores read
  *  identically and the literal lives in one place per core. */
-function signoffView(s: AutoSessionView): SignoffView {
+function signoffView(s: RetireView): SignoffView {
   return {
     humanApproved: s.humanApproved,
     reviewDecision: s.reviewDecision,
@@ -282,7 +293,7 @@ function signoffView(s: AutoSessionView): SignoffView {
 }
 
 export function readyToRetire(
-  s: AutoSessionView,
+  s: RetireView,
   criticEnabled: boolean,
   draftMode: boolean,
   authority: SignoffAuthority,
@@ -380,7 +391,8 @@ function troubleHold(state: DrainRepoState): HoldReason | null {
   const err = state.autoSessions.find(
     (s) => s.reviewDecision === "error" && !verdictStale(s.reviewHeadSha, s.git),
   );
-  return err ? { code: "error", detail: err.desig } : null;
+  if (err) return { code: "error", detail: err.desig };
+  return state.remoteTrouble ?? null;
 }
 
 function bootstrapHold(state: DrainRepoState): HoldReason | null {

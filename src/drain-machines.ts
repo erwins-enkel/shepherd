@@ -8,7 +8,12 @@
  * clone origin, as the create route reads it (`repoRemoteSlug` in server.ts).
  */
 import type { DrainMachinePort } from "./drain";
-import { REMOTE_WORK_WINDOW_MS, drainDispatchKey, remoteWorkOf } from "./drain-remote";
+import {
+  REMOTE_WORK_WINDOW_MS,
+  dispatchedElsewhereOf,
+  drainDispatchKey,
+  remoteWorkOf,
+} from "./drain-remote";
 import { payloadHash } from "./dispatch";
 import type { GitForge } from "./forge/types";
 import { type DecideDeps, decide } from "./remote-instances/decide";
@@ -16,7 +21,7 @@ import type { RemoteDispatcher } from "./remote-instances/dispatch";
 import { instanceIdentity } from "./remote-instances/identity";
 import { placementActive } from "./remote-instances/placement";
 import type { RemoteInstanceService } from "./remote-instances/service";
-import { type RemoteSessionMirror, hostNames } from "./remote-instances/sessions";
+import { type RemoteSessionMirror, type SessionHost, hostNames } from "./remote-instances/sessions";
 import type { SessionStore } from "./store";
 
 export interface DrainMachineDeps {
@@ -40,6 +45,21 @@ function projectOf(forge: GitForge | null): string | undefined {
 export function drainMachinePort(deps: DrainMachineDeps): DrainMachinePort {
   const now = deps.now ?? Date.now;
   const project = (repoPath: string) => projectOf(deps.resolveForge(repoPath));
+  /** The registered machines by instance ID, named as the session mirror names them. */
+  const hostsById = (): ReadonlyMap<string, SessionHost> => {
+    const machines = deps.instances.list();
+    const names = hostNames(machines);
+    return new Map(
+      machines.map((m) => [
+        m.instanceId,
+        {
+          instanceId: m.instanceId,
+          name: names.get(m.instanceId) ?? m.name,
+          platform: m.info?.platform ?? "unknown",
+        },
+      ]),
+    );
+  };
   return {
     active: () => placementActive(deps.instances.list()),
     selfId: () => instanceIdentity(deps.store).instanceId,
@@ -60,23 +80,21 @@ export function drainMachinePort(deps: DrainMachineDeps): DrainMachinePort {
       const slug = project(repoPath);
       if (!slug) return new Map();
       const at = now();
-      const machines = deps.instances.list();
-      const names = hostNames(machines);
-      const hosts = new Map(
-        machines.map((m) => [
-          m.instanceId,
-          {
-            instanceId: m.instanceId,
-            name: names.get(m.instanceId) ?? m.name,
-            platform: m.info?.platform ?? "unknown",
-          },
-        ]),
-      );
+      const hosts = hostsById();
       return remoteWorkOf(
         deps.store.listDrainRemoteDispatches(slug, at - REMOTE_WORK_WINDOW_MS),
         deps.sessions.list(),
         (id) => hosts.get(id) ?? null,
         at,
+      );
+    },
+    dispatchedElsewhere(repoPath) {
+      const slug = project(repoPath);
+      if (!slug) return new Map();
+      const hosts = hostsById();
+      return dispatchedElsewhereOf(
+        deps.store.listDrainRemoteDispatches(slug, now() - REMOTE_WORK_WINDOW_MS),
+        (id) => hosts.get(id) ?? null,
       );
     },
   };

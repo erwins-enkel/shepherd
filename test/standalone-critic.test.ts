@@ -865,6 +865,62 @@ test("per-head dedup still holds for the epic landing PR across two sweeps", asy
   expect(local.spies.created).toHaveLength(1);
 });
 
+// ── 2c. a remote epic child's PR the drain needs a verdict for (#3957) ───────
+
+/** A criticAllPrs-OFF repo whose drain asks for a verdict on the epic child PR #3955 it sent to
+ *  another machine (the drain's `remoteChildReviewPrs`). */
+function remoteChildCritic(asked: number[], prior?: Record<string, PrReview>) {
+  const local = makeDeps(
+    { remoteEpicChildPrs: (r: string) => new Set(r === "/r" ? asked : []) },
+    { criticAllPrs: false, forge: undefined, ...(prior && { priorReviews: prior }) },
+  );
+  let listed = 0;
+  local.deps.resolveForge = () => {
+    const f = makeForge(local.spies, {
+      prs: [
+        pr({ number: 3955, headRefName: "shepherd/mac-ios-repo-3013" }),
+        pr({ number: 8, headRefName: "feature/x" }),
+      ],
+    });
+    const list = f.listPullRequests.bind(f);
+    f.listPullRequests = async () => {
+      listed++;
+      return list();
+    };
+    return f;
+  };
+  return { local, svc: new StandalonePrCriticService(local.deps as any), listed: () => listed };
+}
+
+test("#3957 reviews the remote epic child's PR the drain asks for, and no other", async () => {
+  const { local, svc } = remoteChildCritic([3955]);
+  await svc.sweep();
+  expect(local.spies.started.map((s) => s.name)).toEqual(["pr-critic /r#3955"]);
+});
+
+test("#3957 nothing asked for: the criticAllPrs-OFF repo is not swept", async () => {
+  const { local, svc, listed } = remoteChildCritic([]);
+  await svc.sweep();
+  expect(listed()).toBe(0);
+  expect(local.spies.started).toHaveLength(0);
+});
+
+test("#3957 an asked-for PR already reviewed at its head is not reviewed again", async () => {
+  const { local, svc } = remoteChildCritic([3955], {
+    "/r#3955": {
+      repoPath: "/r",
+      prNumber: 3955,
+      headSha: "abc123",
+      patchId: "p0",
+      decision: "commented",
+      reviewedPatchIds: [],
+      updatedAt: 1,
+    },
+  });
+  await svc.sweep();
+  expect(local.spies.started).toHaveLength(0);
+});
+
 // ── 3. in-flight exclusion across sweeps ─────────────────────────────────────
 
 test("does not double-spawn an in-flight PR across two sweeps", async () => {

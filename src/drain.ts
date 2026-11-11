@@ -122,10 +122,11 @@ import {
   routeOf,
   type ChildRoute,
 } from "./drain-placement";
-import type { RemoteWork } from "./drain-remote";
+import { landableRemotePr, remoteChildGate, type RemoteWork } from "./drain-remote";
 import type { Capability } from "./remote-instances/capabilities";
 import type { Placement, PlacementDecision } from "./remote-instances/placement";
 import type { RemoteOutcome } from "./remote-instances/dispatch";
+import type { SessionHost } from "./remote-instances/sessions";
 
 /** #645 (c): re-scan the host for stray `epic/*` branches at most this often per epic. The
  *  scan is an advisory divergence warning, not gating — a 5-minute staleness is harmless and
@@ -231,6 +232,27 @@ interface EpicBaseTarget {
   defaultBranch: string;
   /** No child running/in review and no session based on the branch — safe to force-push. */
   quiescent: boolean;
+}
+
+/** #3957: the running integration epic whose remote children a remote-retire pass may land. */
+interface RemoteRetireTarget {
+  key: string;
+  parent: number;
+  pinned: string;
+  forge: GitForge;
+  /** Un-integrated children sent to another machine by this drain, with no live session here. */
+  children: EpicChild[];
+  work: ReadonlyMap<number, RemoteWork>;
+  sent: ReadonlyMap<number, SessionHost>;
+}
+
+/** #3957: where a remote child runs, for its trouble hold — its session there as the UI names a
+ *  mirrored one (`machine · TASK-n`), else the machine, issue and PR. */
+function remoteChildLabel(child: number, pr: number, t: RemoteRetireTarget): string {
+  const w = t.work.get(child);
+  if (w?.desig) return `${w.host.name} · ${w.desig}`;
+  const host = w?.host ?? t.sent.get(child);
+  return `${host ? `${host.name} · ` : ""}#${child} · PR #${pr}`;
 }
 
 /** Outcome of the operator-triggered {@link DrainService.repairLandingCi} (#2872). */
@@ -578,12 +600,17 @@ export interface DrainMachinePort {
   }): Promise<RemoteOutcome>;
   /** The spawns sent from `repoPath` still on their way or running elsewhere, by issue. */
   work(repoPath: string): ReadonlyMap<number, RemoteWork>;
+  /** #3957: the issues whose newest drain spawn from `repoPath` started on another machine, and
+   *  that machine — mirrored or not ({@link dispatchedElsewhereOf}). Absent: none known. */
+  dispatchedElsewhere?(repoPath: string): ReadonlyMap<number, SessionHost>;
 }
 
 /** A remote dispatch outcome after which the spawn may be running there: keep its claim. */
 const REMOTE_SPAWNED: ReadonlySet<RemoteOutcome["kind"]> = new Set(["started", "held", "unknown"]);
 
 const NO_REMOTE_WORK: ReadonlyMap<number, RemoteWork> = new Map();
+const NO_REMOTE_HOSTS: ReadonlyMap<number, SessionHost> = new Map();
+const NO_PRS: ReadonlySet<number> = new Set();
 
 /** The start-queue key of a repo's next backlog spawn. */
 const drainStartKey = (repoPath: string) => `drain:${repoPath}`;
@@ -700,6 +727,14 @@ export class DrainService {
   // purpose: a restart sweeps immediately (deploy ⇒ a pre-existing stall self-heals within one
   // tick), then settles to one sweep per EPIC_RECONCILE_TTL_MS.
   private epicReconcileAt = new Map<string, number>();
+  // #3957: per repo, the leading epic's remote-child PRs that wait for this host's critic verdict on
+  // their head (read by the standalone critic), and the remote child the critic blocks (a trouble
+  // hold). Rewritten by every remote-retire pass; in-memory: a restart re-derives them in one tick.
+  private remoteReviewPrs = new Map<string, ReadonlySet<number>>();
+  private remoteTrouble = new Map<string, HoldReason>();
+  // #3957: `${repoPath}#${child}` → last issue-reference read for a remote child whose PR the mirror
+  // does not name. Throttled like the reconcile sweep: a child still running there has no PR yet.
+  private remoteRefsAt = new Map<string, number>();
   /** #790: `${repoPath}#${issueNumber}` → last spawn failure; throttles re-spawn of an issue whose
    *  create() keeps throwing. Cleared on a successful spawn. In-memory.
    *
@@ -1569,6 +1604,7 @@ export class DrainService {
         epicBaseUnavailable: this.freshEpicBaseFailure(repoPath),
         epicUnreadable: stall.epicUnreadable,
         ...this.epicBaseHoldState(repoPath, builtEpic, epicIntegrationBranch),
+        remoteTrouble: this.remoteTrouble.get(repoPath),
         bootstrapMissing: this.bootstrapHoldFor(repoPath),
         ...spawnState,
         runSummary: buildRunSummary({
@@ -5493,6 +5529,17 @@ export class DrainService {
     }
   }
 
+  /** #3957: the issues whose newest drain spawn from `repoPath` started on another machine. */
+  private dispatchedElsewhere(repoPath: string): ReadonlyMap<number, SessionHost> {
+    try {
+      return this.deps.machines?.dispatchedElsewhere?.(repoPath) ?? NO_REMOTE_HOSTS;
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(`[drain] remote dispatches for ${repoPath} unreadable: ${reason}`);
+      return NO_REMOTE_HOSTS;
+    }
+  }
+
   /** {@link remoteWork} as the epic model shows it (EpicChild.elsewhere). */
   private elsewhereOf(repoPath: string): ReadonlyMap<number, EpicChildElsewhere> {
     return new Map(
@@ -5825,14 +5872,26 @@ export class DrainService {
       );
     for (const child of candidates) {
       const childRows = rows.filter((x) => x.issueNumber === child.number);
-      // A claimed child with no session here ran on another machine (sent there by this drain, or
-      // started there by hand): only the forge can tell that its PR merged into the epic branch.
-      if (childRows.length === 0 && (child.claimed || child.elsewhere)) {
-        await this.probeElsewhereIntegration(forge, repoPath, run.parentIssueNumber, child.number);
-        continue;
-      }
-      await this.probeChildIntegration(forge, repoPath, child.number, childRows);
+      await this.reconcileEpicChild(forge, repoPath, run.parentIssueNumber, child, childRows);
     }
+  }
+
+  /** {@link reconcileEpicIntegrations} for one child. A claimed child with no session here ran on
+   *  another machine (sent there by this drain, or started there by hand): only the forge can tell
+   *  that its PR merged into the epic branch. #3957: so did a child sent there after an earlier
+   *  attempt here — its archived local row must not hide the merge made there, so it gets both
+   *  probes. */
+  private async reconcileEpicChild(
+    forge: GitForge,
+    repoPath: string,
+    parent: number,
+    child: EpicChild,
+    childRows: Session[],
+  ): Promise<void> {
+    const here = childRows.length > 0;
+    if (child.elsewhere || (!here && child.claimed))
+      await this.probeElsewhereIntegration(forge, repoPath, parent, child.number);
+    if (here) await this.probeChildIntegration(forge, repoPath, child.number, childRows);
   }
 
   /** {@link reconcileEpicIntegrations} for a child without a session here: a merged PR linked to
@@ -5872,6 +5931,182 @@ export class DrainService {
       const reason = err instanceof Error ? err.message : String(err);
       console.warn(`[drain] epic reconcile of #${childNumber} (elsewhere) failed: ${reason}`);
     }
+  }
+
+  /**
+   * #3957: land the leading integration epic's children this drain sent to another machine. That
+   * machine never will — it keeps epic children off its merge train and does not lead the epic — so
+   * a green child PR would wait there forever, and the epic's base, unable to rebase under an open
+   * child PR, would go stale behind it (epic #3016). Same gate as a local child (`readyToRetire`):
+   * the PR's facts come from the forge (the open-PR snapshot, by number — never the mirror's copy),
+   * the verdict from this host's critic, asked for through {@link remoteChildReviewPrs}. Merged
+   * squash, bound to the head that passed, like `retireEpicChild`; the claim stays, the child issue
+   * stays open until the epic lands, and that machine settles its own session once its poller sees
+   * the merge. A child started there by hand is never merged here, as a manual session here is not.
+   * At most one merge per tick: the next child's mergeability is re-read against the moved branch.
+   * Never throws: tick() calls its passes unguarded.
+   */
+  private async retireRemoteEpicChildrenForRepo(repoPath: string): Promise<void> {
+    try {
+      const target = await this.remoteRetireTarget(repoPath);
+      if (target === "none") {
+        this.remoteReviewPrs.delete(repoPath);
+        this.remoteTrouble.delete(repoPath);
+        return;
+      }
+      if (!target) return;
+      this.landingInFlight.add(target.key);
+      try {
+        await this.retireRemoteEpicChildren(repoPath, target);
+      } finally {
+        this.landingInFlight.delete(target.key);
+      }
+    } catch (err) {
+      console.warn(`[drain] remote epic child retire failed for ${repoPath}:`, err);
+    }
+  }
+
+  /** The gates of {@link retireRemoteEpicChildrenForRepo}, cheapest first: `none` when there is
+   *  nothing to land here (no running integration epic, no child sent elsewhere — the pass's state
+   *  is dropped), null to skip this tick (another pass holds the branch, the epic is unreadable). */
+  private async remoteRetireTarget(repoPath: string): Promise<RemoteRetireTarget | "none" | null> {
+    const run = this.deps.store.getEpicRun(repoPath);
+    if (run?.status !== "running" || effectiveEpicLanding(run) === "incremental") return "none";
+    const parent = run.parentIssueNumber;
+    const pinned = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
+    const forge = this.deps.resolveForge(repoPath);
+    if (!pinned || forge?.kind !== "github") return "none";
+    const work = this.remoteWork(repoPath);
+    const sent = this.dispatchedElsewhere(repoPath);
+    if (work.size === 0 && sent.size === 0) return "none";
+    const key = `${repoPath}#${parent}`;
+    if (this.landingInFlight.has(key) || this.hasLiveRepairSession(repoPath, pinned)) return null;
+    const epic = await this.buildEpic(repoPath, run);
+    if (!epic) return null;
+    const liveHere = new Set(
+      this.deps.store
+        .list()
+        .filter((s) => s.repoPath === repoPath && s.status !== "archived" && s.issueNumber != null)
+        .map((s) => s.issueNumber!),
+    );
+    const children = epic.children.filter(
+      (c) =>
+        !c.integrationMerged &&
+        !c.issueClosed &&
+        !liveHere.has(c.number) &&
+        (c.elsewhere !== undefined || sent.has(c.number)),
+    );
+    if (children.length === 0) return "none";
+    return { key, parent, pinned, forge, children, work, sent };
+  }
+
+  /** One {@link retireRemoteEpicChildrenForRepo} pass over its candidates. An unreadable snapshot
+   *  keeps the last pass's state: nothing is known to have changed. */
+  private async retireRemoteEpicChildren(repoPath: string, t: RemoteRetireTarget): Promise<void> {
+    const open = await this.openPrsByNumber(t.forge);
+    if (!open) return;
+    const cfg = this.deps.store.getRepoConfig(repoPath);
+    const waiting = new Set<number>();
+    let trouble: HoldReason | null = null;
+    let merged = false;
+    for (const child of t.children) {
+      const number = await this.remoteChildPr(repoPath, t, child, open);
+      const pr = number == null ? undefined : open.get(number);
+      if (!landableRemotePr(pr, t.pinned)) continue;
+      const gate = remoteChildGate(pr, this.deps.store.getPrReview(repoPath, pr.number!), cfg);
+      if (gate.kind === "trouble")
+        trouble ??= { code: gate.code, detail: remoteChildLabel(child.number, pr.number!, t) };
+      else if (gate.kind === "verdict_pending") waiting.add(pr.number!);
+      else if (gate.kind === "ready" && !merged)
+        merged = await this.mergeRemoteChild(repoPath, t, child.number, pr);
+    }
+    this.remoteReviewPrs.set(repoPath, waiting);
+    if (trouble) this.remoteTrouble.set(repoPath, trouble);
+    else this.remoteTrouble.delete(repoPath);
+  }
+
+  /** The repo's open PRs by number, from the open-PR snapshot; null when it is unreadable or
+   *  truncated — then nothing is known about any of them. */
+  private async openPrsByNumber(forge: GitForge): Promise<Map<number, PrStatus> | null> {
+    const snap = await this.deps.openPrSnapshot?.get(forge, { background: true }).catch(() => null);
+    if (!snap || snap.capped) return null;
+    const open = new Map<number, PrStatus>();
+    for (const pr of snap.statuses.values()) if (pr.number != null) open.set(pr.number, pr);
+    return open;
+  }
+
+  /** The open PR of a remote child: the one the mirror names, else — the mirror lost it, or the
+   *  session — the single open PR linked to its issue that targets the epic branch, read at most
+   *  once per {@link EPIC_RECONCILE_TTL_MS}. An unknown read is never taken for "none". */
+  private async remoteChildPr(
+    repoPath: string,
+    t: RemoteRetireTarget,
+    child: EpicChild,
+    open: ReadonlyMap<number, PrStatus>,
+  ): Promise<number | null> {
+    const named = t.work.get(child.number)?.prNumber;
+    if (named != null) return named;
+    if (!t.forge.issuePullRequestReferences) return null;
+    const key = `${repoPath}#${child.number}`;
+    const last = this.remoteRefsAt.get(key);
+    if (last !== undefined && this.now() - last < EPIC_RECONCILE_TTL_MS) return null;
+    this.remoteRefsAt.set(key, this.now());
+    const refs = await t.forge.issuePullRequestReferences(child.number);
+    if (refs === null) {
+      console.warn(
+        `[drain] remote epic child #${child.number}: its PR references are unknown; retrying later`,
+      );
+      return null;
+    }
+    const linked = refs.filter(
+      (r) => r.state === "open" && open.get(r.number)?.baseRefName === t.pinned,
+    );
+    if (linked.length > 1)
+      console.warn(
+        `[drain] remote epic child #${child.number}: ${linked.length} open PRs into ${t.pinned}; not merging any`,
+      );
+    return linked.length === 1 ? linked[0]!.number : null;
+  }
+
+  /** Squash-merge one remote child's PR into the epic branch, bound to the head its gate passed,
+   *  and record it integrated. A failed merge records nothing; the next tick retries. */
+  private async mergeRemoteChild(
+    repoPath: string,
+    t: RemoteRetireTarget,
+    child: number,
+    pr: PrStatus,
+  ): Promise<boolean> {
+    const number = pr.number!;
+    try {
+      await t.forge.merge(number, {
+        method: "squash",
+        deleteBranch: true,
+        expectedHeadSha: pr.headSha!,
+      });
+    } catch (err) {
+      console.warn(
+        `[drain] remote epic child merge pr#${number} (issue #${child}) into ${t.pinned} failed:`,
+        err,
+      );
+      return false;
+    }
+    this.deps.store.recordEpicIntegrated(
+      repoPath,
+      t.parent,
+      child,
+      { number, url: pr.url ?? "" },
+      t.pinned,
+    );
+    // The epic may be quiescent now: let this tick's cadence pass refresh a stale base.
+    this.cadenceRebaseNextAt.set(t.key, 0);
+    console.warn(`[drain] merged remote epic child #${child} (pr#${number}) into ${t.pinned}`);
+    return true;
+  }
+
+  /** #3957: the remote-child PRs whose head waits for this host's critic verdict — the standalone
+   *  critic reviews them although the repo does not review every PR. */
+  remoteChildReviewPrs(repoPath: string): ReadonlySet<number> {
+    return this.remoteReviewPrs.get(repoPath) ?? NO_PRS;
   }
 
   /** One child's probe pass for {@link reconcileEpicIntegrations}: try each DISTINCT branch
@@ -6094,6 +6329,10 @@ export class DrainService {
       } catch (err) {
         console.warn(`[drain] epic reconcile failed for ${repoPath}:`, err);
       }
+      // #3957: land the epic's children that ran on another machine. After reconcile (a child
+      // merged there by hand is already recorded), before the cadence rebase, which then finds the
+      // epic quiescent and refreshes a stale base in this same tick. Self-guarding, never throws.
+      await this.retireRemoteEpicChildrenForRepo(repoPath);
       // #1664: pre-warm the epic landing PR as an early draft (opt-in). Placed AFTER reconcile so a
       // child integrated earlier this tick is already in listEpicIntegratedDetails. Flag-gated +
       // running-only + GitHub-only; its draft read is the landing passes' shared one (#2873), so a

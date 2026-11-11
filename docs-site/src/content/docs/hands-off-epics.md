@@ -103,8 +103,10 @@ in-flight work running and resumes on its own — and only a few are **terminal*
 - **Epic branch behind `main`.** Shepherd rebases the epic's integration branch onto `main` about
   once an hour, whenever no child is running or in review. If it has been behind for 4 hours
   without such a gap, the epic stops starting new children ("Basis veraltet"), lets the running
-  ones finish, rebases, and continues. **Continue anyway** in the run control lifts the pause until
-  `main` moves again.
+  ones finish, rebases, and continues. A child that runs on another machine counts as running until
+  its PR merges into the epic branch, which the drain does once it is green and reviewed (see
+  [Epic children on another machine](/machines/#epic-children-on-another-machine)). **Continue
+  anyway** in the run control lifts the pause until `main` moves again.
 - **Previous epic still landing.** An epic that hasn't started any child yet waits while another
   epic's landing PR in the same repo is open, so its branch is cut from a `main` that already has
   that work. **Continue anyway** starts it regardless.

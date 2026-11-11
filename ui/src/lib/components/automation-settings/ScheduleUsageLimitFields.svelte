@@ -1,7 +1,11 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
   import { getLocale } from "#lib/i18n.js";
-  import { usageLimitPreview, usageLimitVerdict } from "#lib/schedules.svelte.js";
+  import {
+    usageLimitPreview,
+    usageLimitVerdict,
+    usageLimitActionVerdict,
+  } from "#lib/schedules.svelte.js";
   import type { AgentProvider, ScheduleUsageLimit, UsageLimits } from "#lib/types.js";
 
   let {
@@ -10,13 +14,24 @@
     limits,
     holdPct,
     valid,
+    readyProviders,
+    interval,
   }: {
     value: ScheduleUsageLimit | null;
     provider: AgentProvider;
     limits: UsageLimits | null;
     holdPct: number;
     valid: boolean;
+    readyProviders: readonly AgentProvider[];
+    interval: boolean;
   } = $props();
+  const uid = $props.id();
+  const other = $derived(provider === "claude" ? "codex" : "claude");
+  const otherName = $derived(other === "claude" ? "Claude Code" : "Codex");
+  const otherReady = $derived(readyProviders.includes(other));
+  const actionVerdict = $derived(
+    value ? usageLimitActionVerdict(value, provider, limits, readyProviders) : null,
+  );
   const preview = $derived(value ? usageLimitPreview(value, provider, limits) : null);
   const providerName = $derived(provider === "claude" ? "Claude Code" : "Codex");
   const start = $derived(value?.kind === "from" ? value.startPct : 0);
@@ -43,7 +58,12 @@
     type="button"
     aria-pressed={value?.kind === "upTo"}
     onclick={() => {
-      if (value?.kind !== "upTo") value = { kind: "upTo", stopPct: 70 };
+      if (value?.kind !== "upTo")
+        value = {
+          kind: "upTo",
+          stopPct: 70,
+          ...(value?.onMismatch && { onMismatch: value.onMismatch }),
+        };
     }}>{m.schedules_limit_up()}</button
   >
   <button
@@ -51,7 +71,13 @@
     aria-pressed={value?.kind === "from"}
     onclick={() => {
       if (value?.kind !== "from")
-        value = { kind: "from", startPct: 80, startWindow: "week", stopPct: 95 };
+        value = {
+          kind: "from",
+          startPct: 80,
+          startWindow: "week",
+          stopPct: 95,
+          ...(value?.onMismatch && { onMismatch: value.onMismatch }),
+        };
     }}>{m.schedules_limit_from()}</button
   >
 </div>
@@ -125,8 +151,50 @@
           window: windowName(value.startWindow),
         })}
   </p>
+  <fieldset class="mismatch-actions">
+    <legend>{m.schedules_limit_action_heading()}</legend>
+    <label
+      ><input
+        type="radio"
+        name={`${uid}-action`}
+        value="skip"
+        checked={(value.onMismatch ?? "skip") === "skip"}
+        onchange={() => {
+          if (value) value.onMismatch = "skip";
+        }}
+      />{m.schedules_limit_action_skip()}</label
+    >
+    <label
+      ><input
+        type="radio"
+        name={`${uid}-action`}
+        value="wait"
+        checked={value.onMismatch === "wait"}
+        onchange={() => {
+          if (value) value.onMismatch = "wait";
+        }}
+      />{m.schedules_limit_action_wait()}</label
+    >
+    <label
+      ><input
+        type="radio"
+        name={`${uid}-action`}
+        value="otherProvider"
+        checked={value.onMismatch === "otherProvider"}
+        disabled={!otherReady}
+        aria-describedby={!otherReady ? `${uid}-unready` : undefined}
+        onchange={() => {
+          if (value) value.onMismatch = "otherProvider";
+        }}
+      />{m.schedules_limit_action_other({ other: otherName })}</label
+    >
+    {#if !otherReady}<p id={`${uid}-unready`}>
+        {m.schedules_limit_other_unready({ other: otherName })}
+      </p>{/if}
+  </fieldset>
+  {#if interval && value.onMismatch === "wait"}<p>{m.schedules_limit_interval_wait()}</p>{/if}
   {#if preview}
-    <p class="verdict">{usageLimitVerdict(preview)}</p>
+    <p class="verdict">{actionVerdict ?? usageLimitVerdict(preview)}</p>
     {#if preview.resetAt !== null}
       <p>
         {m.schedules_limit_reset({
@@ -148,6 +216,46 @@
 {#if !valid}<p class="error">{m.schedules_limit_invalid()}</p>{/if}
 
 <style>
+  .mismatch-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0;
+    margin: 0;
+    border: 0;
+    min-width: 0;
+    font-size: var(--fs-meta);
+  }
+  .mismatch-actions legend {
+    margin-bottom: 8px;
+    color: var(--color-ink-bright);
+  }
+  .mismatch-actions label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    line-height: 1.5;
+    min-height: 36px;
+  }
+  .mismatch-actions input {
+    width: 1em;
+    height: 1em;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    flex: none;
+    margin-top: 3px;
+    accent-color: var(--color-amber);
+  }
+  .mismatch-actions label:has(input:disabled) {
+    color: var(--color-muted);
+  }
+  @media (max-width: 768px) {
+    .mismatch-actions label {
+      min-height: 44px;
+    }
+  }
+
   h3 {
     margin: 0;
     font-size: var(--fs-base);

@@ -182,11 +182,11 @@ fn run_text(key: &str, run: &ScheduleRun) -> String {
     text
 }
 
-/// Launched or held is success; a skip is the server refusing; anything else failed.
+/// Launched, held or waiting is success; a skip is the server refusing; anything else failed.
 fn outcome_exit(key: &str, run: &ScheduleRun) -> Result<()> {
     let reason = run.reason.as_deref().unwrap_or("no reason given");
     match run.outcome.as_str() {
-        "spawned" | "held" => Ok(()),
+        "spawned" | "spawned:failover" | "held" | "waiting:limit" => Ok(()),
         o if o.starts_with("skipped") => Err(CliError::new(
             Exit::Refused,
             format!("schedule {key} did not run: {o} ({reason})"),
@@ -211,6 +211,29 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(outcome_exit("test", &run).unwrap_err().exit, Exit::Refused);
+    }
+
+    #[test]
+    fn schedule_outcome_exit_classes() {
+        for (outcome, expected) in [
+            ("spawned", None),
+            ("held", None),
+            ("spawned:failover", None),
+            ("waiting:limit", None),
+            ("skipped:limit", Some(Exit::Refused)),
+            ("skipped:limit-expired", Some(Exit::Refused)),
+            ("skipped:overlap", Some(Exit::Refused)),
+            ("skipped:stale", Some(Exit::Refused)),
+            ("error", Some(Exit::Failure)),
+            ("claimed", Some(Exit::Failure)),
+        ] {
+            let run: ScheduleRun = serde_json::from_value(serde_json::json!({
+                "id": 1, "scheduleId": "s", "slotKey": "slot", "outcome": outcome,
+                "sessionId": null, "reason": null, "at": 1, "usage": null
+            }))
+            .unwrap();
+            assert_eq!(outcome_exit("test", &run).err().map(|e| e.exit), expected);
+        }
     }
 
     #[test]

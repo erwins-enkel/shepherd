@@ -7,7 +7,7 @@ import { m } from "#lib/paraglide/messages.js";
 import { HerdStore } from "#lib/store.svelte.js";
 import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
 import ScheduleDialog from "./ScheduleDialog.svelte";
-import { SCHEDULE_USAGE } from "#lib/schedules.svelte.js";
+import { SCHEDULE_USAGE, SCHEDULE_DIAGNOSTICS } from "#lib/schedules.svelte.js";
 import { repoConfig } from "#lib/reviews.svelte.js";
 import type { UsageLimits, Settings, RepoConfig } from "#lib/types.js";
 import type { ScheduleRun, Schedule } from "#lib/types.js";
@@ -106,6 +106,7 @@ beforeEach(async () => {
 afterEach(() => {
   vi.restoreAllMocks();
   store.usageLimits = null;
+  store.diagnostics = null;
   repoConfig.agentProvider = {};
   repoSettingsWindow.provide({ globals: () => null, drain: () => null });
 });
@@ -232,7 +233,10 @@ async function edit(schedule: Schedule = TRIAGE) {
   const calls = mockApi([schedule]);
   await render(ScheduleDialog, {
     props: { repoPath: schedule.repoPath, schedule, onclose: vi.fn() },
-    context: new Map([[SCHEDULE_USAGE, () => store.usageLimits]]),
+    context: new Map<symbol, () => unknown>([
+      [SCHEDULE_USAGE, () => store.usageLimits],
+      [SCHEDULE_DIAGNOSTICS, () => store.diagnostics],
+    ]),
   });
   return calls;
 }
@@ -321,6 +325,7 @@ describe("schedule capacity preview", () => {
       .poll(() => footer().textContent)
       .toContain(m.schedules_would_hold({ pct: 84, hold: 80 }));
     store.usageLimits = null;
+    store.diagnostics = null;
     await expect
       .element(page.getByRole("button", { name: /Claude Code/ }))
       .toMatchTextContent(/Usage unknown/);
@@ -1012,5 +1017,148 @@ describe("schedule usage limit editor", () => {
       .element(page.getByText(m.schedules_limit_chip_up({ stop: 50 }), { exact: true }))
       .toBeVisible();
     await expect.element(page.getByRole("button", { name: /still below 80 %/ })).toBeVisible();
+  });
+});
+
+describe("schedule mismatch actions", () => {
+  it.each([
+    ["waiting:limit", "held – waiting for the usage limit"],
+    ["skipped:limit-expired", "expired – limit not met in time"],
+    ["spawned:failover", "started with Codex"],
+  ] as const)("shows %s in last run and history", async (outcome, label) => {
+    const run: ScheduleRun = {
+      ...RUN,
+      outcome,
+      usage: { provider: "codex", window: "max", usedPct: 40, thresholdPct: 70 },
+    };
+    mockApi([{ ...TRIAGE, lastRun: run }], async () => response([run]));
+    render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+    const last = page.getByRole("button", { name: new RegExp(`Last: ${label}`) });
+    await expect.element(last).toBeVisible();
+    await last.click();
+    await vi.waitFor(() => expect(historyList()?.textContent).toContain(label));
+  });
+
+  it("keeps the action group keyboard-accessible and within the mobile panel", async () => {
+    await page.viewport(390, 700);
+    await edit({ ...TRIAGE, usageLimit: { kind: "upTo", stopPct: 70 } });
+    await page.getByRole("tab", { name: m.schedules_limit_tab(), exact: true }).click();
+    const skip = page.getByRole("radio", { name: m.schedules_limit_action_skip(), exact: true });
+    await skip.click();
+    await userEvent.keyboard("{ArrowDown}");
+    await expect
+      .element(page.getByRole("radio", { name: m.schedules_limit_action_wait(), exact: true }))
+      .toBeChecked();
+    const group = document.querySelector(".mismatch-actions")!;
+    expect(group.scrollWidth).toBeLessThanOrEqual(group.clientWidth);
+  });
+
+  it("names the opposite provider after an engine change", async () => {
+    store.diagnostics = {
+      checks: [
+        { id: "claude", state: "ok" },
+        { id: "codex", state: "ok" },
+      ],
+    } as any;
+    await edit({
+      ...TRIAGE,
+      usageLimit: { kind: "upTo", stopPct: 70, onMismatch: "otherProvider" },
+    });
+    await page.getByRole("button", { name: /Codex/ }).click();
+    await expect
+      .element(
+        page.getByRole("radio", {
+          name: m.schedules_limit_action_other({ other: "Claude Code" }),
+          exact: true,
+        }),
+      )
+      .toBeChecked();
+  });
+  it("shows no actions without a limit and preserves wait through limit-kind changes", async () => {
+    store.usageLimits = usage(95, 40);
+    const calls = await edit({
+      ...TRIAGE,
+      times: [],
+      interval: { everyMinutes: 15, from: null, until: null },
+    });
+    expect(document.querySelector('input[value="wait"]')).toBeNull();
+    await page.getByRole("button", { name: m.schedules_limit_up(), exact: true }).click();
+    await page.getByRole("radio", { name: m.schedules_limit_action_wait(), exact: true }).click();
+    await expect
+      .element(page.getByText(m.schedules_limit_interval_wait(), { exact: true }))
+      .toBeVisible();
+    expect(footer().textContent).toContain(m.schedules_limit_would_wait());
+    await page.getByRole("button", { name: m.schedules_limit_from(), exact: true }).click();
+    await expect
+      .element(page.getByRole("radio", { name: m.schedules_limit_action_wait(), exact: true }))
+      .toBeChecked();
+    await page.getByRole("button", { name: m.schedules_save(), exact: true }).click();
+    await vi.waitFor(() =>
+      expect(calls.find((c) => c.method === "PATCH")?.body).toMatchObject({
+        usageLimit: { onMismatch: "wait" },
+      }),
+    );
+  });
+
+  it("disables an unready counterpart without silently changing an existing selection", async () => {
+    store.diagnostics = null;
+    const calls = await edit({
+      ...TRIAGE,
+      usageLimit: { kind: "upTo", stopPct: 70, onMismatch: "otherProvider" },
+    });
+    const radio = page.getByRole("radio", {
+      name: m.schedules_limit_action_other({ other: "Codex" }),
+      exact: true,
+    });
+    await expect.element(radio).toBeDisabled();
+    await expect.element(radio).toBeChecked();
+    await expect
+      .element(page.getByText(m.schedules_limit_other_unready({ other: "Codex" }), { exact: true }))
+      .toBeVisible();
+    await page.getByRole("button", { name: m.schedules_save(), exact: true }).click();
+    await vi.waitFor(() =>
+      expect(calls.find((c) => c.method === "PATCH")?.body).toMatchObject({
+        usageLimit: { onMismatch: "otherProvider" },
+      }),
+    );
+  });
+
+  it("predicts and persists a ready counterpart and reacts to readiness changes", async () => {
+    store.usageLimits = usage(95, 40);
+    store.diagnostics = {
+      checks: [
+        { id: "claude", state: "ok" },
+        { id: "codex", state: "ok" },
+      ],
+    } as any;
+    const calls = await edit({ ...TRIAGE, usageLimit: { kind: "upTo", stopPct: 70 } });
+    await expect
+      .element(page.getByRole("radio", { name: m.schedules_limit_action_skip(), exact: true }))
+      .toBeChecked();
+    await page
+      .getByRole("radio", { name: m.schedules_limit_action_other({ other: "Codex" }), exact: true })
+      .click();
+    expect(footer().textContent).toContain(m.schedules_limit_would_other({ other: "Codex" }));
+    await expect
+      .element(page.getByText(m.schedules_limit_would_other({ other: "Codex" }), { exact: true }))
+      .toBeVisible();
+    store.diagnostics = null;
+    await expect
+      .element(
+        page.getByRole("radio", {
+          name: m.schedules_limit_action_other({ other: "Codex" }),
+          exact: true,
+        }),
+      )
+      .toBeDisabled();
+    await vi.waitFor(() =>
+      expect(footer().textContent).toContain(m.schedules_limit_footer_stop({ stop: 70 })),
+    );
+    await page.getByRole("button", { name: m.schedules_save(), exact: true }).click();
+    await vi.waitFor(() =>
+      expect(calls.find((c) => c.method === "PATCH")?.body).toMatchObject({
+        usageLimit: { onMismatch: "otherProvider" },
+      }),
+    );
   });
 });

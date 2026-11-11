@@ -182,3 +182,29 @@ test("usage limits roundtrip, preserve on PATCH, reject invalid, and do not reba
   ).toBe(400);
   expect((await (await call("PATCH", path, { usageLimit: null })).json()).usageLimit).toBeNull();
 });
+
+test("mismatch actions roundtrip and disabling expires waiting rows immediately", async () => {
+  for (const onMismatch of ["skip", "wait", "otherProvider"]) {
+    const usageLimit = { kind: "upTo", stopPct: 70, onMismatch };
+    const created = await call("POST", "/api/schedules", { ...valid(), usageLimit });
+    expect(created.status).toBe(201);
+    const s = await created.json();
+    expect(s.usageLimit).toEqual(usageLimit);
+    const path = `/api/schedules/${s.id}`;
+    const patched = await (
+      await call("PATCH", path, { usageLimit: { ...usageLimit, stopPct: 80 } })
+    ).json();
+    expect(patched.baselineAt).toBe(s.baselineAt);
+    expect(patched.usageLimit.onMismatch).toBe(onMismatch);
+    expect(
+      (await call("PATCH", path, { usageLimit: { ...usageLimit, onMismatch: "bad" } })).status,
+    ).toBe(400);
+    store.claimScheduleRun(s.id, "2026-10-26T09:00", Date.now());
+    store.settleScheduleRun(s.id, "2026-10-26T09:00", "waiting:limit");
+    expect((await call("PATCH", path, { enabled: false })).status).toBe(200);
+    expect(store.getScheduleRun(s.id, "2026-10-26T09:00")).toMatchObject({
+      outcome: "skipped:limit-expired",
+      reason: "disabled",
+    });
+  }
+});

@@ -131,6 +131,7 @@ export const schedules = new SchedulesStore();
 
 /** Read-only live usage supplied by AppOverlays to both schedule-dialog entry points. */
 export const SCHEDULE_USAGE = Symbol("schedule-usage");
+export const SCHEDULE_DIAGNOSTICS = Symbol("schedule-diagnostics");
 
 /** Soonest next run first; disabled schedules (no next run) last, by repo then name. */
 export function upcomingOrder(list: readonly Schedule[]): Schedule[] {
@@ -158,6 +159,16 @@ export function outcomeLabel(
       return m.schedules_outcome_spawned();
     case "held":
       return m.schedules_outcome_held();
+    case "waiting:limit":
+      return m.schedules_outcome_waiting_limit();
+    case "skipped:limit-expired":
+      return m.schedules_outcome_limit_expired();
+    case "spawned:failover":
+      return usage
+        ? m.schedules_outcome_failover({
+            provider: usage.provider === "claude" ? "Claude Code" : "Codex",
+          })
+        : m.schedules_outcome_spawned();
     case "skipped:overlap":
       return m.schedules_outcome_overlap();
     case "skipped:stale":
@@ -189,6 +200,8 @@ export function outcomeTone(outcome: string): "red" | "amber" | "neutral" {
     case "skipped:overlap":
     case "skipped:stale":
     case "skipped:limit":
+    case "waiting:limit":
+    case "skipped:limit-expired":
       return "amber";
     default:
       return "neutral";
@@ -380,4 +393,23 @@ export function usageLimitVerdict(preview: ReturnType<typeof usageLimitPreview>)
   if (reason === "below-start")
     return m.schedules_limit_verdict_below({ pct: usage.usedPct, start: usage.thresholdPct });
   return m.schedules_limit_verdict_ok({ pct: usage.usedPct });
+}
+
+/** Shared action prediction for the limit explanation and dialog footer. */
+export function usageLimitActionVerdict(
+  limit: ScheduleUsageLimit,
+  provider: AgentProvider,
+  limits: UsageLimits | null,
+  readyProviders: readonly AgentProvider[],
+): string | null {
+  if (usageLimitPreview(limit, provider, limits).allowed) return null;
+  if (limit.onMismatch === "wait") return m.schedules_limit_would_wait();
+  const other = provider === "claude" ? "codex" : "claude";
+  if (
+    limit.onMismatch === "otherProvider" &&
+    readyProviders.includes(other) &&
+    usageLimitPreview(limit, other, limits).allowed
+  )
+    return m.schedules_limit_would_other({ other: other === "claude" ? "Claude Code" : "Codex" });
+  return null;
 }

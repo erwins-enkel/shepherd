@@ -3,7 +3,11 @@ import {
   assistantRuntimeBlocks,
   normalizeStoredAssistantRuntime,
 } from "./operator-assistant-settings";
-import { drainSpawnEffort, engineDefaultEffortSetting } from "./default-effort";
+import {
+  drainSpawnEffort,
+  engineDefaultEffortSetting,
+  resolveProviderDefaultEffortSetting,
+} from "./default-effort";
 import { recapSummary } from "./recap-core";
 import { SessionActivityPublisher } from "./activity-publisher";
 import { enablePowerPaneJournal } from "./power-panes";
@@ -250,6 +254,7 @@ import {
 import { resolveNodeHost, TailscaleServeService } from "./tailscale";
 import {
   drainSpawnModel,
+  resolveProviderDefaultModelSetting,
   modelForProviderOrDefault,
   resolvePersistedDefaultCodexModel,
   normalizeDefaultModelSetting,
@@ -293,7 +298,11 @@ import { ApiErrorRetry } from "./api-error-retry";
 import { verifyApiKey, VERIFY_KEY_LABEL } from "./verify-key";
 import { releaseHeldTasks } from "./held-release";
 import { BASE_DRIFT_INTERVAL_MS, BaseDriftService } from "./base-drift";
-import { PROVIDER_FAILOVER_FROM_KEY, releaseProviderFailover } from "./provider-failover";
+import {
+  PROVIDER_FAILOVER_FROM_KEY,
+  releaseProviderFailover,
+  readyAgentProviders,
+} from "./provider-failover";
 import { snapshotSessionUsage } from "./usage-snapshot";
 import { hasCommittedChanges } from "./diff";
 import { HoldReasonService } from "./hold-service";
@@ -4416,6 +4425,18 @@ deferredStarts.push(() => {
 // is read lazily — the launch closure only runs from the tick, after it is defined.
 const scheduleService = new ScheduleService({
   store,
+  readyProviders: async () => readyAgentProviders(await diagnostics.current(Date.now())),
+  providerDefaults: (provider) => ({
+    model: drainSpawnModel(
+      resolveProviderDefaultModelSetting(
+        "inherit",
+        provider,
+        config.defaultModel,
+        config.defaultCodexModel,
+      ),
+    ),
+    effort: drainSpawnEffort(resolveProviderDefaultEffortSetting("inherit", provider, config)),
+  }),
   launch: (input, opts) => launchTask(input, appDeps, opts),
   usageLimits,
   resolveProvider: (s) =>

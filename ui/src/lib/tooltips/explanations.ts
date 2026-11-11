@@ -1078,7 +1078,7 @@ export function schedulesExplanation(): TooltipExplanation {
       { label: m.tooltip_schedules_catchup(), text: m.tooltip_schedules_catchup_body() },
       { label: m.tooltip_schedules_overlap(), text: m.tooltip_schedules_overlap_body() },
       { label: m.tooltip_schedules_attended(), text: m.tooltip_schedules_attended_body() },
-      { label: m.schedules_limit_section(), text: m.schedules_limit_policy_body() },
+      { label: m.schedules_limit_section(), text: m.schedules_limit_policy_overview() },
     ],
   };
 }
@@ -1106,6 +1106,25 @@ export function scheduleUsageLimitExplanation(limit: ScheduleUsageLimit): Toolti
   return {
     title: m.schedules_limit_section(),
     summary: usageLimitChip(limit),
-    sections: [{ label: m.schedules_limit_policy(), text: m.schedules_limit_policy_body() }],
+    sections: [
+      {
+        label: m.schedules_limit_policy(),
+        text:
+          limit.onMismatch === "wait"
+            ? m.schedules_limit_policy_wait()
+            : limit.onMismatch === "otherProvider"
+              ? m.schedules_limit_policy_other()
+              : m.schedules_limit_policy_body(),
+      },
+      ...(limit.onMismatch === "wait" || limit.onMismatch === "otherProvider"
+        ? [
+            { label: m.schedules_run_now(), text: m.schedules_limit_manual_policy() },
+            {
+              label: m.schedules_limit_capacity_title(),
+              text: m.schedules_limit_capacity_policy(),
+            },
+          ]
+        : []),
+    ],
   };
 }

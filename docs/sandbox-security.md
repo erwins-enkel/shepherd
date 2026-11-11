@@ -31,6 +31,16 @@ The operator reviews them under Repo settings › Agent › **Blocked hosts** (#
 hosts already on the effective allowlist). The block toast's **Review** action
 opens that list. Allowing a host takes one click if it is trusted, a confirm if
 it is normal, and a confirm plus a reason if it is risky.
+Any change to a repo's Extra allowed hosts (`egressExtraHosts`) reaches its
+running autonomous sessions live, no restart (#3958, `src/egress.ts`
+`requestEgressReload`): `scripts/egress-runner.sh` listens on a
+`reload.fifo` in the spawn's tmp dir and re-applies the nft script atomically
+(on failure the old rules stand) plus dnsmasq's allowlist. When the new list
+drops entries, previously pinned addresses are flushed. A session that had hit
+a host the new list now covers is steered to retry. A timed-out, failed or
+unanswered reload marks the session's config uncertain and is retried on the
+next reload with a full flush; a reapply never overwrites the config of a
+session that respawned meanwhile.
 Without the backend every unattended autonomous spawn is refused. The DIAGNOSE
 row `sandbox_egress` (#3459) reports it, naming the missing tools and the
 affected autonomous repos. Each DIAGNOSE check re-runs the self-test async

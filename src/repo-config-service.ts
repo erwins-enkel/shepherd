@@ -1,4 +1,13 @@
-import type { SessionStore, RepoConfig } from "./store";
+import { repoConfigDefaults, type SessionStore, type RepoConfig } from "./store";
+import {
+  effectiveRepoConfig,
+  isRepoRuleKey,
+  repoConfigGitContext,
+  repoRulesFromConfig,
+  withRepoConfigLock,
+  writeRepoConfigFile,
+  readRepoConfigFile,
+} from "./repo-config-file";
 import type { SandboxProfile } from "./sandbox";
 import { defaultSandboxProfile } from "./sandbox-default";
 
@@ -10,6 +19,8 @@ export type RepoConfigView = RepoConfig & {
   automationConfirmed: boolean;
   automationRowExists: boolean;
   sandboxDefaultProfile: SandboxProfile;
+  fieldSources: Record<keyof RepoConfig, "repo" | "rechner">;
+  repoConfigCommit: string | null;
 };
 
 /** A partial repo-config edit. Every field is a RepoConfig field (the route's
@@ -17,12 +28,14 @@ export type RepoConfigView = RepoConfig & {
 export type RepoConfigPatch = Partial<RepoConfig>;
 
 export type RepoConfigPatchResult =
-  { ok: true; config: RepoConfigView } | { ok: false; error: string };
+  | { ok: true; config: RepoConfigView }
+  | { ok: false; error: string; code?: "repo_config_write_failed" };
 
 /** Narrow store interface this service needs — the seam, kept small. */
 type RepoConfigStore = Pick<
   SessionStore,
   | "getRepoConfig"
+  | "getLocalRepoConfig"
   | "setRepoConfig"
   | "markAutomationConfirmed"
   | "isAutomationConfirmed"
@@ -46,8 +59,16 @@ export class RepoConfigService {
 
   /** The stored config plus its automation-metadata flags (the route response shape). */
   read(dir: string): RepoConfigView {
+    const local = this.store.getLocalRepoConfig(dir);
+    const file = local.repoMode === "lightweight" ? null : readRepoConfigFile(dir);
+    const config = effectiveRepoConfig(local, repoConfigDefaults(), file);
+    const fieldSources = Object.fromEntries(
+      Object.keys(config).map((key) => [key, file && isRepoRuleKey(key) ? "repo" : "rechner"]),
+    ) as RepoConfigView["fieldSources"];
     return {
-      ...this.store.getRepoConfig(dir),
+      ...config,
+      fieldSources,
+      repoConfigCommit: file?.commit ?? null,
       automationConfirmed: this.store.isAutomationConfirmed(dir),
       automationRowExists: this.store.automationRowExists(dir),
       sandboxDefaultProfile: this.defaultProfile(),
@@ -61,27 +82,71 @@ export class RepoConfigService {
    * success or a validation error message on rejection — the route maps the error
    * to a 400.
    */
-  patch(
+  async patch(
     dir: string,
     patch: RepoConfigPatch,
-    opts: { automationConfirmed?: boolean } = {},
-  ): RepoConfigPatchResult {
-    const merged = this.merge(this.store.getRepoConfig(dir), patch);
-    if (merged.draftMode && merged.autoMergeEnabled) {
-      return { ok: false, error: "draftMode and autoMergeEnabled are mutually exclusive" };
-    }
-    // A critic-reliant sign-off authority with the critic OFF can never promote a draft → it
-    // would deadlock as a permanent draft. (With the critic off, "either" also reduces to the
-    // human check, so it's equivalent to "human" anyway.) Force an explicit "human" authority.
-    if (merged.draftMode && !merged.criticEnabled && merged.signoffAuthority !== "human") {
-      return {
-        ok: false,
-        error: `signoffAuthority "${merged.signoffAuthority}" requires criticEnabled — it would never sign off (use "human")`,
-      };
-    }
-    this.store.setRepoConfig(dir, merged);
-    if (opts.automationConfirmed === true) this.store.markAutomationConfirmed(dir);
-    return { ok: true, config: this.read(dir) };
+    opts: {
+      automationConfirmed?: boolean;
+      localRunDefaults?: Partial<Pick<RepoConfig, "defaultModel" | "defaultEffort">>;
+    } = {},
+  ): Promise<RepoConfigPatchResult> {
+    return withRepoConfigLock(dir, async () => {
+      const local = this.store.getLocalRepoConfig(dir);
+      // A mode switch to lightweight must be local even if this repo has an origin/file.
+      const fileEnabled =
+        (patch.repoMode ?? local.repoMode) !== "lightweight" && !!repoConfigGitContext(dir);
+      const hasRulePatch = Object.entries(patch).some(
+        ([key, value]) => value !== undefined && isRepoRuleKey(key),
+      );
+      if (fileEnabled && hasRulePatch) {
+        try {
+          await writeRepoConfigFile(dir, (file) => {
+            const currentLocal = this.store.getLocalRepoConfig(dir);
+            const current = effectiveRepoConfig(currentLocal, repoConfigDefaults(), file);
+            const merged = this.merge(current, {
+              ...patch,
+              ...(!file ? opts.localRunDefaults : {}),
+            });
+            validate(merged);
+            return repoRulesFromConfig(merged);
+          });
+        } catch (err) {
+          if (err instanceof ConfigValidationError) return { ok: false, error: err.message };
+          return {
+            ok: false,
+            code: "repo_config_write_failed",
+            error:
+              "Could not save repository rules to the default branch. Check origin access and branch protection, then retry.",
+          };
+        }
+      } else {
+        const file = fileEnabled ? readRepoConfigFile(dir) : null;
+        const current = effectiveRepoConfig(local, repoConfigDefaults(), file);
+        try {
+          validate(this.merge(current, { ...patch, ...(!file ? opts.localRunDefaults : {}) }));
+        } catch (err) {
+          if (err instanceof ConfigValidationError) return { ok: false, error: err.message };
+          throw err;
+        }
+      }
+      // Re-read after network awaits. Never copy effective repo rules into their DB fallback.
+      const localPatch = Object.fromEntries(
+        Object.entries(patch).filter(
+          ([key, value]) => value !== undefined && (!fileEnabled || !isRepoRuleKey(key)),
+        ),
+      );
+      this.store.setRepoConfig(
+        dir,
+        this.merge(this.store.getLocalRepoConfig(dir), {
+          ...localPatch,
+          ...(!(fileEnabled && (hasRulePatch || readRepoConfigFile(dir)))
+            ? opts.localRunDefaults
+            : {}),
+        }),
+      );
+      if (opts.automationConfirmed === true) this.store.markAutomationConfirmed(dir);
+      return { ok: true, config: this.read(dir) };
+    });
   }
 
   /** Overlay the defined patch fields onto the current config (undefined = leave as-is). */
@@ -93,4 +158,16 @@ export class RepoConfigService {
     }
     return out;
   }
+}
+
+class ConfigValidationError extends Error {}
+
+function validate(merged: RepoConfig): void {
+  if (merged.draftMode && merged.autoMergeEnabled)
+    throw new ConfigValidationError("draftMode and autoMergeEnabled are mutually exclusive");
+  // A critic-reliant signoff with critic disabled would leave drafts stuck forever.
+  if (merged.draftMode && !merged.criticEnabled && merged.signoffAuthority !== "human")
+    throw new ConfigValidationError(
+      `signoffAuthority "${merged.signoffAuthority}" requires criticEnabled — it would never sign off (use "human")`,
+    );
 }

@@ -35,6 +35,14 @@ struct ShepherdClientSettingsTests {
         let other = try client(server)
         await #expect(throws: ShepherdError.unauthenticated) { _ = try await other.listAccessTokens() }
     }
+    @Test func repoConfigPushFailurePreservesTheServerError() async throws {
+        let server = FakeShepherdServer(); defer { server.tearDown() }
+        server.on("PUT", "/api/repo-config") { _ in FakeResponse(statusCode: 502,
+            body: Data(#"{"error":"Could not save repository rules","code":"repo_config_write_failed"}"#.utf8)) }
+        await #expect(throws: ShepherdError.upstreamFailure(code: "repo_config_write_failed", message: "Could not save repository rules")) {
+            _ = try await client(server).putRepoConfig(repo: "/fixture", body: .init(maxAuto: 4))
+        }
+    }
     @Test func roles502IsNotDecodedAsGenericError() async throws {
         let server = FakeShepherdServer(); defer { server.tearDown() }
         server.on("PUT", "/api/repo-roles") { _ in FakeResponse(statusCode:502,

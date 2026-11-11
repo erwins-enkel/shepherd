@@ -67,6 +67,7 @@ import {
   runDispatch,
 } from "./dispatch";
 import { RepoConfigService } from "./repo-config-service";
+import { readRepoConfigFile } from "./repo-config-file";
 import {
   BOOTSTRAP_LAST_PHASE,
   bootstrapExitReached,
@@ -3724,12 +3725,16 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   }
   const before = deps.store.getRepoConfig(dir);
   // #3441: a CLI change drops a repo model/effort the new effective CLI cannot run to "inherit".
-  const clamped = {
-    ...cfgPatch,
-    ...clampRunDefaultsToCli(before, cfgPatch, config.defaultAgentProvider),
-  };
-  const r = repoConfigSvc(deps).patch(dir, clamped, { automationConfirmed });
-  if (!r.ok) return json({ error: r.error }, 400);
+  const localRunDefaults =
+    before.repoMode !== "lightweight" && readRepoConfigFile(dir)
+      ? undefined
+      : clampRunDefaultsToCli(before, cfgPatch, config.defaultAgentProvider);
+  const r = await repoConfigSvc(deps).patch(dir, cfgPatch, {
+    automationConfirmed,
+    localRunDefaults,
+  });
+  if (!r.ok)
+    return json({ error: r.error, ...(r.code ? { code: r.code } : {}) }, r.code ? 502 : 400);
   // Turning the Shared Browser off revokes it now: stop the repo's Chromium, which closes every
   // attached agent socket. Later attaches are refused by the broker's opt-in check.
   if (before.sharedBrowserEnabled && !r.config.sharedBrowserEnabled) deps.sharedBrowser?.stop(dir);
@@ -3793,7 +3798,7 @@ async function handleRepoRunDefaults({ req, parts, deps }: Ctx): Promise<Respons
   // repo_config keys are realpath-resolved; rows for a repo no longer under the root drop out.
   const names = new Map(listRepos(config.repoRoot).map((r) => [r.realPath, r.name]));
   const repos = deps.store
-    .reposWithOwnRunDefaults()
+    .reposWithOwnRunDefaults(names.keys())
     .flatMap((d) => {
       const name = names.get(d.repoPath);
       return name === undefined ? [] : [{ ...d, name }];
@@ -6786,7 +6791,7 @@ async function sendPreviewSetupSteer(
     cfg.previewStartScript === canonicalScript ? cfg.previewStartScript : canonicalScript;
   if (setupScriptPath === null) return null;
   deps.store.setRepoConfig(s.repoPath, {
-    ...cfg,
+    ...deps.store.getLocalRepoConfig(s.repoPath),
     previewStartScript: setupScriptPath,
     previewStartCommand: command,
   });
@@ -14154,7 +14159,7 @@ async function applyEpicAutoFixState(
   if (merged instanceof Response) return merged;
   const previous = currentAutoFixState(deps.store, base, state);
   if (state.sandboxProfile !== undefined) {
-    const r = repoConfigSvc(deps).patch(dir, { sandboxProfile: state.sandboxProfile });
+    const r = await repoConfigSvc(deps).patch(dir, { sandboxProfile: state.sandboxProfile });
     if (!r.ok) return json({ error: r.error }, 400);
   }
   if (merged) {

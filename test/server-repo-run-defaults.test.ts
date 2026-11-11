@@ -5,6 +5,7 @@ import { makeApp, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
+import { configRepo, git } from "./helpers/repo-config-git";
 
 // #3447: GET /api/repo-run-defaults lists the repos whose coding CLI, model, effort or execution
 // effort is their own; a repo set back to inherit drops out.
@@ -88,4 +89,33 @@ test("a stored row for a repo no longer under the repo root is omitted", async (
   store.setRepoConfig("/gone/repo", { ...cfg, agentProvider: "claude" });
   expect(store.reposWithOwnRunDefaults().map((d) => d.repoPath)).toEqual(["/gone/repo"]);
   expect(await list()).toEqual([]);
+});
+
+test("file-only run overrides are listed and a local CLI change does not rewrite shared model defaults", async () => {
+  const r = configRepo(config.repoRoot);
+  try {
+    r.commit('{"defaultModel":"opus","defaultEffort":"high"}');
+    rmSync(repoA, { recursive: true, force: true });
+    git(config.repoRoot, "clone", r.origin, repoA);
+    expect(store.automationRowExists(repoA)).toBe(false);
+    expect(await list()).toContainEqual(
+      expect.objectContaining({ repoPath: repoA, defaultModel: "opus" }),
+    );
+    const before = git(r.origin, "rev-parse", "main");
+    await put(repoA, { agentProvider: "codex" });
+    expect(git(r.origin, "rev-parse", "main")).toBe(before);
+    expect(store.getRepoConfig(repoA)).toMatchObject({
+      agentProvider: "codex",
+      defaultModel: "opus",
+      defaultEffort: "high",
+    });
+    expect(store.getLocalRepoConfig(repoA).defaultModel).toBe("inherit");
+  } finally {
+    r.close();
+  }
+});
+
+test("without a file, a CLI edit still clamps explicitly incompatible model defaults locally", async () => {
+  await put(repoA, { agentProvider: "codex", defaultModel: "opus" });
+  expect(store.getRepoConfig(repoA).defaultModel).toBe("inherit");
 });

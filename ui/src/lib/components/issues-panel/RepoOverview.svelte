@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { DrainStatus, Epic, EpicAutoFixOptionId, EpicSummary } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { automationFocus } from "#lib/automation-focus.js";
   import { labelChipStyle } from "#lib/label-color.js";
   import { basename } from "#lib/basename.js";
   import { repoOverviewRunExplanation } from "#lib/tooltips/explanations.js";
@@ -217,8 +218,13 @@
         <span class="slots-value" data-slots-value>{m.repooverview_slots_value(slots)}</span>
       {/if}
       {#if onopenautomation}
-        <button class="gbtn" type="button" onclick={onopenautomation}
-          >{m.repooverview_change()}</button
+        <button
+          class="gbtn"
+          type="button"
+          onclick={() => {
+            automationFocus.request("max-auto");
+            onopenautomation?.();
+          }}>{m.repooverview_change()}</button
         >
       {/if}
       <InfoTip text={repoOverviewRunExplanation()} label={m.tooltip_repo_run_title()} />

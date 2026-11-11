@@ -1874,7 +1874,7 @@
   "diagnostics_hint_gitcap_old": "git ≥ 2.38 nicht verfügbar — der Lightweight-Repo-Modus benötigt git merge-tree --write-tree (git ≥ 2.38) für lokale Merges. git fehlt möglicherweise (siehe git-Prüfung) oder ist zu alt; installiere oder aktualisiere es, um Lightweight-Repos zu nutzen.",
   "diagnostics_hint_gh_not_required": "GitHub CLI ist nicht installiert oder nicht authentifiziert, es sind jedoch keine Forge-basierten Repos konfiguriert — gh ist optional, wenn ausschließlich Lightweight-Repos verwendet werden.",
   "diagnostics_label_git_mergetree": "git merge-tree",
-  "backlog_tab_automation": "Automatisierung",
+  "backlog_tab_automation": "Einstellungen",
   "backlog_overview_button": "Überblick",
   "feat_repo_settings_backlog_title": "Repo-Einstellungen ohne Task",
   "feat_repo_settings_backlog_body": "Die Repo-Automatisierungseinstellungen — Kritiker, Plan-Gate, Autopilot, Backlog-Abarbeitung/Voll-Auto-Merge, Sandbox-Profil, Standardmodell, Abarbeitungs-Regler sowie Reviewer-/Merger-Rollen — sind jetzt als Automatisierungs-Tab in der Repos-Detailansicht verfügbar. Stelle die Vorgaben jedes Repos ein, ohne einen Task zu starten; Änderungen teilen sich eine einzige Quelle der Wahrheit mit dem Task-Panel.",
@@ -7586,7 +7586,7 @@
   "mergemethod_note": "Gilt nur für diesen Merge.",
   "feat_merge_method_menu_title": "Als Nächstes: wählen, wie ein Pull Request gemergt wird",
   "feat_merge_method_menu_body": "Neben „Merge“ in „Als Nächstes“ steht jetzt ein ▾, sobald das Repository mehr als eine Merge-Methode erlaubt. Wähle squash, rebase oder einen Merge-Commit für genau diesen Pull Request — die Bestätigung nennt die Methode, und der nächste Merge beginnt wieder beim Standard des Repositorys. Die Readiness verlangt nicht mehr, die anderen Methoden abzuschalten.",
-  "backlog_tab_automation_no_pr_ci": "Automatisierung · keine PR-CI",
+  "backlog_tab_automation_no_pr_ci": "Einstellungen · keine PR-CI",
   "repo_chip_no_pr_ci": "Keine PR-CI · Auto-Merge hält PRs an",
   "repos_grid_no_pr_ci": "Keine PR-CI · Auto-Merge hält PRs an",
   "repos_grid_no_pr_ci_filter": "{count} ohne PR-CI",
@@ -8844,5 +8844,7 @@
   "tooltip_egress_risk_wildcard_body": "Ein *.-Eintrag öffnet jede Subdomain des Hosts, auch solche, die du nicht kennst oder die jemand anderem gehören.",
   "automation_egress_hosts_wildcard_warn": "Ein *.-Eintrag öffnet jede Subdomain dieses Hosts, auch solche, die jeder registrieren kann (etwa auf github.io). Trag wo möglich exakte Hosts ein.",
   "feat_egress_exact_hosts_title": "Egress-Allowlist prüft Hosts exakt",
-  "feat_egress_exact_hosts_body": "Autonome Sessions erreichen einen erlaubten Host jetzt nur noch unter seinem exakten Namen und nur auf Port 443. Subdomains brauchen einen ausdrücklichen Eintrag *.example.com, andere Ports einen Eintrag host:port. Prüf deine zusätzlich erlaubten Hosts und SHEPHERD_SANDBOX_EXTRA_HOSTS: Einträge, die sich auf mitabgedeckte Subdomains verlassen haben, tun das nicht mehr."
+  "feat_egress_exact_hosts_body": "Autonome Sessions erreichen einen erlaubten Host jetzt nur noch unter seinem exakten Namen und nur auf Port 443. Subdomains brauchen einen ausdrücklichen Eintrag *.example.com, andere Ports einen Eintrag host:port. Prüf deine zusätzlich erlaubten Hosts und SHEPHERD_SANDBOX_EXTRA_HOSTS: Einträge, die sich auf mitabgedeckte Subdomains verlassen haben, tun das nicht mehr.",
+  "feat_backlog_settings_tab_title": "Der Einstellungen-Tab im Backlog gleicht dem Einstellungsfenster",
+  "feat_backlog_settings_tab_body": "Der Tab „Automatisierung“ im Backlog heißt jetzt „Einstellungen“ und zeigt dieselbe Ansicht wie das Repo-Einstellungsfenster: jeden Bereich mit seinem Status in einer Leiste, rechts jeweils einen Bereich, und was Aufmerksamkeit braucht, ist markiert. Links wie „N Plätze erlauben“ öffnen den Bereich, auf den sie zeigen."
 }

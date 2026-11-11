@@ -129,7 +129,7 @@
     onclick={() => onselecttab("automation")}
     use:coachMaybe={variant === "desktop" ? "backlog-automation" : undefined}
   >
-    {m.backlog_tab_automation()}
+    <span class="tab-icon" aria-hidden="true">⚙</span><span>{m.backlog_tab_automation()}</span>
     {#if automationHalts > 0}
       <span class="halt-count"
         >{automationHalts === 1
@@ -251,6 +251,11 @@
   .tab-hold {
     margin-left: 6px;
     color: var(--status-warn);
+  }
+
+  /* The Settings tab is the one tab that configures rather than lists. */
+  .tab-icon {
+    margin-right: 5px;
   }
 
   /* ── fast-forward button ── */

@@ -10,8 +10,8 @@
   import EpicsSection from "./EpicsSection.svelte";
   import DisplaySection from "./DisplaySection.svelte";
 
-  // One repo-settings section by id (#3443) — the window renders the active one, the Backlog tab
-  // and the first-task confirm all of them in order.
+  // One repo-settings section by id (#3443) — RepoSettingsBody renders the active one, wherever
+  // it sits: the window, a session's Automation tab, the Backlog's Settings tab.
   let {
     section,
     repoPath,

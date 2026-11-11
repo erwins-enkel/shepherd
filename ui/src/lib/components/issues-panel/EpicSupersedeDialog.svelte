@@ -3,6 +3,7 @@
   import type { DrainRunSummary, Epic } from "#lib/types.js";
   import { dialog } from "#lib/a11yDialog.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { automationFocus } from "#lib/automation-focus.js";
   import { getEpic } from "#lib/api.js";
   import { repos } from "#lib/repos.svelte.js";
   import { supersedeImpact } from "../epic-panel";
@@ -49,6 +50,7 @@
 
   function openAutomation() {
     onclose();
+    automationFocus.request("max-auto");
     onopenautomation?.();
   }
 </script>

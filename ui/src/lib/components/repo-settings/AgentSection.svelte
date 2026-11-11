@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { m } from "#lib/paraglide/messages.js";
-  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { useRepoConfig, useSettingsLayer } from "./repo-config-editor.svelte.js";
+  const repoConfig = useRepoConfig();
+  const layer = useSettingsLayer();
   import { ApiError, getSettings, openRepoBrowser } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import {
@@ -69,7 +71,7 @@
       ? m.automation_sandbox_inherit({ profile: SANDBOX_NAMES[d]() })
       : m.automation_sandbox_inherit_unresolved();
   });
-  const held = $derived(drainSandboxHeld(repoPath, drain));
+  const held = $derived(drainSandboxHeld(repoPath, drain, repoConfig));
   const browserOn = $derived(repoConfig.sharedBrowserOn(repoPath));
   // The extra hosts only widen the Autonomous egress firewall; Trusted and Standard don't restrict
   // the network, so the list hides there (its stored hosts stay).
@@ -183,7 +185,7 @@
     onchange={(hosts) => repoConfig.setEgressExtraHosts(repoPath, hosts)}
   />
 {/if}
-<EgressBlockedHosts {repoPath} bind:count={blockedCount} />
+{#if layer !== "repo"}<EgressBlockedHosts {repoPath} bind:count={blockedCount} />{/if}
 
 <RepoSettingRow
   field="sharedBrowserEnabled"
@@ -236,7 +238,7 @@
     <p class="note">{m.reposettings_connectors_claude_only()}</p>
   {/snippet}
 </RepoSettingRow>
-<AgentExtensions {repoPath} />
+{#if layer !== "repo"}<AgentExtensions {repoPath} />{/if}
 
 <style>
   .note {

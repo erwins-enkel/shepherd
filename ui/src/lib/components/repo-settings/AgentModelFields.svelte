@@ -1,6 +1,8 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { useRepoConfig, useSettingsLayer } from "./repo-config-editor.svelte.js";
+  const repoConfig = useRepoConfig();
+  const layer = useSettingsLayer();
   import { AGENT_PROVIDERS, EFFORTS } from "#lib/types.js";
   import type { AgentProvider, RepoAgentProviderSetting, Settings } from "#lib/types.js";
   import { modelGuidanceAlias, modelOptionLabel } from "#lib/model-guidance.js";
@@ -46,11 +48,13 @@
   // A stored model/effort the effective CLI cannot run (e.g. after a global CLI switch) is ignored
   // at spawn time, so the select shows the Inherit it falls back to.
   const storedModel = $derived(repoConfig.defaultModelFor(repoPath));
-  const defaultModel = $derived(repoModelFitsProvider(storedModel, cli) ? storedModel : "inherit");
+  const defaultModel = $derived(
+    layer === "repo" || repoModelFitsProvider(storedModel, cli) ? storedModel : "inherit",
+  );
   const guidanceModel = $derived(modelGuidanceAlias(defaultModel, fableAvailable));
   const storedEffort = $derived(repoConfig.defaultEffortFor(repoPath));
   const defaultEffort = $derived(
-    repoEffortFitsProvider(storedEffort, cli) ? storedEffort : "inherit",
+    layer === "repo" || repoEffortFitsProvider(storedEffort, cli) ? storedEffort : "inherit",
   );
   const defaultExecutionEffort = $derived(repoConfig.defaultExecutionEffortFor(repoPath));
 
@@ -102,7 +106,7 @@
 <RepoSettingRow
   field="defaultModel"
   name={m.automation_default_model_label()}
-  desc={m.automation_default_model_hint()}
+  desc={m.automation_layers_inherit()}
 >
   {#snippet control()}
     <select
@@ -130,7 +134,7 @@
 <RepoSettingRow
   field="defaultEffort"
   name={m.automation_default_effort_label()}
-  desc={m.automation_default_effort_hint()}
+  desc={m.automation_layers_inherit()}
 >
   {#snippet control()}
     <select
@@ -142,6 +146,9 @@
     >
       <option value="inherit">{m.automation_default_effort_inherit()}</option>
       <option value="default">{m.effort_default()}</option>
+      {#if defaultEffort !== "inherit" && defaultEffort !== "default" && !providerEfforts(cli).includes(defaultEffort)}<option
+          value={defaultEffort}>{defaultEffort}</option
+        >{/if}
       {#each providerEfforts(cli) as tier (tier)}
         <option value={tier}>{effortLabel(tier)}</option>
       {/each}

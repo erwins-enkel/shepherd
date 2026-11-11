@@ -1,7 +1,8 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { m } from "#lib/paraglide/messages.js";
-  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { useRepoConfig } from "../repo-settings/repo-config-editor.svelte.js";
+  const repoConfig = useRepoConfig();
   import { automationFocus } from "#lib/automation-focus.js";
   import { clampCap, clampCeiling, sanitizeLabel } from "../git-rail-drain";
   import { checkPriorityLabel, PRIORITY_LABEL } from "#lib/list-entries.js";
@@ -34,6 +35,7 @@
   let drainCap = $state(repoConfig.maxAutoFor(repoPath));
   // svelte-ignore state_referenced_locally
   let drainLabel = $state(repoConfig.autoLabelFor(repoPath));
+  let labelFocused = $state(false);
   // svelte-ignore state_referenced_locally
   let drainCeiling = $state(repoConfig.usageCeilingFor(repoPath));
   $effect(() => {
@@ -47,6 +49,12 @@
       drainLabel = repoConfig.autoLabelFor(repo);
       drainCeiling = repoConfig.usageCeilingFor(repo);
     });
+  });
+
+  // Discard and refreshed comparisons change the label after loading has already settled.
+  $effect(() => {
+    const label = repoConfig.autoLabelFor(repoPath);
+    if (!labelFocused) drainLabel = label;
   });
 
   // The epic detail's "Allow N slots" (#2939) opens the tab here: bring the cap into view and
@@ -121,7 +129,11 @@
             aria-label={m.drain_label_label()}
             aria-describedby="{uid}-label"
             onchange={commitDrainLabel}
-            onblur={commitDrainLabel}
+            onfocus={() => (labelFocused = true)}
+            onblur={() => {
+              labelFocused = false;
+              void commitDrainLabel();
+            }}
           />
         {/snippet}
         {#snippet below()}

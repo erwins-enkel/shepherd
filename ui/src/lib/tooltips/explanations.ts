@@ -1224,3 +1224,32 @@ export function scheduleBudgetExplanation(): TooltipExplanation {
     sections: [{ label: m.schedules_budget_input(), text: m.schedules_budget_measure() }],
   };
 }
+
+/** The automation panel's persistence boundary. */
+export function automationLayersExplanation(): TooltipExplanation {
+  return {
+    title: m.automation_layers_explanation_title(),
+    summary: m.automation_layers_explanation_summary(),
+    sections: [
+      {
+        label: m.automation_layers_explanation_rules(),
+        text: m.automation_layers_explanation_rules_body(),
+      },
+      {
+        label: m.automation_layers_explanation_machine(),
+        text: m.automation_layers_explanation_machine_body(),
+      },
+    ],
+  };
+}
+
+export function leitrechnerExplanation(): TooltipExplanation {
+  return {
+    title: m.gloss_leitrechner_term(),
+    summary: m.automation_layers_remote(),
+    sections: [
+      { label: m.automation_layers_leader(), text: m.automation_layers_offline() },
+      { label: m.automation_layers_local_title(), text: m.automation_layers_running() },
+    ],
+  };
+}

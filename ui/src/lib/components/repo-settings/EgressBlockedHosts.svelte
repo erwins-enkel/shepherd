@@ -2,7 +2,8 @@
   import { m } from "#lib/paraglide/messages.js";
   import { getLocale } from "#lib/i18n.js";
   import { getRepoEgressBlocks } from "#lib/api.js";
-  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { useRepoConfig } from "./repo-config-editor.svelte.js";
+  const repoConfig = useRepoConfig();
   import { toasts } from "#lib/toasts.svelte.js";
   import { clock } from "#lib/now.svelte.js";
   import { relativeTimeAgo } from "#lib/format.js";

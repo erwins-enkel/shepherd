@@ -1,6 +1,9 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import { repoConfig, planGates } from "#lib/reviews.svelte.js";
+  import { planGates } from "#lib/reviews.svelte.js";
+  import { useRepoConfig, useSettingsLayer } from "./repo-config-editor.svelte.js";
+  const repoConfig = useRepoConfig();
+  const layer = useSettingsLayer();
   import type { DrainStatus, Session } from "#lib/types.js";
   import RepoSettingRow from "./RepoSettingRow.svelte";
   import AutomationDrainFields from "../automation-settings/AutomationDrainFields.svelte";
@@ -40,7 +43,7 @@
   );
 </script>
 
-{#if epicParent != null}
+{#if epicParent != null && layer !== "rechner"}
   <div class="epic-mode-banner" role="status">◈ {m.epic_mode_active({ parent: epicParent })}</div>
 {/if}
 <RepoSettingRow
@@ -71,7 +74,7 @@
     ],
   }}
   warn={m.automation_autodrain_sandbox_held()}
-  warnShown={drainSandboxHeld(repoPath, drain)}
+  warnShown={drainSandboxHeld(repoPath, drain, repoConfig)}
   locked={lightweight ? m.automation_lightweight_unavailable() : undefined}
   disabled={epicActive}
   disabledTitle={epicParent != null ? m.epic_mode_active({ parent: epicParent }) : undefined}
@@ -80,8 +83,12 @@
 />
 <!-- The rails (cap / label / usage ceiling) stay while an epic runs: both cap and ceiling are
      still enforced against its children; only the label field hides then. -->
-<AutomationDrainFields {repoPath} active={drainRailsActive(repoPath, drain)} {epicActive} />
-<AutomationBootstrap {repoPath} />
+<AutomationDrainFields
+  {repoPath}
+  active={drainRailsActive(repoPath, drain, repoConfig)}
+  {epicActive}
+/>
+{#if layer !== "repo"}<AutomationBootstrap {repoPath} />{/if}
 <RepoSettingRow
   field="planGateEnabled"
   glyph="⌖"

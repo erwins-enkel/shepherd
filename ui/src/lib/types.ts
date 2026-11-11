@@ -1452,6 +1452,7 @@ export interface ClaimDiagnostic {
 }
 
 export interface DrainStatus {
+  leitrechnerStatus?: import("./api").RepoLeitrechnerStatus;
   repoPath: string;
   enabled: boolean;
   paused: boolean;
@@ -3699,6 +3700,10 @@ export type WsEvent =
   | { event: "plugin:ui"; data: { id: string; ui: PluginUIView | null } }
   | { event: "plugin:gear"; data: { id: string; gearItem: PluginGearItem | null } }
   | { event: "backlog:update"; data: BacklogPayload }
+  | {
+      event: "repo:leitrechner";
+      data: { repoPath: string; leitrechnerStatus: import("./api").RepoLeitrechnerStatus };
+    }
   | { event: "drain:status"; data: DrainStatus }
   | { event: "automerge:status"; data: AutoMergeStatus }
   | { event: "session:automerge"; data: { id: string; enabled: boolean | null } }

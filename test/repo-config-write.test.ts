@@ -185,7 +185,7 @@ test("a newly active file is not overwritten by stale local CLI clamping", async
   const result = await svc.patch(
     r.b,
     { autoDrainEnabled: true, agentProvider: "codex" },
-    { localRunDefaults: { defaultModel: "inherit" } },
+    { defaultAgentProvider: "claude" },
   );
   expect(result.ok).toBe(true);
   expect(store.getRepoConfig(r.b).defaultModel).toBe("opus");

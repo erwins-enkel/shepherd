@@ -67,7 +67,6 @@ import {
   runDispatch,
 } from "./dispatch";
 import { RepoConfigService } from "./repo-config-service";
-import { readRepoConfigFile } from "./repo-config-file";
 import {
   BOOTSTRAP_LAST_PHASE,
   bootstrapExitReached,
@@ -619,7 +618,6 @@ import { excludeHiddenSections } from "./up-next-core";
 import type { UpNextSnapshot } from "./up-next-core";
 import { prFixPrompt, prsHeldBySessions, type UpNextPr } from "./up-next-prs";
 import {
-  clampRunDefaultsToCli,
   normalizeAgentProvider,
   normalizeRepoAgentProviderSetting,
   resolveSpawnAgentProvider,
@@ -3717,24 +3715,19 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   // Load-bearing destructure: the automationConfirmed metadata is applied separately
   // by the service, never merged into the RepoConfig row.
   const { automationConfirmed, ...cfgPatch } = patch;
-  if (cfgPatch.previewStartScript !== undefined && cfgPatch.previewStartScript !== null) {
-    const canonicalScript = await resolvePreviewStartScriptPath(dir);
-    if (cfgPatch.previewStartScript !== canonicalScript) {
-      return json({ error: "previewStartScript must use the canonical repo-local path" }, 400);
-    }
+  if (
+    cfgPatch.previewStartScript !== undefined &&
+    cfgPatch.previewStartScript !== null &&
+    cfgPatch.previewStartScript !== (await resolvePreviewStartScriptPath(dir))
+  ) {
+    return json({ error: "previewStartScript must use the canonical repo-local path" }, 400);
   }
-  const before = deps.store.getRepoConfig(dir);
-  // #3441: a CLI change drops a repo model/effort the new effective CLI cannot run to "inherit".
-  const localRunDefaults =
-    before.repoMode !== "lightweight" && readRepoConfigFile(dir)
-      ? undefined
-      : clampRunDefaultsToCli(before, cfgPatch, config.defaultAgentProvider);
   const r = await repoConfigSvc(deps).patch(dir, cfgPatch, {
     automationConfirmed,
-    localRunDefaults,
+    defaultAgentProvider: config.defaultAgentProvider,
   });
-  if (!r.ok)
-    return json({ error: r.error, ...(r.code ? { code: r.code } : {}) }, r.code ? 502 : 400);
+  if (!r.ok) return json({ error: r.error, code: r.code }, r.code ? 502 : 400);
+  const before = r.previousLocal;
   // Turning the Shared Browser off revokes it now: stop the repo's Chromium, which closes every
   // attached agent socket. Later attaches are refused by the broker's opt-in check.
   if (before.sharedBrowserEnabled && !r.config.sharedBrowserEnabled) deps.sharedBrowser?.stop(dir);

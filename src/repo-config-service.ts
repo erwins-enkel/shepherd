@@ -7,7 +7,10 @@ import {
   withRepoConfigLock,
   writeRepoConfigFile,
   readRepoConfigFile,
+  type RepoConfigFile,
 } from "./repo-config-file";
+import { clampRunDefaultsToCli } from "./agent-provider";
+import type { AgentProvider } from "./types";
 import type { SandboxProfile } from "./sandbox";
 import { defaultSandboxProfile } from "./sandbox-default";
 
@@ -28,13 +31,12 @@ export type RepoConfigView = RepoConfig & {
 export type RepoConfigPatch = Partial<RepoConfig>;
 
 export type RepoConfigPatchResult =
-  | { ok: true; config: RepoConfigView }
+  | { ok: true; config: RepoConfigView; previousLocal: RepoConfig }
   | { ok: false; error: string; code?: "repo_config_write_failed" };
 
 /** Narrow store interface this service needs — the seam, kept small. */
 type RepoConfigStore = Pick<
   SessionStore,
-  | "getRepoConfig"
   | "getLocalRepoConfig"
   | "setRepoConfig"
   | "markAutomationConfirmed"
@@ -87,7 +89,7 @@ export class RepoConfigService {
     patch: RepoConfigPatch,
     opts: {
       automationConfirmed?: boolean;
-      localRunDefaults?: Partial<Pick<RepoConfig, "defaultModel" | "defaultEffort">>;
+      defaultAgentProvider?: AgentProvider;
     } = {},
   ): Promise<RepoConfigPatchResult> {
     return withRepoConfigLock(dir, async () => {
@@ -98,36 +100,37 @@ export class RepoConfigService {
       const hasRulePatch = Object.entries(patch).some(
         ([key, value]) => value !== undefined && isRepoRuleKey(key),
       );
-      if (fileEnabled && hasRulePatch) {
-        try {
+      const writeRules = fileEnabled && hasRulePatch;
+      let localRunDefaults: RepoConfigPatch = {};
+      try {
+        if (writeRules) {
           await writeRepoConfigFile(dir, (file) => {
-            const currentLocal = this.store.getLocalRepoConfig(dir);
-            const current = effectiveRepoConfig(currentLocal, repoConfigDefaults(), file);
-            const merged = this.merge(current, {
-              ...patch,
-              ...(!file ? opts.localRunDefaults : {}),
-            });
-            validate(merged);
-            return repoRulesFromConfig(merged);
+            const { config } = this.validatedPatch(
+              this.store.getLocalRepoConfig(dir),
+              file,
+              patch,
+              opts.defaultAgentProvider,
+            );
+            return repoRulesFromConfig(config);
           });
-        } catch (err) {
-          if (err instanceof ConfigValidationError) return { ok: false, error: err.message };
-          return {
-            ok: false,
-            code: "repo_config_write_failed",
-            error:
-              "Could not save repository rules to the default branch. Check origin access and branch protection, then retry.",
-          };
+        } else {
+          const file = fileEnabled ? readRepoConfigFile(dir) : null;
+          localRunDefaults = this.validatedPatch(
+            local,
+            file,
+            patch,
+            opts.defaultAgentProvider,
+          ).localRunDefaults;
         }
-      } else {
-        const file = fileEnabled ? readRepoConfigFile(dir) : null;
-        const current = effectiveRepoConfig(local, repoConfigDefaults(), file);
-        try {
-          validate(this.merge(current, { ...patch, ...(!file ? opts.localRunDefaults : {}) }));
-        } catch (err) {
-          if (err instanceof ConfigValidationError) return { ok: false, error: err.message };
-          throw err;
-        }
+      } catch (err) {
+        if (err instanceof ConfigValidationError) return { ok: false, error: err.message };
+        if (!writeRules) throw err;
+        return {
+          ok: false,
+          code: "repo_config_write_failed",
+          error:
+            "Could not save repository rules to the default branch. Check origin access and branch protection, then retry.",
+        };
       }
       // Re-read after network awaits. Never copy effective repo rules into their DB fallback.
       const localPatch = Object.fromEntries(
@@ -139,14 +142,27 @@ export class RepoConfigService {
         dir,
         this.merge(this.store.getLocalRepoConfig(dir), {
           ...localPatch,
-          ...(!(fileEnabled && (hasRulePatch || readRepoConfigFile(dir)))
-            ? opts.localRunDefaults
-            : {}),
+          ...localRunDefaults,
         }),
       );
       if (opts.automationConfirmed === true) this.store.markAutomationConfirmed(dir);
-      return { ok: true, config: this.read(dir) };
+      return { ok: true, config: this.read(dir), previousLocal: local };
     });
+  }
+
+  /** Derive CLI defaults only from the serialized, freshly read view. Shared rules stay intact. */
+  private validatedPatch(
+    local: RepoConfig,
+    file: RepoConfigFile | null,
+    patch: RepoConfigPatch,
+    provider?: AgentProvider,
+  ) {
+    const current = effectiveRepoConfig(local, repoConfigDefaults(), file);
+    const localRunDefaults =
+      file || !provider ? {} : clampRunDefaultsToCli(current, patch, provider);
+    const config = this.merge(current, { ...patch, ...localRunDefaults });
+    validate(config);
+    return { config, localRunDefaults };
   }
 
   /** Overlay the defined patch fields onto the current config (undefined = leave as-is). */

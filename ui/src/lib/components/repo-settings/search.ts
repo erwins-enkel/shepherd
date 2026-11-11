@@ -127,7 +127,6 @@ export function repoSettingsSearchEntries(): RepoSettingsSearchEntry[] {
       field: "bootstrap",
       name: m.automation_bootstrap_name(),
       description: m.automation_bootstrap_desc(),
-      fallbackField: "autoDrainEnabled",
     },
     {
       section: "start",

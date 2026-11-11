@@ -111,6 +111,15 @@ function mockApi(over: Partial<RepoConfig & { noPrCi: boolean }> = {}, autoFix?:
       }
       return Response.json(config);
     }
+    if (url.startsWith("/api/repo-bootstrap?") && method === "GET") {
+      return Response.json({
+        state: "off",
+        phase: 1,
+        overrideAt: null,
+        missing: [],
+        suggested: false,
+      });
+    }
     if (url.startsWith("/api/schedules")) {
       if (method !== "GET") api.scheduleWrites.push({ method, body });
       return Response.json(method === "GET" ? { schedules: [SCHEDULE] } : {});
@@ -664,10 +673,11 @@ describe("RepoSettingsWindow — search", () => {
         .getByRole("button", { name: label, exact: true })
         .click();
       const root = document.querySelector("[data-repo-settings]")!;
-      const row =
+      const findRow = () =>
         root.querySelector(`[data-field~="${entry.field}"]`) ??
         root.querySelector(`[data-field~="${entry.fallbackField}"]`);
-      expect(row, entry.field).not.toBeNull();
+      await expect.poll(findRow, { message: entry.field }).not.toBeNull();
+      const row = findRow()!;
       await expect
         .poll(() => row!.contains(document.activeElement), { message: entry.field })
         .toBe(true);
@@ -842,4 +852,35 @@ it("keeps the selected autonomy radio visible on a narrow screen after search", 
   const rect = selected.query()!.getBoundingClientRect();
   expect(rect.top).toBeGreaterThanOrEqual(0);
   expect(rect.bottom).toBeLessThanOrEqual(844);
+});
+
+it("waits for the bootstrap search target to load without focusing Auto-drain", async () => {
+  const api = mockApi();
+  const baseFetch = vi.mocked(fetch).getMockImplementation()!;
+  let finish!: (response: Response) => void;
+  vi.mocked(fetch).mockImplementation((input, init) => {
+    if (String(input).startsWith("/api/repo-bootstrap?"))
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    return baseFetch(input, init);
+  });
+  await open({});
+  await page
+    .getByRole("searchbox", { name: m.reposettings_search_label() })
+    .fill(m.automation_bootstrap_name());
+  await page
+    .getByRole("region", { name: m.reposettings_search_results() })
+    .getByRole("button", {
+      name: `${m.automation_bootstrap_name()} ${sectionLabel("start")}`,
+      exact: true,
+    })
+    .click();
+  expect(document.querySelector('[data-field="bootstrap"]')).toBeNull();
+  expect(document.activeElement).not.toBe(sw(m.automation_autodrain_name()).query());
+  finish(
+    Response.json({ state: "off", phase: 1, overrideAt: null, missing: [], suggested: false }),
+  );
+  await expect.element(sw(m.automation_bootstrap_name())).toHaveFocus();
+  expect(api.puts).toEqual([]);
 });

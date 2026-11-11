@@ -8834,7 +8834,7 @@
   "shape_engine_tip_effect_label": "Takes effect",
   "shape_engine_tip_effect": "From the next round. A running round keeps its engine.",
   "shape_engine_tip_default_label": "Preselected",
-  "shape_engine_tip_default": "Settings → Default coding CLI and that CLI's model.",
+  "shape_engine_tip_default": "Repo settings › Agent, if this repo sets its own coding CLI or default model; otherwise Settings › Default coding CLI and that CLI's model.",
   "shape_engine_tip_cost_label": "Cost",
   "shape_engine_tip_cost": "Shaping runs at the chosen model's cost level.",
   "shape_engine_tip_click": "Click: shows the engine setting.",

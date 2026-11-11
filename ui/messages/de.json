@@ -8834,7 +8834,7 @@
   "shape_engine_tip_effect_label": "Wirkung",
   "shape_engine_tip_effect": "Ab der nächsten Runde. Eine laufende Runde behält ihre Engine.",
   "shape_engine_tip_default_label": "Vorauswahl",
-  "shape_engine_tip_default": "Einstellungen → Standard-Coding-CLI und das Modell dieser CLI.",
+  "shape_engine_tip_default": "Repo-Einstellungen › Agent, wenn dieses Repo eine eigene Coding-CLI oder ein eigenes Standardmodell festlegt; sonst Einstellungen › Standard-Coding-CLI und das Modell dieser CLI.",
   "shape_engine_tip_cost_label": "Kosten",
   "shape_engine_tip_cost": "Schärfen läuft auf dem Kostenniveau des gewählten Modells.",
   "shape_engine_tip_click": "Klick: zeigt die Engine-Einstellung.",

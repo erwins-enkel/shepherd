@@ -29,6 +29,7 @@
     doReviewPlan,
     epicStopped = null,
     rowOwnsPr = false,
+    hasContent = $bindable(false),
   }: {
     git: GitState;
     issueNumber: number | null;
@@ -54,6 +55,8 @@
     /** The merge row is on screen and shows this PR's state, links and findings: one owner per
      *  fact, so the strip drops its copies and keeps what only it has. */
     rowOwnsPr?: boolean;
+    /** Out: true while any passive or action item renders (GitRail's `empty` reads it). */
+    hasContent?: boolean;
   } = $props();
 
   // CI status → short chip label (issue sketch: "CI passing"). Full status stays in title/aria.
@@ -144,7 +147,7 @@
   // render guard of exactly ONE item so the two can never drift; `hasPassive` /
   // `hasActions` are the unions. The `rail-status-sep` renders iff BOTH are
   // non-empty, so it can never orphan (leading: steal the .rail `margin-left:auto`
-  // first-child; trailing: double-divider against GitRail's own rail-sep).
+  // first-child; trailing: dangle after the last item).
 
   // passive readouts (non-interactive <span> chips) — each maps 1:1 to a span:
   const readyToMerge = $derived(!rowOwnsPr && git.state === "open" && local); // "ready to merge #N"
@@ -179,6 +182,9 @@
   const hasActions = $derived(
     issueChip || openPrBtn || prMenuBtn || redeployBtn || verdictBtn || canReviewPlan,
   );
+  $effect(() => {
+    hasContent = hasPassive || hasActions;
+  });
 </script>
 
 <!-- Leading passive-status zone: non-interactive readouts, de-boxed to inline labels
@@ -336,7 +342,7 @@
 {@render passiveZone()}
 <!-- status │ actions divider — mobile only, and only when BOTH zones are non-empty so it
      can never orphan (leading: become .rail :first-child and steal margin-left:auto;
-     trailing: double up with GitRail's own rail-sep before the auto-pill). -->
+     trailing: render after the last item). -->
 {#if mobile && hasPassive && hasActions}
   <span class="rail-status-sep" aria-hidden="true"></span>
 {/if}
@@ -412,7 +418,7 @@
     color: var(--color-amber);
   }
   /* status │ actions divider (mobile only — rendered iff mobile && hasPassive && hasActions).
-     Mirrors GitRail's own .rail-sep; the 8px side margins + the .rail 6px gap give 14px of
+     The 8px side margins + the .rail 6px gap give 14px of
      breathing room each side, marking the passive-status → tap-target boundary. */
   .rail-status-sep {
     width: 1px;

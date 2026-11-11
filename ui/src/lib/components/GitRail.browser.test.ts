@@ -4,11 +4,10 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import type { GitState, ReviewVerdict } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
-import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
 
 // GitRail loads PR state from #lib/api.gitState on mount; mock it to a populated
-// open PR so the rail renders its full button set (PR link + CI dot + verdict +
-// automation pill) without a backend. Mock ALL named exports
+// open PR so the rail renders its full button set (PR link + CI dot + verdict)
+// without a backend. Mock ALL named exports
 // GitRail imports from #lib/api so the import resolves.
 const openPrState: GitState = {
   kind: "github",
@@ -81,11 +80,9 @@ const { default: GitRail } = await import("./GitRail.svelte");
 // Test-only wrapper that flips ONLY autopilotOn (sessionId stable) — see the
 // "Open PR hidden under autopilot" describe for why rerender() can't do this.
 const { default: GitRailAutopilotHarness } = await import("./GitRailAutopilotHarness.svelte");
-// The plan-gate reviewing store drives the auto-pill pulse for plan reviews,
-// mirroring the critic (reviews) store. Imported from the same module the
-// component reads so toggling it reactively updates the rendered pill.
-// repoConfig drives the critic-enabled flag the manual-review button gates on.
-const { planGates, reviews, repoConfig } = await import("#lib/reviews.svelte.js");
+// The plan-gate and critic stores, imported from the same module the component reads so
+// toggling them reactively updates the rail.
+const { planGates, reviews } = await import("#lib/reviews.svelte.js");
 
 const mounted: Array<{ unmount: () => void | Promise<void> }> = [];
 async function render(
@@ -226,10 +223,9 @@ function assertControlsWithin(cell: HTMLElement) {
   }
 }
 
-// Shared props for most cases — repoPath present so the automation pill renders.
+// Shared props for most cases.
 const baseProps = {
   sessionId: "sess-1",
-  repoPath: "/repo",
   name: "feature-x",
   prompt: "do the thing",
 };
@@ -277,7 +273,6 @@ describe("GitRail — shortened issue & PR labels", () => {
 
 describe("GitRail — epic child (#2735)", () => {
   const stoppedDrain = {
-    repoPath: "/repo",
     enabled: false,
     paused: false,
     reason: "disabled",
@@ -519,10 +514,9 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(noneState);
     await page.viewport(600, 900);
     const h = host(600);
-    // repoPath empty: no automation pill; showReady irrelevant (state≠open, ready=false)
     const screen = await render(GitRail, {
       target: h,
-      props: { ...baseProps, repoPath: "", mobile: false },
+      props: { ...baseProps, mobile: false },
     });
     await expect.element(screen.getByRole("button", { name: /Open PR/i })).toBeVisible();
     assertControlsWithin(h);
@@ -572,11 +566,9 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(closedState);
     await page.viewport(600, 900);
     const h = host(600);
-    // repoPath set so automation pill renders (still needs to be in-bounds)
     const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByText(/closed/i)).toBeVisible();
-    // automation pill is the only interactive control; assertControlsWithin covers it
-    assertControlsWithin(h);
+    expect(h.querySelectorAll("button, a[href]"), "no controls").toHaveLength(0);
   });
 
   it.each(["merged", "closed"] as const)("state:%s chip names the PR number", async (state) => {
@@ -594,8 +586,7 @@ describe("GitRail — controls stay within the cell", () => {
   });
 
   // ── open: lifecycle decisions moved to the merge row above the steer bar (#3540) ──
-  it("desktop 600px — open PR: no Merge, Ready or critic trigger; readouts + settings stay", async () => {
-    repoConfig.enabled = { ...repoConfig.enabled, [baseProps.repoPath]: true };
+  it("desktop 600px — open PR: no Merge, Ready or critic trigger; readouts stay", async () => {
     try {
       gitStateFn.mockResolvedValue({
         ...openPrState,
@@ -643,13 +634,9 @@ describe("GitRail — controls stay within the cell", () => {
         expect(labels, `${gone} left the strip`).not.toContain(gone);
       expect(h.textContent, "CI readout stays").toContain(m.gitrail_ci_passing());
       await expect.element(screen.getByRole("link", { name: "Issue #855" })).toBeVisible();
-      expect(h.querySelector(".auto-pill"), "automation pill stays").not.toBeNull();
       assertControlsWithin(h);
     } finally {
       reviews.drop(baseProps.sessionId);
-      const next = { ...repoConfig.enabled };
-      delete next[baseProps.repoPath];
-      repoConfig.enabled = next;
     }
   });
 
@@ -711,17 +698,9 @@ describe("GitRail — status │ actions seam (no orphan dividers)", () => {
     );
     // right-pin: first .rail child is the leading passive chip (gets margin-left:auto)
     expect(rail.firstElementChild, "first child is the leading passive readout").toBe(ci);
-    // the ⚙ pill sits OUTSIDE the scroller, after the single git │ cluster divider
-    await vi.waitFor(() => expect(h.querySelector(".auto-pill"), "auto-pill").not.toBeNull());
-    const pill = h.querySelector<HTMLElement>(".auto-pill")!;
-    expect(rail.contains(pill), "pill pinned outside the scrolling rail").toBe(false);
-    const sep = h.querySelector<HTMLElement>(".cluster-sep");
-    expect(sep, "cluster divider present").not.toBeNull();
-    expect(getComputedStyle(sep!).display, "cluster divider visible").not.toBe("none");
-    expect(sep!.nextElementSibling, "divider directly precedes the pill").toBe(pill);
   });
 
-  it("state:none + autopilot on: empty rail + its divider hide, pill stands alone (leading-orphan guard)", async () => {
+  it("state:none + autopilot on: the empty rail hides (no orphan hairline)", async () => {
     const noneState: GitState = {
       kind: "github",
       state: "none",
@@ -731,25 +710,12 @@ describe("GitRail — status │ actions seam (no orphan dividers)", () => {
     gitStateFn.mockResolvedValue(noneState);
     await page.viewport(400, 900);
     const h = host(360);
-    // repoPath present → auto-pill renders; autopilotOn hides Open PR → BOTH zones empty
+    // autopilotOn hides Open PR → BOTH zones empty
     await render(GitRail, { target: h, props: { ...baseProps, mobile: true, autopilotOn: true } });
     const rail = await railOf(h);
-    await vi.waitFor(() =>
-      expect(h.querySelector(".auto-pill"), "auto-pill present").not.toBeNull(),
-    );
-    const pill = h.querySelector<HTMLElement>(".auto-pill")!;
     expect(rail.querySelector(".rail-status-sep"), "no dangling status seam").toBeNull();
     expect(rail.childElementCount, "no status chips in the rail").toBe(0);
-    expect(rail.contains(pill), "pill lives outside the rail").toBe(false);
-    // no orphan hairline: the empty rail and the cluster divider both collapse
     expect(getComputedStyle(rail).display, "empty rail hidden").toBe("none");
-    const sep = h.querySelector<HTMLElement>(".cluster-sep")!;
-    expect(getComputedStyle(sep).display, "cluster divider hidden").toBe("none");
-    // right-pinned against the wrap's trailing edge
-    const wrap = h.querySelector<HTMLElement>(".git-rail-wrap")!;
-    expect(
-      Math.abs(wrap.getBoundingClientRect().right - pill.getBoundingClientRect().right),
-    ).toBeLessThan(1);
   });
 
   it("state:none + autopilot off: no seam, first child is the Open PR action (empty-passive right-pin)", async () => {
@@ -778,7 +744,7 @@ describe("GitRail — status │ actions seam (no orphan dividers)", () => {
     ).toBe(true);
   });
 
-  it("state:closed: passive label but empty actions → no seam, no double divider (trailing-orphan guard)", async () => {
+  it("state:closed: passive label but empty actions → no seam (trailing-orphan guard)", async () => {
     const closedState: GitState = {
       kind: "github",
       state: "closed",
@@ -791,54 +757,12 @@ describe("GitRail — status │ actions seam (no orphan dividers)", () => {
     const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
     await expect.element(screen.getByText(/closed/i)).toBeVisible();
     const rail = await railOf(h);
-    await vi.waitFor(() =>
-      expect(h.querySelector(".auto-pill"), "auto-pill present").not.toBeNull(),
-    );
     expect(rail.querySelector(".rail-status-sep"), "no trailing status seam").toBeNull();
-    // only ONE divider precedes the auto-pill (the cluster divider, outside the rail) — never `│ │`
-    expect(rail.querySelectorAll(".rail-sep").length, "no divider inside the rail").toBe(0);
-    const seps = [...h.querySelectorAll<HTMLElement>(".rail-sep")].filter(
-      (e) => getComputedStyle(e).display !== "none",
-    );
-    expect(seps.length, "single visible divider").toBe(1);
-    expect(seps[0].nextElementSibling?.classList.contains("auto-pill")).toBe(true);
     // right-pin with passive present: first child is the CLOSED readout
     expect(
       rail.firstElementChild?.matches("span.status-chip"),
       "first child is the CLOSED label",
     ).toBe(true);
-  });
-});
-
-describe("GitRail — phone pill label", () => {
-  it("phone: pill reads ⚙ n/N without the word; aria-label keeps it", async () => {
-    gitStateFn.mockResolvedValue(openPrState);
-    await page.viewport(400, 900);
-    const h = host(360);
-    await render(GitRail, { target: h, props: { ...baseProps, mobile: true, phone: true } });
-    const pill = await vi.waitFor(() => {
-      const p = h.querySelector<HTMLButtonElement>("button.auto-pill");
-      expect(p, "auto-pill present").not.toBeNull();
-      return p!;
-    });
-    const text = pill.textContent ?? "";
-    expect(text).not.toContain(m.automation_pill_label());
-    expect(text).toMatch(/\d+\/\d+/);
-    // the full name survives for assistive tech ("Repo automation: n of N on…")
-    expect(pill.getAttribute("aria-label")).toContain(m.automation_pill_label());
-  });
-
-  it("non-phone strip keeps the full ⚙ automation label", async () => {
-    gitStateFn.mockResolvedValue(openPrState);
-    await page.viewport(800, 900);
-    const h = host(700);
-    await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
-    const pill = await vi.waitFor(() => {
-      const p = h.querySelector<HTMLButtonElement>("button.auto-pill");
-      expect(p, "auto-pill present").not.toBeNull();
-      return p!;
-    });
-    expect(pill.textContent).toContain(m.automation_pill_label());
   });
 });
 
@@ -890,10 +814,10 @@ describe("GitRail — forge-error fallback (no silent-empty rail)", () => {
 });
 
 describe("GitRail — mobile scroll affordance", () => {
-  it("mobile 300px — overflowing rail fades its trailing edge to cue the scroll", async () => {
+  it("mobile 160px — overflowing rail fades its trailing edge to cue the scroll", async () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(400, 900);
-    const h = host(300);
+    const h = host(160);
     // Emulate the real .vp-git-strip (display:flex; min-width:0) so the
     // .git-rail-wrap.mobile (flex:1 1 auto; min-width:0) clamps to the cell and
     // the rail scrolls — a plain block host only clamps while content fits.
@@ -903,7 +827,7 @@ describe("GitRail — mobile scroll affordance", () => {
 
     const rail = h.querySelector<HTMLElement>(".rail.mobile");
     expect(rail, ".rail.mobile mounted").not.toBeNull();
-    // content overflows the 300px cell → the right edge fades (--fade-r = 1)
+    // content overflows the 160px cell → the right edge fades (--fade-r = 1)
     expect(rail!.scrollWidth, "rail actually overflows").toBeGreaterThan(rail!.clientWidth);
     await vi.waitFor(() =>
       expect(rail!.style.getPropertyValue("--fade-r"), "trailing edge faded").toBe("1"),
@@ -912,10 +836,10 @@ describe("GitRail — mobile scroll affordance", () => {
     expect(rail!.style.getPropertyValue("--fade-l"), "leading edge not faded").toBe("0");
   });
 
-  it("mobile 300px — recomputes the fade on content change, not just scroll/resize", async () => {
+  it("mobile 160px — recomputes the fade on content change, not just scroll/resize", async () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(400, 900);
-    const h = host(300);
+    const h = host(160);
     // flex host mirrors the real .vp-git-strip so the wrap clamps and the rail scrolls
     h.style.display = "flex";
     const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
@@ -940,38 +864,6 @@ describe("GitRail — mobile scroll affordance", () => {
 
     const rail = h.querySelector<HTMLElement>(".rail");
     expect(rail!.style.getPropertyValue("--fade-r"), "no fade var on desktop").toBe("");
-  });
-});
-
-describe("GitRail — plan review pulses the automation pill", () => {
-  afterEach(() => {
-    // store is module-global; clear so reviewing state can't leak between tests
-    planGates.drop(baseProps.sessionId);
-  });
-
-  it("toggles the .auto-pill reviewing class + aria-busy when a plan review is in flight", async () => {
-    gitStateFn.mockResolvedValue(openPrState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    // rail (and the pill) only renders once the mocked gitState resolves on mount
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-
-    const pill = h.querySelector<HTMLButtonElement>("button.auto-pill");
-    expect(pill, "auto-pill present").not.toBeNull();
-    expect(pill!.classList.contains("reviewing"), "not pulsing initially").toBe(false);
-
-    // plan reviewer goes in flight → pill pulses
-    planGates.applyReviewing(baseProps.sessionId, true);
-    await expect.element(pill!).toHaveClass(/reviewing/);
-    expect(pill!.getAttribute("aria-busy")).toBe("true");
-
-    // plan review lands → pulse clears
-    planGates.applyReviewing(baseProps.sessionId, false);
-    await vi.waitFor(() =>
-      expect(pill!.classList.contains("reviewing"), "pulse cleared").toBe(false),
-    );
-    expect(pill!.getAttribute("aria-busy")).toBe("false");
   });
 });
 
@@ -1181,7 +1073,7 @@ describe("GitRail — manual plan-review trigger", () => {
   // (or "Re-review plan" / "Reviewing…" / "confirm ✓" once armed/reviewing).
   function planReviewBtn(h: HTMLElement): HTMLButtonElement | null {
     return (
-      [...h.querySelectorAll<HTMLButtonElement>("button.gbtn:not(.auto-pill)")].find((b) => {
+      [...h.querySelectorAll<HTMLButtonElement>("button.gbtn")].find((b) => {
         const text = b.textContent?.trim() ?? "";
         return (
           text.startsWith("Review plan") ||
@@ -1227,7 +1119,6 @@ describe("GitRail — manual plan-review trigger", () => {
       props: { ...baseProps, mobile: false, planPhase: null },
     });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    await vi.waitFor(() => expect(h.querySelector(".auto-pill")).not.toBeNull());
     expect(planReviewBtn(h), "no plan-review button when planPhase null").toBeNull();
   });
 
@@ -1240,7 +1131,6 @@ describe("GitRail — manual plan-review trigger", () => {
       props: { ...baseProps, mobile: false, planPhase: "executing" },
     });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    await vi.waitFor(() => expect(h.querySelector(".auto-pill")).not.toBeNull());
     expect(planReviewBtn(h), "no plan-review button when planPhase executing").toBeNull();
   });
 
@@ -1471,12 +1361,9 @@ describe("GitRail — Open PR hidden under autopilot", () => {
     gitStateFn.mockResolvedValue(noneState);
     await page.viewport(400, 900);
     const h = host(360);
-    // repoPath present → the automation pill still renders, so only the Open-PR slot
-    // is empty, not the rail. Wait for the pill, then assert Open PR is absent.
+    // the rail mounts once gitState resolves; then the Open-PR slot must stay empty
     await render(GitRail, { target: h, props: { ...baseProps, mobile: true, autopilotOn: true } });
-    await vi.waitFor(() =>
-      expect(h.querySelector(".auto-pill"), "automation pill renders").not.toBeNull(),
-    );
+    await vi.waitFor(() => expect(h.querySelector(".rail"), "rail mounted").not.toBeNull());
     expect(openPrBtn(h), "Open PR button hidden when AP on").toBeNull();
   });
 
@@ -1506,35 +1393,6 @@ describe("GitRail — Open PR hidden under autopilot", () => {
     await vi.waitFor(() =>
       expect(h.querySelector(".pr-pop"), "popover closed after AP flips on").toBeNull(),
     );
-  });
-});
-
-describe("GitRail — ⚙ pill opens the repo settings window (#3443)", () => {
-  afterEach(() => {
-    repoSettingsWindow.target = null;
-  });
-
-  it("opens the window for this task's repo at Start & flow, bound to the task", async () => {
-    gitStateFn.mockResolvedValue(openPrState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    const pill = h.querySelector<HTMLButtonElement>("button.auto-pill")!;
-    expect(pill.getAttribute("aria-expanded")).toBe("false");
-
-    pill.click();
-    expect(repoSettingsWindow.target).toMatchObject({
-      repoPath: baseProps.repoPath,
-      section: "start",
-      sessionId: baseProps.sessionId,
-    });
-    expect(repoSettingsWindow.target?.opener).toBe(pill);
-    await vi.waitFor(() => expect(pill.getAttribute("aria-expanded")).toBe("true"));
-    expect(h.querySelector(".auto-pop"), "no popover any more").toBeNull();
-
-    repoSettingsWindow.close();
-    await vi.waitFor(() => expect(pill.getAttribute("aria-expanded")).toBe("false"));
   });
 });
 
@@ -1615,7 +1473,7 @@ describe("GitRail — rowOwnsPr (merge row on screen)", () => {
   } as unknown as ReviewVerdict;
   afterEach(() => reviews.drop(baseProps.sessionId));
 
-  it("drops every PR chip; the rail and its divider collapse, the ⚙ pill stays", async () => {
+  it("drops every PR chip; the rail collapses", async () => {
     reviews.apply({ id: baseProps.sessionId, review: verdict });
     gitStateFn.mockResolvedValue({
       ...openPrState,
@@ -1627,11 +1485,10 @@ describe("GitRail — rowOwnsPr (merge row on screen)", () => {
       target: h,
       props: { ...baseProps, issueNumber: 1, mobile: true, rowOwnsPr: true },
     });
-    await vi.waitFor(() => expect(h.querySelector(".auto-pill")).not.toBeNull());
+    await vi.waitFor(() => expect(h.querySelector(".rail")).not.toBeNull());
     const rail = h.querySelector<HTMLElement>(".rail")!;
     expect(rail.children).toHaveLength(0);
     expect(getComputedStyle(rail).display).toBe("none");
-    expect(getComputedStyle(h.querySelector(".cluster-sep")!).display).toBe("none");
   });
 
   it("merged: Redeploy stays (only the strip has it), the merged chip goes", async () => {
@@ -1660,5 +1517,67 @@ describe("GitRail — rowOwnsPr (merge row on screen)", () => {
     await vi.waitFor(() => expect(document.querySelector("[role='menu']")).not.toBeNull());
     await screen.rerender({ ...baseProps, mobile: true, rowOwnsPr: true });
     await vi.waitFor(() => expect(document.querySelector("[role='menu']")).toBeNull());
+  });
+});
+
+describe("GitRail — empty binding", () => {
+  const noneState: GitState = {
+    kind: "github",
+    state: "none",
+    checks: "none",
+    deployConfigured: false,
+  };
+
+  // Reads the bindable `empty` prop through an accessor pair (the test renderer forwards setters).
+  async function renderEmpty(props: Record<string, unknown>) {
+    let empty: boolean | undefined;
+    const h = host(600);
+    await render(GitRail, {
+      target: h,
+      props: {
+        ...baseProps,
+        mobile: true,
+        ...props,
+        get empty() {
+          return empty ?? true;
+        },
+        set empty(v: boolean) {
+          empty = v;
+        },
+      },
+    });
+    return { h, read: () => empty };
+  }
+
+  it("is true while nothing renders (no PR, autopilot hides Open PR)", async () => {
+    gitStateFn.mockResolvedValue(noneState);
+    const { h, read } = await renderEmpty({ autopilotOn: true });
+    await vi.waitFor(() => expect(h.querySelector(".rail")).not.toBeNull());
+    expect(read() ?? true).toBe(true);
+  });
+
+  it("is true while the forge says nothing (no forge / no PR → null)", async () => {
+    gitStateFn.mockResolvedValue(null as unknown as GitState);
+    const { read } = await renderEmpty({});
+    await new Promise((r) => setTimeout(r, 50));
+    expect(read() ?? true).toBe(true);
+  });
+
+  it("is false once the rail shows an action (Open PR)", async () => {
+    gitStateFn.mockResolvedValue(noneState);
+    const { read } = await renderEmpty({ autopilotOn: false });
+    await vi.waitFor(() => expect(read()).toBe(false));
+  });
+
+  it("is false for an open PR's readouts", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    const { read } = await renderEmpty({});
+    await vi.waitFor(() => expect(read()).toBe(false));
+  });
+
+  it("is false while the forge call failed (error + Retry shows)", async () => {
+    gitStateFn.mockRejectedValue(new Error("502"));
+    const { read } = await renderEmpty({});
+    await vi.waitFor(() => expect(read()).toBe(false));
   });
 });

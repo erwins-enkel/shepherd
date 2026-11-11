@@ -293,7 +293,7 @@ describe("Viewport Chat tab", () => {
       const log = page.getByRole("log");
       await expect.element(log.getByText("Run the tests again")).toBeVisible();
       await expect.element(log.getByText(m.assistant_chat_sent(), { exact: true })).toBeVisible();
-      await open(m.viewport_diff_tab());
+      await open(m.viewport_files_tab());
       expect(page.getByRole("toolbar", { name: m.steerbar_toolbar_aria() }).query()).toBeNull();
     } finally {
       steers.list = previous;

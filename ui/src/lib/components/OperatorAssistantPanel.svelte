@@ -235,8 +235,8 @@
     chat: m.viewport_chat_tab,
     term: m.viewport_terminal_tab,
     todo: m.viewport_todo_tab,
-    diff: m.viewport_diff_tab,
     files: m.viewport_files_tab,
+    automation: m.viewport_automation_tab,
     preview: m.viewport_preview_tab,
     browser: m.viewport_browser_tab,
   };

@@ -122,7 +122,7 @@ describe("PulseActionBanner", () => {
     for (const over of [
       { session: session({ host: { name: "mac" } as Session["host"] }) },
       { reviewActive: true },
-      { tab: "diff" },
+      { tab: "automation" },
     ]) {
       const h = mount(over);
       await Promise.resolve();

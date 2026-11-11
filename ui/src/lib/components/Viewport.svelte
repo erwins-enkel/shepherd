@@ -71,8 +71,8 @@
   import TodoPanel from "#lib/components/TodoPanel.svelte";
   import ChatView from "#lib/components/chat/ChatView.svelte";
   import SubagentFanout from "#lib/components/SubagentFanout.svelte";
-  import DiffPanel from "#lib/components/DiffPanel.svelte";
-  import FilesPanel from "./viewport/FilesPanel.svelte";
+  import FilesTab from "./viewport/FilesTab.svelte";
+  import AutomationPanel from "./viewport/AutomationPanel.svelte";
   import { enterKey } from "#lib/controlKeys.js";
   import {
     lockAxis,
@@ -353,9 +353,15 @@
   $effect(() => {
     if (tab === "chat") chatOpened = true;
   });
-  // desktop only: reveals the git rail (PR / CI / critic / verdict / automation) as a
+  // desktop only: reveals the git rail (PR / CI / critic / verdict) as a
   // second header row, so the primary strip stays uncrowded until the operator asks
   let gitOpen = $state(false);
+  // GitRail renders nothing (no PR status, action, error or popover): the strip hides, and on
+  // desktop the git-toggle with it, so no control opens an empty row.
+  let railEmpty = $state(true);
+  $effect(() => {
+    if (railEmpty && gitOpen) gitOpen = false;
+  });
   // The merge row above the steer bar (#3540): an open PR's state + its one Merge, on the two
   // tabs that steer. While it shows, the recap drops its one-line headline (no second "ready")
   // and opens from the row's ⋯ menu instead.
@@ -1125,14 +1131,11 @@
     if (todoExists === false && tab === "todo") tab = "term";
   });
 
-  // The Files tab is shown for any live session that has a claudeSessionId (#1258) OR any operator
-  // attachment (#1717) — the latter makes attachments visible for non-Claude sessions too (they have
-  // no scratchpad). See computeHasFiles for the exact rule.
+  // The Files tab's Scratchpad/Worktree subtabs show for any live session that has a
+  // claudeSessionId (#1258) OR any operator attachment (#1717) — the latter makes attachments
+  // visible for non-Claude sessions too (they have no scratchpad). See computeHasFiles for the
+  // exact rule. Without them Files still shows its Diff subtab, so the tab itself never vanishes.
   const hasFiles = $derived(computeHasFiles(session));
-  // Don't strand the operator on a Files tab whose scratchpad just emptied.
-  $effect(() => {
-    if (!hasFiles && tab === "files") tab = "term";
-  });
 
   // once a PR exists (open or merged) the session has delivered its work — surface
   // the decommission button as a bright "ready to clean up the worktree" nudge so the
@@ -3217,7 +3220,6 @@
         {session}
         {previewPort}
         todoExists={!!todoExists}
-        {hasFiles}
         {hasPreview}
         {hasBrowser}
         {compact}
@@ -3232,25 +3234,27 @@
         <!-- git-rail disclosure — grouped with the work-state chips (status ·
            PLANNING) it shares meaning with, anchored in the right cluster so a
            short task name no longer strands it mid-bar. Reveals the full rail
-           (PR / CI / merge / critic / ready / verdict) plus the autopilot toggle
-           as a second header row (.vp-git-strip). A direct tap toggles instantly
-           and is the keyboard/AT path (aria-expanded); tapping the task title
+           (PR / CI / critic / verdict) as a second header row (.vp-git-strip);
+           absent while the rail is empty. A direct tap toggles instantly and is
+           the keyboard/AT path (aria-expanded); tapping the task title
            (onTitleTap) toggles the same strip. -->
-        <button
-          class="git-toggle"
-          class:open={gitOpen}
-          class:attention={prAttention || planAttention}
-          class:clear={prClear}
-          type="button"
-          aria-expanded={gitOpen}
-          onclick={() => (gitOpen = !gitOpen)}
-          title={gitToggleTitle}
-          aria-label={gitToggleAria}
-        >
-          <span class="gt-dot" aria-hidden="true"></span>
-          <span class="gt-label">{gitToggleLabel}</span>
-          <span class="gt-caret" aria-hidden="true">{gitOpen ? "▴" : "▾"}</span>
-        </button>
+        {#if !railEmpty}
+          <button
+            class="git-toggle"
+            class:open={gitOpen}
+            class:attention={prAttention || planAttention}
+            class:clear={prClear}
+            type="button"
+            aria-expanded={gitOpen}
+            onclick={() => (gitOpen = !gitOpen)}
+            title={gitToggleTitle}
+            aria-label={gitToggleAria}
+          >
+            <span class="gt-dot" aria-hidden="true"></span>
+            <span class="gt-label">{gitToggleLabel}</span>
+            <span class="gt-caret" aria-hidden="true">{gitOpen ? "▴" : "▾"}</span>
+          </button>
+        {/if}
       {/if}
       {#if mobile}
         <!-- connection state, alert-by-exception: a lone amber dot only when dropped -->
@@ -3307,7 +3311,7 @@
       {#if !compact}
         <!-- passive at-rest pip: the READY control lives in the merge row's ⋯ menu; its ON
            state stays glance-able here. Autopilot's ON state is surfaced solely
-           by the Automation pill in GitRail; paused/complete states still appear
+           by the Automation tab; paused/complete states still appear
            via AutopilotBadge below. -->
         {#if session.readyToMerge}
           <span
@@ -3317,7 +3321,7 @@
             title={m.gitrail_ready_on_title()}>✓</span
           >
         {/if}
-        <!-- REVIEWING (in-flight critic, surfaced in the GitRail/auto-pill) outranks the
+        <!-- REVIEWING (in-flight critic, surfaced on the Automation tab's count) outranks the
            autopilot badge — mirror the cards' precedence so NEEDS YOU/DELIVERED never
            co-renders with REVIEWING anywhere. -->
         {#if !reviews.isReviewing(session.id)}<AutopilotBadge
@@ -3360,15 +3364,15 @@
 
     <!-- the git rail gets its own strip when there's no room for it inline:
        always on compact layouts (mobile + unfolded fold, where the header wraps),
-       and on desktop only while the PR disclosure toggle is open. The strip is
-       the session-lifecycle surface, so the lifecycle cluster (ready — inside
-       GitRail — autopilot, plus decommission on compact) lives here too, off the
-       identity row; on desktop decommission stays inline in the actions cluster. -->
+       and on desktop only while the PR disclosure toggle is open. It shows only
+       while the rail has content; autopilot lives in the Automation tab and the
+       compact decommission in the header actions. -->
     {#snippet gitStrip()}
-      <div class="vp-git-strip">
+      <!-- stays mounted while empty (hidden), so GitRail keeps reporting `railEmpty` -->
+      <div class="vp-git-strip" class:empty={railEmpty}>
         <GitRail
+          bind:empty={railEmpty}
           sessionId={session.id}
-          repoPath={session.repoPath}
           name={session.name}
           prompt={session.prompt}
           planPhase={session.planPhase}
@@ -3379,62 +3383,7 @@
           epicParent={session.epicParent ?? null}
           rowOwnsPr={prRowShown}
           mobile
-          phone={mobile}
         />
-        <span class="strip-controls">
-          <!-- per-session autopilot override toggle. Reflects the EFFECTIVE state
-             (session override, else repo default) so a null-override session isn't
-             shown as off while the repo default has it running. -->
-          <button
-            class="ap-toggle"
-            class:on={autopilotEffective}
-            type="button"
-            aria-pressed={autopilotEffective}
-            aria-label={m.session_autopilot_toggle_aria()}
-            title={autopilotEffective
-              ? m.session_autopilot_on_label()
-              : m.session_autopilot_off_label()}
-            onclick={toggleSessionAutopilot}
-          >
-            {#if compact}
-              {autopilotEffective
-                ? m.session_autopilot_on_short()
-                : m.session_autopilot_off_short()}
-            {:else}
-              {autopilotEffective
-                ? m.session_autopilot_on_label()
-                : m.session_autopilot_off_label()}
-            {/if}
-          </button>
-          {#if compact && !decomNudge && !decomHidden}
-            <!-- compact only: the rare destructive action, parked at the strip's far
-               edge. Without the merge row, a PR up graduates it to the identity row as
-               the green ready nudge. With the row, it stays here for an open PR and goes
-               for a merged one, whose decommission is the row's main action. Desktop
-               renders decommission inline in the actions cluster, so it never duplicates
-               here. -->
-            <button
-              class="decom icon-btn compact"
-              class:armed
-              type="button"
-              onclick={decommission}
-              title={armed ? m.viewport_confirm_decommission() : m.viewport_decommission_title()}
-              aria-label={armed
-                ? m.viewport_confirm_decommission()
-                : m.viewport_decommission_aria()}
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"><path d="M18 6 6 18" /><path d="M6 6l12 12" /></svg
-              >
-            </button>
-          {/if}
-        </span>
       </div>
     {/snippet}
     {#if mobile}
@@ -3455,8 +3404,12 @@
           </div>
         {/if}
       </div>
-    {:else if (compact && !headerCollapsed) || gitOpen}
-      {@render gitStrip()}
+    {:else if compact}
+      {#if !headerCollapsed}{@render gitStrip()}{/if}
+    {:else}
+      <!-- desktop: mounted whenever the header is, so `railEmpty` gates the git-toggle; shown
+           only while the disclosure is open and the rail has content -->
+      <div class="vp-git-disclosure" class:closed={!gitOpen}>{@render gitStrip()}</div>
     {/if}
 
     <!-- Keep approval/start actions reachable even with the compact header folded. -->
@@ -3644,14 +3597,18 @@
         <TodoPanel repoPath={session.repoPath} />
       </div>
     {/if}
-    {#if tab === "diff"}
+    {#if tab === "automation" && session.repoPath}
       <div class="panel-wrap">
-        <DiffPanel sessionId={session.id} />
+        <AutomationPanel
+          {session}
+          autopilotOn={autopilotEffective}
+          ontoggleautopilot={toggleSessionAutopilot}
+        />
       </div>
     {/if}
     {#if tab === "files"}
       <div class="panel-wrap">
-        <FilesPanel sessionId={session.id} />
+        <FilesTab sessionId={session.id} filesAvailable={hasFiles} />
       </div>
     {/if}
     {#if tab === "browser" && hasBrowser}
@@ -4305,34 +4262,6 @@
     border-color: color-mix(in srgb, var(--color-green) 55%, transparent);
   }
 
-  /* per-session autopilot toggle (git strip): matches .git-toggle sizing */
-  .ap-toggle {
-    display: inline-flex;
-    align-items: center;
-    flex-shrink: 0;
-    background: transparent;
-    border: 1px solid var(--color-line);
-    border-radius: 6px;
-    color: var(--color-muted);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    padding: 3px 9px;
-    cursor: pointer;
-    transition:
-      color 0.12s,
-      border-color 0.12s;
-  }
-  .ap-toggle:hover {
-    color: var(--color-ink);
-  }
-  /* ON is an active mode, not a completion — amber per the active-toolbar
-     convention (DESIGN.md); green stays reserved for ready-to-merge */
-  .ap-toggle.on {
-    color: var(--color-amber);
-    border-color: color-mix(in srgb, var(--color-amber) 55%, transparent);
-  }
-
   /* phone merged header: repo · session (subsumes the now-hidden top bar) */
   .desig-wrap.ctx {
     min-width: 0;
@@ -4453,41 +4382,6 @@
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border: 0;
-  }
-
-  .decom {
-    flex-shrink: 0;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 2px;
-    color: var(--color-faint);
-    cursor: pointer;
-    transition:
-      color 0.12s,
-      border-color 0.12s,
-      background 0.12s;
-  }
-
-  .decom:hover {
-    color: var(--color-red);
-    border-color: color-mix(in srgb, var(--color-red) 45%, transparent);
-  }
-
-  .decom.armed {
-    color: var(--color-red);
-    border-color: var(--color-red);
-    background: color-mix(in srgb, var(--color-red) 12%, transparent);
-  }
-
-  /* Icon-only armed decom: no "?" adornment (the square has no room for it); the
-     armed/destructive-confirm state reads as a solid red fill instead. Scoped to
-     .icon-btn so the labeled "confirm ✕" text form keeps its faint-red treatment. */
-  .decom.icon-btn.armed {
-    background: var(--color-red);
-    border-color: var(--color-red);
-    /* knockout ✕ in the surface color — clears WCAG ≥3:1 non-text contrast on the
-       red fill in all four themes (ink-bright fails the high-contrast themes). */
-    color: var(--color-bg);
   }
 
   /* rename: inline editor that takes the title's own slot in place (double-tap/
@@ -4738,24 +4632,13 @@
     max-height: 45dvh;
     overflow-y: auto;
   }
-  /* lifecycle cluster (autopilot toggle + decommission) at the strip's trailing
-     edge. It continues GitRail's ⚙ pill as one control cluster; the single
-     git-status │ cluster divider lives in GitRail (.cluster-sep), not here. */
-  .strip-controls {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex: 0 0 auto;
+  /* GitRail has nothing to show: keep it mounted (it reports `railEmpty`), take no space */
+  .vp-git-disclosure {
+    flex-shrink: 0;
   }
-  /* the strip's GitRail uses the shared actionbar touch height — match it so the
-     cluster doesn't sit half-height beside the rail buttons */
-  .strip-controls .ap-toggle {
-    min-height: var(--mobile-actionbar-hit);
-    padding: 6px 9px;
-  }
-  /* chip radius so the armed red fill rhymes with the cluster's 6px chips */
-  .strip-controls .decom {
-    border-radius: var(--radius-chip);
+  .vp-git-strip.empty,
+  .vp-git-disclosure.closed {
+    display: none;
   }
 
   .vp-head.mobile {
@@ -4884,9 +4767,8 @@
   .preview-open:focus-visible {
     text-decoration: underline;
   }
-  /* stop-preview button: borrows .decom's danger-arm color treatment (faint base →
-     --color-red on hover/armed) but keeps mixed-case at a tighter letter-spacing
-     (0.08em vs .decom's 0.12em) because the label is multi-word ("Stop dev server" /
+  /* stop-preview button: the decommission control's danger-arm color treatment (faint base →
+     --color-red on hover/armed) but mixed-case at a tighter letter-spacing (0.08em) because the label is multi-word ("Stop dev server" /
      "Confirm stop?") and all-caps would be too aggressive in the footer. */
   .preview-stop {
     flex: none;

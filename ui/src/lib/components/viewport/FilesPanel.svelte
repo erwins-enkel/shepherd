@@ -12,14 +12,13 @@
   import { m } from "#lib/paraglide/messages.js";
   import { relativeAge } from "#lib/format.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
-  import InfoTip from "#lib/components/InfoTip.svelte";
   import { untrack } from "svelte";
 
   // Read/upload browser of the session's scratchpad subtree (#1164, #1258). Click a directory to
   // descend, click a file to download it. Upload via button or drag-and-drop into the current dir.
-  let { sessionId }: { sessionId: string } = $props();
+  // The source is picked by FilesTab's switch, which remounts this panel per source.
+  let { sessionId, source }: { sessionId: string; source: "scratchpad" | "worktree" } = $props();
 
-  let source = $state<"scratchpad" | "worktree">("scratchpad");
   const readOnly = $derived(source === "worktree");
 
   let listing = $state<ScratchListing | null>(null);
@@ -134,16 +133,6 @@
     }
   }
 
-  function switchSource(s: "scratchpad" | "worktree") {
-    if (s === source) return;
-    source = s;
-    uploads = []; // upload statuses belong to the scratchpad session
-    dropNotice = null;
-    listing = null; // avoid a stale-source listing flashing under the new source's labels/hrefs
-    resetSort(); // each source starts at the default sort
-    void browse(""); // reset to root and reload from the new source
-  }
-
   const downloadUrl = (p: string) =>
     source === "worktree" ? worktreeDownloadUrl(sessionId, p) : scratchpadDownloadUrl(sessionId, p);
 
@@ -154,7 +143,6 @@
   $effect(() => {
     const id = sessionId;
     untrack(() => {
-      source = "scratchpad";
       listing = null;
       error = false;
       uploads = [];
@@ -295,31 +283,6 @@
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
 >
-  <div class="seg-row">
-    <div class="seg-tabs" role="group" aria-label={m.files_source_switch_aria()}>
-      <button
-        type="button"
-        class="seg-btn"
-        class:seg-active={source === "scratchpad"}
-        aria-pressed={source === "scratchpad"}
-        onclick={() => switchSource("scratchpad")}>{m.files_source_scratchpad()}</button
-      >
-      <button
-        type="button"
-        class="seg-btn"
-        class:seg-active={source === "worktree"}
-        aria-pressed={source === "worktree"}
-        onclick={() => switchSource("worktree")}>{m.files_source_worktree()}</button
-      >
-    </div>
-    <div class="seg-tip">
-      <InfoTip
-        text={m.files_source_difference_tip()}
-        label={m.newtask_info_aria({ topic: m.files_source_switch_aria() })}
-        prominent={true}
-      />
-    </div>
-  </div>
   {#if dragOver}
     <!-- Whole-tab drop overlay; sits over (not inside) the scroll wrapper so it always covers the
          visible area, and pointer-events:none keeps drag/drop events reaching .files -->
@@ -498,57 +461,6 @@
     overflow-y: auto;
     flex: 1;
     min-height: 0;
-  }
-  .seg-row {
-    display: flex;
-    align-items: stretch;
-    border-bottom: 1px solid var(--color-line);
-    flex-shrink: 0;
-  }
-  .seg-tabs {
-    display: flex;
-    flex: 1;
-    min-width: 0;
-  }
-  .seg-tip {
-    flex: 0 0 36px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-left: 1px solid var(--color-line);
-    background: var(--color-inset);
-  }
-  .seg-btn {
-    flex: 1;
-    min-width: 0;
-    min-height: 44px;
-    border: 0;
-    border-right: 1px solid var(--color-line);
-    background: none;
-    font-family: inherit;
-    font-size: var(--fs-base);
-    cursor: pointer;
-    padding: 0 2px;
-    color: var(--color-muted);
-    text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .seg-btn:last-child {
-    border-right: 0;
-  }
-  .seg-btn:hover {
-    color: var(--color-ink);
-  }
-  .seg-btn.seg-active {
-    color: var(--color-amber);
-    background: var(--color-inset);
-    box-shadow: inset 0 -2px 0 var(--color-amber);
-  }
-  .seg-btn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .drop-overlay {
     position: absolute;

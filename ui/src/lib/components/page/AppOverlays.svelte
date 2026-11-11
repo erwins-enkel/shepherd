@@ -477,6 +477,7 @@
   repoSettingsWindow.provide({
     drain: (repoPath) => store.drain[repoPath] ?? null,
     globals: () => settings,
+    setupCi: (repoPath) => onadopt(repoPath, m.automation_no_pr_ci_task_prompt()),
   });
   const repoSettings = $derived(repoSettingsWindow.target);
   const repoSettingsDrain = $derived(
@@ -489,7 +490,7 @@
     const repoPath = repoSettings?.repoPath;
     if (!repoPath) return;
     repoSettingsWindow.close();
-    onadopt(repoPath, m.automation_no_pr_ci_task_prompt());
+    repoSettingsWindow.setupCi(repoPath);
   }
 
   // The update window: alone it shows only while this Shepherd is behind; with machines connected

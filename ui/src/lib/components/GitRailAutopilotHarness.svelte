@@ -16,14 +16,12 @@
 
   let {
     sessionId,
-    repoPath = "",
     name = "",
     prompt = "",
     mobile = false,
     planPhase = null,
   }: {
     sessionId: string;
-    repoPath?: string;
     name?: string;
     prompt?: string;
     mobile?: boolean;
@@ -37,4 +35,4 @@
   }
 </script>
 
-<GitRail {sessionId} {repoPath} {name} {prompt} {mobile} {planPhase} {autopilotOn} />
+<GitRail {sessionId} {name} {prompt} {mobile} {planPhase} {autopilotOn} />

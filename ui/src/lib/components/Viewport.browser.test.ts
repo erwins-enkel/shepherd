@@ -206,6 +206,24 @@ function fakeTouch(type: string, x: number, y: number): Event {
   return e;
 }
 
+// A PR-less forge state: the strip shows its Open PR action (autopilot off), so the rail has
+// content and the desktop git-toggle renders. Without a mock the real call 404s → empty rail.
+const noPrGit: GitState = {
+  kind: "github",
+  state: "none",
+  checks: "none",
+  deployConfigured: false,
+};
+function railWithContent() {
+  gitStateFn.mockResolvedValue(noPrGit);
+  onTestFinished(() => {
+    gitStateFn.mockReset();
+  });
+}
+// Desktop keeps the strip mounted (hidden) so GitRail can report `railEmpty`: read visibility.
+const stripShown = (c: Element) =>
+  c.querySelector<HTMLElement>(".vp-git-strip")?.checkVisibility() ?? false;
+
 describe("Viewport — build queue with persisted compact header fold", () => {
   beforeEach(async () => {
     localStorage.setItem("shepherd-vp-header-collapsed", "1");
@@ -457,11 +475,9 @@ describe("Viewport preview tab", () => {
     });
     await expect.element(previewTab()).toHaveClass(/active/);
 
-    // exact: the open DiffPanel also exposes a "Refresh diff" button whose
-    // accessible name otherwise matches; we want the tab button itself.
-    const diffTab = page.getByRole("tab", { name: "Diff", exact: true });
-    await diffTab.click();
-    await expect.element(diffTab).toHaveClass(/active/);
+    const filesTab = page.getByRole("tab", { name: m.viewport_files_tab(), exact: true });
+    await filesTab.click();
+    await expect.element(filesTab).toHaveClass(/active/);
 
     // port vanishes then returns — same tick (no new badge click). The
     // lastPreviewTick guard must NOT yank the user back to Preview.
@@ -476,10 +492,10 @@ describe("Viewport preview tab", () => {
       openPreviewTick: 1,
     });
 
-    // the tab is available again, but the operator stays on Diff
+    // the tab is available again, but the operator stays on Files
     await expect.element(previewTab()).toBeInTheDocument();
     await expect.element(previewTab()).not.toHaveClass(/active/);
-    await expect.element(diffTab).toHaveClass(/active/);
+    await expect.element(filesTab).toHaveClass(/active/);
 
     // and a genuine new badge click (tick bump) still opens it
     await rerender({
@@ -686,6 +702,7 @@ describe("Viewport rename affordances", () => {
   beforeEach(() => {
     localStorage.removeItem("shepherd-vp-header-collapsed");
     localStorage.removeItem("shepherd-vp-phone-details-open");
+    railWithContent();
   });
 
   const headerNameSlug = (value: string) =>
@@ -762,10 +779,11 @@ describe("Viewport rename affordances", () => {
     const header = container.querySelector<HTMLElement>(".vp-head:not(.mobile)");
     expect(header, "normal desktop header").not.toBeNull();
     // rail closed at rest on desktop
-    expect(container.querySelector(".vp-git-strip")).toBeNull();
+    await vi.waitFor(() => expect(header!.querySelector(".git-toggle")).not.toBeNull());
+    expect(stripShown(container)).toBe(false);
 
     header!.querySelector<HTMLElement>(".vp-name")!.click();
-    await expect.poll(() => container.querySelector(".vp-git-strip")).not.toBeNull();
+    await expect.poll(() => stripShown(container)).toBe(true);
   });
 
   it("double-tap renames and restores the rail to its pre-rename state", async () => {
@@ -776,6 +794,7 @@ describe("Viewport rename affordances", () => {
     });
 
     const header = container.querySelector<HTMLElement>(".vp-head:not(.mobile)");
+    await vi.waitFor(() => expect(header!.querySelector(".git-toggle")).not.toBeNull());
     const title = header!.querySelector<HTMLElement>(".vp-name");
     // two taps inside the double-tap window: tap 1 opens the rail, tap 2 undoes
     // that and opens rename → the rail returns to closed, no lingering toggle
@@ -784,7 +803,7 @@ describe("Viewport rename affordances", () => {
 
     const input = page.getByRole("textbox", { name: m.viewport_rename_aria() });
     await expect.element(input).toBeInTheDocument();
-    expect(container.querySelector(".vp-git-strip")).toBeNull();
+    expect(stripShown(container)).toBe(false);
   });
 
   it("touch-desktop single tap folds the header instantly", async () => {
@@ -844,22 +863,22 @@ describe("Viewport rename affordances", () => {
       openPreviewTick: 0,
     });
 
-    const diffTab = page.getByRole("tab", { name: m.viewport_diff_tab() });
-    await diffTab.click();
-    await expect.element(diffTab).toHaveClass(/active/);
+    const filesTab = page.getByRole("tab", { name: m.viewport_files_tab(), exact: true });
+    await filesTab.click();
+    await expect.element(filesTab).toHaveClass(/active/);
 
     const title = container.querySelector<HTMLElement>(".vp-name");
     expect(title, "touch-desktop title").not.toBeNull();
     // two taps inside the double-tap window: tap 1 folds the header (forcing
     // tab back to "term" internally), tap 2 undoes the fold — which must
-    // restore the pre-tap tab (Diff), not leave it on "term" — and opens
+    // restore the pre-tap tab (Files), not leave it on "term" — and opens
     // rename.
     title!.click();
     title!.click();
 
     const input = page.getByRole("textbox", { name: m.viewport_rename_aria() });
     await expect.element(input).toBeInTheDocument();
-    await expect.element(diffTab).toHaveClass(/active/);
+    await expect.element(filesTab).toHaveClass(/active/);
   });
 
   it("clicking the relocated git-toggle chip toggles the rail with aria-expanded", async () => {
@@ -870,13 +889,16 @@ describe("Viewport rename affordances", () => {
     });
 
     const header = container.querySelector<HTMLElement>(".vp-head:not(.mobile)");
-    const toggle = header!.querySelector<HTMLElement>(".git-toggle");
-    expect(toggle, "git-toggle chip").not.toBeNull();
-    expect(toggle!.getAttribute("aria-expanded")).toBe("false");
-    expect(container.querySelector(".vp-git-strip")).toBeNull();
+    const toggle = await vi.waitFor(() => {
+      const t = header!.querySelector<HTMLElement>(".git-toggle");
+      expect(t, "git-toggle chip").not.toBeNull();
+      return t!;
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(stripShown(container)).toBe(false);
 
-    toggle!.click();
-    await expect.poll(() => container.querySelector(".vp-git-strip")).not.toBeNull();
+    toggle.click();
+    await expect.poll(() => stripShown(container)).toBe(true);
     expect(toggle!.getAttribute("aria-expanded")).toBe("true");
   });
 
@@ -1423,7 +1445,7 @@ describe("Viewport bottom strip on the chat tab", () => {
     });
     expect(container.querySelector('.ssb[data-joined="true"]'), "status bar joins").not.toBeNull();
 
-    await page.getByRole("tab", { name: m.viewport_diff_tab() }).click();
+    await page.getByRole("tab", { name: m.viewport_files_tab(), exact: true }).click();
     await vi.waitFor(() => expect(container.querySelector(".review-banner")).toBeNull());
     await vi.waitFor(() => expect(stripHeight(container)).toBe(0));
   });
@@ -1631,18 +1653,6 @@ describe("Viewport mobile page-swipe scoping", () => {
     }
   });
 
-  it("uses the shared actionbar touch height for the autopilot toggle", async () => {
-    const { container } = await renderMobile(vi.fn());
-    const toggle = container.querySelector<HTMLElement>(".strip-controls .ap-toggle");
-    expect(toggle, "autopilot toggle should render").not.toBeNull();
-    const expectedTouchHeight = getComputedStyle(document.documentElement)
-      .getPropertyValue("--mobile-actionbar-hit")
-      .trim();
-
-    expect(expectedTouchHeight, "mobile actionbar height token").not.toBe("");
-    expect(getComputedStyle(toggle!).minHeight).toBe(expectedTouchHeight);
-  });
-
   it("does NOT page when a drag starts on a [data-swipe-ignore] surface inside the body", async () => {
     const onnavigate = vi.fn();
     const { container } = await renderMobile(onnavigate);
@@ -1670,12 +1680,8 @@ describe("Viewport mobile page-swipe scoping", () => {
 // background (not the faint tint of .decom.armed, which is overridden by
 // .decom.icon-btn.armed for the icon-only forms).
 describe("Viewport armed decommission icon-only rendering", () => {
-  // the phone's decommission ✕ sits in the session details, closed by default
-  beforeEach(() => localStorage.setItem("shepherd-vp-phone-details-open", "1"));
-  afterEach(() => localStorage.removeItem("shepherd-vp-phone-details-open"));
-
   it("armed compact decom button has no .decom-confirm child and has solid red background", async () => {
-    // mobile=true + readyToMerge=false → the git-strip icon-only decom button renders.
+    // mobile=true + readyToMerge=false → the header's icon-only decom button renders.
     // Viewport.svelte CSS is scoped; app.css (imported at test top) provides tokens.
     const { container } = await render(Viewport, {
       session: session({ id: "dc-compact", readyToMerge: false }),
@@ -1763,10 +1769,6 @@ describe("Viewport armed decommission icon-only rendering", () => {
 // be a toast — and the close must still go through, per the deliberate "a probe failure must
 // never block decommission" guard.
 describe("Viewport decommission — leftover probes unavailable", () => {
-  // the phone's decommission ✕ sits in the session details, closed by default
-  beforeEach(() => localStorage.setItem("shepherd-vp-phone-details-open", "1"));
-  afterEach(() => localStorage.removeItem("shepherd-vp-phone-details-open"));
-
   it("fires an assertive keyed toast and still archives", async () => {
     getLeftoversFn.mockResolvedValueOnce({ leftovers: [], probesUnavailable: true });
     const infoSpy = vi.spyOn(toasts, "info");
@@ -1843,10 +1845,111 @@ describe("Viewport without an Activity tab", () => {
     });
 
     await expect
-      .element(page.getByRole("tab", { name: m.viewport_diff_tab() }))
+      .element(page.getByRole("tab", { name: m.viewport_files_tab(), exact: true }))
       .toBeInTheDocument();
     expect(page.getByRole("tab", { name: "Activity", exact: true }).query()).toBeNull();
     await vi.waitFor(() => expect(container.querySelector("button.recap-header")).not.toBeNull());
+  });
+});
+
+// ── Diff lives inside Files ───────────────────────────────────────────────────
+// The top-level Diff tab folded into the Files tab as a subtab. Files therefore shows for every
+// session; without scratchpad/worktree files (computeHasFiles false) it opens straight on the Diff.
+describe("Viewport Files tab carries the Diff", () => {
+  it("has no Diff tab, and a session without files still reaches the Diff via Files", async () => {
+    const { container } = await render(Viewport, {
+      session: session({ id: "files-no-scratch", claudeSessionId: "" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    expect(page.getByRole("tab", { name: m.viewport_diff_tab(), exact: true }).query()).toBeNull();
+    const filesTab = page.getByRole("tab", { name: m.viewport_files_tab(), exact: true });
+    await filesTab.click();
+    await expect.element(filesTab).toHaveClass(/active/);
+    await vi.waitFor(() =>
+      expect(container.querySelector(".files-tab .diff-wrap .diff")).not.toBeNull(),
+    );
+    expect(container.querySelector(".files-tab .seg-row")).toBeNull();
+  });
+});
+
+describe("Viewport Automation tab + empty strip", () => {
+  afterEach(() => {
+    localStorage.removeItem("shepherd-vp-phone-details-open");
+    gitStateFn.mockReset();
+  });
+
+  it("the Auto tab carries the n/10 count and opens the panel with the session AP toggle", async () => {
+    const { container } = await render(Viewport, {
+      session: session({ id: "auto-tab", autopilotEnabled: true }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    const autoTab = container.querySelector<HTMLElement>(".tab-btn.auto-tab")!;
+    expect(autoTab, "Automation tab").not.toBeNull();
+    expect(autoTab.textContent).toContain(m.viewport_automation_tab());
+    expect(autoTab.querySelector(".auto-count")?.textContent).toMatch(/^\d+\/10$/);
+    expect(autoTab.getAttribute("aria-label")).toMatch(/10/);
+    // right after Files
+    const tabs = [...container.querySelectorAll<HTMLElement>(".tab-scroll .tab-btn")];
+    const filesIdx = tabs.findIndex((t) => t.textContent?.trim() === m.viewport_files_tab());
+    expect(tabs.indexOf(autoTab)).toBe(filesIdx + 1);
+
+    autoTab.click();
+    await expect.element(autoTab).toHaveClass(/active/);
+    const toggle = page.getByRole("button", { name: m.session_autopilot_toggle_aria() });
+    await expect.element(toggle).toHaveAttribute("aria-pressed", "true");
+    await expect.element(toggle).toHaveTextContent(m.session_autopilot_on_label());
+    // the repo settings body renders inline, tab variant (no window kicker)
+    expect(container.querySelector(".automation .root")).not.toBeNull();
+    expect(container.querySelector(".automation .kicker")).toBeNull();
+  });
+
+  it("phone: the strip hides while the rail is empty, and the ✕ lives in the header", async () => {
+    gitStateFn.mockResolvedValue(null);
+    localStorage.setItem("shepherd-vp-phone-details-open", "1");
+    await page.viewport(390, 844);
+    onTestFinished(() => page.viewport(1280, 900));
+    const { container } = await render(Viewport, {
+      session: session({ id: "empty-strip" }),
+      mobile: true,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(container.querySelector(".vp-git-strip")).not.toBeNull());
+    expect(stripShown(container)).toBe(false);
+    expect(container.querySelector(".vp-git-strip .ap-toggle")).toBeNull();
+    const decom = container.querySelector<HTMLElement>(".vp-head button.decom.icon-btn.compact");
+    expect(decom, "compact ✕ in the header").not.toBeNull();
+    expect(container.querySelector(".vp-git-strip .decom")).toBeNull();
+  });
+
+  it("phone: the strip shows once the rail has content (Open PR)", async () => {
+    gitStateFn.mockResolvedValue(noPrGit);
+    localStorage.setItem("shepherd-vp-phone-details-open", "1");
+    await page.viewport(390, 844);
+    onTestFinished(() => page.viewport(1280, 900));
+    const { container } = await render(Viewport, {
+      session: session({ id: "full-strip" }),
+      mobile: true,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await expect.poll(() => stripShown(container)).toBe(true);
+  });
+
+  it("desktop: no git-toggle while the rail is empty", async () => {
+    gitStateFn.mockResolvedValue(null);
+    const { container } = await render(Viewport, {
+      session: session({ id: "empty-toggle" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(container.querySelector(".vp-git-strip")).not.toBeNull());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(container.querySelector(".git-toggle")).toBeNull();
+    expect(stripShown(container)).toBe(false);
   });
 });
 
@@ -2488,14 +2591,16 @@ describe("Viewport task info reveal", () => {
   // cursor over the chip, which would fire a stray pointerenter (hoverOpen) on the
   // next test's render — so no hidden-asserting case may follow it.
   it("a real click toggles the git rail and does not latch the popover open", async () => {
+    railWithContent();
     const { container } = await renderMeta(); // pure mouse desktop → tap toggles git rail
     const wrap = container.querySelector<HTMLElement>(".desig-wrap")!;
-    expect(container.querySelector(".vp-git-strip")).toBeNull();
+    await vi.waitFor(() => expect(container.querySelector(".git-toggle")).not.toBeNull());
+    expect(stripShown(container)).toBe(false);
     // real Playwright click: moves the pointer (pointerenter → hoverOpen), focuses
     // .desig with a preceding pointerdown (pointer-driven → focusOpen stays false),
     // and runs onTitleTap → gitOpen.
     await page.getByText("TASK-01").click();
-    await expect.poll(() => container.querySelector(".vp-git-strip")).not.toBeNull();
+    await expect.poll(() => stripShown(container)).toBe(true);
     // move the pointer off → hoverOpen clears; nothing else latches → hidden.
     wrap.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
     await expect.poll(() => isOpen(container)).toBe(false);
@@ -2706,12 +2811,14 @@ describe("Viewport desktop header — clusters, name width, danger split (#2263)
   });
 
   it("orders nav | state | actions | danger with hairlines and ▶ in the actions cluster", async () => {
+    railWithContent();
     const { container } = await render(Viewport, {
       session: session({ id: "hd-order" }),
       previewPort: null,
       openPreviewTick: 0,
     });
     const head = desktopHead(container);
+    await vi.waitFor(() => expect(head.querySelector(".git-toggle")).not.toBeNull());
     const items = rowItems(head);
     const idx = (pred: (el: HTMLElement) => boolean) => items.findIndex(pred);
     const tabs = idx((el) => el.classList.contains("tab-group"));
@@ -2745,7 +2852,7 @@ describe("Viewport desktop header — clusters, name width, danger split (#2263)
       openPreviewTick: 0,
     });
     const head = desktopHead(container);
-    await page.getByRole("tab", { name: m.viewport_diff_tab() }).click();
+    await page.getByRole("tab", { name: m.viewport_files_tab(), exact: true }).click();
     await vi.waitFor(() => expect(head.querySelector(".vp-redraw")).toBeNull());
     expect(head.querySelector(".vp-resume")).toBeNull();
     const items = rowItems(head);
@@ -2976,13 +3083,13 @@ describe("Viewport — merge row above the steer bar", () => {
     expect(container.querySelector(".decom.ready")).toBeNull();
     expect(container.querySelector(".decom.quiet")).not.toBeNull();
 
-    await page.getByRole("tab", { name: "Diff", exact: true }).click();
+    await page.getByRole("tab", { name: m.viewport_files_tab(), exact: true }).click();
     await vi.waitFor(() => expect(container.querySelector("section.pr-row")).toBeNull());
     await vi.waitFor(() => expect(container.querySelector(".decom.ready")).not.toBeNull());
     expect(container.querySelector(".decom.quiet")).toBeNull();
   });
 
-  it("desktop toggle: no PR verdict or PR copy while the row shows; both back on Diff", async () => {
+  it("desktop toggle: absent while the row owns the PR (empty rail); back on Files", async () => {
     gitStateFn.mockResolvedValue(openGit);
     const { container } = await render(Viewport, {
       session: session({ id: "mr-toggle" }),
@@ -2991,15 +3098,16 @@ describe("Viewport — merge row above the steer bar", () => {
       openPreviewTick: 0,
     });
     await vi.waitFor(() => expect(container.querySelector("section.pr-row")).not.toBeNull());
-    const toggle = container.querySelector<HTMLElement>(".git-toggle")!;
-    expect(toggle.textContent).toContain(m.viewport_session_controls());
-    expect(toggle.getAttribute("title")).toBe(m.viewport_session_controls_title());
-    expect(toggle.getAttribute("aria-label")).toBe(m.viewport_session_controls_aria());
-    expect(toggle.classList.contains("clear")).toBe(false);
-    expect(toggle.classList.contains("attention")).toBe(false);
+    // the row holds the PR chips, so the rail has nothing left: no toggle opening an empty row
+    await vi.waitFor(() => expect(container.querySelector(".git-toggle")).toBeNull());
 
-    await page.getByRole("tab", { name: "Diff", exact: true }).click();
-    await vi.waitFor(() => expect(toggle.textContent).toContain(m.viewport_git_actions()));
+    await page.getByRole("tab", { name: m.viewport_files_tab(), exact: true }).click();
+    const toggle = await vi.waitFor(() => {
+      const t = container.querySelector<HTMLElement>(".git-toggle");
+      expect(t).not.toBeNull();
+      return t!;
+    });
+    expect(toggle.textContent).toContain(m.viewport_git_actions());
     expect(toggle.getAttribute("title")).toContain(m.viewport_git_actions_title());
     expect(toggle.classList.contains("clear") || toggle.classList.contains("attention")).toBe(true);
   });
@@ -3015,11 +3123,11 @@ describe("Viewport — merge row above the steer bar", () => {
     await vi.waitFor(() => expect(container.querySelector("section.pr-row.merged")).not.toBeNull());
     expect(container.querySelector(".decom")).toBeNull();
     expect(container.querySelector(".vp-rule.danger")).toBeNull();
-    await page.getByRole("tab", { name: "Diff", exact: true }).click();
+    await page.getByRole("tab", { name: m.viewport_files_tab(), exact: true }).click();
     await vi.waitFor(() => expect(container.querySelector(".decom.ready")).not.toBeNull());
   });
 
-  it("phone: the strip carries no PR chips beside the row, and has them back on Diff", async () => {
+  it("phone: the strip carries no PR chips beside the row, and has them back on Files", async () => {
     gitStateFn.mockResolvedValue(openGit);
     await page.viewport(390, 844);
     // the phone's strip lives in the session details, closed by default
@@ -3033,17 +3141,16 @@ describe("Viewport — merge row above the steer bar", () => {
       openPreviewTick: 0,
     });
     await vi.waitFor(() => expect(container.querySelector("section.pr-row")).not.toBeNull());
-    const strip = await vi.waitFor(() => {
-      const el = container.querySelector(".vp-git-strip");
-      expect(el?.querySelector(".auto-pill")).toBeTruthy();
-      return el!;
-    });
+    const strip = container.querySelector(".vp-git-strip")!;
     expect(strip.querySelector(".status-chip")).toBeNull();
-    expect(strip.querySelector(".decom"), "quiet ✕ parks in the strip").not.toBeNull();
-    await page.getByRole("tab", { name: "Diff", exact: true }).click();
+    // nothing left in the rail → the strip hides; the quiet ✕ sits in the header
+    await vi.waitFor(() => expect(stripShown(container)).toBe(false));
+    expect(container.querySelector(".vp-head .decom"), "quiet ✕ in the header").not.toBeNull();
+    await page.getByRole("tab", { name: m.viewport_files_tab(), exact: true }).click();
     await vi.waitFor(() =>
       expect(container.querySelector(".vp-git-strip .status-chip")).not.toBeNull(),
     );
+    expect(stripShown(container)).toBe(true);
   });
 
   it("no row off the steering tabs, without a PR, or once closed; merged keeps it (Stilllegen)", async () => {
@@ -3054,7 +3161,7 @@ describe("Viewport — merge row above the steer bar", () => {
       openPreviewTick: 0,
     });
     await vi.waitFor(() => expect(container.querySelector("section.pr-row")).not.toBeNull());
-    await page.getByRole("tab", { name: "Diff", exact: true }).click();
+    await page.getByRole("tab", { name: m.viewport_files_tab(), exact: true }).click();
     await vi.waitFor(() => expect(container.querySelector("section.pr-row")).toBeNull());
     await page.getByRole("tab", { name: "Terminal", exact: true }).click();
     await vi.waitFor(() => expect(container.querySelector("section.pr-row")).not.toBeNull());
@@ -3144,7 +3251,7 @@ describe("Viewport — phone keeps the Chat tall", () => {
     expect(container.querySelector(".vp-phone-details .ssb")).not.toBeNull();
     expect(localStorage.getItem("shepherd-vp-phone-details-open")).toBe("1");
     await expect
-      .element(page.getByRole("tab", { name: m.viewport_diff_tab() }))
+      .element(page.getByRole("tab", { name: m.viewport_files_tab(), exact: true }))
       .toBeInTheDocument();
   });
 

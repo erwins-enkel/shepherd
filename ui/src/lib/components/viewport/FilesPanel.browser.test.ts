@@ -15,16 +15,26 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     uploadScratchpadFile: vi.fn(),
     getWorktreeListing: vi.fn(),
     worktreeDownloadUrl: vi.fn((id: string, path: string) => `/wt/${id}/${path}`),
+    getDiff: vi.fn(),
+    getDiffAnnotations: vi.fn(),
   };
 });
 
-const { default: FilesPanel } = await import("./FilesPanel.svelte");
+// Rendered through FilesTab, which owns the source switch and remounts the panel per source.
+const { default: FilesTab } = await import("./FilesTab.svelte");
 
-const { getScratchpadListing, uploadScratchpadFile, getWorktreeListing } =
-  await import("#lib/api.js");
+const {
+  getScratchpadListing,
+  uploadScratchpadFile,
+  getWorktreeListing,
+  getDiff,
+  getDiffAnnotations,
+} = await import("#lib/api.js");
 const mockListing = vi.mocked(getScratchpadListing);
 const mockUpload = vi.mocked(uploadScratchpadFile);
 const mockWorktreeListing = vi.mocked(getWorktreeListing);
+const mockDiff = vi.mocked(getDiff);
+const mockDiffAnnotations = vi.mocked(getDiffAnnotations);
 
 const EMPTY_LISTING = { path: "", parent: null, entries: [] };
 
@@ -33,10 +43,21 @@ beforeEach(() => {
   mockListing.mockReset();
   mockUpload.mockReset();
   mockWorktreeListing.mockReset();
+  mockDiff.mockReset();
+  mockDiffAnnotations.mockReset();
 
   // Default: empty listing so the panel renders without hanging on the initial browse
   mockListing.mockResolvedValue(EMPTY_LISTING);
   mockWorktreeListing.mockResolvedValue(EMPTY_LISTING);
+  mockDiff.mockResolvedValue({
+    base: "main",
+    baseRef: "origin/main",
+    head: "feat",
+    fetchFailed: false,
+    truncated: false,
+    files: [],
+  });
+  mockDiffAnnotations.mockResolvedValue({ notes: [] });
 
   fontStyle = document.createElement("style");
   fontStyle.textContent = `:root {
@@ -75,7 +96,7 @@ describe("FilesPanel — file select calls uploadScratchpadFile", () => {
     // seed a second browse call after upload
     mockListing.mockResolvedValue(EMPTY_LISTING);
 
-    render(FilesPanel, { sessionId: "sess-1" });
+    render(FilesTab, { sessionId: "sess-1", filesAvailable: true });
     await waitForPanel();
 
     const file = new File(["hello"], "test.txt", { type: "text/plain" });
@@ -94,7 +115,7 @@ describe("FilesPanel — file select calls uploadScratchpadFile", () => {
   it("refreshes the listing (getScratchpadListing) after a successful upload", async () => {
     mockUpload.mockResolvedValue("test.txt");
 
-    render(FilesPanel, { sessionId: "sess-2" });
+    render(FilesTab, { sessionId: "sess-2", filesAvailable: true });
     await waitForPanel();
 
     const callsBefore = mockListing.mock.calls.length;
@@ -113,7 +134,7 @@ describe("FilesPanel — 413 too-large error surfaces inline", () => {
   it("shows files_upload_too_large message inline when upload returns 413", async () => {
     mockUpload.mockRejectedValue(new ApiError(413, "file too large"));
 
-    render(FilesPanel, { sessionId: "sess-3" });
+    render(FilesTab, { sessionId: "sess-3", filesAvailable: true });
     await waitForPanel();
 
     const file = new File(["x".repeat(100)], "bigfile.bin", { type: "application/octet-stream" });
@@ -132,7 +153,7 @@ describe("FilesPanel — drag-and-drop calls uploadScratchpadFile", () => {
   it("calls uploadScratchpadFile on drop anywhere in the tab with correct args", async () => {
     mockUpload.mockResolvedValue("dropped.txt");
 
-    render(FilesPanel, { sessionId: "sess-4" });
+    render(FilesTab, { sessionId: "sess-4", filesAvailable: true });
     await waitForPanel();
 
     const file = new File(["drop"], "dropped.txt", { type: "text/plain" });
@@ -154,7 +175,7 @@ describe("FilesPanel — drag-and-drop calls uploadScratchpadFile", () => {
   it("shows the whole-tab drop overlay on dragover and clears it on drop", async () => {
     mockUpload.mockResolvedValue("dropped.txt");
 
-    render(FilesPanel, { sessionId: "sess-5" });
+    render(FilesTab, { sessionId: "sess-5", filesAvailable: true });
     await waitForPanel();
 
     const tab = document.querySelector<HTMLDivElement>(".files")!;
@@ -177,8 +198,8 @@ async function clickWorktreeSegButton() {
 }
 
 describe("FilesPanel — source switch (scratchpad/worktree)", () => {
-  it("provides a shared explanation of the two file sources", async () => {
-    render(FilesPanel, { sessionId: "sess-source-info" });
+  it("provides a shared explanation of the three sources", async () => {
+    render(FilesTab, { sessionId: "sess-source-info", filesAvailable: true });
     await waitForPanel();
 
     await expect
@@ -188,14 +209,16 @@ describe("FilesPanel — source switch (scratchpad/worktree)", () => {
         }),
       )
       .toBeInTheDocument();
-    expect(document.querySelector(".info-tooltip")?.textContent?.trim()).toBe(
-      "Scratchpad contains supplementary files for this session and stays separate from the repository. Worktree is the agent's project directory and changes; you can only browse and download it here.",
-    );
+    const tip = document.querySelector(".info-tooltip")?.textContent ?? "";
+    expect(tip).toContain(m.files_source_tip_title());
+    expect(tip).toContain(m.files_source_tip_scratchpad());
+    expect(tip).toContain(m.files_source_tip_worktree());
+    expect(tip).toContain(m.files_source_tip_diff());
     expect(mockWorktreeListing).not.toHaveBeenCalled();
   });
 
   it("defaults to scratchpad and fetches scratchpad listing", async () => {
-    render(FilesPanel, { sessionId: "sess-6" });
+    render(FilesTab, { sessionId: "sess-6", filesAvailable: true });
     await waitForPanel();
 
     await expect.poll(() => mockListing.mock.calls.length).toBeGreaterThan(0);
@@ -210,7 +233,7 @@ describe("FilesPanel — source switch (scratchpad/worktree)", () => {
       entries: [{ name: "readme.md", type: "file", path: "readme.md" }],
     });
 
-    render(FilesPanel, { sessionId: "sess-7" });
+    render(FilesTab, { sessionId: "sess-7", filesAvailable: true });
     await waitForPanel();
 
     await clickWorktreeSegButton();
@@ -224,7 +247,7 @@ describe("FilesPanel — source switch (scratchpad/worktree)", () => {
   });
 
   it("hides the upload button in worktree mode", async () => {
-    render(FilesPanel, { sessionId: "sess-8" });
+    render(FilesTab, { sessionId: "sess-8", filesAvailable: true });
     await waitForPanel();
 
     expect(document.querySelector("button.upload-btn")).toBeTruthy();
@@ -241,7 +264,7 @@ describe("FilesPanel — source switch (scratchpad/worktree)", () => {
       entries: [{ name: "escaped-link", type: "file", path: "escaped-link", linkOutside: true }],
     });
 
-    render(FilesPanel, { sessionId: "sess-9" });
+    render(FilesTab, { sessionId: "sess-9", filesAvailable: true });
     await waitForPanel();
 
     await clickWorktreeSegButton();
@@ -279,7 +302,7 @@ describe("FilesPanel — Created column and sorting", () => {
 
   it("renders a Created cell per row and an em-dash for a missing createdMs", async () => {
     mockListing.mockResolvedValue(mixedListing);
-    render(FilesPanel, { sessionId: "sess-c1" });
+    render(FilesTab, { sessionId: "sess-c1", filesAvailable: true });
     await waitForPanel();
 
     await expect.poll(() => document.querySelectorAll(".list .row .created").length).toBe(5);
@@ -293,7 +316,7 @@ describe("FilesPanel — Created column and sorting", () => {
 
   it("defaults to name-ascending with directories grouped first", async () => {
     mockListing.mockResolvedValue(mixedListing);
-    render(FilesPanel, { sessionId: "sess-c2" });
+    render(FilesTab, { sessionId: "sess-c2", filesAvailable: true });
     await waitForPanel();
 
     await expect.poll(() => rowNames().length).toBe(5);
@@ -302,7 +325,7 @@ describe("FilesPanel — Created column and sorting", () => {
 
   it("sorts by Created (newest first), keeps dirs grouped, puts missing dates last, and toggles", async () => {
     mockListing.mockResolvedValue(mixedListing);
-    render(FilesPanel, { sessionId: "sess-c3" });
+    render(FilesTab, { sessionId: "sess-c3", filesAvailable: true });
     await waitForPanel();
     await expect.poll(() => rowNames().length).toBe(5);
 
@@ -329,7 +352,7 @@ describe("FilesPanel — Attachments overlay (#1717)", () => {
 
   it("renders the localized Attachments folder from the initial listing", async () => {
     mockListing.mockResolvedValue(rootWithAttachments);
-    render(FilesPanel, { sessionId: "att-1" });
+    render(FilesTab, { sessionId: "att-1", filesAvailable: true });
     await waitForPanel();
     await expect.poll(() => nmText()).toContain(m.files_attachments_folder());
     // The raw reserved slug is never shown to the operator.
@@ -341,7 +364,7 @@ describe("FilesPanel — Attachments overlay (#1717)", () => {
     mockListing.mockImplementation(async (_id: string, path?: string) =>
       path === ATT ? emptySub : rootWithAttachments,
     );
-    render(FilesPanel, { sessionId: "att-2" });
+    render(FilesTab, { sessionId: "att-2", filesAvailable: true });
     await waitForPanel();
 
     // Navigate into the Attachments folder.
@@ -401,7 +424,7 @@ describe("FilesPanel — a blocked drop always says why", () => {
   // real drop would follow — asserting dropEffect here is what stops a "none" regression (which
   // cancels the drag, so no drop event ever fires) from passing these tests silently.
   it("keeps the drop live on dragover — preventDefault, never dropEffect none", async () => {
-    render(FilesPanel, { sessionId: "drag-live" });
+    render(FilesTab, { sessionId: "drag-live", filesAvailable: true });
     await waitForPanel();
     const tab = document.querySelector<HTMLDivElement>(".files")!;
 
@@ -419,7 +442,7 @@ describe("FilesPanel — a blocked drop always says why", () => {
   });
 
   it("explains a drop on the read-only Worktree tab instead of swallowing it", async () => {
-    render(FilesPanel, { sessionId: "drag-wt" });
+    render(FilesTab, { sessionId: "drag-wt", filesAvailable: true });
     await waitForPanel();
     await clickWorktreeSegButton();
 
@@ -437,7 +460,7 @@ describe("FilesPanel — a blocked drop always says why", () => {
     mockListing.mockImplementation(async (_id: string, path?: string) =>
       path === ATT ? emptySub : rootWithAttachments,
     );
-    render(FilesPanel, { sessionId: "drag-att" });
+    render(FilesTab, { sessionId: "drag-att", filesAvailable: true });
     await waitForPanel();
 
     const folder = Array.from(document.querySelectorAll<HTMLButtonElement>("button.row")).find(
@@ -458,7 +481,7 @@ describe("FilesPanel — a blocked drop always says why", () => {
   // The classic dead end: dragging an attachment straight out of a mail client or a browser tab
   // hands over a reference, not a file, so dataTransfer.files is empty.
   it("explains a drop that carried no file at all", async () => {
-    render(FilesPanel, { sessionId: "drag-nofile" });
+    render(FilesTab, { sessionId: "drag-nofile", filesAvailable: true });
     await waitForPanel();
 
     const tab = document.querySelector<HTMLDivElement>(".files")!;
@@ -474,7 +497,7 @@ describe("FilesPanel — a blocked drop always says why", () => {
   // moment" would be advice that never comes good.
   it("distinguishes a failed listing from one that is still loading", async () => {
     mockListing.mockRejectedValue(new ApiError(404, "not found"));
-    render(FilesPanel, { sessionId: "drag-noscratch" });
+    render(FilesTab, { sessionId: "drag-noscratch", filesAvailable: true });
 
     // The panel settles into the error state: the button stays rendered but disabled, and its
     // tooltip carries the same permanent reason rather than "hasn't loaded yet".
@@ -501,7 +524,7 @@ describe("FilesPanel — a blocked drop always says why", () => {
     mockUpload.mockResolvedValue("logo.eps");
     mockListing.mockResolvedValueOnce(EMPTY_LISTING).mockRejectedValue(new ApiError(500, "boom"));
 
-    render(FilesPanel, { sessionId: "drag-stale" });
+    render(FilesTab, { sessionId: "drag-stale", filesAvailable: true });
     await waitForPanel();
 
     const tab = document.querySelector<HTMLDivElement>(".files")!;
@@ -518,7 +541,7 @@ describe("FilesPanel — a blocked drop always says why", () => {
 
   it("names the cause when the session has no scratchpad target (404)", async () => {
     mockUpload.mockRejectedValue(new ApiError(404, "not found"));
-    render(FilesPanel, { sessionId: "drag-404" });
+    render(FilesTab, { sessionId: "drag-404", filesAvailable: true });
     await waitForPanel();
 
     const file = new File(["a"], "logo.eps", { type: "" });
@@ -529,5 +552,52 @@ describe("FilesPanel — a blocked drop always says why", () => {
     await expect
       .poll(() => document.querySelector(".upload-status.err")?.textContent?.trim())
       .toBe(m.files_upload_unavailable({ name: "logo.eps" }));
+  });
+});
+
+describe("FilesPanel — Diff source", () => {
+  it("the Diff seg renders the DiffPanel and fetches no listing for it", async () => {
+    render(FilesTab, { sessionId: "diff-1", filesAvailable: true });
+    await waitForPanel();
+    const listingCalls = mockListing.mock.calls.length;
+
+    await page.getByRole("button", { name: m.files_source_diff(), exact: true }).click();
+
+    await expect.poll(() => document.querySelector(".diff-wrap .diff")).toBeTruthy();
+    expect(mockDiff).toHaveBeenCalledWith("diff-1");
+    await expect.element(page.getByText(m.diff_empty({ base: "origin/main" }))).toBeInTheDocument();
+    // no listing table / upload affordance on the Diff source, and no extra listing fetch
+    expect(document.querySelector(".files-scroll")).toBeNull();
+    expect(document.querySelector("button.upload-btn")).toBeNull();
+    expect(mockListing.mock.calls.length).toBe(listingCalls);
+    expect(mockWorktreeListing).not.toHaveBeenCalled();
+    expect(
+      page
+        .getByRole("button", { name: m.files_source_diff(), exact: true })
+        .element()
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  it("filesAvailable=false: no source switch, the Diff renders directly", async () => {
+    render(FilesTab, { sessionId: "diff-2", filesAvailable: false });
+
+    await expect.poll(() => document.querySelector(".diff-wrap .diff")).toBeTruthy();
+    expect(mockDiff).toHaveBeenCalledWith("diff-2");
+    expect(document.querySelector(".seg-row")).toBeNull();
+    expect(document.querySelector(".seg-btn")).toBeNull();
+    expect(mockListing).not.toHaveBeenCalled();
+    expect(mockWorktreeListing).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the Diff when filesAvailable flips false", async () => {
+    const r = await render(FilesTab, { sessionId: "diff-3", filesAvailable: true });
+    await waitForPanel();
+
+    await r.rerender({ sessionId: "diff-3", filesAvailable: false });
+
+    await expect.poll(() => document.querySelector(".diff-wrap .diff")).toBeTruthy();
+    expect(document.querySelector(".seg-row")).toBeNull();
+    expect(document.querySelector(".files-scroll")).toBeNull();
   });
 });

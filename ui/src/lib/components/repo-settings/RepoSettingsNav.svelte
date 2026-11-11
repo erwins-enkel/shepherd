@@ -15,7 +15,7 @@
   import { m } from "#lib/paraglide/messages.js";
 
   // The repo settings window's sections (#3443): a rail with each section's short status on
-  // desktop, wrapping chips on a phone. A tablist: arrow keys / Home / End move between sections.
+  // wide container, wrapping chips in a narrow one. A tablist: arrow keys / Home / End move between sections.
   let {
     items,
     active = $bindable(),
@@ -131,8 +131,9 @@
     clip-path: inset(50%);
     white-space: nowrap;
   }
-  /* Phone: wrapping chips — every section stays reachable without sideways scrolling. */
-  @media (max-width: 768px) {
+  /* Narrow container (a phone, or a narrow pane; the body is the query container): wrapping
+     chips — every section stays reachable without sideways scrolling. */
+  @container (max-width: 640px) {
     .nav {
       flex-direction: row;
       flex-wrap: wrap;

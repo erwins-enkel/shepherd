@@ -10,7 +10,7 @@ const BASE: Parameters<typeof buildAssistantViewReport>[0] = {
   selected: { id: "live-1" },
   doneSelected: null,
   selectedRemote: null,
-  sessionTab: "diff",
+  sessionTab: "automation",
 };
 
 describe("buildAssistantViewReport", () => {
@@ -19,7 +19,7 @@ describe("buildAssistantViewReport", () => {
       v: 1,
       client: { kind: "browser", platform: "macos" },
       repoFilter: ["/p/shepherd"],
-      focus: { kind: "session", id: "live-1", tab: "diff" },
+      focus: { kind: "session", id: "live-1", tab: "automation" },
     });
   });
 
@@ -61,7 +61,7 @@ describe("buildAssistantViewReport", () => {
     expect(buildAssistantViewReport({ ...phone, assistantReturnScreen: "detail" }).focus).toEqual({
       kind: "session",
       id: "live-1",
-      tab: "diff",
+      tab: "automation",
     });
     expect(buildAssistantViewReport({ ...phone, assistantReturnScreen: "list" }).focus).toEqual({
       kind: "none",

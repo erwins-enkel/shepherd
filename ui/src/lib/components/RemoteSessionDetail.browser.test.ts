@@ -322,6 +322,10 @@ describe("RemoteSessionDetail (#2762)", () => {
       .toHaveAttribute("aria-selected", "true");
     await page.getByRole("tab", { name: m.viewport_files_tab() }).click();
     await vi.waitFor(() => expect(api.getScratchpadListing).toHaveBeenCalledWith("r1", undefined));
+    // the Diff stays its own tab here, so the Files switch offers no Diff source
+    expect(
+      page.getByRole("button", { name: m.files_source_diff(), exact: true }).query(),
+    ).toBeNull();
     await page.getByRole("tab", { name: m.viewport_terminal_tab() }).click();
     await expect
       .element(page.getByRole("region", { name: m.remote_terminal_aria({ machine: "MacBook" }) }))

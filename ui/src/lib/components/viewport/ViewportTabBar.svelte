@@ -1,6 +1,12 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { coachTarget, coachTargets } from "#lib/actions/coachTarget.svelte.js";
+  import { featureDiscovery } from "#lib/featureDiscovery.svelte.js";
+  import { featureAnnouncements } from "#lib/feature-announcements.js";
+  import LazyMount from "#lib/components/page/LazyMount.svelte";
+  import { loadCoachmark } from "#lib/components/page/overlay-loaders.js";
+  import { reviews, repoConfig, planGates } from "#lib/reviews.svelte.js";
+  import { automationCount, AUTOMATION_TOTAL } from "../git-rail-automation";
   import type { Session } from "#lib/types.js";
   import type { ViewTab } from "#lib/operator-assistant-view.js";
   import ViewportPreviewStart, { clearPreviewPending } from "./ViewportPreviewStart.svelte";
@@ -12,7 +18,6 @@
     session,
     previewPort,
     todoExists,
-    hasFiles,
     hasPreview,
     hasBrowser,
     compact,
@@ -25,7 +30,6 @@
     session: Session;
     previewPort: number | null;
     todoExists: boolean;
-    hasFiles: boolean;
     hasPreview: boolean;
     /** The repo has the Shared Browser enabled → the live Browser View tab. */
     hasBrowser: boolean;
@@ -42,13 +46,46 @@
   $effect(() => {
     if (previewPort != null) clearPreviewPending(session.id);
   });
+
+  // Automation tab: the repo's automation count, amber while a critic or plan review runs.
+  const hasAutomation = $derived(!!session.repoPath);
+  $effect(() => {
+    if (session.repoPath) repoConfig.ensure(session.repoPath);
+  });
+  const autoCount = $derived(automationCount(repoConfig.flags(session.repoPath)));
+  const autoReviewing = $derived(
+    reviews.isReviewing(session.id) || planGates.isReviewing(session.id),
+  );
+
+  // The critic / auto-address toggles live in the Automation tab, so their discovery coachmarks
+  // anchor on its button: a "new" dot while either is unseen, and the first unseen one arms once
+  // the operator leaves the tab after opening it.
+  const TAB_FEATURE_IDS = ["critic", "auto-address"] as const;
+  const automationHasUnseen = $derived(TAB_FEATURE_IDS.some((id) => !featureDiscovery.isSeen(id)));
+  let armedId = $state<string | null>(null);
+  let sawAutomation = false;
+  $effect(() => {
+    if (tab === "automation") {
+      sawAutomation = true;
+      return;
+    }
+    if (!sawAutomation) return;
+    sawAutomation = false;
+    const next = TAB_FEATURE_IDS.find((id) => !featureDiscovery.isSeen(id) && coachTargets.has(id));
+    if (next) armedId = next;
+  });
+  const armedEntry = $derived(
+    armedId && !featureDiscovery.isSeen(armedId) && coachTargets.has(armedId)
+      ? (featureAnnouncements.find((e) => e.targetId === armedId) ?? null)
+      : null,
+  );
 </script>
 
 <div id={foldRegionId} class="tab-group" class:mobile={compact} class:folded={headerFolded}>
   <!-- The preview tab is pinned OUTSIDE this scroll strip (it must stay visible
        while the other tabs scroll), so the tablist owns it via aria-owns rather
        than DOM containment. Only the preview id is listed: the term/todo/activity/
-       diff tabs are already DOM children and must not be referenced by aria-owns. -->
+       files tabs are already DOM children and must not be referenced by aria-owns. -->
   <div
     class="tab-scroll"
     role="tablist"
@@ -90,28 +127,41 @@
         onclick={() => (tab = "todo")}>{m.viewport_todo_tab()}</button
       >
     {/if}
+    <!-- always shown: the Diff subtab inside Files is available for every session. Scratchpad /
+         Worktree subtabs appear there only when computeHasFiles holds (#1258, #1717). -->
     <button
       class="tab-btn"
-      class:active={tab === "diff"}
+      class:active={tab === "files"}
       role="tab"
-      id={tabId("diff")}
-      aria-selected={tab === "diff"}
+      id={tabId("files")}
+      aria-selected={tab === "files"}
       aria-controls={vpBodyId}
-      onclick={() => (tab = "diff")}>{m.viewport_diff_tab()}</button
+      use:coachTarget={"files-tab"}
+      onclick={() => (tab = "files")}>{m.viewport_files_tab()}</button
     >
-    {#if hasFiles}
-      <!-- shown for any live session with a claudeSessionId, so files can be uploaded before the
-           agent writes anything (#1258). hasScratchpadFiles is now subsumed — it can only be true
-           for a live session with a claudeSessionId. Tab visibility is refreshed via session:status push. -->
+    {#if hasAutomation}
+      <!-- the repo's automation settings + this task's autopilot override -->
       <button
-        class="tab-btn"
-        class:active={tab === "files"}
+        class="tab-btn auto-tab"
+        class:active={tab === "automation"}
         role="tab"
-        id={tabId("files")}
-        aria-selected={tab === "files"}
+        id={tabId("automation")}
+        aria-selected={tab === "automation"}
         aria-controls={vpBodyId}
-        use:coachTarget={"files-tab"}
-        onclick={() => (tab = "files")}>{m.viewport_files_tab()}</button
+        aria-busy={autoReviewing}
+        aria-label={autoReviewing
+          ? m.viewport_automation_tab_reviewing_aria({ count: autoCount, total: AUTOMATION_TOTAL })
+          : m.viewport_automation_tab_aria({ count: autoCount, total: AUTOMATION_TOTAL })}
+        use:coachTarget={"automation-tab"}
+        use:coachTarget={"critic"}
+        use:coachTarget={"auto-address"}
+        onclick={() => (tab = "automation")}
+        >{m.viewport_automation_tab()}
+        <span class="auto-count" class:on={autoCount > 0} class:reviewing={autoReviewing}
+          >{autoCount}/{AUTOMATION_TOTAL}</span
+        >{#if automationHasUnseen}<span class="new-dot" aria-hidden="true"></span><span
+            class="sr-only">{m.newdot_aria()}</span
+          >{/if}</button
       >
     {/if}
     {#if hasBrowser}
@@ -146,6 +196,25 @@
     <ViewportPreviewStart {session} variant="tab" />
   {/if}
 </div>
+{#if armedEntry}
+  <!-- Lazy: the feature-catalog copy rides with Coachmark, off the boot bundle (#3242). -->
+  <LazyMount load={loadCoachmark} onerror={() => (armedId = null)}>
+    {#snippet children(Coachmark)}
+      <Coachmark
+        targetId={armedEntry.targetId ?? null}
+        titleKey={armedEntry.titleKey}
+        bodyKey={armedEntry.bodyKey}
+        onseen={() => {
+          if (armedId) featureDiscovery.markSeen(armedId);
+          armedId = null;
+        }}
+        onclose={() => {
+          armedId = null;
+        }}
+      />
+    {/snippet}
+  </LazyMount>
+{/if}
 
 <style>
   .tab-group {
@@ -228,6 +297,57 @@
     color: var(--color-ink-bright);
     border-color: var(--color-line-bright);
     background: var(--color-inset);
+  }
+
+  /* Automation tab: the label + a mono n/N readout. The count is telemetry, not a status light:
+     faint (nothing on) to plain ink, amber only while a review runs (DESIGN.md Four-Light Rule). */
+  .auto-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .auto-count {
+    font-family: var(--font-mono);
+    letter-spacing: 0;
+    color: var(--color-faint);
+  }
+  .auto-count.on {
+    color: var(--color-ink);
+  }
+  .auto-count.reviewing {
+    color: var(--color-amber);
+  }
+  /* "new" discovery pip (accent blue). The animation lacks !important so the global
+     reduced-motion blanket in app.css suppresses it. */
+  .new-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--color-blue);
+    flex-shrink: 0;
+    animation: new-pip-pulse 2s ease-in-out infinite;
+  }
+  @keyframes new-pip-pulse {
+    0%,
+    100% {
+      opacity: 0.4;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   /* preview tab marker: the non-reserved blue accent ties it to the row badge */

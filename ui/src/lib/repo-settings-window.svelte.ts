@@ -2,8 +2,9 @@ import type { RepoSettingsSection } from "#lib/components/repo-settings/sections
 import type { DrainStatus, Settings } from "#lib/types.js";
 
 // The one repo settings window (#3443). Any surface opens it for a repo — the repo tab's and the
-// session row's context menus, the ⚙ pill, New Task's guard timeline, an epic's landing CI — and
-// the page mounts it once (AppOverlays), so no entry point threads a callback to the page.
+// session row's context menus, New Task's guard timeline, an epic's landing CI — and the page
+// mounts it once (AppOverlays), so no entry point threads a callback to the page. A session's
+// Auto tab embeds the same body inline (RepoSettingsBody) rather than opening the window.
 
 interface RepoSettingsTarget {
   repoPath: string;
@@ -20,6 +21,8 @@ interface RepoSettingsTarget {
 interface RepoSettingsInputs {
   drain(repoPath: string): DrainStatus | null;
   globals(): Settings | null;
+  /** Seed a New Task that sets up PR CI for the repo (#3305); absent = no such entry point. */
+  setupCi?(repoPath: string): void;
 }
 
 class RepoSettingsWindow {
@@ -38,6 +41,12 @@ class RepoSettingsWindow {
 
   globals(): Settings | null {
     return this.#inputs.globals();
+  }
+
+  /** The page's "set up PR CI" seed for `repoPath`, so an inline surface (the session's
+   *  Automation tab) offers the same entry point as the window. */
+  setupCi(repoPath: string) {
+    this.#inputs.setupCi?.(repoPath);
   }
 
   open(repoPath: string, opts: Omit<RepoSettingsTarget, "repoPath"> = {}) {

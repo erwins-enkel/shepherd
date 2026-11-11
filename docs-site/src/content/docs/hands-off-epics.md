@@ -20,7 +20,7 @@ stop the epic (so hands-off never means unsafe).
 
 ## Recommended settings
 
-Open the repo settings window (the **⚙ automation** pill, or **Repo settings …** in a repo tab's or
+Open the repo settings (a session's **Auto** tab, or **Repo settings …** in a repo tab's or
 session row's context menu) and set:
 
 | Setting             | Recommended | Why |

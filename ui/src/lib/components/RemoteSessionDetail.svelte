@@ -20,7 +20,7 @@
   import RemoteTerminal from "./RemoteTerminal.svelte";
   import ChatView from "./chat/ChatView.svelte";
   import DiffPanel from "./DiffPanel.svelte";
-  import FilesPanel from "./viewport/FilesPanel.svelte";
+  import FilesTab from "./viewport/FilesTab.svelte";
   import SessionStatusBar from "./SessionStatusBar.svelte";
   import SteerBar from "./SteerBar.svelte";
   import ViewportFootHints from "./viewport/ViewportFootHints.svelte";
@@ -252,7 +252,8 @@
     {#if tab === "diff"}
       <DiffPanel sessionId={session.id} />
     {:else if tab === "files"}
-      <FilesPanel sessionId={session.id} />
+      <!-- the remote detail keeps its own Diff tab, so its Files tab offers no Diff source -->
+      <FilesTab sessionId={session.id} filesAvailable={true} withDiff={false} />
     {:else if tab === "preview" && mirrored}
       {#key mirrored.id}
         <RemotePreview session={mirrored} tick={previewTick} />

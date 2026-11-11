@@ -238,7 +238,11 @@ describe("ViewportTermBanners login request bar (#2897)", () => {
   });
 
   it("hides off the term tab, when parked, and once the request resolves", async () => {
-    const r = await render(ViewportTermBanners, { ...baseProps, loginRequest: LOGIN, tab: "diff" });
+    const r = await render(ViewportTermBanners, {
+      ...baseProps,
+      loginRequest: LOGIN,
+      tab: "automation",
+    });
     await expect.element(page.getByRole("button", { name: "Done" })).not.toBeInTheDocument();
     await r.rerender({ ...baseProps, loginRequest: LOGIN, parked: true });
     await expect.element(page.getByRole("button", { name: "Done" })).not.toBeInTheDocument();
@@ -343,7 +347,7 @@ describe("ViewportTermBanners plan approval strip (#2779)", () => {
   });
 
   it("renders nothing without a plan or off the term tab", async () => {
-    const r = await render(ViewportTermBanners, { ...baseProps, plan: PLAN, tab: "diff" });
+    const r = await render(ViewportTermBanners, { ...baseProps, plan: PLAN, tab: "automation" });
     expect(document.querySelector(".plan-banner")).toBeNull();
     await r.rerender({ ...baseProps, plan: null });
     expect(document.querySelector(".plan-banner")).toBeNull();

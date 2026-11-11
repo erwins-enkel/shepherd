@@ -111,7 +111,7 @@ describe("Codex questions control", () => {
 
   it.each([
     { mobile: true, touch: true, tab: "term", codexQuestionKey: null },
-    { mobile: true, touch: true, tab: "diff", codexQuestionKey: "\x1b[1;3A" },
+    { mobile: true, touch: true, tab: "automation", codexQuestionKey: "\x1b[1;3A" },
   ])("hides when inapplicable: %j", async (props) => {
     render(ViewportTermControls, { ...baseProps(), ...props });
     await expect.element(questionButton()).not.toBeInTheDocument();

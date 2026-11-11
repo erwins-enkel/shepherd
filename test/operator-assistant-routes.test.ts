@@ -838,14 +838,14 @@ test("the view hook answers the owner's view as UserPromptSubmit additionalConte
     v: 1,
     client: { kind: "pwa", platform: "ios" },
     repoFilter: ["/p/shepherd"],
-    focus: { kind: "session", id: task.id, tab: "diff" },
+    focus: { kind: "session", id: task.id, tab: "automation" },
   });
   res = await app.fetch(hook(assistant.id, prompt));
   const context: string = (await res.json()).hookSpecificOutput.additionalContext;
   expect(context).toContain("client: pwa · ios");
   expect(context).toContain("repo filter: shepherd (/p/shepherd)");
   expect(context).toContain(`session in view: ${task.desig} taegliche-101 · repo shepherd`);
-  expect(context).toContain("· tab Diff ·");
+  expect(context).toContain("· tab Automation ·");
   expect(context).not.toContain(task.id);
 });
 

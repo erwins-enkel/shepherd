@@ -11,28 +11,19 @@
   import type { DrainStatus, GitState, Session } from "#lib/types.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { reviews, repoConfig, planGates } from "#lib/reviews.svelte.js";
+  import { reviews, planGates } from "#lib/reviews.svelte.js";
   import { criticChip } from "./critic-badge";
   import { canOfferPlanReview, canTriggerPlanReview } from "./plan-gate-badge";
   import RailStatusActions from "./git-rail/RailStatusActions.svelte";
   import PrFindingsDialog from "./PrFindingsDialog.svelte";
-  import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
-  import { automationCount, AUTOMATION_TOTAL } from "./git-rail-automation";
-  import { coachTarget, coachTargets } from "#lib/actions/coachTarget.svelte.js";
-  import { featureDiscovery } from "#lib/featureDiscovery.svelte.js";
-  import { featureAnnouncements } from "#lib/feature-announcements.js";
-  import LazyMount from "#lib/components/page/LazyMount.svelte";
-  import { loadCoachmark } from "#lib/components/page/overlay-loaders.js";
   import { pollWhileVisible } from "#lib/visibility.js";
   import { railEpicChild, railEpicStopped } from "./git-rail/epic-rail";
 
   let {
     sessionId,
-    repoPath = "",
     name = "",
     prompt = "",
     mobile = false,
-    phone = false,
     planPhase = null,
     drain = null,
     autopilotOn = false,
@@ -40,14 +31,12 @@
     baseBranch = "",
     epicParent = null,
     rowOwnsPr = false,
+    empty = $bindable(true),
   }: {
     sessionId: string;
-    repoPath?: string;
     name?: string;
     prompt?: string;
     mobile?: boolean;
-    /** Phone width: the ⚙ pill drops its word label to `⚙ n/N` (aria-label keeps it). */
-    phone?: boolean;
     planPhase?: Session["planPhase"];
     /** Live drain status for this session's repo (the epic-stopped rail mark). */
     drain?: DrainStatus | null;
@@ -63,6 +52,9 @@
     epicParent?: number | null;
     /** The merge row is on screen: it owns the PR's state and links, the rail keeps the rest. */
     rowOwnsPr?: boolean;
+    /** Out: true while the rail renders nothing (no status or action, no error, no popover), so
+        the host can hide its strip instead of showing an empty row. */
+    empty?: boolean;
   } = $props();
 
   let git = $state<GitState | null>(null);
@@ -179,28 +171,6 @@
     }
   }
 
-  // The ⚙ pill opens the repo settings window (#3443) at Start & flow, bound to this task (its
-  // review pulse and plan gate show there).
-  let armAfterSettings = false;
-  function openRepoSettings(e: MouseEvent) {
-    showPr = false;
-    showReview = false; // one popover at a time
-    armAfterSettings = true;
-    repoSettingsWindow.open(repoPath, {
-      section: "start",
-      sessionId,
-      opener: e.currentTarget as HTMLElement,
-    });
-  }
-  const settingsOpen = $derived(repoSettingsWindow.isOpenFor(repoPath));
-  // The critic/auto-address toggles live behind this pill, so their discovery coachmarks re-home
-  // onto it: arm the first still-unseen one once the window it opened is closed again.
-  $effect(() => {
-    if (settingsOpen || !armAfterSettings) return;
-    armAfterSettings = false;
-    armFirstUnseenAutomation();
-  });
-
   // server message, when meaningful, becomes the {reason} clause; otherwise a generic fallback
   function reason(e: unknown, fallback: string): string {
     const msg = e instanceof Error ? e.message.trim() : "";
@@ -271,7 +241,6 @@
 
   const verdict = $derived(reviews.map[sessionId]);
   const reviewing = $derived(reviews.isReviewing(sessionId));
-  const pillReviewing = $derived(reviewing || planGates.isReviewing(sessionId));
   const chip = $derived(criticChip(verdict, reviewing));
   // Manual plan-review trigger: visible while the plan gate is active (planPhase === "planning"),
   // and — since #2224 — during execution when the approved plan has been edited since sign-off.
@@ -304,39 +273,12 @@
           ? m.gitrail_rereview_plan()
           : m.gitrail_review_plan(),
   );
-  const autoCount = $derived(automationCount(repoConfig.flags(repoPath)));
 
-  // Coachmark: which feature is currently "armed" (popover open on first reveal).
-  // armedId is set when the automation pill is first opened while a feature is unseen;
-  // cleared on onseen (markSeen) or onclose (dismiss without marking seen).
-  let armedId = $state<string | null>(null);
-
-  // Feature ids whose controls moved behind the automation pill; their discovery
-  // coachmarks now anchor on the pill instead of their (deleted) individual toggles.
-  const PILL_FEATURE_IDS = ["critic", "auto-address"] as const;
-
-  // A passive "new" dot rides the pill while any relocated feature is still unseen.
-  const automationHasUnseen = $derived(PILL_FEATURE_IDS.some((id) => !featureDiscovery.isSeen(id)));
-
-  // Arm the first relocated feature that is unseen AND has a pill target registered.
-  function armFirstUnseenAutomation() {
-    const next = PILL_FEATURE_IDS.find(
-      (id) => !featureDiscovery.isSeen(id) && coachTargets.has(id),
-    );
-    if (next) armedId = next;
-  }
-
-  // The first catalog entry whose targetId is registered in coachTargets AND not yet seen
-  // AND is currently armed. Reading coachTargets (SvelteMap) here makes this reactive to
-  // session-switch registry changes (action destroy deletes, remount re-registers).
-  const armedEntry = $derived(
-    armedId && !featureDiscovery.isSeen(armedId) && coachTargets.has(armedId)
-      ? (featureAnnouncements.find((e) => e.targetId === armedId) ?? null)
-      : null,
-  );
-
+  // RailStatusActions reports whether any status or action item renders.
+  let railHasContent = $state(false);
   $effect(() => {
-    if (repoPath) repoConfig.ensure(repoPath);
+    empty =
+      !loadFailed && !(git && (railHasContent || !!err || showPr || (showReview && !!verdict)));
   });
 
   async function doReviewPlan() {
@@ -420,30 +362,6 @@
   }
 </script>
 
-<!-- ⚙ automation pill. Sits OUTSIDE the (mobile: scrolling) .rail so on the strip it pins
-     beside the autopilot toggle as one control cluster. -->
-{#snippet autoPill()}
-  <button
-    class={["gbtn", "auto-pill", { reviewing: pillReviewing, armed: settingsOpen }]}
-    type="button"
-    aria-haspopup="dialog"
-    aria-expanded={settingsOpen}
-    aria-busy={pillReviewing}
-    aria-label={pillReviewing
-      ? m.automation_pill_reviewing_aria()
-      : m.automation_pill_aria({ count: autoCount, total: AUTOMATION_TOTAL })}
-    use:coachTarget={"critic"}
-    use:coachTarget={"auto-address"}
-    onclick={openRepoSettings}
-  >
-    ⚙{phone ? "" : ` ${m.automation_pill_label()}`}
-    <span class="auto-count" class:on={autoCount > 0}>{autoCount}/{AUTOMATION_TOTAL}</span>
-    {#if automationHasUnseen}<span class="new-dot" aria-hidden="true"></span><span class="sr-only"
-        >{m.newdot_aria()}</span
-      >{/if}
-  </button>
-{/snippet}
-
 {#if git}
   <span class="git-rail-wrap" class:mobile>
     <span class="rail" class:mobile use:edgeFades={mobile}>
@@ -469,6 +387,7 @@
         {doReviewPlan}
         {epicStopped}
         {rowOwnsPr}
+        bind:hasContent={railHasContent}
       />
 
       {#if err}
@@ -480,12 +399,6 @@
         {/if}
       {/if}
     </span>
-    {#if repoPath}
-      <!-- the single divider: git status │ control cluster. On mobile it hides with the rail
-           when no status renders, so it can never orphan at the strip's leading edge. -->
-      <span class="rail-sep cluster-sep" aria-hidden="true"></span>
-      {@render autoPill()}
-    {/if}
 
     {#if showPr}
       <div class="pr-pop">
@@ -517,26 +430,6 @@
         </div>
       </div>
     {/if}
-    {#if armedEntry}
-      <!-- Lazy: the feature-catalog copy rides with Coachmark, off the boot bundle (#3242). -->
-      <LazyMount load={loadCoachmark} onerror={() => (armedId = null)}>
-        {#snippet children(Coachmark)}
-          <Coachmark
-            targetId={armedEntry.targetId ?? null}
-            titleKey={armedEntry.titleKey}
-            bodyKey={armedEntry.bodyKey}
-            onseen={() => {
-              if (armedId) featureDiscovery.markSeen(armedId);
-              armedId = null;
-            }}
-            onclose={() => {
-              armedId = null;
-            }}
-          />
-        {/snippet}
-      </LazyMount>
-    {/if}
-
     {#if showReview && verdict}
       <PrFindingsDialog
         {sessionId}
@@ -583,13 +476,6 @@
     gap: 6px;
   }
 
-  .rail-sep {
-    width: 1px;
-    background: var(--color-line);
-    flex-shrink: 0;
-    align-self: stretch;
-  }
-
   .gbtn {
     background: transparent;
     border: 1px solid var(--color-line);
@@ -612,75 +498,12 @@
     opacity: 0.4;
     cursor: not-allowed;
   }
-  .gbtn.armed {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
-  /* Rail buttons (⚙ automation pill, err/Retry) take the 6px chip radius for
-     chip-row cohesion (DESIGN.md #1541). Scoped to .rail so the PR-compose /
-     findings-popover dialog buttons keep the standalone 2px. */
-  .rail .gbtn,
-  .auto-pill {
+  /* Rail buttons (err/Retry) take the 6px chip radius for chip-row cohesion
+     (DESIGN.md #1541). Scoped to .rail so the PR-compose dialog buttons keep
+     the standalone 2px. */
+  .rail .gbtn {
     border-radius: var(--radius-chip);
     padding: 3px 9px;
-  }
-  /* critic actively reviewing: amber outline (reused by automation pill) */
-  .gbtn.reviewing {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
-  /* automation summary pill: worded label + active-count, replaces the toggle horde */
-  .auto-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  /* active-count is informational telemetry, not a status light: it steps from
-     faint (nothing on) to plain ink, never green (Four-Light Rule, DESIGN.md) */
-  .auto-count {
-    color: var(--color-faint);
-  }
-  .auto-count.on {
-    color: var(--color-ink);
-  }
-
-  /* "new" discovery pip — separate element, distinct hue (accent blue ring).
-     Sits next to .crit-dot inside the flex row; does NOT overload .crit-dot's
-     grey/green/amber vocabulary.
-     Visual priority: lower than .reviewing (reviewing uses !important pulse + amber,
-     new-dot is a soft accent and loses visually by design).
-     Reduced-motion: animation intentionally lacks !important so the global blanket
-     in app.css (@media prefers-reduced-motion: reduce { animation: none !important })
-     suppresses it — unlike .reviewing which is exempt. */
-  .new-dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--color-blue);
-    flex-shrink: 0;
-    animation: new-pip-pulse 2s ease-in-out infinite;
-  }
-  @keyframes new-pip-pulse {
-    0%,
-    100% {
-      opacity: 0.4;
-    }
-    50% {
-      opacity: 1;
-    }
-  }
-
-  /* Visually hidden but available to screen readers */
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
   }
   .gbtn.primary {
     border-color: var(--color-amber);
@@ -689,13 +512,11 @@
 
   /* touch layouts: bigger tap targets + a single horizontally-scrollable row.
      Whole badges never wrap to a second line (that read as a vertical stack on
-     phones); the rail (.rail.mobile below) scrolls instead. Because the strip
-     keeps .strip-controls on this same row, the wrapper is narrower than the
-     viewport — so go position:static here and let the popovers
-     (.pr-pop) anchor to the full-width .vp-git-strip
-     (itself position:relative). Anchored to this narrow wrapper, a right:8px
-     popover would shoot off the left screen edge. The ⚙ pill sits after the
-     rail (not in it), so it pins right beside the strip's autopilot toggle. */
+     phones); the rail (.rail.mobile below) scrolls instead. The wrapper can be
+     narrower than the viewport, so go position:static here and let the popovers
+     (.pr-pop) anchor to the full-width .vp-git-strip (itself position:relative).
+     Anchored to this narrow wrapper, a right:8px popover would shoot off the
+     left screen edge. */
   .git-rail-wrap.mobile {
     position: static;
     flex: 1 1 auto;
@@ -748,14 +569,10 @@
   .rail.mobile > :global(:first-child) {
     margin-left: auto;
   }
-  .rail.mobile :global(.gbtn),
-  .git-rail-wrap.mobile > .auto-pill {
+  .rail.mobile :global(.gbtn) {
     min-height: var(--mobile-actionbar-hit);
     padding: 6px 9px;
     font-size: var(--fs-base);
-  }
-  .git-rail-wrap.mobile > .auto-pill {
-    flex-shrink: 0;
   }
   /* The critic chip is the gateway to the findings popover, but it's a
      .verdict-chip — not a .gbtn — so it missed the touch enlargement above and
@@ -799,14 +616,8 @@
     padding: 0;
     font-size: var(--fs-base);
   }
-  /* git status │ control-cluster divider breathes 14px each side (8px margin + the wrap's
-     6px gap), matching the status-sep. No status chips → the rail has no element children:
-     hide it and its divider so the cluster stands alone with no orphan hairline. */
-  .git-rail-wrap.mobile > .cluster-sep {
-    margin: 0 8px;
-  }
-  .rail.mobile:not(:has(> *)),
-  .rail.mobile:not(:has(> *)) + .cluster-sep {
+  /* No status chips → the rail has no element children: hide it. */
+  .rail.mobile:not(:has(> *)) {
     display: none;
   }
   .rail.mobile :global(.dot) {

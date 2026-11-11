@@ -2,8 +2,9 @@ import type { RepoSettingsSection } from "#lib/components/repo-settings/sections
 import type { DrainStatus, Settings } from "#lib/types.js";
 
 // The one repo settings window (#3443). Any surface opens it for a repo — the repo tab's and the
-// session row's context menus, the ⚙ pill, New Task's guard timeline, an epic's landing CI — and
-// the page mounts it once (AppOverlays), so no entry point threads a callback to the page.
+// session row's context menus, New Task's guard timeline, an epic's landing CI — and the page
+// mounts it once (AppOverlays), so no entry point threads a callback to the page. A session's
+// Auto tab embeds the same body inline (RepoSettingsBody) rather than opening the window.
 
 interface RepoSettingsTarget {
   repoPath: string;

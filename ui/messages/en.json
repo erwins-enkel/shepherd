@@ -8609,7 +8609,7 @@
   "files_source_diff": "Diff",
   "files_diff_aria": "Branch diff",
   "files_source_tip_title": "Files and changes",
-  "files_source_tip_summary": "Three views of what this session works with.",
+  "files_source_tip_summary": "Each view shows a different side of what this session works with.",
   "files_source_tip_scratchpad": "Supplementary files for this session, kept separate from the repository. You can upload files here.",
   "files_source_tip_worktree": "The agent's project directory with its changes. Browse and download only.",
   "files_source_tip_diff": "Committed changes on this session's branch compared with its base branch (the PR's target): what would merge. Uncommitted edits don't show here.",

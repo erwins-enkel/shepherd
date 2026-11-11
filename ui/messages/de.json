@@ -8609,7 +8609,7 @@
   "files_source_diff": "Diff",
   "files_diff_aria": "Branch-Diff",
   "files_source_tip_title": "Dateien und Änderungen",
-  "files_source_tip_summary": "Drei Ansichten auf das, womit diese Sitzung arbeitet.",
+  "files_source_tip_summary": "Jede Ansicht zeigt eine andere Seite dessen, womit diese Sitzung arbeitet.",
   "files_source_tip_scratchpad": "Zusätzliche Dateien dieser Sitzung, getrennt vom Repository. Hier kannst du Dateien hochladen.",
   "files_source_tip_worktree": "Der Projektordner des Agenten mit seinen Änderungen. Nur durchsuchen und herunterladen.",
   "files_source_tip_diff": "Committete Änderungen auf dem Branch dieser Sitzung im Vergleich zum Basis-Branch (dem Ziel des PRs): das, was gemergt würde. Nicht committete Änderungen erscheinen hier nicht.",

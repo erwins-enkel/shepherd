@@ -8,25 +8,31 @@
   import type { TooltipExplanation } from "#lib/tooltips/content.js";
 
   // The Files tab's source switch: Scratchpad · Worktree · Diff, plus the ⓘ explaining each.
-  let { source, onswitch }: { source: FilesSource; onswitch: (s: FilesSource) => void } = $props();
+  let {
+    source,
+    withDiff = true,
+    onswitch,
+  }: { source: FilesSource; withDiff?: boolean; onswitch: (s: FilesSource) => void } = $props();
 
-  const SOURCES: { id: FilesSource; label: () => string; tip: () => string }[] = [
+  const ALL_SOURCES: { id: FilesSource; label: () => string; tip: () => string }[] = [
     { id: "scratchpad", label: m.files_source_scratchpad, tip: m.files_source_tip_scratchpad },
     { id: "worktree", label: m.files_source_worktree, tip: m.files_source_tip_worktree },
     { id: "diff", label: m.files_source_diff, tip: m.files_source_tip_diff },
   ];
 
+  const sources = $derived(withDiff ? ALL_SOURCES : ALL_SOURCES.filter((s) => s.id !== "diff"));
+
   // one labelled section per source
-  const sourceTip: TooltipExplanation = {
+  const sourceTip = $derived<TooltipExplanation>({
     title: m.files_source_tip_title(),
     summary: m.files_source_tip_summary(),
-    sections: SOURCES.map((s) => ({ label: s.label(), text: s.tip() })),
-  };
+    sections: sources.map((s) => ({ label: s.label(), text: s.tip() })),
+  });
 </script>
 
 <div class="seg-row">
   <div class="seg-tabs" role="group" aria-label={m.files_source_switch_aria()}>
-    {#each SOURCES as s (s.id)}
+    {#each sources as s (s.id)}
       <button
         type="button"
         class="seg-btn"

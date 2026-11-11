@@ -7,7 +7,12 @@
 
   // The Files tab: Scratchpad · Worktree · Diff. `filesAvailable` (computeHasFiles) gates the two
   // listings; without them there is no switch and the Diff (formerly its own tab) renders directly.
-  let { sessionId, filesAvailable }: { sessionId: string; filesAvailable: boolean } = $props();
+  // `withDiff` false (a host with its own Diff tab) drops the Diff source.
+  let {
+    sessionId,
+    filesAvailable,
+    withDiff = true,
+  }: { sessionId: string; filesAvailable: boolean; withDiff?: boolean } = $props();
 
   const initial = (): FilesSource => (filesAvailable ? "scratchpad" : "diff");
   let source = $state<FilesSource>(untrack(initial));
@@ -25,7 +30,7 @@
 
 <div class="files-tab">
   {#if filesAvailable}
-    <FilesSourceSwitch {source} onswitch={(s) => (source = s)} />
+    <FilesSourceSwitch {source} {withDiff} onswitch={(s) => (source = s)} />
   {/if}
   {#if source === "diff"}
     <div class="diff-wrap" role="region" aria-label={m.files_diff_aria()}>

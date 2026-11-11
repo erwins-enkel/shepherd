@@ -315,11 +315,17 @@ describe("RemoteSessionDetail (#2762)", () => {
     render(RemoteSessionDetail, { session: remote(), nowMs: Date.now(), terminalOwners: {} });
     await vi.waitFor(() => expect(connectPty).toHaveBeenCalledTimes(1));
 
+    await page.getByRole("tab", { name: m.viewport_diff_tab() }).click();
+    await vi.waitFor(() => expect(api.getDiff).toHaveBeenCalledWith("r1"));
+    await expect
+      .element(page.getByRole("tab", { name: m.viewport_diff_tab() }))
+      .toHaveAttribute("aria-selected", "true");
     await page.getByRole("tab", { name: m.viewport_files_tab() }).click();
     await vi.waitFor(() => expect(api.getScratchpadListing).toHaveBeenCalledWith("r1", undefined));
-    // the diff is the Files tab's third source
-    await page.getByRole("button", { name: m.files_source_diff(), exact: true }).click();
-    await vi.waitFor(() => expect(api.getDiff).toHaveBeenCalledWith("r1"));
+    // the Diff stays its own tab here, so the Files switch offers no Diff source
+    expect(
+      page.getByRole("button", { name: m.files_source_diff(), exact: true }).query(),
+    ).toBeNull();
     await page.getByRole("tab", { name: m.viewport_terminal_tab() }).click();
     await expect
       .element(page.getByRole("region", { name: m.remote_terminal_aria({ machine: "MacBook" }) }))
@@ -345,7 +351,12 @@ describe("RemoteSessionDetail (#2762)", () => {
         m.tooltip_remote_forwarded_body({ machine: "MacBook" }),
       );
     }
-    for (const tab of [m.viewport_chat_tab(), m.viewport_files_tab(), m.viewport_preview_tab()])
+    for (const tab of [
+      m.viewport_chat_tab(),
+      m.viewport_diff_tab(),
+      m.viewport_files_tab(),
+      m.viewport_preview_tab(),
+    ])
       await expect.element(page.getByRole("tab", { name: tab })).toBeDisabled();
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(api.interruptSession).not.toHaveBeenCalled();
@@ -540,6 +551,7 @@ describe("RemoteSessionDetail chat", () => {
     expect(tabs.map((t) => t.textContent)).toEqual([
       m.viewport_chat_tab(),
       m.viewport_terminal_tab(),
+      m.viewport_diff_tab(),
       m.viewport_files_tab(),
       m.viewport_preview_tab(),
     ]);

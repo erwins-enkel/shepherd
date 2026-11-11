@@ -19,6 +19,7 @@
   import RemoteConnectionNote from "./RemoteConnectionNote.svelte";
   import RemoteTerminal from "./RemoteTerminal.svelte";
   import ChatView from "./chat/ChatView.svelte";
+  import DiffPanel from "./DiffPanel.svelte";
   import FilesTab from "./viewport/FilesTab.svelte";
   import SessionStatusBar from "./SessionStatusBar.svelte";
   import SteerBar from "./SteerBar.svelte";
@@ -87,10 +88,11 @@
   const branchLabel = $derived(session.branch?.replace(/^shepherd\//, ""));
   const showBranch = $derived(!!branchLabel && slug(branchLabel) !== slug(session.name));
 
-  type Tab = "chat" | "term" | "files" | "preview";
+  type Tab = "chat" | "term" | "diff" | "files" | "preview";
   const TABS: { id: Tab; label: () => string }[] = [
     { id: "chat", label: m.viewport_chat_tab },
     { id: "term", label: m.viewport_terminal_tab },
+    { id: "diff", label: m.viewport_diff_tab },
     { id: "files", label: m.viewport_files_tab },
     { id: "preview", label: m.viewport_preview_tab },
   ];
@@ -247,8 +249,11 @@
         </div>
       {/if}
     {/if}
-    {#if tab === "files"}
-      <FilesTab sessionId={session.id} filesAvailable={true} />
+    {#if tab === "diff"}
+      <DiffPanel sessionId={session.id} />
+    {:else if tab === "files"}
+      <!-- the remote detail keeps its own Diff tab, so its Files tab offers no Diff source -->
+      <FilesTab sessionId={session.id} filesAvailable={true} withDiff={false} />
     {:else if tab === "preview" && mirrored}
       {#key mirrored.id}
         <RemotePreview session={mirrored} tick={previewTick} />

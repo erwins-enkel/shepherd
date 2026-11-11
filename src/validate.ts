@@ -40,7 +40,7 @@ import { type Capability, parseRequirements } from "./remote-instances/capabilit
 import { type Placement, parsePlacementRecord } from "./remote-instances/placement";
 import type { TaskText } from "./requirements-classify-core";
 import type { EpicLanding } from "./epic-core";
-import { normalizeHost } from "./egress";
+import { normalizeEgressEntry, normalizeHost } from "./egress";
 
 /** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/<repo>/…`). */
 export function expandHome(p: string): string {
@@ -1197,38 +1197,52 @@ function validateSandboxProfile(value: unknown): Field<SandboxProfile | null | u
   return err(`sandboxProfile must be one of: ${SANDBOX_PROFILES.join(", ")}, null, or absent`);
 }
 
+const HOSTNAME_RULE =
+  "≥2 dot-separated labels, lowercase alphanum/hyphen, no leading/trailing hyphen or empty label";
+
 /**
  * A per-repo hostname list. Absent → default []. Each entry is validated AND normalized with the
- * SAME gate the egress allowlist builder uses (`normalizeHost` from egress.ts), so a host that
- * validates is exactly a host that will be enforced — and the stored value is the normalized
- * form, eliminating the "persisted but silently dropped at spawn" skew.
+ * SAME gate the consumer uses (`normalize`, from egress.ts), so an entry that validates is
+ * exactly one that will be enforced — and the stored value is the normalized form, eliminating
+ * the "persisted but silently dropped at spawn" skew.
  */
-function validateHostList(name: string, value: unknown): Field<string[]> {
+function validateHostList(
+  name: string,
+  value: unknown,
+  normalize: (raw: string) => string | null,
+  rule: string,
+): Field<string[]> {
   if (value === undefined || value === null) return field([]);
   if (!Array.isArray(value)) return err(`${name} must be an array of hostname strings`);
   const normalized: string[] = [];
   for (let i = 0; i < value.length; i++) {
     const h = value[i];
     if (typeof h !== "string") return err(`${name}[${i}]: must be a string`);
-    const n = normalizeHost(h);
-    if (n === null)
-      return err(
-        `${name}[${i}]: "${h}" is not a valid hostname (≥2 dot-separated labels, ` +
-          `lowercase alphanum/hyphen, no leading/trailing hyphen or empty label)`,
-      );
+    const n = normalize(h);
+    if (n === null) return err(`${name}[${i}]: "${h}" is not a valid ${rule}`);
     normalized.push(n);
   }
   return field(normalized);
 }
 
-/** egressExtraHosts — per-repo extra allowlisted hosts for the autonomous egress firewall. */
+/** egressExtraHosts — per-repo extra allowlisted entries for the autonomous egress firewall. */
 export function validateEgressExtraHosts(value: unknown): Field<string[]> {
-  return validateHostList("egressExtraHosts", value);
+  return validateHostList(
+    "egressExtraHosts",
+    value,
+    normalizeEgressEntry,
+    `entry: [*.]host[:port] (host ${HOSTNAME_RULE}; port 1-65535)`,
+  );
 }
 
 /** browserAllowedHosts — per-repo hosts an autonomous Browser Attach may reach (#2883). */
 export function validateBrowserAllowedHosts(value: unknown): Field<string[]> {
-  const r = validateHostList("browserAllowedHosts", value);
+  const r = validateHostList(
+    "browserAllowedHosts",
+    value,
+    normalizeHost,
+    `hostname (${HOSTNAME_RULE})`,
+  );
   if (!r.ok) return r;
   // The hostname regex admits dotted-quad IPv4; the browser proxy refuses IP literals at connect.
   const i = r.value.findIndex((h) => isIP(h) !== 0);

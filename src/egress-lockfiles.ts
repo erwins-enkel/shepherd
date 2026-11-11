@@ -7,7 +7,7 @@
 import { constants } from "node:fs";
 import { open, realpath, stat, type FileHandle } from "node:fs/promises";
 import { basename, join, sep } from "node:path";
-import { normalizeHost } from "./egress";
+import { urlEgressEntry } from "./egress";
 import { execGit } from "./safe-git";
 import type { EgressSuggestion } from "./types";
 
@@ -29,15 +29,11 @@ const PYPI = ["pypi.org", "files.pythonhosted.org"];
 const GO = ["proxy.golang.org", "sum.golang.org"];
 const CRATES_GIT_INDEX = "https://github.com/rust-lang/crates.io-index";
 
-/** The valid hostname of an http(s) URL, else null. */
+/** The allowlist entry (`host`, or `host:port` off 443 — see urlEgressEntry) of an http(s) URL,
+ *  else null. */
 function urlHost(raw: string): string | null {
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    return normalizeHost(url.hostname);
-  } catch {
-    return null;
-  }
+  if (!/^https?:\/\//i.test(raw)) return null;
+  return urlEgressEntry(raw);
 }
 
 /** Hosts of the URLs in capture group 1 of every `re` match. */

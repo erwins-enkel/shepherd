@@ -57,10 +57,12 @@
 "automation_egress_hosts_empty" = "Keine zusätzlichen Hosts für dieses Repo.";
 "automation_egress_hosts_err_duplicate" = "Dieser Host steht schon in der Liste.";
 "automation_egress_hosts_err_empty" = "Gib einen Hostnamen ein.";
-"automation_egress_hosts_err_invalid" = "Gib einen Hostnamen wie registry.example.com ein: mindestens zwei durch Punkte getrennte Teile aus Buchstaben, Ziffern und Bindestrichen, ohne Bindestrich am Anfang oder Ende eines Teils. Ohne Schema, Port, Pfad oder Platzhalter.";
+"automation_egress_hosts_err_invalid" = "Gib einen Hostnamen wie registry.example.com ein, optional als *.example.com für seine Subdomains oder mit :port (1–65535). Mindestens zwei durch Punkte getrennte Teile aus Buchstaben, Ziffern und Bindestrichen, ohne Bindestrich am Anfang oder Ende eines Teils. Ohne Schema oder Pfad.";
+"automation_egress_hosts_hint" = "Ein Eintrag erlaubt genau diesen Host auf Port 443. Schreib *.example.com für seine Subdomains und host:port für einen anderen Port. Änderungen gelten für neue Sessions.";
 "automation_egress_hosts_label" = "Zusätzlich erlaubte Hosts";
 "automation_egress_hosts_placeholder" = "registry.example.com";
 "automation_egress_hosts_remove" = "%1$@ entfernen";
+"automation_egress_hosts_wildcard_warn" = "Ein *.-Eintrag öffnet jede Subdomain dieses Hosts, auch solche, die jeder registrieren kann (etwa auf github.io). Trag wo möglich exakte Hosts ein.";
 "automation_lightweight_unavailable" = "Nicht verfügbar im Lightweight-Modus";
 "automation_preview_open_mode_label" = "Vorschau-Chip";
 "automation_sandbox_inherit" = "Erben (%1$@)";

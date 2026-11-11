@@ -3,6 +3,7 @@ import {
   checkBrowserHost,
   checkEgressHost,
   checkPriorityLabel,
+  isWildcardEgressEntry,
   PRIORITY_LABEL,
 } from "./list-entries";
 
@@ -54,9 +55,18 @@ describe("checkEgressHost", () => {
   });
 
   it.each([
+    ["*.Example.com", "*.example.com"],
+    ["git.example.com:8443", "git.example.com:8443"],
+    ["*.example.com:22", "*.example.com:22"],
+    ["x.com:443", "x.com"],
+    ["*.x.com:443", "*.x.com"],
+    ["x.com:65535", "x.com:65535"],
+  ])("accepts %s as %s", (raw, value) => {
+    expect(checkEgressHost(raw, [])).toEqual({ ok: true, value });
+  });
+
+  it.each([
     "https://x.com",
-    "x.com:443",
-    "*.x.com",
     "localhost",
     "x.com/a",
     "-x.com",
@@ -64,6 +74,16 @@ describe("checkEgressHost", () => {
     "x..com",
     "a_b.com",
     "a b.com",
+    "*.com",
+    "*x.com",
+    "a.*.com",
+    "*.*.x.com",
+    "*.1.2.3.4",
+    "x.com:",
+    "x.com:0",
+    "x.com:0443",
+    "x.com:65536",
+    "x.com:22:23",
   ])("rejects %s as invalid", (h) => {
     expect(checkEgressHost(h, [])).toEqual({ ok: false, reason: "invalid" });
   });
@@ -73,6 +93,18 @@ describe("checkEgressHost", () => {
       ok: false,
       reason: "duplicate",
     });
+    expect(checkEgressHost("a.example.com:443", ["a.example.com"])).toEqual({
+      ok: false,
+      reason: "duplicate",
+    });
+  });
+});
+
+describe("isWildcardEgressEntry", () => {
+  it("flags only *. entries", () => {
+    expect(isWildcardEgressEntry("*.example.com")).toBe(true);
+    expect(isWildcardEgressEntry("*.example.com:22")).toBe(true);
+    expect(isWildcardEgressEntry("example.com")).toBe(false);
   });
 });
 

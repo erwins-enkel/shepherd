@@ -93,7 +93,8 @@ test("GET refuses an invalid repo", async () => {
 test("GET drops hosts the effective allowlist now covers", async () => {
   for (const h of [
     "registry.npmjs.org",
-    "cdn.repo-extra.example", // subdomain of a repo extra
+    "cdn.repo-extra.example", // under a *. repo extra
+    "sub.exact-extra.example", // under an exact repo extra: still blocked (#3923)
     "global.example.com",
     "api.github.com", // built-in forge host
     "mcp-proxy.anthropic.com", // connector proxy once the repo opts in
@@ -104,7 +105,7 @@ test("GET drops hosts the effective allowlist now covers", async () => {
     drop(h, "s1");
   store.setRepoConfig(repoDir, {
     ...store.getRepoConfig(repoDir),
-    egressExtraHosts: ["registry.npmjs.org", "repo-extra.example"],
+    egressExtraHosts: ["registry.npmjs.org", "*.repo-extra.example", "exact-extra.example"],
     claudeAiConnectorsEnabled: true,
   });
   config.sandboxEgressExtraHosts = ["global.example.com"];
@@ -112,8 +113,12 @@ test("GET drops hosts the effective allowlist now covers", async () => {
   const res = await get(repoDir);
   expect(res.status).toBe(200);
   const body = (await res.json()) as { hosts: EgressBlock[] };
-  expect(body.hosts.map((h) => h.host)).toEqual(["evil.example.net"]);
-  expect(body.hosts[0]).toMatchObject({ count: 1, sessions: 1, sessionIds: ["s1"] });
+  expect(body.hosts.map((h) => h.host).sort()).toEqual([
+    "evil.example.net",
+    "sub.exact-extra.example",
+  ]);
+  for (const h of body.hosts)
+    expect(h).toMatchObject({ count: 1, sessions: 1, sessionIds: ["s1"] });
 });
 
 // #3927: registry hosts from the repo's tracked lockfiles.
@@ -141,6 +146,21 @@ test("GET suggestions refuses an invalid repo", async () => {
   expect((await getSuggestions("/definitely/not/here")).status).toBe(400);
 });
 
+test("GET suggestions keeps a registry port and compares it against the allowlist (#3923)", async () => {
+  commitLockfiles({
+    "package-lock.json": `{"packages":{"node_modules/a":{"resolved":"http://registry.corp:4873/a.tgz"},"node_modules/b":{"resolved":"https://nexus.corp:8081/b.tgz"}}}`,
+  });
+  store.setRepoConfig(repoDir, {
+    ...store.getRepoConfig(repoDir),
+    egressExtraHosts: ["registry.corp", "nexus.corp:8081"], // registry.corp only opens 443
+  });
+
+  const res = await getSuggestions(repoDir);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { hosts: EgressSuggestion[] };
+  expect(body.hosts).toEqual([{ host: "registry.corp:4873", sources: ["package-lock.json"] }]);
+});
+
 test("GET suggestions drops allowed and already-blocked hosts", async () => {
   commitLockfiles({
     "bun.lock": `{"packages":{"a":["a@1.0.0","",{},"x"],"b":["b@1","https://npm.pkg.github.com/",{},"y"]}}`,
@@ -151,11 +171,15 @@ test("GET suggestions drops allowed and already-blocked hosts", async () => {
     ...store.getRepoConfig(repoDir),
     egressExtraHosts: ["registry.npmjs.org"],
   });
-  config.sandboxEgressExtraHosts = ["crates.io"]; // suffix-covers static./index.crates.io too
+  config.sandboxEgressExtraHosts = ["crates.io", "*.crates.io"]; // *. covers static./index. (#3923)
   drop("proxy.golang.org", "s1"); // offered in Blocked hosts instead
 
   const res = await getSuggestions(repoDir);
   expect(res.status).toBe(200);
   const body = (await res.json()) as { hosts: EgressSuggestion[] };
-  expect(body.hosts).toEqual([{ host: "sum.golang.org", sources: ["go.sum"] }]);
+  // github.com no longer covers npm.pkg.github.com (exact match, #3923), so it is suggested.
+  expect(body.hosts).toEqual([
+    { host: "npm.pkg.github.com", sources: ["bun.lock"] },
+    { host: "sum.golang.org", sources: ["go.sum"] },
+  ]);
 });

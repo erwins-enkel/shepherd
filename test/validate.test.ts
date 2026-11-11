@@ -1449,7 +1449,7 @@ test("egressExtraHosts: non-string element → error", () => {
 test("egressExtraHosts: hostname without dot → error", () => {
   const r = validateEgressExtraHosts(["localhost"]);
   expect(r.ok).toBe(false);
-  if (!r.ok) expect(r.error).toMatch(/valid hostname/);
+  if (!r.ok) expect(r.error).toMatch(/not a valid entry: \[\*\.\]host\[:port\]/);
 });
 
 test("egressExtraHosts: uppercase is normalized to lowercase (not rejected)", () => {
@@ -1463,21 +1463,39 @@ test("egressExtraHosts: uppercase is normalized to lowercase (not rejected)", ()
 test("egressExtraHosts: invalid chars (underscore) → error", () => {
   const r = validateEgressExtraHosts(["foo_bar.example.com"]);
   expect(r.ok).toBe(false);
-  if (!r.ok) expect(r.error).toMatch(/valid hostname/);
+  if (!r.ok) expect(r.error).toMatch(/not a valid entry: \[\*\.\]host\[:port\]/);
 });
 
 test("egressExtraHosts: hostname with spaces → error", () => {
   const r = validateEgressExtraHosts(["bad host.example.com"]);
   expect(r.ok).toBe(false);
-  if (!r.ok) expect(r.error).toMatch(/valid hostname/);
+  if (!r.ok) expect(r.error).toMatch(/not a valid entry: \[\*\.\]host\[:port\]/);
 });
 
 test("egressExtraHosts: aligned with allowlist normalizer — rejects what egress.ts drops", () => {
   // These previously passed the looser validator then were SILENTLY dropped at spawn.
-  // Now validation matches normalizeHost exactly, so they're rejected up front.
-  for (const bad of ["foo..com", "-foo.com", "foo-.com", ".foo.com", "foo.com."]) {
+  // Now validation matches normalizeEgressEntry exactly, so they're rejected up front.
+  for (const bad of [
+    "foo..com",
+    "-foo.com",
+    "foo-.com",
+    ".foo.com",
+    "foo.com.",
+    "*.com",
+    "x.com:0",
+  ]) {
     expect(validateEgressExtraHosts([bad]).ok).toBe(false);
   }
+});
+
+test("egressExtraHosts: wildcard and port entries are stored normalized (#3923)", () => {
+  const r = validateEgressExtraHosts([
+    "*.Example.com",
+    "git.example.com:8443",
+    "x.example.com:443",
+  ]);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value).toEqual(["*.example.com", "git.example.com:8443", "x.example.com"]);
 });
 
 // ── validateRelaunchOverrides: research field ─────────────────────────────────

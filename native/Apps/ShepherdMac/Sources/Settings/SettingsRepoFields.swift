@@ -219,6 +219,10 @@ struct SettingsRepoHostList: View {
                 Button(L.t("automation_egress_hosts_add"), action: add)
             }
             if let error { Text(verbatim: Self.message(error)).font(.caption).foregroundStyle(.red) }
+            if hosts.contains(where: RepoSettingsForm.isWildcardEgressEntry) {
+                Text(L.t("automation_egress_hosts_wildcard_warn")).font(.caption).foregroundStyle(.orange)
+            }
+            Text(L.t("automation_egress_hosts_hint")).font(.caption).foregroundStyle(.secondary)
         }
     }
 

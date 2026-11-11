@@ -56,4 +56,20 @@ describe("classifyEgressHost", () => {
   ])("%s is normal (no lookalike or suffix trust)", (host) => {
     expect(classifyEgressHost(host)).toEqual({ tier: "normal" });
   });
+
+  // #3923: classifies allowlist entries too — the port is ignored, a *. wildcard is risky.
+  test.each([
+    ["*.example.com", "wildcard"],
+    ["*.corp.example:8443", "wildcard"],
+    ["*.github.io", "subdomain"],
+    ["*.pastebin.com", "paste"],
+    ["10.0.0.1:22", "ip"],
+  ])("entry %s is risky (%s)", (entry, reason) => {
+    expect(classifyEgressHost(entry)).toEqual({ tier: "risky", reason });
+  });
+
+  test("a port entry keeps its host's tier", () => {
+    expect(classifyEgressHost("registry.npmjs.org:8443")).toEqual({ tier: "trusted" });
+    expect(classifyEgressHost("git.corp.example:2222")).toEqual({ tier: "normal" });
+  });
 });

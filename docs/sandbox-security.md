@@ -14,7 +14,10 @@ sessions from before #2100 were pinned to `trusted` once on upgrade.
 The egress firewall (slirp4netns + nftables + dnsmasq, shipped in **PR #601**,
 closed **#551** — `src/egress.ts`) confines outbound traffic to
 `api.anthropic.com` + `statsig.anthropic.com` + the GitHub hosts, and watches
-for DNS drops. Egress is keyed to the **autonomous profile**, not to
+for DNS drops. Each allowlist entry opens exactly the named host on TCP 443
+only (#3923, `parseEgressEntry`): `*.host` covers its subdomains (not `host`
+itself), `host:port` opens that port instead; subdomains of a plain entry no
+longer resolve. Egress is keyed to the **autonomous profile**, not to
 attendedness (`src/sandbox.ts` `egressApplies`).
 When a host is blocked, the agent is told (#3921, `src/egress-watch.ts`
 `egressBlockedNote`): Claude sessions get the note as `additionalContext` on

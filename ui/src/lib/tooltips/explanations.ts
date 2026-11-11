@@ -554,6 +554,8 @@ export function egressRiskLabel(reason: EgressRiskReason): string {
       return m.egress_risk_chatbot();
     case "subdomain":
       return m.egress_risk_subdomain();
+    case "wildcard":
+      return m.egress_risk_wildcard();
   }
 }
 
@@ -575,6 +577,8 @@ function egressRiskWhy(reason: EgressRiskReason): string {
       return m.tooltip_egress_risk_chatbot_body();
     case "subdomain":
       return m.tooltip_egress_risk_subdomain_body();
+    case "wildcard":
+      return m.tooltip_egress_risk_wildcard_body();
   }
 }
 

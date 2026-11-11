@@ -1016,13 +1016,30 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gib einen Hostnamen wie registry.example.com ein: mindestens zwei durch Punkte getrennte Teile aus Buchstaben, Ziffern und Bindestrichen, ohne Bindestrich am Anfang oder Ende eines Teils. Ohne Schema, Port, Pfad oder Platzhalter."
+            "value": "Gib einen Hostnamen wie registry.example.com ein, optional als *.example.com für seine Subdomains oder mit :port (1–65535). Mindestens zwei durch Punkte getrennte Teile aus Buchstaben, Ziffern und Bindestrichen, ohne Bindestrich am Anfang oder Ende eines Teils. Ohne Schema oder Pfad."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enter a host name like registry.example.com: at least two dot-separated parts of letters, digits and hyphens, with no hyphen at the start or end of a part. No scheme, port, path or wildcard."
+            "value": "Enter a host name like registry.example.com, optionally as *.example.com for its subdomains or with :port (1–65535). At least two dot-separated parts of letters, digits and hyphens, with no hyphen at the start or end of a part. No scheme or path."
+          }
+        }
+      }
+    },
+    "automation_egress_hosts_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Eintrag erlaubt genau diesen Host auf Port 443. Schreib *.example.com für seine Subdomains und host:port für einen anderen Port. Änderungen gelten für neue Sessions."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An entry allows exactly that host on port 443. Write *.example.com for its subdomains, host:port for another port. New sessions pick up changes."
           }
         }
       }
@@ -1075,6 +1092,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Remove %1$@"
+          }
+        }
+      }
+    },
+    "automation_egress_hosts_wildcard_warn": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein *.-Eintrag öffnet jede Subdomain dieses Hosts, auch solche, die jeder registrieren kann (etwa auf github.io). Trag wo möglich exakte Hosts ein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A *. entry opens every subdomain of that host, including ones anyone can register (such as on github.io). List exact hosts where you can."
           }
         }
       }

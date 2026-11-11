@@ -74,6 +74,28 @@ struct RepoSettingsFormTests {
         #expect(RepoSettingsForm.checkEgressHost("localhost", existing: []) == .failure(.invalid))
         #expect(RepoSettingsForm.checkEgressHost("https://a.example.com", existing: []) == .failure(.invalid))
         #expect(RepoSettingsForm.checkEgressHost("a.example.com", existing: ["a.example.com"]) == .failure(.duplicate))
+        #expect(RepoSettingsForm.checkEgressHost("a.example.com:443", existing: ["a.example.com"]) == .failure(.duplicate))
+        let accepted = [
+            ("*.Example.com", "*.example.com"),
+            ("git.example.com:8443", "git.example.com:8443"),
+            ("*.example.com:22", "*.example.com:22"),
+            ("x.com:443", "x.com"),
+            ("*.x.com:443", "*.x.com"),
+            ("x.com:65535", "x.com:65535"),
+            ("10.0.0.1", "10.0.0.1"),
+        ]
+        for (raw, value) in accepted {
+            #expect(RepoSettingsForm.checkEgressHost(raw, existing: []) == .success(value))
+        }
+        let rejected = [
+            "*.com", "*x.com", "a.*.com", "*.*.x.com", "*.1.2.3.4",
+            "x.com:", "x.com:0", "x.com:0443", "x.com:65536", "x.com:22:23", "x.com/a",
+        ]
+        for raw in rejected {
+            #expect(RepoSettingsForm.checkEgressHost(raw, existing: []) == .failure(.invalid))
+        }
+        #expect(RepoSettingsForm.isWildcardEgressEntry("*.example.com:22"))
+        #expect(!RepoSettingsForm.isWildcardEgressEntry("example.com"))
     }
 }
 }

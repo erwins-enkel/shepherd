@@ -135,6 +135,16 @@ test("go.sum: Go proxy + checksum DB when non-empty", () => {
   expect(hostsFromLockfile("go.sum", "  \n")).toEqual([]);
 });
 
+test("a registry off 443 keeps its port; plain http without a port is :80 (#3923)", () => {
+  const text = `{"packages":{"node_modules/a":{"resolved":"http://registry.corp:4873/a/-/a-1.tgz"},"node_modules/b":{"resolved":"https://nexus.corp:8081/b.tgz"},"node_modules/c":{"resolved":"http://npm.corp.example/c.tgz"},"node_modules/d":{"resolved":"https://npm.corp.example:443/d.tgz"}}}`;
+  expect(hostsFromLockfile("package-lock.json", text)).toEqual([
+    "registry.corp:4873",
+    "nexus.corp:8081",
+    "npm.corp.example:80",
+    "npm.corp.example",
+  ]);
+});
+
 test("invalid hosts and non-http URLs are dropped; unknown names yield nothing", () => {
   const text = `{"packages":{"a":{"resolved":"http://localhost:4873/a.tgz"},"b":{"resolved":"file:../b"},"c":{"resolved":"https://under_score.example/c.tgz"}}}`;
   expect(hostsFromLockfile("package-lock.json", text)).toEqual([]);

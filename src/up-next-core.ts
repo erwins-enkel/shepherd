@@ -164,6 +164,8 @@ export interface RepoInput {
   noCi?: boolean;
   /** The repo is cold (#2837) and its rows come from issues cached at this time. */
   asOf?: number;
+  /** Other checkouts of the same forge repo, collapsed into this one (src/up-next.ts). */
+  otherCheckouts?: string[];
 }
 
 /** UI display caps (items beyond these reveal via a "show all N" expander). The server

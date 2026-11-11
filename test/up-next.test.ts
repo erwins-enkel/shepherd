@@ -2,7 +2,13 @@ import { test, expect, describe } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { UpNextService, startSerially, buildUpNextRepos, type UpNextDeps } from "../src/up-next";
+import {
+  UpNextService,
+  startSerially,
+  buildUpNextRepos,
+  type CheckoutState,
+  type UpNextDeps,
+} from "../src/up-next";
 import { listRepos } from "../src/repos";
 import type { Epic, EpicRun } from "../src/epic-core";
 import type { GitForge, Issue, OpenPrSnapshot, PrStatus, PullRequest } from "../src/forge/types";
@@ -736,6 +742,11 @@ describe("startSerially", () => {
 
 describe("buildUpNextRepos", () => {
   const forge = fakeForge({ kind: "github", slug: "o/r" });
+  const idle: CheckoutState = {
+    hasEpicRun: () => false,
+    activePaths: new Set(),
+    lastActivityByRepo: {},
+  };
   const localForge = fakeForge({ kind: "local", slug: "local/r" });
 
   test("(a) local and non-forge repos are excluded", () => {
@@ -750,7 +761,12 @@ describe("buildUpNextRepos", () => {
       if (p === "/r/b") return localForge;
       return forge;
     };
-    const result = buildUpNextRepos({ repos, resolveForge, hiddenRealPaths: new Set() });
+    const result = buildUpNextRepos({
+      repos,
+      resolveForge,
+      hiddenRealPaths: new Set(),
+      checkoutState: idle,
+    });
     expect(result.map((r) => r.repoPath)).toEqual(["/r/c"]);
   });
 
@@ -763,6 +779,7 @@ describe("buildUpNextRepos", () => {
       repos,
       resolveForge: () => forge,
       hiddenRealPaths: new Set(["/r/a"]),
+      checkoutState: idle,
     });
     expect(result.map((r) => r.repoPath)).toEqual(["/r/b"]);
   });
@@ -784,6 +801,7 @@ describe("buildUpNextRepos", () => {
         repos,
         resolveForge: () => forge,
         hiddenRealPaths: new Set([realMyrepo]),
+        checkoutState: idle,
       });
       expect(result).toHaveLength(0);
     } finally {
@@ -801,6 +819,7 @@ describe("buildUpNextRepos", () => {
       repos,
       resolveForge: () => myForge,
       hiddenRealPaths: new Set(),
+      checkoutState: idle,
     });
     expect(result).toHaveLength(1);
     expect(result[0]).toEqual({
@@ -818,8 +837,99 @@ describe("buildUpNextRepos", () => {
       repos,
       resolveForge: () => fakeForge({ kind: "github", slug: null }),
       hiddenRealPaths: new Set(),
+      checkoutState: idle,
     });
     expect(result[0]?.repoLabel).toBe("~/myrepo");
+  });
+
+  describe("one checkout per forge repo", () => {
+    const entry = (name: string, realPath = `/r/${name}`) => ({
+      name,
+      path: `/r/${name}`,
+      display: `~/${name}`,
+      realPath,
+    });
+    const bySlug =
+      (slugs: Record<string, { kind?: GitForge["kind"]; slug: string | null }>) => (p: string) =>
+        fakeForge({ kind: "github", ...slugs[p.slice("/r/".length)] });
+    const kept = (
+      args: Partial<Omit<Parameters<typeof buildUpNextRepos>[0], "checkoutState">> & {
+        state?: Partial<CheckoutState>;
+      },
+    ) =>
+      buildUpNextRepos({
+        repos: [entry("a"), entry("b")],
+        resolveForge: () => forge,
+        hiddenRealPaths: new Set(),
+        ...args,
+        checkoutState: { ...idle, ...args.state },
+      });
+    const paths = (args: Parameters<typeof kept>[0]) => kept(args).map((r) => r.repoPath);
+
+    test("two idle checkouts of one slug → the first listed, carrying the other", () => {
+      expect(kept({})).toEqual([
+        { repoPath: "/r/a", repoSlug: "o/r", repoLabel: "o/r", otherCheckouts: ["/r/b"] },
+      ]);
+    });
+
+    test("the most recent activity wins", () => {
+      expect(paths({ state: { lastActivityByRepo: { "/r/a": 100, "/r/b": 200 } } })).toEqual([
+        "/r/b",
+      ]);
+      expect(paths({ state: { lastActivityByRepo: { "/r/a": 300, "/r/b": 200 } } })).toEqual([
+        "/r/a",
+      ]);
+    });
+
+    test("live sessions beat more recent activity", () => {
+      const state = { activePaths: new Set(["/r/a"]), lastActivityByRepo: { "/r/b": 200 } };
+      expect(paths({ state })).toEqual(["/r/a"]);
+    });
+
+    test("a stored epic run beats live sessions", () => {
+      const state = { hasEpicRun: (p: string) => p === "/r/b", activePaths: new Set(["/r/a"]) };
+      expect(kept({ state })).toEqual([
+        { repoPath: "/r/b", repoSlug: "o/r", repoLabel: "o/r", otherCheckouts: ["/r/a"] },
+      ]);
+    });
+
+    test("state keyed by realpath is honored", () => {
+      expect(
+        paths({
+          repos: [entry("a"), entry("b", "/real/b")],
+          state: { activePaths: new Set(["/real/b"]) },
+        }),
+      ).toEqual(["/r/b"]);
+    });
+
+    test("slugs match case-insensitively", () => {
+      const resolveForge = bySlug({ a: { slug: "O/R" }, b: { slug: "o/r" } });
+      expect(paths({ resolveForge })).toEqual(["/r/a"]);
+    });
+
+    test("hiding one checkout keeps the other, alone", () => {
+      expect(
+        kept({ hiddenRealPaths: new Set(["/r/a"]), state: { activePaths: new Set(["/r/a"]) } }),
+      ).toEqual([{ repoPath: "/r/b", repoSlug: "o/r", repoLabel: "o/r" }]);
+    });
+
+    test("different forge kinds and slugless forges are never merged", () => {
+      const kinds = bySlug({ a: { slug: "o/r" }, b: { kind: "gitea", slug: "o/r" } });
+      expect(paths({ resolveForge: kinds })).toEqual(["/r/a", "/r/b"]);
+      const slugless = bySlug({ a: { slug: null }, b: { slug: null } });
+      expect(paths({ resolveForge: slugless })).toEqual(["/r/a", "/r/b"]);
+    });
+
+    test("different slugs are all kept, in listRepos order", () => {
+      const resolveForge = bySlug({ a: { slug: "o/a" }, b: { slug: "o/b" }, c: { slug: "o/a" } });
+      expect(
+        paths({
+          repos: [entry("a"), entry("b"), entry("c")],
+          resolveForge,
+          state: { lastActivityByRepo: { "/r/c": 1 } },
+        }),
+      ).toEqual(["/r/b", "/r/c"]);
+    });
   });
 });
 
@@ -1096,6 +1206,38 @@ describe("UpNextService pull requests", () => {
     s.refilter();
     expect(reads).toBe(1);
     expect(s.snapshot()!.pullRequests!.map((p) => p.number)).toEqual([10]);
+  });
+
+  test("a PR held by a session in a collapsed checkout stays out", async () => {
+    const s = svc({
+      listForgeRepos: () => [
+        { repoPath: "/r/a", repoSlug: "o/a", repoLabel: "a", otherCheckouts: ["/r/b"] },
+      ],
+      resolveForge: () => prForge(),
+      openPrSnapshot: { get: async () => snapshotOf([openPr(10), openPr(11)]) },
+      hasNoCi: () => false,
+      prsInFlight: () =>
+        new Map([
+          ["/r/a", { heads: new Set(["b10"]), numbers: new Set<number>() }],
+          ["/r/b", { heads: new Set<string>(), numbers: new Set([11]) }],
+        ]),
+    });
+    expect((await s.refresh()).pullRequests).toEqual([]);
+  });
+
+  test("a repo is warm when any of its checkouts is", async () => {
+    const run = (otherCheckouts?: string[]) =>
+      svc({
+        listForgeRepos: () => [
+          { repoPath: "/r/a", repoSlug: "o/a", repoLabel: "a", otherCheckouts },
+        ],
+        isWarm: (p) => p === "/r/b",
+        cachedIssuesAt: () => null,
+      }).refresh();
+    expect((await run()).coldSkippedCount).toBe(1);
+    const warm = await run(["/r/b"]);
+    expect(warm.coldSkippedCount).toBeUndefined();
+    expect(warm.sections.flatMap((x) => x.items.map((i) => i.number))).toEqual([1, 2]);
   });
 
   /** A real snapshot service over a forge whose listing holds #911 with unknown mergeability and

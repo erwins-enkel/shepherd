@@ -35,6 +35,7 @@
   let drainCap = $state(repoConfig.maxAutoFor(repoPath));
   // svelte-ignore state_referenced_locally
   let drainLabel = $state(repoConfig.autoLabelFor(repoPath));
+  let labelFocused = $state(false);
   // svelte-ignore state_referenced_locally
   let drainCeiling = $state(repoConfig.usageCeilingFor(repoPath));
   $effect(() => {
@@ -48,6 +49,12 @@
       drainLabel = repoConfig.autoLabelFor(repo);
       drainCeiling = repoConfig.usageCeilingFor(repo);
     });
+  });
+
+  // Discard and refreshed comparisons change the label after loading has already settled.
+  $effect(() => {
+    const label = repoConfig.autoLabelFor(repoPath);
+    if (!labelFocused) drainLabel = label;
   });
 
   // The epic detail's "Allow N slots" (#2939) opens the tab here: bring the cap into view and
@@ -122,7 +129,11 @@
             aria-label={m.drain_label_label()}
             aria-describedby="{uid}-label"
             onchange={commitDrainLabel}
-            onblur={commitDrainLabel}
+            onfocus={() => (labelFocused = true)}
+            onblur={() => {
+              labelFocused = false;
+              void commitDrainLabel();
+            }}
           />
         {/snippet}
         {#snippet below()}

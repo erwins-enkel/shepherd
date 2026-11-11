@@ -142,25 +142,25 @@
         >
       {/if}
       {#if desc}<div class="rs-desc">{desc}</div>{/if}
-    {#if ruleChanges.length && proposal()}
-      <div class="rs-proposal" role="status">
-        <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge PR URL -->
-        <a
-          href={firstSafeHttpUrl(proposal()!.url) ?? undefined}
-          target="_blank"
-          rel="noopener noreferrer">{m.reposettings_pending_status()} · #{proposal()!.number}</a
-        >
-        <!-- eslint-enable svelte/no-navigation-without-resolve -->
-        {#each ruleChanges as [key, value] (key)}
-          <div>
-            {m.reposettings_pending_value({
-              field: proposedRuleName(key, name),
-              value: proposedValue(value),
-            })}
-          </div>
-        {/each}
-      </div>
-    {/if}
+      {#if ruleChanges.length && proposal()}
+        <div class="rs-proposal" role="status">
+          <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge PR URL -->
+          <a
+            href={firstSafeHttpUrl(proposal()!.url) ?? undefined}
+            target="_blank"
+            rel="noopener noreferrer">{m.reposettings_pending_status()} · #{proposal()!.number}</a
+          >
+          <!-- eslint-enable svelte/no-navigation-without-resolve -->
+          {#each ruleChanges as [key, value] (key)}
+            <div>
+              {m.reposettings_pending_value({
+                field: proposedRuleName(key, name),
+                value: proposedValue(value),
+              })}
+            </div>
+          {/each}
+        </div>
+      {/if}
       {#if locked}<div class="rs-locked" id={lockId}>{locked}</div>{/if}
       {#if warn}<div class="rs-warn" role="status" hidden={!warnShown}>{warn}</div>{/if}
       {#if task}<div class="rs-task">{task}</div>{/if}

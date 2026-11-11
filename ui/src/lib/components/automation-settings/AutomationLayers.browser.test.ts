@@ -212,3 +212,47 @@ it("reopening fetches current rules instead of retaining the indefinitely loaded
     .element(page.getByRole("switch", { name: m.automation_critic_name(), exact: true }))
     .toHaveAttribute("aria-checked", "false");
 });
+
+it("discarded labels cannot be staged again by focusing and leaving the field", async () => {
+  setup();
+  const label = page.getByRole("textbox", { name: m.drain_label_label(), exact: true });
+  const critic = page.getByRole("switch", { name: m.automation_critic_name(), exact: true });
+  await expect.element(label).toHaveValue("shepherd:auto");
+  await label.fill("shepherd:discarded");
+  await critic.click();
+  await page.getByRole("button", { name: m.automation_layers_discard(), exact: true }).click();
+  await expect.element(label).toHaveValue("shepherd:auto");
+  await label.click();
+  await critic.click();
+  await page.getByRole("button", { name: m.automation_layers_review(), exact: true }).click();
+  await page.getByRole("button", { name: m.automation_layers_save(), exact: true }).click();
+  await vi.waitFor(() => expect(puts).toEqual([{ criticEnabled: false }]));
+});
+
+it("refreshes the label when confirmation detects concurrent rule changes", async () => {
+  setup();
+  await expect.element(page.getByText("abc123", { exact: true })).toBeVisible();
+  await page.getByRole("switch", { name: m.automation_critic_name(), exact: true }).click();
+  await page.getByRole("button", { name: m.automation_layers_review(), exact: true }).click();
+  const originalFetch = globalThis.fetch;
+  const refreshed = {
+    ...repoConfig.responses["/layers-test"],
+    criticEnabled: false,
+    autoLabel: "shepherd:external",
+    repoConfigCommit: "external123",
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input, init) => {
+      if (String(input).startsWith("/api/repo-config?") && init?.method !== "PUT")
+        return Response.json(refreshed);
+      return originalFetch(input, init);
+    }),
+  );
+  await page.getByRole("button", { name: m.automation_layers_save(), exact: true }).click();
+  await expect.element(page.getByRole("alert")).toHaveTextContent(m.automation_layers_changed());
+  await expect
+    .element(page.getByRole("textbox", { name: m.drain_label_label(), exact: true }))
+    .toHaveValue("shepherd:external");
+  expect(puts).toEqual([]);
+});

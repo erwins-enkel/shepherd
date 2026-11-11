@@ -347,6 +347,7 @@ import { listDirs, validateRoot, collapseHome } from "./dirs";
 import {
   buildEgressAllowlist,
   connectorEgressHosts,
+  egressEntryCovered,
   hostMatchesAllowlist,
   normalizeHost,
 } from "./egress";
@@ -4292,8 +4293,9 @@ async function handleRepoEgressBlocks({ req, parts, url, deps }: Ctx): Promise<R
 }
 
 // GET /api/repo-egress-suggestions?repo=<path> (#3927) — the registry hosts the repo's tracked
-// lockfiles name, minus those its effective allowlist covers and those the blocked list already
-// offers. Hostnames only; the UI's trust tiers decide how Allow asks.
+// lockfiles name, minus those its effective allowlist covers (host AND port) and those the blocked
+// list already offers. Allowlist entries (`host`, or `host:port` off 443); the UI's trust tiers
+// decide how Allow asks.
 async function handleRepoEgressSuggestions({
   req,
   parts,
@@ -4307,7 +4309,7 @@ async function handleRepoEgressSuggestions({
   const allowlist = repoEgressAllowlist(deps.store, dir);
   const blocked = new Set(deps.store.listEgressBlocks(dir).map((b) => b.host));
   const hosts: EgressSuggestion[] = (await suggestLockfileHosts(dir)).filter(
-    (s) => !blocked.has(s.host) && !hostMatchesAllowlist(s.host, allowlist),
+    (s) => !blocked.has(s.host) && !egressEntryCovered(s.host, allowlist),
   );
   return json({ hosts });
 }

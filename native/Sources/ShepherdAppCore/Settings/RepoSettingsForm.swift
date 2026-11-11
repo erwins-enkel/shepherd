@@ -98,13 +98,42 @@ public enum RepoSettingsForm {
     private static let hostname = try! NSRegularExpression(
         pattern: #"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$"#)
 
-    /// Mirrors ui `checkEgressHost`: trimmed, lower-cased, at least two dot-separated labels.
-    public static func checkEgressHost(_ raw: String, existing: [String]) -> Result<String, HostError> {
-        let host = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if host.isEmpty { return .failure(.empty) }
-        let range = NSRange(host.startIndex..., in: host)
-        if hostname.firstMatch(in: host, range: range) == nil { return .failure(.invalid) }
-        if existing.contains(host) { return .failure(.duplicate) }
-        return .success(host)
+    // swiftlint:disable:next force_try
+    private static let egressEntry = try! NSRegularExpression(
+        pattern: #"^(\*\.)?([^:*]+)(?::([1-9][0-9]{0,4}))?$"#)
+
+    // swiftlint:disable:next force_try
+    private static let ipv4 = try! NSRegularExpression(pattern: #"^[0-9]+(\.[0-9]+)+$"#)
+
+    private static func matches(_ regex: NSRegularExpression, _ text: String) -> Bool {
+        regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
+
+    /// Mirrors ui `normalizeEgressEntry`: `host` exactly, `*.host` its subdomains, each optionally
+    /// `:port` (that port only); `:443` is the default and dropped. Nil when invalid.
+    static func normalizeEgressEntry(_ entry: String) -> String? {
+        guard let match = egressEntry.firstMatch(in: entry, range: NSRange(entry.startIndex..., in: entry))
+        else { return nil }
+        func group(_ index: Int) -> String? {
+            Range(match.range(at: index), in: entry).map { String(entry[$0]) }
+        }
+        let wildcard = group(1) ?? ""
+        guard let host = group(2), matches(hostname, host) else { return nil }
+        if !wildcard.isEmpty && matches(ipv4, host) { return nil }
+        let port = group(3).flatMap { Int($0) } ?? 443
+        if port > 65535 { return nil }
+        return port == 443 ? wildcard + host : "\(wildcard)\(host):\(port)"
+    }
+
+    /// Mirrors ui `checkEgressHost`: trimmed, lower-cased, then `normalizeEgressEntry`.
+    public static func checkEgressHost(_ raw: String, existing: [String]) -> Result<String, HostError> {
+        let entry = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if entry.isEmpty { return .failure(.empty) }
+        guard let value = normalizeEgressEntry(entry) else { return .failure(.invalid) }
+        if existing.contains(value) { return .failure(.duplicate) }
+        return .success(value)
+    }
+
+    /// Mirrors ui `isWildcardEgressEntry`: a `*.` entry opens every subdomain, so Settings warns.
+    public static func isWildcardEgressEntry(_ entry: String) -> Bool { entry.hasPrefix("*.") }
 }

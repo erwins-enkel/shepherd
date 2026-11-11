@@ -735,8 +735,9 @@ export const config = {
   // null = built-in default (standard where bwrap works, else trusted) — read it via
   // defaultSandboxProfile() (src/sandbox-default.ts), never directly.
   sandboxDefaultProfileOverride: parseSandboxProfile(process.env.SHEPHERD_SANDBOX_DEFAULT_PROFILE),
-  // Operator escape-hatch: extra hosts always allowlisted in the autonomous egress firewall
+  // Operator escape-hatch: extra entries always allowlisted in the autonomous egress firewall
   // (e.g. private package registries). Comma-separated; e.g. "registry.corp.com,pypi.corp.io".
+  // Exact host on TCP 443; `*.host` for subdomains, `host:port` for another port (#3923).
   sandboxEgressExtraHosts: (process.env.SHEPHERD_SANDBOX_EXTRA_HOSTS ?? "")
     .split(",")
     .map((h) => h.trim())

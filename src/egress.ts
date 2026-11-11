@@ -487,15 +487,57 @@ const HOSTNAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9
  * hostname (RFC-1123-ish: ≥2 dot-separated labels, no leading/trailing hyphen,
  * no empty labels). Returns the normalized host, or null to reject.
  *
- * This is the SINGLE gate for what may enter the egress allowlist. `validate.ts`
- * reuses it so a host that passes repo-config validation is exactly a host that
- * will make the allowlist — no "persisted but silently dropped at spawn" skew.
+ * The gate for `browserAllowedHosts` (via `validate.ts`); egress allowlist entries go
+ * through {@link normalizeEgressEntry}, which applies the same hostname rule.
  */
 export function normalizeHost(raw: string): string | null {
   const h = raw.trim().toLowerCase();
   if (!h) return null;
   if (!HOSTNAME_RE.test(h)) return null;
   return h;
+}
+
+// ── egress allowlist entries ──────────────────────────────────────────────────
+
+/** The only port an entry without `:port` opens. */
+const EGRESS_DEFAULT_PORT = 443;
+
+/** `[*.]host[:port]`: an optional leading `*.` label, a host, an optional port without leading zero. */
+const EGRESS_ENTRY_RE = /^(\*\.)?([^:*]+)(?::([1-9]\d{0,4}))?$/;
+const IPV4_RE = /^\d+(\.\d+)+$/;
+
+/** One parsed allowlist entry: `pattern` is an exact host or `*.host` (strict subdomains only). */
+interface EgressEntry {
+  pattern: string;
+  port: number;
+}
+
+/**
+ * Parse one egress allowlist entry (#3923): `host` (exactly that host), `*.host` (its subdomains,
+ * not the host itself), each optionally with `:port` (that TCP port only; default 443). The host
+ * part must pass {@link HOSTNAME_RE}, so `*.com` (wildcard over one label) is refused, as is a
+ * wildcard over an IP. Returns null to reject.
+ */
+function parseEgressEntry(raw: string): EgressEntry | null {
+  const m = EGRESS_ENTRY_RE.exec(raw.trim().toLowerCase());
+  if (!m) return null;
+  const [, wildcard, host, portText] = m;
+  if (!HOSTNAME_RE.test(host!)) return null;
+  if (wildcard && IPV4_RE.test(host!)) return null;
+  const port = portText === undefined ? EGRESS_DEFAULT_PORT : Number(portText);
+  if (port > 65535) return null;
+  return { pattern: (wildcard ?? "") + host, port };
+}
+
+/**
+ * Normalize an egress allowlist entry to its stored form (lowercase, trimmed, `:443` dropped), or
+ * null to reject. The SINGLE gate for what may enter the egress allowlist; `validate.ts` reuses it
+ * so a validated entry is exactly an enforced one.
+ */
+export function normalizeEgressEntry(raw: string): string | null {
+  const e = parseEgressEntry(raw);
+  if (!e) return null;
+  return e.port === EGRESS_DEFAULT_PORT ? e.pattern : `${e.pattern}:${e.port}`;
 }
 
 // ── allowlist builder ─────────────────────────────────────────────────────────
@@ -510,13 +552,26 @@ function collectForgeEntryHosts(host: string, cfg: ForgeMap[string]): string[] {
   const isGithub = cfg.type ? cfg.type === "github" : host === "github.com";
   if (isGithub) hosts.push(...GITHUB_EGRESS_HOSTS);
   if (cfg.baseUrl) {
-    try {
-      hosts.push(new URL(cfg.baseUrl).hostname);
-    } catch {
-      // Malformed URL — skip silently.
-    }
+    const entry = urlEgressEntry(cfg.baseUrl);
+    if (entry) hosts.push(entry);
   }
   return hosts;
+}
+
+/**
+ * A URL as an allowlist entry: its host, with its port when that isn't 443 (plain `http://`
+ * without a port → `:80`), so a forge or registry on another port stays reachable under the
+ * 443-only default. Null for a malformed URL or one whose host no entry can hold.
+ */
+export function urlEgressEntry(raw: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  const port = url.port || (url.protocol === "http:" ? "80" : "");
+  return normalizeEgressEntry(port ? `${url.hostname}:${port}` : url.hostname);
 }
 
 /** Normalize, deduplicate, and sort a raw host list. */
@@ -524,7 +579,7 @@ function normalizeDedupeSort(raw: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const h of raw) {
-    const norm = normalizeHost(h);
+    const norm = normalizeEgressEntry(h);
     if (norm === null || seen.has(norm)) continue;
     seen.add(norm);
     out.push(norm);
@@ -534,16 +589,17 @@ function normalizeDedupeSort(raw: string[]): string[] {
 }
 
 /**
- * Build the deduped, sorted egress allowlist of domains for an agent spawn.
+ * Build the deduped, sorted egress allowlist of entries (see {@link parseEgressEntry}) for an
+ * agent spawn.
  *
  *   - Anthropic base set: always included.
  *   - Forge hosts: every map KEY (the host); for `type === "github"` entries the
- *     GitHub well-known set is also added; for a `baseUrl`, its hostname is extracted.
+ *     GitHub well-known set is also added; for a `baseUrl`, its host (with a non-443 port).
  *     When `forges` is EMPTY (no entries), the GitHub well-known set is added as the
  *     default forge (Shepherd defaults to github.com via the `gh` CLI).
  *   - `extraHosts`: operator additions, appended verbatim (after normalization).
  *
- * Invalid hosts (empty, non-hostname characters, no dot) are silently dropped.
+ * Invalid entries (empty, non-hostname characters, no dot, bad port) are silently dropped.
  */
 export function buildEgressAllowlist(opts: { forges: ForgeMap; extraHosts?: string[] }): string[] {
   const { forges, extraHosts = [] } = opts;
@@ -563,23 +619,40 @@ export function buildEgressAllowlist(opts: { forges: ForgeMap; extraHosts?: stri
   return normalizeDedupeSort(raw);
 }
 
-// ── exact / suffix host matching ──────────────────────────────────────────────
+// ── host matching ─────────────────────────────────────────────────────────────
 
 /**
- * True when `host` matches an entry in `allowlist` exactly OR as a subdomain.
- * E.g. allowlist entry `"anthropic.com"` matches `"api.anthropic.com"`.
- *
- * Used by the drop-watcher. dnsmasq's `--server=/domain/` already does suffix
- * matching natively; this function exists for reuse in the drop-log parser.
+ * True when dnsmasq resolves `host` for some entry in `allowlist` — the drop-watcher's mirror of
+ * {@link buildEgressConfig}: a plain entry matches only that exact host, `*.d` only strict
+ * subdomains of `d`. The port is irrelevant to name resolution.
  */
 export function hostMatchesAllowlist(host: string, allowlist: string[]): boolean {
   const h = host.toLowerCase();
-  for (const entry of allowlist) {
-    const e = entry.toLowerCase();
-    if (h === e) return true;
-    if (h.endsWith("." + e)) return true;
-  }
-  return false;
+  return allowlist.some((raw) => {
+    const e = parseEgressEntry(raw);
+    return e !== null && patternCovers(e.pattern, h);
+  });
+}
+
+/**
+ * True when some entry in `allowlist` opens `entry`'s host on `entry`'s port — the
+ * port-aware check for "already allowed" (lockfile suggestions): `registry.corp:4873` is not
+ * covered by a plain `registry.corp`, which only opens 443.
+ */
+export function egressEntryCovered(entry: string, allowlist: string[]): boolean {
+  const target = parseEgressEntry(entry);
+  if (!target) return false;
+  return allowlist.some((raw) => {
+    const e = parseEgressEntry(raw);
+    return e !== null && e.port === target.port && patternCovers(e.pattern, target.pattern);
+  });
+}
+
+/** Whether allowlist pattern `pattern` (`d` / `*.d`) covers `target` (a host or `*.host`). */
+function patternCovers(pattern: string, target: string): boolean {
+  if (!pattern.startsWith("*.")) return target === pattern;
+  const base = pattern.slice(2);
+  return target.endsWith(`.${base}`) || target === pattern;
 }
 
 // ── config types + builder ────────────────────────────────────────────────────
@@ -599,7 +672,7 @@ export interface EgressConfig {
 /**
  * Generate ALL egress config artefacts from the allowlist. PURE — no I/O.
  *
- * @param allowlist  Deduped, sorted hostname list (from buildEgressAllowlist).
+ * @param allowlist  Deduped, sorted entry list (from buildEgressAllowlist).
  * @param opts.tmpDir        Per-agent tmp directory for dnsmasq log + override files.
  * @param opts.resolver      Upstream DNS resolver IP (default "10.0.2.3" = slirp4netns's built-in).
  * @param opts.minCacheTtl   dnsmasq min-cache-ttl seconds (default 600).
@@ -663,11 +736,8 @@ export function buildEgressConfig(
     `--query-port=${DNSMASQ_QUERY_PORT}`,
   ];
 
-  // One --server and one --nftset per domain.
-  for (const domain of allowlist) {
-    dnsmasqArgv.push(`--server=/${domain}/${resolver}`);
-    dnsmasqArgv.push(`--nftset=/${domain}/${nftSet}`);
-  }
+  const groups = groupEgressEntries(allowlist);
+  dnsmasqArgv.push(...dnsmasqDomainArgs(groups, resolver, nftSet));
 
   dnsmasqArgv.push(`--min-cache-ttl=${minCacheTtl}`);
   dnsmasqArgv.push("--log-queries");
@@ -676,27 +746,35 @@ export function buildEgressConfig(
   // ── nft ruleset ─────────────────────────────────────────────────────────────
   // family inet, table egress, default-drop with explicit REJECT for fast-fail.
   // When hostGateway is set, ONE least-privilege allow for the host IP+port goes
-  // right after the @allowed accept (return traffic is covered by ct established).
+  // right after the allowed-set accepts (return traffic is covered by ct established).
   // The resolver accept is bound to dnsmasq's fixed query port (see DNSMASQ_QUERY_PORT), and TCP 53
   // is not opened at all: either would let the agent query the upstream resolver directly and
   // bypass the allowlist (audit N06). Cost: no TCP fallback for a truncated upstream answer.
   // Table `devfwd`: the only new inbound connections on tap0 are slirp hostfwds Shepherd adds
   // for the session's dev port (#2889); DNAT them to the netns loopback so a dev server bound
   // to 127.0.0.1 is reachable too (needs tap0 route_localnet, set by the runner).
+  // Allowed IPs are open on ONE TCP port each (#3923): set `allowed` on 443, set `allowed_p<N>`
+  // on N for every `host:N` entry.
+  const ports = [...new Set([EGRESS_DEFAULT_PORT, ...[...groups.values()].flat()])].sort(
+    (a, b) => a - b,
+  );
+  const sets = ports
+    .map((p) => `  set ${portSetName("allowed", p)} {\n    type ipv4_addr\n    flags timeout\n  }`)
+    .join("\n");
+  const allowRules = ports
+    .map((p) => `    ip daddr @${portSetName("allowed", p)} tcp dport ${p} accept`)
+    .join("\n");
   const hostGatewayRule = hostGateway
     ? `\n    ip daddr ${hostGateway.ip} tcp dport ${hostGateway.port} accept`
     : "";
   const nftRuleset = `table inet egress {
-  set allowed {
-    type ipv4_addr
-    flags timeout
-  }
+${sets}
   chain out {
     type filter hook output priority 0; policy drop;
     oifname "lo" accept
     ct state established,related accept
     ip daddr ${resolver} udp sport ${DNSMASQ_QUERY_PORT} udp dport 53 accept
-    ip daddr @allowed accept${hostGatewayRule}
+${allowRules}${hostGatewayRule}
     meta nfproto ipv6 reject
     meta l4proto tcp reject with tcp reset
     reject
@@ -716,6 +794,76 @@ table ip devfwd {
     resolvConf: "nameserver 127.0.0.1\n",
     nsswitchConf: "hosts: files dns\n",
   };
+}
+
+/** The nft set carrying the IPs open on `port`: `base` for 443, `base_p<port>` otherwise. */
+function portSetName(base: string, port: number): string {
+  return port === EGRESS_DEFAULT_PORT ? base : `${base}_p${port}`;
+}
+
+/** Valid entries grouped by pattern (`d` / `*.d`) → its ports, ascending, in allowlist order. */
+function groupEgressEntries(allowlist: string[]): Map<string, number[]> {
+  const groups = new Map<string, number[]>();
+  for (const raw of allowlist) {
+    const e = parseEgressEntry(raw);
+    if (!e) continue;
+    const ports = groups.get(e.pattern) ?? [];
+    if (!ports.includes(e.port)) ports.push(e.port);
+    groups.set(
+      e.pattern,
+      ports.sort((a, b) => a - b),
+    );
+  }
+  return groups;
+}
+
+/** Ports of every wildcard entry `*.Y` covering `domain`, i.e. with `Y` a strict ancestor of it. */
+function coveringWildcardPorts(groups: Map<string, number[]>, domain: string): number[] {
+  const ports: number[] = [];
+  for (const [pattern, p] of groups) {
+    if (pattern.startsWith("*.") && domain.endsWith(pattern.slice(1))) ports.push(...p);
+  }
+  return ports;
+}
+
+/**
+ * The per-pattern dnsmasq flags. dnsmasq picks the LONGEST matching domain for both `--server`
+ * and `--nftset`, so every exact/wildcard pair along one name chain has to be reconciled.
+ *
+ * Resolution: `--server=/d/` matches `d` AND every subdomain, so an exact pattern `d` also gets
+ * `--server=/*.d/` with no upstream: dnsmasq answers its subdomains NXDOMAIN locally (verified on
+ * dnsmasq 2.93, pinned by test/egress-dns-match.test.ts — the more specific `/*.d/` beats `/d/`,
+ * and an exact `api.d` or wildcard `*.x.d` still beats `/*.d/`). Skipped when `*.d` or a wildcard
+ * over an ancestor of `d` is an entry: that wildcard already covers every subdomain of `d`.
+ *
+ * Pinning: `--nftset` ignores the `*.` syntax and matches by suffix, so `--nftset=/d/` serves `d`
+ * and `*.d`, and is the longest match for every name under `d` without a deeper pin. Each pin
+ * therefore carries the ports of `d`, of `*.d`, and of every wildcard over an ancestor of `d`.
+ * Cost: names at and under `d` share one pin — `d` also gets `*.d`'s ports, and `d`'s subdomains
+ * get the ports of an exact `d` entry.
+ */
+function dnsmasqDomainArgs(
+  groups: Map<string, number[]>,
+  resolver: string,
+  nftSet: string,
+): string[] {
+  const args: string[] = [];
+  const pins = new Map<string, Set<number>>();
+  for (const [pattern, ports] of groups) {
+    args.push(`--server=/${pattern}/${resolver}`);
+    const wildcard = pattern.startsWith("*.");
+    const domain = wildcard ? pattern.slice(2) : pattern;
+    const covering = coveringWildcardPorts(groups, domain);
+    if (!wildcard && !groups.has(`*.${domain}`) && covering.length === 0) {
+      args.push(`--server=/*.${domain}/`);
+    }
+    pins.set(domain, new Set([...(pins.get(domain) ?? []), ...ports, ...covering]));
+  }
+  for (const [domain, ports] of pins) {
+    const sets = [...ports].sort((a, b) => a - b).map((p) => portSetName(nftSet, p));
+    args.push(`--nftset=/${domain}/${sets.join(",")}`);
+  }
+  return args;
 }
 
 // ── bwrap override flags ───────────────────────────────────────────────────────

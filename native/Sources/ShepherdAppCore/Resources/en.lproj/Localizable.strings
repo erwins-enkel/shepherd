@@ -57,10 +57,12 @@
 "automation_egress_hosts_empty" = "No extra hosts for this repo.";
 "automation_egress_hosts_err_duplicate" = "This host is already in the list.";
 "automation_egress_hosts_err_empty" = "Enter a host name.";
-"automation_egress_hosts_err_invalid" = "Enter a host name like registry.example.com: at least two dot-separated parts of letters, digits and hyphens, with no hyphen at the start or end of a part. No scheme, port, path or wildcard.";
+"automation_egress_hosts_err_invalid" = "Enter a host name like registry.example.com, optionally as *.example.com for its subdomains or with :port (1–65535). At least two dot-separated parts of letters, digits and hyphens, with no hyphen at the start or end of a part. No scheme or path.";
+"automation_egress_hosts_hint" = "An entry allows exactly that host on port 443. Write *.example.com for its subdomains, host:port for another port. New sessions pick up changes.";
 "automation_egress_hosts_label" = "Extra allowed hosts";
 "automation_egress_hosts_placeholder" = "registry.example.com";
 "automation_egress_hosts_remove" = "Remove %1$@";
+"automation_egress_hosts_wildcard_warn" = "A *. entry opens every subdomain of that host, including ones anyone can register (such as on github.io). List exact hosts where you can.";
 "automation_lightweight_unavailable" = "Unavailable in lightweight mode";
 "automation_preview_open_mode_label" = "Preview chip";
 "automation_sandbox_inherit" = "Inherit (%1$@)";

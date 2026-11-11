@@ -462,6 +462,38 @@ describe("AutomationSettings — extra allowed hosts (#3446)", () => {
     await vi.waitFor(() => expect(puts).toEqual([{ egressExtraHosts: ["10.0.0.1"] }]));
   });
 
+  it("adds port entries, normalizing :443 away", async () => {
+    const puts = stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    await mount();
+    await addHost("git.example.com:8443");
+    await vi.waitFor(() => expect(puts).toEqual([{ egressExtraHosts: ["git.example.com:8443"] }]));
+    await addHost("x.example.com:443");
+    await vi.waitFor(() =>
+      expect(puts.at(-1)).toEqual({ egressExtraHosts: ["git.example.com:8443", "x.example.com"] }),
+    );
+  });
+
+  it("adds a wildcard entry only after Add anyway, and flags its chip (#3923)", async () => {
+    const puts = stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    await mount();
+    const reason = m.egress_risk_wildcard();
+    await addHost("*.Example.com");
+    await expect.element(page.getByText(m.automation_egress_hosts_warn({ reason }))).toBeVisible();
+    expect(puts).toEqual([]);
+    const anyway = page.getByRole("button", { name: m.automation_egress_hosts_add_anyway() });
+    (anyway.element() as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(puts).toEqual([{ egressExtraHosts: ["*.example.com"] }]));
+    await expect
+      .element(
+        page.getByRole("button", {
+          name: m.automation_egress_hosts_risky_chip({ host: "*.example.com", reason }),
+        }),
+      )
+      .toBeVisible();
+  });
+
   it("removes a host and persists the rest", async () => {
     const puts = stubFetch();
     repoConfig.sandboxProfile = { [REPO]: "autonomous" };
@@ -479,6 +511,9 @@ describe("AutomationSettings — extra allowed hosts (#3446)", () => {
     ["localhost", () => m.automation_egress_hosts_err_invalid()],
     ["-x.com", () => m.automation_egress_hosts_err_invalid()],
     ["https://x.com", () => m.automation_egress_hosts_err_invalid()],
+    ["*.com", () => m.automation_egress_hosts_err_invalid()],
+    ["x.com:0", () => m.automation_egress_hosts_err_invalid()],
+    ["a.example.com:443", () => m.automation_egress_hosts_err_duplicate()],
     ["   ", () => m.automation_egress_hosts_err_empty()],
     ["A.example.com", () => m.automation_egress_hosts_err_duplicate()],
   ])("rejects %j inline without saving", async (value, message) => {

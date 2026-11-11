@@ -90,13 +90,23 @@ test("allowlisted host → no signal", async () => {
   expect(emits).toHaveLength(0);
 });
 
-test("subdomain of allowlisted entry → no signal (suffix match)", async () => {
+test("subdomain of an exact entry → signal (dnsmasq blocks it, #3923)", async () => {
   const log = dnsLine("sub.api.anthropic.com");
-  // allowlist contains "api.anthropic.com" → sub.api.anthropic.com is a subdomain of it
   const { watcher, signals } = makeWatcher(log);
 
   watcher.start(SESSION, { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist: ALLOWLIST });
   await watcher.tick(SESSION, { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist: ALLOWLIST });
+
+  expect(signals).toHaveLength(1);
+});
+
+test("subdomain covered by a *. entry → no signal", async () => {
+  const log = dnsLine("sub.api.anthropic.com");
+  const allowlist = [...ALLOWLIST, "*.api.anthropic.com"];
+  const { watcher, signals } = makeWatcher(log);
+
+  watcher.start(SESSION, { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist });
+  await watcher.tick(SESSION, { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist });
 
   expect(signals).toHaveLength(0);
 });

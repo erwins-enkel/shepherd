@@ -5,6 +5,9 @@ import {
   GITHUB_EGRESS_HOSTS,
   buildEgressAllowlist,
   connectorEgressHosts,
+  normalizeEgressEntry,
+  egressEntryCovered,
+  urlEgressEntry,
   hostMatchesAllowlist,
   buildEgressConfig,
   egressMembraneOverrideFlags,
@@ -154,6 +157,30 @@ describe("buildEgressAllowlist", () => {
     expect(list).toContain("api.github.com");
   });
 
+  test("baseUrl on a non-443 port keeps its port; plain http without a port is :80", () => {
+    const forges: ForgeMap = {
+      "git.a.example": { type: "gitea", baseUrl: "https://git.a.example:3000" },
+      "git.b.example": { type: "gitea", baseUrl: "http://git.b.example" },
+      "git.c.example": { type: "gitea", baseUrl: "https://git.c.example:443/" },
+    };
+    const list = buildEgressAllowlist({ forges });
+    expect(list).toContain("git.a.example:3000");
+    expect(list).toContain("git.b.example:80");
+    expect(list).toContain("git.c.example");
+    expect(list).not.toContain("git.c.example:443");
+  });
+
+  test("extraHosts keep wildcard and port entries, normalized", () => {
+    const list = buildEgressAllowlist({
+      forges: {},
+      extraHosts: ["*.Example.com", "git.example.com:8443", "x.example.com:443", "*.com"],
+    });
+    expect(list).toContain("*.example.com");
+    expect(list).toContain("git.example.com:8443");
+    expect(list).toContain("x.example.com");
+    expect(list).not.toContain("*.com");
+  });
+
   test("extraHosts appended", () => {
     const list = buildEgressAllowlist({
       forges: {},
@@ -249,41 +276,105 @@ describe("buildEgressAllowlist", () => {
 // ── hostMatchesAllowlist ─────────────────────────────────────────────────────
 
 describe("hostMatchesAllowlist", () => {
-  const list = ["anthropic.com", "github.com", "api.example.com"];
+  const list = ["anthropic.com", "github.com", "*.foo.io", "git.corp.example:8443"];
 
-  test("exact match returns true", () => {
+  test("exact entry matches only itself (case-insensitive)", () => {
     expect(hostMatchesAllowlist("anthropic.com", list)).toBe(true);
-    expect(hostMatchesAllowlist("github.com", list)).toBe(true);
-  });
-
-  test("subdomain match returns true", () => {
-    expect(hostMatchesAllowlist("api.anthropic.com", list)).toBe(true);
-    expect(hostMatchesAllowlist("statsig.anthropic.com", list)).toBe(true);
-    expect(hostMatchesAllowlist("deep.sub.anthropic.com", list)).toBe(true);
-  });
-
-  test("non-match returns false", () => {
-    expect(hostMatchesAllowlist("evil.com", list)).toBe(false);
-    expect(hostMatchesAllowlist("notanthropiccom", list)).toBe(false);
-    // Suffix but not a real subdomain (no dot separator)
-    expect(hostMatchesAllowlist("notanthropic.com", list)).toBe(false);
-  });
-
-  test("exact match on subdomain entry in allowlist", () => {
-    expect(hostMatchesAllowlist("api.example.com", list)).toBe(true);
-  });
-
-  test("sub-subdomain of subdomain entry", () => {
-    expect(hostMatchesAllowlist("v2.api.example.com", list)).toBe(true);
-  });
-
-  test("case-insensitive", () => {
-    expect(hostMatchesAllowlist("API.ANTHROPIC.COM", list)).toBe(true);
     expect(hostMatchesAllowlist("GITHUB.COM", list)).toBe(true);
+    expect(hostMatchesAllowlist("api.anthropic.com", list)).toBe(false);
+    expect(hostMatchesAllowlist("gist.github.com", list)).toBe(false);
   });
 
-  test("empty allowlist => false", () => {
+  test("*.d matches strict subdomains, not d", () => {
+    expect(hostMatchesAllowlist("x.foo.io", list)).toBe(true);
+    expect(hostMatchesAllowlist("a.b.foo.io", list)).toBe(true);
+    expect(hostMatchesAllowlist("foo.io", list)).toBe(false);
+    expect(hostMatchesAllowlist("notfoo.io", list)).toBe(false);
+  });
+
+  test("a port entry matches its host by name", () => {
+    expect(hostMatchesAllowlist("git.corp.example", list)).toBe(true);
+  });
+
+  test("non-match and empty allowlist => false", () => {
+    expect(hostMatchesAllowlist("evil.com", list)).toBe(false);
     expect(hostMatchesAllowlist("anthropic.com", [])).toBe(false);
+  });
+});
+
+// ── urlEgressEntry / egressEntryCovered ──────────────────────────────────────
+
+describe("urlEgressEntry", () => {
+  test.each([
+    ["https://registry.corp/x", "registry.corp"],
+    ["https://registry.corp:443/x", "registry.corp"],
+    ["https://nexus.corp:8081/x", "nexus.corp:8081"],
+    ["http://registry.corp:4873/x", "registry.corp:4873"],
+    ["http://registry.corp/x", "registry.corp:80"],
+    ["HTTPS://Registry.Corp/x", "registry.corp"],
+  ])("%s → %s", (raw, entry) => {
+    expect(urlEgressEntry(raw)).toBe(entry);
+  });
+
+  test("malformed URL or unholdable host → null", () => {
+    expect(urlEgressEntry("not a url")).toBeNull();
+    expect(urlEgressEntry("https://localhost/x")).toBeNull();
+  });
+});
+
+describe("egressEntryCovered", () => {
+  const list = ["registry.corp", "nexus.corp:8081", "*.corp.example", "*.svc.example:22"];
+
+  test("covered only when a covering entry opens the same port", () => {
+    expect(egressEntryCovered("registry.corp", list)).toBe(true);
+    expect(egressEntryCovered("registry.corp:4873", list)).toBe(false);
+    expect(egressEntryCovered("nexus.corp:8081", list)).toBe(true);
+    expect(egressEntryCovered("nexus.corp", list)).toBe(false);
+  });
+
+  test("wildcards cover strict subdomains on their port", () => {
+    expect(egressEntryCovered("npm.corp.example", list)).toBe(true);
+    expect(egressEntryCovered("corp.example", list)).toBe(false);
+    expect(egressEntryCovered("a.svc.example:22", list)).toBe(true);
+    expect(egressEntryCovered("a.svc.example", list)).toBe(false);
+    expect(egressEntryCovered("*.x.corp.example", list)).toBe(true);
+  });
+
+  test("an invalid entry is never covered", () => {
+    expect(egressEntryCovered("localhost", list)).toBe(false);
+  });
+});
+
+// ── normalizeEgressEntry ─────────────────────────────────────────────────────
+
+describe("normalizeEgressEntry", () => {
+  test.each([
+    ["Registry.Example.com", "registry.example.com"],
+    ["  *.Example.com ", "*.example.com"],
+    ["git.example.com:8443", "git.example.com:8443"],
+    ["*.example.com:22", "*.example.com:22"],
+    ["x.com:443", "x.com"],
+    ["10.0.0.1", "10.0.0.1"],
+  ])("%j → %j", (raw, value) => {
+    expect(normalizeEgressEntry(raw)).toBe(value);
+  });
+
+  test.each([
+    "",
+    "localhost",
+    "*.com",
+    "*x.com",
+    "a.*.com",
+    "*.*.x.com",
+    "*.1.2.3.4",
+    "x.com:",
+    "x.com:0",
+    "x.com:0443",
+    "x.com:65536",
+    "x.com:22:23",
+    "https://x.com",
+  ])("%j rejected", (raw) => {
+    expect(normalizeEgressEntry(raw)).toBeNull();
   });
 });
 
@@ -297,16 +388,106 @@ describe("buildEgressConfig", () => {
     return buildEgressConfig(allowlist, { tmpDir, ...overrides });
   }
 
-  test("one --server per domain", () => {
+  test("one upstream --server per domain", () => {
     const { dnsmasqArgv } = config();
-    const servers = dnsmasqArgv.filter((a) => a.startsWith("--server="));
+    const servers = dnsmasqArgv.filter((a) => a.startsWith("--server=") && !a.endsWith("/"));
     expect(servers).toHaveLength(allowlist.length);
     for (const domain of allowlist) {
       expect(servers).toContain(`--server=/${domain}/10.0.2.3`);
     }
   });
 
-  test("one --nftset per domain", () => {
+  // #3923: dnsmasq's /d/ also matches every subdomain; a local-only /*.d/ makes it exact.
+  test("each exact domain gets a local-only subdomain blocker", () => {
+    const { dnsmasqArgv } = config();
+    for (const domain of allowlist) {
+      expect(dnsmasqArgv).toContain(`--server=/*.${domain}/`);
+    }
+  });
+
+  test("a *.d entry resolves subdomains upstream and suppresses d's blocker", () => {
+    const { dnsmasqArgv } = buildEgressConfig(["*.foo.io", "foo.io"], { tmpDir });
+    expect(dnsmasqArgv).toContain("--server=/*.foo.io/10.0.2.3");
+    expect(dnsmasqArgv).toContain("--server=/foo.io/10.0.2.3");
+    expect(dnsmasqArgv).not.toContain("--server=/*.foo.io/");
+    // --nftset has no *. syntax: one suffix pin on the bare domain serves both
+    expect(dnsmasqArgv.filter((a) => a.startsWith("--nftset="))).toEqual([
+      "--nftset=/foo.io/inet#egress#allowed",
+    ]);
+  });
+
+  test("a wildcard entry alone gets no blocker and pins on the bare domain", () => {
+    const { dnsmasqArgv } = buildEgressConfig(["*.foo.io:22"], { tmpDir });
+    expect(dnsmasqArgv.filter((a) => a.startsWith("--server="))).toEqual([
+      "--server=/*.foo.io/10.0.2.3",
+    ]);
+    expect(dnsmasqArgv).toContain("--nftset=/foo.io/inet#egress#allowed_p22");
+  });
+
+  test("d and *.d with different ports share one pin carrying both", () => {
+    const { dnsmasqArgv } = buildEgressConfig(["*.foo.io:22", "foo.io"], { tmpDir });
+    expect(dnsmasqArgv.filter((a) => a.startsWith("--nftset="))).toEqual([
+      "--nftset=/foo.io/inet#egress#allowed_p22,inet#egress#allowed",
+    ]);
+  });
+
+  test("a wildcard over an ancestor suppresses an exact entry's blocker", () => {
+    const { dnsmasqArgv } = buildEgressConfig(["*.corp.io", "git.corp.io"], { tmpDir });
+    expect(dnsmasqArgv).toContain("--server=/git.corp.io/10.0.2.3");
+    expect(dnsmasqArgv).not.toContain("--server=/*.git.corp.io/");
+  });
+
+  test("an exact entry under a wildcard keeps the wildcard's ports in its pin", () => {
+    const { dnsmasqArgv } = buildEgressConfig(["*.corp.io", "git.corp.io:2222"], { tmpDir });
+    expect(dnsmasqArgv).toContain(
+      "--nftset=/git.corp.io/inet#egress#allowed,inet#egress#allowed_p2222",
+    );
+    expect(dnsmasqArgv).toContain("--nftset=/corp.io/inet#egress#allowed");
+  });
+
+  test("a nested wildcard's pin carries the outer wildcard's ports too", () => {
+    const { dnsmasqArgv } = buildEgressConfig(["*.corp.io", "*.git.corp.io:22"], { tmpDir });
+    expect(dnsmasqArgv).toContain(
+      "--nftset=/git.corp.io/inet#egress#allowed_p22,inet#egress#allowed",
+    );
+  });
+
+  test("a wildcard that is not an ancestor leaves the blocker and pin alone", () => {
+    const { dnsmasqArgv } = buildEgressConfig(["*.other.io:22", "git.corp.io"], { tmpDir });
+    expect(dnsmasqArgv).toContain("--server=/*.git.corp.io/");
+    expect(dnsmasqArgv).toContain("--nftset=/git.corp.io/inet#egress#allowed");
+  });
+
+  test("port entries pin into per-port sets; one --nftset per domain lists them all", () => {
+    const { dnsmasqArgv } = buildEgressConfig(["git.x.com", "git.x.com:22", "y.com:8443"], {
+      tmpDir,
+    });
+    expect(dnsmasqArgv).toContain(
+      "--nftset=/git.x.com/inet#egress#allowed_p22,inet#egress#allowed",
+    );
+    expect(dnsmasqArgv).toContain("--nftset=/y.com/inet#egress#allowed_p8443");
+    expect(dnsmasqArgv.filter((a) => a.startsWith("--server=/git.x.com/"))).toHaveLength(1);
+    expect(dnsmasqArgv.filter((a) => a.startsWith("--nftset=/git.x.com/"))).toHaveLength(1);
+  });
+
+  test("allowed IPs are open on tcp 443 only — no bare @allowed accept", () => {
+    const { nftRuleset } = config();
+    expect(nftRuleset).toContain("ip daddr @allowed tcp dport 443 accept");
+    expect(nftRuleset).not.toMatch(/ip daddr @allowed accept/);
+    expect(nftRuleset).not.toContain("allowed_p");
+  });
+
+  test("a host:port entry adds its own set and a rule for that port only", () => {
+    const { nftRuleset } = buildEgressConfig(["y.com:8443", "z.com:22"], { tmpDir });
+    expect(nftRuleset).toContain("set allowed_p22 {");
+    expect(nftRuleset).toContain("set allowed_p8443 {");
+    expect(nftRuleset).toContain("ip daddr @allowed_p22 tcp dport 22 accept");
+    expect(nftRuleset).toContain("ip daddr @allowed_p8443 tcp dport 8443 accept");
+    // the 443 set always exists, so the ruleset shape stays fixed
+    expect(nftRuleset).toContain("ip daddr @allowed tcp dport 443 accept");
+  });
+
+  test("one --nftset per domain (443 → the allowed set)", () => {
     const { dnsmasqArgv } = config();
     const sets = dnsmasqArgv.filter((a) => a.startsWith("--nftset="));
     expect(sets).toHaveLength(allowlist.length);
@@ -447,6 +628,7 @@ describe("buildEgressConfig", () => {
     const servers = dnsmasqArgv.filter((a) => a.startsWith("--server="));
     for (const domain of allowlist) {
       expect(servers).toContain(`--server=/${domain}/1.1.1.1`);
+      expect(servers).toContain(`--server=/*.${domain}/`);
     }
   });
 
@@ -469,11 +651,11 @@ describe("buildEgressConfig", () => {
     expect(() => config({ nftSet: "" })).toThrow(/invalid nftSet/);
   });
 
-  test("hostGateway: emits one allow rule after @allowed accept, before ipv6 reject", () => {
+  test("hostGateway: emits one allow rule after the @allowed accept, before ipv6 reject", () => {
     const { nftRuleset } = config({ hostGateway: { ip: SLIRP_HOST_GATEWAY, port: 7330 } });
     expect(nftRuleset).toContain("ip daddr 10.0.2.2 tcp dport 7330 accept");
     const idxRule = nftRuleset.indexOf("ip daddr 10.0.2.2 tcp dport 7330 accept");
-    const idxAllowed = nftRuleset.indexOf("ip daddr @allowed accept");
+    const idxAllowed = nftRuleset.indexOf("ip daddr @allowed tcp dport 443 accept");
     const idxIpv6 = nftRuleset.indexOf("meta nfproto ipv6 reject");
     expect(idxAllowed).toBeGreaterThan(-1);
     expect(idxRule).toBeGreaterThan(idxAllowed);

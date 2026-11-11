@@ -8,6 +8,7 @@ import { normalizeRepoDefaultEffortSetting } from "./default-effort";
 
 /** Only these settings may travel with a repository. All other settings stay local. */
 export const REPO_RULE_FIELDS = [
+  "leitrechner",
   "criticEnabled",
   "criticAllPrs",
   "criticSmellLensEnabled",
@@ -43,6 +44,7 @@ export function isLeitrechner(value: unknown): value is string | null {
 }
 /** Defaults are shared by the DB fallback, partial-file reads and invariant validation. */
 export const REPO_RULE_DEFAULTS: Readonly<RepoRules> = Object.freeze({
+  leitrechner: null,
   criticEnabled: true,
   criticAllPrs: false,
   criticSmellLensEnabled: false,
@@ -93,6 +95,9 @@ export function parseRepoRules(raw: string): Partial<RepoRules> | null {
       if (!isRepoRuleKey(key)) continue;
       let valid: boolean;
       switch (key) {
+        case "leitrechner":
+          valid = isLeitrechner(v);
+          break;
         case "signoffAuthority":
           valid = v === "human" || v === "critic" || v === "either";
           break;

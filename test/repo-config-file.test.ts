@@ -94,3 +94,12 @@ test("rule files that violate draft/merge or critic/signoff invariants are inval
     criticEnabled: false,
   });
 });
+
+test("leitrechner accepts an instance UUID or null, never host names or surrounding whitespace", () => {
+  expect(parseRepoRules('{"leitrechner":"ffffffff-ffff-4fff-8fff-ffffffffffff"}')).toEqual({
+    leitrechner: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+  });
+  expect(parseRepoRules('{"leitrechner":null}')).toEqual({ leitrechner: null });
+  for (const leitrechner of [false, 42, "", " ", " id ", "host-name"])
+    expect(parseRepoRules(JSON.stringify({ leitrechner }))).toBeNull();
+});

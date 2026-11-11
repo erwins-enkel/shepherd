@@ -72,5 +72,12 @@ test("repository policy: unknown and unresolvable event shapes are not trusted",
   expect(filterRepositoryEvent("queue:update", { sessionId: "own" }, allowed)).toBe(true);
   expect(filterRepositoryEvent("session:status", { id: "other" }, allowed)).toBe(false);
   expect(filterRepositoryEvent("future:event", { id: "own" }, allowed)).toBe(false);
+  expect(
+    filterRepositoryEvent(
+      "repo:leitrechner",
+      { repoPath: "/private", leitrechnerStatus: { name: "Private machine" } },
+      allowed,
+    ),
+  ).toBe(false);
   expect(filterRepositoryEvent("queue:update", { id: "own" }, allowed)).toBe(false);
 });

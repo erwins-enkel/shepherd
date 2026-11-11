@@ -1,3 +1,4 @@
+import type { RepoLeitrechnerService, RepoLeitrechnerStatus } from "./repo-leitrechner";
 import { repoConfigDefaults, type SessionStore, type RepoConfig } from "./store";
 import {
   effectiveRepoConfig,
@@ -31,6 +32,7 @@ export type RepoConfigView = RepoConfig & {
   fieldSources: Record<keyof RepoConfig, "repo" | "rechner">;
   repoConfigCommit: string | null;
   leitrechner: string | null;
+  leitrechnerStatus: RepoLeitrechnerStatus;
 };
 
 /** A partial repo-config edit. Every field is a RepoConfig field (the route's
@@ -65,6 +67,7 @@ export class RepoConfigService {
   constructor(
     private store: RepoConfigStore,
     private defaultProfile: () => SandboxProfile = defaultSandboxProfile,
+    private leitrechner?: Pick<RepoLeitrechnerService, "status" | "invalidate">,
   ) {}
 
   /** The stored config plus its automation-metadata flags (the route response shape). */
@@ -77,6 +80,14 @@ export class RepoConfigService {
     ) as RepoConfigView["fieldSources"];
     return {
       ...config,
+      leitrechnerStatus: this.leitrechner?.status(dir) ?? {
+        instanceId: config.leitrechner ?? null,
+        name: null,
+        role: config.leitrechner ? "unknown" : "unassigned",
+        reachable: null,
+        allowed: true,
+        pauseReason: null,
+      },
       fieldSources,
       repoConfigCommit: file?.commit ?? null,
       leitrechner: file?.leitrechner ?? null,
@@ -108,6 +119,7 @@ export class RepoConfigService {
       defaultAgentProvider?: AgentProvider;
     } = {},
   ): Promise<RepoConfigPatchResult> {
+    const leader = opts.leitrechner === undefined ? patch.leitrechner : opts.leitrechner;
     return withRepoConfigLock(dir, async () => {
       const local = this.store.getLocalRepoConfig(dir);
       // A mode switch to lightweight must be local even if this repo has an origin/file.
@@ -116,9 +128,9 @@ export class RepoConfigService {
       const hasRulePatch = Object.entries(patch).some(
         ([key, value]) => value !== undefined && isRepoRuleKey(key),
       );
-      const leaderError = this.leaderPatchError(fileEnabled, opts.leitrechner);
+      const leaderError = this.leaderPatchError(fileEnabled, leader);
       if (leaderError) return { ok: false, error: leaderError };
-      const writeRules = fileEnabled && (hasRulePatch || opts.leitrechner !== undefined);
+      const writeRules = fileEnabled && (hasRulePatch || leader !== undefined);
       let localRunDefaults: RepoConfigPatch = {};
       try {
         if (writeRules) {
@@ -131,7 +143,7 @@ export class RepoConfigService {
             );
             return {
               ...repoRulesFromConfig(config),
-              ...(opts.leitrechner === undefined ? {} : { leitrechner: opts.leitrechner }),
+              ...(leader === undefined ? {} : { leitrechner: leader }),
             };
           });
         } else {
@@ -167,6 +179,7 @@ export class RepoConfigService {
         }),
       );
       if (opts.automationConfirmed === true) this.store.markAutomationConfirmed(dir);
+      this.leitrechner?.invalidate(dir);
       return { ok: true, config: this.read(dir), previousLocal: local, rulesCommitted: writeRules };
     });
   }

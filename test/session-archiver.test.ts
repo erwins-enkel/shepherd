@@ -242,6 +242,25 @@ test("a shelved session is never auto-archived; a settled task beside it is", as
   expect(h.archived).toEqual(["s1"]);
 });
 
+test("a usage-paused session is never auto-archived; a settled task beside it is", async () => {
+  const h = harness([
+    session({
+      id: "shelved",
+      usagePause: {
+        phase: "paused" as const,
+        since: 1,
+        resumeAt: 2,
+        stopPct: 80,
+        windows: ["week" as const],
+        stopSteerSent: true,
+      },
+    }),
+    session(),
+  ]);
+  await h.archiver.tick();
+  expect(h.archived).toEqual(["s1"]);
+});
+
 test("a herdr update in progress pauses the sweep", async () => {
   const h = harness([session()]);
   maintenance.begin();

@@ -8705,5 +8705,18 @@
   "schedules_limit_policy_overview": "Checks usage at the scheduled time. Choose to skip, wait for the limit, or start with the other ready provider when it is within the same limit.",
   "schedules_limit_manual_policy": "Run now uses the global usage hold instead of this schedule limit.",
   "schedules_limit_capacity_title": "Start capacity",
-  "schedules_limit_capacity_policy": "Memory and Codex capacity holds still apply."
+  "schedules_limit_capacity_policy": "Memory and Codex capacity holds still apply.",
+  "schedules_pause_at_stop": "Pause a running session at the stop and resume it after the reset",
+  "schedules_pause_hint": "Shepherd lets the agent finish its current step, then pauses until the usage window resets.",
+  "schedules_pause_disabled": "Needs a usage limit with a stop.",
+  "schedules_outcome_paused": "paused until {when} (usage stop)",
+  "schedule_pause_badge": "Paused until {when}",
+  "schedule_pause_title": "Paused (usage stop)",
+  "schedule_pause_resume_label": "Resume",
+  "schedule_pause_takeover_label": "Take over",
+  "schedule_pause_resume": "Shepherd resumes this session automatically after the reset at {when}.",
+  "schedule_pause_takeover": "Sending your own message ends the pause.",
+  "schedule_pause_unknown_reset": "Shepherd resumes automatically once the usage window has reset and usage is below the stop. The reset time is not available yet.",
+  "feat_schedule_usage_pause_title": "Pause scheduled runs at the usage stop",
+  "feat_schedule_usage_pause_body": "Enable pausing in a schedule’s usage limit to let the agent finish its current step at the stop. Shepherd resumes the session after the usage window resets. Your own message ends the pause."
 }

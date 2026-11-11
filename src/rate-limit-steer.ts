@@ -1,6 +1,7 @@
 import { githubBudget, type GithubBackoff } from "./agent-control";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import { isShelved } from "./shelve";
+import { isUsagePaused } from "./schedule-pause";
 import type { Session } from "./types";
 
 /** A window lifting sooner than this is not worth interrupting anyone for. */
@@ -42,6 +43,7 @@ function steerable(s: Session): boolean {
     !s.plain &&
     s.agentProvider !== "codex" &&
     !isOperatorAssistant(s) &&
+    !isUsagePaused(s) &&
     !isShelved(s)
   );
 }

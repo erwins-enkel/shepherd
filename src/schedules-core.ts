@@ -68,7 +68,7 @@ export type ScheduleLimitAction = "skip" | "wait" | "otherProvider";
 export type ScheduleUsageLimit = (
   | { kind: "upTo"; stopPct: number }
   | { kind: "from"; startPct: number; startWindow: "week" | "5h"; stopPct: number }
-) & { onMismatch?: ScheduleLimitAction };
+) & { pauseAtStop?: boolean; onMismatch?: ScheduleLimitAction };
 
 export interface ScheduleUsage {
   provider: AgentProvider;
@@ -133,6 +133,7 @@ export interface Schedule {
 }
 
 export type ScheduleOutcome =
+  | "paused"
   | "claimed"
   | "spawned"
   | "spawned:failover"
@@ -153,6 +154,7 @@ export interface ScheduleRun {
   sessionId: string | null;
   reason: string | null;
   usage: ScheduleUsage | null;
+  pausedUntil?: number | null;
   at: number;
 }
 
@@ -305,11 +307,21 @@ export function decideFiring(args: {
     : "fire";
 }
 
-function validateUsageLimitAction(raw: unknown): Result<Pick<ScheduleUsageLimit, "onMismatch">> {
-  if (raw === undefined) return { ok: true, value: {} };
-  if (raw !== "skip" && raw !== "wait" && raw !== "otherProvider")
+function validateUsageLimitOptions(
+  obj: Record<string, unknown>,
+): Result<Pick<ScheduleUsageLimit, "onMismatch" | "pauseAtStop">> {
+  const raw = obj.onMismatch;
+  if (raw !== undefined && raw !== "skip" && raw !== "wait" && raw !== "otherProvider")
     return fail("usageLimit.onMismatch must be skip, wait or otherProvider");
-  return { ok: true, value: { onMismatch: raw } };
+  if (obj.pauseAtStop !== undefined && typeof obj.pauseAtStop !== "boolean")
+    return fail("usageLimit.pauseAtStop must be a boolean");
+  return {
+    ok: true,
+    value: {
+      ...(raw !== undefined && { onMismatch: raw }),
+      ...(obj.pauseAtStop !== undefined && { pauseAtStop: obj.pauseAtStop as boolean }),
+    },
+  };
 }
 
 function validateUsageLimit(raw: unknown): Result<ScheduleUsageLimit | null> {
@@ -319,9 +331,9 @@ function validateUsageLimit(raw: unknown): Result<ScheduleUsageLimit | null> {
   const obj = raw as Record<string, unknown>;
   const keys =
     obj.kind === "from" ? ["kind", "startPct", "startWindow", "stopPct"] : ["kind", "stopPct"];
-  if (Object.keys(obj).some((key) => ![...keys, "onMismatch"].includes(key)))
+  if (Object.keys(obj).some((key) => ![...keys, "onMismatch", "pauseAtStop"].includes(key)))
     return fail("unknown usageLimit key");
-  const action = validateUsageLimitAction(obj.onMismatch);
+  const action = validateUsageLimitOptions(obj);
   if (!action.ok) return action;
   const pct = (v: unknown, min: number, max: number): v is number =>
     typeof v === "number" && Number.isInteger(v) && v % 5 === 0 && v >= min && v <= max;

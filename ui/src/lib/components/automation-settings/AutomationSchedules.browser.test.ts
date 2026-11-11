@@ -1162,3 +1162,64 @@ describe("schedule mismatch actions", () => {
     );
   });
 });
+
+describe("scheduled run usage pauses", () => {
+  it("requires a stop, preserves the opt-in across limit variants, and saves it", async () => {
+    await page.viewport(390, 700);
+    const calls = await edit();
+    await page.getByRole("tab", { name: m.schedules_limit_tab(), exact: true }).click();
+    const option = page.getByRole("checkbox", { name: m.schedules_pause_at_stop() });
+    await expect.element(option).toBeDisabled();
+    await expect
+      .element(page.getByText(m.schedules_pause_disabled(), { exact: true }))
+      .toBeVisible();
+    await page.getByRole("button", { name: m.schedules_limit_up(), exact: true }).click();
+    await expect.element(option).toBeEnabled();
+    await option.click();
+    await page.getByRole("button", { name: m.schedules_limit_from(), exact: true }).click();
+    await expect.element(option).toBeChecked();
+    await page.getByRole("button", { name: m.schedules_save(), exact: true }).click();
+    expect(calls.find((c) => c.method === "PATCH")?.body).toMatchObject({
+      usageLimit: { kind: "from", pauseAtStop: true },
+    });
+  });
+
+  it("loads an enabled pause and disabling the limit removes the option from the payload", async () => {
+    await page.viewport(390, 700);
+    const calls = await edit({
+      ...TRIAGE,
+      usageLimit: { kind: "upTo", stopPct: 80, pauseAtStop: true },
+    });
+    await page.getByRole("tab", { name: m.schedules_limit_tab(), exact: true }).click();
+    const option = page.getByRole("checkbox", { name: m.schedules_pause_at_stop() });
+    await expect.element(option).toBeChecked();
+    await page.getByRole("button", { name: m.schedules_limit_none(), exact: true }).click();
+    await expect.element(option).not.toBeChecked();
+    await expect.element(option).toBeDisabled();
+    await page.getByRole("button", { name: m.schedules_save(), exact: true }).click();
+    expect(calls.find((c) => c.method === "PATCH")?.body).toMatchObject({ usageLimit: null });
+  });
+
+  it("shows paused deadlines in the list and history and refreshes the history on resume", async () => {
+    const paused: ScheduleRun = {
+      ...RUN,
+      outcome: "paused",
+      reason: null,
+      pausedUntil: Date.UTC(2026, 10, 16, 9),
+    };
+    let runs = [paused];
+    const schedule = { ...TRIAGE, lastRun: paused };
+    mockApi([schedule], async () => response(runs));
+    render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+    await expect
+      .element(page.getByRole("button", { name: /Last: paused until .*usage stop/ }))
+      .toBeVisible();
+    await historyButton().click();
+    await expect.poll(() => historyList()?.textContent).toContain("usage stop");
+    runs = [{ ...paused, outcome: "spawned", pausedUntil: null }];
+    schedule.lastRun = runs[0]!;
+    store.apply({ event: "schedules:changed", data: { repoPath: TRIAGE.repoPath } });
+    await expect.poll(() => historyList()?.textContent).toContain(m.schedules_outcome_spawned());
+    await expect.poll(() => historyList()?.textContent).not.toContain("usage stop");
+  });
+});

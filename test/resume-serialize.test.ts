@@ -133,3 +133,39 @@ test("reDriveAccount: unknown session id -> refused", async () => {
   ]("nonexistent");
   expect(verdict).toBe("refused");
 });
+
+test.each(["operator", "archive"] as const)(
+  "usage-pause resume cannot spawn after %s wins during preparation",
+  async (action) => {
+    const hooks: { fn: Hooks } = { fn: async () => ({}) };
+    const h = makeService(hooks);
+    const id = await makeResumableSession(h.service, h.store);
+    h.store.setUsagePause(id, {
+      phase: "paused",
+      since: 1,
+      resumeAt: 2,
+      stopPct: 80,
+      windows: ["week"],
+      stopSteerSent: false,
+    });
+    let entered!: () => void, release!: () => void;
+    const started = new Promise<void>((r) => (entered = r));
+    const gate = new Promise<void>((r) => (release = r));
+    hooks.fn = async () => {
+      entered();
+      await gate;
+      return {};
+    };
+    const before = h.startCount();
+    const resuming = h.service.resume(id, {
+      automatic: true,
+      usagePause: { since: 1, purpose: "resume" },
+    });
+    await started;
+    if (action === "archive") h.store.archive(id);
+    else h.store.setUsagePause(id, null, true);
+    release();
+    expect(await resuming).toBeNull();
+    expect(h.startCount()).toBe(before);
+  },
+);

@@ -195,6 +195,19 @@ describe("attachCiSteer", () => {
       [session({ terminal: true }), git("success")],
       [session({ operatorAssistant: true }), git("success")],
       [session({ shelved: true }), git("success")],
+      [
+        session({
+          usagePause: {
+            phase: "paused" as const,
+            since: 1,
+            resumeAt: 2,
+            stopPct: 80,
+            windows: ["week" as const],
+            stopSteerSent: true,
+          },
+        }),
+        git("success"),
+      ],
       [session({ planPhase: "planning" }), git("success")],
       [session({ mergingSince: 1 }), git("success")],
       [session(), git("success", "abc", { state: "closed" })],

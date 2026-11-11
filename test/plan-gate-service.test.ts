@@ -805,6 +805,40 @@ test("a shelved planning session gets no auto plan review; a forced one still ru
   ).toBe("started");
 });
 
+test("a usage-paused planning session gets no auto plan review; a forced one still runs", async () => {
+  const h = harness({ readPlan: () => "PLAN TEXT" });
+  expect(
+    await h.svc.consider({
+      ...planningSession(),
+      usagePause: {
+        phase: "paused",
+        since: 1,
+        resumeAt: 2,
+        stopPct: 80,
+        windows: ["week"],
+        stopSteerSent: false,
+      },
+    } as any),
+  ).toBe("skipped");
+  expect(h.started.length).toBe(0);
+  expect(
+    await h.svc.consider(
+      {
+        ...planningSession(),
+        usagePause: {
+          phase: "paused",
+          since: 1,
+          resumeAt: 2,
+          stopPct: 80,
+          windows: ["week"],
+          stopSteerSent: false,
+        },
+      } as any,
+      { force: true },
+    ),
+  ).toBe("started");
+});
+
 test("consider no-ops while an existing plan review is in flight, before reading an unavailable plan", async () => {
   let plan = "PLAN TEXT";
   const h = harness({ readPlan: () => plan });

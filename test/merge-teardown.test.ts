@@ -1,3 +1,4 @@
+import { UsagePauseArchiveCanceled } from "../src/schedule-pause";
 import { test, expect, mock } from "bun:test";
 import {
   recordEpicIntegrationIfChild,
@@ -344,4 +345,44 @@ test("record: no-op for a misrouted session (#3245)", async () => {
     { store },
   );
   expect((store.recordEpicIntegrated as any).mock.calls.length).toBe(0);
+});
+
+test("a pause requested during issue close vetoes automatic archive and archived events", async () => {
+  let paused = false,
+    entered!: () => void,
+    release!: () => void;
+  const began = new Promise<void>((r) => (entered = r));
+  const gate = new Promise<void>((r) => (release = r));
+  const d = deps({
+    canArchive: () => !paused,
+    resolveForge: () =>
+      ({
+        closeIssue: async () => {
+          entered();
+          await gate;
+        },
+      }) as any,
+  });
+  const settling = settleMergedSession(
+    { id: "s1", auto: true, issueNumber: 9, repoPath: "/r" } as any,
+    d,
+  );
+  await began;
+  paused = true;
+  release();
+  await settling;
+  expect((d.archive as any).mock.calls).toHaveLength(0);
+  expect((d.dropPrCache as any).mock.calls).toHaveLength(0);
+  expect((d.emitArchived as any).mock.calls).toHaveLength(0);
+});
+
+test("a canceled automatic archive does not drop the PR cache or emit archived", async () => {
+  const d = deps({
+    archive: async () => {
+      throw new UsagePauseArchiveCanceled();
+    },
+  });
+  await settleMergedSession({ id: "s1", auto: false, repoPath: "/r" } as any, d);
+  expect((d.dropPrCache as any).mock.calls).toHaveLength(0);
+  expect((d.emitArchived as any).mock.calls).toHaveLength(0);
 });

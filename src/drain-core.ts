@@ -126,6 +126,7 @@ export interface AutoSessionView {
   misrouted?: boolean;
   /** Operator-shelved: never retired (archived/merged) while shelved. */
   shelved?: boolean;
+  usagePaused?: boolean;
 }
 
 /** The auto sessions that hold an agent slot — all but landing repairs (#2973). */
@@ -351,6 +352,7 @@ function retireDecision(state: DrainRepoState): DrainDecision | null {
       !s.fullAuto &&
       !state.stackHeldSessions?.has(s.id) && // #2070: a stacked layer waiting for the one below it
       !s.misrouted && // #3245: never hand off a session outside its ticket's target repo
+      !s.usagePaused &&
       !s.shelved && // shelving promises the session stays until unshelved
       readyToRetire(s, state.criticEnabled, state.draftMode, state.signoffAuthority),
   );

@@ -1,3 +1,4 @@
+import { getLocale } from "#lib/i18n.js";
 import { m } from "#lib/paraglide/messages.js";
 import {
   createSchedule,
@@ -100,7 +101,7 @@ class SchedulesStore {
       toasts.info(
         m.schedules_run_now_result({
           name: s.name,
-          outcome: outcomeLabel(run.outcome, run.reason, run.usage),
+          outcome: outcomeLabel(run.outcome, run.reason, run.usage, run.pausedUntil),
         }),
       );
     } catch {
@@ -146,13 +147,31 @@ export function upcomingOrder(list: readonly Schedule[]): Schedule[] {
   });
 }
 
+/** Compact local reset deadline shared by badge and run history. */
+export function schedulePauseWhen(at: number): string {
+  return new Intl.DateTimeFormat(getLocale(), {
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(at);
+}
+
+export function schedulePauseLabel(resumeAt?: number | null, run = false): string {
+  if (resumeAt == null) return m.schedule_pause_title();
+  const when = schedulePauseWhen(resumeAt);
+  return run ? m.schedules_outcome_paused({ when }) : m.schedule_pause_badge({ when });
+}
+
 /** A run outcome as the operator reads it. */
 export function outcomeLabel(
   outcome: string,
   reason?: string | null,
   usage?: ScheduleUsage | null,
+  pausedUntil?: number | null,
 ): string {
   switch (outcome) {
+    case "paused":
+      return schedulePauseLabel(pausedUntil, true);
     case "claimed":
       return m.schedules_outcome_interrupted();
     case "spawned":

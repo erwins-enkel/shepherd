@@ -670,7 +670,7 @@ test("schedules CRUD, run now and runs (#3469)", async () => {
   const input = {
     repoPath: s.validRepo,
     name: "Triage",
-    usageLimit: { kind: "from", startPct: 80, startWindow: "week", stopPct: 95 },
+    usageLimit: { kind: "from", startPct: 80, startWindow: "week", stopPct: 95, pauseAtStop: true },
     prompt: "/triage-feedback",
     days: 0b0011111,
     times: ["09:00", "18:00"],
@@ -721,7 +721,12 @@ test("schedules CRUD, run now and runs (#3469)", async () => {
     usage: { provider: "codex", window: "max", usedPct: 95, thresholdPct: 95 },
   });
   await request("GET", "/api/schedules/{id}/runs", 200, undefined, at("/runs"));
-  for (const outcome of ["waiting:limit", "skipped:limit-expired", "spawned:failover"] as const) {
+  for (const outcome of [
+    "waiting:limit",
+    "skipped:limit-expired",
+    "spawned:failover",
+    "paused",
+  ] as const) {
     for (const usage of [
       null,
       { provider: "codex", window: "max", usedPct: 85, thresholdPct: 95 },

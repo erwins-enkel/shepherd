@@ -2148,6 +2148,45 @@ test("a shelved session gets no auto critic; a forced review still runs", async 
   );
 });
 
+test("a usage-paused session gets no auto critic; a forced review still runs", async () => {
+  const { deps: d, started } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  expect(
+    await svc.consider(
+      {
+        ...session(),
+        usagePause: {
+          phase: "paused",
+          since: 1,
+          resumeAt: 2,
+          stopPct: 80,
+          windows: ["week"],
+          stopSteerSent: false,
+        },
+      },
+      OPEN_GREEN,
+    ),
+  ).toBe("skipped");
+  expect(started).toHaveLength(0);
+  expect(
+    await svc.consider(
+      {
+        ...session(),
+        usagePause: {
+          phase: "paused",
+          since: 1,
+          resumeAt: 2,
+          stopPct: 80,
+          windows: ["week"],
+          stopSteerSent: false,
+        },
+      },
+      OPEN_GREEN,
+      { force: true },
+    ),
+  ).toBe("started");
+});
+
 // ── stale head: pre-spawn re-validation (#2175) ───────────────────────────────
 
 test("head moved since the poller snapshot: declines the spawn entirely", async () => {

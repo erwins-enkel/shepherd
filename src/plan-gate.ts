@@ -1,3 +1,4 @@
+import { isAutomationQuiet } from "./schedule-pause";
 import { existsSync, readFileSync } from "node:fs";
 import { prepareReviewerTaskPrompt } from "./task-prompt-file";
 import {
@@ -886,7 +887,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
   async consider(session: Session, opts?: { force?: boolean }): Promise<PlanReviewTrigger> {
     const force = opts?.force === true;
     if (session.planPhase == null) return "skipped"; // plan gate off for this session
-    if (!force && session.shelved === true) return "skipped"; // shelved: no auto plan review
+    if (!force && isAutomationQuiet(session)) return "skipped"; // shelved: no auto plan review
     if (!force && session.planPhase !== "planning") return "skipped"; // auto-path only gates before execution
     if (this.inflight.has(session.id) || this.starting.has(session.id)) return "skipped"; // in flight / mid-spawn
     const prior = this.deps.store.getPlanGate(session.id);

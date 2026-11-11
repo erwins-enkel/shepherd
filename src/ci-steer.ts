@@ -3,6 +3,7 @@ import type { ChecksState, GitState, PrStatus } from "./forge/types";
 import { ciStartupSteer } from "./ci-startup-failure";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import { isShelved } from "./shelve";
+import { isUsagePaused } from "./schedule-pause";
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
 
@@ -96,6 +97,7 @@ function steerable(s: Session | null | undefined, git: GitState): s is Session {
     s.status !== "archived" &&
     !s.terminal &&
     !isOperatorAssistant(s) &&
+    !isUsagePaused(s) &&
     !isShelved(s) &&
     s.planPhase !== "planning" &&
     s.mergingSince === null &&

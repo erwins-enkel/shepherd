@@ -434,6 +434,18 @@ describe("computeNext", () => {
     expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7, headSha: "abc" });
   });
 
+  test("retire skips a usage-paused session", () => {
+    const d = computeNext(
+      state({
+        maxAuto: 2,
+        autoSessions: [
+          autoSession({ id: "sX", git: MERGEABLE, reviewDecision: null, usagePaused: true }),
+        ],
+      }),
+    );
+    expect(d.kind).not.toBe("retire");
+  });
+
   test("retire: no-CI repo (noCi + checks:none + mergeable) → retire", () => {
     const noCiGit: GitState = { ...MERGEABLE, checks: "none", noCi: true };
     const d = computeNext(

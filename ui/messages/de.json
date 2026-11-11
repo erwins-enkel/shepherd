@@ -8600,5 +8600,11 @@
   "usage_failover_staying_sessions_other": "{count} Sessions",
   "usage_failover_staying_open_aria": "{repo}, {sessions}: Einstellungen zur Agent-Umgebung öffnen",
   "feat_failover_staying_repos_title": "Repos, die beim Wochenlimit-Wechsel nicht mitwechseln",
-  "feat_failover_staying_repos_body": "Bietet das Auslastungs-Panel einen Wechsel des Standard-Coding-CLI an oder zeigt es einen an, nennt es jetzt die Repos, die fest auf das erschöpfte CLI eingestellt sind und in denen Sessions laufen, samt Anzahl — sie starten weiter auf diesem CLI. Jeder Eintrag öffnet die Agent-Umgebung in den Einstellungen dieses Repositorys."
+  "feat_failover_staying_repos_body": "Bietet das Auslastungs-Panel einen Wechsel des Standard-Coding-CLI an oder zeigt es einen an, nennt es jetzt die Repos, die fest auf das erschöpfte CLI eingestellt sind und in denen Sessions laufen, samt Anzahl — sie starten weiter auf diesem CLI. Jeder Eintrag öffnet die Agent-Umgebung in den Einstellungen dieses Repositorys.",
+  "issuespanel_epics_run_heading": "Reihenfolge",
+  "issuespanel_epics_run_hint": "starten nacheinander von selbst",
+  "issuespanel_epics_rest_heading": "Nicht eingereiht",
+  "epic_role_queued_short": "eingereiht",
+  "feat_epic_run_order_title": "Eingereihte Epics in ihrer Reihenfolge",
+  "feat_epic_run_order_body": "Die Backlog-Liste beginnt jetzt mit dem Lauf des Repos: zuerst das führende Epic, dann die eingereihten in der Reihenfolge, in der sie starten, verbunden durch eine Schiene mit ihrem Platz. Das führende Epic ist kräftig bernsteinfarben, eingereihte sind gestrichelt, und nicht eingereihte stehen darunter unter „Nicht eingereiht“, ohne Bernstein-Ton."
 }

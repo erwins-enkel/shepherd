@@ -347,17 +347,25 @@ export function hideSubIssues(
  * both groups). Returns a new array; the input is not mutated.
  *
  * A no-op (identity copy) when there are no epic parents in the list.
+ *
+ * `run` (epic-panel's runOrder) lifts the epics of the repo's run to the front of the epics, in
+ * that order; the other epics follow in their own order.
  */
 export function sortEpicsFirst(
   issues: readonly Issue[],
   epicParents: ReadonlySet<number>,
+  run: readonly number[] = [],
 ): Issue[] {
   const epics: Issue[] = [];
   const rest: Issue[] = [];
   for (const issue of issues) {
     (epicParents.has(issue.number) ? epics : rest).push(issue);
   }
-  return [...epics, ...rest];
+  const place = (n: number) => {
+    const i = run.indexOf(n);
+    return i < 0 ? run.length : i;
+  };
+  return [...epics.sort((a, b) => place(a.number) - place(b.number)), ...rest];
 }
 
 // ── Repo overview (#2638) ─────────────────────────────────────────────────────────────────
@@ -505,6 +513,62 @@ export function buildIssueRows(
     }
   }
   return [...rows, ...singles];
+}
+
+/** The rail beside one row of the run: `node` marks an epic header; the line comes `from` the run
+ *  row above and runs on `to` the next run epic. */
+export interface RunRail {
+  node: boolean;
+  from: boolean;
+  to: boolean;
+}
+
+/** How the backlog list sets the repo's run apart from the other epics. */
+export interface EpicRunLayout {
+  /** First row of the run when a queued epic is visible: the order heading goes above it. */
+  runHead: string | null;
+  /** First epic outside the run while the run shows: the "not queued" heading goes above it. */
+  restHead: string | null;
+  /** Epics outside the run, for that heading. */
+  restCount: number;
+  /** A rail for each run row: its epic headers and their child and loading rows. */
+  rails: Map<string, RunRail>;
+}
+
+/** Lay out the run within `rows` (built from a list sorted with `run`, epic-panel's runOrder):
+ *  the section headings, the count of other epics and the rail of each run row. */
+export function epicRunLayout(
+  rows: readonly IssueListRow[],
+  run: readonly number[],
+  queued: readonly number[],
+): EpicRunLayout {
+  const epicOf = (r: IssueListRow) =>
+    r.kind === "epic" ? r.issue.number : r.kind === "single" ? null : r.parent;
+  const inRun = (r: IssueListRow) => {
+    const n = epicOf(r);
+    return n != null && run.includes(n);
+  };
+  const runEpicAt = rows.flatMap((r, i) => (r.kind === "epic" && inRun(r) ? [i] : []));
+  const rest = rows.filter((r) => r.kind === "epic" && !inRun(r));
+  const runRows = rows.filter(inRun);
+  const hasQueue = runRows.some((r) => r.kind === "epic" && queued.includes(r.issue.number));
+
+  const rails = new Map<string, RunRail>();
+  rows.forEach((r, i) => {
+    if (!inRun(r)) return;
+    const after = runEpicAt.some((at) => at > i);
+    if (r.kind === "epic") {
+      rails.set(r.key, { node: true, from: runEpicAt.some((at) => at < i), to: after });
+    } else {
+      rails.set(r.key, { node: false, from: after, to: after });
+    }
+  });
+  return {
+    runHead: hasQueue ? (runRows[0]?.key ?? null) : null,
+    restHead: runRows.length > 0 ? (rest[0]?.key ?? null) : null,
+    restCount: rest.length,
+    rails,
+  };
 }
 
 /**

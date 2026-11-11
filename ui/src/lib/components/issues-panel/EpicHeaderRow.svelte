@@ -12,7 +12,8 @@
   // title on top; below it the role badge, a segmented progress bar and "m/n". Segments are per
   // child (tinted by state) once the epic's record is loaded; before that they come from the list
   // summary (merged vs. rest). A third line shows a sandbox, CLI or host halt with its fix (#3455),
-  // or another drain hold with its action (#3457).
+  // or another drain hold with its action (#3457). The card's amber says the epic is part of the
+  // repo's run: solid while it leads, dashed while queued; an epic outside the run stays quiet.
   let {
     issue,
     summary = undefined,
@@ -70,6 +71,7 @@
   class="issue-row epic-row"
   class:selected
   class:expanded
+  data-role={role ?? undefined}
   id={optionId}
   role="option"
   aria-selected={selected}
@@ -95,7 +97,8 @@
     <span class="title issue-title">{issue.title}</span>
   </div>
   <div class="line sub">
-    {#if role}<EpicRoleBadge {role} {position} />{/if}
+    <!-- short: the run rail beside this row shows a queued epic's place. -->
+    {#if role}<EpicRoleBadge {role} {position} short />{/if}
     {#if counts.total > 0}
       <span class="bar" aria-hidden="true">
         {#each segments as tone, i (i)}<span class="seg seg-{tone}"></span>{/each}
@@ -127,20 +130,48 @@
     gap: 3px;
     min-width: 0;
     padding: 5px 8px 5px 4px;
-    border: 1px solid color-mix(in srgb, var(--status-running) 30%, var(--color-line));
+    border: 1px solid var(--color-line);
     border-radius: 2px;
-    background: color-mix(in oklab, var(--status-running) 6%, var(--color-inset));
+    background: var(--color-inset);
     color: var(--color-ink);
     font-size: var(--fs-base);
     cursor: pointer;
   }
   .epic-row:hover {
-    background: color-mix(in oklab, var(--status-running) 10%, var(--color-inset));
+    background: var(--color-panel);
   }
-  .epic-row.selected {
+  .epic-row[data-role="leading"] {
     border-color: var(--status-running);
-    background: color-mix(in oklab, var(--status-running) 16%, var(--color-inset));
+    background: color-mix(in oklab, var(--status-running) 13%, var(--color-inset));
     color: var(--color-ink-bright);
+  }
+  .epic-row[data-role="leading"]:hover {
+    background: color-mix(in oklab, var(--status-running) 17%, var(--color-inset));
+  }
+  .epic-row[data-role="winding"] {
+    border-color: color-mix(in srgb, var(--status-running) 35%, var(--color-line));
+    background: color-mix(in oklab, var(--status-running) 6%, var(--color-inset));
+  }
+  .epic-row[data-role="queued"] {
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--status-running) 55%, var(--color-line-bright));
+    background: color-mix(in oklab, var(--status-running) 4%, var(--color-inset));
+  }
+  .epic-row[data-role="winding"]:hover,
+  .epic-row[data-role="queued"]:hover {
+    background: color-mix(in oklab, var(--status-running) 9%, var(--color-inset));
+  }
+  /* Selection as on every other list row (#2638) — an amber frame would read as "leads". */
+  .epic-row.selected,
+  .epic-row.selected:hover {
+    background: var(--color-sel);
+    box-shadow: inset 2px 0 0 var(--color-ink-bright);
+    color: var(--color-ink-bright);
+  }
+  :global(.issue-options:focus-visible) .epic-row.selected {
+    box-shadow:
+      inset 2px 0 0 var(--color-ink-bright),
+      inset 0 0 0 1px var(--color-amber);
   }
 
   .line {
@@ -161,9 +192,16 @@
     padding: 0;
     background: transparent;
     border: 0;
-    color: var(--status-running);
+    color: var(--color-muted);
     font: inherit;
     cursor: pointer;
+  }
+  [data-role="leading"] .chevron {
+    color: var(--status-running);
+  }
+  [data-role="winding"] .chevron,
+  [data-role="queued"] .chevron {
+    color: color-mix(in srgb, var(--status-running) 80%, var(--color-muted));
   }
 
   .num {

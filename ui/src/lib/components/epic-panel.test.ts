@@ -10,6 +10,7 @@ import {
   progress,
   queuedBehind,
   queuePosition,
+  runOrder,
   slotHeldBy,
   stateLabel,
   supersedeImpact,
@@ -286,6 +287,22 @@ describe("queue roles", () => {
     expect(epicRunState(epic, 40, d)).toMatchObject({ kind: "queued", tone: "quiet", position: 2 });
     expect(epicRunSteps(epic, 40, d)).toBeNull();
     expect(epicRunStateLabel("queued", "", 2)).toBe(m.epic_run_state_queued({ position: 2 }));
+  });
+});
+
+// The backlog list sorts the run's epics first, in this order.
+describe("runOrder", () => {
+  it("lists the leader, the epics winding down, then the queue", () => {
+    expect(runOrder(summary({ queued: [30, 40] }))).toEqual([B, A, 30, 40]);
+  });
+
+  it("keeps a winding-down epic that is queued again at its place in the queue", () => {
+    expect(runOrder(summary({ queued: [30, A] }))).toEqual([B, 30, A]);
+  });
+
+  it("is empty without a run summary and skips a missing leader", () => {
+    expect(runOrder(null)).toEqual([]);
+    expect(runOrder(summary({ leadingEpic: null, windingDown: [], queued: [30] }))).toEqual([30]);
   });
 });
 

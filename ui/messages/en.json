@@ -8600,5 +8600,11 @@
   "usage_failover_staying_sessions_other": "{count} sessions",
   "usage_failover_staying_open_aria": "{repo}, {sessions}: open Agent environment settings",
   "feat_failover_staying_repos_title": "Repos that stay put at the weekly-limit switch",
-  "feat_failover_staying_repos_body": "When the usage panel offers or shows a switch of the default coding CLI, it now names the repos set to the exhausted CLI that have sessions running, with their count — they keep starting on that CLI. Each one opens that repository's Agent environment settings."
+  "feat_failover_staying_repos_body": "When the usage panel offers or shows a switch of the default coding CLI, it now names the repos set to the exhausted CLI that have sessions running, with their count — they keep starting on that CLI. Each one opens that repository's Agent environment settings.",
+  "issuespanel_epics_run_heading": "Run order",
+  "issuespanel_epics_run_hint": "start one after another on their own",
+  "issuespanel_epics_rest_heading": "Not queued",
+  "epic_role_queued_short": "queued",
+  "feat_epic_run_order_title": "Queued epics in their run order",
+  "feat_epic_run_order_body": "The backlog list now starts with the repo's run: the leading epic, then the queued epics in the order they will start, joined by a rail that shows each one's place. The leading epic is solid amber, queued ones are dashed, and epics that are not queued sit below under “Not queued” without the amber tint."
 }

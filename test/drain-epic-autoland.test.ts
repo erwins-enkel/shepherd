@@ -107,6 +107,7 @@ interface Harness {
 }
 
 function makeHarness(opts: {
+  leitrechner?: ConstructorParameters<typeof DrainService>[0]["leitrechner"];
   autoMergeEnabled?: boolean;
   draftMode?: boolean;
   prStatus?: (head: string) => Promise<PrStatus>;
@@ -156,6 +157,7 @@ function makeHarness(opts: {
   let nowMs = 1_000;
 
   const drain = new DrainService({
+    leitrechner: opts.leitrechner,
     store,
     service: {
       create: async () => {
@@ -263,7 +265,28 @@ describe("auto-land of integrated epics (#1044)", () => {
   });
 
   test("autoMerge ON, ready, no migrations → merge via host method + row merged + emit", async () => {
-    const h = makeHarness({ autoMergeEnabled: true, prStatus: async () => readyPr() });
+    const h = makeHarness({
+      leitrechner: {
+        status: () => ({
+          instanceId: "other",
+          name: "Other",
+          role: "remote",
+          reachable: false,
+          allowed: false,
+          pauseReason: "leitrechner_unreachable",
+        }),
+        refresh: async () => ({
+          instanceId: "other",
+          name: "Other",
+          role: "remote",
+          reachable: false,
+          allowed: false,
+          pauseReason: "leitrechner_unreachable",
+        }),
+      },
+      autoMergeEnabled: true,
+      prStatus: async () => readyPr(),
+    });
     seedOpenLanding(h);
 
     await h.drain.tick();

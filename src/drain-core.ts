@@ -55,6 +55,9 @@ export interface HoldReason {
     | "no_suitable_machine" // no machine meets the next spawn's requirements; detail = requirements
     | "machine_stacked" // a stacked epic child would have to run on another machine; detail = machine name
     | "memory_pressure" // the spawn waits in the host's start queue (src/start-queue-core.ts) — set by DrainService's start gate, never by computeNext
+    | "remote_leitrechner"
+    | "leitrechner_unreachable"
+    | "config_refresh_failed"
     | "empty"; // no eligible backlog item
   /** A desig (trouble pauses) or a percentage (usage), for the operator banner. */
   detail?: string;
@@ -145,6 +148,8 @@ export function slotHolders<T extends Pick<AutoSessionView, "landingRepair">>(
 
 /** Everything `computeNext` needs about ONE repo, assembled by the side-effect harness. */
 export interface DrainRepoState {
+  /** Blocks label-mode starts only; retirement and operator epic runs stay local. */
+  leitrechnerHold?: HoldReason | null;
   enabled: boolean;
   /** Per-repo critic toggle — when on, a clean verdict for the current head gates merges. */
   criticEnabled: boolean;
@@ -395,7 +400,8 @@ function troubleHold(state: DrainRepoState): HoldReason | null {
   return state.remoteTrouble ?? null;
 }
 
-function bootstrapHold(state: DrainRepoState): HoldReason | null {
+function repoSpawnHold(state: DrainRepoState): HoldReason | null {
+  if (state.leitrechnerHold) return state.leitrechnerHold;
   const missing = state.bootstrapMissing;
   return missing?.length ? { code: "bootstrap_incomplete", detail: missing.join(",") } : null;
 }
@@ -444,11 +450,11 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   const retire = retireDecision(state);
   if (retire) return retire;
 
-  // 1a. Project bootstrap (#3105): an actively-bootstrapping repo spawns nothing — epic or label
-  // drain — until P1–P4 are done and the must-haves are green, or the operator overrides (which
+  // 1a. Repo-wide spawn holds: ownership, then project bootstrap (#3105). A bootstrapping
+  // repo spawns nothing until P1–P4 and must-haves are green, or the operator overrides (which
   // nulls bootstrapMissing upstream). After the retire gate, so a ready PR still hands off.
-  const bootstrap = bootstrapHold(state);
-  if (bootstrap) return { kind: "hold", reason: bootstrap };
+  const repoHold = repoSpawnHold(state);
+  if (repoHold) return { kind: "hold", reason: repoHold };
 
   // 2. Trouble → halt new spawns (in-flight agents keep running; retires above still pass).
   const trouble = troubleHold(state);

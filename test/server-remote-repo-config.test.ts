@@ -379,3 +379,17 @@ for (const route of ["project-local", "project-remote", "legacy"] as const) {
     expect(git(repo.origin, "rev-list", "--count", `${base}..main`)).toBe("2");
   });
 }
+
+test("a successful project refresh clears the job owner's cached fetch failure", async () => {
+  const a = host(repo.a);
+  const at = `/api/repo-config?repo=${encodeURIComponent(repo.a)}`;
+  expect((await a.request("PUT", at, { leitrechner: a.id, autoDrainEnabled: true })).status).toBe(
+    200,
+  );
+  const owner = a.deps.repoLeitrechner!;
+  git(repo.a, "remote", "set-url", "origin", `${repo.dir}/offline.git`);
+  expect((await owner.refresh(repo.a)).pauseReason).toBe("config_refresh_failed");
+  git(repo.a, "remote", "set-url", "origin", repo.origin);
+  expect((await a.request("POST", `/api/repo-config/refresh?remoteSlug=${slug}`)).status).toBe(200);
+  expect(owner.status(repo.a)).toMatchObject({ role: "local", allowed: true, pauseReason: null });
+});

@@ -610,7 +610,7 @@ test("all queue operations require authentication", async () => {
   }
 });
 
-test("six queue events travel over the real websocket, including cleared nullable flags", async () => {
+test("queue events travel over the real websocket, including cleared nullable flags", async () => {
   // Poller/up-next/hold services aren't running in the harness; emit their typed wire payloads.
   const payloads = [
     ["upnext:snapshot", { snapshot: fx.snapshot }],
@@ -620,6 +620,38 @@ test("six queue events travel over the real websocket, including cleared nullabl
         snapshot: { ...fx.snapshot, sections: [], fallback: "warm-repos-only", failedRepoCount: 1 },
       },
     ],
+    [
+      "session:usage-pause",
+      {
+        id: "fixture",
+        usagePause: {
+          phase: "paused",
+          since: 1,
+          resumeAt: 2,
+          stopPct: 80,
+          windows: ["week"],
+          stopSteerSent: true,
+        },
+      },
+    ],
+    [
+      "session:usage-pause",
+      {
+        id: "fixture",
+        usagePause: {
+          reason: "budget",
+          phase: "paused",
+          since: 1,
+          resumeAt: null,
+          stopPct: 0,
+          windows: [],
+          stopSteerSent: true,
+          tokenBudget: 2_000_000,
+          tokensUsed: 2_100_000,
+        },
+      },
+    ],
+    ["session:usage-pause", { id: "fixture", usagePause: null }],
     ["session:halt", fx.halted],
     ["session:halt", { id: "fixture", haltReason: null, haltedAt: null }],
     ["session:hold", { id: "fixture", hold: fx.hold }],
@@ -634,7 +666,7 @@ test("six queue events travel over the real websocket, including cleared nullabl
     expect(frames).toContainEqual({ event: name, data: payload });
     validateEvent(name, payload);
   }
-  expect(EVENTS).toHaveLength(7);
+  expect(EVENTS).toHaveLength(8);
   expect(() => validateEvent("upnext:snapshot", { snapshot: null })).toThrow();
 });
 

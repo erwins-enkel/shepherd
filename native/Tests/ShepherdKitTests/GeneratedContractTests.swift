@@ -85,6 +85,44 @@ struct GeneratedContractTests {
     #expect(unknown.rawValue == "epic:progress")
   }
 
+  @Test("scheduled usage pause is optional and preserves reset metadata", .timeLimit(.minutes(1)))
+  func usagePauseDecodes() throws {
+    let legacy = try JSONDecoder().decode(Session.self, from: Fixtures.minimalSessionJSON())
+    #expect(legacy.usagePause == nil)
+    let pause: [String: Any] = [
+      "phase": "paused", "since": 100, "resumeAt": 200, "stopPct": 80,
+      "windows": ["week"], "stopSteerSent": true
+    ]
+    let present = try JSONDecoder().decode(
+      Session.self, from: Fixtures.minimalSessionJSON(overrides: ["usagePause": pause]))
+    #expect(present.usagePause?.since == 100)
+    #expect(present.usagePause?.resumeAt == 200)
+    let cleared = try JSONDecoder().decode(
+      Session.self, from: Fixtures.minimalSessionJSON(overrides: ["usagePause": NSNull()]))
+    #expect(cleared.usagePause == nil)
+  }
+
+  @Test("scheduled budget stops preserve their token accounting", .timeLimit(.minutes(1)))
+  func budgetStopDecodes() throws {
+    let pause: [String: Any] = [
+      "reason": "budget", "phase": "paused", "since": 100, "resumeAt": NSNull(),
+      "stopPct": 0, "windows": [], "stopSteerSent": true,
+      "tokenBudget": 2_000_000, "tokensUsed": 2_100_000
+    ]
+    let session = try JSONDecoder().decode(
+      Session.self, from: Fixtures.minimalSessionJSON(overrides: ["usagePause": pause]))
+    #expect(session.usagePause?.tokenBudget == 2_000_000)
+    #expect(session.usagePause?.tokensUsed == 2_100_000)
+    let runJSON: [String: Any] = [
+      "id": 1, "scheduleId": "s", "slotKey": "slot", "outcome": "stopped:budget",
+      "sessionId": "session", "reason": NSNull(), "at": 100, "tokensUsed": 2_100_000
+    ]
+    let data = try JSONSerialization.data(withJSONObject: runJSON)
+    let run = try JSONDecoder().decode(Components.Schemas.ScheduleRun.self, from: data)
+    #expect(run.outcome.value1?.rawValue == "stopped:budget")
+    #expect(run.tokensUsed == 2_100_000)
+  }
+
   @Test("the public typealiases point at the generated types")
   func typealiasesResolve() throws {
     // A metatype comparison alone can't fail: `Session.self` is substituted

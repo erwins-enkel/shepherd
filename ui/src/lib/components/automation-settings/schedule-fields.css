@@ -1,0 +1,59 @@
+/* Shared form recipes for ScheduleDialog and its engine fields, scoped to this modal. */
+.sched-dlg .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  font-size: var(--fs-meta);
+}
+.sched-dlg .field > span,
+.sched-dlg legend {
+  color: var(--color-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: var(--fs-meta);
+  padding: 0;
+  margin-bottom: 4px;
+}
+.sched-dlg :is(input, textarea, select) {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: var(--fs-base);
+  background: var(--color-inset);
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: 2px;
+  padding: 8px 10px;
+}
+.sched-dlg button {
+  font: inherit;
+  font-size: var(--fs-meta);
+}
+.sched-dlg :is(button, summary):focus-visible {
+  outline: 2px solid var(--color-amber);
+  outline-offset: -2px;
+}
+.sched-dlg .text-link {
+  border: 0;
+  padding: 6px 0;
+  background: transparent;
+  color: var(--color-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.sched-dlg .text-link:hover {
+  color: var(--color-amber);
+}
+@media (max-width: 768px) {
+  .sched-dlg :is(button, input, select, summary) {
+    min-height: 44px;
+  }
+  .sched-dlg button {
+    min-width: 44px;
+  }
+}

@@ -445,13 +445,14 @@ function schedulesBlock(deps: DiagDeps, repoPath: string, fence: Fence, now = Da
   const all = deps.store.listSchedules(repoPath);
   const schedules = all.slice(0, MAX_LIST).map((s) => {
     const last = deps.store.listScheduleRuns(s.id, 1)[0];
-    const next = s.enabled ? nextSlot(s.days, s.times, now) : null;
+    const next = s.enabled ? nextSlot(s.days, s.times, now, s.interval) : null;
     return {
       id: s.id,
       name: fence("schedule name", s.name, MAX_TITLE_CHARS),
       prompt: fence("schedule prompt", s.prompt),
       days: maskToDays(s.days),
       times: s.times,
+      interval: s.interval,
       enabled: s.enabled,
       launch: s.launch,
       nextAt: next && iso(next.at),

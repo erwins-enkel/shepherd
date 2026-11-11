@@ -1,3 +1,4 @@
+import { isUsagePaused } from "./schedule-pause";
 // Build-queue reconciliation nudge — the settled-idle BACKSTOP to the deterministic
 // forward-fill cascade in store.setBuildStepStatus.
 //
@@ -146,6 +147,7 @@ export class BuildQueueReminderService {
       const now = this.now();
       const live = new Set<string>();
       for (const s of this.deps.store.list({ activeOnly: true })) {
+        if (isUsagePaused(s)) continue;
         live.add(s.id);
         await this.considerSession(s.id, s.status, s.planPhase, now);
       }

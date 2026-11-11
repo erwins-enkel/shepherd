@@ -3,7 +3,11 @@ import {
   assistantRuntimeBlocks,
   normalizeStoredAssistantRuntime,
 } from "./operator-assistant-settings";
-import { drainSpawnEffort, engineDefaultEffortSetting } from "./default-effort";
+import {
+  drainSpawnEffort,
+  engineDefaultEffortSetting,
+  resolveProviderDefaultEffortSetting,
+} from "./default-effort";
 import { recapSummary } from "./recap-core";
 import { SessionActivityPublisher } from "./activity-publisher";
 import { enablePowerPaneJournal } from "./power-panes";
@@ -94,6 +98,7 @@ import { ensureHelperTmpRootTrusted } from "./transient-helper-lifecycle";
 import { scanClaudeAliveByWorktree } from "./process-reaper";
 import { serve, serveAgentIngress, buildBacklogPayload, launchTask, type AppDeps } from "./server";
 import { ScheduleService, SCHEDULE_TICK_MS } from "./schedules";
+import { SchedulePauseService, isUsagePaused } from "./schedule-pause";
 import { resolveDefaultBranch } from "./pull";
 import { PluginRegistry } from "./plugins/loader";
 import { makeProductionForgeResolver } from "./forge/resolve";
@@ -251,6 +256,7 @@ import {
 import { resolveNodeHost, TailscaleServeService } from "./tailscale";
 import {
   drainSpawnModel,
+  resolveProviderDefaultModelSetting,
   modelForProviderOrDefault,
   resolvePersistedDefaultCodexModel,
   normalizeDefaultModelSetting,
@@ -269,7 +275,7 @@ import {
   normalizeProviderDefaultEffortSetting,
 } from "./default-effort";
 import { shouldDowngrade } from "./usage-downgrade";
-import { normalizeAgentProvider } from "./agent-provider";
+import { normalizeAgentProvider, resolveSpawnAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { normalizeOperatorLanguage } from "./operator-language";
 import { normalizeStoredAssistantPermissions } from "./operator-assistant-permissions";
@@ -294,7 +300,11 @@ import { ApiErrorRetry } from "./api-error-retry";
 import { verifyApiKey, VERIFY_KEY_LABEL } from "./verify-key";
 import { releaseHeldTasks } from "./held-release";
 import { BASE_DRIFT_INTERVAL_MS, BaseDriftService } from "./base-drift";
-import { PROVIDER_FAILOVER_FROM_KEY, releaseProviderFailover } from "./provider-failover";
+import {
+  PROVIDER_FAILOVER_FROM_KEY,
+  releaseProviderFailover,
+  readyAgentProviders,
+} from "./provider-failover";
 import { snapshotSessionUsage } from "./usage-snapshot";
 import { hasCommittedChanges } from "./diff";
 import { HoldReasonService } from "./hold-service";
@@ -1245,7 +1255,7 @@ const connectorRestart = new ConnectorRestartService({
   livenessOf: (id) => poller.livenessOf(id),
   // #3341: also restart sessions spawned without the current ingress key (e.g. across a deploy).
   ingressStale: (s) => service.ingressStale(s),
-  resume: (id) => service.resume(id, { force: true }),
+  resume: (id) => service.resume(id, { force: true, automatic: true }),
 });
 
 const accountIndex = new AccountUsageIndex();
@@ -1258,6 +1268,26 @@ const usageLimits = new UsageLimitsService(
   store,
   [new CodexUsageProvider(undefined, undefined, () => codexReset.snapshot())],
 );
+
+const schedulePause = new SchedulePauseService({
+  store,
+  limits: () => usageLimits.limits(Date.now()),
+  stop: (id, text, since) => service.usagePauseSteer(id, text, since, "stop"),
+  resume: (id, text, since) => service.usagePauseSteer(id, text, since, "resume"),
+  isBackgroundBusy: (id) => poller.isBackgroundBusy(id),
+  events,
+});
+events.subscribe((event, data) => {
+  if (event === "usage:limits")
+    void schedulePause.tick().catch((err) => console.warn("[schedule-pause] tick:", err));
+  else if (event === "session:halt") {
+    const { id, haltReason } = data as { id: string; haltReason: string | null };
+    schedulePause.onHalt(id, haltReason);
+  }
+});
+deferredStarts.push(() => {
+  void schedulePause.tick().catch((err) => console.warn("[schedule-pause] startup:", err));
+});
 
 deferredStarts.push(() => {
   void reconcile(store, herdr);
@@ -1607,6 +1637,7 @@ const poller = new StatusPoller(
   store,
   herdr,
   (id, status) => {
+    schedulePause.onStatus(id, status);
     // On turn-end transitions (idle/done — when the agent has finished writing files), fold a
     // fresh scratchpad-non-empty flag into the status push so the UI's Files tab appears/hides
     // without a second poll (#1164). Computed only here, not on every running↔idle flap, to keep
@@ -2709,6 +2740,10 @@ onSessionGit(({ id, git }) => deliveryFacts.onGit(id, git));
 // healthy session off this path entirely — which is also what stops a duplicate finish push.
 const turnEndBackstop = new TurnEndBackstopService({
   store,
+  onResting: (id, status) => {
+    schedulePause.onStatus(id, status);
+    return isUsagePaused(store.get(id));
+  },
   considerPlan: (s) => planGate.consider(s),
   // Through the API-error retry first: a recovered edge never reached the router's consumer, and
   // autopilot.onDone stands down while the retry it arms is pending.
@@ -3351,7 +3386,7 @@ const sessionArchiver = new SessionArchiver({
   // would then be unable to bring back.
   canRespawnConversation: (s) => service.canRespawnConversation(s),
   retainClaim: (id) => drain.retainClaim(id),
-  archive: (id, reason) => service.archive(id, undefined, reason),
+  archive: (id, reason) => service.archive(id, undefined, reason, true),
   dropPrCache: (id) => prPoller.drop(id),
   emitArchived: (id) => events.emit("session:archived", { id }),
 });
@@ -3368,7 +3403,7 @@ const autoMerge = new AutoMergeService({
   capacity: (s) => sessionCapacity("automerge", s),
   store,
   service: {
-    archive: (...args) => service.archive(...args),
+    archive: (id, reapKeys, reason) => service.archive(id, reapKeys, reason, true),
     reply: (id, text) => service.reply(id, text, { automatic: true }),
     resume: (id) => service.resume(id, { automatic: true }),
     resolveMerging: (id, didMerge) => service.resolveMerging(id, didMerge),
@@ -3783,7 +3818,7 @@ function capacityHelperEnvironment(owner: CapacityIntent["owner"]): RoleEnvironm
 
 function capacitySessionCurrent(intent: CapacityIntent, helper: boolean): boolean {
   const s = store.get(intent.target);
-  if (!s || s.status === "archived" || s.autopilotPaused) return false;
+  if (!s || isUsagePaused(s) || s.status === "archived" || s.autopilotPaused) return false;
   if (!helper && ((s.agentProvider ?? "claude") !== intent.provider || s.model !== intent.model))
     return false;
   return true;
@@ -3902,6 +3937,7 @@ async function pollCodexCapacity(): Promise<void> {
     if (
       s.agentProvider !== "codex" ||
       s.status === "running" ||
+      isUsagePaused(s) ||
       s.autopilotPaused ||
       s.autopilotComplete ||
       !(s.auto || (s.autopilotEnabled ?? store.getRepoConfig(s.repoPath).autopilotEnabled))
@@ -3963,7 +3999,7 @@ async function pollCodexCapacity(): Promise<void> {
         "buildQueue",
       ].includes(intent.owner)
     ) {
-      if (!s || s.status === "archived" || s.autopilotPaused) return true;
+      if (!s || isUsagePaused(s) || s.status === "archived" || s.autopilotPaused) return true;
       if (s.status === "running") return false;
       const taskOwner = !["plan", "review", "classifier"].includes(intent.owner);
       if (
@@ -4425,7 +4461,26 @@ deferredStarts.push(() => {
 // is read lazily — the launch closure only runs from the tick, after it is defined.
 const scheduleService = new ScheduleService({
   store,
-  launch: (input) => launchTask(input, appDeps),
+  readyProviders: async () => readyAgentProviders(await diagnostics.current(Date.now())),
+  providerDefaults: (provider) => ({
+    model: drainSpawnModel(
+      resolveProviderDefaultModelSetting(
+        "inherit",
+        provider,
+        config.defaultModel,
+        config.defaultCodexModel,
+      ),
+    ),
+    effort: drainSpawnEffort(resolveProviderDefaultEffortSetting("inherit", provider, config)),
+  }),
+  launch: (input, opts) => launchTask(input, appDeps, opts),
+  usageLimits,
+  resolveProvider: (s) =>
+    resolveSpawnAgentProvider(
+      s.launch.agentProvider,
+      store.getRepoConfig(s.repoPath).agentProvider,
+      config.defaultAgentProvider,
+    ),
   defaultBranch: (repoPath) => resolveDefaultBranch(repoPath, {}),
   repoRoot: () => config.repoRoot,
   maintenanceActive: () => maintenance.active,

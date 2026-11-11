@@ -45,6 +45,7 @@ function fixture(
   let argv: string[] = [];
   const sent: string[] = [];
   let terminalId = "old";
+  let foregroundProcs = ["claude"];
   const events = new EventHub();
   const service = new SessionService({
     store,
@@ -56,7 +57,7 @@ function fixture(
     worktree: {} as never,
     herdr: {
       listAsync: async () => (live ? [{ terminalId, cwd: s.worktreePath, name: s.name }] : []),
-      paneForegroundProcs: async () => ["claude"],
+      paneForegroundProcs: async () => foregroundProcs,
       send: async (_target: string, text: string) => {
         sent.push(text);
       },
@@ -83,6 +84,12 @@ function fixture(
     stops: () => stops,
     argv: () => argv,
     sent,
+    setForegroundProcs: (value: string[]) => {
+      foregroundProcs = value;
+    },
+    setLive: (value: boolean) => {
+      live = value;
+    },
     setTerminalId: (id: string) => {
       terminalId = id;
     },
@@ -244,4 +251,53 @@ test("Claude respawn accepts its owning account transcript under an unexpected e
   expect(f.service.resumeRefusalCode(f.session.id)).toBeNull();
   expect(await f.service.resume(f.session.id)).not.toBeNull();
   expect(f.starts()).toBe(1);
+});
+
+test("an operator message resumes an exited usage-paused Claude session and takes over", async () => {
+  const f: ReturnType<typeof fixture> = fixture("claude", false, undefined, {
+    runSpawnHooks: async () => {
+      f.setLive(true);
+      f.setTerminalId("new");
+      return {};
+    },
+  });
+  mkdirSync(dirname(f.path), { recursive: true });
+  writeFileSync(f.path, '{"type":"user"}\n');
+  f.store.setUsagePause(f.session.id, {
+    phase: "paused",
+    since: 1,
+    resumeAt: 2,
+    stopPct: 80,
+    windows: ["week"],
+    stopSteerSent: false,
+  });
+  expect(await f.service.operatorReply(f.session.id, "I will take over")).toBe(true);
+  expect(f.starts()).toBe(1);
+  expect(f.sent.join("")).toContain("I will take over");
+  expect(f.store.get(f.session.id)?.usagePause).toBeNull();
+  expect(f.store.usagePauseOptedOut(f.session.id)).toBe(true);
+});
+
+test("usage pause resumes a Codex shell husk before sending its continue prompt", async () => {
+  const f: ReturnType<typeof fixture> = fixture("codex", true, undefined, {
+    runSpawnHooks: async () => {
+      f.setTerminalId("new");
+      f.setForegroundProcs(["codex"]);
+      return {};
+    },
+  });
+  f.setForegroundProcs(["bash"]);
+  f.store.setUsagePause(f.session.id, {
+    phase: "paused",
+    since: 1,
+    resumeAt: 2,
+    stopPct: 80,
+    windows: ["week"],
+    stopSteerSent: false,
+  });
+  expect(await f.service.usagePauseSteer(f.session.id, "Continue", 1, "resume")).toBe(true);
+  expect(f.starts()).toBe(1);
+  expect(f.argv()).toContain("codex-id");
+  expect(f.store.get(f.session.id)?.herdrAgentId).toBe("new");
+  expect(f.sent.join("")).toContain("Continue");
 });

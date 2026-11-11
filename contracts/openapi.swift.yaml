@@ -711,6 +711,60 @@ components:
         - xhigh
         - max
         - ultra
+    UsagePause:
+      type: object
+      additionalProperties: true
+      required:
+        - phase
+        - since
+        - resumeAt
+        - stopPct
+        - windows
+        - stopSteerSent
+      properties:
+        reason:
+          type: string
+          enum:
+            - budget
+          description: Present only for a terminal token-budget stop. Missing means a resumable usage-window pause.
+        tokenBudget:
+          type: integer
+        tokensUsed:
+          type: integer
+        phase:
+          type: string
+          enum:
+            - requested
+            - paused
+        since:
+          type: integer
+          description: Pause identity and request time in epoch milliseconds.
+        resumeAt:
+          type:
+            - integer
+            - "null"
+          description: Latest triggering reset in epoch milliseconds; null until known.
+        stopPct:
+          type: number
+        windows:
+          type: array
+          items:
+            type: string
+            enum:
+              - week
+              - 5h
+        stopSteerSent:
+          type: boolean
+    SessionUsagePauseEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        usagePause:
+          $ref: "#/components/schemas/UsagePause"
     Session:
       type: object
       additionalProperties: true
@@ -746,6 +800,8 @@ components:
         - haltedAt
         - manualSteps
       properties:
+        usagePause:
+          $ref: "#/components/schemas/UsagePause"
         id:
           type: string
         desig:
@@ -9719,6 +9775,100 @@ components:
           type:
             - string
             - "null"
+    ScheduleUsageLimit:
+      description: Used-percent thresholds in steps of five. For from, stopPct must be greater than startPct.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required:
+            - kind
+            - stopPct
+          properties:
+            kind:
+              type: string
+              enum:
+                - upTo
+            onMismatch:
+              type: string
+              enum:
+                - skip
+                - wait
+                - otherProvider
+              default: skip
+              description: Action when the usage limit does not allow an automatic run.
+            pauseAtStop:
+              type: boolean
+              default: false
+            stopPct:
+              type: integer
+              minimum: 5
+              maximum: 100
+              multipleOf: 5
+        - type: object
+          additionalProperties: false
+          required:
+            - kind
+            - startPct
+            - startWindow
+            - stopPct
+          properties:
+            kind:
+              type: string
+              enum:
+                - from
+            startPct:
+              type: integer
+              minimum: 0
+              maximum: 95
+              multipleOf: 5
+            startWindow:
+              type: string
+              enum:
+                - week
+                - 5h
+            onMismatch:
+              type: string
+              enum:
+                - skip
+                - wait
+                - otherProvider
+              default: skip
+              description: Action when the usage limit does not allow an automatic run.
+            pauseAtStop:
+              type: boolean
+              default: false
+            stopPct:
+              type: integer
+              minimum: 5
+              maximum: 100
+              multipleOf: 5
+    ScheduleUsage:
+      type: object
+      additionalProperties: true
+      description: Usage snapshot from the latest limit evaluation while waiting, frozen at the terminal decision. Failover records the provider actually selected. Absent on older servers; null when no schedule limit was evaluated.
+      required:
+        - provider
+        - window
+        - usedPct
+        - thresholdPct
+      properties:
+        provider:
+          type: string
+          enum:
+            - claude
+            - codex
+        window:
+          type: string
+          enum:
+            - week
+            - 5h
+            - max
+        usedPct:
+          type:
+            - number
+            - "null"
+        thresholdPct:
+          type: integer
     ScheduleRun:
       type: object
       additionalProperties: true
@@ -9743,12 +9893,19 @@ components:
           anyOf:
             - type: string
               enum:
+                - paused
+                - stopped:budget
                 - claimed
                 - spawned
+                - spawned:failover
+                - waiting:limit
+                - skipped:limit-expired
                 - held
                 - skipped:overlap
                 - skipped:stale
+                - skipped:limit
                 - error
+                - noop
             - type: string
         sessionId:
           type:
@@ -9758,12 +9915,59 @@ components:
           type:
             - string
             - "null"
+        usage:
+          $ref: "#/components/schemas/ScheduleUsage"
+        pausedUntil:
+          type:
+            - integer
+            - "null"
+          description: Reset time in epoch milliseconds while paused.
+        budgetNotApplied:
+          type:
+            - string
+            - "null"
+          enum:
+            - codex
+          description: Budget was configured but not applied because this run uses Codex. Persists independently of later result summaries.
+        tokensUsed:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+          description: Input plus cache writes plus output for the Claude Code run, excluding cache reads. Null when not measured; frozen at a budget stop.
         at:
           type: integer
+    ScheduleInterval:
+      type: object
+      additionalProperties: false
+      description: Server-local minute cadence. Both bounds null means all day; otherwise until must be after from on the same day and is exclusive. Requires times to be empty.
+      required:
+        - everyMinutes
+        - from
+        - until
+      properties:
+        everyMinutes:
+          type: integer
+          enum:
+            - 5
+            - 10
+            - 15
+            - 30
+            - 60
+        from:
+          type:
+            - string
+            - "null"
+          pattern: ^([01]\d|2[0-3]):[0-5]\d$
+        until:
+          type:
+            - string
+            - "null"
+          pattern: ^([01]\d|2[0-3]):[0-5]\d$
     Schedule:
       type: object
       additionalProperties: true
-      description: An operator schedule (#3469) — a prompt or /skill run in one repo on weekdays × server-local times.
+      description: An operator schedule (#3469) — a prompt or /skill run in one repo on weekdays × server-local fixed times or minute intervals.
       required:
         - id
         - repoPath
@@ -9793,6 +9997,17 @@ components:
           type: array
           items:
             type: string
+        interval:
+          $ref: "#/components/schemas/ScheduleInterval"
+        usageLimit:
+          $ref: "#/components/schemas/ScheduleUsageLimit"
+        tokenBudget:
+          type:
+            - integer
+            - "null"
+          minimum: 100000
+          maximum: 100000000
+          description: Optional per-run Claude Code token budget (input + cache writes + output; cache reads excluded). Explicit Codex rejects a non-null budget. Default-provider or failover Codex runs do not apply it. Null disables the budget; omitted PATCH preserves it.
         enabled:
           type: boolean
         launch:
@@ -9847,6 +10062,17 @@ components:
           type: array
           items:
             type: string
+        interval:
+          $ref: "#/components/schemas/ScheduleInterval"
+        usageLimit:
+          $ref: "#/components/schemas/ScheduleUsageLimit"
+        tokenBudget:
+          type:
+            - integer
+            - "null"
+          minimum: 100000
+          maximum: 100000000
+          description: Optional per-run Claude Code token budget (input + cache writes + output; cache reads excluded). Explicit Codex rejects a non-null budget. Default-provider or failover Codex runs do not apply it. Null disables the budget; omitted PATCH preserves it.
         enabled:
           type: boolean
         launch:
@@ -16757,7 +16983,15 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ScheduleInput"
+              allOf:
+                - $ref: "#/components/schemas/ScheduleInput"
+                - type: object
+                  required:
+                    - repoPath
+                    - name
+                    - prompt
+                    - days
+                    - times
       responses:
         "201":
           description: Created.
@@ -16776,7 +17010,7 @@ paths:
   /api/schedules/{id}:
     patch:
       operationId: updateSchedule
-      description: Edit a schedule; repoPath cannot change. Enabling or changing days/times re-baselines.
+      description: Edit a schedule; repoPath cannot change. Enabling or changing days/times/interval re-baselines.
       parameters:
         - name: id
           in: path
@@ -16837,7 +17071,7 @@ paths:
   /api/schedules/{id}/run:
     post:
       operationId: runScheduleNow
-      description: Fire a schedule now (even when disabled). Still skipped (`skipped:overlap`) while its previous run is open.
+      description: Fire a schedule now (even when disabled), ignoring its own usage limit and applying the normal global usage hold. Still skipped (`skipped:overlap`) while its previous run is open.
       parameters:
         - name: id
           in: path
@@ -18191,6 +18425,10 @@ x-shepherd-events:
     description: A herd halt finished. Broadcast to every client, so a client that did not issue it still learns.
     schema:
       $ref: "#/components/schemas/HaltDoneEvent"
+  session:usage-pause:
+    description: A scheduled session requested, entered, updated or ended its usage pause.
+    schema:
+      $ref: "#/components/schemas/SessionUsagePauseEvent"
   session:halt:
     description: "One session's halt flag moved. haltReason: null means it cleared."
     schema:

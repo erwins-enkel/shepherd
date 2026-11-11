@@ -1,9 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { overwriteGetLocale } from "#lib/paraglide/runtime.js";
+import { getLocale } from "#lib/i18n.js";
 import {
   cadenceSummary,
+  usageLimitPreview,
+  usageLimitActionVerdict,
+  intervalStats,
   outcomeLabel,
+  outcomeTone,
   schedules,
   upcomingOrder,
+  upcomingSlots,
   weekdayNames,
   WORKDAYS,
   ALL_DAYS,
@@ -16,7 +23,58 @@ describe("outcomeLabel (#3469)", () => {
   });
 });
 
+describe("schedule outcome presentation", () => {
+  it("keeps future outcomes readable and neutral", () => {
+    expect(outcomeLabel("future:result")).toBe("future:result");
+    expect(outcomeTone("future:result")).toBe("neutral");
+  });
+
+  it.each([
+    ["error", "red"],
+    ["claimed", "red"],
+    ["held", "amber"],
+    ["skipped:overlap", "amber"],
+    ["skipped:stale", "amber"],
+    ["spawned", "neutral"],
+    ["noop", "neutral"],
+  ])("assigns %s its outcome tone", (outcome, tone) => {
+    expect(outcomeTone(outcome)).toBe(tone);
+    expect(outcomeLabel(outcome)).toBeTruthy();
+  });
+});
+
+describe("schedule history revisions", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("invalidates only the changed repo even if its list reload fails", async () => {
+    vi.resetModules();
+    const { schedules: fresh } = await import("./schedules.svelte");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("oops", { status: 500 }));
+    await fresh.load("/changed");
+    const before = fresh.revisionFor("/changed");
+    fresh.refresh("/changed");
+    expect(fresh.revisionFor("/changed")).toBe(before + 1);
+    expect(fresh.revisionFor("/other")).toBe(0);
+  });
+
+  it("invalidates history after running locally", async () => {
+    vi.resetModules();
+    const { schedules: fresh } = await import("./schedules.svelte");
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (_input, init) =>
+        new Response(
+          JSON.stringify(init?.method === "POST" ? { outcome: "spawned" } : { schedules: [] }),
+        ),
+    );
+    await fresh.runNow(sched("local", "/local", "Local", null));
+    expect(fresh.revisionFor("/local")).toBe(1);
+  });
+});
+
 describe("cadenceSummary (#3469)", () => {
+  it("formats a compact German workweek", () => {
+    expect(cadenceSummary(WORKDAYS, ["09:00", "18:00"], "de")).toBe("Mo–Fr · 09:00, 18:00");
+  });
   it("collapses contiguous days into a range", () => {
     expect(cadenceSummary(WORKDAYS, ["09:00", "18:00"], "en")).toBe("Mon–Fri · 09:00, 18:00");
     expect(cadenceSummary(ALL_DAYS, ["07:30"], "en")).toBe("Mon–Sun · 07:30");
@@ -130,4 +188,230 @@ describe("schedules store: every-repo list load failure (#3475)", () => {
     await vi.waitFor(() => expect(fresh.all()?.map((s) => s.id)).toEqual(["a"]));
     expect(fresh.allFailed()).toBe(false);
   });
+});
+
+describe("upcomingSlots", () => {
+  const at = (day: number, hour = 9, minute = 0) => new Date(2026, 10, day, hour, minute).getTime();
+
+  it("crosses Sunday into Monday and only includes active days", () => {
+    expect(upcomingSlots(WORKDAYS, ["09:00"], at(8, 20), 3)).toEqual([at(9), at(10), at(11)]);
+  });
+
+  it("fills the preview across multiple weeks for a single active day", () => {
+    expect(upcomingSlots(1, ["09:00"], at(9), 3)).toEqual([at(16), at(23), at(30)]);
+  });
+
+  it("sorts times, excludes now, and never mutates the input", () => {
+    const times = ["18:00", "09:00", "12:00", "18:00"];
+    expect(upcomingSlots(ALL_DAYS, times, at(9), 3)).toEqual([at(9, 12), at(9, 18), at(10)]);
+    expect(times).toEqual(["18:00", "09:00", "12:00", "18:00"]);
+  });
+
+  it("uses local calendar dates across daylight saving changes", () => {
+    const now = new Date(2026, 2, 28, 18).getTime();
+    expect(upcomingSlots(ALL_DAYS, ["09:00"], now, 3)).toEqual([
+      new Date(2026, 2, 29, 9).getTime(),
+      new Date(2026, 2, 30, 9).getTime(),
+      new Date(2026, 2, 31, 9).getTime(),
+    ]);
+  });
+
+  it("ignores incomplete or invalid times and handles empty cadences", () => {
+    expect(upcomingSlots(0, ["09:00"], at(9), 3)).toEqual([]);
+    expect(upcomingSlots(ALL_DAYS, [], at(9), 3)).toEqual([]);
+    expect(upcomingSlots(ALL_DAYS, ["", "25:00", "09:"], at(9), 3)).toEqual([]);
+    expect(upcomingSlots(ALL_DAYS, ["", "18:00"], at(9), 1)).toEqual([at(9, 18)]);
+    expect(upcomingSlots(ALL_DAYS, ["09:00"], at(9), 0)).toEqual([]);
+  });
+});
+
+describe("interval presentation", () => {
+  const interval = { everyMinutes: 15 as const, from: "08:00", until: "18:00" };
+  it("counts slots and formats a window and all day", () => {
+    expect(intervalStats(WORKDAYS, interval)).toEqual({ perDay: 40, perWeek: 200, last: "17:45" });
+    expect(intervalStats(ALL_DAYS, { ...interval, from: null, until: null })).toEqual({
+      perDay: 96,
+      perWeek: 672,
+      last: "23:45",
+    });
+    expect(cadenceSummary(WORKDAYS, [], "en", interval)).toBe(
+      "Mon–Fri · every 15 min · 08:00–18:00",
+    );
+    expect(cadenceSummary(ALL_DAYS, [], "en", { ...interval, from: null, until: null })).toBe(
+      "Mon–Sun · every 15 min · around the clock",
+    );
+  });
+  it("previews exclusive window slots and skips inactive days", () => {
+    const now = new Date(2026, 9, 30, 17, 30).getTime();
+    expect(upcomingSlots(WORKDAYS, [], now, 3, interval)).toEqual([
+      new Date(2026, 9, 30, 17, 45).getTime(),
+      new Date(2026, 10, 2, 8).getTime(),
+      new Date(2026, 10, 2, 8, 15).getTime(),
+    ]);
+    expect(upcomingSlots(ALL_DAYS, [], now, 3, { ...interval, until: "08:00" })).toEqual([]);
+    expect(intervalStats(WORKDAYS, { ...interval, until: "08:00" })).toBeNull();
+  });
+  it.each([
+    [2, 29],
+    [9, 25],
+  ])("previews unique instants across DST month %i day %i", (month, day) => {
+    const start = new Date(2026, month, day).getTime();
+    const end = new Date(2026, month, day + 1).getTime();
+    const slots = upcomingSlots(ALL_DAYS, [], start - 1, 300, {
+      everyMinutes: 15,
+      from: null,
+      until: null,
+    }).filter((at) => at < end);
+    expect(slots).toHaveLength(Math.min(96, (end - start) / 900_000));
+    expect(new Set(slots).size).toBe(slots.length);
+    expect(slots[0]).toBe(start);
+  });
+  it("distinguishes historical stale reasons", () => {
+    expect(outcomeLabel("skipped:stale", "missed by more than one interval")).toBe(
+      "skipped, missed by more than one interval",
+    );
+    expect(outcomeLabel("skipped:stale", "missed slot older than 12h")).toContain("12h");
+  });
+});
+
+describe("schedule usage limit preview", () => {
+  const from = { kind: "from", startPct: 80, startWindow: "week", stopPct: 95 } as const;
+  it.each([
+    [{ kind: "upTo", stopPct: 70 }, 69, null, null],
+    [{ kind: "upTo", stopPct: 70 }, 70, null, "stop-reached"],
+    [{ kind: "upTo", stopPct: 100 }, null, null, null],
+    [{ kind: "upTo", stopPct: 100 }, 100, 0, "stop-reached"],
+    [from, 79, 10, "below-start"],
+    [from, 80, 10, null],
+    [from, null, 90, "usage-unknown"],
+    [from, null, 95, "stop-reached"],
+    [from, 80, 95, "stop-reached"],
+    [from, null, null, "usage-unknown"],
+    [{ ...from, startWindow: "5h" }, 90, 80, null],
+    [{ ...from, startWindow: "5h" }, 90, null, "usage-unknown"],
+  ] as const)("mirrors the server: %j / %s / %s", (limit, week, session5h, reason) => {
+    const preview = usageLimitPreview(limit, "claude", {
+      week: week === null ? null : { pct: week, resetAt: 1000 },
+      session5h: session5h === null ? null : { pct: session5h, resetAt: 2000 },
+    } as any);
+    expect(preview.reason).toBe(reason);
+    expect(preview.allowed).toBe(reason === null);
+  });
+  it("uses Codex windows and the stopping window reset while keeping the start marker", () => {
+    const preview = usageLimitPreview(from, "codex", {
+      week: { pct: 10, resetAt: 1 },
+      providers: [
+        {
+          provider: "codex",
+          kind: "tokens",
+          week: { pct: 80, resetAt: 1000 },
+          session5h: { pct: 96, resetAt: 2000 },
+        },
+      ],
+    } as any);
+    expect(preview).toMatchObject({
+      reason: "stop-reached",
+      markerPct: 80,
+      resetAt: 2000,
+      resetWindow: "5h",
+      usage: { usedPct: 96, thresholdPct: 95 },
+    });
+  });
+  it("formats a historic skip with the captured thresholds", () => {
+    expect(
+      outcomeLabel("skipped:limit", "below-start", {
+        provider: "claude",
+        window: "week",
+        usedPct: 79,
+        thresholdPct: 80,
+      }),
+    ).toContain("80");
+    expect(outcomeLabel("skipped:limit", "usage-unknown", null)).toContain("unknown");
+    expect(outcomeTone("skipped:limit")).toBe("amber");
+  });
+});
+
+describe("usage mismatch presentation", () => {
+  it("labels waiting, expiry and the actual failover provider", () => {
+    expect(outcomeLabel("waiting:limit")).toBe("held – waiting for the usage limit");
+    expect(outcomeLabel("skipped:limit-expired")).toBe("expired – limit not met in time");
+    for (const provider of ["claude", "codex"] as const) {
+      expect(
+        outcomeLabel("spawned:failover", null, {
+          provider,
+          window: "max",
+          usedPct: 40,
+          thresholdPct: 70,
+        }),
+      ).toBe(`started with ${provider === "claude" ? "Claude Code" : "Codex"}`);
+    }
+    expect(outcomeLabel("spawned:failover")).toBe(outcomeLabel("spawned"));
+    expect(outcomeTone("waiting:limit")).toBe("amber");
+    expect(outcomeTone("skipped:limit-expired")).toBe("amber");
+  });
+});
+
+it("predicts wait or a ready in-range counterpart, otherwise retains the original skip", () => {
+  const limit = { kind: "from", startPct: 80, startWindow: "week", stopPct: 95 } as const;
+  const window = (pct: number) => ({ pct, resetAt: 1 });
+  const limits = {
+    week: window(79),
+    session5h: null,
+    providers: [{ provider: "codex", kind: "tokens", week: window(85), session5h: null }],
+  } as any;
+  expect(usageLimitActionVerdict({ ...limit, onMismatch: "wait" }, "claude", limits, [])).toBe(
+    "would wait until the limit fits",
+  );
+  expect(
+    usageLimitActionVerdict({ ...limit, onMismatch: "otherProvider" }, "claude", limits, ["codex"]),
+  ).toBe("would start with Codex");
+  expect(
+    usageLimitActionVerdict({ ...limit, onMismatch: "otherProvider" }, "claude", limits, []),
+  ).toBeNull();
+  for (const pct of [79, 95]) {
+    limits.providers[0].week = window(pct);
+    expect(
+      usageLimitActionVerdict({ ...limit, onMismatch: "otherProvider" }, "claude", limits, [
+        "codex",
+      ]),
+    ).toBeNull();
+  }
+  limits.providers[0].week = null;
+  expect(
+    usageLimitActionVerdict({ ...limit, onMismatch: "otherProvider" }, "claude", limits, ["codex"]),
+  ).toBeNull();
+  limits.week = window(80);
+  expect(
+    usageLimitActionVerdict({ ...limit, onMismatch: "wait" }, "claude", limits, []),
+  ).toBeNull();
+});
+
+it("shows paused run deadlines and an honest fallback without a reset", () => {
+  expect(outcomeLabel("paused", null, null, Date.UTC(2026, 10, 16, 9))).toMatch(
+    /paused until .*usage stop/,
+  );
+  expect(outcomeLabel("paused", null, null, null)).toBe("Paused (usage stop)");
+  expect(outcomeTone("paused")).toBe("neutral");
+});
+
+it("shows a terminal budget result with localized tokens and Codex non-application", () => {
+  expect(outcomeLabel("stopped:budget", null, null, null, 2_100_000)).toBe(
+    "ended – token budget reached (2.1M)",
+  );
+  expect(outcomeLabel("spawned", null, null, null, null, "codex")).toContain(
+    "budget not applied (Codex)",
+  );
+  expect(outcomeTone("stopped:budget")).toBe("neutral");
+});
+
+it("formats German budget usage with a decimal comma", async () => {
+  overwriteGetLocale(() => "de");
+  try {
+    expect(getLocale()).toBe("de");
+    expect(outcomeLabel("stopped:budget", null, null, null, 2_100_000)).toBe(
+      "beendet – Token-Budget erreicht (2,1 Mio.)",
+    );
+  } finally {
+    overwriteGetLocale(() => "en");
+  }
 });

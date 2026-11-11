@@ -670,6 +670,7 @@ test("schedules CRUD, run now and runs (#3469)", async () => {
   const input = {
     repoPath: s.validRepo,
     name: "Triage",
+    usageLimit: { kind: "from", startPct: 80, startWindow: "week", stopPct: 95, pauseAtStop: true },
     prompt: "/triage-feedback",
     days: 0b0011111,
     times: ["09:00", "18:00"],
@@ -687,7 +688,61 @@ test("schedules CRUD, run now and runs (#3469)", async () => {
   await request("GET", base, 200, undefined, `${base}?repo=${encodeURIComponent(s.validRepo)}`);
   await request("PATCH", one, 200, { enabled: false }, at());
   await request("PATCH", one, 400, { times: [] }, at());
+  await request(
+    "PATCH",
+    one,
+    200,
+    { times: [], interval: { everyMinutes: 15, from: "08:00", until: "18:00" } },
+    at(),
+  );
+  await request("GET", base, 200);
+  await request(
+    "PATCH",
+    one,
+    200,
+    { interval: { everyMinutes: 5, from: null, until: null } },
+    at(),
+  );
+  await request(
+    "PATCH",
+    one,
+    400,
+    { interval: { everyMinutes: 7, from: null, until: null } },
+    at(),
+  );
+  await request("PATCH", one, 200, { times: ["09:00"], interval: null }, at());
   await request("PATCH", one, 404, { name: "x" }, "/api/schedules/nope");
+  await request("PATCH", one, 200, { tokenBudget: 2_000_000 }, at());
+  await request("PATCH", one, 400, { tokenBudget: 99_999 }, at());
+  await request("PATCH", one, 400, { launch: { agentProvider: "codex" } }, at());
+  await request("GET", base, 200);
+  await request("PATCH", one, 200, { tokenBudget: null }, at());
+  for (const onMismatch of ["skip", "wait", "otherProvider"]) {
+    await request("PATCH", one, 200, { usageLimit: { ...input.usageLimit, onMismatch } }, at());
+  }
+  s.deps.store.claimScheduleRun(id, "limit-test", Date.now());
+  s.deps.store.settleScheduleRun(id, "limit-test", "skipped:limit", {
+    reason: "stop-reached",
+    usage: { provider: "codex", window: "max", usedPct: 95, thresholdPct: 95 },
+  });
+  await request("GET", "/api/schedules/{id}/runs", 200, undefined, at("/runs"));
+  for (const outcome of [
+    "stopped:budget",
+    "waiting:limit",
+    "skipped:limit-expired",
+    "spawned:failover",
+    "paused",
+  ] as const) {
+    for (const usage of [
+      null,
+      { provider: "codex", window: "max", usedPct: 85, thresholdPct: 95 },
+    ] as const) {
+      s.deps.store.settleScheduleRun(id, "limit-test", outcome, { usage });
+      await request("GET", "/api/schedules/{id}/runs", 200, undefined, at("/runs"));
+    }
+  }
+  s.deps.store.settleScheduleRun(id, "limit-test", "noop", { reason: "nothing to do" });
+  await request("GET", "/api/schedules/{id}/runs", 200, undefined, at("/runs"));
   const saved = s.deps.schedules;
   s.deps.schedules = {
     runNow: async (rid) =>
@@ -699,6 +754,7 @@ test("schedules CRUD, run now and runs (#3469)", async () => {
             outcome: "skipped:overlap",
             sessionId: null,
             reason: "previous run still open",
+            usage: null,
             at: 1,
           }
         : null,

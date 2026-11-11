@@ -1961,6 +1961,19 @@ export interface SessionActivity {
   ciPolling?: { polls: number; inputTokens: number; since: number };
 }
 
+/** Scheduled run usage pause or terminal token-budget stop. Times are epoch ms. */
+export interface UsagePause {
+  reason?: "budget";
+  tokenBudget?: number;
+  tokensUsed?: number;
+  phase: "requested" | "paused";
+  since: number;
+  resumeAt: number | null;
+  stopPct: number;
+  windows: ("week" | "5h")[];
+  stopSteerSent: boolean;
+}
+
 export interface Session {
   id: string;
   desig: string;
@@ -2020,6 +2033,7 @@ export interface Session {
   /** Operator-shelved: rendered in the folded Shelved group, excluded from needs-you signals,
    *  and left alone by server automation until unshelved. The agent stays alive. */
   shelved?: boolean;
+  usagePause?: UsagePause | null;
   /** Epoch ms when a merge train marked this PR-session in-flight; null when not.
    *  Transient — cleared server-side on merge/close, train archive, or TTL. */
   mergingSince: number | null;
@@ -3571,6 +3585,7 @@ export type WsEvent =
   /** #2863: a background CI restart failed — at the cancel (CI unchanged) or after it (the run is
    *  cancelled but not re-run). */
   | { event: "session:ci-restart-failed"; data: { id: string; reason: "cancel" | "rerun" } }
+  | { event: "session:usage-pause"; data: { id: string; usagePause: UsagePause | null } }
   | { event: "session:shelved"; data: { id: string; shelved: boolean } }
   | {
       event: "session:merging";
@@ -4147,8 +4162,31 @@ export interface ScheduleLaunch {
   baseBranch: string | null;
 }
 
+export type ScheduleUsageLimit = (
+  | { kind: "upTo"; stopPct: number }
+  | { kind: "from"; startPct: number; startWindow: "week" | "5h"; stopPct: number }
+) & { pauseAtStop?: boolean; onMismatch?: "skip" | "wait" | "otherProvider" };
+export interface ScheduleUsage {
+  provider: AgentProvider;
+  window: "week" | "5h" | "max";
+  usedPct: number | null;
+  thresholdPct: number;
+}
+
 export type ScheduleOutcome =
-  "claimed" | "spawned" | "held" | "skipped:overlap" | "skipped:stale" | "error" | "noop";
+  | "stopped:budget"
+  | "paused"
+  | "claimed"
+  | "spawned"
+  | "spawned:failover"
+  | "waiting:limit"
+  | "skipped:limit-expired"
+  | "held"
+  | "skipped:overlap"
+  | "skipped:stale"
+  | "skipped:limit"
+  | "error"
+  | "noop";
 
 export interface ScheduleRun {
   id: number;
@@ -4157,7 +4195,17 @@ export interface ScheduleRun {
   outcome: ScheduleOutcome;
   sessionId: string | null;
   reason: string | null;
+  usage?: ScheduleUsage | null;
+  pausedUntil?: number | null;
+  tokensUsed?: number | null;
+  budgetNotApplied?: "codex" | null;
   at: number;
+}
+
+export interface ScheduleInterval {
+  everyMinutes: 5 | 10 | 15 | 30 | 60;
+  from: string | null;
+  until: string | null;
 }
 
 /** A schedule as GET /api/schedules returns it. `days`: bit 0 = Monday … bit 6 = Sunday. */
@@ -4168,6 +4216,9 @@ export interface Schedule {
   prompt: string;
   days: number;
   times: string[];
+  interval?: ScheduleInterval | null;
+  usageLimit?: ScheduleUsageLimit | null;
+  tokenBudget?: number | null;
   enabled: boolean;
   launch: ScheduleLaunch;
   createdAt: number;
@@ -4183,6 +4234,9 @@ export interface ScheduleInput {
   prompt: string;
   days: number;
   times: string[];
+  interval?: ScheduleInterval | null;
+  usageLimit?: ScheduleUsageLimit | null;
+  tokenBudget?: number | null;
   enabled?: boolean;
   launch?: Partial<ScheduleLaunch>;
 }

@@ -1960,3 +1960,33 @@ test("F09: a ready PR with no known head is not merged", async () => {
   await new AutoMergeService(d).pump("/r");
   expect(merge.mock.calls.length).toBe(0);
 });
+
+test("a pause requested during merge keeps the session and its PR cache", async () => {
+  const d = deps();
+  const session = d.store.get("s1")!;
+  let entered!: () => void, release!: () => void;
+  const began = new Promise<void>((r) => (entered = r));
+  const gate = new Promise<void>((r) => (release = r));
+  const forge = d.resolveForge("/r")!;
+  forge.merge = async () => {
+    entered();
+    await gate;
+  };
+  d.resolveForge = () => forge;
+  const svc = new AutoMergeService(d);
+  const pumping = svc.pump("/r");
+  await began;
+  session.usagePause = {
+    phase: "requested",
+    since: 1,
+    resumeAt: 2,
+    stopPct: 80,
+    windows: ["week"],
+    stopSteerSent: false,
+  };
+  release();
+  await pumping;
+  expect((d.service.archive as any).mock.calls).toHaveLength(0);
+  expect((d.dropPrCache as any).mock.calls).toHaveLength(0);
+  expect((d.emitArchived as any).mock.calls).toHaveLength(0);
+});

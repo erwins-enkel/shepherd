@@ -9,7 +9,8 @@
  * The scheduler only ever considers the LATEST due slot. That one rule gives on-time firing and
  * catch-up-once: a missed slot fires when Shepherd comes back, unless a newer slot already arrived
  * (then only the newer one). A missed slot older than {@link STALE_MS} is recorded as stale
- * instead — a weekend-old run is never what the operator wants on Monday morning.
+ * instead — a weekend-old run is never what the operator wants on Monday morning. Intervals use
+ * one interval as their stale cap and collapse spring-forward collisions to one nominal slot.
  */
 import { AGENT_PROVIDERS, type AgentProvider, type StandardCreateInput } from "./types";
 import type { SandboxProfile } from "./sandbox";
@@ -56,6 +57,64 @@ export interface ScheduleLaunch {
   baseBranch: string | null;
 }
 
+export interface ScheduleInterval {
+  everyMinutes: 5 | 10 | 15 | 30 | 60;
+  from: string | null;
+  until: string | null;
+}
+
+export type ScheduleLimitAction = "skip" | "wait" | "otherProvider";
+
+export type ScheduleUsageLimit = (
+  | { kind: "upTo"; stopPct: number }
+  | { kind: "from"; startPct: number; startWindow: "week" | "5h"; stopPct: number }
+) & { pauseAtStop?: boolean; onMismatch?: ScheduleLimitAction };
+
+export interface ScheduleUsage {
+  provider: AgentProvider;
+  window: "week" | "5h" | "max";
+  usedPct: number | null;
+  thresholdPct: number;
+}
+
+export type UsageLimitReason = "below-start" | "stop-reached" | "usage-unknown";
+export interface ScheduleUsageWindows {
+  week: number | null;
+  session5h: number | null;
+}
+
+/** Uses the same computed Claude windows as usage-hold; Codex has its own snapshot. */
+export function scheduleUsageWindows(
+  limits: Pick<import("./usage-limits").UsageLimits, "week" | "session5h" | "providers"> | null,
+  provider: AgentProvider,
+): ScheduleUsageWindows {
+  const source =
+    provider === "claude" ? limits : limits?.providers?.find((p) => p.provider === "codex");
+  return { week: source?.week?.pct ?? null, session5h: source?.session5h?.pct ?? null };
+}
+
+/** Stop always wins; unknown windows count as zero only for the stop check. */
+export function decideUsageLimit(
+  limit: ScheduleUsageLimit,
+  provider: AgentProvider,
+  windows: ScheduleUsageWindows,
+): { allowed: boolean; reason: UsageLimitReason | null; usage: ScheduleUsage } {
+  const max =
+    windows.week === null && windows.session5h === null
+      ? null
+      : Math.max(windows.week ?? 0, windows.session5h ?? 0);
+  let usage: ScheduleUsage = { provider, window: "max", usedPct: max, thresholdPct: limit.stopPct };
+  let reason: UsageLimitReason | null = null;
+  if ((max ?? 0) >= limit.stopPct) reason = "stop-reached";
+  else if (limit.kind === "from") {
+    const usedPct = limit.startWindow === "week" ? windows.week : windows.session5h;
+    usage = { provider, window: limit.startWindow, usedPct, thresholdPct: limit.startPct };
+    if (usedPct === null) reason = "usage-unknown";
+    else if (usedPct < limit.startPct) reason = "below-start";
+  }
+  return { allowed: reason === null, reason, usage };
+}
+
 export interface Schedule {
   id: string;
   repoPath: string;
@@ -63,6 +122,9 @@ export interface Schedule {
   prompt: string;
   days: number;
   times: string[];
+  interval: ScheduleInterval | null;
+  usageLimit: ScheduleUsageLimit | null;
+  tokenBudget?: number | null;
   enabled: boolean;
   launch: ScheduleLaunch;
   /** Slots before this instant never fire — stamped on create, enable and cadence edits. */
@@ -72,7 +134,19 @@ export interface Schedule {
 }
 
 export type ScheduleOutcome =
-  "claimed" | "spawned" | "held" | "skipped:overlap" | "skipped:stale" | "error" | "noop";
+  | "stopped:budget"
+  | "paused"
+  | "claimed"
+  | "spawned"
+  | "spawned:failover"
+  | "waiting:limit"
+  | "skipped:limit-expired"
+  | "held"
+  | "skipped:overlap"
+  | "skipped:stale"
+  | "skipped:limit"
+  | "error"
+  | "noop";
 
 export interface ScheduleRun {
   id: number;
@@ -81,6 +155,10 @@ export interface ScheduleRun {
   outcome: ScheduleOutcome;
   sessionId: string | null;
   reason: string | null;
+  usage: ScheduleUsage | null;
+  pausedUntil?: number | null;
+  tokensUsed?: number | null;
+  budgetNotApplied?: "codex" | null;
   at: number;
 }
 
@@ -91,6 +169,9 @@ export interface ScheduleInput {
   prompt: string;
   days: number;
   times: string[];
+  interval: ScheduleInterval | null;
+  usageLimit: ScheduleUsageLimit | null;
+  tokenBudget?: number | null;
   enabled: boolean;
   launch: ScheduleLaunch;
 }
@@ -108,7 +189,18 @@ export const DEFAULT_LAUNCH: ScheduleLaunch = {
 };
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-const KEYS = new Set(["repoPath", "name", "prompt", "days", "times", "enabled", "launch"]);
+const KEYS = new Set([
+  "repoPath",
+  "name",
+  "prompt",
+  "days",
+  "times",
+  "interval",
+  "usageLimit",
+  "tokenBudget",
+  "enabled",
+  "launch",
+]);
 /** The launch options a schedule carries, by name. */
 export const SCHEDULE_LAUNCH_KEYS = Object.keys(DEFAULT_LAUNCH) as (keyof ScheduleLaunch)[];
 const LAUNCH_KEYS = new Set<string>(SCHEDULE_LAUNCH_KEYS);
@@ -140,29 +232,70 @@ export interface Slot {
 }
 
 /** The slots of one local day (`offset` days from `now`'s day), in time order. */
-function slotsOn(days: number, times: readonly string[], now: number, offset: number): Slot[] {
+function slotsOn(
+  days: number,
+  times: readonly string[],
+  now: number,
+  offset: number,
+  interval: ScheduleInterval | null,
+): Slot[] {
   const base = new Date(now);
   const day = new Date(base.getFullYear(), base.getMonth(), base.getDate() + offset);
   if (!(days & dayBit(day))) return [];
-  return times.map((t) => ({ slotKey: slotKeyOf(day, t), at: slotAt(day, t) }));
+  if (!interval) return times.map((t) => ({ slotKey: slotKeyOf(day, t), at: slotAt(day, t) }));
+  const minuteOf = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
+  const start = interval.from === null ? 0 : minuteOf(interval.from);
+  const end = interval.until === null ? 1440 : minuteOf(interval.until);
+  const slots = new Map<number, Slot>();
+  for (let minute = start; minute < end; minute += interval.everyMinutes) {
+    const time = `${pad(Math.floor(minute / 60))}:${pad(minute % 60)}`;
+    const at = slotAt(day, time);
+    // Spring-forward normalization can map two nominal times onto the same instant.
+    if (!slots.has(at)) slots.set(at, { slotKey: slotKeyOf(day, time), at });
+  }
+  return [...slots.values()].sort((a, b) => a.at - b.at);
 }
 
 /** The latest slot at or before `now`, or null when none falls within the last week. */
-export function latestDueSlot(days: number, times: readonly string[], now: number): Slot | null {
+export function latestDueSlot(
+  days: number,
+  times: readonly string[],
+  now: number,
+  interval: ScheduleInterval | null = null,
+): Slot | null {
   for (let back = 0; back <= 7; back++) {
-    const due = slotsOn(days, times, now, -back).filter((s) => s.at <= now);
+    const due = slotsOn(days, times, now, -back, interval).filter((s) => s.at <= now);
     if (due.length) return due.reduce((a, b) => (b.at > a.at ? b : a));
   }
   return null;
 }
 
 /** The next slot strictly after `now`, or null for an empty cadence. */
-export function nextSlot(days: number, times: readonly string[], now: number): Slot | null {
+export function nextSlot(
+  days: number,
+  times: readonly string[],
+  now: number,
+  interval: ScheduleInterval | null = null,
+): Slot | null {
   for (let ahead = 0; ahead <= 7; ahead++) {
-    const later = slotsOn(days, times, now, ahead).filter((s) => s.at > now);
+    const later = slotsOn(days, times, now, ahead, interval).filter((s) => s.at > now);
     if (later.length) return later.reduce((a, b) => (b.at < a.at ? b : a));
   }
   return null;
+}
+
+/** Waiting rows use the nominal local slot, never the (possibly late) claim timestamp. */
+export function waitingLimitExpiresAt(
+  s: Pick<Schedule, "days" | "times" | "interval">,
+  slotKey: string,
+): number {
+  const [date, time] = slotKey.split("T") as [string, string];
+  const [year, month, day] = date.split("-").map(Number) as [number, number, number];
+  const nominal = slotAt(new Date(year, month - 1, day), time);
+  return Math.min(
+    nominal + STALE_MS,
+    nextSlot(s.days, s.times, nominal, s.interval)?.at ?? Infinity,
+  );
 }
 
 /** What the tick does with a schedule's latest due slot. */
@@ -171,18 +304,122 @@ export function decideFiring(args: {
   baselineAt: number;
   hasRow: boolean;
   now: number;
+  interval?: ScheduleInterval | null;
 }): "none" | "stale" | "fire" {
   const { slot, baselineAt, hasRow, now } = args;
   if (!slot || slot.at < baselineAt || hasRow) return "none";
-  return now - slot.at > STALE_MS ? "stale" : "fire";
+  return now - slot.at > (args.interval ? args.interval.everyMinutes * 60_000 : STALE_MS)
+    ? "stale"
+    : "fire";
 }
 
-function validateTimes(raw: unknown): Result<string[]> {
+function validateUsageLimitOptions(
+  obj: Record<string, unknown>,
+): Result<Pick<ScheduleUsageLimit, "onMismatch" | "pauseAtStop">> {
+  const raw = obj.onMismatch;
+  if (raw !== undefined && raw !== "skip" && raw !== "wait" && raw !== "otherProvider")
+    return fail("usageLimit.onMismatch must be skip, wait or otherProvider");
+  if (obj.pauseAtStop !== undefined && typeof obj.pauseAtStop !== "boolean")
+    return fail("usageLimit.pauseAtStop must be a boolean");
+  return {
+    ok: true,
+    value: {
+      ...(raw !== undefined && { onMismatch: raw }),
+      ...(obj.pauseAtStop !== undefined && { pauseAtStop: obj.pauseAtStop as boolean }),
+    },
+  };
+}
+
+function validateUsageLimit(raw: unknown): Result<ScheduleUsageLimit | null> {
+  if (raw === undefined || raw === null) return { ok: true, value: null };
+  if (typeof raw !== "object" || Array.isArray(raw))
+    return fail("usageLimit must be an object or null");
+  const obj = raw as Record<string, unknown>;
+  const keys =
+    obj.kind === "from" ? ["kind", "startPct", "startWindow", "stopPct"] : ["kind", "stopPct"];
+  if (Object.keys(obj).some((key) => ![...keys, "onMismatch", "pauseAtStop"].includes(key)))
+    return fail("unknown usageLimit key");
+  const action = validateUsageLimitOptions(obj);
+  if (!action.ok) return action;
+  const pct = (v: unknown, min: number, max: number): v is number =>
+    typeof v === "number" && Number.isInteger(v) && v % 5 === 0 && v >= min && v <= max;
+  if (!pct(obj.stopPct, 5, 100)) return fail("usageLimit.stopPct must be 5–100 in steps of 5");
+  if (obj.kind === "upTo")
+    return { ok: true, value: { kind: "upTo", stopPct: obj.stopPct, ...action.value } };
+  if (obj.kind !== "from") return fail("usageLimit.kind must be upTo or from");
+  if (!pct(obj.startPct, 0, 95) || obj.startPct >= obj.stopPct)
+    return fail("usageLimit.startPct must be 0–95 in steps of 5 and less than stopPct");
+  if (obj.startWindow !== "week" && obj.startWindow !== "5h")
+    return fail("usageLimit.startWindow must be week or 5h");
+  return {
+    ok: true,
+    value: {
+      kind: "from",
+      ...action.value,
+      startPct: obj.startPct,
+      startWindow: obj.startWindow,
+      stopPct: obj.stopPct,
+    },
+  };
+}
+
+function validateInterval(raw: unknown): Result<ScheduleInterval | null> {
+  if (raw === undefined || raw === null) return { ok: true, value: null };
+  if (typeof raw !== "object" || Array.isArray(raw))
+    return fail("interval must be an object or null");
+  const obj = raw as Record<string, unknown>;
+  if (Object.keys(obj).some((key) => !["everyMinutes", "from", "until"].includes(key)))
+    return fail("unknown interval key");
+  if (![5, 10, 15, 30, 60].includes(obj.everyMinutes as number))
+    return fail("interval.everyMinutes must be 5, 10, 15, 30 or 60");
+  if (obj.from === null && obj.until === null)
+    return {
+      ok: true,
+      value: {
+        everyMinutes: obj.everyMinutes as ScheduleInterval["everyMinutes"],
+        from: null,
+        until: null,
+      },
+    };
+  if (
+    typeof obj.from !== "string" ||
+    !TIME_RE.test(obj.from) ||
+    typeof obj.until !== "string" ||
+    !TIME_RE.test(obj.until)
+  )
+    return fail('interval.from and interval.until must both be "HH:MM" or both null');
+  if (obj.until <= obj.from) return fail("until must be after from");
+  return {
+    ok: true,
+    value: {
+      everyMinutes: obj.everyMinutes as ScheduleInterval["everyMinutes"],
+      from: obj.from,
+      until: obj.until,
+    },
+  };
+}
+
+function validateTimes(raw: unknown, interval = false): Result<string[]> {
+  if (interval) {
+    if (!Array.isArray(raw) || raw.length !== 0) return fail("times must be [] with an interval");
+    return { ok: true, value: [] };
+  }
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_TIMES)
     return fail(`times must be 1–${MAX_TIMES} "HH:MM" strings`);
   if (!raw.every((t) => typeof t === "string" && TIME_RE.test(t)))
     return fail('times must be "HH:MM" (00:00–23:59)');
   return { ok: true, value: [...new Set(raw as string[])].sort() };
+}
+
+function validateCadence(
+  timesRaw: unknown,
+  intervalRaw: unknown,
+): Result<{ times: string[]; interval: ScheduleInterval | null }> {
+  const interval = validateInterval(intervalRaw);
+  if (!interval.ok) return interval;
+  const times = validateTimes(timesRaw, interval.value !== null);
+  if (!times.ok) return times;
+  return { ok: true, value: { times: times.value, interval: interval.value } };
 }
 
 function nullableBool(v: unknown, name: string): Result<boolean | null> {
@@ -211,6 +448,34 @@ function validateLaunch(raw: unknown): Result<ScheduleLaunch> {
   return { ok: true, value: merged as unknown as ScheduleLaunch };
 }
 
+function validateScheduleOptions(
+  obj: Record<string, unknown>,
+): Result<Pick<ScheduleInput, "launch" | "usageLimit" | "tokenBudget">> {
+  const launch = validateLaunch(obj.launch);
+  if (!launch.ok) return launch;
+  const usageLimit = validateUsageLimit(obj.usageLimit);
+  if (!usageLimit.ok) return usageLimit;
+  const tokenBudget = obj.tokenBudget ?? null;
+  if (
+    tokenBudget !== null &&
+    (!Number.isInteger(tokenBudget) ||
+      typeof tokenBudget !== "number" ||
+      tokenBudget < 100_000 ||
+      tokenBudget > 100_000_000)
+  )
+    return fail("tokenBudget must be an integer between 100000 and 100000000 or null");
+  if (tokenBudget !== null && launch.value.agentProvider === "codex")
+    return fail("tokenBudget is only supported for Claude Code");
+  return {
+    ok: true,
+    value: {
+      launch: launch.value,
+      usageLimit: usageLimit.value,
+      tokenBudget: tokenBudget as number | null,
+    },
+  };
+}
+
 /**
  * Validate a full schedule body. The launch options and prompt are re-checked through the New
  * Task validator ({@link scheduleCreateInput}) so a schedule can never store a launch the create
@@ -227,20 +492,20 @@ export function validateScheduleInput(body: unknown, repoRoot: string): Result<S
   if (typeof obj.prompt !== "string") return fail("prompt must be a string");
   if (!Number.isInteger(obj.days) || (obj.days as number) < 1 || (obj.days as number) > ALL_DAYS)
     return fail("days must be a weekday bitmask 1–127 (bit 0 = Monday)");
-  const times = validateTimes(obj.times);
-  if (!times.ok) return times;
+  const cadence = validateCadence(obj.times, obj.interval);
+  if (!cadence.ok) return cadence;
   if (obj.enabled !== undefined && typeof obj.enabled !== "boolean")
     return fail("enabled must be a boolean");
-  const launch = validateLaunch(obj.launch);
-  if (!launch.ok) return launch;
+  const options = validateScheduleOptions(obj);
+  if (!options.ok) return options;
   const value: ScheduleInput = {
     repoPath: obj.repoPath as string,
     name: obj.name.trim(),
     prompt: obj.prompt.trim(),
     days: obj.days as number,
-    times: times.value,
+    ...cadence.value,
+    ...options.value,
     enabled: obj.enabled ?? true,
-    launch: launch.value,
   };
   const create = scheduleCreateInput(value, value.launch.baseBranch ?? "main", repoRoot);
   if (!create.ok) return create;

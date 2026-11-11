@@ -4085,6 +4085,15 @@ export async function listSchedules(repoPath?: string): Promise<Schedule[]> {
   return body.schedules;
 }
 
+/** A schedule's runs, newest first (the server keeps at most 50 in this response). */
+export async function listScheduleRuns(id: string): Promise<ScheduleRun[]> {
+  const body = await getJson<{ runs: ScheduleRun[] }>(
+    `/api/schedules/${encodeURIComponent(id)}/runs`,
+    "schedule history",
+  );
+  return body.runs;
+}
+
 async function scheduleWrite(
   method: string,
   path: string,

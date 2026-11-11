@@ -3900,7 +3900,7 @@ function scheduleDto(s: Schedule, deps: AppDeps, now = Date.now()) {
   return {
     ...s,
     lastRun: deps.store.listScheduleRuns(s.id, 1)[0] ?? null,
-    nextAt: s.enabled ? (nextSlot(s.days, s.times, now)?.at ?? null) : null,
+    nextAt: s.enabled ? (nextSlot(s.days, s.times, now, s.interval)?.at ?? null) : null,
   };
 }
 
@@ -3969,6 +3969,9 @@ async function patchSchedule(req: Request, s: Schedule | null, deps: AppDeps): P
     prompt: s.prompt,
     days: s.days,
     times: s.times,
+    interval: s.interval,
+    usageLimit: s.usageLimit,
+    tokenBudget: s.tokenBudget ?? null,
     enabled: s.enabled,
   };
   const launch = isRecord(body.launch) ? { ...s.launch, ...body.launch } : body.launch;
@@ -3982,7 +3985,10 @@ async function patchSchedule(req: Request, s: Schedule | null, deps: AppDeps): P
   if (!parsed.ok) return json({ error: parsed.error }, 400);
   const v = parsed.value;
   const rebaseline =
-    (v.enabled && !s.enabled) || v.days !== s.days || v.times.join() !== s.times.join();
+    (v.enabled && !s.enabled) ||
+    v.days !== s.days ||
+    v.times.join() !== s.times.join() ||
+    JSON.stringify(v.interval) !== JSON.stringify(s.interval);
   const now = Date.now();
   deps.store.updateSchedule(s.id, v, now, rebaseline);
   deps.events.emit("schedules:changed", { repoPath: s.repoPath });
@@ -4866,12 +4872,13 @@ async function tryHoldNewTask(
   force: boolean,
   value: StandardCreateInput,
   deps: AppDeps,
+  skipUsageHold = false,
 ): Promise<HeldTaskRef | null> {
   const provider = spawnProvider(deps.store.getRepoConfig(value.repoPath), value.agentProvider);
   if (provider === "codex") {
     if (deps.codexCapacity && !(await deps.codexCapacity()))
       return holdTask(value, deps, "capacity");
-  } else {
+  } else if (!skipUsageHold) {
     const lim = deps.usageLimits.limits(Date.now());
     const s5h = lim.session5h?.pct ?? 0;
     const week = lim.week?.pct ?? 0;
@@ -4906,9 +4913,9 @@ export type LaunchOutcome =
 export async function launchTask(
   value: StandardCreateInput,
   deps: AppDeps,
-  opts: { force?: boolean; tracker?: () => SpawnPhaseTracker } = {},
+  opts: { force?: boolean; skipUsageHold?: boolean; tracker?: () => SpawnPhaseTracker } = {},
 ): Promise<LaunchOutcome> {
-  const held = await tryHoldNewTask(opts.force === true, value, deps);
+  const held = await tryHoldNewTask(opts.force === true, value, deps, opts.skipUsageHold === true);
   if (held) return { kind: "held", held };
   // Built only now, so the spawn's measured phases start after the hold gate.
   const tracker = opts.tracker?.();
@@ -11686,6 +11693,7 @@ async function heldUpdate(
   value.placement = existing.input.placement;
   // Nor the schedule it fired for (#3469, server-set only): the overlap skip and link follow it.
   value.scheduleId = existing.input.scheduleId;
+  value.scheduleRun = existing.input.scheduleRun;
   const profileErr = tokenProfileError(token, value, deps);
   if (profileErr) return profileErr;
   deps.store.updateHeldTask(id, value);

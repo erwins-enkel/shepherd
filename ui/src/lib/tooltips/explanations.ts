@@ -1,3 +1,5 @@
+import type { ScheduleUsageLimit } from "#lib/types.js";
+import { usageLimitChip, schedulePauseWhen } from "#lib/schedules.svelte.js";
 import { placementLoadObservation } from "#lib/placement.js";
 import { m } from "#lib/paraglide/messages.js";
 import type { TooltipExplanation } from "./content";
@@ -1147,6 +1149,7 @@ export function schedulesExplanation(): TooltipExplanation {
       { label: m.tooltip_schedules_catchup(), text: m.tooltip_schedules_catchup_body() },
       { label: m.tooltip_schedules_overlap(), text: m.tooltip_schedules_overlap_body() },
       { label: m.tooltip_schedules_attended(), text: m.tooltip_schedules_attended_body() },
+      { label: m.schedules_limit_section(), text: m.schedules_limit_policy_overview() },
     ],
   };
 }
@@ -1167,5 +1170,57 @@ export function keyboardHintsExplanation(isMac: boolean, showEnter: boolean): To
     sections: [
       { label: m.viewport_hints_section(), text: "", rows: rows.map((text) => ({ text })) },
     ],
+  };
+}
+
+export function scheduleUsageLimitExplanation(limit: ScheduleUsageLimit): TooltipExplanation {
+  return {
+    title: m.schedules_limit_section(),
+    summary: usageLimitChip(limit),
+    sections: [
+      {
+        label: m.schedules_limit_policy(),
+        text:
+          limit.onMismatch === "wait"
+            ? m.schedules_limit_policy_wait()
+            : limit.onMismatch === "otherProvider"
+              ? m.schedules_limit_policy_other()
+              : m.schedules_limit_policy_body(),
+      },
+      ...(limit.onMismatch === "wait" || limit.onMismatch === "otherProvider"
+        ? [
+            { label: m.schedules_run_now(), text: m.schedules_limit_manual_policy() },
+            {
+              label: m.schedules_limit_capacity_title(),
+              text: m.schedules_limit_capacity_policy(),
+            },
+          ]
+        : []),
+    ],
+  };
+}
+
+export function schedulePauseExplanation(resumeAt: number | null): TooltipExplanation {
+  return {
+    title: m.schedule_pause_title(),
+    summary: m.schedules_pause_hint(),
+    sections: [
+      {
+        label: m.schedule_pause_resume_label(),
+        text:
+          resumeAt == null
+            ? m.schedule_pause_unknown_reset()
+            : m.schedule_pause_resume({ when: schedulePauseWhen(resumeAt) }),
+      },
+      { label: m.schedule_pause_takeover_label(), text: m.schedule_pause_takeover() },
+    ],
+  };
+}
+
+export function scheduleBudgetExplanation(): TooltipExplanation {
+  return {
+    title: m.schedules_budget_toggle(),
+    summary: m.schedules_budget_takeover(),
+    sections: [{ label: m.schedules_budget_input(), text: m.schedules_budget_measure() }],
   };
 }

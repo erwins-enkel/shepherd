@@ -25,7 +25,9 @@ final class IOSCompositionTests: XCTestCase {
         XCTAssertEqual(app.store?.sessions.first?.id, "first")
         for _ in 0..<100 { await Task.yield() }
         let requests = IOSMultiServerFixtureTransport.requests(at: profile.baseURL)
-        XCTAssertEqual(requests.filter { $0 == "/api/sessions" }.count, 1)
+        // MergeModel refreshes session rows on entering .live. It can share the
+        // bootstrap read or follow it; neither request loads an offscreen list.
+        XCTAssertGreaterThanOrEqual(requests.filter { $0 == "/api/sessions" }.count, 1)
         for path in ["/api/recaps", "/api/sessions/done", "/api/sessions/archived", "/api/up-next"] {
             XCTAssertFalse(requests.contains(path), path)
         }

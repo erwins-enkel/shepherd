@@ -888,6 +888,9 @@ export class HerdStore {
    *  the complexity gate. Returns true when `ev` was handled. */
   private applySessionDataEvent(ev: WsEvent): boolean {
     switch (ev.event) {
+      case "session:usage-pause":
+        this.patchSession(ev.data.id, { usagePause: ev.data.usagePause });
+        return true;
       case "session:shelved":
         this.patchSession(ev.data.id, { shelved: ev.data.shelved });
         return true;

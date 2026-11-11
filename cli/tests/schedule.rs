@@ -352,3 +352,71 @@ async fn run_of_a_missing_schedule_is_not_found() {
     let h = Harness::new();
     assert_eq!(h.run(&["--url", &s.uri(), "schedule", "run", ID]).await, 5);
 }
+
+#[tokio::test]
+async fn schedule_ls_displays_intervals() {
+    for (from, until, label) in [
+        (Some("08:00"), Some("18:00"), "every 15m 08:00-18:00"),
+        (None, None, "every 15m all day"),
+    ] {
+        let server = MockServer::start().await;
+        let mut schedule = schedule_json(ID, "Interval");
+        schedule["times"] = json!([]);
+        schedule["interval"] = json!({"everyMinutes": 15, "from": from, "until": until});
+        mount_list(&server, json!([schedule])).await;
+        let h = Harness {
+            tty: true,
+            ..Harness::new()
+        };
+        assert_eq!(
+            h.run(&["--url", &server.uri(), "schedule", "ls"]).await,
+            0,
+            "{}",
+            h.err.text()
+        );
+        assert!(h.out.text().contains(label), "{}", h.out.text());
+        let h = Harness::new();
+        assert_eq!(h.run(&["--url", &server.uri(), "schedule", "ls"]).await, 0);
+        assert_eq!(h.json()["schedules"][0]["interval"]["everyMinutes"], 15);
+    }
+}
+
+#[tokio::test]
+async fn schedule_ls_preserves_usage_pause_metadata() {
+    let s = MockServer::start().await;
+    let mut schedule = schedule_json(ID, "paused run");
+    schedule["usageLimit"] = json!({"kind": "upTo", "stopPct": 80, "pauseAtStop": true});
+    schedule["lastRun"]["outcome"] = json!("paused");
+    schedule["lastRun"]["pausedUntil"] = json!(1_800_000_000_000i64);
+    mount_list(&s, json!([schedule])).await;
+    let h = Harness::new();
+    assert_eq!(h.run(&["--url", &s.uri(), "schedule", "ls"]).await, 0);
+    assert_eq!(h.json()["schedules"][0]["usageLimit"]["pauseAtStop"], true);
+    assert_eq!(
+        h.json()["schedules"][0]["lastRun"]["pausedUntil"],
+        1_800_000_000_000i64
+    );
+}
+
+#[tokio::test]
+async fn ls_preserves_budget_stops_and_token_usage() {
+    let s = MockServer::start().await;
+    let mut schedule = schedule_json(ID, "budget");
+    schedule["tokenBudget"] = json!(2_000_000);
+    schedule["lastRun"] = run_json("stopped:budget", Some("session"), None);
+    schedule["lastRun"]["tokensUsed"] = json!(2_100_000);
+    mount_list(&s, json!([schedule])).await;
+    let h = Harness::new();
+    assert_eq!(h.run(&["--url", &s.uri(), "schedule", "ls"]).await, 0);
+    assert_eq!(
+        h.json()["schedules"][0]["lastRun"]["outcome"],
+        "stopped:budget"
+    );
+    assert_eq!(h.json()["schedules"][0]["lastRun"]["tokensUsed"], 2_100_000);
+    let h = Harness {
+        tty: true,
+        ..Harness::new()
+    };
+    assert_eq!(h.run(&["--url", &s.uri(), "schedule", "ls"]).await, 0);
+    assert!(h.out.text().contains("stopped:budget (2100000 tokens)"));
+}

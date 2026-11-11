@@ -1,11 +1,42 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { getContext, onMount, tick, untrack } from "svelte";
+  import "./schedule-fields.css";
+  import ScheduleTokenBudgetFields from "./ScheduleTokenBudgetFields.svelte";
+  import ScheduleUsageLimitFields from "./ScheduleUsageLimitFields.svelte";
+  import ScheduleIntervalFields from "./ScheduleIntervalFields.svelte";
+  import ScheduleEngineFields from "./ScheduleEngineFields.svelte";
+  import { MediaQuery } from "svelte/reactivity";
+  import { basename } from "#lib/basename.js";
+  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { effectiveRepoProvider } from "#lib/repo-cli.js";
+  import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
+  import { selectedProviderCapacity } from "#lib/components/usage-gauges.js";
+  import { claudeUsageHoldLikely, readyAgentProviders } from "#lib/provider-capacity.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import { getLocale } from "#lib/i18n.js";
-  import { pickerModels } from "#lib/provider-models.js";
-  import { providerEfforts, effortLabel } from "#lib/effort-guidance.js";
-  import { schedules, weekdayNames, WORKDAYS, ALL_DAYS } from "#lib/schedules.svelte.js";
-  import type { AgentProvider, SandboxProfile, Schedule, ScheduleInput } from "#lib/types.js";
+  import {
+    schedules,
+    weekdayNames,
+    upcomingSlots,
+    intervalStats,
+    usageLimitPreview,
+    usageLimitActionVerdict,
+    SCHEDULE_DIAGNOSTICS,
+    SCHEDULE_USAGE,
+    WORKDAYS,
+    ALL_DAYS,
+  } from "#lib/schedules.svelte.js";
+  import type {
+    AgentProvider,
+    DiagnosticsSnapshot,
+    SandboxProfile,
+    Schedule,
+    ScheduleInput,
+    ScheduleInterval,
+    ScheduleUsageLimit,
+    UsageLimits,
+  } from "#lib/types.js";
 
   // Add/edit one operator schedule (#3469). A native <dialog> opened with showModal(): it lives in
   // the top layer — above the automation popover it is opened from — while staying a DOM
@@ -28,7 +59,22 @@
   let name = $state(init?.name ?? "");
   let prompt = $state(init?.prompt ?? "");
   let days = $state(init?.days ?? WORKDAYS);
-  let times = $state<string[]>(init ? [...init.times] : ["09:00"]);
+  let times = $state<string[]>(init?.times.length ? [...init.times] : ["09:00"]);
+  let cadenceMode = $state<"fixed" | "interval">(init?.interval ? "interval" : "fixed");
+  let everyMinutes = $state<ScheduleInterval["everyMinutes"]>(init?.interval?.everyMinutes ?? 15);
+  let intervalFrom = $state(init?.interval?.from ?? "08:00");
+  let intervalUntil = $state(init?.interval?.until ?? "18:00");
+  let allDay = $state(!!init?.interval && init.interval.from === null);
+  const interval = $derived<ScheduleInterval | null>(
+    cadenceMode === "interval"
+      ? {
+          everyMinutes,
+          from: allDay ? null : intervalFrom,
+          until: allDay ? null : intervalUntil,
+        }
+      : null,
+  );
+  const stats = $derived(interval ? intervalStats(days, interval) : null);
   let autopilot = $state<Tri>(triOf(init ? init.launch.autopilotEnabled : false));
   let planGate = $state<Tri>(triOf(init?.launch.planGateEnabled ?? null));
   let research = $state(init?.launch.research ?? false);
@@ -37,13 +83,231 @@
   let effort = $state(init?.launch.effort ?? "");
   let sandbox = $state<SandboxProfile | "">(init?.launch.sandboxProfile ?? "");
   let baseBranch = $state(init?.launch.baseBranch ?? "");
+  let usageLimit = $state<ScheduleUsageLimit | null>(
+    init?.usageLimit ? { ...init.usageLimit } : null,
+  );
+  let tokenBudget = $state<number | null>(init?.tokenBudget ?? null);
+  const budgetValid = $derived(
+    tokenBudget === null ||
+      (Number.isInteger(tokenBudget) && tokenBudget >= 100_000 && tokenBudget <= 100_000_000),
+  );
   let saving = $state(false);
 
-  const names = weekdayNames(getLocale());
-  const effectiveProvider = $derived<AgentProvider>(provider || "claude");
-  const valid = $derived(
-    name.trim().length > 0 && prompt.trim().length > 0 && days !== 0 && times.length > 0,
+  const uid = $props.id();
+  const mobile = new MediaQuery("(max-width: 768px)");
+  type Tab = "what" | "when" | "with" | "limits";
+  const tabs: Tab[] = ["what", "when", "with", "limits"];
+  let activeTab = $state<Tab>("what");
+  const limitsPanel = $derived({
+    role: mobile.current ? ("tabpanel" as const) : undefined,
+    "aria-labelledby": mobile.current ? `${uid}-tab-limits` : undefined,
+    hidden: mobile.current && activeTab !== "limits",
+  });
+  let touched = $state({ what: false, when: false, with: false, limits: false });
+  let now = $state(Date.now());
+  let promptInput = $state<HTMLTextAreaElement>();
+  let promptWidth = $state(0);
+  const readUsage = getContext<(() => UsageLimits | null) | undefined>(SCHEDULE_USAGE);
+  const limits = $derived(readUsage?.() ?? null);
+  const readDiagnostics = getContext<(() => DiagnosticsSnapshot | null) | undefined>(
+    SCHEDULE_DIAGNOSTICS,
   );
+  const readyProviders = $derived(readyAgentProviders(readDiagnostics?.() ?? null));
+  const globals = $derived(repoSettingsWindow.globals());
+  const defaultProvider = $derived(
+    effectiveRepoProvider(
+      repoConfig.agentProviderFor(repoPath),
+      globals?.defaultAgentProvider ?? "claude",
+    ),
+  );
+  const effectiveProvider = $derived<AgentProvider>(provider || defaultProvider);
+  const capacity = $derived(selectedProviderCapacity(limits, effectiveProvider));
+  const holdPct = $derived(effectiveProvider === "codex" ? 100 : (globals?.usageHoldPct ?? 80));
+  const usagePct = $derived(
+    effectiveProvider === "codex"
+      ? (capacity?.usedPct ?? 0)
+      : Math.max(limits?.session5h?.pct ?? 0, limits?.week?.pct ?? 0),
+  );
+  const held = $derived(
+    effectiveProvider === "codex"
+      ? !!capacity && capacity.freePct <= 0
+      : !!globals && claudeUsageHoldLikely(limits, globals.usageHoldEnabled, globals.usageHoldPct),
+  );
+  const verdictKnown = $derived(!!capacity && (effectiveProvider === "codex" || !!globals));
+  const names = $derived(weekdayNames(getLocale()));
+  const slots = $derived(upcomingSlots(days, times, now, 3, interval));
+  const slotLabels = $derived(
+    slots.map((at) => {
+      const date = new Date(at);
+      return `${names[(date.getDay() + 6) % 7]} ${date.toLocaleTimeString(getLocale(), { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+    }),
+  );
+  const whatValid = $derived(name.trim().length > 0 && prompt.trim().length > 0);
+  const timesValid = $derived(
+    times.length > 0 && times.every((t) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t)),
+  );
+  const whenValid = $derived(days !== 0 && (interval ? stats !== null : timesValid));
+  const limitValid = $derived(
+    usageLimit === null ||
+      (Number.isInteger(usageLimit.stopPct) &&
+        usageLimit.stopPct >= 5 &&
+        usageLimit.stopPct <= 100 &&
+        usageLimit.stopPct % 5 === 0 &&
+        (usageLimit.kind === "upTo" ||
+          (Number.isInteger(usageLimit.startPct) &&
+            usageLimit.startPct >= 0 &&
+            usageLimit.startPct <= 95 &&
+            usageLimit.startPct % 5 === 0 &&
+            usageLimit.startPct < usageLimit.stopPct))),
+  );
+  const limitPreview = $derived(
+    usageLimit && limitValid ? usageLimitPreview(usageLimit, effectiveProvider, limits) : null,
+  );
+  const limitActionVerdict = $derived(
+    usageLimit && limitValid
+      ? usageLimitActionVerdict(usageLimit, effectiveProvider, limits, readyProviders)
+      : null,
+  );
+  const limitFooter = $derived(
+    limitActionVerdict ??
+      (limitPreview
+        ? limitPreview.allowed
+          ? m.schedules_limit_footer_ok()
+          : limitPreview.reason === "below-start"
+            ? m.schedules_limit_footer_below({ start: limitPreview.usage.thresholdPct })
+            : limitPreview.reason === "stop-reached"
+              ? m.schedules_limit_footer_stop({ stop: limitPreview.usage.thresholdPct })
+              : m.schedules_limit_footer_unknown()
+        : ""),
+  );
+  const footerVerdict = $derived(
+    usageLimit
+      ? limitFooter
+      : verdictKnown
+        ? held
+          ? m.schedules_would_hold({ pct: usagePct, hold: holdPct })
+          : m.schedules_would_start()
+        : "",
+  );
+  const valid = $derived(whatValid && whenValid && limitValid && budgetValid);
+  const sandboxOptions = $derived([
+    { value: "", label: m.sandbox_profile_inherit_unresolved() },
+    { value: "trusted", label: m.sandbox_profile_trusted() },
+    { value: "standard", label: m.sandbox_profile_standard() },
+    { value: "autonomous", label: m.sandbox_profile_autonomous() },
+  ]);
+  const advancedSummary = $derived(
+    m.schedules_advanced_summary({
+      autopilot: triLabel(autopilot),
+      planGate: triLabel(planGate),
+      sandbox:
+        sandbox === "trusted"
+          ? m.sandbox_profile_trusted()
+          : sandbox === "standard"
+            ? m.sandbox_profile_standard()
+            : sandbox === "autonomous"
+              ? m.sandbox_profile_autonomous()
+              : m.schedules_tri_inherit(),
+      base: baseBranch.trim() || m.schedules_tri_inherit(),
+    }),
+  );
+
+  onMount(() => {
+    void repoConfig.ensure(repoPath);
+    const timer = setInterval(() => (now = Date.now()), 30_000);
+    return () => clearInterval(timer);
+  });
+
+  // A single prompt element survives tab and breakpoint changes; remeasure once visible.
+  $effect(() => {
+    void [prompt, promptWidth, activeTab, mobile.current];
+    tick().then(() => {
+      if (!promptInput || !promptInput.clientWidth) return;
+      const style = getComputedStyle(promptInput);
+      const cap =
+        parseFloat(style.lineHeight) * 12 +
+        parseFloat(style.paddingTop) +
+        parseFloat(style.paddingBottom) +
+        2;
+      promptInput.style.height = "auto";
+      promptInput.style.height = `${Math.min(promptInput.scrollHeight + 2, cap)}px`;
+    });
+  });
+
+  function triLabel(value: Tri): string {
+    return value === "inherit"
+      ? m.schedules_tri_inherit()
+      : value === "on"
+        ? m.schedules_tri_on()
+        : m.schedules_tri_off();
+  }
+
+  function tabLabel(tab: Tab): string {
+    return tab === "what"
+      ? m.schedules_tab_what()
+      : tab === "when"
+        ? m.schedules_tab_when()
+        : tab === "limits"
+          ? m.schedules_limit_tab()
+          : m.schedules_tab_with();
+  }
+
+  function tabInvalid(tab: Tab): boolean {
+    return (
+      touched[tab] &&
+      (tab === "what"
+        ? !whatValid
+        : tab === "when"
+          ? !whenValid
+          : tab === "limits"
+            ? !limitValid || !budgetValid
+            : false)
+    );
+  }
+
+  function chooseProvider(next: AgentProvider | "") {
+    if (provider === next) return;
+    provider = next;
+    if (next === "codex") tokenBudget = null;
+    model = "";
+    effort = "";
+  }
+
+  function tabKey(e: KeyboardEvent, tab: Tab) {
+    const i = tabs.indexOf(tab);
+    const next =
+      e.key === "ArrowRight"
+        ? tabs[(i + 1) % tabs.length]
+        : e.key === "ArrowLeft"
+          ? tabs[(i + tabs.length - 1) % tabs.length]
+          : e.key === "Home"
+            ? tabs[0]
+            : e.key === "End"
+              ? tabs[tabs.length - 1]
+              : null;
+    if (!next) return;
+    e.preventDefault();
+    activeTab = next;
+    document.getElementById(`${uid}-tab-${next}`)?.focus();
+  }
+
+  // Native validation fires before submit, including for controls in a hidden mobile tab.
+  function revealInvalid(form: HTMLFormElement) {
+    const invalid = (e: Event) => {
+      e.preventDefault();
+      const field = e.target as HTMLInputElement;
+      const tab = field.closest<HTMLElement>("[data-tab]")?.dataset.tab as Tab | undefined;
+      if (tab) {
+        activeTab = tab;
+        touched[tab] = true;
+      }
+      const details = field.closest("details");
+      if (details) details.open = true;
+      tick().then(() => field.focus());
+    };
+    form.addEventListener("invalid", invalid, true);
+    return () => form.removeEventListener("invalid", invalid, true);
+  }
 
   let dlg = $state<HTMLDialogElement>();
   $effect(() => {
@@ -52,10 +316,12 @@
 
   function toggleDay(i: number) {
     days ^= 1 << i;
+    touched.when = true;
   }
 
   function setTime(i: number, v: string) {
     times[i] = v;
+    touched.when = true;
   }
 
   async function submit(e: SubmitEvent) {
@@ -67,7 +333,10 @@
       name: name.trim(),
       prompt: prompt.trim(),
       days,
-      times: times.filter(Boolean),
+      times: interval ? [] : times.filter(Boolean),
+      interval,
+      usageLimit,
+      tokenBudget: provider === "codex" ? null : tokenBudget,
       launch: {
         agentProvider: provider || null,
         model: model || null,
@@ -102,166 +371,303 @@
   {onclose}
   {@attach keepKeysInside}
 >
-  <form class="sched-form" onsubmit={submit}>
-    <h2 class="title">{schedule ? m.schedules_edit_title() : m.schedules_add_title()}</h2>
+  <form class="sched-form" onsubmit={submit} {@attach revealInvalid}>
+    <header class="sched-head">
+      <h2 class="title">{schedule ? m.schedules_edit_title() : m.schedules_add_title()}</h2>
+      <button type="button" class="repo-chip" use:statusTip={{ text: repoPath }}>
+        {basename(repoPath)}
+      </button>
+      <button
+        type="button"
+        class="close gbtn"
+        aria-label={m.common_close()}
+        onclick={() => dlg?.close()}>×</button
+      >
+    </header>
 
-    <label class="field">
-      <span>{m.schedules_field_name()}</span>
-      <input bind:value={name} maxlength="80" required />
-    </label>
-
-    <label class="field">
-      <span>{m.schedules_field_prompt()}</span>
-      <textarea
-        bind:value={prompt}
-        rows="3"
-        maxlength="8000"
-        placeholder={m.schedules_field_prompt_placeholder()}
-        required></textarea>
-    </label>
-
-    <fieldset class="field">
-      <legend>{m.schedules_field_days()}</legend>
-      <div class="chips">
-        {#each names as label, i (i)}
+    {#if mobile.current}
+      <div class="section-tabs" role="tablist" aria-label={m.schedules_edit_title()}>
+        {#each tabs as tab (tab)}
           <button
             type="button"
-            class={["chip", { on: days & (1 << i) }]}
-            aria-pressed={!!(days & (1 << i))}
-            onclick={() => toggleDay(i)}>{label}</button
+            role="tab"
+            id={`${uid}-tab-${tab}`}
+            aria-controls={`${uid}-panel-${tab}`}
+            aria-selected={activeTab === tab}
+            aria-label={tabInvalid(tab)
+              ? m.schedules_tab_invalid({ tab: tabLabel(tab) })
+              : tabLabel(tab)}
+            tabindex={activeTab === tab ? 0 : -1}
+            class:invalid={tabInvalid(tab)}
+            onclick={() => (activeTab = tab)}
+            onkeydown={(e) => tabKey(e, tab)}
           >
+            {tabLabel(tab)}{#if tabInvalid(tab)}<span aria-hidden="true"> !</span>{/if}
+          </button>
         {/each}
-        <button type="button" class="preset" onclick={() => (days = WORKDAYS)}
-          >{m.schedules_preset_workdays()}</button
-        >
-        <button type="button" class="preset" onclick={() => (days = ALL_DAYS)}
-          >{m.schedules_preset_daily()}</button
-        >
       </div>
-    </fieldset>
+    {/if}
 
-    <fieldset class="field">
-      <legend>{m.schedules_field_times()}</legend>
-      <div class="times">
-        {#each times as t, i (i)}
-          <span class="time">
-            <input
-              type="time"
-              value={t}
-              required
-              aria-label={m.schedules_field_time_n({ n: i + 1 })}
-              onchange={(e) => setTime(i, e.currentTarget.value)}
-            />
-            {#if times.length > 1}
+    <div class="sched-body">
+      <section
+        class="what section"
+        data-tab="what"
+        id={`${uid}-panel-what`}
+        role={mobile.current ? "tabpanel" : undefined}
+        aria-labelledby={mobile.current ? `${uid}-tab-what` : undefined}
+        hidden={mobile.current && activeTab !== "what"}
+        onfocusout={() => (touched.what = true)}
+      >
+        <label class="field">
+          <span>{m.schedules_field_name()}</span>
+          <input
+            bind:value={name}
+            maxlength="80"
+            required
+            aria-invalid={touched.what && !name.trim()}
+          />
+        </label>
+        <label class="field">
+          <span>{m.schedules_field_prompt()}</span>
+          <textarea
+            bind:this={promptInput}
+            bind:clientWidth={promptWidth}
+            bind:value={prompt}
+            rows="3"
+            maxlength="8000"
+            placeholder={m.schedules_field_prompt_placeholder()}
+            aria-invalid={touched.what && !prompt.trim()}
+            required></textarea>
+        </label>
+        {#if tabInvalid("what")}<p class="error">{m.schedules_required()}</p>{/if}
+      </section>
+
+      <section
+        class="when section"
+        data-tab="when"
+        id={`${uid}-panel-when`}
+        role={mobile.current ? "tabpanel" : undefined}
+        aria-labelledby={mobile.current ? `${uid}-tab-when` : undefined}
+        hidden={mobile.current && activeTab !== "when"}
+      >
+        <h3>{m.schedules_when()}</h3>
+        <fieldset class="field">
+          <legend>{m.schedules_field_days()}</legend>
+          <div class="days">
+            {#each names as label, i (i)}
               <button
                 type="button"
-                class="x"
-                aria-label={m.schedules_time_remove()}
-                onclick={() => times.splice(i, 1)}>✕</button
+                class:chosen={!!(days & (1 << i))}
+                aria-pressed={!!(days & (1 << i))}
+                onclick={() => toggleDay(i)}>{label}</button
               >
-            {/if}
-          </span>
-        {/each}
-        {#if times.length < 12}
-          <button type="button" class="preset" onclick={() => times.push("18:00")}
-            >{m.schedules_time_add()}</button
+            {/each}
+          </div>
+          <div class="presets">
+            <button
+              type="button"
+              class="text-link"
+              onclick={() => {
+                days = WORKDAYS;
+                touched.when = true;
+              }}>{m.schedules_preset_workdays()}</button
+            >
+            <button
+              type="button"
+              class="text-link"
+              onclick={() => {
+                days = ALL_DAYS;
+                touched.when = true;
+              }}>{m.schedules_preset_daily()}</button
+            >
+          </div>
+          {#if touched.when && !days}<p class="error">{m.schedules_days_required()}</p>{/if}
+        </fieldset>
+        <div class="cadence-modes" role="group" aria-label={m.schedules_tab_when()}>
+          <button
+            type="button"
+            class="gbtn"
+            aria-pressed={cadenceMode === "fixed"}
+            onclick={() => (cadenceMode = "fixed")}>{m.schedules_cadence_fixed()}</button
           >
+          <button
+            type="button"
+            class="gbtn"
+            aria-pressed={cadenceMode === "interval"}
+            onclick={() => (cadenceMode = "interval")}>{m.schedules_cadence_interval()}</button
+          >
+        </div>
+        {#if interval}
+          <ScheduleIntervalFields
+            bind:everyMinutes
+            bind:intervalFrom
+            bind:intervalUntil
+            bind:allDay
+            {stats}
+          />
+        {:else}
+          <fieldset class="field">
+            <legend>{m.schedules_field_times()}</legend>
+            <div class="times">
+              {#each times as t, i (i)}
+                <span class="time">
+                  <input
+                    type="time"
+                    value={t}
+                    required
+                    aria-label={m.schedules_field_time_n({ n: i + 1 })}
+                    aria-invalid={touched.when && !t}
+                    onchange={(e) => setTime(i, e.currentTarget.value)}
+                  />
+                  {#if times.length > 1}
+                    <button
+                      type="button"
+                      class="gbtn"
+                      aria-label={m.schedules_time_remove()}
+                      onclick={() => {
+                        times.splice(i, 1);
+                        touched.when = true;
+                      }}>×</button
+                    >
+                  {/if}
+                </span>
+              {/each}
+              {#if times.length < 12}
+                <button type="button" class="text-link" onclick={() => times.push("18:00")}
+                  >{m.schedules_time_add()}</button
+                >
+              {/if}
+            </div>
+            {#if touched.when && !timesValid}<p class="error">
+                {m.schedules_times_required()}
+              </p>{/if}
+            <p class="hint">{m.schedules_times_hint()}</p>
+          </fieldset>
         {/if}
-      </div>
-      <p class="hint">{m.schedules_times_hint()}</p>
-    </fieldset>
+        <div class="preview">
+          <h3>{m.schedules_upcoming()}</h3>
+          <p>{slotLabels.length ? slotLabels.join(" · ") : m.schedules_upcoming_empty()}</p>
+        </div>
+      </section>
 
-    <fieldset class="field grid">
-      <legend>{m.schedules_field_launch()}</legend>
-      <label>
-        <span>{m.automation_autopilot_name()}</span>
-        <select bind:value={autopilot}>
-          <option value="off">{m.schedules_tri_off()}</option>
-          <option value="on">{m.schedules_tri_on()}</option>
-          <option value="inherit">{m.schedules_tri_inherit()}</option>
-        </select>
-      </label>
-      <label>
-        <span>{m.schedules_field_plan_gate()}</span>
-        <select bind:value={planGate}>
-          <option value="inherit">{m.schedules_tri_inherit()}</option>
-          <option value="on">{m.schedules_tri_on()}</option>
-          <option value="off">{m.schedules_tri_off()}</option>
-        </select>
-      </label>
-      <label>
-        <span>{m.schedules_field_provider()}</span>
-        <select
-          bind:value={provider}
-          onchange={() => {
-            model = "";
-            effort = "";
-          }}
-        >
-          <option value="">{m.schedules_default()}</option>
-          <option value="claude">Claude</option>
-          <option value="codex">Codex</option>
-        </select>
-      </label>
-      <label>
-        <span>{m.schedules_field_model()}</span>
-        <select bind:value={model}>
-          <option value="">{m.schedules_default()}</option>
-          {#each pickerModels(effectiveProvider, model) as id (id)}
-            <option value={id}>{id}</option>
-          {/each}
-        </select>
-      </label>
-      <label>
-        <span>{m.schedules_field_effort()}</span>
-        <select bind:value={effort}>
-          <option value="">{m.schedules_default()}</option>
-          {#each providerEfforts(effectiveProvider, model || null) as id (id)}
-            <option value={id}>{effortLabel(id)}</option>
-          {/each}
-        </select>
-      </label>
-      <label>
-        <span>{m.schedules_field_sandbox()}</span>
-        <select bind:value={sandbox}>
-          <option value="">{m.sandbox_profile_inherit_unresolved()}</option>
-          <option value="trusted">{m.sandbox_profile_trusted()}</option>
-          <option value="standard">{m.sandbox_profile_standard()}</option>
-          <option value="autonomous">{m.sandbox_profile_autonomous()}</option>
-        </select>
-      </label>
-      <label>
-        <span>{m.schedules_field_base()}</span>
-        <input bind:value={baseBranch} placeholder={m.schedules_field_base_placeholder()} />
-      </label>
-      <label class="check">
-        <input type="checkbox" bind:checked={research} />
-        <span>{m.schedules_field_research()}</span>
-      </label>
-    </fieldset>
-
-    <div class="actions">
-      <button type="button" class="ghost" onclick={() => dlg?.close()}>{m.common_cancel()}</button>
-      <button type="submit" class="run" disabled={!valid || saving}>{m.schedules_save()}</button>
+      <section
+        class="with section"
+        data-tab="with"
+        id={`${uid}-panel-with`}
+        role={mobile.current ? "tabpanel" : undefined}
+        aria-labelledby={mobile.current ? `${uid}-tab-with` : undefined}
+        hidden={mobile.current && activeTab !== "with"}
+      >
+        <ScheduleEngineFields
+          {provider}
+          {defaultProvider}
+          {limits}
+          onproviderchange={chooseProvider}
+          bind:research
+          bind:model
+          bind:effort
+        />
+        <details class="advanced">
+          <summary
+            ><span>{m.schedules_advanced()}</span><span class="advanced-summary"
+              >{advancedSummary}</span
+            ></summary
+          >
+          <div class="advanced-fields">
+            <label class="field"
+              ><span>{m.automation_autopilot_name()}</span>
+              <select bind:value={autopilot}>
+                <option value="off">{m.schedules_tri_off()}</option><option value="on"
+                  >{m.schedules_tri_on()}</option
+                ><option value="inherit">{m.schedules_tri_inherit()}</option>
+              </select>
+            </label>
+            <label class="field"
+              ><span>{m.schedules_field_plan_gate()}</span>
+              <select bind:value={planGate}>
+                <option value="inherit">{m.schedules_tri_inherit()}</option><option value="on"
+                  >{m.schedules_tri_on()}</option
+                ><option value="off">{m.schedules_tri_off()}</option>
+              </select>
+            </label>
+            <label class="field"
+              ><span>{m.schedules_field_sandbox()}</span>
+              <select bind:value={sandbox}>
+                {#each sandboxOptions as option (option.value)}
+                  <option value={option.value}>{option.label}</option>
+                {/each}
+              </select>
+            </label>
+            <label class="field"
+              ><span>{m.schedules_field_base()}</span>
+              <input bind:value={baseBranch} placeholder={m.schedules_field_base_placeholder()} />
+            </label>
+          </div>
+        </details>
+      </section>
+      <section
+        class="limits section"
+        data-tab="limits"
+        onfocusout={() => (touched.limits = true)}
+        id={`${uid}-panel-limits`}
+        {...limitsPanel}
+      >
+        <ScheduleUsageLimitFields
+          bind:value={usageLimit}
+          provider={effectiveProvider}
+          {limits}
+          {readyProviders}
+          interval={interval !== null}
+          holdPct={globals?.usageHoldPct ?? 80}
+          valid={limitValid}
+        />
+        <ScheduleTokenBudgetFields bind:value={tokenBudget} {provider} valid={budgetValid} />
+      </section>
     </div>
+
+    <footer class="sched-footer">
+      <p class="next-run" aria-live="polite">
+        {#if slotLabels.length}
+          {m.schedules_next_run({ when: slotLabels[0] })}
+          {#if footerVerdict}· {footerVerdict}{/if}
+        {:else}{m.schedules_upcoming_empty()}{/if}
+      </p>
+      <div class="actions">
+        <button type="button" class="gbtn" onclick={() => dlg?.close()}>{m.common_cancel()}</button>
+        <button type="submit" class="gbtn primary" disabled={!valid || saving}
+          >{m.schedules_save()}</button
+        >
+      </div>
+    </footer>
   </form>
 </dialog>
 
 <style>
+  .cadence-modes {
+    display: flex;
+    gap: 8px;
+  }
+  .cadence-modes .gbtn {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+  }
+  .cadence-modes [aria-pressed="true"] {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+  }
   .sched-dlg {
-    width: min(520px, 92vw);
+    width: min(960px, 94vw);
     max-height: 90dvh;
-    /* Tailwind preflight zeroes the UA `margin: auto` that centers a modal dialog. */
     margin: auto;
     border: 1px solid var(--color-line-bright);
     background: var(--color-panel);
     color: var(--color-ink);
-    padding: 16px;
-    overflow-y: auto;
+    padding: 0;
+    overflow: hidden;
   }
   .sched-dlg::backdrop {
     background: var(--color-scrim);
-    /* Same stable-layer guard as the app.css scrim; ::backdrop can't take a ::before. */
     will-change: backdrop-filter;
     -webkit-backdrop-filter: blur(3px);
     backdrop-filter: blur(3px);
@@ -276,7 +682,16 @@
   .sched-form {
     display: flex;
     flex-direction: column;
+    max-height: inherit;
+    min-height: 0;
+  }
+  .sched-head {
+    display: flex;
+    align-items: center;
     gap: 12px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--color-line);
+    flex-shrink: 0;
   }
   .title {
     margin: 0;
@@ -284,112 +699,179 @@
     font-weight: 600;
     color: var(--color-ink-bright);
   }
-  .field {
+  .repo-chip {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    color: var(--color-muted);
+    border: 1px solid var(--color-line);
+    padding: 4px 8px;
+    background: var(--color-panel-2);
+    cursor: help;
+  }
+  .close {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .sched-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    grid-template-areas: "what engine" "when limits" "advanced limits";
+    grid-template-rows: auto auto 1fr;
+    gap: 20px 28px;
+    overflow-y: auto;
+    min-height: 0;
+    padding: 20px;
+  }
+  .section {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    border: 0;
-    margin: 0;
-    padding: 0;
+    gap: 16px;
+    min-width: 0;
+  }
+  .what {
+    grid-area: what;
+  }
+  .when {
+    grid-area: when;
+  }
+  .limits {
+    grid-area: limits;
+  }
+  .with {
+    display: contents;
+  }
+  .advanced {
+    grid-area: advanced;
+    min-width: 0;
+    border-top: 1px solid var(--color-line);
+  }
+  summary {
+    cursor: pointer;
+    padding: 12px 0;
     font-size: var(--fs-meta);
   }
-  .field > span,
-  legend,
-  .grid label > span {
+  .advanced-summary {
+    display: block;
     color: var(--color-muted);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    font-size: var(--fs-meta);
-    padding: 0;
-    margin-bottom: 4px;
+    margin-top: 6px;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
   }
-  input,
-  textarea,
-  select {
-    font: inherit;
-    font-size: var(--fs-meta);
-    background: var(--color-inset);
-    color: var(--color-ink);
-    border: 1px solid var(--color-line);
-    padding: 5px 7px;
+  .advanced-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding-bottom: 8px;
+  }
+  h3 {
+    margin: 0;
+    color: var(--color-ink-bright);
+    font-size: var(--fs-base);
+    font-weight: 600;
   }
   textarea {
-    resize: vertical;
+    line-height: 1.5;
+    min-height: 5.5em;
+    resize: none;
+    overflow-y: auto;
   }
-  .chips,
-  .times {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-items: center;
+  input[aria-invalid="true"],
+  textarea[aria-invalid="true"] {
+    border-color: var(--color-red);
   }
-  .chip,
-  .preset,
-  .x {
-    font: inherit;
-    font-size: var(--fs-meta);
+  .days {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .days button {
     border: 1px solid var(--color-line);
     background: transparent;
     color: var(--color-muted);
-    padding: 3px 8px;
+    padding: 8px 0;
     cursor: pointer;
   }
-  .chip.on {
-    border-color: var(--color-blue);
-    color: var(--color-blue);
+  .days .chosen {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+    background: var(--color-sel);
   }
-  .preset {
-    border-style: dashed;
-  }
+  .presets,
+  .times,
   .time {
-    display: inline-flex;
-    gap: 2px;
-  }
-  .hint {
-    margin: 0;
-    color: var(--color-muted);
-  }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    align-items: center;
     gap: 8px;
   }
-  .grid legend {
-    grid-column: 1 / -1;
+  .times {
+    flex-wrap: wrap;
   }
-  .grid label {
+  .time input {
+    width: auto;
+    font-family: var(--font-mono);
+  }
+  .hint,
+  .preview p {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    line-height: 1.5;
+  }
+  .preview {
     display: flex;
     flex-direction: column;
-    min-width: 0;
+    gap: 8px;
   }
-  .grid label.check {
-    flex-direction: row;
+  .preview p,
+  .next-run {
+    font-variant-numeric: tabular-nums;
+  }
+  .error {
+    margin: 0;
+    font-size: var(--fs-meta);
+    color: var(--color-red);
+  }
+  .sched-footer {
+    display: flex;
     align-items: center;
-    gap: 6px;
-    grid-column: 1 / -1;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--color-line);
+    background: var(--color-head);
+    flex-shrink: 0;
+  }
+  .next-run {
+    margin: 0;
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    line-height: 1.5;
   }
   .actions {
     display: flex;
-    justify-content: flex-end;
     gap: 8px;
+    flex-shrink: 0;
   }
-  .ghost,
-  .run {
+  .gbtn {
     border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
     background: transparent;
-    color: var(--color-ink);
+    color: var(--color-muted);
     padding: 9px 14px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    font: inherit;
-    font-size: var(--fs-meta);
     cursor: pointer;
   }
-  .run {
+  .gbtn:hover:not(:disabled) {
     border-color: var(--color-amber);
     color: var(--color-amber);
   }
-  .run:disabled {
+  .gbtn.primary {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .gbtn:disabled {
     opacity: 0.45;
     cursor: default;
   }
@@ -399,16 +881,74 @@
       max-width: 100%;
       height: 100dvh;
       max-height: 100dvh;
-      /* clear the status bar / Dynamic Island in a standalone PWA (#3795) */
-      padding-top: calc(16px + env(safe-area-inset-top));
-      /* clear the home indicator / landscape notch in a standalone PWA (#3798) */
-      padding-right: calc(16px + env(safe-area-inset-right));
-      padding-bottom: calc(16px + env(safe-area-inset-bottom));
-      padding-left: calc(16px + env(safe-area-inset-left));
       border: 0;
+      padding-top: env(safe-area-inset-top);
+      padding-right: env(safe-area-inset-right);
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-left: env(safe-area-inset-left);
     }
-    .grid {
+    .sched-form {
+      height: 100%;
+      max-height: 100%;
+    }
+    .sched-head {
+      padding: 8px 12px;
+      gap: 8px;
+    }
+    .title {
+      flex-shrink: 0;
+    }
+    .sched-body {
+      display: block;
+      flex: 1;
+      padding: 16px 12px;
+    }
+    .section[hidden] {
+      display: none;
+    }
+    .with {
+      display: flex;
+    }
+    .advanced-fields {
       grid-template-columns: minmax(0, 1fr);
+    }
+    .section-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--color-line);
+      padding: 0 12px;
+      flex-shrink: 0;
+    }
+    .section-tabs button {
+      flex: 1;
+      min-width: 0;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      background: transparent;
+      color: var(--color-muted);
+      cursor: pointer;
+    }
+    .section-tabs [aria-selected="true"] {
+      color: var(--color-amber);
+      border-bottom-color: var(--color-amber);
+    }
+    .section-tabs .invalid {
+      color: var(--color-red);
+    }
+    .days {
+      gap: 0;
+      margin-inline: -6px;
+    }
+    .days button {
+      min-width: 44px;
+    }
+    .sched-footer {
+      padding: 10px 12px;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+    .actions {
+      justify-content: flex-end;
     }
   }
 </style>

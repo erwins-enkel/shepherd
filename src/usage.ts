@@ -1,4 +1,12 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  statSync,
+  openSync,
+  fstatSync,
+  readSync,
+  closeSync,
+} from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dashify } from "./claude-trust";
@@ -606,6 +614,7 @@ interface AggTotals {
 }
 
 interface SessionFileState {
+  path: string;
   size: number;
   offset: number;
   leftover: string;
@@ -657,6 +666,46 @@ export class SessionUsageRollup {
     return this.inflight;
   }
 
+  private fileState(id: string, path: string, size: number): SessionFileState {
+    let st = this.sessions.get(id);
+    if (!st || st.path !== path || size < st.offset) {
+      st = { path, size, offset: 0, leftover: "", seen: new Set(), records: [], agg: emptyAgg() };
+      this.sessions.set(id, st);
+    }
+    return st;
+  }
+
+  /** Final turn-end accounting must precede synchronous automation consumers.
+   * Reads only appended bytes with the same parser/dedupe as async refresh.
+   * Use a dedicated instance, never concurrently with async refresh. */
+  refreshSessionSync(sess: RollupSession, now: number): RollupWindow | null {
+    if (!sess.claudeSessionId) return null;
+    const path = this.pathFor(sess.worktreePath, sess.claudeSessionId, sess.spawnAccountDir);
+    let fd: number | undefined;
+    try {
+      fd = openSync(path, "r");
+      const { size } = fstatSync(fd);
+      const st = this.fileState(sess.id, path, size);
+      if (size > st.offset) {
+        const chunk = Buffer.alloc(size - st.offset);
+        const bytes = readSync(fd, chunk, 0, chunk.length, st.offset);
+        st.offset += bytes;
+        st.size = st.offset;
+        this.appendText(st, chunk.subarray(0, bytes).toString("utf8"));
+      }
+      this.pruneSession(st, now - THIRTY_DAYS_MS - PRUNE_SLACK_MS);
+      return this.windowedAccum(sess.id, 0);
+    } catch {
+      return null;
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+    }
+  }
+
+  forget(sessionId: string): void {
+    this.sessions.delete(sessionId);
+  }
+
   /** Prune records older than cutoff from st. ts=0 records are never pruned. */
   private pruneSession(st: SessionFileState, cutoff: number): void {
     // Walk every record — a ts=0 entry in slot 0 must not short-circuit the walk.
@@ -685,12 +734,7 @@ export class SessionUsageRollup {
       return;
     }
 
-    let st = this.sessions.get(sess.id);
-    if (!st || size < st.offset) {
-      // File truncated/rotated — reset state
-      st = { size, offset: 0, leftover: "", seen: new Set(), records: [], agg: emptyAgg() };
-      this.sessions.set(sess.id, st);
-    }
+    const st = this.fileState(sess.id, path, size);
 
     if (size > st.offset) {
       await this.appendChunk(st, path, size);
@@ -717,6 +761,10 @@ export class SessionUsageRollup {
     const chunk = await Bun.file(path).slice(st.offset, size).text();
     st.offset = size;
     st.size = size;
+    this.appendText(st, chunk);
+  }
+
+  private appendText(st: SessionFileState, chunk: string): void {
     const parts = (st.leftover + chunk).split("\n");
     st.leftover = parts.pop() ?? "";
     for (const line of parts) {

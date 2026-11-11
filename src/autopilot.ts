@@ -14,6 +14,7 @@ import { DRAFT_PR_NOTE } from "./service";
 import { resumeThenSteer } from "./resume-then-steer";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import { isShelved } from "./shelve";
+import { isUsagePaused } from "./schedule-pause";
 
 /**
  * Agent-facing steer templates. NOT UI chrome — never i18n'd (they are typed into the
@@ -414,7 +415,7 @@ export class AutopilotService {
    *  for the Operator Assistant, whose turns only the operator drives (#1446) — this one gate
    *  stands down every steer, classify and re-engage path. */
   private enabled(s: Session): boolean {
-    if (isOperatorAssistant(s) || isShelved(s)) return false;
+    if (isOperatorAssistant(s) || isUsagePaused(s) || isShelved(s)) return false;
     return effectiveAutopilot(s, this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled);
   }
 
@@ -515,6 +516,7 @@ export class AutopilotService {
       steer: async (id, message) => {
         // Resume/pane discovery can await long enough for a new question to arrive.
         if (await this.deps.pendingQuestions?.(id)) return false;
+        if (isUsagePaused(this.deps.store.get(id))) return false;
         return this.deps.steer(id, message);
       },
     });
@@ -674,7 +676,12 @@ export class AutopilotService {
    *  PR-poll↔classify overlap is preserved — no separate up-front prewarm is needed (#1094). */
   async handle(change: SessionStateChange): Promise<void> {
     // The Operator Assistant: skip the done-edge PR poll and tail read too, not just the steer.
-    if (isOperatorAssistant(change.snapshot.session) || isShelved(change.snapshot.session)) return;
+    if (
+      isOperatorAssistant(change.snapshot.session) ||
+      isUsagePaused(change.snapshot.session) ||
+      isShelved(change.snapshot.session)
+    )
+      return;
     const { id } = change.snapshot;
     if (change.kind === "status") {
       this.onStatus(id, change.status); // clears a pause on operator reply

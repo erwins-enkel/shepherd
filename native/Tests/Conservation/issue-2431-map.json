@@ -13061,7 +13061,9 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoSettingsFormTests.swift\",\"CoreSeamTests.RepoSettingsFormTests\",\"modelAndEffortFollowTheEffectiveCli() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoSettingsFormTests.swift\",\"CoreSeamTests.RepoSettingsFormTests\",\"extraHostsShowOnlyUnderAnAutonomousSandbox() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoSettingsFormTests.swift\",\"CoreSeamTests.RepoSettingsFormTests\",\"egressHostCheckMirrorsTheWeb()\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/SettingsRepoTests.swift\",\"CoreSeamTests.SettingsRepoTests\",\"repoSettingsChoicesSaveAndShowTheReloadedConfig() async throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/SettingsRepoTests.swift\",\"CoreSeamTests.SettingsRepoTests\",\"repoSettingsChoicesSaveAndShowTheReloadedConfig() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/GeneratedContractTests.swift\",\"GeneratedContractTests\",\"usagePauseDecodes() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/GeneratedContractTests.swift\",\"GeneratedContractTests\",\"budgetStopDecodes() throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

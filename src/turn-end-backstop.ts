@@ -32,6 +32,7 @@
 import { isSettledIdle } from "./recap-core";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import { isShelved } from "./shelve";
+import { isUsagePaused } from "./schedule-pause";
 import type { SessionStore } from "./store";
 import type { Session, SessionStatus } from "./types";
 
@@ -94,6 +95,8 @@ interface DebounceEntry {
 
 interface Deps {
   store: Pick<SessionStore, "list" | "getPlanGate">;
+  /** Finalize a usage pause before recovery; true leaves this resting session quiet. */
+  onResting?: (id: string, status: string) => boolean;
   /** Re-drive the plan gate for a planning-phase session. Idempotent; see the header note. */
   considerPlan: (s: Session) => Promise<unknown>;
   /** Re-drive autopilot's turn-end handler. Self-guarding via eligible(); see the header note. */
@@ -207,7 +210,8 @@ export class TurnEndBackstopService {
     for (const s of this.deps.store.list({ activeOnly: true })) {
       // The Operator Assistant has no turn-end consumer to recover: no plan gate, no autopilot,
       // no finish push (#1446).
-      if (isOperatorAssistant(s) || isShelved(s)) continue; // shelved: fully quiet
+      if (isResting(s.status) && this.deps.onResting?.(s.id, s.status)) continue;
+      if (isUsagePaused(s) || isOperatorAssistant(s) || isShelved(s)) continue; // shelved: fully quiet
       live.add(s.id);
       const p = this.considerSession(s, now);
       if (p) started.push(p);

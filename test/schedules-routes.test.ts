@@ -38,6 +38,7 @@ beforeEach(() => {
               outcome: "spawned",
               sessionId: "s",
               reason: null,
+              usage: null,
               at: 1,
             }
           : null;
@@ -131,4 +132,111 @@ test("run now delegates to the scheduler", async () => {
   expect((await res.json()).outcome).toBe("spawned");
   expect(ranNow).toEqual([s.id]);
   expect((await call("POST", "/api/schedules/nope/run")).status).toBe(404);
+});
+
+test("interval CRUD preserves omitted cadence and rebaselines only on changes", async () => {
+  const interval = { everyMinutes: 15, from: "08:00", until: "18:00" };
+  const response = await call("POST", "/api/schedules", { ...valid(), times: [], interval });
+  expect(response.status).toBe(201);
+  const s = await response.json();
+  expect(s.interval).toEqual(interval);
+  expect(typeof s.nextAt).toBe("number");
+  const patch = (body: unknown) => call("PATCH", `/api/schedules/${s.id}`, body);
+  await patch({ name: "Changed" });
+  await patch({ interval });
+  expect(store.getSchedule(s.id)!.baselineAt).toBe(s.baselineAt);
+  await Bun.sleep(2);
+  await patch({ interval: { ...interval, everyMinutes: 30 } });
+  expect(store.getSchedule(s.id)!.baselineAt).toBeGreaterThan(s.baselineAt);
+  expect((await patch({ interval: null })).status).toBe(400);
+  expect((await patch({ interval: null, times: ["09:00"] })).status).toBe(200);
+  expect(store.getSchedule(s.id)!.interval).toBeNull();
+  expect((await patch({ interval: { ...interval, until: "08:00" }, times: [] })).status).toBe(400);
+});
+
+test("usage limits roundtrip, preserve on PATCH, reject invalid, and do not rebaseline", async () => {
+  const usageLimit = { kind: "from", startPct: 80, startWindow: "week", stopPct: 95 };
+  const created = await call("POST", "/api/schedules", { ...valid(), usageLimit });
+  expect(created.status).toBe(201);
+  const s = await created.json();
+  expect(s.usageLimit).toEqual(usageLimit);
+  const path = `/api/schedules/${s.id}`;
+  expect((await (await call("PATCH", path, { name: "Renamed" })).json()).usageLimit).toEqual(
+    usageLimit,
+  );
+  const changed = await (
+    await call("PATCH", path, { usageLimit: { kind: "upTo", stopPct: 70 } })
+  ).json();
+  expect(changed.baselineAt).toBe(s.baselineAt);
+  expect(changed.usageLimit).toEqual({ kind: "upTo", stopPct: 70 });
+  expect((await call("PATCH", path, { usageLimit: { ...usageLimit, stopPct: 80 } })).status).toBe(
+    400,
+  );
+  expect(
+    (
+      await call("POST", "/api/schedules", {
+        ...valid(),
+        usageLimit: { kind: "upTo", stopPct: 71 },
+      })
+    ).status,
+  ).toBe(400);
+  expect((await (await call("PATCH", path, { usageLimit: null })).json()).usageLimit).toBeNull();
+});
+
+test("mismatch actions roundtrip and disabling expires waiting rows immediately", async () => {
+  for (const onMismatch of ["skip", "wait", "otherProvider"]) {
+    const usageLimit = { kind: "upTo", stopPct: 70, onMismatch };
+    const created = await call("POST", "/api/schedules", { ...valid(), usageLimit });
+    expect(created.status).toBe(201);
+    const s = await created.json();
+    expect(s.usageLimit).toEqual(usageLimit);
+    const path = `/api/schedules/${s.id}`;
+    const patched = await (
+      await call("PATCH", path, { usageLimit: { ...usageLimit, stopPct: 80 } })
+    ).json();
+    expect(patched.baselineAt).toBe(s.baselineAt);
+    expect(patched.usageLimit.onMismatch).toBe(onMismatch);
+    expect(
+      (await call("PATCH", path, { usageLimit: { ...usageLimit, onMismatch: "bad" } })).status,
+    ).toBe(400);
+    store.claimScheduleRun(s.id, "2026-10-26T09:00", Date.now());
+    store.settleScheduleRun(s.id, "2026-10-26T09:00", "waiting:limit");
+    expect((await call("PATCH", path, { enabled: false })).status).toBe(200);
+    expect(store.getScheduleRun(s.id, "2026-10-26T09:00")).toMatchObject({
+      outcome: "skipped:limit-expired",
+      reason: "disabled",
+    });
+  }
+});
+
+test("budget roundtrip, PATCH retention and Codex rejection", async () => {
+  const response = await call("POST", "/api/schedules", { ...valid(), tokenBudget: 2_000_000 });
+  expect(response.status).toBe(201);
+  const s = await response.json();
+  expect(s.tokenBudget).toBe(2_000_000);
+  expect(
+    (await (await call("PATCH", `/api/schedules/${s.id}`, { name: "Budget" })).json()).tokenBudget,
+  ).toBe(2_000_000);
+  const rejected = await call("PATCH", `/api/schedules/${s.id}`, {
+    launch: { agentProvider: "codex" },
+  });
+  expect(rejected.status).toBe(400);
+  expect(await rejected.json()).toEqual({ error: "tokenBudget is only supported for Claude Code" });
+  expect(
+    (
+      await call("POST", "/api/schedules", {
+        ...valid(),
+        tokenBudget: 100_000,
+        launch: { agentProvider: "codex" },
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await call("PATCH", `/api/schedules/${s.id}`, {
+        tokenBudget: null,
+        launch: { agentProvider: "codex" },
+      })
+    ).status,
+  ).toBe(200);
 });

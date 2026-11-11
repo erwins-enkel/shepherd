@@ -5,7 +5,7 @@ use serde_json::{Map, Value};
 use super::{VersionCheck, print_done, repo_path};
 use crate::Ctx;
 use crate::api::Client;
-use crate::api::types::{ScheduleInput, ScheduleList, ScheduleRun};
+use crate::api::types::{CreateScheduleBody, ScheduleList, ScheduleRun};
 use crate::cli::{ScheduleAddArgs, ScheduleCmd, WEEKDAYS};
 use crate::error::{CliError, Exit, Op, Result, Scope, api_error};
 use crate::output::{self, Mode};
@@ -51,14 +51,26 @@ async fn list(ctx: &mut Ctx<'_>, repo: Option<String>) -> Result<()> {
                 s.name.clone(),
                 s.repo_path.clone(),
                 days_label(s.days),
-                s.times.join(","),
+                match &s.interval {
+                    Some(interval) => format!(
+                        "every {}m {}",
+                        *interval.every_minutes,
+                        match (&interval.from, &interval.until) {
+                            (Some(from), Some(until)) => format!("{}-{}", **from, **until),
+                            _ => "all day".into(),
+                        }
+                    ),
+                    None => s.times.join(","),
+                },
                 if s.enabled { "yes" } else { "no" }.into(),
                 output::or_dash(s.next_at.map(output::until)),
-                output::or_dash(
-                    s.last_run
-                        .as_ref()
-                        .map(|r| format!("{} {}", r.outcome, output::ago(r.at))),
-                ),
+                output::or_dash(s.last_run.as_ref().map(|r| {
+                    let tokens = r
+                        .tokens_used
+                        .map(|n| format!(" ({n} tokens)"))
+                        .unwrap_or_default();
+                    format!("{}{tokens} {}", r.outcome, output::ago(r.at))
+                })),
             ],
         );
     }
@@ -108,12 +120,15 @@ fn launch(args: &ScheduleAddArgs) -> Map<String, Value> {
 async fn add(ctx: &mut Ctx<'_>, args: ScheduleAddArgs) -> Result<()> {
     let repo = repo_path(ctx, args.repo.clone())?;
     let prompt = ctx.io.text_arg(&args.prompt)?;
-    let body = ScheduleInput {
-        repo_path: Some(repo),
-        name: Some(args.name.clone()),
-        prompt: Some(prompt),
-        days: Some(args.days),
+    let body = CreateScheduleBody {
+        repo_path: repo,
+        name: args.name.clone(),
+        prompt,
+        days: args.days,
         times: args.times.clone(),
+        interval: None,
+        usage_limit: None,
+        token_budget: None,
         enabled: Some(!args.disabled),
         launch: launch(&args),
     };
@@ -170,11 +185,11 @@ fn run_text(key: &str, run: &ScheduleRun) -> String {
     text
 }
 
-/// Launched or held is success; a skip is the server refusing; anything else failed.
+/// Launched, held or waiting is success; a skip is the server refusing; anything else failed.
 fn outcome_exit(key: &str, run: &ScheduleRun) -> Result<()> {
     let reason = run.reason.as_deref().unwrap_or("no reason given");
     match run.outcome.as_str() {
-        "spawned" | "held" => Ok(()),
+        "spawned" | "spawned:failover" | "held" | "waiting:limit" | "paused" => Ok(()),
         o if o.starts_with("skipped") => Err(CliError::new(
             Exit::Refused,
             format!("schedule {key} did not run: {o} ({reason})"),
@@ -189,6 +204,41 @@ fn outcome_exit(key: &str, run: &ScheduleRun) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn schedule_limit_skip_is_refused() {
+        let run: ScheduleRun = serde_json::from_value(serde_json::json!({
+            "id": 1, "scheduleId": "s", "slotKey": "slot", "outcome": "skipped:limit",
+            "sessionId": null, "reason": "below-start", "at": 1,
+            "usage": { "provider": "claude", "window": "week", "usedPct": 79, "thresholdPct": 80 }
+        }))
+        .unwrap();
+        assert_eq!(outcome_exit("test", &run).unwrap_err().exit, Exit::Refused);
+    }
+
+    #[test]
+    fn schedule_outcome_exit_classes() {
+        for (outcome, expected) in [
+            ("spawned", None),
+            ("held", None),
+            ("spawned:failover", None),
+            ("waiting:limit", None),
+            ("paused", None),
+            ("skipped:limit", Some(Exit::Refused)),
+            ("skipped:limit-expired", Some(Exit::Refused)),
+            ("skipped:overlap", Some(Exit::Refused)),
+            ("skipped:stale", Some(Exit::Refused)),
+            ("error", Some(Exit::Failure)),
+            ("claimed", Some(Exit::Failure)),
+        ] {
+            let run: ScheduleRun = serde_json::from_value(serde_json::json!({
+                "id": 1, "scheduleId": "s", "slotKey": "slot", "outcome": outcome,
+                "sessionId": null, "reason": null, "at": 1, "usage": null
+            }))
+            .unwrap();
+            assert_eq!(outcome_exit("test", &run).err().map(|e| e.exit), expected);
+        }
+    }
 
     #[test]
     fn day_labels() {

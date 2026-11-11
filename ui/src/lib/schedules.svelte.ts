@@ -1,3 +1,4 @@
+import { getLocale } from "#lib/i18n.js";
 import { m } from "#lib/paraglide/messages.js";
 import {
   createSchedule,
@@ -9,7 +10,15 @@ import {
 import { SvelteMap } from "svelte/reactivity";
 import { toasts } from "#lib/toasts.svelte.js";
 import { basename } from "#lib/basename.js";
-import type { Schedule, ScheduleInput, ScheduleOutcome } from "#lib/types.js";
+import type {
+  Schedule,
+  ScheduleInput,
+  ScheduleInterval,
+  ScheduleUsage,
+  ScheduleUsageLimit,
+  UsageLimits,
+  AgentProvider,
+} from "#lib/types.js";
 
 /**
  * Per-repo operator schedules (#3469) for the automation settings. Loaded on demand per repo and
@@ -19,10 +28,16 @@ import type { Schedule, ScheduleInput, ScheduleOutcome } from "#lib/types.js";
  * (#3475, Settings → Schedules) is loaded on demand too, and re-read alongside once loaded.
  */
 class SchedulesStore {
+  #revisions = new SvelteMap<string, number>();
   #lists = new SvelteMap<string, Schedule[]>();
   #all = $state<Schedule[] | null>(null);
   /** The last every-repo read failed (a list shown before it stays as it was). */
   #allFailed = $state(false);
+
+  /** Invalidates an open history independently of whether the schedule list can reload. */
+  revisionFor(repoPath: string): number {
+    return this.#revisions.get(repoPath) ?? 0;
+  }
 
   listFor(repoPath: string): Schedule[] | null {
     return this.#lists.get(repoPath) ?? null;
@@ -61,6 +76,7 @@ class SchedulesStore {
 
   /** The server says `repoPath`'s schedules changed: re-read when a view shows them. */
   refresh(repoPath: string): void {
+    this.#revisions.set(repoPath, this.revisionFor(repoPath) + 1);
     if (this.#lists.has(repoPath)) void this.load(repoPath);
     if (this.#allWanted) void this.loadAll();
   }
@@ -82,7 +98,19 @@ class SchedulesStore {
   async runNow(s: Schedule): Promise<void> {
     try {
       const run = await runScheduleNow(s.id);
-      toasts.info(m.schedules_run_now_result({ name: s.name, outcome: outcomeLabel(run.outcome) }));
+      toasts.info(
+        m.schedules_run_now_result({
+          name: s.name,
+          outcome: outcomeLabel(
+            run.outcome,
+            run.reason,
+            run.usage,
+            run.pausedUntil,
+            run.tokensUsed,
+            run.budgetNotApplied,
+          ),
+        }),
+      );
     } catch {
       toasts.info(m.schedules_failed(), { alert: true });
     }
@@ -102,11 +130,16 @@ class SchedulesStore {
   }
 
   async #reload(repoPath: string): Promise<void> {
+    this.#revisions.set(repoPath, this.revisionFor(repoPath) + 1);
     await Promise.all([this.load(repoPath), this.#allWanted && this.loadAll()]);
   }
 }
 
 export const schedules = new SchedulesStore();
+
+/** Read-only live usage supplied by AppOverlays to both schedule-dialog entry points. */
+export const SCHEDULE_USAGE = Symbol("schedule-usage");
+export const SCHEDULE_DIAGNOSTICS = Symbol("schedule-diagnostics");
 
 /** Soonest next run first; disabled schedules (no next run) last, by repo then name. */
 export function upcomingOrder(list: readonly Schedule[]): Schedule[] {
@@ -121,23 +154,116 @@ export function upcomingOrder(list: readonly Schedule[]): Schedule[] {
   });
 }
 
+/** Compact local reset deadline shared by badge and run history. */
+export function schedulePauseWhen(at: number): string {
+  return new Intl.DateTimeFormat(getLocale(), {
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(at);
+}
+
+export function schedulePauseLabel(resumeAt?: number | null, run = false): string {
+  if (resumeAt == null) return m.schedule_pause_title();
+  const when = schedulePauseWhen(resumeAt);
+  return run ? m.schedules_outcome_paused({ when }) : m.schedule_pause_badge({ when });
+}
+
+export function scheduleBudgetNumber(tokens: number): string {
+  return new Intl.NumberFormat(getLocale(), { maximumFractionDigits: 6 }).format(
+    tokens / 1_000_000,
+  );
+}
+
+export function formatScheduleTokens(tokens: number): string {
+  if (tokens < 100_000) return new Intl.NumberFormat(getLocale()).format(tokens);
+  const n = new Intl.NumberFormat(getLocale(), { maximumFractionDigits: 1 }).format(
+    tokens / 1_000_000,
+  );
+  return m.schedules_budget_compact({ n });
+}
+
+export function scheduleBudgetChip(tokens: number): string {
+  return m.schedules_budget_chip({ n: scheduleBudgetNumber(tokens) });
+}
+
 /** A run outcome as the operator reads it. */
-export function outcomeLabel(outcome: ScheduleOutcome): string {
+export function outcomeLabel(
+  outcome: string,
+  reason?: string | null,
+  usage?: ScheduleUsage | null,
+  pausedUntil?: number | null,
+  tokensUsed?: number | null,
+  budgetNotApplied?: "codex" | null,
+): string {
+  const label =
+    outcome === "stopped:budget"
+      ? m.schedules_budget_result({ used: formatScheduleTokens(tokensUsed ?? 0) })
+      : baseOutcomeLabel(outcome, reason, usage, pausedUntil);
+  return budgetNotApplied === "codex" ? `${label} · ${m.schedules_budget_unused()}` : label;
+}
+
+function baseOutcomeLabel(
+  outcome: string,
+  reason?: string | null,
+  usage?: ScheduleUsage | null,
+  pausedUntil?: number | null,
+): string {
   switch (outcome) {
+    case "paused":
+      return schedulePauseLabel(pausedUntil, true);
     case "claimed":
       return m.schedules_outcome_interrupted();
     case "spawned":
       return m.schedules_outcome_spawned();
     case "held":
       return m.schedules_outcome_held();
+    case "waiting:limit":
+      return m.schedules_outcome_waiting_limit();
+    case "skipped:limit-expired":
+      return m.schedules_outcome_limit_expired();
+    case "spawned:failover":
+      return usage
+        ? m.schedules_outcome_failover({
+            provider: usage.provider === "claude" ? "Claude Code" : "Codex",
+          })
+        : m.schedules_outcome_spawned();
     case "skipped:overlap":
       return m.schedules_outcome_overlap();
     case "skipped:stale":
-      return m.schedules_outcome_stale();
+      return reason === "missed by more than one interval"
+        ? m.schedules_outcome_interval_stale()
+        : m.schedules_outcome_stale();
+    case "skipped:limit":
+      if (reason === "usage-unknown" || !usage || usage.usedPct === null)
+        return m.schedules_limit_result_unknown();
+      return reason === "stop-reached"
+        ? m.schedules_limit_result_stop({ threshold: usage.thresholdPct, pct: usage.usedPct })
+        : m.schedules_limit_result_below({ threshold: usage.thresholdPct, pct: usage.usedPct });
     case "error":
       return m.schedules_outcome_error();
     case "noop":
       return m.schedules_outcome_noop();
+    default:
+      return outcome;
+  }
+}
+
+/** Shared by the last-run disclosure and its history entries. */
+export function outcomeTone(outcome: string): "red" | "amber" | "neutral" {
+  switch (outcome) {
+    case "error":
+    case "claimed":
+      return "red";
+    case "held":
+    case "skipped:overlap":
+    case "skipped:stale":
+    case "skipped:limit":
+    case "waiting:limit":
+    case "skipped:limit-expired":
+      return "amber";
+    default:
+      return "neutral";
   }
 }
 
@@ -154,7 +280,12 @@ export const WORKDAYS = 0b0011111;
 export const ALL_DAYS = 0b1111111;
 
 /** "Mon–Fri · 09:00, 18:00": contiguous day runs collapse to a range. */
-export function cadenceSummary(days: number, times: string[], locale?: string): string {
+export function cadenceSummary(
+  days: number,
+  times: string[],
+  locale?: string,
+  interval: ScheduleInterval | null = null,
+): string {
   const names = weekdayNames(locale);
   const runs: string[] = [];
   let i = 0;
@@ -168,5 +299,176 @@ export function cadenceSummary(days: number, times: string[], locale?: string): 
     runs.push(j - i >= 2 ? `${names[i]}–${names[j]}` : names.slice(i, j + 1).join(", "));
     i = j + 1;
   }
-  return `${runs.join(", ")} · ${times.join(", ")}`;
+  const dayLabel = runs.join(", ");
+  if (interval)
+    return interval.from === null
+      ? m.schedules_cadence_interval_all_day({ days: dayLabel, n: interval.everyMinutes })
+      : m.schedules_cadence_interval_window({
+          days: dayLabel,
+          n: interval.everyMinutes,
+          from: interval.from,
+          until: interval.until!,
+        });
+  return `${dayLabel} · ${times.join(", ")}`;
+}
+
+/** Nominal daily times; invalid drafts produce no slots. */
+function intervalTimes(interval: ScheduleInterval): string[] {
+  const { from, until, everyMinutes } = interval;
+  const valid = (time: string | null): time is string =>
+    time !== null && /^([01]\d|2[0-3]):[0-5]\d$/.test(time);
+  if (!(from === null && until === null) && (!valid(from) || !valid(until) || until <= from))
+    return [];
+  const minutes = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
+  const start = from === null ? 0 : minutes(from);
+  const end = until === null ? 1440 : minutes(until);
+  const times: string[] = [];
+  for (let minute = start; minute < end; minute += everyMinutes)
+    times.push(
+      `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`,
+    );
+  return times;
+}
+
+export function intervalStats(
+  days: number,
+  interval: ScheduleInterval,
+): { perDay: number; perWeek: number; last: string } | null {
+  const times = intervalTimes(interval);
+  if (!times.length) return null;
+  const activeDays = Array.from({ length: 7 }, (_, i) => !!(days & (1 << i))).filter(
+    Boolean,
+  ).length;
+  return {
+    perDay: times.length,
+    perWeek: times.length * activeDays,
+    last: times[times.length - 1]!,
+  };
+}
+
+/* eslint-disable svelte/prefer-svelte-reactivity -- pure calculation; Dates/Sets are local scratch values. */
+/** Browser-local preview of the server's nextSlot rule. Does not normalize saved times. */
+export function upcomingSlots(
+  days: number,
+  times: readonly string[],
+  now: number,
+  n: number,
+  interval: ScheduleInterval | null = null,
+): number[] {
+  const clockTimes = interval
+    ? intervalTimes(interval)
+    : [...new Set(times.filter((t) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t)))];
+  if (!(days & ALL_DAYS) || !clockTimes.length || n <= 0) return [];
+  const base = new Date(now);
+  const result: number[] = [];
+  // Even one active weekday with one time supplies n slots within n weeks plus today.
+  for (let ahead = 0; ahead <= 7 * n && result.length < n; ahead++) {
+    const day = new Date(base.getFullYear(), base.getMonth(), base.getDate() + ahead);
+    if (!(days & (1 << ((day.getDay() + 6) % 7)))) continue;
+    const slots = clockTimes.map((time) => {
+      const [hour, minute] = time.split(":").map(Number);
+      return new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, minute).getTime();
+    });
+    result.push(...[...new Set(slots)].filter((at) => at > now).sort((a, b) => a - b));
+  }
+  return result.slice(0, n);
+}
+
+/* eslint-enable svelte/prefer-svelte-reactivity */
+
+/** Computed Claude windows match usage-hold, not the observed display gauges. */
+function usageLimitReadings(
+  limit: ScheduleUsageLimit,
+  provider: AgentProvider,
+  limits: UsageLimits | null,
+) {
+  const source =
+    provider === "claude" ? limits : limits?.providers?.find((p) => p.provider === "codex");
+  const windows = { week: source?.week ?? null, "5h": source?.session5h ?? null };
+  const maxWindow: "week" | "5h" =
+    (windows.week?.pct ?? -1) >= (windows["5h"]?.pct ?? -1) ? "week" : "5h";
+  const startWindow: "week" | "5h" = limit.kind === "from" ? limit.startWindow : maxWindow;
+  return { windows, maxWindow, startWindow };
+}
+
+function usageLimitReason(limit: ScheduleUsageLimit, selected: number | null, max: number | null) {
+  if ((max ?? 0) >= limit.stopPct) return "stop-reached";
+  if (limit.kind === "upTo") return null;
+  if (selected === null) return "usage-unknown";
+  return selected < limit.startPct ? "below-start" : null;
+}
+
+/** A live prediction only; the server decides again at the scheduled time. */
+export function usageLimitPreview(
+  limit: ScheduleUsageLimit,
+  provider: AgentProvider,
+  limits: UsageLimits | null,
+) {
+  const { windows, maxWindow, startWindow } = usageLimitReadings(limit, provider, limits);
+  const selected = windows[startWindow]?.pct ?? null;
+  const max = windows[maxWindow]?.pct ?? null;
+  const reason = usageLimitReason(limit, selected, max);
+  const useMax = limit.kind === "upTo" || reason === "stop-reached";
+  const resetWindow = useMax ? maxWindow : startWindow;
+  const reading = windows[resetWindow];
+  const usage: ScheduleUsage = {
+    provider,
+    window: useMax ? "max" : startWindow,
+    usedPct: reading?.pct ?? null,
+    thresholdPct: !useMax && limit.kind === "from" ? limit.startPct : limit.stopPct,
+  };
+  return {
+    allowed: reason === null,
+    reason,
+    usage,
+    markerPct: selected,
+    resetWindow,
+    resetAt: reading?.resetAt ?? null,
+  };
+}
+
+export function usageLimitChip(limit: ScheduleUsageLimit): string {
+  return limit.kind === "upTo"
+    ? m.schedules_limit_chip_up({ stop: limit.stopPct })
+    : m.schedules_limit_chip_from({
+        start: limit.startPct,
+        stop: limit.stopPct,
+        window: limit.startWindow === "week" ? m.schedules_limit_week() : m.schedules_limit_5h(),
+      });
+}
+
+export function usageLimitVerdict(preview: ReturnType<typeof usageLimitPreview>): string {
+  const { usage, reason } = preview;
+  if (usage.usedPct === null)
+    return preview.allowed
+      ? m.schedules_limit_unknown_start({
+          provider: usage.provider === "claude" ? "Claude Code" : "Codex",
+        })
+      : m.schedules_limit_unknown_skip({
+          provider: usage.provider === "claude" ? "Claude Code" : "Codex",
+        });
+  if (reason === "stop-reached")
+    return m.schedules_limit_verdict_stop({ pct: usage.usedPct, stop: usage.thresholdPct });
+  if (reason === "below-start")
+    return m.schedules_limit_verdict_below({ pct: usage.usedPct, start: usage.thresholdPct });
+  return m.schedules_limit_verdict_ok({ pct: usage.usedPct });
+}
+
+/** Shared action prediction for the limit explanation and dialog footer. */
+export function usageLimitActionVerdict(
+  limit: ScheduleUsageLimit,
+  provider: AgentProvider,
+  limits: UsageLimits | null,
+  readyProviders: readonly AgentProvider[],
+): string | null {
+  if (usageLimitPreview(limit, provider, limits).allowed) return null;
+  if (limit.onMismatch === "wait") return m.schedules_limit_would_wait();
+  const other = provider === "claude" ? "codex" : "claude";
+  if (
+    limit.onMismatch === "otherProvider" &&
+    readyProviders.includes(other) &&
+    usageLimitPreview(limit, other, limits).allowed
+  )
+    return m.schedules_limit_would_other({ other: other === "claude" ? "Claude Code" : "Codex" });
+  return null;
 }

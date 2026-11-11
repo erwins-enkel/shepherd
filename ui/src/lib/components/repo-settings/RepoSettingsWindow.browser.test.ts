@@ -884,3 +884,35 @@ it("waits for the bootstrap search target to load without focusing Auto-drain", 
   await expect.element(sw(m.automation_bootstrap_name())).toHaveFocus();
   expect(api.puts).toEqual([]);
 });
+
+it("shows pending rules beside affected rows, preserves effective switches, and clears after merge", async () => {
+  const proposal = {
+    number: 41,
+    url: "https://host/pr/41",
+    changes: { criticEnabled: false, planGateEnabled: true, leitrechner: null },
+  };
+  const api = mockApi({ pendingRepoConfig: proposal } as never);
+  await open({ section: "review" });
+  await expect
+    .element(page.getByRole("link", { name: `${m.reposettings_pending_status()} · #41` }))
+    .toBeVisible();
+  await expect.element(sw(m.automation_critic_name())).toBeChecked();
+  await expect
+    .element(page.getByRole("link", { name: m.reposettings_pending_link({ number: 41 }) }))
+    .toHaveAttribute("href", proposal.url);
+  expect(
+    document.querySelector('[data-field="criticEnabled"] .rs-proposal')?.textContent,
+  ).toContain(m.reposettings_pending_off());
+  expect(document.querySelector('[data-field="criticAllPrs"] .rs-proposal')).toBeNull();
+  // Another edit remains possible while the PR is open.
+  await sw(m.automation_critic_name()).click();
+  expect(api.puts).toContainEqual({ criticEnabled: false });
+  Object.assign(api.stored(), {
+    criticEnabled: false,
+    planGateEnabled: true,
+    pendingRepoConfig: null,
+  });
+  await repoConfig.reload(repo);
+  await expect.element(sw(m.automation_critic_name())).not.toBeChecked();
+  expect(document.querySelector(".rs-proposal")).toBeNull();
+});

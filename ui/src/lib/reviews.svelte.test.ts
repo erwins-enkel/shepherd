@@ -1130,3 +1130,23 @@ test("a failed list PUT puts the previous list back", async () => {
   await repoConfig.setPriorityLabels("/w-revert", []);
   expect(repoConfig.priorityLabelsFor("/w-revert")).toEqual(["keep"]);
 });
+
+test("pending rule proposals stay separate from effective maps and clear on reload", async () => {
+  const pending = {
+    number: 41,
+    url: "https://host/pr/41",
+    changes: { criticEnabled: false, planGateEnabled: true },
+  };
+  vi.mocked(putRepoConfig).mockResolvedValueOnce({ ...rc(), pendingRepoConfig: pending });
+  await repoConfig.write("/proposal", { criticEnabled: false });
+  expect(repoConfig.isEnabled("/proposal")).toBe(true);
+  expect(repoConfig.isPlanGateEnabled("/proposal")).toBe(false);
+  expect(repoConfig.pendingRules["/proposal"]).toEqual(pending);
+  vi.mocked(getRepoConfig).mockResolvedValueOnce({
+    ...rc({ criticEnabled: false, planGateEnabled: true }),
+    pendingRepoConfig: null,
+  });
+  await repoConfig.reload("/proposal");
+  expect(repoConfig.isEnabled("/proposal")).toBe(false);
+  expect(repoConfig.pendingRules["/proposal"]).toBeNull();
+});

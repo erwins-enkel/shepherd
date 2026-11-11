@@ -8880,5 +8880,15 @@
   "settings_machines_source_tip_own": "Your own",
   "settings_machines_source_tip_own_text": "This Shepherd's own steers and emojis stay untouched. They apply again as soon as you stop using the machine or remove it.",
   "feat_machine_settings_source_title": "Use a machine's steers and repo emojis",
-  "feat_machine_settings_source_body": "In Settings → Machines, pick a connected machine as the source of steers and repo emojis. This Shepherd then uses its steers and emojis live: edits made here are saved there, and its changes appear here without a reload. Projects match by owner/repo, so a checkout under another path or folder name gets them too. While the machine is out of reach, its last known state stays visible, read-only. Stop using it and your own steers and emojis are back, untouched."
+  "feat_machine_settings_source_body": "In Settings → Machines, pick a connected machine as the source of steers and repo emojis. This Shepherd then uses its steers and emojis live: edits made here are saved there, and its changes appear here without a reload. Projects match by owner/repo, so a checkout under another path or folder name gets them too. While the machine is out of reach, its last known state stays visible, read-only. Stop using it and your own steers and emojis are back, untouched.",
+  "reposettings_pending_status": "Waiting for merge",
+  "reposettings_pending_summary": "Repository rule changes are waiting for merge. Current values remain effective.",
+  "reposettings_pending_link": "Open PR #{number}",
+  "reposettings_pending_value": "Proposed {field}: {value}",
+  "reposettings_pending_leader": "Proposed lead machine: {value}",
+  "reposettings_pending_none": "None",
+  "reposettings_pending_on": "On",
+  "reposettings_pending_off": "Off",
+  "feat_repo_rules_pr_title": "Rule changes through a pull request",
+  "feat_repo_rules_pr_body": "When the default branch rejects a rule change, Shepherd opens a pull request. Further saves update the same PR. Affected settings show the proposal and PR link while current rules remain effective until merge."
 }

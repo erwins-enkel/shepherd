@@ -8880,5 +8880,15 @@
   "settings_machines_source_tip_own": "Deine eigenen",
   "settings_machines_source_tip_own_text": "Die eigenen Steers und Emojis dieses Shepherd bleiben unangetastet. Sie gelten wieder, sobald du den Rechner nicht mehr verwendest oder entfernst.",
   "feat_machine_settings_source_title": "Steers und Repo-Emojis eines Rechners verwenden",
-  "feat_machine_settings_source_body": "Unter Einstellungen → Rechner wählst du einen verbundenen Rechner als Quelle für Steers und Repo-Emojis. Dieser Shepherd verwendet dann dessen Steers und Emojis live: Änderungen hier werden dort gespeichert, und Änderungen dort erscheinen hier ohne Neuladen. Projekte werden über owner/repo zugeordnet, ein Checkout unter anderem Pfad oder Ordnernamen bekommt sie also auch. Solange der Rechner nicht erreichbar ist, bleibt der letzte Stand sichtbar, schreibgeschützt. Verwendest du ihn nicht mehr, sind deine eigenen Steers und Emojis unverändert zurück."
+  "feat_machine_settings_source_body": "Unter Einstellungen → Rechner wählst du einen verbundenen Rechner als Quelle für Steers und Repo-Emojis. Dieser Shepherd verwendet dann dessen Steers und Emojis live: Änderungen hier werden dort gespeichert, und Änderungen dort erscheinen hier ohne Neuladen. Projekte werden über owner/repo zugeordnet, ein Checkout unter anderem Pfad oder Ordnernamen bekommt sie also auch. Solange der Rechner nicht erreichbar ist, bleibt der letzte Stand sichtbar, schreibgeschützt. Verwendest du ihn nicht mehr, sind deine eigenen Steers und Emojis unverändert zurück.",
+  "reposettings_pending_status": "Wartet auf Merge",
+  "reposettings_pending_summary": "Regel-Änderungen warten auf Merge. Bis dahin gelten die aktuellen Werte.",
+  "reposettings_pending_link": "PR #{number} öffnen",
+  "reposettings_pending_value": "Vorgeschlagen für {field}: {value}",
+  "reposettings_pending_leader": "Vorgeschlagener Leitrechner: {value}",
+  "reposettings_pending_none": "Keiner",
+  "reposettings_pending_on": "An",
+  "reposettings_pending_off": "Aus",
+  "feat_repo_rules_pr_title": "Regel-Änderungen als Pull Request",
+  "feat_repo_rules_pr_body": "Lehnt der Default-Branch eine Regel-Änderung ab, öffnet Shepherd einen Pull Request. Weitere Speicherungen ergänzen denselben PR. Betroffene Einstellungen zeigen den Vorschlag und den PR-Link; bis zum Merge gelten die bisherigen Regeln."
 }

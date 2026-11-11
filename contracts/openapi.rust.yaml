@@ -9245,6 +9245,10 @@ components:
           description: Persistent instance ID in the shared repo file; null clears selection. No automatic failover.
         leitrechnerStatus:
           $ref: "#/components/schemas/RepoLeitrechnerStatus"
+        pendingRepoConfig:
+          allOf:
+            - $ref: "#/components/schemas/PendingRepoConfig"
+          nullable: true
         fieldSources:
           type: object
           description: Source of every configuration field (excludes response metadata). Repo defaults and inherit values have source repo when a valid file is active.
@@ -10840,6 +10844,63 @@ components:
           type: boolean
         reason:
           type: string
+    PendingRepoConfig:
+      type: object
+      additionalProperties: false
+      description: Proposed changes waiting for a PR merge. Top-level configuration values remain effective until the default branch contains the change.
+      required:
+        - number
+        - url
+        - changes
+      properties:
+        number:
+          type: integer
+          minimum: 1
+        url:
+          type: string
+        changes:
+          $ref: "#/components/schemas/RepoConfigProposalChanges"
+    RepoConfigProposalChanges:
+      type: object
+      additionalProperties: false
+      properties:
+        criticEnabled:
+          type: boolean
+        criticAllPrs:
+          type: boolean
+        criticSmellLensEnabled:
+          type: boolean
+        autoAddressEnabled:
+          type: boolean
+        autopilotEnabled:
+          type: boolean
+        planGateEnabled:
+          type: boolean
+        autoDrainEnabled:
+          type: boolean
+        autoMergeEnabled:
+          type: boolean
+        buildQueueEnabled:
+          type: boolean
+        draftMode:
+          type: boolean
+        signoffAuthority:
+          type: string
+        manualStepsIssueEnabled:
+          type: boolean
+        preWarmEpicLandingCi:
+          type: boolean
+        epicStacksEnabled:
+          type: boolean
+        autoLabel:
+          type: string
+        defaultModel:
+          type: string
+        defaultEffort:
+          type: string
+        leitrechner:
+          type: string
+          nullable: true
     RepoConfigMachine:
       type: object
       additionalProperties: true
@@ -10933,6 +10994,10 @@ components:
         - machines
         - differences
       properties:
+        pendingRepoConfig:
+          allOf:
+            - $ref: "#/components/schemas/PendingRepoConfig"
+          nullable: true
         remoteSlug:
           type: string
         complete:
@@ -10966,6 +11031,10 @@ components:
         - leitrechner
         - notifications
       properties:
+        pendingRepoConfig:
+          allOf:
+            - $ref: "#/components/schemas/PendingRepoConfig"
+          nullable: true
         rules:
           $ref: "#/components/schemas/RepoRules"
         repoConfigCommit:

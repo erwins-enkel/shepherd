@@ -8,6 +8,7 @@ import {
   withRepoConfigLock,
   writeRepoConfigFile,
   readRepoConfigFile,
+  isLeitrechner,
   type RepoConfigFile,
 } from "./repo-config-file";
 import { clampRunDefaultsToCli } from "./agent-provider";
@@ -25,6 +26,7 @@ export type RepoConfigView = RepoConfig & {
   sandboxDefaultProfile: SandboxProfile;
   fieldSources: Record<keyof RepoConfig, "repo" | "rechner">;
   repoConfigCommit: string | null;
+  leitrechner: string | null;
 };
 
 /** A partial repo-config edit. Every field is a RepoConfig field (the route's
@@ -32,7 +34,7 @@ export type RepoConfigView = RepoConfig & {
 export type RepoConfigPatch = Partial<RepoConfig>;
 
 export type RepoConfigPatchResult =
-  | { ok: true; config: RepoConfigView; previousLocal: RepoConfig }
+  | { ok: true; config: RepoConfigView; previousLocal: RepoConfig; rulesCommitted: boolean }
   | { ok: false; error: string; code?: "repo_config_write_failed" };
 
 /** Narrow store interface this service needs — the seam, kept small. */
@@ -72,6 +74,7 @@ export class RepoConfigService {
       ...config,
       fieldSources,
       repoConfigCommit: file?.commit ?? null,
+      leitrechner: file?.leitrechner ?? null,
       automationConfirmed: this.store.isAutomationConfirmed(dir),
       automationRowExists: this.store.automationRowExists(dir),
       sandboxDefaultProfile: this.defaultProfile(),
@@ -90,6 +93,7 @@ export class RepoConfigService {
     patch: RepoConfigPatch,
     opts: {
       automationConfirmed?: boolean;
+      leitrechner?: string | null;
       defaultAgentProvider?: AgentProvider;
     } = {},
   ): Promise<RepoConfigPatchResult> {
@@ -101,7 +105,12 @@ export class RepoConfigService {
       const hasRulePatch = Object.entries(patch).some(
         ([key, value]) => value !== undefined && isRepoRuleKey(key),
       );
-      const writeRules = fileEnabled && hasRulePatch;
+      if (opts.leitrechner !== undefined && (!fileEnabled || !isLeitrechner(opts.leitrechner)))
+        return {
+          ok: false,
+          error: "leitrechner requires a forge repository and a valid instance ID or null",
+        };
+      const writeRules = fileEnabled && (hasRulePatch || opts.leitrechner !== undefined);
       let localRunDefaults: RepoConfigPatch = {};
       try {
         if (writeRules) {
@@ -112,7 +121,10 @@ export class RepoConfigService {
               patch,
               opts.defaultAgentProvider,
             );
-            return repoRulesFromConfig(config);
+            return {
+              ...repoRulesFromConfig(config),
+              ...(opts.leitrechner === undefined ? {} : { leitrechner: opts.leitrechner }),
+            };
           });
         } else {
           const file = fileEnabled ? readRepoConfigFile(dir) : null;
@@ -147,7 +159,7 @@ export class RepoConfigService {
         }),
       );
       if (opts.automationConfirmed === true) this.store.markAutomationConfirmed(dir);
-      return { ok: true, config: this.read(dir), previousLocal: local };
+      return { ok: true, config: this.read(dir), previousLocal: local, rulesCommitted: writeRules };
     });
   }
 

@@ -9146,6 +9146,24 @@ components:
             enum:
               - repo
               - rechner
+        leitrechner:
+          type: string
+          nullable: true
+          description: Selected instance UUID from the shared file; null when none is selected.
+        notifications:
+          type: array
+          items:
+            $ref: "#/components/schemas/RepoConfigNotification"
+        resolvedRunDefaults:
+          type: object
+          additionalProperties: true
+          properties:
+            agentProvider:
+              type: string
+            model:
+              type: string
+            effort:
+              type: string
         repoConfigCommit:
           type: string
           nullable: true
@@ -9344,6 +9362,10 @@ components:
       additionalProperties: false
       description: Shared rule fields are saved in one commit to origin's default branch; machine fields stay local. First rule write seeds every current local rule. Mixed writes apply local fields only after a successful push. inherit retains each machine's global default. No origin or lightweight mode keeps all fields local.
       properties:
+        leitrechner:
+          type: string
+          nullable: true
+          description: Shared leader instance UUID; changing it joins the same rule commit.
         criticEnabled:
           type: boolean
         criticAllPrs:
@@ -10526,6 +10548,343 @@ components:
           type: string
           nullable: true
           description: dirty or stale when a failed deploy should route through the dirty-tree flow.
+    RepoRules:
+      type: object
+      additionalProperties: true
+      required:
+        - criticEnabled
+        - criticAllPrs
+        - criticSmellLensEnabled
+        - autoAddressEnabled
+        - autopilotEnabled
+        - planGateEnabled
+        - autoDrainEnabled
+        - autoMergeEnabled
+        - buildQueueEnabled
+        - draftMode
+        - signoffAuthority
+        - manualStepsIssueEnabled
+        - preWarmEpicLandingCi
+        - epicStacksEnabled
+        - autoLabel
+        - defaultModel
+        - defaultEffort
+      properties:
+        criticEnabled:
+          type: boolean
+        criticAllPrs:
+          type: boolean
+        criticSmellLensEnabled:
+          type: boolean
+        autoAddressEnabled:
+          type: boolean
+        autopilotEnabled:
+          type: boolean
+        planGateEnabled:
+          type: boolean
+        autoDrainEnabled:
+          type: boolean
+        autoMergeEnabled:
+          type: boolean
+        buildQueueEnabled:
+          type: boolean
+        draftMode:
+          type: boolean
+        signoffAuthority:
+          type: string
+        manualStepsIssueEnabled:
+          type: boolean
+        preWarmEpicLandingCi:
+          type: boolean
+        epicStacksEnabled:
+          type: boolean
+        autoLabel:
+          type: string
+        defaultModel:
+          type: string
+        defaultEffort:
+          type: string
+    RepoRulesPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        criticEnabled:
+          type: boolean
+        criticAllPrs:
+          type: boolean
+        criticSmellLensEnabled:
+          type: boolean
+        autoAddressEnabled:
+          type: boolean
+        autopilotEnabled:
+          type: boolean
+        planGateEnabled:
+          type: boolean
+        autoDrainEnabled:
+          type: boolean
+        autoMergeEnabled:
+          type: boolean
+        buildQueueEnabled:
+          type: boolean
+        draftMode:
+          type: boolean
+        signoffAuthority:
+          type: string
+        manualStepsIssueEnabled:
+          type: boolean
+        preWarmEpicLandingCi:
+          type: boolean
+        epicStacksEnabled:
+          type: boolean
+        autoLabel:
+          type: string
+        defaultModel:
+          type: string
+        defaultEffort:
+          type: string
+    RepoMachinePatch:
+      type: object
+      additionalProperties: false
+      properties:
+        mergeWithoutCi:
+          type: boolean
+          description: "Let the merge train and epic auto-land merge into the default branch in a GitHub repo where no workflow runs on pull requests. Off by default: without CI those autonomous merges hold with the `no_ci` wait code."
+        sharedBrowserEnabled:
+          type: boolean
+          description: "Per-repo Shared Browser: a headful Chromium on the Shepherd host with a persistent per-repo profile that the operator logs in to and this repo's agents drive via brokered CDP. Agents attached to this repo can read every login in its profile."
+        claudeAiConnectorsEnabled:
+          type: boolean
+          description: Let this repo's Claude task sessions load the operator's claude.ai account connectors (Claude Docs, Gmail, Drive, Notion …). Off by default. Flipping it restarts the repo's live Claude sessions once each is idle, and under the autonomous sandbox profile it allowlists the connector proxy host.
+        hidden:
+          type: boolean
+        pinned:
+          type: boolean
+          description: Pinned to the top of the Backlog repos panel (list-only ordering; never affects sessions or drain).
+        maxAuto:
+          type: integer
+        priorityLabels:
+          description: Additional labels treated like shepherd:priority (default []). The auto label is still required. Exact, case-sensitive matching; all priorities tie-break by issue number. PUT trims and deduplicates names; [] clears, omission preserves.
+          type: array
+          items:
+            type: string
+            minLength: 1
+        usageCeilingPct:
+          type: number
+        sandboxProfile:
+          description: trusted | standard | autonomous | inherit.
+          type: string
+        agentProvider:
+          type: string
+          description: "The repo's coding CLI (#3441): inherit (default) follows the global defaultAgentProvider; claude or codex pins this repo's new task, drain and autopilot spawns to that CLI. A task's own pick and a running epic's CLI still win. Setting it resets a defaultModel / defaultEffort the new effective CLI cannot run to inherit in the same write."
+        defaultExecutionEffort:
+          type: string
+        egressExtraHosts:
+          type: array
+          items:
+            type: string
+        browserAllowedHosts:
+          type: array
+          items:
+            type: string
+          description: Hostnames an autonomous session's Browser Attach may reach (ports 80/443, public addresses only), besides its own Preview port. Only cookies for these hosts are copied into the autonomous session's isolated browser context.
+        pluginAllowlist:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: Operator plugin ids (keys of enabledPlugins in ~/.claude/settings.json) this repo's non-drain Claude task sessions keep; every other installed plugin is switched off per spawn. null = untouched (default); [] = every plugin off. Applies at the next spawn or resume.
+        skillAllowlist:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: Personal skill names (~/.claude/skills) this repo's non-drain Claude task sessions keep; every other personal skill is switched off per spawn. Bundled and repo skills always stay. null = untouched (default); [] = every personal skill off. Applies at the next spawn or resume.
+        repoMode:
+          type: string
+        previewStartScript:
+          type: string
+          nullable: true
+        previewStartCommand:
+          type: string
+          nullable: true
+        previewOpenMode:
+          type: string
+        automationConfirmed:
+          type: boolean
+    RepoProjectPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        rules:
+          $ref: "#/components/schemas/RepoRulesPatch"
+        leitrechner:
+          type: string
+          nullable: true
+    RepoConfigNotification:
+      type: object
+      additionalProperties: true
+      required:
+        - instanceId
+        - name
+        - ok
+      properties:
+        instanceId:
+          type: string
+        name:
+          type: string
+        ok:
+          type: boolean
+        reason:
+          type: string
+    RepoConfigMachine:
+      type: object
+      additionalProperties: true
+      required:
+        - instanceId
+        - name
+        - membership
+        - reachable
+        - reason
+        - config
+      properties:
+        instanceId:
+          type: string
+        name:
+          type: string
+        membership:
+          type: string
+        reachable:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+        config:
+          allOf:
+            - $ref: "#/components/schemas/RepoConfig"
+          nullable: true
+    RepoConfigDifferences:
+      type: object
+      additionalProperties: true
+      required:
+        - applicable
+        - complete
+        - unavailableInstanceIds
+        - fields
+        - multipleAutoDrain
+      properties:
+        applicable:
+          type: boolean
+        complete:
+          type: boolean
+        unavailableInstanceIds:
+          type: array
+          items:
+            type: string
+        fields:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            required:
+              - instanceId
+              - fields
+            properties:
+              instanceId:
+                type: string
+              fields:
+                type: object
+                additionalProperties:
+                  anyOf:
+                    - type: boolean
+                    - type: string
+        multipleAutoDrain:
+          type: array
+          items:
+            type: string
+    RepoConfigLeader:
+      type: object
+      additionalProperties: true
+      required:
+        - instanceId
+        - name
+        - reachable
+      properties:
+        instanceId:
+          type: string
+        name:
+          type: string
+          nullable: true
+        reachable:
+          type: boolean
+    RepoConfigProject:
+      type: object
+      additionalProperties: true
+      required:
+        - remoteSlug
+        - complete
+        - referenceInstanceId
+        - rules
+        - repoConfigCommit
+        - leitrechner
+        - machines
+        - differences
+      properties:
+        remoteSlug:
+          type: string
+        complete:
+          type: boolean
+        referenceInstanceId:
+          type: string
+          nullable: true
+        rules:
+          allOf:
+            - $ref: "#/components/schemas/RepoRules"
+          nullable: true
+        repoConfigCommit:
+          type: string
+          nullable: true
+        leitrechner:
+          allOf:
+            - $ref: "#/components/schemas/RepoConfigLeader"
+          nullable: true
+        machines:
+          type: array
+          items:
+            $ref: "#/components/schemas/RepoConfigMachine"
+        differences:
+          $ref: "#/components/schemas/RepoConfigDifferences"
+    RepoConfigProjectWrite:
+      type: object
+      additionalProperties: true
+      required:
+        - rules
+        - repoConfigCommit
+        - leitrechner
+        - notifications
+      properties:
+        rules:
+          $ref: "#/components/schemas/RepoRules"
+        repoConfigCommit:
+          type: string
+          nullable: true
+        leitrechner:
+          type: string
+          nullable: true
+        notifications:
+          type: array
+          items:
+            $ref: "#/components/schemas/RepoConfigNotification"
+    RepoConfigRefresh:
+      type: object
+      additionalProperties: true
+      required:
+        - ok
+        - remoteSlug
+      properties:
+        ok:
+          type: boolean
+        remoteSlug:
+          type: string
     CreateSessionSuccess:
       description: "Rust-only: every success body createSession can answer (statuses 200, 201)."
       oneOf:
@@ -17248,6 +17607,230 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/repo-config/project:
+    get:
+      operationId: getRepoConfigProject
+      parameters:
+        - name: remoteSlug
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoConfigProject"
+        "400":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      description: On-demand settings across connected instances. Repository-restricted tokens and agent ingress cannot access this resource. Missing peers make comparison incomplete; rules identify the reference instance, not consensus.
+    put:
+      operationId: putRepoConfigProject
+      parameters:
+        - name: remoteSlug
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: instanceId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: host
+          in: query
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoProjectPatch"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoConfigProjectWrite"
+        "400":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      description: Commit selected rules and leader on the explicit instance. No fallback. Successful commits remain 200 when refresh notifications fail; inspect each notification. host=local terminates on the target and suppresses fan-out.
+  /api/repo-config/machine:
+    get:
+      operationId: getRepoConfigMachine
+      parameters:
+        - name: remoteSlug
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: instanceId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: host
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoConfig"
+        "400":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      operationId: putRepoConfigMachine
+      parameters:
+        - name: remoteSlug
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: instanceId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: host
+          in: query
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoMachinePatch"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoConfig"
+        "400":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      description: Only machine fields and automationConfirmed metadata are accepted. Applies the target's validation and side effects; no shared-rule commit or local fallback.
+  /api/repo-config/refresh:
+    post:
+      operationId: refreshRepoConfig
+      parameters:
+        - name: remoteSlug
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoConfigRefresh"
+        "400":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      description: Fetch the local default refs and invalidate config caches. Always local; never forwards or commits. A fetch failure returns 502. Used for post-commit notifications.
 x-shepherd-events:
   description: 'WebSocket /events. Same auth gate as HTTP (send Authorization on the upgrade). Every frame is an EventEnvelope: {"event": string, "data": object}. Client may send {"type":"presence","active":boolean}; the server never replies to it.'
   envelope:

@@ -113,7 +113,20 @@ const bootstrapGetRoutes: Record<string, GetHandler> = {
   "/api/sessions/clear-merged": () => json(demoState.mergedClearable()),
   // Done lens (#Task 8): archived sessions, distinct from the live `sessions` list.
   "/api/sessions/done": () => json(demoState.doneSessions()),
-  "/api/repo-config": (url) => json(demoState.repoConfig(repoParam(url))),
+  // Demo repositories have no real origin or committed rule file; settings stay local.
+  "/api/repo-config": (url) =>
+    json({
+      ...demoState.repoConfig(repoParam(url)),
+      repoConfigBranch: null,
+      repoConfigCommit: null,
+      leitrechner: null,
+    }),
+  // No connected repository machines in the demo; the local identity comes from /api/instance.
+  "/api/repo-config/project": (url) =>
+    json({
+      remoteSlug: url.searchParams.get("remoteSlug") ?? "",
+      machines: [],
+    }),
   "/api/repo-bootstrap": () => json(DEMO_BOOTSTRAP),
   // Repo plugin/skill allowlist picker (#3780): a small plausible catalog, never the host's.
   "/api/agent-extensions": () =>

@@ -7383,6 +7383,11 @@ components:
               type: string
             effort:
               type: string
+        repoConfigBranch:
+          description: Default branch used for shared-rule commits; null for local-only repositories. Omitted when forge discovery fails; retry before editing shared rules.
+          type:
+            - string
+            - "null"
         repoConfigCommit:
           type: [string, "null"]
           description: Full selected default-branch commit SHA of the active file; null for missing, invalid or disabled files. Reads are cached for up to 60 seconds after fetch.

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { BootstrapStepKind } from "#lib/components/bootstrap-checklist.js";
+  import { provideAutomationLeaveGuard } from "./repo-settings/repo-config-editor.svelte.js";
   import { untrack } from "svelte";
   import type {
     BacklogPayload,
@@ -323,6 +324,7 @@
       selectedPath !== null &&
       !payload.projects.some((p) => p.path === selectedPath)
     ) {
+      if (untrack(() => automationLeave.editor?.dirty || automationLeave.editor?.saving)) return;
       selectedPath = null;
     }
   });
@@ -342,6 +344,7 @@
     const key = `${target.repoPath}#${target.issueNumber}`;
     if (key === untrack(() => appliedTargetKey)) return; // already applied
     appliedTargetKey = key;
+    if (!untrack(canLeaveAutomation)) return;
     filterSeededPath = null;
     selectedPath = target.repoPath;
     activeTab = "issues";
@@ -364,6 +367,7 @@
     }
     if (path === untrack(() => appliedSelectPath)) return; // already applied
     appliedSelectPath = path;
+    if (!untrack(canLeaveAutomation)) return;
     hasIssues = false;
     hasPRs = false;
     query = "";
@@ -371,6 +375,29 @@
     selectedPath = path;
     activeTab = "issues";
   });
+
+  const automationLeave = provideAutomationLeaveGuard();
+  export function canLeaveAutomation(): boolean {
+    const editor = automationLeave.editor;
+    if (editor?.saving) return false;
+    if (!editor?.dirty) return true;
+    if (!window.confirm(m.automation_layers_unsaved())) return false;
+    editor.discard();
+    return true;
+  }
+  function selectTab(tab: Tab) {
+    if (tab !== activeTab && !canLeaveAutomation()) return;
+    activeTab = tab;
+  }
+  function openAutomation() {
+    selectTab("automation");
+  }
+  function openReadiness() {
+    selectTab("readiness");
+  }
+  function closeView() {
+    if (canLeaveAutomation()) onclose();
+  }
 
   // Repo row click (shared by the mobile list and the desktop list, so the two
   // can't drift). An active filter chip picks the tab: filtering by "has PRs" is
@@ -381,9 +408,10 @@
   // Re-applied on EVERY click while a chip is on — switching to Actions manually
   // and then picking another repo lands on that chip's tab again.
   function handleSelect(path: string) {
+    const tab = tabForFilters({ hasIssues, hasPRs });
+    if ((path !== selectedPath || (tab && tab !== activeTab)) && !canLeaveAutomation()) return;
     filterSeededPath = null;
     selectedPath = path;
-    const tab = tabForFilters({ hasIssues, hasPRs });
     if (tab) activeTab = tab;
   }
 
@@ -416,13 +444,14 @@
     const tab = tabForShortcutKey(e);
     if (!tab) return false;
     e.preventDefault();
-    activeTab = tab;
+    selectTab(tab);
     return true;
   }
 
   // On mobile, a set selectedPath means the detail overlay is open.
   // Clearing it goes back to the project list.
   function dismissDetail() {
+    if (!canLeaveAutomation()) return;
     selectedPath = null;
   }
 
@@ -444,7 +473,7 @@
         ffDisabled={ffInFlight || selectedPath === null}
         branch={selected?.defaultBranch ?? null}
         {fromFilter}
-        {onclose}
+        onclose={closeView}
       >
         <ReposSwitcher
           bind:this={switcher}
@@ -469,7 +498,7 @@
         />
       </ReposHead>
     {:else}
-      <ReposHead {onclose} />
+      <ReposHead onclose={closeView} />
     {/if}
   {/if}
   {#if payload === null}
@@ -543,7 +572,7 @@
             {docAgentAct}
             {docAgentRunning}
             {docAgentRuns}
-            onselecttab={(t) => (activeTab = t)}
+            onselecttab={selectTab}
             onff={handleFf}
             ondocagent={handleDocAgent}
           />
@@ -569,8 +598,8 @@
             {issueSession}
             {ondraftepic}
             {onbootstrapstep}
-            onopenreadiness={() => (activeTab = "readiness")}
-            onopenautomation={() => (activeTab = "automation")}
+            onopenreadiness={openReadiness}
+            onopenautomation={openAutomation}
           />
         </div>
       </div>
@@ -603,7 +632,7 @@
         {docAgentRunning}
         {docAgentRuns}
         showFf={false}
-        onselecttab={(t) => (activeTab = t)}
+        onselecttab={selectTab}
         onff={handleFf}
         ondocagent={handleDocAgent}
       />
@@ -627,8 +656,8 @@
           {issueSession}
           {ondraftepic}
           {onbootstrapstep}
-          onopenreadiness={() => (activeTab = "readiness")}
-          onopenautomation={() => (activeTab = "automation")}
+          onopenreadiness={openReadiness}
+          onopenautomation={openAutomation}
         />
       </div>
     </div>

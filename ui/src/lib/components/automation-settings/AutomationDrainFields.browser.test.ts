@@ -161,3 +161,36 @@ describe("AutomationDrainFields — priority labels (#3446)", () => {
     expect(puts).toEqual([]);
   });
 });
+
+describe("AutomationDrainFields — label refresh", () => {
+  const repo = "/repo/label-refresh";
+  const label = () => page.getByRole("textbox", { name: m.drain_label_label(), exact: true });
+  afterEach(() => {
+    repoConfig.autoLabel = {};
+    repoConfig.loaded = {};
+  });
+
+  it("adopts a new stored label after loading has already settled", async () => {
+    repoConfig.autoLabel = { [repo]: "shepherd:old" };
+    repoConfig.loaded = { [repo]: true };
+    const save = vi.spyOn(repoConfig, "setAutoLabel").mockResolvedValue(undefined);
+    render(AutomationDrainFields, { repoPath: repo, active: true });
+    await expect.element(label()).toHaveValue("shepherd:old");
+    await tick();
+    repoConfig.autoLabel = { [repo]: "shepherd:current" };
+    await expect.element(label()).toHaveValue("shepherd:current");
+    await label().click();
+    await cap().click();
+    expect(save).toHaveBeenCalledWith(repo, "shepherd:current");
+  });
+
+  it("preserves text being edited while the stored label changes", async () => {
+    repoConfig.autoLabel = { [repo]: "shepherd:old" };
+    repoConfig.loaded = { [repo]: true };
+    render(AutomationDrainFields, { repoPath: repo, active: true });
+    await label().fill("shepherd:typing");
+    repoConfig.autoLabel = { [repo]: "shepherd:current" };
+    await tick();
+    await expect.element(label()).toHaveValue("shepherd:typing");
+  });
+});

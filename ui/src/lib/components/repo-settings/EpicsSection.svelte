@@ -1,6 +1,7 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { useRepoConfig } from "./repo-config-editor.svelte.js";
+  const repoConfig = useRepoConfig();
   import RepoSettingRow from "./RepoSettingRow.svelte";
 
   // Epics (#3443): how an epic's children land — stacked on their predecessor's branch, and an

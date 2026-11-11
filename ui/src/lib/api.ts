@@ -3242,8 +3242,23 @@ export type PendingRepoConfig = {
   changes: Partial<RepoConfig> & { leitrechner?: string | null };
 };
 
+export interface RepoLeitrechnerStatus {
+  instanceId: string | null;
+  name: string | null;
+  role: "unassigned" | "local" | "remote" | "unknown";
+  reachable: boolean | null;
+  allowed: boolean;
+  pauseReason: "remote_leitrechner" | "leitrechner_unreachable" | "config_refresh_failed" | null;
+}
+
 export type RepoConfigResponse = RepoConfig & {
   pendingRepoConfig?: PendingRepoConfig | null;
+  fieldSources?: Partial<Record<keyof RepoConfig | "leitrechner", "repo" | "rechner">>;
+  repoConfigCommit?: string | null;
+  repoConfigBranch?: string | null;
+  leitrechner?: string | null;
+  leitrechnerStatus?: RepoLeitrechnerStatus;
+  notifications?: { instanceId: string; name: string; ok: boolean; reason?: string }[];
   automationConfirmed?: boolean;
   automationRowExists?: boolean;
   /** The global default profile a `sandboxProfile: "inherit"` resolves to (#2100). */
@@ -3254,6 +3269,23 @@ export type RepoConfigResponse = RepoConfig & {
    *  the new setting now (settled) and after their current turn. */
   connectorRestart?: { now: number; later: number };
 };
+
+export interface RepoConfigProject {
+  remoteSlug: string;
+  machines: {
+    instanceId: string;
+    name: string;
+    membership: "present" | "absent" | "unknown";
+    reachable: boolean;
+    config: RepoConfigResponse | null;
+  }[];
+}
+export function getRepoConfigProject(remoteSlug: string): Promise<RepoConfigProject> {
+  return getJson(
+    `/api/repo-config/project?${new URLSearchParams({ remoteSlug })}`,
+    "repo-config project",
+  );
+}
 
 export async function getRepoConfig(repoPath: string): Promise<RepoConfigResponse> {
   return getJson(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`, "repo-config");
@@ -3321,7 +3353,7 @@ export type RepoConfigPatch = Partial<
     | "previewStartCommand"
     | "previewOpenMode"
   >
-> & { automationConfirmed?: boolean };
+> & { automationConfirmed?: boolean; leitrechner?: string | null };
 
 export async function putRepoConfig(
   repoPath: string,
@@ -3332,7 +3364,7 @@ export async function putRepoConfig(
     headers: JSON_HEADERS,
     body: JSON.stringify(patch),
   });
-  if (!r.ok) throw new Error(`repo-config put failed: ${r.status}`);
+  if (!r.ok) throw await failed(r, "repo-config put");
   return r.json();
 }
 

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
   import { getRepoEgressSuggestions } from "#lib/api.js";
-  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { useRepoConfig } from "./repo-config-editor.svelte.js";
+  const repoConfig = useRepoConfig();
   import { egressSuggestedHostsExplanation } from "#lib/tooltips/explanations.js";
   import type { EgressSuggestion } from "#lib/types.js";
   import RepoSettingRow from "./RepoSettingRow.svelte";

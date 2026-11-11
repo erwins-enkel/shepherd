@@ -2441,3 +2441,32 @@ test("usage pause events update a session and can explicitly clear it", () => {
   s.apply({ event: "session:usage-pause", data: { id: "pause", usagePause: null } });
   expect(s.sessions.find((x) => x.id === "pause")?.usagePause).toBeNull();
 });
+
+test("repo:leitrechner updates only the matching cached ownership view", async () => {
+  const { repoConfig } = await import("./reviews.svelte");
+  const store = new HerdStore();
+  const repo = "/ownership-event";
+  const status = {
+    instanceId: "owner",
+    name: "Linux",
+    role: "remote",
+    reachable: false,
+    allowed: false,
+    pauseReason: "leitrechner_unreachable",
+  } as const;
+  repoConfig.responses = {
+    [repo]: {
+      criticEnabled: true,
+      sharedBrowserEnabled: true,
+    } as import("./api").RepoConfigResponse,
+  };
+  repoConfig.sharedBrowser = { [repo]: false }; // pending local revocation
+  store.apply({ event: "repo:leitrechner", data: { repoPath: repo, leitrechnerStatus: status } });
+  expect(repoConfig.responses[repo].leitrechnerStatus).toEqual(status);
+  expect(repoConfig.sharedBrowserOn(repo)).toBe(false);
+  store.apply({
+    event: "repo:leitrechner",
+    data: { repoPath: "/uncached", leitrechnerStatus: status },
+  });
+  expect(repoConfig.responses["/uncached"]).toBeUndefined();
+});

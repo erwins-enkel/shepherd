@@ -1,4 +1,5 @@
 import type { PendingRepoConfig } from "./api";
+import { RULE_FIELDS, mergeRepoRuleView } from "./repo-config-fields";
 import type {
   ReviewVerdict,
   PlanGate,
@@ -14,7 +15,7 @@ import type { AutomationFlags } from "./components/git-rail-automation";
 import { handsOffPatch } from "./components/epic-handsoff";
 import { mergeModePatch, type MergeMode } from "./merge-mode";
 import { autonomyPatch, type AutonomyLevel } from "./autonomy";
-import type { RepoConfigPatch, RepoConfigResponse } from "./api";
+import type { RepoConfigPatch, RepoConfigResponse, RepoLeitrechnerStatus } from "./api";
 import { SAFE_ID, dropKey, setKey } from "./safe-keys";
 import {
   getReviews,
@@ -433,7 +434,8 @@ type OverlayMap = (typeof OVERLAY_MAPS)[keyof typeof OVERLAY_MAPS];
 
 /** Per-repo critic + auto-address + autopilot + drain + automerge + build-queue +
  *  plan-gate + draft-mode (+ sign-off authority) config, cached lazily by repoPath. */
-class RepoConfigStore {
+export class RepoConfigStore {
+  responses = $state<Record<string, RepoConfigResponse>>({});
   pendingRules = $state<Record<string, PendingRepoConfig | null>>({});
   enabled = $state<Record<string, boolean>>({}); // critic on/off (default on)
   allPrs = $state<Record<string, boolean>>({}); // standalone repo-wide PR critic on/off (default off)
@@ -480,10 +482,23 @@ class RepoConfigStore {
   // repoPaths whose config has been successfully loaded from an authoritative
   // server response. Unlike settled, failed fetches never mark loaded.
   loaded = $state<Record<string, boolean>>({});
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- Promise deduplication is internal bookkeeping, never rendered.
   private ensureInflight = new Map<string, Promise<boolean>>();
 
+  /** Seed a scoped settings store from the authoritative maps, including optimistic local edits. */
+  copyStateFrom(source: RepoConfigStore) {
+    for (const map of Object.values(OVERLAY_MAPS)) this[map] = source[map] as never;
+    this.noPrCi = source.noPrCi;
+    this.sandboxDefault = source.sandboxDefault;
+    this.pendingRules = source.pendingRules;
+    this.rowExists = source.rowExists;
+    this.loaded = source.loaded;
+    this.settled = source.settled;
+  }
+
   /** Spread a fetched RepoConfigResponse into every per-field $state map for `repoPath`. */
-  private ingest(repoPath: string, c: RepoConfigResponse) {
+  ingest(repoPath: string, c: RepoConfigResponse) {
+    this.responses = { ...this.responses, [repoPath]: c };
     this.pendingRules = { ...this.pendingRules, [repoPath]: c.pendingRepoConfig ?? null };
     this.enabled = { ...this.enabled, [repoPath]: c.criticEnabled };
     this.allPrs = { ...this.allPrs, [repoPath]: c.criticAllPrs };
@@ -601,16 +616,8 @@ class RepoConfigStore {
     return this.loaded[repoPath] ?? false;
   }
 
-  /** THE write path for repo config (#3443): every toggle and setter below, the repo-settings
-   *  window, the Backlog tab and the first-task confirm all land here. Optimistically overlays each
-   *  patched field, PUTs the patch, then reconciles from the server's answer — or, when the PUT
-   *  fails, puts back exactly the fields it overlaid. `rethrow` surfaces the failure to callers that
-   *  must not proceed on it (the hands-off apply, the first-task confirm); everyone else gets null. */
-  async write(
-    repoPath: string,
-    patch: RepoConfigPatch,
-    opts: { rethrow?: boolean } = {},
-  ): Promise<RepoConfigResponse | null> {
+  /** Apply an optimistic or editor-only patch; the caller owns persistence and rollback. */
+  overlay(repoPath: string, patch: RepoConfigPatch) {
     const maps = this as unknown as Record<OverlayMap, Record<string, unknown>>;
     const prev: [OverlayMap, unknown][] = [];
     for (const [key, value] of Object.entries(patch)) {
@@ -619,10 +626,49 @@ class RepoConfigStore {
       prev.push([map, maps[map][repoPath]]);
       maps[map] = { ...maps[map], [repoPath]: value }; // optimistic
     }
+    return prev;
+  }
+
+  /** Ownership events update metadata without resetting optimistic machine values. */
+  setLeitrechnerStatus(repoPath: string, status: RepoLeitrechnerStatus) {
+    const view = this.responses[repoPath];
+    if (view)
+      this.responses = { ...this.responses, [repoPath]: { ...view, leitrechnerStatus: status } };
+  }
+
+  /** A rule commit never replaces newer or still-pending machine values. */
+  adoptRules(repoPath: string, saved: RepoConfigResponse) {
+    const merged = mergeRepoRuleView(this.responses[repoPath] ?? saved, saved);
+    this.responses = { ...this.responses, [repoPath]: merged };
+    this.overlay(repoPath, Object.fromEntries(RULE_FIELDS.map((key) => [key, saved[key]])));
+    return merged;
+  }
+
+  /** THE write path for repo config (#3443): every toggle and setter below, the repo-settings
+   *  window, the Backlog tab and the first-task confirm all land here. Optimistically overlays each
+   *  patched field, PUTs the patch, then reconciles from the server's answer — or, when the PUT
+   *  fails, puts back exactly the fields it overlaid. `rethrow` surfaces the failure to callers that
+   *  must not proceed on it (the hands-off apply, the first-task confirm); everyone else gets null. */
+  async write(
+    repoPath: string,
+    patch: RepoConfigPatch,
+    opts: { rethrow?: boolean; machineOnly?: boolean } = {},
+  ): Promise<RepoConfigResponse | null> {
+    const maps = this as unknown as Record<OverlayMap, Record<string, unknown>>;
+    const startingCommit = this.responses[repoPath]?.repoConfigCommit;
+    const prev = this.overlay(repoPath, patch);
     try {
       const res = await putRepoConfig(repoPath, patch);
-      this.ingest(repoPath, res);
-      return res;
+      const current = this.responses[repoPath];
+      const reconciled =
+        opts.machineOnly &&
+        patch.repoMode === undefined &&
+        current?.repoConfigCommit &&
+        current.repoConfigCommit !== startingCommit
+          ? mergeRepoRuleView(res, current)
+          : res;
+      this.ingest(repoPath, reconciled);
+      return reconciled;
     } catch (e) {
       for (const [map, value] of prev.reverse()) maps[map] = { ...maps[map], [repoPath]: value };
       if (opts.rethrow) throw e;

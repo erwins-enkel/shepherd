@@ -11,7 +11,12 @@ import { repoConfig } from "#lib/reviews.svelte.js";
 import { toasts } from "#lib/toasts.svelte.js";
 import type { DrainStatus } from "#lib/types.js";
 
-afterEach(() => infoTips.set(false));
+afterEach(() => {
+  infoTips.set(false);
+  repoConfig.responses = {};
+  repoConfig.loaded = {};
+  repoConfig.settled = {};
+});
 
 // The body of every repo-settings surface (#3443) — the window, a session's Automation tab and
 // the Backlog's Settings tab: one section at a time, the hints above it. These cover the
@@ -817,6 +822,7 @@ describe("RepoSettingsBody — the autonomy chain follows the switches (#3445)",
       draftMode: false,
       signoffAuthority: "human",
       repoMode: "forge",
+      repoConfigBranch: null,
       sandboxProfile: "autonomous",
     };
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {

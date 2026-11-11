@@ -1,6 +1,8 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { useRepoConfig, useSettingsLayer } from "./repo-config-editor.svelte.js";
+  const repoConfig = useRepoConfig();
+  const layer = useSettingsLayer();
   import { MERGE_MODES, effectiveMergeMode } from "#lib/merge-mode.js";
   import RepoSettingRow from "./RepoSettingRow.svelte";
   import RepoRolesFields from "./RepoRolesFields.svelte";
@@ -145,7 +147,9 @@
   checked={repoConfig.manualStepsIssueOn(repoPath) && !lightweight}
   ontoggle={() => repoConfig.toggleManualStepsIssue(repoPath)}
 />
-<RepoRolesFields {repoPath} />
+{#if layer !== "repo"}{#if layer}<p class="note">
+      {m.automation_layers_roles()}
+    </p>{/if}<RepoRolesFields {repoPath} />{/if}
 
 <style>
   .note {

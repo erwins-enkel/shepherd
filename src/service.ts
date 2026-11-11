@@ -4127,9 +4127,10 @@ export class SessionService {
     const outcome = await requestEgressReload(tmp);
     if (outcome !== "applied") {
       console.warn(`[egress] reapply ${sessionId}: ${outcome}`);
-      // timeout: the runner may still finish the reload; failed: nft may have applied before
-      // dnsmasq rolled back. Either way the next reapply must reload. unsupported: nothing ran.
-      if (outcome !== "unsupported") writeEgressSpawnInputs(tmp, { ...inputs, uncertain: true });
+      // The session may now run the new list: timeout — the runner can still finish the reload;
+      // failed — nft may have applied before dnsmasq rolled back; unsupported — a runner still
+      // starting up reads the config files just rewritten. So the next reapply must reload.
+      writeEgressSpawnInputs(tmp, { ...inputs, uncertain: true });
       return;
     }
     writeEgressSpawnInputs(tmp, { ...inputs, allowlist, uncertain: false });

@@ -1297,7 +1297,7 @@ describe("reapplyEgressAllowlist (live allowlist edits)", () => {
     }
   });
 
-  test("no reload channel (pre-live-reload runner) or another repo → untouched", async () => {
+  test("another repo → untouched; no reload listener → marked uncertain", async () => {
     const { store, service, s, dir, allowlists } = await setup();
     try {
       store.setRepoConfig("/repo", {
@@ -1309,6 +1309,8 @@ describe("reapplyEgressAllowlist (live allowlist edits)", () => {
       await service.reapplyEgressAllowlist("/repo"); // no FIFO → unsupported
       expect(allowlists).toHaveLength(0);
       expect(spawnInputs(dir).allowlist).not.toContain("registry.npmjs.org");
+      // A runner still starting up may load the rewritten files → the next reapply must reload.
+      expect((spawnInputs(dir) as { uncertain?: boolean }).uncertain).toBe(true);
     } finally {
       rmSync(egressTmpDir(s.id), { recursive: true, force: true });
     }

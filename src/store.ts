@@ -8332,7 +8332,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       claudeAiConnectors: nullableBool(r.claudeAiConnectors),
       ingressStamp: r.ingressStamp,
       shelved: !!r.shelved,
-      usagePause: r.usagePauseJson ? JSON.parse(r.usagePauseJson) : null,
+      usagePause: safeJsonParse<UsagePause | null>(r.usagePauseJson, null),
     } as Session;
   }
 

@@ -286,6 +286,8 @@ export class SessionArchiver {
     // that shells out to herdr pauses the same way.
     if (this.running || !this.enabled() || maintenance.active) return;
     this.running = true;
+    // The existing bounded sweep/timer skeleton intentionally parallels BranchPruner.
+    // fallow-ignore-next-line code-duplication
     try {
       const candidates = this.candidates();
       if (candidates.length === 0) return;
@@ -302,7 +304,9 @@ export class SessionArchiver {
           continue;
         }
         try {
-          if (await this.archiveOne(s)) archived.push(s.id);
+          const didArchive = await this.archiveOne(s);
+          if (!didArchive) continue;
+          archived.push(s.id);
         } catch (err) {
           // One session's teardown failing must not abort the sweep; its row stays live and the
           // next tick retries it.

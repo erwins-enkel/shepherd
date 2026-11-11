@@ -7,6 +7,12 @@ export function isUsagePaused(s: Pick<Session, "usagePause"> | null | undefined)
   return s?.usagePause != null;
 }
 
+export function isAutomationQuiet(s: Pick<Session, "usagePause" | "shelved">): boolean {
+  return isUsagePaused(s) || s.shelved === true;
+}
+
+export class UsagePauseResumeCanceled extends Error {}
+
 /** Automatic teardown lost its permission while awaiting other work. */
 export class UsagePauseArchiveCanceled extends Error {
   constructor() {
@@ -34,6 +40,7 @@ export function publishUsagePause(
   pause: UsagePause | null,
   events: Deps["events"] | undefined,
 ): void {
+  if (!s.usagePause && !pause) return;
   events?.emit("session:usage-pause", { id: s.id, usagePause: pause });
   events?.emit("schedules:changed", { repoPath: s.repoPath });
 }
@@ -161,21 +168,26 @@ export class SchedulePauseService {
     if (s.haltReason === "usage_limit") this.onHalt(s.id, s.haltReason);
     else this.onStatus(s.id, s.status);
     s = this.deps.store.get(s.id)!;
-    let pause = s.usagePause!;
+    const pause = s.usagePause!;
     if (!pause || s.shelved) return;
-    if (pause.phase === "requested") {
-      if ((s.agentProvider ?? "claude") === "claude" && !pause.stopSteerSent) {
-        const delivered = await this.deps.stop(
-          s.id,
-          `Shepherd: the usage stop for this scheduled run (${pause.stopPct} %) is reached. Finish the step you're on, then stop and wait — don't start a new step. Shepherd resumes you after the usage window resets.`,
-          pause.since,
-        );
-        const current = this.current(s.id, pause.since);
-        if (delivered && current?.usagePause?.phase === "requested")
-          this.save(current, { ...current.usagePause, stopSteerSent: true });
-      }
-      return;
+    if (pause.phase === "requested") return this.sendStop(s, pause);
+    await this.resumePaused(s, pause);
+  }
+
+  private async sendStop(s: Session, pause: UsagePause): Promise<void> {
+    if ((s.agentProvider ?? "claude") === "claude" && !pause.stopSteerSent) {
+      const delivered = await this.deps.stop(
+        s.id,
+        `Shepherd: the usage stop for this scheduled run (${pause.stopPct} %) is reached. Finish the step you're on, then stop and wait — don't start a new step. Shepherd resumes you after the usage window resets.`,
+        pause.since,
+      );
+      const current = this.current(s.id, pause.since);
+      if (delivered && current?.usagePause?.phase === "requested")
+        this.save(current, { ...current.usagePause, stopSteerSent: true });
     }
+  }
+
+  private async resumePaused(s: Session, pause: UsagePause): Promise<void> {
     // A pane that started working by itself must not receive a second continue prompt.
     if (
       (s.status === "running" && s.haltReason !== "usage_limit") ||
@@ -190,18 +202,33 @@ export class SchedulePauseService {
       this.save(s, pause);
     }
     if (pause.resumeAt! > now) return;
+    if (!this.usageAllowsResume(s, pause, now)) return;
+    const delivered = await this.deps.resume(
+      s.id,
+      "Shepherd: the usage window has reset. Continue where you left off.",
+      pause.since,
+    );
+    const current = this.current(s.id, pause.since);
+    if (delivered && current) this.save(current, null);
+  }
+
+  private usageAllowsResume(s: Session, pause: UsagePause, now: number): boolean {
     const source = this.source(s);
-    if (!source) return;
+    if (!source) return false;
     const observedOnly =
       (s.agentProvider ?? "claude") === "claude" && !source.week && !source.session5h;
-    if (source.stale && !observedOnly) return;
+    if (source.stale && !observedOnly) return false;
     const blocking = this.blocking(s, pause.stopPct);
     if (blocking.length) {
       const resumeAt = this.reset(s, blocking);
       if (resumeAt !== pause.resumeAt || blocking.join() !== pause.windows.join())
         this.save(s, { ...pause, resumeAt, windows: blocking });
-      return;
+      return false;
     }
+    return this.hasResetEvidence(s, pause, now);
+  }
+
+  private hasResetEvidence(s: Session, pause: UsagePause, now: number): boolean {
     // Expired/missing telemetry cannot prove that the triggering windows reset.
     if (
       pause.windows.some((key) => {
@@ -211,7 +238,7 @@ export class SchedulePauseService {
         return !this.absent(s, key) && (!w || w.resetAt == null || w.resetAt <= now);
       })
     )
-      return;
+      return false;
     if ((s.agentProvider ?? "claude") === "claude") {
       if (
         pause.windows.some((key) => {
@@ -225,14 +252,11 @@ export class SchedulePauseService {
           );
         })
       )
-        return;
-    } else if (!source.week && !source.session5h) return;
-    const delivered = await this.deps.resume(
-      s.id,
-      "Shepherd: the usage window has reset. Continue where you left off.",
-      pause.since,
-    );
-    const current = this.current(s.id, pause.since);
-    if (delivered && current) this.save(current, null);
+        return false;
+    } else {
+      const source = this.source(s);
+      if (!source?.week && !source?.session5h) return false;
+    }
+    return true;
   }
 }

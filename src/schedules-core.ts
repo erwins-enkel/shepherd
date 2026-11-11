@@ -307,11 +307,21 @@ export function decideFiring(args: {
     : "fire";
 }
 
-function validateUsageLimitAction(raw: unknown): Result<Pick<ScheduleUsageLimit, "onMismatch">> {
-  if (raw === undefined) return { ok: true, value: {} };
-  if (raw !== "skip" && raw !== "wait" && raw !== "otherProvider")
+function validateUsageLimitOptions(
+  obj: Record<string, unknown>,
+): Result<Pick<ScheduleUsageLimit, "onMismatch" | "pauseAtStop">> {
+  const raw = obj.onMismatch;
+  if (raw !== undefined && raw !== "skip" && raw !== "wait" && raw !== "otherProvider")
     return fail("usageLimit.onMismatch must be skip, wait or otherProvider");
-  return { ok: true, value: { onMismatch: raw } };
+  if (obj.pauseAtStop !== undefined && typeof obj.pauseAtStop !== "boolean")
+    return fail("usageLimit.pauseAtStop must be a boolean");
+  return {
+    ok: true,
+    value: {
+      ...(raw !== undefined && { onMismatch: raw }),
+      ...(obj.pauseAtStop !== undefined && { pauseAtStop: obj.pauseAtStop as boolean }),
+    },
+  };
 }
 
 function validateUsageLimit(raw: unknown): Result<ScheduleUsageLimit | null> {
@@ -323,16 +333,13 @@ function validateUsageLimit(raw: unknown): Result<ScheduleUsageLimit | null> {
     obj.kind === "from" ? ["kind", "startPct", "startWindow", "stopPct"] : ["kind", "stopPct"];
   if (Object.keys(obj).some((key) => ![...keys, "onMismatch", "pauseAtStop"].includes(key)))
     return fail("unknown usageLimit key");
-  if (obj.pauseAtStop !== undefined && typeof obj.pauseAtStop !== "boolean")
-    return fail("usageLimit.pauseAtStop must be a boolean");
-  const pause = obj.pauseAtStop === undefined ? {} : { pauseAtStop: obj.pauseAtStop as boolean };
-  const action = validateUsageLimitAction(obj.onMismatch);
+  const action = validateUsageLimitOptions(obj);
   if (!action.ok) return action;
   const pct = (v: unknown, min: number, max: number): v is number =>
     typeof v === "number" && Number.isInteger(v) && v % 5 === 0 && v >= min && v <= max;
   if (!pct(obj.stopPct, 5, 100)) return fail("usageLimit.stopPct must be 5–100 in steps of 5");
   if (obj.kind === "upTo")
-    return { ok: true, value: { kind: "upTo", stopPct: obj.stopPct, ...pause, ...action.value } };
+    return { ok: true, value: { kind: "upTo", stopPct: obj.stopPct, ...action.value } };
   if (obj.kind !== "from") return fail("usageLimit.kind must be upTo or from");
   if (!pct(obj.startPct, 0, 95) || obj.startPct >= obj.stopPct)
     return fail("usageLimit.startPct must be 0–95 in steps of 5 and less than stopPct");
@@ -342,7 +349,6 @@ function validateUsageLimit(raw: unknown): Result<ScheduleUsageLimit | null> {
     ok: true,
     value: {
       kind: "from",
-      ...pause,
       ...action.value,
       startPct: obj.startPct,
       startWindow: obj.startWindow,

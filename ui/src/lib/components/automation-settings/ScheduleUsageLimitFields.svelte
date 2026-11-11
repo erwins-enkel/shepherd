@@ -26,6 +26,7 @@
     interval: boolean;
   } = $props();
   const uid = $props.id();
+  const limitOptions = $derived({ pauseAtStop: value?.pauseAtStop, onMismatch: value?.onMismatch });
   const other = $derived(provider === "claude" ? "codex" : "claude");
   const otherName = $derived(other === "claude" ? "Claude Code" : "Codex");
   const otherReady = $derived(readyProviders.includes(other));
@@ -62,8 +63,7 @@
         value = {
           kind: "upTo",
           stopPct: 70,
-          ...(value?.pauseAtStop !== undefined && { pauseAtStop: value.pauseAtStop }),
-          ...(value?.onMismatch && { onMismatch: value.onMismatch }),
+          ...limitOptions,
         };
     }}>{m.schedules_limit_up()}</button
   >
@@ -77,8 +77,7 @@
           startPct: 80,
           startWindow: "week",
           stopPct: 95,
-          ...(value?.pauseAtStop !== undefined && { pauseAtStop: value.pauseAtStop }),
-          ...(value?.onMismatch && { onMismatch: value.onMismatch }),
+          ...limitOptions,
         };
     }}>{m.schedules_limit_from()}</button
   >

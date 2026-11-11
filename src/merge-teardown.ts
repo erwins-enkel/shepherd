@@ -157,7 +157,6 @@ export interface MergeTeardownDeps {
  * sessions (no issue) skip the close/claim entirely.
  */
 export async function settleMergedSession(s: Session, deps: MergeTeardownDeps): Promise<void> {
-  if (deps.canArchive?.(s.id) === false) return;
   try {
     deps.onMerged?.(s);
   } catch (err) {

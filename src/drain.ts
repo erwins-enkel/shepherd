@@ -5082,26 +5082,9 @@ export class DrainService {
     );
     // The answer to every other layer's gate just changed.
     this.stackConfirmHeld.delete(repoPath);
-    try {
-      if (isUsagePaused(this.deps.store.get(decision.sessionId))) return;
-      await this.deps.service.archive(decision.sessionId, undefined, "drain", true);
-    } catch (err) {
-      // The squash-merge already landed (PR is now MERGED) but teardown didn't finish. This is
-      // recoverable, not a permanent strand: we deliberately do NOT dropPrCache/emit below, so the
-      // session stays live AND polled (pr-poller skips only archived rows). The poller re-observes
-      // the merged PR and settles it via reapMerged → settleMergedSession (archive + teardown) —
-      // the same path any out-of-band merge takes. #1037: because the integration is already
-      // recorded above, settleMergedSession's isIntegratedEpicChild guard sees this child as
-      // integrated and ARCHIVES-ONLY (never closes the issue) — so this recovery keeps the child
-      // open until the landing PR merges, just like the happy path. The session can NOT be
-      // re-selected by the retire gate (readyToRetire requires state==="open"; the PR is merged),
-      // hence the poller is the recovery, not a retry.
-      console.warn(
-        `[drain] archive (epic child) failed for ${decision.sessionId}; pr-poller will reap the merged PR:`,
-        err,
-      );
-      return;
-    }
+    // If teardown loses to a pause or fails, keep the PR cached so the poller can retry after
+    // continuation. The recorded epic integration still prevents closing this child early.
+    if (!(await this.archiveRetiredSession(decision.sessionId))) return;
     // Keep the claim: the child issue stays open until the epic lands; releasing would let it
     // re-spawn. Mirrors the non-epic retire path.
     this.retainArchivedClaim(decision.sessionId);
@@ -5153,13 +5136,7 @@ export class DrainService {
     // failure we warn and defer — the session stays live and mergeable, so the
     // next tick retries; we must NOT drop the pr-cache or emit "archived" for a
     // session that didn't actually archive.
-    try {
-      if (isUsagePaused(this.deps.store.get(decision.sessionId))) return;
-      await this.deps.service.archive(decision.sessionId, undefined, "drain", true);
-    } catch (err) {
-      console.warn(`[drain] archive failed for ${decision.sessionId}:`, err);
-      return;
-    }
+    if (!(await this.archiveRetiredSession(decision.sessionId))) return;
     // The PR is left OPEN for a human to merge, so the issue stays open and claimed.
     // Mark the archive as a retire so onArchived KEEPS the claim — releasing it here
     // would let another instance re-spawn an issue that already has a ready PR. The
@@ -5932,6 +5909,17 @@ export class DrainService {
         { store: this.deps.store, forge },
       );
       if (this.deps.store.isEpicIntegratedChild(repoPath, childNumber)) return; // recorded
+    }
+  }
+
+  private async archiveRetiredSession(id: string): Promise<boolean> {
+    if (isUsagePaused(this.deps.store.get(id))) return false;
+    try {
+      await this.deps.service.archive(id, undefined, "drain", true);
+      return true;
+    } catch (err) {
+      console.warn(`[drain] archive failed for ${id}:`, err);
+      return false;
     }
   }
 

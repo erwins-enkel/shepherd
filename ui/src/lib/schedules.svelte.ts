@@ -156,6 +156,12 @@ export function schedulePauseWhen(at: number): string {
   }).format(at);
 }
 
+export function schedulePauseLabel(resumeAt?: number | null, run = false): string {
+  if (resumeAt == null) return m.schedule_pause_title();
+  const when = schedulePauseWhen(resumeAt);
+  return run ? m.schedules_outcome_paused({ when }) : m.schedule_pause_badge({ when });
+}
+
 /** A run outcome as the operator reads it. */
 export function outcomeLabel(
   outcome: string,
@@ -165,9 +171,7 @@ export function outcomeLabel(
 ): string {
   switch (outcome) {
     case "paused":
-      return pausedUntil == null
-        ? m.schedule_pause_title()
-        : m.schedules_outcome_paused({ when: schedulePauseWhen(pausedUntil) });
+      return schedulePauseLabel(pausedUntil, true);
     case "claimed":
       return m.schedules_outcome_interrupted();
     case "spawned":

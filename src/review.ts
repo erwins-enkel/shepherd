@@ -1,4 +1,4 @@
-import { isUsagePaused } from "./schedule-pause";
+import { isAutomationQuiet } from "./schedule-pause";
 import { admitRoleCapacity } from "./codex-capacity";
 import { existsSync, readFileSync } from "node:fs";
 import { prepareReviewerTaskPrompt } from "./task-prompt-file";
@@ -596,7 +596,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     opts?: { force?: boolean },
   ): Promise<ReviewOutcome> {
     const force = opts?.force === true;
-    if (!force && (isUsagePaused(session) || session.shelved === true)) return "skipped"; // shelved: no auto critic
+    if (!force && isAutomationQuiet(session)) return "skipped"; // shelved: no auto critic
     // Synchronous predicate: the common (no-hold) path must reach the `starting` claim below
     // without yielding, or a concurrent forget() would land before it.
     const hold = holdReason(git, force, () => this.deps.rebasesWhenBehind?.(session) ?? false);

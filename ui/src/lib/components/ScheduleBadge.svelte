@@ -3,7 +3,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
 
-  import { schedulePauseWhen } from "#lib/schedules.svelte.js";
+  import { schedulePauseLabel } from "#lib/schedules.svelte.js";
   import { schedulePauseExplanation } from "#lib/tooltips/explanations.js";
 
   // A session an operator schedule spawned (#3469). The name is read live, so a deleted schedule
@@ -13,9 +13,7 @@
   const pause = $derived(session.usagePause?.phase === "paused" ? session.usagePause : null);
   const label = $derived(
     pause
-      ? pause.resumeAt == null
-        ? m.schedule_pause_title()
-        : m.schedule_pause_badge({ when: schedulePauseWhen(pause.resumeAt) })
+      ? schedulePauseLabel(pause.resumeAt)
       : session.scheduleName
         ? m.schedule_badge_label_named({ name: session.scheduleName })
         : m.schedule_badge_label(),

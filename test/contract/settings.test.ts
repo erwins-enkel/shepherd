@@ -16,6 +16,8 @@ import {
 } from "./harness";
 import { operationsForStream, eventsForStream } from "./stream-blocks";
 import { config } from "../../src/config";
+import { configRepo, git as configGit } from "../helpers/repo-config-git";
+import { invalidateRepoConfigFile } from "../../src/repo-config-file";
 import { firstRun } from "../../src/first-run";
 import { diagnostic } from "./settings-fixtures";
 import { generateKeyPairSync } from "node:crypto";
@@ -59,6 +61,64 @@ afterAll(() => {
     restoreAuth();
   }
 });
+test("repo config reports per-field sources and committed SHA, and sanitizes refused mixed writes", async () => {
+  const r = configRepo(s.tmpRoot);
+  const path = "/api/repo-config",
+    at = `${path}?repo=${encodeURIComponent(r.b)}`;
+  try {
+    const local = (await request("GET", path, 200, undefined, at)) as any;
+    expect(local.repoConfigCommit).toBeNull();
+    expect(Object.values(local.fieldSources)).toEqual(
+      Object.keys(s.deps.store.getRepoConfig(r.b)).map(() => "rechner"),
+    );
+    const commit = r.commit('{"defaultModel":"inherit","autoDrainEnabled":true}');
+    configGit(r.b, "fetch", "origin");
+    invalidateRepoConfigFile(r.b);
+    const shared = (await request("GET", path, 200, undefined, at)) as any;
+    expect(shared.repoConfigCommit).toBe(commit);
+    expect(shared.fieldSources).toMatchObject({
+      defaultModel: "repo",
+      defaultEffort: "repo",
+      criticEnabled: "repo",
+      sandboxProfile: "rechner",
+      maxAuto: "rechner",
+    });
+    expect(shared.defaultModel).toBe("inherit");
+    const changed = (await request(
+      "PUT",
+      path,
+      200,
+      { planGateEnabled: true, maxAuto: 4 },
+      at,
+    )) as any;
+    expect(changed.repoConfigCommit).toBe(configGit(r.origin, "rev-parse", "main"));
+    expect(changed.fieldSources).toEqual(shared.fieldSources);
+    const beforeCli = configGit(r.origin, "rev-parse", "main");
+    await request("PUT", path, 200, { agentProvider: "codex" }, at);
+    expect(configGit(r.origin, "rev-parse", "main")).toBe(beforeCli);
+    writeFileSync(
+      join(r.origin, "hooks/pre-receive"),
+      "#!/bin/sh\necho secret-token >&2\nexit 1\n",
+      { mode: 0o755 },
+    );
+    const refused = (await request(
+      "PUT",
+      path,
+      502,
+      { criticAllPrs: true, maxAuto: 8, automationConfirmed: true },
+      at,
+    )) as any;
+    expect(refused.code).toBe("repo_config_write_failed");
+    expect(JSON.stringify(refused)).not.toContain("secret-token");
+    const after = (await request("GET", path, 200, undefined, at)) as any;
+    expect(after.maxAuto).toBe(4);
+    expect(after.automationConfirmed).toBe(false);
+    expect(after.repoConfigCommit).toBe(changed.repoConfigCommit);
+  } finally {
+    r.close();
+  }
+});
+
 test("repo config, role no-op, push refusal and collaborator fallback", async () => {
   const query = `?repo=${encodeURIComponent(s.validRepo)}`;
   for (const path of ["/api/repo-config", "/api/repo-roles", "/api/repo-collaborators"]) {

@@ -1,5 +1,6 @@
 import { afterEach, describe, test, expect } from "bun:test";
 import { config } from "../src/config";
+import { configRepo, git } from "./helpers/repo-config-git";
 import { makeApp, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
@@ -629,4 +630,50 @@ test("preview/start (egress): binds the in-netns dev server via its slirp forwar
   expect(await res.json()).toMatchObject({ alreadyRunning: true, previewPort: 8001 });
   expect(ensured).toEqual([[id, 5173, 41234]]);
   expect(hostScanned).toBe(false);
+});
+
+test("preview setup preserves DB rule fallbacks when repo rules are active", async () => {
+  const repo = configRepo();
+  try {
+    repo.commit('{"criticEnabled":false}');
+    git(repo.b, "fetch", "origin");
+    const store = new SessionStore(":memory:");
+    const session = store.create({
+      name: "preview-file-rules",
+      prompt: "x",
+      repoPath: repo.b,
+      baseBranch: "main",
+      branch: "feature",
+      worktreePath: repo.b,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "term_file",
+    });
+    expect(store.getRepoConfig(repo.b).criticEnabled).toBe(false);
+    const app = makeApp({
+      store,
+      service: { reply: async () => true } as any,
+      events: new EventHub(),
+      usageLimits: { limits: () => ({}) } as any,
+      preview: { snapshot: () => ({}) },
+      previewLauncher: {
+        findDevPort: async () => null,
+        scriptExists: async () => false,
+        scriptPath: async () => "/git/shepherd/preview-start.sh",
+        ensureScript: async () => "/git/shepherd/preview-start.sh",
+        startScript: async () => {},
+      },
+    });
+    const response = await app.fetch(
+      postJson(`/api/sessions/${session.id}/preview/start`, { command: "bun run dev" }),
+    );
+    expect(response.status).toBe(200);
+    expect(store.getLocalRepoConfig(repo.b)).toMatchObject({
+      criticEnabled: true,
+      previewStartCommand: "bun run dev",
+    });
+    expect(store.getRepoConfig(repo.b).criticEnabled).toBe(false);
+  } finally {
+    repo.close();
+  }
 });

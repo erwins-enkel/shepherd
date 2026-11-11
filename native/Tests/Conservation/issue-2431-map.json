@@ -13068,7 +13068,8 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/GeneratedContractTests.swift\",\"GeneratedContractTests\",\"budgetStopDecodes() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoSettingsFormTests.swift\",\"CoreSeamTests.RepoSettingsFormTests\",\"autonomyPresetsWriteExactlySixFieldsAndRoundTrip() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoSettingsFormTests.swift\",\"CoreSeamTests.RepoSettingsFormTests\",\"autonomyReadsEffectiveValuesAndCustomMixes() throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoSettingsFormTests.swift\",\"CoreSeamTests.RepoSettingsFormTests\",\"autonomyResponsibilitiesFollowTheConfigIncludingPlanGate() throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoSettingsFormTests.swift\",\"CoreSeamTests.RepoSettingsFormTests\",\"autonomyResponsibilitiesFollowTheConfigIncludingPlanGate() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientSettingsTests.swift\",\"ShepherdClientSettingsTests\",\"repoConfigPushFailurePreservesTheServerError() async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

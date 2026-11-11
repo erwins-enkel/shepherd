@@ -22,7 +22,7 @@
   "devDependencies": {
     "@crxjs/vite-plugin": "^3.0.0",
     "@eslint/js": "^10.0.1",
-    "@inlang/paraglide-js": "^3.0.0",
+    "@inlang/paraglide-js": "^3.2.1",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@tailwindcss/vite": "^4.3.5",
     "@tsconfig/svelte": "^5.0.4",

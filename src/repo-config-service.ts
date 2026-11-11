@@ -108,19 +108,18 @@ export class RepoConfigService {
       defaultAgentProvider?: AgentProvider;
     } = {},
   ): Promise<RepoConfigPatchResult> {
+    const leader = opts.leitrechner === undefined ? patch.leitrechner : opts.leitrechner;
     return withRepoConfigLock(dir, async () => {
       const local = this.store.getLocalRepoConfig(dir);
       // A mode switch to lightweight must be local even if this repo has an origin/file.
       const fileEnabled =
         (patch.repoMode ?? local.repoMode) !== "lightweight" && !!repoConfigGitContext(dir);
-      const ownerError = leitrechnerPatchError(patch, fileEnabled);
-      if (ownerError) return { ok: false, error: ownerError };
       const hasRulePatch = Object.entries(patch).some(
         ([key, value]) => value !== undefined && isRepoRuleKey(key),
       );
-      const leaderError = this.leaderPatchError(fileEnabled, opts.leitrechner);
+      const leaderError = this.leaderPatchError(fileEnabled, leader);
       if (leaderError) return { ok: false, error: leaderError };
-      const writeRules = fileEnabled && (hasRulePatch || opts.leitrechner !== undefined);
+      const writeRules = fileEnabled && (hasRulePatch || leader !== undefined);
       let localRunDefaults: RepoConfigPatch = {};
       try {
         if (writeRules) {
@@ -133,7 +132,7 @@ export class RepoConfigService {
             );
             return {
               ...repoRulesFromConfig(config),
-              ...(opts.leitrechner === undefined ? {} : { leitrechner: opts.leitrechner }),
+              ...(leader === undefined ? {} : { leitrechner: leader }),
             };
           });
         } else {
@@ -209,11 +208,3 @@ export class RepoConfigService {
 }
 
 class ConfigValidationError extends Error {}
-
-function leitrechnerPatchError(patch: RepoConfigPatch, fileEnabled: boolean): string | null {
-  if (patch.leitrechner !== undefined && !isLeitrechner(patch.leitrechner))
-    return "leitrechner must be a instance UUID or null";
-  if (patch.leitrechner != null && !fileEnabled)
-    return "leitrechner requires a forge repository with origin";
-  return null;
-}

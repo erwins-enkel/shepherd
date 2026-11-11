@@ -3557,8 +3557,7 @@ function parseNullableString(v: unknown): string | null | { error: string } {
 const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => unknown][] = [
   [
     "leitrechner",
-    (v) =>
-      isLeitrechner(v) ? v : { error: "leitrechner must be a instance UUID or null" },
+    (v) => (isLeitrechner(v) ? v : { error: "leitrechner must be an instance UUID or null" }),
   ],
   ["maxAuto", parseMaxAuto],
   ["autoLabel", parseAutoLabel],
@@ -3858,7 +3857,10 @@ async function refreshLocalRepoConfig(deps: AppDeps, slug: string): Promise<void
     );
   // Populate contexts for every alias before refresh invalidates all aliases sharing Git storage.
   const repos = new Map(paths.map((path) => [repoConfigGitContext(path)?.key ?? path, path]));
-  for (const path of repos.values()) await refreshRepoConfigFile(path);
+  for (const path of repos.values()) {
+    await refreshRepoConfigFile(path);
+    repoLeitrechner(deps).invalidate(path);
+  }
 }
 
 type RepoConfigLeaf = "machine" | "project";

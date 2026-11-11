@@ -229,13 +229,20 @@ test("leitrechner is committed once, shared after fetch, cleared with null and n
   const { r, store, svc } = fixture();
   const head = git(r.b, "rev-parse", "HEAD");
   const before = tip(r);
-  expect((await svc.patch(r.b, { leitrechner: "unknown-id", criticAllPrs: true })).ok).toBe(true);
+  expect(
+    (
+      await svc.patch(r.b, {
+        leitrechner: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        criticAllPrs: true,
+      })
+    ).ok,
+  ).toBe(true);
   expect(git(r.origin, "rev-list", "--count", `${before}..main`)).toBe("1");
-  expect(store.getRepoConfig(r.b).leitrechner).toBe("unknown-id");
+  expect(store.getRepoConfig(r.b).leitrechner).toBe("ffffffff-ffff-4fff-8fff-ffffffffffff");
   expect(store.getLocalRepoConfig(r.b).leitrechner).toBeNull();
   git(r.a, "fetch", "origin");
   invalidateRepoConfigFile(r.a);
-  expect(store.getRepoConfig(r.a).leitrechner).toBe("unknown-id");
+  expect(store.getRepoConfig(r.a).leitrechner).toBe("ffffffff-ffff-4fff-8fff-ffffffffffff");
   expect((await svc.patch(r.b, { leitrechner: null })).ok).toBe(true);
   expect(store.getRepoConfig(r.b).leitrechner).toBeNull();
   expect(git(r.b, "rev-parse", "HEAD")).toBe(head);
@@ -245,9 +252,13 @@ test("leitrechner is committed once, shared after fetch, cleared with null and n
 test("leitrechner cannot silently become a local-only setting", async () => {
   const { r, store, svc } = fixture();
   await svc.patch(r.b, { repoMode: "lightweight" });
-  expect((await svc.patch(r.b, { leitrechner: "elsewhere", maxAuto: 9 })).ok).toBe(false);
+  expect(
+    (await svc.patch(r.b, { leitrechner: "ffffffff-ffff-4fff-8fff-ffffffffffff", maxAuto: 9 })).ok,
+  ).toBe(false);
   expect(store.getRepoConfig(r.b).maxAuto).toBe(1);
   git(r.a, "remote", "remove", "origin");
   invalidateRepoConfigFile(r.a);
-  expect((await svc.patch(r.a, { leitrechner: "elsewhere" })).ok).toBe(false);
+  expect((await svc.patch(r.a, { leitrechner: "ffffffff-ffff-4fff-8fff-ffffffffffff" })).ok).toBe(
+    false,
+  );
 });

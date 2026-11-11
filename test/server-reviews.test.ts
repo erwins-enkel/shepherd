@@ -99,7 +99,6 @@ const LOCAL_CONFIG_METADATA = {
     pauseReason: null,
   },
   repoConfigCommit: null,
-  leitrechner: null,
   fieldSources: {
     leitrechner: "rechner",
     criticEnabled: "rechner",

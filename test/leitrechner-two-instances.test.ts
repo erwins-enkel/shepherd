@@ -272,7 +272,7 @@ test("known local owner pauses on a failed startup fetch and recovers", async ()
 
 test("unassigned and unknown owners still drain and sweep when the daemon cannot fetch", async () => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
-  for (const leitrechner of [undefined, null, "foreign-installation"]) {
+  for (const leitrechner of [undefined, null, "ffffffff-ffff-4fff-8fff-ffffffffffff"]) {
     const { r, a, b } = fixture();
     if (leitrechner === undefined) {
       // Legacy single-machine setup: no committed config, rules only in the local database.

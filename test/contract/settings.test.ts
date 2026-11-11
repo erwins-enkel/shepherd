@@ -1263,12 +1263,12 @@ test("leitrechner PUT commits selection and emits the same status as GET without
         "PUT",
         "/api/repo-config",
         200,
-        { leitrechner: "foreign-installation", criticAllPrs: true },
+        { leitrechner: "ffffffff-ffff-4fff-8fff-ffffffffffff", criticAllPrs: true },
         at,
       )) as any;
-      expect(view.leitrechner).toBe("foreign-installation");
+      expect(view.leitrechner).toBe("ffffffff-ffff-4fff-8fff-ffffffffffff");
       expect(view.leitrechnerStatus).toMatchObject({
-        instanceId: "foreign-installation",
+        instanceId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
         role: "unknown",
         allowed: true,
         reachable: null,

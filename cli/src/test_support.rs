@@ -20,6 +20,7 @@ pub fn session_json(id: &str, desig: &str) -> Value {
 /// A contract-valid `RepoConfig` body (`PUT /api/repo-config` answers it).
 pub fn repo_config_json() -> Value {
     let mut v = json!({
+        "fieldSources": {}, "repoConfigCommit": null,
         "signoffAuthority": "operator", "maxAuto": 2, "autoLabel": "shepherd",
         "usageCeilingPct": 90, "sandboxProfile": "standard", "defaultModel": "",
         "defaultEffort": "", "egressExtraHosts": [], "browserAllowedHosts": [],

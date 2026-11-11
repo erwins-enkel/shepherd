@@ -87,6 +87,49 @@ test("GET /api/reviews/inflight returns [] when reviewCache is absent", async ()
 
 // ── GET /api/repo-config ──────────────────────────────────────────────────────
 
+// These fixtures have no origin: every setting remains machine-local.
+const LOCAL_CONFIG_METADATA = {
+  repoConfigCommit: null,
+  fieldSources: {
+    criticEnabled: "rechner",
+    criticAllPrs: "rechner",
+    criticSmellLensEnabled: "rechner",
+    autoAddressEnabled: "rechner",
+    autopilotEnabled: "rechner",
+    planGateEnabled: "rechner",
+    autoDrainEnabled: "rechner",
+    autoMergeEnabled: "rechner",
+    manualStepsIssueEnabled: "rechner",
+    preWarmEpicLandingCi: "rechner",
+    mergeWithoutCi: "rechner",
+    epicStacksEnabled: "rechner",
+    sharedBrowserEnabled: "rechner",
+    browserAllowedHosts: "rechner",
+    claudeAiConnectorsEnabled: "rechner",
+    hidden: "rechner",
+    pinned: "rechner",
+    buildQueueEnabled: "rechner",
+    draftMode: "rechner",
+    signoffAuthority: "rechner",
+    maxAuto: "rechner",
+    autoLabel: "rechner",
+    priorityLabels: "rechner",
+    usageCeilingPct: "rechner",
+    sandboxProfile: "rechner",
+    agentProvider: "rechner",
+    defaultModel: "rechner",
+    defaultEffort: "rechner",
+    defaultExecutionEffort: "rechner",
+    egressExtraHosts: "rechner",
+    repoMode: "rechner",
+    previewStartScript: "rechner",
+    previewStartCommand: "rechner",
+    previewOpenMode: "rechner",
+    pluginAllowlist: "rechner",
+    skillAllowlist: "rechner",
+  },
+};
+
 test("GET /api/repo-config defaults to critic on + auto-address off", async () => {
   const { app } = harness();
   const res = await app.fetch(
@@ -94,6 +137,7 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
   );
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({
+    ...LOCAL_CONFIG_METADATA,
     criticEnabled: true,
     criticAllPrs: false,
     criticSmellLensEnabled: false,
@@ -185,6 +229,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
   );
   expect(put.status).toBe(200);
   expect(await put.json()).toEqual({
+    ...LOCAL_CONFIG_METADATA,
     criticEnabled: false,
     criticAllPrs: false,
     criticSmellLensEnabled: false,
@@ -230,6 +275,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
   const get = await app.fetch(new Request(url));
   expect(get.status).toBe(200);
   expect(await get.json()).toEqual({
+    ...LOCAL_CONFIG_METADATA,
     criticEnabled: false,
     criticAllPrs: false,
     criticSmellLensEnabled: false,
@@ -285,6 +331,7 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
   );
   expect(put.status).toBe(200);
   expect(await put.json()).toEqual({
+    ...LOCAL_CONFIG_METADATA,
     criticEnabled: true,
     criticAllPrs: false,
     criticSmellLensEnabled: false,

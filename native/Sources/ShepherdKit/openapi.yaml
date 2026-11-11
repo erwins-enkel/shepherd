@@ -10240,6 +10240,11 @@ components:
               type: string
             effort:
               type: string
+        repoConfigBranch:
+          description: Default branch used for shared-rule commits; null for local-only repositories.
+          type:
+            - string
+            - "null"
         repoConfigCommit:
           type:
             - string

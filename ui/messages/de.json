@@ -9028,5 +9028,15 @@
   "model_guidance_codex_62_sol": "GPT-6.2 für alltägliches Coding und Agenten-Workflows, zu niedrigeren Kosten als Astra. Unterstützt Reasoning-Aufwand bis Ultra.",
   "model_guidance_codex_62_astra": "GPT-6.2 für anspruchsvolles Coding und professionelle Aufgaben, zu Premium-Kosten. Unterstützt Reasoning-Aufwand bis Ultra.",
   "feat_codex_62_models_title": "GPT-6.2 Sol und Astra in Codex",
-  "feat_codex_62_models_body": "Wähle GPT-6.2 Sol oder Astra für Aufgaben, Standards und Agentenrollen, mit Reasoning-Aufwand bis Ultra. Deine bestehenden Standards und gespeicherten Modellwahlen bleiben erhalten. Die Verfügbarkeit hängt von deiner Codex-Installation und deinem Konto ab."
+  "feat_codex_62_models_body": "Wähle GPT-6.2 Sol oder Astra für Aufgaben, Standards und Agentenrollen, mit Reasoning-Aufwand bis Ultra. Deine bestehenden Standards und gespeicherten Modellwahlen bleiben erhalten. Die Verfügbarkeit hängt von deiner Codex-Installation und deinem Konto ab.",
+  "reposettings_pending_status": "Wartet auf Merge",
+  "reposettings_pending_summary": "Regel-Änderungen warten auf Merge. Bis dahin gelten die aktuellen Werte.",
+  "reposettings_pending_link": "PR #{number} öffnen",
+  "reposettings_pending_value": "Vorgeschlagen für {field}: {value}",
+  "reposettings_pending_leader": "Vorgeschlagener Leitrechner: {value}",
+  "reposettings_pending_none": "Keiner",
+  "reposettings_pending_on": "An",
+  "reposettings_pending_off": "Aus",
+  "feat_repo_rules_pr_title": "Regel-Änderungen als Pull Request",
+  "feat_repo_rules_pr_body": "Lehnt der Default-Branch eine Regel-Änderung ab, öffnet Shepherd einen Pull Request. Weitere Speicherungen ergänzen denselben PR. Betroffene Einstellungen zeigen den Vorschlag und den PR-Link; bis zum Merge gelten die bisherigen Regeln."
 }

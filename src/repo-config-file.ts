@@ -162,7 +162,7 @@ export function invalidateRepoConfigFile(dir: string): void {
   files.delete(dir);
 }
 
-function readAtCommit(dir: string, commit: string): RepoConfigFile | null {
+export function readRepoConfigAtCommit(dir: string, commit: string): RepoConfigFile | null {
   try {
     const raw = git(dir, ["show", `${commit}:${CONFIG_PATH}`]);
     const rules = parseRepoRules(raw);
@@ -193,7 +193,7 @@ export function readRepoConfigFile(dir: string): RepoConfigFile | null {
       } catch {
         continue;
       }
-      value = readAtCommit(dir, commit);
+      value = readRepoConfigAtCommit(dir, commit);
       break;
     }
   }
@@ -223,7 +223,7 @@ export async function withRepoConfigLock<T>(dir: string, work: () => Promise<T>)
   }
 }
 
-async function gitAsync(
+export async function repoConfigGit(
   dir: string,
   args: string[],
   env: Record<string, string> = {},
@@ -246,10 +246,19 @@ export async function writeRepoConfigFile(
   const context = repoConfigGitContext(dir);
   if (!context) throw new Error("repository has no origin");
   const ref = `refs/remotes/origin/${context.branch}`;
-  await gitAsync(dir, ["fetch", "origin", `refs/heads/${context.branch}:${ref}`], {}, 20_000);
-  const base = await gitAsync(dir, ["rev-parse", "--verify", `${ref}^{commit}`]);
-  const previous = readAtCommit(dir, base);
-  const updated = update(previous);
+  await repoConfigGit(dir, ["fetch", "origin", `refs/heads/${context.branch}:${ref}`], {}, 20_000);
+  const base = await repoConfigGit(dir, ["rev-parse", "--verify", `${ref}^{commit}`]);
+  const value = await buildRepoConfigCommit(dir, base, update(readRepoConfigAtCommit(dir, base)));
+  await pushRepoConfigDefault(dir, value, base);
+  return value;
+}
+
+export async function buildRepoConfigCommit(
+  dir: string,
+  base: string,
+  updated: RepoRules & { leitrechner?: string | null },
+): Promise<RepoConfigFile> {
+  const previous = readRepoConfigAtCommit(dir, base);
   const leitrechner =
     updated.leitrechner !== undefined ? updated.leitrechner : previous?.leitrechner;
   const rules = repoRulesFromConfig(updated as RepoConfig);
@@ -260,15 +269,15 @@ export async function writeRepoConfigFile(
     const content = join(temp, "config.json");
     writeFileSync(content, `${JSON.stringify(contentRules, null, 2)}\n`);
     const env = { GIT_INDEX_FILE: join(temp, "index") };
-    const blob = await gitAsync(dir, ["hash-object", "-w", "--no-filters", content]);
-    await gitAsync(dir, ["read-tree", base], env);
-    await gitAsync(
+    const blob = await repoConfigGit(dir, ["hash-object", "-w", "--no-filters", content]);
+    await repoConfigGit(dir, ["read-tree", base], env);
+    await repoConfigGit(
       dir,
       ["update-index", "--add", "--cacheinfo", `100644,${blob},${CONFIG_PATH}`],
       env,
     );
-    const tree = await gitAsync(dir, ["write-tree"], env);
-    commit = await gitAsync(dir, [
+    const tree = await repoConfigGit(dir, ["write-tree"], env);
+    commit = await repoConfigGit(dir, [
       "commit-tree",
       tree,
       "-p",
@@ -276,61 +285,74 @@ export async function writeRepoConfigFile(
       "-m",
       "chore(shepherd): set repo rules",
     ]);
-    // The commit contains only config JSON, independent of checkout-specific pre-push checks.
-    await gitAsync(
-      dir,
-      ["push", "--no-verify", "origin", `${commit}:refs/heads/${context.branch}`],
-      {},
-      30_000,
-    );
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
+  return { rules, commit, ...(leitrechner === undefined ? {} : { leitrechner }) };
+}
+
+export async function pushRepoConfigDefault(
+  dir: string,
+  value: RepoConfigFile,
+  base: string,
+): Promise<void> {
+  const context = repoConfigGitContext(dir)!;
+  const ref = `refs/remotes/origin/${context.branch}`;
+  const { commit } = value;
+  // Server-built config-only commit; the checkout's hooks have nothing to check.
+  await repoConfigGit(
+    dir,
+    ["push", "--no-verify", "origin", `${commit}:refs/heads/${context.branch}`],
+    {},
+    30_000,
+  );
   // Push normally updates this ref. With narrow refspecs, update only if still at our parent;
   // a concurrent fetch of a newer tip must never be rolled back by this bookkeeping.
   try {
-    await gitAsync(dir, ["update-ref", ref, commit, base]);
+    await repoConfigGit(dir, ["update-ref", ref, commit, base]);
   } catch {
     /* already updated by push, or advanced by another fetch */
   }
-  const value = { rules, commit, ...(leitrechner === undefined ? {} : { leitrechner }) };
   for (const [path, hit] of contexts) {
     if (hit.value?.key === context.key) files.delete(path);
   }
   files.set(dir, { value, at: Date.now() });
-  return value;
 }
 
 /** Fetch only the default ref; never modifies the checkout or index. */
 export async function refreshRepoConfigFile(dir: string): Promise<RepoConfigFile | null> {
-  return withRepoConfigLock(dir, async () => {
-    const context = repoConfigGitContext(dir);
-    if (!context) return null;
-    await gitAsync(
-      dir,
-      ["fetch", "origin", `refs/heads/${context.branch}:refs/remotes/origin/${context.branch}`],
-      {},
-      20_000,
-    );
-    for (const [path, hit] of contexts) {
-      if (hit.value?.key === context.key) invalidateRepoConfigFile(path);
-    }
-    invalidateRepoConfigFile(dir);
-    return readRepoConfigFile(dir);
-  });
+  return withRepoConfigLock(dir, () => fetchRepoConfigDefault(dir));
 }
 
-/** Startup barrier shared with tests: each repo settles before background jobs begin. */
+/** Caller holds the config lock. Refreshes only the authoritative default ref. */
+export async function fetchRepoConfigDefault(dir: string): Promise<RepoConfigFile | null> {
+  const context = repoConfigGitContext(dir);
+  if (!context) return null;
+  await repoConfigGit(
+    dir,
+    ["fetch", "origin", `refs/heads/${context.branch}:refs/remotes/origin/${context.branch}`],
+    {},
+    20_000,
+  );
+  for (const [path, hit] of contexts) {
+    if (hit.value?.key === context.key) files.delete(path);
+  }
+  files.delete(dir);
+  return readRepoConfigFile(dir);
+}
+
+/** Refresh at most four repositories at once, isolating each failure from the others. */
 export async function refreshRepoConfigsAtStartup(
   dirs: readonly string[],
   failed: (dir: string) => void,
+  refresh: (dir: string) => Promise<unknown> = refreshRepoConfigFile,
 ): Promise<void> {
   let next = 0;
   const worker = async () => {
     while (next < dirs.length) {
       const dir = dirs[next++]!;
       try {
-        await refreshRepoConfigFile(dir);
+        await refresh(dir);
       } catch {
         failed(dir);
       }

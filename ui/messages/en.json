@@ -9028,5 +9028,15 @@
   "model_guidance_codex_62_sol": "GPT-6.2 for everyday coding and agent workflows, at lower cost than Astra. Supports reasoning effort up to Ultra.",
   "model_guidance_codex_62_astra": "GPT-6.2 for demanding coding and professional work, at premium cost. Supports reasoning effort up to Ultra.",
   "feat_codex_62_models_title": "GPT-6.2 Sol and Astra in Codex",
-  "feat_codex_62_models_body": "Choose GPT-6.2 Sol or Astra for tasks, defaults, and agent roles, with reasoning effort up to Ultra. Your existing defaults and saved model choices stay as they are. Availability depends on your Codex installation and account."
+  "feat_codex_62_models_body": "Choose GPT-6.2 Sol or Astra for tasks, defaults, and agent roles, with reasoning effort up to Ultra. Your existing defaults and saved model choices stay as they are. Availability depends on your Codex installation and account.",
+  "reposettings_pending_status": "Waiting for merge",
+  "reposettings_pending_summary": "Repository rule changes are waiting for merge. Current values remain effective.",
+  "reposettings_pending_link": "Open PR #{number}",
+  "reposettings_pending_value": "Proposed {field}: {value}",
+  "reposettings_pending_leader": "Proposed lead machine: {value}",
+  "reposettings_pending_none": "None",
+  "reposettings_pending_on": "On",
+  "reposettings_pending_off": "Off",
+  "feat_repo_rules_pr_title": "Rule changes through a pull request",
+  "feat_repo_rules_pr_body": "When the default branch rejects a rule change, Shepherd opens a pull request. Further saves update the same PR. Affected settings show the proposal and PR link while current rules remain effective until merge."
 }

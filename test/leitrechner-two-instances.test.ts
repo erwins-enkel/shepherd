@@ -39,7 +39,12 @@ function fixture() {
       now: () => now,
       emit: (repoPath, leitrechnerStatus) => events.push({ repoPath, leitrechnerStatus }),
     });
-    const cfg = new RepoConfigService(store, () => "trusted", leitrechner);
+    const cfg = new RepoConfigService(
+      store,
+      () => "trusted",
+      leitrechner,
+      () => forge,
+    );
     const creates: StandardCreateInput[] = [];
     const issues: Issue[] = [
       {

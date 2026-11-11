@@ -1,3 +1,4 @@
+import { configForge } from "../helpers/repo-config-forge";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
@@ -157,6 +158,8 @@ test("repo config reports per-field sources and committed SHA, and sanitizes ref
   const r = configRepo(s.tmpRoot);
   const path = "/api/repo-config",
     at = `${path}?repo=${encodeURIComponent(r.b)}`;
+  const resolver = s.deps.resolveForge;
+  s.deps.resolveForge = () => configForge().forge;
   try {
     const local = (await request("GET", path, 200, undefined, at)) as any;
     expect(local.repoConfigCommit).toBeNull();
@@ -206,7 +209,20 @@ test("repo config reports per-field sources and committed SHA, and sanitizes ref
     expect(after.maxAuto).toBe(4);
     expect(after.automationConfirmed).toBe(false);
     expect(after.repoConfigCommit).toBe(changed.repoConfigCommit);
+    writeFileSync(
+      join(r.origin, "hooks/pre-receive"),
+      '#!/bin/sh\nwhile read old new ref; do\n if [ "$ref" = "refs/heads/main" ]; then exit 1; fi\ndone\n',
+      { mode: 0o755 },
+    );
+    const f = configForge();
+    s.deps.resolveForge = () => f.forge;
+    const pending = (await request("PUT", path, 200, { criticAllPrs: true }, at)) as any;
+    expect(pending).toMatchObject({
+      criticAllPrs: false,
+      pendingRepoConfig: { number: 41, url: "https://host/pr/41", changes: { criticAllPrs: true } },
+    });
   } finally {
+    s.deps.resolveForge = resolver;
     r.close();
   }
 });
@@ -1256,6 +1272,8 @@ test("the decision-model connection is cookie-admin only and never returns the k
 test("leitrechner PUT commits selection and emits the same status as GET without metadata becoming a rule", async () => {
   const r = configRepo(s.tmpRoot);
   const at = `/api/repo-config?repo=${encodeURIComponent(r.b)}`;
+  const resolver = s.deps.resolveForge;
+  s.deps.resolveForge = () => configForge().forge;
   try {
     const before = configGit(r.origin, "rev-parse", "main");
     const frames = await collectEvents(s, token, async () => {
@@ -1287,6 +1305,7 @@ test("leitrechner PUT commits selection and emits the same status as GET without
     const clear = (await request("PUT", "/api/repo-config", 200, { leitrechner: null }, at)) as any;
     expect(clear.leitrechnerStatus).toMatchObject({ role: "unassigned", allowed: true });
   } finally {
+    s.deps.resolveForge = resolver;
     r.close();
   }
 });

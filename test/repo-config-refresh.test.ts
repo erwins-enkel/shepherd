@@ -1,3 +1,4 @@
+import { configForge } from "./helpers/repo-config-forge";
 import { expect, test } from "bun:test";
 import { SessionStore } from "../src/store";
 import { RepoConfigService } from "../src/repo-config-service";
@@ -8,7 +9,12 @@ const leader = "11111111-1111-4111-8111-111111111111";
 test("refresh replaces a cached missing file without touching the checkout", async () => {
   const r = configRepo();
   try {
-    const svc = new RepoConfigService(new SessionStore(":memory:"));
+    const svc = new RepoConfigService(
+      new SessionStore(":memory:"),
+      undefined,
+      undefined,
+      () => configForge().forge,
+    );
     expect(svc.read(r.b).repoConfigCommit).toBeNull();
     const head = git(r.b, "rev-parse", "HEAD");
     r.commit('{"autoDrainEnabled":true}');
@@ -24,7 +30,12 @@ test("refresh replaces a cached missing file without touching the checkout", asy
 test("a combined leader and rule edit makes one commit and subsequent edits retain the leader", async () => {
   const r = configRepo();
   try {
-    const svc = new RepoConfigService(new SessionStore(":memory:"));
+    const svc = new RepoConfigService(
+      new SessionStore(":memory:"),
+      undefined,
+      undefined,
+      () => configForge().forge,
+    );
     const base = git(r.origin, "rev-parse", "main");
     const result = await svc.patch(r.b, { criticAllPrs: true }, { leitrechner: leader });
     expect(result.ok).toBe(true);
@@ -44,7 +55,12 @@ test("a combined leader and rule edit makes one commit and subsequent edits reta
 test("a rule write invalidates cached aliases sharing the same Git directory", async () => {
   const r = configRepo();
   try {
-    const svc = new RepoConfigService(new SessionStore(":memory:"));
+    const svc = new RepoConfigService(
+      new SessionStore(":memory:"),
+      undefined,
+      undefined,
+      () => configForge().forge,
+    );
     expect(svc.read(r.b + "/.").repoConfigCommit).toBeNull();
     await svc.patch(r.b, { criticAllPrs: true });
     expect(svc.read(r.b + "/.").criticAllPrs).toBe(true);

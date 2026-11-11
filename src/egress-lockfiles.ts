@@ -8,6 +8,7 @@ import { lstat, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { normalizeHost } from "./egress";
 import { execGit } from "./safe-git";
+import type { EgressSuggestion } from "./types";
 
 export const LOCKFILE_NAMES = [
   "bun.lock",
@@ -134,12 +135,6 @@ export function hostsFromLockfile(name: string, text: string): string[] {
   return [...new Set(hosts)];
 }
 
-export interface LockfileHost {
-  host: string;
-  /** Repo-relative lockfile paths that name it, at most {@link MAX_SOURCES}. */
-  sources: string[];
-}
-
 export interface LockfileScanLimits {
   maxFiles?: number;
   maxFileBytes?: number;
@@ -181,9 +176,9 @@ async function readBounded(path: string, maxBytes: number): Promise<string | nul
 export async function suggestLockfileHosts(
   repoDir: string,
   limits: LockfileScanLimits = {},
-): Promise<LockfileHost[]> {
+): Promise<EgressSuggestion[]> {
   const { maxFiles = 50, maxFileBytes = 8 * MIB, maxTotalBytes = 32 * MIB } = limits;
-  const byHost = new Map<string, LockfileHost>();
+  const byHost = new Map<string, EgressSuggestion>();
   let budget = maxTotalBytes;
   for (const rel of (await trackedLockfiles(repoDir)).slice(0, maxFiles)) {
     const text = await readBounded(join(repoDir, rel), Math.min(maxFileBytes, budget));

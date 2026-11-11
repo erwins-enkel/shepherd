@@ -1241,6 +1241,7 @@ describe("reapplyEgressAllowlist (live allowlist edits)", () => {
       );
       expect(readFileSync(join(dir, "dnsmasq.argv"), "utf8")).toContain("registry.npmjs.org");
       expect(spawnInputs(dir).allowlist).toContain("registry.npmjs.org");
+      expect((spawnInputs(dir) as { uncertain?: boolean }).uncertain).toBe(false);
       expect(allowlists).toHaveLength(1);
       expect(allowlists[0]).toContain("registry.npmjs.org");
       expect(steers).toHaveLength(1);
@@ -1266,7 +1267,7 @@ describe("reapplyEgressAllowlist (live allowlist edits)", () => {
     }
   });
 
-  test("a failed reload leaves the recorded allowlist, watcher and agent alone", async () => {
+  test("a failed reload marks the session uncertain, so a revert still reloads", async () => {
     const { store, service, s, dir, allowlists, steers } = await setup(["registry.npmjs.org"]);
     const loop = fakeReloadLoop(dir, "fail");
     try {
@@ -1278,8 +1279,18 @@ describe("reapplyEgressAllowlist (live allowlist edits)", () => {
       });
       await service.reapplyEgressAllowlist("/repo");
       expect(spawnInputs(dir).allowlist).toEqual(before);
+      expect((spawnInputs(dir) as { uncertain?: boolean }).uncertain).toBe(true);
       expect(allowlists).toHaveLength(0);
       expect(steers).toHaveLength(0);
+
+      // The operator reverts: the wanted list equals the recorded one, but the session may run
+      // the new list (the reload may have landed) → reload anyway, dropping pinned IPs.
+      rmSync(join(dir, "egress.reload.nft"));
+      store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), egressExtraHosts: [] });
+      await service.reapplyEgressAllowlist("/repo");
+      expect(readFileSync(join(dir, "egress.reload.nft"), "utf8")).toStartWith(
+        "delete table inet egress",
+      );
     } finally {
       loop.kill();
       rmSync(egressTmpDir(s.id), { recursive: true, force: true });

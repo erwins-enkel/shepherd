@@ -4117,17 +4117,22 @@ export class SessionService {
     if (!inputs || inputs.repoPath !== repoPath) return; // not egress-confined, or pre-reload spawn
     const allowlist = this.egressAllowlistFor(repoPath, inputs.connectorHosts);
     const old = inputs.allowlist;
-    if (allowlist.length === old.length && allowlist.every((e, i) => e === old[i])) return;
+    const same = allowlist.length === old.length && allowlist.every((e, i) => e === old[i]);
+    if (same && !inputs.uncertain) return;
     const cfg = buildEgressConfig(allowlist, { tmpDir: tmp, hostGateway: inputs.hostGateway });
-    // A removed entry revokes the IPs already pinned for it; a pure addition keeps them.
-    const flushPinned = old.some((e) => !allowlist.includes(e));
+    // A removed entry revokes the IPs already pinned for it; a pure addition keeps them. After an
+    // uncertain reload the session may run a list with entries the wanted one lacks: drop them all.
+    const flushPinned = inputs.uncertain === true || old.some((e) => !allowlist.includes(e));
     await writeEgressReloadFiles(tmp, cfg, buildEgressReloadNft(cfg, { flushPinned }));
     const outcome = await requestEgressReload(tmp);
     if (outcome !== "applied") {
       console.warn(`[egress] reapply ${sessionId}: ${outcome}`);
+      // timeout: the runner may still finish the reload; failed: nft may have applied before
+      // dnsmasq rolled back. Either way the next reapply must reload. unsupported: nothing ran.
+      if (outcome !== "unsupported") writeEgressSpawnInputs(tmp, { ...inputs, uncertain: true });
       return;
     }
-    writeEgressSpawnInputs(tmp, { ...inputs, allowlist });
+    writeEgressSpawnInputs(tmp, { ...inputs, allowlist, uncertain: false });
     this.deps.egressWatcher?.setAllowlist(sessionId, allowlist);
     const unblocked = (this.deps.egressWatcher?.blockedHosts(sessionId) ?? []).filter(
       (h) => hostMatchesAllowlist(h, allowlist) && !hostMatchesAllowlist(h, old),

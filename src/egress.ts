@@ -1082,6 +1082,9 @@ export interface EgressSpawnInputs {
   connectorHosts: string[];
   /** The allowlist currently applied to the session. */
   allowlist: string[];
+  /** A reload timed out or failed part-way, so what the session runs is unknown: the next reapply
+   *  must reload (dropping pinned IPs) even when `allowlist` matches the wanted list. */
+  uncertain?: boolean;
 }
 
 const SPAWN_INPUTS_FILE = "egress-spawn.json";
@@ -1113,7 +1116,8 @@ export async function readEgressSpawnInputs(tmpDir: string): Promise<EgressSpawn
       typeof v.repoPath === "string" &&
       isStringArray(v.connectorHosts) &&
       isStringArray(v.allowlist) &&
-      isHostGateway(v.hostGateway);
+      isHostGateway(v.hostGateway) &&
+      (v.uncertain === undefined || typeof v.uncertain === "boolean");
     return ok ? (v as EgressSpawnInputs) : null;
   } catch {
     return null;

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import { reviews, repoConfig } from "#lib/reviews.svelte.js";
+  import { reviews } from "#lib/reviews.svelte.js";
+  import { useRepoConfig } from "./repo-config-editor.svelte.js";
+  const repoConfig = useRepoConfig();
   import RepoSettingRow from "./RepoSettingRow.svelte";
 
   // Review (#3443): the Critic, what builds on it (auto-address, the smell lens), and the

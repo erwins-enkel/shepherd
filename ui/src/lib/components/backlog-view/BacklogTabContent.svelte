@@ -15,7 +15,7 @@
   import PrsPanel from "../PrsPanel.svelte";
   import ActionsPanel from "../ActionsPanel.svelte";
   import ReadinessPanel from "../ReadinessPanel.svelte";
-  import RepoSettingsBody from "../repo-settings/RepoSettingsBody.svelte";
+  import AutomationPanel from "../automation-settings/AutomationPanel.svelte";
   import BootstrapChecklist from "../BootstrapChecklist.svelte";
   import { m } from "#lib/paraglide/messages.js";
   import { automationFocus } from "#lib/automation-focus.js";
@@ -112,11 +112,11 @@
 {:else if activeTab === "actions"}
   <ActionsPanel repoPath={selectedPath} />
 {:else if activeTab === "automation"}
-  <!-- The repo settings window's body (#3443), at the section a jump here asked for. -->
+  <!-- The repo settings window's body (#3443), at the section a jump here asked for, with the
+       repository rules staged for one reviewed commit (#3016). -->
   <div class="settings">
     {#key selectedPath}
-      <RepoSettingsBody
-        variant="embedded"
+      <AutomationPanel
         repoPath={selectedPath}
         section={automationFocus.section()}
         drain={drain?.[selectedPath] ?? null}

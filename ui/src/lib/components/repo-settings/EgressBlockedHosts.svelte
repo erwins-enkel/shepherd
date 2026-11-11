@@ -3,7 +3,8 @@
   import { getLocale } from "#lib/i18n.js";
   import { getRepoEgressBlocks, getSettings, putEgressMutedHosts } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
-  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { useRepoConfig } from "./repo-config-editor.svelte.js";
+  const repoConfig = useRepoConfig();
   import { clock } from "#lib/now.svelte.js";
   import { relativeTimeAgo } from "#lib/format.js";
   import { egressBlockedHostsExplanation } from "#lib/tooltips/explanations.js";

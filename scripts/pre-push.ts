@@ -687,17 +687,18 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // fallow runs only after every lane passes (delta vs origin/main). Skipped when
+  // fallow runs after every lane passes; BASE_REF selects the PR base (including epic branches). Skipped when
   // origin/main is unavailable (offline) so a push isn't wedged. Pinned fallow@2.100.0,
   // gated against every other pin site by scripts/check-fallow-pin.mjs.
   if (delta) {
-    console.log("  → fallow audit (delta vs origin/main)");
+    const auditBase = process.env.BASE_REF || "origin/main";
+    console.log(`  → fallow audit (delta vs ${auditBase})`);
     // Bounded so a cold `bunx fallow@…` download that hangs can't wedge the push —
     // honors the "no child wedges the push" guarantee for this post-lanes step too.
     const fallowTimeoutMs = Number(process.env.SHEPHERD_PREPUSH_LANE_TIMEOUT_MS) || 300_000;
     const r = spawnSync(
       "bunx",
-      ["fallow@2.100.0", "audit", "--base", "origin/main", "--fail-on-issues"],
+      ["fallow@2.100.0", "audit", "--base", auditBase, "--fail-on-issues"],
       { cwd: repoRoot, stdio: "inherit", timeout: fallowTimeoutMs, killSignal: "SIGKILL" },
     );
     if (r.error && (r.error as NodeJS.ErrnoException).code === "ETIMEDOUT") {

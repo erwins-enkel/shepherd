@@ -1,3 +1,4 @@
+import { repoConfig } from "./reviews.svelte";
 import type { AssistantRuntimeSettings, AssistantSwitchState } from "./types";
 import { SvelteMap } from "svelte/reactivity";
 import { clearDecommissioning } from "./decommissioning.svelte";
@@ -1279,6 +1280,21 @@ export class HerdStore {
     return false;
   }
 
+  private applyRepoConfigEvent(ev: WsEvent): boolean {
+    switch (ev.event) {
+      case "repo:leitrechner":
+        repoConfig.setLeitrechnerStatus(ev.data.repoPath, ev.data.leitrechnerStatus);
+        return true;
+      case "drain:status":
+        if (ev.data.leitrechnerStatus)
+          repoConfig.setLeitrechnerStatus(ev.data.repoPath, ev.data.leitrechnerStatus);
+        this.drain = setPathKey(this.drain, ev.data.repoPath, ev.data);
+        return true;
+      default:
+        return false;
+    }
+  }
+
   private applyGlobalEvent(ev: WsEvent) {
     if (this.applySettingsSourceEvent(ev)) return;
     if (this.applyHerdrUpdateEvent(ev)) return;
@@ -1287,6 +1303,7 @@ export class HerdStore {
     if (this.applyEpicEvent(ev)) return;
     if (this.applyStatusEvent(ev)) return;
     if (this.applyUpNextEvent(ev)) return;
+    if (this.applyRepoConfigEvent(ev)) return;
     switch (ev.event) {
       case "repo-bootstrap:update":
         repoBootstrap.refresh(ev.data.repoPath);
@@ -1296,9 +1313,6 @@ export class HerdStore {
         break;
       case "backlog:update":
         this.backlog = ev.data;
-        break;
-      case "drain:status":
-        this.drain = setPathKey(this.drain, ev.data.repoPath, ev.data);
         break;
       case "automerge:status":
         this.autoMerge = setPathKey(this.autoMerge, ev.data.repoPath, ev.data);

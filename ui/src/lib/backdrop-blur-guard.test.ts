@@ -9,6 +9,7 @@ import { expect, test } from "vitest";
 const src = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ALLOWED = new Set([
   "lib/components/automation-settings/ScheduleDialog.svelte", // ::backdrop has no children
+  "lib/components/automation-settings/AutomationRulesDialog.svelte", // native ::backdrop has no children
   "lib/components/viewport/ViewportTermBanners.svelte", // small strips, not full-window backdrops
   "routes/design-system/+page.svelte", // recipe docs and demo
 ]);

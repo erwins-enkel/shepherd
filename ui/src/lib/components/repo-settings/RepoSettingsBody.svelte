@@ -41,6 +41,7 @@
     variant = "window",
     headEnd,
     lead,
+    sectionView,
   }: {
     repoPath: string;
     /** The section to open at; absent = the first one a hint marks, else Autonomy. */
@@ -62,6 +63,9 @@
     /** Rendered above the head, e.g. a session tab's own controls; on a narrow container it
      *  scrolls away with the head. */
     lead?: Snippet;
+    /** Renders the active section in place of the plain one: the Backlog groups it by where each
+     *  setting lives (#3016). */
+    sectionView?: Snippet<[SectionId]>;
   } = $props();
 
   // coachTargets keys one node per id: only the window registers its settings' coach targets, so
@@ -301,15 +305,19 @@
               </p>
             {/if}
             <RepoSettingsHints {repoPath} {drain} {onsetupci} />
-            <RepoSettingsSection
-              section={active}
-              {repoPath}
-              {sessionId}
-              {planPhase}
-              {drain}
-              {globals}
-              armCoachmarks={coach}
-            />
+            {#if sectionView}
+              {@render sectionView(active)}
+            {:else}
+              <RepoSettingsSection
+                section={active}
+                {repoPath}
+                {sessionId}
+                {planPhase}
+                {drain}
+                {globals}
+                armCoachmarks={coach}
+              />
+            {/if}
           {/if}
         </div>
       </div>

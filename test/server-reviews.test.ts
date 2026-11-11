@@ -99,6 +99,7 @@ const LOCAL_CONFIG_METADATA = {
     allowed: true,
     pauseReason: null,
   },
+  repoConfigBranch: null,
   repoConfigCommit: null,
   fieldSources: {
     leitrechner: "rechner",

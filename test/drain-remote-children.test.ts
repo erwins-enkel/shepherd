@@ -852,6 +852,54 @@ describe("an integration epic lands a child it sent to another machine (#3957)",
     }
   });
 
+  test("without the mirror, the PR a reference read found stays known until the next read", async () => {
+    let reads = 0;
+    const { h, merges } = remote({
+      mirror: "missing",
+      critic: true,
+      references: async () => {
+        reads++;
+        return [{ number: PR, url: "u", state: "open" }];
+      },
+    });
+    // Every tick between two reads still asks this host's critic for the PR. (The first tick's
+    // reconcile sweep reads the references too, for a merge made there.)
+    await h.drain.tick();
+    const firstTick = reads;
+    for (let i = 0; i < 3; i++) {
+      expect([...h.drain.remoteChildReviewPrs(REPO)]).toEqual([PR]);
+      await h.drain.tick();
+    }
+    // The verdict lands between reads: the merge needs no new one.
+    h.store.putPrReview({
+      repoPath: REPO,
+      prNumber: PR,
+      headSha: HEAD,
+      patchId: "p",
+      decision: "commented",
+      reviewedPatchIds: [],
+      updatedAt: 2,
+    });
+    await h.drain.tick();
+    expect(merges.map((m) => m.pr)).toEqual([PR]);
+    expect(reads).toBe(firstTick);
+  });
+
+  test("without the mirror, a critic hold stays between reference reads", async () => {
+    const { h } = remote({
+      mirror: "missing",
+      critic: true,
+      verdict: { decision: "changes_requested", headSha: HEAD },
+    });
+    for (let i = 0; i < 3; i++) {
+      await h.drain.tick();
+      expect(lastStatus(h)).toMatchObject({
+        reason: "changes_requested",
+        detail: "macbook · #3731 · PR #3955",
+      });
+    }
+  });
+
   test("a child started there by hand is never merged here", async () => {
     const { h, merges } = remote({ mirror: "manual" });
     await h.drain.tick();

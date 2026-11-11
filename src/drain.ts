@@ -732,9 +732,10 @@ export class DrainService {
   // hold). Rewritten by every remote-retire pass; in-memory: a restart re-derives them in one tick.
   private remoteReviewPrs = new Map<string, ReadonlySet<number>>();
   private remoteTrouble = new Map<string, HoldReason>();
-  // #3957: `${repoPath}#${child}` → last issue-reference read for a remote child whose PR the mirror
-  // does not name. Throttled like the reconcile sweep: a child still running there has no PR yet.
-  private remoteRefsAt = new Map<string, number>();
+  // #3957: `${repoPath}#${child}` → the PR the last issue-reference read found for a remote child
+  // whose PR the mirror does not name (null: none), and when. Only the read is throttled, like the
+  // reconcile sweep (a child still running there has no PR yet); its answer stands until the next.
+  private remoteRefs = new Map<string, { at: number; pr: number | null }>();
   /** #790: `${repoPath}#${issueNumber}` → last spawn failure; throttles re-spawn of an issue whose
    *  create() keeps throwing. Cleared on a successful spawn. In-memory.
    *
@@ -6037,7 +6038,8 @@ export class DrainService {
 
   /** The open PR of a remote child: the one the mirror names, else — the mirror lost it, or the
    *  session — the single open PR linked to its issue that targets the epic branch, read at most
-   *  once per {@link EPIC_RECONCILE_TTL_MS}. An unknown read is never taken for "none". */
+   *  once per {@link EPIC_RECONCILE_TTL_MS} and remembered in between. An unknown read is never
+   *  taken for "none": the last answer stands. */
   private async remoteChildPr(
     repoPath: string,
     t: RemoteRetireTarget,
@@ -6048,24 +6050,26 @@ export class DrainService {
     if (named != null) return named;
     if (!t.forge.issuePullRequestReferences) return null;
     const key = `${repoPath}#${child.number}`;
-    const last = this.remoteRefsAt.get(key);
-    if (last !== undefined && this.now() - last < EPIC_RECONCILE_TTL_MS) return null;
-    this.remoteRefsAt.set(key, this.now());
+    const last = this.remoteRefs.get(key);
+    if (last && this.now() - last.at < EPIC_RECONCILE_TTL_MS) return last.pr;
     const refs = await t.forge.issuePullRequestReferences(child.number);
+    let pr = last?.pr ?? null;
     if (refs === null) {
       console.warn(
         `[drain] remote epic child #${child.number}: its PR references are unknown; retrying later`,
       );
-      return null;
-    }
-    const linked = refs.filter(
-      (r) => r.state === "open" && open.get(r.number)?.baseRefName === t.pinned,
-    );
-    if (linked.length > 1)
-      console.warn(
-        `[drain] remote epic child #${child.number}: ${linked.length} open PRs into ${t.pinned}; not merging any`,
+    } else {
+      const linked = refs.filter(
+        (r) => r.state === "open" && open.get(r.number)?.baseRefName === t.pinned,
       );
-    return linked.length === 1 ? linked[0]!.number : null;
+      if (linked.length > 1)
+        console.warn(
+          `[drain] remote epic child #${child.number}: ${linked.length} open PRs into ${t.pinned}; not merging any`,
+        );
+      pr = linked.length === 1 ? linked[0]!.number : null;
+    }
+    this.remoteRefs.set(key, { at: this.now(), pr });
+    return pr;
   }
 
   /** Squash-merge one remote child's PR into the epic branch, bound to the head its gate passed,

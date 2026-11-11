@@ -39,3 +39,40 @@ export type ShapeFailure = ShapeErrorKey | "compose";
 export function shapeErrorKey(error: string): ShapeErrorKey {
   return (SHAPE_ERRORS as readonly string[]).includes(error) ? (error as ShapeErrorKey) : "timeout";
 }
+
+// ── The wait while a round runs ──────────────────────────────────────────────────────────────
+// The server reports nothing until the round is done (it polls for the agent's result file), so
+// the card cannot show real progress. What it can show honestly is the clock: how long the round
+// has run and how close it is to the deadline. Nothing here invents a phase the server never sent.
+
+/** Mirrors the round's deadline (`timeoutMs` in src/task-shape.ts). The card only counts toward
+ *  it; the server is what gives up. */
+export const SHAPE_TIMEOUT_MS = 180_000;
+/** From here the wait reads as long. */
+const SHAPE_LONG_MS = 45_000;
+/** From here the card counts down to the deadline and offers a way out. */
+const SHAPE_CLOSING_MS = 150_000;
+
+export type ShapeWait = "reading" | "long" | "closing";
+
+export function shapeWait(elapsedMs: number): ShapeWait {
+  if (elapsedMs >= SHAPE_CLOSING_MS) return "closing";
+  if (elapsedMs >= SHAPE_LONG_MS) return "long";
+  return "reading";
+}
+
+/** Time left before the server gives up, never negative. */
+export function shapeRemainingMs(elapsedMs: number): number {
+  return Math.max(0, SHAPE_TIMEOUT_MS - elapsedMs);
+}
+
+/** How many "good to know" hints the running panel cycles through. */
+export const SHAPE_TIP_COUNT = 4;
+const SHAPE_TIP_MS = 7_000;
+
+/** Which hint shows: it advances by itself every 7 s, shifted by the operator's own paging
+ *  (`offset`, which may be negative after paging back). */
+export function shapeTipIndex(elapsedMs: number, offset: number): number {
+  const auto = Math.floor(Math.max(0, elapsedMs) / SHAPE_TIP_MS);
+  return (((auto + offset) % SHAPE_TIP_COUNT) + SHAPE_TIP_COUNT) % SHAPE_TIP_COUNT;
+}

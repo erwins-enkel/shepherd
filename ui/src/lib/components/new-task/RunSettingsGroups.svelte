@@ -34,6 +34,8 @@
   // so mounting state can never influence payload validity.
   let {
     agentProvider,
+    shaping = false,
+    engineFlash = false,
     repoDefaultProvider = null,
     model,
     effort,
@@ -72,6 +74,10 @@
     modelShortcut = undefined,
   }: {
     agentProvider: AgentProvider;
+    /** A New Task shape round is running on this engine (it runs on the picked CLI and model). */
+    shaping?: boolean;
+    /** Light the engine group up: the shape round's engine chip was clicked to find it. */
+    engineFlash?: boolean;
     /** The repo's own coding CLI (#3441), null when it inherits the global default. */
     repoDefaultProvider?: AgentProvider | null;
     model: string;
@@ -133,8 +139,12 @@
   }
 </script>
 
-<div class="group">
-  <span class="group-label">{m.newtask_group_engine()}</span>
+<div class="group" class:engine-flash={engineFlash}>
+  <span class="group-label"
+    >{m.newtask_group_engine()}{#if shaping}<span class="engine-shaping"
+        ><span class="live-dot" aria-hidden="true"></span>{m.newtask_engine_shaping()}</span
+      >{/if}</span
+  >
   <div class="engine">
     <div class="field-select">
       <select
@@ -373,6 +383,41 @@
     text-transform: uppercase;
     color: var(--color-faint);
     padding-bottom: 6px;
+  }
+  /* A shape round runs on this engine. The pulse encodes "work happening", so it keeps running
+     under reduced motion (see the guard in app.css). */
+  .engine-shaping {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 10px;
+    letter-spacing: 0.04em;
+    text-transform: none;
+    color: var(--color-amber);
+  }
+  .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-amber);
+    animation: dot-pulse 1.4s ease-in-out infinite !important;
+  }
+  /* "Show me the engine" from the shape round: the group's edge lights up twice. */
+  /* An outline, not a border: it lights the group up without moving anything around it. Amber at
+     rest, so under reduced motion (no flashing) the group is still marked while the flag is up. */
+  .group.engine-flash {
+    outline: 1px solid var(--color-amber);
+    outline-offset: 4px;
+    animation: engine-flash 1.1s ease-in-out 2;
+  }
+  @keyframes engine-flash {
+    0%,
+    100% {
+      outline-color: transparent;
+    }
+    35% {
+      outline-color: var(--color-amber);
+    }
   }
   .rule {
     height: 1px;

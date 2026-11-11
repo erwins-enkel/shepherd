@@ -5524,10 +5524,54 @@ describe("NewTask shape round", () => {
     await expect.poll(() => shapeBtn()).toBeTruthy();
     shapeBtn()!.click();
     await expect.poll(() => document.querySelector(".shape")).toBeTruthy();
-    await page.getByRole("button", { name: m.shape_discard() }).click();
+    // A running round is cancelled, not discarded: there is nothing to discard yet.
+    const cancel = document.querySelector<HTMLButtonElement>(".shape-dismiss")!;
+    expect(cancel.textContent?.trim()).toBe(m.common_cancel());
+    cancel.click();
     await expect.poll(() => document.querySelector(".shape")).toBeNull();
     release({ round });
     await new Promise((r) => setTimeout(r, 20));
+    expect(document.querySelector(".shape")).toBeNull();
+  });
+
+  it("shows the running round: a busy button, the engine it runs on, and where to change it", async () => {
+    mockShapeTask.mockReturnValue(new Promise(() => {}) as ReturnType<typeof shapeTask>);
+    render(NewTask, { props: base({ initialRepoPath: "/repo", initialPrompt: "stop the leak" }) });
+    await expect.poll(() => shapeBtn()).toBeTruthy();
+    shapeBtn()!.click();
+
+    await expect.poll(() => shapeBtn()!.getAttribute("aria-busy")).toBe("true");
+    expect(shapeBtn()!.textContent).toContain(m.newtask_shape_running_label());
+    expect(document.querySelector(".prompt-reading")?.textContent).toContain(
+      m.newtask_prompt_reading(),
+    );
+    // The engine group in the rail says it is the one doing the shaping.
+    expect(document.querySelector(".engine-shaping")?.textContent).toContain(
+      m.newtask_engine_shaping(),
+    );
+    // The chip names the CLI the round was started on; its click lands on the engine picker.
+    const chip = document.querySelector<HTMLButtonElement>(".shape-engine")!;
+    expect(chip.textContent).toContain(m.agent_provider_claude());
+    chip.click();
+    await expect.poll(() => document.activeElement?.id).toBe("nt-agent-provider");
+  });
+
+  it("starts with the rough prompt when the round timed out", async () => {
+    mockShapeTask.mockResolvedValue({ error: "timeout" });
+    mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, {
+      props: base({ onsubmit, initialRepoPath: "/repo", initialPrompt: "stop the leak" }),
+    });
+    await expect.poll(() => shapeBtn()).toBeTruthy();
+    shapeBtn()!.click();
+    await expect
+      .poll(() => document.querySelector(".shape")?.textContent)
+      .toContain(m.shape_err_timeout());
+
+    await page.getByRole("button", { name: m.shape_start_plain() }).click();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ prompt: "stop the leak" });
     expect(document.querySelector(".shape")).toBeNull();
   });
 

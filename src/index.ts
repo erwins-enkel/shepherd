@@ -268,7 +268,7 @@ import {
   normalizeProviderDefaultEffortSetting,
 } from "./default-effort";
 import { shouldDowngrade } from "./usage-downgrade";
-import { normalizeAgentProvider } from "./agent-provider";
+import { normalizeAgentProvider, resolveSpawnAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { normalizeOperatorLanguage } from "./operator-language";
 import { normalizeStoredAssistantPermissions } from "./operator-assistant-permissions";
@@ -4416,7 +4416,14 @@ deferredStarts.push(() => {
 // is read lazily — the launch closure only runs from the tick, after it is defined.
 const scheduleService = new ScheduleService({
   store,
-  launch: (input) => launchTask(input, appDeps),
+  launch: (input, opts) => launchTask(input, appDeps, opts),
+  usageLimits,
+  resolveProvider: (s) =>
+    resolveSpawnAgentProvider(
+      s.launch.agentProvider,
+      store.getRepoConfig(s.repoPath).agentProvider,
+      config.defaultAgentProvider,
+    ),
   defaultBranch: (repoPath) => resolveDefaultBranch(repoPath, {}),
   repoRoot: () => config.repoRoot,
   maintenanceActive: () => maintenance.active,

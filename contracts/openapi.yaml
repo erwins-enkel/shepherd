@@ -6959,6 +6959,33 @@ components:
             - $ref: "#/components/schemas/SandboxProfile"
             - type: "null"
         baseBranch: { type: [string, "null"] }
+    ScheduleUsageLimit:
+      description: Used-percent thresholds in steps of five. For from, stopPct must be greater than startPct.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, stopPct]
+          properties:
+            kind: { type: string, enum: [upTo] }
+            stopPct: { type: integer, minimum: 5, maximum: 100, multipleOf: 5 }
+        - type: object
+          additionalProperties: false
+          required: [kind, startPct, startWindow, stopPct]
+          properties:
+            kind: { type: string, enum: [from] }
+            startPct: { type: integer, minimum: 0, maximum: 95, multipleOf: 5 }
+            startWindow: { type: string, enum: [week, "5h"] }
+            stopPct: { type: integer, minimum: 5, maximum: 100, multipleOf: 5 }
+    ScheduleUsage:
+      type: object
+      additionalProperties: true
+      description: Immutable usage snapshot at the automatic firing decision. Absent on older servers; null when no schedule limit was evaluated.
+      required: [provider, window, usedPct, thresholdPct]
+      properties:
+        provider: { type: string, enum: [claude, codex] }
+        window: { type: string, enum: [week, "5h", max] }
+        usedPct: { type: [number, "null"] }
+        thresholdPct: { type: integer }
     ScheduleRun:
       type: object
       additionalProperties: true
@@ -6972,10 +6999,24 @@ components:
           description: Nominal local slot (`2026-10-27T09:00`), or `manual:<ISO time>` for Run now.
         outcome:
           type: string
-          enum: [claimed, spawned, held, "skipped:overlap", "skipped:stale", error]
+          enum:
+            [
+              claimed,
+              spawned,
+              held,
+              "skipped:overlap",
+              "skipped:stale",
+              "skipped:limit",
+              error,
+              noop,
+            ]
           x-shepherd-open-enum: true
         sessionId: { type: [string, "null"] }
         reason: { type: [string, "null"] }
+        usage:
+          oneOf:
+            - $ref: "#/components/schemas/ScheduleUsage"
+            - type: "null"
         at: { type: integer }
     ScheduleInterval:
       type: object
@@ -7027,6 +7068,10 @@ components:
           oneOf:
             - $ref: "#/components/schemas/ScheduleInterval"
             - type: "null"
+        usageLimit:
+          oneOf:
+            - $ref: "#/components/schemas/ScheduleUsageLimit"
+            - type: "null"
         enabled: { type: boolean }
         launch:
           $ref: "#/components/schemas/ScheduleLaunch"
@@ -7073,6 +7118,10 @@ components:
         interval:
           oneOf:
             - $ref: "#/components/schemas/ScheduleInterval"
+            - type: "null"
+        usageLimit:
+          oneOf:
+            - $ref: "#/components/schemas/ScheduleUsageLimit"
             - type: "null"
         enabled: { type: boolean }
         launch:
@@ -13367,7 +13416,7 @@ paths:
   /api/schedules/{id}/run:
     post:
       operationId: runScheduleNow
-      description: Fire a schedule now (even when disabled). Still skipped (`skipped:overlap`) while its previous run is open.
+      description: Fire a schedule now (even when disabled), ignoring its own usage limit and applying the normal global usage hold. Still skipped (`skipped:overlap`) while its previous run is open.
       parameters:
         - name: id
           in: path

@@ -264,6 +264,7 @@ describe("schedule launch compatibility", () => {
           days: 31,
           times: ["09:00", "18:00"],
           interval: null,
+          usageLimit: null,
           launch,
         }),
       );
@@ -885,5 +886,131 @@ describe("schedule interval editor", () => {
         interval: null,
       }),
     );
+  });
+});
+
+describe("schedule usage limit editor", () => {
+  it("sets a from limit, shows its allowed range and verdict, and persists it", async () => {
+    store.usageLimits = usage(85, 40);
+    const calls = await edit();
+    await page.getByRole("button", { name: m.schedules_limit_from(), exact: true }).click();
+    const meter = page.getByRole("meter", { name: m.schedules_limit_section(), exact: true });
+    await expect.element(meter).toHaveAttribute("aria-valuenow", "85");
+    expect((document.querySelector(".allowed") as HTMLElement).style.left).toBe("80%");
+    expect((document.querySelector(".allowed") as HTMLElement).style.width).toBe("15%");
+    expect(getComputedStyle(document.querySelector(".stop-zone")!).backgroundImage).toContain(
+      "repeating-linear-gradient",
+    );
+    await expect
+      .element(page.getByText(m.schedules_limit_verdict_ok({ pct: 85 }), { exact: true }))
+      .toBeVisible();
+    await expect
+      .element(page.getByText(m.schedules_limit_replaces({ hold: 80 }), { exact: true }))
+      .toBeVisible();
+    expect(footer().textContent).toContain(m.schedules_limit_footer_ok());
+    expect(document.querySelector(".limits")!.textContent).toContain("resets");
+    await page.getByRole("button", { name: m.schedules_save(), exact: true }).click();
+    await vi.waitFor(() =>
+      expect(calls.find((c) => c.method === "PATCH")?.body).toMatchObject({
+        usageLimit: { kind: "from", startPct: 80, startWindow: "week", stopPct: 95 },
+      }),
+    );
+  });
+
+  it("re-evaluates live data and distinguishes unknown usage from zero", async () => {
+    store.usageLimits = usage(79, 40);
+    await edit({
+      ...TRIAGE,
+      usageLimit: { kind: "from", startPct: 80, startWindow: "week", stopPct: 95 },
+    });
+    await expect
+      .element(
+        page.getByText(m.schedules_limit_verdict_below({ pct: 79, start: 80 }), { exact: true }),
+      )
+      .toBeVisible();
+    store.usageLimits = usage(95, 40);
+    await expect
+      .element(
+        page.getByText(m.schedules_limit_verdict_stop({ pct: 95, stop: 95 }), { exact: true }),
+      )
+      .toBeVisible();
+    store.usageLimits = usage(null, 40);
+    await expect
+      .element(
+        page.getByText(m.schedules_limit_unknown_skip({ provider: "Claude Code" }), {
+          exact: true,
+        }),
+      )
+      .toBeVisible();
+    expect(document.querySelector(".marker")).toBeNull();
+    expect(document.querySelector(".usage-meter")?.getAttribute("role")).toBe("group");
+    expect(document.querySelector(".usage-meter")?.getAttribute("aria-valuenow")).toBeNull();
+    await page.getByRole("button", { name: m.schedules_limit_up(), exact: true }).click();
+    await expect
+      .element(
+        page.getByText(m.schedules_limit_unknown_start({ provider: "Claude Code" }), {
+          exact: true,
+        }),
+      )
+      .toBeVisible();
+  });
+
+  it("keeps limit drafts across mobile tabs and rejects start at stop", async () => {
+    await page.viewport(390, 700);
+    await edit();
+    await page.getByRole("tab", { name: m.schedules_limit_tab(), exact: true }).click();
+    await page.getByRole("button", { name: m.schedules_limit_from(), exact: true }).click();
+    await page.getByRole("spinbutton", { name: /Stop at/ }).fill("80");
+    await expect
+      .element(page.getByRole("button", { name: m.schedules_save(), exact: true }))
+      .toBeDisabled();
+    await expect
+      .element(page.getByText(m.schedules_limit_invalid(), { exact: true }))
+      .toBeVisible();
+    await page.getByRole("tab", { name: m.schedules_tab_what(), exact: true }).click();
+    await expect
+      .element(
+        page.getByRole("tab", {
+          name: m.schedules_tab_invalid({ tab: m.schedules_limit_tab() }),
+          exact: true,
+        }),
+      )
+      .toBeVisible();
+    await page
+      .getByRole("tab", {
+        name: m.schedules_tab_invalid({ tab: m.schedules_limit_tab() }),
+        exact: true,
+      })
+      .click();
+    await page.getByRole("spinbutton", { name: /Stop at/ }).fill("90");
+    await page.getByRole("button", { name: m.schedules_limit_5h(), exact: true }).click();
+    await page.getByRole("tab", { name: m.schedules_tab_what(), exact: true }).click();
+    await page.getByRole("tab", { name: m.schedules_limit_tab(), exact: true }).click();
+    await expect.element(page.getByRole("spinbutton", { name: /Stop at/ })).toHaveValue(90);
+    await expect
+      .element(page.getByRole("button", { name: m.schedules_limit_5h(), exact: true }))
+      .toHaveAttribute("aria-pressed", "true");
+    await page.viewport(1280, 900);
+    await expect.element(page.getByRole("spinbutton", { name: /Stop at/ })).toHaveValue(90);
+  });
+
+  it("shows the current limit chip and the captured historic threshold", async () => {
+    mockApi([
+      {
+        ...TRIAGE,
+        usageLimit: { kind: "upTo", stopPct: 50 },
+        lastRun: {
+          ...RUN,
+          outcome: "skipped:limit",
+          reason: "below-start",
+          usage: { provider: "claude", window: "week", usedPct: 79, thresholdPct: 80 },
+        },
+      },
+    ]);
+    render(AutomationSchedules, { repoPath: TRIAGE.repoPath });
+    await expect
+      .element(page.getByText(m.schedules_limit_chip_up({ stop: 50 }), { exact: true }))
+      .toBeVisible();
+    await expect.element(page.getByRole("button", { name: /still below 80 %/ })).toBeVisible();
   });
 });

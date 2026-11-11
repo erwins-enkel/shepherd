@@ -408,7 +408,8 @@ const repoWarmth: RepoWarmthService = new RepoWarmthService({
   lastActivityByRepo: () => store.lastActivityByRepo(),
   repoOpenedSince: (since) => store.repoOpenedSince(since),
   markRepoOpened: (p, at) => store.markRepoOpened(p, at),
-  automationRepos: () => store.warmAutomationRepoPaths(),
+  automationRepos: () =>
+    store.warmAutomationRepoPaths(listRepos(config.repoRoot).map((r) => r.realPath)),
   activeEpicRepos: () =>
     store
       .listEpicRuns()

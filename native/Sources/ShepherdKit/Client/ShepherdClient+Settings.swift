@@ -46,6 +46,9 @@ extension ShepherdClient {
             switch try await generated.putRepoConfig(.init(query: .init(repo: repo), body: .json(body))) {
             case .ok(let value): return try value.body.json
             case .badRequest(let value): throw ShepherdError.badRequest(try value.body.json.error)
+            case .badGateway(let value):
+                let error = try value.body.json
+                throw ShepherdError.upstreamFailure(code: error.code, message: error.error)
             case .unauthorized: throw ShepherdError.unauthenticated
             case .undocumented(let status, let payload): throw await ShepherdError.fromUndocumented(statusCode: status, payload: payload, route: "putRepoConfig")
             }

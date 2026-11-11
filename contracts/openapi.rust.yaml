@@ -9152,7 +9152,10 @@ components:
     RepoConfig:
       type: object
       additionalProperties: true
+      description: Effective configuration; shared rules come from the valid committed .shepherd/config.json when available. Other settings stay local. Missing shared fields in a valid file use defaults, never DB values.
       required:
+        - fieldSources
+        - repoConfigCommit
         - criticEnabled
         - criticAllPrs
         - criticSmellLensEnabled
@@ -9183,6 +9186,18 @@ components:
         - repoMode
         - previewOpenMode
       properties:
+        fieldSources:
+          type: object
+          description: Source of every configuration field (excludes response metadata). Repo defaults and inherit values have source repo when a valid file is active.
+          additionalProperties:
+            type: string
+            enum:
+              - repo
+              - rechner
+        repoConfigCommit:
+          type: string
+          nullable: true
+          description: Full selected default-branch commit SHA of the active file; null for missing, invalid or disabled files. Reads are cached for up to 60 seconds after fetch.
         criticEnabled:
           type: boolean
         criticAllPrs:
@@ -9375,6 +9390,7 @@ components:
     RepoConfigPatch:
       type: object
       additionalProperties: false
+      description: Shared rule fields are saved in one commit to origin's default branch; machine fields stay local. First rule write seeds every current local rule. Mixed writes apply local fields only after a successful push. inherit retains each machine's global default. No origin or lightweight mode keeps all fields local.
       properties:
         criticEnabled:
           type: boolean
@@ -15866,6 +15882,12 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "502":
+          description: Could not fetch or push repository rules; local changes and automation confirmation were not applied. code is repo_config_write_failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/agent-extensions:
     get:
       operationId: getAgentExtensions

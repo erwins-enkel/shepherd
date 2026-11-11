@@ -8848,5 +8848,12 @@
   "feat_backlog_settings_tab_title": "Der Einstellungen-Tab im Backlog gleicht dem Einstellungsfenster",
   "feat_backlog_settings_tab_body": "Der Tab „Automatisierung“ im Backlog heißt jetzt „Einstellungen“ und zeigt dieselbe Ansicht wie das Repo-Einstellungsfenster: jeden Bereich mit seinem Status in einer Leiste, rechts jeweils einen Bereich, und was Aufmerksamkeit braucht, ist markiert. Links wie „N Plätze erlauben“ öffnen den Bereich, auf den sie zeigen.",
   "feat_egress_live_apply_title": "Erlaubte Hosts gelten für laufende Sessions",
-  "feat_egress_live_apply_body": "Wenn du einen zusätzlich erlaubten Host hinzufügst oder entfernst, aktualisiert Shepherd jetzt innerhalb von Sekunden die Egress-Firewall der laufenden Autonom-Sessions des Repos, ohne Neustart. Eine Session, die an einem gerade erlaubten Host blockiert wurde, bekommt Bescheid, es erneut zu versuchen."
+  "feat_egress_live_apply_body": "Wenn du einen zusätzlich erlaubten Host hinzufügst oder entfernst, aktualisiert Shepherd jetzt innerhalb von Sekunden die Egress-Firewall der laufenden Autonom-Sessions des Repos, ohne Neustart. Eine Session, die an einem gerade erlaubten Host blockiert wurde, bekommt Bescheid, es erneut zu versuchen.",
+  "reposettings_search_label": "Repo-Einstellungen durchsuchen",
+  "reposettings_search_clear": "Suche leeren",
+  "reposettings_search_count": "{count} passende Einstellungen",
+  "reposettings_search_empty": "Keine passenden Einstellungen",
+  "reposettings_search_results": "Passende Einstellungen",
+  "feat_repo_settings_search_title": "Repo-Einstellungen durchsuchen",
+  "feat_repo_settings_search_body": "Finde Einstellungen über alle Repo-Rubriken hinweg und springe direkt zur passenden Einstellung."
 }

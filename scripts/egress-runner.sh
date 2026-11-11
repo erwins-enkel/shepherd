@@ -9,7 +9,7 @@
 # inner argv (normally `bwrap <membrane+egress-override flags> -- claude …`)
 # INSIDE that netns.
 #
-# Invocation contract:
+# Invocation contract (the runner also creates <tmpDir>/reload.fifo for live reloads):
 #   egress-runner.sh --tmp <tmpDir> -- <inner argv...>
 #
 # <tmpDir> (created+owned by the caller, NOT this script) contains:
@@ -70,6 +70,11 @@ done
 cleanup() { [ -n "${SLIRP:-}" ] && kill "$SLIRP" 2>/dev/null; }
 trap cleanup EXIT INT TERM
 
+# Live-reload channel (see reload_loop below): Shepherd writes a seq here to apply a changed
+# allowlist without restarting the agent. Created before the ns so it exists once the agent runs.
+rm -f "$TMP/reload.fifo" "$TMP/reload.status"
+mkfifo -m 600 "$TMP/reload.fifo" || die "mkfifo failed: $TMP/reload.fifo"
+
 # ── (A) netns owner = PID 1 of a fresh pid+net+user ns under pdeathsig ─────────
 # Inside the ns: bring lo up, wait for slirp's tap0 to appear, load nft, start
 # dnsmasq, then exec the inner argv (inheriting the PTY fds).
@@ -99,9 +104,46 @@ setpriv --pdeathsig SIGKILL \
       echo "egress-runner: dnsmasq failed to start; refusing to exec agent" >&2
       exit 1
     }
-    shift 2
+    # Live reload: Shepherd rewrites egress.reload.nft + dnsmasq.argv and writes a seq to
+    # reload.fifo; this loop applies the nft script (atomic — on failure the old rules stand),
+    # restarts dnsmasq on the new argv (rolling back to the old argv if it will not start), and
+    # reports "<seq> ok|fail" in reload.status. It lives in this pidns, so PID-1 death reaps it.
+    # stdio on /dev/null: it must never hold the agent PTY.
+    reload_loop() {
+      local dir="$1" req ok st
+      while :; do
+        read -r req < "$dir/reload.fifo" || continue
+        [ -n "$req" ] || continue
+        ok=fail
+        if nft -f "$dir/egress.reload.nft"; then
+          local old=("${DARGS[@]}")
+          mapfile -t DARGS < "$dir/dnsmasq.argv"
+          kill "$DNSMASQ_PID" 2>/dev/null
+          # Wait for it to exit (port 53 free). The first dnsmasq is not our child, so it stays a
+          # zombie until PID 1 reaps it — count that as exited.
+          for _ in $(seq 1 50); do
+            st=$(sed -n "s/^State:[[:space:]]*\(.\).*/\1/p" "/proc/$DNSMASQ_PID/status" 2>/dev/null)
+            [ -n "$st" ] && [ "$st" != Z ] || break
+            sleep 0.02
+          done
+          dnsmasq "${DARGS[@]}" &
+          DNSMASQ_PID=$!
+          sleep 0.2
+          if kill -0 "$DNSMASQ_PID" 2>/dev/null; then
+            ok=ok
+          else
+            DARGS=("${old[@]}")
+            dnsmasq "${DARGS[@]}" &
+            DNSMASQ_PID=$!
+          fi
+        fi
+        echo "$req $ok" > "$dir/reload.status"
+      done
+    }
+    reload_loop "$3" </dev/null >/dev/null 2>&1 &
+    shift 3
     exec "$@"
-  ' bash "$TMP/egress.nft" "$TMP/dnsmasq.argv" "${INNER[@]}" <&0 &
+  ' bash "$TMP/egress.nft" "$TMP/dnsmasq.argv" "$TMP" "${INNER[@]}" <&0 &
 # `<&0` is load-bearing: a non-interactive bash points a background job's stdin at /dev/null,
 # and bwrap --new-session denies the /dev/tty fallback — claude would exit at launch.
 CHILD=$!

@@ -222,15 +222,21 @@ import {
   egressMembraneOverrideFlags,
   buildEgressAllowlist,
   buildEgressConfig,
+  buildEgressReloadNft,
   connectorEgressHosts,
+  hostMatchesAllowlist,
+  readEgressSpawnInputs,
+  requestEgressReload,
   writeEgressConfigFiles,
+  writeEgressReloadFiles,
+  writeEgressSpawnInputs,
   wrapEgress,
   egressTmpDir,
   removeEgressTmp,
   sweepEgressTmp,
   type EgressBackend,
 } from "./egress";
-import type { EgressNoteChannel, EgressWatcher } from "./egress-watch";
+import { egressAllowedNote, type EgressNoteChannel, type EgressWatcher } from "./egress-watch";
 import type { NetnsDevForwarder } from "./netns-dev-forward";
 import { foldSpawnPatch } from "./spawn-membrane";
 import { PluginSpawnAborted, type SpawnDescriptor, type SpawnPatch } from "./plugins/types";
@@ -535,7 +541,7 @@ export interface ServiceDeps {
   /** On-path Codex help output; tests can substitute an older CLI. */
   readCodexHelp?: () => string;
   /** Per-session DNS-drop watcher; absent in tests that don't care → no-op. */
-  egressWatcher?: Pick<EgressWatcher, "start" | "stop">;
+  egressWatcher?: Pick<EgressWatcher, "start" | "stop" | "setAllowlist" | "blockedHosts">;
   /** In-netns dev server forwards (#2889); dropped at archive. Absent → no-op. */
   netnsDevForward?: Pick<NetnsDevForwarder, "drop">;
   /** Best-effort pre-teardown hook (recap generation) — runs while the worktree still
@@ -4026,14 +4032,7 @@ export class SessionService {
     // egress-runner (netns + nft + dnsmasq). wrapArgv can't inject the override flags, so
     // this case bypasses it.
     const tmp = egressTmpDir(args.sessionId);
-    const allowlist = buildEgressAllowlist({
-      forges: config.forges,
-      extraHosts: [
-        ...config.sandboxEgressExtraHosts,
-        ...this.deps.store.getRepoConfig(args.repoPath).egressExtraHosts,
-        ...args.connectorHosts,
-      ],
-    });
+    const allowlist = this.egressAllowlistFor(args.repoPath, args.connectorHosts);
     // Open exactly the restricted agent-ingress listener (host 127.0.0.1:<ingressPort> via the
     // slirp gateway 10.0.2.2) — and ONLY when the slirp is host-loopback-capable AND a port is
     // known. SAME gate as resolveSpawnBaseUrl, so the baked URL and this nft rule never diverge.
@@ -4041,6 +4040,13 @@ export class SessionService {
       this.egressHostGateway(profile, backend, egressBackend ?? null) ?? undefined;
     const cfg = buildEgressConfig(allowlist, { tmpDir: tmp, hostGateway });
     writeEgressConfigFiles(tmp, cfg);
+    // What reapplyEgressAllowlist rebuilds from when the repo's allowlist changes mid-session.
+    writeEgressSpawnInputs(tmp, {
+      repoPath: args.repoPath,
+      hostGateway,
+      connectorHosts: args.connectorHosts,
+      allowlist,
+    });
     const bwrapArgv = [
       "bwrap",
       // membraneForArgv folds the codex binds in for a codex inner argv (this branch
@@ -4055,6 +4061,80 @@ export class SessionService {
       egressAllowlist: allowlist,
       egressDnsLog: join(tmp, "dns.log"),
     };
+  }
+
+  /** The egress allowlist a session of `repoPath` gets right now: forges, env extras, the repo's
+   *  Extra allowed hosts and the spawn's connector hosts. */
+  private egressAllowlistFor(repoPath: string, connectorHosts: string[]): string[] {
+    return buildEgressAllowlist({
+      forges: config.forges,
+      extraHosts: [
+        ...config.sandboxEgressExtraHosts,
+        ...this.deps.store.getRepoConfig(repoPath).egressExtraHosts,
+        ...connectorHosts,
+      ],
+    });
+  }
+
+  /** Per-repo tail of reapplyEgressAllowlist runs, so rapid edits never overlap reloads. */
+  private readonly egressReapplies = new Map<string, Promise<void>>();
+
+  /**
+   * Live-apply the repo's current egress allowlist to its running Autonomous sessions: rewrite
+   * each session's firewall config and have its egress runner reload it, no restart. A session
+   * that had hit a host the new list covers is steered to retry. Sessions without a reload
+   * channel (spawned before live reload) are skipped; they get the list on their next spawn.
+   * Never throws.
+   */
+  reapplyEgressAllowlist(repoPath: string): Promise<void> {
+    const prev = this.egressReapplies.get(repoPath) ?? Promise.resolve();
+    const run = () => this.reapplyEgressAllowlistNow(repoPath);
+    const next = prev.then(run, run); // a rejected run must not skip the next one
+    this.egressReapplies.set(repoPath, next);
+    const clear = () => {
+      if (this.egressReapplies.get(repoPath) === next) this.egressReapplies.delete(repoPath);
+    };
+    next.then(clear, clear);
+    return next;
+  }
+
+  private async reapplyEgressAllowlistNow(repoPath: string): Promise<void> {
+    const sessions = this.deps.store
+      .list({ activeOnly: true })
+      .filter((s) => s.repoPath === repoPath && !s.terminal);
+    for (const s of sessions) {
+      try {
+        await this.reapplySessionEgress(s.id, repoPath);
+      } catch (err) {
+        console.warn(`[egress] reapply ${s.id} failed:`, err);
+      }
+    }
+  }
+
+  private async reapplySessionEgress(sessionId: string, repoPath: string): Promise<void> {
+    const tmp = egressTmpDir(sessionId);
+    const inputs = await readEgressSpawnInputs(tmp);
+    if (!inputs || inputs.repoPath !== repoPath) return; // not egress-confined, or pre-reload spawn
+    const allowlist = this.egressAllowlistFor(repoPath, inputs.connectorHosts);
+    const old = inputs.allowlist;
+    if (allowlist.length === old.length && allowlist.every((e, i) => e === old[i])) return;
+    const cfg = buildEgressConfig(allowlist, { tmpDir: tmp, hostGateway: inputs.hostGateway });
+    // A removed entry revokes the IPs already pinned for it; a pure addition keeps them.
+    const flushPinned = old.some((e) => !allowlist.includes(e));
+    await writeEgressReloadFiles(tmp, cfg, buildEgressReloadNft(cfg, { flushPinned }));
+    const outcome = await requestEgressReload(tmp);
+    if (outcome !== "applied") {
+      console.warn(`[egress] reapply ${sessionId}: ${outcome}`);
+      return;
+    }
+    writeEgressSpawnInputs(tmp, { ...inputs, allowlist });
+    this.deps.egressWatcher?.setAllowlist(sessionId, allowlist);
+    const unblocked = (this.deps.egressWatcher?.blockedHosts(sessionId) ?? []).filter(
+      (h) => hostMatchesAllowlist(h, allowlist) && !hostMatchesAllowlist(h, old),
+    );
+    if (unblocked.length > 0) {
+      await this.reply(sessionId, egressAllowedNote(unblocked), { automatic: true });
+    }
   }
 
   /** prepareSpawn for callers that can't proceed on an auto-refuse: throws

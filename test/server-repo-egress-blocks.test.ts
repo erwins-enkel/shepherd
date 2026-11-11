@@ -183,3 +183,30 @@ test("GET suggestions drops allowed and already-blocked hosts", async () => {
     { host: "sum.golang.org", sources: ["go.sum"] },
   ]);
 });
+
+test("PUT /api/repo-config live-applies a changed egressExtraHosts, once, to that repo only", async () => {
+  const reapplied: string[] = [];
+  const a = makeApp({
+    store,
+    service: { reapplyEgressAllowlist: async (repo: string) => void reapplied.push(repo) } as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+    resolveForge: () => null,
+  });
+  const put = (body: unknown) =>
+    a.fetch(
+      new Request(`http://localhost:7330/api/repo-config?repo=${encodeURIComponent(repoDir)}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
+        body: JSON.stringify(body),
+      }),
+    );
+  expect((await put({ egressExtraHosts: ["registry.npmjs.org"] })).status).toBe(200);
+  await Bun.sleep(0);
+  expect(reapplied).toEqual([repoDir]);
+  // Same list again, or a patch that leaves it alone → no reapply.
+  expect((await put({ egressExtraHosts: ["registry.npmjs.org"] })).status).toBe(200);
+  expect((await put({ criticEnabled: false })).status).toBe(200);
+  await Bun.sleep(0);
+  expect(reapplied).toEqual([repoDir]);
+});

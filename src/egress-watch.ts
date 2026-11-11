@@ -47,12 +47,25 @@ const MAX_NOTE_HOST_CHARS = 253;
 /** The note that tells the agent a host was blocked (#3921) — single source for the hook and
  *  steer channels. Agent-facing English, like Shepherd's other directives. */
 export function egressBlockedNote(host: string): string {
-  const safe = host.toLowerCase().replace(NOTE_HOST_UNSAFE, "").slice(0, MAX_NOTE_HOST_CHARS);
   return (
-    `Shepherd: egress to ${safe} was blocked by the sandbox allowlist (autonomous egress ` +
-    "firewall). This is not a network fault. Don't retry or work around it. Tell the operator " +
-    "the host must be allowed (repo settings → Agent environment → Extra allowed hosts)."
+    `Shepherd: egress to ${noteHost(host)} was blocked by the sandbox allowlist (autonomous ` +
+    "egress firewall). This is not a network fault. Don't retry or work around it. Tell the " +
+    "operator the host must be allowed (repo settings → Agent environment → Extra allowed " +
+    "hosts). Shepherd applies that change to this running session within seconds, no restart " +
+    "needed: retry once Shepherd says the host is allowed or the operator confirms."
   );
+}
+
+/** The note that tells the agent a host it was blocked on is now allowed in its sandbox. */
+export function egressAllowedNote(hosts: string[]): string {
+  return (
+    `Shepherd: ${hosts.map(noteHost).join(", ")} now allowed in this session's sandbox ` +
+    "(the operator updated the egress allowlist). Retry what was blocked."
+  );
+}
+
+function noteHost(host: string): string {
+  return host.toLowerCase().replace(NOTE_HOST_UNSAFE, "").slice(0, MAX_NOTE_HOST_CHARS);
 }
 
 /** How a session's agent hears about a block: queued for its next tool hook reply, or steered. */
@@ -172,13 +185,19 @@ export class EgressWatcher {
   start(sessionId: string, opts: WatchOpts & { noteChannel?: EgressNoteChannel }): void {
     if (this.sessions.has(sessionId)) return; // already watching
 
+    // Own copy: setAllowlist mutates it, and the timer + flush read it on every tick.
+    const watchOpts: WatchOpts = {
+      repoPath: opts.repoPath,
+      dnsLogPath: opts.dnsLogPath,
+      allowlist: opts.allowlist,
+    };
     // `void`: #tick swallows all its own errors (see its doc), and the timer callback is
     // `() => void` — returning the promise would be a misused-promises violation, not a handler.
-    const tick = () => void this.#serialTick(sessionId, opts);
+    const tick = () => void this.#serialTick(sessionId, watchOpts);
     const interval = this.deps.setInterval(tick, this.deps.intervalMs);
     this.sessions.set(sessionId, {
       interval,
-      opts,
+      opts: watchOpts,
       noteChannel: opts.noteChannel ?? "hook",
       pending: [],
       inflight: null,
@@ -204,6 +223,13 @@ export class EgressWatcher {
   async flush(sessionId: string): Promise<void> {
     const state = this.sessions.get(sessionId);
     if (state) await this.#serialTick(sessionId, state.opts);
+  }
+
+  /** Swap the allowlist a live reload applied to the session, so newly allowed hosts stop being
+   *  reported. No-op for an unknown session. */
+  setAllowlist(sessionId: string, allowlist: string[]): void {
+    const state = this.sessions.get(sessionId);
+    if (state) state.opts.allowlist = allowlist;
   }
 
   /** Drain the session's queued hook-channel notes as one block, or null when none. */

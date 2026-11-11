@@ -1033,13 +1033,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Eintrag erlaubt genau diesen Host auf Port 443. Schreib *.example.com für seine Subdomains und host:port für einen anderen Port. Änderungen gelten für neue Sessions."
+            "value": "Ein Eintrag erlaubt genau diesen Host auf Port 443. Schreib *.example.com für seine Subdomains und host:port für einen anderen Port. Laufende Sessions übernehmen Änderungen innerhalb von Sekunden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "An entry allows exactly that host on port 443. Write *.example.com for its subdomains, host:port for another port. New sessions pick up changes."
+            "value": "An entry allows exactly that host on port 443. Write *.example.com for its subdomains, host:port for another port. Running sessions pick up changes within seconds."
           }
         }
       }

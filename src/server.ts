@@ -3736,9 +3736,25 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   // Turning the Shared Browser off revokes it now: stop the repo's Chromium, which closes every
   // attached agent socket. Later attaches are refused by the broker's opt-in check.
   if (before.sharedBrowserEnabled && !r.config.sharedBrowserEnabled) deps.sharedBrowser?.stop(dir);
+  kickEgressReapply(deps, dir, before.egressExtraHosts, r.config.egressExtraHosts);
   const view = withNoPrCi(deps, dir, r.config);
   if (before.claudeAiConnectorsEnabled === r.config.claudeAiConnectorsEnabled) return json(view);
   return json({ ...view, connectorRestart: kickConnectorRestart(deps, dir) });
+}
+
+/** A changed Extra allowed hosts list reaches the repo's running Autonomous sessions live
+ *  (fire-and-forget). Order alone is no change. */
+function kickEgressReapply(
+  deps: Ctx["deps"],
+  dir: string,
+  before: string[],
+  after: string[],
+): void {
+  const sorted = (l: string[]) => [...l].sort().join("\n");
+  if (sorted(before) === sorted(after)) return;
+  void Promise.resolve()
+    .then(() => deps.service.reapplyEgressAllowlist(dir))
+    .catch((err: unknown) => console.warn("[egress] reapply failed:", err));
 }
 
 /** One allowlist choice (#3780): a plugin id or personal skill name, and the CLIs that have it. */

@@ -20,7 +20,9 @@ import {
   readdirSync,
   rmSync,
   writeFileSync,
+  constants as fsConstants,
 } from "node:fs";
+import * as fsp from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -976,6 +978,146 @@ export function writeEgressConfigFiles(tmpDir: string, cfg: EgressConfig): void 
   writeFileSync(join(tmpDir, "dnsmasq.argv"), cfg.dnsmasqArgv.join("\n"), "utf8");
   writeFileSync(join(tmpDir, "resolv.conf"), cfg.resolvConf, "utf8");
   writeFileSync(join(tmpDir, "nsswitch.conf"), cfg.nsswitchConf, "utf8");
+}
+
+// ── live reload (allowlist edits reach running sessions) ───────────────────────
+
+/**
+ * The nft script the runner's reload loop applies (`nft -f`, one atomic transaction) to swap a
+ * running session's ruleset for `cfg`'s. `flushPinned` (an entry was removed) drops both tables
+ * first, so IPs pinned for removed hosts are revoked. Otherwise the chains are emptied and the
+ * full ruleset re-declared on top: nft merges a declaration into an existing table, so existing
+ * sets keep their pinned IPs, new port sets are created and the rules land in the empty chains.
+ */
+export function buildEgressReloadNft(cfg: EgressConfig, opts: { flushPinned: boolean }): string {
+  const prefix = opts.flushPinned
+    ? "delete table inet egress\ndelete table ip devfwd\n"
+    : [
+        "add table inet egress",
+        "add chain inet egress out { type filter hook output priority 0; policy drop; }",
+        "flush chain inet egress out",
+        "add table ip devfwd",
+        "add chain ip devfwd pre { type nat hook prerouting priority -100; }",
+        "flush chain ip devfwd pre",
+        "",
+      ].join("\n");
+  return prefix + cfg.nftRuleset;
+}
+
+/** Write the reload artefacts: the reload nft script plus the new dnsmasq argv + ruleset. */
+export async function writeEgressReloadFiles(
+  tmpDir: string,
+  cfg: EgressConfig,
+  reloadNft: string,
+): Promise<void> {
+  await fsp.writeFile(join(tmpDir, "egress.reload.nft"), reloadNft, "utf8");
+  await fsp.writeFile(join(tmpDir, "dnsmasq.argv"), cfg.dnsmasqArgv.join("\n"), "utf8");
+  await fsp.writeFile(join(tmpDir, "egress.nft"), cfg.nftRuleset, "utf8");
+}
+
+/** How a live reload request ended. `unsupported`: no reload loop listening (a runner from
+ *  before live reload, or the netns is gone). */
+export type EgressReloadOutcome = "applied" | "failed" | "unsupported" | "timeout";
+
+export interface EgressReloadDeps {
+  /** Hand `line` to the FIFO without blocking; throws ENOENT/ENXIO when nobody listens. */
+  signal?: (fifo: string, line: string) => Promise<void>;
+  readStatus?: (path: string) => Promise<string | null>;
+  sleep?: (ms: number) => Promise<void>;
+  timeoutMs?: number;
+}
+
+const RELOAD_POLL_MS = 100;
+const RELOAD_TIMEOUT_MS = 5_000;
+let reloadSeq = 0;
+
+async function defaultSignal(fifo: string, line: string): Promise<void> {
+  // O_NONBLOCK: opening a FIFO with no reader fails ENXIO instead of hanging the loop.
+  const fh = await fsp.open(fifo, fsConstants.O_WRONLY | fsConstants.O_NONBLOCK);
+  try {
+    await fh.write(line);
+  } finally {
+    await fh.close();
+  }
+}
+
+async function defaultReadStatus(path: string): Promise<string | null> {
+  try {
+    return (await fsp.readFile(path, "utf8")).slice(0, 200);
+  } catch {
+    return null;
+  }
+}
+
+/** Ask the session's runner to reload its firewall from the files {@link writeEgressReloadFiles}
+ *  wrote, and wait (async) for its `<seq> ok|fail` status. */
+export async function requestEgressReload(
+  tmpDir: string,
+  deps: EgressReloadDeps = {},
+): Promise<EgressReloadOutcome> {
+  const signal = deps.signal ?? defaultSignal;
+  const readStatus = deps.readStatus ?? defaultReadStatus;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const seq = `${process.pid}-${Date.now()}-${++reloadSeq}`;
+  try {
+    await signal(join(tmpDir, "reload.fifo"), `${seq}\n`);
+  } catch {
+    return "unsupported";
+  }
+  const statusPath = join(tmpDir, "reload.status");
+  const timeoutMs = deps.timeoutMs ?? RELOAD_TIMEOUT_MS;
+  for (let waited = 0; waited < timeoutMs; waited += RELOAD_POLL_MS) {
+    await sleep(RELOAD_POLL_MS);
+    const [gotSeq, result] = (await readStatus(statusPath))?.trim().split(" ") ?? [];
+    if (gotSeq === seq) return result === "ok" ? "applied" : "failed";
+  }
+  return "timeout";
+}
+
+/** What a session's egress spawn was built from, so a live reload can rebuild the same config
+ *  with a changed allowlist. Persisted as `egress-spawn.json` in the session's egress tmp dir. */
+export interface EgressSpawnInputs {
+  repoPath: string;
+  hostGateway?: { ip: string; port: number };
+  connectorHosts: string[];
+  /** The allowlist currently applied to the session. */
+  allowlist: string[];
+}
+
+const SPAWN_INPUTS_FILE = "egress-spawn.json";
+const MAX_SPAWN_INPUTS_BYTES = 256 * 1024;
+
+/** Sync, like {@link writeEgressConfigFiles} it sits beside in the spawn path (tiny file). */
+export function writeEgressSpawnInputs(tmpDir: string, inputs: EgressSpawnInputs): void {
+  writeFileSync(join(tmpDir, SPAWN_INPUTS_FILE), JSON.stringify(inputs), "utf8");
+}
+
+const isStringArray = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.every((x) => typeof x === "string");
+
+function isHostGateway(v: unknown): v is { ip: string; port: number } {
+  if (v === undefined) return true;
+  const g = v as { ip?: unknown; port?: unknown } | null;
+  return (
+    typeof g === "object" && g !== null && typeof g.ip === "string" && Number.isInteger(g.port)
+  );
+}
+
+/** The session's {@link EgressSpawnInputs}, or null when absent or malformed. */
+export async function readEgressSpawnInputs(tmpDir: string): Promise<EgressSpawnInputs | null> {
+  try {
+    const raw = await fsp.readFile(join(tmpDir, SPAWN_INPUTS_FILE), "utf8");
+    if (raw.length > MAX_SPAWN_INPUTS_BYTES) return null;
+    const v = JSON.parse(raw) as Partial<EgressSpawnInputs>;
+    const ok =
+      typeof v.repoPath === "string" &&
+      isStringArray(v.connectorHosts) &&
+      isStringArray(v.allowlist) &&
+      isHostGateway(v.hostGateway);
+    return ok ? (v as EgressSpawnInputs) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

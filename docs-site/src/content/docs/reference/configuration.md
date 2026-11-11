@@ -762,8 +762,10 @@ posture — is documented on the [Security](/reference/security/) page.
 **Blocked hosts.** Each host the `autonomous` egress firewall blocks shows once as a toast
 (**Review** opens the list) and lands in the repo settings under Agent environment › **Blocked
 hosts**: host, how often, how many sessions hit it and when, for the last 60 days. **Allow for this
-repo** adds the host to the repo's Extra allowed hosts (`egressExtraHosts`); sessions started after
-that can reach exactly that host on port 443. How much Allow asks depends on the host:
+repo** adds the host to the repo's Extra allowed hosts (`egressExtraHosts`). Any change to that list
+reaches the repo's running Autonomous sessions within seconds, no restart: their egress runner reloads
+its firewall and DNS allowlist in place, so they can then reach exactly that host on port 443. A
+session that was blocked on a newly allowed host is told to retry. How much Allow asks depends on the host:
 
 - **Trusted** package registries (npm and the Yarn registry, PyPI, crates.io, the Go proxy, NuGet,
   nodejs.org, rust-lang static, ghcr.io, Docker Hub) allow in one click.

@@ -56,6 +56,8 @@ beforeEach(() => {
   outcome = (input) => ({ kind: "spawned", session: spawnSession(input) });
   svc = new ScheduleService({
     store,
+    usageLimits: { limits: () => ({ session5h: null, week: null }) } as any,
+    resolveProvider: (s) => s.launch.agentProvider ?? "claude",
     launch: async (input) => {
       launches.push(input);
       return outcome(input);
@@ -403,6 +405,7 @@ test("legacy database migration and interval roundtrip retain baseline and index
   expect(migrated.getSchedule("legacy")).toMatchObject({
     times: ["09:00"],
     interval: null,
+    usageLimit: null,
     baselineAt: 100,
   });
   const interval = { everyMinutes: 15 as const, from: null, until: null };
@@ -428,4 +431,98 @@ test("legacy database migration and interval roundtrip retain baseline and index
     JSON.stringify(db.query("EXPLAIN QUERY PLAN DELETE FROM schedule_runs WHERE at < ?").all(2)),
   ).toContain("schedule_runs_at");
   db.close();
+});
+
+test("run usage snapshots survive settlement, schedule edits and noop", () => {
+  const s = makeSchedule(at(10, 26, 8));
+  const usage = { provider: "claude", window: "week", usedPct: 80, thresholdPct: 80 } as const;
+  store.claimScheduleRun(s.id, "slot", 1);
+  store.settleScheduleRun(s.id, "slot", "claimed", { usage });
+  store.settleScheduleRun(s.id, "slot", "spawned", { sessionId: "s" });
+  store.updateSchedule(s.id, { ...s, usageLimit: { kind: "upTo", stopPct: 50 } }, 2, false);
+  expect(store.getScheduleRun(s.id, "slot")?.usage).toEqual(usage);
+  expect(store.listScheduleRuns(s.id, 1)[0]?.usage).toEqual(usage);
+  store.markScheduleRunNoop("s", s.id, "done");
+  expect(store.getScheduleRun(s.id, "slot")).toMatchObject({ outcome: "noop", usage });
+  store.settleScheduleRun(s.id, "slot", "error", { usage: null });
+  expect(store.getScheduleRun(s.id, "slot")?.usage).toBeNull();
+});
+
+test("automatic limits skip once, snapshot the decision and pin the provider; run now ignores them", async () => {
+  let provider: "claude" | "codex" = "claude";
+  let pct = 79;
+  const options: unknown[] = [];
+  svc = new ScheduleService({
+    store,
+    launch: async (input, opts) => {
+      launches.push(input);
+      options.push(opts);
+      return outcome(input);
+    },
+    usageLimits: { limits: () => ({ session5h: null, week: { pct, resetAt: 1 } }) } as any,
+    resolveProvider: (s) => s.launch.agentProvider ?? provider,
+    defaultBranch: async () => {
+      provider = "codex";
+      return "main";
+    },
+    repoRoot: () => root,
+    maintenanceActive: () => false,
+    events: { emit() {} },
+    now: () => now,
+    log() {},
+  });
+  const s = makeSchedule(at(10, 26, 8), {
+    usageLimit: { kind: "from", startPct: 80, startWindow: "week", stopPct: 95 },
+  });
+  now = at(10, 26, 9);
+  await svc.tick();
+  expect(launches).toHaveLength(0);
+  expect(store.listScheduleRuns(s.id, 1)[0]).toMatchObject({
+    outcome: "skipped:limit",
+    reason: "below-start",
+    usage: { provider: "claude", window: "week", usedPct: 79, thresholdPct: 80 },
+  });
+  pct = 80;
+  await svc.tick();
+  expect(launches).toHaveLength(0);
+  now = at(10, 26, 18);
+  await svc.tick();
+  expect(launches[0]?.agentProvider).toBe("claude");
+  expect(options[0]).toEqual({ skipUsageHold: true });
+  expect(store.listScheduleRuns(s.id, 1)[0]).toMatchObject({
+    outcome: "spawned",
+    usage: { usedPct: 80 },
+  });
+  archiveAll();
+  pct = 99;
+  const manual = await svc.runNow(s.id);
+  expect(manual).toMatchObject({ outcome: "spawned", usage: null });
+  expect((options[1] as { skipUsageHold?: boolean })?.skipUsageHold).not.toBe(true);
+});
+
+test("allowed limits retain their snapshot when launch is held or throws", async () => {
+  for (const throwing of [false, true]) {
+    const s = makeSchedule(at(10, 26, 8), { usageLimit: { kind: "upTo", stopPct: 70 } });
+    const service = new ScheduleService({
+      store,
+      launch: async () => {
+        if (throwing) throw new Error("spawn failed");
+        return { kind: "held", held: { id: "held", reason: "memory" } } as LaunchOutcome;
+      },
+      usageLimits: { limits: () => ({ session5h: null, week: { pct: 60, resetAt: 1 } }) } as any,
+      resolveProvider: () => "claude",
+      defaultBranch: async () => "main",
+      repoRoot: () => root,
+      maintenanceActive: () => false,
+      events: { emit() {} },
+      now: () => now,
+      log() {},
+    });
+    now = at(10, 26, 9);
+    await service.tick();
+    expect(store.listScheduleRuns(s.id, 1)[0]).toMatchObject({
+      outcome: throwing ? "error" : "held",
+      usage: { provider: "claude", window: "max", usedPct: 60, thresholdPct: 70 },
+    });
+  }
 });

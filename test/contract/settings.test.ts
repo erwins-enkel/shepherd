@@ -670,6 +670,7 @@ test("schedules CRUD, run now and runs (#3469)", async () => {
   const input = {
     repoPath: s.validRepo,
     name: "Triage",
+    usageLimit: { kind: "from", startPct: 80, startWindow: "week", stopPct: 95 },
     prompt: "/triage-feedback",
     days: 0b0011111,
     times: ["09:00", "18:00"],
@@ -711,6 +712,14 @@ test("schedules CRUD, run now and runs (#3469)", async () => {
   );
   await request("PATCH", one, 200, { times: ["09:00"], interval: null }, at());
   await request("PATCH", one, 404, { name: "x" }, "/api/schedules/nope");
+  s.deps.store.claimScheduleRun(id, "limit-test", Date.now());
+  s.deps.store.settleScheduleRun(id, "limit-test", "skipped:limit", {
+    reason: "stop-reached",
+    usage: { provider: "codex", window: "max", usedPct: 95, thresholdPct: 95 },
+  });
+  await request("GET", "/api/schedules/{id}/runs", 200, undefined, at("/runs"));
+  s.deps.store.settleScheduleRun(id, "limit-test", "noop", { reason: "nothing to do" });
+  await request("GET", "/api/schedules/{id}/runs", 200, undefined, at("/runs"));
   const saved = s.deps.schedules;
   s.deps.schedules = {
     runNow: async (rid) =>
@@ -722,6 +731,7 @@ test("schedules CRUD, run now and runs (#3469)", async () => {
             outcome: "skipped:overlap",
             sessionId: null,
             reason: "previous run still open",
+            usage: null,
             at: 1,
           }
         : null,

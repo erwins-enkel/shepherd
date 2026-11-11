@@ -38,6 +38,7 @@ beforeEach(() => {
               outcome: "spawned",
               sessionId: "s",
               reason: null,
+              usage: null,
               at: 1,
             }
           : null;
@@ -151,4 +152,33 @@ test("interval CRUD preserves omitted cadence and rebaselines only on changes", 
   expect((await patch({ interval: null, times: ["09:00"] })).status).toBe(200);
   expect(store.getSchedule(s.id)!.interval).toBeNull();
   expect((await patch({ interval: { ...interval, until: "08:00" }, times: [] })).status).toBe(400);
+});
+
+test("usage limits roundtrip, preserve on PATCH, reject invalid, and do not rebaseline", async () => {
+  const usageLimit = { kind: "from", startPct: 80, startWindow: "week", stopPct: 95 };
+  const created = await call("POST", "/api/schedules", { ...valid(), usageLimit });
+  expect(created.status).toBe(201);
+  const s = await created.json();
+  expect(s.usageLimit).toEqual(usageLimit);
+  const path = `/api/schedules/${s.id}`;
+  expect((await (await call("PATCH", path, { name: "Renamed" })).json()).usageLimit).toEqual(
+    usageLimit,
+  );
+  const changed = await (
+    await call("PATCH", path, { usageLimit: { kind: "upTo", stopPct: 70 } })
+  ).json();
+  expect(changed.baselineAt).toBe(s.baselineAt);
+  expect(changed.usageLimit).toEqual({ kind: "upTo", stopPct: 70 });
+  expect((await call("PATCH", path, { usageLimit: { ...usageLimit, stopPct: 80 } })).status).toBe(
+    400,
+  );
+  expect(
+    (
+      await call("POST", "/api/schedules", {
+        ...valid(),
+        usageLimit: { kind: "upTo", stopPct: 71 },
+      })
+    ).status,
+  ).toBe(400);
+  expect((await (await call("PATCH", path, { usageLimit: null })).json()).usageLimit).toBeNull();
 });

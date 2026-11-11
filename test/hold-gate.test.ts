@@ -1,7 +1,7 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { makeApp, type AppDeps } from "../src/server";
+import { launchTask, makeApp, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
@@ -729,4 +729,39 @@ test("GET /api/held names an after hold's predecessor by designation", async () 
   const rows = (await res.json()) as { reason: string; afterDesig?: string | null }[];
   expect(rows).toHaveLength(1);
   expect(rows[0]).toMatchObject({ reason: "after", afterDesig: pred.desig });
+});
+
+test("schedule bypass skips only Claude usage, preserving memory and Codex gates", async () => {
+  config.usageHoldEnabled = true;
+  config.usageHoldPct = 80;
+  for (const [provider, memory, capacity, expected] of [
+    ["claude", false, true, "spawned"],
+    ["claude", true, true, "held"],
+    ["codex", false, false, "held"],
+  ] as const) {
+    const store = new SessionStore(":memory:");
+    const deps = {
+      store,
+      events: new EventHub(),
+      heavySlot: pressureGate(memory).gate,
+      usageLimits: { limits: () => ({ week: { pct: 90 }, session5h: null }) },
+      codexCapacity: async () => capacity,
+      service: { create: async () => ({ id: "s", repoPath: repoDir }) },
+    } as unknown as AppDeps;
+    const input = {
+      repoPath: repoDir,
+      baseBranch: "main",
+      prompt: "test",
+      agentProvider: provider,
+    } as any;
+    const result = await launchTask(input, deps, { skipUsageHold: true });
+    expect(result.kind).toBe(expected);
+    if (result.kind === "held")
+      expect(result.held.reason).toBe(provider === "codex" ? "capacity" : "memory");
+    if (provider === "claude" && !memory) {
+      const normal = await launchTask(input, deps);
+      expect(normal.kind).toBe("held");
+      if (normal.kind === "held") expect(normal.held.reason).toBe("usage");
+    }
+  }
 });

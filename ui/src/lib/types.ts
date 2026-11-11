@@ -4147,8 +4147,25 @@ export interface ScheduleLaunch {
   baseBranch: string | null;
 }
 
+export type ScheduleUsageLimit =
+  | { kind: "upTo"; stopPct: number }
+  | { kind: "from"; startPct: number; startWindow: "week" | "5h"; stopPct: number };
+export interface ScheduleUsage {
+  provider: AgentProvider;
+  window: "week" | "5h" | "max";
+  usedPct: number | null;
+  thresholdPct: number;
+}
+
 export type ScheduleOutcome =
-  "claimed" | "spawned" | "held" | "skipped:overlap" | "skipped:stale" | "error" | "noop";
+  | "claimed"
+  | "spawned"
+  | "held"
+  | "skipped:overlap"
+  | "skipped:stale"
+  | "skipped:limit"
+  | "error"
+  | "noop";
 
 export interface ScheduleRun {
   id: number;
@@ -4157,6 +4174,7 @@ export interface ScheduleRun {
   outcome: ScheduleOutcome;
   sessionId: string | null;
   reason: string | null;
+  usage?: ScheduleUsage | null;
   at: number;
 }
 
@@ -4175,6 +4193,7 @@ export interface Schedule {
   days: number;
   times: string[];
   interval?: ScheduleInterval | null;
+  usageLimit?: ScheduleUsageLimit | null;
   enabled: boolean;
   launch: ScheduleLaunch;
   createdAt: number;
@@ -4191,6 +4210,7 @@ export interface ScheduleInput {
   days: number;
   times: string[];
   interval?: ScheduleInterval | null;
+  usageLimit?: ScheduleUsageLimit | null;
   enabled?: boolean;
   launch?: Partial<ScheduleLaunch>;
 }

@@ -3970,6 +3970,7 @@ async function patchSchedule(req: Request, s: Schedule | null, deps: AppDeps): P
     days: s.days,
     times: s.times,
     interval: s.interval,
+    usageLimit: s.usageLimit,
     enabled: s.enabled,
   };
   const launch = isRecord(body.launch) ? { ...s.launch, ...body.launch } : body.launch;
@@ -4870,12 +4871,13 @@ async function tryHoldNewTask(
   force: boolean,
   value: StandardCreateInput,
   deps: AppDeps,
+  skipUsageHold = false,
 ): Promise<HeldTaskRef | null> {
   const provider = spawnProvider(deps.store.getRepoConfig(value.repoPath), value.agentProvider);
   if (provider === "codex") {
     if (deps.codexCapacity && !(await deps.codexCapacity()))
       return holdTask(value, deps, "capacity");
-  } else {
+  } else if (!skipUsageHold) {
     const lim = deps.usageLimits.limits(Date.now());
     const s5h = lim.session5h?.pct ?? 0;
     const week = lim.week?.pct ?? 0;
@@ -4910,9 +4912,9 @@ export type LaunchOutcome =
 export async function launchTask(
   value: StandardCreateInput,
   deps: AppDeps,
-  opts: { force?: boolean; tracker?: () => SpawnPhaseTracker } = {},
+  opts: { force?: boolean; skipUsageHold?: boolean; tracker?: () => SpawnPhaseTracker } = {},
 ): Promise<LaunchOutcome> {
-  const held = await tryHoldNewTask(opts.force === true, value, deps);
+  const held = await tryHoldNewTask(opts.force === true, value, deps, opts.skipUsageHold === true);
   if (held) return { kind: "held", held };
   // Built only now, so the spawn's measured phases start after the hold gate.
   const tracker = opts.tracker?.();

@@ -4,10 +4,17 @@
   import { m } from "#lib/paraglide/messages.js";
   import { getLocale } from "#lib/i18n.js";
   import { basename } from "#lib/basename.js";
-  import { schedules, cadenceSummary, outcomeLabel, outcomeTone } from "#lib/schedules.svelte.js";
+  import {
+    schedules,
+    cadenceSummary,
+    outcomeLabel,
+    outcomeTone,
+    usageLimitChip,
+  } from "#lib/schedules.svelte.js";
   import { listScheduleRuns } from "#lib/api.js";
   import { relativeTimeAgo } from "#lib/format.js";
   import { clock } from "#lib/now.svelte.js";
+  import { scheduleUsageLimitExplanation } from "#lib/tooltips/explanations.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import type { Schedule, ScheduleRun } from "#lib/types.js";
 
@@ -83,6 +90,14 @@
     </div>
     <div class="sc-cadence">{cadenceSummary(s.days, s.times, getLocale(), s.interval)}</div>
     <div class="sc-chips">
+      {#if s.usageLimit}
+        <button
+          type="button"
+          class="sc-chip"
+          use:statusTip={{ text: scheduleUsageLimitExplanation(s.usageLimit), wide: true }}
+          >{usageLimitChip(s.usageLimit)}</button
+        >
+      {/if}
       <span class="sc-chip"
         >{s.launch.agentProvider === "claude"
           ? m.agent_provider_claude()
@@ -106,7 +121,7 @@
           aria-controls={historyId}
           onclick={() => (historyOpen = !historyOpen)}
           >{m.schedules_last_ago({
-            outcome: outcomeLabel(s.lastRun.outcome, s.lastRun.reason),
+            outcome: outcomeLabel(s.lastRun.outcome, s.lastRun.reason, s.lastRun.usage),
             ago: relativeTimeAgo(s.lastRun.at, clock.current, getLocale()),
           })}</button
         >
@@ -208,7 +223,7 @@
                 >{historyFmt.format(new Date(run.at))}</time
               >
               <span class={["sc-outcome", outcomeTone(run.outcome)]}
-                >{outcomeLabel(run.outcome, run.reason)}</span
+                >{outcomeLabel(run.outcome, run.reason, run.usage)}</span
               >
               {#if run.outcome === "noop" && run.reason}<span class="sc-summary">{run.reason}</span
                 >{/if}

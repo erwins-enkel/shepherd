@@ -930,6 +930,7 @@ type ScheduleRow = {
   days: number;
   timesJson: string;
   intervalJson: string | null;
+  usageLimitJson: string | null;
   enabled: number;
   launchJson: string;
   baselineAt: number;
@@ -2339,7 +2340,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // A table created before #2766 has no `uploads`, before #2775 no `project`; a fresh one already
     // has both (no write here).
     this.addMissingColumns("remote_dispatches", { uploads: "TEXT", project: "TEXT" });
-    this.addMissingColumns("schedules", { intervalJson: "TEXT" });
+    this.addMissingColumns("schedules", { intervalJson: "TEXT", usageLimitJson: "TEXT" });
+    this.addMissingColumns("schedule_runs", { usageJson: "TEXT" });
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS schedule_runs_history ON schedule_runs (scheduleId, at DESC, id DESC);
       CREATE INDEX IF NOT EXISTS schedule_runs_at ON schedule_runs (at);
@@ -8422,6 +8424,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       days: r.days,
       times: JSON.parse(r.timesJson) as string[],
       interval: r.intervalJson ? (JSON.parse(r.intervalJson) as ScheduleInterval) : null,
+      usageLimit: r.usageLimitJson ? JSON.parse(r.usageLimitJson) : null,
       enabled: !!r.enabled,
       launch: JSON.parse(r.launchJson) as ScheduleLaunch,
       baselineAt: r.baselineAt,
@@ -8451,8 +8454,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   insertSchedule(input: ScheduleInput, now: number): Schedule {
     const id = randomUUID();
     this.db.run(
-      `INSERT INTO schedules (id, repoPath, name, prompt, days, timesJson, intervalJson, enabled, launchJson,
-         baselineAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO schedules (id, repoPath, name, prompt, days, timesJson, intervalJson, usageLimitJson, enabled, launchJson,
+         baselineAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         input.repoPath,
@@ -8461,6 +8464,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         input.days,
         JSON.stringify(input.times),
         input.interval ? JSON.stringify(input.interval) : null,
+        input.usageLimit ? JSON.stringify(input.usageLimit) : null,
         input.enabled ? 1 : 0,
         JSON.stringify(input.launch),
         now,
@@ -8475,7 +8479,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
    *  — the caller passes it on enable and on a cadence change. */
   updateSchedule(id: string, input: ScheduleInput, now: number, rebaseline: boolean): void {
     this.db.run(
-      `UPDATE schedules SET name = ?, prompt = ?, days = ?, timesJson = ?, intervalJson = ?, enabled = ?,
+      `UPDATE schedules SET name = ?, prompt = ?, days = ?, timesJson = ?, intervalJson = ?, usageLimitJson = ?, enabled = ?,
          launchJson = ?, baselineAt = CASE WHEN ? THEN ? ELSE baselineAt END, updatedAt = ?
        WHERE id = ?`,
       [
@@ -8484,6 +8488,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         input.days,
         JSON.stringify(input.times),
         input.interval ? JSON.stringify(input.interval) : null,
+        input.usageLimit ? JSON.stringify(input.usageLimit) : null,
         input.enabled ? 1 : 0,
         JSON.stringify(input.launch),
         rebaseline ? 1 : 0,
@@ -8535,12 +8540,21 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     scheduleId: string,
     slotKey: string,
     outcome: ScheduleOutcome,
-    extra: { sessionId?: string | null; reason?: string | null } = {},
+    extra: { sessionId?: string | null; reason?: string | null; usage?: ScheduleRun["usage"] } = {},
   ): void {
     this.db.run(
-      `UPDATE schedule_runs SET outcome = ?, sessionId = ?, reason = ?
+      `UPDATE schedule_runs SET outcome = ?, sessionId = ?, reason = ?,
+         usageJson = CASE WHEN ? THEN ? ELSE usageJson END
        WHERE scheduleId = ? AND slotKey = ?`,
-      [outcome, extra.sessionId ?? null, extra.reason ?? null, scheduleId, slotKey],
+      [
+        outcome,
+        extra.sessionId ?? null,
+        extra.reason ?? null,
+        extra.usage !== undefined ? 1 : 0,
+        extra.usage ? JSON.stringify(extra.usage) : null,
+        scheduleId,
+        slotKey,
+      ],
     );
   }
 
@@ -8576,19 +8590,27 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     ]);
   }
 
+  private hydrateScheduleRun(
+    row: Omit<ScheduleRun, "usage"> & { usageJson: string | null },
+  ): ScheduleRun {
+    const { usageJson, ...run } = row;
+    return { ...run, usage: usageJson ? JSON.parse(usageJson) : null };
+  }
+
   getScheduleRun(scheduleId: string, slotKey: string): ScheduleRun | null {
-    return (
-      (this.db
-        .query(`SELECT * FROM schedule_runs WHERE scheduleId = ? AND slotKey = ?`)
-        .get(scheduleId, slotKey) as ScheduleRun | null) ?? null
-    );
+    const row = this.db
+      .query(`SELECT * FROM schedule_runs WHERE scheduleId = ? AND slotKey = ?`)
+      .get(scheduleId, slotKey) as
+      (Omit<ScheduleRun, "usage"> & { usageJson: string | null }) | null;
+    return row ? this.hydrateScheduleRun(row) : null;
   }
 
   /** A schedule's runs, newest first. */
   listScheduleRuns(scheduleId: string, limit: number): ScheduleRun[] {
-    return this.db
+    const rows = this.db
       .query(`SELECT * FROM schedule_runs WHERE scheduleId = ? ORDER BY at DESC, id DESC LIMIT ?`)
-      .all(scheduleId, limit) as ScheduleRun[];
+      .all(scheduleId, limit) as (Omit<ScheduleRun, "usage"> & { usageJson: string | null })[];
+    return rows.map((row) => this.hydrateScheduleRun(row));
   }
 
   /** True while a session this schedule spawned is still open (not archived). */

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cadenceSummary,
+  usageLimitPreview,
   intervalStats,
   outcomeLabel,
   outcomeTone,
@@ -267,5 +268,62 @@ describe("interval presentation", () => {
       "skipped, missed by more than one interval",
     );
     expect(outcomeLabel("skipped:stale", "missed slot older than 12h")).toContain("12h");
+  });
+});
+
+describe("schedule usage limit preview", () => {
+  const from = { kind: "from", startPct: 80, startWindow: "week", stopPct: 95 } as const;
+  it.each([
+    [{ kind: "upTo", stopPct: 70 }, 69, null, null],
+    [{ kind: "upTo", stopPct: 70 }, 70, null, "stop-reached"],
+    [{ kind: "upTo", stopPct: 100 }, null, null, null],
+    [{ kind: "upTo", stopPct: 100 }, 100, 0, "stop-reached"],
+    [from, 79, 10, "below-start"],
+    [from, 80, 10, null],
+    [from, null, 90, "usage-unknown"],
+    [from, null, 95, "stop-reached"],
+    [from, 80, 95, "stop-reached"],
+    [from, null, null, "usage-unknown"],
+    [{ ...from, startWindow: "5h" }, 90, 80, null],
+    [{ ...from, startWindow: "5h" }, 90, null, "usage-unknown"],
+  ] as const)("mirrors the server: %j / %s / %s", (limit, week, session5h, reason) => {
+    const preview = usageLimitPreview(limit, "claude", {
+      week: week === null ? null : { pct: week, resetAt: 1000 },
+      session5h: session5h === null ? null : { pct: session5h, resetAt: 2000 },
+    } as any);
+    expect(preview.reason).toBe(reason);
+    expect(preview.allowed).toBe(reason === null);
+  });
+  it("uses Codex windows and the stopping window reset while keeping the start marker", () => {
+    const preview = usageLimitPreview(from, "codex", {
+      week: { pct: 10, resetAt: 1 },
+      providers: [
+        {
+          provider: "codex",
+          kind: "tokens",
+          week: { pct: 80, resetAt: 1000 },
+          session5h: { pct: 96, resetAt: 2000 },
+        },
+      ],
+    } as any);
+    expect(preview).toMatchObject({
+      reason: "stop-reached",
+      markerPct: 80,
+      resetAt: 2000,
+      resetWindow: "5h",
+      usage: { usedPct: 96, thresholdPct: 95 },
+    });
+  });
+  it("formats a historic skip with the captured thresholds", () => {
+    expect(
+      outcomeLabel("skipped:limit", "below-start", {
+        provider: "claude",
+        window: "week",
+        usedPct: 79,
+        thresholdPct: 80,
+      }),
+    ).toContain("80");
+    expect(outcomeLabel("skipped:limit", "usage-unknown", null)).toContain("unknown");
+    expect(outcomeTone("skipped:limit")).toBe("amber");
   });
 });

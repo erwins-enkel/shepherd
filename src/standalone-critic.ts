@@ -114,6 +114,13 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
    * it off, the standalone critic is the ONLY reviewer and must cover those PRs too).
    */
   managedBranches: (repoPath: string) => Set<string>;
+  /**
+   * #3957: PR numbers, per repo, of the leading epic's children on another machine that wait for
+   * this host's verdict on their head (`DrainService.remoteChildReviewPrs`). The drain lands those
+   * PRs, so they are reviewed here even with `criticAllPrs` OFF — like the epic landing PR. Read
+   * fresh each sweep. Absent: none.
+   */
+  remoteEpicChildPrs?: (repoPath: string) => ReadonlySet<number>;
   // optional environment thunk for the critic (CLI + model, read per spawn → live settings)
   env?: () => RoleEnvironment;
   now?: () => number;
@@ -216,7 +223,11 @@ export class StandalonePrCriticService {
       .listEpicCompleted()
       .filter((r) => r.landingState === "open" && r.landingPrNumber != null)
       .map((r) => r.repoPath);
-    const enabled = [...new Set([...flagged, ...epicRepos])];
+    // #3957: a repo whose drain waits for a verdict on a remote epic child's PR.
+    const remoteRepos = this.deps
+      .repos()
+      .filter((r) => (this.deps.remoteEpicChildPrs?.(r).size ?? 0) > 0);
+    const enabled = [...new Set([...flagged, ...epicRepos, ...remoteRepos])];
     if (enabled.length === 0) return;
     // Round-robin: rotate the start index each sweep so a repo that keeps saturating the cap can't
     // perpetually starve later repos. Advance regardless of how far we got this sweep.
@@ -329,7 +340,13 @@ export class StandalonePrCriticService {
     // Review ONLY that PR (head == the epic integration branch) — a child PR's head is its own task
     // branch (base=integration), so isEpicIntegrationBranch(head) is false and it stays excluded.
     // With criticAllPrs ON this carve-out is inert (every regular PR is in scope as before).
-    if (!criticAllPrs && !isEpicIntegrationBranch(pr.headRefName)) return false;
+    // #3957: the same carve-out for a remote epic child's PR the drain asked a verdict for.
+    if (
+      !criticAllPrs &&
+      !isEpicIntegrationBranch(pr.headRefName) &&
+      !this.deps.remoteEpicChildPrs?.(repoPath).has(pr.number)
+    )
+      return false;
     // The session critic already owns this branch — only defer to it when it's actually running
     // (criticEnabled). With the session critic off, we are the sole reviewer and must cover it.
     if (criticEnabled && managed.has(pr.headRefName)) return false;

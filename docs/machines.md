@@ -246,13 +246,21 @@ that needs another machine is sent there.
 - **The child runs there like a task you sent.** It starts on the epic's base (the integration
   branch, or the default branch for an incremental epic) as a session linked to its issue, and the
   issue is claimed (`shepherd:active`). The epic's CLI, model and effort go along when the epic sets
-  them; otherwise the machine uses its own defaults. Critic, autopilot and merge follow that
-  machine's settings. Your drain never merges or retires it.
+  them; otherwise the machine uses its own defaults. The agent's own follow-up work (CI fixes,
+  rebases, autopilot) follows that machine's settings.
+- **The Shepherd that leads the epic merges it.** The machine the child runs on keeps epic children
+  off its merge train and does not lead the epic, so it never merges the child's PR. In an
+  integration epic your drain merges it into the integration branch with the same checks as a
+  child of its own: the PR is open, not a draft and targets the epic branch, CI is green, GitHub can
+  merge it, and — with the critic on — your critic has reviewed exactly that head. It reviews the
+  PR itself, whether or not the repo reviews every PR. When your critic requests changes, the epic
+  holds and names the session there ("macbook · TASK-145"): steer that agent. A child you started on
+  the other machine by hand is never merged for you; merge it from its session's merge row.
 - **You see it in the epic.** The child shows the machine's badge, **Open session** opens its
   session there, and the run area lists it under **Now**.
 - **It holds a slot until its PR opens.** A child sent to another machine counts against the repo's
   agent slots while its start is unconfirmed or held there, and while it runs there without a PR.
-  Once its PR is open, that machine handles it and the slot is free again.
+  Once its PR is open, the slot is free again.
 - **Done is detected here.** In an incremental epic the child is done when its issue closes. In an
   integration epic the drain checks the issue's merged pull requests on GitHub: one merged into
   the epic's integration branch counts as integrated.
@@ -342,9 +350,10 @@ machines.
 Select a session on another machine in the herd. From the coordinator you can use its terminal, steer, stop
 and archive it, read its activity, diff and files, answer its plan, and start or open its preview,
 which opens from the machine's own tailnet address. **Continue with…** moves it here or to another
-machine ([Move a session to another machine](#move-a-session-to-another-machine)). Merging,
-relaunching and the remaining actions are not offered for it yet: open the Shepherd on that machine
-for those.
+machine ([Move a session to another machine](#move-a-session-to-another-machine)). While the machine
+is connected, its open PR has the same merge row as a session here: **Merge** asks the same
+confirmation and runs on that machine. Relaunching and the remaining actions are not offered for it
+yet: open the Shepherd on that machine for those.
 
 When the machine drops off, for example asleep or offline, its sessions stay in the herd with their
 last known state, dimmed and marked **disconnected**. Nothing is sent while it is gone, and the terminal says

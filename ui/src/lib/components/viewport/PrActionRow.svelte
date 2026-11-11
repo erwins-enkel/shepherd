@@ -6,6 +6,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import { pullMainAndToast } from "#lib/pull-offer.js";
   import { recaps } from "#lib/recaps.svelte.js";
+  import { isMirrored } from "#lib/remote-sessions.js";
   import { repoConfig, reviews } from "#lib/reviews.svelte.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { mergeIntoEpicExplanation } from "#lib/tooltips/explanations.js";
@@ -78,8 +79,11 @@
   const reviewing = $derived(reviews.isReviewing(session.id));
   const chip = $derived(criticChip(verdict, reviewing));
   const criticOn = $derived(repoConfig.flags(session.repoPath).critic);
+  // A session on another machine (#3957): its repo path is that machine's checkout, which this
+  // server's repo config does not know; every action below is forwarded to the machine.
+  const mirrored = $derived(isMirrored(session));
   $effect(() => {
-    if (session.repoPath) repoConfig.ensure(session.repoPath);
+    if (session.repoPath && !mirrored) repoConfig.ensure(session.repoPath);
   });
 
   const local = $derived(git?.kind === "local");
@@ -123,8 +127,9 @@
   let sentTimer: ReturnType<typeof setTimeout> | undefined;
 
   // An isolated session's merge landed on the base its repo's checkout tracks, so tearing it down
-  // also fast-forwards that checkout. A local forge merged into the checkout itself.
-  const updatesLocal = $derived(session.isolated && !!session.repoPath && !local);
+  // also fast-forwards that checkout. A local forge merged into the checkout itself. A mirrored
+  // session's checkout is on its machine, never here.
+  const updatesLocal = $derived(session.isolated && !!session.repoPath && !local && !mirrored);
 
   const stepTip = $derived<StatusTipParams | null>(
     step.action === "merge"

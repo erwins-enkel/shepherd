@@ -1,12 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
   START_GRACE_MS,
+  dispatchedElsewhereOf,
   drainDispatchKey,
   issueOfDrainKey,
+  remoteRetireView,
   remoteWorkOf,
 } from "../src/drain-remote";
+import type { PrStatus } from "../src/forge/types";
 import type { RemoteDispatchRow } from "../src/remote-instances/dispatch";
 import type { MirroredSession } from "../src/remote-instances/sessions";
+import type { PrReview } from "../src/types";
 
 // Which drain spawns on other machines still count: keyed by issue, newest dispatch first.
 
@@ -96,5 +100,82 @@ describe("remoteWorkOf", () => {
     expect(work.get(1)!.sessionId).toBe("s-new");
     const gone = remoteWorkOf([row(2, { instanceId: "other" })], [], hostOf, NOW);
     expect(gone.size).toBe(0);
+  });
+});
+
+describe("dispatchedElsewhereOf (#3957)", () => {
+  test("names the machine of every issue whose newest drain dispatch started there", () => {
+    // The mirror plays no part: a started dispatch counts whether or not its session is shown.
+    const sent = dispatchedElsewhereOf([row(1), row(2, { updatedAt: 0 })], hostOf);
+    expect([...sent]).toEqual([
+      [1, mac],
+      [2, mac],
+    ]);
+  });
+
+  test("an unconfirmed, held or rejected start, a removed machine and other keys do not", () => {
+    const sent = dispatchedElsewhereOf(
+      [
+        row(1, { state: "sending", sessionId: null }),
+        row(2, { state: "held", sessionId: null }),
+        row(3, { state: "rejected", sessionId: null }),
+        row(4, { instanceId: "other" }),
+        row(5, { clientKey: "3c0ffee0-0000-4000-8000-000000000000" }),
+      ],
+      hostOf,
+    );
+    expect(sent.size).toBe(0);
+  });
+
+  test("the newest dispatch per issue decides", () => {
+    const newer = row(1, { id: "new", state: "sending", clientKey: drainDispatchKey(1, "b") });
+    const older = row(1, { id: "old", clientKey: drainDispatchKey(1, "a") });
+    expect(dispatchedElsewhereOf([newer, older], hostOf).has(1)).toBe(false);
+  });
+});
+
+describe("remoteRetireView (#3957)", () => {
+  const pr: PrStatus = {
+    state: "open",
+    number: 3955,
+    checks: "success",
+    mergeable: true,
+    headSha: "h2",
+    baseRefName: "epic/1-x",
+    deployConfigured: false,
+  };
+  const review = (over: Partial<PrReview> = {}): PrReview => ({
+    repoPath: "/repo",
+    prNumber: 3955,
+    headSha: "h2",
+    patchId: "p",
+    decision: "commented",
+    reviewedPatchIds: [],
+    updatedAt: 1,
+    ...over,
+  });
+
+  test("carries the forge's PR as a GitHub git state and the epic host's verdict for its head", () => {
+    const view = remoteRetireView(pr, review());
+    expect(view.git).toMatchObject({ kind: "github", number: 3955, headSha: "h2" });
+    expect(view).toMatchObject({
+      reviewDecision: "commented",
+      reviewHeadSha: "h2",
+      findings: [],
+      humanApproved: false,
+    });
+  });
+
+  test("no verdict yet, or a row without one, reads as no verdict", () => {
+    expect(remoteRetireView(pr, null)).toMatchObject({ reviewDecision: null, reviewHeadSha: null });
+    expect(remoteRetireView(pr, review({ decision: "" }))).toMatchObject({
+      reviewDecision: null,
+      reviewHeadSha: null,
+    });
+  });
+
+  test("a human approval on the PR counts as one", () => {
+    const approved = { ...pr, latestReview: { state: "approved", author: "k", submittedAt: 1 } };
+    expect(remoteRetireView(approved as PrStatus, null).humanApproved).toBe(true);
   });
 });

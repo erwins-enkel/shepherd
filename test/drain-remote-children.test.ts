@@ -14,8 +14,10 @@ import type {
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import { GithubForge } from "../src/forge/github";
 import { graphqlSyntaxCheckedRunner, referenceTimelinePage } from "./helpers/github-graphql-runner";
-import type { StandardCreateInput, Session } from "../src/types";
+import type { StandardCreateInput, Session, ReviewDecision } from "../src/types";
 import type { UsageLimits } from "../src/usage-limits";
+import type { SessionHost } from "../src/remote-instances/sessions";
+import type { BranchBehindResult, LandingRebaseResult } from "../src/landing-rebase";
 import type { Capability } from "../src/remote-instances/capabilities";
 import type { Placement, PlacementDecision } from "../src/remote-instances/placement";
 import type { RemoteOutcome } from "../src/remote-instances/dispatch";
@@ -68,6 +70,8 @@ interface FakePort extends DrainMachinePort {
   decided: { requirements: Capability[]; override: string | null }[];
   submitted: { issue: number; body: Record<string, unknown>; placement: Placement }[];
   remote: Map<number, RemoteWork>;
+  /** Issues whose newest drain dispatch started on another machine, mirrored or not. */
+  dispatched: Map<number, SessionHost>;
 }
 
 function fakePort(opts: {
@@ -79,6 +83,7 @@ function fakePort(opts: {
     decided: [],
     submitted: [],
     remote: new Map(),
+    dispatched: new Map(),
     active: () => opts.active ?? true,
     selfId: () => SELF,
     decide: async (_repo, requirements, override) => {
@@ -104,6 +109,7 @@ function fakePort(opts: {
       return outcome;
     },
     work: () => port.remote,
+    dispatchedElsewhere: () => port.dispatched,
   };
   return port;
 }
@@ -132,10 +138,18 @@ function makeHarness(opts: {
   /** Replaces the `issuePrs` lookup (e.g. a real forge read, or an unknown `null`). */
   references?: NonNullable<GitForge["issuePullRequestReferences"]>;
   prBase?: Record<number, string>;
+  /** The repo's open PRs, as the open-PR snapshot reads them (absent: no snapshot). */
+  openPrs?: () => PrStatus[];
+  merge?: GitForge["merge"];
+  critic?: boolean;
+  blockedBy?: Record<number, number[]>;
+  now?: () => number;
+  branchBehindDefault?: () => Promise<BranchBehindResult>;
+  rebaseLandingBranch?: () => Promise<LandingRebaseResult>;
 }): Harness {
   const store = new SessionStore(":memory:");
   store.setRepoConfig(REPO, {
-    criticEnabled: false,
+    criticEnabled: opts.critic ?? false,
     criticAllPrs: false,
     criticSmellLensEnabled: false,
     autoAddressEnabled: false,
@@ -203,7 +217,7 @@ function makeHarness(opts: {
     prStatus: async () => ({ state: "none", checks: "none", deployConfigured: false }) as PrStatus,
     openPr: async () => ({ state: "open", checks: "none", deployConfigured: false }) as PrStatus,
     defaultBranch: async () => "main",
-    merge: async () => {},
+    merge: opts.merge ?? (async () => {}),
     redeploy: async () => {},
     postReview: async () => ({}),
     closeIssue: async () => {},
@@ -241,7 +255,7 @@ function makeHarness(opts: {
     },
     listSubIssues: async () =>
       opts.children.map((c) => ({ ...c, labels: labels.get(c.number) ?? [] })),
-    listBlockedBy: async () => [],
+    listBlockedBy: async (n: number) => opts.blockedBy?.[n] ?? [],
     ...((opts.issuePrs || opts.references) && {
       issuePullRequestReferences: opts.references ?? (async (n: number) => opts.issuePrs![n] ?? []),
       prReviewMeta: async (pr: number) => ({ baseRefName: opts.prBase?.[pr] ?? "main" }) as never,
@@ -282,6 +296,21 @@ function makeHarness(opts: {
     emitEpic: (e) => epics.push(e),
     rebaseCap: 5,
     ...(opts.port && { machines: opts.port }),
+    ...(opts.openPrs && {
+      openPrSnapshot: {
+        peekCurrent: () => null,
+        get: async () => ({
+          prs: [],
+          statuses: new Map(opts.openPrs!().map((pr) => [`head-${pr.number}`, pr])),
+          capped: false,
+        }),
+      },
+    }),
+    ...(opts.now && { now: opts.now }),
+    // No git here: an integration epic's base probe answers "current" unless a test says otherwise.
+    branchBehindDefault:
+      opts.branchBehindDefault ?? (async () => ({ kind: "current", defaultSha: "main-sha" })),
+    ...(opts.rebaseLandingBranch && { rebaseLandingBranch: opts.rebaseLandingBranch }),
   });
   return { store, drain, creates, statuses, epics, added, removed };
 }
@@ -615,5 +644,354 @@ describe("an integration epic recognizes a child merged from another machine", (
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe("an integration epic lands a child it sent to another machine (#3957)", () => {
+  // Epic #3016's stall: the drain sent #3013 to the MacBook (TASK-145), its PR #3955 went green
+  // into the epic branch, and nobody merged it — the Mac keeps epic children off its merge train
+  // and does not lead the epic. The leading drain now retires it like a child of its own.
+  const PINNED = "epic/3739-ios-parity";
+  const CHILD = 3731;
+  const NEXT = 3732;
+  const PR = 3955;
+  const HEAD = "8e1f408";
+  const children = [sub(CHILD, ["requires-macos", ACTIVE_LABEL]), sub(NEXT, ["requires-macos"])];
+
+  const openPr = (o: Partial<PrStatus> = {}): PrStatus => ({
+    state: "open",
+    number: PR,
+    url: `https://x/pull/${PR}`,
+    checks: "success",
+    mergeable: true,
+    headSha: HEAD,
+    baseRefName: PINNED,
+    isDraft: false,
+    deployConfigured: false,
+    ...o,
+  });
+
+  type Merge = { pr: number; o: Parameters<GitForge["merge"]>[1] };
+
+  function remote(o: {
+    pr?: () => PrStatus[];
+    critic?: boolean;
+    verdict?: { decision: ReviewDecision | ""; headSha: string };
+    /** live: the mirror shows the session and its PR; noPr: the session but not its PR; missing:
+     *  not the session either (only the dispatch row says it started there); manual: started there
+     *  by hand, never dispatched by this drain. */
+    mirror?: "live" | "noPr" | "missing" | "manual";
+    issuePrs?: Record<number, IssuePullRequestReference[]>;
+    references?: NonNullable<GitForge["issuePullRequestReferences"]>;
+    merge?: (pr: number) => Promise<void>;
+    extra?: Partial<Parameters<typeof makeHarness>[0]>;
+  }) {
+    const port = fakePort({});
+    const mirror = o.mirror ?? "live";
+    if (mirror === "live" || mirror === "noPr") {
+      port.remote.set(CHILD, {
+        host: macHost,
+        sessionId: "mac-3731",
+        desig: "TASK-145",
+        prNumber: mirror === "live" ? PR : null,
+      });
+    }
+    if (mirror !== "manual") port.dispatched.set(CHILD, macHost);
+    const merges: Merge[] = [];
+    const h = makeHarness({
+      children,
+      port,
+      landing: "integration",
+      blockedBy: { [NEXT]: [CHILD] },
+      critic: o.critic ?? false,
+      openPrs: o.pr ?? (() => [openPr()]),
+      issuePrs: o.issuePrs ?? { [CHILD]: [{ number: PR, url: "u", state: "open" }] },
+      ...(o.references && { references: o.references }),
+      merge: async (pr, opts) => {
+        await o.merge?.(pr);
+        merges.push({ pr, o: opts });
+      },
+      ...o.extra,
+    });
+    h.store.getOrInitEpicIntegrationBranch(REPO, PARENT, PINNED);
+    if (o.verdict) {
+      h.store.putPrReview({
+        repoPath: REPO,
+        prNumber: PR,
+        headSha: o.verdict.headSha,
+        patchId: "p",
+        decision: o.verdict.decision,
+        reviewedPatchIds: [],
+        updatedAt: 1,
+      });
+    }
+    return { h, port, merges };
+  }
+
+  const childState = (h: Harness, n: number) =>
+    h.epics.at(-1)?.children.find((c) => c.number === n)?.state;
+
+  test("a green, mergeable PR with the critic's clean verdict for its head is squash-merged", async () => {
+    const { h, merges } = remote({
+      critic: true,
+      verdict: { decision: "commented", headSha: HEAD },
+    });
+    await h.drain.tick();
+    expect(merges).toEqual([
+      { pr: PR, o: { method: "squash", deleteBranch: true, expectedHeadSha: HEAD } },
+    ]);
+    expect(h.store.isEpicIntegratedChild(REPO, CHILD)).toBe(true);
+    expect(h.store.listEpicIntegratedDetails(REPO, PARENT)).toEqual([
+      expect.objectContaining({ childNumber: CHILD, prNumber: PR, mergedBase: PINNED }),
+    ]);
+    expect(childState(h, CHILD)).toBe("merged");
+  });
+
+  test("critic on without a verdict for the head: waits and asks this host's critic", async () => {
+    for (const verdict of [undefined, { decision: "commented" as const, headSha: "older" }]) {
+      const { h, merges } = remote({ critic: true, ...(verdict && { verdict }) });
+      await h.drain.tick();
+      expect(merges).toEqual([]);
+      expect([...h.drain.remoteChildReviewPrs(REPO)]).toEqual([PR]);
+      expect(h.store.isEpicIntegratedChild(REPO, CHILD)).toBe(false);
+    }
+  });
+
+  test("critic off: a green, mergeable PR lands without a verdict and asks for none", async () => {
+    const { h, merges } = remote({});
+    await h.drain.tick();
+    expect(merges.map((m) => m.pr)).toEqual([PR]);
+    expect(h.drain.remoteChildReviewPrs(REPO).size).toBe(0);
+  });
+
+  test("the critic requests changes for the head: no merge, the hold names the session there", async () => {
+    const { h, merges } = remote({
+      critic: true,
+      verdict: { decision: "changes_requested", headSha: HEAD },
+    });
+    await h.drain.tick();
+    expect(merges).toEqual([]);
+    expect(lastStatus(h)).toMatchObject({
+      reason: "changes_requested",
+      detail: "macbook · TASK-145",
+    });
+    // Asking again for the same head would only repeat the verdict.
+    expect(h.drain.remoteChildReviewPrs(REPO).size).toBe(0);
+  });
+
+  test("a verdict for an older head is no trouble", async () => {
+    const { h } = remote({
+      critic: true,
+      verdict: { decision: "changes_requested", headSha: "older" },
+    });
+    await h.drain.tick();
+    expect(lastStatus(h).reason).not.toBe("changes_requested");
+  });
+
+  test("what is not landable is left alone", async () => {
+    const variants: Partial<PrStatus>[] = [
+      { baseRefName: "main" },
+      { isDraft: true },
+      { checks: "pending" },
+      { checks: "failure" },
+      { mergeable: null },
+      { mergeable: false },
+      { headSha: undefined },
+    ];
+    for (const v of variants) {
+      const { h, merges } = remote({ pr: () => [openPr(v)] });
+      await h.drain.tick();
+      expect({ v, merges }).toEqual({ v, merges: [] });
+      expect(h.store.isEpicIntegratedChild(REPO, CHILD)).toBe(false);
+    }
+  });
+
+  test("done there is no merge: the child stays in review until its PR lands", async () => {
+    const { h, merges } = remote({ pr: () => [openPr({ checks: "pending" })] });
+    await h.drain.tick();
+    expect(merges).toEqual([]);
+    expect(childState(h, CHILD)).toBe("in-review");
+    expect(h.store.isEpicIntegratedChild(REPO, CHILD)).toBe(false);
+  });
+
+  test("the mirror lost the PR or the session: the issue's references name the PR", async () => {
+    for (const mirror of ["noPr", "missing"] as const) {
+      const { h, merges } = remote({ mirror, pr: () => [openPr({ headSha: "forge-head" })] });
+      await h.drain.tick();
+      // The forge's head, never a mirror's stale one, is what the merge is bound to.
+      expect({ mirror, merges }).toEqual({
+        mirror,
+        merges: [
+          { pr: PR, o: { method: "squash", deleteBranch: true, expectedHeadSha: "forge-head" } },
+        ],
+      });
+      expect(h.store.isEpicIntegratedChild(REPO, CHILD)).toBe(true);
+    }
+  });
+
+  test("without the mirror an unknown or ambiguous reference read merges nothing", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const unknown = remote({ mirror: "missing", references: async () => null });
+      await unknown.h.drain.tick();
+      expect(unknown.merges).toEqual([]);
+      const two = remote({
+        mirror: "missing",
+        issuePrs: {
+          [CHILD]: [
+            { number: PR, url: "u", state: "open" },
+            { number: PR + 1, url: "u", state: "open" },
+          ],
+        },
+        pr: () => [openPr(), openPr({ number: PR + 1 })],
+      });
+      await two.h.drain.tick();
+      expect(two.merges).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("without the mirror, the PR a reference read found stays known until the next read", async () => {
+    let reads = 0;
+    const { h, merges } = remote({
+      mirror: "missing",
+      critic: true,
+      references: async () => {
+        reads++;
+        return [{ number: PR, url: "u", state: "open" }];
+      },
+    });
+    // Every tick between two reads still asks this host's critic for the PR. (The first tick's
+    // reconcile sweep reads the references too, for a merge made there.)
+    await h.drain.tick();
+    const firstTick = reads;
+    for (let i = 0; i < 3; i++) {
+      expect([...h.drain.remoteChildReviewPrs(REPO)]).toEqual([PR]);
+      await h.drain.tick();
+    }
+    // The verdict lands between reads: the merge needs no new one.
+    h.store.putPrReview({
+      repoPath: REPO,
+      prNumber: PR,
+      headSha: HEAD,
+      patchId: "p",
+      decision: "commented",
+      reviewedPatchIds: [],
+      updatedAt: 2,
+    });
+    await h.drain.tick();
+    expect(merges.map((m) => m.pr)).toEqual([PR]);
+    expect(reads).toBe(firstTick);
+  });
+
+  test("without the mirror, a critic hold stays between reference reads", async () => {
+    const { h } = remote({
+      mirror: "missing",
+      critic: true,
+      verdict: { decision: "changes_requested", headSha: HEAD },
+    });
+    for (let i = 0; i < 3; i++) {
+      await h.drain.tick();
+      expect(lastStatus(h)).toMatchObject({
+        reason: "changes_requested",
+        detail: "macbook · #3731 · PR #3955",
+      });
+    }
+  });
+
+  test("a child started there by hand is never merged here", async () => {
+    const { h, merges } = remote({ mirror: "manual" });
+    await h.drain.tick();
+    expect(merges).toEqual([]);
+    expect(h.store.isEpicIntegratedChild(REPO, CHILD)).toBe(false);
+  });
+
+  test("a failed merge records nothing; the next tick tries again", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      let fail = true;
+      const { h, merges } = remote({
+        merge: async () => {
+          if (fail) throw new Error("head moved");
+        },
+      });
+      await h.drain.tick();
+      expect(merges).toEqual([]);
+      expect(h.store.isEpicIntegratedChild(REPO, CHILD)).toBe(false);
+      fail = false;
+      await h.drain.tick();
+      expect(merges.map((m) => m.pr)).toEqual([PR]);
+      expect(h.store.isEpicIntegratedChild(REPO, CHILD)).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test("once it lands, the stale epic branch is rebased and the next child goes to the Mac", async () => {
+    const clock = { t: 10 * 60 * 60_000 };
+    const rebased: string[] = [];
+    let green = false;
+    const { h, port, merges } = remote({
+      pr: () => [openPr({ checks: green ? "success" : "pending" })],
+      extra: {
+        now: () => clock.t,
+        branchBehindDefault: async () => ({ kind: "behind", defaultSha: "main-sha" }),
+        rebaseLandingBranch: async () => {
+          rebased.push("x");
+          return { kind: "rebased", headSha: "new" } as LandingRebaseResult;
+        },
+      },
+    });
+    h.store.setEpicBaseFreshness(REPO, PARENT, { behindSince: clock.t - 5 * 60 * 60_000 });
+
+    // The child's PR is still in review there: the branch must not be rewritten under it.
+    await h.drain.tick();
+    expect(merges).toEqual([]);
+    expect(rebased).toEqual([]);
+    expect(lastStatus(h).reason).toBe("epic_base_stale");
+    expect(port.submitted).toEqual([]);
+
+    green = true;
+    clock.t += 60_000;
+    await h.drain.tick();
+    expect(merges.map((m) => m.pr)).toEqual([PR]);
+    expect(rebased).toEqual(["x"]);
+    expect(h.store.getEpicBaseFreshness(REPO, PARENT)?.behindSince ?? null).toBeNull();
+    expect(port.submitted.map((s) => s.issue)).toEqual([NEXT]);
+  });
+
+  test("a merge made on the Mac is found although an archived local attempt exists", async () => {
+    const port = fakePort({ active: false });
+    port.remote.set(CHILD, {
+      host: macHost,
+      sessionId: "mac-3731",
+      desig: "TASK-145",
+      prNumber: 91,
+    });
+    const h = makeHarness({
+      children,
+      port,
+      landing: "integration",
+      issuePrs: { [CHILD]: [{ number: 91, url: "https://x/pull/91", state: "merged" }] },
+      prBase: { 91: PINNED },
+    });
+    h.store.getOrInitEpicIntegrationBranch(REPO, PARENT, PINNED);
+    const earlier = h.store.create({
+      name: "earlier",
+      prompt: "p",
+      repoPath: REPO,
+      baseBranch: PINNED,
+      branch: "shepherd/earlier-3731",
+      worktreePath: "/wt",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "t",
+      auto: true,
+      issueNumber: CHILD,
+    });
+    h.store.archive(earlier.id);
+    await h.drain.tick();
+    expect(h.store.isEpicIntegratedChild(REPO, CHILD)).toBe(true);
   });
 });

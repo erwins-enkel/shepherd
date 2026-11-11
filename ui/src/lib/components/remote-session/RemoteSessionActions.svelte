@@ -63,6 +63,12 @@
     }
     armed = false;
     clearTimeout(armTimer);
+    await decommission();
+  }
+
+  /** Archive it on its machine now, offering what would keep running there first — also the merge
+   *  row's Decommission (#3957), which is its own confirmation. */
+  export async function decommission() {
     const id = session.id;
     const { leftovers: found, probesUnavailable } = await getLeftovers(id).catch(() => ({
       leftovers: [] as Leftover[],

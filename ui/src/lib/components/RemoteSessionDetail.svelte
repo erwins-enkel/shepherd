@@ -27,6 +27,8 @@
   import SteerToggle, { readPhoneSteers, writePhoneSteers } from "./viewport/SteerToggle.svelte";
   import RemoteSessionActions from "./remote-session/RemoteSessionActions.svelte";
   import RemotePreview from "./remote-session/RemotePreview.svelte";
+  import PrActionRow from "./viewport/PrActionRow.svelte";
+  import { prActionRowVisible } from "./viewport/pr-action-row";
 
   // The detail of a session mirrored from a connected machine (#2762), mounted in place of the
   // Viewport and laid out like it: one header row (identity, tabs, machine, status, stop and
@@ -153,6 +155,16 @@
 
   let terminal = $state<RemoteTerminal>();
   let chatView = $state<ReturnType<typeof ChatView>>();
+  let actions = $state<ReturnType<typeof RemoteSessionActions>>();
+
+  // The merge row (#3957), as the Viewport shows it above the steer bar: the PR the machine
+  // reports, its prerequisites and Merge — forwarded to the machine, behind the same confirmation.
+  // Only while the machine is connected: otherwise nothing could act, and the note above says why.
+  const prRowGit = $derived(
+    mirrored && live && (tab === "term" || tab === "chat") && prActionRowVisible(mirrored.git)
+      ? mirrored.git
+      : null,
+  );
   /** Hand the keyboard back to the terminal — the page's Enter, as the Viewport's focusTerminal. */
   export function focusTerminal() {
     if (tab === "term") terminal?.focus();
@@ -200,7 +212,7 @@
     {#if mirrored && tip}
       <!-- Keyed: an Archive armed on one session must never confirm another. -->
       {#key mirrored.id}
-        <RemoteSessionActions session={mirrored} {tip} {ondecommission} />
+        <RemoteSessionActions bind:this={actions} session={mirrored} {tip} {ondecommission} />
       {/key}
     {/if}
   </header>
@@ -261,6 +273,18 @@
     {/if}
   </div>
   <SessionStatusBar {session} {usage} />
+  {#if mirrored && prRowGit}
+    <!-- It resets itself on a session switch, as in the Viewport. -->
+    <PrActionRow
+      session={mirrored}
+      git={prRowGit}
+      status={mirrored.status}
+      mobile={compact}
+      touch={compact}
+      ondecommission={() => void actions?.decommission()}
+      onsent={(text, sent) => chatView?.echo(text, sent)}
+    />
+  {/if}
   {#if steerShown}
     {#if live}
       <SteerBar

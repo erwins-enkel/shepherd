@@ -63,9 +63,12 @@ export interface ScheduleInterval {
   until: string | null;
 }
 
-export type ScheduleUsageLimit =
+export type ScheduleLimitAction = "skip" | "wait" | "otherProvider";
+
+export type ScheduleUsageLimit = (
   | { kind: "upTo"; stopPct: number }
-  | { kind: "from"; startPct: number; startWindow: "week" | "5h"; stopPct: number };
+  | { kind: "from"; startPct: number; startWindow: "week" | "5h"; stopPct: number }
+) & { onMismatch?: ScheduleLimitAction };
 
 export interface ScheduleUsage {
   provider: AgentProvider;
@@ -132,6 +135,9 @@ export interface Schedule {
 export type ScheduleOutcome =
   | "claimed"
   | "spawned"
+  | "spawned:failover"
+  | "waiting:limit"
+  | "skipped:limit-expired"
   | "held"
   | "skipped:overlap"
   | "skipped:stale"
@@ -270,6 +276,20 @@ export function nextSlot(
   return null;
 }
 
+/** Waiting rows use the nominal local slot, never the (possibly late) claim timestamp. */
+export function waitingLimitExpiresAt(
+  s: Pick<Schedule, "days" | "times" | "interval">,
+  slotKey: string,
+): number {
+  const [date, time] = slotKey.split("T") as [string, string];
+  const [year, month, day] = date.split("-").map(Number) as [number, number, number];
+  const nominal = slotAt(new Date(year, month - 1, day), time);
+  return Math.min(
+    nominal + STALE_MS,
+    nextSlot(s.days, s.times, nominal, s.interval)?.at ?? Infinity,
+  );
+}
+
 /** What the tick does with a schedule's latest due slot. */
 export function decideFiring(args: {
   slot: Slot | null;
@@ -285,6 +305,13 @@ export function decideFiring(args: {
     : "fire";
 }
 
+function validateUsageLimitAction(raw: unknown): Result<Pick<ScheduleUsageLimit, "onMismatch">> {
+  if (raw === undefined) return { ok: true, value: {} };
+  if (raw !== "skip" && raw !== "wait" && raw !== "otherProvider")
+    return fail("usageLimit.onMismatch must be skip, wait or otherProvider");
+  return { ok: true, value: { onMismatch: raw } };
+}
+
 function validateUsageLimit(raw: unknown): Result<ScheduleUsageLimit | null> {
   if (raw === undefined || raw === null) return { ok: true, value: null };
   if (typeof raw !== "object" || Array.isArray(raw))
@@ -292,11 +319,15 @@ function validateUsageLimit(raw: unknown): Result<ScheduleUsageLimit | null> {
   const obj = raw as Record<string, unknown>;
   const keys =
     obj.kind === "from" ? ["kind", "startPct", "startWindow", "stopPct"] : ["kind", "stopPct"];
-  if (Object.keys(obj).some((key) => !keys.includes(key))) return fail("unknown usageLimit key");
+  if (Object.keys(obj).some((key) => ![...keys, "onMismatch"].includes(key)))
+    return fail("unknown usageLimit key");
+  const action = validateUsageLimitAction(obj.onMismatch);
+  if (!action.ok) return action;
   const pct = (v: unknown, min: number, max: number): v is number =>
     typeof v === "number" && Number.isInteger(v) && v % 5 === 0 && v >= min && v <= max;
   if (!pct(obj.stopPct, 5, 100)) return fail("usageLimit.stopPct must be 5–100 in steps of 5");
-  if (obj.kind === "upTo") return { ok: true, value: { kind: "upTo", stopPct: obj.stopPct } };
+  if (obj.kind === "upTo")
+    return { ok: true, value: { kind: "upTo", stopPct: obj.stopPct, ...action.value } };
   if (obj.kind !== "from") return fail("usageLimit.kind must be upTo or from");
   if (!pct(obj.startPct, 0, 95) || obj.startPct >= obj.stopPct)
     return fail("usageLimit.startPct must be 0–95 in steps of 5 and less than stopPct");
@@ -306,6 +337,7 @@ function validateUsageLimit(raw: unknown): Result<ScheduleUsageLimit | null> {
     ok: true,
     value: {
       kind: "from",
+      ...action.value,
       startPct: obj.startPct,
       startWindow: obj.startWindow,
       stopPct: obj.stopPct,

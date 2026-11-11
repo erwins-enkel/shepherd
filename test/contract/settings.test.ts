@@ -712,12 +712,24 @@ test("schedules CRUD, run now and runs (#3469)", async () => {
   );
   await request("PATCH", one, 200, { times: ["09:00"], interval: null }, at());
   await request("PATCH", one, 404, { name: "x" }, "/api/schedules/nope");
+  for (const onMismatch of ["skip", "wait", "otherProvider"]) {
+    await request("PATCH", one, 200, { usageLimit: { ...input.usageLimit, onMismatch } }, at());
+  }
   s.deps.store.claimScheduleRun(id, "limit-test", Date.now());
   s.deps.store.settleScheduleRun(id, "limit-test", "skipped:limit", {
     reason: "stop-reached",
     usage: { provider: "codex", window: "max", usedPct: 95, thresholdPct: 95 },
   });
   await request("GET", "/api/schedules/{id}/runs", 200, undefined, at("/runs"));
+  for (const outcome of ["waiting:limit", "skipped:limit-expired", "spawned:failover"] as const) {
+    for (const usage of [
+      null,
+      { provider: "codex", window: "max", usedPct: 85, thresholdPct: 95 },
+    ] as const) {
+      s.deps.store.settleScheduleRun(id, "limit-test", outcome, { usage });
+      await request("GET", "/api/schedules/{id}/runs", 200, undefined, at("/runs"));
+    }
+  }
   s.deps.store.settleScheduleRun(id, "limit-test", "noop", { reason: "nothing to do" });
   await request("GET", "/api/schedules/{id}/runs", 200, undefined, at("/runs"));
   const saved = s.deps.schedules;

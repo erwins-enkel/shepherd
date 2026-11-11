@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cadenceSummary,
   usageLimitPreview,
+  usageLimitActionVerdict,
   intervalStats,
   outcomeLabel,
   outcomeTone,
@@ -326,4 +327,59 @@ describe("schedule usage limit preview", () => {
     expect(outcomeLabel("skipped:limit", "usage-unknown", null)).toContain("unknown");
     expect(outcomeTone("skipped:limit")).toBe("amber");
   });
+});
+
+describe("usage mismatch presentation", () => {
+  it("labels waiting, expiry and the actual failover provider", () => {
+    expect(outcomeLabel("waiting:limit")).toBe("held – waiting for the usage limit");
+    expect(outcomeLabel("skipped:limit-expired")).toBe("expired – limit not met in time");
+    for (const provider of ["claude", "codex"] as const) {
+      expect(
+        outcomeLabel("spawned:failover", null, {
+          provider,
+          window: "max",
+          usedPct: 40,
+          thresholdPct: 70,
+        }),
+      ).toBe(`started with ${provider === "claude" ? "Claude Code" : "Codex"}`);
+    }
+    expect(outcomeLabel("spawned:failover")).toBe(outcomeLabel("spawned"));
+    expect(outcomeTone("waiting:limit")).toBe("amber");
+    expect(outcomeTone("skipped:limit-expired")).toBe("amber");
+  });
+});
+
+it("predicts wait or a ready in-range counterpart, otherwise retains the original skip", () => {
+  const limit = { kind: "from", startPct: 80, startWindow: "week", stopPct: 95 } as const;
+  const window = (pct: number) => ({ pct, resetAt: 1 });
+  const limits = {
+    week: window(79),
+    session5h: null,
+    providers: [{ provider: "codex", kind: "tokens", week: window(85), session5h: null }],
+  } as any;
+  expect(usageLimitActionVerdict({ ...limit, onMismatch: "wait" }, "claude", limits, [])).toBe(
+    "would wait until the limit fits",
+  );
+  expect(
+    usageLimitActionVerdict({ ...limit, onMismatch: "otherProvider" }, "claude", limits, ["codex"]),
+  ).toBe("would start with Codex");
+  expect(
+    usageLimitActionVerdict({ ...limit, onMismatch: "otherProvider" }, "claude", limits, []),
+  ).toBeNull();
+  for (const pct of [79, 95]) {
+    limits.providers[0].week = window(pct);
+    expect(
+      usageLimitActionVerdict({ ...limit, onMismatch: "otherProvider" }, "claude", limits, [
+        "codex",
+      ]),
+    ).toBeNull();
+  }
+  limits.providers[0].week = null;
+  expect(
+    usageLimitActionVerdict({ ...limit, onMismatch: "otherProvider" }, "claude", limits, ["codex"]),
+  ).toBeNull();
+  limits.week = window(80);
+  expect(
+    usageLimitActionVerdict({ ...limit, onMismatch: "wait" }, "claude", limits, []),
+  ).toBeNull();
 });

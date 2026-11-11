@@ -55,6 +55,8 @@ beforeEach(() => {
   maintenance = false;
   outcome = (input) => ({ kind: "spawned", session: spawnSession(input) });
   svc = new ScheduleService({
+    readyProviders: async () => [],
+    providerDefaults: () => ({ model: null, effort: null }),
     store,
     usageLimits: { limits: () => ({ session5h: null, week: null }) } as any,
     resolveProvider: (s) => s.launch.agentProvider ?? "claude",
@@ -453,6 +455,8 @@ test("automatic limits skip once, snapshot the decision and pin the provider; ru
   let pct = 79;
   const options: unknown[] = [];
   svc = new ScheduleService({
+    readyProviders: async () => [],
+    providerDefaults: () => ({ model: null, effort: null }),
     store,
     launch: async (input, opts) => {
       launches.push(input);
@@ -504,6 +508,8 @@ test("allowed limits retain their snapshot when launch is held or throws", async
   for (const throwing of [false, true]) {
     const s = makeSchedule(at(10, 26, 8), { usageLimit: { kind: "upTo", stopPct: 70 } });
     const service = new ScheduleService({
+      readyProviders: async () => [],
+      providerDefaults: () => ({ model: null, effort: null }),
       store,
       launch: async () => {
         if (throwing) throw new Error("spawn failed");
@@ -525,4 +531,406 @@ test("allowed limits retain their snapshot when launch is held or throws", async
       usage: { provider: "claude", window: "max", usedPct: 60, thresholdPct: 70 },
     });
   }
+});
+
+test("waiting rows expire atomically on disable or cadence edits and disappear on delete", () => {
+  for (const change of ["disabled", "cadence-changed", "delete"] as const) {
+    const s = makeSchedule(at(10, 26, 8));
+    store.claimScheduleRun(s.id, "2026-10-26T09:00", at(10, 26, 9));
+    store.settleScheduleRun(s.id, "2026-10-26T09:00", "waiting:limit");
+    expect(store.listWaitingScheduleRuns(s.id)).toHaveLength(1);
+    if (change === "delete") store.deleteSchedule(s.id);
+    else {
+      store.updateSchedule(
+        s.id,
+        { ...s, enabled: change !== "disabled" },
+        at(10, 26, 10),
+        change === "cadence-changed",
+      );
+      expect(store.getScheduleRun(s.id, "2026-10-26T09:00")).toMatchObject({
+        outcome: "skipped:limit-expired",
+        reason: change,
+      });
+    }
+    expect(store.listWaitingScheduleRuns(s.id)).toHaveLength(0);
+  }
+});
+
+test("failover runs follow replacement sessions and can become noop", () => {
+  const s = makeSchedule(at(10, 26, 8));
+  const usage = { provider: "codex", window: "max", usedPct: 40, thresholdPct: 70 } as const;
+  store.claimScheduleRun(s.id, "slot", 1);
+  store.settleScheduleRun(s.id, "slot", "spawned:failover", { sessionId: "original", usage });
+  store.repointScheduleRun("original", "replacement");
+  expect(store.markScheduleRunNoop("replacement", s.id, "done")).toBe(true);
+  expect(store.getScheduleRun(s.id, "slot")).toMatchObject({
+    outcome: "noop",
+    sessionId: "replacement",
+    usage,
+  });
+});
+
+describe("usage mismatch actions", () => {
+  let pct: number | null;
+  let otherPct: number | null;
+  let ready: ("claude" | "codex")[];
+  let selected: "claude" | "codex";
+  let changed: number;
+  let readReady: () => Promise<readonly ("claude" | "codex")[]>;
+  let resolveBase: () => Promise<string | null>;
+  const service = () =>
+    new ScheduleService({
+      store,
+      usageLimits: {
+        limits: () => ({
+          week: pct === null ? null : { pct, resetAt: 1 },
+          session5h: null,
+          providers: [
+            {
+              provider: "codex",
+              kind: "tokens",
+              week: otherPct === null ? null : { pct: otherPct, resetAt: 1 },
+              session5h: null,
+            },
+          ],
+        }),
+      } as any,
+      resolveProvider: (s) => s.launch.agentProvider ?? selected,
+      readyProviders: () => readReady(),
+      providerDefaults: (provider) => ({
+        model: provider === "codex" ? "gpt-5.4" : "opus",
+        effort: "high",
+      }),
+      launch: async (input) => {
+        launches.push(input);
+        return outcome(input);
+      },
+      defaultBranch: () => resolveBase(),
+      repoRoot: () => root,
+      maintenanceActive: () => maintenance,
+      events: {
+        emit() {
+          changed++;
+        },
+      },
+      now: () => now,
+      log() {},
+    });
+  const make = (onMismatch: "wait" | "otherProvider" = "wait", times = ["09:00"]) =>
+    makeSchedule(at(10, 26, 8), {
+      times,
+      usageLimit: { kind: "from", startPct: 80, startWindow: "week", stopPct: 95, onMismatch },
+    });
+  beforeEach(() => {
+    pct = 79;
+    otherPct = 85;
+    ready = ["claude", "codex"];
+    selected = "claude";
+    changed = 0;
+    readReady = async () => ready;
+    resolveBase = async () => "main";
+    svc = service();
+    now = at(10, 26, 9);
+  });
+
+  test("wait resumes the same row once with an updated snapshot", async () => {
+    const s = make();
+    await svc.tick();
+    const run = store.listScheduleRuns(s.id, 1)[0]!;
+    expect(run).toMatchObject({ outcome: "waiting:limit", usage: { usedPct: 79 } });
+    pct = 78;
+    now += 60_000;
+    await svc.tick();
+    expect(store.getScheduleRun(s.id, run.slotKey)?.usage?.usedPct).toBe(78);
+    pct = 80;
+    now += 60_000;
+    await Promise.all([svc.tick(), svc.tick()]);
+    expect(launches).toHaveLength(1);
+    expect(store.listScheduleRuns(s.id, 10)).toHaveLength(1);
+    expect(store.getScheduleRun(s.id, run.slotKey)).toMatchObject({
+      id: run.id,
+      outcome: "spawned",
+      usage: { usedPct: 80 },
+    });
+    expect(changed).toBeGreaterThanOrEqual(3);
+  });
+
+  test("waiting survives a database reopen and service restart", async () => {
+    const path = join(root, `restart-${Date.now()}.sqlite`);
+    store = new SessionStore(path);
+    svc = service();
+    const s = make();
+    await svc.tick();
+    // Reopen the same database; no in-memory pending state may be needed.
+    store["db"].close();
+    store = new SessionStore(path);
+    svc = service();
+    pct = 80;
+    now += 60_000;
+    await svc.tick();
+    expect(store.listScheduleRuns(s.id, 1)[0]?.outcome).toBe("spawned");
+    expect(launches).toHaveLength(1);
+    store["db"].close();
+  });
+
+  test("12h deadline uses nominal time even when first checked late", async () => {
+    const s = make();
+    now = at(10, 26, 10);
+    await svc.tick();
+    pct = 80;
+    now = at(10, 26, 21);
+    await svc.tick();
+    expect(store.listScheduleRuns(s.id, 1)[0]?.outcome).toBe("skipped:limit-expired");
+    expect(launches).toHaveLength(0);
+  });
+
+  test("next fixed slot expires the old wait before evaluating the new slot", async () => {
+    const s = make("wait", ["09:00", "10:00"]);
+    await svc.tick();
+    pct = 80;
+    now = at(10, 26, 10);
+    await svc.tick();
+    expect(store.getScheduleRun(s.id, "2026-10-26T09:00")?.outcome).toBe("skipped:limit-expired");
+    expect(store.getScheduleRun(s.id, "2026-10-26T10:00")?.outcome).toBe("spawned");
+    expect(launches).toHaveLength(1);
+  });
+
+  test("interval waits never accumulate across skipped ticks or maintenance", async () => {
+    const s = makeSchedule(at(10, 26, 8), {
+      times: [],
+      interval: { everyMinutes: 15, from: null, until: null },
+      usageLimit: { kind: "upTo", stopPct: 70, onMismatch: "wait" },
+    });
+    pct = 80;
+    await svc.tick();
+    maintenance = true;
+    now += 45 * 60_000;
+    await svc.tick();
+    expect(store.listWaitingScheduleRuns(s.id)).toHaveLength(1);
+    maintenance = false;
+    await svc.tick();
+    expect(store.getScheduleRun(s.id, "2026-10-26T09:00")?.outcome).toBe("skipped:limit-expired");
+    expect(store.listWaitingScheduleRuns(s.id)).toHaveLength(1);
+    expect(store.listWaitingScheduleRuns(s.id)[0]?.slotKey).toBe("2026-10-26T09:45");
+  });
+
+  test("disable then enable does not revive an old wait", async () => {
+    const s = make();
+    await svc.tick();
+    store.updateSchedule(s.id, { ...s, enabled: false }, now, false);
+    store.updateSchedule(s.id, s, now + 1, true);
+    pct = 80;
+    now += 60_000;
+    await svc.tick();
+    expect(launches).toHaveLength(0);
+    expect(store.listScheduleRuns(s.id, 1)[0]).toMatchObject({
+      outcome: "skipped:limit-expired",
+      reason: "disabled",
+    });
+  });
+
+  test("edited and removed limits apply to a waiting row", async () => {
+    for (const action of ["skip", "otherProvider", "remove", "threshold"] as const) {
+      const s = make();
+      await svc.tick();
+      store.updateSchedule(
+        s.id,
+        {
+          ...s,
+          usageLimit:
+            action === "remove"
+              ? null
+              : action === "threshold"
+                ? { kind: "upTo", stopPct: 90, onMismatch: "wait" }
+                : { ...s.usageLimit!, onMismatch: action },
+        },
+        now,
+        false,
+      );
+      now += 60_000;
+      await svc.tick();
+      expect(store.listScheduleRuns(s.id, 1)[0]?.outcome).toBe(
+        action === "skip"
+          ? "skipped:limit"
+          : action === "otherProvider"
+            ? "spawned:failover"
+            : "spawned",
+      );
+      archiveAll();
+      store.deleteSchedule(s.id);
+    }
+  });
+
+  test("waiting is not open, but an open manual run blocks a released wait", async () => {
+    const s = make();
+    await svc.tick();
+    expect((await svc.runNow(s.id))?.outcome).toBe("spawned");
+    pct = 80;
+    now += 60_000;
+    await svc.tick();
+    expect(store.getScheduleRun(s.id, "2026-10-26T09:00")?.outcome).toBe("skipped:overlap");
+    expect(launches).toHaveLength(1);
+  });
+
+  test("released waits preserve capacity holds and errors", async () => {
+    for (const result of ["memory", "capacity", "error"] as const) {
+      const s = make();
+      await svc.tick();
+      pct = 80;
+      outcome = () =>
+        result === "error"
+          ? { kind: "error", error: new Error("failed") }
+          : { kind: "held", held: { id: "h", count: 1, reason: result } };
+      now += 60_000;
+      await svc.tick();
+      expect(store.listScheduleRuns(s.id, 1)[0]).toMatchObject({
+        outcome: result === "error" ? "error" : "held",
+        usage: { usedPct: 80 },
+      });
+      pct = 79;
+      store.deleteSchedule(s.id);
+    }
+  });
+
+  test("failover in both directions uses target defaults and preserves other launch options", async () => {
+    for (const provider of ["claude", "codex"] as const) {
+      selected = provider;
+      pct = provider === "claude" ? 79 : 85;
+      otherPct = provider === "claude" ? 85 : 79;
+      const s = make("otherProvider");
+      store.updateSchedule(
+        s.id,
+        {
+          ...s,
+          launch: {
+            ...s.launch,
+            agentProvider: provider,
+            model: provider === "claude" ? "sonnet" : "gpt-5.4",
+            effort: "low",
+            autopilotEnabled: true,
+            planGateEnabled: false,
+            research: true,
+            sandboxProfile: "standard",
+            baseBranch: "develop",
+          },
+        },
+        now,
+        false,
+      );
+      await svc.tick();
+      const target = provider === "claude" ? "codex" : "claude";
+      expect(launches.at(-1)).toMatchObject({
+        agentProvider: target,
+        model: target === "codex" ? "gpt-5.4" : "opus",
+        effort: "high",
+        autopilotEnabled: true,
+        planGateEnabled: false,
+        research: true,
+        baseBranch: "develop",
+      });
+      expect(store.listScheduleRuns(s.id, 1)[0]).toMatchObject({
+        outcome: "spawned:failover",
+        usage: { provider: target, usedPct: 85 },
+      });
+      expect(store.getSchedule(s.id)?.launch.agentProvider).toBe(provider);
+      archiveAll();
+      store.deleteSchedule(s.id);
+    }
+  });
+
+  test("failover requires readiness and the same start and stop bounds", async () => {
+    for (const [providers, targetPct] of [
+      [[], 85],
+      [["claude"], 85],
+      [["claude", "codex"], 79],
+      [["claude", "codex"], 95],
+      [["claude", "codex"], null],
+    ] as const) {
+      ready = [...providers];
+      otherPct = targetPct;
+      const s = make("otherProvider");
+      await svc.tick();
+      expect(store.listScheduleRuns(s.id, 1)[0]).toMatchObject({
+        outcome: "skipped:limit",
+        reason: "below-start",
+        usage: { provider: "claude", usedPct: 79 },
+      });
+      expect(launches).toHaveLength(0);
+      store.deleteSchedule(s.id);
+    }
+  });
+
+  test("a manual launch in flight blocks a released wait without losing its flight guard", async () => {
+    const s = make();
+    await svc.tick();
+    let finish!: (base: string) => void;
+    resolveBase = () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      });
+    const manual = svc.runNow(s.id);
+    pct = 80;
+    now += 60_000;
+    await svc.tick();
+    expect(store.getScheduleRun(s.id, "2026-10-26T09:00")?.outcome).toBe("skipped:overlap");
+    expect((await svc.runNow(s.id))?.outcome).toBe("skipped:overlap");
+    finish("main");
+    await manual;
+    expect(launches).toHaveLength(1);
+  });
+
+  test("disabling or expiry during an awaited readiness check cannot launch an old wait", async () => {
+    for (const action of ["disable", "expire"] as const) {
+      const s = make();
+      await svc.tick();
+      store.updateSchedule(
+        s.id,
+        { ...s, usageLimit: { ...s.usageLimit!, onMismatch: "otherProvider" } },
+        now,
+        false,
+      );
+      let finish!: (providers: readonly ("claude" | "codex")[]) => void;
+      readReady = () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        });
+      const tick = svc.tick();
+      if (action === "disable") store.updateSchedule(s.id, { ...s, enabled: false }, now, false);
+      else now = at(10, 26, 21);
+      finish(["claude", "codex"]);
+      await tick;
+      expect(store.getScheduleRun(s.id, "2026-10-26T09:00")?.outcome).toBe("skipped:limit-expired");
+      expect(launches).toHaveLength(0);
+      store.deleteSchedule(s.id);
+      now = at(10, 26, 9);
+    }
+  });
+
+  test("primary success never switches; held failover keeps target snapshot", async () => {
+    const s = make("otherProvider");
+    pct = 80;
+    await svc.tick();
+    expect(launches[0]?.agentProvider).toBe("claude");
+    expect(store.listScheduleRuns(s.id, 1)[0]?.outcome).toBe("spawned");
+    archiveAll();
+    store.deleteSchedule(s.id);
+    pct = 79;
+    const other = make("otherProvider");
+    outcome = () => ({ kind: "held", held: { id: "h", count: 1, reason: "capacity" } });
+    await svc.tick();
+    expect(store.listScheduleRuns(other.id, 1)[0]).toMatchObject({
+      outcome: "held",
+      usage: { provider: "codex" },
+    });
+  });
+});
+
+test("a newer waiting run prevents noop from attaching an older held run", () => {
+  const s = makeSchedule(at(10, 26, 8));
+  store.claimScheduleRun(s.id, "2026-10-26T09:00", 1);
+  store.settleScheduleRun(s.id, "2026-10-26T09:00", "held");
+  store.claimScheduleRun(s.id, "2026-10-26T18:00", 2);
+  store.settleScheduleRun(s.id, "2026-10-26T18:00", "waiting:limit");
+  expect(store.markScheduleRunNoop("released", s.id, "done")).toBe(false);
+  expect(store.getScheduleRun(s.id, "2026-10-26T09:00")?.outcome).toBe("held");
 });

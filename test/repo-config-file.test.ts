@@ -94,3 +94,12 @@ test("rule files that violate draft/merge or critic/signoff invariants are inval
     criticEnabled: false,
   });
 });
+
+test("leitrechner accepts an opaque instance ID or null, never names with surrounding whitespace", () => {
+  expect(parseRepoRules('{"leitrechner":"instance-unknown"}')).toEqual({
+    leitrechner: "instance-unknown",
+  });
+  expect(parseRepoRules('{"leitrechner":null}')).toEqual({ leitrechner: null });
+  for (const leitrechner of [false, 42, "", " ", " id "])
+    expect(parseRepoRules(JSON.stringify({ leitrechner }))).toBeNull();
+});

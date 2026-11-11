@@ -1375,3 +1375,14 @@ describe("computeNext: spawn gate (#3452)", () => {
     ).toEqual({ kind: "hold", reason: { code: "blocked", detail: "TASK-01" } });
   });
 });
+
+test("leitrechner hold blocks new spawns but preserves retiring own sessions", () => {
+  const leitrechnerHold = { code: "leitrechner_unreachable" as const, detail: "Other" };
+  expect(computeNext(state({ candidates: [issue(8)], leitrechnerHold }))).toEqual({
+    kind: "hold",
+    reason: leitrechnerHold,
+  });
+  expect(
+    computeNext(state({ leitrechnerHold, autoSessions: [autoSession({ git: MERGEABLE })] })).kind,
+  ).toBe("retire");
+});

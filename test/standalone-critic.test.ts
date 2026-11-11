@@ -157,6 +157,7 @@ function makeDeps(
   const rk = (repoPath: string, n: number) => `${repoPath}#${n}`;
   const deps = {
     store: {
+      getEpicIntegrationBranch: () => null,
       getRepoConfig: (r: string) => ({
         criticAllPrs:
           typeof opts.criticAllPrs === "function"
@@ -1456,4 +1457,44 @@ test("N10: posted standalone critic body is secret-redacted", async () => {
   await svc.tick();
   expect(spies.posted[0]!.body).not.toContain("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345");
   expect(spies.posted[0]!.body).toContain("<redacted>");
+});
+
+test("non-leitrechner reviews only its local landing PR, even with criticAllPrs enabled", async () => {
+  const h = makeDeps(
+    {},
+    { epicCompleted: [{ repoPath: "/r", landingPrNumber: 42, landingState: "open" }] },
+  );
+  h.deps.resolveForge = () =>
+    makeForge(h.spies, {
+      prs: [
+        pr({ number: 8 }),
+        pr({ number: 9, headRefName: "epic/999-foreign" }),
+        pr({ number: 42, headRefName: "epic/327-local" }),
+      ],
+    });
+  const status = { allowed: false };
+  const svc = new StandalonePrCriticService({
+    ...h.deps,
+    leitrechner: { refresh: async () => status, status: () => status },
+  } as any);
+  await svc.sweep();
+  expect(h.spies.started.map((s) => s.name)).toEqual(["pr-critic /r#42"]);
+});
+
+test("leitrechner refresh discovers remotely enabled criticAllPrs before filtering sweep repos", async () => {
+  let enabled = false;
+  const h = makeDeps({}, { criticAllPrs: () => enabled });
+  const status = { allowed: true };
+  const svc = new StandalonePrCriticService({
+    ...h.deps,
+    leitrechner: {
+      refresh: async () => {
+        enabled = true;
+        return status;
+      },
+      status: () => status,
+    },
+  } as any);
+  await svc.sweep();
+  expect(h.spies.started).toHaveLength(1);
 });

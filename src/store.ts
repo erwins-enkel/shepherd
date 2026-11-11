@@ -645,6 +645,8 @@ const DESIG_PREFIX = "TASK-";
 export const TERMINAL_CLAIM_TTL_MS = 30_000;
 
 export interface RepoConfig {
+  /** Repo-only persistent instance ID for global background jobs; never stored in SQLite. */
+  leitrechner?: string | null;
   criticEnabled: boolean;
   /** Standalone repo-level PR critic: review every open CI-green PR in the repo, not just session PRs (default OFF). */
   criticAllPrs: boolean;
@@ -1414,6 +1416,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     };
   }
   return {
+    leitrechner: null,
     criticEnabled: !!r.criticEnabled,
     criticAllPrs: !!r.criticAllPrs,
     criticSmellLensEnabled: !!r.criticSmellLensEnabled,

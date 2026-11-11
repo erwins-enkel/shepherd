@@ -6048,6 +6048,8 @@ components:
         - max
         - epicParent
       properties:
+        leitrechnerStatus:
+          $ref: "#/components/schemas/RepoLeitrechnerStatus"
         repoPath:
           type: string
         enabled:
@@ -10115,6 +10117,60 @@ components:
       properties:
         on:
           type: boolean
+    RepoLeitrechnerStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - instanceId
+        - name
+        - role
+        - reachable
+        - allowed
+        - pauseReason
+      properties:
+        instanceId:
+          type:
+            - string
+            - "null"
+          description: Configured persistent instance ID; unknown installations are ignored for job ownership.
+        name:
+          type:
+            - string
+            - "null"
+        role:
+          type: string
+          enum:
+            - unassigned
+            - local
+            - remote
+            - unknown
+        reachable:
+          type:
+            - boolean
+            - "null"
+          description: Null for unassigned or unknown IDs. Only connected peers are reachable.
+        allowed:
+          type: boolean
+          description: Permission for new label-drain and all-PR sweep starts only; local sessions and epic work are unaffected.
+        pauseReason:
+          type:
+            - string
+            - "null"
+          enum:
+            - remote_leitrechner
+            - leitrechner_unreachable
+            - config_refresh_failed
+    RepoLeitrechnerEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - repoPath
+        - leitrechnerStatus
+      properties:
+        repoPath:
+          type: string
+        leitrechnerStatus:
+          $ref: "#/components/schemas/RepoLeitrechnerStatus"
     RepoConfig:
       type: object
       additionalProperties: true
@@ -10152,6 +10208,14 @@ components:
         - repoMode
         - previewOpenMode
       properties:
+        leitrechner:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          description: Persistent instance ID in the shared repo file; null clears selection. No automatic failover.
+        leitrechnerStatus:
+          $ref: "#/components/schemas/RepoLeitrechnerStatus"
         fieldSources:
           type: object
           description: Source of every configuration field (excludes response metadata). Repo defaults and inherit values have source repo when a valid file is active.
@@ -10160,11 +10224,6 @@ components:
             enum:
               - repo
               - rechner
-        leitrechner:
-          type:
-            - string
-            - "null"
-          description: Selected instance UUID from the shared file; null when none is selected.
         notifications:
           type: array
           items:
@@ -10380,13 +10439,14 @@ components:
     RepoConfigPatch:
       type: object
       additionalProperties: false
-      description: Shared rule fields are saved in one commit to origin's default branch; machine fields stay local. First rule write seeds every current local rule. Mixed writes apply local fields only after a successful push. inherit retains each machine's global default. No origin or lightweight mode keeps all fields local.
+      description: Shared rule fields are saved in one commit to origin's default branch; machine fields stay local. First rule write seeds every current local rule. Mixed writes apply local fields only after a successful push. inherit retains each machine's global default. No origin or lightweight mode keeps existing fields local; non-null leitrechner requires origin and forge mode.
       properties:
         leitrechner:
           type:
             - string
             - "null"
-          description: Shared leader instance UUID; changing it joins the same rule commit.
+          minLength: 1
+          description: Repo-only persistent instance ID. Null clears it; non-null requires a forge repo with origin. Saved with other rules in one commit.
         criticEnabled:
           type: boolean
         criticAllPrs:
@@ -19086,6 +19146,10 @@ x-shepherd-events:
   codex-update:done:
     schema:
       $ref: "#/components/schemas/CodexUpdateResult"
+  repo:leitrechner:
+    description: Repository job ownership changed after config refresh, selection, rename or a connected machine status change. Carries no credentials.
+    schema:
+      $ref: "#/components/schemas/RepoLeitrechnerEvent"
   repo-bootstrap:update:
     description: A repo's project-bootstrap state or phase changed (#3112); re-read GET /api/repo-bootstrap for it.
     schema:

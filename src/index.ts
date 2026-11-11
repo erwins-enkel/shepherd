@@ -1,3 +1,4 @@
+import { RepoLeitrechnerService } from "./repo-leitrechner";
 import { codexAssistantSupported } from "./operator-assistant-codex";
 import {
   assistantRuntimeBlocks,
@@ -1188,11 +1189,6 @@ const service = new SessionService({
 // date before any of its tool calls reach this server.
 service.syncOperatorAssistantPermissions();
 
-// Deep modules for the repo-config route seam (#1092). A singleton so every
-// route + every background onChange below emit through the SAME instance; the server's
-// total accessors return these when injected via appDeps.
-const repoConfigSvc = new RepoConfigService(store);
-
 // Minted machine bearer tokens (#2082). Constructed here so its hot-path hash map is seeded from
 // SQLite BEFORE the first request reaches checkAuth, and so the auth gate and the management
 // routes share one instance — a revocation through the routes must invalidate the gate's map.
@@ -1201,6 +1197,20 @@ const accessTokenSvc = new AccessTokenService(store);
 // first-run gate like the others. No machine connected ⇒ every round is a no-op without a request.
 const remoteInstances = new RemoteInstanceService({ store });
 deferredStarts.push(() => remoteInstances.start());
+const repoLeitrechner = new RepoLeitrechnerService({
+  config: (repo) => store.getRepoConfig(repo),
+  self: () => instanceIdentity(store),
+  remote: (id) => remoteInstances.get(id),
+  emit: (repoPath, leitrechnerStatus) =>
+    events.emit("repo:leitrechner", { repoPath, leitrechnerStatus }),
+});
+// Deep modules for the repo-config route seam (#1092). A singleton so every
+// route + every background onChange below emit through the SAME instance; the server's
+// total accessors return these when injected via appDeps.
+const repoConfigSvc = new RepoConfigService(store, undefined, repoLeitrechner);
+remoteInstances.onChange(() => {
+  for (const repo of listRepos(config.repoRoot)) repoLeitrechner.publish(repo.path);
+});
 // Their sessions (#2762) follow each machine's probe: a connected probe opens (or re-snapshots) the
 // mirror, anything else marks its sessions disconnected. Held apart from `store`, never on `events`.
 // Each mirror names this Shepherd to its machine, which lists who mirrors it (#3056).
@@ -2220,6 +2230,7 @@ const reviewService = new ReviewService({
 // leaving this twin at the service default would half-apply an operator's raise); concurrency
 // stays at the service default.
 const standaloneCritic = new StandalonePrCriticService({
+  leitrechner: repoLeitrechner,
   capacity: capacityCheck,
   capacityInterrupted,
   store,
@@ -3209,6 +3220,7 @@ function onBootstrapAdvance(repoPath: string, phase: number, sessionId: string):
 // spawn the next labeled backlog issue, bounded by the per-repo rails. Pure decision
 // core (computeNext) with side effects here; driven off the same poller events.
 const drain = new DrainService({
+  leitrechner: repoLeitrechner,
   capacity: capacityCheck,
   startGate: heavySlot,
   bootstrapMustHaves: (repoPath) => greenfield.mustHavesMissing(repoPath),
@@ -4530,6 +4542,7 @@ const appDeps: AppDeps = {
   mythosAvailable: accountMythosAvailable,
   telemetry,
   repoConfig: repoConfigSvc,
+  repoLeitrechner,
   accessTokens: accessTokenSvc,
   remoteInstances,
   remoteSessions,

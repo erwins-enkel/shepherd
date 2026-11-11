@@ -1,3 +1,4 @@
+import type { RepoLeitrechnerService, RepoLeitrechnerStatus } from "./repo-leitrechner";
 import { repoConfigDefaults, type SessionStore, type RepoConfig } from "./store";
 import {
   effectiveRepoConfig,
@@ -27,6 +28,7 @@ export type RepoConfigView = RepoConfig & {
   fieldSources: Record<keyof RepoConfig, "repo" | "rechner">;
   repoConfigCommit: string | null;
   leitrechner: string | null;
+  leitrechnerStatus: RepoLeitrechnerStatus;
 };
 
 /** A partial repo-config edit. Every field is a RepoConfig field (the route's
@@ -60,6 +62,7 @@ export class RepoConfigService {
   constructor(
     private store: RepoConfigStore,
     private defaultProfile: () => SandboxProfile = defaultSandboxProfile,
+    private leitrechner?: Pick<RepoLeitrechnerService, "status" | "invalidate">,
   ) {}
 
   /** The stored config plus its automation-metadata flags (the route response shape). */
@@ -72,6 +75,14 @@ export class RepoConfigService {
     ) as RepoConfigView["fieldSources"];
     return {
       ...config,
+      leitrechnerStatus: this.leitrechner?.status(dir) ?? {
+        instanceId: config.leitrechner ?? null,
+        name: null,
+        role: config.leitrechner ? "unknown" : "unassigned",
+        reachable: null,
+        allowed: true,
+        pauseReason: null,
+      },
       fieldSources,
       repoConfigCommit: file?.commit ?? null,
       leitrechner: file?.leitrechner ?? null,
@@ -102,6 +113,8 @@ export class RepoConfigService {
       // A mode switch to lightweight must be local even if this repo has an origin/file.
       const fileEnabled =
         (patch.repoMode ?? local.repoMode) !== "lightweight" && !!repoConfigGitContext(dir);
+      const ownerError = leitrechnerPatchError(patch, fileEnabled);
+      if (ownerError) return { ok: false, error: ownerError };
       const hasRulePatch = Object.entries(patch).some(
         ([key, value]) => value !== undefined && isRepoRuleKey(key),
       );
@@ -156,6 +169,7 @@ export class RepoConfigService {
         }),
       );
       if (opts.automationConfirmed === true) this.store.markAutomationConfirmed(dir);
+      this.leitrechner?.invalidate(dir);
       return { ok: true, config: this.read(dir), previousLocal: local, rulesCommitted: writeRules };
     });
   }
@@ -195,3 +209,11 @@ export class RepoConfigService {
 }
 
 class ConfigValidationError extends Error {}
+
+function leitrechnerPatchError(patch: RepoConfigPatch, fileEnabled: boolean): string | null {
+  if (patch.leitrechner !== undefined && !isLeitrechner(patch.leitrechner))
+    return "leitrechner must be a instance UUID or null";
+  if (patch.leitrechner != null && !fileEnabled)
+    return "leitrechner requires a forge repository with origin";
+  return null;
+}

@@ -20,7 +20,7 @@ The shared fields are `criticEnabled`, `criticAllPrs`, `criticSmellLensEnabled`,
 `autoAddressEnabled`, `autopilotEnabled`, `planGateEnabled`, `autoDrainEnabled`,
 `autoMergeEnabled`, `buildQueueEnabled`, `draftMode`, `signoffAuthority`,
 `manualStepsIssueEnabled`, `preWarmEpicLandingCi`, `epicStacksEnabled`, `autoLabel`,
-`defaultModel` and `defaultEffort`.
+`defaultModel`, `defaultEffort` and `leitrechner`.
 
 With a valid file, every shared field comes from that file. An omitted field gets
 Shepherd's default, **not** the machine's saved database value. An empty object therefore
@@ -40,7 +40,7 @@ valid types and setting values. Malformed JSON or invalid known values makes the
 ineffective, preserving the previous database behavior. Draft mode combined with auto-merge,
 or with critic-dependent signoff while the critic is disabled, also makes the file invalid.
 Such files cannot block local safety edits such as revoking Shared Browser or tightening
-the sandbox. Existing database rules are retained as a fallback. With no `origin`, or in lightweight mode, all settings remain local and no
+the sandbox. Existing database rules are retained as a fallback. With no `origin`, or in lightweight mode, existing settings remain local and no
 configuration file is read or created.
 
 ## Reading and saving
@@ -123,3 +123,45 @@ The new GETs are available to unrestricted read/submit/full tokens; writes requi
 scope. Repository-restricted tokens and the agent ingress cannot use these federation routes.
 Credentials stay on the coordinator and are sent only in Authorization headers to configured
 peers, with redirects refused. Global settings and machine settings are never mirrored.
+
+## Leitrechner (repository job owner)
+
+Set `leitrechner` to the persistent ID from `GET /api/instance` using
+`PUT /api/repo-config?repo=<path>`, for example `{"leitrechner":"<instance-id>"}`.
+Use `null` to clear it. The selection and any other shared rules in the same request
+produce one commit. It requires a forge repository with `origin`; the file stores
+only the ID, never a hostname, URL or credential.
+
+| Selection                    | New label-drain and all-PR critic starts       |
+| ---------------------------- | ---------------------------------------------- |
+| Missing or null              | Existing behavior on every machine             |
+| This instance's ID           | Run here, subject to the existing repo toggles |
+| A connected machine's ID     | Skip here, even while that machine is offline  |
+| An unknown installation's ID | Ignore the selection; existing behavior        |
+
+Known machines in checking, unreachable, unauthorized, incompatible or identity-mismatch
+states do not authorize takeover. Removing a connection makes its ID unknown locally.
+Connections must therefore be configured consistently on the participating machines.
+There is no automatic switch. An offline owner means a pause until it returns or the
+operator explicitly changes the selection.
+
+Before starting these jobs, Shepherd fetches the default branch on its first attempt
+after startup, then refreshes at least every 30 seconds while attempting jobs. Concurrent
+attempts share the fetch. A failed fetch pauses new global starts until a successful
+retry, rather than trusting stale ownership. GET remains network-free. A selection PUT
+invalidates that machine's refresh immediately. Running work finishes normally; a manual
+switch can overlap starts authorized within the previous refresh window. This is an
+ownership rule, not a distributed atomic lock; existing issue-claim deduplication remains.
+
+Session critics, autopilot, plan gates and merging existing sessions keep running on each
+machine. Explicitly started epics and manual session starts also remain available. Epic
+landing creation, rebasing, repair, review and auto-landing stay on the machine holding
+the local epic record.
+
+`GET /api/repo-config` includes `leitrechnerStatus` with the configured `instanceId`,
+resolved `name`, `role` (`unassigned`, `local`, `remote`, `unknown`), nullable `reachable`,
+`allowed` and `pauseReason`. Pause reasons distinguish `remote_leitrechner`,
+`leitrechner_unreachable` and `config_refresh_failed`. These are derived metadata, not
+writable rules. The `repo:leitrechner` event carries `{repoPath, leitrechnerStatus}` when
+this view changes. Drain snapshots and `drain:status` carry the same ownership view;
+a local explicit epic can still progress while the general repo jobs are paused.

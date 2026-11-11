@@ -182,6 +182,8 @@ function makeHarness(
     detectEgressBackend?: ConstructorParameters<typeof DrainService>[0]["detectEgressBackend"];
     originUrl?: ConstructorParameters<typeof DrainService>[0]["originUrl"];
     startGate?: ConstructorParameters<typeof DrainService>[0]["startGate"];
+    leitrechner?: ConstructorParameters<typeof DrainService>[0]["leitrechner"];
+    machines?: ConstructorParameters<typeof DrainService>[0]["machines"];
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -322,6 +324,8 @@ function makeHarness(
 
   const drain = new DrainService({
     now: opts.now,
+    leitrechner: opts.leitrechner,
+    machines: opts.machines,
     capacity: opts.capacity,
     bootstrapMustHaves: opts.bootstrapMustHaves,
     openPrSnapshot: opts.openPrSnapshot,
@@ -1929,6 +1933,7 @@ describe("drain epic mode", () => {
     epicStatus: "running" | "paused" = "running",
     epicMode: "auto" | "attended" = "auto",
     opts: {
+      leitrechner?: ConstructorParameters<typeof DrainService>[0]["leitrechner"];
       usagePct?: number;
       usageCeilingPct?: number;
       agentProvider?: AgentProvider;
@@ -1959,6 +1964,7 @@ describe("drain epic mode", () => {
       assignees: [],
     };
     const h = makeHarness({
+      leitrechner: opts.leitrechner,
       usagePct: opts.usagePct,
       usageCeilingPct: opts.usageCeilingPct,
       detectBackend: opts.detectBackend,
@@ -1981,6 +1987,15 @@ describe("drain epic mode", () => {
     });
     return h;
   }
+
+  test("non-leitrechner still spawns explicitly started epic children", async () => {
+    const h = epicHarness("running", "auto", {
+      leitrechner: { refresh: async () => OTHER_LEITRECHNER, status: () => OTHER_LEITRECHNER },
+    });
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(1);
+    expect(h.creates[0]!.issueRef?.number).toBe(CHILD);
+  });
 
   test("running auto epic spawns the dependency-free root once, carries body, and does NOT depend on listIssues", async () => {
     const h = epicHarness("running", "auto");
@@ -3379,4 +3394,107 @@ describe("#3453: DrainService.autoBlockers", () => {
       expect(r.preselect).toBe("trusted");
     });
   });
+});
+
+const OTHER_LEITRECHNER = {
+  instanceId: "other",
+  name: "Other",
+  role: "remote",
+  reachable: false,
+  allowed: false,
+  pauseReason: "leitrechner_unreachable",
+} as const;
+test("non-leitrechner never lists or claims label issues and exposes its pause", async () => {
+  const h = makeHarness({
+    issues: [issue(1)],
+    leitrechner: { refresh: async () => OTHER_LEITRECHNER, status: () => OTHER_LEITRECHNER },
+  });
+  await h.drain.pump(REPO);
+  expect(h.creates).toHaveLength(0);
+  expect(h.forgeRec.listIssuesCalls).toBe(0);
+  expect(h.forgeRec.added).toHaveLength(0);
+  expect(h.statuses.at(-1)).toMatchObject({
+    paused: true,
+    reason: "leitrechner_unreachable",
+    leitrechnerStatus: OTHER_LEITRECHNER,
+  });
+});
+
+test("leitrechner changed during issue recheck prevents a claim and agent start", async () => {
+  let allowed = true;
+  const gate = () => ({
+    ...OTHER_LEITRECHNER,
+    allowed,
+    pauseReason: allowed ? null : OTHER_LEITRECHNER.pauseReason,
+  });
+  const h = makeHarness({
+    issues: [issue(1)],
+    getIssueImpl: async () => {
+      allowed = false;
+      return issue(1);
+    },
+    leitrechner: { refresh: async () => gate(), status: gate },
+  });
+  await h.drain.pump(REPO);
+  expect(h.creates).toHaveLength(0);
+  expect(h.forgeRec.added).toHaveLength(0);
+});
+
+test("leitrechner switch while claiming releases the unstarted claim instead of creating an agent", async () => {
+  let allowed = true;
+  const status = () => ({
+    ...OTHER_LEITRECHNER,
+    allowed,
+    pauseReason: allowed ? null : OTHER_LEITRECHNER.pauseReason,
+  });
+  const h = makeHarness({
+    issues: [issue(1)],
+    addIssueLabelImpl: async () => {
+      allowed = false;
+    },
+    leitrechner: { refresh: async () => status(), status },
+  });
+  await h.drain.pump(REPO);
+  expect(h.creates).toHaveLength(0);
+  expect(h.forgeRec.removed).toContainEqual({ number: 1, label: ACTIVE_LABEL });
+});
+
+test("leitrechner switch during remote spawn planning releases claim without submitting", async () => {
+  let allowed = true;
+  let submits = 0;
+  const status = () => ({
+    ...OTHER_LEITRECHNER,
+    allowed,
+    pauseReason: allowed ? null : OTHER_LEITRECHNER.pauseReason,
+  });
+  const placement = {
+    mode: "auto" as const,
+    target: { instanceId: "worker", name: "Worker", platform: "macos" },
+    requirements: ["xcode" as const],
+    basis: "requirements" as const,
+    preferred: null,
+    by: { instanceId: "self", name: "Self" },
+    decidedAt: 1,
+  };
+  const h = makeHarness({
+    issues: [issue(1, { labels: ["shepherd:auto", "requires-macos"] })],
+    addIssueLabelImpl: async () => {
+      allowed = false;
+    },
+    leitrechner: { refresh: async () => status(), status },
+    machines: {
+      active: () => true,
+      selfId: () => "self",
+      decide: async () => ({ ok: true, placement }),
+      work: () => new Map(),
+      submit: async () => {
+        submits++;
+        return { kind: "refused", code: "remote_project_missing", reason: null };
+      },
+    },
+  });
+  await h.drain.pump(REPO);
+  expect(submits).toBe(0);
+  expect(h.forgeRec.added).toContainEqual({ number: 1, label: ACTIVE_LABEL });
+  expect(h.forgeRec.removed).toContainEqual({ number: 1, label: ACTIVE_LABEL });
 });

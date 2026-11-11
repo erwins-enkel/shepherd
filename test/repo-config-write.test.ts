@@ -1,3 +1,4 @@
+import { configForge } from "./helpers/repo-config-forge";
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,7 +15,12 @@ function fixture() {
   const r = configRepo();
   repos.push(r);
   const store = new SessionStore(":memory:");
-  const svc = new RepoConfigService(store, () => "standard");
+  const svc = new RepoConfigService(
+    store,
+    () => "standard",
+    undefined,
+    () => configForge().forge,
+  );
   return { r, store, svc };
 }
 function tip(r: ReturnType<typeof configRepo>) {

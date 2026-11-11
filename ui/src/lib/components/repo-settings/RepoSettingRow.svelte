@@ -10,6 +10,14 @@
 </script>
 
 <script lang="ts">
+  import { firstSafeHttpUrl } from "#lib/url.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import {
+    usePendingConfig,
+    rowPendingChanges,
+    proposedValue,
+    proposedRuleName,
+  } from "./pending-config-context.svelte.js";
   import type { Snippet } from "svelte";
   import type { TooltipExplanation } from "#lib/tooltips/content.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
@@ -80,6 +88,8 @@
     coach?: string;
   } = $props();
 
+  const proposal = usePendingConfig();
+  const ruleChanges = $derived(rowPendingChanges(field, proposal()));
   const open = useOpenDetail();
   const lockId = $props.id();
   const off = $derived(disabled || !!locked);
@@ -102,6 +112,25 @@
       {#if explanation}<InfoTip text={explanation} label={explanation.title} />{/if}
     </div>
     {#if desc}<div class="rs-desc">{desc}</div>{/if}
+    {#if ruleChanges.length && proposal()}
+      <div class="rs-proposal" role="status">
+        <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge PR URL -->
+        <a
+          href={firstSafeHttpUrl(proposal()!.url) ?? undefined}
+          target="_blank"
+          rel="noopener noreferrer">{m.reposettings_pending_status()} · #{proposal()!.number}</a
+        >
+        <!-- eslint-enable svelte/no-navigation-without-resolve -->
+        {#each ruleChanges as [key, value] (key)}
+          <div>
+            {m.reposettings_pending_value({
+              field: proposedRuleName(key, name),
+              value: proposedValue(value),
+            })}
+          </div>
+        {/each}
+      </div>
+    {/if}
     {#if locked}<div class="rs-locked" id={lockId}>{locked}</div>{/if}
     {#if warn}<div class="rs-warn" role="status" hidden={!warnShown}>{warn}</div>{/if}
     {#if task}<div class="rs-task">{task}</div>{/if}
@@ -138,6 +167,17 @@
 </div>
 
 <style>
+  .rs-proposal {
+    margin-top: 3px;
+    color: var(--color-amber);
+    font-size: var(--fs-meta);
+    overflow-wrap: anywhere;
+  }
+  .rs-proposal a {
+    color: inherit;
+    text-decoration: underline;
+  }
+
   .rs-row {
     display: flex;
     align-items: flex-start;

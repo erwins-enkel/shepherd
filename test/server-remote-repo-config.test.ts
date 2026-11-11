@@ -1,3 +1,8 @@
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { configForge } from "./helpers/repo-config-forge";
+import { REPO_CONFIG_PR_BRANCH } from "../src/repo-config-pr";
+import { reconcileRepoConfig } from "../src/server";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { makeApp, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
@@ -392,4 +397,124 @@ test("a successful project refresh clears the job owner's cached fetch failure",
   git(repo.a, "remote", "set-url", "origin", repo.origin);
   expect((await a.request("POST", `/api/repo-config/refresh?remoteSlug=${slug}`)).status).toBe(200);
   expect(owner.status(repo.a)).toMatchObject({ role: "local", allowed: true, pauseReason: null });
+});
+
+test("protected rule save is pending across forwarded APIs; merge tick refreshes both connected clones", async () => {
+  const a = host(repo.a),
+    b = host(repo.b);
+  const f = configForge();
+  a.deps.resolveForge = () => f.forge;
+  b.deps.resolveForge = () => f.forge;
+  await connect(a, b);
+  await connect(b, a);
+  writeFileSync(
+    join(repo.origin, "hooks/pre-receive"),
+    '#!/bin/sh\nwhile read old new ref; do\n if [ "$ref" = "refs/heads/main" ]; then exit 1; fi\ndone\n',
+    { mode: 0o755 },
+  );
+  const route = `${project}&instanceId=${b.id}`;
+  const saved = await a.request("PUT", route, { rules: { criticAllPrs: true } });
+  expect(saved.status).toBe(200);
+  expect(saved.body).toMatchObject({
+    rules: { criticAllPrs: false },
+    pendingRepoConfig: { number: 41, url: "https://host/pr/41", changes: { criticAllPrs: true } },
+    notifications: [],
+  });
+  const legacy = `/api/repo-config?repo=${encodeURIComponent(repo.b)}`;
+  expect((await b.request("GET", legacy)).body).toMatchObject({
+    criticAllPrs: false,
+    pendingRepoConfig: { number: 41 },
+  });
+  const machine = `/api/repo-config/machine?remoteSlug=${slug}&instanceId=${b.id}`;
+  expect((await a.request("GET", machine)).body).toMatchObject({
+    criticAllPrs: false,
+    pendingRepoConfig: { number: 41 },
+  });
+  expect((await a.request("GET", project)).body).toMatchObject({
+    rules: { criticAllPrs: false },
+    pendingRepoConfig: { number: 41 },
+  });
+  expect((await a.request("PUT", route, { rules: { planGateEnabled: true } })).status).toBe(200);
+  expect(f.opened).toHaveLength(1);
+  git(
+    repo.origin,
+    "update-ref",
+    "refs/heads/main",
+    git(repo.origin, "rev-parse", REPO_CONFIG_PR_BRANCH),
+  );
+  f.setState("merged");
+  await reconcileRepoConfig(b.deps, repo.b, true);
+  expect(a.store.getRepoConfig(repo.a)).toMatchObject({
+    criticAllPrs: true,
+    planGateEnabled: true,
+  });
+  expect(b.store.getRepoConfig(repo.b)).toMatchObject({
+    criticAllPrs: true,
+    planGateEnabled: true,
+  });
+  expect((await b.request("GET", legacy)).body.pendingRepoConfig).toBeNull();
+});
+
+test("a save that discovers an already merged proposal refreshes peers before clearing pending", async () => {
+  const a = host(repo.a),
+    b = host(repo.b);
+  const f = configForge();
+  a.deps.resolveForge = () => f.forge;
+  b.deps.resolveForge = () => f.forge;
+  await connect(a, b);
+  writeFileSync(
+    join(repo.origin, "hooks/pre-receive"),
+    '#!/bin/sh\nwhile read old new ref; do\n if [ "$ref" = "refs/heads/main" ]; then exit 1; fi\ndone\n',
+    { mode: 0o755 },
+  );
+  const legacy = `/api/repo-config?repo=${encodeURIComponent(repo.a)}`;
+  await a.request("PUT", legacy, { criticAllPrs: true });
+  expect(b.store.getRepoConfig(repo.b).criticAllPrs).toBe(false);
+  git(
+    repo.origin,
+    "update-ref",
+    "refs/heads/main",
+    git(repo.origin, "rev-parse", REPO_CONFIG_PR_BRANCH),
+  );
+  f.setState("merged");
+  const saved = await a.request("PUT", legacy, { criticAllPrs: true });
+  expect(saved.status).toBe(200);
+  expect(saved.body.pendingRepoConfig).toBeNull();
+  expect(b.store.getRepoConfig(repo.b).criticAllPrs).toBe(true);
+});
+
+test("a protected Leitrechner change keeps the current job owner until merge", async () => {
+  const a = host(repo.a),
+    b = host(repo.b);
+  const f = configForge();
+  a.deps.resolveForge = () => f.forge;
+  b.deps.resolveForge = () => f.forge;
+  await connect(a, b);
+  const at = `/api/repo-config?repo=${encodeURIComponent(repo.a)}`;
+  expect((await a.request("PUT", at, { leitrechner: a.id })).status).toBe(200);
+  writeFileSync(
+    join(repo.origin, "hooks/pre-receive"),
+    '#!/bin/sh\nwhile read old new ref; do\n if [ "$ref" = "refs/heads/main" ]; then exit 1; fi\ndone\n',
+    { mode: 0o755 },
+  );
+  const pending = await a.request("PUT", at, { leitrechner: b.id });
+  expect(pending.body).toMatchObject({
+    leitrechner: a.id,
+    leitrechnerStatus: { role: "local", allowed: true },
+    pendingRepoConfig: { changes: { leitrechner: b.id } },
+  });
+  git(
+    repo.origin,
+    "update-ref",
+    "refs/heads/main",
+    git(repo.origin, "rev-parse", REPO_CONFIG_PR_BRANCH),
+  );
+  f.setState("merged");
+  await reconcileRepoConfig(a.deps, repo.a, true);
+  expect((await a.request("GET", at)).body).toMatchObject({
+    leitrechner: b.id,
+    leitrechnerStatus: { role: "remote", allowed: false },
+    pendingRepoConfig: null,
+  });
+  expect(b.deps.repoLeitrechner!.status(repo.b)).toMatchObject({ role: "local", allowed: true });
 });

@@ -8798,5 +8798,15 @@
   "schedules_budget_invalid": "Enter 0.1 to 100 million tokens, in whole tokens.",
   "schedules_budget_used": "{used} tokens used",
   "feat_schedule_token_budget_title": "Token budget per scheduled run",
-  "feat_schedule_token_budget_body": "Set a Claude Code token budget in a schedule’s Limits section. At the budget, the agent finishes its current step and the run ends; its session stays available for inspection or manual continuation."
+  "feat_schedule_token_budget_body": "Set a Claude Code token budget in a schedule’s Limits section. At the budget, the agent finishes its current step and the run ends; its session stays available for inspection or manual continuation.",
+  "reposettings_pending_status": "Waiting for merge",
+  "reposettings_pending_summary": "Repository rule changes are waiting for merge. Current values remain effective.",
+  "reposettings_pending_link": "Open PR #{number}",
+  "reposettings_pending_value": "Proposed {field}: {value}",
+  "reposettings_pending_leader": "Proposed lead machine: {value}",
+  "reposettings_pending_none": "None",
+  "reposettings_pending_on": "On",
+  "reposettings_pending_off": "Off",
+  "feat_repo_rules_pr_title": "Rule changes through a pull request",
+  "feat_repo_rules_pr_body": "When the default branch rejects a rule change, Shepherd opens a pull request. Further saves update the same PR. Affected settings show the proposal and PR link while current rules remain effective until merge."
 }

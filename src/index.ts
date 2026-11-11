@@ -99,7 +99,14 @@ import {
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import { ensureHelperTmpRootTrusted } from "./transient-helper-lifecycle";
 import { scanClaudeAliveByWorktree } from "./process-reaper";
-import { serve, serveAgentIngress, buildBacklogPayload, launchTask, type AppDeps } from "./server";
+import {
+  serve,
+  serveAgentIngress,
+  buildBacklogPayload,
+  launchTask,
+  reconcileRepoConfig,
+  type AppDeps,
+} from "./server";
 import { ScheduleService, SCHEDULE_TICK_MS } from "./schedules";
 import { SchedulePauseService, isUsagePaused } from "./schedule-pause";
 import { resolveDefaultBranch } from "./pull";
@@ -790,6 +797,10 @@ async function startBackground(): Promise<void> {
     (dir) =>
       console.warn(`[repo-config] startup refresh failed for ${dir}; using last fetched rules`),
   );
+  for (const repo of listRepos(config.repoRoot)) {
+    const dir = safeRepoDir(repo.path, config.repoRoot);
+    if (dir) await reconcileRepoConfig(appDeps, dir);
+  }
   // Each in its own caller scope, so a start's `labelGhCalls` covers only its own timers.
   for (const start of deferredStarts) withGhCaller(UNATTRIBUTED, start);
 }
@@ -1207,7 +1218,9 @@ const repoLeitrechner = new RepoLeitrechnerService({
 // Deep modules for the repo-config route seam (#1092). A singleton so every
 // route + every background onChange below emit through the SAME instance; the server's
 // total accessors return these when injected via appDeps.
-const repoConfigSvc = new RepoConfigService(store, undefined, repoLeitrechner);
+const repoConfigSvc = new RepoConfigService(store, undefined, repoLeitrechner, (dir) =>
+  resolveForge(dir),
+);
 remoteInstances.onChange(() => {
   for (const repo of listRepos(config.repoRoot)) repoLeitrechner.publish(repo.path);
 });
@@ -4827,8 +4840,25 @@ if (firstRun.pending)
   });
 else void startBackground();
 
+// Poll only known proposals; discovery runs at startup and on settings reads.
+let repoConfigTickRunning = false;
+const repoConfigTimer = setInterval(() => {
+  if (repoConfigTickRunning || firstRun.pending) return;
+  repoConfigTickRunning = true;
+  void (async () => {
+    for (const dir of repoConfigSvc.pendingDirectories())
+      await reconcileRepoConfig(appDeps, dir, true);
+  })()
+    .catch(() => console.warn("[repo-config] proposal refresh failed; retrying next tick"))
+    .finally(() => {
+      repoConfigTickRunning = false;
+    });
+}, 60_000);
+repoConfigTimer.unref();
+
 // Best-effort teardown of preview listeners and tailscale mappings on process exit / SIGTERM.
 process.on("exit", () => {
+  clearInterval(repoConfigTimer);
   codexAccount.close();
   sharedBrowser.stopAll();
   previewService.stopAll();

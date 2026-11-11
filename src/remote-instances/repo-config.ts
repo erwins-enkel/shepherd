@@ -75,7 +75,7 @@ export class RepoConfigCoordinator {
       self: { instanceId: string; name: string };
       peers: (slug: string) => RepoPeer[];
       refreshLocal: (slug: string) => Promise<void>;
-      local: (slug: string) => RepoConfigView | null;
+      local: (slug: string) => RepoConfigView | null | Promise<RepoConfigView | null>;
       fetch?: FetchLike;
     },
   ) {}
@@ -176,7 +176,7 @@ export class RepoConfigCoordinator {
   }
 
   async read(slug: string) {
-    const local = this.deps.local(slug);
+    const local = await this.deps.local(slug);
     const machines: RepoMachine[] = [
       {
         ...this.deps.self,
@@ -226,6 +226,7 @@ export class RepoConfigCoordinator {
       referenceInstanceId: reference?.instanceId ?? null,
       rules: reference?.config ? repoRulesFromConfig(reference.config) : null,
       repoConfigCommit: reference?.config?.repoConfigCommit ?? null,
+      pendingRepoConfig: reference?.config?.pendingRepoConfig ?? null,
       leitrechner: selected
         ? { instanceId: selected, name: lead?.name ?? null, reachable: lead?.reachable ?? false }
         : null,
@@ -236,7 +237,7 @@ export class RepoConfigCoordinator {
 
   async notify(slug: string, writerInstanceId = this.deps.self.instanceId) {
     const local = [];
-    if (writerInstanceId !== this.deps.self.instanceId && this.deps.local(slug)) {
+    if (writerInstanceId !== this.deps.self.instanceId && (await this.deps.local(slug))) {
       try {
         await this.deps.refreshLocal(slug);
         local.push({ ...this.deps.self, ok: true });

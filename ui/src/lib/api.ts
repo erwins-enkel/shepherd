@@ -3209,7 +3209,15 @@ export async function adoptGitignore(repoPath: string): Promise<{
   return r.json();
 }
 
+/** A rule proposal is metadata; its values are not effective until merge. */
+export type PendingRepoConfig = {
+  number: number;
+  url: string;
+  changes: Partial<RepoConfig> & { leitrechner?: string | null };
+};
+
 export type RepoConfigResponse = RepoConfig & {
+  pendingRepoConfig?: PendingRepoConfig | null;
   automationConfirmed?: boolean;
   automationRowExists?: boolean;
   /** The global default profile a `sandboxProfile: "inherit"` resolves to (#2100). */

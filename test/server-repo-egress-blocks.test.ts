@@ -1,11 +1,12 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { makeApp, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
-import type { EgressBlock } from "../src/types";
+import type { EgressBlock, EgressSuggestion } from "../src/types";
 
 // #3922: the repo's blocked egress hosts, aggregated from egress_drop signals.
 
@@ -113,4 +114,48 @@ test("GET drops hosts the effective allowlist now covers", async () => {
   const body = (await res.json()) as { hosts: EgressBlock[] };
   expect(body.hosts.map((h) => h.host)).toEqual(["evil.example.net"]);
   expect(body.hosts[0]).toMatchObject({ count: 1, sessions: 1, sessionIds: ["s1"] });
+});
+
+// #3927: registry hosts from the repo's tracked lockfiles.
+
+async function getSuggestions(repo: string): Promise<Response> {
+  return app().fetch(
+    new Request(`http://x/api/repo-egress-suggestions?repo=${encodeURIComponent(repo)}`),
+  );
+}
+
+function commitLockfiles(files: Record<string, string>) {
+  const env = { ...process.env };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_INDEX_FILE;
+  for (const [p, text] of Object.entries(files)) {
+    mkdirSync(join(repoDir, p, ".."), { recursive: true });
+    writeFileSync(join(repoDir, p), text);
+  }
+  execFileSync("git", ["init", "-q"], { cwd: repoDir, env, stdio: "ignore" });
+  execFileSync("git", ["add", "-A"], { cwd: repoDir, env, stdio: "ignore" });
+}
+
+test("GET suggestions refuses an invalid repo", async () => {
+  expect((await getSuggestions("/definitely/not/here")).status).toBe(400);
+});
+
+test("GET suggestions drops allowed and already-blocked hosts", async () => {
+  commitLockfiles({
+    "bun.lock": `{"packages":{"a":["a@1.0.0","",{},"x"],"b":["b@1","https://npm.pkg.github.com/",{},"y"]}}`,
+    "cli/Cargo.lock": `[[package]]\nsource = "sparse+https://index.crates.io/"\n`,
+    "go.sum": "golang.org/x/net v0.1.0 h1:abc=\n",
+  });
+  store.setRepoConfig(repoDir, {
+    ...store.getRepoConfig(repoDir),
+    egressExtraHosts: ["registry.npmjs.org"],
+  });
+  config.sandboxEgressExtraHosts = ["crates.io"]; // suffix-covers static./index.crates.io too
+  drop("proxy.golang.org", "s1"); // offered in Blocked hosts instead
+
+  const res = await getSuggestions(repoDir);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { hosts: EgressSuggestion[] };
+  expect(body.hosts).toEqual([{ host: "sum.golang.org", sources: ["go.sum"] }]);
 });

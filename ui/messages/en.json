@@ -8798,5 +8798,16 @@
   "schedules_budget_invalid": "Enter 0.1 to 100 million tokens, in whole tokens.",
   "schedules_budget_used": "{used} tokens used",
   "feat_schedule_token_budget_title": "Token budget per scheduled run",
-  "feat_schedule_token_budget_body": "Set a Claude Code token budget in a schedule’s Limits section. At the budget, the agent finishes its current step and the run ends; its session stays available for inspection or manual continuation."
+  "feat_schedule_token_budget_body": "Set a Claude Code token budget in a schedule’s Limits section. At the budget, the agent finishes its current step and the run ends; its session stays available for inspection or manual continuation.",
+  "egress_suggested_label": "Suggested hosts",
+  "egress_suggested_meta": "From {sources}",
+  "egress_suggested_load_failed": "Couldn't load the suggested hosts.",
+  "tooltip_egress_suggested_title": "Suggested hosts",
+  "tooltip_egress_suggested_summary": "Package registries this repo's lockfiles install from. Allow them before the first Autonomous run gets blocked.",
+  "tooltip_egress_suggested_shows": "What it shows",
+  "tooltip_egress_suggested_shows_body": "Hosts named by the lockfiles git tracks (bun.lock, package-lock.json, pnpm-lock.yaml, yarn.lock, Cargo.lock, uv.lock, poetry.lock, go.sum), with the files that name them. Hosts already allowed or already under Blocked hosts are left out.",
+  "tooltip_egress_suggested_check": "Check first",
+  "tooltip_egress_suggested_check_body": "A lockfile is repo content: anyone who can change the repo can add a host to it. Allow only hosts the build needs.",
+  "feat_egress_suggested_hosts_title": "Registry hosts from your lockfiles",
+  "feat_egress_suggested_hosts_body": "Repo settings › Agent suggests the package registries a repo's lockfiles install from, such as npm, crates.io, PyPI and the Go proxy, with the lockfile that names each one. Allow them before the first Autonomous run is blocked."
 }

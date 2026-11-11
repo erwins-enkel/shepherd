@@ -520,6 +520,21 @@ export function egressBlockedHostsExplanation(): TooltipExplanation {
   };
 }
 
+/** Repo settings › Agent › Suggested hosts (#3927): where the hosts come from, how Allow asks,
+ *  when it applies and why a lockfile host still deserves a look. */
+export function egressSuggestedHostsExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_egress_suggested_title(),
+    summary: m.tooltip_egress_suggested_summary(),
+    sections: [
+      { label: m.tooltip_egress_suggested_shows(), text: m.tooltip_egress_suggested_shows_body() },
+      { label: m.tooltip_egress_blocked_tiers(), text: m.tooltip_egress_blocked_tiers_body() },
+      { label: m.tooltip_egress_blocked_applies(), text: m.tooltip_egress_blocked_applies_body() },
+      { label: m.tooltip_egress_suggested_check(), text: m.tooltip_egress_suggested_check_body() },
+    ],
+  };
+}
+
 /** The short name of a risky-host class (#3922), for badges, confirms and warnings. */
 export function egressRiskLabel(reason: EgressRiskReason): string {
   switch (reason) {

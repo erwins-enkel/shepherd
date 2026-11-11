@@ -765,16 +765,25 @@ hosts**: host, how often, how many sessions hit it and when, for the last 60 day
 repo** adds the host to the repo's Extra allowed hosts (`egressExtraHosts`); sessions started after
 that can reach it and its subdomains. How much Allow asks depends on the host:
 
-- **Trusted** package registries (npm, PyPI files, crates.io, the Go proxy, NuGet, nodejs.org,
-  rust-lang static, ghcr.io, Docker Hub) allow in one click.
+- **Trusted** package registries (npm and the Yarn registry, PyPI, crates.io, the Go proxy, NuGet,
+  nodejs.org, rust-lang static, ghcr.io, Docker Hub) allow in one click. Allowing `pypi.org` also
+  covers its subdomains, such as `test.pypi.org`.
 - **Risky** hosts always ask for an explicit confirm that names the reason: IP addresses, `xn--`
   names, paste and file-drop sites, tunnels, webhook/OAST catchers, free hosting, chat bot APIs, and
-  domains where anyone can get a subdomain (`github.io`, `amazonaws.com`, `googleapis.com`,
-  `pypi.org`). The Extra allowed hosts editor flags them too and needs **Add anyway**.
+  domains where anyone can get a subdomain (`github.io`, `amazonaws.com`, `googleapis.com`). The Extra allowed hosts editor flags them too and needs **Add anyway**.
 - Everything else asks once.
 
 To find what a repo's build needs, run a task under `autonomous` and review its blocks there; the
 firewall stays closed the whole time.
+
+**Suggested hosts.** For a repo whose profile is `autonomous`, Agent environment › **Suggested
+hosts** lists the registry hosts its git-tracked lockfiles install from, before any run is blocked:
+`bun.lock`, `package-lock.json`, `pnpm-lock.yaml` and `yarn.lock` (npm or the registry the lockfile
+names), `Cargo.lock` (crates.io), `uv.lock` and `poetry.lock` (PyPI plus any named index) and
+`go.sum` (the Go proxy and checksum database). Each host shows the lockfiles that name it and
+uses the same Allow tiers. Hosts already allowed, or already under Blocked hosts, are left out.
+A lockfile is repo content, so a host it names still goes through the normal or risky confirm
+unless it is a trusted registry.
 
 **Backend requirements:** `bwrap` installed + unprivileged user namespaces enabled.
 Shepherd self-tests at startup by running `node` and `git` through the real membrane.

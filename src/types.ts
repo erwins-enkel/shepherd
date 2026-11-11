@@ -1745,6 +1745,13 @@ export interface EgressBlock {
   lastSeen: number;
 }
 
+/** A registry host a repo's tracked lockfiles name (#3927), suggested for its egress allowlist.
+ *  `sources` holds up to 5 repo-relative lockfile paths that name it. */
+export interface EgressSuggestion {
+  host: string;
+  sources: string[];
+}
+
 /** A manually-submitted task held in the queue pending usage headroom. */
 export interface HeldTask {
   id: string;

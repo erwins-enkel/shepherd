@@ -68,7 +68,7 @@ export type ScheduleLimitAction = "skip" | "wait" | "otherProvider";
 export type ScheduleUsageLimit = (
   | { kind: "upTo"; stopPct: number }
   | { kind: "from"; startPct: number; startWindow: "week" | "5h"; stopPct: number }
-) & { onMismatch?: ScheduleLimitAction };
+) & { pauseAtStop?: boolean; onMismatch?: ScheduleLimitAction };
 
 export interface ScheduleUsage {
   provider: AgentProvider;
@@ -133,6 +133,7 @@ export interface Schedule {
 }
 
 export type ScheduleOutcome =
+  | "paused"
   | "claimed"
   | "spawned"
   | "spawned:failover"
@@ -153,6 +154,7 @@ export interface ScheduleRun {
   sessionId: string | null;
   reason: string | null;
   usage: ScheduleUsage | null;
+  pausedUntil?: number | null;
   at: number;
 }
 
@@ -319,15 +321,18 @@ function validateUsageLimit(raw: unknown): Result<ScheduleUsageLimit | null> {
   const obj = raw as Record<string, unknown>;
   const keys =
     obj.kind === "from" ? ["kind", "startPct", "startWindow", "stopPct"] : ["kind", "stopPct"];
-  if (Object.keys(obj).some((key) => ![...keys, "onMismatch"].includes(key)))
+  if (Object.keys(obj).some((key) => ![...keys, "onMismatch", "pauseAtStop"].includes(key)))
     return fail("unknown usageLimit key");
+  if (obj.pauseAtStop !== undefined && typeof obj.pauseAtStop !== "boolean")
+    return fail("usageLimit.pauseAtStop must be a boolean");
+  const pause = obj.pauseAtStop === undefined ? {} : { pauseAtStop: obj.pauseAtStop as boolean };
   const action = validateUsageLimitAction(obj.onMismatch);
   if (!action.ok) return action;
   const pct = (v: unknown, min: number, max: number): v is number =>
     typeof v === "number" && Number.isInteger(v) && v % 5 === 0 && v >= min && v <= max;
   if (!pct(obj.stopPct, 5, 100)) return fail("usageLimit.stopPct must be 5–100 in steps of 5");
   if (obj.kind === "upTo")
-    return { ok: true, value: { kind: "upTo", stopPct: obj.stopPct, ...action.value } };
+    return { ok: true, value: { kind: "upTo", stopPct: obj.stopPct, ...pause, ...action.value } };
   if (obj.kind !== "from") return fail("usageLimit.kind must be upTo or from");
   if (!pct(obj.startPct, 0, 95) || obj.startPct >= obj.stopPct)
     return fail("usageLimit.startPct must be 0–95 in steps of 5 and less than stopPct");
@@ -337,6 +342,7 @@ function validateUsageLimit(raw: unknown): Result<ScheduleUsageLimit | null> {
     ok: true,
     value: {
       kind: "from",
+      ...pause,
       ...action.value,
       startPct: obj.startPct,
       startWindow: obj.startWindow,

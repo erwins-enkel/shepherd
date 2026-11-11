@@ -8705,5 +8705,18 @@
   "schedules_limit_policy_overview": "Prüft die Nutzung zum Termin. Wahlweise überspringen, auf die Grenze warten oder mit dem anderen bereiten Provider starten, wenn er innerhalb derselben Grenze liegt.",
   "schedules_limit_manual_policy": "Jetzt ausführen nutzt statt dieser Zeitplangrenze den globalen Rückhalt.",
   "schedules_limit_capacity_title": "Startkapazität",
-  "schedules_limit_capacity_policy": "Speicher- und Codex-Kapazitätsrückhalt gelten weiterhin."
+  "schedules_limit_capacity_policy": "Speicher- und Codex-Kapazitätsrückhalt gelten weiterhin.",
+  "schedules_pause_at_stop": "Laufende Session beim Stopp anhalten und nach dem Reset fortsetzen",
+  "schedules_pause_hint": "Shepherd lässt den Agenten den aktuellen Schritt beenden und hält ihn dann an, bis das Nutzungsfenster zurückgesetzt ist.",
+  "schedules_pause_disabled": "Braucht eine Nutzungsgrenze mit Stopp.",
+  "schedules_outcome_paused": "angehalten bis {when} (Nutzungsstopp)",
+  "schedule_pause_badge": "Angehalten bis {when}",
+  "schedule_pause_title": "Angehalten (Nutzungsstopp)",
+  "schedule_pause_resume_label": "Fortsetzen",
+  "schedule_pause_takeover_label": "Selbst übernehmen",
+  "schedule_pause_resume": "Shepherd setzt diese Session nach dem Reset um {when} automatisch fort.",
+  "schedule_pause_takeover": "Eine eigene Nachricht hebt die Pause auf.",
+  "schedule_pause_unknown_reset": "Shepherd setzt automatisch fort, sobald das Nutzungsfenster zurückgesetzt und die Nutzung unter dem Stopp ist. Die Resetzeit ist noch nicht verfügbar.",
+  "feat_schedule_usage_pause_title": "Geplante Läufe am Nutzungsstopp anhalten",
+  "feat_schedule_usage_pause_body": "Aktiviere das Anhalten in der Nutzungsgrenze eines Zeitplans: Der Agent beendet beim Stopp seinen aktuellen Schritt. Shepherd setzt die Session nach dem Reset fort. Eine eigene Nachricht hebt die Pause auf."
 }

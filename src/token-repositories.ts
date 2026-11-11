@@ -192,6 +192,7 @@ const SESSION_EVENTS = new Set([
   "session:block",
   "session:ready",
   "session:shelved",
+  "session:usage-pause",
   "session:activity",
   "session:claude-alive",
   "session:working-blocked",

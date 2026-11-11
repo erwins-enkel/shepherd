@@ -288,6 +288,7 @@ import { remoteUrl } from "./forge/index";
 import { epicBaseDirective, epicStackedBaseDirective } from "./autopilot";
 import { parseTargetRepo, resolveTargetRepo, sessionIssue, targetsOtherRepo } from "./target-repo";
 import { isShelved } from "./shelve";
+import { isUsagePaused } from "./schedule-pause";
 
 /** #1071: After this many consecutive driver-absent / driver-broken results without a successful
  *  rebase, escalate to the operator (pauseReason='driver'). Keeps a persistently-misconfigured
@@ -1451,6 +1452,7 @@ export class DrainService {
           landingRepair: !!s.landingRepair,
           misrouted: !!s.misroutedTarget,
           shelved: !!s.shelved,
+          usagePaused: isUsagePaused(s),
         };
       });
     const limits = this.deps.usage.limits(this.now());
@@ -5076,6 +5078,7 @@ export class DrainService {
     // The answer to every other layer's gate just changed.
     this.stackConfirmHeld.delete(repoPath);
     try {
+      if (isUsagePaused(this.deps.store.get(decision.sessionId))) return;
       await this.deps.service.archive(decision.sessionId, undefined, "drain");
     } catch (err) {
       // The squash-merge already landed (PR is now MERGED) but teardown didn't finish. This is
@@ -5146,6 +5149,7 @@ export class DrainService {
     // next tick retries; we must NOT drop the pr-cache or emit "archived" for a
     // session that didn't actually archive.
     try {
+      if (isUsagePaused(this.deps.store.get(decision.sessionId))) return;
       await this.deps.service.archive(decision.sessionId, undefined, "drain");
     } catch (err) {
       console.warn(`[drain] archive failed for ${decision.sessionId}:`, err);
@@ -5936,7 +5940,7 @@ export class DrainService {
     // Shelved: never auto-decommissioned. Its epic integration is already recorded by the
     // callers; the merged session waits in the Shelved group until unshelved or decommissioned by
     // hand (Clear merged skips shelved sessions).
-    if (isShelved(s)) return;
+    if (isUsagePaused(s) || isShelved(s)) return;
     await settleMergedSession(s, {
       resolveForge: this.deps.resolveForge,
       archive: (sid, reason) => this.deps.service.archive(sid, undefined, reason),
@@ -5955,7 +5959,7 @@ export class DrainService {
    *  git state, exactly as the merged transition would have. */
   async onUnshelved(id: string): Promise<void> {
     const s = this.deps.store.get(id);
-    if (!s?.auto || s.status === "archived" || isShelved(s)) return;
+    if (!s?.auto || s.status === "archived" || isUsagePaused(s) || isShelved(s)) return;
     if (this.deps.prCache.snapshot()[id]?.state !== "merged") return;
     await this.reapMerged(s);
   }

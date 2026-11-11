@@ -85,6 +85,23 @@ struct GeneratedContractTests {
     #expect(unknown.rawValue == "epic:progress")
   }
 
+  @Test("scheduled usage pause is optional and preserves reset metadata")
+  func usagePauseDecodes() throws {
+    let legacy = try JSONDecoder().decode(Session.self, from: Fixtures.minimalSessionJSON())
+    #expect(legacy.usagePause == nil)
+    let pause: [String: Any] = [
+      "phase": "paused", "since": 100, "resumeAt": 200, "stopPct": 80,
+      "windows": ["week"], "stopSteerSent": true
+    ]
+    let present = try JSONDecoder().decode(
+      Session.self, from: Fixtures.minimalSessionJSON(overrides: ["usagePause": pause]))
+    #expect(present.usagePause?.since == 100)
+    #expect(present.usagePause?.resumeAt == 200)
+    let cleared = try JSONDecoder().decode(
+      Session.self, from: Fixtures.minimalSessionJSON(overrides: ["usagePause": NSNull()]))
+    #expect(cleared.usagePause == nil)
+  }
+
   @Test("the public typealiases point at the generated types")
   func typealiasesResolve() throws {
     // A metatype comparison alone can't fail: `Session.self` is substituted

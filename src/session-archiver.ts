@@ -4,6 +4,7 @@ import { SESSION_AUTO_ARCHIVE_MS, config } from "./config";
 import { maintenance } from "./maintenance";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import { isShelved } from "./shelve";
+import { isUsagePaused } from "./schedule-pause";
 import { execGit, resolveWorktreePin } from "./safe-git";
 import type { GitForge } from "./forge/types";
 import type { SessionStore } from "./store";
@@ -147,6 +148,7 @@ export class SessionArchiver {
         (s) =>
           !s.terminal &&
           !isOperatorAssistant(s) &&
+          !isUsagePaused(s) &&
           !isShelved(s) && // shelving promises the session stays until unshelved
           isSettled(s) &&
           s.settledAt != null &&
@@ -264,11 +266,18 @@ export class SessionArchiver {
    * `dropPrCache` + `emitArchived` mirror what the operator's own close route does, so every
    * `session:archived` consumer stays correct.
    */
-  private async archiveOne(s: Session): Promise<void> {
+  private async archiveOne(s: Session): Promise<boolean> {
+    if (
+      isUsagePaused(
+        this.deps.store.list({ activeOnly: true }).find((current) => current.id === s.id),
+      )
+    )
+      return false;
     await this.deps.archive(s.id, "stale");
     this.deps.retainClaim(s.id);
     this.deps.dropPrCache(s.id);
     this.deps.emitArchived(s.id);
+    return true;
   }
 
   async tick(): Promise<void> {
@@ -293,8 +302,7 @@ export class SessionArchiver {
           continue;
         }
         try {
-          await this.archiveOne(s);
-          archived.push(s.id);
+          if (await this.archiveOne(s)) archived.push(s.id);
         } catch (err) {
           // One session's teardown failing must not abort the sweep; its row stays live and the
           // next tick retries it.

@@ -83,6 +83,9 @@ function fixture(
     stops: () => stops,
     argv: () => argv,
     sent,
+    setLive: (value: boolean) => {
+      live = value;
+    },
     setTerminalId: (id: string) => {
       terminalId = id;
     },
@@ -244,4 +247,29 @@ test("Claude respawn accepts its owning account transcript under an unexpected e
   expect(f.service.resumeRefusalCode(f.session.id)).toBeNull();
   expect(await f.service.resume(f.session.id)).not.toBeNull();
   expect(f.starts()).toBe(1);
+});
+
+test("an operator message resumes an exited usage-paused Claude session and takes over", async () => {
+  const f: ReturnType<typeof fixture> = fixture("claude", false, undefined, {
+    runSpawnHooks: async () => {
+      f.setLive(true);
+      f.setTerminalId("new");
+      return {};
+    },
+  });
+  mkdirSync(dirname(f.path), { recursive: true });
+  writeFileSync(f.path, '{"type":"user"}\n');
+  f.store.setUsagePause(f.session.id, {
+    phase: "paused",
+    since: 1,
+    resumeAt: 2,
+    stopPct: 80,
+    windows: ["week"],
+    stopSteerSent: false,
+  });
+  expect(await f.service.operatorReply(f.session.id, "I will take over")).toBe(true);
+  expect(f.starts()).toBe(1);
+  expect(f.sent.join("")).toContain("I will take over");
+  expect(f.store.get(f.session.id)?.usagePause).toBeNull();
+  expect(f.store.usagePauseOptedOut(f.session.id)).toBe(true);
 });

@@ -164,6 +164,25 @@ describe("ScheduleService", () => {
     expect(store.getScheduleRun(s.id, "2026-10-26T18:00")?.outcome).toBe("skipped:overlap");
   });
 
+  test("a usage-paused previous run counts as open", async () => {
+    const s = makeSchedule(at(10, 26, 8));
+    now = at(10, 26, 9);
+    await svc.tick();
+    const run = store.listScheduleRuns(s.id, 1)[0]!;
+    store.setUsagePause(run.sessionId!, {
+      phase: "paused",
+      since: now,
+      resumeAt: now + 86400000,
+      stopPct: 80,
+      windows: ["week"],
+      stopSteerSent: false,
+    });
+    now = at(10, 26, 18);
+    await svc.tick();
+    expect(launches).toHaveLength(1);
+    expect(store.listScheduleRuns(s.id, 1)[0]?.outcome).toBe("skipped:overlap");
+  });
+
   test("a held previous run counts as open", async () => {
     const s = makeSchedule(at(10, 26, 8));
     store.addHeldTask({

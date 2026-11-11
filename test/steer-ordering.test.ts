@@ -50,6 +50,7 @@ function makeSvc() {
         events.push(`${tag}:end`);
       },
       listAsync: async () => [{ terminalId: "t1", agentStatus: "idle" }],
+      paneForegroundProcs: async () => ["claude"],
     },
     namer: (p: string) => p,
   } as any);
@@ -68,6 +69,7 @@ function makeSvc() {
 
   return {
     svc,
+    store,
     id: s.id,
     events,
     hold: (tag: string) => (holdLabel = tag),
@@ -123,4 +125,60 @@ describe("steer ordering (#1567)", () => {
       "cr:B:end",
     ]);
   });
+});
+
+test("an automatic steer queued before a usage pause is refused inside the steer lock", async () => {
+  const h = makeSvc();
+  h.hold("paste:A");
+  const first = h.svc.reply(h.id, "A");
+  await settle();
+  const second = h.svc.reply(h.id, "B", { automatic: true });
+  await settle();
+  h.store.setUsagePause(h.id, {
+    phase: "paused",
+    since: 1,
+    resumeAt: 2,
+    stopPct: 80,
+    windows: ["week"],
+    stopSteerSent: false,
+  });
+  h.release("paste:A");
+  expect(await first).toBe(true);
+  expect(await second).toBe(false);
+  expect(h.events.some((e) => e.includes(":B"))).toBe(false);
+});
+
+test("internal replies cannot lift a usage pause; operatorReply does", async () => {
+  const h = makeSvc();
+  h.store.setUsagePause(h.id, {
+    phase: "paused",
+    since: 1,
+    resumeAt: 2,
+    stopPct: 80,
+    windows: ["week"],
+    stopSteerSent: false,
+  });
+  expect(await h.svc.reply(h.id, "internal")).toBe(false);
+  expect(h.store.get(h.id)?.usagePause).not.toBeNull();
+  expect(await h.svc.operatorReply(h.id, "continue")).toBe(true);
+  expect(h.store.get(h.id)?.usagePause).toBeNull();
+  expect(h.store.usagePauseOptedOut(h.id)).toBe(true);
+});
+
+test("only the matching pause lifecycle may deliver a stop and resume message", async () => {
+  const h = makeSvc();
+  h.store.setUsagePause(h.id, {
+    phase: "requested",
+    since: 1,
+    resumeAt: 2,
+    stopPct: 80,
+    windows: ["week"],
+    stopSteerSent: false,
+  });
+  expect(await h.svc.usagePauseSteer(h.id, "stop", 2, "stop")).toBe(false);
+  expect(await h.svc.usagePauseSteer(h.id, "stop", 1, "stop")).toBe(true);
+  expect(await h.svc.usagePauseSteer(h.id, "resume", 1, "resume")).toBe(false);
+  h.store.setUsagePause(h.id, { ...h.store.get(h.id)!.usagePause!, phase: "paused" });
+  expect(await h.svc.usagePauseSteer(h.id, "resume", 1, "resume")).toBe(true);
+  expect(h.store.get(h.id)?.usagePause?.phase).toBe("paused");
 });

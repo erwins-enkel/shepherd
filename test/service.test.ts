@@ -11347,3 +11347,13 @@ test("Codex question transaction stops writing when its provider thread changes"
   expect(result).toEqual({ ok: true, result: "unverified" });
   expect(h.sent).toEqual([{ target: "term_a", text: "2" }]);
 });
+
+test("scheduled usage stop disables native Claude auto-continue only when enabled", () => {
+  expect(JSON.parse(spawnSettingsOverlay()).autoContinueAtUsageLimit).toBeUndefined();
+  expect(
+    JSON.parse(spawnSettingsOverlay({ pauseAtUsageStop: false })).autoContinueAtUsageLimit,
+  ).toBeUndefined();
+  expect(
+    JSON.parse(spawnSettingsOverlay({ pauseAtUsageStop: true })).autoContinueAtUsageLimit,
+  ).toBe(false);
+});

@@ -1,3 +1,4 @@
+import { isUsagePaused } from "./schedule-pause";
 import type { SessionStore } from "./store";
 import type { GitForge, GitState } from "./forge/types";
 import {
@@ -545,7 +546,11 @@ export class AutoMergeService {
         // Shelved sessions are left alone: no merge, no rebase steer.
         .filter(
           (s) =>
-            s.repoPath === repoPath && s.status !== "archived" && !s.shelved && this.fullAuto(s),
+            s.repoPath === repoPath &&
+            s.status !== "archived" &&
+            !isUsagePaused(s) &&
+            !s.shelved &&
+            this.fullAuto(s),
         )
         .map((s) => this.toView(s, snapshot[s.id] ?? null, cfg.mergeWithoutCi, reconcile)),
     );
@@ -736,7 +741,7 @@ export class AutoMergeService {
     const forge = this.deps.resolveForge(repoPath);
     const s = this.deps.store.get(sessionId);
     // F09: the merge is bound to the head the CI + critic gate evaluated; no head, no merge.
-    if (!forge || !s || !headSha) return false;
+    if (!forge || !s || isUsagePaused(s) || !headSha) return false;
     let stacked: boolean | null;
     try {
       stacked = await this.confirmIncrementalStack(forge, s, prNumber);
@@ -818,7 +823,7 @@ export class AutoMergeService {
     conflict: boolean,
   ): Promise<void> {
     const s = this.deps.store.get(sessionId);
-    if (!s) return;
+    if (!s || isUsagePaused(s)) return;
     if (this.deps.capacity && !(await this.deps.capacity(s))) return;
     this.deps.emitStatus(this.status(repoPath, true, "rebasing", s.desig, s.id));
 
@@ -846,6 +851,7 @@ export class AutoMergeService {
         rebaseSteeredAt: this.now(),
       });
     }
+    if (isUsagePaused(this.deps.store.get(sessionId))) return;
     if (!(await this.deps.paneAlive(sessionId)) || (await this.deps.deferSteer?.(sessionId))) {
       // Not live, OR a herdr-restored account husk that must be re-driven first (else the rebase steer
       // lands on the wrong-account pane). resume() re-drives (Locus B) before we reply below.

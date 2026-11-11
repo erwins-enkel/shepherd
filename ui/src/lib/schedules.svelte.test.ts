@@ -383,3 +383,11 @@ it("predicts wait or a ready in-range counterpart, otherwise retains the origina
     usageLimitActionVerdict({ ...limit, onMismatch: "wait" }, "claude", limits, []),
   ).toBeNull();
 });
+
+it("shows paused run deadlines and an honest fallback without a reset", () => {
+  expect(outcomeLabel("paused", null, null, Date.UTC(2026, 10, 16, 9))).toMatch(
+    /paused until .*usage stop/,
+  );
+  expect(outcomeLabel("paused", null, null, null)).toBe("Paused (usage stop)");
+  expect(outcomeTone("paused")).toBe("neutral");
+});

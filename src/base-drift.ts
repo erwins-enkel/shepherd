@@ -1,3 +1,4 @@
+import { isUsagePaused } from "./schedule-pause";
 /** Base-moved notice (#2589): tell a live agent when its base branch gained commits it doesn't
  *  have, so it stops building on a stale base without anyone looking.
  *
@@ -65,6 +66,7 @@ function eligible(s: Session): boolean {
   return (
     s.status === "idle" &&
     s.terminal !== true &&
+    !isUsagePaused(s) &&
     s.shelved !== true &&
     s.isolated &&
     !!s.branch &&

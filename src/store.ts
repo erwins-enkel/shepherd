@@ -7,6 +7,7 @@ import type { ResolvedHouseStack } from "./house-stack";
 import type {
   BlockJudgeLogRow,
   Session,
+  UsagePause,
   GoalState,
   SessionArchiveReason,
   SessionStatus,
@@ -903,7 +904,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
  * `COLS` also keeps that constant aligned with `create()`'s placeholder list.
  */
 const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits, settledAt,
-  claudeAiConnectors, ingressStamp, shelved, scheduleId, goalCondition, goalState,
+  claudeAiConnectors, ingressStamp, shelved, usagePauseJson, scheduleId, goalCondition, goalState,
   (SELECT name FROM schedules WHERE schedules.id = sessions.scheduleId) AS scheduleName,
   (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
 
@@ -1022,6 +1023,7 @@ type SessionRow = {
   claudeAiConnectors: number | null;
   ingressStamp: string | null;
   shelved: number;
+  usagePauseJson: string | null;
   launchMetadataJson: string | null;
   codexLaunchId: string | null;
 };
@@ -2340,7 +2342,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // has both (no write here).
     this.addMissingColumns("remote_dispatches", { uploads: "TEXT", project: "TEXT" });
     this.addMissingColumns("schedules", { intervalJson: "TEXT", usageLimitJson: "TEXT" });
-    this.addMissingColumns("schedule_runs", { usageJson: "TEXT" });
+    this.addMissingColumns("schedule_runs", { usageJson: "TEXT", pausedUntil: "INTEGER" });
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS schedule_runs_history ON schedule_runs (scheduleId, at DESC, id DESC);
       CREATE INDEX IF NOT EXISTS schedule_runs_at ON schedule_runs (at);
@@ -4991,6 +4993,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           now,
         });
       this.deleteSessionGitCache(id);
+      this.setUsagePause(id, null);
     })();
   }
 
@@ -6284,6 +6287,38 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     ]);
   }
 
+  /** Persist the lifecycle and its existing run row atomically. */
+  setUsagePause(id: string, pause: UsagePause | null, operator = false): void {
+    this.db.transaction(() => {
+      this.db.run(`UPDATE sessions SET usagePauseJson = ?, updatedAt = ? WHERE id = ?`, [
+        pause ? JSON.stringify(pause) : null,
+        Date.now(),
+        id,
+      ]);
+      if (operator) this.db.run(`UPDATE sessions SET usagePauseOptOut = 1 WHERE id = ?`, [id]);
+      if (pause?.phase === "paused")
+        this.db.run(
+          `UPDATE schedule_runs SET outcome = 'paused', pausedUntil = ?
+          WHERE sessionId = ? AND outcome IN ('spawned', 'spawned:failover', 'paused')`,
+          [pause.resumeAt, id],
+        );
+      else if (!pause)
+        this.db.run(
+          `UPDATE schedule_runs SET outcome = CASE
+          WHEN (SELECT status FROM sessions WHERE id = ?) = 'archived' THEN outcome ELSE 'spawned' END,
+          pausedUntil = NULL WHERE sessionId = ? AND outcome = 'paused'`,
+          [id, id],
+        );
+    })();
+  }
+
+  usagePauseOptedOut(id: string): boolean {
+    const row = this.db.query(`SELECT usagePauseOptOut FROM sessions WHERE id = ?`).get(id) as {
+      usagePauseOptOut: number;
+    } | null;
+    return row?.usagePauseOptOut === 1;
+  }
+
   /** Operator shelve toggle. Dedicated setter: written only by SessionService.setShelved. */
   setShelved(id: string, shelved: boolean): void {
     this.db.run(`UPDATE sessions SET shelved=?, updatedAt=? WHERE id=?`, [
@@ -7296,6 +7331,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("ingressStamp", `ingressStamp TEXT`);
     // Operator shelve flag (written only via setShelved).
     add("shelved", `shelved INTEGER NOT NULL DEFAULT 0`);
+    add("usagePauseJson", `usagePauseJson TEXT`);
+    add("usagePauseOptOut", `usagePauseOptOut INTEGER NOT NULL DEFAULT 0`);
     add("launchMetadataJson", `launchMetadataJson TEXT`);
     add("archiveReason", `archiveReason TEXT`);
     // The commit the worktree was actually created from (#2761). Nullable, no default: legacy rows
@@ -8295,6 +8332,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       claudeAiConnectors: nullableBool(r.claudeAiConnectors),
       ingressStamp: r.ingressStamp,
       shelved: !!r.shelved,
+      usagePause: r.usagePauseJson ? JSON.parse(r.usagePauseJson) : null,
     } as Session;
   }
 

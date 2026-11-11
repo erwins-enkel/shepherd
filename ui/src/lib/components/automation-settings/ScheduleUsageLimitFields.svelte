@@ -62,6 +62,7 @@
         value = {
           kind: "upTo",
           stopPct: 70,
+          ...(value?.pauseAtStop !== undefined && { pauseAtStop: value.pauseAtStop }),
           ...(value?.onMismatch && { onMismatch: value.onMismatch }),
         };
     }}>{m.schedules_limit_up()}</button
@@ -76,11 +77,25 @@
           startPct: 80,
           startWindow: "week",
           stopPct: 95,
+          ...(value?.pauseAtStop !== undefined && { pauseAtStop: value.pauseAtStop }),
           ...(value?.onMismatch && { onMismatch: value.onMismatch }),
         };
     }}>{m.schedules_limit_from()}</button
   >
 </div>
+<label class="pause-option">
+  <input
+    type="checkbox"
+    checked={value?.pauseAtStop === true}
+    disabled={!value}
+    aria-describedby={`${uid}-pause-hint`}
+    onchange={(event) => {
+      if (value) value.pauseAtStop = event.currentTarget.checked;
+    }}
+  />
+  <span>{m.schedules_pause_at_stop()}</span>
+</label>
+<p id={`${uid}-pause-hint`}>{value ? m.schedules_pause_hint() : m.schedules_pause_disabled()}</p>
 {#if value}
   {#if value.kind === "from"}
     <label class="field"
@@ -216,6 +231,12 @@
 {#if !valid}<p class="error">{m.schedules_limit_invalid()}</p>{/if}
 
 <style>
+  .pause-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
   .mismatch-actions {
     display: flex;
     flex-direction: column;

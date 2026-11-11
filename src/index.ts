@@ -797,12 +797,16 @@ async function startBackground(): Promise<void> {
     (dir) =>
       console.warn(`[repo-config] startup refresh failed for ${dir}; using last fetched rules`),
   );
-  for (const repo of listRepos(config.repoRoot)) {
-    const dir = safeRepoDir(repo.path, config.repoRoot);
-    if (dir) await reconcileRepoConfig(appDeps, dir);
-  }
   // Each in its own caller scope, so a start's `labelGhCalls` covers only its own timers.
   for (const start of deferredStarts) withGhCaller(UNATTRIBUTED, start);
+  // Proposal discovery must not delay unrelated background subsystems.
+  void refreshRepoConfigsAtStartup(
+    listRepos(config.repoRoot)
+      .map((repo) => safeRepoDir(repo.path, config.repoRoot))
+      .filter((dir): dir is string => !!dir),
+    () => console.warn("[repo-config] proposal discovery failed; using last verified rules"),
+    (dir) => reconcileRepoConfig(appDeps, dir),
+  );
 }
 
 // drop abandoned staged uploads (New-Task or relaunch carry, never submitted) past the TTL — not

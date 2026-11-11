@@ -87,7 +87,7 @@ test("fresh service discovers proposal, validates combined draft, then adopts me
   expect(other.read(r.a)).toMatchObject({ draftMode: true, pendingRepoConfig: null });
 });
 
-test("failed fallback leaves mixed local patch intact and sanitized; lightweight/no-forge stay local", async () => {
+test("failed fallback leaves mixed local patch intact; a no-forge writer reports protected-file failure", async () => {
   const { r, store, svc, forge } = fixture();
   forge.openPr = async () => {
     throw new Error("secret-token");
@@ -103,10 +103,10 @@ test("failed fallback leaves mixed local patch intact and sanitized; lightweight
   expect(store.isAutomationConfirmed(r.b)).toBe(false);
   const local = new RepoConfigService(store);
   expect(await local.patch(r.a, { planGateEnabled: true })).toMatchObject({
-    ok: true,
-    rulesCommitted: false,
+    ok: false,
+    code: "repo_config_write_failed",
   });
-  expect(store.getLocalRepoConfig(r.a).planGateEnabled).toBe(true);
+  expect(store.getLocalRepoConfig(r.a).planGateEnabled).toBe(false);
   expect(await svc.patch(r.b, { repoMode: "lightweight", planGateEnabled: true })).toMatchObject({
     ok: true,
     rulesCommitted: false,
@@ -168,4 +168,13 @@ test("pending read replays intent without marking unrelated effective changes as
   await svc.refreshPending(r.b, true);
   expect(svc.read(r.b).autoLabel).toBe("new-label");
   expect(svc.read(r.b).pendingRepoConfig?.changes).toEqual({ criticAllPrs: true });
+});
+
+test("proposal refresh contains a throwing forge resolver", async () => {
+  const { r, store } = fixture();
+  const svc = new RepoConfigService(store, undefined, undefined, () => {
+    throw new Error("resolver unavailable");
+  });
+  expect(await svc.refreshPending(r.b)).toBe(false);
+  expect(svc.read(r.b).criticEnabled).toBe(true);
 });

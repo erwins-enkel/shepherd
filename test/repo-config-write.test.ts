@@ -268,3 +268,46 @@ test("leitrechner cannot silently become a local-only setting", async () => {
     false,
   );
 });
+
+for (const kind of ["missing", "stored lightweight mode"] as const)
+  test(`an existing rule file stays writable when forge resolution sees ${kind}`, async () => {
+    const { r, store } = fixture();
+    r.commit('{"criticAllPrs":false}');
+    git(r.b, "fetch", "origin");
+    invalidateRepoConfigFile(r.b);
+    const { makeForgeResolver } = await import("../src/forge/resolve");
+    const resolver = makeForgeResolver({
+      getRepoConfig: (dir) => store.getLocalRepoConfig(dir),
+      detectForge: () => (kind === "missing" ? null : configForge().forge),
+      makeLocalForge: () => ({ kind: "local" }) as never,
+    });
+    if (kind !== "missing")
+      store.setRepoConfig(r.b, { ...store.getLocalRepoConfig(r.b), repoMode: "lightweight" });
+    const svc = new RepoConfigService(store, undefined, undefined, resolver);
+    const before = tip(r);
+    const result = await svc.patch(r.b, {
+      criticAllPrs: true,
+      ...(kind === "missing" ? {} : { repoMode: "forge" as const }),
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      rulesCommitted: true,
+      config: { criticAllPrs: true, repoMode: "forge" },
+    });
+    expect(JSON.parse(git(r.origin, "show", "main:.shepherd/config.json")).criticAllPrs).toBe(true);
+    expect(store.getLocalRepoConfig(r.b).criticAllPrs).toBe(false);
+    expect(git(r.origin, "rev-list", "--count", `${before}..main`)).toBe("1");
+  });
+
+test("a no-forge repository without a committed file keeps local rule edits", async () => {
+  const { r, store } = fixture();
+  const svc = new RepoConfigService(store);
+  const before = tip(r);
+  expect(await svc.patch(r.b, { criticAllPrs: true })).toMatchObject({
+    ok: true,
+    rulesCommitted: false,
+    config: { criticAllPrs: true },
+  });
+  expect(tip(r)).toBe(before);
+  expect(store.getLocalRepoConfig(r.b).criticAllPrs).toBe(true);
+});

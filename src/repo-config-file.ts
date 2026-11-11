@@ -341,17 +341,18 @@ export async function fetchRepoConfigDefault(dir: string): Promise<RepoConfigFil
   return readRepoConfigFile(dir);
 }
 
-/** Startup barrier shared with tests: each repo settles before background jobs begin. */
+/** Refresh at most four repositories at once, isolating each failure from the others. */
 export async function refreshRepoConfigsAtStartup(
   dirs: readonly string[],
   failed: (dir: string) => void,
+  refresh: (dir: string) => Promise<unknown> = refreshRepoConfigFile,
 ): Promise<void> {
   let next = 0;
   const worker = async () => {
     while (next < dirs.length) {
       const dir = dirs[next++]!;
       try {
-        await refreshRepoConfigFile(dir);
+        await refresh(dir);
       } catch {
         failed(dir);
       }

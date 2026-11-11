@@ -9,6 +9,7 @@ import {
   repoRuleValidationError,
   withRepoConfigLock,
   fetchRepoConfigDefault,
+  writeRepoConfigFile,
   readRepoConfigFile,
   isLeitrechner,
   type RepoConfigFile,
@@ -100,22 +101,13 @@ export class RepoConfigService {
       const key = this.proposalKey(dir);
       const cached = this.proposals.get(key);
       if (!force && cached && Date.now() - cached.checkedAt < 60_000) return false;
-      try {
-        const before = readRepoConfigFile(dir)?.commit;
-        const { pending, merged } = await this.reconcileProposal(
-          dir,
-          forge,
-          cached?.pending ?? null,
-        );
-        this.proposals.set(key, { dir, pending, checkedAt: Date.now() });
-        return (
-          before !== readRepoConfigFile(dir)?.commit || (merged && (!cached || !!cached.pending))
-        );
-      } catch {
-        // Keep verified state and retry on the next tick; never expose forge/Git credentials.
-        return false;
-      }
-    });
+      const before = readRepoConfigFile(dir)?.commit;
+      const { pending, merged } = await this.reconcileProposal(dir, forge, cached?.pending ?? null);
+      this.proposals.set(key, { dir, pending, checkedAt: Date.now() });
+      return (
+        before !== readRepoConfigFile(dir)?.commit || (merged && (!cached || !!cached.pending))
+      );
+    }).catch(() => false);
   }
 
   private ruleForge(dir: string, mode: RepoConfig["repoMode"]): GitForge | null {
@@ -153,25 +145,31 @@ export class RepoConfigService {
 
   private async saveRules(
     dir: string,
-    forge: GitForge,
+    forge: GitForge | null,
     patch: RepoConfigPatch,
     opts: PatchOptions,
   ) {
+    const update = (file: RepoConfigFile | null) => {
+      const { config } = this.validatedPatch(
+        this.store.getLocalRepoConfig(dir),
+        file,
+        patch,
+        opts.defaultAgentProvider,
+      );
+      return {
+        ...repoRulesFromConfig(config),
+        ...(opts.leitrechner === undefined ? {} : { leitrechner: opts.leitrechner }),
+      };
+    };
+    if (!forge) {
+      await writeRepoConfigFile(dir, update);
+      this.proposals.delete(this.proposalKey(dir));
+      return true;
+    }
     const saved = await saveRepoConfigRules(
       dir,
       forge,
-      (file) => {
-        const { config } = this.validatedPatch(
-          this.store.getLocalRepoConfig(dir),
-          file,
-          patch,
-          opts.defaultAgentProvider,
-        );
-        return {
-          ...repoRulesFromConfig(config),
-          ...(opts.leitrechner === undefined ? {} : { leitrechner: opts.leitrechner }),
-        };
-      },
+      update,
       repoRulesFromConfig(this.store.getLocalRepoConfig(dir)),
     );
     this.proposals.set(this.proposalKey(dir), {
@@ -237,7 +235,9 @@ export class RepoConfigService {
       const local = this.store.getLocalRepoConfig(dir);
       // A mode switch to lightweight must be local even if this repo has an origin/file.
       const forge = this.ruleForge(dir, patch.repoMode ?? local.repoMode);
-      const fileEnabled = !!forge;
+      const fileEnabled =
+        (patch.repoMode ?? local.repoMode) !== "lightweight" &&
+        (!!forge || readRepoConfigFile(dir) !== null);
       const hasRulePatch = Object.entries(patch).some(
         ([key, value]) => value !== undefined && isRepoRuleKey(key),
       );
@@ -249,7 +249,7 @@ export class RepoConfigService {
       const previousCommit = writeRules ? readRepoConfigFile(dir)?.commit : undefined;
       try {
         if (writeRules) {
-          rulesCommitted = await this.saveRules(dir, forge!, patch, {
+          rulesCommitted = await this.saveRules(dir, forge, patch, {
             ...opts,
             leitrechner: leader,
           });

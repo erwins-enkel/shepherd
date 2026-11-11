@@ -64,7 +64,9 @@
   provideOpenDetail();
   providePendingConfig(() => repoConfig.pendingRules[repoPath] ?? null);
   onMount(() => {
-    void repoConfig.reload(repoPath);
+    void (repoConfig.isConfigLoaded(repoPath)
+      ? repoConfig.reload(repoPath)
+      : repoConfig.ensure(repoPath));
   });
   $effect(() => {
     if (!repoConfig.pendingRules[repoPath]) return;

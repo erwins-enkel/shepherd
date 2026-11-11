@@ -102,7 +102,7 @@ struct GeneratedContractTests {
     #expect(cleared.usagePause == nil)
   }
 
-  @Test("scheduled budget stops preserve their token accounting")
+  @Test("scheduled budget stops preserve their token accounting", .timeLimit(.minutes(1)))
   func budgetStopDecodes() throws {
     let pause: [String: Any] = [
       "reason": "budget", "phase": "paused", "since": 100, "resumeAt": NSNull(),
@@ -119,7 +119,7 @@ struct GeneratedContractTests {
     ]
     let data = try JSONSerialization.data(withJSONObject: runJSON)
     let run = try JSONDecoder().decode(Components.Schemas.ScheduleRun.self, from: data)
-    #expect(run.outcome.rawValue == "stopped:budget")
+    #expect(run.outcome.value1?.rawValue == "stopped:budget")
     #expect(run.tokensUsed == 2_100_000)
   }
 

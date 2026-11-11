@@ -68,6 +68,15 @@ import {
 } from "./dispatch";
 import { RepoConfigService } from "./repo-config-service";
 import {
+  isLeitrechner,
+  isRepoRuleKey,
+  repoConfigGitContext,
+  refreshRepoConfigFile,
+  repoRulesFromConfig,
+} from "./repo-config-file";
+import { RepoConfigCoordinator, isRulePatch } from "./remote-instances/repo-config";
+import { UUID_RE } from "./remote-instances/client";
+import {
   BOOTSTRAP_LAST_PHASE,
   bootstrapExitReached,
   bootstrapMissing,
@@ -3505,6 +3514,7 @@ type RepoCfgBody = {
   previewStartCommand?: unknown;
   previewOpenMode?: unknown;
   automationConfirmed?: unknown;
+  leitrechner?: unknown;
 };
 
 // true when any present boolean field is not actually a boolean
@@ -3681,12 +3691,13 @@ async function parseRepoConfigPatch(req: Request): Promise<
   const present =
     REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
     Object.values(scalars).some((v) => v !== undefined) ||
-    body.automationConfirmed !== undefined;
+    body.automationConfirmed !== undefined ||
+    body.leitrechner !== undefined;
   if (!present) {
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed, leitrechner",
       },
       400,
     );
@@ -3745,13 +3756,29 @@ async function parseGatedRepoConfigPatch(
 /** Merge a validated patch onto the current repo config, returning the new full config.
  *  Patch fields are only ever undefined (absent) or a valid value, so every defined
  *  field overrides and absent fields keep the current value. */
-async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+async function handleRepoConfig(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, url, deps } = ctx;
   if (!(parts[0] === "api" && parts[1] === "repo-config" && !parts[2])) return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   if (req.method === "GET") return json(withNoPrCi(deps, dir, repoConfigSvc(deps).read(dir)));
   if (req.method !== "PUT") return null;
+  return putLocalRepoConfig(ctx, dir);
+}
 
+async function parseRepoLeader(req: Request): Promise<{ leitrechner?: string | null } | Response> {
+  const raw: unknown = await req
+    .clone()
+    .json()
+    .catch(() => null);
+  if (!isRecord(raw) || raw.leitrechner === undefined) return {};
+  if (!isLeitrechner(raw.leitrechner)) return json({ error: "invalid leitrechner" }, 400);
+  return { leitrechner: raw.leitrechner };
+}
+
+async function putLocalRepoConfig({ req, url, deps }: Ctx, dir: string): Promise<Response> {
+  const leader = await parseRepoLeader(req);
+  if (leader instanceof Response) return leader;
   const patch = await parseGatedRepoConfigPatch(req, deps);
   if (patch instanceof Response) return patch;
   // Load-bearing destructure: the automationConfirmed metadata is applied separately
@@ -3766,6 +3793,7 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   }
   const r = await repoConfigSvc(deps).patch(dir, cfgPatch, {
     automationConfirmed,
+    ...leader,
     defaultAgentProvider: config.defaultAgentProvider,
   });
   if (!r.ok) return json({ error: r.error, code: r.code }, r.code ? 502 : 400);
@@ -3774,9 +3802,259 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   // attached agent socket. Later attaches are refused by the broker's opt-in check.
   if (before.sharedBrowserEnabled && !r.config.sharedBrowserEnabled) deps.sharedBrowser?.stop(dir);
   kickEgressReapply(deps, dir, before.egressExtraHosts, r.config.egressExtraHosts);
-  const view = withNoPrCi(deps, dir, r.config);
-  if (before.claudeAiConnectorsEnabled === r.config.claudeAiConnectorsEnabled) return json(view);
-  return json({ ...view, connectorRestart: kickConnectorRestart(deps, dir) });
+  const connectorRestart =
+    before.claudeAiConnectorsEnabled === r.config.claudeAiConnectorsEnabled
+      ? undefined
+      : kickConnectorRestart(deps, dir);
+  const slug = repoRemoteSlug(deps.resolveForge?.(dir));
+  const notifications =
+    r.rulesCommitted && slug && url.searchParams.get("host") !== "local"
+      ? await repoConfigCoordinator(deps).notify(slug)
+      : undefined;
+  const view = { ...withNoPrCi(deps, dir, r.config), ...(notifications ? { notifications } : {}) };
+  return json({ ...view, ...(connectorRestart ? { connectorRestart } : {}) });
+}
+
+function repoConfigMachineView(deps: AppDeps, dir: string) {
+  const rc = repoConfigSvc(deps).read(dir);
+  const provider = spawnProvider(rc);
+  return {
+    ...withNoPrCi(deps, dir, rc),
+    resolvedRunDefaults: {
+      agentProvider: provider,
+      model: resolveProviderDefaultModelSetting(
+        rc.defaultModel,
+        provider,
+        config.defaultModel,
+        config.defaultCodexModel,
+      ),
+      effort: resolveProviderDefaultEffortSetting(rc.defaultEffort, provider, config),
+    },
+  };
+}
+
+function repoConfigCoordinator(deps: AppDeps): RepoConfigCoordinator {
+  return new RepoConfigCoordinator({
+    self: instanceIdentity(deps.store, hostPlatform(deps)),
+    peers: (slug) =>
+      remoteInstances(deps)
+        .list()
+        .sort((a, b) => a.instanceId.localeCompare(b.instanceId))
+        .map((machine) => {
+          const row = deps.store.getRemoteInstance(machine.instanceId);
+          return {
+            instanceId: machine.instanceId,
+            name: machine.name,
+            membership:
+              machine.projects === null
+                ? "unknown"
+                : machine.projects.includes(slug)
+                  ? "present"
+                  : "absent",
+            target:
+              row && machine.status === "connected" ? { url: row.url, token: row.token } : null,
+          };
+        }),
+    refreshLocal: (slug) => refreshLocalRepoConfig(deps, slug),
+    local: (slug) => {
+      const path = localRepoForProject(deps, slug);
+      const dir = path && safeRepoDir(path, config.repoRoot);
+      return dir ? repoConfigMachineView(deps, dir) : null;
+    },
+  });
+}
+
+async function refreshLocalRepoConfig(deps: AppDeps, slug: string): Promise<void> {
+  const paths = listRepos(config.repoRoot)
+    .filter((repo) => repoRemoteSlug(deps.resolveForge?.(repo.path)) === slug)
+    .map((repo) => safeRepoDir(repo.path, config.repoRoot))
+    .filter(
+      (path): path is string =>
+        !!path && deps.store.getLocalRepoConfig(path).repoMode !== "lightweight",
+    );
+  // Populate contexts for every alias before refresh invalidates all aliases sharing Git storage.
+  const repos = new Map(paths.map((path) => [repoConfigGitContext(path)?.key ?? path, path]));
+  for (const path of repos.values()) await refreshRepoConfigFile(path);
+}
+
+type RepoConfigLeaf = "machine" | "project";
+
+/** Slug-addressed settings terminate locally when host=local; peers never fan out. */
+async function handleRepoConfigProject(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, url, token, agentIngress } = ctx;
+  if (parts[0] !== "api" || parts[1] !== "repo-config" || parts.length !== 3) return null;
+  const leaf = parts[2];
+  if (!["project", "machine", "refresh"].includes(leaf!)) return null;
+  if (agentIngress || (token && token.repoPaths !== null))
+    return json({ error: "insufficient_scope" }, 403);
+  const slug = url.searchParams.get("remoteSlug");
+  if (
+    !slug ||
+    slug.length > 512 ||
+    /\s/.test(slug) ||
+    [...slug].some((char) => char.charCodeAt(0) < 32)
+  )
+    return json({ error: "invalid remoteSlug" }, 400);
+  if (leaf === "refresh") return refreshRepoConfigRequest(ctx, slug);
+  if (leaf === "project" && req.method === "GET") return readRepoProject(ctx, slug);
+  return targetedRepoConfigRequest(ctx, slug, leaf as RepoConfigLeaf);
+}
+
+async function readRepoProject({ url, deps }: Ctx, slug: string): Promise<Response> {
+  if (url.searchParams.get("host") === "local")
+    return json({ error: "use the local machine endpoint" }, 400);
+  const result = await repoConfigCoordinator(deps).read(slug);
+  if (result.machines.every((machine) => machine.membership === "absent"))
+    return json({ error: "repository not found", code: "repo_not_found" }, 404);
+  return json(result);
+}
+
+async function refreshRepoConfigRequest(
+  { req, deps }: Ctx,
+  slug: string,
+): Promise<Response | null> {
+  if (req.method !== "POST") return null;
+  if (!localRepoForProject(deps, slug))
+    return json({ error: "repository not found", code: "repo_not_found" }, 404);
+  try {
+    await refreshLocalRepoConfig(deps, slug);
+    return json({ ok: true, remoteSlug: slug });
+  } catch {
+    return json({ error: "repository fetch failed", reason: "fetch_failed" }, 502);
+  }
+}
+
+function projectRepoPatchError(value: Record<string, unknown>): Response | null {
+  const rules = value.rules === undefined ? {} : value.rules;
+  if (
+    Object.keys(value).some((key) => !["rules", "leitrechner"].includes(key)) ||
+    !isRulePatch(rules)
+  )
+    return json({ error: "invalid rule patch" }, 400);
+  if (value.leitrechner !== undefined && !isLeitrechner(value.leitrechner))
+    return json({ error: "invalid leitrechner" }, 400);
+  if (!Object.keys(rules).length && value.leitrechner === undefined)
+    return json({ error: "empty rule patch" }, 400);
+  return null;
+}
+
+async function parseTargetedRepoPatch(
+  req: Request,
+  deps: AppDeps,
+  leaf: RepoConfigLeaf,
+): Promise<Record<string, unknown> | Response> {
+  const value: unknown = await req
+    .clone()
+    .json()
+    .catch(() => null);
+  if (!isRecord(value)) return json({ error: "body must be an object" }, 400);
+  if (leaf === "project") return projectRepoPatchError(value) ?? value;
+  const keys = deps.store.getLocalRepoConfig("");
+  if (
+    !Object.keys(value).length ||
+    Object.keys(value).some(
+      (key) => isRepoRuleKey(key) || (key !== "automationConfirmed" && !Object.hasOwn(keys, key)),
+    )
+  )
+    return json({ error: "machine patch must contain only machine fields" }, 400);
+  return value;
+}
+
+async function targetedRepoConfigRequest(
+  ctx: Ctx,
+  slug: string,
+  leaf: RepoConfigLeaf,
+): Promise<Response | null> {
+  const { req, url, deps } = ctx;
+  if (req.method !== "PUT" && (leaf !== "machine" || req.method !== "GET")) return null;
+  const instanceId = url.searchParams.get("instanceId");
+  if (!instanceId || !UUID_RE.test(instanceId))
+    return json({ error: "instanceId is required" }, 400);
+  const self = instanceIdentity(deps.store, hostPlatform(deps));
+  if (url.searchParams.get("host") === "local" && instanceId !== self.instanceId)
+    return json({ error: "local target mismatch" }, 400);
+  const body = req.method === "PUT" ? await parseTargetedRepoPatch(req, deps, leaf) : undefined;
+  if (body instanceof Response) return body;
+  if (instanceId === self.instanceId) return localTargetedRepoConfig(ctx, slug, leaf, body);
+  return forwardTargetedRepoConfig(ctx, slug, leaf, instanceId, body);
+}
+
+async function forwardTargetedRepoConfig(
+  { req, deps }: Ctx,
+  slug: string,
+  leaf: RepoConfigLeaf,
+  instanceId: string,
+  body?: Record<string, unknown>,
+): Promise<Response> {
+  const machine = remoteInstances(deps).get(instanceId);
+  const row = deps.store.getRemoteInstance(instanceId);
+  if (!machine || !row) return json({ error: "machine not found" }, 404);
+  const coordinator = repoConfigCoordinator(deps);
+  const response = await coordinator.forward(
+    {
+      instanceId,
+      name: machine.name,
+      membership: "unknown",
+      target: machine.status === "connected" ? { url: row.url, token: row.token } : null,
+    },
+    req.method,
+    leaf,
+    slug,
+    body ? JSON.stringify(body) : undefined,
+  );
+  if (leaf !== "project" || !response.ok) return response;
+  const written = (await response.json()) as Record<string, unknown>;
+  return json({ ...written, notifications: await coordinator.notify(slug, instanceId) });
+}
+
+async function localTargetedRepoConfig(
+  ctx: Ctx,
+  slug: string,
+  leaf: RepoConfigLeaf,
+  body?: Record<string, unknown>,
+): Promise<Response | null> {
+  const { req, url, deps } = ctx;
+  const rawPath = localRepoForProject(deps, slug);
+  const dir = rawPath && safeRepoDir(rawPath, config.repoRoot);
+  if (!dir) return json({ error: "repository not found", code: "repo_not_found" }, 404);
+  if (
+    leaf === "project" &&
+    (deps.store.getLocalRepoConfig(dir).repoMode === "lightweight" || !repoConfigGitContext(dir))
+  )
+    return json({ error: "shared rules require a forge repository" }, 400);
+  const localUrl = new URL(req.url);
+  localUrl.pathname = "/api/repo-config";
+  localUrl.search = new URLSearchParams({ repo: dir, host: "local" }).toString();
+  const patch =
+    leaf === "project"
+      ? {
+          ...(body?.rules as object),
+          ...(body?.leitrechner === undefined ? {} : { leitrechner: body.leitrechner }),
+        }
+      : body;
+  const localReq = new Request(localUrl, {
+    method: req.method,
+    headers: req.headers,
+    ...(patch ? { body: JSON.stringify(patch) } : {}),
+  });
+  const response = await handleRepoConfig({
+    ...ctx,
+    req: localReq,
+    url: localUrl,
+    parts: ["api", "repo-config"],
+  });
+  if (!response || !response.ok) return response;
+  const view = (await response.json()) as Record<string, unknown>;
+  if (leaf === "machine") return json({ ...view, ...repoConfigMachineView(deps, dir) });
+  return json({
+    rules: repoRulesFromConfig(repoConfigSvc(deps).read(dir)),
+    repoConfigCommit: view.repoConfigCommit,
+    leitrechner: view.leitrechner,
+    notifications:
+      url.searchParams.get("host") === "local"
+        ? []
+        : await repoConfigCoordinator(deps).notify(slug),
+  });
 }
 
 /** A changed Extra allowed hosts list reaches the repo's running Autonomous sessions live
@@ -15000,6 +15278,7 @@ const ROUTE_HANDLERS = [
   handleEpicAutoFix,
   handleEpicQueue,
   handleEpicQueueReorder,
+  handleRepoConfigProject,
   handleRepoConfig,
   handleAgentExtensions,
   handleRepoRunDefaults,

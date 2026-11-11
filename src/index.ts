@@ -79,6 +79,8 @@ import { loadSteers } from "./steers";
 import { loadIcons } from "./project-icons";
 import { attachMirrorPush } from "./remote-instances/push-relay";
 import { RemoteDispatcher, waitingAttachments } from "./remote-instances/dispatch";
+import { safeRepoDir } from "./validate";
+import { refreshRepoConfigsAtStartup } from "./repo-config-file";
 import { instanceIdentity, instancePlatform } from "./remote-instances/identity";
 import { hostLoadReport, readHostLoad } from "./remote-instances/load";
 import { drainMachinePort } from "./drain-machines";
@@ -779,7 +781,17 @@ let credentialBanner: string | null = null;
 // exists by the time startBackground() runs. On an already-onboarded boot startBackground() runs at
 // the end of boot; on a first-run boot it's registered via firstRun.onResolve and fires on root-pick.
 const deferredStarts: Array<() => void> = [];
-function startBackground(): void {
+async function startBackground(): Promise<void> {
+  await refreshRepoConfigsAtStartup(
+    listRepos(config.repoRoot)
+      .map((repo) => safeRepoDir(repo.path, config.repoRoot))
+      .filter(
+        (path): path is string =>
+          !!path && store.getLocalRepoConfig(path).repoMode !== "lightweight",
+      ),
+    (dir) =>
+      console.warn(`[repo-config] startup refresh failed for ${dir}; using last fetched rules`),
+  );
   // Each in its own caller scope, so a start's `labelGhCalls` covers only its own timers.
   for (const start of deferredStarts) withGhCaller(UNATTRIBUTED, start);
 }
@@ -4821,8 +4833,11 @@ console.log(`shepherd agent-ingress on http://127.0.0.1:${agentIngress.port}`);
 deferredStarts.push(() => {
   telemetry.event("app_launched");
 });
-if (firstRun.pending) firstRun.onResolve(startBackground);
-else startBackground();
+if (firstRun.pending)
+  firstRun.onResolve(() => {
+    void startBackground();
+  });
+else void startBackground();
 
 // Best-effort teardown of preview listeners and tailscale mappings on process exit / SIGTERM.
 process.on("exit", () => {

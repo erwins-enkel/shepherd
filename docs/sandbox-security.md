@@ -16,6 +16,13 @@ closed **#551** — `src/egress.ts`) confines outbound traffic to
 `api.anthropic.com` + `statsig.anthropic.com` + the GitHub hosts, and watches
 for DNS drops. Egress is keyed to the **autonomous profile**, not to
 attendedness (`src/sandbox.ts` `egressApplies`).
+When a host is blocked, the agent is told (#3921, `src/egress-watch.ts`
+`egressBlockedNote`): Claude sessions get the note as `additionalContext` on
+their next PostToolUse/PostToolUseFailure hook reply; sessions whose hooks
+can't reach the ingress get an automatic steer instead. The note goes out once
+per host, within `EGRESS_DROP_CAP` (20 distinct hosts per session), and tells
+the agent not to retry but to ask the operator to allow the host. The agent's
+`self_status` reports these hosts as `egressBlocked`.
 Without the backend every unattended autonomous spawn is refused. The DIAGNOSE
 row `sandbox_egress` (#3459) reports it, naming the missing tools and the
 affected autonomous repos. Each DIAGNOSE check re-runs the self-test async

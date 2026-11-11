@@ -83,7 +83,7 @@ export class RepoConfigCoordinator {
   async forward(
     peer: RepoPeer,
     method: string,
-    leaf: "machine" | "project" | "refresh",
+    leaf: "machine" | "project" | "refresh" | "roles",
     slug: string,
     body?: string,
   ): Promise<Response> {

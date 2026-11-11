@@ -1372,7 +1372,12 @@ function firstRunBlock(): Response | null {
  * singletons, so in production these return that shared instance.
  */
 function repoConfigSvc(deps: AppDeps): RepoConfigService {
-  return (deps.repoConfig ??= new RepoConfigService(deps.store, undefined, repoLeitrechner(deps)));
+  return (deps.repoConfig ??= new RepoConfigService(
+    deps.store,
+    undefined,
+    repoLeitrechner(deps),
+    (dir) => deps.resolveForge?.(dir) ?? null,
+  ));
 }
 function repoLeitrechner(deps: AppDeps): RepoLeitrechnerService {
   if (deps.repoLeitrechner) return deps.repoLeitrechner;
@@ -3745,7 +3750,10 @@ async function handleRepoConfig(ctx: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "repo-config" && !parts[2])) return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
-  if (req.method === "GET") return json(withNoPrCi(deps, dir, repoConfigSvc(deps).read(dir)));
+  if (req.method === "GET") {
+    await reconcileRepoConfig(deps, dir);
+    return json(withNoPrCi(deps, dir, repoConfigSvc(deps).read(dir)));
+  }
   if (req.method !== "PUT") return null;
   return putLocalRepoConfig(ctx, dir);
 }
@@ -3791,7 +3799,9 @@ async function putLocalRepoConfig({ req, url, deps }: Ctx, dir: string): Promise
       : kickConnectorRestart(deps, dir);
   const slug = repoRemoteSlug(deps.resolveForge?.(dir));
   const notifications =
-    r.rulesCommitted && slug && url.searchParams.get("host") !== "local"
+    (r.rulesCommitted || r.effectiveRulesChanged) &&
+    slug &&
+    url.searchParams.get("host") !== "local"
       ? await repoConfigCoordinator(deps).notify(slug)
       : undefined;
   const view = { ...withNoPrCi(deps, dir, r.config), ...(notifications ? { notifications } : {}) };
@@ -3839,12 +3849,26 @@ function repoConfigCoordinator(deps: AppDeps): RepoConfigCoordinator {
           };
         }),
     refreshLocal: (slug) => refreshLocalRepoConfig(deps, slug),
-    local: (slug) => {
+    local: async (slug) => {
       const path = localRepoForProject(deps, slug);
       const dir = path && safeRepoDir(path, config.repoRoot);
+      if (dir) await reconcileRepoConfig(deps, dir);
       return dir ? repoConfigMachineView(deps, dir) : null;
     },
   });
+}
+
+/** Shared by HTTP reads and the bounded pending-proposal poller. */
+export async function reconcileRepoConfig(
+  deps: AppDeps,
+  dir: string,
+  force = false,
+): Promise<void> {
+  if (await repoConfigSvc(deps).refreshPending(dir, force)) {
+    repoLeitrechner(deps).invalidate(dir);
+    const slug = repoRemoteSlug(deps.resolveForge?.(dir));
+    if (slug) await repoConfigCoordinator(deps).notify(slug);
+  }
 }
 
 async function refreshLocalRepoConfig(deps: AppDeps, slug: string): Promise<void> {
@@ -3990,7 +4014,10 @@ async function forwardTargetedRepoConfig(
   );
   if (leaf !== "project" || !response.ok) return response;
   const written = (await response.json()) as Record<string, unknown>;
-  return json({ ...written, notifications: await coordinator.notify(slug, instanceId) });
+  return json({
+    ...written,
+    notifications: written.pendingRepoConfig ? [] : await coordinator.notify(slug, instanceId),
+  });
 }
 
 async function localTargetedRepoConfig(
@@ -4035,9 +4062,10 @@ async function localTargetedRepoConfig(
   return json({
     rules: repoRulesFromConfig(repoConfigSvc(deps).read(dir)),
     repoConfigCommit: view.repoConfigCommit,
+    pendingRepoConfig: view.pendingRepoConfig,
     leitrechner: view.leitrechner,
     notifications:
-      url.searchParams.get("host") === "local"
+      url.searchParams.get("host") === "local" || view.pendingRepoConfig
         ? []
         : await repoConfigCoordinator(deps).notify(slug),
   });

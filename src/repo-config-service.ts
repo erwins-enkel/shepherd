@@ -4,14 +4,25 @@ import {
   effectiveRepoConfig,
   isRepoRuleKey,
   repoConfigGitContext,
+  repoConfigGit,
   repoRulesFromConfig,
   repoRuleValidationError,
   withRepoConfigLock,
+  fetchRepoConfigDefault,
   writeRepoConfigFile,
   readRepoConfigFile,
   isLeitrechner,
   type RepoConfigFile,
 } from "./repo-config-file";
+import type { GitForge } from "./forge/types";
+import {
+  saveRepoConfigRules,
+  readRepoConfigProposal,
+  pendingRepoConfig,
+  rebaseRepoConfigProposal,
+  REPO_CONFIG_PR_BRANCH,
+  type PendingRepoConfig,
+} from "./repo-config-pr";
 import { clampRunDefaultsToCli } from "./agent-provider";
 import type { AgentProvider } from "./types";
 import type { SandboxProfile } from "./sandbox";
@@ -29,6 +40,7 @@ export type RepoConfigView = RepoConfig & {
   repoConfigCommit: string | null;
   leitrechner: string | null;
   leitrechnerStatus: RepoLeitrechnerStatus;
+  pendingRepoConfig?: PendingRepoConfig | null;
 };
 
 /** A partial repo-config edit. Every field is a RepoConfig field (the route's
@@ -36,8 +48,26 @@ export type RepoConfigView = RepoConfig & {
 export type RepoConfigPatch = Partial<RepoConfig>;
 
 export type RepoConfigPatchResult =
-  | { ok: true; config: RepoConfigView; previousLocal: RepoConfig; rulesCommitted: boolean }
+  | {
+      ok: true;
+      config: RepoConfigView;
+      previousLocal: RepoConfig;
+      rulesCommitted: boolean;
+      effectiveRulesChanged: boolean;
+    }
   | { ok: false; error: string; code?: "repo_config_write_failed" };
+
+type PatchOptions = {
+  automationConfirmed?: boolean;
+  leitrechner?: string | null;
+  defaultAgentProvider?: AgentProvider;
+};
+type ProposalCache = {
+  dir: string;
+  pending: PendingRepoConfig | null;
+  checkedAt: number;
+  failed?: true;
+};
 
 /** Narrow store interface this service needs — the seam, kept small. */
 type RepoConfigStore = Pick<
@@ -59,10 +89,130 @@ type RepoConfigStore = Pick<
  * never a Response or status code — so it's testable without booting makeApp.
  */
 export class RepoConfigService {
+  private proposals = new Map<string, ProposalCache>();
+  private proposalKey(dir: string) {
+    return repoConfigGitContext(dir)?.key ?? dir;
+  }
+
+  pendingDirectories(): string[] {
+    return [...this.proposals.values()].filter((entry) => entry.pending).map((entry) => entry.dir);
+  }
+
+  private hasFreshProposal(key: string): boolean {
+    const cached = this.proposals.get(key);
+    return !!cached && Date.now() - cached.checkedAt < 60_000;
+  }
+
+  /** Cached reads never wait for Git writes; stale checks serialize with those writes. */
+  async refreshPending(dir: string, force = false): Promise<boolean> {
+    const key = this.proposalKey(dir);
+    if (!force && this.hasFreshProposal(key)) return false;
+    return withRepoConfigLock(dir, async () => {
+      // Another queued read may have checked this repo while we waited for the lock.
+      if (!force && this.hasFreshProposal(key)) return false;
+      const cached = this.proposals.get(key);
+      try {
+        const forge = this.ruleForge(dir, this.store.getLocalRepoConfig(dir).repoMode);
+        if (!forge || forge.isFork) return false;
+        const before = readRepoConfigFile(dir)?.commit;
+        const { pending, merged } = await this.reconcileProposal(
+          dir,
+          forge,
+          cached?.pending ?? null,
+        );
+        this.proposals.set(key, { dir, pending, checkedAt: Date.now() });
+        return (
+          before !== readRepoConfigFile(dir)?.commit ||
+          (merged && (!cached || cached.failed || !!cached.pending))
+        );
+      } catch {
+        // Failed checks consume the same freshness window without discarding verified state.
+        this.proposals.set(key, {
+          dir,
+          pending: cached?.pending ?? null,
+          checkedAt: Date.now(),
+          failed: true,
+        });
+        return false;
+      }
+    });
+  }
+
+  private ruleForge(dir: string, mode: RepoConfig["repoMode"]): GitForge | null {
+    if (mode === "lightweight" || !repoConfigGitContext(dir)) return null;
+    const forge = this.resolveForge(dir);
+    return forge?.kind === "local" ? null : forge;
+  }
+
+  private async reconcileProposal(
+    dir: string,
+    forge: GitForge,
+    previous: PendingRepoConfig | null,
+  ) {
+    const proposal = await readRepoConfigProposal(dir, forge);
+    const pr = proposal?.pr ?? (previous ? await forge.prStatus(REPO_CONFIG_PR_BRANCH) : null);
+    if (pr?.state === "merged") {
+      await fetchRepoConfigDefault(dir);
+      return { pending: null, merged: true };
+    }
+    if (pr?.state === "closed") return { pending: null, merged: false };
+    if (pr?.state !== "open" || !proposal) return { pending: previous, merged: false };
+    const file = await fetchRepoConfigDefault(dir);
+    const base = await repoConfigGit(dir, [
+      "rev-parse",
+      `refs/remotes/origin/${repoConfigGitContext(dir)!.branch}`,
+    ]);
+    const pending = pendingRepoConfig(
+      pr,
+      file,
+      await rebaseRepoConfigProposal(dir, base, file, proposal),
+      repoRulesFromConfig(this.store.getLocalRepoConfig(dir)),
+    );
+    return { pending, merged: false };
+  }
+
+  private async saveRules(
+    dir: string,
+    forge: GitForge | null,
+    patch: RepoConfigPatch,
+    opts: PatchOptions,
+  ) {
+    const update = (file: RepoConfigFile | null) => {
+      const { config } = this.validatedPatch(
+        this.store.getLocalRepoConfig(dir),
+        file,
+        patch,
+        opts.defaultAgentProvider,
+      );
+      return {
+        ...repoRulesFromConfig(config),
+        ...(opts.leitrechner === undefined ? {} : { leitrechner: opts.leitrechner }),
+      };
+    };
+    if (!forge) {
+      await writeRepoConfigFile(dir, update);
+      this.proposals.delete(this.proposalKey(dir));
+      return true;
+    }
+    const saved = await saveRepoConfigRules(
+      dir,
+      forge,
+      update,
+      repoRulesFromConfig(this.store.getLocalRepoConfig(dir)),
+    );
+    this.proposals.set(this.proposalKey(dir), {
+      dir,
+      pending: saved.kind === "pr" ? saved.pending : null,
+      checkedAt: Date.now(),
+    });
+    return saved.kind === "pushed";
+  }
+
   constructor(
     private store: RepoConfigStore,
     private defaultProfile: () => SandboxProfile = defaultSandboxProfile,
     private leitrechner?: Pick<RepoLeitrechnerService, "status" | "invalidate">,
+    private resolveForge: (dir: string) => GitForge | null = () => null,
   ) {}
 
   /** The stored config plus its automation-metadata flags (the route response shape). */
@@ -86,6 +236,10 @@ export class RepoConfigService {
       fieldSources,
       repoConfigCommit: file?.commit ?? null,
       leitrechner: file?.leitrechner ?? null,
+      pendingRepoConfig:
+        local.repoMode === "lightweight"
+          ? null
+          : (this.proposals.get(this.proposalKey(dir))?.pending ?? null),
       automationConfirmed: this.store.isAutomationConfirmed(dir),
       automationRowExists: this.store.automationRowExists(dir),
       sandboxDefaultProfile: this.defaultProfile(),
@@ -102,18 +256,16 @@ export class RepoConfigService {
   async patch(
     dir: string,
     patch: RepoConfigPatch,
-    opts: {
-      automationConfirmed?: boolean;
-      leitrechner?: string | null;
-      defaultAgentProvider?: AgentProvider;
-    } = {},
+    opts: PatchOptions = {},
   ): Promise<RepoConfigPatchResult> {
     const leader = opts.leitrechner === undefined ? patch.leitrechner : opts.leitrechner;
     return withRepoConfigLock(dir, async () => {
       const local = this.store.getLocalRepoConfig(dir);
       // A mode switch to lightweight must be local even if this repo has an origin/file.
+      const forge = this.ruleForge(dir, patch.repoMode ?? local.repoMode);
       const fileEnabled =
-        (patch.repoMode ?? local.repoMode) !== "lightweight" && !!repoConfigGitContext(dir);
+        (patch.repoMode ?? local.repoMode) !== "lightweight" &&
+        (!!forge || readRepoConfigFile(dir) !== null);
       const hasRulePatch = Object.entries(patch).some(
         ([key, value]) => value !== undefined && isRepoRuleKey(key),
       );
@@ -121,19 +273,13 @@ export class RepoConfigService {
       if (leaderError) return { ok: false, error: leaderError };
       const writeRules = fileEnabled && (hasRulePatch || leader !== undefined);
       let localRunDefaults: RepoConfigPatch = {};
+      let rulesCommitted = false;
+      const previousCommit = writeRules ? readRepoConfigFile(dir)?.commit : undefined;
       try {
         if (writeRules) {
-          await writeRepoConfigFile(dir, (file) => {
-            const { config } = this.validatedPatch(
-              this.store.getLocalRepoConfig(dir),
-              file,
-              patch,
-              opts.defaultAgentProvider,
-            );
-            return {
-              ...repoRulesFromConfig(config),
-              ...(leader === undefined ? {} : { leitrechner: leader }),
-            };
+          rulesCommitted = await this.saveRules(dir, forge, patch, {
+            ...opts,
+            leitrechner: leader,
           });
         } else {
           const file = fileEnabled ? readRepoConfigFile(dir) : null;
@@ -145,14 +291,7 @@ export class RepoConfigService {
           ).localRunDefaults;
         }
       } catch (err) {
-        if (err instanceof ConfigValidationError) return { ok: false, error: err.message };
-        if (!writeRules) throw err;
-        return {
-          ok: false,
-          code: "repo_config_write_failed",
-          error:
-            "Could not save repository rules to the default branch. Check origin access and branch protection, then retry.",
-        };
+        return this.patchError(err, writeRules);
       }
       // Re-read after network awaits. Never copy effective repo rules into their DB fallback.
       const localPatch = Object.fromEntries(
@@ -169,8 +308,28 @@ export class RepoConfigService {
       );
       if (opts.automationConfirmed === true) this.store.markAutomationConfirmed(dir);
       this.leitrechner?.invalidate(dir);
-      return { ok: true, config: this.read(dir), previousLocal: local, rulesCommitted: writeRules };
+      return {
+        ok: true,
+        config: this.read(dir),
+        previousLocal: local,
+        rulesCommitted,
+        effectiveRulesChanged: writeRules && previousCommit !== readRepoConfigFile(dir)?.commit,
+      };
     });
+  }
+
+  private patchError(
+    err: unknown,
+    writeRules: boolean,
+  ): Extract<RepoConfigPatchResult, { ok: false }> {
+    if (err instanceof ConfigValidationError) return { ok: false, error: err.message };
+    if (!writeRules) throw err;
+    return {
+      ok: false,
+      code: "repo_config_write_failed",
+      error:
+        "Could not save repository rules to the default branch or its PR. Check origin and forge write access, then retry; another machine may have updated the proposal.",
+    };
   }
 
   private leaderPatchError(fileEnabled: boolean, leader: unknown): string | null {

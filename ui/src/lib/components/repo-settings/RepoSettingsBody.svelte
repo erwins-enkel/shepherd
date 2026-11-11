@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { tick, type Snippet } from "svelte";
+  import { tick, onMount, type Snippet } from "svelte";
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import { m } from "#lib/paraglide/messages.js";
   import { basename } from "#lib/basename.js";
   import { repos } from "#lib/repos.svelte.js";
@@ -13,6 +14,7 @@
     sectionSummary,
     type RepoSettingsSection as SectionId,
   } from "./sections";
+  import { providePendingConfig } from "./pending-config-context.svelte.js";
   import { provideOpenDetail } from "./detail-context.svelte.js";
   import { focusSetting, provideSettingLink } from "./setting-link";
   import RepoModeChoice from "./RepoModeChoice.svelte";
@@ -60,7 +62,24 @@
   const coach = $derived(variant === "window");
 
   provideOpenDetail();
-  $effect(() => void repoConfig.ensure(repoPath));
+  providePendingConfig(() => repoConfig.pendingRules[repoPath] ?? null);
+  onMount(() => {
+    void (repoConfig.isConfigLoaded(repoPath)
+      ? repoConfig.reload(repoPath)
+      : repoConfig.ensure(repoPath));
+  });
+  $effect(() => {
+    if (!repoConfig.pendingRules[repoPath]) return;
+    let running = false;
+    const timer = setInterval(() => {
+      if (running) return;
+      running = true;
+      void repoConfig.reload(repoPath).finally(() => {
+        running = false;
+      });
+    }, 60_000);
+    return () => clearInterval(timer);
+  });
 
   const panelId = $props.id();
   const repoName = $derived(repos.nameFor(repoPath) ?? basename(repoPath));
@@ -143,6 +162,29 @@
       id={panelId}
       aria-labelledby="{panelId}-tab-{active}"
     >
+      {#if repoConfig.pendingRules[repoPath]}
+        <p class="pending-rules" role="status">
+          {m.reposettings_pending_summary()}
+          <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge PR URL -->
+          <a
+            href={firstSafeHttpUrl(repoConfig.pendingRules[repoPath]!.url) ?? undefined}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {m.reposettings_pending_link({ number: repoConfig.pendingRules[repoPath]!.number })}
+          </a>
+          <!-- eslint-enable svelte/no-navigation-without-resolve -->
+          {#if Object.hasOwn(repoConfig.pendingRules[repoPath]!.changes, "leitrechner")}
+            <span
+              >{m.reposettings_pending_leader({
+                value:
+                  repoConfig.pendingRules[repoPath]!.changes.leitrechner ??
+                  m.reposettings_pending_none(),
+              })}</span
+            >
+          {/if}
+        </p>
+      {/if}
       <RepoSettingsHints {repoPath} {drain} {onsetupci} />
       <RepoSettingsSection
         section={active}
@@ -158,6 +200,20 @@
 </div>
 
 <style>
+  .pending-rules {
+    margin: 8px 12px;
+    font-size: var(--fs-meta);
+    color: var(--color-amber);
+    overflow-wrap: anywhere;
+  }
+  .pending-rules a {
+    color: inherit;
+    text-decoration: underline;
+  }
+  .pending-rules span {
+    display: block;
+  }
+
   .root {
     container-type: inline-size;
     flex: 1 1 auto;

@@ -25,6 +25,10 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     getEpics: vi.fn(),
     getEpic: vi.fn(),
     getGithubRateLimit: vi.fn(),
+    // RepoOverview also reads these; keep its unavailable-state fallback off the network.
+    getRepoConfig: vi.fn().mockRejectedValue(new Error("not configured")),
+    getRepoBootstrap: vi.fn().mockRejectedValue(new Error("not configured")),
+    getEpicAutoFix: vi.fn().mockRejectedValue(new Error("not configured")),
     // The default issue filter (#3019): seeded per test via pushIssueFilter; a write echoes
     // its patch, which the store merges onto the confirmed value.
     getSettings: vi.fn(async () => ({})),
@@ -66,6 +70,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   document.body.innerHTML = "";
   await page.viewport(1024, 768);
 });
@@ -436,6 +441,9 @@ describe("IssuesPanel rate-limit notice", () => {
 
   // Answers "can I pay to lift it?" honestly: a personal plan can't, Enterprise Cloud can.
   it("discloses whether the limit can be raised, with links out", async () => {
+    const network = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("unexpected network"));
     mockListIssues.mockResolvedValue(rateLimited);
     mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
@@ -455,6 +463,7 @@ describe("IssuesPanel rate-limit notice", () => {
         "href",
         "https://docs.github.com/rest/using-the-rest-api/rate-limits-for-the-rest-api",
       );
+    expect(network).not.toHaveBeenCalled();
   });
 
   it("keeps the generic failure line when no transport hit a rate limit", async () => {

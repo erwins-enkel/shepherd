@@ -1,3 +1,4 @@
+import type { PendingRepoConfig } from "./api";
 import type {
   ReviewVerdict,
   PlanGate,
@@ -433,6 +434,7 @@ type OverlayMap = (typeof OVERLAY_MAPS)[keyof typeof OVERLAY_MAPS];
 /** Per-repo critic + auto-address + autopilot + drain + automerge + build-queue +
  *  plan-gate + draft-mode (+ sign-off authority) config, cached lazily by repoPath. */
 class RepoConfigStore {
+  pendingRules = $state<Record<string, PendingRepoConfig | null>>({});
   enabled = $state<Record<string, boolean>>({}); // critic on/off (default on)
   allPrs = $state<Record<string, boolean>>({}); // standalone repo-wide PR critic on/off (default off)
   smellLens = $state<Record<string, boolean>>({}); // Fowler code-smell lens on the session critic (default off, #1824)
@@ -482,6 +484,7 @@ class RepoConfigStore {
 
   /** Spread a fetched RepoConfigResponse into every per-field $state map for `repoPath`. */
   private ingest(repoPath: string, c: RepoConfigResponse) {
+    this.pendingRules = { ...this.pendingRules, [repoPath]: c.pendingRepoConfig ?? null };
     this.enabled = { ...this.enabled, [repoPath]: c.criticEnabled };
     this.allPrs = { ...this.allPrs, [repoPath]: c.criticAllPrs };
     this.smellLens = { ...this.smellLens, [repoPath]: c.criticSmellLensEnabled };

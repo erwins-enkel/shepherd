@@ -58,10 +58,12 @@ const BLOCKERS = {
 };
 
 function mockApi(over: Partial<RepoConfig & { noPrCi: boolean }> = {}) {
+  let reads = 0;
   let config: Record<string, unknown> = { ...BASE, ...over };
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
     if (url.startsWith("/api/repo-config")) {
+      if (!init?.method || init.method === "GET") reads++;
       if (init?.method === "PUT") config = { ...config, ...JSON.parse(String(init.body)) };
       return Response.json(config);
     }
@@ -69,6 +71,7 @@ function mockApi(over: Partial<RepoConfig & { noPrCi: boolean }> = {}) {
     if (url.startsWith("/api/epic/auto-fix")) return Response.json(BLOCKERS);
     return new Response("{}", { status: 404 });
   });
+  return () => reads;
 }
 
 let n = 0;
@@ -151,8 +154,28 @@ describe("RepoMenuStatus", () => {
     expect(line()).toBe("");
   });
 
+  it("refreshes an already loaded config when opening the settings window", async () => {
+    mockApi({ noPrCi: false, sandboxProfile: "standard", autoDrainEnabled: true });
+    await repoConfig.ensure(repo);
+    const reads = mockApi({ noPrCi: true, sandboxProfile: "standard", autoDrainEnabled: true });
+    const drain = heldDrain();
+    const globals = { defaultAgentProvider: "claude", fableAvailable: true } as Settings;
+    provide(globals, drain);
+    render(RepoSettingsWindow, {
+      repoPath: repo,
+      section: "merge",
+      drain,
+      globals,
+      onclose: () => {},
+    });
+    render(RepoMenuStatus, { repoPath: repo });
+    await vi.waitFor(() => expect(document.querySelectorAll(".auto-hold")).toHaveLength(2));
+    await vi.waitFor(() => expect(hints()).toHaveLength(2));
+    expect(reads()).toBe(1);
+  });
+
   it("agrees with the window: its Autonomy status, CLI, Finished PRs choice and hint cards", async () => {
-    mockApi({
+    const reads = mockApi({
       noPrCi: true,
       sandboxProfile: "standard",
       autoDrainEnabled: true,
@@ -173,6 +196,7 @@ describe("RepoMenuStatus", () => {
     await vi.waitFor(() => expect(document.querySelectorAll(".auto-hold")).toHaveLength(2));
     expect(document.querySelector("[data-epic-halt]")).not.toBeNull();
     await vi.waitFor(() => expect(hints()).toHaveLength(2));
+    expect(reads()).toBe(1);
 
     const summary = (id: string) =>
       document.querySelector(`[role="tab"][id$="-tab-${id}"] .summary`)!.textContent!.trim();

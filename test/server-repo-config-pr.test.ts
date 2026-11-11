@@ -1,10 +1,11 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, test, spyOn } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { configRepo, git } from "./helpers/repo-config-git";
 import { configForge } from "./helpers/repo-config-forge";
 import { SessionStore } from "../src/store";
 import { RepoConfigService } from "../src/repo-config-service";
+import { withRepoConfigLock } from "../src/repo-config-file";
 import { REPO_CONFIG_PR_BRANCH } from "../src/repo-config-pr";
 
 const cleanups: (() => void)[] = [];
@@ -177,4 +178,102 @@ test("proposal refresh contains a throwing forge resolver", async () => {
   });
   expect(await svc.refreshPending(r.b)).toBe(false);
   expect(svc.read(r.b).criticEnabled).toBe(true);
+});
+
+test("failed proposal checks retain pending state and throttle concurrent reads for 60 seconds", async () => {
+  const { r, svc, forge } = fixture();
+  let now = Date.now();
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  cleanups.push(() => clock.mockRestore());
+  await svc.patch(r.b, { criticEnabled: false });
+  const before = svc.read(r.b);
+  let calls = 0;
+  forge.prStatus = async () => {
+    calls++;
+    throw new Error("offline");
+  };
+  now += 60_000;
+  expect(
+    await Promise.all([svc.refreshPending(r.b), svc.refreshPending(r.b), svc.refreshPending(r.b)]),
+  ).toEqual([false, false, false]);
+  expect(calls).toBe(1);
+  expect(svc.read(r.b)).toEqual(before);
+  now += 59_999;
+  await svc.refreshPending(r.b);
+  expect(calls).toBe(1);
+  now++;
+  await svc.refreshPending(r.b);
+  expect(calls).toBe(2);
+  await svc.refreshPending(r.b, true);
+  expect(calls).toBe(3);
+  expect(svc.read(r.b).pendingRepoConfig).toEqual(before.pendingRepoConfig);
+});
+
+test("an offline origin is throttled even before discovering a proposal", async () => {
+  const { r, store, forge } = fixture();
+  let now = Date.now(),
+    calls = 0;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  cleanups.push(() => clock.mockRestore());
+  const svc = new RepoConfigService(store, undefined, undefined, () => {
+    calls++;
+    return forge;
+  });
+  git(r.b, "remote", "set-url", "origin", join(r.dir, "missing.git"));
+  await svc.refreshPending(r.b);
+  await svc.refreshPending(r.b);
+  expect(calls).toBe(1);
+  expect(svc.read(r.b)).toMatchObject({ criticEnabled: true, pendingRepoConfig: null });
+  now += 60_000;
+  await svc.refreshPending(r.b);
+  expect(calls).toBe(2);
+});
+
+test("fresh cached proposal reads do not wait behind the config write lock", async () => {
+  const { r, svc } = fixture();
+  await svc.refreshPending(r.b);
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const lock = withRepoConfigLock(r.b, async () => {
+    entered();
+    await gate;
+  });
+  await started;
+  try {
+    const result = await Promise.race([
+      svc.refreshPending(r.b).then(() => "cached"),
+      new Promise<string>((resolve) => setImmediate(() => resolve("blocked"))),
+    ]);
+    expect(result).toBe("cached");
+  } finally {
+    release();
+    await lock;
+  }
+});
+
+test("a failed cold check does not consume the first successful merge notification", async () => {
+  const { r, svc, store, forge, setState } = fixture();
+  let now = Date.now();
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  cleanups.push(() => clock.mockRestore());
+  await svc.patch(r.b, { criticEnabled: false });
+  git(r.origin, "update-ref", "refs/heads/main", git(r.origin, "rev-parse", REPO_CONFIG_PR_BRANCH));
+  setState("merged");
+  const { refreshRepoConfigFile } = await import("../src/repo-config-file");
+  await refreshRepoConfigFile(r.b);
+  const restarted = new RepoConfigService(store, undefined, undefined, () => forge);
+  const lookup = forge.prStatus;
+  forge.prStatus = async () => {
+    throw new Error("offline");
+  };
+  expect(await restarted.refreshPending(r.b)).toBe(false);
+  forge.prStatus = lookup;
+  now += 60_000;
+  expect(await restarted.refreshPending(r.b)).toBe(true);
+  expect(await restarted.refreshPending(r.b, true)).toBe(false);
 });

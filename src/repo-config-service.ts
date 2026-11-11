@@ -62,7 +62,12 @@ type PatchOptions = {
   leitrechner?: string | null;
   defaultAgentProvider?: AgentProvider;
 };
-type ProposalCache = { dir: string; pending: PendingRepoConfig | null; checkedAt: number };
+type ProposalCache = {
+  dir: string;
+  pending: PendingRepoConfig | null;
+  checkedAt: number;
+  failed?: true;
+};
 
 /** Narrow store interface this service needs — the seam, kept small. */
 type RepoConfigStore = Pick<
@@ -93,21 +98,44 @@ export class RepoConfigService {
     return [...this.proposals.values()].filter((entry) => entry.pending).map((entry) => entry.dir);
   }
 
-  /** Reconcile at the async boundary; runtime configuration reads remain network-free. */
+  private hasFreshProposal(key: string): boolean {
+    const cached = this.proposals.get(key);
+    return !!cached && Date.now() - cached.checkedAt < 60_000;
+  }
+
+  /** Cached reads never wait for Git writes; stale checks serialize with those writes. */
   async refreshPending(dir: string, force = false): Promise<boolean> {
+    const key = this.proposalKey(dir);
+    if (!force && this.hasFreshProposal(key)) return false;
     return withRepoConfigLock(dir, async () => {
-      const forge = this.ruleForge(dir, this.store.getLocalRepoConfig(dir).repoMode);
-      if (!forge || forge.isFork) return false;
-      const key = this.proposalKey(dir);
+      // Another queued read may have checked this repo while we waited for the lock.
+      if (!force && this.hasFreshProposal(key)) return false;
       const cached = this.proposals.get(key);
-      if (!force && cached && Date.now() - cached.checkedAt < 60_000) return false;
-      const before = readRepoConfigFile(dir)?.commit;
-      const { pending, merged } = await this.reconcileProposal(dir, forge, cached?.pending ?? null);
-      this.proposals.set(key, { dir, pending, checkedAt: Date.now() });
-      return (
-        before !== readRepoConfigFile(dir)?.commit || (merged && (!cached || !!cached.pending))
-      );
-    }).catch(() => false);
+      try {
+        const forge = this.ruleForge(dir, this.store.getLocalRepoConfig(dir).repoMode);
+        if (!forge || forge.isFork) return false;
+        const before = readRepoConfigFile(dir)?.commit;
+        const { pending, merged } = await this.reconcileProposal(
+          dir,
+          forge,
+          cached?.pending ?? null,
+        );
+        this.proposals.set(key, { dir, pending, checkedAt: Date.now() });
+        return (
+          before !== readRepoConfigFile(dir)?.commit ||
+          (merged && (!cached || cached.failed || !!cached.pending))
+        );
+      } catch {
+        // Failed checks consume the same freshness window without discarding verified state.
+        this.proposals.set(key, {
+          dir,
+          pending: cached?.pending ?? null,
+          checkedAt: Date.now(),
+          failed: true,
+        });
+        return false;
+      }
+    });
   }
 
   private ruleForge(dir: string, mode: RepoConfig["repoMode"]): GitForge | null {

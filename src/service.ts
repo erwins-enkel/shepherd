@@ -54,6 +54,12 @@ import {
   operatorAssistantPermissions,
 } from "./operator-assistant-core";
 import { isShelved } from "./shelve";
+import {
+  isUsagePaused,
+  publishUsagePause,
+  UsagePauseArchiveCanceled,
+  UsagePauseResumeCanceled,
+} from "./schedule-pause";
 import { assistantPermissionRules } from "./operator-assistant-permissions";
 import { claudeConfigPath, ensureRepoRootTrusted } from "./claude-trust";
 import { keyedSingleFlight } from "./single-flight";
@@ -801,6 +807,7 @@ export function spawnSettingsOverlay(
   opts: SpawnTrimOverlay & {
     /** The repo's `claudeAiConnectorsEnabled` opt-in; absent → the connectors stay off. */
     claudeAiConnectors?: boolean;
+    pauseAtUsageStop?: boolean;
     hooks?: HookTarget;
     permissions?: { defaultMode: string; allow: string[]; ask: string[]; deny: string[] };
     assistantView?: HookTarget;
@@ -814,6 +821,7 @@ export function spawnSettingsOverlay(
     remoteControlAtStartup: config.remoteControlAtStartup,
     env: { ENABLE_CLAUDEAI_MCP_SERVERS: opts.claudeAiConnectors ? "true" : "false" },
   };
+  if (opts.pauseAtUsageStop) settings.autoContinueAtUsageLimit = false;
   if (opts.disablePlugins && opts.disablePlugins.length > 0) {
     settings.enabledPlugins = Object.fromEntries(opts.disablePlugins.map((id) => [id, false]));
   }
@@ -2209,6 +2217,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
 type SteerPrelude = (s: Session) => Promise<boolean>;
 
 interface SteerOpts {
+  usagePause?: { since: number; purpose: "stop" | "resume" };
   automatic?: boolean;
   prelude?: SteerPrelude;
 }
@@ -3698,6 +3707,7 @@ export class SessionService {
       /** The Operator Assistant (#1446): plugin onSpawn hooks are skipped, so no plugin can patch
        *  its read-only argv (e.g. append a permission bypass) or its env. */
       operatorAssistant?: boolean;
+      resumeAllowed?: () => void;
     },
   ): Promise<SpawnOutcome> {
     const repoConfig = this.deps.store.getRepoConfig(ctx.repoPath);
@@ -3846,6 +3856,7 @@ export class SessionService {
       ...browserEnv,
       ...slotShimEnv,
     };
+    ctx.resumeAllowed?.();
     const agent = await this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv, {
       signal: ctx.signal,
     });
@@ -4356,6 +4367,9 @@ export class SessionService {
         {
           ...trim.overlayOpts,
           claudeAiConnectors: repoConfig.claudeAiConnectorsEnabled,
+          pauseAtUsageStop:
+            !!input.scheduleId &&
+            this.deps.store.getSchedule(input.scheduleId)?.usageLimit?.pauseAtStop === true,
           ciWatchAllowed: isMergeTrainDriver(input),
           builtinToolsNeeded: builtinToolsNeededBy(input.prompt),
         },
@@ -4498,6 +4512,10 @@ export class SessionService {
         {
           ...trim.overlayOpts,
           claudeAiConnectors: connectors,
+          pauseAtUsageStop:
+            !!s.usagePause ||
+            (!!s.scheduleId &&
+              this.deps.store.getSchedule(s.scheduleId)?.usageLimit?.pauseAtStop === true),
           ciWatchAllowed: isMergeTrainDriver(s),
           builtinToolsNeeded: builtinToolsNeededBy(s.prompt),
         },
@@ -4650,7 +4668,11 @@ export class SessionService {
     return true;
   }
 
-  private prepareResumeSpawn(session: Session, innerArgv: string[]): Promise<SpawnOutcome> {
+  private prepareResumeSpawn(
+    session: Session,
+    innerArgv: string[],
+    resumeAllowed?: () => void,
+  ): Promise<SpawnOutcome> {
     return this.prepareSpawn(innerArgv, {
       sessionId: session.id,
       name: session.name,
@@ -4667,6 +4689,11 @@ export class SessionService {
       model: session.model ?? null,
       agentProvider: session.agentProvider,
       operatorAssistant: isOperatorAssistant(session),
+      resumeAllowed,
+    }).catch((err) => {
+      if (err instanceof UsagePauseResumeCanceled)
+        return { ok: false as const, holdReason: "resume superseded" };
+      throw err;
     });
   }
 
@@ -7023,10 +7050,10 @@ export class SessionService {
    */
   async resume(
     id: string,
-    opts: { force?: boolean; automatic?: boolean } = {},
+    opts: { force?: boolean; automatic?: boolean; usagePause?: SteerOpts["usagePause"] } = {},
   ): Promise<Session | null> {
     // A session moving to another machine stays stopped: only the move itself brings it back.
-    if (opts.automatic && this.handoffHeld(id)) return null;
+    if (opts.automatic && (this.handoffHeld(id) || !this.usagePauseAllows(id, opts))) return null;
     const existing = this.resumeInFlight.get(id);
     if (existing) return existing; // coalesce: a resume for this id is already running
     const p = this.resumeInner(id, opts).finally(() => this.resumeInFlight.delete(id));
@@ -7037,7 +7064,7 @@ export class SessionService {
   /** resume() body; serialized per session by the public resume() guard. */
   private async resumeInner(
     id: string,
-    opts: { force?: boolean; automatic?: boolean } = {},
+    opts: { force?: boolean; automatic?: boolean; usagePause?: SteerOpts["usagePause"] } = {},
   ): Promise<Session | null> {
     const target = this.resumeTarget(id);
     if (!target) return null;
@@ -7048,6 +7075,7 @@ export class SessionService {
     // Shelved: automation leaves it alone (an operator/forced resume still runs).
     if (opts.automatic && isShelved(session)) return null;
     const agent = await this.liveAgentFor(id);
+    if (!this.resumeStillAllowed(id, opts)) return null;
     if (agent && !opts.force && !needsAccountRedrive(session, agent)) {
       // Already live (idle at the prompt, or restored by a herdr restart under a new terminalId)
       // AND either a default session or already on its owning account. Adopt; never spawn a second
@@ -7072,6 +7100,7 @@ export class SessionService {
     const trim = await this.trimFor(session.auto, session.worktreePath, session.repoPath);
     // Capacity/trim can yield: refuse a transcript removed while we prepared, before teardown.
     if (!this.canRespawnConversation(session)) return null;
+    if (!this.resumeStillAllowed(id, opts)) return null;
     // Forced respawn over a live agent: close the stale husk tab first so it doesn't
     // leak alongside the fresh one. (No-op when the agent is already gone.)
     // PLUGIN NOTE (#1124): this teardown runs on a forced resume OR a non-forced Locus-B
@@ -7086,12 +7115,19 @@ export class SessionService {
     const outcome = await this.prepareResumeSpawn(
       session,
       await this.buildResumeArgv(session, provider, trim, session.providerSessionId),
+      () => {
+        if (!this.resumeStillAllowed(id, opts)) throw new UsagePauseResumeCanceled();
+      },
     );
     if (!outcome.ok) {
       this.spawnConnectorStamp.delete(session.id);
       // Resume's "can't resume" contract: callers (autopilot/automerge) `if(!await resume)` skip,
       // server returns 409 — so an auto-refused resume resolves null rather than throwing.
       console.warn(`[sandbox] resume refused for ${session.id}: ${outcome.holdReason}`);
+      return null;
+    }
+    if (!this.resumeStillAllowed(id, opts)) {
+      await this.deps.herdr.stop(outcome.terminalId);
       return null;
     }
     return this.finishResumeSpawn(session, outcome);
@@ -7119,6 +7155,7 @@ export class SessionService {
    */
   async reDriveAccount(id: string): Promise<"healed" | "unhealed" | "refused" | "degraded"> {
     const before = this.deps.store.get(id);
+    if (isUsagePaused(before)) return "refused";
     if (!before) return "refused";
     const anchor = before.spawnTerminalId; // stable until a heal advances it
     const rec = this.redriveAttempts.get(id);
@@ -7161,7 +7198,7 @@ export class SessionService {
    */
   async reviveStranded(id: string): Promise<"revived" | "failed" | "gaveup"> {
     const before = this.deps.store.get(id);
-    if (!before) return "failed";
+    if (!before || isUsagePaused(before)) return "failed";
     const anchor = before.spawnTerminalId; // stable until a heal advances it
     const rec = this.reviveAttempts.get(id);
     if (rec && rec.anchor === anchor && rec.attempts >= SessionService.REDRIVE_CAP) return "gaveup";
@@ -7455,7 +7492,53 @@ export class SessionService {
       text,
       opts.automatic,
       opts.prelude,
+      opts,
     );
+  }
+
+  /** Only the scheduled-pause coordinator uses this capability; never exposed as HTTP opts. */
+  async usagePauseSteer(
+    id: string,
+    text: string,
+    since: number,
+    purpose: "stop" | "resume",
+  ): Promise<boolean> {
+    const opts: SteerOpts = { automatic: true, usagePause: { since, purpose } };
+    if (!this.usagePauseAllows(id, opts)) return false;
+    if (purpose === "stop") return this.reply(id, text, opts);
+    let forceResume = false;
+    return resumeThenSteer(id, text, {
+      paneAlive: async () => {
+        const target = await this.operatorReplyTarget(id, true);
+        forceResume = target?.forceResume === true;
+        if (!target?.agent || forceResume) return false;
+        const current = this.deps.store.get(id);
+        return !!current && !!this.adoptLiveResumeAgent(current, target.agent);
+      },
+      deferSteer: () => this.shouldDeferSteer(id),
+      resume: () => this.resume(id, { ...opts, force: forceResume }),
+      steer: () => this.reply(id, text, opts),
+    });
+  }
+
+  private resumeStillAllowed(id: string, opts: SteerOpts): boolean {
+    return !opts.automatic || this.usagePauseAllows(id, opts);
+  }
+
+  private assertArchiveAllowed(id: string, automatic: boolean): void {
+    if (automatic && isUsagePaused(this.deps.store.get(id))) throw new UsagePauseArchiveCanceled();
+  }
+
+  private usagePauseAllows(id: string, opts: SteerOpts): boolean {
+    const s = this.deps.store.get(id);
+    if (!s || s.status === "archived") return false;
+    if (opts.usagePause)
+      return (
+        !s.shelved &&
+        s.usagePause?.since === opts.usagePause.since &&
+        s.usagePause.phase === (opts.usagePause.purpose === "stop" ? "requested" : "paused")
+      );
+    return !isUsagePaused(s);
   }
 
   /** Deliver an internal task steer, reviving an exited planner by exact identity first.
@@ -7463,6 +7546,7 @@ export class SessionService {
   async resumeAndReply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s || !this.hasConversation(s)) return false;
+    if (!this.usagePauseAllows(id, opts)) return false;
     if (opts.automatic && isShelved(s)) return false; // shelved: no autonomous steers
     if (opts.automatic && this.deps.capacity && !(await this.deps.capacity(s))) return false;
     const target = await this.operatorReplyTarget(id, true);
@@ -7475,7 +7559,13 @@ export class SessionService {
     )
       return false;
     if (!target.agent || target.forceResume || (await this.shouldDeferSteer(id))) {
-      if (!(await this.resume(id, { force: target.forceResume, automatic: opts.automatic })))
+      if (
+        !(await this.resume(id, {
+          force: target.forceResume,
+          automatic: opts.automatic,
+          usagePause: opts.usagePause,
+        }))
+      )
         return false;
     } else if (!this.adoptLiveResumeAgent(s, target.agent)) return false;
     return this.reply(id, text, opts);
@@ -7552,8 +7642,9 @@ export class SessionService {
     const prepared = this.assistantReplyText(s, text);
     if (prepared === null) return false;
     text = prepared;
-    const resumableCodex = (s.agentProvider ?? "claude") === "codex" && this.hasConversation(s);
-    const target = await this.operatorReplyTarget(id, resumableCodex);
+    const resumable =
+      ((s.agentProvider ?? "claude") === "codex" || isUsagePaused(s)) && this.hasConversation(s);
+    const target = await this.operatorReplyTarget(id, resumable);
     if (!target) return false;
     const paneAlive = !!target.agent && !target.forceResume;
     const current = this.deps.store.get(id);
@@ -7564,14 +7655,13 @@ export class SessionService {
     const delivered = await resumeThenSteer(id, text, {
       paneAlive: async () => paneAlive,
       resume: async () => {
-        if (!resumableCodex) return null;
+        if (!resumable) return null;
         return await this.resume(id, { force: target.forceResume });
       },
       steer: async () => {
         const current = this.deps.store.get(id);
         if (!current) return false;
-        await this.steerWithEpicNotice(current, text, signalPayload);
-        return true;
+        return this.steerWithEpicNotice(current, text, signalPayload);
       },
     });
     if (delivered && isOperatorAssistant(s))
@@ -8069,9 +8159,11 @@ export class SessionService {
     signalPayload: string = text,
     automatic = false,
     prelude?: SteerPrelude,
+    opts: SteerOpts = {},
   ): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s || !live.has(s.herdrAgentId)) return false; // unknown, or live-in-store / dead-pane
+    if (!this.usagePauseAllows(id, opts)) return false;
     if (automatic && isShelved(s)) return false; // shelved: no autonomous steers
     if (automatic && this.deps.capacity && !(await this.deps.capacity(s))) return false;
     // Codex operator-language carrier (#1624): append the block to the delivered PTY text so the
@@ -8081,7 +8173,7 @@ export class SessionService {
     // Shepherd's own directive — mirrors the #1405 epic-notice precedent.
     const delivered =
       text + operatorLanguageSteerSuffix(s.agentProvider ?? "claude", config.operatorLanguage);
-    return this.sendSteerTo(s, delivered, signalPayload, prelude);
+    return this.sendSteerTo(s, delivered, signalPayload, prelude, opts);
   }
 
   /** Deliver a human-style steer to an already-resolved, live session: record the reply
@@ -8098,6 +8190,8 @@ export class SessionService {
     text: string,
     signalPayload: string = text,
     prelude?: SteerPrelude,
+    opts: SteerOpts = {},
+    operator = false,
   ): Promise<boolean> {
     // FUNNEL GUARD — the herdr.send invariant: every steer in the codebase (reply, broadcast,
     // retry-halted, autopilot, plan-gate, build-queue, …) flows through here, so this single
@@ -8112,21 +8206,44 @@ export class SessionService {
         payload: signalPayload,
         headSha: this.deps.prHead?.(s.id) ?? null,
       });
-    if (!prelude) signal();
     const safe = sanitizeSteerText(text);
     // The CR must reach the PTY only after the paste has landed, and no other steer may slip
     // between them — the paste-end marker is what makes this CR unambiguously Enter (#1567).
     // A `prelude` runs in the same critical section, so nothing lands between it and the paste;
     // false aborts the steer (nothing pasted, no signal recorded).
     return this.#serializeSteer(s.id, async () => {
+      const current = this.deps.store.get(s.id);
+      if (!current || current.status === "archived" || current.herdrAgentId !== s.herdrAgentId)
+        return false;
+      if (!operator && !this.usagePauseAllows(s.id, opts)) return false;
+      if (opts.automatic && isShelved(current)) return false;
       if (prelude) {
         if (!(await prelude(s))) return false;
-        signal();
       }
+      if (!operator && !this.usagePauseAllows(s.id, opts)) return false;
+      signal();
       await this.deps.herdr.send(s.herdrAgentId, `${PASTE_START}${safe}${PASTE_END}`);
       await this.deps.herdr.send(s.herdrAgentId, "\r");
+      this.finishUsagePauseSteer(s.id, opts, operator);
       return true;
     });
+  }
+
+  private finishUsagePauseSteer(id: string, opts: SteerOpts, operator: boolean): void {
+    if (operator || opts.usagePause?.purpose === "resume") {
+      const latest = this.deps.store.get(id);
+      if (latest?.haltReason === "usage_limit") {
+        this.deps.store.setHaltReason(id, null, null);
+        this.deps.events?.emit("session:halt", { id: id, haltReason: null, haltedAt: null });
+      }
+    }
+    if (operator) {
+      const latest = this.deps.store.get(id);
+      if (latest?.usagePause) {
+        this.deps.store.setUsagePause(id, null, true);
+        publishUsagePause(latest, null, this.deps.events);
+      }
+    }
   }
 
   /** Deliver an operator-authored steer to an already-resolved, LIVE session, injecting the
@@ -8141,20 +8258,19 @@ export class SessionService {
     s: Session,
     text: string,
     signalPayload: string = text,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const combined = this.#epicNoticeSteered.has(s.id)
       ? null
       : composeEpicSteer(text, signalPayload);
     if (!combined) {
-      await this.sendSteerTo(s, text, signalPayload);
-      return;
+      return this.sendSteerTo(s, text, signalPayload, undefined, {}, true);
     }
     // Claim the one-shot BEFORE the await, not after: the send is async now (#1567), so two
     // concurrent epic-intent steers to one session would both see an unmarked set and inject the
     // notice twice. Roll the claim back if delivery throws, preserving "mark only on success".
     this.#epicNoticeSteered.add(s.id);
     try {
-      await this.sendSteerTo(s, combined, signalPayload);
+      return await this.sendSteerTo(s, combined, signalPayload, undefined, {}, true);
     } catch (err) {
       this.#epicNoticeSteered.delete(s.id);
       throw err;
@@ -8862,9 +8978,11 @@ export class SessionService {
     id: string,
     reapKeys?: string[],
     reason: SessionArchiveReason = "operator",
+    automatic = false,
   ): Promise<number> {
     const s = this.deps.store.get(id);
     if (!s) return 0;
+    this.assertArchiveAllowed(id, automatic);
     let reaped = 0;
     if (reapKeys?.length && this.deps.reaper) {
       // Reflect request-time state in `detect` (see refreshForDetect). Conditional
@@ -8874,6 +8992,7 @@ export class SessionService {
       const hit = this.deps.reaper.detect(s).filter((l) => want.has(l.key));
       reaped = this.deps.reaper.reap(hit);
     }
+    this.assertArchiveAllowed(id, automatic);
     if (s.terminal) {
       // Pane-direct teardown: there is no agent to stop — close the persisted tab (best-effort:
       // the shell may already have exited and taken the tab with it).
@@ -8885,6 +9004,7 @@ export class SessionService {
     } else {
       await this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
     }
+    this.assertArchiveAllowed(id, automatic);
     // Best-effort pre-teardown hook (recap generation): the recap generator reads the
     // worktree to build its prompt, so it MUST run while the worktree still exists.
     // Race a 15s timeout so a stuck git can never permanently stall teardown / the merge
@@ -8900,6 +9020,7 @@ export class SessionService {
         /* best-effort: recap must never block teardown */
       }
     }
+    this.assertArchiveAllowed(id, automatic);
     if (s.isolated) this.removeArchivedWorktree(s);
     // Stop the drop-watcher before removing the temp dir so it can't read a torn-down path.
     this.deps.egressWatcher?.stop(id);
@@ -8913,6 +9034,7 @@ export class SessionService {
       (err: unknown) => console.warn(`[ingress] spawn files for ${s.id} not removed:`, err),
     );
     this.deps.store.archive(id, reason);
+    publishUsagePause(s, null, this.deps.events);
     if (s.operatorAssistant) this.cleanupArchivedAssistant(s);
     // AFTER store.archive, so the reaper's terminality gate sees `archived`. While a batch is
     // draining we DEFER rather than skip: `archive` awaits (herdr.stop, the 15s beforeArchive

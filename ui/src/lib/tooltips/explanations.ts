@@ -1,5 +1,5 @@
 import type { ScheduleUsageLimit } from "#lib/types.js";
-import { usageLimitChip } from "#lib/schedules.svelte.js";
+import { usageLimitChip, schedulePauseWhen } from "#lib/schedules.svelte.js";
 import { placementLoadObservation } from "#lib/placement.js";
 import { m } from "#lib/paraglide/messages.js";
 import type { TooltipExplanation } from "./content";
@@ -1196,6 +1196,23 @@ export function scheduleUsageLimitExplanation(limit: ScheduleUsageLimit): Toolti
             },
           ]
         : []),
+    ],
+  };
+}
+
+export function schedulePauseExplanation(resumeAt: number | null): TooltipExplanation {
+  return {
+    title: m.schedule_pause_title(),
+    summary: m.schedules_pause_hint(),
+    sections: [
+      {
+        label: m.schedule_pause_resume_label(),
+        text:
+          resumeAt == null
+            ? m.schedule_pause_unknown_reset()
+            : m.schedule_pause_resume({ when: schedulePauseWhen(resumeAt) }),
+      },
+      { label: m.schedule_pause_takeover_label(), text: m.schedule_pause_takeover() },
     ],
   };
 }

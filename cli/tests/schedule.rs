@@ -380,3 +380,20 @@ async fn schedule_ls_displays_intervals() {
         assert_eq!(h.json()["schedules"][0]["interval"]["everyMinutes"], 15);
     }
 }
+
+#[tokio::test]
+async fn schedule_ls_preserves_usage_pause_metadata() {
+    let s = MockServer::start().await;
+    let mut schedule = schedule_json(ID, "paused run");
+    schedule["usageLimit"] = json!({"kind": "upTo", "stopPct": 80, "pauseAtStop": true});
+    schedule["lastRun"]["outcome"] = json!("paused");
+    schedule["lastRun"]["pausedUntil"] = json!(1_800_000_000_000i64);
+    mount_list(&s, json!([schedule])).await;
+    let h = Harness::new();
+    assert_eq!(h.run(&["--url", &s.uri(), "schedule", "ls"]).await, 0);
+    assert_eq!(h.json()["schedules"][0]["usageLimit"]["pauseAtStop"], true);
+    assert_eq!(
+        h.json()["schedules"][0]["lastRun"]["pausedUntil"],
+        1_800_000_000_000i64
+    );
+}

@@ -186,7 +186,7 @@ fn run_text(key: &str, run: &ScheduleRun) -> String {
 fn outcome_exit(key: &str, run: &ScheduleRun) -> Result<()> {
     let reason = run.reason.as_deref().unwrap_or("no reason given");
     match run.outcome.as_str() {
-        "spawned" | "spawned:failover" | "held" | "waiting:limit" => Ok(()),
+        "spawned" | "spawned:failover" | "held" | "waiting:limit" | "paused" => Ok(()),
         o if o.starts_with("skipped") => Err(CliError::new(
             Exit::Refused,
             format!("schedule {key} did not run: {o} ({reason})"),
@@ -220,6 +220,7 @@ mod tests {
             ("held", None),
             ("spawned:failover", None),
             ("waiting:limit", None),
+            ("paused", None),
             ("skipped:limit", Some(Exit::Refused)),
             ("skipped:limit-expired", Some(Exit::Refused)),
             ("skipped:overlap", Some(Exit::Refused)),

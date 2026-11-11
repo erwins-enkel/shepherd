@@ -387,3 +387,23 @@ test("waiting deadline uses the nominal slot, the earlier next slot and local DS
     expect(waitingLimitExpiresAt({ ...fixed, times: ["02:30"] }, key)).toBe(nominal + STALE_MS);
   }
 });
+
+test("pauseAtStop validates booleans and preserves both limit variants", () => {
+  const root = mkdtempSync(join(tmpdir(), "sched-pause-"));
+  const body = { repoPath: root, name: "Usage", prompt: "test", days: 127, times: ["09:00"] };
+  for (const limit of [
+    { kind: "upTo", stopPct: 70 },
+    { kind: "from", startPct: 60, startWindow: "week", stopPct: 95 },
+  ] as const) {
+    for (const pauseAtStop of [true, false]) {
+      const usageLimit = { ...limit, pauseAtStop };
+      const result = validateScheduleInput({ ...body, usageLimit }, root);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.usageLimit).toEqual(usageLimit);
+    }
+    for (const pauseAtStop of [null, "true", 1])
+      expect(
+        validateScheduleInput({ ...body, usageLimit: { ...limit, pauseAtStop } }, root).ok,
+      ).toBe(false);
+  }
+});

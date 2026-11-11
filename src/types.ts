@@ -37,6 +37,16 @@ export type ExperimentRole = "variant" | "comparison";
 /** A session's Claude Code goal state (#2596). */
 export type GoalState = "held" | "active";
 
+/** Scheduled run waiting for its provider usage window to reset. Times are epoch ms. */
+export interface UsagePause {
+  phase: "requested" | "paused";
+  since: number;
+  resumeAt: number | null;
+  stopPct: number;
+  windows: ("week" | "5h")[];
+  stopSteerSent: boolean;
+}
+
 export interface Session {
   id: string;
   desig: string; // "TASK-07"
@@ -98,6 +108,7 @@ export interface Session {
    *  automation (no autonomous steers, pushes, holds, auto-archive) until unshelved. The agent
    *  stays alive. Optional so pre-shelve fixtures need not carry it; hydrate always sets it. */
   shelved?: boolean;
+  usagePause?: UsagePause | null;
   /** Epoch ms when a launched merge train marked this PR-session as in-flight;
    *  null when not in a train. Transient: cleared on merge/close, train archive,
    *  or the TTL sweep. */

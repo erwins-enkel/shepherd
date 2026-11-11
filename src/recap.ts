@@ -1,3 +1,4 @@
+import { isUsagePaused } from "./schedule-pause";
 /**
  * RecapService — auto-generates a one-time, head-keyed session recap via a transient
  * Sonnet spawn. Mirrors ReviewService/PlanGateService structure:
@@ -694,7 +695,7 @@ export class RecapService {
     const t = this.now();
 
     for (const s of sessions) {
-      if (s.shelved === true) continue; // shelved: no auto recap spend
+      if (isUsagePaused(s) || s.shelved === true) continue; // shelved: no auto recap spend
       const settled = s.status === "idle" || s.status === "done";
 
       if (!settled) {

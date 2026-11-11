@@ -288,6 +288,7 @@ import { remoteUrl } from "./forge/index";
 import { epicBaseDirective, epicStackedBaseDirective } from "./autopilot";
 import { parseTargetRepo, resolveTargetRepo, sessionIssue, targetsOtherRepo } from "./target-repo";
 import { isShelved } from "./shelve";
+import { isUsagePaused } from "./schedule-pause";
 
 /** #1071: After this many consecutive driver-absent / driver-broken results without a successful
  *  rebase, escalate to the operator (pauseReason='driver'). Keeps a persistently-misconfigured
@@ -450,7 +451,12 @@ export interface DrainDeps {
   >;
   service: {
     create(input: CreateSessionInput): Promise<Session>;
-    archive(id: string, reapKeys?: string[], reason?: SessionArchiveReason): Promise<number>;
+    archive(
+      id: string,
+      reapKeys?: string[],
+      reason?: SessionArchiveReason,
+      automatic?: boolean,
+    ): Promise<number>;
   };
   resolveForge: (repoPath: string) => GitForge | null;
   /** A cold repo (#2837): forge reads serve their cache and start no new call. */
@@ -1451,6 +1457,7 @@ export class DrainService {
           landingRepair: !!s.landingRepair,
           misrouted: !!s.misroutedTarget,
           shelved: !!s.shelved,
+          usagePaused: isUsagePaused(s),
         };
       });
     const limits = this.deps.usage.limits(this.now());
@@ -5075,25 +5082,9 @@ export class DrainService {
     );
     // The answer to every other layer's gate just changed.
     this.stackConfirmHeld.delete(repoPath);
-    try {
-      await this.deps.service.archive(decision.sessionId, undefined, "drain");
-    } catch (err) {
-      // The squash-merge already landed (PR is now MERGED) but teardown didn't finish. This is
-      // recoverable, not a permanent strand: we deliberately do NOT dropPrCache/emit below, so the
-      // session stays live AND polled (pr-poller skips only archived rows). The poller re-observes
-      // the merged PR and settles it via reapMerged → settleMergedSession (archive + teardown) —
-      // the same path any out-of-band merge takes. #1037: because the integration is already
-      // recorded above, settleMergedSession's isIntegratedEpicChild guard sees this child as
-      // integrated and ARCHIVES-ONLY (never closes the issue) — so this recovery keeps the child
-      // open until the landing PR merges, just like the happy path. The session can NOT be
-      // re-selected by the retire gate (readyToRetire requires state==="open"; the PR is merged),
-      // hence the poller is the recovery, not a retry.
-      console.warn(
-        `[drain] archive (epic child) failed for ${decision.sessionId}; pr-poller will reap the merged PR:`,
-        err,
-      );
-      return;
-    }
+    // If teardown loses to a pause or fails, keep the PR cached so the poller can retry after
+    // continuation. The recorded epic integration still prevents closing this child early.
+    if (!(await this.archiveRetiredSession(decision.sessionId))) return;
     // Keep the claim: the child issue stays open until the epic lands; releasing would let it
     // re-spawn. Mirrors the non-epic retire path.
     this.retainArchivedClaim(decision.sessionId);
@@ -5145,12 +5136,7 @@ export class DrainService {
     // failure we warn and defer — the session stays live and mergeable, so the
     // next tick retries; we must NOT drop the pr-cache or emit "archived" for a
     // session that didn't actually archive.
-    try {
-      await this.deps.service.archive(decision.sessionId, undefined, "drain");
-    } catch (err) {
-      console.warn(`[drain] archive failed for ${decision.sessionId}:`, err);
-      return;
-    }
+    if (!(await this.archiveRetiredSession(decision.sessionId))) return;
     // The PR is left OPEN for a human to merge, so the issue stays open and claimed.
     // Mark the archive as a retire so onArchived KEEPS the claim — releasing it here
     // would let another instance re-spawn an issue that already has a ready PR. The
@@ -5926,6 +5912,17 @@ export class DrainService {
     }
   }
 
+  private async archiveRetiredSession(id: string): Promise<boolean> {
+    if (isUsagePaused(this.deps.store.get(id))) return false;
+    try {
+      await this.deps.service.archive(id, undefined, "drain", true);
+      return true;
+    } catch (err) {
+      console.warn(`[drain] archive failed for ${id}:`, err);
+      return false;
+    }
+  }
+
   /** Reap a session whose PR was observed merged out-of-band — a human or GitHub
    *  auto-merge the poller STILL tracked (the retire path drops the pr-cache first,
    *  so this fires only for a merge that beat the retire). Closes the backlog issue
@@ -5936,10 +5933,11 @@ export class DrainService {
     // Shelved: never auto-decommissioned. Its epic integration is already recorded by the
     // callers; the merged session waits in the Shelved group until unshelved or decommissioned by
     // hand (Clear merged skips shelved sessions).
-    if (isShelved(s)) return;
+    if (isUsagePaused(s) || isShelved(s)) return;
     await settleMergedSession(s, {
+      canArchive: (id) => !isUsagePaused(this.deps.store.get(id)),
       resolveForge: this.deps.resolveForge,
-      archive: (sid, reason) => this.deps.service.archive(sid, undefined, reason),
+      archive: (sid, reason) => this.deps.service.archive(sid, undefined, reason, true),
       dropPrCache: this.deps.dropPrCache,
       emitArchived: this.deps.emitArchived,
       retainClaim: (sid) => this.retainClaimOnArchive.add(sid),
@@ -5955,7 +5953,7 @@ export class DrainService {
    *  git state, exactly as the merged transition would have. */
   async onUnshelved(id: string): Promise<void> {
     const s = this.deps.store.get(id);
-    if (!s?.auto || s.status === "archived" || isShelved(s)) return;
+    if (!s?.auto || s.status === "archived" || isUsagePaused(s) || isShelved(s)) return;
     if (this.deps.prCache.snapshot()[id]?.state !== "merged") return;
     await this.reapMerged(s);
   }

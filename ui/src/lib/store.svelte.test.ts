@@ -2295,3 +2295,20 @@ test("seedRemoteBlocks replaces only that machine's entries (#3842)", () => {
   expect(Object.keys(s.remoteBlocks).sort()).toEqual(["a", "c"]);
   expect(s.blocks).toEqual({});
 });
+
+test("usage pause events update a session and can explicitly clear it", () => {
+  const s = new HerdStore();
+  s.apply({ event: "session:new", data: session("pause") });
+  const usagePause = {
+    phase: "paused" as const,
+    since: 1,
+    resumeAt: 2,
+    stopPct: 80,
+    windows: ["week" as const],
+    stopSteerSent: true,
+  };
+  s.apply({ event: "session:usage-pause", data: { id: "pause", usagePause } });
+  expect(s.sessions.find((x) => x.id === "pause")?.usagePause).toEqual(usagePause);
+  s.apply({ event: "session:usage-pause", data: { id: "pause", usagePause: null } });
+  expect(s.sessions.find((x) => x.id === "pause")?.usagePause).toBeNull();
+});

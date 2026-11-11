@@ -1961,6 +1961,16 @@ export interface SessionActivity {
   ciPolling?: { polls: number; inputTokens: number; since: number };
 }
 
+/** Scheduled run waiting for its provider usage window to reset. Times are epoch ms. */
+export interface UsagePause {
+  phase: "requested" | "paused";
+  since: number;
+  resumeAt: number | null;
+  stopPct: number;
+  windows: ("week" | "5h")[];
+  stopSteerSent: boolean;
+}
+
 export interface Session {
   id: string;
   desig: string;
@@ -2020,6 +2030,7 @@ export interface Session {
   /** Operator-shelved: rendered in the folded Shelved group, excluded from needs-you signals,
    *  and left alone by server automation until unshelved. The agent stays alive. */
   shelved?: boolean;
+  usagePause?: UsagePause | null;
   /** Epoch ms when a merge train marked this PR-session in-flight; null when not.
    *  Transient — cleared server-side on merge/close, train archive, or TTL. */
   mergingSince: number | null;
@@ -3571,6 +3582,7 @@ export type WsEvent =
   /** #2863: a background CI restart failed — at the cancel (CI unchanged) or after it (the run is
    *  cancelled but not re-run). */
   | { event: "session:ci-restart-failed"; data: { id: string; reason: "cancel" | "rerun" } }
+  | { event: "session:usage-pause"; data: { id: string; usagePause: UsagePause | null } }
   | { event: "session:shelved"; data: { id: string; shelved: boolean } }
   | {
       event: "session:merging";
@@ -4150,7 +4162,7 @@ export interface ScheduleLaunch {
 export type ScheduleUsageLimit = (
   | { kind: "upTo"; stopPct: number }
   | { kind: "from"; startPct: number; startWindow: "week" | "5h"; stopPct: number }
-) & { onMismatch?: "skip" | "wait" | "otherProvider" };
+) & { pauseAtStop?: boolean; onMismatch?: "skip" | "wait" | "otherProvider" };
 export interface ScheduleUsage {
   provider: AgentProvider;
   window: "week" | "5h" | "max";
@@ -4159,6 +4171,7 @@ export interface ScheduleUsage {
 }
 
 export type ScheduleOutcome =
+  | "paused"
   | "claimed"
   | "spawned"
   | "spawned:failover"
@@ -4179,6 +4192,7 @@ export interface ScheduleRun {
   sessionId: string | null;
   reason: string | null;
   usage?: ScheduleUsage | null;
+  pausedUntil?: number | null;
   at: number;
 }
 

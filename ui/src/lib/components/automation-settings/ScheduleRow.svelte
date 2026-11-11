@@ -121,7 +121,12 @@
           aria-controls={historyId}
           onclick={() => (historyOpen = !historyOpen)}
           >{m.schedules_last_ago({
-            outcome: outcomeLabel(s.lastRun.outcome, s.lastRun.reason, s.lastRun.usage),
+            outcome: outcomeLabel(
+              s.lastRun.outcome,
+              s.lastRun.reason,
+              s.lastRun.usage,
+              s.lastRun.pausedUntil,
+            ),
             ago: relativeTimeAgo(s.lastRun.at, clock.current, getLocale()),
           })}</button
         >
@@ -223,7 +228,7 @@
                 >{historyFmt.format(new Date(run.at))}</time
               >
               <span class={["sc-outcome", outcomeTone(run.outcome)]}
-                >{outcomeLabel(run.outcome, run.reason, run.usage)}</span
+                >{outcomeLabel(run.outcome, run.reason, run.usage, run.pausedUntil)}</span
               >
               {#if run.outcome === "noop" && run.reason}<span class="sc-summary">{run.reason}</span
                 >{/if}

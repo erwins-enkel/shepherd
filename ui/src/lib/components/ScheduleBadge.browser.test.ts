@@ -174,3 +174,53 @@ describe("ScheduleBadge without a name", () => {
     });
   }
 });
+
+describe("ScheduleBadge usage pause", () => {
+  for (const phone of [true, false]) {
+    for (const locale of ["en", "de"] as const) {
+      it(`shows a reset and accessible explanation (${phone}, ${locale})`, async () => {
+        overwriteGetLocale(() => locale);
+        const { badge } = mount(
+          {
+            id: `paused-${phone}-${locale}`,
+            usagePause: {
+              phase: "paused",
+              since: 1,
+              resumeAt: Date.UTC(2026, 10, 16, 9),
+              stopPct: 80,
+              windows: ["week"],
+              stopSteerSent: true,
+            },
+          },
+          phone,
+        );
+        expect(visibleText(badge)).toContain(locale === "de" ? "angehalten bis" : "paused until");
+        expect(badge.getAttribute("title")).toBeNull();
+        badge.focus();
+        badge.click();
+        const tip = document.querySelector<HTMLElement>("[popover]:popover-open");
+        expect(tip?.textContent).toContain(locale === "de" ? "Selbst übernehmen" : "Take over");
+        expect(tip?.textContent).toContain(locale === "de" ? "Fortsetzen" : "Resume");
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+        expect(document.querySelector("[popover]:popover-open")).toBeNull();
+      });
+    }
+  }
+  it("does not announce a requested pause as active", () => {
+    const { badge } = mount(
+      {
+        id: "requested",
+        usagePause: {
+          phase: "requested",
+          since: 1,
+          resumeAt: 2,
+          stopPct: 80,
+          windows: ["week"],
+          stopSteerSent: false,
+        },
+      },
+      false,
+    );
+    expect(visibleText(badge)).toContain("scheduled");
+  });
+});

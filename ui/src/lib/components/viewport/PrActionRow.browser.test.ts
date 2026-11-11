@@ -211,6 +211,34 @@ describe("PrActionRow — merged", () => {
     expect(pullMainAndToast).toHaveBeenCalledExactlyOnceWith("/repo", "release");
   });
 
+  it("a session on another machine: Stilllegen archives it there and never touches this checkout (#3957)", async () => {
+    const h = host();
+    const ondecommission = vi.fn();
+    const ensure = vi.spyOn(repoConfig, "ensure");
+    await render(PrActionRow, {
+      target: h,
+      props: {
+        session: session({
+          isolated: true,
+          repoPath: "/Users/kai/projects/app",
+          host: { instanceId: "m1", name: "MacBook", platform: "macos" },
+          connection: { state: "connected", since: 0 },
+        }),
+        git: mergedGit,
+        status: "idle",
+        ondecommission,
+      },
+    });
+    const b = h.querySelector<HTMLButtonElement>("button.primary")!;
+    expect(b.textContent?.trim()).toBe(m.gitrail_decommission_action());
+    b.click();
+    expect(ondecommission).toHaveBeenCalledExactlyOnceWith("sess-A");
+    expect(pullMainAndToast).not.toHaveBeenCalled();
+    // The machine's checkout path means nothing to this server's repo config.
+    expect(ensure).not.toHaveBeenCalled();
+    ensure.mockRestore();
+  });
+
   it("isolated on a local forge: plain Stilllegen, no pull", async () => {
     const h = host();
     await render(PrActionRow, {

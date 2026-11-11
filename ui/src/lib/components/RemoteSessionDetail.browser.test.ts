@@ -8,7 +8,7 @@ import { m } from "#lib/paraglide/messages.js";
 import { statusLabel } from "#lib/format.js";
 import { sessionStartTab } from "#lib/session-start-tab.svelte.js";
 import { steers } from "#lib/steers.svelte.js";
-import type { BlockReason, PendingAsk, Session, SessionMessages } from "#lib/types.js";
+import type { BlockReason, GitState, PendingAsk, Session, SessionMessages } from "#lib/types.js";
 
 // The terminal's socket is the server's business (bridged to the machine); here it is a spy.
 vi.mock("#lib/pty.js", () => ({
@@ -93,6 +93,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     getPreviewReach: vi.fn(async () => ({ bound: false, url: null, unavailable: null })),
     startPreview: vi.fn(async () => ({ ok: true, command: "bun run dev", mode: "local" })),
     stopPreview: vi.fn(async () => ({ killed: 1 })),
+    mergePr: vi.fn(async () => ({})),
   };
 });
 const api = await import("#lib/api.js");
@@ -115,6 +116,7 @@ afterEach(() => {
     api.getPreviewReach,
     api.startPreview,
     api.stopPreview,
+    api.mergePr,
   ])
     vi.mocked(fn).mockClear();
 });
@@ -739,5 +741,61 @@ describe("RemoteSessionDetail chat", () => {
     } finally {
       steers.list = previous;
     }
+  });
+});
+
+describe("RemoteSessionDetail merge row (#3957)", () => {
+  // The machine's PR state, as the mirror carries it (#3055): open, green and mergeable.
+  const openGit: GitState = {
+    kind: "github",
+    state: "open",
+    number: 3955,
+    url: "https://github.com/acme/app/pull/3955",
+    title: "feat(ios): repository settings",
+    mergeable: true,
+    mergeStateStatus: "clean",
+    checks: "success",
+    deployConfigured: false,
+    headSha: "8e1f408",
+    baseRefName: "epic/3016-settings",
+  };
+
+  it("offers Merge for the epic child's PR there and merges it on its machine after the confirmation", async () => {
+    render(RemoteSessionDetail, {
+      session: remote({ status: "done", baseBranch: "epic/3016-settings", git: openGit }),
+      nowMs: Date.now(),
+    });
+    await page.getByRole("button", { name: m.gitrail_merge_into_epic(), exact: true }).click();
+    const confirm = page
+      .getByRole("dialog")
+      .getByRole("button", { name: m.mergeconfirm_confirm(), exact: true });
+    await expect.element(confirm).toBeEnabled();
+    expect(api.mergePr, "nothing merges before the answer").not.toHaveBeenCalled();
+    await confirm.click();
+    await vi.waitFor(() => expect(api.mergePr).toHaveBeenCalledTimes(1));
+    // The session's own id: the server forwards the merge to the machine that runs it.
+    expect(api.mergePr).toHaveBeenCalledWith(
+      "r1",
+      expect.objectContaining({ confirm: expect.objectContaining({ headSha: "8e1f408" }) }),
+    );
+  });
+
+  it("shows no merge row without an open PR there", async () => {
+    render(RemoteSessionDetail, { session: remote({ status: "done" }), nowMs: Date.now() });
+    await expect.element(page.getByRole("tablist")).toBeInTheDocument();
+    expect(document.querySelector("section.pr-row")).toBeNull();
+  });
+
+  it("shows no merge row while the machine is disconnected", async () => {
+    render(RemoteSessionDetail, {
+      session: remote({
+        status: "done",
+        git: openGit,
+        connection: { state: "disconnected", since: Date.now() },
+      }),
+      nowMs: Date.now(),
+    });
+    await expect.element(page.getByRole("tablist")).toBeInTheDocument();
+    expect(document.querySelector("section.pr-row")).toBeNull();
   });
 });

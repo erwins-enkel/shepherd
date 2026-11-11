@@ -89,9 +89,18 @@ test("GET /api/reviews/inflight returns [] when reviewCache is absent", async ()
 
 // These fixtures have no origin: every setting remains machine-local.
 const LOCAL_CONFIG_METADATA = {
-  repoConfigCommit: null,
   leitrechner: null,
+  leitrechnerStatus: {
+    instanceId: null,
+    name: null,
+    role: "unassigned",
+    reachable: null,
+    allowed: true,
+    pauseReason: null,
+  },
+  repoConfigCommit: null,
   fieldSources: {
+    leitrechner: "rechner",
     criticEnabled: "rechner",
     criticAllPrs: "rechner",
     criticSmellLensEnabled: "rechner",

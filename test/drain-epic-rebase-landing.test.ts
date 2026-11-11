@@ -139,6 +139,7 @@ interface Harness {
 }
 
 function makeHarness(opts: {
+  leitrechner?: ConstructorParameters<typeof DrainService>[0]["leitrechner"];
   autoMergeEnabled?: boolean;
   autoDrainEnabled?: boolean;
   epicRunning?: boolean;
@@ -212,6 +213,7 @@ function makeHarness(opts: {
   };
 
   const drain = new DrainService({
+    leitrechner: opts.leitrechner,
     store,
     service: {
       create: async () => {
@@ -339,6 +341,24 @@ describe("rebaseStuckLandingPrsForRepo (#1071)", () => {
 
   test("gate: autoMergeEnabled ON (autoDrain off, no epic) → pass runs (prStatus called)", async () => {
     const h = makeHarness({
+      leitrechner: {
+        status: () => ({
+          instanceId: "other",
+          name: "Other",
+          role: "remote",
+          reachable: false,
+          allowed: false,
+          pauseReason: "leitrechner_unreachable",
+        }),
+        refresh: async () => ({
+          instanceId: "other",
+          name: "Other",
+          role: "remote",
+          reachable: false,
+          allowed: false,
+          pauseReason: "leitrechner_unreachable",
+        }),
+      },
       autoMergeEnabled: true,
       autoDrainEnabled: false,
       prStatus: async () => cleanPr(),

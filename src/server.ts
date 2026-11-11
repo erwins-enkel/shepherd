@@ -1,3 +1,4 @@
+import { RepoLeitrechnerService } from "./repo-leitrechner";
 import {
   assistantRuntimeBlocks,
   resolveAssistantRuntime,
@@ -749,6 +750,7 @@ export interface AppDeps {
    *  which lazily build-and-cache an instance from `store`(+`events`) on first use.
    *  `index.ts` injects explicit singletons so production shares one instance. */
   repoConfig?: RepoConfigService;
+  repoLeitrechner?: RepoLeitrechnerService;
   /** Minted machine bearer tokens (#2082). Same memo-slot contract as the two above — the
    *  `accessTokens(deps)` accessor lazily builds one from `store`, so `checkAuth` always has an
    *  instance no matter which dispatch entry point the request arrived through. */
@@ -1370,7 +1372,22 @@ function firstRunBlock(): Response | null {
  * singletons, so in production these return that shared instance.
  */
 function repoConfigSvc(deps: AppDeps): RepoConfigService {
-  return (deps.repoConfig ??= new RepoConfigService(deps.store));
+  return (deps.repoConfig ??= new RepoConfigService(deps.store, undefined, repoLeitrechner(deps)));
+}
+function repoLeitrechner(deps: AppDeps): RepoLeitrechnerService {
+  if (deps.repoLeitrechner) return deps.repoLeitrechner;
+  const svc = new RepoLeitrechnerService({
+    config: (repo) => deps.store.getRepoConfig(repo),
+    self: () => instanceIdentity(deps.store),
+    remote: (id) => remoteInstances(deps).get(id),
+    emit: (repoPath, leitrechnerStatus) =>
+      deps.events?.emit("repo:leitrechner", { repoPath, leitrechnerStatus }),
+  });
+  deps.repoLeitrechner = svc;
+  remoteInstances(deps).onChange(() => {
+    for (const repo of listRepos(config.repoRoot)) svc.publish(repo.realPath);
+  });
+  return svc;
 }
 function codexTranscripts(deps: AppDeps): CodexTranscriptLocator {
   return (deps.codexTranscripts ??= new CodexTranscriptLocator());
@@ -2078,6 +2095,7 @@ async function handleInstance({ req, parts, deps }: Ctx): Promise<Response | nul
   const parsed = parseInstanceNamePatch(await req.json().catch(() => null));
   if ("error" in parsed) return json(parsed, 400);
   setInstanceName(deps.store, parsed.name);
+  for (const repo of listRepos(config.repoRoot)) repoLeitrechner(deps).publish(repo.realPath);
   return json(instanceBody(deps));
 }
 
@@ -3484,6 +3502,7 @@ function hasBadBoolField(body: RepoCfgBody): boolean {
 }
 
 type RepoCfgScalars = {
+  leitrechner?: string | null;
   maxAuto?: number;
   autoLabel?: string;
   priorityLabels?: string[];
@@ -3536,6 +3555,10 @@ function parseNullableString(v: unknown): string | null | { error: string } {
 // Each non-boolean field paired with its validator. A validator returns the
 // validated value, or a { error } object that becomes a 400 Response.
 const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => unknown][] = [
+  [
+    "leitrechner",
+    (v) => (isLeitrechner(v) ? v : { error: "leitrechner must be an instance UUID or null" }),
+  ],
   ["maxAuto", parseMaxAuto],
   ["autoLabel", parseAutoLabel],
   ["priorityLabels", parsePriorityLabels],
@@ -3572,6 +3595,7 @@ function parseRepoCfgScalars(body: RepoCfgBody): RepoCfgScalars | Response {
 
 async function parseRepoConfigPatch(req: Request): Promise<
   | {
+      leitrechner?: string | null;
       criticEnabled?: boolean;
       criticAllPrs?: boolean;
       criticSmellLensEnabled?: boolean;
@@ -3627,6 +3651,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
   const scalars = parseRepoCfgScalars(body);
   if (scalars instanceof Response) return scalars;
   const {
+    leitrechner,
     maxAuto,
     autoLabel,
     priorityLabels,
@@ -3661,6 +3686,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     );
   }
   return {
+    leitrechner,
     criticEnabled: body.criticEnabled as boolean | undefined,
     criticAllPrs: body.criticAllPrs as boolean | undefined,
     criticSmellLensEnabled: body.criticSmellLensEnabled as boolean | undefined,
@@ -3831,7 +3857,10 @@ async function refreshLocalRepoConfig(deps: AppDeps, slug: string): Promise<void
     );
   // Populate contexts for every alias before refresh invalidates all aliases sharing Git storage.
   const repos = new Map(paths.map((path) => [repoConfigGitContext(path)?.key ?? path, path]));
-  for (const path of repos.values()) await refreshRepoConfigFile(path);
+  for (const path of repos.values()) {
+    await refreshRepoConfigFile(path);
+    repoLeitrechner(deps).invalidate(path);
+  }
 }
 
 type RepoConfigLeaf = "machine" | "project";

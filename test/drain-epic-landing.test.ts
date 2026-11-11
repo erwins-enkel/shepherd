@@ -139,6 +139,7 @@ interface Harness {
 }
 
 function makeHarness(opts: {
+  leitrechner?: ConstructorParameters<typeof DrainService>[0]["leitrechner"];
   subIssues: SubIssueRef[];
   prStatus?: (head: string) => Promise<PrStatus>;
   openPr?: (o: OpenPrInput) => Promise<PrStatus>;
@@ -214,6 +215,7 @@ function makeHarness(opts: {
   };
 
   const drain = new DrainService({
+    leitrechner: opts.leitrechner,
     store,
     service: service as never,
     resolveForge: () => spy.forge,
@@ -272,6 +274,24 @@ function seedCompleted(h: Harness, children: number[] = [320]): void {
 describe("ensureLandingPr — open + track the epic→default landing PR (#635)", () => {
   test("opens once: pending row + prStatus none → openPr exactly once, row open with returned facts", async () => {
     const h = makeHarness({
+      leitrechner: {
+        status: () => ({
+          instanceId: "other",
+          name: "Other",
+          role: "remote",
+          reachable: false,
+          allowed: false,
+          pauseReason: "leitrechner_unreachable",
+        }),
+        refresh: async () => ({
+          instanceId: "other",
+          name: "Other",
+          role: "remote",
+          reachable: false,
+          allowed: false,
+          pauseReason: "leitrechner_unreachable",
+        }),
+      },
       subIssues: [],
       noEpicRun: true,
       openPr: async () => ({

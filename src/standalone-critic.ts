@@ -1,3 +1,4 @@
+import type { RepoLeitrechnerService } from "./repo-leitrechner";
 import { admitRoleCapacity } from "./codex-capacity";
 /**
  * Standalone repo-level PR critic (issue #596). Reviews ANY open, CI-green, human/agent-authored
@@ -86,6 +87,7 @@ const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_CONCURRENCY = 2;
 
 export interface StandalonePrCriticDeps extends MembraneSeams {
+  leitrechner?: Pick<RepoLeitrechnerService, "refresh" | "status">;
   store: Pick<
     SessionStore,
     | "getRepoConfig"
@@ -98,6 +100,7 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
     | "completeReviewerSpawn"
     | "listEpicCompleted"
     | "getEpicParentByBranch"
+    | "getEpicIntegrationBranch"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop" | "listAsync" | "tabsAsync" | "closeTab">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
@@ -207,7 +210,14 @@ export class StandalonePrCriticService {
    * the (b)-only repos down to JUST the landing PR (head == the integration branch).
    */
   async sweep(): Promise<void> {
-    const flagged = this.deps.repos().filter((r) => this.deps.store.getRepoConfig(r).criticAllPrs);
+    for (const repo of this.deps.repos()) await this.deps.leitrechner?.refresh(repo);
+    const flagged = this.deps
+      .repos()
+      .filter(
+        (r) =>
+          this.deps.store.getRepoConfig(r).criticAllPrs &&
+          this.deps.leitrechner?.status(r).allowed !== false,
+      );
     // A reviewable landing PR is a non-dismissed epic_completed row that is still open
     // (landingState === "open") — a merged landing PR is no longer reviewable, so it drops out of
     // the union. listEpicCompleted() already filters out dismissed rows. No-arg = every repo. The
@@ -244,6 +254,7 @@ export class StandalonePrCriticService {
   /** Enumerate + filter + spawn for ONE repo. Split out of sweep() so the per-repo filter
    *  reasoning isn't tangled with the cross-repo round-robin. */
   private async sweepRepo(repoPath: string): Promise<void> {
+    await this.deps.leitrechner?.refresh(repoPath);
     const forge = this.deps.resolveForge(repoPath);
     if (!forge) return; // no forge → can't enumerate
     // Fresh, top-of-sweep snapshot of session-owned branches (NEVER cached — a session may have
@@ -319,6 +330,7 @@ export class StandalonePrCriticService {
     criticEnabled: boolean,
     criticAllPrs: boolean,
   ): boolean {
+    if (!this.repoStartAllowed(repoPath, pr)) return false;
     if (pr.isDraft) return false;
     if (pr.kind !== "regular") return false; // Dependabot / release-please bots — not for the critic
     if (!pr.headSha || !pr.headRefName) {
@@ -416,6 +428,25 @@ export class StandalonePrCriticService {
       return null;
     }
     return meta;
+  }
+
+  private repoStartAllowed(repoPath: string, pr: PullRequest): boolean {
+    if (this.deps.leitrechner?.status(repoPath).allowed !== false) return true;
+    // Only this host's recorded open landing PR is exempt, never an arbitrary epic/* PR.
+    return (
+      !!pr.headRefName &&
+      isEpicIntegrationBranch(pr.headRefName) &&
+      this.deps.store
+        .listEpicCompleted(repoPath)
+        .some(
+          (row) =>
+            row.landingState === "open" &&
+            row.landingPrNumber === pr.number &&
+            (!this.deps.store.getEpicIntegrationBranch(repoPath, row.parentIssueNumber) ||
+              this.deps.store.getEpicIntegrationBranch(repoPath, row.parentIssueNumber) ===
+                pr.headRefName),
+        )
+    );
   }
 
   /**
@@ -658,6 +689,11 @@ export class StandalonePrCriticService {
     // malicious PR could commit a strict-JSON verdict / `-o` fallback to short-circuit the real critic
     // (see scrubStaleVerdictArtifacts). Scrub right before spawn.
     scrubStaleVerdictArtifacts(worktreePath, VERDICT_FILE, VERDICT_BODY_FILE);
+    await this.deps.leitrechner?.refresh(repoPath);
+    if (!this.repoStartAllowed(repoPath, pr)) {
+      this.deps.worktree.remove(worktreePath);
+      return;
+    }
     let terminalId: string;
     try {
       terminalId = (

@@ -1253,6 +1253,44 @@ test("the decision-model connection is cookie-admin only and never returns the k
   }
 });
 
+test("leitrechner PUT commits selection and emits the same status as GET without metadata becoming a rule", async () => {
+  const r = configRepo(s.tmpRoot);
+  const at = `/api/repo-config?repo=${encodeURIComponent(r.b)}`;
+  try {
+    const before = configGit(r.origin, "rev-parse", "main");
+    const frames = await collectEvents(s, token, async () => {
+      const view = (await request(
+        "PUT",
+        "/api/repo-config",
+        200,
+        { leitrechner: "ffffffff-ffff-4fff-8fff-ffffffffffff", criticAllPrs: true },
+        at,
+      )) as any;
+      expect(view.leitrechner).toBe("ffffffff-ffff-4fff-8fff-ffffffffffff");
+      expect(view.leitrechnerStatus).toMatchObject({
+        instanceId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        role: "unknown",
+        allowed: true,
+        reachable: null,
+      });
+      expect(view.fieldSources.leitrechner).toBe("repo");
+      expect(view.fieldSources.leitrechnerStatus).toBeUndefined();
+    });
+    expect(configGit(r.origin, "rev-list", "--count", `${before}..main`)).toBe("1");
+    const frame = frames.find((f) => f.event === "repo:leitrechner");
+    expect(frame).toBeDefined();
+    validateEvent("repo:leitrechner", frame!.data);
+    const read = (await request("GET", "/api/repo-config", 200, undefined, at)) as any;
+    expect((frame!.data as any).leitrechnerStatus).toEqual(read.leitrechnerStatus);
+    await request("PUT", "/api/repo-config", 400, { leitrechner: " id " }, at);
+    await request("PUT", "/api/repo-config", 400, { leitrechner: 8 }, at);
+    const clear = (await request("PUT", "/api/repo-config", 200, { leitrechner: null }, at)) as any;
+    expect(clear.leitrechnerStatus).toMatchObject({ role: "unassigned", allowed: true });
+  } finally {
+    r.close();
+  }
+});
+
 test("settings owns a full unauthenticated sweep and its exception coverage", async () => {
   for (const op of OPS.filter((o) => o.endsWith(" 401"))) {
     const [method, path] = op.split(" ") as [string, string];

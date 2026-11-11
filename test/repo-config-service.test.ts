@@ -159,3 +159,13 @@ test("patch: accepts sandboxProfile inherit and persists it (#2100)", async () =
   expect(r.ok && r.config.sandboxProfile).toBe("inherit");
   expect(store.getRepoConfig("/r").sandboxProfile).toBe("inherit");
 });
+
+test("read includes derived leitrechner status outside fieldSources", () => {
+  const { svc } = harness();
+  expect(svc.read("/r").leitrechnerStatus).toMatchObject({
+    instanceId: null,
+    role: "unassigned",
+    allowed: true,
+  });
+  expect(svc.read("/r").fieldSources).not.toHaveProperty("leitrechnerStatus");
+});

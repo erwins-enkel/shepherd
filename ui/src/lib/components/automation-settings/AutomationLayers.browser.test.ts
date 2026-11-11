@@ -7,7 +7,7 @@ import { repos } from "#lib/repos.svelte.js";
 import { repoConfig } from "#lib/reviews.svelte.js";
 import { m } from "#lib/paraglide/messages.js";
 let puts: Record<string, unknown>[];
-function setup(commit: string | null = "abc123", offline = false) {
+function setup(commit: string | null = "abc123", offline = false, metadataFailed = false) {
   repoConfig.loaded = {};
   repos.loaded = false;
   puts = [];
@@ -31,7 +31,7 @@ function setup(commit: string | null = "abc123", offline = false) {
     defaultModel: "inherit",
     defaultEffort: "inherit",
     maxAuto: 1,
-    repoConfigBranch: "trunk",
+    repoConfigBranch: metadataFailed ? undefined : "trunk",
     repoConfigCommit: commit,
     leitrechner: offline ? remote : null,
     autoDrainEnabled: true,
@@ -254,5 +254,24 @@ it("refreshes the label when confirmation detects concurrent rule changes", asyn
   await expect
     .element(page.getByRole("textbox", { name: m.drain_label_label(), exact: true }))
     .toHaveValue("shepherd:external");
+  expect(puts).toEqual([]);
+});
+
+it("unknown rule target shows retry and locks rules without claiming they are local", async () => {
+  setup(null, false, true);
+  await expect.element(page.getByRole("alert")).toHaveTextContent(m.automation_layers_load_error());
+  await expect
+    .element(
+      page
+        .getByRole("region", { name: m.automation_layers_shared(), exact: true })
+        .getByRole("button", { name: m.automation_layers_retry() }),
+    )
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("switch", { name: m.automation_critic_name(), exact: true }))
+    .toBeDisabled();
+  await expect
+    .element(page.getByText(m.automation_layers_not_shared(), { exact: true }).first())
+    .not.toBeInTheDocument();
   expect(puts).toEqual([]);
 });

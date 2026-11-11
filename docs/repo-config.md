@@ -58,7 +58,8 @@ GET and successful PUT responses include:
   fields filled with defaults and literal `inherit` values still have source `repo` when a
   valid file is active. Response metadata is excluded from this map.
 - `repoConfigBranch`: the exact default branch used for shared-rule commits, including before
-  a file exists; `null` for local-only or lightweight repositories.
+  a file exists; `null` for local-only or lightweight repositories. Omitted when forge discovery
+  fails; the panel blocks rule edits and offers retry until the target is known.
 - `repoConfigCommit`: the full selected default-branch commit SHA, or `null` when no valid
   file is active (missing, invalid or disabled).
 

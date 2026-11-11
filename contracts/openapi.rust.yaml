@@ -9224,7 +9224,7 @@ components:
             effort:
               type: string
         repoConfigBranch:
-          description: Default branch used for shared-rule commits; null for local-only repositories.
+          description: Default branch used for shared-rule commits; null for local-only repositories. Omitted when forge discovery fails; retry before editing shared rules.
           type: string
           nullable: true
         repoConfigCommit:

@@ -91,7 +91,9 @@
   {#if editor.view?.repoConfigCommit}<p class="source">
       <span>.shepherd/config.json</span> · <span>{editor.view.repoConfigCommit}</span>
     </p>
-  {:else if editor.view?.repoConfigCommit === null}<p class="source">
+  {:else if editor.view?.repoConfigCommit === null && editor.view.repoConfigBranch !== undefined}<p
+      class="source"
+    >
       {m.automation_layers_not_shared()}
     </p>{/if}
   {#if failed}<p role="alert">{m.automation_layers_load_error()}</p>

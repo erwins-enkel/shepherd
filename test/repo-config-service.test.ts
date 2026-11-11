@@ -227,7 +227,7 @@ test("origins without a supported forge keep rules local until a config file exi
   }
 });
 
-test("read: failed forge discovery without a config file exposes only local settings", async () => {
+test("read: failed forge discovery without a config file leaves the rule target unknown", async () => {
   const { configRepo } = await import("./helpers/repo-config-git");
   const repo = configRepo();
   const store = new SessionStore(":memory:");
@@ -238,8 +238,9 @@ test("read: failed forge discovery without a config file exposes only local sett
     expect(svc.read(repo.a)).toMatchObject({
       criticEnabled: true,
       repoConfigCommit: null,
-      repoConfigBranch: null,
+      repoConfigBranch: undefined,
     });
+    expect(JSON.parse(JSON.stringify(svc.read(repo.a)))).not.toHaveProperty("repoConfigBranch");
   } finally {
     repo.close();
   }

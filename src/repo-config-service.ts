@@ -38,7 +38,7 @@ export type RepoConfigView = RepoConfig & {
   sandboxDefaultProfile: SandboxProfile;
   fieldSources: Record<keyof RepoConfig, "repo" | "rechner">;
   repoConfigCommit: string | null;
-  repoConfigBranch: string | null;
+  repoConfigBranch?: string | null;
   leitrechner: string | null;
   leitrechnerStatus: RepoLeitrechnerStatus;
   pendingRepoConfig?: PendingRepoConfig | null;
@@ -224,12 +224,13 @@ export class RepoConfigService {
     const fieldSources = Object.fromEntries(
       Object.keys(config).map((key) => [key, file && isRepoRuleKey(key) ? "repo" : "rechner"]),
     ) as RepoConfigView["fieldSources"];
-    let repoConfigBranch: string | null = null;
+    let repoConfigBranch: string | null | undefined = null;
     try {
       if (local.repoMode !== "lightweight" && (file || this.ruleForge(dir, local.repoMode)))
         repoConfigBranch = repoConfigGitContext(dir)?.branch ?? null;
     } catch {
-      // Forge discovery can be unavailable; keep local settings readable without promising a commit.
+      // Unknown metadata must block rule edits until retry, never imply local-only persistence.
+      repoConfigBranch = undefined;
     }
     return {
       ...config,

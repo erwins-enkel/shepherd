@@ -232,3 +232,20 @@ test("a delayed machine response cannot restore old rules after the commit", asy
   expect(repoConfig.isEnabled(repo)).toBe(false);
   expect(editor.isEnabled(repo)).toBe(false);
 });
+
+test("unknown rule target blocks toggles until retry restores staged writes", async () => {
+  delete config.repoConfigBranch;
+  const editor = new RepoConfigEditor(repo);
+  await editor.ensure(repo);
+  await editor.toggle(repo);
+  expect(puts).toEqual([]);
+  expect(editor.dirty).toBe(false);
+  config.repoConfigBranch = "trunk";
+  await editor.reload(repo);
+  await editor.toggle(repo);
+  expect(puts).toEqual([]);
+  expect(editor.draft).toEqual({ criticEnabled: false });
+  await editor.prepare();
+  await editor.save();
+  expect(puts).toEqual([{ criticEnabled: false }]);
+});

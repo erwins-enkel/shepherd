@@ -110,7 +110,8 @@
     if (field === "bootstrap" || field === "schedules" || field.startsWith("roles."))
       return m.automation_layers_separate();
     if (fieldLayer(field) !== "repo") return m.automation_layers_local();
-    if (editor?.view?.repoConfigCommit === undefined) return m.automation_layers_unknown_source();
+    if (editor?.view?.repoConfigBranch === undefined || editor.view.repoConfigCommit === undefined)
+      return m.automation_layers_unknown_source();
     return fromFile && editor.view.repoConfigCommit
       ? m.automation_layers_file()
       : m.automation_layers_not_shared();

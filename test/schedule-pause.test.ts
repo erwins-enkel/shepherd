@@ -118,7 +118,13 @@ function harness(provider: AgentProvider = "claude", pauseAtStop = true) {
   const makeService = () =>
     new SchedulePauseService({
       store,
-      limits: () => limits,
+      limits: () => ({
+        ...limits,
+        observed: limits.observed ?? {
+          week: limits.week ? { ...limits.week, scrapedAt: now } : null,
+          session5h: limits.session5h ? { ...limits.session5h, scrapedAt: now } : null,
+        },
+      }),
       now: () => now,
       stop: async (id, text) => {
         stops.push(text);
@@ -326,11 +332,43 @@ test("a hard halt without telemetry tolerates a confirmed absent 5h window", asy
   h.svc.onHalt(h.s.id, "usage_limit");
   expect(h.store.get(h.s.id)?.usagePause?.resumeAt).toBeNull();
   h.limits().week = { pct: 90, resetAt: 200 };
-  h.limits().observed = { week: null, session5h: null, session5hAbsent: true };
+  h.limits().observed = {
+    week: { pct: 90, resetAt: 200, scrapedAt: 100 },
+    session5h: null,
+    session5hAbsent: true,
+  };
   await h.svc.tick();
   expect(h.store.get(h.s.id)?.usagePause?.resumeAt).toBe(200);
   h.setNow(200);
-  h.limits().week = { pct: 10, resetAt: 400 };
+  h.limits().week = null;
+  h.limits().stale = true;
+  h.limits().observed!.week = { pct: 10, resetAt: 400, scrapedAt: 200 };
+  await h.svc.tick();
+  expect(h.resumes).toHaveLength(1);
+});
+
+test("computed Claude anchors without observed resets remain unknown", async () => {
+  const h = harness();
+  h.limits().observed = { week: null, session5h: null };
+  h.store.update(h.s.id, { status: "done" });
+  await h.svc.tick();
+  expect(h.store.get(h.s.id)?.usagePause?.resumeAt).toBeNull();
+  h.setNow(200);
+  h.limits().week = { pct: 0, resetAt: 400 };
+  await h.svc.tick();
+  expect(h.resumes).toHaveLength(0);
+});
+
+test("rolled-forward estimates require a provider sample confirming the new window", async () => {
+  const h = harness();
+  h.store.update(h.s.id, { status: "done" });
+  await h.svc.tick();
+  h.setNow(200);
+  h.limits().week = { pct: 0, resetAt: 400 };
+  h.limits().observed = { week: { pct: 80, resetAt: 200, scrapedAt: 100 }, session5h: null };
+  await h.svc.tick();
+  expect(h.resumes).toHaveLength(0);
+  h.limits().observed!.week = { pct: 0, resetAt: 400, scrapedAt: 200 };
   await h.svc.tick();
   expect(h.resumes).toHaveLength(1);
 });

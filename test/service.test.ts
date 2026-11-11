@@ -11357,3 +11357,41 @@ test("scheduled usage stop disables native Claude auto-continue only when enable
     JSON.parse(spawnSettingsOverlay({ pauseAtUsageStop: true })).autoContinueAtUsageLimit,
   ).toBe(false);
 });
+
+test("an automatic archive rechecks a pause after its asynchronous teardown prelude", async () => {
+  const store = new SessionStore(":memory:");
+  const s = resumable(store);
+  let entered!: () => void,
+    release!: () => void,
+    removed = false;
+  const began = new Promise<void>((r) => (entered = r));
+  const gate = new Promise<void>((r) => (release = r));
+  const svc = new SessionService({
+    store,
+    namer: () => "x",
+    worktree: {
+      remove: () => {
+        removed = true;
+      },
+    } as any,
+    herdr: { stop: async () => {} } as any,
+    beforeArchive: async () => {
+      entered();
+      await gate;
+    },
+  });
+  const archiving = svc.archive(s.id, undefined, "merged", true);
+  await began;
+  store.setUsagePause(s.id, {
+    phase: "requested",
+    since: 1,
+    resumeAt: 2,
+    stopPct: 80,
+    windows: ["week"],
+    stopSteerSent: false,
+  });
+  release();
+  await expect(archiving).rejects.toThrow("usage pause");
+  expect(removed).toBe(false);
+  expect(store.get(s.id)?.status).not.toBe("archived");
+});

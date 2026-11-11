@@ -1,3 +1,4 @@
+import { UsagePauseArchiveCanceled } from "./schedule-pause";
 import { epicParentFromBranch, isEpicChild } from "./epic-branch";
 import type { GitForge } from "./forge/types";
 import { sessionIssue } from "./target-repo";
@@ -127,6 +128,8 @@ async function resolveMergedBase(
 
 export interface MergeTeardownDeps {
   resolveForge: (repoPath: string) => GitForge | null;
+  /** Fresh veto for automatic settlement after asynchronous merge/issue work. */
+  canArchive?: (id: string) => boolean;
   /** service.archive */
   archive: (id: string, reason?: SessionArchiveReason) => Promise<number>;
   /** prPoller.drop */
@@ -154,6 +157,7 @@ export interface MergeTeardownDeps {
  * sessions (no issue) skip the close/claim entirely.
  */
 export async function settleMergedSession(s: Session, deps: MergeTeardownDeps): Promise<void> {
+  if (deps.canArchive?.(s.id) === false) return;
   try {
     deps.onMerged?.(s);
   } catch (err) {
@@ -174,16 +178,12 @@ export async function settleMergedSession(s: Session, deps: MergeTeardownDeps): 
   // target repo, and say so on the issue.
   if (s.misroutedTarget && s.issueNumber != null) {
     await noteMisroutedMerge(s, s.issueNumber, deps);
-    await deps.archive(s.id, "merged");
-    deps.dropPrCache(s.id);
-    deps.emitArchived(s.id);
+    await archiveMergedSession(s.id, deps);
     return;
   }
   if (s.auto && s.issueNumber != null && (deps.isIntegratedEpicChild(s) || isEpicChild(s))) {
     deps.retainClaim(s.id);
-    await deps.archive(s.id, "merged");
-    deps.dropPrCache(s.id);
-    deps.emitArchived(s.id);
+    await archiveMergedSession(s.id, deps);
     return;
   }
   // #3245: a routed session closes its HOME issue, in the home repo's tracker.
@@ -206,9 +206,19 @@ export async function settleMergedSession(s: Session, deps: MergeTeardownDeps): 
     // any instance re-spawning already-merged work.
     if (!closed) deps.retainClaim(s.id);
   }
-  await deps.archive(s.id, "merged");
-  deps.dropPrCache(s.id);
-  deps.emitArchived(s.id);
+  await archiveMergedSession(s.id, deps);
+}
+
+async function archiveMergedSession(id: string, deps: MergeTeardownDeps): Promise<void> {
+  if (deps.canArchive?.(id) === false) return;
+  try {
+    await deps.archive(id, "merged");
+  } catch (err) {
+    if (err instanceof UsagePauseArchiveCanceled) return;
+    throw err;
+  }
+  deps.dropPrCache(id);
+  deps.emitArchived(id);
 }
 
 /** #3245: tell a misrouted session's issue why its merge did not close it. Best-effort. */

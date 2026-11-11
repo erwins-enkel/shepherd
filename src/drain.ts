@@ -451,7 +451,12 @@ export interface DrainDeps {
   >;
   service: {
     create(input: CreateSessionInput): Promise<Session>;
-    archive(id: string, reapKeys?: string[], reason?: SessionArchiveReason): Promise<number>;
+    archive(
+      id: string,
+      reapKeys?: string[],
+      reason?: SessionArchiveReason,
+      automatic?: boolean,
+    ): Promise<number>;
   };
   resolveForge: (repoPath: string) => GitForge | null;
   /** A cold repo (#2837): forge reads serve their cache and start no new call. */
@@ -5079,7 +5084,7 @@ export class DrainService {
     this.stackConfirmHeld.delete(repoPath);
     try {
       if (isUsagePaused(this.deps.store.get(decision.sessionId))) return;
-      await this.deps.service.archive(decision.sessionId, undefined, "drain");
+      await this.deps.service.archive(decision.sessionId, undefined, "drain", true);
     } catch (err) {
       // The squash-merge already landed (PR is now MERGED) but teardown didn't finish. This is
       // recoverable, not a permanent strand: we deliberately do NOT dropPrCache/emit below, so the
@@ -5150,7 +5155,7 @@ export class DrainService {
     // session that didn't actually archive.
     try {
       if (isUsagePaused(this.deps.store.get(decision.sessionId))) return;
-      await this.deps.service.archive(decision.sessionId, undefined, "drain");
+      await this.deps.service.archive(decision.sessionId, undefined, "drain", true);
     } catch (err) {
       console.warn(`[drain] archive failed for ${decision.sessionId}:`, err);
       return;
@@ -5942,8 +5947,9 @@ export class DrainService {
     // hand (Clear merged skips shelved sessions).
     if (isUsagePaused(s) || isShelved(s)) return;
     await settleMergedSession(s, {
+      canArchive: (id) => !isUsagePaused(this.deps.store.get(id)),
       resolveForge: this.deps.resolveForge,
-      archive: (sid, reason) => this.deps.service.archive(sid, undefined, reason),
+      archive: (sid, reason) => this.deps.service.archive(sid, undefined, reason, true),
       dropPrCache: this.deps.dropPrCache,
       emitArchived: this.deps.emitArchived,
       retainClaim: (sid) => this.retainClaimOnArchive.add(sid),

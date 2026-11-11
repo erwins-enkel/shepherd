@@ -789,6 +789,7 @@ export class AutoMergeService {
     );
     recordIncrementalStackLanding(s, prNumber, this.deps.store);
     await settleMergedSession(s, {
+      canArchive: (id) => !isUsagePaused(this.deps.store.get(id)),
       resolveForge: this.deps.resolveForge,
       archive: (id, reason) => this.deps.service.archive(id, undefined, reason),
       dropPrCache: this.deps.dropPrCache,

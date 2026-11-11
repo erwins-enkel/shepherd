@@ -3377,7 +3377,7 @@ const sessionArchiver = new SessionArchiver({
   // would then be unable to bring back.
   canRespawnConversation: (s) => service.canRespawnConversation(s),
   retainClaim: (id) => drain.retainClaim(id),
-  archive: (id, reason) => service.archive(id, undefined, reason),
+  archive: (id, reason) => service.archive(id, undefined, reason, true),
   dropPrCache: (id) => prPoller.drop(id),
   emitArchived: (id) => events.emit("session:archived", { id }),
 });
@@ -3394,7 +3394,7 @@ const autoMerge = new AutoMergeService({
   capacity: (s) => sessionCapacity("automerge", s),
   store,
   service: {
-    archive: (...args) => service.archive(...args),
+    archive: (id, reapKeys, reason) => service.archive(id, reapKeys, reason, true),
     reply: (id, text) => service.reply(id, text, { automatic: true }),
     resume: (id) => service.resume(id, { automatic: true }),
     resolveMerging: (id, didMerge) => service.resolveMerging(id, didMerge),

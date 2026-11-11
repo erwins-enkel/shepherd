@@ -54,7 +54,7 @@ import {
   operatorAssistantPermissions,
 } from "./operator-assistant-core";
 import { isShelved } from "./shelve";
-import { isUsagePaused, publishUsagePause } from "./schedule-pause";
+import { isUsagePaused, publishUsagePause, UsagePauseArchiveCanceled } from "./schedule-pause";
 import { assistantPermissionRules } from "./operator-assistant-permissions";
 import { claudeConfigPath, ensureRepoRootTrusted } from "./claude-trust";
 import { keyedSingleFlight } from "./single-flight";
@@ -8933,9 +8933,15 @@ export class SessionService {
     id: string,
     reapKeys?: string[],
     reason: SessionArchiveReason = "operator",
+    automatic = false,
   ): Promise<number> {
     const s = this.deps.store.get(id);
     if (!s) return 0;
+    const checkPause = () => {
+      if (automatic && isUsagePaused(this.deps.store.get(id)))
+        throw new UsagePauseArchiveCanceled();
+    };
+    checkPause();
     let reaped = 0;
     if (reapKeys?.length && this.deps.reaper) {
       // Reflect request-time state in `detect` (see refreshForDetect). Conditional
@@ -8945,6 +8951,7 @@ export class SessionService {
       const hit = this.deps.reaper.detect(s).filter((l) => want.has(l.key));
       reaped = this.deps.reaper.reap(hit);
     }
+    checkPause();
     if (s.terminal) {
       // Pane-direct teardown: there is no agent to stop — close the persisted tab (best-effort:
       // the shell may already have exited and taken the tab with it).
@@ -8956,6 +8963,7 @@ export class SessionService {
     } else {
       await this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
     }
+    checkPause();
     // Best-effort pre-teardown hook (recap generation): the recap generator reads the
     // worktree to build its prompt, so it MUST run while the worktree still exists.
     // Race a 15s timeout so a stuck git can never permanently stall teardown / the merge
@@ -8971,6 +8979,7 @@ export class SessionService {
         /* best-effort: recap must never block teardown */
       }
     }
+    checkPause();
     if (s.isolated) this.removeArchivedWorktree(s);
     // Stop the drop-watcher before removing the temp dir so it can't read a torn-down path.
     this.deps.egressWatcher?.stop(id);

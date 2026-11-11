@@ -7,6 +7,13 @@ export function isUsagePaused(s: Pick<Session, "usagePause"> | null | undefined)
   return s?.usagePause != null;
 }
 
+/** Automatic teardown lost its permission while awaiting other work. */
+export class UsagePauseArchiveCanceled extends Error {
+  constructor() {
+    super("automatic archive canceled by usage pause");
+  }
+}
+
 type Window = UsagePause["windows"][number];
 interface Deps {
   store: Pick<
@@ -65,11 +72,22 @@ export class SchedulePauseService {
     );
   }
 
+  private observedWindow(key: Window) {
+    const observed = this.deps.limits().observed;
+    return key === "week" ? observed?.week : observed?.session5h;
+  }
+
   private reset(s: Session, windows: Window[]): number | null {
+    // Computed Claude caps may contain inferred anchors. Only provider observations establish
+    // reset deadlines; percentages still use the same computed gauges as schedule admission.
     const times = windows
       .filter((key) => !this.absent(s, key))
-      .map((key) => this.window(s, key)?.resetAt);
-    return times.length && times.every((t) => t != null && Number.isFinite(t))
+      .map((key) =>
+        (s.agentProvider ?? "claude") === "claude"
+          ? this.observedWindow(key)?.resetAt
+          : this.window(s, key)?.resetAt,
+      );
+    return times.length && times.every((t) => t != null && Number.isFinite(t) && t > this.now())
       ? Math.max(...(times as number[]))
       : null;
   }
@@ -173,7 +191,10 @@ export class SchedulePauseService {
     }
     if (pause.resumeAt! > now) return;
     const source = this.source(s);
-    if (!source || source.stale) return;
+    if (!source) return;
+    const observedOnly =
+      (s.agentProvider ?? "claude") === "claude" && !source.week && !source.session5h;
+    if (source.stale && !observedOnly) return;
     const blocking = this.blocking(s, pause.stopPct);
     if (blocking.length) {
       const resumeAt = this.reset(s, blocking);
@@ -184,12 +205,28 @@ export class SchedulePauseService {
     // Expired/missing telemetry cannot prove that the triggering windows reset.
     if (
       pause.windows.some((key) => {
-        const w = this.window(s, key);
+        const w =
+          this.window(s, key) ??
+          ((s.agentProvider ?? "claude") === "claude" ? this.observedWindow(key) : null);
         return !this.absent(s, key) && (!w || w.resetAt == null || w.resetAt <= now);
       })
     )
       return;
-    if (!source.week && !source.session5h) return;
+    if ((s.agentProvider ?? "claude") === "claude") {
+      if (
+        pause.windows.some((key) => {
+          if (this.absent(s, key)) return false;
+          const sample = this.observedWindow(key);
+          return (
+            !sample ||
+            sample.scrapedAt < pause.resumeAt! ||
+            sample.resetAt <= now ||
+            sample.pct >= pause.stopPct
+          );
+        })
+      )
+        return;
+    } else if (!source.week && !source.session5h) return;
     const delivered = await this.deps.resume(
       s.id,
       "Shepherd: the usage window has reset. Continue where you left off.",

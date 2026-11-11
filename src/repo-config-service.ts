@@ -224,6 +224,13 @@ export class RepoConfigService {
     const fieldSources = Object.fromEntries(
       Object.keys(config).map((key) => [key, file && isRepoRuleKey(key) ? "repo" : "rechner"]),
     ) as RepoConfigView["fieldSources"];
+    let repoConfigBranch: string | null = null;
+    try {
+      if (local.repoMode !== "lightweight" && (file || this.ruleForge(dir, local.repoMode)))
+        repoConfigBranch = repoConfigGitContext(dir)?.branch ?? null;
+    } catch {
+      // Forge discovery can be unavailable; keep local settings readable without promising a commit.
+    }
     return {
       ...config,
       leitrechnerStatus: this.leitrechner?.status(dir) ?? {
@@ -236,10 +243,7 @@ export class RepoConfigService {
       },
       fieldSources,
       repoConfigCommit: file?.commit ?? null,
-      repoConfigBranch:
-        local.repoMode !== "lightweight" && (this.ruleForge(dir, local.repoMode) || file)
-          ? (repoConfigGitContext(dir)?.branch ?? null)
-          : null,
+      repoConfigBranch,
       leitrechner: file?.leitrechner ?? null,
       pendingRepoConfig:
         local.repoMode === "lightweight"

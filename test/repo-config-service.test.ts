@@ -226,3 +226,21 @@ test("origins without a supported forge keep rules local until a config file exi
     }
   }
 });
+
+test("read: failed forge discovery without a config file exposes only local settings", async () => {
+  const { configRepo } = await import("./helpers/repo-config-git");
+  const repo = configRepo();
+  const store = new SessionStore(":memory:");
+  const svc = new RepoConfigService(store, undefined, undefined, () => {
+    throw new Error("forge unavailable");
+  });
+  try {
+    expect(svc.read(repo.a)).toMatchObject({
+      criticEnabled: true,
+      repoConfigCommit: null,
+      repoConfigBranch: null,
+    });
+  } finally {
+    repo.close();
+  }
+});

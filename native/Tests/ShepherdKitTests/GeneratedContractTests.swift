@@ -85,7 +85,7 @@ struct GeneratedContractTests {
     #expect(unknown.rawValue == "epic:progress")
   }
 
-  @Test("scheduled usage pause is optional and preserves reset metadata")
+  @Test("scheduled usage pause is optional and preserves reset metadata", .timeLimit(.minutes(1)))
   func usagePauseDecodes() throws {
     let legacy = try JSONDecoder().decode(Session.self, from: Fixtures.minimalSessionJSON())
     #expect(legacy.usagePause == nil)

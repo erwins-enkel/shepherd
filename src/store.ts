@@ -8266,7 +8266,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   private hydrate(r: SessionRow): Session {
-    const { manualStepsJson, launchMetadataJson, ...session } = r;
+    const { manualStepsJson, launchMetadataJson, usagePauseJson, ...session } = r;
     return {
       ...session,
       isolated: !!r.isolated,
@@ -8332,7 +8332,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       claudeAiConnectors: nullableBool(r.claudeAiConnectors),
       ingressStamp: r.ingressStamp,
       shelved: !!r.shelved,
-      usagePause: safeJsonParse<UsagePause | null>(r.usagePauseJson, null),
+      usagePause: safeJsonParse<UsagePause | null>(usagePauseJson, null),
     } as Session;
   }
 

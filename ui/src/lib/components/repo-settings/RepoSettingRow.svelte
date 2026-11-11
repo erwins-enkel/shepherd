@@ -106,6 +106,15 @@
       .filter(isRuleField)
       .every((key) => editor?.view?.fieldSources?.[key] === "repo"),
   );
+  const sourceLabel = $derived.by(() => {
+    if (field === "bootstrap" || field === "schedules" || field.startsWith("roles."))
+      return m.automation_layers_separate();
+    if (fieldLayer(field) !== "repo") return m.automation_layers_local();
+    if (editor?.view?.repoConfigCommit === undefined) return m.automation_layers_unknown_source();
+    return fromFile && editor.view.repoConfigCommit
+      ? m.automation_layers_file()
+      : m.automation_layers_not_shared();
+  });
   const open = useOpenDetail();
   const lockId = $props.id();
   const off = $derived(disabled || !!locked);
@@ -129,17 +138,7 @@
         {#if explanation}<InfoTip text={explanation} label={explanation.title} />{/if}
       </div>
       {#if editor && field}
-        <span class="rs-source"
-          >{field === "bootstrap" || field === "schedules" || field.startsWith("roles.")
-            ? m.automation_layers_separate()
-            : fieldLayer(field) === "repo"
-              ? editor.view?.repoConfigCommit === undefined
-                ? m.automation_layers_unknown_source()
-                : fromFile && editor.view?.repoConfigCommit
-                  ? m.automation_layers_file()
-                  : m.automation_layers_not_shared()
-              : m.automation_layers_local()}</span
-        >
+        <span class="rs-source">{sourceLabel}</span>
       {/if}
       {#if desc}<div class="rs-desc">{desc}</div>{/if}
       {#if ruleChanges.length && proposal()}

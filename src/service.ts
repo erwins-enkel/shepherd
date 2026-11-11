@@ -225,6 +225,7 @@ import {
   buildEgressReloadNft,
   connectorEgressHosts,
   hostMatchesAllowlist,
+  readEgressSpawnId,
   readEgressSpawnInputs,
   requestEgressReload,
   writeEgressConfigFiles,
@@ -4042,6 +4043,7 @@ export class SessionService {
     writeEgressConfigFiles(tmp, cfg);
     // What reapplyEgressAllowlist rebuilds from when the repo's allowlist changes mid-session.
     writeEgressSpawnInputs(tmp, {
+      spawnId: randomUUID(),
       repoPath: args.repoPath,
       hostGateway,
       connectorHosts: args.connectorHosts,
@@ -4123,8 +4125,13 @@ export class SessionService {
     // A removed entry revokes the IPs already pinned for it; a pure addition keeps them. After an
     // uncertain reload the session may run a list with entries the wanted one lacks: drop them all.
     const flushPinned = inputs.uncertain === true || old.some((e) => !allowlist.includes(e));
-    await writeEgressReloadFiles(tmp, cfg, buildEgressReloadNft(cfg, { flushPinned }));
+    // A respawn of this session (same tmp dir) builds its own config from scratch: never touch its
+    // files. Each check runs in the same loop tick as the sync writes it guards.
+    const current = () => readEgressSpawnId(tmp) === inputs.spawnId;
+    if (!current()) return;
+    writeEgressReloadFiles(tmp, cfg, buildEgressReloadNft(cfg, { flushPinned }));
     const outcome = await requestEgressReload(tmp);
+    if (!current()) return;
     if (outcome !== "applied") {
       console.warn(`[egress] reapply ${sessionId}: ${outcome}`);
       // The session may now run the new list: timeout — the runner can still finish the reload;

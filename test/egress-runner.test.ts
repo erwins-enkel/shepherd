@@ -460,7 +460,7 @@ test.skipIf(SKIP)(
     expect(netnsRuleset(owner)).not.toContain("allowed_p8443");
 
     const cfg = buildEgressConfig(["api.anthropic.com", "corp.example.com:8443"], { tmpDir: dir });
-    await writeEgressReloadFiles(dir, cfg, buildEgressReloadNft(cfg, { flushPinned: false }));
+    writeEgressReloadFiles(dir, cfg, buildEgressReloadNft(cfg, { flushPinned: false }));
     expect(await requestEgressReload(dir)).toBe("applied");
 
     const rules = netnsRuleset(owner);
@@ -474,7 +474,7 @@ test.skipIf(SKIP)(
 
     // A removal reload (drop + recreate the tables) also applies.
     const shrunk = buildEgressConfig(["api.anthropic.com"], { tmpDir: dir });
-    await writeEgressReloadFiles(dir, shrunk, buildEgressReloadNft(shrunk, { flushPinned: true }));
+    writeEgressReloadFiles(dir, shrunk, buildEgressReloadNft(shrunk, { flushPinned: true }));
     expect(await requestEgressReload(dir)).toBe("applied");
     expect(netnsRuleset(owner)).not.toContain("allowed_p8443");
 

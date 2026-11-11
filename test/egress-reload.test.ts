@@ -1,13 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildEgressConfig,
   buildEgressReloadNft,
+  readEgressSpawnId,
   readEgressSpawnInputs,
   requestEgressReload,
+  writeEgressConfigFiles,
   writeEgressReloadFiles,
   writeEgressSpawnInputs,
 } from "../src/egress";
@@ -45,14 +47,21 @@ describe("buildEgressReloadNft", () => {
 });
 
 describe("writeEgressReloadFiles", () => {
-  test("writes the reload script, argv and ruleset", async () => {
+  test("writes the reload script, argv and ruleset", () => {
     const d = tmp();
     const cfg = buildEgressConfig(["a.example.com"], { tmpDir: d });
-    await writeEgressReloadFiles(d, cfg, "RELOAD");
+    writeEgressReloadFiles(d, cfg, "RELOAD");
     expect(readFileSync(join(d, "egress.reload.nft"), "utf8")).toBe("RELOAD");
     expect(readFileSync(join(d, "dnsmasq.argv"), "utf8")).toBe(cfg.dnsmasqArgv.join("\n"));
     expect(readFileSync(join(d, "egress.nft"), "utf8")).toBe(cfg.nftRuleset);
   });
+});
+
+test("writeEgressConfigFiles drops a reload script left by an earlier spawn", () => {
+  const d = tmp();
+  writeFileSync(join(d, "egress.reload.nft"), "stale");
+  writeEgressConfigFiles(d, buildEgressConfig(["a.example.com"], { tmpDir: d }));
+  expect(existsSync(join(d, "egress.reload.nft"))).toBe(false);
 });
 
 describe("requestEgressReload", () => {
@@ -123,6 +132,7 @@ describe("egress spawn inputs", () => {
   test("round-trips", async () => {
     const d = tmp();
     const inputs = {
+      spawnId: "sp-1",
       repoPath: "/r",
       hostGateway: { ip: "10.0.2.2", port: 7331 },
       connectorHosts: ["mcp-proxy.anthropic.com"],
@@ -130,11 +140,13 @@ describe("egress spawn inputs", () => {
     };
     writeEgressSpawnInputs(d, inputs);
     expect(await readEgressSpawnInputs(d)).toEqual(inputs);
+    expect(readEgressSpawnId(d)).toBe("sp-1");
   });
 
   test("absent or malformed → null", async () => {
     const d = tmp();
     expect(await readEgressSpawnInputs(d)).toBeNull();
+    expect(readEgressSpawnId(d)).toBeNull();
     writeFileSync(join(d, "egress-spawn.json"), "{not json");
     expect(await readEgressSpawnInputs(d)).toBeNull();
     writeFileSync(join(d, "egress-spawn.json"), JSON.stringify({ repoPath: "/r", allowlist: [1] }));

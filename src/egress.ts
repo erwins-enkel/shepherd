@@ -17,6 +17,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   rmSync,
   writeFileSync,
@@ -978,6 +979,8 @@ export function writeEgressConfigFiles(tmpDir: string, cfg: EgressConfig): void 
   writeFileSync(join(tmpDir, "dnsmasq.argv"), cfg.dnsmasqArgv.join("\n"), "utf8");
   writeFileSync(join(tmpDir, "resolv.conf"), cfg.resolvConf, "utf8");
   writeFileSync(join(tmpDir, "nsswitch.conf"), cfg.nsswitchConf, "utf8");
+  // A reload script left from an earlier spawn of this session must never reach the new runner.
+  rmSync(join(tmpDir, "egress.reload.nft"), { force: true });
 }
 
 // ── live reload (allowlist edits reach running sessions) ───────────────────────
@@ -1004,15 +1007,13 @@ export function buildEgressReloadNft(cfg: EgressConfig, opts: { flushPinned: boo
   return prefix + cfg.nftRuleset;
 }
 
-/** Write the reload artefacts: the reload nft script plus the new dnsmasq argv + ruleset. */
-export async function writeEgressReloadFiles(
-  tmpDir: string,
-  cfg: EgressConfig,
-  reloadNft: string,
-): Promise<void> {
-  await fsp.writeFile(join(tmpDir, "egress.reload.nft"), reloadNft, "utf8");
-  await fsp.writeFile(join(tmpDir, "dnsmasq.argv"), cfg.dnsmasqArgv.join("\n"), "utf8");
-  await fsp.writeFile(join(tmpDir, "egress.nft"), cfg.nftRuleset, "utf8");
+/** Write the reload artefacts: the reload nft script plus the new dnsmasq argv + ruleset. Sync
+ *  (tiny files) so a caller can check {@link readEgressSpawnId} and write in one loop tick, with
+ *  no respawn of the session slipping in between. */
+export function writeEgressReloadFiles(tmpDir: string, cfg: EgressConfig, reloadNft: string): void {
+  writeFileSync(join(tmpDir, "egress.reload.nft"), reloadNft, "utf8");
+  writeFileSync(join(tmpDir, "dnsmasq.argv"), cfg.dnsmasqArgv.join("\n"), "utf8");
+  writeFileSync(join(tmpDir, "egress.nft"), cfg.nftRuleset, "utf8");
 }
 
 /** How a live reload request ended. `unsupported`: no reload loop listening (a runner from
@@ -1077,6 +1078,8 @@ export async function requestEgressReload(
 /** What a session's egress spawn was built from, so a live reload can rebuild the same config
  *  with a changed allowlist. Persisted as `egress-spawn.json` in the session's egress tmp dir. */
 export interface EgressSpawnInputs {
+  /** Fresh per spawn: a reapply that sees it change knows the session was respawned meanwhile. */
+  spawnId: string;
   repoPath: string;
   hostGateway?: { ip: string; port: number };
   connectorHosts: string[];
@@ -1106,6 +1109,19 @@ function isHostGateway(v: unknown): v is { ip: string; port: number } {
   );
 }
 
+/** The spawn id in the session's `egress-spawn.json`, or null. Sync, for the check-then-write a
+ *  reapply does in one loop tick (see {@link writeEgressReloadFiles}). */
+export function readEgressSpawnId(tmpDir: string): string | null {
+  try {
+    const raw = readFileSync(join(tmpDir, SPAWN_INPUTS_FILE), "utf8");
+    if (raw.length > MAX_SPAWN_INPUTS_BYTES) return null;
+    const id = (JSON.parse(raw) as { spawnId?: unknown }).spawnId;
+    return typeof id === "string" ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The session's {@link EgressSpawnInputs}, or null when absent or malformed. */
 export async function readEgressSpawnInputs(tmpDir: string): Promise<EgressSpawnInputs | null> {
   try {
@@ -1113,6 +1129,7 @@ export async function readEgressSpawnInputs(tmpDir: string): Promise<EgressSpawn
     if (raw.length > MAX_SPAWN_INPUTS_BYTES) return null;
     const v = JSON.parse(raw) as Partial<EgressSpawnInputs>;
     const ok =
+      typeof v.spawnId === "string" &&
       typeof v.repoPath === "string" &&
       isStringArray(v.connectorHosts) &&
       isStringArray(v.allowlist) &&

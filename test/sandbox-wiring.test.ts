@@ -1160,13 +1160,13 @@ describe("SessionService.previewLaunch (F03)", () => {
 
 describe("reapplyEgressAllowlist (live allowlist edits)", () => {
   /** A stand-in for the runner's reload loop: answers every reload request with `result`. */
-  function fakeReloadLoop(dir: string, result: "ok" | "fail") {
+  function fakeReloadLoop(dir: string, result: "ok" | "fail", beforeAnswer = ":") {
     const fifo = join(dir, "reload.fifo");
     spawnSync("mkfifo", [fifo]);
     return Bun.spawn([
       "bash",
       "-c",
-      `while :; do read -r r < "${fifo}" || continue; echo "$r ${result}" > "${dir}/reload.status"; done`,
+      `while :; do read -r r < "${fifo}" || continue; ${beforeAnswer}; echo "$r ${result}" > "${dir}/reload.status"; done`,
     ]);
   }
 
@@ -1261,6 +1261,33 @@ describe("reapplyEgressAllowlist (live allowlist edits)", () => {
       expect(readFileSync(join(dir, "egress.reload.nft"), "utf8")).toStartWith(
         "delete table inet egress",
       );
+    } finally {
+      loop.kill();
+      rmSync(egressTmpDir(s.id), { recursive: true, force: true });
+    }
+  });
+
+  test("a respawn during the reload wins: its spawn inputs and watcher stay untouched", async () => {
+    const { store, service, s, dir, allowlists, steers } = await setup(["registry.npmjs.org"]);
+    // Simulate a respawn of the same session landing while the reload is in flight.
+    const fresh = JSON.stringify({
+      spawnId: "respawned",
+      repoPath: "/repo",
+      connectorHosts: [],
+      allowlist: ["x.example.com"],
+    });
+    writeFileSync(join(dir, "fresh.json"), fresh);
+    const loop = fakeReloadLoop(dir, "ok", `cp "${dir}/fresh.json" "${dir}/egress-spawn.json"`);
+    try {
+      await waitForReader(join(dir, "reload.fifo"));
+      store.setRepoConfig("/repo", {
+        ...store.getRepoConfig("/repo"),
+        egressExtraHosts: ["registry.npmjs.org"],
+      });
+      await service.reapplyEgressAllowlist("/repo");
+      expect(readFileSync(join(dir, "egress-spawn.json"), "utf8")).toBe(fresh);
+      expect(allowlists).toHaveLength(0);
+      expect(steers).toHaveLength(0);
     } finally {
       loop.kill();
       rmSync(egressTmpDir(s.id), { recursive: true, force: true });

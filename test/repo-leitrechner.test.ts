@@ -78,6 +78,7 @@ test("startup fetch, common-dir coalescing, TTL, sanitized failure and recovery"
   expect(h.calls()).toBe(1);
   await h.svc.refresh("/r");
   expect(h.calls()).toBe(1);
+  h.setId("self");
   h.advance();
   h.fail(true);
   expect(await h.svc.refresh("/r")).toMatchObject({
@@ -108,4 +109,18 @@ test("publishes changed names/removal once and invalidates refresh after a confi
   h.svc.invalidate("/r");
   await h.svc.refresh("/r");
   expect(h.calls()).toBe(2);
+});
+
+test("fetch failure preserves legacy jobs without a recognized owner, but never authorizes known ownership", async () => {
+  for (const id of [null, "foreign", "self", "other"]) {
+    const h = harness();
+    h.setId(id);
+    if (id === "other") h.setRemote({ name: "Other", status: "connected" });
+    h.fail(true);
+    const status = await h.svc.refresh("/r");
+    const known = id === "self" || id === "other";
+    expect(status.allowed).toBe(!known);
+    expect(status.pauseReason).toBe(known ? "config_refresh_failed" : null);
+    expect(JSON.stringify(h.events)).not.toContain("credential-secret");
+  }
 });

@@ -147,8 +147,10 @@ operator explicitly changes the selection.
 
 Before starting these jobs, Shepherd fetches the default branch on its first attempt
 after startup, then refreshes at least every 30 seconds while attempting jobs. Concurrent
-attempts share the fetch. A failed fetch pauses new global starts until a successful
-retry, rather than trusting stale ownership. GET remains network-free. A selection PUT
+attempts share the fetch. When the last known selection identifies this instance or a
+connected machine, a failed fetch pauses new global starts until a successful retry,
+rather than trusting stale ownership. Missing, null and unknown IDs preserve the existing
+behavior even when fetching fails. GET remains network-free. A selection PUT
 invalidates that machine's refresh immediately. Running work finishes normally; a manual
 switch can overlap starts authorized within the previous refresh window. This is an
 ownership rule, not a distributed atomic lock; existing issue-claim deduplication remains.

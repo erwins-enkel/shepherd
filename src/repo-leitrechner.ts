@@ -41,7 +41,8 @@ export class RepoLeitrechnerService {
     const key = this.key(repo);
     const owner = this.owner(key ? (this.deps.config(repo).leitrechner ?? null) : null);
     let pauseReason: RepoLeitrechnerStatus["pauseReason"] = null;
-    if (key !== null && this.refreshed.get(key)?.ok === false)
+    const knownOwner = owner.role === "local" || owner.role === "remote";
+    if (knownOwner && key !== null && this.refreshed.get(key)?.ok === false)
       pauseReason = "config_refresh_failed";
     else if (owner.role === "remote")
       pauseReason = owner.reachable ? "remote_leitrechner" : "leitrechner_unreachable";
@@ -76,7 +77,7 @@ export class RepoLeitrechnerService {
             await (this.deps.fetch ?? refreshRepoConfigFile)(repo);
             ok = true;
           } catch {
-            // A failed fetch must never authorize stale ownership or disclose Git credentials.
+            // Known ownership fails closed on fetch errors; never disclose Git credentials.
           }
           this.refreshed.set(key, { at: (this.deps.now ?? Date.now)(), ok });
         })();

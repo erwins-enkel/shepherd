@@ -6,6 +6,7 @@ import { RepoConfigService } from "../src/repo-config-service";
 import { RepoLeitrechnerService } from "../src/repo-leitrechner";
 import { instanceIdentity } from "../src/remote-instances/identity";
 import { configRepo, git } from "./helpers/repo-config-git";
+import { invalidateRepoConfigFile } from "../src/repo-config-file";
 import type { GitForge, Issue } from "../src/forge/types";
 import type { StandardCreateInput } from "../src/types";
 import { StandalonePrCriticService } from "../src/standalone-critic";
@@ -253,9 +254,11 @@ test("manual switch is fetched before a returning owner starts; persisted instan
   expect(instanceIdentity(a.store).instanceId).toBe(a.identity.instanceId);
 });
 
-test("unknown installation keeps legacy spawning; failed startup fetch pauses and recovers", async () => {
+test("known local owner pauses on a failed startup fetch and recovers", async () => {
   const { r, a, b, advance } = fixture();
-  await a.cfg.patch(a.repo, { leitrechner: "foreign-installation", autoDrainEnabled: true });
+  await a.cfg.patch(a.repo, { leitrechner: b.identity.instanceId, autoDrainEnabled: true });
+  git(b.repo, "fetch", "origin");
+  invalidateRepoConfigFile(b.repo);
   git(b.repo, "remote", "set-url", "origin", join(r.dir, "missing-origin"));
   await b.drain.pump(b.repo);
   expect(b.creates).toHaveLength(0);
@@ -264,5 +267,34 @@ test("unknown installation keeps legacy spawning; failed startup fetch pauses an
   advance();
   await b.drain.pump(b.repo);
   expect(b.creates).toHaveLength(1);
-  expect(b.cfg.read(b.repo).leitrechnerStatus).toMatchObject({ role: "unknown", allowed: true });
+  expect(b.cfg.read(b.repo).leitrechnerStatus).toMatchObject({ role: "local", allowed: true });
+});
+
+test("unassigned and unknown owners still drain and sweep when the daemon cannot fetch", async () => {
+  __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
+  for (const leitrechner of [undefined, null, "foreign-installation"]) {
+    const { r, a, b } = fixture();
+    if (leitrechner === undefined) {
+      // Legacy single-machine setup: no committed config, rules only in the local database.
+      b.store.setRepoConfig(b.repo, {
+        ...b.store.getRepoConfig(b.repo),
+        autoDrainEnabled: true,
+        criticAllPrs: true,
+      });
+    } else {
+      await a.cfg.patch(a.repo, { leitrechner, autoDrainEnabled: true, criticAllPrs: true });
+      git(b.repo, "fetch", "origin");
+      invalidateRepoConfigFile(b.repo);
+    }
+    git(b.repo, "remote", "set-url", "origin", join(r.dir, "missing-origin"));
+    await b.drain.pump(b.repo);
+    await b.critic.sweep();
+    expect(b.creates).toHaveLength(1);
+    expect(b.critics).toHaveLength(1);
+    expect(b.cfg.read(b.repo).leitrechnerStatus).toMatchObject({
+      role: leitrechner ? "unknown" : "unassigned",
+      allowed: true,
+      pauseReason: null,
+    });
+  }
 });

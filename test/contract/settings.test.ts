@@ -95,6 +95,16 @@ test("slug repository settings contract covers local reads, writes, refresh and 
       project + query,
     )) as any;
     expect(written.leitrechner).toBe(self);
+    for (const [path, at] of [
+      [project, project + query],
+      ["/api/repo-config", `/api/repo-config?repo=${encodeURIComponent(r.b)}`],
+    ]) {
+      for (const leitrechner of [self, null]) {
+        const leaderOnly = (await request("PUT", path!, 200, { leitrechner }, at)) as any;
+        expect(leaderOnly.leitrechner).toBe(leitrechner);
+      }
+    }
+
     await request("PUT", project, 400, { rules: { sandboxProfile: "trusted" } }, project + query);
     await request(
       "PUT",

@@ -357,3 +357,25 @@ test("remote machine edits revoke the target's browser and restart its connector
   expect(swept).toBe(true);
   expect(result.body.connectorRestart).toEqual({ now: 1, later: 0 });
 });
+
+for (const route of ["project-local", "project-remote", "legacy"] as const) {
+  test(`${route} sets and clears the leader without changing rules`, async () => {
+    const a = host(repo.a),
+      b = host(repo.b);
+    await connect(a, b);
+    const writer = route === "project-remote" ? b : a;
+    const path =
+      route === "legacy"
+        ? `/api/repo-config?repo=${encodeURIComponent(repo.a)}`
+        : `${project}&instanceId=${writer.id}`;
+    const base = git(repo.origin, "rev-parse", "main");
+    for (const leitrechner of [b.id, null]) {
+      const result = await a.request("PUT", path, { leitrechner });
+      expect(result.status).toBe(200);
+      expect(result.body.leitrechner).toBe(leitrechner);
+      const file = JSON.parse(git(repo.origin, "show", "main:.shepherd/config.json"));
+      expect(file).toMatchObject({ leitrechner, criticEnabled: true, autoDrainEnabled: false });
+    }
+    expect(git(repo.origin, "rev-list", "--count", `${base}..main`)).toBe("2");
+  });
+}

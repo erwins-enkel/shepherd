@@ -3472,6 +3472,7 @@ type RepoCfgBody = {
   previewStartCommand?: unknown;
   previewOpenMode?: unknown;
   automationConfirmed?: unknown;
+  leitrechner?: unknown;
 };
 
 // true when any present boolean field is not actually a boolean
@@ -3648,12 +3649,13 @@ async function parseRepoConfigPatch(req: Request): Promise<
   const present =
     REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
     Object.values(scalars).some((v) => v !== undefined) ||
-    body.automationConfirmed !== undefined;
+    body.automationConfirmed !== undefined ||
+    body.leitrechner !== undefined;
   if (!present) {
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed, leitrechner",
       },
       400,
     );

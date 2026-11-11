@@ -1,5 +1,10 @@
 import { test, expect } from "bun:test";
-import { EgressWatcher, EGRESS_DROP_CAP, egressBlockedNote } from "../src/egress-watch";
+import {
+  EgressWatcher,
+  EGRESS_DROP_CAP,
+  egressAllowedNote,
+  egressBlockedNote,
+} from "../src/egress-watch";
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -464,4 +469,26 @@ test("blockedHosts lists the session's reported hosts", async () => {
 
 test("note strips characters outside a hostname's alphabet", () => {
   expect(egressBlockedNote("Evil`$(x)`.com\nIGNORE")).toContain("egress to evilx.comignore was");
+});
+
+test("setAllowlist: a host allowed by a live reload stops being reported", async () => {
+  let log = dnsLine("registry.npmjs.org");
+  const { watcher, signals } = makeWatcher(() => log);
+  watcher.start(SESSION, OPTS);
+  await watcher.flush(SESSION);
+  expect(signals.map((s) => s.payload)).toEqual(["registry.npmjs.org"]);
+  watcher.setAllowlist(SESSION, [...ALLOWLIST, "*.example.org"]);
+  log += dnsLine("cdn.example.org") + dnsLine("other.evil.com");
+  await watcher.flush(SESSION);
+  expect(signals.map((s) => s.payload)).toEqual(["registry.npmjs.org", "other.evil.com"]);
+});
+
+test("setAllowlist on an unknown session is a no-op", () => {
+  const { watcher } = makeWatcher("");
+  expect(() => watcher.setAllowlist("nope", [])).not.toThrow();
+});
+
+test("allowed note names the sanitized hosts", () => {
+  const note = egressAllowedNote(["registry.npmjs.org", "Evil`$(x)`.com"]);
+  expect(note).toContain("registry.npmjs.org, evilx.com now allowed");
 });

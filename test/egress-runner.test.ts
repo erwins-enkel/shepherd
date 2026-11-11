@@ -31,7 +31,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { buildEgressConfig, SLIRP_HOST_GATEWAY } from "../src/egress";
+import {
+  buildEgressConfig,
+  buildEgressReloadNft,
+  requestEgressReload,
+  SLIRP_HOST_GATEWAY,
+  writeEgressReloadFiles,
+} from "../src/egress";
 import { slirpApiCall } from "../src/netns-dev-forward";
 import { egressRunnerShouldSkip } from "./egress-runner-gate";
 
@@ -396,4 +402,99 @@ test.skipIf(SKIP)(
     expect(code).not.toBe(0);
     expect(existsSync(sentinel)).toBe(false);
   },
+);
+
+// ── live reload (allowlist edits reach running sessions) ──────────────────────────
+
+/** Every descendant pid of `root` whose comm is `comm` (walks `ps -e`). */
+function descendantsByComm(root: number, comm: string): number[] {
+  const out = spawnSync("ps", ["-e", "-o", "pid=,ppid=,comm="], { encoding: "utf8" });
+  const rows = out.stdout
+    .split("\n")
+    .map((l) => l.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/))
+    .filter((m): m is RegExpMatchArray => m !== null)
+    .map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), comm: m[3] }));
+  const inTree = new Set([root]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const r of rows)
+      if (inTree.has(r.ppid) && !inTree.has(r.pid)) {
+        inTree.add(r.pid);
+        grew = true;
+      }
+  }
+  return rows
+    .filter((r) => r.comm === comm && inTree.has(r.pid) && r.pid !== root)
+    .map((r) => r.pid);
+}
+
+function netnsRuleset(owner: number): string {
+  return spawnSync(
+    "nsenter",
+    ["--preserve-credentials", "-U", "-n", "-t", String(owner), "nft", "list", "ruleset"],
+    { encoding: "utf8" },
+  ).stdout;
+}
+
+async function startForReload() {
+  const dir = makeTmp();
+  tmpDirs.push(dir);
+  const proc = spawnRunnerInDir(dir, ["bash", "-c", "sleep 30"]);
+  recorded.push(proc.pid);
+  const { owner, slirp } = await captureChildren(proc.pid);
+  if (owner) recorded.push(owner);
+  if (slirp) recorded.push(slirp);
+  expect(owner).toBeDefined();
+  // The loop starts right before the inner exec; wait for the first dnsmasq to be up.
+  for (let i = 0; i < 50 && descendantsByComm(owner!, "dnsmasq").length === 0; i++)
+    await sleep(100);
+  return { dir, proc, owner: owner! };
+}
+
+test.skipIf(SKIP)(
+  "live reload applies a new ruleset + dnsmasq argv to the running netns",
+  async () => {
+    const { dir, proc, owner } = await startForReload();
+    const before = descendantsByComm(owner, "dnsmasq");
+    expect(before.length).toBe(1);
+    expect(netnsRuleset(owner)).not.toContain("allowed_p8443");
+
+    const cfg = buildEgressConfig(["api.anthropic.com", "corp.example.com:8443"], { tmpDir: dir });
+    writeEgressReloadFiles(dir, cfg, buildEgressReloadNft(cfg, { flushPinned: false }));
+    expect(await requestEgressReload(dir)).toBe("applied");
+
+    const rules = netnsRuleset(owner);
+    expect(rules).toContain("allowed_p8443");
+    expect(rules.match(/chain out/g)?.length).toBe(1);
+    expect(rules.match(/dnat to 127\.0\.0\.1/g)?.length).toBe(1);
+    const after = descendantsByComm(owner, "dnsmasq").filter((p) => !before.includes(p));
+    expect(after.length).toBe(1);
+    const cmdline = readFileSync(`/proc/${after[0]}/cmdline`, "utf8");
+    expect(cmdline).toContain("corp.example.com");
+
+    // A removal reload (drop + recreate the tables) also applies.
+    const shrunk = buildEgressConfig(["api.anthropic.com"], { tmpDir: dir });
+    writeEgressReloadFiles(dir, shrunk, buildEgressReloadNft(shrunk, { flushPinned: true }));
+    expect(await requestEgressReload(dir)).toBe("applied");
+    expect(netnsRuleset(owner)).not.toContain("allowed_p8443");
+
+    proc.kill("SIGKILL");
+    await proc.exited;
+  },
+  20_000,
+);
+
+test.skipIf(SKIP)(
+  "live reload with a bad nft script reports fail and keeps the old ruleset",
+  async () => {
+    const { dir, proc, owner } = await startForReload();
+    const rulesBefore = netnsRuleset(owner);
+    writeFileSync(join(dir, "egress.reload.nft"), "this is not valid nft\n");
+    expect(await requestEgressReload(dir)).toBe("failed");
+    expect(netnsRuleset(owner)).toBe(rulesBefore);
+    expect(descendantsByComm(owner, "dnsmasq").length).toBeGreaterThan(0);
+    proc.kill("SIGKILL");
+    await proc.exited;
+  },
+  20_000,
 );

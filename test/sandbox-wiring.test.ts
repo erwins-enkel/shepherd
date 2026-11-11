@@ -6,7 +6,18 @@ import { DrainService } from "../src/drain";
 import { MEMBRANE_MISE_CONFIG, type SandboxBackend } from "../src/sandbox";
 import type { EgressBackend } from "../src/egress";
 import { CLAUDEAI_CONNECTOR_EGRESS_HOST, egressTmpDir } from "../src/egress";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  closeSync,
+  constants as fsConstants,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { startPreviewScript } from "../src/preview-launch";
 import { join } from "node:path";
@@ -631,7 +642,10 @@ test("drain + autonomous repo + egress NULL → held, service.create NOT called"
 
 // ── egressWatcher wiring tests ────────────────────────────────────────────────
 
-function makeWatcherStub(): Pick<EgressWatcher, "start" | "stop"> & {
+function makeWatcherStub(): Pick<
+  EgressWatcher,
+  "start" | "stop" | "setAllowlist" | "blockedHosts"
+> & {
   starts: Array<{ sessionId: string; opts: Parameters<EgressWatcher["start"]>[1] }>;
   stops: string[];
 } {
@@ -642,6 +656,8 @@ function makeWatcherStub(): Pick<EgressWatcher, "start" | "stop"> & {
     stops,
     start: (sessionId, opts) => starts.push({ sessionId, opts }),
     stop: async (sessionId) => stops.push(sessionId),
+    setAllowlist: () => {},
+    blockedHosts: () => null,
   };
 }
 
@@ -1138,6 +1154,192 @@ describe("SessionService.previewLaunch (F03)", () => {
     } finally {
       delete process.env.DUMMY_SERVER_SECRET;
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("reapplyEgressAllowlist (live allowlist edits)", () => {
+  /** A stand-in for the runner's reload loop: answers every reload request with `result`. */
+  function fakeReloadLoop(dir: string, result: "ok" | "fail", beforeAnswer = ":") {
+    const fifo = join(dir, "reload.fifo");
+    spawnSync("mkfifo", [fifo]);
+    return Bun.spawn([
+      "bash",
+      "-c",
+      `while :; do read -r r < "${fifo}" || continue; ${beforeAnswer}; echo "$r ${result}" > "${dir}/reload.status"; done`,
+    ]);
+  }
+
+  async function waitForReader(fifo: string) {
+    // The fake loop needs a moment to open the FIFO for reading.
+    for (let i = 0; i < 50; i++) {
+      try {
+        const fd = openSync(fifo, fsConstants.O_WRONLY | fsConstants.O_NONBLOCK);
+        closeSync(fd);
+        return;
+      } catch {
+        await Bun.sleep(20);
+      }
+    }
+  }
+
+  async function setup(blocked: string[] = []) {
+    const store = new SessionStore(":memory:");
+    store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "autonomous" });
+    const watcher = makeWatcherStub();
+    const allowlists: string[][] = [];
+    watcher.setAllowlist = (_id, list) => void allowlists.push(list);
+    watcher.blockedHosts = () => blocked;
+    const service = new SessionService({
+      transcriptExists: () => true,
+      store,
+      namer: async () => "s",
+      worktree: worktreeStub(),
+      herdr: herdrStub({}),
+      detectBackend: () => "bwrap",
+      detectEgressBackend: () => "slirp4netns",
+      egressWatcher: watcher,
+    });
+    const steers: Array<[string, string]> = [];
+    service.reply = async (id, text) => {
+      steers.push([id, text]);
+      return true;
+    };
+    const s = await service.create(baseInput({ auto: true }));
+    return { store, service, s, dir: egressTmpDir(s.id), allowlists, steers };
+  }
+
+  const spawnInputs = (dir: string) =>
+    JSON.parse(readFileSync(join(dir, "egress-spawn.json"), "utf8")) as { allowlist: string[] };
+
+  test("spawn records its egress inputs", async () => {
+    const { s, dir } = await setup();
+    try {
+      const inputs = spawnInputs(dir) as { repoPath: string; allowlist: string[] };
+      expect(inputs.repoPath).toBe("/repo");
+      expect(inputs.allowlist.length).toBeGreaterThan(0);
+    } finally {
+      rmSync(egressTmpDir(s.id), { recursive: true, force: true });
+    }
+  });
+
+  test("an added host is applied live, the watcher updated and the blocked session steered", async () => {
+    const { store, service, s, dir, allowlists, steers } = await setup([
+      "registry.npmjs.org",
+      "other.evil.com",
+    ]);
+    const loop = fakeReloadLoop(dir, "ok");
+    try {
+      await waitForReader(join(dir, "reload.fifo"));
+      store.setRepoConfig("/repo", {
+        ...store.getRepoConfig("/repo"),
+        egressExtraHosts: ["registry.npmjs.org"],
+      });
+      await service.reapplyEgressAllowlist("/repo");
+      expect(readFileSync(join(dir, "egress.reload.nft"), "utf8")).toContain(
+        "flush chain inet egress out",
+      );
+      expect(readFileSync(join(dir, "dnsmasq.argv"), "utf8")).toContain("registry.npmjs.org");
+      expect(spawnInputs(dir).allowlist).toContain("registry.npmjs.org");
+      expect((spawnInputs(dir) as { uncertain?: boolean }).uncertain).toBe(false);
+      expect(allowlists).toHaveLength(1);
+      expect(allowlists[0]).toContain("registry.npmjs.org");
+      expect(steers).toHaveLength(1);
+      expect(steers[0]![0]).toBe(s.id);
+      expect(steers[0]![1]).toContain("registry.npmjs.org now allowed");
+      expect(steers[0]![1]).not.toContain("other.evil.com");
+
+      // Unchanged list → no reload, no steer.
+      rmSync(join(dir, "egress.reload.nft"));
+      await service.reapplyEgressAllowlist("/repo");
+      expect(existsSync(join(dir, "egress.reload.nft"))).toBe(false);
+      expect(steers).toHaveLength(1);
+
+      // Removal → the reload drops the tables (revokes pinned IPs).
+      store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), egressExtraHosts: [] });
+      await service.reapplyEgressAllowlist("/repo");
+      expect(readFileSync(join(dir, "egress.reload.nft"), "utf8")).toStartWith(
+        "delete table inet egress",
+      );
+    } finally {
+      loop.kill();
+      rmSync(egressTmpDir(s.id), { recursive: true, force: true });
+    }
+  });
+
+  test("a respawn during the reload wins: its spawn inputs and watcher stay untouched", async () => {
+    const { store, service, s, dir, allowlists, steers } = await setup(["registry.npmjs.org"]);
+    // Simulate a respawn of the same session landing while the reload is in flight.
+    const fresh = JSON.stringify({
+      spawnId: "respawned",
+      repoPath: "/repo",
+      connectorHosts: [],
+      allowlist: ["x.example.com"],
+    });
+    writeFileSync(join(dir, "fresh.json"), fresh);
+    const loop = fakeReloadLoop(dir, "ok", `cp "${dir}/fresh.json" "${dir}/egress-spawn.json"`);
+    try {
+      await waitForReader(join(dir, "reload.fifo"));
+      store.setRepoConfig("/repo", {
+        ...store.getRepoConfig("/repo"),
+        egressExtraHosts: ["registry.npmjs.org"],
+      });
+      await service.reapplyEgressAllowlist("/repo");
+      expect(readFileSync(join(dir, "egress-spawn.json"), "utf8")).toBe(fresh);
+      expect(allowlists).toHaveLength(0);
+      expect(steers).toHaveLength(0);
+    } finally {
+      loop.kill();
+      rmSync(egressTmpDir(s.id), { recursive: true, force: true });
+    }
+  });
+
+  test("a failed reload marks the session uncertain, so a revert still reloads", async () => {
+    const { store, service, s, dir, allowlists, steers } = await setup(["registry.npmjs.org"]);
+    const loop = fakeReloadLoop(dir, "fail");
+    try {
+      await waitForReader(join(dir, "reload.fifo"));
+      const before = spawnInputs(dir).allowlist;
+      store.setRepoConfig("/repo", {
+        ...store.getRepoConfig("/repo"),
+        egressExtraHosts: ["registry.npmjs.org"],
+      });
+      await service.reapplyEgressAllowlist("/repo");
+      expect(spawnInputs(dir).allowlist).toEqual(before);
+      expect((spawnInputs(dir) as { uncertain?: boolean }).uncertain).toBe(true);
+      expect(allowlists).toHaveLength(0);
+      expect(steers).toHaveLength(0);
+
+      // The operator reverts: the wanted list equals the recorded one, but the session may run
+      // the new list (the reload may have landed) → reload anyway, dropping pinned IPs.
+      rmSync(join(dir, "egress.reload.nft"));
+      store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), egressExtraHosts: [] });
+      await service.reapplyEgressAllowlist("/repo");
+      expect(readFileSync(join(dir, "egress.reload.nft"), "utf8")).toStartWith(
+        "delete table inet egress",
+      );
+    } finally {
+      loop.kill();
+      rmSync(egressTmpDir(s.id), { recursive: true, force: true });
+    }
+  });
+
+  test("another repo → untouched; no reload listener → marked uncertain", async () => {
+    const { store, service, s, dir, allowlists } = await setup();
+    try {
+      store.setRepoConfig("/repo", {
+        ...store.getRepoConfig("/repo"),
+        egressExtraHosts: ["registry.npmjs.org"],
+      });
+      await service.reapplyEgressAllowlist("/other");
+      expect(existsSync(join(dir, "egress.reload.nft"))).toBe(false);
+      await service.reapplyEgressAllowlist("/repo"); // no FIFO → unsupported
+      expect(allowlists).toHaveLength(0);
+      expect(spawnInputs(dir).allowlist).not.toContain("registry.npmjs.org");
+      // A runner still starting up may load the rewritten files → the next reapply must reload.
+      expect((spawnInputs(dir) as { uncertain?: boolean }).uncertain).toBe(true);
+    } finally {
+      rmSync(egressTmpDir(s.id), { recursive: true, force: true });
     }
   });
 });

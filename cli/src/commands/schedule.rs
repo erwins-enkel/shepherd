@@ -125,6 +125,7 @@ async fn add(ctx: &mut Ctx<'_>, args: ScheduleAddArgs) -> Result<()> {
         days: args.days,
         times: args.times.clone(),
         interval: None,
+        usage_limit: None,
         enabled: Some(!args.disabled),
         launch: launch(&args),
     };
@@ -200,6 +201,17 @@ fn outcome_exit(key: &str, run: &ScheduleRun) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn schedule_limit_skip_is_refused() {
+        let run: ScheduleRun = serde_json::from_value(serde_json::json!({
+            "id": 1, "scheduleId": "s", "slotKey": "slot", "outcome": "skipped:limit",
+            "sessionId": null, "reason": "below-start", "at": 1,
+            "usage": { "provider": "claude", "window": "week", "usedPct": 79, "thresholdPct": 80 }
+        }))
+        .unwrap();
+        assert_eq!(outcome_exit("test", &run).unwrap_err().exit, Exit::Refused);
+    }
 
     #[test]
     fn day_labels() {

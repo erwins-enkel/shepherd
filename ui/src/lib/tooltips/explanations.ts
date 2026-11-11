@@ -1,3 +1,5 @@
+import type { ScheduleUsageLimit } from "#lib/types.js";
+import { usageLimitChip } from "#lib/schedules.svelte.js";
 import { placementLoadObservation } from "#lib/placement.js";
 import { m } from "#lib/paraglide/messages.js";
 import type { TooltipExplanation } from "./content";
@@ -1076,6 +1078,7 @@ export function schedulesExplanation(): TooltipExplanation {
       { label: m.tooltip_schedules_catchup(), text: m.tooltip_schedules_catchup_body() },
       { label: m.tooltip_schedules_overlap(), text: m.tooltip_schedules_overlap_body() },
       { label: m.tooltip_schedules_attended(), text: m.tooltip_schedules_attended_body() },
+      { label: m.schedules_limit_section(), text: m.schedules_limit_policy_body() },
     ],
   };
 }
@@ -1096,5 +1099,13 @@ export function keyboardHintsExplanation(isMac: boolean, showEnter: boolean): To
     sections: [
       { label: m.viewport_hints_section(), text: "", rows: rows.map((text) => ({ text })) },
     ],
+  };
+}
+
+export function scheduleUsageLimitExplanation(limit: ScheduleUsageLimit): TooltipExplanation {
+  return {
+    title: m.schedules_limit_section(),
+    summary: usageLimitChip(limit),
+    sections: [{ label: m.schedules_limit_policy(), text: m.schedules_limit_policy_body() }],
   };
 }

@@ -9,7 +9,15 @@ import {
 import { SvelteMap } from "svelte/reactivity";
 import { toasts } from "#lib/toasts.svelte.js";
 import { basename } from "#lib/basename.js";
-import type { Schedule, ScheduleInput, ScheduleInterval } from "#lib/types.js";
+import type {
+  Schedule,
+  ScheduleInput,
+  ScheduleInterval,
+  ScheduleUsage,
+  ScheduleUsageLimit,
+  UsageLimits,
+  AgentProvider,
+} from "#lib/types.js";
 
 /**
  * Per-repo operator schedules (#3469) for the automation settings. Loaded on demand per repo and
@@ -92,7 +100,7 @@ class SchedulesStore {
       toasts.info(
         m.schedules_run_now_result({
           name: s.name,
-          outcome: outcomeLabel(run.outcome, run.reason),
+          outcome: outcomeLabel(run.outcome, run.reason, run.usage),
         }),
       );
     } catch {
@@ -138,7 +146,11 @@ export function upcomingOrder(list: readonly Schedule[]): Schedule[] {
 }
 
 /** A run outcome as the operator reads it. */
-export function outcomeLabel(outcome: string, reason?: string | null): string {
+export function outcomeLabel(
+  outcome: string,
+  reason?: string | null,
+  usage?: ScheduleUsage | null,
+): string {
   switch (outcome) {
     case "claimed":
       return m.schedules_outcome_interrupted();
@@ -152,6 +164,12 @@ export function outcomeLabel(outcome: string, reason?: string | null): string {
       return reason === "missed by more than one interval"
         ? m.schedules_outcome_interval_stale()
         : m.schedules_outcome_stale();
+    case "skipped:limit":
+      if (reason === "usage-unknown" || !usage || usage.usedPct === null)
+        return m.schedules_limit_result_unknown();
+      return reason === "stop-reached"
+        ? m.schedules_limit_result_stop({ threshold: usage.thresholdPct, pct: usage.usedPct })
+        : m.schedules_limit_result_below({ threshold: usage.thresholdPct, pct: usage.usedPct });
     case "error":
       return m.schedules_outcome_error();
     case "noop":
@@ -170,6 +188,7 @@ export function outcomeTone(outcome: string): "red" | "amber" | "neutral" {
     case "held":
     case "skipped:overlap":
     case "skipped:stale":
+    case "skipped:limit":
       return "amber";
     default:
       return "neutral";
@@ -284,3 +303,81 @@ export function upcomingSlots(
 }
 
 /* eslint-enable svelte/prefer-svelte-reactivity */
+
+/** Computed Claude windows match usage-hold, not the observed display gauges. */
+function usageLimitReadings(
+  limit: ScheduleUsageLimit,
+  provider: AgentProvider,
+  limits: UsageLimits | null,
+) {
+  const source =
+    provider === "claude" ? limits : limits?.providers?.find((p) => p.provider === "codex");
+  const windows = { week: source?.week ?? null, "5h": source?.session5h ?? null };
+  const maxWindow: "week" | "5h" =
+    (windows.week?.pct ?? -1) >= (windows["5h"]?.pct ?? -1) ? "week" : "5h";
+  const startWindow: "week" | "5h" = limit.kind === "from" ? limit.startWindow : maxWindow;
+  return { windows, maxWindow, startWindow };
+}
+
+function usageLimitReason(limit: ScheduleUsageLimit, selected: number | null, max: number | null) {
+  if ((max ?? 0) >= limit.stopPct) return "stop-reached";
+  if (limit.kind === "upTo") return null;
+  if (selected === null) return "usage-unknown";
+  return selected < limit.startPct ? "below-start" : null;
+}
+
+/** A live prediction only; the server decides again at the scheduled time. */
+export function usageLimitPreview(
+  limit: ScheduleUsageLimit,
+  provider: AgentProvider,
+  limits: UsageLimits | null,
+) {
+  const { windows, maxWindow, startWindow } = usageLimitReadings(limit, provider, limits);
+  const selected = windows[startWindow]?.pct ?? null;
+  const max = windows[maxWindow]?.pct ?? null;
+  const reason = usageLimitReason(limit, selected, max);
+  const useMax = limit.kind === "upTo" || reason === "stop-reached";
+  const resetWindow = useMax ? maxWindow : startWindow;
+  const reading = windows[resetWindow];
+  const usage: ScheduleUsage = {
+    provider,
+    window: useMax ? "max" : startWindow,
+    usedPct: reading?.pct ?? null,
+    thresholdPct: !useMax && limit.kind === "from" ? limit.startPct : limit.stopPct,
+  };
+  return {
+    allowed: reason === null,
+    reason,
+    usage,
+    markerPct: selected,
+    resetWindow,
+    resetAt: reading?.resetAt ?? null,
+  };
+}
+
+export function usageLimitChip(limit: ScheduleUsageLimit): string {
+  return limit.kind === "upTo"
+    ? m.schedules_limit_chip_up({ stop: limit.stopPct })
+    : m.schedules_limit_chip_from({
+        start: limit.startPct,
+        stop: limit.stopPct,
+        window: limit.startWindow === "week" ? m.schedules_limit_week() : m.schedules_limit_5h(),
+      });
+}
+
+export function usageLimitVerdict(preview: ReturnType<typeof usageLimitPreview>): string {
+  const { usage, reason } = preview;
+  if (usage.usedPct === null)
+    return preview.allowed
+      ? m.schedules_limit_unknown_start({
+          provider: usage.provider === "claude" ? "Claude Code" : "Codex",
+        })
+      : m.schedules_limit_unknown_skip({
+          provider: usage.provider === "claude" ? "Claude Code" : "Codex",
+        });
+  if (reason === "stop-reached")
+    return m.schedules_limit_verdict_stop({ pct: usage.usedPct, stop: usage.thresholdPct });
+  if (reason === "below-start")
+    return m.schedules_limit_verdict_below({ pct: usage.usedPct, start: usage.thresholdPct });
+  return m.schedules_limit_verdict_ok({ pct: usage.usedPct });
+}

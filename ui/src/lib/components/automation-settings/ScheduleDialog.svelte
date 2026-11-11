@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getContext, onMount, tick, untrack } from "svelte";
   import "./schedule-fields.css";
+  import ScheduleUsageLimitFields from "./ScheduleUsageLimitFields.svelte";
   import ScheduleIntervalFields from "./ScheduleIntervalFields.svelte";
   import ScheduleEngineFields from "./ScheduleEngineFields.svelte";
   import { MediaQuery } from "svelte/reactivity";
@@ -18,6 +19,7 @@
     weekdayNames,
     upcomingSlots,
     intervalStats,
+    usageLimitPreview,
     SCHEDULE_USAGE,
     WORKDAYS,
     ALL_DAYS,
@@ -28,6 +30,7 @@
     Schedule,
     ScheduleInput,
     ScheduleInterval,
+    ScheduleUsageLimit,
     UsageLimits,
   } from "#lib/types.js";
 
@@ -76,14 +79,22 @@
   let effort = $state(init?.launch.effort ?? "");
   let sandbox = $state<SandboxProfile | "">(init?.launch.sandboxProfile ?? "");
   let baseBranch = $state(init?.launch.baseBranch ?? "");
+  let usageLimit = $state<ScheduleUsageLimit | null>(
+    init?.usageLimit ? { ...init.usageLimit } : null,
+  );
   let saving = $state(false);
 
   const uid = $props.id();
   const mobile = new MediaQuery("(max-width: 768px)");
-  type Tab = "what" | "when" | "with";
-  const tabs: Tab[] = ["what", "when", "with"];
+  type Tab = "what" | "when" | "with" | "limits";
+  const tabs: Tab[] = ["what", "when", "with", "limits"];
   let activeTab = $state<Tab>("what");
-  let touched = $state({ what: false, when: false, with: false });
+  const limitsPanel = $derived({
+    role: mobile.current ? ("tabpanel" as const) : undefined,
+    "aria-labelledby": mobile.current ? `${uid}-tab-limits` : undefined,
+    hidden: mobile.current && activeTab !== "limits",
+  });
+  let touched = $state({ what: false, when: false, with: false, limits: false });
   let now = $state(Date.now());
   let promptInput = $state<HTMLTextAreaElement>();
   let promptWidth = $state(0);
@@ -123,7 +134,43 @@
     times.length > 0 && times.every((t) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t)),
   );
   const whenValid = $derived(days !== 0 && (interval ? stats !== null : timesValid));
-  const valid = $derived(whatValid && whenValid);
+  const limitValid = $derived(
+    usageLimit === null ||
+      (Number.isInteger(usageLimit.stopPct) &&
+        usageLimit.stopPct >= 5 &&
+        usageLimit.stopPct <= 100 &&
+        usageLimit.stopPct % 5 === 0 &&
+        (usageLimit.kind === "upTo" ||
+          (Number.isInteger(usageLimit.startPct) &&
+            usageLimit.startPct >= 0 &&
+            usageLimit.startPct <= 95 &&
+            usageLimit.startPct % 5 === 0 &&
+            usageLimit.startPct < usageLimit.stopPct))),
+  );
+  const limitPreview = $derived(
+    usageLimit && limitValid ? usageLimitPreview(usageLimit, effectiveProvider, limits) : null,
+  );
+  const limitFooter = $derived(
+    limitPreview
+      ? limitPreview.allowed
+        ? m.schedules_limit_footer_ok()
+        : limitPreview.reason === "below-start"
+          ? m.schedules_limit_footer_below({ start: limitPreview.usage.thresholdPct })
+          : limitPreview.reason === "stop-reached"
+            ? m.schedules_limit_footer_stop({ stop: limitPreview.usage.thresholdPct })
+            : m.schedules_limit_footer_unknown()
+      : "",
+  );
+  const footerVerdict = $derived(
+    usageLimit
+      ? limitFooter
+      : verdictKnown
+        ? held
+          ? m.schedules_would_hold({ pct: usagePct, hold: holdPct })
+          : m.schedules_would_start()
+        : "",
+  );
+  const valid = $derived(whatValid && whenValid && limitValid);
   const sandboxOptions = $derived([
     { value: "", label: m.sandbox_profile_inherit_unresolved() },
     { value: "trusted", label: m.sandbox_profile_trusted() },
@@ -181,11 +228,22 @@
       ? m.schedules_tab_what()
       : tab === "when"
         ? m.schedules_tab_when()
-        : m.schedules_tab_with();
+        : tab === "limits"
+          ? m.schedules_limit_tab()
+          : m.schedules_tab_with();
   }
 
   function tabInvalid(tab: Tab): boolean {
-    return touched[tab] && (tab === "what" ? !whatValid : tab === "when" ? !whenValid : false);
+    return (
+      touched[tab] &&
+      (tab === "what"
+        ? !whatValid
+        : tab === "when"
+          ? !whenValid
+          : tab === "limits"
+            ? !limitValid
+            : false)
+    );
   }
 
   function chooseProvider(next: AgentProvider | "") {
@@ -257,6 +315,7 @@
       days,
       times: interval ? [] : times.filter(Boolean),
       interval,
+      usageLimit,
       launch: {
         agentProvider: provider || null,
         model: model || null,
@@ -525,16 +584,28 @@
           </div>
         </details>
       </section>
+      <section
+        class="limits section"
+        data-tab="limits"
+        onfocusout={() => (touched.limits = true)}
+        id={`${uid}-panel-limits`}
+        {...limitsPanel}
+      >
+        <ScheduleUsageLimitFields
+          bind:value={usageLimit}
+          provider={effectiveProvider}
+          {limits}
+          holdPct={globals?.usageHoldPct ?? 80}
+          valid={limitValid}
+        />
+      </section>
     </div>
 
     <footer class="sched-footer">
       <p class="next-run" aria-live="polite">
         {#if slotLabels.length}
           {m.schedules_next_run({ when: slotLabels[0] })}
-          {#if verdictKnown}
-            · {held
-              ? m.schedules_would_hold({ pct: usagePct, hold: holdPct })
-              : m.schedules_would_start()}{/if}
+          {#if footerVerdict}· {footerVerdict}{/if}
         {:else}{m.schedules_upcoming_empty()}{/if}
       </p>
       <div class="actions">
@@ -623,7 +694,7 @@
   .sched-body {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 300px;
-    grid-template-areas: "what engine" "when engine" "advanced engine";
+    grid-template-areas: "what engine" "when limits" "advanced limits";
     grid-template-rows: auto auto 1fr;
     gap: 20px 28px;
     overflow-y: auto;
@@ -641,6 +712,9 @@
   }
   .when {
     grid-area: when;
+  }
+  .limits {
+    grid-area: limits;
   }
   .with {
     display: contents;

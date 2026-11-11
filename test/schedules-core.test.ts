@@ -7,6 +7,8 @@ import {
   STALE_MS,
   daysToMask,
   decideFiring,
+  decideUsageLimit,
+  scheduleUsageWindows,
   latestDueSlot,
   maskToDays,
   nextSlot,
@@ -266,4 +268,80 @@ describe("interval cadence", () => {
     expect(new Set(slots.map((s) => s.at)).size).toBe(count);
     expect(new Set(slots.map((s) => s.slotKey)).size).toBe(count);
   });
+});
+
+describe("schedule usage limits", () => {
+  const root = mkdtempSync(join(tmpdir(), "sched-limit-"));
+  const from = { kind: "from", startPct: 80, startWindow: "week", stopPct: 95 } as const;
+  test("decision table: stop wins, selected start must be known, exact thresholds", () => {
+    for (const [limit, week, session5h, reason] of [
+      [{ kind: "upTo", stopPct: 70 }, 69, null, null],
+      [{ kind: "upTo", stopPct: 70 }, 70, null, "stop-reached"],
+      [{ kind: "upTo", stopPct: 100 }, null, null, null],
+      [{ kind: "upTo", stopPct: 100 }, 100, 0, "stop-reached"],
+      [from, 79, 10, "below-start"],
+      [from, 80, 10, null],
+      [from, null, 90, "usage-unknown"],
+      [from, null, 95, "stop-reached"],
+      [from, 80, 95, "stop-reached"],
+      [from, null, null, "usage-unknown"],
+      [{ ...from, startWindow: "5h" }, 90, 80, null],
+      [{ ...from, startWindow: "5h" }, 90, null, "usage-unknown"],
+    ] as const) {
+      const result = decideUsageLimit(limit, "claude", { week, session5h });
+      expect(result.reason).toBe(reason);
+      expect(result.allowed).toBe(reason === null);
+      expect(result.usage.provider).toBe("claude");
+    }
+    expect(decideUsageLimit(from, "codex", { week: 80, session5h: 96 }).usage).toEqual({
+      provider: "codex",
+      window: "max",
+      usedPct: 96,
+      thresholdPct: 95,
+    });
+  });
+  test("validates closed usage-limit variants in five-percent steps", () => {
+    const body = { repoPath: root, name: "Usage", prompt: "test", days: 127, times: ["09:00"] };
+    for (const usageLimit of [
+      null,
+      { kind: "upTo", stopPct: 5 },
+      { kind: "upTo", stopPct: 100 },
+      from,
+      { ...from, startPct: 0 },
+      { ...from, startPct: 95, stopPct: 100 },
+    ])
+      expect(validateScheduleInput({ ...body, usageLimit }, root).ok).toBe(true);
+    for (const usageLimit of [
+      [],
+      80,
+      {},
+      { kind: "other", stopPct: 70 },
+      { kind: "upTo", stopPct: 0 },
+      { kind: "upTo", stopPct: 101 },
+      { kind: "upTo", stopPct: 71 },
+      { kind: "upTo", stopPct: 70.5 },
+      { kind: "upTo", stopPct: "70" },
+      { kind: "upTo", stopPct: 70, startPct: 0 },
+      { ...from, startWindow: "day" },
+      { ...from, startPct: 95 },
+      { ...from, startPct: -5 },
+      { ...from, startPct: 81 },
+      { ...from, stopPct: 80 },
+    ])
+      expect(validateScheduleInput({ ...body, usageLimit }, root).ok).toBe(false);
+  });
+});
+
+test("schedule windows select computed Claude and provider-specific Codex usage", () => {
+  const limits = {
+    week: { pct: 12, resetAt: 0 },
+    session5h: null,
+    observed: { week: { pct: 99, resetAt: 0 } },
+    providers: [
+      { provider: "codex", kind: "tokens", week: null, session5h: { pct: 80, resetAt: 0 } },
+    ],
+  } as any;
+  expect(scheduleUsageWindows(limits, "claude")).toEqual({ week: 12, session5h: null });
+  expect(scheduleUsageWindows(limits, "codex")).toEqual({ week: null, session5h: 80 });
+  expect(scheduleUsageWindows(null, "codex")).toEqual({ week: null, session5h: null });
 });

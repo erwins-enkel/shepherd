@@ -63,6 +63,55 @@ export interface ScheduleInterval {
   until: string | null;
 }
 
+export type ScheduleUsageLimit =
+  | { kind: "upTo"; stopPct: number }
+  | { kind: "from"; startPct: number; startWindow: "week" | "5h"; stopPct: number };
+
+export interface ScheduleUsage {
+  provider: AgentProvider;
+  window: "week" | "5h" | "max";
+  usedPct: number | null;
+  thresholdPct: number;
+}
+
+export type UsageLimitReason = "below-start" | "stop-reached" | "usage-unknown";
+export interface ScheduleUsageWindows {
+  week: number | null;
+  session5h: number | null;
+}
+
+/** Uses the same computed Claude windows as usage-hold; Codex has its own snapshot. */
+export function scheduleUsageWindows(
+  limits: Pick<import("./usage-limits").UsageLimits, "week" | "session5h" | "providers"> | null,
+  provider: AgentProvider,
+): ScheduleUsageWindows {
+  const source =
+    provider === "claude" ? limits : limits?.providers?.find((p) => p.provider === "codex");
+  return { week: source?.week?.pct ?? null, session5h: source?.session5h?.pct ?? null };
+}
+
+/** Stop always wins; unknown windows count as zero only for the stop check. */
+export function decideUsageLimit(
+  limit: ScheduleUsageLimit,
+  provider: AgentProvider,
+  windows: ScheduleUsageWindows,
+): { allowed: boolean; reason: UsageLimitReason | null; usage: ScheduleUsage } {
+  const max =
+    windows.week === null && windows.session5h === null
+      ? null
+      : Math.max(windows.week ?? 0, windows.session5h ?? 0);
+  let usage: ScheduleUsage = { provider, window: "max", usedPct: max, thresholdPct: limit.stopPct };
+  let reason: UsageLimitReason | null = null;
+  if ((max ?? 0) >= limit.stopPct) reason = "stop-reached";
+  else if (limit.kind === "from") {
+    const usedPct = limit.startWindow === "week" ? windows.week : windows.session5h;
+    usage = { provider, window: limit.startWindow, usedPct, thresholdPct: limit.startPct };
+    if (usedPct === null) reason = "usage-unknown";
+    else if (usedPct < limit.startPct) reason = "below-start";
+  }
+  return { allowed: reason === null, reason, usage };
+}
+
 export interface Schedule {
   id: string;
   repoPath: string;
@@ -71,6 +120,7 @@ export interface Schedule {
   days: number;
   times: string[];
   interval: ScheduleInterval | null;
+  usageLimit: ScheduleUsageLimit | null;
   enabled: boolean;
   launch: ScheduleLaunch;
   /** Slots before this instant never fire — stamped on create, enable and cadence edits. */
@@ -80,7 +130,14 @@ export interface Schedule {
 }
 
 export type ScheduleOutcome =
-  "claimed" | "spawned" | "held" | "skipped:overlap" | "skipped:stale" | "error" | "noop";
+  | "claimed"
+  | "spawned"
+  | "held"
+  | "skipped:overlap"
+  | "skipped:stale"
+  | "skipped:limit"
+  | "error"
+  | "noop";
 
 export interface ScheduleRun {
   id: number;
@@ -89,6 +146,7 @@ export interface ScheduleRun {
   outcome: ScheduleOutcome;
   sessionId: string | null;
   reason: string | null;
+  usage: ScheduleUsage | null;
   at: number;
 }
 
@@ -100,6 +158,7 @@ export interface ScheduleInput {
   days: number;
   times: string[];
   interval: ScheduleInterval | null;
+  usageLimit: ScheduleUsageLimit | null;
   enabled: boolean;
   launch: ScheduleLaunch;
 }
@@ -124,6 +183,7 @@ const KEYS = new Set([
   "days",
   "times",
   "interval",
+  "usageLimit",
   "enabled",
   "launch",
 ]);
@@ -225,6 +285,34 @@ export function decideFiring(args: {
     : "fire";
 }
 
+function validateUsageLimit(raw: unknown): Result<ScheduleUsageLimit | null> {
+  if (raw === undefined || raw === null) return { ok: true, value: null };
+  if (typeof raw !== "object" || Array.isArray(raw))
+    return fail("usageLimit must be an object or null");
+  const obj = raw as Record<string, unknown>;
+  const keys =
+    obj.kind === "from" ? ["kind", "startPct", "startWindow", "stopPct"] : ["kind", "stopPct"];
+  if (Object.keys(obj).some((key) => !keys.includes(key))) return fail("unknown usageLimit key");
+  const pct = (v: unknown, min: number, max: number): v is number =>
+    typeof v === "number" && Number.isInteger(v) && v % 5 === 0 && v >= min && v <= max;
+  if (!pct(obj.stopPct, 5, 100)) return fail("usageLimit.stopPct must be 5–100 in steps of 5");
+  if (obj.kind === "upTo") return { ok: true, value: { kind: "upTo", stopPct: obj.stopPct } };
+  if (obj.kind !== "from") return fail("usageLimit.kind must be upTo or from");
+  if (!pct(obj.startPct, 0, 95) || obj.startPct >= obj.stopPct)
+    return fail("usageLimit.startPct must be 0–95 in steps of 5 and less than stopPct");
+  if (obj.startWindow !== "week" && obj.startWindow !== "5h")
+    return fail("usageLimit.startWindow must be week or 5h");
+  return {
+    ok: true,
+    value: {
+      kind: "from",
+      startPct: obj.startPct,
+      startWindow: obj.startWindow,
+      stopPct: obj.stopPct,
+    },
+  };
+}
+
 function validateInterval(raw: unknown): Result<ScheduleInterval | null> {
   if (raw === undefined || raw === null) return { ok: true, value: null };
   if (typeof raw !== "object" || Array.isArray(raw))
@@ -310,6 +398,16 @@ function validateLaunch(raw: unknown): Result<ScheduleLaunch> {
   return { ok: true, value: merged as unknown as ScheduleLaunch };
 }
 
+function validateScheduleOptions(
+  obj: Record<string, unknown>,
+): Result<Pick<ScheduleInput, "launch" | "usageLimit">> {
+  const launch = validateLaunch(obj.launch);
+  if (!launch.ok) return launch;
+  const usageLimit = validateUsageLimit(obj.usageLimit);
+  if (!usageLimit.ok) return usageLimit;
+  return { ok: true, value: { launch: launch.value, usageLimit: usageLimit.value } };
+}
+
 /**
  * Validate a full schedule body. The launch options and prompt are re-checked through the New
  * Task validator ({@link scheduleCreateInput}) so a schedule can never store a launch the create
@@ -330,16 +428,16 @@ export function validateScheduleInput(body: unknown, repoRoot: string): Result<S
   if (!cadence.ok) return cadence;
   if (obj.enabled !== undefined && typeof obj.enabled !== "boolean")
     return fail("enabled must be a boolean");
-  const launch = validateLaunch(obj.launch);
-  if (!launch.ok) return launch;
+  const options = validateScheduleOptions(obj);
+  if (!options.ok) return options;
   const value: ScheduleInput = {
     repoPath: obj.repoPath as string,
     name: obj.name.trim(),
     prompt: obj.prompt.trim(),
     days: obj.days as number,
     ...cadence.value,
+    ...options.value,
     enabled: obj.enabled ?? true,
-    launch: launch.value,
   };
   const create = scheduleCreateInput(value, value.launch.baseBranch ?? "main", repoRoot);
   if (!create.ok) return create;

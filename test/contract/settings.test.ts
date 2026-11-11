@@ -17,6 +17,7 @@ import {
 import { operationsForStream, eventsForStream } from "./stream-blocks";
 import { config } from "../../src/config";
 import { configRepo, git as configGit } from "../helpers/repo-config-git";
+import { instanceIdentity } from "../../src/remote-instances/identity";
 import { invalidateRepoConfigFile } from "../../src/repo-config-file";
 import { firstRun } from "../../src/first-run";
 import { diagnostic } from "./settings-fixtures";
@@ -61,6 +62,97 @@ afterAll(() => {
     restoreAuth();
   }
 });
+test("slug repository settings contract covers local reads, writes, refresh and target failures", async () => {
+  const r = configRepo(s.tmpRoot);
+  const previousRoot = config.repoRoot;
+  const previousResolver = s.deps.resolveForge;
+  const self = instanceIdentity(s.deps.store).instanceId;
+  const other = "11111111-1111-4111-8111-111111111111";
+  const slug = "acme/contract-repo";
+  const project = "/api/repo-config/project";
+  const machine = "/api/repo-config/machine";
+  const refresh = "/api/repo-config/refresh";
+  const query = `?remoteSlug=${slug}&instanceId=${self}`;
+  config.repoRoot = r.dir;
+  s.deps.resolveForge = ((dir: string) =>
+    dir === r.b ? { slug, isFork: false } : null) as typeof s.deps.resolveForge;
+  try {
+    const view = (await request("GET", project, 200, undefined, project + query)) as any;
+    expect(view.referenceInstanceId).toBe(self);
+    await request("GET", project, 400);
+    await request("GET", project, 404, undefined, project + "?remoteSlug=unknown/repo");
+    await request("GET", machine, 200, undefined, machine + query);
+    await request("GET", machine, 400);
+    await request("GET", machine, 404, undefined, machine + query.replace(self, other));
+    await request("PUT", machine, 200, { maxAuto: 4 }, machine + query);
+    await request("PUT", machine, 400, { criticAllPrs: true }, machine + query);
+    await request("PUT", machine, 404, { maxAuto: 4 }, machine + query.replace(self, other));
+    const written = (await request(
+      "PUT",
+      project,
+      200,
+      { rules: { criticAllPrs: true }, leitrechner: self },
+      project + query,
+    )) as any;
+    expect(written.leitrechner).toBe(self);
+    for (const [path, at] of [
+      [project, project + query],
+      ["/api/repo-config", `/api/repo-config?repo=${encodeURIComponent(r.b)}`],
+    ]) {
+      for (const leitrechner of [self, null]) {
+        const leaderOnly = (await request("PUT", path!, 200, { leitrechner }, at)) as any;
+        expect(leaderOnly.leitrechner).toBe(leitrechner);
+      }
+    }
+
+    await request("PUT", project, 400, { rules: { sandboxProfile: "trusted" } }, project + query);
+    await request(
+      "PUT",
+      project,
+      404,
+      { rules: { criticAllPrs: true } },
+      project + query.replace(self, other),
+    );
+    await request(
+      "PUT",
+      project,
+      422,
+      { rules: { defaultModel: "claude-mythos-5-2" } },
+      project + query,
+    );
+    await request("POST", refresh, 200, {}, refresh + query);
+    await request("POST", refresh, 400, {});
+    await request("POST", refresh, 404, {}, refresh + "?remoteSlug=unknown/repo");
+    configGit(r.b, "remote", "set-url", "origin", `${r.dir}/missing.git`);
+    await request("POST", refresh, 502, {}, refresh + query);
+    await request("PUT", project, 502, { rules: { criticAllPrs: false } }, project + query);
+    s.deps.store.insertRemoteInstance({
+      instanceId: other,
+      url: "http://127.0.0.1:9",
+      token: "unreachable-test-token",
+      label: null,
+      reportedName: "Offline",
+      createdAt: Date.now(),
+    });
+    await request("GET", machine, 502, undefined, machine + query.replace(self, other));
+    await request("PUT", machine, 502, { maxAuto: 4 }, machine + query.replace(self, other));
+    for (const [method, path, body] of [
+      ["GET", project, undefined],
+      ["PUT", project, { rules: {} }],
+      ["GET", machine, undefined],
+      ["PUT", machine, { maxAuto: 4 }],
+      ["POST", refresh, {}],
+    ] as const) {
+      await request(method, path, 401, body, path + query, {});
+    }
+  } finally {
+    s.deps.store.deleteRemoteInstance(other);
+    s.deps.resolveForge = previousResolver;
+    config.repoRoot = previousRoot;
+    r.close();
+  }
+});
+
 test("repo config reports per-field sources and committed SHA, and sanitizes refused mixed writes", async () => {
   const r = configRepo(s.tmpRoot);
   const path = "/api/repo-config",

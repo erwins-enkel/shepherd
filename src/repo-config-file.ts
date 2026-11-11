@@ -28,7 +28,19 @@ export const REPO_RULE_FIELDS = [
 ] as const satisfies readonly (keyof RepoConfig)[];
 export type RepoRuleKey = (typeof REPO_RULE_FIELDS)[number];
 export type RepoRules = Pick<RepoConfig, RepoRuleKey>;
-export type RepoConfigFile = { rules: Partial<RepoRules>; commit: string };
+export type RepoConfigFile = {
+  rules: Partial<RepoRules>;
+  commit: string;
+  leitrechner?: string | null;
+};
+
+export function isLeitrechner(value: unknown): value is string | null {
+  return (
+    value === null ||
+    (typeof value === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))
+  );
+}
 /** Defaults are shared by the DB fallback, partial-file reads and invariant validation. */
 export const REPO_RULE_DEFAULTS: Readonly<RepoRules> = Object.freeze({
   criticEnabled: true,
@@ -74,6 +86,8 @@ export function parseRepoRules(raw: string): Partial<RepoRules> | null {
   try {
     const value: unknown = JSON.parse(raw);
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    if ("leitrechner" in value && !isLeitrechner((value as Record<string, unknown>).leitrechner))
+      return null;
     const out: Record<string, unknown> = {};
     for (const [key, v] of Object.entries(value)) {
       if (!isRepoRuleKey(key)) continue;
@@ -145,8 +159,16 @@ export function invalidateRepoConfigFile(dir: string): void {
 
 function readAtCommit(dir: string, commit: string): RepoConfigFile | null {
   try {
-    const rules = parseRepoRules(git(dir, ["show", `${commit}:${CONFIG_PATH}`]));
-    return rules === null ? null : { rules, commit };
+    const raw = git(dir, ["show", `${commit}:${CONFIG_PATH}`]);
+    const rules = parseRepoRules(raw);
+    const leitrechner = (JSON.parse(raw) as Record<string, unknown>).leitrechner;
+    return rules === null
+      ? null
+      : {
+          rules,
+          commit,
+          ...(leitrechner === undefined ? {} : { leitrechner: leitrechner as string | null }),
+        };
   } catch {
     return null;
   }
@@ -214,19 +236,24 @@ async function gitAsync(
  * Call under withRepoConfigLock; the callback merges/validates against this exact parent. */
 export async function writeRepoConfigFile(
   dir: string,
-  update: (file: RepoConfigFile | null) => RepoRules,
+  update: (file: RepoConfigFile | null) => RepoRules & { leitrechner?: string | null },
 ): Promise<RepoConfigFile> {
   const context = repoConfigGitContext(dir);
   if (!context) throw new Error("repository has no origin");
   const ref = `refs/remotes/origin/${context.branch}`;
   await gitAsync(dir, ["fetch", "origin", `refs/heads/${context.branch}:${ref}`], {}, 20_000);
   const base = await gitAsync(dir, ["rev-parse", "--verify", `${ref}^{commit}`]);
-  const rules = update(readAtCommit(dir, base));
+  const previous = readAtCommit(dir, base);
+  const updated = update(previous);
+  const leitrechner =
+    updated.leitrechner !== undefined ? updated.leitrechner : previous?.leitrechner;
+  const rules = repoRulesFromConfig(updated as RepoConfig);
+  const contentRules = { ...rules, ...(leitrechner === undefined ? {} : { leitrechner }) };
   const temp = mkdtempSync(join(tmpdir(), "shepherd-config-"));
   let commit: string;
   try {
     const content = join(temp, "config.json");
-    writeFileSync(content, `${JSON.stringify(rules, null, 2)}\n`);
+    writeFileSync(content, `${JSON.stringify(contentRules, null, 2)}\n`);
     const env = { GIT_INDEX_FILE: join(temp, "index") };
     const blob = await gitAsync(dir, ["hash-object", "-w", "--no-filters", content]);
     await gitAsync(dir, ["read-tree", base], env);
@@ -261,7 +288,48 @@ export async function writeRepoConfigFile(
   } catch {
     /* already updated by push, or advanced by another fetch */
   }
-  const value = { rules, commit };
+  const value = { rules, commit, ...(leitrechner === undefined ? {} : { leitrechner }) };
+  for (const [path, hit] of contexts) {
+    if (hit.value?.key === context.key) files.delete(path);
+  }
   files.set(dir, { value, at: Date.now() });
   return value;
+}
+
+/** Fetch only the default ref; never modifies the checkout or index. */
+export async function refreshRepoConfigFile(dir: string): Promise<RepoConfigFile | null> {
+  return withRepoConfigLock(dir, async () => {
+    const context = repoConfigGitContext(dir);
+    if (!context) return null;
+    await gitAsync(
+      dir,
+      ["fetch", "origin", `refs/heads/${context.branch}:refs/remotes/origin/${context.branch}`],
+      {},
+      20_000,
+    );
+    for (const [path, hit] of contexts) {
+      if (hit.value?.key === context.key) invalidateRepoConfigFile(path);
+    }
+    invalidateRepoConfigFile(dir);
+    return readRepoConfigFile(dir);
+  });
+}
+
+/** Startup barrier shared with tests: each repo settles before background jobs begin. */
+export async function refreshRepoConfigsAtStartup(
+  dirs: readonly string[],
+  failed: (dir: string) => void,
+): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < dirs.length) {
+      const dir = dirs[next++]!;
+      try {
+        await refreshRepoConfigFile(dir);
+      } catch {
+        failed(dir);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, dirs.length) }, worker));
 }

@@ -23,6 +23,11 @@ can't reach the ingress get an automatic steer instead. The note goes out once
 per host, within `EGRESS_DROP_CAP` (20 distinct hosts per session), and tells
 the agent not to retry but to ask the operator to allow the host. The agent's
 `self_status` reports these hosts as `egressBlocked`.
+The operator reviews them under Repo settings › Agent › **Blocked hosts** (#3922,
+`GET /api/repo-egress-blocks`: the repo's `egress_drop` signals per host, minus
+hosts already on the effective allowlist). The block toast's **Review** action
+opens that list. Allowing a host takes one click if it is trusted, a confirm if
+it is normal, and a confirm plus a reason if it is risky.
 Without the backend every unattended autonomous spawn is refused. The DIAGNOSE
 row `sandbox_egress` (#3459) reports it, naming the missing tools and the
 affected autonomous repos. Each DIAGNOSE check re-runs the self-test async

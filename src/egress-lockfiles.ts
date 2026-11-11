@@ -4,7 +4,8 @@
 // Runs on the single server loop: git and file reads are async, and file count and bytes are
 // capped so the (linear) regex passes stay bounded.
 
-import { lstat, readFile, realpath } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, realpath, stat, type FileHandle } from "node:fs/promises";
 import { basename, join, sep } from "node:path";
 import { normalizeHost } from "./egress";
 import { execGit } from "./safe-git";
@@ -162,15 +163,25 @@ async function trackedLockfiles(repoDir: string): Promise<string[]> {
 }
 
 /** The text of regular file `path` when it fits the budget and resolves inside `root` (a real
- *  path), else null: missing, a symlink, under a symlinked dir that leaves the repo, too big. */
+ *  path), else null: missing, a symlink, under a symlinked dir that leaves the repo, too big.
+ *  Checks and read go through one open handle, so a swap between them can't change what is
+ *  read: O_NOFOLLOW refuses a symlink, O_NONBLOCK keeps a FIFO from hanging the open, and the
+ *  inode at the in-repo real path must be the opened one. */
 async function readBounded(root: string, path: string, maxBytes: number): Promise<string | null> {
+  let fh: FileHandle | undefined;
   try {
-    const st = await lstat(path);
+    fh = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const st = await fh.stat();
     if (!st.isFile() || st.size > maxBytes) return null;
-    if (!(await realpath(path)).startsWith(root + sep)) return null;
-    return await readFile(path, "utf8");
+    const real = await realpath(path);
+    if (!real.startsWith(root + sep)) return null;
+    const at = await stat(real);
+    if (at.dev !== st.dev || at.ino !== st.ino) return null;
+    return await fh.readFile("utf8");
   } catch {
     return null;
+  } finally {
+    await fh?.close();
   }
 }
 

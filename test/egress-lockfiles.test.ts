@@ -203,6 +203,13 @@ test("scan: skips a lockfile under a symlinked dir that leaves the repo", async 
   expect(await suggestLockfileHosts(dir)).toEqual([]);
 });
 
+test("scan: a FIFO in place of a lockfile is skipped, not waited on", async () => {
+  const dir = repo({ "go.sum": "x v1 h1:y=\n", "b/Cargo.lock": CARGO });
+  rmSync(join(dir, "go.sum"));
+  execFileSync("mkfifo", [join(dir, "go.sum")]);
+  expect((await suggestLockfileHosts(dir)).map((h) => h.host)).toEqual(CRATES);
+});
+
 test("scan: a non-repo dir yields nothing", async () => {
   const dir = mkdtempSync(join(tmpdir(), "egress-lock-"));
   dirs.push(dir);

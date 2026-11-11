@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
+import { config } from "../src/config";
 import { DrainService } from "../src/drain";
 import { MEMBRANE_MISE_CONFIG, type SandboxBackend } from "../src/sandbox";
 import type { EgressBackend } from "../src/egress";
@@ -754,6 +755,55 @@ test("egressWatcher NOT called for trusted spawn (no egress)", async () => {
 
   await service.create(baseInput()); // trusted profile → no egress
   expect(watcher.starts).toHaveLength(0);
+});
+
+// ── egress note channel (#3921) ──────────────────────────────────────────────
+
+async function noteChannelFor(opts: {
+  ingressPort?: number;
+  hostLoopback?: boolean;
+  token?: string | null;
+  hooksIngest?: boolean;
+}) {
+  const saved = { token: config.token, hooksIngest: config.hooksIngest };
+  config.token = opts.token ?? null;
+  config.hooksIngest = opts.hooksIngest ?? true;
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "autonomous" });
+  const watcher = makeWatcherStub();
+  const service = new SessionService({
+    transcriptExists: () => true,
+    store,
+    namer: async () => "s",
+    worktree: worktreeStub(),
+    herdr: herdrStub({}),
+    detectBackend: () => "bwrap",
+    detectEgressBackend: () => "slirp4netns",
+    detectEgressHostLoopback: () => opts.hostLoopback ?? true,
+    agentIngressPort: () => ("ingressPort" in opts ? opts.ingressPort : 7331),
+    egressWatcher: watcher,
+  });
+  try {
+    const s = await service.create(baseInput());
+    rmSync(egressTmpDir(s.id), { recursive: true, force: true });
+    return watcher.starts[0]?.opts.noteChannel;
+  } finally {
+    Object.assign(config, saved);
+  }
+}
+
+test("egress note channel: Claude + host gateway + hooks on + no token → hook", async () => {
+  expect(await noteChannelFor({})).toBe("hook");
+});
+
+test("egress note channel: no host gateway (no ingress port / no slirp host loopback) → steer", async () => {
+  expect(await noteChannelFor({ ingressPort: undefined })).toBe("steer");
+  expect(await noteChannelFor({ hostLoopback: false })).toBe("steer");
+});
+
+test("egress note channel: token set or hooks ingest off → steer", async () => {
+  expect(await noteChannelFor({ token: "t" })).toBe("steer");
+  expect(await noteChannelFor({ hooksIngest: false })).toBe("steer");
 });
 
 // ── local helpers ─────────────────────────────────────────────────────────────

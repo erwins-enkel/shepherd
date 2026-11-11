@@ -887,6 +887,18 @@ test("self_status carries this session's preview from the injected reach", async
   });
 });
 
+test("self_status lists this session's egress blocks; null without an egress watcher (#3921)", async () => {
+  const { deps, sessionId } = harness();
+  const withEgress: AgentControlDeps = {
+    ...deps,
+    egressBlocked: (id) => (id === sessionId ? ["evil.example.com"] : null),
+  };
+  const blocked = toolPayload(await call(withEgress, sessionId, "self_status", {}));
+  expect(blocked.payload.egressBlocked).toEqual(["evil.example.com"]);
+  const none = toolPayload(await call(deps, sessionId, "self_status", {}));
+  expect(none.payload.egressBlocked).toBeNull();
+});
+
 test("self_status without preview wiring reads preview null", async () => {
   const { deps, sessionId } = harness();
   const { payload } = toolPayload(await call(deps, sessionId, "self_status", {}));

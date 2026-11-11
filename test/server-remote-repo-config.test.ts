@@ -243,6 +243,10 @@ test("the legacy local PUT notifies peers and failed refresh does not hide a com
 });
 test("unknown targets and invalid bodies fail without changing settings", async () => {
   const a = host(repo.a);
+  expect(
+    (await a.request("PUT", `${project}&instanceId=${a.id}`, { rules: null, leitrechner: a.id }))
+      .status,
+  ).toBe(400);
   expect((await a.request("GET", "/api/repo-config/project?remoteSlug=absent/repo")).status).toBe(
     404,
   );

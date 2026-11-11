@@ -105,11 +105,8 @@ export class RepoConfigService {
       const hasRulePatch = Object.entries(patch).some(
         ([key, value]) => value !== undefined && isRepoRuleKey(key),
       );
-      if (opts.leitrechner !== undefined && (!fileEnabled || !isLeitrechner(opts.leitrechner)))
-        return {
-          ok: false,
-          error: "leitrechner requires a forge repository and a valid instance ID or null",
-        };
+      const leaderError = this.leaderPatchError(fileEnabled, opts.leitrechner);
+      if (leaderError) return { ok: false, error: leaderError };
       const writeRules = fileEnabled && (hasRulePatch || opts.leitrechner !== undefined);
       let localRunDefaults: RepoConfigPatch = {};
       try {
@@ -161,6 +158,13 @@ export class RepoConfigService {
       if (opts.automationConfirmed === true) this.store.markAutomationConfirmed(dir);
       return { ok: true, config: this.read(dir), previousLocal: local, rulesCommitted: writeRules };
     });
+  }
+
+  private leaderPatchError(fileEnabled: boolean, leader: unknown): string | null {
+    if (leader === undefined) return null;
+    return fileEnabled && isLeitrechner(leader)
+      ? null
+      : "leitrechner requires a forge repository and a valid instance ID or null";
   }
 
   /** Derive CLI defaults only from the serialized, freshly read view. Shared rules stay intact. */

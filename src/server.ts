@@ -3712,19 +3712,29 @@ async function parseGatedRepoConfigPatch(
 /** Merge a validated patch onto the current repo config, returning the new full config.
  *  Patch fields are only ever undefined (absent) or a valid value, so every defined
  *  field overrides and absent fields keep the current value. */
-async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+async function handleRepoConfig(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, url, deps } = ctx;
   if (!(parts[0] === "api" && parts[1] === "repo-config" && !parts[2])) return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   if (req.method === "GET") return json(withNoPrCi(deps, dir, repoConfigSvc(deps).read(dir)));
   if (req.method !== "PUT") return null;
+  return putLocalRepoConfig(ctx, dir);
+}
 
+async function parseRepoLeader(req: Request): Promise<{ leitrechner?: string | null } | Response> {
   const raw: unknown = await req
     .clone()
     .json()
     .catch(() => null);
-  if (isRecord(raw) && raw.leitrechner !== undefined && !isLeitrechner(raw.leitrechner))
-    return json({ error: "invalid leitrechner" }, 400);
+  if (!isRecord(raw) || raw.leitrechner === undefined) return {};
+  if (!isLeitrechner(raw.leitrechner)) return json({ error: "invalid leitrechner" }, 400);
+  return { leitrechner: raw.leitrechner };
+}
+
+async function putLocalRepoConfig({ req, url, deps }: Ctx, dir: string): Promise<Response> {
+  const leader = await parseRepoLeader(req);
+  if (leader instanceof Response) return leader;
   const patch = await parseGatedRepoConfigPatch(req, deps);
   if (patch instanceof Response) return patch;
   // Load-bearing destructure: the automationConfirmed metadata is applied separately
@@ -3739,9 +3749,7 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   }
   const r = await repoConfigSvc(deps).patch(dir, cfgPatch, {
     automationConfirmed,
-    ...(isRecord(raw) && raw.leitrechner !== undefined
-      ? { leitrechner: raw.leitrechner as string | null }
-      : {}),
+    ...leader,
     defaultAgentProvider: config.defaultAgentProvider,
   });
   if (!r.ok) return json({ error: r.error, code: r.code }, r.code ? 502 : 400);
@@ -3824,16 +3832,14 @@ async function refreshLocalRepoConfig(deps: AppDeps, slug: string): Promise<void
   for (const path of repos.values()) await refreshRepoConfigFile(path);
 }
 
+type RepoConfigLeaf = "machine" | "project";
+
 /** Slug-addressed settings terminate locally when host=local; peers never fan out. */
 async function handleRepoConfigProject(ctx: Ctx): Promise<Response | null> {
-  const { req, parts, url, deps, token, agentIngress } = ctx;
-  if (
-    parts[0] !== "api" ||
-    parts[1] !== "repo-config" ||
-    parts.length !== 3 ||
-    !["project", "machine", "refresh"].includes(parts[2]!)
-  )
-    return null;
+  const { req, parts, url, token, agentIngress } = ctx;
+  if (parts[0] !== "api" || parts[1] !== "repo-config" || parts.length !== 3) return null;
+  const leaf = parts[2];
+  if (!["project", "machine", "refresh"].includes(leaf!)) return null;
   if (agentIngress || (token && token.repoPaths !== null))
     return json({ error: "insufficient_scope" }, 403);
   const slug = url.searchParams.get("remoteSlug");
@@ -3844,87 +3850,125 @@ async function handleRepoConfigProject(ctx: Ctx): Promise<Response | null> {
     [...slug].some((char) => char.charCodeAt(0) < 32)
   )
     return json({ error: "invalid remoteSlug" }, 400);
-  const leaf = parts[2]!;
-  const coordinator = repoConfigCoordinator(deps);
-  const self = instanceIdentity(deps.store, hostPlatform(deps));
-  const localOnly = url.searchParams.get("host") === "local";
-  if (leaf === "project" && req.method === "GET") {
-    if (localOnly) return json({ error: "use the local machine endpoint" }, 400);
-    const result = await coordinator.read(slug);
-    if (result.machines.every((machine) => machine.membership === "absent"))
-      return json({ error: "repository not found", code: "repo_not_found" }, 404);
-    return json(result);
+  if (leaf === "refresh") return refreshRepoConfigRequest(ctx, slug);
+  if (leaf === "project" && req.method === "GET") return readRepoProject(ctx, slug);
+  return targetedRepoConfigRequest(ctx, slug, leaf as RepoConfigLeaf);
+}
+
+async function readRepoProject({ url, deps }: Ctx, slug: string): Promise<Response> {
+  if (url.searchParams.get("host") === "local")
+    return json({ error: "use the local machine endpoint" }, 400);
+  const result = await repoConfigCoordinator(deps).read(slug);
+  if (result.machines.every((machine) => machine.membership === "absent"))
+    return json({ error: "repository not found", code: "repo_not_found" }, 404);
+  return json(result);
+}
+
+async function refreshRepoConfigRequest(
+  { req, deps }: Ctx,
+  slug: string,
+): Promise<Response | null> {
+  if (req.method !== "POST") return null;
+  if (!localRepoForProject(deps, slug))
+    return json({ error: "repository not found", code: "repo_not_found" }, 404);
+  try {
+    await refreshLocalRepoConfig(deps, slug);
+    return json({ ok: true, remoteSlug: slug });
+  } catch {
+    return json({ error: "repository fetch failed", reason: "fetch_failed" }, 502);
   }
-  if (leaf === "refresh") {
-    if (req.method !== "POST") return null;
-    if (!localRepoForProject(deps, slug))
-      return json({ error: "repository not found", code: "repo_not_found" }, 404);
-    try {
-      await refreshLocalRepoConfig(deps, slug);
-      return json({ ok: true, remoteSlug: slug });
-    } catch {
-      return json({ error: "repository fetch failed", reason: "fetch_failed" }, 502);
-    }
-  }
-  if (!(
-    (leaf === "machine" && ["GET", "PUT"].includes(req.method)) ||
-    (leaf === "project" && req.method === "PUT")
-  ))
-    return null;
+}
+
+function projectRepoPatchError(value: Record<string, unknown>): Response | null {
+  const rules = value.rules === undefined ? {} : value.rules;
+  if (
+    Object.keys(value).some((key) => !["rules", "leitrechner"].includes(key)) ||
+    !isRulePatch(rules)
+  )
+    return json({ error: "invalid rule patch" }, 400);
+  if (value.leitrechner !== undefined && !isLeitrechner(value.leitrechner))
+    return json({ error: "invalid leitrechner" }, 400);
+  if (!Object.keys(rules).length && value.leitrechner === undefined)
+    return json({ error: "empty rule patch" }, 400);
+  return null;
+}
+
+async function parseTargetedRepoPatch(
+  req: Request,
+  deps: AppDeps,
+  leaf: RepoConfigLeaf,
+): Promise<Record<string, unknown> | Response> {
+  const value: unknown = await req
+    .clone()
+    .json()
+    .catch(() => null);
+  if (!isRecord(value)) return json({ error: "body must be an object" }, 400);
+  if (leaf === "project") return projectRepoPatchError(value) ?? value;
+  const keys = deps.store.getLocalRepoConfig("");
+  if (
+    !Object.keys(value).length ||
+    Object.keys(value).some(
+      (key) => isRepoRuleKey(key) || (key !== "automationConfirmed" && !Object.hasOwn(keys, key)),
+    )
+  )
+    return json({ error: "machine patch must contain only machine fields" }, 400);
+  return value;
+}
+
+async function targetedRepoConfigRequest(
+  ctx: Ctx,
+  slug: string,
+  leaf: RepoConfigLeaf,
+): Promise<Response | null> {
+  const { req, url, deps } = ctx;
+  if (req.method !== "PUT" && (leaf !== "machine" || req.method !== "GET")) return null;
   const instanceId = url.searchParams.get("instanceId");
   if (!instanceId || !UUID_RE.test(instanceId))
     return json({ error: "instanceId is required" }, 400);
-  if (localOnly && instanceId !== self.instanceId)
+  const self = instanceIdentity(deps.store, hostPlatform(deps));
+  if (url.searchParams.get("host") === "local" && instanceId !== self.instanceId)
     return json({ error: "local target mismatch" }, 400);
-  // Validate shape before forwarding. The target still applies its existing value/account gates.
-  let body: Record<string, unknown> | undefined;
-  if (req.method === "PUT") {
-    const value: unknown = await req
-      .clone()
-      .json()
-      .catch(() => null);
-    if (!isRecord(value)) return json({ error: "body must be an object" }, 400);
-    if (leaf === "project") {
-      if (
-        Object.keys(value).some((key) => !["rules", "leitrechner"].includes(key)) ||
-        !isRulePatch(value.rules ?? {}) ||
-        (value.leitrechner !== undefined && !isLeitrechner(value.leitrechner)) ||
-        (!Object.keys((value.rules ?? {}) as object).length && value.leitrechner === undefined)
-      )
-        return json({ error: "invalid rule patch" }, 400);
-    } else {
-      const keys = deps.store.getLocalRepoConfig("");
-      if (
-        !Object.keys(value).length ||
-        Object.keys(value).some(
-          (key) =>
-            isRepoRuleKey(key) || (key !== "automationConfirmed" && !Object.hasOwn(keys, key)),
-        )
-      )
-        return json({ error: "machine patch must contain only machine fields" }, 400);
-    }
-    body = value;
-  }
-  if (instanceId !== self.instanceId) {
-    const machine = remoteInstances(deps).get(instanceId);
-    const row = deps.store.getRemoteInstance(instanceId);
-    if (!machine || !row) return json({ error: "machine not found" }, 404);
-    const response = await coordinator.forward(
-      {
-        instanceId,
-        name: machine.name,
-        membership: "unknown",
-        target: machine.status === "connected" ? { url: row.url, token: row.token } : null,
-      },
-      req.method,
-      leaf as "machine" | "project",
-      slug,
-      body ? JSON.stringify(body) : undefined,
-    );
-    if (leaf !== "project" || !response.ok || localOnly) return response;
-    const written = (await response.json()) as Record<string, unknown>;
-    return json({ ...written, notifications: await coordinator.notify(slug, instanceId) });
-  }
+  const body = req.method === "PUT" ? await parseTargetedRepoPatch(req, deps, leaf) : undefined;
+  if (body instanceof Response) return body;
+  if (instanceId === self.instanceId) return localTargetedRepoConfig(ctx, slug, leaf, body);
+  return forwardTargetedRepoConfig(ctx, slug, leaf, instanceId, body);
+}
+
+async function forwardTargetedRepoConfig(
+  { req, deps }: Ctx,
+  slug: string,
+  leaf: RepoConfigLeaf,
+  instanceId: string,
+  body?: Record<string, unknown>,
+): Promise<Response> {
+  const machine = remoteInstances(deps).get(instanceId);
+  const row = deps.store.getRemoteInstance(instanceId);
+  if (!machine || !row) return json({ error: "machine not found" }, 404);
+  const coordinator = repoConfigCoordinator(deps);
+  const response = await coordinator.forward(
+    {
+      instanceId,
+      name: machine.name,
+      membership: "unknown",
+      target: machine.status === "connected" ? { url: row.url, token: row.token } : null,
+    },
+    req.method,
+    leaf,
+    slug,
+    body ? JSON.stringify(body) : undefined,
+  );
+  if (leaf !== "project" || !response.ok) return response;
+  const written = (await response.json()) as Record<string, unknown>;
+  return json({ ...written, notifications: await coordinator.notify(slug, instanceId) });
+}
+
+async function localTargetedRepoConfig(
+  ctx: Ctx,
+  slug: string,
+  leaf: RepoConfigLeaf,
+  body?: Record<string, unknown>,
+): Promise<Response | null> {
+  const { req, url, deps } = ctx;
   const rawPath = localRepoForProject(deps, slug);
   const dir = rawPath && safeRepoDir(rawPath, config.repoRoot);
   if (!dir) return json({ error: "repository not found", code: "repo_not_found" }, 404);
@@ -3961,7 +4005,10 @@ async function handleRepoConfigProject(ctx: Ctx): Promise<Response | null> {
     rules: repoRulesFromConfig(repoConfigSvc(deps).read(dir)),
     repoConfigCommit: view.repoConfigCommit,
     leitrechner: view.leitrechner,
-    notifications: localOnly ? [] : await coordinator.notify(slug),
+    notifications:
+      url.searchParams.get("host") === "local"
+        ? []
+        : await repoConfigCoordinator(deps).notify(slug),
   });
 }
 

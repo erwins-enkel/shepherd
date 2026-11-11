@@ -54,6 +54,14 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    /* Sits directly in NewTask's .card — match its .left column inset. */
+    padding: 14px 16px;
+  }
+
+  @media (max-width: 768px), (max-height: 480px) and (pointer: coarse) {
+    .ftac {
+      padding: 12px 16px;
+    }
   }
 
   .ftac-title {

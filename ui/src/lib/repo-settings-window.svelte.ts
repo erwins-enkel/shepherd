@@ -20,6 +20,8 @@ interface RepoSettingsTarget {
 interface RepoSettingsInputs {
   drain(repoPath: string): DrainStatus | null;
   globals(): Settings | null;
+  /** Seed a New Task that sets up PR CI for the repo (#3305); absent = no such entry point. */
+  setupCi?(repoPath: string): void;
 }
 
 class RepoSettingsWindow {
@@ -38,6 +40,12 @@ class RepoSettingsWindow {
 
   globals(): Settings | null {
     return this.#inputs.globals();
+  }
+
+  /** The page's "set up PR CI" seed for `repoPath`, so an inline surface (the session's
+   *  Automation tab) offers the same entry point as the window. */
+  setupCi(repoPath: string) {
+    this.#inputs.setupCi?.(repoPath);
   }
 
   open(repoPath: string, opts: Omit<RepoSettingsTarget, "repoPath"> = {}) {

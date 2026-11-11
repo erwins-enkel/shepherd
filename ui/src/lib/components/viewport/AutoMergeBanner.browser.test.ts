@@ -116,7 +116,7 @@ describe("AutoMergeBanner", () => {
 
   it("renders nothing when the train does not hold this PR or off the terminal tab", async () => {
     mount(null);
-    mount("behind", { tab: "diff" });
+    mount("behind", { tab: "automation" });
     await new Promise((r) => setTimeout(r, 20));
     expect(banner()).toBeNull();
   });

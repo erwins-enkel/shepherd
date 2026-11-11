@@ -24,7 +24,8 @@ It is **off by default** and turned on per repo.
 
 ## Turn it on
 
-Open the repo's automation settings (the automation pill) and switch on
+Open the repo's settings (a session's **Auto** tab, or **Repo settings …** in a repo tab's
+context menu) and switch on
 **Shared browser**. From the CLI:
 
 ```bash

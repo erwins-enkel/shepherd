@@ -209,9 +209,8 @@
     <!-- earned prominence: once a PR exists the work is delivered, so the
          decommission nudge surfaces inline (green, arms red on click) — one
          obvious click+confirm away. prReady is false while the merge row holds the
-         call to action. Then, or before a PR, desktop shows the quiet icon-only ✕
-         below (none at all on hideDecom); compact shows the same icon-only ✕ in the
-         git strip. -->
+         call to action. Then, or before a PR, the quiet icon-only ✕ below takes its
+         place (none at all on hideDecom). -->
     <button
       class="decom"
       class:armed
@@ -239,14 +238,15 @@
         {armed ? m.viewport_confirm_decommission() : m.viewport_decommission()}
       {/if}
     </button>
-  {:else if !compact && !hideDecom}
-    <!-- no PR yet, or the merge row holds the call to action → desktop still keeps decommission one click away, but quiet:
-         a faint icon-only ✕ (the green nudge is earned by delivering a PR).
-         Compact layouts show the same icon-only ✕ in the git strip instead.
+  {:else if !hideDecom}
+    <!-- no PR yet, or the merge row holds the call to action → decommission stays one click away, but quiet:
+         a faint icon-only ✕ (the green nudge is earned by delivering a PR), on
+         every layout (compact sizes it like the other header icons).
          Same armed treatment as above: the square fills solid red (no glyph
          swap). Never ✓ — that glyph means READY/actionable-complete. -->
     <button
       class="decom quiet icon-btn"
+      class:compact
       class:armed
       type="button"
       onclick={decommission}
@@ -360,7 +360,7 @@
   }
 
   /* PR delivered → the work is done. The decommission control graduates from its
-     quiet form (faint inline ✕ on desktop, strip button on compact) into a bright,
+     quiet form (faint icon-only ✕) into a bright,
      gently pulsing green call-to-action on the identity row so wrapping up the
      session reads as the obvious next step. Hover/armed below still override it
      red (destructive confirm). */

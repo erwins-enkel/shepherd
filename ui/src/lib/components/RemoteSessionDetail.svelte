@@ -19,8 +19,7 @@
   import RemoteConnectionNote from "./RemoteConnectionNote.svelte";
   import RemoteTerminal from "./RemoteTerminal.svelte";
   import ChatView from "./chat/ChatView.svelte";
-  import DiffPanel from "./DiffPanel.svelte";
-  import FilesPanel from "./viewport/FilesPanel.svelte";
+  import FilesTab from "./viewport/FilesTab.svelte";
   import SessionStatusBar from "./SessionStatusBar.svelte";
   import SteerBar from "./SteerBar.svelte";
   import ViewportFootHints from "./viewport/ViewportFootHints.svelte";
@@ -88,11 +87,10 @@
   const branchLabel = $derived(session.branch?.replace(/^shepherd\//, ""));
   const showBranch = $derived(!!branchLabel && slug(branchLabel) !== slug(session.name));
 
-  type Tab = "chat" | "term" | "diff" | "files" | "preview";
+  type Tab = "chat" | "term" | "files" | "preview";
   const TABS: { id: Tab; label: () => string }[] = [
     { id: "chat", label: m.viewport_chat_tab },
     { id: "term", label: m.viewport_terminal_tab },
-    { id: "diff", label: m.viewport_diff_tab },
     { id: "files", label: m.viewport_files_tab },
     { id: "preview", label: m.viewport_preview_tab },
   ];
@@ -249,10 +247,8 @@
         </div>
       {/if}
     {/if}
-    {#if tab === "diff"}
-      <DiffPanel sessionId={session.id} />
-    {:else if tab === "files"}
-      <FilesPanel sessionId={session.id} />
+    {#if tab === "files"}
+      <FilesTab sessionId={session.id} filesAvailable={true} />
     {:else if tab === "preview" && mirrored}
       {#key mirrored.id}
         <RemotePreview session={mirrored} tick={previewTick} />

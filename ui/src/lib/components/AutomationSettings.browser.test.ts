@@ -7,10 +7,17 @@ import AutomationSettings from "./AutomationSettings.svelte";
 import { infoTips } from "#lib/info-tips.svelte.js";
 import { m } from "#lib/paraglide/messages.js";
 import { repoConfig } from "#lib/reviews.svelte.js";
+import { RepoConfigEditor } from "./repo-settings/repo-config-editor.svelte.js";
 import { toasts } from "#lib/toasts.svelte.js";
+import type { RepoConfigResponse } from "#lib/api.js";
 import type { DrainStatus } from "#lib/types.js";
 
-afterEach(() => infoTips.set(false));
+afterEach(() => {
+  infoTips.set(false);
+  repoConfig.responses = {};
+  repoConfig.loaded = {};
+  repoConfig.settled = {};
+});
 
 // The ⓘ explainers are toggled with `hidden`, not {#if}, so a collapsed detail block is
 // ALREADY in the DOM. An "is it absent when tips are hidden?" assertion would therefore pass
@@ -529,7 +536,9 @@ describe("AutomationSettings — merge without CI (#3104)", () => {
   const toggle = () => page.getByRole("switch", { name: m.automation_merge_without_ci_name() });
 
   it("reflects the repo flag (default off) and toggles it on click", async () => {
-    const spy = vi.spyOn(repoConfig, "toggleMergeWithoutCi").mockResolvedValue(undefined);
+    const spy = vi
+      .spyOn(RepoConfigEditor.prototype, "toggleMergeWithoutCi")
+      .mockResolvedValue(undefined);
     await mount();
     await expect.element(toggle()).toHaveAttribute("aria-checked", "false");
     repoConfig.mergeWithoutCi = { "/tmp/repo": true };
@@ -696,6 +705,13 @@ describe("AutomationSettings — lock reasons (#3444)", () => {
 
   it("a local-only repo locks exactly the GitHub settings, each with its reason", async () => {
     repoConfig.repoMode = { [repo]: "lightweight" };
+    repoConfig.responses = {
+      [repo]: {
+        repoMode: "lightweight",
+        repoConfigBranch: null,
+        repoConfigCommit: null,
+      } as RepoConfigResponse,
+    };
     await mount();
     const reason = m.automation_lightweight_unavailable();
     expect(locks()).toEqual({
@@ -729,6 +745,15 @@ describe("AutomationSettings — lock reasons (#3444)", () => {
 
   it("Go to Autopilot focuses the Autopilot switch on the same page", async () => {
     repoConfig.autoMerge = { [repo]: true };
+    repoConfig.responses = {
+      [repo]: {
+        repoMode: "forge",
+        repoConfigBranch: null,
+        repoConfigCommit: null,
+        autoMergeEnabled: true,
+        autopilotEnabled: false,
+      } as RepoConfigResponse,
+    };
     await mount();
     await page.getByRole("button", { name: m.reposettings_merge_goto_autopilot() }).click();
     await expect
@@ -752,6 +777,7 @@ describe("AutomationSettings — the autonomy chain follows the switches (#3445)
       draftMode: false,
       signoffAuthority: "human",
       repoMode: "forge",
+      repoConfigBranch: null,
       sandboxProfile: "autonomous",
     };
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {

@@ -779,3 +779,53 @@ describe("BacklogOverlay tab shortcuts", () => {
     expect(activeTab()).toBe("issues");
   });
 });
+
+describe("BacklogOverlay — unsaved repository rules", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+  it("keeps a draft on cancelled tab/close navigation and discards only after confirmation", async () => {
+    const { repoConfig } = await import("#lib/reviews.svelte.js");
+    repoConfig.loaded = {};
+    repoConfig.responses = {};
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input) => {
+        if (String(input).startsWith("/api/repo-config?"))
+          return Response.json({
+            repoMode: "forge",
+            criticEnabled: true,
+            repoConfigBranch: "main",
+            repoConfigCommit: "abc",
+            draftMode: false,
+            autoMergeEnabled: false,
+          });
+        return new Response("{}", { status: 404 });
+      }),
+    );
+    const onclose = vi.fn();
+    const { rerender } = await render(BacklogOverlay, props({ selectPath: "/r/repo-0", onclose }));
+    await page.getByRole("button", { name: m.backlog_tab_automation(), exact: true }).click();
+    await page.getByRole("switch", { name: m.automation_critic_name(), exact: true }).click();
+    await page.getByRole("button", { name: m.backlog_tab_readiness(), exact: true }).click();
+    expect(confirm).toHaveBeenCalledWith(m.automation_layers_unsaved());
+    await expect
+      .element(page.getByRole("button", { name: m.automation_layers_review(), exact: true }))
+      .toBeEnabled();
+    const overlay = document.querySelector<HTMLElement>(".overlay")!;
+    overlay.click();
+    expect(onclose).not.toHaveBeenCalled();
+    await rerender(props({ selectPath: "/r/repo-1", onclose }));
+    await expect
+      .element(page.getByRole("button", { name: m.automation_layers_review(), exact: true }))
+      .toBeEnabled();
+    confirm.mockReturnValue(true);
+    await page.getByRole("button", { name: m.backlog_tab_readiness(), exact: true }).click();
+    expect(
+      page.getByRole("button", { name: m.automation_layers_review(), exact: true }).query(),
+    ).toBeNull();
+    expect(repoConfig.isEnabled("/r/repo-0")).toBe(true);
+  });
+});

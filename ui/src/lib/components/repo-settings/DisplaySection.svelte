@@ -1,6 +1,7 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { useRepoConfig } from "./repo-config-editor.svelte.js";
+  const repoConfig = useRepoConfig();
   import type { RepoConfig } from "#lib/types.js";
   import RepoSettingRow from "./RepoSettingRow.svelte";
   import "../automation-settings/automation-fields.css";

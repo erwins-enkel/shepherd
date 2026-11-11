@@ -57,6 +57,8 @@ GET and successful PUT responses include:
 - `fieldSources`: a source for each configuration field, `repo` or `rechner`. Missing shared
   fields filled with defaults and literal `inherit` values still have source `repo` when a
   valid file is active. Response metadata is excluded from this map.
+- `repoConfigBranch`: the exact default branch used for shared-rule commits, including before
+  a file exists; `null` for local-only or lightweight repositories.
 - `repoConfigCommit`: the full selected default-branch commit SHA, or `null` when no valid
   file is active (missing, invalid or disabled).
 
@@ -167,3 +169,10 @@ resolved `name`, `role` (`unassigned`, `local`, `remote`, `unknown`), nullable `
 writable rules. The `repo:leitrechner` event carries `{repoPath, leitrechnerStatus}` when
 this view changes. Drain snapshots and `drain:status` carry the same ownership view;
 a local explicit epic can still progress while the general repo jobs are paused.
+
+The web Automation panel groups shared rules, the lead machine and local machine values.
+Rule edits remain a panel-local draft until the operator reviews the old/new values, target
+branch and fixed commit message. One confirmation saves all selected rules and the lead
+machine in one commit. Without a file, “Set for all machines” publishes the current rules.
+Machine values save immediately without a commit. Bootstrap, schedules and reviewer/merger
+roles keep their separate save flows; role changes may create their own commit or PR.

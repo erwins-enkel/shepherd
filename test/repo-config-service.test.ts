@@ -169,3 +169,22 @@ test("read includes derived leitrechner status outside fieldSources", () => {
   });
   expect(svc.read("/r").fieldSources).not.toHaveProperty("leitrechnerStatus");
 });
+
+test("read: no-origin repositories expose no shared-rule target", () => {
+  expect(harness().svc.read("/r").repoConfigBranch).toBeNull();
+});
+
+test("read: target branch is origin/HEAD even before a file exists", async () => {
+  const { configRepo } = await import("./helpers/repo-config-git");
+  const repo = configRepo(undefined, "trunk");
+  const { store, svc } = harness();
+  try {
+    expect(svc.read(repo.a).repoConfigBranch).toBe("trunk");
+    expect(svc.read(repo.a).repoConfigCommit).toBeNull();
+    await svc.patch(repo.a, { repoMode: "lightweight" });
+    expect(svc.read(repo.a).repoConfigBranch).toBeNull();
+    expect(store.getLocalRepoConfig(repo.a).repoMode).toBe("lightweight");
+  } finally {
+    repo.close();
+  }
+});

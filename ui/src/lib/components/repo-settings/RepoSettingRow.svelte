@@ -11,13 +11,15 @@
 
 <script lang="ts">
   import { firstSafeHttpUrl } from "#lib/url.js";
-  import { m } from "#lib/paraglide/messages.js";
   import {
     usePendingConfig,
     rowPendingChanges,
     proposedValue,
     proposedRuleName,
   } from "./pending-config-context.svelte.js";
+  import { useRepoEditor, useSettingsLayer, fieldLayer } from "./repo-config-editor.svelte.js";
+  import { isRuleField } from "#lib/repo-config-fields.js";
+  import { m } from "#lib/paraglide/messages.js";
   import type { Snippet } from "svelte";
   import type { TooltipExplanation } from "#lib/tooltips/content.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
@@ -90,28 +92,56 @@
 
   const proposal = usePendingConfig();
   const ruleChanges = $derived(rowPendingChanges(field, proposal()));
+  const editor = useRepoEditor();
+  const layer = useSettingsLayer();
+  const rulePending = $derived(
+    !!editor &&
+      fieldLayer(field) === "repo" &&
+      (editor.saving || !editor.view || editor.view.repoConfigBranch === undefined),
+  );
+  const visible = $derived(!layer || layer === fieldLayer(field));
+  const fromFile = $derived(
+    field
+      .split(" ")
+      .filter(isRuleField)
+      .every((key) => editor?.view?.fieldSources?.[key] === "repo"),
+  );
   const open = useOpenDetail();
   const lockId = $props.id();
   const off = $derived(disabled || !!locked);
 </script>
 
-<div class={["rs-row", { disabled: off, indent }]} data-field={field} use:coachTarget={coach}>
-  <div class="rs-meta">
-    <div class="rs-name">
-      {#if icon || glyph}<span class="rs-glyph" aria-hidden="true"
-          >{#if icon}{@render icon()}{:else}{glyph}{/if}</span
-        >{/if}{name}
-      {#if detail}
-        <AutomationInfoTip
-          id={detail.id}
-          {name}
-          open={open.id === detail.id}
-          ontoggle={() => open.toggle(detail.id)}
-        />
+{#if visible}
+  <div class={["rs-row", { disabled: off, indent }]} data-field={field} use:coachTarget={coach}>
+    <div class="rs-meta">
+      <div class="rs-name">
+        {#if icon || glyph}<span class="rs-glyph" aria-hidden="true"
+            >{#if icon}{@render icon()}{:else}{glyph}{/if}</span
+          >{/if}{name}
+        {#if detail}
+          <AutomationInfoTip
+            id={detail.id}
+            {name}
+            open={open.id === detail.id}
+            ontoggle={() => open.toggle(detail.id)}
+          />
+        {/if}
+        {#if explanation}<InfoTip text={explanation} label={explanation.title} />{/if}
+      </div>
+      {#if editor && field}
+        <span class="rs-source"
+          >{field === "bootstrap" || field === "schedules" || field.startsWith("roles.")
+            ? m.automation_layers_separate()
+            : fieldLayer(field) === "repo"
+              ? editor.view?.repoConfigCommit === undefined
+                ? m.automation_layers_unknown_source()
+                : fromFile && editor.view?.repoConfigCommit
+                  ? m.automation_layers_file()
+                  : m.automation_layers_not_shared()
+              : m.automation_layers_local()}</span
+        >
       {/if}
-      {#if explanation}<InfoTip text={explanation} label={explanation.title} />{/if}
-    </div>
-    {#if desc}<div class="rs-desc">{desc}</div>{/if}
+      {#if desc}<div class="rs-desc">{desc}</div>{/if}
     {#if ruleChanges.length && proposal()}
       <div class="rs-proposal" role="status">
         <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge PR URL -->
@@ -131,40 +161,45 @@
         {/each}
       </div>
     {/if}
-    {#if locked}<div class="rs-locked" id={lockId}>{locked}</div>{/if}
-    {#if warn}<div class="rs-warn" role="status" hidden={!warnShown}>{warn}</div>{/if}
-    {#if task}<div class="rs-task">{task}</div>{/if}
-    {#if detail}
-      <AutomationDetail
-        id={detail.id}
-        open={open.id === detail.id}
-        text={detail.text}
-        paragraphs={detail.paragraphs}
-        intro={detail.intro}
-        sections={detail.sections}
-      />
+      {#if locked}<div class="rs-locked" id={lockId}>{locked}</div>{/if}
+      {#if warn}<div class="rs-warn" role="status" hidden={!warnShown}>{warn}</div>{/if}
+      {#if task}<div class="rs-task">{task}</div>{/if}
+      {#if detail}
+        <AutomationDetail
+          id={detail.id}
+          open={open.id === detail.id}
+          text={detail.text}
+          paragraphs={detail.paragraphs}
+          intro={detail.intro}
+          sections={detail.sections}
+        />
+      {/if}
+      {#if below}<fieldset class="rs-fields" disabled={rulePending}>
+          {@render below()}
+        </fieldset>{/if}
+    </div>
+    {#if control}
+      <div class="rs-control">
+        <fieldset class="rs-fields" disabled={rulePending}>{@render control()}</fieldset>
+      </div>
+    {:else if ontoggle}
+      <button
+        class={["sw", { on: checked, reviewing: busy }]}
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-busy={busy || pending || rulePending}
+        aria-label={name}
+        disabled={off || pending || rulePending}
+        title={locked ?? (disabled ? disabledTitle : undefined)}
+        aria-describedby={locked ? lockId : undefined}
+        onclick={() => !off && ontoggle()}
+      >
+        <span class="knob"></span>
+      </button>
     {/if}
-    {@render below?.()}
   </div>
-  {#if control}
-    <div class="rs-control">{@render control()}</div>
-  {:else if ontoggle}
-    <button
-      class={["sw", { on: checked, reviewing: busy }]}
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-busy={busy || pending}
-      aria-label={name}
-      disabled={off || pending}
-      title={locked ?? (disabled ? disabledTitle : undefined)}
-      aria-describedby={locked ? lockId : undefined}
-      onclick={() => !off && ontoggle()}
-    >
-      <span class="knob"></span>
-    </button>
-  {/if}
-</div>
+{/if}
 
 <style>
   .rs-proposal {
@@ -178,6 +213,16 @@
     text-decoration: underline;
   }
 
+  .rs-fields {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+  }
+  .rs-source {
+    font-size: var(--fs-micro);
+    color: var(--color-muted);
+  }
   .rs-row {
     display: flex;
     align-items: flex-start;

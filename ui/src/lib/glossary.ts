@@ -5,6 +5,7 @@ import {
   landingPrExplanation,
   integrationBranchExplanation,
   coldRepoExplanation,
+  leitrechnerExplanation,
 } from "#lib/tooltips/explanations.js";
 import type { TooltipExplanation } from "#lib/tooltips/content.js";
 import { m } from "#lib/paraglide/messages.js";
@@ -29,6 +30,13 @@ type GlossaryTerm = {
 };
 
 const glossary: readonly GlossaryTerm[] = [
+  {
+    id: "leitrechner",
+    kind: "internal",
+    termKey: "gloss_leitrechner_term",
+    bodyKey: "gloss_leitrechner_def",
+    explanation: leitrechnerExplanation,
+  },
   {
     id: "landing-pr",
     kind: "internal",

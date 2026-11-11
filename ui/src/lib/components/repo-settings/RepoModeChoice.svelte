@@ -1,6 +1,8 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { useRepoConfig, useRepoEditor } from "./repo-config-editor.svelte.js";
+  const repoConfig = useRepoConfig();
+  const editor = useRepoEditor();
   import { repoModeExplanation } from "#lib/tooltips/explanations.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import InfoTip from "../InfoTip.svelte";
@@ -16,6 +18,15 @@
     { value: "forge", label: m.reposettings_mode_github() },
     { value: "lightweight", label: m.reposettings_mode_local() },
   ] as const;
+
+  function changeMode(value: "forge" | "lightweight") {
+    if (editor?.saving) return;
+    if (editor?.dirty) {
+      if (!window.confirm(m.automation_layers_unsaved())) return;
+      editor.discard();
+    }
+    void repoConfig.setRepoMode(repoPath, value);
+  }
 
   // Only the window registers the coach target: coachTargets keys one node per id, and a second
   // mounted instance's teardown would delete the window's anchor.
@@ -39,7 +50,8 @@
         {name}
         value={opt.value}
         checked={mode === opt.value}
-        onchange={() => repoConfig.setRepoMode(repoPath, opt.value)}
+        disabled={editor?.saving}
+        onchange={() => changeMode(opt.value)}
       />
       {opt.label}
     </label>

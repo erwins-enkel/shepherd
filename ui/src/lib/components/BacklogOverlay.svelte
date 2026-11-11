@@ -153,7 +153,11 @@
   // Phone: a rightward swipe over the repo list closes Backlog, back to the sessions (see
   // swipeBack). An open repo/issue detail is its own swipe-back root, so it goes back first.
   let cardX = $state(0); // rubber-banded display offset (px, ≥ 0)
-  const cardSwipe = swipeBack({ onback: () => onclose(), onoffset: (px) => (cardX = px) });
+  function closeOverlay() {
+    if (view?.canLeaveAutomation() === false) return;
+    onclose();
+  }
+  const cardSwipe = swipeBack({ onback: closeOverlay, onoffset: (px) => (cardX = px) });
 
   const startModalResize = createResizeDrag<{ x: number; y: number; w: number; h: number }>({
     axis: "both",
@@ -180,7 +184,7 @@
   class:mobile
   role="presentation"
   onclick={(e) => {
-    if (e.target === e.currentTarget) onclose();
+    if (e.target === e.currentTarget) closeOverlay();
   }}
 >
   <div
@@ -196,7 +200,7 @@
     aria-modal="true"
     aria-label={m.actionbar_backlog()}
     tabindex="-1"
-    use:dialog={{ onclose }}
+    use:dialog={{ onclose: closeOverlay }}
     onkeydown={onCardKeydown}
     {@attach mobile ? cardSwipe : undefined}
   >
@@ -204,7 +208,9 @@
       <!-- desktop's title bar is BacklogView's repo-switcher header -->
       <div class="chead">
         <span class="micro">{m.actionbar_backlog()}</span>
-        <button type="button" class="x" onclick={onclose} aria-label={m.common_close()}>✕</button>
+        <button type="button" class="x" onclick={closeOverlay} aria-label={m.common_close()}
+          >✕</button
+        >
       </div>
     {/if}
     <div class="body">
@@ -212,7 +218,7 @@
         bind:this={view}
         {payload}
         {mobile}
-        {onclose}
+        onclose={closeOverlay}
         {onissue}
         {onquick}
         {oninject}

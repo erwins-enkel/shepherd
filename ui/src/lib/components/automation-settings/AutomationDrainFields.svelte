@@ -1,7 +1,8 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { m } from "#lib/paraglide/messages.js";
-  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { useRepoConfig } from "../repo-settings/repo-config-editor.svelte.js";
+  const repoConfig = useRepoConfig();
   import { automationFocus } from "#lib/automation-focus.js";
   import { clampCap, clampCeiling, sanitizeLabel } from "../git-rail-drain";
   import { checkPriorityLabel, PRIORITY_LABEL } from "#lib/list-entries.js";

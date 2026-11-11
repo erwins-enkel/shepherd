@@ -1,6 +1,7 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { useRepoConfig } from "./repo-config-editor.svelte.js";
+  const repoConfig = useRepoConfig();
   import { AUTONOMY_STEPS, autonomyChain, type AutonomyStep } from "#lib/autonomy.js";
   import { autonomyExplanation } from "#lib/tooltips/explanations.js";
   import GuardMarker from "../GuardMarker.svelte";

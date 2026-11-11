@@ -38,6 +38,7 @@ export type RepoConfigView = RepoConfig & {
   sandboxDefaultProfile: SandboxProfile;
   fieldSources: Record<keyof RepoConfig, "repo" | "rechner">;
   repoConfigCommit: string | null;
+  repoConfigBranch: string | null;
   leitrechner: string | null;
   leitrechnerStatus: RepoLeitrechnerStatus;
   pendingRepoConfig?: PendingRepoConfig | null;
@@ -235,6 +236,8 @@ export class RepoConfigService {
       },
       fieldSources,
       repoConfigCommit: file?.commit ?? null,
+      repoConfigBranch:
+        local.repoMode === "lightweight" ? null : (repoConfigGitContext(dir)?.branch ?? null),
       leitrechner: file?.leitrechner ?? null,
       pendingRepoConfig:
         local.repoMode === "lightweight"

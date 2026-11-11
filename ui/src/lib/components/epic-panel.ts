@@ -148,6 +148,16 @@ export function queuePosition(
   return i < 0 ? null : i + 1;
 }
 
+/** The repo's run as the backlog list orders it: the leader, the epics winding down, then the
+ *  queue head first. A winding-down epic queued again keeps its place in the queue. */
+export function runOrder(summary: DrainRunSummary | null | undefined): number[] {
+  if (!summary) return [];
+  const queued = summary.queued ?? [];
+  const winding = summary.windingDown.map((w) => w.epic).filter((e) => !queued.includes(e));
+  const lead = summary.leadingEpic == null ? [] : [summary.leadingEpic];
+  return [...new Set([...lead, ...winding, ...queued])];
+}
+
 /** The epic `parent` waits for: its predecessor in the queue, else the leader. For an epic not
  *  queued yet, where it would wait — behind the queue's tail, else the leader. */
 export function queuedBehind(summary: DrainRunSummary, parent: number): number | null {

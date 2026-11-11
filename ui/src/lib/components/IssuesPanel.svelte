@@ -46,7 +46,7 @@
     shortcutHints,
   } from "./issues-panel";
   import { childAsIssue, openBlockers } from "./epic-child";
-  import { progress } from "./epic-panel";
+  import { progress, runOrder } from "./epic-panel";
   import { issueFilterSettings } from "#lib/issue-filter-settings.svelte.js";
   import { viewerCache } from "#lib/viewer-cache.svelte.js";
   import { backlogRefresh } from "#lib/backlog-refresh.svelte.js";
@@ -218,7 +218,8 @@
     });
   });
   // Epic parents float to the top of the backlog (stable within each group), so
-  // epics are the first thing the operator sees. Applied after text filtering.
+  // epics are the first thing the operator sees — the repo's run ahead of the rest. Applied
+  // after text filtering.
   //
   // Force-include the navigated-to epic (expandEpic): an explicit "go to this epic" must
   // always land on it, even when a filter (default filter / hideActive / hideBlocked)
@@ -232,7 +233,12 @@
         ? [...issues.filter((i) => i.number === expandEpic), ...authorLabelFiltered]
         : authorLabelFiltered;
     const matched = filterIssues(base, filter);
-    return sortEpicsFirst(oldestFirst ? sortOldestFirst(matched) : matched, epicParentNums);
+    // The repo's run leads the epics in run order (leader, winding down, queue).
+    return sortEpicsFirst(
+      oldestFirst ? sortOldestFirst(matched) : matched,
+      epicParentNums,
+      runOrder(drain?.runSummary),
+    );
   });
   // Which default-filter rule hid every open issue — drives a distinct empty state per rule
   // (vs the text no-match state); its copy names the rule to loosen.

@@ -15,10 +15,18 @@
   import { dataSlot } from "#lib/data-slot.js";
   import { getLocale } from "#lib/i18n.js";
   import { clock } from "#lib/now.svelte.js";
-  import { chipFor, epicRole, queuePosition, slotHeldBy, stateLabel } from "../epic-panel";
+  import {
+    chipFor,
+    epicRole,
+    queuePosition,
+    runOrder,
+    slotHeldBy,
+    stateLabel,
+  } from "../epic-panel";
   import {
     ACTIVE_LABEL,
     activate,
+    epicRunLayout,
     lastChange,
     stripEpicPrefix,
     type IssueListRow,
@@ -94,6 +102,9 @@
   const firstSingle = $derived(rows.find((r) => r.kind === "single")?.key ?? null);
   // "Einzelne Issues" only separates singles from epics — without an epic it labels nothing.
   const hasEpics = $derived(rows.some((r) => r.kind === "epic"));
+  // The repo's run, set apart above the other epics: headings and a rail (IssuesPanel sorts it
+  // first with the same runOrder).
+  const layout = $derived(epicRunLayout(rows, runOrder(runSummary), runSummary?.queued ?? []));
 
   type MenuState = { issue: Issue; x: number; y: number; opener: HTMLElement; canSteer: boolean };
   type DetailsState = { issue: Issue; x: number; y: number; opener: HTMLElement };
@@ -122,6 +133,52 @@
 </script>
 
 {#each rows as row (row.key)}
+  {@const rail = layout.rails.get(row.key)}
+  {#if row.key === layout.runHead}
+    <div class="section-heading run-heading" role="presentation">
+      <span class="run-title">{m.issuespanel_epics_run_heading()}</span>
+      <span class="run-hint">{m.issuespanel_epics_run_hint()}</span>
+    </div>
+  {/if}
+  {#if row.key === layout.restHead}
+    <div class="section-heading" role="presentation">
+      {m.issuespanel_epics_rest_heading()}{SEP}<span class="heading-count">{layout.restCount}</span>
+    </div>
+  {/if}
+  {#if rail}
+    <!-- The run's rail (decor): a node per epic — ▶ leads, its place when queued, a ring while
+         it winds down — and a dashed line on to the next run epic. -->
+    <div class="rail-row" role="presentation">
+      <span
+        class="rail"
+        class:from={rail.from}
+        class:to={rail.to}
+        class:bare={!rail.node}
+        aria-hidden="true"
+      >
+        {#if rail.node && row.kind === "epic"}
+          {@const pos = queuePosition(runSummary, row.issue.number)}
+          {#if epicRole(runSummary, row.issue.number) === "leading"}
+            <span class="node node-lead"
+              ><svg width="8" height="8" viewBox="0 0 8 8"
+                ><path d="M2 1.2v5.6L6.6 4z" fill="currentColor" /></svg
+              ></span
+            >
+          {:else if pos != null}
+            <span class="node node-queued">{pos}</span>
+          {:else}
+            <span class="node node-winding"></span>
+          {/if}
+        {/if}
+      </span>
+      <div class="rail-body" role="presentation">{@render rowView(row)}</div>
+    </div>
+  {:else}
+    {@render rowView(row)}
+  {/if}
+{/each}
+
+{#snippet rowView(row: IssueListRow)}
   {#if row.kind === "epic"}
     <EpicHeaderRow
       issue={row.issue}
@@ -218,7 +275,7 @@
       >
     </div>
   {/if}
-{/each}
+{/snippet}
 
 <IssueMenuLayer
   {menu}
@@ -355,6 +412,98 @@
     letter-spacing: 0.18em;
     text-transform: uppercase;
   }
+  .heading-count {
+    font-family: var(--font-mono);
+    letter-spacing: 0.08em;
+  }
+  /* Over the run, aligned with its cards (past the rail). */
+  .run-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 2px 8px;
+    margin-top: 0;
+    padding-left: 24px;
+  }
+  .run-title {
+    color: color-mix(in srgb, var(--status-running) 80%, var(--color-ink-bright));
+  }
+  .run-hint {
+    letter-spacing: normal;
+    text-transform: none;
+  }
+
+  /* The run's rail: a 16px column beside each run row. The node sits by the epic's first title
+     line; the dashed line runs from node to node, through an expanded epic's children and across
+     the list's 2px row gap. */
+  .rail-row {
+    display: flex;
+    gap: 6px;
+    min-width: 0;
+  }
+  .rail-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .rail {
+    --node-top: 7px;
+    position: relative;
+    flex: none;
+    width: 16px;
+  }
+  .rail::before,
+  .rail::after {
+    content: "";
+    display: none;
+    position: absolute;
+    left: 7px;
+    border-left: 1px dashed color-mix(in srgb, var(--status-running) 55%, var(--color-line));
+  }
+  .rail::before {
+    top: 0;
+    height: var(--node-top);
+  }
+  .rail::after {
+    top: calc(var(--node-top) + 16px);
+    bottom: -2px;
+  }
+  .rail.from:not(.bare)::before,
+  .rail.to::after {
+    display: block;
+  }
+  .rail.bare::after {
+    top: 0;
+  }
+  .node {
+    position: absolute;
+    top: var(--node-top);
+    left: 0;
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    line-height: 1;
+  }
+  .node-lead {
+    background: color-mix(in srgb, var(--status-running) 85%, var(--color-ink-bright));
+    color: var(--color-bg);
+  }
+  .node-queued {
+    border: 1px solid var(--status-running);
+    background: var(--color-inset);
+    color: color-mix(in srgb, var(--status-running) 80%, var(--color-ink-bright));
+  }
+  .node-winding {
+    border: 1px solid var(--color-muted);
+    background: var(--color-inset);
+  }
 
   .single-row {
     display: flex;
@@ -401,6 +550,10 @@
     .single-row {
       min-height: var(--mobile-actionbar-hit);
       justify-content: center;
+    }
+    /* The epic's first line grows with its 32px chevron (EpicHeaderRow). */
+    .rail {
+      --node-top: 14px;
     }
   }
 </style>

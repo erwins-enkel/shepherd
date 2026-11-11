@@ -30,6 +30,7 @@ import {
   epicFlagForOthers,
   assignedOthers,
   buildIssueRows,
+  epicRunLayout,
   stepSelection,
   resolveSelection,
   stripEpicPrefix,
@@ -39,6 +40,7 @@ import {
   labelCounts,
   runningIssues,
 } from "./issues-panel";
+import type { IssueListRow } from "./issues-panel";
 import type { Issue, EpicSummary, EpicChild, IssueFilterSettings } from "#lib/types.js";
 
 function issue(
@@ -479,6 +481,19 @@ describe("sortEpicsFirst", () => {
     const parents = new Set<number>([122, 100, 117, 90]);
     expect(sortEpicsFirst(all, parents)).toEqual(all);
   });
+
+  it("puts the run's epics first, in run order, ahead of the other epics", () => {
+    const epic3 = issue(80, "Epic three");
+    const parents = new Set<number>([100, 90, 80]);
+    const result = sortEpicsFirst([a, epic1, b, epic2, epic3], parents, [80, 100]);
+    expect(result.map((i) => i.number)).toEqual([80, 100, 90, 122, 117]);
+  });
+
+  it("ignores run entries that are not listed epics", () => {
+    const parents = new Set<number>([100, 90]);
+    const result = sortEpicsFirst(all, parents, [555, 90, 122]);
+    expect(result.map((i) => i.number)).toEqual([90, 100, 122, 117]);
+  });
 });
 
 describe("isBlocked", () => {
@@ -657,6 +672,55 @@ describe("buildIssueRows (#2617)", () => {
       childrenOf,
     );
     expect(rows.map((r) => r.key)).toEqual(["e:1", "c:1:9", "c:1:2", "e:2"]);
+  });
+});
+
+describe("epicRunLayout", () => {
+  const e = (n: number, expanded = false): IssueListRow => ({
+    kind: "epic",
+    key: `e:${n}`,
+    issue: issue(n, "Epic"),
+    expanded,
+  });
+  const c = (parent: number, n: number): IssueListRow => ({
+    kind: "child",
+    key: `c:${parent}:${n}`,
+    parent,
+    child: child(n, 0),
+  });
+  const s = (n: number): IssueListRow => ({ kind: "single", key: `s:${n}`, issue: issue(n, "S") });
+
+  it("heads the run with the order heading and the other epics with theirs, counting them", () => {
+    const layout = epicRunLayout([e(5), e(7), e(9), e(11), s(3)], [5, 7], [7]);
+    expect(layout.runHead).toBe("e:5");
+    expect(layout.restHead).toBe("e:9");
+    expect(layout.restCount).toBe(2);
+  });
+
+  it("runs the rail from the first run epic to the last, through an expanded epic's children", () => {
+    const layout = epicRunLayout([e(5, true), c(5, 50), e(7), e(9)], [5, 7], [7]);
+    expect(Object.fromEntries(layout.rails)).toEqual({
+      "e:5": { node: true, from: false, to: true },
+      "c:5:50": { node: false, from: true, to: true },
+      "e:7": { node: true, from: true, to: false },
+    });
+  });
+
+  it("ends the rail at the last run epic: its children keep the indent, not the line", () => {
+    const layout = epicRunLayout([e(5), e(7, true), c(7, 70)], [5, 7], [7]);
+    expect(layout.rails.get("c:7:70")).toEqual({ node: false, from: false, to: false });
+  });
+
+  it("has no order heading without a visible queue and no headings without a run", () => {
+    const leaderOnly = epicRunLayout([e(5), e(9)], [5, 8], [8]);
+    expect(leaderOnly.runHead).toBeNull();
+    expect(leaderOnly.restHead).toBe("e:9");
+    expect(epicRunLayout([e(5), e(9)], [], [])).toEqual({
+      runHead: null,
+      restHead: null,
+      restCount: 2,
+      rails: new Map(),
+    });
   });
 });
 

@@ -1259,7 +1259,13 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     await page.getByRole("button", { name: m.repooverview_change(), exact: true }).click();
     expect(onopenautomation).toHaveBeenCalled();
 
-    // A (#10) is expanded by default (topmost epic): its running child holds the slot.
+    // The leader B (#20) heads the list, ahead of the winding-down A (#10), and is expanded by
+    // default (topmost epic). Opened, A's running child holds the slot.
+    await expect.poll(() => option("c:20:21")).toBeTruthy();
+    expect(option("e:20")!.compareDocumentPosition(option("e:10")!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    option("e:10")!.querySelector<HTMLButtonElement>(".epic-toggle")!.click();
     await expect
       .poll(() => option("c:10:11")?.textContent)
       .toContain(m.epic_slot_held({ index: 1, max: 1 }));
@@ -1276,11 +1282,12 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
   it("roles: an epic in the queue (#2624) reads 'queued' with its place", async () => {
     seed(
       [
+        plain(50, { title: "Epic E" }),
         plain(20, { title: "Epic B" }),
         plain(30, { title: "Epic C" }),
         plain(40, { title: "Epic D" }),
       ],
-      [summary(20), summary(30), summary(40)],
+      [summary(50), summary(20), summary(30), summary(40)],
     );
     mockEpic.mockImplementation((repoPath: string, parentIssueNumber: number) =>
       Promise.resolve({
@@ -1320,6 +1327,29 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     await expect.poll(() => option("e:20")?.textContent).toContain(m.epic_role_leading());
     expect(option("e:40")?.textContent).toContain(m.epic_role_queued({ position: 1 }));
     expect(option("e:30")?.textContent).toContain(m.epic_role_queued({ position: 2 }));
+
+    // The run leads the list in run order under its heading, the rail shows each queued epic's
+    // place, and the epic outside the run follows under its own heading.
+    const epicIds = [...document.querySelectorAll(".epic-row")].map((el) => el.id);
+    expect(epicIds).toEqual([
+      "issue-opt-e:20",
+      "issue-opt-e:40",
+      "issue-opt-e:30",
+      "issue-opt-e:50",
+    ]);
+    expect(document.querySelector(".run-heading")?.textContent).toContain(
+      m.issuespanel_epics_run_heading(),
+    );
+    expect([...document.querySelectorAll(".node-queued")].map((n) => n.textContent)).toEqual([
+      "1",
+      "2",
+    ]);
+    expect(option("e:50")?.closest(".rail-row")).toBeNull();
+    expect(
+      [...document.querySelectorAll(".section-heading")].some((h) =>
+        h.textContent?.includes(`${m.issuespanel_epics_rest_heading()} · 1`),
+      ),
+    ).toBe(true);
   });
 
   it("a click on the flow graph (#2621) opens the epic in the list and selects the child", async () => {

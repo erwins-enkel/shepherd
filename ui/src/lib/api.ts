@@ -1,5 +1,6 @@
 import type { AssistantRuntimeSettings, AssistantSwitchState } from "./types";
 import type {
+  EgressBlock,
   EpicLanding,
   SandboxProfile,
   AssistantPermissions,
@@ -3468,6 +3469,14 @@ export async function enableRepoRolesAutoMerge(
   const data = await r.json().catch(() => null);
   if (!r.ok) throw new Error(data?.error ?? `repo-roles auto-merge failed: ${r.status}`);
   return data ?? {};
+}
+
+/** The hosts the Autonomous egress firewall blocked for a repo, minus those it now allows (#3922). */
+export async function getRepoEgressBlocks(repoPath: string): Promise<{ hosts: EgressBlock[] }> {
+  return getJson(
+    `/api/repo-egress-blocks?repo=${encodeURIComponent(repoPath)}`,
+    "repo-egress-blocks",
+  );
 }
 
 export async function getRepoCollaborators(repoPath: string): Promise<{

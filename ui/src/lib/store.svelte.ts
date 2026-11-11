@@ -52,6 +52,7 @@ import { amendments } from "./amendments.svelte";
 import { upNext } from "./up-next.svelte";
 import { issueFilterSettings } from "./issue-filter-settings.svelte";
 import { toasts } from "./toasts.svelte";
+import { repoSettingsWindow } from "./repo-settings-window.svelte";
 import { reviveStranded as apiReviveStranded } from "./api";
 import { m } from "#lib/paraglide/messages.js";
 import { buildQueues as buildQueuesStore } from "./buildQueues.svelte";
@@ -808,12 +809,25 @@ export class HerdStore {
         );
         return true;
       }
-      case "session:egress-drop":
+      case "session:egress-drop": {
+        // Review opens the repo's blocked-hosts list (#3922), where the host can be allowed.
+        const repoPath = this.byId(ev.data.id)?.repoPath;
         toasts.info(m.toast_egress_drop({ host: ev.data.host }), {
           key: "egress-drop-" + ev.data.id,
           alert: true,
+          action: repoPath
+            ? {
+                label: m.toast_egress_drop_review(),
+                run: () =>
+                  repoSettingsWindow.open(repoPath, {
+                    section: "agent",
+                    field: "egressBlockedHosts",
+                  }),
+              }
+            : undefined,
         });
         return true;
+      }
       case "session:uploads-dropped":
         toasts.info(m.toast_uploads_dropped({ count: ev.data.count }), {
           key: "uploads-dropped-" + ev.data.id,

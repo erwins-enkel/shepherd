@@ -8,14 +8,18 @@
     browserAllowedHostsExplanation,
     claudeAiConnectorsExplanation,
     egressExtraHostsExplanation,
+    egressRiskExplanation,
+    egressRiskLabel,
     sharedBrowserExplanation,
   } from "#lib/tooltips/explanations.js";
+  import { classifyEgressHost } from "#lib/egress-trust.js";
   import { checkBrowserHost, checkEgressHost } from "#lib/list-entries.js";
   import type { DrainStatus, RepoSandboxSetting, SandboxProfile, Settings } from "#lib/types.js";
   import RepoSettingRow from "./RepoSettingRow.svelte";
   import AgentModelFields from "./AgentModelFields.svelte";
-  import ListField from "./ListField.svelte";
+  import ListField, { type ListItemWarning } from "./ListField.svelte";
   import AgentExtensions from "../automation-settings/AgentExtensions.svelte";
+  import EgressBlockedHosts from "./EgressBlockedHosts.svelte";
   import { drainSandboxHeld } from "./drain-hold";
   import "../automation-settings/automation-fields.css";
 
@@ -70,6 +74,10 @@
   // The extra hosts only widen the Autonomous egress firewall; Trusted and Standard don't restrict
   // the network, so the list hides there (its stored hosts stay).
   const autonomous = $derived(repoConfig.effectiveSandboxProfileFor(repoPath) === "autonomous");
+  // Blocked hosts (#3922) can come from a task run Autonomous on a repo that defaults otherwise,
+  // so either list shows while there are blocks to review.
+  let blockedCount = $state(0);
+  const showEgress = $derived(autonomous || blockedCount > 0);
 
   const BROWSER_HOST_ERRORS = {
     empty: () => m.automation_browser_hosts_err_empty(),
@@ -82,6 +90,18 @@
     invalid: () => m.automation_egress_hosts_err_invalid(),
     duplicate: () => m.automation_egress_hosts_err_duplicate(),
   };
+
+  /** A risky extra host (#3922) gets a warning: adding it takes "Add anyway", its chip a ⚠. */
+  function egressWarning(host: string): ListItemWarning | null {
+    const t = classifyEgressHost(host);
+    if (t.tier !== "risky") return null;
+    const reason = egressRiskLabel(t.reason);
+    return {
+      text: m.automation_egress_hosts_warn({ reason }),
+      label: m.automation_egress_hosts_risky_chip({ host, reason }),
+      explanation: egressRiskExplanation(t.reason),
+    };
+  }
 
   /** Toast copy for a failed "Open shared browser", keyed by the server's refusal code. */
   function sharedBrowserOpenError(e: unknown): string {
@@ -145,7 +165,7 @@
     </select>
   {/snippet}
 </RepoSettingRow>
-{#if autonomous}
+{#if showEgress}
   <ListField
     field="egressExtraHosts"
     name={m.automation_egress_hosts_label()}
@@ -158,9 +178,12 @@
     removeLabel={(host) => m.automation_egress_hosts_remove({ host })}
     empty={m.automation_egress_hosts_empty()}
     hint={m.automation_egress_hosts_hint()}
+    warn={egressWarning}
+    addAnywayLabel={m.automation_egress_hosts_add_anyway()}
     onchange={(hosts) => repoConfig.setEgressExtraHosts(repoPath, hosts)}
   />
 {/if}
+<EgressBlockedHosts {repoPath} bind:count={blockedCount} />
 
 <RepoSettingRow
   field="sharedBrowserEnabled"

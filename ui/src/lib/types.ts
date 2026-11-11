@@ -1301,6 +1301,16 @@ export type SandboxProfile = "trusted" | "standard" | "autonomous";
 /** A repo's stored sandbox setting: a profile, or "inherit" = the global default (#2100). */
 export type RepoSandboxSetting = SandboxProfile | "inherit";
 
+/** One host the Autonomous egress firewall blocked for a repo (#3922); mirrors src/types.ts. */
+export interface EgressBlock {
+  host: string;
+  /** Times reported — once per session that hit it. */
+  count: number;
+  sessions: number;
+  sessionIds: string[];
+  lastSeen: number;
+}
+
 export interface RepoConfig {
   criticEnabled: boolean;
   /** Standalone repo-level PR critic: review EVERY open CI-green PR, not just session PRs (default off). */

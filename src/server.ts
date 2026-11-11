@@ -343,6 +343,12 @@ import { normalizeRound } from "./task-shape";
 import { listCommands, readCodexExtensions } from "./commands";
 import { codexHome } from "./codex-usage";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
+import {
+  buildEgressAllowlist,
+  connectorEgressHosts,
+  hostMatchesAllowlist,
+  normalizeHost,
+} from "./egress";
 import { scratchpadHasFiles } from "./tmp-sweep";
 import {
   listScratchpadMerged,
@@ -4245,6 +4251,31 @@ async function handleRepoCollaborators({ req, parts, url, deps }: Ctx): Promise<
     repoSlug: forge?.slug ?? null,
     isFork: forge?.isFork ?? false,
   });
+}
+
+// GET /api/repo-egress-blocks?repo=<path> (#3922) — the hosts the Autonomous egress firewall
+// blocked for this repo, minus those its effective allowlist now covers (composed like the spawn
+// path in service.ts: forge + Anthropic hosts, global and repo extras, the connector proxy).
+// Names no allowlist entry can hold (an underscore SRV/TXT name, a single label) are left out:
+// the watcher records any queried name, but Allow would be refused by validateHostList.
+async function handleRepoEgressBlocks({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "repo-egress-blocks" && !parts[2])) return null;
+  if (req.method !== "GET") return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const repo = deps.store.getRepoConfig(dir);
+  const allowlist = buildEgressAllowlist({
+    forges: config.forges,
+    extraHosts: [
+      ...config.sandboxEgressExtraHosts,
+      ...repo.egressExtraHosts,
+      ...connectorEgressHosts(repo.claudeAiConnectorsEnabled, {}),
+    ],
+  });
+  const hosts = deps.store
+    .listEgressBlocks(dir)
+    .filter((b) => normalizeHost(b.host) !== null && !hostMatchesAllowlist(b.host, allowlist));
+  return json({ hosts });
 }
 
 // POST /api/doc-agent?repo= — manually trigger the PR-gated AI doc agent (issue #882).
@@ -14804,6 +14835,7 @@ const ROUTE_HANDLERS = [
   handleRepoRoles,
   handleRepoRolesAutoMerge,
   handleRepoCollaborators,
+  handleRepoEgressBlocks,
   handleDocAgent,
   handleDocAgentRuns,
   handlePushAdmin,

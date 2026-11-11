@@ -189,6 +189,8 @@ function isMirroredFrame(data: unknown): data is Session & { host: SessionHost }
     typeof data === "object" &&
     data !== null &&
     typeof (data as { id?: unknown }).id === "string" &&
+    // an object: `session:egress-drop` carries `host` as the blocked hostname string (#3922)
+    typeof (data as { host?: unknown }).host === "object" &&
     !!(data as { host?: unknown }).host
   );
 }

@@ -21,6 +21,32 @@ export function focusSetting(root: ParentNode, field: string): boolean {
   return !!control;
 }
 
+/** Scroll the row `field` names under `root` into view, waiting for it to render (a row that
+ *  shows once its data loads) up to `timeoutMs`. Returns a cleanup that stops waiting. */
+export function revealSetting(root: HTMLElement, field: string, timeoutMs = 5000): () => void {
+  const find = () => root.querySelector<HTMLElement>(`[data-field~="${field}"]`);
+  const reveal = (row: HTMLElement) => row.scrollIntoView({ block: "nearest" });
+  const now = find();
+  if (now) {
+    // after the window's own open effects, which reset the pane's scroll
+    queueMicrotask(() => reveal(now));
+    return () => {};
+  }
+  const observer = new MutationObserver(() => {
+    const row = find();
+    if (!row) return;
+    stop();
+    reveal(row);
+  });
+  const timer = setTimeout(() => stop(), timeoutMs);
+  function stop() {
+    observer.disconnect();
+    clearTimeout(timer);
+  }
+  observer.observe(root, { childList: true, subtree: true });
+  return stop;
+}
+
 /** The window's half: switch to `section`, then focus the row. */
 export function provideSettingLink(goTo: GoTo) {
   setContext(KEY, goTo);

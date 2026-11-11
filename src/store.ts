@@ -25,6 +25,7 @@ import type {
   RecapSkip,
   RecapFailure,
   DiffFile,
+  EgressBlock,
   Signal,
   SignalKind,
   BuildStep,
@@ -6909,6 +6910,32 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          WHERE kind = ? AND ts >= ? ORDER BY ts DESC, rowid DESC LIMIT ?`,
       )
       .all(kind, sinceTs, limit) as Signal[];
+  }
+
+  /** The hosts the egress firewall blocked for `repoPath` (#3922): one row per host, newest block
+   *  first, capped at `limit` hosts. One read of (host, session) pairs — the watcher reports a
+   *  host at most once per session and caps hosts per session, so the pairs stay few. */
+  listEgressBlocks(repoPath: string, limit = 200): EgressBlock[] {
+    const pairs = this.db
+      .query<{ host: string; sessionId: string | null; n: number; last: number }, [string]>(
+        `SELECT payload AS host, sessionId, COUNT(*) AS n, MAX(ts) AS last
+         FROM signals WHERE repoPath = ? AND kind = 'egress_drop'
+         GROUP BY payload, sessionId ORDER BY last DESC`,
+      )
+      .all(repoPath);
+    const byHost = new Map<string, EgressBlock>();
+    for (const p of pairs) {
+      let b = byHost.get(p.host);
+      if (!b) {
+        b = { host: p.host, count: 0, sessions: 0, sessionIds: [], lastSeen: p.last };
+        byHost.set(p.host, b);
+      }
+      b.count += p.n;
+      if (p.sessionId === null) continue;
+      b.sessions++;
+      if (b.sessionIds.length < 5) b.sessionIds.push(p.sessionId);
+    }
+    return [...byHost.values()].slice(0, limit);
   }
 
   pruneSignals(beforeTs: number): number {

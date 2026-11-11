@@ -1,6 +1,7 @@
 import { placementLoadObservation } from "#lib/placement.js";
 import { m } from "#lib/paraglide/messages.js";
 import type { TooltipExplanation } from "./content";
+import type { EgressRiskReason } from "#lib/egress-trust.js";
 import {
   ASSISTANT_ACTION_GROUPS,
   type AssistantActionGroup,
@@ -498,6 +499,76 @@ export function egressExtraHostsExplanation(): TooltipExplanation {
       { label: m.tooltip_egress_hosts_enter(), text: m.tooltip_egress_hosts_enter_body() },
       { label: m.tooltip_egress_hosts_builtin(), text: m.tooltip_egress_hosts_builtin_body() },
       { label: m.tooltip_egress_hosts_applies(), text: m.tooltip_egress_hosts_applies_body() },
+    ],
+  };
+}
+
+/** Repo settings › Agent › Blocked hosts (#3922): what the list holds, how Allow asks, when it
+ *  applies and how to learn a repo's hosts without opening the network. */
+export function egressBlockedHostsExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_egress_blocked_title(),
+    summary: m.tooltip_egress_blocked_summary(),
+    sections: [
+      { label: m.tooltip_egress_blocked_shows(), text: m.tooltip_egress_blocked_shows_body() },
+      { label: m.tooltip_egress_blocked_tiers(), text: m.tooltip_egress_blocked_tiers_body() },
+      { label: m.tooltip_egress_blocked_applies(), text: m.tooltip_egress_blocked_applies_body() },
+      { label: m.tooltip_egress_blocked_learn(), text: m.tooltip_egress_blocked_learn_body() },
+    ],
+  };
+}
+
+/** The short name of a risky-host class (#3922), for badges, confirms and warnings. */
+export function egressRiskLabel(reason: EgressRiskReason): string {
+  switch (reason) {
+    case "ip":
+      return m.egress_risk_ip();
+    case "idn":
+      return m.egress_risk_idn();
+    case "paste":
+      return m.egress_risk_paste();
+    case "tunnel":
+      return m.egress_risk_tunnel();
+    case "oast":
+      return m.egress_risk_oast();
+    case "hosting":
+      return m.egress_risk_hosting();
+    case "chatbot":
+      return m.egress_risk_chatbot();
+    case "subdomain":
+      return m.egress_risk_subdomain();
+  }
+}
+
+function egressRiskWhy(reason: EgressRiskReason): string {
+  switch (reason) {
+    case "ip":
+      return m.tooltip_egress_risk_ip_body();
+    case "idn":
+      return m.tooltip_egress_risk_idn_body();
+    case "paste":
+      return m.tooltip_egress_risk_paste_body();
+    case "tunnel":
+      return m.tooltip_egress_risk_tunnel_body();
+    case "oast":
+      return m.tooltip_egress_risk_oast_body();
+    case "hosting":
+      return m.tooltip_egress_risk_hosting_body();
+    case "chatbot":
+      return m.tooltip_egress_risk_chatbot_body();
+    case "subdomain":
+      return m.tooltip_egress_risk_subdomain_body();
+  }
+}
+
+/** A risky egress host (#3922): why its class can carry data out, and what allowing it does. */
+export function egressRiskExplanation(reason: EgressRiskReason): TooltipExplanation {
+  return {
+    title: m.tooltip_egress_risk_title({ reason: egressRiskLabel(reason) }),
+    summary: egressRiskWhy(reason),
+    sections: [
+      { label: m.tooltip_egress_risk_allow(), text: m.tooltip_egress_risk_allow_body() },
+      { label: m.tooltip_egress_risk_instead(), text: m.tooltip_egress_risk_instead_body() },
     ],
   };
 }

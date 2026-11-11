@@ -759,6 +759,23 @@ run unconfined, so an `auto=true` Codex spawn is refused unless the repo's profi
 posture — the accepted in-membrane token-readability gap and the prompt-injection
 posture — is documented on the [Security](/reference/security/) page.
 
+**Blocked hosts.** Each host the `autonomous` egress firewall blocks shows once as a toast
+(**Review** opens the list) and lands in the repo settings under Agent environment › **Blocked
+hosts**: host, how often, how many sessions hit it and when, for the last 60 days. **Allow for this
+repo** adds the host to the repo's Extra allowed hosts (`egressExtraHosts`); sessions started after
+that can reach it and its subdomains. How much Allow asks depends on the host:
+
+- **Trusted** package registries (npm, PyPI files, crates.io, the Go proxy, NuGet, nodejs.org,
+  rust-lang static, ghcr.io, Docker Hub) allow in one click.
+- **Risky** hosts always ask for an explicit confirm that names the reason: IP addresses, `xn--`
+  names, paste and file-drop sites, tunnels, webhook/OAST catchers, free hosting, chat bot APIs, and
+  domains where anyone can get a subdomain (`github.io`, `amazonaws.com`, `googleapis.com`,
+  `pypi.org`). The Extra allowed hosts editor flags them too and needs **Add anyway**.
+- Everything else asks once.
+
+To find what a repo's build needs, run a task under `autonomous` and review its blocks there; the
+firewall stays closed the whole time.
+
 **Backend requirements:** `bwrap` installed + unprivileged user namespaces enabled.
 Shepherd self-tests at startup by running `node` and `git` through the real membrane.
 

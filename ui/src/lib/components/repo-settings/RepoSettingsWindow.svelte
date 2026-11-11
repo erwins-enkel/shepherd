@@ -7,12 +7,14 @@
   import type { DrainStatus, Session, Settings } from "#lib/types.js";
   import type { RepoSettingsSection as SectionId } from "./sections";
   import RepoSettingsBody from "./RepoSettingsBody.svelte";
+  import { revealSetting } from "./setting-link";
 
   // The repo settings window (#3443): every repo setting in one modal (RepoSettingsBody), full
   // screen on a phone.
   let {
     repoPath,
     section,
+    field,
     sessionId,
     planPhase = null,
     drain = null,
@@ -23,6 +25,8 @@
     repoPath: string;
     /** The section to open at; absent = the first one a hint marks, else Autonomy. */
     section?: SectionId;
+    /** A row to scroll into view once it renders (#3922: the blocked egress hosts). */
+    field?: string;
     /** The task it was opened from: its review pulse and plan gate show here. */
     sessionId?: string;
     planPhase?: Session["planPhase"];
@@ -39,7 +43,10 @@
 
   let card = $state<HTMLDivElement>();
   // Open on the section's tab, so the arrow keys move between sections right away.
-  onMount(() => card?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus());
+  onMount(() => {
+    card?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+    if (field && card) return revealSetting(card, field);
+  });
 </script>
 
 <div

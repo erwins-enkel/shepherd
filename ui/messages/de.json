@@ -8798,5 +8798,16 @@
   "schedules_budget_invalid": "Gib 0,1 bis 100 Mio. Tokens in ganzen Tokens ein.",
   "schedules_budget_used": "{used} Tokens verbraucht",
   "feat_schedule_token_budget_title": "Token-Budget pro geplantem Lauf",
-  "feat_schedule_token_budget_body": "Lege im Bereich Grenzen ein Token-Budget für Claude Code fest. Am Budget beendet der Agent seinen laufenden Schritt und der Lauf endet; die Session bleibt zum Prüfen oder manuellen Fortsetzen erhalten."
+  "feat_schedule_token_budget_body": "Lege im Bereich Grenzen ein Token-Budget für Claude Code fest. Am Budget beendet der Agent seinen laufenden Schritt und der Lauf endet; die Session bleibt zum Prüfen oder manuellen Fortsetzen erhalten.",
+  "egress_suggested_label": "Vorgeschlagene Hosts",
+  "egress_suggested_meta": "Aus {sources}",
+  "egress_suggested_load_failed": "Vorgeschlagene Hosts konnten nicht geladen werden.",
+  "tooltip_egress_suggested_title": "Vorgeschlagene Hosts",
+  "tooltip_egress_suggested_summary": "Paket-Registries, aus denen die Lockfiles dieses Repos installieren. Erlaube sie, bevor der erste autonome Lauf blockiert wird.",
+  "tooltip_egress_suggested_shows": "Was sie zeigt",
+  "tooltip_egress_suggested_shows_body": "Hosts aus den Lockfiles, die git verfolgt (bun.lock, package-lock.json, pnpm-lock.yaml, yarn.lock, Cargo.lock, uv.lock, poetry.lock, go.sum), mit den Dateien, die sie nennen. Bereits erlaubte oder schon unter Blockierte Hosts gelistete Hosts fehlen.",
+  "tooltip_egress_suggested_check": "Erst prüfen",
+  "tooltip_egress_suggested_check_body": "Ein Lockfile ist Repo-Inhalt: Wer das Repo ändern kann, kann dort einen Host eintragen. Erlaube nur Hosts, die der Build braucht.",
+  "feat_egress_suggested_hosts_title": "Registry-Hosts aus deinen Lockfiles",
+  "feat_egress_suggested_hosts_body": "Repo-Einstellungen › Agent schlägt die Paket-Registries vor, aus denen die Lockfiles eines Repos installieren, etwa npm, crates.io, PyPI und den Go-Proxy, jeweils mit dem Lockfile, das sie nennt. Erlaube sie, bevor der erste autonome Lauf blockiert wird."
 }

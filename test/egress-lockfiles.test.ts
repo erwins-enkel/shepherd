@@ -193,6 +193,16 @@ test("scan: skips symlinks, oversize files and files missing from the tree", asy
   expect((await suggestLockfileHosts(dir)).map((h) => h.host)).toEqual(CRATES);
 });
 
+test("scan: skips a lockfile under a symlinked dir that leaves the repo", async () => {
+  const dir = repo({ "x/bun.lock": BUN });
+  const outside = mkdtempSync(join(tmpdir(), "egress-lock-out-"));
+  dirs.push(outside);
+  writeFileSync(join(outside, "bun.lock"), BUN);
+  rmSync(join(dir, "x"), { recursive: true });
+  symlinkSync(outside, join(dir, "x"));
+  expect(await suggestLockfileHosts(dir)).toEqual([]);
+});
+
 test("scan: a non-repo dir yields nothing", async () => {
   const dir = mkdtempSync(join(tmpdir(), "egress-lock-"));
   dirs.push(dir);

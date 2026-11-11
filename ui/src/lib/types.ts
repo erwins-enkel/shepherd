@@ -1311,6 +1311,13 @@ export interface EgressBlock {
   lastSeen: number;
 }
 
+/** A registry host a repo's lockfiles name (#3927); mirrors src/types.ts. */
+export interface EgressSuggestion {
+  host: string;
+  /** Up to 5 repo-relative lockfile paths that name it. */
+  sources: string[];
+}
+
 export interface RepoConfig {
   criticEnabled: boolean;
   /** Standalone repo-level PR critic: review EVERY open CI-green PR, not just session PRs (default off). */

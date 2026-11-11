@@ -20,6 +20,7 @@
   import ListField, { type ListItemWarning } from "./ListField.svelte";
   import AgentExtensions from "../automation-settings/AgentExtensions.svelte";
   import EgressBlockedHosts from "./EgressBlockedHosts.svelte";
+  import EgressSuggestedHosts from "./EgressSuggestedHosts.svelte";
   import { drainSandboxHeld } from "./drain-hold";
   import "../automation-settings/automation-fields.css";
 
@@ -184,6 +185,10 @@
   />
 {/if}
 <EgressBlockedHosts {repoPath} bind:count={blockedCount} />
+<!-- Lockfile suggestions (#3927) only matter where the firewall applies. -->
+{#if autonomous}
+  <EgressSuggestedHosts {repoPath} />
+{/if}
 
 <RepoSettingRow
   field="sharedBrowserEnabled"

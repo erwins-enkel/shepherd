@@ -4,13 +4,13 @@
 // Runs on the single server loop: git and file reads are async, and file count and bytes are
 // capped so the (linear) regex passes stay bounded.
 
-import { lstat, readFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { lstat, readFile, realpath } from "node:fs/promises";
+import { basename, join, sep } from "node:path";
 import { normalizeHost } from "./egress";
 import { execGit } from "./safe-git";
 import type { EgressSuggestion } from "./types";
 
-export const LOCKFILE_NAMES = [
+const LOCKFILE_NAMES = [
   "bun.lock",
   "package-lock.json",
   "pnpm-lock.yaml",
@@ -161,11 +161,13 @@ async function trackedLockfiles(repoDir: string): Promise<string[]> {
   }
 }
 
-/** The text of regular file `path` when it fits the budget, else null (missing, symlink, big). */
-async function readBounded(path: string, maxBytes: number): Promise<string | null> {
+/** The text of regular file `path` when it fits the budget and resolves inside `root` (a real
+ *  path), else null: missing, a symlink, under a symlinked dir that leaves the repo, too big. */
+async function readBounded(root: string, path: string, maxBytes: number): Promise<string | null> {
   try {
     const st = await lstat(path);
     if (!st.isFile() || st.size > maxBytes) return null;
+    if (!(await realpath(path)).startsWith(root + sep)) return null;
     return await readFile(path, "utf8");
   } catch {
     return null;
@@ -180,8 +182,11 @@ export async function suggestLockfileHosts(
   const { maxFiles = 50, maxFileBytes = 8 * MIB, maxTotalBytes = 32 * MIB } = limits;
   const byHost = new Map<string, EgressSuggestion>();
   let budget = maxTotalBytes;
-  for (const rel of (await trackedLockfiles(repoDir)).slice(0, maxFiles)) {
-    const text = await readBounded(join(repoDir, rel), Math.min(maxFileBytes, budget));
+  const files = (await trackedLockfiles(repoDir)).slice(0, maxFiles);
+  if (!files.length) return [];
+  const root = await realpath(repoDir);
+  for (const rel of files) {
+    const text = await readBounded(root, join(repoDir, rel), Math.min(maxFileBytes, budget));
     if (text === null) continue;
     budget -= text.length;
     for (const host of hostsFromLockfile(basename(rel), text)) {

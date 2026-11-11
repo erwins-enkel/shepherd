@@ -1,6 +1,7 @@
 import type { AssistantRuntimeSettings, AssistantSwitchState } from "./types";
 import type {
   EgressBlock,
+  EgressSuggestion,
   EpicLanding,
   SandboxProfile,
   AssistantPermissions,
@@ -3476,6 +3477,16 @@ export async function getRepoEgressBlocks(repoPath: string): Promise<{ hosts: Eg
   return getJson(
     `/api/repo-egress-blocks?repo=${encodeURIComponent(repoPath)}`,
     "repo-egress-blocks",
+  );
+}
+
+/** Registry hosts the repo's tracked lockfiles name, minus allowed and blocked-listed ones (#3927). */
+export async function getRepoEgressSuggestions(
+  repoPath: string,
+): Promise<{ hosts: EgressSuggestion[] }> {
+  return getJson(
+    `/api/repo-egress-suggestions?repo=${encodeURIComponent(repoPath)}`,
+    "repo-egress-suggestions",
   );
 }
 

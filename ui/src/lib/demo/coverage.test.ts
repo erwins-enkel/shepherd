@@ -235,6 +235,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/repo-roles", `/api/repo-roles?repo=${r}`),
   get("/api/repo-collaborators", `/api/repo-collaborators?repo=${r}`),
   get("/api/repo-egress-blocks", `/api/repo-egress-blocks?repo=${r}`),
+  get("/api/repo-egress-suggestions", `/api/repo-egress-suggestions?repo=${r}`),
   get("/api/drain/queue", `/api/drain/queue?repo=${r}`),
   get("/api/doc-agent/runs", `/api/doc-agent/runs?repo=${r}`),
   get("/api/issues/:p", `/api/issues/103?repo=${r}`),

@@ -1961,8 +1961,11 @@ export interface SessionActivity {
   ciPolling?: { polls: number; inputTokens: number; since: number };
 }
 
-/** Scheduled run waiting for its provider usage window to reset. Times are epoch ms. */
+/** Scheduled run usage pause or terminal token-budget stop. Times are epoch ms. */
 export interface UsagePause {
+  reason?: "budget";
+  tokenBudget?: number;
+  tokensUsed?: number;
   phase: "requested" | "paused";
   since: number;
   resumeAt: number | null;
@@ -4171,6 +4174,7 @@ export interface ScheduleUsage {
 }
 
 export type ScheduleOutcome =
+  | "stopped:budget"
   | "paused"
   | "claimed"
   | "spawned"
@@ -4193,6 +4197,8 @@ export interface ScheduleRun {
   reason: string | null;
   usage?: ScheduleUsage | null;
   pausedUntil?: number | null;
+  tokensUsed?: number | null;
+  budgetNotApplied?: "codex" | null;
   at: number;
 }
 
@@ -4212,6 +4218,7 @@ export interface Schedule {
   times: string[];
   interval?: ScheduleInterval | null;
   usageLimit?: ScheduleUsageLimit | null;
+  tokenBudget?: number | null;
   enabled: boolean;
   launch: ScheduleLaunch;
   createdAt: number;
@@ -4229,6 +4236,7 @@ export interface ScheduleInput {
   times: string[];
   interval?: ScheduleInterval | null;
   usageLimit?: ScheduleUsageLimit | null;
+  tokenBudget?: number | null;
   enabled?: boolean;
   launch?: Partial<ScheduleLaunch>;
 }

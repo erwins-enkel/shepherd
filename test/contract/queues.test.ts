@@ -634,6 +634,23 @@ test("queue events travel over the real websocket, including cleared nullable fl
         },
       },
     ],
+    [
+      "session:usage-pause",
+      {
+        id: "fixture",
+        usagePause: {
+          reason: "budget",
+          phase: "paused",
+          since: 1,
+          resumeAt: null,
+          stopPct: 0,
+          windows: [],
+          stopSteerSent: true,
+          tokenBudget: 2_000_000,
+          tokensUsed: 2_100_000,
+        },
+      },
+    ],
     ["session:usage-pause", { id: "fixture", usagePause: null }],
     ["session:halt", fx.halted],
     ["session:halt", { id: "fixture", haltReason: null, haltedAt: null }],

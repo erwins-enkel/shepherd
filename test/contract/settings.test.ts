@@ -712,6 +712,11 @@ test("schedules CRUD, run now and runs (#3469)", async () => {
   );
   await request("PATCH", one, 200, { times: ["09:00"], interval: null }, at());
   await request("PATCH", one, 404, { name: "x" }, "/api/schedules/nope");
+  await request("PATCH", one, 200, { tokenBudget: 2_000_000 }, at());
+  await request("PATCH", one, 400, { tokenBudget: 99_999 }, at());
+  await request("PATCH", one, 400, { launch: { agentProvider: "codex" } }, at());
+  await request("GET", base, 200);
+  await request("PATCH", one, 200, { tokenBudget: null }, at());
   for (const onMismatch of ["skip", "wait", "otherProvider"]) {
     await request("PATCH", one, 200, { usageLimit: { ...input.usageLimit, onMismatch } }, at());
   }
@@ -722,6 +727,7 @@ test("schedules CRUD, run now and runs (#3469)", async () => {
   });
   await request("GET", "/api/schedules/{id}/runs", 200, undefined, at("/runs"));
   for (const outcome of [
+    "stopped:budget",
     "waiting:limit",
     "skipped:limit-expired",
     "spawned:failover",

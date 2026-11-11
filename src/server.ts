@@ -3971,6 +3971,7 @@ async function patchSchedule(req: Request, s: Schedule | null, deps: AppDeps): P
     times: s.times,
     interval: s.interval,
     usageLimit: s.usageLimit,
+    tokenBudget: s.tokenBudget ?? null,
     enabled: s.enabled,
   };
   const launch = isRecord(body.launch) ? { ...s.launch, ...body.launch } : body.launch;
@@ -11692,6 +11693,7 @@ async function heldUpdate(
   value.placement = existing.input.placement;
   // Nor the schedule it fired for (#3469, server-set only): the overlap skip and link follow it.
   value.scheduleId = existing.input.scheduleId;
+  value.scheduleRun = existing.input.scheduleRun;
   const profileErr = tokenProfileError(token, value, deps);
   if (profileErr) return profileErr;
   deps.store.updateHeldTask(id, value);

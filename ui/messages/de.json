@@ -8782,5 +8782,21 @@
   "schedule_pause_takeover": "Eine eigene Nachricht hebt die Pause auf.",
   "schedule_pause_unknown_reset": "Shepherd setzt automatisch fort, sobald das Nutzungsfenster zurückgesetzt und die Nutzung unter dem Stopp ist. Die Resetzeit ist noch nicht verfügbar.",
   "feat_schedule_usage_pause_title": "Geplante Läufe am Nutzungsstopp anhalten",
-  "feat_schedule_usage_pause_body": "Aktiviere das Anhalten in der Nutzungsgrenze eines Zeitplans: Der Agent beendet beim Stopp seinen aktuellen Schritt. Shepherd setzt die Session nach dem Reset fort. Eine eigene Nachricht hebt die Pause auf."
+  "feat_schedule_usage_pause_body": "Aktiviere das Anhalten in der Nutzungsgrenze eines Zeitplans: Der Agent beendet beim Stopp seinen aktuellen Schritt. Shepherd setzt die Session nach dem Reset fort. Eine eigene Nachricht hebt die Pause auf.",
+  "schedules_budget_toggle": "Token-Budget pro Lauf",
+  "schedules_budget_input": "Token-Budget (Mio.)",
+  "schedules_budget_unit": "{n} Mio. Tokens",
+  "schedules_budget_measure": "Zählt Eingabe, Cache-Schreiben und Ausgabe – keine Cache-Treffer. Die Statusleiste der Session zeigt eine größere Zahl, weil sie Cache-Treffer mitzählt.",
+  "schedules_budget_overshoot": "Der laufende Schritt wird noch beendet; ein Lauf kann das Budget leicht überschreiten.",
+  "schedules_budget_codex": "Für Codex-Sessions zählt Shepherd noch keine Tokens.",
+  "schedules_budget_default": "Das Budget gilt nur für Läufe mit Claude Code.",
+  "schedules_budget_chip": "Budget {n} Mio.",
+  "schedules_budget_compact": "{n} Mio.",
+  "schedules_budget_result": "beendet – Token-Budget erreicht ({used})",
+  "schedules_budget_unused": "Budget nicht angewandt (Codex)",
+  "schedules_budget_takeover": "Der Lauf ist beendet. Sende eine Nachricht, um diese Session ohne Token-Budget fortzusetzen.",
+  "schedules_budget_invalid": "Gib 0,1 bis 100 Mio. Tokens in ganzen Tokens ein.",
+  "schedules_budget_used": "{used} Tokens verbraucht",
+  "feat_schedule_token_budget_title": "Token-Budget pro geplantem Lauf",
+  "feat_schedule_token_budget_body": "Lege im Bereich Grenzen ein Token-Budget für Claude Code fest. Am Budget beendet der Agent seinen laufenden Schritt und der Lauf endet; die Session bleibt zum Prüfen oder manuellen Fortsetzen erhalten."
 }

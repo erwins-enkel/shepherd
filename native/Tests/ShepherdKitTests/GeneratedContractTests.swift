@@ -102,6 +102,27 @@ struct GeneratedContractTests {
     #expect(cleared.usagePause == nil)
   }
 
+  @Test("scheduled budget stops preserve their token accounting", .timeLimit(.minutes(1)))
+  func budgetStopDecodes() throws {
+    let pause: [String: Any] = [
+      "reason": "budget", "phase": "paused", "since": 100, "resumeAt": NSNull(),
+      "stopPct": 0, "windows": [], "stopSteerSent": true,
+      "tokenBudget": 2_000_000, "tokensUsed": 2_100_000
+    ]
+    let session = try JSONDecoder().decode(
+      Session.self, from: Fixtures.minimalSessionJSON(overrides: ["usagePause": pause]))
+    #expect(session.usagePause?.tokenBudget == 2_000_000)
+    #expect(session.usagePause?.tokensUsed == 2_100_000)
+    let runJSON: [String: Any] = [
+      "id": 1, "scheduleId": "s", "slotKey": "slot", "outcome": "stopped:budget",
+      "sessionId": "session", "reason": NSNull(), "at": 100, "tokensUsed": 2_100_000
+    ]
+    let data = try JSONSerialization.data(withJSONObject: runJSON)
+    let run = try JSONDecoder().decode(Components.Schemas.ScheduleRun.self, from: data)
+    #expect(run.outcome.value1?.rawValue == "stopped:budget")
+    #expect(run.tokensUsed == 2_100_000)
+  }
+
   @Test("the public typealiases point at the generated types")
   func typealiasesResolve() throws {
     // A metatype comparison alone can't fail: `Session.self` is substituted

@@ -1216,3 +1216,11 @@ export function schedulePauseExplanation(resumeAt: number | null): TooltipExplan
     ],
   };
 }
+
+export function scheduleBudgetExplanation(): TooltipExplanation {
+  return {
+    title: m.schedules_budget_toggle(),
+    summary: m.schedules_budget_takeover(),
+    sections: [{ label: m.schedules_budget_input(), text: m.schedules_budget_measure() }],
+  };
+}

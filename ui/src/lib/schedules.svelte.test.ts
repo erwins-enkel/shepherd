@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { overwriteGetLocale } from "#lib/paraglide/runtime.js";
+import { getLocale } from "#lib/i18n.js";
 import {
   cadenceSummary,
   usageLimitPreview,
@@ -390,4 +392,26 @@ it("shows paused run deadlines and an honest fallback without a reset", () => {
   );
   expect(outcomeLabel("paused", null, null, null)).toBe("Paused (usage stop)");
   expect(outcomeTone("paused")).toBe("neutral");
+});
+
+it("shows a terminal budget result with localized tokens and Codex non-application", () => {
+  expect(outcomeLabel("stopped:budget", null, null, null, 2_100_000)).toBe(
+    "ended – token budget reached (2.1M)",
+  );
+  expect(outcomeLabel("spawned", null, null, null, null, "codex")).toContain(
+    "budget not applied (Codex)",
+  );
+  expect(outcomeTone("stopped:budget")).toBe("neutral");
+});
+
+it("formats German budget usage with a decimal comma", async () => {
+  overwriteGetLocale(() => "de");
+  try {
+    expect(getLocale()).toBe("de");
+    expect(outcomeLabel("stopped:budget", null, null, null, 2_100_000)).toBe(
+      "beendet – Token-Budget erreicht (2,1 Mio.)",
+    );
+  } finally {
+    overwriteGetLocale(() => "en");
+  }
 });

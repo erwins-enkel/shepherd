@@ -651,6 +651,15 @@ components:
         - windows
         - stopSteerSent
       properties:
+        reason:
+          type: string
+          enum:
+            - budget
+          description: Present only for a terminal token-budget stop. Missing means a resumable usage-window pause.
+        tokenBudget:
+          type: integer
+        tokensUsed:
+          type: integer
         phase:
           type: string
           enum:
@@ -8895,6 +8904,17 @@ components:
           type: integer
           nullable: true
           description: Reset time in epoch milliseconds while paused.
+        budgetNotApplied:
+          type: string
+          nullable: true
+          enum:
+            - codex
+          description: Budget was configured but not applied because this run uses Codex. Persists independently of later result summaries.
+        tokensUsed:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: Input plus cache writes plus output for the Claude Code run, excluding cache reads. Null when not measured; frozen at a budget stop.
         at:
           type: integer
     ScheduleInterval:
@@ -8964,6 +8984,12 @@ components:
           allOf:
             - $ref: "#/components/schemas/ScheduleUsageLimit"
           nullable: true
+        tokenBudget:
+          type: integer
+          nullable: true
+          minimum: 100000
+          maximum: 100000000
+          description: Optional per-run Claude Code token budget (input + cache writes + output; cache reads excluded). Explicit Codex rejects a non-null budget. Default-provider or failover Codex runs do not apply it. Null disables the budget; omitted PATCH preserves it.
         enabled:
           type: boolean
         launch:
@@ -9027,6 +9053,12 @@ components:
           allOf:
             - $ref: "#/components/schemas/ScheduleUsageLimit"
           nullable: true
+        tokenBudget:
+          type: integer
+          nullable: true
+          minimum: 100000
+          maximum: 100000000
+          description: Optional per-run Claude Code token budget (input + cache writes + output; cache reads excluded). Explicit Codex rejects a non-null budget. Default-provider or failover Codex runs do not apply it. Null disables the budget; omitted PATCH preserves it.
         enabled:
           type: boolean
         launch:

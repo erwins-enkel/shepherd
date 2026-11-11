@@ -10,6 +10,8 @@
     outcomeLabel,
     outcomeTone,
     usageLimitChip,
+    scheduleBudgetChip,
+    formatScheduleTokens,
   } from "#lib/schedules.svelte.js";
   import { listScheduleRuns } from "#lib/api.js";
   import { relativeTimeAgo } from "#lib/format.js";
@@ -90,6 +92,8 @@
     </div>
     <div class="sc-cadence">{cadenceSummary(s.days, s.times, getLocale(), s.interval)}</div>
     <div class="sc-chips">
+      {#if s.tokenBudget != null}<span class="sc-chip">{scheduleBudgetChip(s.tokenBudget)}</span
+        >{/if}
       {#if s.usageLimit}
         <button
           type="button"
@@ -126,6 +130,8 @@
               s.lastRun.reason,
               s.lastRun.usage,
               s.lastRun.pausedUntil,
+              s.lastRun.tokensUsed,
+              s.lastRun.budgetNotApplied,
             ),
             ago: relativeTimeAgo(s.lastRun.at, clock.current, getLocale()),
           })}</button
@@ -228,8 +234,19 @@
                 >{historyFmt.format(new Date(run.at))}</time
               >
               <span class={["sc-outcome", outcomeTone(run.outcome)]}
-                >{outcomeLabel(run.outcome, run.reason, run.usage, run.pausedUntil)}</span
+                >{outcomeLabel(
+                  run.outcome,
+                  run.reason,
+                  run.usage,
+                  run.pausedUntil,
+                  run.tokensUsed,
+                  run.budgetNotApplied,
+                )}</span
               >
+              {#if run.tokensUsed != null && run.outcome !== "stopped:budget"}<span
+                  class="sc-summary"
+                  >{m.schedules_budget_used({ used: formatScheduleTokens(run.tokensUsed) })}</span
+                >{/if}
               {#if run.outcome === "noop" && run.reason}<span class="sc-summary">{run.reason}</span
                 >{/if}
               {#if run.sessionId}<a

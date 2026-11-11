@@ -224,3 +224,30 @@ describe("ScheduleBadge usage pause", () => {
     expect(visibleText(badge)).toContain("scheduled");
   });
 });
+
+it("shows an ended budget without promising a reset resume", () => {
+  const { badge } = mount(
+    {
+      id: "budget",
+      usagePause: {
+        reason: "budget",
+        tokenBudget: 2_000_000,
+        tokensUsed: 2_100_000,
+        phase: "paused",
+        since: 1,
+        resumeAt: null,
+        stopPct: 0,
+        windows: [],
+        stopSteerSent: true,
+      },
+    },
+    false,
+  );
+  expect(visibleText(badge)).toContain("token budget reached (2.1m)");
+  badge.focus();
+  badge.click();
+  const tip = document.querySelector<HTMLElement>("[popover]:popover-open");
+  expect(tip?.textContent).toContain("without a token budget");
+  expect(tip?.textContent).not.toContain("resets");
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+});

@@ -5397,6 +5397,7 @@ export class SessionService {
         epicParent: spawnInput.epicParent,
         incrementalEpicParent: spawnInput.incrementalEpicParent,
         scheduleId: spawnInput.scheduleId, // store normalizes absent → null
+        scheduleRun: spawnInput.scheduleRun,
         // Provider-agnostic (TASK-413): Codex persists the flag too, no longer forced off.
         planGateEnabled: spawnInput.planGateEnabled ?? null,
         autopilotEnabled: spawnInput.autopilotEnabled ?? null,
@@ -7536,6 +7537,7 @@ export class SessionService {
       return (
         !s.shelved &&
         s.usagePause?.since === opts.usagePause.since &&
+        (opts.usagePause.purpose !== "resume" || s.usagePause.reason !== "budget") &&
         s.usagePause.phase === (opts.usagePause.purpose === "stop" ? "requested" : "paused")
       );
     return !isUsagePaused(s);

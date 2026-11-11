@@ -101,7 +101,14 @@ class SchedulesStore {
       toasts.info(
         m.schedules_run_now_result({
           name: s.name,
-          outcome: outcomeLabel(run.outcome, run.reason, run.usage, run.pausedUntil),
+          outcome: outcomeLabel(
+            run.outcome,
+            run.reason,
+            run.usage,
+            run.pausedUntil,
+            run.tokensUsed,
+            run.budgetNotApplied,
+          ),
         }),
       );
     } catch {
@@ -162,8 +169,41 @@ export function schedulePauseLabel(resumeAt?: number | null, run = false): strin
   return run ? m.schedules_outcome_paused({ when }) : m.schedule_pause_badge({ when });
 }
 
+export function scheduleBudgetNumber(tokens: number): string {
+  return new Intl.NumberFormat(getLocale(), { maximumFractionDigits: 6 }).format(
+    tokens / 1_000_000,
+  );
+}
+
+export function formatScheduleTokens(tokens: number): string {
+  if (tokens < 100_000) return new Intl.NumberFormat(getLocale()).format(tokens);
+  const n = new Intl.NumberFormat(getLocale(), { maximumFractionDigits: 1 }).format(
+    tokens / 1_000_000,
+  );
+  return m.schedules_budget_compact({ n });
+}
+
+export function scheduleBudgetChip(tokens: number): string {
+  return m.schedules_budget_chip({ n: scheduleBudgetNumber(tokens) });
+}
+
 /** A run outcome as the operator reads it. */
 export function outcomeLabel(
+  outcome: string,
+  reason?: string | null,
+  usage?: ScheduleUsage | null,
+  pausedUntil?: number | null,
+  tokensUsed?: number | null,
+  budgetNotApplied?: "codex" | null,
+): string {
+  const label =
+    outcome === "stopped:budget"
+      ? m.schedules_budget_result({ used: formatScheduleTokens(tokensUsed ?? 0) })
+      : baseOutcomeLabel(outcome, reason, usage, pausedUntil);
+  return budgetNotApplied === "codex" ? `${label} · ${m.schedules_budget_unused()}` : label;
+}
+
+function baseOutcomeLabel(
   outcome: string,
   reason?: string | null,
   usage?: ScheduleUsage | null,

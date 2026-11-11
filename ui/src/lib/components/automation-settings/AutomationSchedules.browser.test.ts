@@ -269,6 +269,7 @@ describe("schedule launch compatibility", () => {
           times: ["09:00", "18:00"],
           interval: null,
           usageLimit: null,
+          tokenBudget: null,
           launch,
         }),
       );
@@ -1222,4 +1223,127 @@ describe("scheduled run usage pauses", () => {
     await expect.poll(() => historyList()?.textContent).toContain(m.schedules_outcome_spawned());
     await expect.poll(() => historyList()?.textContent).not.toContain("usage stop");
   });
+});
+
+describe("schedule token budget", () => {
+  it("edits millions, presets and saves whole tokens", async () => {
+    await page.viewport(1280, 1000);
+    const calls = mockApi([TRIAGE]);
+    render(ScheduleDialog, { repoPath: "/repo-a", schedule: TRIAGE, onclose: vi.fn() });
+    await page.getByRole("checkbox", { name: "Token budget per run", exact: true }).click();
+    await page.getByRole("button", { name: "0.5M tokens", exact: true }).click();
+    await expect
+      .element(page.getByRole("spinbutton", { name: "Token budget (millions)" }))
+      .toHaveValue(0.5);
+    await expect
+      .element(page.getByText("Counts input, cache writes and output", { exact: false }))
+      .toBeVisible();
+    await page.getByRole("button", { name: m.schedules_save(), exact: true }).click();
+    await vi.waitFor(() =>
+      expect(calls.find((c) => c.method === "PATCH")?.body).toMatchObject({ tokenBudget: 500_000 }),
+    );
+  });
+
+  it("disables the budget for explicit Codex", async () => {
+    await page.viewport(1280, 1000);
+    mockApi([TRIAGE]);
+    render(ScheduleDialog, {
+      repoPath: "/repo-a",
+      schedule: { ...TRIAGE, launch: { ...TRIAGE.launch, agentProvider: "codex" } },
+      onclose: vi.fn(),
+    });
+    await expect
+      .element(page.getByRole("checkbox", { name: "Token budget per run", exact: true }))
+      .toBeDisabled();
+    await expect
+      .element(page.getByText("Shepherd doesn't count tokens for Codex sessions yet."))
+      .toBeVisible();
+  });
+
+  it("shows budget and final usage in the list", async () => {
+    mockApi([
+      {
+        ...TRIAGE,
+        tokenBudget: 2_000_000,
+        lastRun: {
+          id: 1,
+          scheduleId: "s1",
+          slotKey: "slot",
+          outcome: "stopped:budget",
+          tokensUsed: 2_100_000,
+          sessionId: "run",
+          reason: null,
+          at: 1,
+        },
+      },
+    ]);
+    render(AutomationSchedules, { repoPath: "/repo-a" });
+    await expect.element(page.getByText("Budget 2M", { exact: true })).toBeVisible();
+    await expect
+      .element(page.getByText("ended – token budget reached (2.1M)", { exact: false }))
+      .toBeVisible();
+  });
+});
+
+it("validates budget precision on mobile and saves exact whole tokens", async () => {
+  await page.viewport(390, 760);
+  const calls = mockApi([TRIAGE]);
+  render(ScheduleDialog, {
+    repoPath: "/repo-a",
+    schedule: { ...TRIAGE, tokenBudget: 2_000_000 },
+    onclose: vi.fn(),
+  });
+  await page.getByRole("tab", { name: m.schedules_limit_tab(), exact: true }).click();
+  const input = page.getByRole("spinbutton", { name: "Token budget (millions)" });
+  await input.fill("0.05");
+  await expect
+    .element(page.getByRole("button", { name: m.schedules_save(), exact: true }))
+    .toBeDisabled();
+  await input.fill("0.100001");
+  await expect
+    .element(page.getByText("The budget only applies to runs on Claude Code."))
+    .toBeVisible();
+  await page.getByRole("button", { name: m.schedules_save(), exact: true }).click();
+  await vi.waitFor(() =>
+    expect(calls.find((c) => c.method === "PATCH")?.body).toMatchObject({ tokenBudget: 100_001 }),
+  );
+});
+
+it("clears an existing budget on an explicit switch to Codex", async () => {
+  await page.viewport(1280, 1000);
+  const calls = mockApi([TRIAGE]);
+  render(ScheduleDialog, {
+    repoPath: "/repo-a",
+    schedule: { ...TRIAGE, tokenBudget: 2_000_000 },
+    onclose: vi.fn(),
+  });
+  await page.getByRole("button", { name: /Codex/ }).click();
+  await expect
+    .element(page.getByRole("checkbox", { name: "Token budget per run", exact: true }))
+    .not.toBeChecked();
+  await page.getByRole("button", { name: m.schedules_save(), exact: true }).click();
+  await vi.waitFor(() =>
+    expect(calls.find((c) => c.method === "PATCH")?.body).toMatchObject({
+      tokenBudget: null,
+      launch: { agentProvider: "codex" },
+    }),
+  );
+});
+
+it("shows Codex budget non-application alongside a noop summary in history", async () => {
+  const run: ScheduleRun = {
+    id: 1,
+    scheduleId: "s1",
+    slotKey: "slot",
+    outcome: "noop",
+    sessionId: "run",
+    reason: "nothing to do",
+    budgetNotApplied: "codex",
+    at: 1,
+  };
+  mockApi([{ ...TRIAGE, tokenBudget: 2_000_000, lastRun: run }], async () => response([run]));
+  render(AutomationSchedules, { repoPath: "/repo-a" });
+  await historyButton().click();
+  await expect.poll(() => historyList()?.textContent).toContain("budget not applied (Codex)");
+  await expect.poll(() => historyList()?.textContent).toContain("nothing to do");
 });

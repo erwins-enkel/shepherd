@@ -37,8 +37,12 @@ export type ExperimentRole = "variant" | "comparison";
 /** A session's Claude Code goal state (#2596). */
 export type GoalState = "held" | "active";
 
-/** Scheduled run waiting for its provider usage window to reset. Times are epoch ms. */
+/** Scheduled run usage pause or terminal token-budget stop. Times are epoch ms. */
 export interface UsagePause {
+  /** Absent on existing usage-window pauses. Budget stops never resume automatically. */
+  reason?: "budget";
+  tokenBudget?: number;
+  tokensUsed?: number;
   phase: "requested" | "paused";
   since: number;
   resumeAt: number | null;
@@ -492,6 +496,8 @@ export interface StandardCreateInput {
    *  links its session to the schedule. Persisted as `Session.scheduleId`. Carried by a relaunch
    *  and by a held-task edit, so the run stays linked (overlap skip, badge). */
   scheduleId?: string | null;
+  /** Internal scheduled-launch identity, carried through held-task release. */
+  scheduleRun?: { slotKey: string; tokenBudget: number | null };
   /** A session moved here from another machine: the worktree checks out its pushed work branch
    *  instead of a fresh one, and the agent is told it continues there (see `SessionContinuation`). */
   continuation?: SessionContinuation;

@@ -3,8 +3,11 @@
   import { m } from "#lib/paraglide/messages.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
 
-  import { schedulePauseLabel } from "#lib/schedules.svelte.js";
-  import { schedulePauseExplanation } from "#lib/tooltips/explanations.js";
+  import { schedulePauseLabel, formatScheduleTokens } from "#lib/schedules.svelte.js";
+  import {
+    schedulePauseExplanation,
+    scheduleBudgetExplanation,
+  } from "#lib/tooltips/explanations.js";
 
   // A session an operator schedule spawned (#3469). The name is read live, so a deleted schedule
   // falls back to the bare "scheduled" marker.
@@ -13,7 +16,9 @@
   const pause = $derived(session.usagePause?.phase === "paused" ? session.usagePause : null);
   const label = $derived(
     pause
-      ? schedulePauseLabel(pause.resumeAt)
+      ? pause.reason === "budget"
+        ? m.schedules_budget_result({ used: formatScheduleTokens(pause.tokensUsed ?? 0) })
+        : schedulePauseLabel(pause.resumeAt)
       : session.scheduleName
         ? m.schedule_badge_label_named({ name: session.scheduleName })
         : m.schedule_badge_label(),
@@ -34,7 +39,12 @@
     aria-label={label}
     title={tip || pause ? undefined : title}
     use:statusTip={pause
-      ? { text: schedulePauseExplanation(pause.resumeAt) }
+      ? {
+          text:
+            pause.reason === "budget"
+              ? scheduleBudgetExplanation()
+              : schedulePauseExplanation(pause.resumeAt),
+        }
       : tip
         ? { text: title }
         : null}

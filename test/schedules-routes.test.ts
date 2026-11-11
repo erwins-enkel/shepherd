@@ -208,3 +208,35 @@ test("mismatch actions roundtrip and disabling expires waiting rows immediately"
     });
   }
 });
+
+test("budget roundtrip, PATCH retention and Codex rejection", async () => {
+  const response = await call("POST", "/api/schedules", { ...valid(), tokenBudget: 2_000_000 });
+  expect(response.status).toBe(201);
+  const s = await response.json();
+  expect(s.tokenBudget).toBe(2_000_000);
+  expect(
+    (await (await call("PATCH", `/api/schedules/${s.id}`, { name: "Budget" })).json()).tokenBudget,
+  ).toBe(2_000_000);
+  const rejected = await call("PATCH", `/api/schedules/${s.id}`, {
+    launch: { agentProvider: "codex" },
+  });
+  expect(rejected.status).toBe(400);
+  expect(await rejected.json()).toEqual({ error: "tokenBudget is only supported for Claude Code" });
+  expect(
+    (
+      await call("POST", "/api/schedules", {
+        ...valid(),
+        tokenBudget: 100_000,
+        launch: { agentProvider: "codex" },
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await call("PATCH", `/api/schedules/${s.id}`, {
+        tokenBudget: null,
+        launch: { agentProvider: "codex" },
+      })
+    ).status,
+  ).toBe(200);
+});

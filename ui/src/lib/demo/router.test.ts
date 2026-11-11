@@ -16,6 +16,20 @@ async function get(path: string) {
 beforeEach(() => demoState.reset());
 
 describe("polished GET handlers return the shape api.ts consumes", () => {
+  it("repo config exposes the demo's local-only storage metadata", async () => {
+    const { body } = await get(`/api/repo-config?repo=${encodeURIComponent(REPO)}`);
+    expect(body).toMatchObject({
+      repoConfigBranch: null,
+      repoConfigCommit: null,
+      leitrechner: null,
+    });
+  });
+
+  it("project config returns a machine array for the leader picker", async () => {
+    const { body } = await get("/api/repo-config/project?remoteSlug=acme%2Fstorefront");
+    expect(body).toEqual({ remoteSlug: "acme/storefront", machines: [] });
+  });
+
   it("/api/me authenticates", async () => {
     expect(await get("/api/me")).toEqual({ status: 200, body: { authenticated: true } });
   });

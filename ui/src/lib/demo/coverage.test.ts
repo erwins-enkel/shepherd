@@ -155,6 +155,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/sessions/clear-merged"),
   get("/api/repos"),
   get("/api/repo-config", `/api/repo-config?repo=${r}`),
+  get("/api/repo-config/project", "/api/repo-config/project?remoteSlug=acme%2Fstorefront"),
   get("/api/repo-bootstrap", `/api/repo-bootstrap?repo=${r}`),
   get("/api/agent-extensions"),
   get("/api/repo-run-defaults"),

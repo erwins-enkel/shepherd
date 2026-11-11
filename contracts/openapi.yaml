@@ -6967,6 +6967,11 @@ components:
           required: [kind, stopPct]
           properties:
             kind: { type: string, enum: [upTo] }
+            onMismatch:
+              type: string
+              enum: [skip, wait, otherProvider]
+              default: skip
+              description: Action when the usage limit does not allow an automatic run.
             stopPct: { type: integer, minimum: 5, maximum: 100, multipleOf: 5 }
         - type: object
           additionalProperties: false
@@ -6975,11 +6980,16 @@ components:
             kind: { type: string, enum: [from] }
             startPct: { type: integer, minimum: 0, maximum: 95, multipleOf: 5 }
             startWindow: { type: string, enum: [week, "5h"] }
+            onMismatch:
+              type: string
+              enum: [skip, wait, otherProvider]
+              default: skip
+              description: Action when the usage limit does not allow an automatic run.
             stopPct: { type: integer, minimum: 5, maximum: 100, multipleOf: 5 }
     ScheduleUsage:
       type: object
       additionalProperties: true
-      description: Immutable usage snapshot at the automatic firing decision. Absent on older servers; null when no schedule limit was evaluated.
+      description: Usage snapshot from the latest limit evaluation while waiting, frozen at the terminal decision. Failover records the provider actually selected. Absent on older servers; null when no schedule limit was evaluated.
       required: [provider, window, usedPct, thresholdPct]
       properties:
         provider: { type: string, enum: [claude, codex] }
@@ -7003,6 +7013,9 @@ components:
             [
               claimed,
               spawned,
+              "spawned:failover",
+              "waiting:limit",
+              "skipped:limit-expired",
               held,
               "skipped:overlap",
               "skipped:stale",

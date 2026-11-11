@@ -4147,9 +4147,10 @@ export interface ScheduleLaunch {
   baseBranch: string | null;
 }
 
-export type ScheduleUsageLimit =
+export type ScheduleUsageLimit = (
   | { kind: "upTo"; stopPct: number }
-  | { kind: "from"; startPct: number; startWindow: "week" | "5h"; stopPct: number };
+  | { kind: "from"; startPct: number; startWindow: "week" | "5h"; stopPct: number }
+) & { onMismatch?: "skip" | "wait" | "otherProvider" };
 export interface ScheduleUsage {
   provider: AgentProvider;
   window: "week" | "5h" | "max";
@@ -4160,6 +4161,9 @@ export interface ScheduleUsage {
 export type ScheduleOutcome =
   | "claimed"
   | "spawned"
+  | "spawned:failover"
+  | "waiting:limit"
+  | "skipped:limit-expired"
   | "held"
   | "skipped:overlap"
   | "skipped:stale"

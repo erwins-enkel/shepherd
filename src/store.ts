@@ -8478,25 +8478,34 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   /** Replace a schedule's editable fields (repoPath stays). `rebaseline` re-stamps `baselineAt`
    *  — the caller passes it on enable and on a cadence change. */
   updateSchedule(id: string, input: ScheduleInput, now: number, rebaseline: boolean): void {
-    this.db.run(
-      `UPDATE schedules SET name = ?, prompt = ?, days = ?, timesJson = ?, intervalJson = ?, usageLimitJson = ?, enabled = ?,
+    this.db.transaction(() => {
+      this.db.run(
+        `UPDATE schedules SET name = ?, prompt = ?, days = ?, timesJson = ?, intervalJson = ?, usageLimitJson = ?, enabled = ?,
          launchJson = ?, baselineAt = CASE WHEN ? THEN ? ELSE baselineAt END, updatedAt = ?
        WHERE id = ?`,
-      [
-        input.name,
-        input.prompt,
-        input.days,
-        JSON.stringify(input.times),
-        input.interval ? JSON.stringify(input.interval) : null,
-        input.usageLimit ? JSON.stringify(input.usageLimit) : null,
-        input.enabled ? 1 : 0,
-        JSON.stringify(input.launch),
-        rebaseline ? 1 : 0,
-        now,
-        now,
-        id,
-      ],
-    );
+        [
+          input.name,
+          input.prompt,
+          input.days,
+          JSON.stringify(input.times),
+          input.interval ? JSON.stringify(input.interval) : null,
+          input.usageLimit ? JSON.stringify(input.usageLimit) : null,
+          input.enabled ? 1 : 0,
+          JSON.stringify(input.launch),
+          rebaseline ? 1 : 0,
+          now,
+          now,
+          id,
+        ],
+      );
+      if (!input.enabled || rebaseline) {
+        this.db.run(
+          `UPDATE schedule_runs SET outcome = 'skipped:limit-expired', reason = ?
+         WHERE scheduleId = ? AND outcome = 'waiting:limit'`,
+          [input.enabled ? "cadence-changed" : "disabled", id],
+        );
+      }
+    })();
   }
 
   /** Delete a schedule and its run log. Sessions keep their (now dangling) `scheduleId`. */
@@ -8560,7 +8569,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   /**
    * Record that a scheduled session's run turned out to be a no-op, with the agent's summary as
-   * the reason. Targets the run this session owns (`spawned`, or already `noop` on a repeat call).
+   * the reason. Targets the run this session owns (`spawned`, `spawned:failover`, or already `noop`).
    * A run that was held and released later carries no sessionId, so the fallback is the schedule's
    * LATEST firing (overlap/stale skips aside) — only while that firing is still an unowned `held`
    * row, never an older one. Returns false when no row matched; the caller must not close then.
@@ -8568,7 +8577,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   markScheduleRunNoop(sessionId: string, scheduleId: string, summary: string): boolean {
     const bySession = this.db.run(
       `UPDATE schedule_runs SET outcome = 'noop', reason = ?
-       WHERE scheduleId = ? AND sessionId = ? AND outcome IN ('spawned', 'noop')`,
+       WHERE scheduleId = ? AND sessionId = ? AND outcome IN ('spawned', 'spawned:failover', 'noop')`,
       [summary, scheduleId, sessionId],
     );
     if (bySession.changes > 0) return true;
@@ -8603,6 +8612,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .get(scheduleId, slotKey) as
       (Omit<ScheduleRun, "usage"> & { usageJson: string | null }) | null;
     return row ? this.hydrateScheduleRun(row) : null;
+  }
+
+  /** All pending limit waits, without the history display's limit. */
+  listWaitingScheduleRuns(scheduleId: string): ScheduleRun[] {
+    const rows = this.db
+      .query(
+        `SELECT * FROM schedule_runs WHERE scheduleId = ? AND outcome = 'waiting:limit' ORDER BY at, id`,
+      )
+      .all(scheduleId) as (Omit<ScheduleRun, "usage"> & { usageJson: string | null })[];
+    return rows.map((row) => this.hydrateScheduleRun(row));
   }
 
   /** A schedule's runs, newest first. */

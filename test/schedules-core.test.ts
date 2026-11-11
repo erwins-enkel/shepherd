@@ -9,6 +9,7 @@ import {
   decideFiring,
   decideUsageLimit,
   scheduleUsageWindows,
+  waitingLimitExpiresAt,
   latestDueSlot,
   maskToDays,
   nextSlot,
@@ -344,4 +345,45 @@ test("schedule windows select computed Claude and provider-specific Codex usage"
   expect(scheduleUsageWindows(limits, "claude")).toEqual({ week: 12, session5h: null });
   expect(scheduleUsageWindows(limits, "codex")).toEqual({ week: null, session5h: 80 });
   expect(scheduleUsageWindows(null, "codex")).toEqual({ week: null, session5h: null });
+});
+
+test("usage mismatch actions validate without changing legacy limits", () => {
+  const root = mkdtempSync(join(tmpdir(), "sched-actions-"));
+  const body = { repoPath: root, name: "Usage", prompt: "test", days: 127, times: ["09:00"] };
+  for (const limit of [
+    { kind: "upTo", stopPct: 70 },
+    { kind: "from", startPct: 80, startWindow: "week", stopPct: 95 },
+  ] as const) {
+    for (const onMismatch of [undefined, "skip", "wait", "otherProvider"] as const) {
+      const usageLimit = { ...limit, ...(onMismatch !== undefined && { onMismatch }) };
+      const result = validateScheduleInput({ ...body, usageLimit }, root);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.usageLimit).toEqual(usageLimit);
+    }
+    for (const onMismatch of [null, "later", 1]) {
+      expect(
+        validateScheduleInput({ ...body, usageLimit: { ...limit, onMismatch } }, root).ok,
+      ).toBe(false);
+    }
+  }
+});
+
+test("waiting deadline uses the nominal slot, the earlier next slot and local DST normalization", () => {
+  const fixed = { days: ALL_DAYS, times: ["09:00", "18:00"], interval: null };
+  expect(waitingLimitExpiresAt(fixed, "2026-10-26T09:00")).toBe(at(2026, 10, 26, 18));
+  expect(waitingLimitExpiresAt({ ...fixed, times: ["09:00"] }, "2026-10-26T09:00")).toBe(
+    at(2026, 10, 26, 21),
+  );
+  const interval = {
+    ...fixed,
+    times: [],
+    interval: { everyMinutes: 15 as const, from: null, until: null },
+  };
+  expect(waitingLimitExpiresAt(interval, "2026-10-26T09:00")).toBe(at(2026, 10, 26, 9, 15));
+  for (const [key, nominal] of [
+    ["2026-03-29T02:30", at(2026, 3, 29, 2, 30)],
+    ["2026-10-25T02:30", at(2026, 10, 25, 2, 30)],
+  ] as const) {
+    expect(waitingLimitExpiresAt({ ...fixed, times: ["02:30"] }, key)).toBe(nominal + STALE_MS);
+  }
 });

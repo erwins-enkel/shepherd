@@ -2,7 +2,7 @@
   import type { BootstrapStepKind } from "#lib/components/bootstrap-checklist.js";
   import type { ClearMergedProbes } from "#lib/components/clear-merged-scope.js";
   import { setContext, type ComponentProps } from "svelte";
-  import { SCHEDULE_USAGE } from "#lib/schedules.svelte.js";
+  import { SCHEDULE_USAGE, SCHEDULE_DIAGNOSTICS } from "#lib/schedules.svelte.js";
   import { displayStatus } from "#lib/display-status.js";
   import { repos } from "#lib/repos.svelte.js";
   import { capacitySuggestedProvider } from "#lib/provider-capacity.js";
@@ -429,6 +429,7 @@
       composeImages.length === 0,
   );
   setContext(SCHEDULE_USAGE, () => store.usageLimits);
+  setContext(SCHEDULE_DIAGNOSTICS, () => store.diagnostics);
 
   // Bumped by "Discard & new task" to remount the composer blank.
   let newTaskGeneration = $state(0);

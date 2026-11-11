@@ -72,3 +72,54 @@ branch protection before retrying. Concurrent remote edits may cause a non-fast-
 refusal; Shepherd never force-pushes these settings. Protected-branch PR fallback is not
 provided here. Remote Git and local SQLite do not form a distributed transaction across
 process crashes or storage failures.
+
+## Connected machines
+
+A client needs only its coordinator. `GET /api/repo-config/project?remoteSlug=<forge-slug>`
+returns the reference rules, leader, each machine's effective configuration and reachability,
+and a comparison of machine rules when no valid file exists. Slugs use the same identity as
+`GET /api/repos`, including a fork's origin slug. The coordinator need not own a checkout.
+The local machine is the preferred read reference; otherwise the first answering peer by
+instance ID is used. Each machine retains its own commit SHA: the reference is not a claim
+that all peers have fetched that SHA.
+
+`GET /api/repo-config/machine?remoteSlug=<slug>&instanceId=<uuid>` reads one machine.
+PUT at that URL accepts only machine fields and optional `automationConfirmed` metadata,
+uses that machine's existing validation and immediate side effects, and never commits.
+`resolvedRunDefaults` reports that machine's provider/model/effort resolution while shared
+rules retain the literal `inherit` setting. There is no fallback to the coordinator's DB.
+Unknown targets return 404; unreachable or incompatible targets return 502.
+
+`PUT /api/repo-config/project?remoteSlug=<slug>&instanceId=<uuid>` accepts
+`{"rules":{"criticAllPrs":true},"leitrechner":"<instance-uuid>"}`. The selected machine
+creates one default-branch commit, including the chosen leader. `leitrechner: null` clears
+the selection. A leader is stored only as an instance ID, never a host name. This API records
+the selection; execution gating of backlog and PR sweeps is owned by the leader feature.
+The same PUT merges selected values from a no-file comparison. Rule and machine writes use
+separate requests; existing path-based PUT remains available for combined local edits.
+
+After a successful rule commit, the coordinator asks connected owners to fetch and invalidate
+their rule caches, and refreshes its own checkout when another machine wrote the commit.
+The response contains `notifications` with an outcome per target. A failed notification does
+not undo the commit or change a successful write into a failed save: inspect each outcome
+before deciding whether a machine has caught up. Machine-only edits do not notify peers.
+`POST /api/repo-config/refresh?remoteSlug=<slug>` always acts locally and never forwards,
+commits, changes the checkout or publishes another notification. Internal peer calls use
+`host=local`, so mutual connections cannot create a forwarding loop.
+
+On startup, registered non-lightweight repositories fetch their default refs before deferred
+background jobs start. Offline-origin failures are logged and leave the last fetched rules
+in place. A machine that missed a notification therefore catches up at its next successful
+startup fetch or explicit refresh. Ordinary GETs remain network-free on the target.
+
+When all compared machines lack a valid file, `differences.fields` names differing rule
+fields and values per machine; `multipleAutoDrain` lists owners with backlog processing
+simultaneously enabled. A missing peer makes `differences.complete` false and appears in
+`unavailableInstanceIds`. Fewer than two usable machines cannot prove agreement. Mixed
+file-backed and no-file states do not produce a migration comparison. An unsupported peer
+API is an unavailable result, not evidence that the peer lacks the repository.
+
+The new GETs are available to unrestricted read/submit/full tokens; writes require full
+scope. Repository-restricted tokens and the agent ingress cannot use these federation routes.
+Credentials stay on the coordinator and are sent only in Authorization headers to configured
+peers, with redirects refused. Global settings and machine settings are never mirrored.

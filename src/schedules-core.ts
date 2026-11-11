@@ -124,6 +124,7 @@ export interface Schedule {
   times: string[];
   interval: ScheduleInterval | null;
   usageLimit: ScheduleUsageLimit | null;
+  tokenBudget?: number | null;
   enabled: boolean;
   launch: ScheduleLaunch;
   /** Slots before this instant never fire — stamped on create, enable and cadence edits. */
@@ -133,6 +134,7 @@ export interface Schedule {
 }
 
 export type ScheduleOutcome =
+  | "stopped:budget"
   | "paused"
   | "claimed"
   | "spawned"
@@ -155,6 +157,8 @@ export interface ScheduleRun {
   reason: string | null;
   usage: ScheduleUsage | null;
   pausedUntil?: number | null;
+  tokensUsed?: number | null;
+  budgetNotApplied?: "codex" | null;
   at: number;
 }
 
@@ -167,6 +171,7 @@ export interface ScheduleInput {
   times: string[];
   interval: ScheduleInterval | null;
   usageLimit: ScheduleUsageLimit | null;
+  tokenBudget?: number | null;
   enabled: boolean;
   launch: ScheduleLaunch;
 }
@@ -192,6 +197,7 @@ const KEYS = new Set([
   "times",
   "interval",
   "usageLimit",
+  "tokenBudget",
   "enabled",
   "launch",
 ]);
@@ -444,12 +450,30 @@ function validateLaunch(raw: unknown): Result<ScheduleLaunch> {
 
 function validateScheduleOptions(
   obj: Record<string, unknown>,
-): Result<Pick<ScheduleInput, "launch" | "usageLimit">> {
+): Result<Pick<ScheduleInput, "launch" | "usageLimit" | "tokenBudget">> {
   const launch = validateLaunch(obj.launch);
   if (!launch.ok) return launch;
   const usageLimit = validateUsageLimit(obj.usageLimit);
   if (!usageLimit.ok) return usageLimit;
-  return { ok: true, value: { launch: launch.value, usageLimit: usageLimit.value } };
+  const tokenBudget = obj.tokenBudget ?? null;
+  if (
+    tokenBudget !== null &&
+    (!Number.isInteger(tokenBudget) ||
+      typeof tokenBudget !== "number" ||
+      tokenBudget < 100_000 ||
+      tokenBudget > 100_000_000)
+  )
+    return fail("tokenBudget must be an integer between 100000 and 100000000 or null");
+  if (tokenBudget !== null && launch.value.agentProvider === "codex")
+    return fail("tokenBudget is only supported for Claude Code");
+  return {
+    ok: true,
+    value: {
+      launch: launch.value,
+      usageLimit: usageLimit.value,
+      tokenBudget: tokenBudget as number | null,
+    },
+  };
 }
 
 /**

@@ -1,5 +1,6 @@
 import type { SessionStore } from "./store";
 import type { Session, UsagePause } from "./types";
+import { SessionUsageRollup } from "./usage";
 import type { UsageLimits } from "./usage-limits";
 
 /** Requested pauses already exclude new automatic work; no shelving/group semantics. */
@@ -24,9 +25,16 @@ type Window = UsagePause["windows"][number];
 interface Deps {
   store: Pick<
     SessionStore,
-    "get" | "list" | "getSchedule" | "setUsagePause" | "usagePauseOptedOut"
+    | "get"
+    | "list"
+    | "getSchedule"
+    | "setUsagePause"
+    | "usagePauseOptedOut"
+    | "scheduleBudget"
+    | "updateScheduleTokens"
   >;
   limits: () => UsageLimits;
+  rollup?: SessionUsageRollup;
   stop: (id: string, text: string, since: number) => Promise<boolean>;
   resume: (id: string, text: string, since: number) => Promise<boolean>;
   events: { emit(event: string, data: unknown): void };
@@ -48,8 +56,10 @@ export function publishUsagePause(
 export class SchedulePauseService {
   private inFlight = new Set<string>();
   private now: () => number;
+  private rollup: SessionUsageRollup;
   constructor(private deps: Deps) {
     this.now = deps.now ?? Date.now;
+    this.rollup = deps.rollup ?? new SessionUsageRollup();
   }
 
   private source(s: Session) {
@@ -104,7 +114,43 @@ export class SchedulePauseService {
     publishUsagePause(s, pause, this.deps.events);
   }
 
+  private budget(s: Session): Session {
+    if ((s.agentProvider ?? "claude") !== "claude") return s;
+    const budget = this.deps.store.scheduleBudget(s.id);
+    if (
+      !budget ||
+      budget.ended ||
+      (s.usagePause?.reason === "budget" && s.usagePause.phase === "paused")
+    )
+      return s;
+    const usage = this.rollup.refreshSessionSync(s, this.now());
+    if (!usage) return s;
+    const tokensUsed = usage.input + usage.cacheWrite + usage.output;
+    if (tokensUsed !== budget.tokensUsed) {
+      this.deps.store.updateScheduleTokens(s.id, tokensUsed);
+      this.deps.events.emit("schedules:changed", { repoPath: s.repoPath });
+    }
+    if (tokensUsed < budget.tokenBudget) return s;
+    const pause: UsagePause =
+      s.usagePause?.reason === "budget"
+        ? { ...s.usagePause, tokensUsed }
+        : {
+            reason: "budget",
+            phase: "requested",
+            since: Math.max(this.now(), (s.usagePause?.since ?? -1) + 1),
+            stopSteerSent: false,
+            tokenBudget: budget.tokenBudget,
+            tokensUsed,
+            resumeAt: null,
+            stopPct: 0,
+            windows: [],
+          };
+    this.save(s, pause);
+    return { ...s, usagePause: pause };
+  }
+
   private request(s: Session, hardLimit = false): Session {
+    s = this.budget(s);
     if (s.usagePause || !s.scheduleId || this.deps.store.usagePauseOptedOut(s.id)) return s;
     const limit = this.deps.store.getSchedule(s.scheduleId)?.usageLimit;
     if (!limit?.pauseAtStop) return s;
@@ -171,6 +217,10 @@ export class SchedulePauseService {
     const pause = s.usagePause!;
     if (!pause || s.shelved) return;
     if (pause.phase === "requested") return this.sendStop(s, pause);
+    if (pause.reason === "budget") {
+      this.rollup.forget(s.id);
+      return;
+    }
     await this.resumePaused(s, pause);
   }
 
@@ -178,7 +228,9 @@ export class SchedulePauseService {
     if ((s.agentProvider ?? "claude") === "claude" && !pause.stopSteerSent) {
       const delivered = await this.deps.stop(
         s.id,
-        `Shepherd: the usage stop for this scheduled run (${pause.stopPct} %) is reached. Finish the step you're on, then stop and wait — don't start a new step. Shepherd resumes you after the usage window resets.`,
+        pause.reason === "budget"
+          ? `Shepherd: this scheduled run reached its token budget (${pause.tokenBudget}). Finish the step you're on, then stop — don't start a new step.`
+          : `Shepherd: the usage stop for this scheduled run (${pause.stopPct} %) is reached. Finish the step you're on, then stop and wait — don't start a new step. Shepherd resumes you after the usage window resets.`,
         pause.since,
       );
       const current = this.current(s.id, pause.since);
@@ -209,7 +261,7 @@ export class SchedulePauseService {
       pause.since,
     );
     const current = this.current(s.id, pause.since);
-    if (delivered && current) this.save(current, null);
+    if (delivered && current && current.usagePause?.reason !== "budget") this.save(current, null);
   }
 
   private usageAllowsResume(s: Session, pause: UsagePause, now: number): boolean {

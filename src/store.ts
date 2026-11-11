@@ -875,6 +875,7 @@ type NewSession = Omit<
   bootstrapPhase?: BootstrapSessionPhase;
   mergeTrainPrs?: number[];
   launchMetadata?: SessionLaunchMetadata | null;
+  scheduleRun?: StandardCreateInput["scheduleRun"];
 };
 
 /**
@@ -931,6 +932,7 @@ type ScheduleRow = {
   timesJson: string;
   intervalJson: string | null;
   usageLimitJson: string | null;
+  tokenBudget: number | null;
   enabled: number;
   launchJson: string;
   baselineAt: number;
@@ -2341,8 +2343,17 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // A table created before #2766 has no `uploads`, before #2775 no `project`; a fresh one already
     // has both (no write here).
     this.addMissingColumns("remote_dispatches", { uploads: "TEXT", project: "TEXT" });
-    this.addMissingColumns("schedules", { intervalJson: "TEXT", usageLimitJson: "TEXT" });
-    this.addMissingColumns("schedule_runs", { usageJson: "TEXT", pausedUntil: "INTEGER" });
+    this.addMissingColumns("schedules", {
+      intervalJson: "TEXT",
+      usageLimitJson: "TEXT",
+      tokenBudget: "INTEGER",
+    });
+    this.addMissingColumns("schedule_runs", {
+      usageJson: "TEXT",
+      pausedUntil: "INTEGER",
+      tokensUsed: "INTEGER",
+      budgetNotApplied: "TEXT",
+    });
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS schedule_runs_history ON schedule_runs (scheduleId, at DESC, id DESC);
       CREATE INDEX IF NOT EXISTS schedule_runs_at ON schedule_runs (at);
@@ -4346,7 +4357,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     };
   }
 
-  create(input: NewSession): Session {
+  create({ scheduleRun, ...input }: NewSession): Session {
     return this.db.transaction(() => {
       const now = Date.now();
       const seq = this.nextDesignationSeq();
@@ -4429,7 +4440,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         ],
       );
       this.setBootstrap(s.id, input);
-      return this.setSchedule(s);
+      return this.setSchedule(s, scheduleRun);
     })();
   }
 
@@ -6289,14 +6300,24 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   /** Persist the lifecycle and its existing run row atomically. */
   setUsagePause(id: string, pause: UsagePause | null, operator = false): void {
+    const previous = this.get(id)?.usagePause;
     this.db.transaction(() => {
       this.db.run(`UPDATE sessions SET usagePauseJson = ?, updatedAt = ? WHERE id = ?`, [
         pause ? JSON.stringify(pause) : null,
         Date.now(),
         id,
       ]);
+      if (operator && previous?.reason === "budget")
+        this.db.run(`UPDATE sessions SET scheduleBudgetJson = NULL WHERE id = ?`, [id]);
+      if (pause?.reason === "budget" && pause.phase === "paused") {
+        this.db.run(`UPDATE sessions SET scheduleBudgetEnded = 1 WHERE id = ?`, [id]);
+        this.db.run(
+          `UPDATE schedule_runs SET outcome = 'stopped:budget', tokensUsed = ?, pausedUntil = NULL WHERE sessionId = ? AND outcome IN ('spawned', 'spawned:failover', 'paused', 'stopped:budget')`,
+          [pause.tokensUsed ?? null, id],
+        );
+      }
       if (operator) this.db.run(`UPDATE sessions SET usagePauseOptOut = 1 WHERE id = ?`, [id]);
-      if (pause?.phase === "paused")
+      if (pause?.phase === "paused" && pause.reason !== "budget")
         this.db.run(
           `UPDATE schedule_runs SET outcome = 'paused', pausedUntil = ?
           WHERE sessionId = ? AND outcome IN ('spawned', 'spawned:failover', 'paused')`,
@@ -6309,6 +6330,63 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           pausedUntil = NULL WHERE sessionId = ? AND outcome = 'paused'`,
           [id, id],
         );
+    })();
+  }
+
+  /** Bind the exact firing, including a held launch, before automatic consumers can run. */
+  bindScheduleBudget(
+    id: string,
+    scheduleId: string,
+    slotKey: string,
+    tokenBudget: number | null,
+  ): void {
+    const s = this.get(id);
+    if (!s || tokenBudget === null) return;
+    this.db.transaction(() => {
+      this.db.run(
+        `UPDATE schedule_runs SET sessionId = ?, reason = CASE WHEN outcome = 'held' THEN NULL ELSE reason END, outcome = CASE WHEN outcome = 'held' THEN 'spawned' ELSE outcome END WHERE scheduleId = ? AND slotKey = ?`,
+        [id, scheduleId, slotKey],
+      );
+      if ((s.agentProvider ?? "claude") === "codex") {
+        this.db.run(
+          `UPDATE schedule_runs SET budgetNotApplied = 'codex' WHERE scheduleId = ? AND slotKey = ?`,
+          [scheduleId, slotKey],
+        );
+      } else {
+        this.db.run(
+          `UPDATE sessions SET scheduleBudgetJson = ? WHERE id = ? AND scheduleBudgetJson IS NULL AND scheduleBudgetEnded = 0`,
+          [JSON.stringify({ tokenBudget, tokensUsed: null }), id],
+        );
+      }
+    })();
+  }
+
+  scheduleBudget(
+    id: string,
+  ): { tokenBudget: number; tokensUsed: number | null; ended: boolean } | null {
+    const row = this.db
+      .query(`SELECT scheduleBudgetJson, scheduleBudgetEnded FROM sessions WHERE id = ?`)
+      .get(id) as {
+      scheduleBudgetJson: string | null;
+      scheduleBudgetEnded: number;
+    } | null;
+    return row?.scheduleBudgetJson
+      ? { ...JSON.parse(row.scheduleBudgetJson), ended: row.scheduleBudgetEnded === 1 }
+      : null;
+  }
+
+  updateScheduleTokens(id: string, tokensUsed: number): void {
+    const budget = this.scheduleBudget(id);
+    if (!budget) return;
+    this.db.transaction(() => {
+      this.db.run(`UPDATE sessions SET scheduleBudgetJson = ? WHERE id = ?`, [
+        JSON.stringify({ tokenBudget: budget.tokenBudget, tokensUsed }),
+        id,
+      ]);
+      this.db.run(
+        `UPDATE schedule_runs SET tokensUsed = ? WHERE sessionId = ? AND outcome IN ('spawned', 'spawned:failover', 'paused')`,
+        [tokensUsed, id],
+      );
     })();
   }
 
@@ -7332,6 +7410,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // Operator shelve flag (written only via setShelved).
     add("shelved", `shelved INTEGER NOT NULL DEFAULT 0`);
     add("usagePauseJson", `usagePauseJson TEXT`);
+    add("scheduleBudgetJson", `scheduleBudgetJson TEXT`);
+    add("scheduleBudgetEnded", `scheduleBudgetEnded INTEGER NOT NULL DEFAULT 0`);
     add("usagePauseOptOut", `usagePauseOptOut INTEGER NOT NULL DEFAULT 0`);
     add("launchMetadataJson", `launchMetadataJson TEXT`);
     add("archiveReason", `archiveReason TEXT`);
@@ -8436,6 +8516,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       times: JSON.parse(r.timesJson) as string[],
       interval: r.intervalJson ? (JSON.parse(r.intervalJson) as ScheduleInterval) : null,
       usageLimit: r.usageLimitJson ? JSON.parse(r.usageLimitJson) : null,
+      tokenBudget: r.tokenBudget ?? null,
       enabled: !!r.enabled,
       launch: JSON.parse(r.launchJson) as ScheduleLaunch,
       baselineAt: r.baselineAt,
@@ -8465,8 +8546,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   insertSchedule(input: ScheduleInput, now: number): Schedule {
     const id = randomUUID();
     this.db.run(
-      `INSERT INTO schedules (id, repoPath, name, prompt, days, timesJson, intervalJson, usageLimitJson, enabled, launchJson,
-         baselineAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO schedules (id, repoPath, name, prompt, days, timesJson, intervalJson, usageLimitJson, tokenBudget, enabled, launchJson,
+         baselineAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         input.repoPath,
@@ -8476,6 +8557,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         JSON.stringify(input.times),
         input.interval ? JSON.stringify(input.interval) : null,
         input.usageLimit ? JSON.stringify(input.usageLimit) : null,
+        input.tokenBudget ?? null,
         input.enabled ? 1 : 0,
         JSON.stringify(input.launch),
         now,
@@ -8491,7 +8573,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   updateSchedule(id: string, input: ScheduleInput, now: number, rebaseline: boolean): void {
     this.db.transaction(() => {
       this.db.run(
-        `UPDATE schedules SET name = ?, prompt = ?, days = ?, timesJson = ?, intervalJson = ?, usageLimitJson = ?, enabled = ?,
+        `UPDATE schedules SET name = ?, prompt = ?, days = ?, timesJson = ?, intervalJson = ?, usageLimitJson = ?, tokenBudget = ?, enabled = ?,
          launchJson = ?, baselineAt = CASE WHEN ? THEN ? ELSE baselineAt END, updatedAt = ?
        WHERE id = ?`,
         [
@@ -8501,6 +8583,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           JSON.stringify(input.times),
           input.interval ? JSON.stringify(input.interval) : null,
           input.usageLimit ? JSON.stringify(input.usageLimit) : null,
+          input.tokenBudget ?? null,
           input.enabled ? 1 : 0,
           JSON.stringify(input.launch),
           rebaseline ? 1 : 0,
@@ -8529,9 +8612,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   /** #3469: link a fresh session to its schedule. Written after the INSERT (like the bootstrap
    *  stack) so COLS' hand-counted placeholder list stays untouched. */
-  private setSchedule(s: Session): Session {
+  private setSchedule(s: Session, run?: StandardCreateInput["scheduleRun"]): Session {
     if (!s.scheduleId) return { ...s, scheduleId: null, scheduleName: null };
     this.db.run(`UPDATE sessions SET scheduleId = ? WHERE id = ?`, [s.scheduleId, s.id]);
+    if (run) this.bindScheduleBudget(s.id, s.scheduleId, run.slotKey, run.tokenBudget);
     const r = this.db.query(`SELECT name FROM schedules WHERE id = ?`).get(s.scheduleId) as {
       name: string;
     } | null;
@@ -8586,6 +8670,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
    * row, never an older one. Returns false when no row matched; the caller must not close then.
    */
   markScheduleRunNoop(sessionId: string, scheduleId: string, summary: string): boolean {
+    if (this.get(sessionId)?.usagePause?.reason === "budget") return false;
     const bySession = this.db.run(
       `UPDATE schedule_runs SET outcome = 'noop', reason = ?
        WHERE scheduleId = ? AND sessionId = ? AND outcome IN ('spawned', 'spawned:failover', 'noop')`,
@@ -8604,10 +8689,33 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   /** A relaunch replaced `fromSessionId` with `toSessionId`: its schedule run follows. */
   repointScheduleRun(fromSessionId: string, toSessionId: string): void {
-    this.db.run(`UPDATE schedule_runs SET sessionId = ? WHERE sessionId = ?`, [
-      toSessionId,
-      fromSessionId,
-    ]);
+    const budget = this.scheduleBudget(fromSessionId);
+    const replacement = this.get(toSessionId);
+    const prior = this.db
+      .query(`SELECT scheduleBudgetEnded FROM sessions WHERE id = ?`)
+      .get(fromSessionId) as { scheduleBudgetEnded: number } | null;
+    this.db.transaction(() => {
+      if (budget && replacement && prior?.scheduleBudgetEnded === 0) {
+        if ((replacement.agentProvider ?? "claude") === "codex")
+          this.db.run(
+            `UPDATE schedule_runs SET budgetNotApplied = 'codex', tokensUsed = NULL WHERE sessionId = ? AND outcome != 'stopped:budget'`,
+            [fromSessionId],
+          );
+        else
+          this.db.run(`UPDATE sessions SET scheduleBudgetJson = ? WHERE id = ?`, [
+            JSON.stringify({ tokenBudget: budget.tokenBudget, tokensUsed: null }),
+            toSessionId,
+          ]);
+      }
+      this.db.run(
+        `UPDATE sessions SET scheduleBudgetEnded = (SELECT scheduleBudgetEnded FROM sessions WHERE id = ?) WHERE id = ?`,
+        [fromSessionId, toSessionId],
+      );
+      this.db.run(`UPDATE schedule_runs SET sessionId = ? WHERE sessionId = ?`, [
+        toSessionId,
+        fromSessionId,
+      ]);
+    })();
   }
 
   private hydrateScheduleRun(
@@ -8646,7 +8754,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   /** True while a session this schedule spawned is still open (not archived). */
   hasOpenScheduledSession(scheduleId: string): boolean {
     return !!this.db
-      .query(`SELECT 1 FROM sessions WHERE scheduleId = ? AND status != 'archived' LIMIT 1`)
+      .query(
+        `SELECT 1 FROM sessions WHERE scheduleId = ? AND status != 'archived' AND scheduleBudgetEnded = 0 LIMIT 1`,
+      )
       .get(scheduleId);
   }
 

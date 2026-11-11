@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getContext, onMount, tick, untrack } from "svelte";
   import "./schedule-fields.css";
+  import ScheduleTokenBudgetFields from "./ScheduleTokenBudgetFields.svelte";
   import ScheduleUsageLimitFields from "./ScheduleUsageLimitFields.svelte";
   import ScheduleIntervalFields from "./ScheduleIntervalFields.svelte";
   import ScheduleEngineFields from "./ScheduleEngineFields.svelte";
@@ -84,6 +85,11 @@
   let baseBranch = $state(init?.launch.baseBranch ?? "");
   let usageLimit = $state<ScheduleUsageLimit | null>(
     init?.usageLimit ? { ...init.usageLimit } : null,
+  );
+  let tokenBudget = $state<number | null>(init?.tokenBudget ?? null);
+  const budgetValid = $derived(
+    tokenBudget === null ||
+      (Number.isInteger(tokenBudget) && tokenBudget >= 100_000 && tokenBudget <= 100_000_000),
   );
   let saving = $state(false);
 
@@ -183,7 +189,7 @@
           : m.schedules_would_start()
         : "",
   );
-  const valid = $derived(whatValid && whenValid && limitValid);
+  const valid = $derived(whatValid && whenValid && limitValid && budgetValid);
   const sandboxOptions = $derived([
     { value: "", label: m.sandbox_profile_inherit_unresolved() },
     { value: "trusted", label: m.sandbox_profile_trusted() },
@@ -254,7 +260,7 @@
         : tab === "when"
           ? !whenValid
           : tab === "limits"
-            ? !limitValid
+            ? !limitValid || !budgetValid
             : false)
     );
   }
@@ -262,6 +268,7 @@
   function chooseProvider(next: AgentProvider | "") {
     if (provider === next) return;
     provider = next;
+    if (next === "codex") tokenBudget = null;
     model = "";
     effort = "";
   }
@@ -329,6 +336,7 @@
       times: interval ? [] : times.filter(Boolean),
       interval,
       usageLimit,
+      tokenBudget: provider === "codex" ? null : tokenBudget,
       launch: {
         agentProvider: provider || null,
         model: model || null,
@@ -613,6 +621,7 @@
           holdPct={globals?.usageHoldPct ?? 80}
           valid={limitValid}
         />
+        <ScheduleTokenBudgetFields bind:value={tokenBudget} {provider} valid={budgetValid} />
       </section>
     </div>
 

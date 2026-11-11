@@ -64,11 +64,13 @@ async fn list(ctx: &mut Ctx<'_>, repo: Option<String>) -> Result<()> {
                 },
                 if s.enabled { "yes" } else { "no" }.into(),
                 output::or_dash(s.next_at.map(output::until)),
-                output::or_dash(
-                    s.last_run
-                        .as_ref()
-                        .map(|r| format!("{} {}", r.outcome, output::ago(r.at))),
-                ),
+                output::or_dash(s.last_run.as_ref().map(|r| {
+                    let tokens = r
+                        .tokens_used
+                        .map(|n| format!(" ({n} tokens)"))
+                        .unwrap_or_default();
+                    format!("{}{tokens} {}", r.outcome, output::ago(r.at))
+                })),
             ],
         );
     }
@@ -126,6 +128,7 @@ async fn add(ctx: &mut Ctx<'_>, args: ScheduleAddArgs) -> Result<()> {
         times: args.times.clone(),
         interval: None,
         usage_limit: None,
+        token_budget: None,
         enabled: Some(!args.disabled),
         launch: launch(&args),
     };

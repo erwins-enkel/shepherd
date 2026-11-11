@@ -953,3 +953,44 @@ test("a newer waiting run prevents noop from attaching an older held run", () =>
   expect(store.markScheduleRunNoop("released", s.id, "done")).toBe(false);
   expect(store.getScheduleRun(s.id, "2026-10-26T09:00")?.outcome).toBe("held");
 });
+
+test("manual runs freeze their budget and stopped sessions allow the next firing", async () => {
+  const schedule = makeSchedule(at(10, 26, 8), { tokenBudget: 100_000 });
+  now = at(10, 26, 9);
+  const run = await svc.runNow(schedule.id);
+  expect(run?.outcome).toBe("spawned");
+  expect(launches[0]?.scheduleRun).toEqual({ slotKey: run!.slotKey, tokenBudget: 100_000 });
+  expect(store.scheduleBudget(run!.sessionId!)?.tokenBudget).toBe(100_000);
+  store.setUsagePause(run!.sessionId!, {
+    reason: "budget",
+    tokenBudget: 100_000,
+    tokensUsed: 100_001,
+    phase: "paused",
+    since: now,
+    resumeAt: null,
+    stopPct: 0,
+    windows: [],
+    stopSteerSent: true,
+  });
+  store.setUsagePause(run!.sessionId!, null, true);
+  await svc.tick();
+  expect(launches).toHaveLength(2);
+  expect(store.getScheduleRun(schedule.id, run!.slotKey)).toMatchObject({
+    outcome: "stopped:budget",
+    tokensUsed: 100_001,
+  });
+});
+
+test("a default-provider Codex spawn records that its budget did not apply", async () => {
+  const schedule = makeSchedule(at(10, 26, 8), { tokenBudget: 100_000 });
+  outcome = (input) => {
+    const session = spawnSession(input);
+    store.update(session.id, { agentProvider: "codex" });
+    return { kind: "spawned", session: store.get(session.id)! };
+  };
+  now = at(10, 26, 9);
+  await svc.tick();
+  const run = store.listScheduleRuns(schedule.id, 1)[0]!;
+  expect(run).toMatchObject({ outcome: "spawned", budgetNotApplied: "codex", tokensUsed: null });
+  expect(store.scheduleBudget(run.sessionId!)).toBeNull();
+});

@@ -8718,5 +8718,21 @@
   "schedule_pause_takeover": "Sending your own message ends the pause.",
   "schedule_pause_unknown_reset": "Shepherd resumes automatically once the usage window has reset and usage is below the stop. The reset time is not available yet.",
   "feat_schedule_usage_pause_title": "Pause scheduled runs at the usage stop",
-  "feat_schedule_usage_pause_body": "Enable pausing in a schedule’s usage limit to let the agent finish its current step at the stop. Shepherd resumes the session after the usage window resets. Your own message ends the pause."
+  "feat_schedule_usage_pause_body": "Enable pausing in a schedule’s usage limit to let the agent finish its current step at the stop. Shepherd resumes the session after the usage window resets. Your own message ends the pause.",
+  "schedules_budget_toggle": "Token budget per run",
+  "schedules_budget_input": "Token budget (millions)",
+  "schedules_budget_unit": "{n}M tokens",
+  "schedules_budget_measure": "Counts input, cache writes and output – not cache reads. The session status bar shows a larger number because it includes cache reads.",
+  "schedules_budget_overshoot": "The current step still finishes, so a run can go slightly over budget.",
+  "schedules_budget_codex": "Shepherd doesn't count tokens for Codex sessions yet.",
+  "schedules_budget_default": "The budget only applies to runs on Claude Code.",
+  "schedules_budget_chip": "Budget {n}M",
+  "schedules_budget_compact": "{n}M",
+  "schedules_budget_result": "ended – token budget reached ({used})",
+  "schedules_budget_unused": "budget not applied (Codex)",
+  "schedules_budget_takeover": "The run has ended. Send a message to continue this session without a token budget.",
+  "schedules_budget_invalid": "Enter 0.1 to 100 million tokens, in whole tokens.",
+  "schedules_budget_used": "{used} tokens used",
+  "feat_schedule_token_budget_title": "Token budget per scheduled run",
+  "feat_schedule_token_budget_body": "Set a Claude Code token budget in a schedule’s Limits section. At the budget, the agent finishes its current step and the run ends; its session stays available for inspection or manual continuation."
 }

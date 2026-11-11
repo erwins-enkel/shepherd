@@ -182,3 +182,25 @@ test("only the matching pause lifecycle may deliver a stop and resume message", 
   expect(await h.svc.usagePauseSteer(h.id, "resume", 1, "resume")).toBe(true);
   expect(h.store.get(h.id)?.usagePause?.phase).toBe("paused");
 });
+
+test("a budget stop blocks automatic resume and reply until the operator takes over", async () => {
+  const h = makeSvc();
+  h.store.bindScheduleBudget(h.id, "schedule", "slot", 100_000);
+  h.store.setUsagePause(h.id, {
+    reason: "budget",
+    tokenBudget: 100_000,
+    tokensUsed: 100_001,
+    phase: "paused",
+    since: 1,
+    resumeAt: null,
+    stopPct: 0,
+    windows: [],
+    stopSteerSent: true,
+  });
+  expect(await h.svc.usagePauseSteer(h.id, "resume", 1, "resume")).toBe(false);
+  expect(await h.svc.reply(h.id, "automatic", { automatic: true })).toBe(false);
+  expect(h.store.scheduleBudget(h.id)).not.toBeNull();
+  expect(await h.svc.operatorReply(h.id, "continue")).toBe(true);
+  expect(h.store.get(h.id)?.usagePause).toBeNull();
+  expect(h.store.scheduleBudget(h.id)).toBeNull();
+});

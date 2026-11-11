@@ -125,6 +125,22 @@ describe("validateScheduleInput", () => {
     times: ["18:00", "09:00", "09:00"],
   };
 
+  test("token budget validates integer bounds and explicit Codex", () => {
+    for (const tokenBudget of [null, 100_000, 2_000_000, 100_000_000]) {
+      const result = validateScheduleInput({ ...base, tokenBudget }, root);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.tokenBudget).toBe(tokenBudget);
+    }
+    for (const tokenBudget of [99_999, 100_000_001, 100_000.5, "2000000", true])
+      expect(validateScheduleInput({ ...base, tokenBudget }, root).ok).toBe(false);
+    expect(
+      validateScheduleInput(
+        { ...base, tokenBudget: 100_000, launch: { agentProvider: "codex" } },
+        root,
+      ),
+    ).toEqual({ ok: false, error: "tokenBudget is only supported for Claude Code" });
+  });
+
   test("normalizes and defaults to attended", () => {
     const r = validateScheduleInput(base, root);
     expect(r.ok).toBe(true);

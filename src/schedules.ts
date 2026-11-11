@@ -42,6 +42,7 @@ export interface ScheduleServiceDeps {
     | "hasScheduleRun"
     | "settleScheduleRun"
     | "getScheduleRun"
+    | "bindScheduleBudget"
     | "hasOpenScheduledSession"
     | "listHeldTasks"
     | "pruneScheduleRuns"
@@ -279,13 +280,19 @@ export class ScheduleService {
       return;
     }
     const out = await this.deps.launch(
-      { ...input.value, ...(provider && { agentProvider: provider }), scheduleId: s.id },
+      {
+        ...input.value,
+        ...(provider && { agentProvider: provider }),
+        scheduleId: s.id,
+        scheduleRun: { slotKey, tokenBudget: s.tokenBudget ?? null },
+      },
       { skipUsageHold },
     );
     if (out.kind === "spawned") {
       store.settleScheduleRun(s.id, slotKey, failover ? "spawned:failover" : "spawned", {
         sessionId: out.session.id,
       });
+      store.bindScheduleBudget(out.session.id, s.id, slotKey, s.tokenBudget ?? null);
       this.log(`[schedules] ${s.name} ${slotKey}: spawned ${out.session.desig}`);
     } else if (out.kind === "held") {
       store.settleScheduleRun(s.id, slotKey, "held", { reason: out.held.reason });

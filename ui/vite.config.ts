@@ -66,6 +66,9 @@ export default defineConfig({
     paraglideVitePlugin({
       project: "./project.inlang",
       outdir: "./src/lib/paraglide",
+      // Paraglide 3 defaults Vite to virtual modules; paraglideSplit reads the
+      // per-message files from disk, so keep physical message modules.
+      outputStructure: "message-modules",
       strategy: ["localStorage", "preferredLanguage", "baseLocale"],
     }),
     tailwindcss(),

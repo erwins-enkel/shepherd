@@ -19,13 +19,14 @@ describe("classifyEgressHost", () => {
     ["someone.github.io", "subdomain"],
     ["bucket.s3.amazonaws.com", "subdomain"],
     ["storage.googleapis.com", "subdomain"],
-    ["pypi.org", "subdomain"],
   ])("%s is risky (%s)", (host, reason) => {
     expect(classifyEgressHost(host)).toEqual({ tier: "risky", reason });
   });
 
   test.each([
     "registry.npmjs.org",
+    "registry.yarnpkg.com",
+    "pypi.org",
     "files.pythonhosted.org",
     "crates.io",
     "static.crates.io",
@@ -51,6 +52,7 @@ describe("classifyEgressHost", () => {
     "notgithub.io",
     "api.example.com",
     "registry.corp.example",
+    "test.pypi.org",
   ])("%s is normal (no lookalike or suffix trust)", (host) => {
     expect(classifyEgressHost(host)).toEqual({ tier: "normal" });
   });

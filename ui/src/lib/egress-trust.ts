@@ -15,6 +15,8 @@ export type EgressTrust =
 
 const TRUSTED = new Set([
   "registry.npmjs.org",
+  "registry.yarnpkg.com",
+  "pypi.org",
   "files.pythonhosted.org",
   "crates.io",
   "static.crates.io",
@@ -84,7 +86,6 @@ const RISKY: Record<Exclude<EgressRiskReason, "ip" | "idn">, readonly string[]> 
     "github.io",
     "amazonaws.com",
     "googleapis.com",
-    "pypi.org",
     "appspot.com",
     "firebaseapp.com",
     "web.app",

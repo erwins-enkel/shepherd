@@ -1,5 +1,5 @@
 // Per-device opt-out for the app's opt-in help chrome: the circular (i) InfoTips,
-// AutomationSettings' ⓘ row-explainers, and the dashed-underline glossary terms.
+// the repo settings' ⓘ row-explainers, and the dashed-underline glossary terms.
 // Persisted in localStorage; mirrors tab-ticker.svelte.ts.
 //
 // Scope: only affordances that exist *purely to explain* adjacent content. Tooltips that

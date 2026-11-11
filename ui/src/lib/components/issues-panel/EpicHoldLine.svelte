@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
+  import { automationFocus } from "#lib/automation-focus.js";
   import { approveEpicNext, overrideEpicBaseHold, reworkEpicBase, updateEpic } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { repoBootstrap } from "#lib/repo-bootstrap.svelte.js";
@@ -70,7 +71,10 @@
   }
 
   async function run(action: HoldAction) {
-    if (action.kind === "bootstrap_view") return onopenautomation?.();
+    if (action.kind === "bootstrap_view") {
+      automationFocus.openAt("start"); // the bootstrap card sits in Start & flow
+      return onopenautomation?.();
+    }
     if (action.kind === "open_session") return onopensession?.(action.sessionId);
     if (busy) return;
     busy = true;

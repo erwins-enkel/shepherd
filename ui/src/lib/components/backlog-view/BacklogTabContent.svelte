@@ -15,9 +15,11 @@
   import PrsPanel from "../PrsPanel.svelte";
   import ActionsPanel from "../ActionsPanel.svelte";
   import ReadinessPanel from "../ReadinessPanel.svelte";
-  import AutomationSettings from "../AutomationSettings.svelte";
+  import RepoSettingsBody from "../repo-settings/RepoSettingsBody.svelte";
   import BootstrapChecklist from "../BootstrapChecklist.svelte";
   import { m } from "#lib/paraglide/messages.js";
+  import { automationFocus } from "#lib/automation-focus.js";
+  import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
 
   type Tab = "issues" | "prs" | "actions" | "readiness" | "automation";
 
@@ -62,7 +64,7 @@
     mobile?: boolean;
     taskDefaults?: TaskRunDefaults;
     onopensession?: (sessionId: string) => void;
-    /** Switch to the Automation tab (the agent-slot cap lives there). */
+    /** Switch to the Settings tab; a caller that means one section asks automationFocus first. */
     onopenautomation?: () => void;
     /** A session and its PR state from the store, by id — an epic child's session view. */
     sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
@@ -110,26 +112,31 @@
 {:else if activeTab === "actions"}
   <ActionsPanel repoPath={selectedPath} />
 {:else if activeTab === "automation"}
-  <div class="automation-scroll">
-    <AutomationSettings
-      repoPath={selectedPath}
-      drain={drain?.[selectedPath] ?? null}
-      onsetupci={() => onadopt(selectedPath, m.automation_no_pr_ci_task_prompt())}
-    />
+  <!-- The repo settings window's body (#3443), at the section a jump here asked for. -->
+  <div class="settings">
+    {#key selectedPath}
+      <RepoSettingsBody
+        variant="embedded"
+        repoPath={selectedPath}
+        section={automationFocus.section()}
+        drain={drain?.[selectedPath] ?? null}
+        globals={repoSettingsWindow.globals()}
+        onsetupci={() => onadopt(selectedPath, m.automation_no_pr_ci_task_prompt())}
+      />
+    {/key}
   </div>
 {:else}
   <ReadinessPanel repoPath={selectedPath} onadopt={(rp, p) => onadopt(rp, p)} />
 {/if}
 
 <style>
-  /* Automation tab owns its scroll: AutomationSettings is height-neutral and
-     non-scrolling, and both .detail-pane / .overlay-body are overflow:hidden — so this
-     wrapper is the scroll region that keeps the full rows + roles section
-     reachable. Mirrors ReadinessPanel's .scroll. */
-  .automation-scroll {
+  /* The settings body scrolls itself (its section, or the whole body when narrow); both
+     .detail-pane and .overlay-body are overflow:hidden flex columns, so this only hands it the
+     height. */
+  .settings {
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
+    display: flex;
+    flex-direction: column;
   }
 </style>

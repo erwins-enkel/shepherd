@@ -124,7 +124,7 @@ in-flight work running and resumes on its own — and only a few are **terminal*
   and offers only the fixes that really start the ready children — **Apply** changes the repo's
   sandbox and, if needed, the epic's CLI in one step, and **Undo** puts both back. The epic's row in
   the backlog list shows the same halt with **Fix**, which opens that choice right beside the row
-  (a sheet on the phone), and the **Automation** tab counts the halts in the repo's settings or on
+  (a sheet on the phone), and the **Settings** tab counts the halts in the repo's settings or on
   this host. With nothing selected, the repo overview names a halt in the repo's settings or on this
   host **once**, at the top: **Switch to Autonomous** appears when that alone lifts it here, and
   **Other choice …** opens the same choice. Each epic card keeps only its own cause with its fix
@@ -307,8 +307,8 @@ taking much longer than usual, names it.
 When a step is ready but waits for a free agent slot, the epic's detail in Repos can offer **With
 N agent slots done around ~… instead of ~…**. It appears only when every slot is taken by an
 auto-started session and one more slot would land the epic at least 15 minutes sooner. Its **Allow
-N slots** button opens the Automation tab with the **Cap** focused; it never changes the cap
-itself.
+N slots** button opens the Settings tab at **Start & flow** with the **Cap** focused; it never
+changes the cap itself.
 
 Raising the cap costs:
 

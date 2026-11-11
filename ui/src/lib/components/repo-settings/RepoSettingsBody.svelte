@@ -25,7 +25,8 @@
   // section's short status beside the active section when there is room; wrapping section chips
   // above it, one scroller, when the container is narrow. Hints sit above the section, and the
   // section a hint concerns is marked in the rail. The repo settings window wraps it in a modal
-  // ("window"); a session tab embeds it inline ("tab").
+  // ("window"); a session tab embeds it inline ("tab"), and so does the Backlog's Settings tab
+  // ("embedded"), whose header already names the repo.
   let {
     repoPath,
     section,
@@ -49,8 +50,9 @@
     globals?: Settings | null;
     /** Seed a New Task that sets up PR CI for this repo (#3305). */
     onsetupci?: () => void;
-    /** "window" titles itself with a kicker; "tab" sits inline under its own tab label. */
-    variant?: "window" | "tab";
+    /** "window" titles itself with a kicker; "tab" sits inline under its own tab label;
+     *  "embedded" drops the repo's name too, for a host that shows it already. */
+    variant?: "window" | "tab" | "embedded";
     /** Rendered at the end of the head, e.g. the window's ✕. */
     headEnd?: Snippet;
   } = $props();
@@ -126,7 +128,7 @@
   <header class="head">
     <div class="title">
       {#if variant === "window"}<span class="kicker">{m.reposettings_title()}</span>{/if}
-      <h2 class="repo">{repoName}</h2>
+      {#if variant !== "embedded"}<h2 class="repo">{repoName}</h2>{/if}
       <span class="sub">{m.automation_panel_subtitle()}</span>
     </div>
     <div class="mode-slot"><RepoModeChoice {repoPath} armCoachmarks={coach} /></div>
@@ -143,16 +145,18 @@
       id={panelId}
       aria-labelledby="{panelId}-tab-{active}"
     >
-      <RepoSettingsHints {repoPath} {drain} {onsetupci} />
-      <RepoSettingsSection
-        section={active}
-        {repoPath}
-        {sessionId}
-        {planPhase}
-        {drain}
-        {globals}
-        armCoachmarks={coach}
-      />
+      <div class="col">
+        <RepoSettingsHints {repoPath} {drain} {onsetupci} />
+        <RepoSettingsSection
+          section={active}
+          {repoPath}
+          {sessionId}
+          {planPhase}
+          {drain}
+          {globals}
+          armCoachmarks={coach}
+        />
+      </div>
     </div>
   </div>
 </div>
@@ -219,6 +223,10 @@
     overflow-y: auto;
     overflow-x: hidden;
     padding-bottom: 12px;
+  }
+  /* A wide host (the Backlog, a wide session) keeps the window's reading width. */
+  .col {
+    max-width: 720px;
   }
   /* Narrow (a phone, or a narrow desktop pane): the chips above the section, one scroller. */
   @container (max-width: 640px) {

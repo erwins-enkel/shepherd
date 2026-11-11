@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import { overwriteGetLocale } from "#lib/paraglide/runtime.js";
 import { m } from "#lib/paraglide/messages.js";
+import { automationFocus } from "#lib/automation-focus.js";
 import { listIssues, getEpics, getEpic } from "#lib/api.js";
 import type { BacklogPayload, Issue } from "#lib/types.js";
 import BacklogView from "./BacklogView.svelte";
@@ -257,6 +258,34 @@ describe("mobile repo detail — swipe right back to the list", () => {
 });
 
 // ── desktop entry: the dashboard filter decides between a repo and the grid ──
+describe("repo detail — the Settings tab (#3443)", () => {
+  const overlay = () => document.querySelector<HTMLElement>(".mobile-detail-overlay");
+  const selected = () => document.querySelector('[role="tab"][aria-selected="true"]')?.id ?? "";
+  async function openSettings() {
+    await page.viewport(390, 844);
+    await render(BacklogView, props(1));
+    await page.getByText("repo-0", { exact: true }).click();
+    await expect.poll(overlay).not.toBeNull();
+    await page.getByText(m.backlog_tab_automation(), { exact: true }).click();
+  }
+
+  afterEach(() => void automationFocus.take("max-auto"));
+
+  it("shows the repo settings window's sections, at Autonomy", async () => {
+    await openSettings();
+    await expect
+      .element(page.getByRole("tablist", { name: m.reposettings_nav_label() }))
+      .toBeVisible();
+    expect(selected()).toMatch(/-tab-autonomy$/);
+  });
+
+  it("opens at the section a jump asked for: the cap's Start & flow", async () => {
+    automationFocus.request("max-auto");
+    await openSettings();
+    await expect.poll(selected).toMatch(/-tab-start$/);
+  });
+});
+
 describe("desktop entry", () => {
   const desktop = (over: Record<string, unknown> = {}) => ({
     ...props(3),

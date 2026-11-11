@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import { tick } from "svelte";
 import "../../../app.css";
+import { repoSettingsSearchEntries } from "./search";
 import RepoSettingsWindow from "./RepoSettingsWindow.svelte";
 import { sectionLabel } from "./sections";
 import { m } from "#lib/paraglide/messages.js";
@@ -109,6 +110,15 @@ function mockApi(over: Partial<RepoConfig & { noPrCi: boolean }> = {}, autoFix?:
         config = next;
       }
       return Response.json(config);
+    }
+    if (url.startsWith("/api/repo-bootstrap?") && method === "GET") {
+      return Response.json({
+        state: "off",
+        phase: 1,
+        overrideAt: null,
+        missing: [],
+        suggested: false,
+      });
     }
     if (url.startsWith("/api/schedules")) {
       if (method !== "GET") api.scheduleWrites.push({ method, body });
@@ -648,4 +658,229 @@ describe("RepoSettingsWindow — phone", () => {
     for (const t of card.querySelectorAll<HTMLElement>('[role="tab"]'))
       expect(t.getBoundingClientRect().right).toBeLessThanOrEqual(375);
   });
+});
+
+describe("RepoSettingsWindow — search", () => {
+  it("reaches every catalog target or its conditional parent without saving", async () => {
+    const api = mockApi();
+    await open({});
+    const input = page.getByRole("searchbox", { name: m.reposettings_search_label() });
+    for (const entry of repoSettingsSearchEntries()) {
+      await input.fill(entry.name);
+      const label = entry.section ? `${entry.name} ${sectionLabel(entry.section)}` : entry.name;
+      await page
+        .getByRole("region", { name: m.reposettings_search_results() })
+        .getByRole("button", { name: label, exact: true })
+        .click();
+      const root = document.querySelector("[data-repo-settings]")!;
+      const findRow = () =>
+        root.querySelector(`[data-field~="${entry.field}"]`) ??
+        root.querySelector(`[data-field~="${entry.fallbackField}"]`);
+      await expect.poll(findRow, { message: entry.field }).not.toBeNull();
+      const row = findRow()!;
+      await expect
+        .poll(() => row!.contains(document.activeElement), { message: entry.field })
+        .toBe(true);
+      expect(row!.getBoundingClientRect().bottom, entry.field).toBeGreaterThan(0);
+      expect(row!.getBoundingClientRect().top, entry.field).toBeLessThan(window.innerHeight);
+    }
+    expect(api.puts).toEqual([]);
+    expect(api.scheduleWrites).toEqual([]);
+    expect(api.autoFixPosts).toEqual([]);
+  });
+
+  it("activates a result with the keyboard and preserves Escape dismissal", async () => {
+    mockApi();
+    const onclose = await open({});
+    const input = page.getByRole("searchbox", { name: m.reposettings_search_label() });
+    await input.fill(m.automation_critic_name());
+    const result = page.getByRole("button", {
+      name: `${m.automation_critic_name()} ${m.reposettings_section_review()}`,
+      exact: true,
+    });
+    (result.query() as HTMLElement).focus();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(sw(m.automation_critic_name())).toHaveFocus();
+    await input.fill("not-found");
+    await userEvent.keyboard("{Escape}");
+    expect(onclose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("RepoSettingsWindow — search edge cases", () => {
+  it("focuses a locked row and keeps its existing reason visible", async () => {
+    const api = mockApi({ repoMode: "lightweight" });
+    await open({});
+    await page
+      .getByRole("searchbox", { name: m.reposettings_search_label() })
+      .fill(m.automation_allprs_name());
+    await page
+      .getByRole("region", { name: m.reposettings_search_results() })
+      .getByRole("button", {
+        name: `${m.automation_allprs_name()} ${sectionLabel("review")}`,
+        exact: true,
+      })
+      .click();
+    await expect.element(sw(m.automation_allprs_name())).toBeDisabled();
+    const row = document.querySelector<HTMLElement>('[data-field="criticAllPrs"]')!;
+    expect(document.activeElement).toBe(row);
+    expect(row.textContent).toContain(m.automation_lightweight_unavailable());
+    expect(api.puts).toEqual([]);
+  });
+
+  it("keeps focus on the responsibilities row while its data loads", async () => {
+    const api = mockApi();
+    const baseFetch = vi.mocked(fetch).getMockImplementation()!;
+    let finish!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      if (String(input).startsWith("/api/repo-roles?"))
+        return new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+      return baseFetch(input, init);
+    });
+    await open({});
+    await page
+      .getByRole("searchbox", { name: m.reposettings_search_label() })
+      .fill(m.roles_reviewer_label());
+    await page
+      .getByRole("region", { name: m.reposettings_search_results() })
+      .getByRole("button", {
+        name: `${m.roles_reviewer_label()} ${sectionLabel("merge")}`,
+        exact: true,
+      })
+      .click();
+    const row = document.querySelector<HTMLElement>('[data-field="roles.reviewer"]')!;
+    expect(document.activeElement).toBe(row);
+    finish(Response.json({ roles: { reviewer: null, merger: null }, me: null }));
+    await expect
+      .element(page.getByRole("combobox", { name: m.roles_reviewer_label() }))
+      .toBeEnabled();
+    expect(document.activeElement).toBe(row);
+    expect(api.puts).toEqual([]);
+  });
+
+  for (const width of [390, 1280]) {
+    it(`keeps search and focused targets visible at ${width}px`, async () => {
+      mockApi();
+      await page.viewport(width, 844);
+      await open({});
+      const input = page.getByRole("searchbox", { name: m.reposettings_search_label() });
+      await input.fill(sectionLabel("display"));
+      await expect
+        .element(page.getByRole("region", { name: m.reposettings_search_results() }))
+        .toBeVisible();
+      const result = page.getByRole("button", {
+        name: `${m.reposettings_hide_name()} ${sectionLabel("display")}`,
+        exact: true,
+      });
+      await result.click();
+      await expect.element(sw(m.reposettings_hide_name())).toHaveFocus();
+      const target = sw(m.reposettings_hide_name()).query()!.getBoundingClientRect();
+      expect(target.top).toBeGreaterThanOrEqual(0);
+      expect(target.bottom).toBeLessThanOrEqual(844);
+      const root = document.querySelector<HTMLElement>("[data-repo-settings]")!;
+      expect(root.scrollWidth).toBeLessThanOrEqual(root.clientWidth);
+      await input.fill("zzzz_no_such_setting");
+      const rect = input.query()!.getBoundingClientRect();
+      expect(rect.left).toBeGreaterThanOrEqual(0);
+      expect(rect.right).toBeLessThanOrEqual(width);
+      expect(rect.bottom).toBeLessThanOrEqual(844);
+      expect(root.scrollWidth).toBeLessThanOrEqual(root.clientWidth);
+    });
+  }
+});
+
+describe("RepoSettingsWindow — search control priority", () => {
+  it("focuses the Shared browser switch rather than its Open action", async () => {
+    mockApi({ sharedBrowserEnabled: true });
+    await open({});
+    await page
+      .getByRole("searchbox", { name: m.reposettings_search_label() })
+      .fill(m.automation_shared_browser_name());
+    await page
+      .getByRole("region", { name: m.reposettings_search_results() })
+      .getByRole("button", {
+        name: `${m.automation_shared_browser_name()} ${sectionLabel("agent")}`,
+        exact: true,
+      })
+      .click();
+    await expect.element(sw(m.automation_shared_browser_name())).toHaveFocus();
+  });
+
+  it("focuses a populated host list's editor rather than its Remove action", async () => {
+    mockApi({ sharedBrowserEnabled: true, browserAllowedHosts: ["example.com"] });
+    await open({});
+    await page
+      .getByRole("searchbox", { name: m.reposettings_search_label() })
+      .fill(m.automation_browser_hosts_label());
+    await page
+      .getByRole("region", { name: m.reposettings_search_results() })
+      .getByRole("button", {
+        name: `${m.automation_browser_hosts_label()} ${sectionLabel("agent")}`,
+        exact: true,
+      })
+      .click();
+    await expect
+      .element(page.getByRole("textbox", { name: m.automation_browser_hosts_label() }))
+      .toHaveFocus();
+  });
+});
+
+it("keeps the selected autonomy radio visible on a narrow screen after search", async () => {
+  mockApi({
+    autoDrainEnabled: true,
+    criticEnabled: true,
+    autoAddressEnabled: true,
+    autopilotEnabled: true,
+    autoMergeEnabled: true,
+  });
+  await page.viewport(390, 844);
+  await open({ section: "display" });
+  await page
+    .getByRole("searchbox", { name: m.reposettings_search_label() })
+    .fill(m.reposettings_autonomy_name());
+  await page
+    .getByRole("region", { name: m.reposettings_search_results() })
+    .getByRole("button", {
+      name: `${m.reposettings_autonomy_name()} ${sectionLabel("autonomy")}`,
+      exact: true,
+    })
+    .click();
+  const selected = page.getByRole("radio", { name: m.reposettings_autonomy_full(), exact: true });
+  await expect.element(selected).toHaveFocus();
+  const rect = selected.query()!.getBoundingClientRect();
+  expect(rect.top).toBeGreaterThanOrEqual(0);
+  expect(rect.bottom).toBeLessThanOrEqual(844);
+});
+
+it("waits for the bootstrap search target to load without focusing Auto-drain", async () => {
+  const api = mockApi();
+  const baseFetch = vi.mocked(fetch).getMockImplementation()!;
+  let finish!: (response: Response) => void;
+  vi.mocked(fetch).mockImplementation((input, init) => {
+    if (String(input).startsWith("/api/repo-bootstrap?"))
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    return baseFetch(input, init);
+  });
+  await open({});
+  await page
+    .getByRole("searchbox", { name: m.reposettings_search_label() })
+    .fill(m.automation_bootstrap_name());
+  await page
+    .getByRole("region", { name: m.reposettings_search_results() })
+    .getByRole("button", {
+      name: `${m.automation_bootstrap_name()} ${sectionLabel("start")}`,
+      exact: true,
+    })
+    .click();
+  expect(document.querySelector('[data-field="bootstrap"]')).toBeNull();
+  expect(document.activeElement).not.toBe(sw(m.automation_autodrain_name()).query());
+  finish(
+    Response.json({ state: "off", phase: 1, overrideAt: null, missing: [], suggested: false }),
+  );
+  await expect.element(sw(m.automation_bootstrap_name())).toHaveFocus();
+  expect(api.puts).toEqual([]);
 });

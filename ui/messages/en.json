@@ -8848,5 +8848,12 @@
   "feat_backlog_settings_tab_title": "The Backlog's Settings tab matches the settings window",
   "feat_backlog_settings_tab_body": "The Backlog's Automation tab is now called Settings and shows the same view as the repo settings window: every section with its status in a rail, one section at a time, with whatever needs attention marked. Links such as Allow N slots open the section they point to.",
   "feat_egress_live_apply_title": "Allowed hosts apply to running sessions",
-  "feat_egress_live_apply_body": "Adding or removing an Extra allowed host now updates the egress firewall of the repo's running Autonomous sessions within seconds, no restart needed. A session that was blocked on a host you just allowed is told to retry."
+  "feat_egress_live_apply_body": "Adding or removing an Extra allowed host now updates the egress firewall of the repo's running Autonomous sessions within seconds, no restart needed. A session that was blocked on a host you just allowed is told to retry.",
+  "reposettings_search_label": "Search repo settings",
+  "reposettings_search_clear": "Clear search",
+  "reposettings_search_count": "{count} matching settings",
+  "reposettings_search_empty": "No matching settings",
+  "reposettings_search_results": "Matching settings",
+  "feat_repo_settings_search_title": "Search repo settings",
+  "feat_repo_settings_search_body": "Find settings across all repo sections and jump straight to the matching control."
 }

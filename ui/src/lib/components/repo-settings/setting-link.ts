@@ -13,24 +13,48 @@ const KEY = Symbol("repo-settings-setting-link");
 /** Focus the control of the setting row `field` names under `root`; false when it isn't there. */
 export function focusSetting(root: ParentNode, field: string): boolean {
   const row = root.querySelector<HTMLElement>(`[data-field~="${field}"]`);
-  // the row's own control, not its ⓘ (a selector list would match the first in document order)
+  if (!row) return false;
+  // Prefer the setting's control to its explanation trigger; disabled rows remain readable.
+  const controls = [
+    ...row.querySelectorAll<HTMLElement>(
+      '[role="switch"], select, input, textarea, button:not(.info)',
+    ),
+  ].filter((el) => !el.matches(":disabled") && el.getClientRects().length > 0);
   const control =
-    row?.querySelector<HTMLElement>('[role="switch"]') ??
-    row?.querySelector<HTMLElement>("select, input");
-  control?.focus();
-  return !!control;
+    controls.find((el) => el.matches('[role="switch"]')) ??
+    controls.find((el) => el.matches(":checked")) ??
+    controls.find((el) => el.matches("select, input, textarea")) ??
+    controls[0];
+  if (!control) row.tabIndex = -1;
+  const target = control ?? row;
+  target.scrollIntoView({ block: "nearest" });
+  target.focus({ preventScroll: true });
+  return true;
 }
 
 /** Scroll the row `field` names under `root` into view, waiting for it to render (a row that
  *  shows once its data loads) up to `timeoutMs`. Returns a cleanup that stops waiting. */
-export function revealSetting(root: HTMLElement, field: string, timeoutMs = 5000): () => void {
+export function revealSetting(
+  root: HTMLElement,
+  field: string,
+  timeoutMs = 5000,
+  focus = false,
+): () => void {
   const find = () => root.querySelector<HTMLElement>(`[data-field~="${field}"]`);
-  const reveal = (row: HTMLElement) => row.scrollIntoView({ block: "nearest" });
+  const reveal = (row: HTMLElement) => {
+    row.scrollIntoView({ block: "nearest" });
+    if (focus) focusSetting(root, field);
+  };
   const now = find();
   if (now) {
     // after the window's own open effects, which reset the pane's scroll
-    queueMicrotask(() => reveal(now));
-    return () => {};
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) reveal(now);
+    });
+    return () => {
+      cancelled = true;
+    };
   }
   const observer = new MutationObserver(() => {
     const row = find();

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, type Snippet } from "svelte";
+  import { onDestroy, tick, type Snippet } from "svelte";
   import { m } from "#lib/paraglide/messages.js";
   import { basename } from "#lib/basename.js";
   import { repos } from "#lib/repos.svelte.js";
@@ -14,7 +14,8 @@
     type RepoSettingsSection as SectionId,
   } from "./sections";
   import { provideOpenDetail } from "./detail-context.svelte.js";
-  import { focusSetting, provideSettingLink } from "./setting-link";
+  import { focusSetting, revealSetting, provideSettingLink } from "./setting-link";
+  import { searchRepoSettings, type RepoSettingsSearchEntry } from "./search";
   import RepoModeChoice from "./RepoModeChoice.svelte";
   import RepoSettingsHints from "./RepoSettingsHints.svelte";
   import RepoSettingsNav, { type NavItem } from "./RepoSettingsNav.svelte";
@@ -106,16 +107,50 @@
 
   let root = $state<HTMLDivElement>();
   let pane = $state<HTMLDivElement>();
+  let query = $state("");
+  let searchInput = $state<HTMLInputElement>();
+  const searching = $derived(query.trim().length > 0);
+  const results = $derived(searchRepoSettings(query));
+  let stopReveal = () => {};
+  let navigation = 0;
+  onDestroy(() => {
+    navigation++;
+    stopReveal();
+  });
+
+  function selectSection(id: SectionId) {
+    navigation++;
+    stopReveal();
+    query = "";
+    picked = id;
+  }
+
+  async function openResult(entry: RepoSettingsSearchEntry) {
+    stopReveal();
+    const current = ++navigation;
+    query = "";
+    if (entry.section) picked = entry.section;
+    await tick();
+    if (!root || current !== navigation) return;
+    if (focusSetting(root, entry.field)) return;
+    if (entry.fallbackField && focusSetting(root, entry.fallbackField)) return;
+    stopReveal = revealSetting(root, entry.field, 5000, true);
+  }
+
   // A setting's link to another one (#3444): open that section, then focus its row's control.
   provideSettingLink(async (id, field) => {
-    picked = id;
+    selectSection(id);
     await tick();
     if (root) focusSetting(root, field);
   });
   // A switched section starts at its top; the focus follows a tab the hints picked.
   $effect(() => {
     void active;
-    if (pane) pane.scrollTop = 0;
+    void query;
+    if (pane) {
+      pane.scrollTop = 0;
+      if (searching && pane.parentElement) pane.parentElement.scrollTop = 0;
+    }
     if (
       document.activeElement?.getAttribute("role") === "tab" &&
       root?.contains(document.activeElement)
@@ -134,34 +169,183 @@
     <div class="mode-slot"><RepoModeChoice {repoPath} armCoachmarks={coach} /></div>
     {@render headEnd?.()}
   </header>
+  <div class="search-bar">
+    <label for="{panelId}-search">{m.reposettings_search_label()}</label>
+    <div class="search-field">
+      <input
+        bind:this={searchInput}
+        id="{panelId}-search"
+        type="search"
+        bind:value={query}
+        oninput={() => {
+          navigation++;
+          stopReveal();
+        }}
+      />
+      {#if query}
+        <button
+          type="button"
+          class="clear-search"
+          onclick={() => {
+            query = "";
+            searchInput?.focus();
+          }}>{m.reposettings_search_clear()}</button
+        >
+      {/if}
+    </div>
+  </div>
   <div class="body">
     <div class="rail">
-      <RepoSettingsNav {items} bind:active={() => active, (id) => (picked = id)} {panelId} />
+      <RepoSettingsNav {items} bind:active={() => active, selectSection} {panelId} />
     </div>
     <div
       bind:this={pane}
       class="pane"
-      role="tabpanel"
+      role={searching ? "region" : "tabpanel"}
       id={panelId}
-      aria-labelledby="{panelId}-tab-{active}"
+      aria-labelledby={searching ? undefined : `${panelId}-tab-${active}`}
+      aria-label={searching ? m.reposettings_search_results() : undefined}
     >
       <div class="col">
-        <RepoSettingsHints {repoPath} {drain} {onsetupci} />
-        <RepoSettingsSection
-          section={active}
-          {repoPath}
-          {sessionId}
-          {planPhase}
-          {drain}
-          {globals}
-          armCoachmarks={coach}
-        />
+        <p class="search-status" role="status">
+          {#if searching}
+            {results.length
+              ? m.reposettings_search_count({ count: results.length })
+              : m.reposettings_search_empty()}
+          {/if}
+        </p>
+        {#if searching}
+          <ul class="search-results">
+            {#each results as entry (entry.field)}
+              <li>
+                <button
+                  type="button"
+                  class="search-result"
+                  onclick={() => openResult(entry)}
+                  aria-label={entry.section
+                    ? `${entry.name} ${sectionLabel(entry.section)}`
+                    : entry.name}
+                >
+                  <span class="result-name">{entry.name}</span>
+                  {#if entry.section}<span class="result-section"
+                      >{sectionLabel(entry.section)}</span
+                    >{/if}
+                  {#if entry.description}<span class="result-desc">{entry.description}</span>{/if}
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {:else}
+          <RepoSettingsHints {repoPath} {drain} {onsetupci} />
+          <RepoSettingsSection
+            section={active}
+            {repoPath}
+            {sessionId}
+            {planPhase}
+            {drain}
+            {globals}
+            armCoachmarks={coach}
+          />
+        {/if}
       </div>
     </div>
   </div>
 </div>
 
 <style>
+  .search-bar {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .search-bar label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+  }
+  .search-field {
+    display: flex;
+    gap: 8px;
+  }
+  .search-field input {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    background: var(--color-inset);
+    color: var(--color-ink);
+    font: inherit;
+  }
+  .search-field input:focus-visible {
+    outline: 1px solid var(--color-line-bright);
+  }
+  .clear-search {
+    padding: 4px 8px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: var(--fs-meta);
+    cursor: pointer;
+  }
+  .search-status {
+    padding: 8px 12px;
+    margin: 0;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+  }
+  .search-status:empty {
+    padding: 0;
+  }
+  .search-results {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .search-result {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    width: 100%;
+    padding: 10px 12px;
+    border: 0;
+    border-top: 1px solid var(--color-line);
+    background: transparent;
+    text-align: left;
+    color: var(--color-ink);
+    font: inherit;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+  }
+  .search-result:hover {
+    background: var(--color-hover);
+  }
+  .search-result:focus-visible,
+  .clear-search:focus-visible {
+    outline: 1px solid var(--color-amber);
+    outline-offset: -1px;
+  }
+  .result-name {
+    color: var(--color-ink-bright);
+  }
+  .result-section,
+  .result-desc {
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+  }
+  .result-desc {
+    flex-basis: 100%;
+  }
+  @media (pointer: coarse) {
+    .search-field input,
+    .clear-search,
+    .search-result {
+      min-height: 44px;
+    }
+  }
+
   .root {
     container-type: inline-size;
     flex: 1 1 auto;

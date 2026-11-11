@@ -850,3 +850,40 @@ describe("RepoSettingsBody — the autonomy chain follows the switches (#3445)",
       .toBeChecked();
   });
 });
+
+describe("RepoSettingsBody — search", () => {
+  it("finds settings in unmounted sections and opens their controls", async () => {
+    await mount("autonomy");
+    const input = page.getByRole("searchbox", { name: m.reposettings_search_label() });
+    await input.fill(m.automation_critic_name());
+    await page
+      .getByRole("button", {
+        name: `${m.automation_critic_name()} ${m.reposettings_section_review()}`,
+        exact: true,
+      })
+      .click();
+    await expect
+      .element(page.getByRole("switch", { name: m.automation_critic_name() }))
+      .toHaveFocus();
+    await expect.element(input).toHaveValue("");
+    expect(tab("review")?.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("announces no results and clears back to the selected section", async () => {
+    await mount("display");
+    const input = page.getByRole("searchbox", { name: m.reposettings_search_label() });
+    await input.fill("zzzz_no_such_setting");
+    await expect.element(page.getByRole("status")).toHaveTextContent(m.reposettings_search_empty());
+    await page.getByRole("button", { name: m.reposettings_search_clear() }).click();
+    await expect.element(input).toHaveFocus();
+    await expect
+      .element(page.getByRole("switch", { name: m.reposettings_pin_name() }))
+      .toBeVisible();
+    await input.fill("critic");
+    await visit("epics");
+    await expect.element(input).toHaveValue("");
+    await expect
+      .element(page.getByRole("switch", { name: m.automation_epic_stacks_name() }))
+      .toBeVisible();
+  });
+});

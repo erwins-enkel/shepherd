@@ -138,6 +138,29 @@ describe("seedInstance", () => {
     expect(step.indexOf("/etc/pacman.d/mirrorlist")).toBeLessThan(step.indexOf("pacman -Sy"));
   });
 
+  it("Arch baseline full-upgrades before any package install (#3915)", async () => {
+    const { calls, run } = recorder();
+    const d = new IncusDriver(run, "shep-onb-");
+    await seedInstance(d, scenario, "/tmp/shepherd.tar");
+
+    const flat = calls.map((c) => c.join(" "));
+    const keyringIdx = flat.findIndex((c) => c.includes("pacman-key --populate archlinux"));
+    const step = flat[keyringIdx]!;
+    // Later installs are partial upgrades (`pacman -Sy <pkg>`); on a lagging image that breaks
+    // across a package split (openssl-3 vs openssl owning libcrypto.so.3). One full upgrade,
+    // after the keyring is current and under `set -e`, keeps the instance consistent.
+    const syncIdx = step.indexOf("pacman -Sy --needed --noconfirm archlinux-keyring");
+    expect(syncIdx).toBeGreaterThanOrEqual(0);
+    const suIdx = step.indexOf("pacman -Su --noconfirm");
+    expect(suIdx).toBeGreaterThan(syncIdx);
+    expect(suIdx).toBeGreaterThan(step.indexOf("set -e"));
+    // …and it runs before the first package install (curl), hence before the toolchain.
+    const curlIdx = flat.findIndex((c) => c.includes("command -v curl"));
+    const toolchainIdx = flat.findIndex((c) => c.includes("base-devel"));
+    expect(keyringIdx).toBeLessThan(curlIdx);
+    expect(keyringIdx).toBeLessThan(toolchainIdx);
+  });
+
   it("the herdr stub is a CHECKED baseline step (a failure aborts the seed)", async () => {
     const calls: string[][] = [];
     const run = async (args: string[]): Promise<IncusExec> => {

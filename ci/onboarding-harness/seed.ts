@@ -74,7 +74,14 @@ const ARCH_FALLBACK_MIRRORS = ["geo.mirror.pkgbuild.com", "fastly.mirror.pkgbuil
  *
  *  The image's mirrorlist carries ONE server (mirrors.kernel.org), so a single connect timeout
  *  on it failed this checked step (#2500). We append fallback mirrors — kernel.org stays
- *  primary and pacman falls over per file — which also covers every later pacman call. */
+ *  primary and pacman falls over per file — which also covers every later pacman call.
+ *
+ *  The step ends with a full `pacman -Su` (#3915). Every later install is a partial upgrade
+ *  (`pacman -Sy <pkg>`), which breaks whenever the cached image lags the mirror across a
+ *  package split: Arch moved `openssl` to 4.x and put the old soname in a new `openssl-3`
+ *  that `python` depends on, so `-Sy base-devel python3` on a 3.x image tried to install
+ *  `openssl-3` while the old `openssl` still owned `libcrypto.so.3` → "conflicting files".
+ *  Upgrading the whole throw-away instance once, before any install, keeps it consistent. */
 function archKeyringRefresh(): string {
   return [
     "command -v pacman >/dev/null 2>&1 || exit 0",
@@ -115,6 +122,7 @@ function archKeyringRefresh(): string {
     "pacman-key --init",
     "pacman-key --populate archlinux",
     "pacman -Sy --needed --noconfirm archlinux-keyring",
+    "pacman -Su --noconfirm",
   ].join("\n");
 }
 

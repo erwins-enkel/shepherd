@@ -1,4 +1,12 @@
-import { existsSync, readdirSync, statSync, openSync, readSync, closeSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  statSync,
+  openSync,
+  fstatSync,
+  readSync,
+  closeSync,
+} from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { dashify } from "./claude-trust";
@@ -675,10 +683,10 @@ export class SessionUsageRollup {
     const path = this.pathFor(sess.worktreePath, sess.claudeSessionId, sess.spawnAccountDir);
     let fd: number | undefined;
     try {
-      const size = statSync(path).size;
+      fd = openSync(path, "r");
+      const { size } = fstatSync(fd);
       const st = this.fileState(sess.id, path, size);
       if (size > st.offset) {
-        fd = openSync(path, "r");
         const chunk = Buffer.alloc(size - st.offset);
         const bytes = readSync(fd, chunk, 0, chunk.length, st.offset);
         st.offset += bytes;

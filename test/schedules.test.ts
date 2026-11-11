@@ -590,7 +590,7 @@ test("failover runs follow replacement sessions and can become noop", () => {
 });
 
 describe("usage mismatch actions", () => {
-  let pct: number | null;
+  let pct: number;
   let otherPct: number | null;
   let ready: ("claude" | "codex")[];
   let selected: "claude" | "codex";
@@ -602,7 +602,7 @@ describe("usage mismatch actions", () => {
       store,
       usageLimits: {
         limits: () => ({
-          week: pct === null ? null : { pct, resetAt: 1 },
+          week: { pct, resetAt: 1 },
           session5h: null,
           providers: [
             {

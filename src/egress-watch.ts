@@ -21,7 +21,10 @@ async function defaultReadTail(
   path: string,
   fromByte: number,
 ): Promise<{ data: string; size: number }> {
-  const fh = await open(path, "r");
+  // Read-only: "r" never creates the file, so the mode is inert. Explicit owner-only mode anyway, so
+  // CodeQL js/insecure-temporary-file (alert #33, which models any mode-less open as a creation)
+  // sees no world-readable create.
+  const fh = await open(path, "r", 0o600);
   try {
     const { size } = await fh.stat();
     const start = fromByte <= size ? fromByte : 0; // truncation/rotation → reread from 0
@@ -36,6 +39,24 @@ async function defaultReadTail(
 
 /** Maximum distinct blocked hosts reported per session before the watcher silences itself. */
 export const EGRESS_DROP_CAP = 20;
+
+/** Characters a hostname may carry into the agent note (the DNS log is agent-influenced). */
+const NOTE_HOST_UNSAFE = /[^a-z0-9._-]/g;
+const MAX_NOTE_HOST_CHARS = 253;
+
+/** The note that tells the agent a host was blocked (#3921) — single source for the hook and
+ *  steer channels. Agent-facing English, like Shepherd's other directives. */
+export function egressBlockedNote(host: string): string {
+  const safe = host.toLowerCase().replace(NOTE_HOST_UNSAFE, "").slice(0, MAX_NOTE_HOST_CHARS);
+  return (
+    `Shepherd: egress to ${safe} was blocked by the sandbox allowlist (autonomous egress ` +
+    "firewall). This is not a network fault. Don't retry or work around it. Tell the operator " +
+    "the host must be allowed (repo settings → Agent environment → Extra allowed hosts)."
+  );
+}
+
+/** How a session's agent hears about a block: queued for its next tool hook reply, or steered. */
+export type EgressNoteChannel = "hook" | "steer";
 
 /** Default polling interval in ms. */
 const EGRESS_WATCH_INTERVAL_MS = 2_000;
@@ -61,6 +82,8 @@ export interface EgressWatcherDeps {
   }) => void;
   /** EventHub emit; absent in tests that skip UI push. */
   emit?: (event: string, data: unknown) => void;
+  /** Steer-channel delivery of the blocked-host note (#3921); absent ⇒ steer notes are dropped. */
+  steer?: (sessionId: string, text: string) => Promise<unknown>;
   /** Polling interval in ms; default EGRESS_WATCH_INTERVAL_MS. */
   intervalMs?: number;
   /** setInterval seam; default global setInterval. */
@@ -71,8 +94,23 @@ export interface EgressWatcherDeps {
 
 // ── per-session state ──────────────────────────────────────────────────────────
 
+interface WatchOpts {
+  repoPath: string;
+  dnsLogPath: string;
+  allowlist: string[];
+}
+
 interface SessionState {
   interval: ReturnType<typeof setInterval>;
+  /** The start opts, so `flush` can run a tick without the caller knowing them. */
+  opts: WatchOpts;
+  /** Where blocked-host notes go (#3921). */
+  noteChannel: EgressNoteChannel;
+  /** Hook-channel notes not yet handed to the agent. */
+  pending: string[];
+  /** Tail of the tick chain: ticks run one at a time so a forced flush never races the timer
+   *  on `cursor` / `partial`. */
+  inflight: Promise<void> | null;
   /** Byte offset into dns.log — only new bytes are read each tick. */
   cursor: number;
   /** Trailing bytes after the last newline of the previous read — a line caught
@@ -108,7 +146,10 @@ export class EgressWatcher {
       EgressWatcherDeps,
       "readTail" | "addSignal" | "intervalMs" | "setInterval" | "clearInterval"
     >
-  > & { emit?: (event: string, data: unknown) => void };
+  > & {
+    emit?: (event: string, data: unknown) => void;
+    steer?: (sessionId: string, text: string) => Promise<unknown>;
+  };
 
   private readonly sessions = new Map<string, SessionState>();
 
@@ -117,6 +158,7 @@ export class EgressWatcher {
       readTail: deps.readTail ?? defaultReadTail,
       addSignal: deps.addSignal,
       emit: deps.emit,
+      steer: deps.steer,
       intervalMs: deps.intervalMs ?? EGRESS_WATCH_INTERVAL_MS,
       setInterval: deps.setInterval ?? ((...args) => setInterval(...args)),
       clearInterval: deps.clearInterval ?? ((...args) => clearInterval(...args)),
@@ -127,22 +169,19 @@ export class EgressWatcher {
    * Start watching `dnsLogPath` for `sessionId`. Idempotent — a duplicate start
    * for the same id is a no-op (existing watcher preserved).
    */
-  start(
-    sessionId: string,
-    opts: {
-      repoPath: string;
-      dnsLogPath: string;
-      allowlist: string[];
-    },
-  ): void {
+  start(sessionId: string, opts: WatchOpts & { noteChannel?: EgressNoteChannel }): void {
     if (this.sessions.has(sessionId)) return; // already watching
 
     // `void`: #tick swallows all its own errors (see its doc), and the timer callback is
     // `() => void` — returning the promise would be a misused-promises violation, not a handler.
-    const tick = () => void this.#tick(sessionId, opts);
+    const tick = () => void this.#serialTick(sessionId, opts);
     const interval = this.deps.setInterval(tick, this.deps.intervalMs);
     this.sessions.set(sessionId, {
       interval,
+      opts,
+      noteChannel: opts.noteChannel ?? "hook",
+      pending: [],
+      inflight: null,
       cursor: 0,
       partial: "",
       reported: new Set(),
@@ -160,6 +199,28 @@ export class EgressWatcher {
     this.sessions.delete(sessionId);
   }
 
+  /** Run one tick now (after any in-flight one), so a hook reply sees a block that happened
+   *  moments ago. No-op for an unknown session. */
+  async flush(sessionId: string): Promise<void> {
+    const state = this.sessions.get(sessionId);
+    if (state) await this.#serialTick(sessionId, state.opts);
+  }
+
+  /** Drain the session's queued hook-channel notes as one block, or null when none. */
+  takeNotes(sessionId: string): string | null {
+    const state = this.sessions.get(sessionId);
+    if (!state || state.pending.length === 0) return null;
+    const text = state.pending.join("\n");
+    state.pending = [];
+    return text;
+  }
+
+  /** Hosts blocked so far in this session (capped), or null when it has no egress watcher. */
+  blockedHosts(sessionId: string): string[] | null {
+    const state = this.sessions.get(sessionId);
+    return state ? [...state.reported] : null;
+  }
+
   /** Stop all active watchers (shutdown). */
   stopAll(): void {
     for (const id of [...this.sessions.keys()]) {
@@ -175,15 +236,25 @@ export class EgressWatcher {
    *
    * Exposed as a public method so tests can call it directly (no real timers).
    */
-  async tick(
-    sessionId: string,
-    opts: { repoPath: string; dnsLogPath: string; allowlist: string[] },
-  ): Promise<void> {
-    return this.#tick(sessionId, opts);
+  async tick(sessionId: string, opts: WatchOpts): Promise<void> {
+    return this.#serialTick(sessionId, opts);
+  }
+
+  /** Queue a tick behind the session's in-flight one, so ticks never overlap. */
+  #serialTick(sessionId: string, opts: WatchOpts): Promise<void> {
+    const state = this.sessions.get(sessionId);
+    if (!state) return Promise.resolve();
+    const next = (state.inflight ?? Promise.resolve()).then(() => this.#tick(sessionId, opts));
+    state.inflight = next;
+    const clear = () => {
+      if (state.inflight === next) state.inflight = null;
+    };
+    next.then(clear, clear);
+    return next;
   }
 
   /**
-   * Report one dropped host: add signal + emit UI event.
+   * Report one dropped host: add signal + emit UI event + tell the agent (#3921).
    * Returns true if the cap was reached after this report.
    */
   #reportDroppedHost(
@@ -206,14 +277,27 @@ export class EgressWatcher {
     } catch {
       // Never let a signal-store error propagate.
     }
+    this.#noteAgent(sessionId, state, host);
 
     return state.reported.size >= EGRESS_DROP_CAP;
   }
 
-  async #tick(
-    sessionId: string,
-    opts: { repoPath: string; dnsLogPath: string; allowlist: string[] },
-  ): Promise<void> {
+  /** Hand the blocked-host note to the agent: queued for the next tool hook, or steered. */
+  #noteAgent(sessionId: string, state: SessionState, host: string): void {
+    const note = egressBlockedNote(host);
+    if (state.noteChannel === "hook") {
+      state.pending.push(note);
+      return;
+    }
+    const steer = this.deps.steer;
+    if (!steer) return;
+    // Best-effort: a dead pane, shelved session or capacity gate drops it.
+    void Promise.resolve()
+      .then(() => steer(sessionId, note))
+      .catch(() => {});
+  }
+
+  async #tick(sessionId: string, opts: WatchOpts): Promise<void> {
     const state = this.sessions.get(sessionId);
     if (!state || state.capped) return;
 

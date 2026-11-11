@@ -265,3 +265,96 @@ test("Stop answers 202 when executing, goal met, unreadable, or session_id misma
   expect(res.status).toBe(202);
   expect(mismatch.store.get(mismatch.session.id)?.goalState).toBeNull();
 });
+
+// ── egress blocked-host notes (#3921) ──────────────────────────────────────────
+
+function egressHarness(notes: string | null, flush: () => Promise<void> = async () => {}) {
+  const h = harness();
+  let pending = notes;
+  const calls = { flush: 0, take: 0 };
+  const app = makeApp({
+    store: h.store,
+    service: {} as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+    hooks: h.hooks,
+    egress: {
+      flush: async () => {
+        calls.flush++;
+        await flush();
+      },
+      takeNotes: () => {
+        calls.take++;
+        const n = pending;
+        pending = null;
+        return n;
+      },
+      blockedHosts: () => [],
+    },
+  });
+  return { ...h, app, calls };
+}
+
+const NOTE = "Shepherd: egress to evil.example.com was blocked by the sandbox allowlist";
+
+test("matched PostToolUseFailure with a pending egress note → 200 additionalContext", async () => {
+  const { app, session, calls } = egressHarness(NOTE);
+  const res = await post(app, session.id, {
+    session_id: CLAUDE_SID,
+    hook_event_name: "PostToolUseFailure",
+    tool_name: "Bash",
+    error: "Could not resolve host: evil.example.com",
+  });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({
+    hookSpecificOutput: { hookEventName: "PostToolUseFailure", additionalContext: NOTE },
+  });
+  expect(calls.flush).toBe(1);
+  // Drained: the next tool hook carries nothing.
+  const again = await post(app, session.id, validEvent);
+  expect(again.status).toBe(202);
+});
+
+test("matched PostToolUse with a pending egress note → 200 additionalContext", async () => {
+  const { app, session } = egressHarness(NOTE);
+  const res = await post(app, session.id, validEvent);
+  expect(res.status).toBe(200);
+  expect((await res.json()).hookSpecificOutput).toEqual({
+    hookEventName: "PostToolUse",
+    additionalContext: NOTE,
+  });
+});
+
+test("no pending egress note → plain 202", async () => {
+  const { app, session } = egressHarness(null);
+  const res = await post(app, session.id, validEvent);
+  expect(res.status).toBe(202);
+  expect(await res.json()).toEqual({ ok: true });
+});
+
+test("mismatched session_id → 202 and the note stays pending", async () => {
+  const { app, session, calls } = egressHarness(NOTE);
+  const res = await post(app, session.id, { ...validEvent, session_id: "other" });
+  expect(res.status).toBe(202);
+  expect(calls.take).toBe(0);
+});
+
+test("Stop / Notification never drain egress notes", async () => {
+  const { app, session, calls } = egressHarness(NOTE);
+  await post(app, session.id, { session_id: CLAUDE_SID, hook_event_name: "Stop" });
+  await post(app, session.id, {
+    session_id: CLAUDE_SID,
+    hook_event_name: "Notification",
+    message: "m",
+  });
+  expect(calls.take).toBe(0);
+  expect(calls.flush).toBe(0);
+});
+
+test("a hanging egress flush is bounded: the hook still answers with the queued note", async () => {
+  const { app, session } = egressHarness(NOTE, () => new Promise<void>(() => {}));
+  const t0 = Date.now();
+  const res = await post(app, session.id, validEvent);
+  expect(Date.now() - t0).toBeLessThan(2000);
+  expect(res.status).toBe(200);
+});

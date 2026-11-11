@@ -87,6 +87,7 @@ import {
   type UsageJudgeSpend,
 } from "./types";
 import type { EventHub } from "./events";
+import type { EgressWatcher } from "./egress-watch";
 import { PtyBridge } from "./pty-bridge";
 import { SocketPtyBridge } from "./socket-pty-bridge";
 import {
@@ -991,6 +992,9 @@ export interface AppDeps {
      *  served at `GET /api/subagents` for a global bootstrap, mirror of `activity`. */
     allSubagentsSnapshot(): Record<string, SubagentEntry[]>;
   };
+  /** Egress drop-watcher (#3921): the hooks route hands its queued blocked-host notes to the agent
+   *  and `self_status` lists the blocks. Absent ⇒ no notes, `egressBlocked` reads null. */
+  egress?: Pick<EgressWatcher, "flush" | "takeNotes" | "blockedHosts">;
   /** The Operator Assistant's view reports (#3161): written by `serve()` from the `\x00view:`
    *  frames of the client owning the assistant's terminal, read by its `UserPromptSubmit` hook
    *  route. Absent → no view is kept and the hook answers the "unknown" block. */
@@ -8308,7 +8312,33 @@ async function handleSessionHooks({ req, parts, deps }: Ctx): Promise<Response |
   // ("Goal paused"); the next prompt — the Go steer — resumes it. Mismatched bodies never decide.
   if (raw.event === "Stop" && match && (await goalTracker(deps).onStop(session)).pause)
     return json({ continue: false, stopReason: PLAN_GATE_STOP_REASON });
-  return json({ ok: true }, 202);
+  return (match && (await egressHookReply(deps, id, raw.event))) || json({ ok: true }, 202);
+}
+
+/** A matched tool hook's reply carrying the session's queued blocked-host notes (#3921) as
+ *  `additionalContext`, or null when it is no tool hook or nothing is queued. */
+async function egressHookReply(deps: AppDeps, id: string, event: string): Promise<Response | null> {
+  if (event !== "PostToolUse" && event !== "PostToolUseFailure") return null;
+  const additionalContext = await egressNotes(deps, id);
+  if (!additionalContext) return null;
+  return json({ hookSpecificOutput: { hookEventName: event, additionalContext } });
+}
+
+/** How long a tool hook waits for the egress watcher's catch-up read before answering. */
+const EGRESS_FLUSH_WAIT_MS = 500;
+
+/** The session's queued blocked-host notes (#3921), after one bounded catch-up read of the DNS log
+ *  so a block from the command that just ran rides this reply. Null when there are none. */
+async function egressNotes(deps: AppDeps, id: string): Promise<string | null> {
+  const egress = deps.egress;
+  if (!egress) return null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    egress.flush(id).catch(() => {}),
+    new Promise<void>((r) => (timer = setTimeout(r, EGRESS_FLUSH_WAIT_MS))),
+  ]);
+  clearTimeout(timer);
+  return egress.takeNotes(id);
 }
 
 // POST /api/sessions/:id/assistant-view — the Operator Assistant's `UserPromptSubmit` http hook
@@ -8594,6 +8624,7 @@ function mcpDeps(deps: AppDeps): AgentControlDeps {
       renderAssistantView(deps.assistantView?.get(id) ?? null, (sid) => deps.store.get(sid)),
     operatorActions: operatorActionDeps(deps),
     sessionPhase: (s) => sessionPhases(deps).phaseOf(s),
+    egressBlocked: (id) => deps.egress?.blockedHosts(id) ?? null,
     scheduleNoop: {
       hasLocalWork,
       archive: (id) => archiveAndAnnounce(deps, id, undefined, "noop"),

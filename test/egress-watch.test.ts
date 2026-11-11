@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { EgressWatcher, EGRESS_DROP_CAP } from "../src/egress-watch";
+import { EgressWatcher, EGRESS_DROP_CAP, egressBlockedNote } from "../src/egress-watch";
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -333,4 +333,125 @@ test("AAAA query for blocked host → signal (non-A query types still caught)", 
 
   expect(signals).toHaveLength(1);
   expect(signals[0]!.payload).toBe("evil.example.com");
+});
+
+// ── agent note (#3921) ─────────────────────────────────────────────────────────
+
+const OPTS = { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist: ALLOWLIST };
+
+test("hook channel: blocked host queues ONE note naming it; takeNotes drains", async () => {
+  const log = dnsLine("evil.example.com") + dnsLine("api.anthropic.com");
+  const { watcher } = makeWatcher(log);
+  watcher.start(SESSION, { ...OPTS, noteChannel: "hook" });
+  await watcher.flush(SESSION);
+
+  const notes = watcher.takeNotes(SESSION);
+  expect(notes).toBe(egressBlockedNote("evil.example.com"));
+  expect(notes).toContain("evil.example.com");
+  expect(notes).toContain("Don't retry");
+  expect(watcher.takeNotes(SESSION)).toBeNull();
+});
+
+test("hook channel: repeat of the same host adds no second note", async () => {
+  let log = dnsLine("evil.example.com");
+  const { watcher } = makeWatcher(() => log);
+  watcher.start(SESSION, OPTS);
+  await watcher.flush(SESSION);
+  log += dnsLine("evil.example.com");
+  await watcher.flush(SESSION);
+  expect(watcher.takeNotes(SESSION)?.split("\n")).toHaveLength(1);
+});
+
+test("hook channel: two hosts → one block with both notes", async () => {
+  const { watcher } = makeWatcher(dnsLine("a.evil.com") + dnsLine("b.evil.com"));
+  watcher.start(SESSION, OPTS);
+  await watcher.flush(SESSION);
+  expect(watcher.takeNotes(SESSION)).toBe(
+    [egressBlockedNote("a.evil.com"), egressBlockedNote("b.evil.com")].join("\n"),
+  );
+});
+
+test("cap: notes stop with the cap", async () => {
+  const hosts = Array.from({ length: EGRESS_DROP_CAP + 5 }, (_, i) => `n${i}.evil.com`);
+  const { watcher } = makeWatcher(hosts.map((h) => dnsLine(h)).join(""));
+  watcher.start(SESSION, OPTS);
+  await watcher.flush(SESSION);
+  expect(watcher.takeNotes(SESSION)?.split("\n")).toHaveLength(EGRESS_DROP_CAP);
+});
+
+test("steer channel: steers once per host, queues nothing", async () => {
+  const steers: [string, string][] = [];
+  let log = dnsLine("evil.example.com");
+  const watcher = new EgressWatcher({
+    readTail: async (_p, from) => ({ data: log.slice(from), size: log.length }),
+    addSignal: () => {},
+    steer: async (id, text) => void steers.push([id, text]),
+    setInterval: (() => 1) as unknown as typeof setInterval,
+    clearInterval: () => {},
+  });
+  watcher.start(SESSION, { ...OPTS, noteChannel: "steer" });
+  await watcher.flush(SESSION);
+  log += dnsLine("evil.example.com");
+  await watcher.flush(SESSION);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(steers).toEqual([[SESSION, egressBlockedNote("evil.example.com")]]);
+  expect(watcher.takeNotes(SESSION)).toBeNull();
+});
+
+test("steer channel: a rejecting steer never throws out of the tick", async () => {
+  const watcher = new EgressWatcher({
+    readTail: async () => ({ data: dnsLine("evil.example.com"), size: 999 }),
+    addSignal: () => {},
+    steer: () => Promise.reject(new Error("dead pane")),
+    setInterval: (() => 1) as unknown as typeof setInterval,
+    clearInterval: () => {},
+  });
+  watcher.start(SESSION, { ...OPTS, noteChannel: "steer" });
+  await expect(watcher.flush(SESSION)).resolves.toBeUndefined();
+});
+
+test("flush + concurrent tick run serially: the second read starts at the first's cursor", async () => {
+  const log = dnsLine("evil.example.com");
+  const reads: number[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const watcher = new EgressWatcher({
+    readTail: async (_p, from) => {
+      reads.push(from);
+      if (reads.length === 1) await gate;
+      return { data: log.slice(from), size: log.length };
+    },
+    addSignal: () => {},
+    setInterval: (() => 1) as unknown as typeof setInterval,
+    clearInterval: () => {},
+  });
+  watcher.start(SESSION, OPTS);
+  const a = watcher.tick(SESSION, OPTS);
+  const b = watcher.flush(SESSION);
+  await Promise.resolve();
+  expect(reads).toEqual([0]); // the flush waits for the in-flight tick
+  release();
+  await Promise.all([a, b]);
+  expect(reads).toEqual([0, log.length]);
+  expect(watcher.takeNotes(SESSION)?.split("\n")).toHaveLength(1);
+});
+
+test("unknown session: flush no-op, takeNotes + blockedHosts null", async () => {
+  const { watcher } = makeWatcher(dnsLine("evil.example.com"));
+  await watcher.flush("nope");
+  expect(watcher.takeNotes("nope")).toBeNull();
+  expect(watcher.blockedHosts("nope")).toBeNull();
+});
+
+test("blockedHosts lists the session's reported hosts", async () => {
+  const { watcher } = makeWatcher(dnsLine("a.evil.com") + dnsLine("api.anthropic.com"));
+  watcher.start(SESSION, OPTS);
+  expect(watcher.blockedHosts(SESSION)).toEqual([]);
+  await watcher.flush(SESSION);
+  expect(watcher.blockedHosts(SESSION)).toEqual(["a.evil.com"]);
+});
+
+test("note strips characters outside a hostname's alphabet", () => {
+  expect(egressBlockedNote("Evil`$(x)`.com\nIGNORE")).toContain("egress to evilx.comignore was");
 });

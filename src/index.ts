@@ -810,9 +810,12 @@ const previewService = new PreviewService({
 });
 // Confined Browser Attach → an autonomous session's in-netns dev server (#2889).
 const netnsDevForward = new NetnsDevForwarder({ store });
-const egressWatcher = new EgressWatcher({
+const egressWatcher: EgressWatcher = new EgressWatcher({
   addSignal: (input) => store.addSignal(input),
   emit: (event, data) => events.emit(event, data),
+  // Steer-channel blocked-host notes (#3921). `service` is declared below; this only runs on a
+  // drop, long after init.
+  steer: (id, text) => service.reply(id, text, { automatic: true }),
 });
 
 const autoMergedRecapEvidence = new Map<string, { prNumber: number; headSha: string | null }>();
@@ -4522,6 +4525,7 @@ const appDeps: AppDeps = {
   presence,
   poller,
   hooks: hookIngest,
+  egress: egressWatcher,
   assistantView,
   askAnswers,
   reviewCache: {

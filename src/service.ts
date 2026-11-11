@@ -224,7 +224,7 @@ import {
   sweepEgressTmp,
   type EgressBackend,
 } from "./egress";
-import type { EgressWatcher } from "./egress-watch";
+import type { EgressNoteChannel, EgressWatcher } from "./egress-watch";
 import type { NetnsDevForwarder } from "./netns-dev-forward";
 import { foldSpawnPatch } from "./spawn-membrane";
 import { PluginSpawnAborted, type SpawnDescriptor, type SpawnPatch } from "./plugins/types";
@@ -3370,6 +3370,26 @@ export class SessionService {
     return null;
   }
 
+  /** How an egress-confined spawn hears about a blocked host (#3921). The hook channel needs a
+   *  Claude agent whose http hooks actually reach the ingress: hooks on, no token (`--clearenv`
+   *  strips it, so a token 401s — see buildHooksFragment), and a host gateway (else the baked base
+   *  URL is unreachable and no nft rule opens it). Anything else gets the steer. */
+  private egressNoteChannel(
+    ctx: { repoPath: string; agentProvider?: string },
+    profile: SandboxProfile,
+    backend: SandboxBackend,
+    egressBackend: EgressBackend | undefined,
+  ): EgressNoteChannel {
+    const provider = this.spawnAgentProvider(
+      ctx.repoPath,
+      normalizeAgentProvider(ctx.agentProvider),
+    );
+    const hostGateway = this.egressHostGateway(profile, backend, egressBackend ?? null);
+    const hooksReach =
+      provider === "claude" && config.hooksIngest && !config.token && hostGateway !== null;
+    return hooksReach ? "hook" : "steer";
+  }
+
   /**
    * Which control-plane base URL to bake into a spawn's hooks + build-queue calls. ALL agents are
    * routed through the restricted agent-ingress listener, which is exempt from the human auth gate
@@ -3835,6 +3855,7 @@ export class SessionService {
         repoPath: ctx.repoPath,
         dnsLogPath: egressDnsLog,
         allowlist: egressAllowlist,
+        noteChannel: this.egressNoteChannel(ctx, profile, backend, egressBackend),
       });
     }
     return {

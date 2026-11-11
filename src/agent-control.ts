@@ -115,6 +115,9 @@ export interface AgentControlDeps {
   /** Where a session's live preview opens (+ the dev port it proxies); absent ⇒
    *  `self_status.preview` reads null. Agents can't reach the operator-auth'd preview route. */
   previewOf?: (sessionId: string) => SelfPreview;
+  /** Hosts the egress firewall blocked for this session (#3921); null / absent ⇒ no egress
+   *  watcher, and `self_status.egressBlocked` reads null. */
+  egressBlocked?: (sessionId: string) => string[] | null;
 }
 
 /** `self_status.preview`: the HUD's `PreviewReach` plus the dev port the slot proxies to. */
@@ -407,6 +410,7 @@ function applySelfStatus(deps: AgentControlDeps, sessionId: string): ApplyResult
       },
       github: deps.githubBackoff ? githubBudget(deps.githubBackoff(), Date.now()) : null,
       preview: deps.previewOf?.(sessionId) ?? null,
+      egressBlocked: deps.egressBlocked?.(sessionId) ?? null,
     },
   };
 }
@@ -635,7 +639,9 @@ const SELF_STATUS: McpTool = {
     "before `github.blockedUntil`. Read CI here instead of polling `gh pr checks`; Shepherd " +
     "steers you when your checks finish. `preview` is your live preview: `preview.url` is the " +
     "link to hand the operator, `preview.devPort` the server it proxies (scratchpad servers " +
-    "included); it lives on a Shepherd slot port, never your dev port." +
+    "included); it lives on a Shepherd slot port, never your dev port. `egressBlocked` lists " +
+    "hosts the sandbox egress allowlist blocked for you (null = no egress firewall): don't retry " +
+    "them, ask the operator to allow them." +
     READ_NOTE,
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
 };

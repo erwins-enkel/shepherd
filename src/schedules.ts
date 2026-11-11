@@ -13,13 +13,16 @@
  */
 import type { LaunchOutcome } from "./server";
 import type { SessionStore } from "./store";
-import type { StandardCreateInput } from "./types";
+import type { AgentProvider, StandardCreateInput } from "./types";
 import {
   decideFiring,
   decideUsageLimit,
   scheduleUsageWindows,
   latestDueSlot,
   scheduleCreateInput,
+  waitingLimitExpiresAt,
+  type ScheduleLaunch,
+  type ScheduleUsageLimit,
   type Schedule,
   type ScheduleRun,
 } from "./schedules-core";
@@ -33,6 +36,7 @@ export interface ScheduleServiceDeps {
   store: Pick<
     SessionStore,
     | "listSchedules"
+    | "listWaitingScheduleRuns"
     | "getSchedule"
     | "claimScheduleRun"
     | "hasScheduleRun"
@@ -47,7 +51,9 @@ export interface ScheduleServiceDeps {
     opts?: { skipUsageHold?: boolean },
   ) => Promise<LaunchOutcome>;
   usageLimits: Pick<import("./usage-limits").UsageLimitsService, "limits">;
-  resolveProvider: (schedule: Schedule) => import("./types").AgentProvider;
+  resolveProvider: (schedule: Schedule) => AgentProvider;
+  readyProviders: () => Promise<readonly AgentProvider[]>;
+  providerDefaults: (provider: AgentProvider) => Pick<ScheduleLaunch, "model" | "effort">;
   /** The repo's default branch, for a schedule without a pinned base branch. */
   defaultBranch: (repoPath: string) => Promise<string | null>;
   repoRoot: () => string;
@@ -71,7 +77,7 @@ export class ScheduleService {
     this.log = deps.log ?? ((line) => console.info(line));
   }
 
-  /** Evaluate every enabled schedule once. Single-flight; skipped during herdr maintenance (the
+  /** Evaluate pending waits and every enabled schedule. Single-flight; skipped during maintenance (the
    *  missed slot is caught up by the next tick after it). Never throws. */
   async tick(): Promise<void> {
     if (this.ticking || this.deps.maintenanceActive()) return;
@@ -83,12 +89,26 @@ export class ScheduleService {
         this.lastPrune = now;
       }
       for (const s of this.deps.store.listSchedules()) {
+        await this.resumeWaiting(s, now);
         if (s.enabled) await this.evaluate(s, now);
       }
     } catch (err) {
       this.log(`[schedules] tick failed: ${String(err)}`);
     } finally {
       this.ticking = false;
+    }
+  }
+
+  private async resumeWaiting(s: Schedule, now: number): Promise<void> {
+    for (const run of this.deps.store.listWaitingScheduleRuns(s.id)) {
+      if (!s.enabled || now >= waitingLimitExpiresAt(s, run.slotKey)) {
+        this.deps.store.settleScheduleRun(s.id, run.slotKey, "skipped:limit-expired", {
+          reason: s.enabled ? "limit-expired" : "disabled",
+        });
+        this.changed(s);
+      } else {
+        await this.fire(s, run.slotKey, false, true);
+      }
     }
   }
 
@@ -124,12 +144,17 @@ export class ScheduleService {
     return this.fire(s, slotKey, true);
   }
 
-  private async fire(s: Schedule, slotKey: string, manual = false): Promise<ScheduleRun | null> {
+  private async fire(
+    s: Schedule,
+    slotKey: string,
+    manual = false,
+    waiting = false,
+  ): Promise<ScheduleRun | null> {
     const { store } = this.deps;
     // Claim FIRST, synchronously — before any await.
-    if (!store.claimScheduleRun(s.id, slotKey, this.now()))
+    if (!waiting && !store.claimScheduleRun(s.id, slotKey, this.now()))
       return store.getScheduleRun(s.id, slotKey);
-    if (this.isOpen(s.id)) {
+    if (!waiting && this.isOpen(s.id)) {
       store.settleScheduleRun(s.id, slotKey, "skipped:overlap", {
         reason: "previous run still open",
       });
@@ -137,33 +162,98 @@ export class ScheduleService {
       this.changed(s);
       return store.getScheduleRun(s.id, slotKey);
     }
+    const alreadyInFlight = this.inFlight.has(s.id);
     this.inFlight.add(s.id);
     try {
-      let provider: import("./types").AgentProvider | undefined;
+      let provider: AgentProvider | undefined;
+      let failover = false;
       const limited = !manual && s.usageLimit !== null;
       if (limited) {
-        provider = this.deps.resolveProvider(s);
-        const windows = scheduleUsageWindows(this.deps.usageLimits.limits(this.now()), provider);
-        const decision = decideUsageLimit(s.usageLimit!, provider, windows);
-        store.settleScheduleRun(s.id, slotKey, decision.allowed ? "claimed" : "skipped:limit", {
-          reason: decision.reason,
-          usage: decision.usage,
-        });
-        if (!decision.allowed) return store.getScheduleRun(s.id, slotKey);
+        const decision = await this.limitDecision(s.usageLimit!, this.deps.resolveProvider(s));
+        if (!this.recordLimitDecision(s, slotKey, decision, waiting))
+          return store.getScheduleRun(s.id, slotKey);
+        provider = decision.usage.provider;
+        failover = decision.failover;
+      } else if (waiting) {
+        store.settleScheduleRun(s.id, slotKey, "claimed", { usage: null });
       }
-      await this.launch(s, slotKey, provider, limited);
+      // A waiting row itself is not open. Only check overlap after its limit allows a start;
+      // this call owns the inFlight entry, which still excludes concurrent manual firings.
+      if (waiting && (alreadyInFlight || this.isOpen(s.id, false))) {
+        store.settleScheduleRun(s.id, slotKey, "skipped:overlap", {
+          reason: "previous run still open",
+        });
+        return store.getScheduleRun(s.id, slotKey);
+      }
+      const launchSchedule = failover
+        ? {
+            ...s,
+            launch: {
+              ...s.launch,
+              agentProvider: provider!,
+              ...this.deps.providerDefaults(provider!),
+            },
+          }
+        : s;
+      await this.launch(launchSchedule, slotKey, provider, limited, failover);
     } catch (err) {
       store.settleScheduleRun(s.id, slotKey, "error", { reason: String(err) });
     } finally {
-      this.inFlight.delete(s.id);
+      if (!alreadyInFlight) this.inFlight.delete(s.id);
       this.changed(s);
     }
     return store.getScheduleRun(s.id, slotKey);
   }
 
-  private isOpen(id: string): boolean {
+  /** Choose only this run's provider, using one usage snapshot and the same thresholds. */
+  private async limitDecision(limit: ScheduleUsageLimit, provider: AgentProvider) {
+    const limits = this.deps.usageLimits.limits(this.now());
+    const primary = decideUsageLimit(limit, provider, scheduleUsageWindows(limits, provider));
+    if (primary.allowed || limit.onMismatch !== "otherProvider")
+      return { ...primary, failover: false };
+    const other = provider === "claude" ? "codex" : "claude";
+    const alternate = decideUsageLimit(limit, other, scheduleUsageWindows(limits, other));
+    if (alternate.allowed && (await this.deps.readyProviders()).includes(other))
+      return { ...alternate, failover: true };
+    return { ...primary, failover: false };
+  }
+
+  /** Persist the admission decision before launch; edits during diagnostics can cancel a wait. */
+  private recordLimitDecision(
+    s: Schedule,
+    slotKey: string,
+    decision: Awaited<ReturnType<ScheduleService["limitDecision"]>>,
+    waiting: boolean,
+  ): boolean {
+    const { store } = this.deps;
+    if (waiting && store.getScheduleRun(s.id, slotKey)?.outcome !== "waiting:limit") return false;
+    if (waiting && this.now() >= waitingLimitExpiresAt(s, slotKey)) {
+      store.settleScheduleRun(s.id, slotKey, "skipped:limit-expired", { reason: "limit-expired" });
+      return false;
+    }
+    const hold = !decision.allowed && s.usageLimit!.onMismatch === "wait";
+    const expired = hold && this.now() >= waitingLimitExpiresAt(s, slotKey);
+    store.settleScheduleRun(
+      s.id,
+      slotKey,
+      decision.allowed
+        ? "claimed"
+        : expired
+          ? "skipped:limit-expired"
+          : hold
+            ? "waiting:limit"
+            : "skipped:limit",
+      {
+        reason: expired ? "limit-expired" : decision.reason,
+        usage: decision.usage,
+      },
+    );
+    return decision.allowed;
+  }
+
+  private isOpen(id: string, includeInFlight = true): boolean {
     return (
-      this.inFlight.has(id) ||
+      (includeInFlight && this.inFlight.has(id)) ||
       this.deps.store.hasOpenScheduledSession(id) ||
       this.deps.store.listHeldTasks().some((h) => h.input.scheduleId === id)
     );
@@ -172,8 +262,9 @@ export class ScheduleService {
   private async launch(
     s: Schedule,
     slotKey: string,
-    provider?: import("./types").AgentProvider,
+    provider?: AgentProvider,
     skipUsageHold = false,
+    failover = false,
   ): Promise<void> {
     const { store } = this.deps;
     const base = s.launch.baseBranch ?? (await this.deps.defaultBranch(s.repoPath));
@@ -192,7 +283,9 @@ export class ScheduleService {
       { skipUsageHold },
     );
     if (out.kind === "spawned") {
-      store.settleScheduleRun(s.id, slotKey, "spawned", { sessionId: out.session.id });
+      store.settleScheduleRun(s.id, slotKey, failover ? "spawned:failover" : "spawned", {
+        sessionId: out.session.id,
+      });
       this.log(`[schedules] ${s.name} ${slotKey}: spawned ${out.session.desig}`);
     } else if (out.kind === "held") {
       store.settleScheduleRun(s.id, slotKey, "held", { reason: out.held.reason });

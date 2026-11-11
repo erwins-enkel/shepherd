@@ -10,7 +10,7 @@
   import { effectiveRepoProvider } from "#lib/repo-cli.js";
   import { repoSettingsWindow } from "#lib/repo-settings-window.svelte.js";
   import { selectedProviderCapacity } from "#lib/components/usage-gauges.js";
-  import { claudeUsageHoldLikely } from "#lib/provider-capacity.js";
+  import { claudeUsageHoldLikely, readyAgentProviders } from "#lib/provider-capacity.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import { getLocale } from "#lib/i18n.js";
@@ -20,12 +20,15 @@
     upcomingSlots,
     intervalStats,
     usageLimitPreview,
+    usageLimitActionVerdict,
+    SCHEDULE_DIAGNOSTICS,
     SCHEDULE_USAGE,
     WORKDAYS,
     ALL_DAYS,
   } from "#lib/schedules.svelte.js";
   import type {
     AgentProvider,
+    DiagnosticsSnapshot,
     SandboxProfile,
     Schedule,
     ScheduleInput,
@@ -100,6 +103,10 @@
   let promptWidth = $state(0);
   const readUsage = getContext<(() => UsageLimits | null) | undefined>(SCHEDULE_USAGE);
   const limits = $derived(readUsage?.() ?? null);
+  const readDiagnostics = getContext<(() => DiagnosticsSnapshot | null) | undefined>(
+    SCHEDULE_DIAGNOSTICS,
+  );
+  const readyProviders = $derived(readyAgentProviders(readDiagnostics?.() ?? null));
   const globals = $derived(repoSettingsWindow.globals());
   const defaultProvider = $derived(
     effectiveRepoProvider(
@@ -150,16 +157,22 @@
   const limitPreview = $derived(
     usageLimit && limitValid ? usageLimitPreview(usageLimit, effectiveProvider, limits) : null,
   );
+  const limitActionVerdict = $derived(
+    usageLimit && limitValid
+      ? usageLimitActionVerdict(usageLimit, effectiveProvider, limits, readyProviders)
+      : null,
+  );
   const limitFooter = $derived(
-    limitPreview
-      ? limitPreview.allowed
-        ? m.schedules_limit_footer_ok()
-        : limitPreview.reason === "below-start"
-          ? m.schedules_limit_footer_below({ start: limitPreview.usage.thresholdPct })
-          : limitPreview.reason === "stop-reached"
-            ? m.schedules_limit_footer_stop({ stop: limitPreview.usage.thresholdPct })
-            : m.schedules_limit_footer_unknown()
-      : "",
+    limitActionVerdict ??
+      (limitPreview
+        ? limitPreview.allowed
+          ? m.schedules_limit_footer_ok()
+          : limitPreview.reason === "below-start"
+            ? m.schedules_limit_footer_below({ start: limitPreview.usage.thresholdPct })
+            : limitPreview.reason === "stop-reached"
+              ? m.schedules_limit_footer_stop({ stop: limitPreview.usage.thresholdPct })
+              : m.schedules_limit_footer_unknown()
+        : ""),
   );
   const footerVerdict = $derived(
     usageLimit
@@ -595,6 +608,8 @@
           bind:value={usageLimit}
           provider={effectiveProvider}
           {limits}
+          {readyProviders}
+          interval={interval !== null}
           holdPct={globals?.usageHoldPct ?? 80}
           valid={limitValid}
         />

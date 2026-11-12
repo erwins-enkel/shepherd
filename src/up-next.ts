@@ -31,6 +31,19 @@ export interface UpNextRepo {
   repoPath: string;
   repoSlug: string | null;
   repoLabel: string;
+  /** Raw paths of the other checkouts of this forge repo, collapsed into this one (see
+   *  buildUpNextRepos). Their sessions' PR holds, warmth and history count for this repo too. */
+  otherCheckouts?: string[];
+}
+
+/** What each checkout holds, store-keyed (realpath; the raw path is tried too). Picks the checkout
+ *  Up Next keeps when several share a forge repo. */
+export interface CheckoutState {
+  hasEpicRun: (path: string) => boolean;
+  /** repoPaths of non-archived sessions. */
+  activePaths: ReadonlySet<string>;
+  /** repoPath → latest session activity (`store.lastActivityByRepo`, the warm set's input). */
+  lastActivityByRepo: Record<string, number>;
 }
 
 /**
@@ -45,15 +58,21 @@ export interface UpNextRepo {
  * store.hiddenRepoPaths()), while `repos` carries the raw join(repoRoot,name) paths that
  * listRepos enumerates. reconcileRealPathsToRaw translates between the two so a hide under
  * a symlinked repoRoot is still honored.
+ *
+ * One checkout per forge repo: two visible dirs with the same origin (a second clone, a
+ * symlink) would list every issue and PR twice, so only one stays — the one with a stored epic
+ * run, else with live sessions, else the most recent activity, else the first listed. It carries
+ * the others in `otherCheckouts`. Hidden dirs are dropped first, so hiding one keeps the other.
  */
 export function buildUpNextRepos(args: {
   repos: readonly RepoEntry[];
   resolveForge: (p: string) => GitForge | null;
   hiddenRealPaths: Set<string>;
+  checkoutState: CheckoutState;
 }): UpNextRepo[] {
   // Reconcile realpath-keyed hidden set → raw join(repoRoot,name) space that listRepos uses.
   const hiddenRaw = reconcileRealPathsToRaw(args.hiddenRealPaths, args.repos);
-  const result: UpNextRepo[] = [];
+  const result: ForgeRepoCandidate[] = [];
   for (const entry of args.repos) {
     const forge = args.resolveForge(entry.path);
     // Skip non-forge and local repos — no cold-issue source to rank.
@@ -61,12 +80,56 @@ export function buildUpNextRepos(args: {
     // Skip hidden repos — see deliberate full-exclude note above.
     if (hiddenRaw.has(entry.path)) continue;
     result.push({
-      repoPath: entry.path,
-      repoSlug: forge.slug,
-      repoLabel: forge.slug ?? entry.display,
+      entry,
+      repo: {
+        repoPath: entry.path,
+        repoSlug: forge.slug,
+        repoLabel: forge.slug ?? entry.display,
+      },
+      key: forge.slug ? `${forge.kind}:${forge.slug.toLowerCase()}` : null,
     });
   }
-  return result;
+  return onePerForgeRepo(result, args.checkoutState);
+}
+
+/** `key`: the forge repo (null = unknown, never merged). */
+interface ForgeRepoCandidate {
+  entry: RepoEntry;
+  repo: UpNextRepo;
+  key: string | null;
+}
+
+/** One candidate per forge repo, in input order. */
+function onePerForgeRepo(candidates: ForgeRepoCandidate[], state: CheckoutState): UpNextRepo[] {
+  const groups = new Map<string, ForgeRepoCandidate[]>();
+  for (const c of candidates)
+    if (c.key !== null) groups.set(c.key, [...(groups.get(c.key) ?? []), c]);
+  const kept = new Set([...groups.values()].map((group) => survivor(group, state)));
+  return candidates.filter((c) => c.key === null || kept.has(c)).map((c) => c.repo);
+}
+
+/** The checkout holding the most (first listed on a tie), carrying the others' paths. */
+function survivor(group: ForgeRepoCandidate[], state: CheckoutState): ForgeRepoCandidate {
+  if (group.length === 1) return group[0]!;
+  const ranked = group.map((c) => ({ c, rank: checkoutRank(c.entry, state) }));
+  const best = ranked.reduce((a, b) => (compareRanks(b.rank, a.rank) > 0 ? b : a)).c;
+  best.repo.otherCheckouts = group.filter((c) => c !== best).map((c) => c.repo.repoPath);
+  return best;
+}
+
+/** Stored epic run → live sessions → latest activity, compared in that order. */
+function checkoutRank(entry: RepoEntry, state: CheckoutState): number[] {
+  const paths = entry.realPath === entry.path ? [entry.path] : [entry.realPath, entry.path];
+  return [
+    paths.some((p) => state.hasEpicRun(p)) ? 1 : 0,
+    paths.some((p) => state.activePaths.has(p)) ? 1 : 0,
+    Math.max(-1, ...paths.map((p) => state.lastActivityByRepo[p] ?? -1)),
+  ];
+}
+
+function compareRanks(a: number[], b: number[]): number {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i]! - b[i]!;
+  return 0;
 }
 
 export interface UpNextChanged {
@@ -155,6 +218,16 @@ export async function startSerially<T, R>(
   const out: R[] = [];
   for (const item of items) out.push(await spawn(item));
   return out;
+}
+
+/** Union of the holds found across a repo's checkouts. */
+function mergeHolds(holds: (UpNextPrsInFlight | undefined)[]): UpNextPrsInFlight | undefined {
+  const found = holds.filter((h): h is UpNextPrsInFlight => h !== undefined);
+  if (found.length <= 1) return found[0];
+  return {
+    heads: new Set(found.flatMap((h) => [...h.heads])),
+    numbers: new Set(found.flatMap((h) => [...h.numbers])),
+  };
 }
 
 function allItems(snap: UpNextSnapshot) {
@@ -307,7 +380,7 @@ export class UpNextService {
     const filter = { ...stored, repoOverrides };
     const raw = {
       ...buildSnapshot(repos, fetchedAt, null, failedRepoCount, filter),
-      pullRequests: buildUpNextPrs(repos, filter, this.heldBy()),
+      pullRequests: buildUpNextPrs(repos, filter, this.heldBy(repos)),
       ...(coldSkippedCount > 0 ? { coldSkippedCount } : {}),
     };
     this.raw = { snapshot: raw, inputOf };
@@ -320,20 +393,22 @@ export class UpNextService {
     return snap;
   }
 
-  /** The sessions' holdings by raw repo path: store keys are realpath-space, so a repo listed
-   *  under a symlinked root is matched through its realpath. */
-  private heldBy(): (repoPath: string) => UpNextPrsInFlight | undefined {
+  /** The sessions' holdings by raw repo path, across the repo's collapsed checkouts: store keys
+   *  are realpath-space, so a repo listed under a symlinked root is matched through its realpath. */
+  private heldBy(repos: readonly RepoInput[]): (repoPath: string) => UpNextPrsInFlight | undefined {
     const held = this.deps.prsInFlight?.();
     if (!held || held.size === 0) return () => undefined;
-    return (repoPath) => {
-      const direct = held.get(repoPath);
+    const others = new Map(repos.map((r) => [r.repoPath, r.otherCheckouts ?? []]));
+    const at = (path: string) => {
+      const direct = held.get(path);
       if (direct) return direct;
       try {
-        return held.get(this.realpath(repoPath));
+        return held.get(this.realpath(path));
       } catch {
         return undefined; // vanished/broken path — only the raw form can match
       }
     };
+    return (repoPath) => mergeHolds([repoPath, ...(others.get(repoPath) ?? [])].map(at));
   }
 
   private publish(snap: UpNextSnapshot): UpNextSnapshot {
@@ -459,7 +534,8 @@ export class UpNextService {
   ): Promise<RepoInput | "fetch_failed" | "cold_skipped" | null> {
     const forge = this.deps.resolveForge(r.repoPath);
     if (!forge) return null; // forge vanished mid-compute → benign skip, not a fetch failure
-    const asOf = this.coldAsOf(r.repoPath, forge);
+    const checkouts = [r.repoPath, ...(r.otherCheckouts ?? [])];
+    const asOf = this.coldAsOf(checkouts, forge);
     if (asOf === null) return "cold_skipped";
     // The operator's own login on this forge, for the "mine & unassigned" filter (#824). Cached
     // per-forge (`gh api user`), so ~free after the first call. null when the host can't resolve
@@ -475,7 +551,7 @@ export class UpNextService {
     }
     const { summaries, blockedByOpen, links } = await this.relations(
       forge,
-      this.workedIn(r.repoPath, lastUsed),
+      checkouts.some((p) => this.workedIn(p, lastUsed)),
     );
     for (const issue of openIssues) {
       const blockers = blockedByOpen.get(issue.number);
@@ -509,6 +585,7 @@ export class UpNextService {
       allowedMergeMethods,
       noCi: (this.deps.hasNoCi ?? repoHasNoCiCached)(forge.kind, r.repoPath),
       ...(asOf !== undefined ? { asOf } : {}),
+      ...(r.otherCheckouts ? { otherCheckouts: r.otherCheckouts } : {}),
     };
   }
 
@@ -529,10 +606,11 @@ export class UpNextService {
 
   /** A cold GitHub repo (#2837) contributes its cached issues, read frozen: their fetch time, or
    *  null when none are cached (the repo sits out). Undefined for a warm repo, inside the manual
-   *  refresh's live scope, and for other forges — only GitHub reads are frozen and cached. */
-  private coldAsOf(repoPath: string, forge: GitForge): number | null | undefined {
-    if (forge.kind !== "github" || !this.deps.isWarm || this.deps.isWarm(repoPath))
-      return undefined;
+   *  refresh's live scope, and for other forges — only GitHub reads are frozen and cached. A repo
+   *  is warm when any of its checkouts is. */
+  private coldAsOf(checkouts: string[], forge: GitForge): number | null | undefined {
+    const isWarm = this.deps.isWarm;
+    if (forge.kind !== "github" || !isWarm || checkouts.some((p) => isWarm(p))) return undefined;
     if (inLiveColdRead()) return undefined;
     return forge.slug ? (this.deps.cachedIssuesAt?.(forge.slug) ?? null) : null;
   }

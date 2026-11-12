@@ -4418,13 +4418,19 @@ deferredStarts.push(() => {
 // pipeline for ready-child gating and invalidates client caches over the WS (upnext:changed).
 const upNext = new UpNextService({
   shouldBackgroundRefresh: () => presence.hasClients() && fingerprint.backgroundReady(),
-  // Forge-backed, non-hidden repos only. buildUpNextRepos owns forge-kind filtering,
-  // the realpath→raw reconcile, hidden-repo filtering, and the exact field mapping.
+  // Forge-backed, non-hidden repos only, one checkout per forge repo. buildUpNextRepos owns
+  // forge-kind filtering, the realpath→raw reconcile, hidden-repo filtering, the duplicate-
+  // checkout pick and the exact field mapping.
   listForgeRepos: () =>
     buildUpNextRepos({
       repos: listRepos(config.repoRoot),
       resolveForge,
       hiddenRealPaths: store.hiddenRepoPaths(),
+      checkoutState: {
+        hasEpicRun: (p) => store.getEpicRun(p) !== null,
+        activePaths: new Set(store.list({ activeOnly: true }).map((session) => session.repoPath)),
+        lastActivityByRepo: store.lastActivityByRepo(),
+      },
     }),
   resolveForge,
   lastUsedByRepo: () => store.lastUsedByRepo(),

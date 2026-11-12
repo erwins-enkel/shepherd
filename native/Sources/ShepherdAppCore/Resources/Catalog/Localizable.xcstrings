@@ -25972,6 +25972,23 @@
         }
       }
     },
+    "native_repo_merge_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regeln zusammenführen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge rules"
+          }
+        }
+      }
+    },
     "native_repo_merger": {
       "extractionState": "manual",
       "localizations": {

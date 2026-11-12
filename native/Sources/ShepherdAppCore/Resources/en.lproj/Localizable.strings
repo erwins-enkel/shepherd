@@ -1510,6 +1510,7 @@
 "native_repo_merge_hint" = "Choose a machine’s value for each differing rule. Save the selection as shared repository rules in one commit. Machine settings stay local.";
 "native_repo_merge_incomplete" = "Some machines are unavailable. This comparison only includes machines whose rules could be read.";
 "native_repo_merge_save" = "Save as repository rules";
+"native_repo_merge_title" = "Merge rules";
 "native_repo_merger" = "Merge by";
 "native_repo_more_rules" = "More rules";
 "native_repo_multiple_drain" = "Backlog processing is enabled on several machines. Choose the Leitrechner: only that machine will process the backlog after saving.";

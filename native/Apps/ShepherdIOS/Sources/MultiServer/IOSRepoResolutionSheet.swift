@@ -58,7 +58,7 @@ struct IOSRepoResolutionSheet: View {
             .disabled(model.busy)
             .sessionFont().scrollContentBackground(.hidden).background(SessionListStyle.background)
             .tint(SessionListStyle.amber)
-            .navigationTitle(L.t(merging ? "native_repo_merge" : "native_repo_switch_leader"))
+            .navigationTitle(L.t(merging ? "native_repo_merge_title" : "native_repo_switch_leader"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) {
                 Button(L.t("common_close")) { dismiss() }.disabled(model.busy)

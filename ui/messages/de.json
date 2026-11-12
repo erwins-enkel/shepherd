@@ -8991,5 +8991,6 @@
   "native_repo_switch_save": "Leitrechner per Commit wechseln",
   "native_repo_jobs_paused": "Der Leitrechner ist nicht erreichbar. Backlog-Abarbeitung und PR-Sweep pausieren. Du entscheidest über den Wechsel; er geschieht nie automatisch.",
   "native_repo_leader_returns": "Kommt der bisherige Leitrechner zurück, liest er zuerst die Repo-Datei, bevor er neue Backlog- oder PR-Sweep-Arbeit startet.",
-  "native_repo_offline_observed": "Nicht erreichbar · beobachtet seit {time}"
+  "native_repo_offline_observed": "Nicht erreichbar · beobachtet seit {time}",
+  "native_repo_merge_title": "Regeln zusammenführen"
 }

@@ -69,6 +69,7 @@ export const KEYS_IOS_REPO_SETTINGS: readonly string[] = [
   "native_repo_merge_hint",
   "native_repo_merge_incomplete",
   "native_repo_merge_save",
+  "native_repo_merge_title",
   "native_repo_merger",
   "native_repo_more_rules",
   "native_repo_multiple_drain",

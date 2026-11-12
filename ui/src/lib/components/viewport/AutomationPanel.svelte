@@ -5,7 +5,8 @@
   import RepoSettingsBody from "../repo-settings/RepoSettingsBody.svelte";
 
   // The session's Automation tab: this task's autopilot override on top, the repo's full
-  // settings (the same body as the repo settings window) below it, filling the rest.
+  // settings (the same body as the repo settings window) below it, filling the rest. The override
+  // is the body's lead, so a narrow tab scrolls it away with the rest.
   let {
     session,
     autopilotOn,
@@ -21,7 +22,8 @@
   const repoPath = $derived(session.repoPath);
 </script>
 
-<div class="automation">
+<!-- the autopilot row leads the repo body: on a phone it scrolls away with the repo's head -->
+{#snippet autopilotRow()}
   <div class="ap-row">
     <div class="ap-text">
       <span class="ap-title">{m.automation_session_autopilot_title()}</span>
@@ -37,19 +39,21 @@
       {autopilotOn ? m.session_autopilot_on_label() : m.session_autopilot_off_label()}
     </button>
   </div>
-  <div class="settings">
-    {#key repoPath}
-      <RepoSettingsBody
-        variant="tab"
-        {repoPath}
-        sessionId={session.id}
-        planPhase={session.planPhase}
-        drain={repoSettingsWindow.drainFor(repoPath)}
-        globals={repoSettingsWindow.globals()}
-        onsetupci={() => repoSettingsWindow.setupCi(repoPath)}
-      />
-    {/key}
-  </div>
+{/snippet}
+
+<div class="automation">
+  {#key repoPath}
+    <RepoSettingsBody
+      variant="tab"
+      {repoPath}
+      sessionId={session.id}
+      planPhase={session.planPhase}
+      drain={repoSettingsWindow.drainFor(repoPath)}
+      globals={repoSettingsWindow.globals()}
+      onsetupci={() => repoSettingsWindow.setupCi(repoPath)}
+      lead={autopilotRow}
+    />
+  {/key}
 </div>
 
 <style>
@@ -120,11 +124,5 @@
       padding: 6px 12px;
       font-size: var(--fs-base);
     }
-  }
-  .settings {
-    flex: 1 1 auto;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
   }
 </style>

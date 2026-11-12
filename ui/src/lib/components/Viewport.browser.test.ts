@@ -1653,6 +1653,21 @@ describe("Viewport mobile page-swipe scoping", () => {
     }
   });
 
+  it("a sideways drag on the Auto tab's chip strip scrolls it instead of paging", async () => {
+    const onnavigate = vi.fn();
+    const { container } = await renderMobile(onnavigate);
+    container.querySelector<HTMLElement>(".tab-btn.auto-tab")!.click();
+    await expect.poll(() => container.querySelector('.automation [role="tab"]')).not.toBeNull();
+    const chip = container.querySelector('.automation [role="tab"]')!;
+    expect(chip.closest("[data-swipe-page]")).not.toBeNull();
+
+    leftwardDrag(chip);
+    expect(onnavigate).not.toHaveBeenCalled();
+    // control: the same drag on the settings below still pages
+    leftwardDrag(container.querySelector(".automation .pane")!);
+    expect(onnavigate).toHaveBeenCalledWith("v2");
+  });
+
   it("does NOT page when a drag starts on a [data-swipe-ignore] surface inside the body", async () => {
     const onnavigate = vi.fn();
     const { container } = await renderMobile(onnavigate);
@@ -3253,6 +3268,20 @@ describe("Viewport — phone keeps the Chat tall", () => {
     await expect
       .element(page.getByRole("tab", { name: m.viewport_files_tab(), exact: true }))
       .toBeInTheDocument();
+  });
+
+  it("folds the session details away on entering the Auto tab, and the fold reopens them", async () => {
+    localStorage.setItem("shepherd-vp-phone-details-open", "1");
+    const { container } = await renderPhone("phone-auto-fold");
+    await expect.poll(() => container.querySelector(".vp-phone-details .ssb")).not.toBeNull();
+
+    container.querySelector<HTMLElement>(".tab-btn.auto-tab")!.click();
+
+    await expect.poll(() => container.querySelector(".automation .root")).not.toBeNull();
+    await expect.poll(() => container.querySelector(".vp-phone-details .ssb")).toBeNull();
+    await page.getByRole("button", { name: m.viewport_details_show_aria() }).click();
+    await expect.poll(() => container.querySelector(".vp-phone-details .ssb")).not.toBeNull();
+    expect(container.querySelector(".automation .root")).not.toBeNull();
   });
 
   it("folds the steer row in the Chat behind the composer toggle", async () => {

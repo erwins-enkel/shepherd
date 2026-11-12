@@ -38,6 +38,7 @@
     onsetupci,
     variant = "window",
     headEnd,
+    lead,
   }: {
     repoPath: string;
     /** The section to open at; absent = the first one a hint marks, else Autonomy. */
@@ -56,6 +57,9 @@
     variant?: "window" | "tab" | "embedded";
     /** Rendered at the end of the head, e.g. the window's ✕. */
     headEnd?: Snippet;
+    /** Rendered above the head, e.g. a session tab's own controls; on a narrow container it
+     *  scrolls away with the head. */
+    lead?: Snippet;
   } = $props();
 
   // coachTargets keys one node per id: only the window registers its settings' coach targets, so
@@ -106,7 +110,10 @@
   $effect(() => void schedules.load(repoPath));
 
   let root = $state<HTMLDivElement>();
+  let scroller = $state<HTMLDivElement>();
+  let body = $state<HTMLDivElement>();
   let pane = $state<HTMLDivElement>();
+  let railHeight = $state(0);
   let query = $state("");
   let searchInput = $state<HTMLInputElement>();
   const searching = $derived(query.trim().length > 0);
@@ -143,13 +150,17 @@
     await tick();
     if (root) focusSetting(root, field);
   });
-  // A switched section starts at its top; the focus follows a tab the hints picked.
+  // A switched section starts at its top; the focus follows a tab the hints picked. Narrow, the
+  // whole body is one scroller (.scroll) under a sticky chip strip: a search shows its field, a
+  // switched section starts just under the strip. `.body`'s top is the strip's natural top — the
+  // sticky rail's own offsetTop follows the scroll once it is stuck.
   $effect(() => {
     void active;
     void query;
-    if (pane) {
-      pane.scrollTop = 0;
-      if (searching && pane.parentElement) pane.parentElement.scrollTop = 0;
+    if (pane) pane.scrollTop = 0;
+    if (scroller && body && scroller.scrollHeight > scroller.clientHeight) {
+      if (searching) scroller.scrollTop = 0;
+      else scroller.scrollTop = Math.min(scroller.scrollTop, body.offsetTop);
     }
     if (
       document.activeElement?.getAttribute("role") === "tab" &&
@@ -159,94 +170,103 @@
   });
 </script>
 
-<div bind:this={root} class="root">
+{#snippet head()}
   <header class="head">
     <div class="title">
       {#if variant === "window"}<span class="kicker">{m.reposettings_title()}</span>{/if}
       {#if variant !== "embedded"}<h2 class="repo">{repoName}</h2>{/if}
-      <span class="sub">{m.automation_panel_subtitle()}</span>
+      <span class={["sub", { "tab-sub": variant === "tab" }]}>{m.automation_panel_subtitle()}</span>
     </div>
     <div class="mode-slot"><RepoModeChoice {repoPath} armCoachmarks={coach} /></div>
     {@render headEnd?.()}
   </header>
-  <div class="search-bar">
-    <label for="{panelId}-search">{m.reposettings_search_label()}</label>
-    <div class="search-field">
-      <input
-        bind:this={searchInput}
-        id="{panelId}-search"
-        type="search"
-        bind:value={query}
-        oninput={() => {
-          navigation++;
-          stopReveal();
-        }}
-      />
-      {#if query}
-        <button
-          type="button"
-          class="clear-search"
-          onclick={() => {
-            query = "";
-            searchInput?.focus();
-          }}>{m.reposettings_search_clear()}</button
-        >
-      {/if}
-    </div>
-  </div>
-  <div class="body">
-    <div class="rail">
-      <RepoSettingsNav {items} bind:active={() => active, selectSection} {panelId} />
-    </div>
-    <div
-      bind:this={pane}
-      class="pane"
-      role={searching ? "region" : "tabpanel"}
-      id={panelId}
-      aria-labelledby={searching ? undefined : `${panelId}-tab-${active}`}
-      aria-label={searching ? m.reposettings_search_results() : undefined}
-    >
-      <div class="col">
-        <p class="search-status" role="status">
-          {#if searching}
-            {results.length
-              ? m.reposettings_search_count({ count: results.length })
-              : m.reposettings_search_empty()}
-          {/if}
-        </p>
-        {#if searching}
-          <ul class="search-results">
-            {#each results as entry (entry.field)}
-              <li>
-                <button
-                  type="button"
-                  class="search-result"
-                  onclick={() => openResult(entry)}
-                  aria-label={entry.section
-                    ? `${entry.name} ${sectionLabel(entry.section)}`
-                    : entry.name}
-                >
-                  <span class="result-name">{entry.name}</span>
-                  {#if entry.section}<span class="result-section"
-                      >{sectionLabel(entry.section)}</span
-                    >{/if}
-                  {#if entry.description}<span class="result-desc">{entry.description}</span>{/if}
-                </button>
-              </li>
-            {/each}
-          </ul>
-        {:else}
-          <RepoSettingsHints {repoPath} {drain} {onsetupci} />
-          <RepoSettingsSection
-            section={active}
-            {repoPath}
-            {sessionId}
-            {planPhase}
-            {drain}
-            {globals}
-            armCoachmarks={coach}
-          />
+{/snippet}
+
+<div bind:this={root} class="root">
+  <!-- the window's head holds its ✕, so it stays put; a tab's or embed's scrolls away -->
+  {#if variant === "window"}{@render head()}{/if}
+  <div bind:this={scroller} class="scroll" style:--rail-h="{railHeight}px">
+    {@render lead?.()}
+    {#if variant !== "window"}{@render head()}{/if}
+    <div class="search-bar">
+      <label for="{panelId}-search">{m.reposettings_search_label()}</label>
+      <div class="search-field">
+        <input
+          bind:this={searchInput}
+          id="{panelId}-search"
+          type="search"
+          bind:value={query}
+          oninput={() => {
+            navigation++;
+            stopReveal();
+          }}
+        />
+        {#if query}
+          <button
+            type="button"
+            class="clear-search"
+            onclick={() => {
+              query = "";
+              searchInput?.focus();
+            }}>{m.reposettings_search_clear()}</button
+          >
         {/if}
+      </div>
+    </div>
+    <div bind:this={body} class="body">
+      <div class="rail" bind:offsetHeight={railHeight}>
+        <RepoSettingsNav {items} bind:active={() => active, selectSection} {panelId} />
+      </div>
+      <div
+        bind:this={pane}
+        class="pane"
+        role={searching ? "region" : "tabpanel"}
+        id={panelId}
+        aria-labelledby={searching ? undefined : `${panelId}-tab-${active}`}
+        aria-label={searching ? m.reposettings_search_results() : undefined}
+      >
+        <div class="col">
+          <p class="search-status" role="status">
+            {#if searching}
+              {results.length
+                ? m.reposettings_search_count({ count: results.length })
+                : m.reposettings_search_empty()}
+            {/if}
+          </p>
+          {#if searching}
+            <ul class="search-results">
+              {#each results as entry (entry.field)}
+                <li>
+                  <button
+                    type="button"
+                    class="search-result"
+                    onclick={() => openResult(entry)}
+                    aria-label={entry.section
+                      ? `${entry.name} ${sectionLabel(entry.section)}`
+                      : entry.name}
+                  >
+                    <span class="result-name">{entry.name}</span>
+                    {#if entry.section}<span class="result-section"
+                        >{sectionLabel(entry.section)}</span
+                      >{/if}
+                    {#if entry.description}<span class="result-desc">{entry.description}</span>{/if}
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {:else}
+            <RepoSettingsHints {repoPath} {drain} {onsetupci} />
+            <RepoSettingsSection
+              section={active}
+              {repoPath}
+              {sessionId}
+              {planPhase}
+              {drain}
+              {globals}
+              armCoachmarks={coach}
+            />
+          {/if}
+        </div>
       </div>
     </div>
   </div>
@@ -347,13 +367,19 @@
   }
 
   .root {
-    container-type: inline-size;
+    container: repo-settings / inline-size;
     flex: 1 1 auto;
     height: 100%;
     min-height: 0;
     display: flex;
     flex-direction: column;
     color: var(--color-ink);
+  }
+  .scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
   .head {
     display: flex;
@@ -413,7 +439,21 @@
     max-width: 720px;
   }
   /* Narrow (a phone, or a narrow desktop pane): the chips above the section, one scroller. */
-  @container (max-width: 640px) {
+  @container repo-settings (max-width: 640px) {
+    /* the lead, the head, the search and the section all scroll as one, under a sticky chip
+       strip; scroll-padding keeps a revealed row clear of the strip */
+    .scroll {
+      display: block;
+      position: relative;
+      overflow-y: auto;
+      overflow-x: hidden;
+      overscroll-behavior-y: contain;
+      scroll-padding-top: var(--rail-h);
+    }
+    /* the session tab's autopilot hint already says the repo default sits below */
+    .tab-sub {
+      display: none;
+    }
     /* title and the head's end (✕) share the first line, the repo mode takes the second */
     .mode-slot {
       order: 2;
@@ -421,12 +461,14 @@
     }
     .body {
       flex-direction: column;
-      overflow-y: auto;
-      overflow-x: hidden;
     }
     .rail {
+      position: sticky;
+      top: 0;
+      z-index: 2;
       flex: 0 0 auto;
       border-right: 0;
+      background: var(--color-bg);
       overflow: visible;
     }
     .pane {

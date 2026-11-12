@@ -25594,6 +25594,23 @@
         }
       }
     },
+    "native_repo_choose_machine": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechner wählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a machine"
+          }
+        }
+      }
+    },
     "native_repo_commit_effect": {
       "extractionState": "manual",
       "localizations": {
@@ -25680,6 +25697,24 @@
         }
       }
     },
+    "native_repo_equal_rules": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ Regeln sind schon gleich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ rules already match"
+          }
+        }
+      }
+    },
     "native_repo_every_machine": {
       "extractionState": "manual",
       "localizations": {
@@ -25733,6 +25768,23 @@
         }
       }
     },
+    "native_repo_jobs_paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Leitrechner ist nicht erreichbar. Backlog-Abarbeitung und PR-Sweep pausieren. Du entscheidest über den Wechsel; er geschieht nie automatisch."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Leitrechner is unreachable. Backlog processing and the PR sweep are paused. You decide when to change the Leitrechner; it never changes automatically."
+          }
+        }
+      }
+    },
     "native_repo_leader": {
       "extractionState": "manual",
       "localizations": {
@@ -25746,6 +25798,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Lead machine"
+          }
+        }
+      }
+    },
+    "native_repo_leader_returns": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommt der bisherige Leitrechner zurück, liest er zuerst die Repo-Datei, bevor er neue Backlog- oder PR-Sweep-Arbeit startet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the previous Leitrechner returns, it reads the repository file before starting new backlog or PR-sweep work."
           }
         }
       }
@@ -25835,6 +25904,91 @@
         }
       }
     },
+    "native_repo_merge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abweichungen zusammenführen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge differences"
+          }
+        }
+      }
+    },
+    "native_repo_merge_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle für jede abweichende Regel den Wert eines Rechners. Speichere die Auswahl als gemeinsame Repo-Regeln in einem Commit. Maschinenwerte bleiben lokal."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a machine’s value for each differing rule. Save the selection as shared repository rules in one commit. Machine settings stay local."
+          }
+        }
+      }
+    },
+    "native_repo_merge_incomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige Rechner sind nicht verfügbar. Dieser Vergleich enthält nur Rechner, deren Regeln gelesen werden konnten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some machines are unavailable. This comparison only includes machines whose rules could be read."
+          }
+        }
+      }
+    },
+    "native_repo_merge_save": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Repo-Regeln speichern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save as repository rules"
+          }
+        }
+      }
+    },
+    "native_repo_merge_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regeln zusammenführen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge rules"
+          }
+        }
+      }
+    },
     "native_repo_merger": {
       "extractionState": "manual",
       "localizations": {
@@ -25865,6 +26019,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "More rules"
+          }
+        }
+      }
+    },
+    "native_repo_multiple_drain": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Backlog-Abarbeitung ist auf mehreren Rechnern aktiv. Wähle den Leitrechner: Nach dem Speichern arbeitet nur dieser Rechner den Backlog ab."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backlog processing is enabled on several machines. Choose the Leitrechner: only that machine will process the backlog after saving."
           }
         }
       }
@@ -25933,6 +26104,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Offline · adopts rules after reconnecting"
+          }
+        }
+      }
+    },
+    "native_repo_offline_observed": {
+      "comment": "%1$@ = time",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht erreichbar · beobachtet seit %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unreachable · observed since %1$@"
           }
         }
       }
@@ -26175,6 +26364,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rule status unavailable"
+          }
+        }
+      }
+    },
+    "native_repo_switch_leader": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leitrechner wechseln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change Leitrechner"
+          }
+        }
+      }
+    },
+    "native_repo_switch_save": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leitrechner per Commit wechseln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit Leitrechner change"
           }
         }
       }

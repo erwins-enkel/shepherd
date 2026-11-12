@@ -8979,5 +8979,18 @@
   "native_repo_roles_review": "Review responsibilities",
   "native_repo_roles_save": "Save responsibilities",
   "native_repo_writer": "Commit from {machine}",
-  "native_repo_adoption_ready": "{machine}: fetches after saving, or after the rule PR merges"
+  "native_repo_adoption_ready": "{machine}: fetches after saving, or after the rule PR merges",
+  "native_repo_merge": "Merge differences",
+  "native_repo_merge_hint": "Choose a machine’s value for each differing rule. Save the selection as shared repository rules in one commit. Machine settings stay local.",
+  "native_repo_merge_incomplete": "Some machines are unavailable. This comparison only includes machines whose rules could be read.",
+  "native_repo_equal_rules": "{count} rules already match",
+  "native_repo_choose_machine": "Choose a machine",
+  "native_repo_multiple_drain": "Backlog processing is enabled on several machines. Choose the Leitrechner: only that machine will process the backlog after saving.",
+  "native_repo_merge_save": "Save as repository rules",
+  "native_repo_switch_leader": "Change Leitrechner",
+  "native_repo_switch_save": "Commit Leitrechner change",
+  "native_repo_jobs_paused": "The Leitrechner is unreachable. Backlog processing and the PR sweep are paused. You decide when to change the Leitrechner; it never changes automatically.",
+  "native_repo_leader_returns": "When the previous Leitrechner returns, it reads the repository file before starting new backlog or PR-sweep work.",
+  "native_repo_offline_observed": "Unreachable · observed since {time}",
+  "native_repo_merge_title": "Merge rules"
 }

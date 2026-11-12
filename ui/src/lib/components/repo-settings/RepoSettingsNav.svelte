@@ -58,7 +58,15 @@
   }
 </script>
 
-<div bind:this={nav} class="nav" role="tablist" aria-label={m.reposettings_nav_label()}>
+<!-- data-swipe-ignore: narrow, the strip scrolls sideways — a drag on it must scroll the chips,
+     not page the session (Viewport's phone page-swipe) -->
+<div
+  bind:this={nav}
+  class="nav"
+  role="tablist"
+  aria-label={m.reposettings_nav_label()}
+  data-swipe-ignore
+>
   {#each items as item, i (item.id)}
     <button
       bind:this={tabs[i]}

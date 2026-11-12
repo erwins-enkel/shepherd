@@ -8979,5 +8979,17 @@
   "native_repo_roles_review": "Zuständigkeiten prüfen",
   "native_repo_roles_save": "Zuständigkeiten speichern",
   "native_repo_writer": "Commit über {machine}",
-  "native_repo_adoption_ready": "{machine}: ruft nach dem Speichern ab, bei einem Regel-PR nach dem Merge"
+  "native_repo_adoption_ready": "{machine}: ruft nach dem Speichern ab, bei einem Regel-PR nach dem Merge",
+  "native_repo_merge": "Abweichungen zusammenführen",
+  "native_repo_merge_hint": "Wähle für jede abweichende Regel den Wert eines Rechners. Speichere die Auswahl als gemeinsame Repo-Regeln in einem Commit. Maschinenwerte bleiben lokal.",
+  "native_repo_merge_incomplete": "Einige Rechner sind nicht verfügbar. Dieser Vergleich enthält nur Rechner, deren Regeln gelesen werden konnten.",
+  "native_repo_equal_rules": "{count} Regeln sind schon gleich",
+  "native_repo_choose_machine": "Rechner wählen",
+  "native_repo_multiple_drain": "Die Backlog-Abarbeitung ist auf mehreren Rechnern aktiv. Wähle den Leitrechner: Nach dem Speichern arbeitet nur dieser Rechner den Backlog ab.",
+  "native_repo_merge_save": "Als Repo-Regeln speichern",
+  "native_repo_switch_leader": "Leitrechner wechseln",
+  "native_repo_switch_save": "Leitrechner per Commit wechseln",
+  "native_repo_jobs_paused": "Der Leitrechner ist nicht erreichbar. Backlog-Abarbeitung und PR-Sweep pausieren. Du entscheidest über den Wechsel; er geschieht nie automatisch.",
+  "native_repo_leader_returns": "Kommt der bisherige Leitrechner zurück, liest er zuerst die Repo-Datei, bevor er neue Backlog- oder PR-Sweep-Arbeit startet.",
+  "native_repo_offline_observed": "Nicht erreichbar · beobachtet seit {time}"
 }

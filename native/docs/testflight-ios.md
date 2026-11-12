@@ -196,3 +196,28 @@ actual changes since the previous distributed build, including these checks:
 Prefix the notes with the actual marketing version/build and verify that exact
 build in App Store Connect and TestFlight using the release-notes checklist above.
 This checklist is a release handoff, not proof that a build was uploaded or notes saved.
+
+## Candidate notes: repository differences and Leitrechner (#3014)
+
+Use these notes in the matching build's **What to Test**, adding its version/build
+and combining changes since the previous distributed build before publishing.
+No TestFlight build is distributed by this source change.
+
+**EN:** Reconcile repository rules across machines from Repos → repository settings.
+Choose a machine's value for each difference and save the shared rules in one commit;
+machine settings stay local. When several machines process the backlog, choose the
+Leitrechner. Test changing an unreachable Leitrechner through a reachable machine,
+then reconnect the previous one and verify that only the new Leitrechner starts
+backlog and PR-sweep work. Protected branches can return a pending pull request.
+Offline timestamps indicate when this settings screen first observed the outage,
+not the historical disconnect time.
+
+**DE:** Repo-Regeln über Repos → Repo-Einstellungen zusammenführen: Für jede
+Abweichung den Wert eines Rechners wählen und die gemeinsamen Regeln mit einem
+Commit speichern. Maschinenwerte bleiben lokal. Bei mehrfach aktiver
+Backlog-Abarbeitung den Leitrechner wählen. Einen nicht erreichbaren Leitrechner
+über einen erreichbaren Rechner wechseln, den bisherigen wieder verbinden und
+prüfen, dass nur der neue Leitrechner Backlog- und PR-Sweep-Arbeit startet.
+Geschützte Branches können einen ausstehenden Pull Request liefern. Offline-Zeiten
+bezeichnen die erste Beobachtung auf dieser Einstellungsseite, nicht den
+historischen Verbindungsabbruch.

@@ -11,6 +11,11 @@ MacBook, any other to Linux. You can always name the machine yourself. A running
 moves to another machine by itself; you can move it with **Continue with…**
 ([Move a session to another machine](#move-a-session-to-another-machine)).
 
+Repository automation rules can be shared through `.shepherd/config.json`, while limits
+and sandbox settings stay on each machine. The **Leitrechner** owns new backlog and
+all-PR critic jobs; switching it is manual. See [shared repository rules](repo-config.md)
+for setup, the three settings layers and the two-machine acceptance checklist.
+
 ## How it works
 
 - **A machine is another Shepherd.** You connect it with its address and an access token created

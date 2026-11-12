@@ -196,6 +196,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
       "scheduled prompts, a chat tab for every session, the pull requests that wait on you in up next, and a faster loop with a phone ui built for your thumb — the highlights of shepherd 2.6. schedules chat with any session pull requests in up next a faster loop, and a phone ui for your thumb also new upgrading",
   },
   {
+    title: "Shared repository rules",
+    path: "/repo-config/",
+    keywords:
+      "share repository rules, choose a leitrechner and keep machine settings local — setup, protected branches and manual ownership changes. the three settings layers set up shared rules fields and precedence reading and saving protected default branches connected machines leitrechner (repository job owner) change the leitrechner by hand web save boundaries two-machine acceptance",
+  },
+  {
     title: "Scheduled prompts",
     path: "/scheduled-prompts/",
     keywords:

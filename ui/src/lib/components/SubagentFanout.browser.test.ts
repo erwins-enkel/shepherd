@@ -45,6 +45,27 @@ describe("SubagentFanout", () => {
     expect(document.querySelector(".fanout")?.textContent).toContain("Plan");
   });
 
+  it("shows the task name first and the agent type dimmed after it", () => {
+    render(SubagentFanout, {
+      sessionId: "s1",
+      subagents: {
+        s1: [
+          entry({ agentId: "a", agentType: "general-purpose", description: "Server side of #1" }),
+          entry({ agentId: "b", agentType: "Explore" }),
+        ],
+      },
+    });
+    const [named, plain] = [...document.querySelectorAll(".fanout li")];
+    expect(named?.querySelector(".name")?.textContent).toBe("Server side of #1");
+    expect(named?.querySelector(".name")?.getAttribute("title")).toBe("Server side of #1");
+    expect(named?.querySelector(".type")?.textContent).toBe("general-purpose");
+    const kids = [...(named?.children ?? [])].map((n) => n.className.split(" ")[0]);
+    expect(kids.indexOf("name")).toBeLessThan(kids.indexOf("type"));
+    // No task name → the type-only row, unchanged.
+    expect(plain?.querySelector(".name")).toBeNull();
+    expect(plain?.querySelector(".type")?.textContent).toBe("Explore");
+  });
+
   it("labels live vs done entries", async () => {
     render(SubagentFanout, {
       sessionId: "s1",

@@ -2354,6 +2354,8 @@ export interface SubagentEntry {
   agentType: string;
   startedAt: number;
   endedAt?: number;
+  /** The Agent call's short task name; absent until the server reads it, or when unavailable. */
+  description?: string;
 }
 
 export interface LimitWindow {

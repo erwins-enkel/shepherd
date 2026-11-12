@@ -2548,6 +2548,9 @@ components:
           type: integer
         endedAt:
           type: integer
+        description:
+          type: string
+          description: The Agent call's short task name; absent until read or when unavailable.
     SessionSubagentsEvent:
       type: object
       additionalProperties: true

@@ -516,16 +516,23 @@ function buildSubagentStates(): Record<string, SubagentEntry[]> {
       {
         agentId: "sub-coupon-explore",
         agentType: "Explore",
+        description: "Map coupon validation paths",
         startedAt: NOW - 10 * MIN,
         endedAt: NOW - 7 * MIN,
       },
       {
         agentId: "sub-coupon-pricing",
         agentType: "general-purpose",
+        description: "Pricing engine discount rules",
         startedAt: NOW - 5 * MIN,
         endedAt: NOW - 2 * MIN,
       },
-      { agentId: "sub-coupon-ui", agentType: "general-purpose", startedAt: NOW - 90 * SEC },
+      {
+        agentId: "sub-coupon-ui",
+        agentType: "general-purpose",
+        description: "Coupon field in checkout UI",
+        startedAt: NOW - 90 * SEC,
+      },
     ],
     "checkout-child": [
       { agentId: "sub-child-explore", agentType: "Explore", startedAt: NOW - 6 * MIN },

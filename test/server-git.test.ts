@@ -895,6 +895,8 @@ test("GET /api/subagents returns the sub-agent roster snapshot", async () => {
       record: () => {},
       snapshot: () => [],
       allSubagentsSnapshot: () => snap,
+      subagentNeedsDescription: () => false,
+      setSubagentDescription: () => {},
     } as AppDeps["hooks"],
   });
   const app = makeApp(deps);

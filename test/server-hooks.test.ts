@@ -1,5 +1,9 @@
 import { test, expect, afterEach } from "bun:test";
-import { makeApp, type AppDeps } from "../src/server";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { makeApp, SUBAGENT_META_RETRY_MS, type AppDeps } from "../src/server";
+import { dashify } from "../src/claude-trust";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { HookIngest } from "../src/hooks-ingest";
@@ -357,4 +361,50 @@ test("a hanging egress flush is bounded: the hook still answers with the queued 
   const res = await post(app, session.id, validEvent);
   expect(Date.now() - t0).toBeLessThan(2000);
   expect(res.status).toBe(200);
+});
+
+// Sub-agent task names: a matched SubagentStart reads Claude Code's meta sidecar next to the
+// session transcript (resolved server-side) and attaches its `description` to the roster entry.
+test("matched SubagentStart attaches the meta sidecar's description to the roster", async () => {
+  const projects = mkdtempSync(join(tmpdir(), "subagent-projects-"));
+  const origProjects = config.claudeProjectsDir;
+  const origDelays = SUBAGENT_META_RETRY_MS.delays;
+  config.claudeProjectsDir = projects;
+  SUBAGENT_META_RETRY_MS.delays = [0, 5, 5];
+  try {
+    const { app, hooks, session } = harness();
+    const pushed: unknown[] = [];
+    hooks.setSubagentSink((_id, roster) => pushed.push(roster));
+    const subDir = join(projects, dashify("/wt"), CLAUDE_SID, "subagents");
+    mkdirSync(subDir, { recursive: true });
+    writeFileSync(
+      join(subDir, "agent-a1.meta.json"),
+      JSON.stringify({ agentType: "general-purpose", description: "Server side of #1" }),
+    );
+    const start = {
+      session_id: CLAUDE_SID,
+      hook_event_name: "SubagentStart",
+      agent_type: "general-purpose",
+    };
+    // Mismatched session_id never reads (roster is untouched anyway).
+    await post(app, session.id, { ...start, agent_id: "a1", session_id: "other" });
+    const res = await post(app, session.id, { ...start, agent_id: "a1" });
+    expect(res.status).toBe(202);
+    for (let i = 0; i < 50 && !hooks.subagentSnapshot(session.id)[0]?.description; i++) {
+      await Bun.sleep(5);
+    }
+    expect(hooks.subagentSnapshot(session.id)).toEqual([
+      expect.objectContaining({ agentId: "a1", description: "Server side of #1" }),
+    ]);
+    expect(pushed.length).toBe(2); // the Start, then the description
+
+    // No sidecar → retries run out quietly, entry stays type-only.
+    await post(app, session.id, { ...start, agent_id: "a2" });
+    await Bun.sleep(40);
+    expect(hooks.subagentSnapshot(session.id)[1]?.description).toBeUndefined();
+  } finally {
+    config.claudeProjectsDir = origProjects;
+    SUBAGENT_META_RETRY_MS.delays = origDelays;
+    rmSync(projects, { recursive: true, force: true });
+  }
 });

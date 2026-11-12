@@ -373,6 +373,26 @@ test("HookIngest roster: empty agentId is a no-op", () => {
   expect(h.subagentSnapshot("s1")).toEqual([]);
 });
 
+test("HookIngest roster: setSubagentDescription attaches the task name and pushes once", () => {
+  const seen: SubagentEntry[][] = [];
+  const h = new HookIngest();
+  h.setSubagentSink((_id, roster) => seen.push(roster));
+  h.record("s1", sub({ receivedAt: 100 }));
+  expect(h.subagentNeedsDescription("s1", "a1")).toBe(true);
+  h.setSubagentDescription("s1", "a1", "Server side");
+  expect(h.subagentNeedsDescription("s1", "a1")).toBe(false);
+  expect(seen).toHaveLength(2);
+  expect(seen[1]).toEqual([
+    { agentId: "a1", agentType: "general-purpose", startedAt: 100, description: "Server side" },
+  ]);
+  // Same value and unknown entries are no-ops.
+  h.setSubagentDescription("s1", "a1", "Server side");
+  h.setSubagentDescription("s1", "zz", "x");
+  h.setSubagentDescription("s9", "a1", "x");
+  expect(seen).toHaveLength(2);
+  expect(h.subagentNeedsDescription("s1", "zz")).toBe(false);
+});
+
 // ── toolUseSince (pure; autopilot's fruitless-nudge signal, #2608) ────────────
 
 const hookEv = (event: string, receivedAt: number, over: Partial<HookEvent> = {}): HookEvent => ({

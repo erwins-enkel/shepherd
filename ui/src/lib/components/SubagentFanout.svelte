@@ -73,7 +73,12 @@
         {@const live = e.endedAt == null}
         <li>
           <span class="dot" class:live aria-hidden="true"></span>
-          <span class="type">{e.agentType}</span>
+          {#if e.description}
+            <span class="name" title={e.description}>{e.description}</span>
+            <span class="type secondary">{e.agentType}</span>
+          {:else}
+            <span class="type">{e.agentType}</span>
+          {/if}
           <span class="status" class:live
             >{live ? m.subagent_status_live() : m.subagent_status_done()}</span
           >
@@ -164,9 +169,19 @@
   .dot.live {
     background: var(--color-blue);
   }
+  .name,
   .type {
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .name {
+    min-width: 0;
+  }
+  /* With a task name, the agent type steps back and keeps its width while the name truncates. */
+  .type.secondary {
+    flex-shrink: 0;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
   }
   .status {
     color: var(--color-muted);

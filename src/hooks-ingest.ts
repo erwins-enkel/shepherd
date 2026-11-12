@@ -102,6 +102,9 @@ export type SubagentEntry = {
   startedAt: number;
   /** Server receive time (ms) of the SubagentStop; absent while the sub-agent is live. */
   endedAt?: number;
+  /** The Agent call's short task name, read from Claude Code's meta sidecar after the Start
+   *  (src/subagent-meta.ts); absent until read, or when the sidecar is missing/unreadable. */
+  description?: string;
 };
 
 /** Max events retained per session before the oldest is evicted. */
@@ -385,6 +388,22 @@ export class HookIngest {
       }
     }
     this.#subagents.set(sessionId, roster);
+    this.#onSubagents?.(sessionId, [...roster.values()]);
+  }
+
+  /** True when the session's roster has `agentId` and it still lacks a task name. */
+  subagentNeedsDescription(sessionId: string, agentId: string): boolean {
+    const entry = this.#subagents.get(sessionId)?.get(agentId);
+    return entry !== undefined && !entry.description;
+  }
+
+  /** Attach a task name to an existing roster entry and push the roster. Unknown entry or an
+   *  unchanged value is a no-op (no push). */
+  setSubagentDescription(sessionId: string, agentId: string, description: string): void {
+    const roster = this.#subagents.get(sessionId);
+    const entry = roster?.get(agentId);
+    if (!roster || !entry || entry.description === description) return;
+    entry.description = description;
     this.#onSubagents?.(sessionId, [...roster.values()]);
   }
 

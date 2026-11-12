@@ -32,6 +32,13 @@ function host(url: unknown): string {
   }
 }
 
+/** `dispatched <type>`, plus the Agent call's short task name when it has one. */
+function dispatched(i: Record<string, unknown>): string {
+  const base = `dispatched ${i.subagent_type ?? "agent"}`;
+  const desc = typeof i.description === "string" ? i.description.trim() : "";
+  return desc ? `${base}: ${truncate(desc, CMD_MAX)}` : base;
+}
+
 type Summarizer = (input: Record<string, unknown>) => string;
 
 /** Per-tool summary renderers; one shared renderer aliased across equivalent tools. */
@@ -44,8 +51,8 @@ const SUMMARIZERS: Record<string, Summarizer> = {
   Bash: (i) => `$ ${truncate(String(i.command ?? ""), CMD_MAX)}`,
   Grep: (i) => `searched "${i.pattern ?? ""}"`,
   Glob: (i) => `globbed ${i.pattern ?? ""}`,
-  Task: (i) => `dispatched ${i.subagent_type ?? "agent"}`,
-  Agent: (i) => `dispatched ${i.subagent_type ?? "agent"}`,
+  Task: (i) => dispatched(i),
+  Agent: (i) => dispatched(i),
   Skill: (i) => `skill ${i.skill ?? ""}`,
   TodoWrite: () => "updated todos",
   TaskCreate: (i) => `added task: ${truncate(String(i.subject ?? ""), CMD_MAX)}`,

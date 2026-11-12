@@ -21,6 +21,7 @@
   import {
     listSessions,
     listRemoteDispatches,
+    listRemoteEpics,
     refreshUpNext,
     createSession,
     archiveSession,
@@ -137,6 +138,7 @@
   import TopBar from "#lib/components/TopBar.svelte";
   import { basename } from "#lib/basename.js";
   import Herd from "#lib/components/Herd.svelte";
+  import { withRemoteEpics } from "#lib/components/epic-grouping.js";
   import {
     railOrder,
     railLocationsOf,
@@ -650,6 +652,12 @@
         .map((d) => `${d.repoPath}#${d.epicParent}`),
     ),
   );
+  // Epics connected machines' drains lead (#3055 mirror): kept by a repo filter by project slug,
+  // like their mirrored sessions. Merged with this Shepherd's own into ONE epics record + key set
+  // that <Herd> (render) and railOrder / railLocationsOf (nav) all read, so a remote epic's
+  // mirrored children nest the same in both. The seed effect below stays on the local keys.
+  const herdRemoteEpics = $derived(inRepoFilter(store.remoteEpics, repoFilter, repos.entries));
+  const herdEpics = $derived(withRemoteEpics(store.epics, activeEpicKeys, herdRemoteEpics));
   // Page-owned collapse state (group key → collapsed). SvelteSet so .has/.add/.delete
   // are reactive (a plain Set is not in Svelte 5); passed to both <Herd> (render) and
   // railOrder (nav) so the two read ONE source and can't drift.
@@ -756,8 +764,8 @@
       isReviewing,
       isReworkRunning,
       nowMs,
-      store.epics,
-      activeEpicKeys,
+      herdEpics.epics,
+      herdEpics.keys,
       herdRemoteSessions,
     );
   });
@@ -1118,6 +1126,14 @@
       .catch(() => {});
   }
 
+  /** Epics connected machines lead: `remote:epics` is push-on-change only, so a change while the
+   *  socket was down is only seen by re-reading the list. */
+  function refreshRemoteEpics() {
+    listRemoteEpics()
+      .then((list) => store.setRemoteEpics(list))
+      .catch(() => {});
+  }
+
   function refreshBuildQueues() {
     bootstrapBuildQueues({
       getBuildQueues,
@@ -1155,6 +1171,7 @@
       .catch(() => {});
     loadOperatorAssistant();
     refreshRemoteDispatches();
+    refreshRemoteEpics();
     void machines.refresh();
     refreshResourceStatus();
     gitStates()
@@ -2249,8 +2266,8 @@
       // exactly the visible rows, never a "ready" subset of the status-filtered list
       statusFilter != null ? "all" : herdFilter,
       store.workingBlocked,
-      store.epics,
-      activeEpicKeys,
+      herdEpics.epics,
+      herdEpics.keys,
       collapsedEpics,
       collapsedStageKeys,
       store.backgroundBusy,
@@ -2590,6 +2607,7 @@
       .catch(() => {});
     loadOperatorAssistant();
     refreshRemoteDispatches();
+    refreshRemoteEpics();
     void machines.refresh();
     refreshResourceStatus();
     getUpdate()
@@ -4049,11 +4067,11 @@
             onopenbrowser={openBrowser}
             onrename={openRename}
             onamend={openAmend}
-            epics={store.epics}
+            epics={herdEpics.epics}
             onepic={openEpicInBacklog}
             onaskepic={askAboutEpic}
             drain={store.drain}
-            {activeEpicKeys}
+            activeEpicKeys={herdEpics.keys}
             collapsedKeys={collapsedEpics}
             oncollapsetoggle={toggleEpicCollapse}
             onrenderedepicgroups={normalizeRenderedEpicCollapse}
@@ -4284,11 +4302,11 @@
               onopenbrowser={openBrowser}
               onrename={openRename}
               onamend={openAmend}
-              epics={store.epics}
+              epics={herdEpics.epics}
               onepic={openEpicInBacklog}
               onaskepic={askAboutEpic}
               drain={store.drain}
-              {activeEpicKeys}
+              activeEpicKeys={herdEpics.keys}
               collapsedKeys={collapsedEpics}
               oncollapsetoggle={toggleEpicCollapse}
               onrenderedepicgroups={normalizeRenderedEpicCollapse}

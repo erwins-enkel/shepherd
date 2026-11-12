@@ -92,16 +92,17 @@ export function projectKeySlug(key: string): string | null {
 }
 
 /**
- * The mirrored sessions a repo filter keeps: those whose project (`remoteSlug`, as their machine's
- * repo index names it) is the project of a selected repo, or the project a selected project key
- * names. The filter names this Shepherd's checkouts by path, which a session on another machine
- * never shares, so the match is by slug, ignoring case. Every session while no repo is selected.
+ * The mirrored sessions (or remote epics) a repo filter keeps: those whose project (`remoteSlug`,
+ * as their machine's repo index names it) is the project of a selected repo, or the project a
+ * selected project key names. The filter names this Shepherd's checkouts by path, which a session
+ * on another machine never shares, so the match is by slug, ignoring case. Every one while no repo
+ * is selected.
  */
-export function inRepoFilter(
-  remote: readonly Session[],
+export function inRepoFilter<T extends { remoteSlug?: string }>(
+  remote: readonly T[],
   repoFilter: ReadonlySet<string>,
   repos: readonly Pick<RepoEntry, "path" | "realPath" | "remoteSlug">[],
-): Session[] {
+): T[] {
   if (repoFilter.size === 0) return [...remote];
   const slugs = new Set(
     repos.flatMap((r) =>

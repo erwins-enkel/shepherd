@@ -24,7 +24,9 @@ import type {
   RemoteInstanceService,
   RemoteInstanceSummary,
 } from "../../src/remote-instances/service";
+import * as composeFx from "./compose-fixtures";
 import * as fx from "./event-fixtures";
+import * as mergeFx from "./merge-fixtures";
 import {
   bearer,
   collectEvents,
@@ -1024,6 +1026,48 @@ describe("sessions", () => {
       // A machine's whole mirrored set, and the empty set once it is removed.
       validateEvent("remote:sessions", { instanceId: host.instanceId, sessions: [ref] });
       validateEvent("remote:sessions", { instanceId: host.instanceId, sessions: [] });
+    } finally {
+      s.deps.remoteSessions = undefined;
+    }
+  });
+
+  test("GET /api/remote-epics lists the epics connected machines lead; remote:epics carries them", async () => {
+    const host = {
+      instanceId: "0b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d",
+      name: "Linux box",
+      platform: "linux",
+    };
+    const connection = { state: "connected", since: 1_790_000_000_000 };
+    const repoPath = "/home/p/Work/app";
+    const remote = {
+      ...composeFx.epic({
+        repoPath,
+        parentIssueNumber: 412,
+        mode: "auto",
+        status: "running",
+        agentProvider: null,
+        model: null,
+        effort: null,
+      }),
+      drain: { ...mergeFx.drain, repoPath, epicParent: 412 },
+      host,
+      connection,
+      remoteSlug: "acme/app",
+    };
+    s.deps.remoteSessions = {
+      list: () => [],
+      epics: () => [remote],
+      subscribe: () => () => {},
+    } as never;
+    try {
+      const res = await fetch(`${s.baseUrl}/api/remote-epics`, { headers: bearer(token) });
+      expect(await validateResponse("GET", "/api/remote-epics", res)).toEqual({ epics: [remote] });
+      const local = await fetch(`${s.baseUrl}/api/remote-epics?host=local`, {
+        headers: bearer(token),
+      });
+      expect(await validateResponse("GET", "/api/remote-epics", local)).toEqual({ epics: [] });
+      validateEvent("remote:epics", { instanceId: host.instanceId, epics: [remote] });
+      validateEvent("remote:epics", { instanceId: host.instanceId, epics: [] });
     } finally {
       s.deps.remoteSessions = undefined;
     }

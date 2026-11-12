@@ -39,7 +39,7 @@
     GROUP_KEY_BY_STAGE,
     type HerdFilter,
   } from "./herd-partition";
-  import { groupSessionsByEpic, sessionlessEpicGroups } from "./epic-grouping";
+  import { groupSessionsByEpic, isRemoteEpic, sessionlessEpicGroups } from "./epic-grouping";
   import { sessionlessEpicWait } from "./epic-sessionless";
   import { groupSessionsByExperiment } from "./experiment-grouping";
   import { collectReadyPrs } from "./merge-train";
@@ -408,8 +408,9 @@
   // being pulled into its epic, which would strand the remaining variant(s) (a lone variant won't
   // form a group). Epic grouping then runs over the remainder; a session is never double-grouped.
   const experimentGrouped = $derived(groupSessionsByExperiment(shown));
-  // A mirrored session the drain sent for an active epic's child joins that epic's group; the
-  // other mirrored sessions come back as `mirroredRest`.
+  // A mirrored session the drain sent for an active epic's child joins that epic's group, as does
+  // one that is a child of an epic its own machine leads (a remote epic, view-only); the other
+  // mirrored sessions come back as `mirroredRest`.
   const grouped = $derived(
     groupSessionsByEpic(
       experimentGrouped.rest,
@@ -423,18 +424,19 @@
     ),
   );
   // #3814: a running or paused epic with no child session keeps an (empty) group, so the herd
-  // still shows it and why it waits. Only in the plain "all" view of this Shepherd's own
-  // sessions: the ready lens and the status filter pick sessions, which such a group has none
-  // of, and the epics are this Shepherd's own. Matched against every listed session
+  // still shows it and why it waits. Only in the plain "all" view: the ready lens and the status
+  // filter pick sessions, which such a group has none of. The machine filter keeps this
+  // Shepherd's own epics under all/local and a remote epic under all or its machine; a remote one
+  // waits on its machine's drain, which it carries. Matched against every listed session
   // (pre-experiment, shelved included, and the mirrored ones shown) so an epic whose child renders
   // anywhere never shows as session-less. They follow the member groups, so the default-open
   // first group stays one with sessions. Rows: none — the keyboard rail (groupSessionsByEpic) is
   // unaffected.
-  const showSessionless = $derived(
-    filter === "all" &&
-      statusFilter == null &&
-      (machineFilter === "all" || machineFilter === "local"),
-  );
+  const showSessionless = $derived(filter === "all" && statusFilter == null);
+  const sessionlessInMachine = (epic: Epic) =>
+    isRemoteEpic(epic)
+      ? machineFilter === "all" || machineFilter === epic.host.instanceId
+      : machineFilter === "all" || machineFilter === "local";
   const completedEpicKeys = $derived(
     new Set(completedEpics.map((e) => `${e.repoPath}#${e.parentIssueNumber}`)),
   );
@@ -448,7 +450,15 @@
           repoFilter,
           completedEpicKeys,
           remoteShown,
-        ).map((g) => ({ ...g, wait: sessionlessEpicWait(g.epic, drain[g.epic.repoPath]) }))
+        )
+          .filter((g) => sessionlessInMachine(g.epic))
+          .map((g) => ({
+            ...g,
+            wait: sessionlessEpicWait(
+              g.epic,
+              isRemoteEpic(g.epic) ? g.epic.drain : drain[g.epic.repoPath],
+            ),
+          }))
       : []),
   ]);
   // Mirrored sessions skip experiment grouping (this Shepherd's own); those epic grouping left join

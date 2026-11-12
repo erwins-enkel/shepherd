@@ -1,9 +1,19 @@
 import { test, expect } from "vitest";
 import {
   groupSessionsByEpic as groupSessionsByEpicRaw,
+  remoteEpicKey,
   sessionlessEpicGroups,
+  withRemoteEpics,
 } from "./epic-grouping";
-import type { Session, GitState, Epic, EpicChild, SessionStatus } from "#lib/types.js";
+import type {
+  DrainStatus,
+  Session,
+  GitState,
+  Epic,
+  EpicChild,
+  RemoteEpic,
+  SessionStatus,
+} from "#lib/types.js";
 
 function session(
   id: string,
@@ -589,4 +599,133 @@ test("sessionless: an epic whose child runs as a listed mirrored session is not 
       (g) => g.key,
     ),
   ).toEqual([key("/r", 100)]);
+});
+
+// ── An epic a connected machine's drain leads (remote epic) ──────────────────────────────────
+
+const LINUX = { instanceId: "linux-1", name: "studio", platform: "linux" };
+function remoteEpic(childNumbers: number[], host = LINUX): RemoteEpic {
+  return {
+    ...epic("/home/u/repo", 50, childNumbers),
+    host,
+    connection: { state: "connected", since: 1 },
+    drain: { repoPath: "/home/u/repo", epicParent: 50 } as DrainStatus,
+  };
+}
+function remoteChild(id: string, issueNumber: number, host = LINUX): Session {
+  return { ...session(id, "/home/u/repo", issueNumber), host };
+}
+function groupWithRemote(
+  local: Session[],
+  mirrored: Session[],
+  ownEpics: Record<string, Epic> = {},
+  remote: RemoteEpic[] = [remoteEpic([51, 52])],
+) {
+  const merged = withRemoteEpics(ownEpics, new Set(Object.keys(ownEpics)), remote);
+  return groupSessionsByEpicRaw(
+    local,
+    merged.epics,
+    merged.keys,
+    {},
+    () => false,
+    () => false,
+    now,
+    mirrored,
+  );
+}
+
+test("remote epic: keyed by machine, checkout and parent; merged into the active keys", () => {
+  const e = remoteEpic([51]);
+  expect(remoteEpicKey(e)).toBe("remote:linux-1:/home/u/repo#50");
+  const own = { [key("/r", 100)]: epic("/r", 100, [101]) };
+  const merged = withRemoteEpics(own, new Set([key("/r", 100)]), [e]);
+  expect([...merged.keys]).toEqual([key("/r", 100), remoteEpicKey(e)]);
+  expect(merged.epics[remoteEpicKey(e)]).toBe(e);
+});
+
+test("remote epic: groups its machine's mirrored children by host + repoPath + issue", () => {
+  const out = groupWithRemote(
+    [],
+    [remoteChild("a", 51), remoteChild("b", 52), remoteChild("c", 9)],
+  );
+  expect(out.groups.map((g) => g.key)).toEqual(["remote:linux-1:/home/u/repo#50"]);
+  expect(out.groups[0].sessions.map((s) => s.id).sort()).toEqual(["a", "b"]);
+  expect(out.mirroredRest.map((s) => s.id)).toEqual(["c"]);
+});
+
+test("remote epic: the same issue from another machine or another checkout does not group", () => {
+  const other = { instanceId: "other-1", name: "mini", platform: "macos" };
+  const elsewhere = { ...remoteChild("b", 51), repoPath: "/srv/repo" };
+  const out = groupWithRemote([], [remoteChild("a", 51, other), elsewhere]);
+  expect(out.groups).toEqual([]);
+  expect(out.mirroredRest.map((s) => s.id)).toEqual(["a", "b"]);
+});
+
+test("remote epic: a local session with identical repoPath + issue is not pulled in", () => {
+  const local = session("local", "/home/u/repo", 51);
+  const out = groupWithRemote([local], []);
+  expect(out.groups).toEqual([]);
+  expect(out.rest).toEqual([local]);
+});
+
+test("remote epic: a session this Shepherd's drain sent stays with its own epic", () => {
+  // the Mac's own epic claimed this mirrored session for its child 101 (`elsewhere`)
+  const own = { [key("/r", 100)]: epicSentTo(101, "sent", LINUX) };
+  const sent = remoteChild("sent", 51);
+  const out = groupWithRemote([], [sent], own);
+  expect(out.groups.map((g) => [g.key, g.sessions.map((s) => s.id)])).toEqual([
+    [key("/r", 100), ["sent"]],
+  ]);
+});
+
+test("remote epic: a shelved mirrored child stays out", () => {
+  const shelved = { ...remoteChild("a", 51), shelved: true };
+  const out = groupWithRemote([], [shelved]);
+  expect(out.groups).toEqual([]);
+  expect(out.mirroredRest).toEqual([shelved]);
+});
+
+test("sessionless: a remote epic is session-less until a child from its machine is listed", () => {
+  const e = remoteEpic([51]);
+  const merged = withRemoteEpics({}, new Set(), [e]);
+  const run = (local: Session[], mirrored: Session[]) =>
+    sessionlessEpicGroups(local, merged.epics, merged.keys, none, none, mirrored).map((g) => g.key);
+  expect(run([], [])).toEqual([remoteEpicKey(e)]);
+  // a local session with the same checkout path + issue, or another machine's, does not list it
+  const other = { instanceId: "other-1", name: "mini", platform: "macos" };
+  expect(run([session("l", "/home/u/repo", 51)], [remoteChild("x", 51, other)])).toEqual([
+    remoteEpicKey(e),
+  ]);
+  expect(run([], [remoteChild("a", 51)])).toEqual([]);
+  // a repo filter names this Shepherd's paths: the caller filters remote epics by slug instead
+  expect(
+    sessionlessEpicGroups([], merged.epics, merged.keys, new Set(["/r"]), none, []).map(
+      (g) => g.key,
+    ),
+  ).toEqual([remoteEpicKey(e)]);
+});
+
+test("remote epic: a child it sent to a third machine groups it once, never also session-less", () => {
+  // Linux leads the epic and sent child 51 to the MacBook; this Shepherd mirrors both.
+  const e = remoteEpic([51, 52]);
+  e.children[0] = {
+    ...e.children[0],
+    elsewhere: { host: MAC, sessionId: "on-mac", prNumber: null },
+  };
+  const merged = withRemoteEpics({}, new Set(), [e]);
+  const onMac = mirroredSession("on-mac", 51, MAC);
+  const grouped = groupSessionsByEpicRaw(
+    [],
+    merged.epics,
+    merged.keys,
+    {},
+    () => false,
+    () => false,
+    now,
+    [onMac],
+  );
+  expect(grouped.groups.map((g) => [g.key, g.sessions.map((s) => s.id)])).toEqual([
+    [remoteEpicKey(e), ["on-mac"]],
+  ]);
+  expect(sessionlessEpicGroups([], merged.epics, merged.keys, none, none, [onMac])).toEqual([]);
 });

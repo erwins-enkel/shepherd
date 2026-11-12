@@ -187,6 +187,17 @@ describe("repo filter", () => {
     expect(ids(inRepoFilter(other, filter, repos))).toEqual(["a", "d"]);
   });
 
+  test("remote epics are kept by their project slug, like mirrored sessions", () => {
+    const epics = [
+      { parentIssueNumber: 1, remoteSlug: "Erwins-Enkel/Shepherd" },
+      { parentIssueNumber: 2, remoteSlug: "acme/app" },
+      { parentIssueNumber: 3 },
+    ];
+    const kept = inRepoFilter(epics, new Set(["/home/moe/projects/shepherd"]), repos);
+    expect(kept.map((e) => e.parentIssueNumber)).toEqual([1]);
+    expect(inRepoFilter(epics, new Set(), repos)).toHaveLength(3);
+  });
+
   test("a project key names its slug, lower-cased; a path is no project key", () => {
     expect(projectFilterKey("Kai/Murmur")).toBe("project:kai/murmur");
     expect(projectKeySlug(projectFilterKey("Kai/Murmur"))).toBe("kai/murmur");

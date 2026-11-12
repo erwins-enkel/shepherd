@@ -70,6 +70,8 @@ function setup(
   opts: {
     snapshot?: () => unknown | Promise<Response>;
     git?: () => unknown | Promise<Response>;
+    drain?: () => unknown | Promise<Response>;
+    epic?: (url: string) => unknown | Promise<Response>;
     self?: () => { instanceId: string; name: string };
   } = {},
 ) {
@@ -79,6 +81,8 @@ function setup(
     rows: new Map([[B, row()]]),
     snapshot: opts.snapshot ?? (() => [s1, s2]),
     git: opts.git ?? (() => ({})),
+    drain: opts.drain ?? (() => []),
+    epic: opts.epic ?? ((): unknown => new Response(null, { status: 500 })),
     /** What each machine's last probe said its checkout paths belong to. */
     repoSlugs: new Map<string, Map<string, string>>(),
   };
@@ -90,7 +94,13 @@ function setup(
   const machineEvents: [string, string, unknown][] = [];
   const fetch: FetchLike = async (url, init) => {
     requests.push({ url, init });
-    const body = await (url.endsWith("/api/git") ? state.git() : state.snapshot());
+    const body = await (url.endsWith("/api/git")
+      ? state.git()
+      : url.endsWith("/api/drain")
+        ? state.drain()
+        : url.includes("/api/epic?")
+          ? state.epic(url)
+          : state.snapshot());
     return body instanceof Response ? body : Response.json(body);
   };
   const openSocket: OpenSocket = (url, headers, on) => {
@@ -200,6 +210,7 @@ describe("session mirror", () => {
     expect(t.requests.map((r) => r.url)).toEqual([
       "http://b.test:7777/api/sessions?host=local",
       "http://b.test:7777/api/git",
+      "http://b.test:7777/api/drain",
     ]);
     for (const r of t.requests) {
       expect(new Headers(r.init.headers).get("authorization")).toBe(`Bearer ${TOKEN}`);
@@ -519,6 +530,89 @@ describe("session mirror", () => {
     expect(t.requests.every((r) => !r.url.includes(TOKEN))).toBe(true);
     expect(JSON.stringify(t.events)).not.toContain(TOKEN);
     expect(JSON.stringify(t.mirror.list())).not.toContain(TOKEN);
+  });
+});
+
+describe("epics a machine leads", () => {
+  const REPO = "/home/p/Work/app";
+  const drainOf = (epicParent: number | null) => ({ repoPath: REPO, enabled: true, epicParent });
+  const epicOf = (parent: number, title = "Epic") => ({
+    repoPath: REPO,
+    parentIssueNumber: parent,
+    parentTitle: title,
+    children: [{ number: parent + 1 }],
+    run: { status: "running" },
+  });
+  const host = { instanceId: B, name: "MacBook", platform: "macos" };
+  const connection = { state: "connected" as const, since: 1_000 };
+  const epicEvents = (t: ReturnType<typeof setup>) =>
+    t.events.filter(([e]) => e === "remote:epics");
+
+  test("a snapshot reads each led epic and sends the machine's epics", async () => {
+    const t = setup({
+      drain: () => [drainOf(42), { repoPath: "/other", epicParent: null }],
+      epic: (url) => {
+        expect(url).toBe(`http://b.test:7777/api/epic?repo=${encodeURIComponent(REPO)}&parent=42`);
+        return epicOf(42);
+      },
+    });
+    t.state.repoSlugs.set(B, new Map([[REPO, "acme/app"]]));
+    await t.live();
+    const expected = [
+      { ...epicOf(42), drain: drainOf(42), remoteSlug: "acme/app", host, connection },
+    ];
+    expect(t.mirror.epics()).toEqual(expected);
+    expect(epicEvents(t)).toEqual([["remote:epics", { instanceId: B, epics: expected }]]);
+    expect(t.mirror.list()).toHaveLength(2);
+  });
+
+  test("no drain status: no epics, sessions still show, nothing sent", async () => {
+    const t = setup({ drain: () => new Response(null, { status: 500 }) });
+    await t.live();
+    expect(t.mirror.epics()).toEqual([]);
+    expect(t.mirror.list()).toHaveLength(2);
+    expect(epicEvents(t)).toEqual([]);
+  });
+
+  test("a mirrored or malformed epic and a machine-sent remoteSlug are never taken", async () => {
+    const t = setup({ drain: () => [drainOf(42)], epic: () => ({ ...epicOf(42), host }) });
+    await t.live();
+    expect(t.mirror.epics()).toEqual([]);
+    const u = setup({
+      drain: () => [drainOf(42)],
+      epic: () => ({ ...epicOf(42), remoteSlug: "evil/x" }),
+    });
+    await u.live();
+    expect(u.mirror.epics()[0]).not.toHaveProperty("remoteSlug");
+  });
+
+  test("drain:status starts and ends a led epic; epic:update replaces only the led one", async () => {
+    const t = setup({ epic: () => epicOf(42) });
+    const socket = await t.live();
+    expect(t.mirror.epics()).toEqual([]);
+    send(socket, "drain:status", drainOf(42));
+    await flush();
+    expect(t.mirror.epics().map((e) => e.parentTitle)).toEqual(["Epic"]);
+    send(socket, "epic:update", epicOf(7, "Other"));
+    send(socket, "epic:update", epicOf(42, "Renamed"));
+    expect(t.mirror.epics().map((e) => e.parentTitle)).toEqual(["Renamed"]);
+    send(socket, "drain:status", drainOf(null));
+    expect(t.mirror.epics()).toEqual([]);
+    expect(epicEvents(t).map(([, d]) => (d as { epics: unknown[] }).epics.length)).toEqual([
+      1, 1, 0,
+    ]);
+  });
+
+  test("a lost link keeps the epics marked disconnected; removing the machine clears them", async () => {
+    const t = setup({ drain: () => [drainOf(42)], epic: () => epicOf(42) });
+    const socket = await t.live();
+    t.tick(5);
+    socket.on.close();
+    expect(t.mirror.epics()[0]!.connection).toEqual({ state: "disconnected", since: 1_005 });
+    t.state.machines = [];
+    t.mirror.sync(B);
+    expect(t.mirror.epics()).toEqual([]);
+    expect(epicEvents(t).at(-1)).toEqual(["remote:epics", { instanceId: B, epics: [] }]);
   });
 });
 

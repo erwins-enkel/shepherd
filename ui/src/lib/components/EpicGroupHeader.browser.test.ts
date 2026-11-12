@@ -190,4 +190,36 @@ describe("EpicGroupHeader", () => {
     expect(onepic).toHaveBeenCalledTimes(1);
     expect(onepic).toHaveBeenCalledWith("/home/u/Work/community-map", 327);
   });
+
+  it("names the machine of a remote epic and offers no menu (view-only)", async () => {
+    const host = { instanceId: "m1", name: "Studio", platform: "linux" };
+    render(EpicGroupHeader, {
+      epic: epic([child("running", 1)]),
+      collapsed: false,
+      cues: noCues,
+      nowMs: Date.now(),
+      host,
+      connection: { state: "connected", since: 1 },
+      ontoggle: () => {},
+    });
+    await expect.element(page.getByText("Studio")).toBeInTheDocument();
+    expect(document.querySelector(".machine-badge")).not.toBeNull();
+    const toggle = document.querySelector(".epic-toggle") as HTMLButtonElement;
+    const menu = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    toggle.dispatchEvent(menu);
+    // no onmenu → the native context menu stays
+    expect(menu.defaultPrevented).toBe(false);
+  });
+
+  it("shows no machine badge for this Shepherd's own epic", async () => {
+    render(EpicGroupHeader, {
+      epic: epic([child("running", 1)]),
+      collapsed: false,
+      cues: noCues,
+      nowMs: Date.now(),
+      ontoggle: () => {},
+    });
+    await expect.element(page.getByText("Ship the new map")).toBeInTheDocument();
+    expect(document.querySelector(".machine-badge")).toBeNull();
+  });
 });

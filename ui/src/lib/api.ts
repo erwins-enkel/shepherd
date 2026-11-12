@@ -120,6 +120,7 @@ import type {
   AccessToken,
   InstanceIdentity,
   RemoteDispatch,
+  RemoteEpic,
   PlacementPreview,
   RequirementsDerivation,
   PlacementRefusal,
@@ -1155,6 +1156,10 @@ export async function removeRemoteInstance(id: string): Promise<void> {
 export const listRemoteDispatches = async (): Promise<RemoteDispatch[]> =>
   (await getJson<{ dispatches: RemoteDispatch[] }>("/api/remote-dispatches", "remote dispatches"))
     .dispatches;
+
+/** The epics connected machines' drains lead, each with its machine. */
+export const listRemoteEpics = async (): Promise<RemoteEpic[]> =>
+  (await getJson<{ epics: RemoteEpic[] }>("/api/remote-epics", "remote epics")).epics;
 
 /** Cancel an unconfirmed task: `canceled` once its machine confirms, `canceling` while the cancel
  *  waits for the machine to answer. A dispatch that can no longer be canceled throws an ApiError

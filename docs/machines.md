@@ -28,6 +28,9 @@ moves to another machine by itself; you can move it with **Continue with…**
   out only on another machine gets a chip of its own (its menu offers only pin and filter, since
   there is no checkout here). The Herd, Busy, Idle and Blocked tallies in the top bar count
   every machine's sessions; the emergency stop still halts only your own.
+- **Its epics group their children.** An epic a machine's drain leads shows in your herd as its
+  own group, labelled with that machine, with the child sessions running there nested under it —
+  also while none runs. The group is view-only: run, pause and land the epic on that machine.
 - **Actions go to the machine.** The terminal, the chat (its messages, replies, answers,
   attachments and slash commands), steering, stopping, archiving, the diff, the files and the
   preview are sent to the machine and run there. While the machine can't be reached, nothing is

@@ -202,6 +202,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/up-next/body", `/api/up-next/body?repo=${r}&number=121`),
   get("/api/steers"),
   get("/api/project-icons"),
+  get("/api/settings-source"),
 
   // epics
   get("/api/epics", `/api/epics?repo=${r}`),
@@ -274,6 +275,7 @@ const INVENTORY: readonly Entry[] = [
   // mutations the demo flow really performs
   { method: "PUT", path: "/api/settings", body: { defaultModel: "opus" } },
   { method: "PUT", path: "/api/judge/connection", body: { key: "jev_demo_0123456789" } },
+  { method: "PUT", path: "/api/settings-source", body: { instanceId: null } },
   post("/api/judge/connection/verify"),
   {
     method: "PUT",

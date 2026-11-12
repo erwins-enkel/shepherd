@@ -209,6 +209,8 @@ const lensGetRoutes: Record<string, GetHandler> = {
   },
   "/api/steers": () => json(demoState.steers()),
   "/api/project-icons": () => json(demoState.projectIcons()),
+  // The demo connects no machines, so nothing can be the settings source (#3967).
+  "/api/settings-source": () => json({ source: null }),
 };
 
 // ── epics ────────────────────────────────────────────────────────────────
@@ -627,6 +629,17 @@ function handleSettingsMutation(method: string, path: string, body: unknown): Re
  *  key save answers honestly that it could not be checked and nothing was stored; every other
  *  write answers the unchanged status — a correctly-shaped JudgeConnectionStatus, never the
  *  generic success stub, which the panel would adopt and then dereference. */
+/** PUT /api/settings-source (#3967): clearing answers the unchanged `{source:null}`; naming a
+ *  machine answers what the server says for one it doesn't know, since the demo connects none. */
+function handleSettingsSourceMutation(
+  method: string,
+  path: string,
+  body: unknown,
+): Response | null {
+  if (method !== "PUT" || path !== "/api/settings-source") return null;
+  return str(body, "instanceId") ? json({ error: "not found" }, 404) : json({ source: null });
+}
+
 function handleJudgeConnectionMutation(
   method: string,
   path: string,
@@ -683,6 +696,7 @@ function handleRepoBootstrapMutation(method: string, path: string): Response | n
 function handleMutation(method: string, path: string, url: URL, body: unknown): Response | null {
   return (
     handleSettingsMutation(method, path, body) ??
+    handleSettingsSourceMutation(method, path, body) ??
     handleJudgeConnectionMutation(method, path, body) ??
     handleRepoMutation(method, path, body) ??
     handleRepoBootstrapMutation(method, path) ??

@@ -47,9 +47,11 @@ queue changes and archive execute on the session's machine. Closing still asks f
 and lets you choose which leftover processes to stop.
 
 Saved steering templates belong to the server selected in the app: when connected to Mo, both
-Mo and MacBook sessions use and edit Mo's templates. Sending a chip or its keyboard shortcut goes
-to the selected session's machine. Repository scopes match projects by their forge slug even if
-the checkout paths differ. Global merge and drain dashboards remain those of the selected server.
+Mo and MacBook sessions use and edit Mo's templates. If Mo uses another machine's steers, the app
+gets those ([Use a machine's steers and repo emojis](#use-a-machines-steers-and-repo-emojis)).
+Sending a chip or its keyboard shortcut goes to the selected session's machine. Repository scopes
+match projects by their forge slug even if the checkout paths differ. Global merge and drain
+dashboards remain those of the selected server.
 
 While a machine is disconnected, its tabs and last known data remain visible. Session actions
 are disabled, while editing the selected server's steering templates stays available. Reconnection
@@ -368,6 +370,38 @@ with that machine themselves. A device registered with both hears it once, from 
 Anything that happened while the machine was disconnected is not announced afterwards. Browsers and
 iOS apps that predate this only get the coordinator's own notifications.
 
+## Use a machine's steers and repo emojis
+
+A Shepherd you set up recently, say on your MacBook, has none of the steers and repo emojis your
+main Shepherd has. Instead of copying them, pick the main Shepherd as this one's **source of steers
+and repo emojis**: this Shepherd then uses that machine's steers and emojis live and keeps its own
+untouched.
+
+1. Connect the machine ([Connect it](#connect-it)).
+2. In **Settings → Machines**, click **Use its steers & emojis** on its row. This only works while
+   the machine is connected, and only for the signed-in operator: an access token can't set it. The
+   row then shows **Source of steers & emojis**.
+
+One machine at a time: using another one replaces the first. **Stop using its steers & emojis**
+returns to this Shepherd's own. While a source is set:
+
+- **Edits save on the source.** **Settings → Steers** and the emoji button in the repo picker read
+  and write that machine's steers and emojis. A change made there, or by another Shepherd using it,
+  shows up here without a reload.
+- **Projects match by forge slug.** A repo-bound steer or an emoji applies to the machine's own
+  sessions here, to a checkout here with the same `owner/repo` and to a project chip of that slug,
+  even when paths and folder names differ. A folder name alone never matches. An emoji for a
+  project the machine has no checkout of can't be saved, and the picker says why.
+- **Offline, last known state.** While the machine is out of reach, this Shepherd shows the steers
+  and emojis it last got from it, read-only: the steer editor says so and locks its fields, and the
+  emoji picker is disabled. Once the machine is connected again, both are current again.
+- **Your own come back untouched.** Stopping, or removing the machine, brings back this Shepherd's
+  own steers and emojis exactly as they were.
+- **The apps follow, with one gap.** The Mac and iOS apps connected to this Shepherd get the
+  machine's steers and emojis too. They match repo-bound steers against this Shepherd's repo names,
+  though, so such a steer can be missing there for a checkout whose folder name differs from the
+  machine's. Steers for all repos and emojis are not affected.
+
 ## Move a session to another machine
 
 **Continue with…** in a session's menu shows a **Machine** field while another machine is connected:
@@ -462,9 +496,11 @@ someone your login.
 - **No rule files.** The choice is made per task, from what it needs, never from rules kept in the
   repository or a subproject.
 - **Each Shepherd keeps its own.** Drain and epics, merging, settings (the platform order too),
-  usage limits and backlogs stay with each Shepherd. Nothing is merged across machines. A drain
-  sends a child that needs another machine there, but its run stays with the Shepherd that leads it
-  ([Epic children on another machine](#epic-children-on-another-machine)).
+  usage limits and backlogs stay with each Shepherd. Nothing is merged across machines. The one
+  exception is opt-in: a Shepherd can use a connected machine's steers and repo emojis instead of
+  its own ([Use a machine's steers and repo emojis](#use-a-machines-steers-and-repo-emojis)). A
+  drain sends a child that needs another machine there, but its run stays with the Shepherd that
+  leads it ([Epic children on another machine](#epic-children-on-another-machine)).
 - **Windows** is listed, but not released for tasks ([below](#windows-modeled-not-released)).
 
 ## Windows: modeled, not released

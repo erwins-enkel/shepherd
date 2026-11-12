@@ -365,6 +365,14 @@ import { listWorktree, resolveWorktreeFile } from "./worktree-files";
 import { loadSteers, saveSteers } from "./steers";
 import { AMENDMENT_MAX_CHARS, amendmentSteerText } from "./task-amendments";
 import { loadIcons, setIcon } from "./project-icons";
+import {
+  SETTINGS_RELAY_HEADER,
+  SETTINGS_SOURCE_ERRORS,
+  SettingsSourceService,
+  type SettingsSourceWrite,
+  localRepoIndex,
+  parseSettingsSourceBody,
+} from "./settings-source";
 import { listBranches } from "./branches";
 import { computeDiff, toSessionDiff } from "./diff";
 import { buildDiffNotes } from "./diff-annotations";
@@ -764,6 +772,10 @@ export interface AppDeps {
    *  `remoteInstances(deps)` accessor lazily builds an unstarted one from `store`; `index.ts`
    *  injects the started singleton that runs the periodic probe. */
   remoteInstances?: RemoteInstanceService;
+  /** The connected machine whose steers and repo emojis this Shepherd uses (#3967). Same memo-slot
+   *  contract as `remoteInstances`: `settingsSource(deps)` lazily builds one over it; `index.ts`
+   *  injects the one its session mirror feeds the machine's live edits to. */
+  settingsSource?: SettingsSourceService;
   /** The Shepherds mirroring this one right now (#3056), one entry per open `?host=local` socket.
    *  Same memo-slot contract: `incomingMirrors(deps)` builds it on first use. */
   incomingMirrors?: IncomingMirrors;
@@ -1397,6 +1409,16 @@ function accessTokens(deps: AppDeps): AccessTokenService {
 }
 function remoteInstances(deps: AppDeps): RemoteInstanceService {
   return (deps.remoteInstances ??= new RemoteInstanceService({ store: deps.store }));
+}
+function settingsSource(deps: AppDeps): SettingsSourceService {
+  return (deps.settingsSource ??= new SettingsSourceService({
+    store: deps.store,
+    instances: remoteInstances(deps),
+    emit: (event, data) => deps.events.emit(event, data),
+    localRepos: () => localRepoIndex(config.repoRoot, deps.resolveForge),
+    localSteers: () => loadSteers(deps.store, config.standardCommand),
+    localIcons: () => loadIcons(deps.store),
+  }));
 }
 function incomingMirrors(deps: AppDeps): IncomingMirrors {
   return (deps.incomingMirrors ??= new IncomingMirrors());
@@ -11577,39 +11599,95 @@ function putRepoRoot(value: unknown, deps: Ctx["deps"]): Response {
   return json({ repoRoot: root, repoRootDisplay: collapseHome(root) });
 }
 
+// ── settings source (#3967): the machine whose steers and repo emojis this Shepherd uses ──
+
+/** The settings source a steers/emoji request goes through, or null when this Shepherd answers
+ *  from its own settings: no source is set, or the request is another Shepherd's relay — which
+ *  always means this Shepherd's own, so a source is never chained and two never loop. */
+function viaSettingsSource(req: Request, deps: AppDeps): SettingsSourceService | null {
+  const source = settingsSource(deps);
+  return source.active() && !req.headers.has(SETTINGS_RELAY_HEADER) ? source : null;
+}
+
+function settingsSourceResponse<T>(result: SettingsSourceWrite<T>): Response {
+  return result.ok
+    ? json(result.value)
+    : json({ error: SETTINGS_SOURCE_ERRORS[result.code], code: result.code }, result.status);
+}
+
+/** A local steers/emoji write is announced only while this Shepherd's own settings are the
+ *  effective ones; under a source, its clients show the source's and must not be told otherwise. */
+function emitLocalSetting(deps: AppDeps, event: string, data: unknown): void {
+  if (!settingsSource(deps).active()) deps.events.emit(event, data);
+}
+
+async function handleSettingsSource({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "settings-source" || parts[2]) return null;
+  if (req.method === "GET") return json({ source: settingsSource(deps).view() });
+  if (req.method !== "PUT") return null;
+  // Choosing whose steers this Shepherd runs is the operator's call, not a token's.
+  const denied = requireOperatorSession(req);
+  if (denied) return denied;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const instanceId = parseSettingsSourceBody(await req.json().catch(() => null));
+  if (instanceId === undefined) return json({ error: "invalid_body" }, 400);
+  const result = settingsSource(deps).set(instanceId);
+  return result.ok ? json({ source: result.view }) : json({ error: "not found" }, 404);
+}
+
 // ── saved steers (canned prompts): list / replace ──
 async function handleSteers({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] === "api" && parts[1] === "steers" && !parts[2]) {
-    if (req.method === "GET") return json(loadSteers(deps.store, config.standardCommand));
-    if (req.method === "PUT") {
-      const ctErr = requireJsonContentType(req);
-      if (ctErr) return ctErr;
-      const body = await req.json().catch(() => null);
-      const steers = validateSteers(body);
-      if (!steers) return json({ error: "invalid steers payload" }, 400);
-      saveSteers(deps.store, steers);
-      return json(steers);
+    const source = viaSettingsSource(req, deps);
+    if (req.method === "GET") {
+      return json(source ? await source.steers() : loadSteers(deps.store, config.standardCommand));
     }
+    if (req.method === "PUT") return putSteers(req, deps, source);
   }
   return null;
+}
+
+async function putSteers(
+  req: Request,
+  deps: AppDeps,
+  source: SettingsSourceService | null,
+): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = await req.json().catch(() => null);
+  const steers = validateSteers(body);
+  if (!steers) return json({ error: "invalid steers payload" }, 400);
+  if (source) return settingsSourceResponse(await source.putSteers(steers));
+  saveSteers(deps.store, steers);
+  emitLocalSetting(deps, "steers:update", steers);
+  return json(steers);
 }
 
 // ── per-project icons: read full map / patch one entry ──
 async function handleProjectIcons({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] === "api" && parts[1] === "project-icons" && !parts[2]) {
-    if (req.method === "GET") return json(loadIcons(deps.store));
-    if (req.method === "PUT") {
-      const ctErr = requireJsonContentType(req);
-      if (ctErr) return ctErr;
-      const body = await req.json().catch(() => null);
-      const patch = validateIconPatch(body);
-      if (!patch) return json({ error: "invalid project-icon payload" }, 400);
-      const map = setIcon(deps.store, patch.path, patch.emoji);
-      deps.events.emit("project-icons:update", map);
-      return json(map);
-    }
+    const source = viaSettingsSource(req, deps);
+    if (req.method === "GET") return json(source ? await source.icons() : loadIcons(deps.store));
+    if (req.method === "PUT") return putProjectIcon(req, deps, source);
   }
   return null;
+}
+
+async function putProjectIcon(
+  req: Request,
+  deps: AppDeps,
+  source: SettingsSourceService | null,
+): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = await req.json().catch(() => null);
+  const patch = validateIconPatch(body);
+  if (!patch) return json({ error: "invalid project-icon payload" }, 400);
+  if (source) return settingsSourceResponse(await source.putIcon(patch.path, patch.emoji));
+  const map = setIcon(deps.store, patch.path, patch.emoji);
+  emitLocalSetting(deps, "project-icons:update", map);
+  return json(map);
 }
 
 // ── broadcast a steer to many sessions ──
@@ -14940,6 +15018,7 @@ const ROUTE_HANDLERS = [
   handleSettingsVerifyKey,
   handleSettings,
   handleHouseStackResolve,
+  handleSettingsSource,
   handleSteers,
   handleProjectIcons,
   handleBroadcast,

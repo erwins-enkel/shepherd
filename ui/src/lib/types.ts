@@ -3103,6 +3103,25 @@ export interface StarPromptStatus {
 /** repoPath → emoji map for per-project icons. */
 export type ProjectIcons = Record<string, string>;
 
+/** One checkout on the settings-source machine (#3967), as that machine reports it. */
+export interface RemoteRepo {
+  name: string;
+  path: string;
+  realPath: string;
+  /** Owner-qualified forge identity (`owner/repo`); null when the machine knows no remote. */
+  remoteSlug: string | null;
+}
+
+/** The connected machine whose steers and repo emojis this Shepherd uses live (#3967).
+ *  `reachable` false = its last known state is served read-only. */
+export interface SettingsSource {
+  instanceId: string;
+  name: string;
+  reachable: boolean;
+  /** The source machine's checkouts — what its repo-bound steers name. */
+  repos: RemoteRepo[];
+}
+
 // ── backlog ────────────────────────────────────────────────────────────────
 export interface BacklogProject {
   path: string;
@@ -3664,6 +3683,8 @@ export type WsEvent =
   | { event: "codex-update:done"; data: CodexUpdateResult }
   | { event: "plugin-update:status"; data: PluginUpdatesStatus }
   | { event: "project-icons:update"; data: ProjectIcons }
+  | { event: "steers:update"; data: Steer[] }
+  | { event: "settings-source:update"; data: SettingsSource | null }
   | { event: "repo-bootstrap:update"; data: { repoPath: string } }
   | { event: "schedules:changed"; data: { repoPath: string } }
   | { event: "session:recap"; data: { id: string; recap: Recap | null } }

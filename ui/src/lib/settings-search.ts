@@ -352,6 +352,8 @@ export function sectionSearchRows(ctx: {
       [m.settings_machines_list_title()],
       [m.settings_machines_connect_title(), m.settings_machines_connect_hint()],
       [m.settings_machines_incoming_title(), m.settings_machines_incoming_hint()],
+      // A machine row's settings source toggle (#3967): "steers", "emojis", "source".
+      [m.settings_machines_source_tip_title(), m.settings_machines_source_chip()],
     ],
     update: [
       [m.settings_tab_update()],

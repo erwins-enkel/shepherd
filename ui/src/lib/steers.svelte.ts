@@ -50,6 +50,24 @@ class SteersStore {
     }
   }
 
+  /** Re-read the list without overriding a save in flight (reconnect, settings source, #3967). */
+  async refresh() {
+    try {
+      this.apply(await getSteers());
+    } catch (e) {
+      this.error = e instanceof Error ? e.message : "failed to load steers";
+    }
+  }
+
+  /** Adopt a full list pushed over the WS (`steers:update`) or re-read. Ignored while a save is
+   *  queued or in flight: that save's answer is newer than this list, and adopting it here would
+   *  briefly revert the editor's edit. */
+  apply(list: Steer[]) {
+    if (this.#pending !== null || this.#draining) return;
+    this.list = list.map(normalize);
+    this.loaded = true;
+  }
+
   /** Replace the whole list (Settings editor). Coalescing serial writer: at most one PUT is
    *  in flight, the store converges to the latest payload, and a stale/failed older response
    *  is never adopted. The returned promise settles once the batch that included (or

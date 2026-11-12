@@ -2,8 +2,8 @@
   import { SvelteSet } from "svelte/reactivity";
   import type { Session } from "#lib/types.js";
   import { steers } from "#lib/steers.svelte.js";
-  import { repos } from "#lib/repos.svelte.js";
   import { steerAppliesToRepo } from "#lib/steer-scope.js";
+  import { steerRepoNamesFor } from "#lib/settings-source.svelte.js";
   import { broadcast as apiBroadcast } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { dialog } from "#lib/a11yDialog.js";
@@ -40,7 +40,11 @@
         (!s.repos?.length ||
           (selectedSessions.length > 0 &&
             selectedSessions.every((sess) =>
-              steerAppliesToRepo(s, repos.nameFor(sess.repoPath), sess.agentProvider ?? "claude"),
+              steerAppliesToRepo(
+                s,
+                steerRepoNamesFor(sess.repoPath),
+                sess.agentProvider ?? "claude",
+              ),
             ))),
     ),
   );

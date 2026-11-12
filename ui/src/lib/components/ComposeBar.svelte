@@ -15,8 +15,8 @@
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
   import { dialog } from "#lib/a11yDialog.js";
   import { steers } from "#lib/steers.svelte.js";
-  import { repos } from "#lib/repos.svelte.js";
   import { steerAppliesToRepo } from "#lib/steer-scope.js";
+  import { steerRepoNamesFor } from "#lib/settings-source.svelte.js";
 
   // Centered compose overlay: a real <textarea> (not xterm's hidden one) so
   // Android autocomplete / suggestions / double-space-period resolve natively
@@ -65,7 +65,7 @@
   // gate on repo binding — universal steers always show, bound ones only for a
   // matching repo.
   const availableSteers = $derived(
-    steers.list.filter((s) => steerAppliesToRepo(s, repos.nameFor(repoPath), agentProvider)),
+    steers.list.filter((s) => steerAppliesToRepo(s, steerRepoNamesFor(repoPath), agentProvider)),
   );
 
   // Load the slash-command list for this session's repo (its own

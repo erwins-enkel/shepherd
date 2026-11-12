@@ -6,8 +6,8 @@
   import { LazyBody } from "#lib/lazy-body.svelte.js";
   import { clock } from "#lib/now.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { repos } from "#lib/repos.svelte.js";
   import { steerAppliesToRepo } from "#lib/steer-scope.js";
+  import { steerRepoNamesFor } from "#lib/settings-source.svelte.js";
   import { steers } from "#lib/steers.svelte.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import type { UpNextPr, UpNextPrAction } from "#lib/types.js";
@@ -72,7 +72,9 @@
   // a steer leads the fix session's prompt. Merge, rebase and approve start no session.
   const fixSteers = $derived(
     pr?.action === "fix" && launchContext
-      ? steers.list.filter((s) => s.onIssues && steerAppliesToRepo(s, repos.nameFor(pr.repoPath)))
+      ? steers.list.filter(
+          (s) => s.onIssues && steerAppliesToRepo(s, steerRepoNamesFor(pr.repoPath)),
+        )
       : [],
   );
 

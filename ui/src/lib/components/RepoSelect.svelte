@@ -8,6 +8,8 @@
   import { searchRepos } from "#lib/repo-search.js";
   import EmojiPicker from "./EmojiPicker.svelte";
   import { projectIcons } from "#lib/projectIcons.svelte.js";
+  import { settingsSource, settingsSourceErrorText } from "#lib/settings-source.svelte.js";
+  import { toasts } from "#lib/toasts.svelte.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
 
   let {
@@ -63,8 +65,18 @@
   // repo path whose emoji picker is currently open (null = none)
   let pickerFor = $state<string | null>(null);
 
+  // Emojis from a settings source (#3967) that is out of reach are its last known state: no picks.
+  const iconsReadOnly = $derived(settingsSource.readOnly);
+  const iconLabel = $derived(
+    iconsReadOnly && settingsSource.source
+      ? m.reposelect_icon_readonly({ name: settingsSource.source.name })
+      : m.reposelect_set_icon(),
+  );
+
   function setIcon(path: string, emoji: string | null) {
-    projectIcons.set(path, emoji).catch(() => {});
+    projectIcons
+      .set(path, emoji)
+      .catch((e: unknown) => toasts.info(settingsSourceErrorText(e), { alert: true }));
     pickerFor = null;
   }
 
@@ -318,8 +330,9 @@
             <button
               type="button"
               class="rs-emoji-btn"
-              title={m.reposelect_set_icon()}
-              aria-label={m.reposelect_set_icon()}
+              title={iconLabel}
+              aria-label={iconLabel}
+              disabled={iconsReadOnly}
               onclick={(e) => {
                 e.stopPropagation();
                 pickerFor = pickerFor === r.path ? null : r.path;
@@ -405,7 +418,7 @@
           {m.newproject_trigger()}
         </button>
       {/if}
-      {#if pickerFor !== null}
+      {#if pickerFor !== null && !iconsReadOnly}
         <div class="rs-picker">
           <EmojiPicker
             value={projectIcons.iconFor(pickerFor)}
@@ -676,9 +689,13 @@
     cursor: pointer;
     color: var(--color-amber);
   }
-  .rs-emoji-btn:hover {
+  .rs-emoji-btn:hover:not(:disabled) {
     border-color: var(--color-amber);
     background: var(--color-hover);
+  }
+  /* a settings source out of reach (#3967): the emoji shows, but can't be changed */
+  .rs-emoji-btn:disabled {
+    cursor: default;
   }
   .rs-picker {
     position: absolute;

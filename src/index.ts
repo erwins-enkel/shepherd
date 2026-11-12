@@ -74,6 +74,9 @@ import { AccessTokenService } from "./access-tokens";
 import { CapabilityService } from "./remote-instances/capability-probe";
 import { RemoteInstanceService } from "./remote-instances/service";
 import { RemoteSessionMirror } from "./remote-instances/sessions";
+import { SettingsSourceService, localRepoIndex } from "./settings-source";
+import { loadSteers } from "./steers";
+import { loadIcons } from "./project-icons";
 import { attachMirrorPush } from "./remote-instances/push-relay";
 import { RemoteDispatcher, waitingAttachments } from "./remote-instances/dispatch";
 import { instanceIdentity, instancePlatform } from "./remote-instances/identity";
@@ -1190,11 +1193,23 @@ const remoteInstances = new RemoteInstanceService({ store });
 deferredStarts.push(() => remoteInstances.start());
 // Their sessions (#2762) follow each machine's probe: a connected probe opens (or re-snapshots) the
 // mirror, anything else marks its sessions disconnected. Held apart from `store`, never on `events`.
+// One of them may be this Shepherd's settings source (#3967): its steers and repo emojis are used
+// instead of this Shepherd's own, read and written through to it; its live edits arrive through
+// its mirror socket below.
+const settingsSource = new SettingsSourceService({
+  store,
+  instances: remoteInstances,
+  emit: (event, data) => events.emit(event, data),
+  localRepos: () => localRepoIndex(config.repoRoot, resolveForge),
+  localSteers: () => loadSteers(store, config.standardCommand),
+  localIcons: () => loadIcons(store),
+});
 // Each mirror names this Shepherd to its machine, which lists who mirrors it (#3056).
 const remoteSessions = new RemoteSessionMirror({
   store,
   instances: remoteInstances,
   self: () => instanceIdentity(store),
+  onMachineEvent: (instanceId, event) => settingsSource.onMachineEvent(instanceId, event),
 });
 remoteInstances.onChange((instanceId) => remoteSessions.sync(instanceId));
 // Their self-updates: the update window lists every machine behind its branch beside this one.
@@ -4528,6 +4543,7 @@ const appDeps: AppDeps = {
   repoConfig: repoConfigSvc,
   accessTokens: accessTokenSvc,
   remoteInstances,
+  settingsSource,
   remoteSessions,
   remoteDispatch,
   capabilities,

@@ -35,12 +35,29 @@ export type ProbeOutcome =
       /** Which project (slug) each of the machine's checkouts belongs to, by its path and its
        *  realpath — its sessions name their checkout by `repoPath`. */
       repoSlugs: Map<string, string>;
+      /** Every checkout the machine lists, slug or not — what a settings source's repo emojis
+       *  and repo-bound steers are keyed by (#3967). */
+      repos: RemoteRepo[];
       /** The machine's capability report re-based onto this clock; null when it sends none. */
       capabilities: CapabilitySnapshot | null;
       load: HostLoadSnapshot | null;
       loadReadAt: number;
     }
   | ProbeFailure;
+
+/** One checkout a machine lists in `GET /api/repos`, reduced to what names and matches it.
+ *  `realPath` is `path` when the machine sends none; `remoteSlug` null = no forge project. */
+export interface RemoteRepo {
+  name: string;
+  path: string;
+  realPath: string;
+  remoteSlug: string | null;
+}
+
+/** Caps on the repo index kept from a machine's answer: it is untrusted input that is held in
+ *  memory and persisted with a settings source's cache (#3967). */
+const REMOTE_REPOS_MAX = 1_000;
+const REMOTE_REPO_STRING_MAX = 1_024;
 
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -293,15 +310,48 @@ export function parseProjectPath(body: unknown, slug: string): string | null {
   return null;
 }
 
+/** A non-empty string within the cap, or null. */
+function boundedString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 && value.length <= REMOTE_REPO_STRING_MAX
+    ? value
+    : null;
+}
+
+/** One `GET /api/repos` entry as a `RemoteRepo`, or null when it lacks a usable name and path. */
+function parseRemoteRepo(entry: unknown): RemoteRepo | null {
+  if (!isRecord(entry)) return null;
+  const name = boundedString(entry.name);
+  const path = boundedString(entry.path);
+  if (!name || !path) return null;
+  return {
+    name,
+    path,
+    realPath: boundedString(entry.realPath) ?? path,
+    remoteSlug: boundedString(entry.remoteSlug),
+  };
+}
+
+/** The usable entries of a machine's repo list as `RemoteRepo`s, at most `REMOTE_REPOS_MAX`. Also
+ *  re-reads a settings source's persisted index (#3967), which is held to the same rules. */
+export function parseRemoteRepos(entries: readonly unknown[]): RemoteRepo[] {
+  const repos: RemoteRepo[] = [];
+  for (const entry of entries) {
+    if (repos.length >= REMOTE_REPOS_MAX) break;
+    const repo = parseRemoteRepo(entry);
+    if (repo) repos.push(repo);
+  }
+  return repos;
+}
+
 /** Project identity is the forge slug; a repo without one is not a project another machine can
  *  be matched on. Hidden repos count — hiding is a picker preference, not absence. */
-function parseProjects(
-  body: unknown,
-): { projects: string[]; repoSlugs: Map<string, string> } | null {
-  if (!isRecord(body) || !Array.isArray(body.repos)) return null;
+function projectSlugs(entries: readonly unknown[]): {
+  projects: string[];
+  repoSlugs: Map<string, string>;
+} {
   const slugs: string[] = [];
   const repoSlugs = new Map<string, string>();
-  for (const repo of body.repos as unknown[]) {
+  for (const repo of entries) {
     if (!isRecord(repo) || typeof repo.remoteSlug !== "string" || !repo.remoteSlug) continue;
     slugs.push(repo.remoteSlug);
     for (const path of [repo.path, repo.realPath]) {
@@ -309,6 +359,15 @@ function parseProjects(
     }
   }
   return { projects: [...new Set(slugs)].sort(), repoSlugs };
+}
+
+/** The machine's projects by slug, plus every listed checkout (slug or not) as its repo index. */
+function parseProjects(
+  body: unknown,
+): { projects: string[]; repoSlugs: Map<string, string>; repos: RemoteRepo[] } | null {
+  if (!isRecord(body) || !Array.isArray(body.repos)) return null;
+  const entries = body.repos as unknown[];
+  return { ...projectSlugs(entries), repos: parseRemoteRepos(entries) };
 }
 
 /**

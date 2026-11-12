@@ -116,6 +116,7 @@
   import { displayStatus } from "#lib/display-status.js";
   import { steers } from "#lib/steers.svelte.js";
   import { projectIcons } from "#lib/projectIcons.svelte.js";
+  import { settingsSource } from "#lib/settings-source.svelte.js";
   import { repos } from "#lib/repos.svelte.js";
   import { reviews, planGates, spawnNotices, repoConfig } from "#lib/reviews.svelte.js";
   import { openPreviewInNewTab } from "#lib/previewOpen.js";
@@ -1147,6 +1148,8 @@
     if (!opts?.force && now - lastResyncAt < 2_000) return;
     lastResyncAt = now;
     refreshHeldCount();
+    // Steers + repo emojis from a settings source (#3967) may have changed while offline.
+    void settingsSource.resync();
     listSessions()
       .then((list) => store.setAll(list))
       .catch(() => {});
@@ -2657,6 +2660,7 @@
       .catch(() => {});
     steers.load();
     projectIcons.load();
+    settingsSource.load();
     repos.load();
     reviews.load();
     planGates.load();

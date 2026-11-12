@@ -1344,6 +1344,13 @@ export class HerdStore {
     let ws: WebSocket | null = null;
     let stopped = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    // Gives up on a handshake that hangs: a socket opened over a dead route (Android resume before
+    // the network/VPN is back) can sit in CONNECTING with no onclose until the OS TCP timeout.
+    let connectTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearConnectTimer = () => {
+      if (connectTimer) clearTimeout(connectTimer);
+      connectTimer = null;
+    };
     // Consecutive short-lived connections — drives the reconnect backoff. Cleared only by a socket
     // that stayed open a while: on a flapping link the handshake often succeeds and the socket
     // dies seconds later, and resetting on every open would pin the loop at its 1 s floor.
@@ -1406,8 +1413,15 @@ export class HerdStore {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
-      ws = makeWs();
+      clearConnectTimer();
+      const sock = makeWs();
+      ws = sock;
+      connectTimer = setTimeout(() => {
+        connectTimer = null;
+        if (sock.readyState === WebSocket.CONNECTING) sock.close(); // → onclose → backoff retry
+      }, connectTimeout(failures));
       ws.onopen = () => {
+        clearConnectTimer();
         openedAt = Date.now();
         this.connected = true;
         clearGrace();
@@ -1427,6 +1441,7 @@ export class HerdStore {
         }
       };
       ws.onclose = () => {
+        clearConnectTimer();
         this.terminalOwners = null;
         if (this.connected) liveUntil = Date.now();
         this.connected = false;
@@ -1453,16 +1468,20 @@ export class HerdStore {
       // resumes in CONNECTING with a dead connection that may never fire
       // onopen/onclose, so treat it as stale and reopen — the open() swap nulls
       // the old socket's handlers first, so the abandoned connect is harmless.
-      if (ws && ws.readyState === WebSocket.OPEN) reportPresence();
-      else open(); // CONNECTING/CLOSING/CLOSED/none — resume the stream now
+      if (ws && ws.readyState === WebSocket.OPEN) return reportPresence();
+      // The operator is back: retry fast. The backoff grown by a pre-freeze outage would otherwise
+      // push the next try up to 30 s out when this first attempt beats the network back up.
+      failures = 0;
+      open(); // CONNECTING/CLOSING/CLOSED/none — resume the stream now
     };
     const onVisible = () => {
       syncAttended();
       return document.visibilityState === "visible" ? wake() : reportPresence();
     };
+    // Focus can return without a visibilitychange (notification shade, split screen).
     const onFocus = () => {
       syncAttended();
-      reportPresence();
+      wake();
     };
     const onBlur = () => {
       syncAttended();
@@ -1503,6 +1522,7 @@ export class HerdStore {
       stopped = true;
       this.reconnectNow = () => {};
       clearGrace();
+      clearConnectTimer();
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
@@ -1530,6 +1550,13 @@ const STABLE_SOCKET_MS = 10_000;
 /** How long the socket may be down before the UI says it is offline: a deploy restart or a tab
  *  wake reconnects within ~1–2 s and must not flash the notice. */
 const OFFLINE_GRACE_MS = 3_000;
+/** A handshake still pending after this long is abandoned and retried through the backoff. Doubles
+ *  with each failure (4 s → 30 s cap) so a slow-but-working link (in-flight Wi-Fi, DERP relay) still
+ *  connects eventually, while the first attempt after a wake gives up fast. */
+const CONNECT_TIMEOUT_BASE_MS = 4_000;
+export function connectTimeout(attempt: number): number {
+  return Math.min(RECONNECT_CAP_MS, CONNECT_TIMEOUT_BASE_MS * 2 ** attempt);
+}
 export function reconnectDelay(attempt: number, rand: () => number = Math.random): number {
   return Math.round(rand() * Math.min(RECONNECT_CAP_MS, RECONNECT_BASE_MS * 2 ** attempt));
 }

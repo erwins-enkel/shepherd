@@ -1,6 +1,6 @@
 import { describe, test, expect, vi, afterEach } from "vitest";
 import { amendments } from "./amendments.svelte";
-import { HerdStore, reconnectDelay } from "./store.svelte";
+import { HerdStore, connectTimeout, reconnectDelay } from "./store.svelte";
 import { repoBootstrap } from "./repo-bootstrap.svelte";
 import { schedules } from "./schedules.svelte";
 import { dropKey } from "./safe-keys";
@@ -637,6 +637,7 @@ test("tab return reconnects a dropped socket immediately, cancelling the frozen 
   made[0].close(); // onclose schedules backoff (frozen on a real device)
   dom.fire("d:", "visibilitychange"); // tab returns → reopen now
   expect(made.length).toBe(2);
+  made[1].accept(); // else the 4s connect timeout would legitimately retry it
   vi.advanceTimersByTime(5000); // the cancelled backoff must NOT spawn a 3rd socket
   expect(made.length).toBe(2);
   dispose();
@@ -680,6 +681,7 @@ test("pageshow(persisted) reconnects a dropped socket (iOS bfcache restore)", ()
   made[0].close();
   dom.fire("w:", "pageshow", { persisted: true });
   expect(made.length).toBe(2);
+  made[1].accept(); // else the 4s connect timeout would legitimately retry it
   vi.advanceTimersByTime(5000); // cancelled backoff must not spawn a 3rd
   expect(made.length).toBe(2);
   dispose();
@@ -718,6 +720,99 @@ test("dispose stops the reconnect loop", () => {
   dispose(); // closes the socket; stopped flag must suppress the reconnect
   vi.advanceTimersByTime(5000);
   expect(made.length).toBe(1);
+});
+
+test("tab return resets the backoff: a failed wake attempt retries within 1s, not the grown delay", () => {
+  vi.useFakeTimers();
+  vi.spyOn(Math, "random").mockReturnValue(0.999999);
+  const dom = stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  // Pre-freeze outage: four failed attempts grow the backoff to 16s.
+  for (const wait of [1_000, 2_000, 4_000, 8_000]) {
+    made[made.length - 1].close();
+    vi.advanceTimersByTime(wait);
+  }
+  expect(made.length).toBe(5);
+  dom.fire("d:", "visibilitychange"); // operator returns → reopen now
+  expect(made.length).toBe(6);
+  made[5].close(); // network not back yet on resume
+  vi.advanceTimersByTime(1_000);
+  expect(made.length).toBe(7);
+  vi.restoreAllMocks();
+  dispose();
+});
+
+test("a socket stuck CONNECTING past 4s is abandoned and retried; an open one is kept", () => {
+  vi.useFakeTimers();
+  vi.spyOn(Math, "random").mockReturnValue(0.999999);
+  stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  vi.advanceTimersByTime(3_999);
+  expect(made[0].readyState).toBe(0);
+  vi.advanceTimersByTime(1);
+  expect(made[0].readyState).toBe(3); // dead handshake given up
+  vi.advanceTimersByTime(1_000);
+  expect(made.length).toBe(2); // backoff retry
+  made[1].accept();
+  vi.advanceTimersByTime(10_000);
+  expect(made[1].readyState).toBe(1);
+  expect(made.length).toBe(2);
+  vi.restoreAllMocks();
+  dispose();
+});
+
+test("connectTimeout doubles per failure from 4s to a 30s cap", () => {
+  expect([0, 1, 2, 3, 10].map(connectTimeout)).toEqual([4_000, 8_000, 16_000, 30_000, 30_000]);
+});
+
+test("the connect timeout widens after a timed-out attempt, so a slow handshake still lands", () => {
+  vi.useFakeTimers();
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  vi.advanceTimersByTime(4_000); // attempt 0 times out at 4s
+  vi.advanceTimersByTime(1); // backoff (jitter 0) → retry
+  expect(made.length).toBe(2);
+  vi.advanceTimersByTime(7_998); // attempt 1 gets 8s
+  expect(made[1].readyState).toBe(0);
+  made[1].accept();
+  expect(s.connected).toBe(true);
+  vi.restoreAllMocks();
+  dispose();
+});
+
+test("a superseded socket's connect timeout never closes its replacement", () => {
+  vi.useFakeTimers();
+  const dom = stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  vi.advanceTimersByTime(2_000);
+  dom.fire("d:", "visibilitychange"); // replaces the CONNECTING socket
+  expect(made.length).toBe(2);
+  vi.advanceTimersByTime(2_500); // past the first socket's 4s deadline
+  expect(made[1].readyState).toBe(0);
+  expect(made.length).toBe(2);
+  dispose();
+});
+
+test("focus reconnects a dropped socket at once; on a live socket it only reports presence", () => {
+  vi.useFakeTimers();
+  const dom = stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  made[0].accept();
+  made[0].close(); // backoff pending
+  dom.fire("w:", "focus"); // focus-only return (no visibilitychange)
+  expect(made.length).toBe(2);
+  made[1].accept();
+  made[1].sent.length = 0;
+  dom.fire("w:", "focus");
+  expect(made.length).toBe(2);
+  expect(made[1].sent.some((m) => m.includes("presence"))).toBe(true);
+  dispose();
 });
 
 // ---- offline state (grace + browser online/offline) ----

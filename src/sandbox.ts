@@ -290,6 +290,10 @@ export interface MembraneInputs {
    *  under `~/.shepherd/browser-attach/`, which nothing else binds, so each membrane sees only
    *  its own session's token file. Absent → no flag (autonomous / Shared Browser off). */
   browserConfigFile?: string | null;
+  /** This session's scratchpad: host dir bound RW at the path claude derives for it inside the
+   *  membrane (`sandboxScratchpadBind` in tmp-sweep.ts). Absent → no flags (trusted / codex / aux
+   *  roles / disk redirect off), the membrane `/tmp` stays fully ephemeral. */
+  scratchpadBind?: { host: string; dest: string } | null;
   /** api-key mode: present <claudeDir>/.credentials.json as GENUINELY ABSENT
    *  inside the sandbox (not an empty /dev/null overlay) by binding every child
    *  of claudeDir individually EXCEPT the credential file — matching the
@@ -567,6 +571,21 @@ function managerRoots(home: string): string[] {
  */
 function managerScratch(home: string): Record<string, string[]> {
   return { [`${home}/.local/share/mise`]: ["shims"] };
+}
+
+/** The membrane's private `/tmp` (a `--tmpfs`); with `TMPDIR` cleared, claude's tmp root inside. */
+export const MEMBRANE_TMP = "/tmp";
+
+/**
+ * RW bind of the session scratchpad into the membrane tmpfs; empty when absent. Must follow
+ * `--tmpfs /tmp`. Each ancestor below {@link MEMBRANE_TMP} is created 0700 first — claude's own
+ * tree is 0700, and bwrap would otherwise mkdir the mountpoint's parents 0755.
+ */
+function scratchpadBindFlags(bind: { host: string; dest: string } | null | undefined): string[] {
+  if (!bind) return [];
+  const dirs: string[] = [];
+  for (let d = dirname(bind.dest); d !== MEMBRANE_TMP && d !== "/"; d = dirname(d)) dirs.unshift(d);
+  return [...dirs.flatMap((d) => ["--perms", "0700", "--dir", d]), "--bind", bind.host, bind.dest];
 }
 
 /**
@@ -931,7 +950,7 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
     "--dev",
     "/dev",
     "--tmpfs",
-    "/tmp",
+    MEMBRANE_TMP,
     "--tmpfs",
     home,
     // DNS: /etc/resolv.conf symlinks here on systemd-resolved hosts; no-op elsewhere.
@@ -984,6 +1003,7 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   f.push(...nodeToolchainFlags(inputs, exists));
   f.push(...miseConfigFlags(inputs.miseConfigFile));
   f.push(...toolBinFlags(inputs.ghBin));
+  f.push(...scratchpadBindFlags(inputs.scratchpadBind));
 
   // ── codex CLI (codex spawns only — claude flags stay byte-identical) ─────
   // MUST sit after the `--tmpfs home` above so the RW CODEX_HOME bind punches

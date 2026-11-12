@@ -380,6 +380,25 @@ describe("buildMembraneFlags", () => {
       );
   });
 
+  test("scratchpad: 0700 parents then RW bind after --tmpfs /tmp; none when absent", () => {
+    const host = "/home/me/.cache/shepherd/tmp/claude-1000/-wt/sid/scratchpad";
+    const dest = "/tmp/claude-1000/-wt/sid/scratchpad";
+    const f = buildMembraneFlags(fakeMembrane({ scratchpadBind: { host, dest } }), detDeps);
+    const tmpTmpfs = f.findIndex((v, k) => v === "/tmp" && f[k - 1] === "--tmpfs");
+    const at = f.indexOf("--perms");
+    expect(at).toBeGreaterThan(tmpTmpfs);
+    expect(f.slice(at, at + 15)).toEqual([
+      ...["--perms", "0700", "--dir", "/tmp/claude-1000"],
+      ...["--perms", "0700", "--dir", "/tmp/claude-1000/-wt"],
+      ...["--perms", "0700", "--dir", "/tmp/claude-1000/-wt/sid"],
+      ...["--bind", host, dest],
+    ]);
+    for (const absent of [undefined, null])
+      expect(buildMembraneFlags(fakeMembrane({ scratchpadBind: absent }), detDeps)).toEqual(
+        buildMembraneFlags(fakeMembrane(), detDeps),
+      );
+  });
+
   test("gh hosts file: RO bind over hosts.yml after the ~/.config/gh bind; task sessions only", () => {
     const file = "/run/shepherd/membrane/s1/session.gh-hosts.yml";
     const hosts = "/home/me/.config/gh/hosts.yml";

@@ -522,6 +522,12 @@ export interface ServiceDeps {
   /** Write a task membrane's gh `hosts.yml` carrying a keyring-stored token; returns its path.
    *  Absent ⇒ none. Wired to `prepareMembraneGhHosts` in index.ts. */
   prepareMembraneGhHosts?: (i: MembraneGhInputs) => Promise<string | null>;
+  /** Create a sandboxed claude session's host scratchpad dir; returns its membrane bind. Absent ⇒
+   *  no bind (keeps tests off the real tmp root). Wired to `sandboxScratchpadBind` in index.ts. */
+  prepareScratchpadBind?: (
+    worktreePath: string,
+    claudeSessionId: string,
+  ) => Promise<{ host: string; dest: string } | null>;
   /** The host's real `gh` binary for a task membrane (#3975). Absent ⇒ none. Wired to
    *  `resolveMembraneGhBin` in index.ts. */
   resolveMembraneGhBin?: () => Promise<string | null>;
@@ -3698,6 +3704,18 @@ export class SessionService {
     }
   }
 
+  /** claude's scratchpad sits in the membrane's private /tmp: bind it from the host so the Files
+   *  tab, uploads and archive cleanup see it. Codex has no scratchpad. */
+  private async membraneScratchpadBind(ctx: {
+    agentProvider?: string;
+    worktreePath: string;
+    claudeSessionId?: string;
+  }): Promise<{ host: string; dest: string } | null> {
+    const prepare = this.deps.prepareScratchpadBind;
+    if (!prepare || (ctx.agentProvider ?? "claude") !== "claude") return null;
+    return prepare(ctx.worktreePath, ctx.claudeSessionId ?? "");
+  }
+
   private async prepareSpawn(
     innerArgv: string[],
     ctx: {
@@ -3718,6 +3736,8 @@ export class SessionService {
        *  its read-only argv (e.g. append a permission bypass) or its env. */
       operatorAssistant?: boolean;
       resumeAllowed?: () => void;
+      /** Claude session UUID — keys the scratchpad bound into a sandboxed claude's membrane. */
+      claudeSessionId?: string;
     },
   ): Promise<SpawnOutcome> {
     const repoConfig = this.deps.store.getRepoConfig(ctx.repoPath);
@@ -3827,6 +3847,7 @@ export class SessionService {
           ingressFiles: ingress.files,
           claudeJsonCopy: await this.prepareSessionClaudeState(ctx.sessionId, ctx.worktreePath),
           ...(await this.prepareSessionForgeAndTools(ctx.sessionId, nodeBinReal)),
+          scratchpadBind: await this.membraneScratchpadBind(ctx),
         }
       : ({} as MembraneInputs);
 
@@ -4787,6 +4808,7 @@ export class SessionService {
       agentProvider: session.agentProvider,
       operatorAssistant: isOperatorAssistant(session),
       resumeAllowed,
+      claudeSessionId: session.claudeSessionId,
     }).catch((err) => {
       if (err instanceof UsagePauseResumeCanceled)
         return { ok: false as const, holdReason: "resume superseded" };
@@ -5449,6 +5471,7 @@ export class SessionService {
           model: spawnInput.model,
           agentProvider,
           signal: phases.signal,
+          claudeSessionId,
         }),
       );
       // Point of no return — unless a cancel got here first. The drivers check the signal at their
@@ -6552,6 +6575,7 @@ export class SessionService {
         profileOverride: launch.profileOverride,
         model: launch.spawnInput.model,
         agentProvider,
+        claudeSessionId,
       });
 
       await this.persistReplacementOrStop(s, agentProvider, launch, outcome);

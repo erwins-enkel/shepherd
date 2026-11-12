@@ -361,6 +361,7 @@ import {
   placeScratchpadUpload,
 } from "./scratchpad";
 import { buildTaskExport, resolveTranscript } from "./task-export";
+import { readSubagentDescription } from "./subagent-meta";
 import { listWorktree, resolveWorktreeFile } from "./worktree-files";
 import { loadSteers, saveSteers } from "./steers";
 import { AMENDMENT_MAX_CHARS, amendmentSteerText } from "./task-amendments";
@@ -644,7 +645,12 @@ import {
   type RepoSandboxSetting,
   SandboxAutoRefused,
 } from "./sandbox";
-import { validateHookEvent, type HookEvent, type SubagentEntry } from "./hooks-ingest";
+import {
+  validateHookEvent,
+  type HookEvent,
+  type RawHookEvent,
+  type SubagentEntry,
+} from "./hooks-ingest";
 import { quotaBlockReason, type BlockReason } from "./blocked";
 import { upstreamStatus } from "./upstream-status";
 import { shouldHold } from "./usage-hold";
@@ -1012,6 +1018,9 @@ export interface AppDeps {
     /** Every tracked session's sub-agent roster, keyed by sessionId (Phase 3, #710);
      *  served at `GET /api/subagents` for a global bootstrap, mirror of `activity`. */
     allSubagentsSnapshot(): Record<string, SubagentEntry[]>;
+    /** Sub-agent task names: does the roster entry still lack one / attach one (and push). */
+    subagentNeedsDescription(id: string, agentId: string): boolean;
+    setSubagentDescription(id: string, agentId: string, description: string): void;
   };
   /** Egress drop-watcher (#3921): the hooks route hands its queued blocked-host notes to the agent
    *  and `self_status` lists the blocks. Absent ⇒ no notes, `egressBlocked` reads null. */
@@ -8411,6 +8420,7 @@ async function handleSessionHooks({ req, parts, deps }: Ctx): Promise<Response |
   // `match: false` so HookIngest treats it as observe-only and never forwards to signals.
   const match = raw.sessionId === session.claudeSessionId;
   deps.hooks?.record(id, { ...raw, receivedAt: Date.now(), match });
+  if (match) void describeSubagent(deps, session, raw);
   // #3165: a PreToolUse reply body is parsed as a hook DECISION; answer with nothing so the
   // AskUserQuestion dialog renders exactly as without the hook (spike: 200 + empty body).
   if (raw.event === "PreToolUse") return new Response(null, { status: 200 });
@@ -8419,6 +8429,32 @@ async function handleSessionHooks({ req, parts, deps }: Ctx): Promise<Response |
   if (raw.event === "Stop" && match && (await goalTracker(deps).onStop(session)).pause)
     return json({ continue: false, stopReason: PLAN_GATE_STOP_REASON });
   return (match && (await egressHookReply(deps, id, raw.event))) || json({ ok: true }, 202);
+}
+
+/** Delays (ms) between reads of a sub-agent's meta sidecar: when Claude Code writes it relative to
+ *  the SubagentStart hook is undocumented. Exported so tests can shrink it. */
+export const SUBAGENT_META_RETRY_MS = { delays: [0, 250, 750, 2000] };
+
+/** Attach the sub-agent's task name (its Agent call `description`, from Claude Code's meta sidecar)
+ *  to the roster entry on a matched SubagentStart/Stop. Fire-and-forget off the hook reply; async
+ *  I/O only; stops once named or pruned. Codex sends no hooks, so only the Claude layout applies. */
+async function describeSubagent(deps: AppDeps, session: Session, ev: RawHookEvent): Promise<void> {
+  const { hooks } = deps;
+  const agentId = ev.agentId;
+  if (ev.event !== "SubagentStart" && ev.event !== "SubagentStop") return;
+  if (!hooks || !agentId || (session.agentProvider ?? "claude") !== "claude") return;
+  const path = resolveTranscript(session).path;
+  if (!path) return;
+  try {
+    for (const delay of SUBAGENT_META_RETRY_MS.delays) {
+      if (delay) await Bun.sleep(delay);
+      if (!hooks.subagentNeedsDescription(session.id, agentId)) return;
+      const description = await readSubagentDescription(path, agentId);
+      if (description) return hooks.setSubagentDescription(session.id, agentId, description);
+    }
+  } catch (err) {
+    console.warn(`[hooks] subagent description failed for session=${session.id}: ${String(err)}`);
+  }
 }
 
 /** A matched tool hook's reply carrying the session's queued blocked-host notes (#3921) as

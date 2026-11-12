@@ -90,6 +90,12 @@ test("summaries per tool family", () => {
     ["Glob", { pattern: "**/*.ts" }, "globbed **/*.ts"],
     ["Task", { subagent_type: "Explore" }, "dispatched Explore"],
     ["Task", {}, "dispatched agent"],
+    [
+      "Agent",
+      { subagent_type: "general-purpose", description: "Server side" },
+      "dispatched general-purpose: Server side",
+    ],
+    ["Agent", { subagent_type: "Explore", description: "  " }, "dispatched Explore"],
     ["Skill", { skill: "superpowers:brainstorming" }, "skill superpowers:brainstorming"],
     ["TodoWrite", { todos: [] }, "updated todos"],
     ["TaskCreate", { subject: "Wire up the parser" }, "added task: Wire up the parser"],

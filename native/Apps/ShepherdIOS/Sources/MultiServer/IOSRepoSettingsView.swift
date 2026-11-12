@@ -5,6 +5,8 @@ import ShepherdKit
 struct IOSRepoSettingsView: View {
     @State var model: IOSRepoSettingsModel
     @State private var confirming = false
+    @State private var resolving = false
+    @State private var switchingLeader = false
 
     var body: some View {
         Form {
@@ -13,12 +15,19 @@ struct IOSRepoSettingsView: View {
                     ForEach(project.machines, id: \.instanceId) { machine in
                         VStack(alignment: .leading, spacing: 6) {
                             Text(verbatim: machine.name).foregroundStyle(SessionListStyle.bright)
-                            Text(verbatim: machine.reachable ? L.t("native_repo_online") : L.t("native_repo_offline"))
+                            Text(verbatim: model.reachability(machine))
                             if project.leitrechner?.instanceId == machine.instanceId { Text(L.t("native_repo_leader")) }
                             if let commit = machine.config?.repoConfigCommit {
                                 Text(verbatim: String(commit.prefix(12)))
                             } else { Text(L.t(machine.reachable ? "native_repo_not_shared" : "native_repo_status_unavailable")) }
                         }.sessionFont(label: true).accessibilityElement(children: .combine)
+                    }
+                }
+                if model.hasDifferences && !model.isLocalOnly {
+                    Section {
+                        Text(L.t("native_repo_merge_hint"))
+                        Button(L.t("native_repo_merge")) { model.beginMerge(); resolving = model.merge != nil }
+                            .disabled(model.busy || model.writerID == nil)
                     }
                 }
                 if model.draft != nil && !model.isLocalOnly {
@@ -65,13 +74,11 @@ struct IOSRepoSettingsView: View {
                     }
                     if let writerID = model.writerID { IOSRepoRolesSection(client: model.client, slug: model.slug, instanceID: writerID).id(writerID) }
                     Section(L.t("native_repo_leader")) {
-                        Picker(L.t("native_repo_leader"), selection: Binding(
-                            get: { model.draft?.leader ?? "" }, set: { model.draft?.leader = $0.isEmpty ? nil : $0 })) {
-                            Text(L.t("native_repo_no_leader")).tag("")
-                            ForEach(project.machines.filter { $0.config != nil || $0.instanceId == project.leitrechner?.instanceId }, id: \.instanceId) {
-                                Text(verbatim: $0.name).tag($0.instanceId)
-                            }
-                        }
+                        if project.leitrechner?.reachable == false { Text(L.t("native_repo_jobs_paused")) }
+                        Button(L.t("native_repo_switch_leader")) {
+                            model.selectedLeader = project.leitrechner?.instanceId ?? ""
+                            switchingLeader = true
+                        }.disabled(model.busy)
                         rule("native_settings_repo_autodrainenabled", \.autoDrainEnabled)
                         rule("native_settings_repo_criticallprs", \.criticAllPrs)
                     }
@@ -113,6 +120,8 @@ struct IOSRepoSettingsView: View {
         .tint(SessionListStyle.amber).navigationTitle(model.slug)
         .task { await model.load() }
         .sheet(isPresented: $confirming) { confirmation }
+        .sheet(isPresented: $resolving) { IOSRepoResolutionSheet(model: model, merging: true) }
+        .sheet(isPresented: $switchingLeader) { IOSRepoResolutionSheet(model: model, merging: false) }
     }
 
     private func ruleHeading(_ title: StaticString) -> some View {

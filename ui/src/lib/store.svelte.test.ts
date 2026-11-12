@@ -45,6 +45,7 @@ import type {
   Epic,
   EpicChildState,
   GitState,
+  RemoteEpic,
   Session,
   SessionActivity,
   SubagentEntry,
@@ -2265,6 +2266,39 @@ test("remote:sessions replaces one machine's sessions and leaves the others (#27
   s.apply({ event: "remote:sessions", data: { instanceId: "m2", sessions: [] } });
   expect(s.remoteSessions.map((x) => x.id)).toEqual(["b"]);
   expect(s.sessions.map((x) => x.id)).toEqual(["local"]);
+});
+
+test("remote:epics replaces one machine's epics in place and leaves the others", () => {
+  const s = new HerdStore();
+  const m1 = { instanceId: "m1", name: "Linux", platform: "linux" };
+  const m2 = { instanceId: "m2", name: "Studio", platform: "linux" };
+  const m3 = { instanceId: "m3", name: "Mini", platform: "macos" };
+  const remoteEpic = (host: typeof m1, parent: number) =>
+    ({
+      repoPath: "/home/u/repo",
+      parentIssueNumber: parent,
+      host,
+      connection: { state: "connected", since: 1 },
+      drain: { repoPath: "/home/u/repo", epicParent: parent },
+    }) as unknown as RemoteEpic;
+  s.setRemoteEpics([remoteEpic(m1, 1), remoteEpic(m1, 2), remoteEpic(m2, 3)]);
+  const order = () => s.remoteEpics.map((e) => [e.host.instanceId, e.parentIssueNumber]);
+  s.apply({ event: "remote:epics", data: { instanceId: "m1", epics: [remoteEpic(m1, 4)] } });
+  expect(order()).toEqual([
+    ["m1", 4],
+    ["m2", 3],
+  ]);
+  s.apply({ event: "remote:epics", data: { instanceId: "m3", epics: [remoteEpic(m3, 5)] } });
+  expect(order()).toEqual([
+    ["m1", 4],
+    ["m2", 3],
+    ["m3", 5],
+  ]);
+  s.apply({ event: "remote:epics", data: { instanceId: "m1", epics: [] } });
+  expect(order()).toEqual([
+    ["m2", 3],
+    ["m3", 5],
+  ]);
 });
 
 test("upnext:changed dispatches an invalidation without changing other queues", async () => {

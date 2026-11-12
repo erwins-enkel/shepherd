@@ -987,6 +987,51 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Session"
+    RemoteEpic:
+      description: "An epic a connected machine's drain leads, exactly as that machine's GET /api/epic answers it (`repoPath` is the machine's own checkout), with that repo's drain status there and the same `host`, `connection` and `remoteSlug` a mirrored session carries. View-only: the herd groups that machine's child sessions under it; its run and landing stay on the machine."
+      allOf:
+        - $ref: "#/components/schemas/Epic"
+        - type: object
+          additionalProperties: true
+          required:
+            - drain
+            - host
+            - connection
+          properties:
+            drain:
+              $ref: "#/components/schemas/DrainStatus"
+            host:
+              $ref: "#/components/schemas/SessionHost"
+            connection:
+              $ref: "#/components/schemas/SessionConnection"
+            remoteSlug:
+              type: string
+              description: The project (`owner/repo`) the machine's repo index names for `repoPath`.
+    RemoteEpicList:
+      type: object
+      additionalProperties: false
+      required:
+        - epics
+      properties:
+        epics:
+          type: array
+          items:
+            $ref: "#/components/schemas/RemoteEpic"
+    RemoteEpicsEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - instanceId
+        - epics
+      description: The whole current set of epics one connected machine leads. Sent when it changes, on a change of that machine's connection, and on its removal (then with an empty list). A client replaces that machine's epics with `epics`.
+      properties:
+        instanceId:
+          type: string
+          description: The machine's instance ID, as in each epic's `host.instanceId`.
+        epics:
+          type: array
+          items:
+            $ref: "#/components/schemas/RemoteEpic"
     TaskTarget:
       type: object
       additionalProperties: false
@@ -11492,6 +11537,28 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/remote-epics:
+    get:
+      operationId: listRemoteEpics
+      description: The epics connected machines' drains lead, ordered by machine, then repo and parent issue. Empty with `host=local` (a Shepherd mirroring this one) and refused to a token restricted to repositories. remote:epics replaces one machine's set whenever it changes.
+      parameters:
+        - name: host
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - local
+          description: "`local`: this instance's own epics only — always none here."
+      responses:
+        "200":
+          description: The epics connected machines lead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteEpicList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/remote-dispatches:
     get:
       operationId: listRemoteDispatches
@@ -17309,6 +17376,10 @@ x-shepherd-events:
     description: Replaces the sessions mirrored from one connected machine (every one carries `host` and `connection`). Not sent on a `host=local` socket.
     schema:
       $ref: "#/components/schemas/RemoteSessionsEvent"
+  remote:epics:
+    description: Replaces the epics one connected machine leads (every one carries `host` and `connection`). Not sent on a `host=local` socket.
+    schema:
+      $ref: "#/components/schemas/RemoteEpicsEvent"
   remote:dispatch:
     description: "A task for a connected machine that is not settled changed: it became unknown (no answer), a cancel was requested, it started waiting here for its machine or its readiness or alternatives changed while it waits, its machine holds it, or it resolved (started, rejected, canceled, upload_failed, or redirected — it runs on this instance now). The whole current RemoteDispatch; a client shows it while its state is unknown, canceling, waiting or held and drops it otherwise. Not sent for a task the machine started right away."
     schema:

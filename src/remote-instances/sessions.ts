@@ -24,6 +24,11 @@
  * connection error is not an end. Reconnecting always goes through a probe first, so a URL that
  * now answers as a different instance can never be mirrored under this one's ID.
  *
+ * Epics: the machine's drain status (`GET /api/drain`) names the epic each repo's drain leads; each
+ * one is read with `GET /api/epic` in the same snapshot round, and `drain:status` / `epic:update`
+ * frames keep them current (`epics.ts`). They go out as `remote:epics`, one machine's whole set,
+ * only to dashboards — so the herd can group a machine's epic children under their epic.
+ *
  * Terminals (#2764): `openTerminal` bridges a caller's `/pty/:id` socket to the session's machine
  * (`terminal.ts`), but only while that machine's link is live — a reference shown as disconnected
  * has no terminal, and a link that drops or a machine that is removed ends its open terminals. The
@@ -38,6 +43,7 @@
 import { BATTERY_PAUSE_EVENT } from "../battery-pause-notice";
 import type { SessionStore } from "../store";
 import { type FetchLike, getRemoteJson, isRecord, type RemoteTarget, UUID_RE } from "./client";
+import { activeParents, asDrain, asEpic, type RemoteDrain, type RemoteEpicRow } from "./epics";
 import { mirrorIdentityHeaders } from "./identity";
 import type { RemoteInstanceService, RemoteInstanceSummary } from "./service";
 import {
@@ -76,6 +82,22 @@ export type MirroredSession = RemoteRow & {
   git?: RemoteGit;
   remoteSlug?: string;
 };
+
+/** An epic a connected machine leads, as that machine reported it, with the drain status of its
+ *  repo there, its machine and the connection state. `remoteSlug` as for a session. */
+export type MirroredEpic = RemoteEpicRow & {
+  drain: RemoteDrain;
+  host: SessionHost;
+  connection: SessionConnection;
+  remoteSlug?: string;
+};
+
+/** A repo's led epic on a machine; `epic` null until it has been read. */
+interface HeldEpic {
+  parent: number;
+  drain: RemoteDrain;
+  epic: RemoteEpicRow | null;
+}
 
 /** Who holds a session's terminal on its machine, as that machine reports it. */
 export interface TerminalClient {
@@ -121,6 +143,10 @@ type Instances = Pick<RemoteInstanceService, "list" | "check" | "repoSlugs" | "n
 
 interface Link {
   publishedSessions?: string;
+  /** The last `remote:epics` sent for this machine; "[]" until it had one. */
+  publishedEpics: string;
+  /** Repo path → the epic its drain leads there. */
+  epics: Map<string, HeldEpic>;
   instanceId: string;
   host: SessionHost;
   sessions: Map<string, RemoteRow>;
@@ -135,7 +161,7 @@ interface Link {
   socket: { close(): void } | null;
   open: boolean;
   /** Frames received while a snapshot request is in flight, replayed on top of it. */
-  buffer: [string, RemoteRow][] | null;
+  buffer: [string, unknown][] | null;
   /** The machine's current terminal owners; empty while the socket is not live. */
   owners: Record<string, TerminalClient>;
   /** Terminals bridged to this machine right now. */
@@ -265,7 +291,12 @@ export class RemoteSessionMirror {
     return [...this.links.values()].flatMap((link) => this.refs(link));
   }
 
-  /** Receives relayed `session:*` frames (annotated), `remote:sessions` replacements and
+  /** Every epic a connected machine leads, annotated like `list()`. */
+  epics(): MirroredEpic[] {
+    return [...this.links.values()].flatMap((link) => this.epicRefs(link));
+  }
+
+  /** Receives relayed `session:*` frames (annotated), `remote:sessions` / `remote:epics` replacements and
    *  `terminal:owners` (the machines' merged owners) whenever a machine's owners change. */
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -363,6 +394,8 @@ export class RemoteSessionMirror {
         host: { instanceId: machine.instanceId, name, platform: "unknown" },
         sessions: new Map(),
         git: new Map(),
+        epics: new Map(),
+        publishedEpics: "[]",
         repoSlugs: new Map(),
         connection: null,
         socketToken: null,
@@ -427,12 +460,13 @@ export class RemoteSessionMirror {
     if (link.buffer || !row) return;
     const token = link.socketToken;
     link.buffer = [];
-    const [res, gitRes] = await Promise.all([
+    const [res, gitRes, epics] = await Promise.all([
       getRemoteJson(row, "/api/sessions?host=local", {
         fetch: this.fetch,
         headers: this.identityHeaders(),
       }),
       getRemoteJson(row, "/api/git", { fetch: this.fetch }),
+      this.fetchEpics(link, row),
     ]);
     const buffered = link.buffer;
     link.buffer = null;
@@ -457,8 +491,88 @@ export class RemoteSessionMirror {
     }
     link.sessions = new Map(sessions.map((s) => [s.id, s]));
     link.git = gitRes.ok ? parseGitSnapshot(gitRes.body) : new Map();
-    for (const [event, data] of buffered) this.patch(link, event, data);
+    link.epics = epics;
+    for (const [event, data] of buffered) this.apply(link, event, data);
     this.publish(link);
+    this.publishEpics(link);
+  }
+
+  /** The epics the machine's drains lead, each read in full. A drain status the machine cannot
+   *  answer (an older release, a failure) leaves it without epics — its sessions still show. An
+   *  epic that cannot be read keeps the copy held for the same parent, if any. */
+  private async fetchEpics(link: Link, row: RemoteTarget): Promise<Map<string, HeldEpic>> {
+    const res = await getRemoteJson(row, "/api/drain", { fetch: this.fetch });
+    if (!res.ok) {
+      console.warn(
+        `[remote-sessions] ${link.host.name}: drain status failed (${res.failure.reason})`,
+      );
+      return new Map();
+    }
+    const active = activeParents(res.body);
+    const entries = await Promise.all(
+      [...active].map(async ([repoPath, { parent, drain }]) => {
+        const held = link.epics.get(repoPath);
+        const epic =
+          (await this.fetchEpic(row, repoPath, parent)) ??
+          (held?.parent === parent ? held.epic : null);
+        return [repoPath, { parent, drain, epic }] as const;
+      }),
+    );
+    return new Map(entries);
+  }
+
+  private async fetchEpic(
+    row: RemoteTarget,
+    repoPath: string,
+    parent: number,
+  ): Promise<RemoteEpicRow | null> {
+    const path = `/api/epic?repo=${encodeURIComponent(repoPath)}&parent=${parent}`;
+    const res = await getRemoteJson(row, path, { fetch: this.fetch });
+    const epic = res.ok ? asEpic(res.body) : null;
+    return epic?.repoPath === repoPath && epic.parentIssueNumber === parent ? epic : null;
+  }
+
+  /** A frame replayed after a snapshot: session frames patch the sessions, the others the epics. */
+  private apply(link: Link, event: string, data: unknown): void {
+    if (event.startsWith("session:")) this.patch(link, event, data as RemoteRow);
+    else this.patchEpics(link, event, data);
+  }
+
+  /** A `drain:status` starts, changes or ends the epic its repo leads (a newly led one is read
+   *  at once); an `epic:update` replaces a held epic when its repo leads exactly that one. */
+  private patchEpics(link: Link, event: string, data: unknown): void {
+    if (event === "epic:update") {
+      const epic = asEpic(data);
+      const held = epic && link.epics.get(epic.repoPath);
+      if (held && held.parent === epic.parentIssueNumber) held.epic = epic;
+      return;
+    }
+    const status = asDrain(data);
+    if (!status) return;
+    const repoPath = status.drain.repoPath;
+    if (status.parent == null) {
+      link.epics.delete(repoPath);
+      return;
+    }
+    const held = link.epics.get(repoPath);
+    if (held?.parent === status.parent) {
+      held.drain = status.drain;
+      return;
+    }
+    const entry: HeldEpic = { parent: status.parent, drain: status.drain, epic: null };
+    link.epics.set(repoPath, entry);
+    void this.readEpic(link, repoPath, entry);
+  }
+
+  /** Read a newly led epic; dropped if the link or the repo's led epic changed meanwhile. */
+  private async readEpic(link: Link, repoPath: string, entry: HeldEpic): Promise<void> {
+    const row = this.store.getRemoteInstance(link.instanceId);
+    if (!row) return;
+    const epic = await this.fetchEpic(row, repoPath, entry.parent);
+    if (!epic || this.links.get(link.instanceId) !== link || link.epics.get(repoPath) !== entry)
+      return;
+    entry.epic = epic;
+    this.publishEpics(link);
   }
 
   private receive(link: Link, raw: unknown): void {
@@ -483,6 +597,8 @@ export class RemoteSessionMirror {
       this.emit(frame.event, this.annotate(link, { ...frame.data, id: frame.data.sessionId }));
       return;
     }
+    if (frame.event === "drain:status" || frame.event === "epic:update")
+      return this.receiveEpicFrame(link, frame.event, frame.data);
     const data = frame.event.startsWith("session:") ? asRow(frame.data) : null;
     if (!data) return;
     if (link.buffer) link.buffer.push([frame.event, data]);
@@ -492,6 +608,13 @@ export class RemoteSessionMirror {
     // Activity lives in a separate client map and never changes the mirrored session rows.
     if (frame.event !== "session:activity") link.publishedSessions = undefined;
     this.emit(frame.event, this.annotate(link, data));
+  }
+
+  /** A `drain:status` / `epic:update` frame: buffered during a snapshot, else applied at once. */
+  private receiveEpicFrame(link: Link, event: string, data: unknown): void {
+    if (link.buffer) return void link.buffer.push([event, data]);
+    this.patchEpics(link, event, data);
+    this.publishEpics(link);
   }
 
   /** Keep the held copy current for what `GET /api/sessions` serves. Other frames only relay; the
@@ -562,6 +685,7 @@ export class RemoteSessionMirror {
     if (link.connection?.state === "connected") {
       link.connection = { state: "disconnected", since: this.now() };
       this.publish(link);
+      this.publishEpics(link);
     }
     this.scheduleRecheck(link);
   }
@@ -596,6 +720,8 @@ export class RemoteSessionMirror {
     socket?.close();
     this.endTerminals(link, announce);
     if (announce) this.emit("remote:sessions", { instanceId, sessions: [] });
+    if (announce && link.publishedEpics !== "[]")
+      this.emit("remote:epics", { instanceId, epics: [] });
   }
 
   private identityHeaders(): Record<string, string> {
@@ -626,6 +752,40 @@ export class RemoteSessionMirror {
     if (signature === link.publishedSessions) return;
     this.emit("remote:sessions", { instanceId: link.instanceId, sessions });
     link.publishedSessions = signature;
+  }
+
+  /** Sends the machine's epics when they differ from the last ones sent. */
+  private publishEpics(link: Link): void {
+    const epics = this.epicRefs(link);
+    const signature = JSON.stringify(epics);
+    if (signature === link.publishedEpics) return;
+    link.publishedEpics = signature;
+    this.emit("remote:epics", { instanceId: link.instanceId, epics });
+  }
+
+  private epicRefs(link: Link): MirroredEpic[] {
+    if (!link.connection) return [];
+    const connection = link.connection;
+    return [...link.epics.values()]
+      .flatMap(({ epic, drain }) => (epic ? [{ epic, drain }] : []))
+      .sort(
+        (a, b) =>
+          a.epic.repoPath.localeCompare(b.epic.repoPath) ||
+          a.epic.parentIssueNumber - b.epic.parentIssueNumber,
+      )
+      .map(({ epic, drain }) => {
+        const remoteSlug = link.repoSlugs.get(epic.repoPath);
+        // Only this side derives `remoteSlug`, as for sessions: a machine-sent one is dropped.
+        const own = { ...epic };
+        delete own.remoteSlug;
+        return {
+          ...own,
+          drain,
+          ...(remoteSlug ? { remoteSlug } : {}),
+          host: link.host,
+          connection,
+        };
+      });
   }
 
   private refs(link: Link): MirroredSession[] {

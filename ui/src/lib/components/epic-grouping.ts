@@ -1,5 +1,34 @@
-import type { Session, GitState, Epic } from "#lib/types.js";
+import type { Session, GitState, Epic, RemoteEpic } from "#lib/types.js";
 import { partitionSessions, flattenByStage, mirroredGit } from "./herd-partition";
+
+/** An epic a connected machine's drain leads carries its `host`; this Shepherd's own do not. */
+export function isRemoteEpic(e: Epic): e is RemoteEpic {
+  return "host" in e && !!(e as Partial<RemoteEpic>).host;
+}
+
+/** A remote epic's group key: its machine, that machine's checkout and the parent issue — never
+ *  the shape of a local key (`${repoPath}#${parent}`, repoPath absolute). */
+export function remoteEpicKey(e: RemoteEpic): string {
+  return `remote:${e.host.instanceId}:${e.repoPath}#${e.parentIssueNumber}`;
+}
+
+/** This Shepherd's epics and active keys with the connected machines' epics added — every remote
+ *  epic is active (its machine reports only the ones its drain leads). */
+export function withRemoteEpics(
+  epics: Record<string, Epic>,
+  activeKeys: ReadonlySet<string>,
+  remote: readonly RemoteEpic[],
+): { epics: Record<string, Epic>; keys: Set<string> } {
+  if (remote.length === 0) return { epics, keys: new Set(activeKeys) };
+  const merged: Record<string, Epic> = { ...epics };
+  const keys = new Set(activeKeys);
+  for (const e of remote) {
+    const key = remoteEpicKey(e);
+    merged[key] = e;
+    keys.add(key);
+  }
+  return { epics: merged, keys };
+}
 
 /** A mirrored session's identity as an epic child's `elsewhere` names it: the machine and the
  *  session there. */
@@ -23,15 +52,41 @@ function sentEpicOf(s: Session, index: ReadonlyMap<string, string>): string | un
   return s.host && !s.shelved ? index.get(sentKey(s.host.instanceId, s.id)) : undefined;
 }
 
-/** `${repoPath}#${childIssueNumber}` → epic key, from the given epics' children (repo-scoped). */
+/** `${repoPath}#${childIssueNumber}` → epic key, from the given epics' children (repo-scoped).
+ *  Remote epics are skipped: a local session never joins one. */
 function childIndex(epics: Record<string, Epic>, keys: Iterable<string>): Map<string, string> {
   const index = new Map<string, string>();
   for (const epicKey of keys) {
     const epic = epics[epicKey];
-    if (!epic) continue;
+    if (!epic || isRemoteEpic(epic)) continue;
     for (const c of epic.children) index.set(`${epic.repoPath}#${c.number}`, epicKey);
   }
   return index;
+}
+
+/** `${instanceId}:${repoPath}#${childIssueNumber}` → epic key, from the given remote epics'
+ *  children — keyed by the machine and its checkout, as its mirrored sessions name them. */
+function remoteChildIndex(
+  epics: Record<string, Epic>,
+  keys: Iterable<string>,
+): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const epicKey of keys) {
+    const epic = epics[epicKey];
+    if (!epic || !isRemoteEpic(epic)) continue;
+    for (const c of epic.children) {
+      index.set(`${epic.host.instanceId}:${epic.repoPath}#${c.number}`, epicKey);
+    }
+  }
+  return index;
+}
+
+/** The remote epic key a mirrored session belongs to as a child of its machine's epic, or
+ *  undefined — never for a shelved one. */
+function remoteEpicOf(s: Session, index: ReadonlyMap<string, string>): string | undefined {
+  return !s.host || s.shelved || s.issueNumber == null
+    ? undefined
+    : index.get(`${s.host.instanceId}:${s.repoPath}#${s.issueNumber}`);
 }
 
 /** The epic key a local session belongs to, or undefined. A shelved child renders in the Shelved
@@ -70,8 +125,11 @@ function collectMembers(
  *  A session mirrored from a connected machine (`mirrored`, #3055) carries that machine's
  *  checkout as `repoPath`, so it matches differently: it belongs to `E` iff `E`'s key is in
  *  `activeEpicKeys` and some child's `elsewhere` (the drain sent it there) names this session —
- *  same `host.instanceId` and `sessionId === session.id`. A shelved one never groups. Mirrored
- *  members are staged by the PR state their machine reports (`session.git`).
+ *  same `host.instanceId` and `sessionId === session.id`. Failing that, it belongs to a remote
+ *  epic (one a connected machine's drain leads, carrying `host`) iff same `host.instanceId`, same
+ *  `repoPath` (that machine's checkout) and `issueNumber` is a child number. A shelved one never
+ *  groups; a local session never joins a remote epic. Mirrored members are staged by the PR state
+ *  their machine reports (`session.git`).
  *
  *  `epics` is keyed `${repoPath}#${parentIssueNumber}`; it can hold stale/idle
  *  epics, and FINISHED epics are pruned from it (HerdStore.setEpic drops
@@ -99,13 +157,18 @@ export function groupSessionsByEpic(
   const local = childIndex(epics, activeEpicKeys);
   const rest = collectMembers(sessions, (s) => localEpicOf(s, local), members);
   const sent = sentIndex(epics, activeEpicKeys);
-  const mirroredRest = collectMembers(mirrored, (s) => sentEpicOf(s, sent), members);
+  const remote = remoteChildIndex(epics, activeEpicKeys);
+  const mirroredRest = collectMembers(
+    mirrored,
+    (s) => sentEpicOf(s, sent) ?? remoteEpicOf(s, remote),
+    members,
+  );
   const groupGit = mirrored.length > 0 ? { ...git, ...mirroredGit(mirrored) } : git;
 
   const groups = [...members.entries()]
     .map(([key, memberSessions]) => ({
       key,
-      // key came from childIndex or sentIndex, both built only from loaded epics → defined.
+      // key came from childIndex, sentIndex or remoteChildIndex, all built only from loaded epics.
       epic: epics[key],
       sessions: flattenByStage(
         partitionSessions(memberSessions, groupGit, isReviewing, isReworkRunning, now),
@@ -133,9 +196,11 @@ function byRepoThenParent(a: { epic: Epic }, b: { epic: Epic }): number {
  *  running or paused, it is not all-merged, it is not in `completedKeys` (the integrated band
  *  shows it), its repo passes `repoFilter` (empty = all), and no session in `sessions` is one of
  *  its children (same `repoPath`, `issueNumber` = a child number) and no session in `mirrored` is
- *  one the drain sent for a child (matched as in `groupSessionsByEpic`). Pass every local session
- *  the view lists — shelved and experiment members included — and the mirrored ones it lists, so
- *  an epic whose child renders elsewhere in the list never also shows as session-less. Sorted like
+ *  one the drain sent for a child (matched as in `groupSessionsByEpic`). For a remote epic the
+ *  first check is instead a mirrored session from its own machine that is one of its children (a
+ *  local session never counts); the sent-child check (`elsewhere`, any machine) applies to it as
+ *  well. Pass every local session the view lists — shelved and experiment members included — and
+ *  the mirrored ones it lists, so an epic whose child renders elsewhere in the list never also shows as session-less. Sorted like
  *  `groupSessionsByEpic`. */
 export function sessionlessEpicGroups(
   sessions: readonly Session[],
@@ -151,10 +216,24 @@ export function sessionlessEpicGroups(
   const listedThere = new Set(
     mirrored.flatMap((s) => (s.host ? [sentKey(s.host.instanceId, s.id)] : [])),
   );
+  const remoteListed = new Set(
+    mirrored.flatMap((s) =>
+      s.host && s.issueNumber != null
+        ? [`${s.host.instanceId}:${s.repoPath}#${s.issueNumber}`]
+        : [],
+    ),
+  );
+  // A child is listed by its own session (a local one for a local epic, one from the epic's machine
+  // for a remote epic) or by the session its `elsewhere` names on another machine — the same two
+  // ways `groupSessionsByEpic` places a member, so a grouped epic never also shows session-less.
+  const ownListed = (epic: Epic, c: Epic["children"][number]) =>
+    isRemoteEpic(epic)
+      ? remoteListed.has(`${epic.host.instanceId}:${epic.repoPath}#${c.number}`)
+      : withSession.has(`${epic.repoPath}#${c.number}`);
   const listed = (epic: Epic) =>
     epic.children.some(
       (c) =>
-        withSession.has(`${epic.repoPath}#${c.number}`) ||
+        ownListed(epic, c) ||
         (!!c.elsewhere?.sessionId &&
           listedThere.has(sentKey(c.elsewhere.host.instanceId, c.elsewhere.sessionId))),
     );
@@ -167,10 +246,12 @@ export function sessionlessEpicGroups(
   return groups.sort(byRepoThenParent);
 }
 
-/** A running or paused epic, not all-merged, whose repo passes `repoFilter` (empty = all). */
+/** A running or paused epic, not all-merged, whose repo passes `repoFilter` (empty = all). A
+ *  remote epic's checkout is never one of this Shepherd's paths: the caller filters those by
+ *  project slug (`inRepoFilter`) before they get here. */
 function waitsInView(epic: Epic, repoFilter: ReadonlySet<string>): boolean {
   if (epic.run.status !== "running" && epic.run.status !== "paused") return false;
-  if (repoFilter.size > 0 && !repoFilter.has(epic.repoPath)) return false;
+  if (repoFilter.size > 0 && !isRemoteEpic(epic) && !repoFilter.has(epic.repoPath)) return false;
   const { children } = epic;
   return !(children.length > 0 && children.every((c) => c.state === "merged"));
 }

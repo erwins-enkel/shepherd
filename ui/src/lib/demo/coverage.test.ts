@@ -151,6 +151,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/me"),
   get("/api/sessions"),
   get("/api/remote-dispatches"),
+  get("/api/remote-epics"),
   get("/api/sessions/done"),
   get("/api/sessions/clear-merged"),
   get("/api/repos"),

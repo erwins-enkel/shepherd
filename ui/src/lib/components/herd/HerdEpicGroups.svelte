@@ -6,6 +6,7 @@
   import EpicGroupMenu from "../EpicGroupMenu.svelte";
   import EpicDiagnosisModal from "../EpicDiagnosisModal.svelte";
   import type { SessionlessEpicWait } from "../epic-sessionless";
+  import { isRemoteEpic } from "../epic-grouping";
   import { m } from "#lib/paraglide/messages.js";
 
   type EpicGroupEntry = {
@@ -85,18 +86,23 @@
 </script>
 
 {#each groups as g, i (g.key)}
+  <!-- An epic another machine leads is view-only: its machine badge, no backlog link, no menu —
+       it is run and landed there. Collapsing still works. -->
+  {@const remote = isRemoteEpic(g.epic) ? g.epic : null}
   <!-- Only the first badge anchors the coachmark: coachTargets keys one node per id. -->
   <EpicGroupHeader
     epic={g.epic}
     collapsed={collapsedKeys.has(g.key)}
     cues={cuesFor(g)}
     nowMs={ctx.nowMs}
-    slots={slotsFor(g.epic.repoPath)}
+    slots={remote ? null : slotsFor(g.epic.repoPath)}
     coachId={i === 0 ? "epic-timing" : ""}
     sessionless={!!g.wait}
+    host={remote?.host}
+    connection={remote?.connection}
     ontoggle={() => oncollapsetoggle?.(g.key)}
-    {onepic}
-    onmenu={(x, y, opener) => openMenu(g.key, x, y, opener)}
+    onepic={remote ? undefined : onepic}
+    onmenu={remote ? undefined : (x, y, opener) => openMenu(g.key, x, y, opener)}
   />
   {#if !collapsedKeys.has(g.key)}
     {#if g.wait}
@@ -108,13 +114,15 @@
         {#each g.wait.lines as line, j (j)}
           <p class="sl-line">{line}</p>
         {/each}
-        <button
-          bind:this={noteButtons[g.key]}
-          type="button"
-          class="gbtn"
-          onclick={() => onepic?.(g.epic.repoPath, g.epic.parentIssueNumber)}
-          >{m.epic_sessionless_open()}</button
-        >
+        {#if !remote}
+          <button
+            bind:this={noteButtons[g.key]}
+            type="button"
+            class="gbtn"
+            onclick={() => onepic?.(g.epic.repoPath, g.epic.parentIssueNumber)}
+            >{m.epic_sessionless_open()}</button
+          >
+        {/if}
       </div>
     {:else}
       <div class="epic-children">

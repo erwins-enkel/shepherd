@@ -1,8 +1,9 @@
 <script lang="ts">
-  import type { Epic } from "#lib/types.js";
+  import type { Epic, SessionConnection, SessionHost } from "#lib/types.js";
   import { projectIcons } from "#lib/projectIcons.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import EpicBadge from "./EpicBadge.svelte";
+  import MachineBadge from "./MachineBadge.svelte";
   import { longPress } from "./longpress";
 
   let {
@@ -13,6 +14,8 @@
     slots = null,
     coachId = "",
     sessionless = false,
+    host = undefined,
+    connection = undefined,
     ontoggle,
     onepic,
     onmenu,
@@ -37,6 +40,11 @@
     /** #3814: the epic runs (or is paused) with no child session here — a chip says so, also
      *  while the group is collapsed. */
     sessionless?: boolean;
+    /** The machine whose drain leads this epic, when it is not this Shepherd's own: the header
+     *  names it with its badge. */
+    host?: SessionHost;
+    /** That machine's link state, for the badge's tooltip. */
+    connection?: SessionConnection;
     ontoggle: () => void;
     // an epic badge was clicked → open the backlog on this repo, scrolled to the epic
     onepic?: (repoPath: string, issueNumber: number) => void;
@@ -97,6 +105,10 @@
     {coachId}
     {onepic}
   />
+
+  {#if host}
+    <MachineBadge {host} {connection} {nowMs} />
+  {/if}
 
   <span class="cues">
     {#if sessionless}

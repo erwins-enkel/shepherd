@@ -41,6 +41,7 @@ import type {
   OperatorAssistantUnavailableReason,
   AssistantPermissions,
   RemoteDispatch,
+  RemoteEpic,
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
@@ -101,6 +102,10 @@ export class HerdStore {
   /** Tasks sent to connected machines whose start no machine has confirmed (#2774); bootstrapped
    *  via GET /api/remote-dispatches, kept live by `remote:dispatch`. Shown atop the herd. */
   remoteDispatches = $state<RemoteDispatch[]>([]);
+  /** Epics connected machines' drains lead, each machine's set in arrival order; bootstrapped via
+   *  GET /api/remote-epics, kept live by `remote:epics`. The herd groups their mirrored children
+   *  under them, view-only. */
+  remoteEpics = $state<RemoteEpic[]>([]);
   blocks = $state<Record<string, BlockState>>({});
   connected = $state(false);
   terminalOwners = $state<Record<string, TerminalClientInfo> | null>(null);
@@ -610,6 +615,19 @@ export class HerdStore {
     this.remoteDispatches = list;
   }
 
+  setRemoteEpics(list: RemoteEpic[]) {
+    this.remoteEpics = list;
+  }
+
+  /** `remote:epics` replaces one machine's whole set, in the place its old set held (appended for
+   *  a machine not shown yet), so the other machines' epics keep their order. */
+  private applyRemoteEpics(instanceId: string, epics: RemoteEpic[]) {
+    const at = this.remoteEpics.findIndex((e) => e.host.instanceId === instanceId);
+    const others = this.remoteEpics.filter((e) => e.host.instanceId !== instanceId);
+    const i = at === -1 ? others.length : at;
+    this.remoteEpics = [...others.slice(0, i), ...epics, ...others.slice(i)];
+  }
+
   /** A shown task that resolved leaves the herd — its session, if it started, is in the machine's
    *  group already — and a toast says how it ended. */
   private applyRemoteDispatch(d: RemoteDispatch) {
@@ -623,6 +641,8 @@ export class HerdStore {
     // A status change re-animates the rested pulses so the change catches the eye (#3035).
     wakeMotionOn(ev.event);
     if (ev.event === "remote:dispatch") return this.applyRemoteDispatch(ev.data);
+    if (ev.event === "remote:epics")
+      return this.applyRemoteEpics(ev.data.instanceId, ev.data.epics);
     // A machine connected, dropped, was removed or re-synced: its chip in the herd follows (#3055).
     if (ev.event === "remote:sessions") void machines.refresh();
     // A decommissioned row leaves in this same update, so it never shows un-dimmed; a restore

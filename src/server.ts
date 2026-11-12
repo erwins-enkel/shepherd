@@ -787,7 +787,7 @@ export interface AppDeps {
     RemoteSessionMirror,
     "list" | "subscribe" | "has" | "terminalOwners" | "openTerminal" | "route" | "machines"
   > &
-    Partial<Pick<RemoteSessionMirror, "acceptSession">>;
+    Partial<Pick<RemoteSessionMirror, "acceptSession" | "epics">>;
   /** Sends new tasks to connected machines (#2763), lists the ones no machine has confirmed and
    *  cancels them (#2774), keeps the ones waiting for their machine and redirects them (#2775).
    *  Same memo-slot contract as `remoteInstances`: the `remoteDispatcher(deps)` accessor lazily
@@ -2956,6 +2956,14 @@ async function handleDispatches({ req, parts, deps }: Ctx): Promise<Response | n
 //                          possible
 //   POST /{id}/redirect  → run a waiting one on another fitting machine, or this one (#2775)
 // `full` scope only, and not classified for repository-restricted tokens (deny by default there).
+/** `GET /api/remote-epics`: the epics connected machines lead, for the herd to group their
+ *  children under. Same reach as the mirrored sessions (`reachesMachines`). */
+async function handleRemoteEpics({ req, parts, url, deps, token }: Ctx): Promise<Response | null> {
+  if (!(req.method === "GET" && parts[0] === "api" && parts[1] === "remote-epics" && !parts[2]))
+    return null;
+  return json({ epics: reachesMachines(url, token) ? (deps.remoteSessions?.epics?.() ?? []) : [] });
+}
+
 async function handleRemoteDispatches(ctx: Ctx): Promise<Response | null> {
   const { req, parts, deps } = ctx;
   if (parts[0] !== "api" || parts[1] !== "remote-dispatches") return null;
@@ -15025,6 +15033,7 @@ const ROUTE_HANDLERS = [
   handleHeld,
   handleDispatches,
   handleRemoteDispatches,
+  handleRemoteEpics,
   handlePlacementPreview,
   handleRequirementsDerive,
   handleRetry,

@@ -268,6 +268,57 @@ describe("mirrored sessions", () => {
     expect(ids(await get(a, "/api/sessions?host=local"))).toEqual([own.id]);
   });
 
+  test("an epic the machine leads reaches GET /api/remote-epics and dashboards, never the hub", async () => {
+    const a = startNode();
+    const b = startNode();
+    const epic = {
+      repoPath: repo,
+      parentIssueNumber: 5,
+      parentTitle: "Epic on B",
+      children: [{ number: 6 }],
+      run: { status: "running" },
+    };
+    let led: number | null = 5;
+    b.deps.drain = {
+      snapshot: async () => [{ repoPath: repo, enabled: true, epicParent: led }],
+      buildEpic: async () => epic,
+    } as never;
+    const frames = await dashboard(a);
+    const bId = await connect(a, b);
+    const getEpics = async (path = "/api/remote-epics", token = a.token) => {
+      const res = await fetch(`${a.base}${path}`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { epics: Record<string, unknown>[] }).epics;
+    };
+    const epics = await until(getEpics, (l) => l.length === 1);
+    expect(epics[0]).toMatchObject({
+      ...epic,
+      drain: { repoPath: repo, epicParent: 5 },
+      host: { instanceId: bId },
+      connection: { state: "connected" },
+    });
+    await until(
+      () => frames,
+      (f) => f.some((x) => x.event === "remote:epics" && x.data.instanceId === bId),
+    );
+    expect(a.hub.some(([event]) => event === "remote:epics")).toBe(false);
+
+    // A repo-restricted token is refused (no repository policy); `host=local` gets none.
+    const restricted = a.deps.accessTokens!.mint("repo", null, "full", [repo]).token;
+    const res = await fetch(`${a.base}/api/remote-epics`, {
+      headers: { authorization: `Bearer ${restricted}` },
+    });
+    expect(res.status).toBe(403);
+    expect(await getEpics("/api/remote-epics?host=local")).toEqual([]);
+
+    // The drain stops leading it: gone, live.
+    led = null;
+    b.deps.events.emit("drain:status", { repoPath: repo, enabled: true, epicParent: null });
+    await until(getEpics, (l) => l.length === 0);
+  });
+
   test("the machine's PR state reaches the reference and nothing local (#3055)", async () => {
     const a = startNode();
     const b = startNode();

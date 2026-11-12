@@ -2211,6 +2211,16 @@ export interface ClearMergedResult {
   machines: (MachineOutcome & { requested: string[]; cleared: string[] })[];
 }
 
+/** An epic a connected machine's drain leads, as that machine reports it (`GET /api/remote-epics`,
+ *  `remote:epics`): its own `Epic` — `repoPath` is ITS checkout — plus that repo's drain status
+ *  there, the machine, the link state and the project's forge slug. View-only here. */
+export type RemoteEpic = Epic & {
+  host: SessionHost;
+  connection: SessionConnection;
+  drain: DrainStatus;
+  remoteSlug?: string;
+};
+
 /** A task sent to a connected machine (#2774), mirrors RemoteDispatchView in
  *  src/remote-instances/dispatch.ts. The herd shows it while `unknown` (no answer came back, it may
  *  be running there) or `canceling`; every other state means it was settled. */
@@ -3631,6 +3641,8 @@ export type WsEvent =
   /** Replaces every session mirrored from one machine (#2762): after each snapshot, on a
    *  connection change, and with `[]` when the machine is removed. */
   | { event: "remote:sessions"; data: { instanceId: string; sessions: Session[] } }
+  /** Replaces every epic one machine's drain leads; `[]` when none or the machine is removed. */
+  | { event: "remote:epics"; data: { instanceId: string; epics: RemoteEpic[] } }
   /** A task sent to a machine that no machine had confirmed changed state (#2774). */
   | { event: "remote:dispatch"; data: RemoteDispatch }
   /** Every connected machine's self-update, sent whenever the list changes. */

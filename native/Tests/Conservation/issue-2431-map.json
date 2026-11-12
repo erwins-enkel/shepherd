@@ -13072,7 +13072,9 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientRepoProjectTests.swift\",\"ShepherdClientRepoProjectTests\",\"projectReadUsesRemoteIdentityAndKeepsOfflineMachines() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientRepoProjectTests.swift\",\"ShepherdClientRepoProjectTests\",\"projectWriteSendsTwoRulesInOneRequestToExplicitMachine() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientRepoProjectTests.swift\",\"ShepherdClientRepoProjectTests\",\"protectedRuleWriteKeepsEffectiveRulesUntilMerge() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientRepoProjectTests.swift\",\"ShepherdClientRepoProjectTests\",\"responsibilitiesUseTheSameCoordinatorAndPreserveExplicitNull() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientRepoProjectTests.swift\",\"ShepherdClientRepoProjectTests\",\"responsibilitiesUseTheSameCoordinatorAndPreserveExplicitNull() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRuleMergeTests.swift\",\"RepoRuleMergeTests\",\"selectionsCreateOneFullRulePatchWithoutMachineValues() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRuleMergeTests.swift\",\"RepoRuleMergeTests\",\"unavailableOrUnknownChoicesCannotCompleteMerge() throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

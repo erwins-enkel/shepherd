@@ -1,18 +1,65 @@
 # Shared repository rules
 
 Shepherd reads repository rules from `.shepherd/config.json` on the default branch of
-`origin`. A successful rule edit through `PUT /api/repo-config?repo=<path>` creates one
-`chore(shepherd): set repo rules` commit and pushes it directly to that branch. The
-checked-out branch, working tree and index are untouched.
+`origin`. Saving changed rules creates one `chore(shepherd): set repo rules` commit,
+including all rules selected in that save. Shepherd pushes to the default branch when
+allowed; a remote rejection on a non-fork repository creates or updates a rules PR.
+The checked-out branch, working tree and index are untouched. Saving unchanged rules
+does not create another commit.
 
 ```json
 {
   "criticEnabled": true,
   "autoDrainEnabled": false,
   "defaultModel": "inherit",
-  "defaultEffort": "inherit"
+  "defaultEffort": "inherit",
+  "leitrechner": null
 }
 ```
+
+`leitrechner: null` leaves repository jobs unassigned. To restrict them to one machine,
+select its persistent instance ID in the UI; do not put a hostname or a credential here.
+
+## The three settings layers
+
+| Layer                                | Stored in                                     | Effect                                                                      |
+| ------------------------------------ | --------------------------------------------- | --------------------------------------------------------------------------- |
+| Repository rules — for all machines  | `.shepherd/config.json` on the default branch | Shared critic, autopilot, merge, backlog and other rule values              |
+| Lead machine (Leitrechner)           | `leitrechner` in the same file                | Chooses the one machine allowed to start new backlog and all-PR critic work |
+| Machine settings — only this machine | Each machine's local database                 | Limits, sandbox, browser/network permissions and other local values         |
+
+The lead-machine selection does not move sessions or synchronize machine settings.
+Global settings remain local too. Existing sessions use the repository rules on the
+machine where they run; the Leitrechner gate only controls new repository-wide jobs.
+
+## Set up shared rules
+
+1. Run a compatible Shepherd checkout on each machine. Register a clone of the same
+   forge repository on each, with working `origin` read/write access. Checkout paths may
+   differ; the forge slug (`remoteSlug`) identifies the project. Configure the participating
+   machines' connections consistently in both directions; see [connected machines](machines.md).
+2. In the web UI, open **Backlog → Settings** for the repository. Sections distinguish shared
+   rules from machine values. Shared edits stay in a draft across sections. Review the changed
+   values and target branch, then confirm one save. Without a file, **Set for all machines**
+   publishes the current rules. This web flow starts from the current machine's rules;
+   use the iOS comparison to choose differing values from multiple machines.
+3. In iOS, open **Repos**, then the settings button beside the project's forge slug. One
+   connection to a coordinator is enough; it reads the other machines. If no valid file exists
+   and rules differ, choose **Merge differences**, select a machine's value for each differing
+   rule and choose the Leitrechner when requested. Review equal rules too, then choose
+   **Save as repository rules**. The selected rules and leader are saved together in one commit.
+   An incomplete comparison only covers the reachable machines; restore connectivity before
+   treating it as agreement between all machines.
+4. For later iOS edits, change the shared rules, review all changes and confirm. Select the
+   machine separately for local values: those save immediately without a rule commit.
+5. Check the save receipt and each machine's rule values and commit SHA. A failed peer
+   notification leaves the save intact but means adoption needs checking. A pending PR must
+   merge before its proposed rules become effective; see [protected branches](#protected-default-branches).
+
+Without a valid file, each machine keeps its previous local rules, including independent
+backlog processing. Choose a Leitrechner explicitly when publishing the first shared rules
+if only one machine should claim repository work. Local-only and lightweight repositories
+cannot publish shared rules; their settings stay local.
 
 ## Fields and precedence
 
@@ -68,13 +115,35 @@ rules, then applies the edit. Further edits merge into freshly fetched rules. Sh
 edits retain the draft/auto-merge and critic/signoff validation rules. A request containing
 only machine fields never creates a commit or initializes a file.
 
-For a mixed request, the machine fields and automation confirmation are saved only after
-the rule push succeeds. A failed fetch or push returns HTTP 502 with
-`code: "repo_config_write_failed"`; local changes are not applied. Check origin access or
-branch protection before retrying. Concurrent remote edits may cause a non-fast-forward
-refusal; Shepherd never force-pushes these settings. Protected-branch PR fallback is not
-provided here. Remote Git and local SQLite do not form a distributed transaction across
-process crashes or storage failures.
+For a mixed request, machine fields and automation confirmation are saved after the rule
+save succeeds, including a successfully published PR proposal. The proposal remains pending
+while machine values take effect locally. A failed fetch, push or PR publication returns
+HTTP 502 with `code: "repo_config_write_failed"`; local changes are not applied. Check
+origin and forge write access before retrying. Authentication, network and non-fast-forward
+failures are errors, not reasons to create a PR. Shepherd never force-pushes the default
+branch. Remote Git and local SQLite do not form a distributed transaction across process
+crashes or storage failures.
+
+## Protected default branches
+
+If the remote rejects a direct push (for example, protected `main`), Shepherd publishes the
+same rule change on `shepherd/repo-config` and opens one PR against the default branch.
+The save response includes `pendingRepoConfig` with its number, URL and proposed changes.
+Web and iOS show the waiting PR link. **The default-branch rules remain effective until
+merge**, including the existing Leitrechner selection. With no valid default-branch file,
+the local database rules remain effective while the first proposal waits.
+
+Further saves from either machine update the same open proposal, preserving its intended
+changes and rebasing them onto the latest default-branch rules. Updates to the proposal
+branch use an explicit ref lease; a competing save can fail rather than overwrite another
+machine's change. Retrying an identical pending proposal adds no commit. Fork repositories
+do not use this fallback.
+
+Review and merge the linked PR through the forge's normal process. Then refresh the
+participating machines and verify their effective commit and rule values. A PR save does
+not notify peers to adopt unmerged values. Closing a proposal without merging does not
+apply its rules. Do not repeat Save merely because a successful save's follow-up read or
+peer notification failed; check the receipt and PR first.
 
 ## Connected machines
 
@@ -95,7 +164,7 @@ Unknown targets return 404; unreachable or incompatible targets return 502.
 
 `PUT /api/repo-config/project?remoteSlug=<slug>&instanceId=<uuid>` accepts
 `{"rules":{"criticAllPrs":true},"leitrechner":"<instance-uuid>"}`. The selected machine
-creates one default-branch commit, including the chosen leader. `leitrechner: null` clears
+saves one rule commit, including the chosen leader, directly or through the rules PR. `leitrechner: null` clears
 the selection. A leader is stored only as an instance ID, never a host name. This API records
 the selection; execution gating of backlog and PR sweeps is owned by the leader feature.
 The same PUT merges selected values from a no-file comparison. Rule and machine writes use
@@ -171,9 +240,46 @@ writable rules. The `repo:leitrechner` event carries `{repoPath, leitrechnerStat
 this view changes. Drain snapshots and `drain:status` carry the same ownership view;
 a local explicit epic can still progress while the general repo jobs are paused.
 
+## Change the Leitrechner by hand
+
+1. Keep the old machine configured as a connection even if it is offline. In iOS open
+   the project's settings and **Change Leitrechner**, then select an available machine.
+   The sheet names the machine that will write the commit; it need not be the old leader.
+   In the web Backlog's **Settings** tab, change the lead-machine selection and review the save.
+2. Confirm **Commit Leitrechner change** in iOS, or the staged change in the web UI.
+   For API clients, send the new persistent ID to the project PUT with an available
+   `instanceId` as writer. Do not clear the leader as an intermediate step: `null` restores
+   independent repository jobs on every machine.
+3. If the save produces a PR, merge it before expecting ownership to change. Confirm the
+   new value is on the remote default branch. Check each reachable machine's commit SHA,
+   `leitrechnerStatus` and backlog status after successful refresh. The new leader must
+   still have the relevant repository automation enabled and sufficient local capacity.
+4. When the previous leader returns, it fetches before starting new repository jobs and
+   sees the new owner. Verify that its new backlog/PR-sweep starts stay paused. If fetching
+   fails with known ownership, it must remain paused until a successful retry.
+
+Wait for successful fetches and an observed scheduler cycle when verifying the switch;
+an empty queue or a single screenshot is not proof that takeover is disabled. Work already
+running may finish, and starts authorized within the previous refresh window can overlap.
+This procedure does not move existing sessions or local epic records.
+
+## Web save boundaries
+
 The web Backlog's Settings tab groups each section into shared rules, the lead machine and
 local machine values. Rule edits remain a panel-local draft across sections until the operator reviews the old/new values, target
 branch and fixed commit message. One confirmation saves all selected rules and the lead
 machine in one commit. Without a file, “Set for all machines” publishes the current rules.
 Machine values save immediately without a commit. Bootstrap, schedules and reviewer/merger
 roles keep their separate save flows; role changes may create their own commit or PR.
+
+## Two-machine acceptance
+
+Use a dedicated test repository and isolated branch-checkout backends on a real Linux
+machine and MacBook, with the matching iOS app. Do not interrupt a production host to
+simulate an offline leader. Keep both configured connections during that test and stop
+only the isolated leader backend or interrupt its test connection.
+
+The [two-machine acceptance record](acceptance/repo-settings-two-machines.md) gives the six
+scenarios, required observations and evidence fields. Local regression tests and simulator
+checks support that record; they do not replace real-device Web/iOS acceptance. Restore
+test-only rules, branch protection and backend processes when finished.

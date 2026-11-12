@@ -80,8 +80,24 @@ test("slug repository settings contract covers local reads, writes, refresh and 
   try {
     const view = (await request("GET", project, 200, undefined, project + query)) as any;
     expect(view.referenceInstanceId).toBe(self);
+    const inherited = view.machines.find((machine: any) => machine.instanceId === self).config
+      .inheritedRunDefaults;
+    const effort = inherited.effort === "low" ? "high" : "low";
     await request("GET", project, 400);
     await request("GET", project, 404, undefined, project + "?remoteSlug=unknown/repo");
+    const roles = "/api/repo-config/roles";
+    await request("GET", roles, 200, undefined, roles + query);
+    await request("GET", roles, 400);
+    await request("GET", roles, 404, undefined, roles + query.replace(self, other));
+    await request("PUT", roles, 200, { reviewer: null, merger: null }, roles + query);
+    await request("PUT", roles, 400, {}, roles + query);
+    await request(
+      "PUT",
+      roles,
+      404,
+      { reviewer: null, merger: null },
+      roles + query.replace(self, other),
+    );
     await request("GET", machine, 200, undefined, machine + query);
     await request("GET", machine, 400);
     await request("GET", machine, 404, undefined, machine + query.replace(self, other));
@@ -92,10 +108,13 @@ test("slug repository settings contract covers local reads, writes, refresh and 
       "PUT",
       project,
       200,
-      { rules: { criticAllPrs: true }, leitrechner: self },
+      { rules: { criticAllPrs: true, defaultEffort: effort }, leitrechner: self },
       project + query,
     )) as any;
     expect(written.leitrechner).toBe(self);
+    const machineDefaults = (await request("GET", machine, 200, undefined, machine + query)) as any;
+    expect(machineDefaults.resolvedRunDefaults.effort).toBe(effort);
+    expect(machineDefaults.inheritedRunDefaults).toEqual(inherited);
     for (const [path, at] of [
       [project, project + query],
       ["/api/repo-config", `/api/repo-config?repo=${encodeURIComponent(r.b)}`],
@@ -137,7 +156,17 @@ test("slug repository settings contract covers local reads, writes, refresh and 
     });
     await request("GET", machine, 502, undefined, machine + query.replace(self, other));
     await request("PUT", machine, 502, { maxAuto: 4 }, machine + query.replace(self, other));
+    await request("GET", roles, 502, undefined, roles + query.replace(self, other));
+    await request(
+      "PUT",
+      roles,
+      502,
+      { reviewer: null, merger: null },
+      roles + query.replace(self, other),
+    );
     for (const [method, path, body] of [
+      ["GET", roles, undefined],
+      ["PUT", roles, { reviewer: null, merger: null }],
       ["GET", project, undefined],
       ["PUT", project, { rules: {} }],
       ["GET", machine, undefined],

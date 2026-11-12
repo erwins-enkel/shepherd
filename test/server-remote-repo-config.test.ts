@@ -145,6 +145,24 @@ test("a coordinator with no checkout reads and writes only the selected machine"
   expect(failed.status).toBe(502);
   expect(a.store.getLocalRepoConfig(repo.b).maxAuto).toBe(1);
 });
+test("a coordinator without a checkout reads and saves roles by project identity", async () => {
+  const a = host(null),
+    b = host(repo.b);
+  await connect(a, b);
+  const forge = { ...configForge().forge, defaultBranch: async () => "main" };
+  b.deps.resolveForge = ((dir: string) =>
+    dir === repo.b ? forge : null) as AppDeps["resolveForge"];
+  const route = `/api/repo-config/roles?remoteSlug=${slug}&instanceId=${b.id}`;
+  expect((await a.request("GET", route)).body.roles).toEqual({ reviewer: null, merger: null });
+  const written = await a.request("PUT", route, { reviewer: "reviewer", merger: "merger" });
+  expect(written.status).toBe(200);
+  expect(written.body.roles).toEqual({ reviewer: "reviewer", merger: "merger" });
+  expect((await a.request("GET", route)).body.roles).toEqual(written.body.roles);
+  expect((await a.request("PUT", route, { criticEnabled: true })).status).toBe(400);
+  expect((await a.request("GET", route + "&host=local")).status).toBe(400);
+  b.server.stop(true);
+  expect((await a.request("PUT", route, { reviewer: null, merger: null })).status).toBe(502);
+});
 test("one commit refreshes a mutually connected peer before TTL expires", async () => {
   const a = host(repo.a),
     b = host(repo.b);
@@ -153,7 +171,7 @@ test("one commit refreshes a mutually connected peer before TTL expires", async 
   expect((await b.request("GET", project)).body.repoConfigCommit).toBeNull();
   const base = git(repo.origin, "rev-parse", "main");
   const result = await a.request("PUT", `${project}&instanceId=${a.id}`, {
-    rules: { criticAllPrs: true },
+    rules: { criticAllPrs: true, planGateEnabled: true },
     leitrechner: b.id,
   });
   expect(result.status).toBe(200);
@@ -166,6 +184,7 @@ test("one commit refreshes a mutually connected peer before TTL expires", async 
     `/api/repo-config/machine?remoteSlug=${slug}&instanceId=${b.id}`,
   );
   expect(updated.body.criticAllPrs).toBe(true);
+  expect(updated.body.planGateEnabled).toBe(true);
   expect(updated.body.leitrechner).toBe(b.id);
   expect(a.count() + b.count()).toBeLessThan(60);
 });
@@ -207,6 +226,11 @@ test("scopes and repository grants cannot escalate through the coordinator", asy
   };
   const before = b.count();
   expect((await a.request("GET", project, undefined, restricted)).status).toBe(403);
+  const roles = `/api/repo-config/roles?remoteSlug=${slug}&instanceId=${b.id}`;
+  expect((await a.request("GET", roles, undefined, restricted)).status).toBe(403);
+  expect(
+    (await a.request("PUT", roles, { reviewer: null, merger: null }, readHeaders)).status,
+  ).toBe(403);
   expect(b.count()).toBe(before);
   expect(
     (await a.request("GET", project, undefined, { "content-type": "application/json" })).status,

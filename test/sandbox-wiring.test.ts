@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { config } from "../src/config";
@@ -18,6 +18,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { sandboxScratchpadBind, sessionScratchpadDir } from "../src/tmp-sweep";
 import { tmpdir } from "node:os";
 import { startPreviewScript } from "../src/preview-launch";
 import { join } from "node:path";
@@ -76,6 +77,7 @@ function makeService(opts: {
     typeof SessionService
   >[0]["prepareMembraneGhHosts"];
   resolveMembraneGhBin?: () => Promise<string | null>;
+  prepareScratchpadBind?: ConstructorParameters<typeof SessionService>[0]["prepareScratchpadBind"];
   previewLogFile?: (sessionId: string) => string;
 }) {
   return new SessionService({
@@ -89,6 +91,7 @@ function makeService(opts: {
     prepareMembraneMiseConfig: opts.prepareMembraneMiseConfig,
     prepareMembraneGhHosts: opts.prepareMembraneGhHosts,
     resolveMembraneGhBin: opts.resolveMembraneGhBin,
+    prepareScratchpadBind: opts.prepareScratchpadBind,
     previewLogFile: opts.previewLogFile ?? ((id) => `/run/membrane/${id}/preview-start.log`),
     // Default the egress seam to null so an autonomous test never falls through to the real
     // (slow, host-dependent) self-test. Tests that want egress ON inject "slirp4netns".
@@ -1350,5 +1353,91 @@ describe("reapplyEgressAllowlist (live allowlist edits)", () => {
     } finally {
       rmSync(egressTmpDir(s.id), { recursive: true, force: true });
     }
+  });
+});
+
+describe("scratchpad bind (sandboxed claude)", () => {
+  const prevSweep = process.env.SHEPHERD_TMP_SWEEP_DIR;
+  const prevAgent = process.env.SHEPHERD_AGENT_TMPDIR;
+  let root = "";
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "shepherd-wiring-scratch-"));
+    process.env.SHEPHERD_TMP_SWEEP_DIR = root;
+    delete process.env.SHEPHERD_AGENT_TMPDIR;
+  });
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+    if (prevSweep === undefined) delete process.env.SHEPHERD_TMP_SWEEP_DIR;
+    else process.env.SHEPHERD_TMP_SWEEP_DIR = prevSweep;
+    if (prevAgent === undefined) delete process.env.SHEPHERD_AGENT_TMPDIR;
+    else process.env.SHEPHERD_AGENT_TMPDIR = prevAgent;
+  });
+  const uid = process.getuid?.() ?? 1000;
+  const bindOf = (argv: string[], sid: string) => {
+    const host = sessionScratchpadDir("/wt/s", sid);
+    const i = argv.indexOf(host);
+    return i > 0 && argv[i - 1] === "--bind" ? argv[i + 1] : null;
+  };
+
+  test("create + standard + bwrap → binds this session's scratchpad at claude's membrane path", async () => {
+    const store = new SessionStore(":memory:");
+    store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "standard" });
+    const record: { argv?: string[] } = {};
+    const service = makeService({
+      store,
+      record,
+      detectBackend: () => "bwrap",
+      prepareScratchpadBind: sandboxScratchpadBind,
+    });
+    const s = await service.create(baseInput());
+    expect(s.claudeSessionId).toBeTruthy();
+    expect(bindOf(record.argv!, s.claudeSessionId)).toBe(
+      `/tmp/claude-${uid}/-wt-s/${s.claudeSessionId}/scratchpad`,
+    );
+  });
+
+  test("resume + standard → binds the stored claude session's scratchpad", async () => {
+    const store = new SessionStore(":memory:");
+    const record: { argv?: string[] } = {};
+    const service = makeService({
+      store,
+      record,
+      detectBackend: () => "bwrap",
+      prepareScratchpadBind: sandboxScratchpadBind,
+    });
+    const sid = "66666666-6666-6666-6666-666666666666";
+    const s = store.create({
+      name: "s",
+      prompt: "x",
+      repoPath: "/repo",
+      baseBranch: "main",
+      branch: "shepherd/s",
+      worktreePath: "/wt/s",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "term_old",
+      claudeSessionId: sid,
+      auto: false,
+      sandboxApplied: "standard",
+      sandboxDegraded: false,
+      egressApplied: false,
+      egressDegraded: false,
+    });
+    expect(await service.resume(s.id, { force: true })).not.toBeNull();
+    expect(bindOf(record.argv!, sid)).toBe(`/tmp/claude-${uid}/-wt-s/${sid}/scratchpad`);
+  });
+
+  test("create + trusted → no scratchpad bind (passthrough)", async () => {
+    const store = new SessionStore(":memory:");
+    const record: { argv?: string[] } = {};
+    const service = makeService({
+      store,
+      record,
+      detectBackend: () => "bwrap",
+      prepareScratchpadBind: sandboxScratchpadBind,
+    });
+    const s = await service.create(baseInput());
+    expect(record.argv?.[0]).not.toBe("bwrap");
+    expect(bindOf(record.argv!, s.claudeSessionId)).toBeNull();
   });
 });

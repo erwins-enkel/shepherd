@@ -10,6 +10,7 @@ import {
   MIN_GIT_MINOR,
 } from "./forge/local";
 import { WORKTREE_MARKER, isUnder } from "./process-reaper";
+import { MEMBRANE_TMP } from "./sandbox";
 
 /**
  * Centralizes the "claude tmp directory" geometry and a threshold-gated inode-guard
@@ -256,6 +257,40 @@ export async function existingScratchpadDir(
     if (await usableScratchpadCandidate(dir, primary)) return dir;
   }
   return primary;
+}
+
+/**
+ * The host↔sandbox scratchpad bind for a bwrap-wrapped claude session. Inside the membrane
+ * `--clearenv` drops `TMPDIR` and `/tmp` is a private tmpfs, so claude writes its scratchpad to
+ * `<MEMBRANE_TMP>/claude-$uid/<dashified-worktree>/<sid>/scratchpad` — invisible to the server's
+ * `sessionScratchpadDir()` read path and gone when the sandbox exits. Binding that ONE dir from the
+ * host keeps the Files tab, uploads and archive cleanup working unchanged.
+ *
+ * Creates the host dir (0700) and returns `{ host, dest }`, or null — no bind, today's behavior —
+ * when `claudeSessionId` is blank, the disk redirect is disabled (`agentTmpDir()===null`: the host
+ * root would be the world-writable system tmp), or the created path is not a private directory.
+ */
+export async function sandboxScratchpadBind(
+  worktreePath: string,
+  claudeSessionId: string,
+): Promise<{ host: string; dest: string } | null> {
+  if (!claudeSessionId || agentTmpDir() === null) return null;
+  const host = sessionScratchpadDir(worktreePath, claudeSessionId);
+  try {
+    await fsp.mkdir(host, { recursive: true, mode: 0o700 });
+    if (!isPrivateDirStat(await fsp.lstat(host), uid())) throw new Error("not a private dir");
+  } catch (err) {
+    console.warn(`[sandbox] scratchpad bind skipped for ${host}:`, err);
+    return null;
+  }
+  const dest = join(
+    MEMBRANE_TMP,
+    `claude-${uid()}`,
+    dashify(worktreePath),
+    claudeSessionId,
+    "scratchpad",
+  );
+  return { host, dest };
 }
 
 /**

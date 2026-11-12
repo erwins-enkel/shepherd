@@ -11,13 +11,16 @@ function harness(
   haltAll?: () => { halted: number },
 ) {
   const store = new SessionStore(":memory:");
+  const events = new EventHub();
+  const emitted: [string, unknown][] = [];
+  events.subscribe((event, data) => emitted.push([event, data]));
   const deps: AppDeps = {
     store,
-    events: new EventHub(),
+    events,
     service: { broadcast, haltAll } as any,
     usageLimits: { limits: () => ({}) } as any,
   };
-  return { app: makeApp(deps), store };
+  return { app: makeApp(deps), store, emitted };
 }
 
 const jsonReq = (path: string, method: string, body: unknown) =>
@@ -50,6 +53,13 @@ test("PUT /api/steers validates, persists, and returns the normalized list", asy
   expect(body[0]).toMatchObject({ label: "a", text: "b" });
   expect(body[0].id).toMatch(/^[0-9a-f-]{36}$/);
   expect(JSON.parse(store.getSetting("steers")!)[0].label).toBe("a");
+});
+
+test("PUT /api/steers announces the saved list as steers:update (#3967)", async () => {
+  const { app, emitted } = harness();
+  const res = await app.fetch(jsonReq("/api/steers", "PUT", [{ label: "a", text: "b" }]));
+  const body = await res.json();
+  expect(emitted).toEqual([["steers:update", body]]);
 });
 
 test("PUT /api/steers rejects a bad payload with 400", async () => {

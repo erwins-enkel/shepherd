@@ -1243,3 +1243,30 @@ export function scheduleBudgetExplanation(): TooltipExplanation {
     sections: [{ label: m.schedules_budget_input(), text: m.schedules_budget_measure() }],
   };
 }
+
+/** Settings → Machines (#3967): what using a machine's steers and repo emojis here means. Names no
+ *  machine: the tooltip body stays in the DOM, and the row already says which one. */
+export function settingsSourceExplanation(): TooltipExplanation {
+  return {
+    title: m.settings_machines_source_tip_title(),
+    summary: m.settings_machines_source_tip_summary(),
+    sections: [
+      {
+        label: m.settings_machines_source_tip_what(),
+        text: m.settings_machines_source_tip_what_text(),
+      },
+      {
+        label: m.settings_machines_source_tip_matching(),
+        text: m.settings_machines_source_tip_matching_text(),
+      },
+      {
+        label: m.settings_machines_source_tip_offline(),
+        text: m.settings_machines_source_tip_offline_text(),
+      },
+      {
+        label: m.settings_machines_source_tip_own(),
+        text: m.settings_machines_source_tip_own_text(),
+      },
+    ],
+  };
+}

@@ -4,6 +4,7 @@ import { tick } from "svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import type { Steer } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 // Stub the api so mount never hits the network: getCommands feeds the slash menu, and
 // putSteers is a spy the tests inspect (getSteers is skipped — the store is pre-loaded).
@@ -13,6 +14,8 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     ...actual,
     getCommands: vi.fn(async () => ({ commands: [] })),
     putSteers: vi.fn(async (s: Steer[]) => s),
+    // only read when a settings source is set (#3967); those tests give it a list
+    getSteers: vi.fn(async () => [] as Steer[]),
   };
 });
 
@@ -20,8 +23,10 @@ const { default: SteersEditor } = await import("./SteersEditor.svelte");
 const { steers } = await import("#lib/steers.svelte.js");
 const { repos } = await import("#lib/repos.svelte.js");
 const { toasts } = await import("#lib/toasts.svelte.js");
-const { putSteers } = await import("#lib/api.js");
+const { settingsSource } = await import("#lib/settings-source.svelte.js");
+const { putSteers, getSteers } = await import("#lib/api.js");
 const putSpy = vi.mocked(putSteers);
+const getSpy = vi.mocked(getSteers);
 
 const steer = (p: Partial<Steer>): Steer => ({
   id: "1",
@@ -47,6 +52,7 @@ beforeEach(() => {
   for (const t of [...toasts.items]) toasts.close(t.id);
   putSpy.mockClear();
   putSpy.mockImplementation(async (s: Steer[]) => s);
+  settingsSource.source = null;
 });
 
 afterEach(() => {
@@ -427,5 +433,97 @@ describe("SteersEditor show-in checkboxes", () => {
 
     expect(issues.querySelector("input")!.checked).toBe(true);
     expect(card.scrollTop, "clipped card scrolled").toBe(0);
+  });
+});
+
+describe("SteersEditor with a settings source (#3967)", () => {
+  const source = (reachable: boolean) => ({
+    instanceId: "core-id",
+    name: "core-box",
+    reachable,
+    repos: [{ name: "shepherd", path: "/a/shepherd", realPath: "/a/shepherd", remoteSlug: null }],
+  });
+
+  beforeEach(() => {
+    // the source's list, re-read on open
+    getSpy.mockImplementation(async () => [
+      steer({ id: "a", label: "Alpha", text: "do alpha" }),
+      steer({ id: "b", label: "Bravo", text: "do bravo" }),
+    ]);
+  });
+
+  it("says the steers come from the source and are saved there", async () => {
+    settingsSource.source = source(true);
+    render(SteersEditor, {});
+    await expect
+      .element(page.getByText(m.steerseditor_source_live({ name: "core-box" })))
+      .toBeVisible();
+    expect(getSpy, "re-reads the source's list on open").toHaveBeenCalled();
+    expect((document.querySelector(".add") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("offline: shows the last known list read-only — rows expand, nothing edits or saves", async () => {
+    settingsSource.source = source(false);
+    const { unmount } = await render(SteersEditor, {});
+    await expect
+      .element(page.getByText(m.steerseditor_source_offline({ name: "core-box" })))
+      .toBeVisible();
+    expect((document.querySelector(".add") as HTMLButtonElement).disabled).toBe(true);
+
+    (row("a")!.querySelector(".rtitle") as HTMLButtonElement).click();
+    await tick();
+    expect(row("a")!.classList.contains("open"), "row still expands").toBe(true);
+    // the row body is a disabled fieldset: its controls match :disabled (their own attribute stays off)
+    const off = (sel: string) => row("a")!.querySelector(sel)!.matches(":disabled");
+    expect(off("input.ntext"), "name").toBe(true);
+    expect(off("textarea.ptext"), "prompt").toBe(true);
+    expect(off(".emoji-btn"), "emoji").toBe(true);
+    expect(off("input[role='combobox']"), "scope").toBe(true);
+    expect(off(".rc-open"), "remove").toBe(true);
+    for (const box of row("a")!.querySelectorAll<HTMLInputElement>(".cbx input"))
+      expect(box.matches(":disabled"), "placement").toBe(true);
+
+    unmount();
+    await settle();
+    expect(putSpy, "a read-only close saves nothing").not.toHaveBeenCalled();
+  });
+
+  it("offers the source's repos in the scope picker", async () => {
+    settingsSource.source = source(true);
+    repos.entries = [
+      {
+        name: "local-only",
+        path: "/b/local-only",
+        realPath: "/b/local-only",
+        display: "~/local-only",
+      },
+    ];
+    render(SteersEditor, { focusSteerId: "a" });
+    await tick();
+    await frames();
+    const input = row("a")!.querySelector<HTMLInputElement>("input[role='combobox']");
+    expect(input, "scope picker input").not.toBeNull();
+    await userEvent.type(input!, "sh");
+    const options = () =>
+      [...document.querySelectorAll("[role='option']")].map((o) => o.textContent);
+    await expect.poll(options).toEqual(["shepherd"]);
+    await userEvent.clear(input!);
+    await userEvent.type(input!, "local");
+    await expect.poll(options).toEqual([]);
+  });
+});
+
+describe("SteersEditor follows a list that changes while it is open", () => {
+  it("takes another client's change to an untouched row, and closing saves nothing stale", async () => {
+    const { unmount } = await render(SteersEditor, {});
+    await tick();
+    steers.apply([
+      steer({ id: "a", label: "Alpha (theirs)", text: "do alpha" }),
+      steer({ id: "b", label: "Bravo", text: "do bravo" }),
+    ]);
+    await expect.element(page.getByText("Alpha (theirs)")).toBeVisible();
+    unmount();
+    await settle();
+    expect(putSpy).not.toHaveBeenCalled();
   });
 });

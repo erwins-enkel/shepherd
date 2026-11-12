@@ -1,10 +1,12 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import RepoSelect from "./RepoSelect.svelte";
 import { m } from "#lib/paraglide/messages.js";
 import type { RepoEntry } from "#lib/types.js";
+import { settingsSource } from "#lib/settings-source.svelte.js";
+import { toasts } from "#lib/toasts.svelte.js";
 
 const noop = vi.fn();
 
@@ -318,5 +320,52 @@ describe("RepoSelect — remote identity", () => {
       name: "local-api",
       path: "~/repos/local-api",
     });
+  });
+});
+
+describe("RepoSelect — emojis from a settings source (#3967)", () => {
+  afterEach(() => {
+    settingsSource.source = null;
+    vi.unstubAllGlobals();
+    for (const t of [...toasts.items]) toasts.close(t.id);
+  });
+
+  it("keeps the emoji button disabled with a hint while the source is out of reach", async () => {
+    settingsSource.source = { instanceId: "core", name: "core-box", reachable: false, repos: [] };
+    render(RepoSelect, {
+      repos: makeRepos(),
+      value: "/repos/gamma",
+      onchange: noop,
+      windowDays: 7,
+    });
+    await page.getByRole("button", { name: /gamma/ }).click();
+    const label = m.reposelect_icon_readonly({ name: "core-box" });
+    const btn = document.querySelector<HTMLButtonElement>(".rs-emoji-btn")!;
+    expect(btn.disabled).toBe(true);
+    expect(btn.getAttribute("aria-label")).toBe(label);
+  });
+
+  it("says why a pick failed instead of swallowing it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response(JSON.stringify({ error: "no repo", code: "settings_source_no_repo" }), {
+          status: 409,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    render(RepoSelect, {
+      repos: makeRepos(),
+      value: "/repos/gamma",
+      onchange: noop,
+      windowDays: 7,
+    });
+    await page.getByRole("button", { name: /gamma/ }).click();
+    document.querySelector<HTMLButtonElement>(".rs-emoji-btn")!.click();
+    await expect.poll(() => document.querySelector(".ep-cell")).not.toBeNull();
+    document.querySelector<HTMLButtonElement>(".ep-cell")!.click();
+    await expect
+      .poll(() => toasts.items.map((t) => t.text))
+      .toContain(m.settings_source_err_no_repo());
   });
 });

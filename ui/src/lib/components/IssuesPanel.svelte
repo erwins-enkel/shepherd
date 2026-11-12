@@ -4,6 +4,7 @@
   import { steers } from "#lib/steers.svelte.js";
   import { repos } from "#lib/repos.svelte.js";
   import { steerAppliesToRepo } from "#lib/steer-scope.js";
+  import { steerRepoNamesFor } from "#lib/settings-source.svelte.js";
   import type {
     Issue,
     IssueFetchAttempt,
@@ -123,7 +124,7 @@
   // Issue-scoped steers render as one quick-launch button each on every row.
   // Also gated to steers bound to this panel's repo (or universal ones).
   const issueActions = $derived(
-    steers.list.filter((s) => s.onIssues && steerAppliesToRepo(s, repos.nameFor(repoPath))),
+    steers.list.filter((s) => s.onIssues && steerAppliesToRepo(s, steerRepoNamesFor(repoPath))),
   );
 
   let issues = $state<Issue[]>([]);

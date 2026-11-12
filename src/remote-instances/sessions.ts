@@ -109,6 +109,14 @@ export type OpenSocket = (
 ) => { close(): void };
 
 type Store = Pick<SessionStore, "getRemoteInstance">;
+
+/** A machine's frame handed on as it came: `data` is untrusted, the receiver validates it. */
+export type MachineEventHandler = (instanceId: string, event: string, data: unknown) => void;
+
+/** The machine-level frames a settings source (#3967) cares about. Only these leave the mirror
+ *  for `onMachineEvent`; they describe the machine's own settings, not its sessions, so they are
+ *  never passed to the dashboards that subscribe here. */
+const MACHINE_EVENTS: ReadonlySet<string> = new Set(["project-icons:update", "steers:update"]);
 type Instances = Pick<RemoteInstanceService, "list" | "check" | "repoSlugs" | "noteBatteryPause">;
 
 interface Link {
@@ -224,6 +232,7 @@ export class RemoteSessionMirror {
   private readonly now: () => number;
   private readonly recheckDelays: number[];
   private readonly self: (() => { instanceId: string; name: string }) | undefined;
+  private readonly onMachineEvent: MachineEventHandler | undefined;
 
   constructor(deps: {
     store: Store;
@@ -236,10 +245,14 @@ export class RemoteSessionMirror {
     openTerminalSocket?: OpenTerminalSocket;
     now?: () => number;
     recheckDelaysMs?: number[];
+    /** Receives the machine's own settings frames (`MACHINE_EVENTS`) — how a settings source's
+     *  edits reach this Shepherd live (#3967). Never relayed to dashboards. */
+    onMachineEvent?: MachineEventHandler;
   }) {
     this.store = deps.store;
     this.instances = deps.instances;
     this.self = deps.self;
+    this.onMachineEvent = deps.onMachineEvent;
     this.fetch = deps.fetch;
     this.openSocket = deps.openSocket ?? openWebSocket;
     this.openTerminalSocket = deps.openTerminalSocket;
@@ -454,6 +467,8 @@ export class RemoteSessionMirror {
     // Its Mac app is about to suspend it on battery: the probe would only see a timeout.
     if (frame.event === BATTERY_PAUSE_EVENT)
       return this.instances.noteBatteryPause(link.instanceId);
+    if (MACHINE_EVENTS.has(frame.event))
+      return this.onMachineEvent?.(link.instanceId, frame.event, frame.data);
     if (frame.event === "terminal:owners") {
       // Always the machine's full current map, so it never needs the snapshot buffer.
       link.owners = parseOwners(frame.data);

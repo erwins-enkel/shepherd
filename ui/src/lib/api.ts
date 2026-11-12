@@ -125,6 +125,7 @@ import type {
   PlacementRefusal,
   IncomingMirror,
   RemoteInstance,
+  SettingsSource,
   MachineUpdate,
   ApnsConfigError,
   ApnsField,
@@ -2818,6 +2819,25 @@ export async function putProjectIcon(path: string, emoji: string): Promise<Proje
     throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
   }
   return r.json();
+}
+
+/** The machine whose steers and repo emojis this Shepherd uses live (#3967); null = its own. */
+export async function getSettingsSource(): Promise<SettingsSource | null> {
+  const r = await fetch("/api/settings-source");
+  if (!r.ok) throw await failed(r, "settings source");
+  return ((await r.json()) as { source: SettingsSource | null }).source;
+}
+
+/** Pick a connected machine as the settings source, or `null` to go back to this Shepherd's own
+ *  steers and emojis. Operator session only: an access token gets a 403. */
+export async function putSettingsSource(instanceId: string | null): Promise<SettingsSource | null> {
+  const r = await fetch("/api/settings-source", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ instanceId }),
+  });
+  if (!r.ok) throw await failed(r, "settings source");
+  return ((await r.json()) as { source: SettingsSource | null }).source;
 }
 
 export async function getReviews(): Promise<Record<string, ReviewVerdict>> {

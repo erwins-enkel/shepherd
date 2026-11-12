@@ -1,7 +1,7 @@
 <script lang="ts">
   import { steers } from "#lib/steers.svelte.js";
-  import { repos } from "#lib/repos.svelte.js";
   import { steerAppliesToRepo } from "#lib/steer-scope.js";
+  import { steerRepoNamesFor } from "#lib/settings-source.svelte.js";
   import { replySession } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { fitLabels } from "#lib/fit-labels.js";
@@ -57,7 +57,7 @@
   // Also gated to steers bound to this session's repo (or universal ones).
   const chips = $derived(
     steers.list.filter(
-      (s) => s.inSteerBar && steerAppliesToRepo(s, repos.nameFor(repoPath), agentProvider),
+      (s) => s.inSteerBar && steerAppliesToRepo(s, steerRepoNamesFor(repoPath), agentProvider),
     ),
   );
 

@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { onMount, onDestroy, tick } from "svelte";
+  import { onMount, onDestroy, tick, untrack } from "svelte";
   import { flip } from "svelte/animate";
   import { dragHandleZone, dragHandle } from "svelte-dnd-action";
   import type { DndEvent } from "svelte-dnd-action";
   import { steers } from "#lib/steers.svelte.js";
   import { repos } from "#lib/repos.svelte.js";
+  import { settingsSource, settingsSourceErrorText } from "#lib/settings-source.svelte.js";
+  import { cleanSteer, cloneSteer, followSteers, steersSig as sig } from "#lib/steer-draft.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import EmojiPicker from "#lib/components/EmojiPicker.svelte";
   import SlashCommandMenu from "#lib/components/SlashCommandMenu.svelte";
@@ -64,24 +66,6 @@
     return s.label.trim() !== "" && s.text.trim() !== "" && (s.inSteerBar || s.onIssues);
   }
 
-  function cloneSteer(s: Steer): Steer {
-    return {
-      ...s,
-      repos: s.repos ? [...s.repos] : undefined,
-      agentProviders: s.agentProviders ? [...s.agentProviders] : undefined,
-    };
-  }
-
-  // trim + normalise an empty repo selection back to "all repos" before persisting
-  function cleanSteer(s: Steer): Steer {
-    return {
-      ...s,
-      label: s.label.trim(),
-      text: s.text.trim(),
-      repos: s.repos && s.repos.length ? s.repos : undefined,
-    };
-  }
-
   // Persisted rows are always included (dropping one would delete it server-side); a new
   // row joins only once it is individually valid, so a half-authored row can't block the
   // all-or-nothing PUT nor corrupt the saved baseline.
@@ -89,32 +73,39 @@
     return draft.filter((s) => persistedIds.has(s.id) || rowValid(s));
   }
 
-  // Order-sensitive signature of the persisted shape, so teardown can tell "there are
-  // unsaved changes" from "nothing to do" without re-PUTting on every plain close. Tuples
-  // (not the objects) so key order can't produce a false difference; the fields mirror what
-  // the server round-trips, so a cleaned payload and the store's copy of it compare equal.
-  function sig(list: Steer[]): string {
-    return JSON.stringify(
-      list.map((s) => [
-        s.id,
-        s.label,
-        s.text,
-        s.emoji ?? "",
-        s.inSteerBar,
-        s.onIssues,
-        s.repos ?? null,
-        s.agentProviders ?? null,
-      ]),
-    );
-  }
+  // A settings source (#3967): steers are read from and saved to that machine; out of reach,
+  // its last known list is shown read-only (rows still expand, nothing edits or saves).
+  const source = $derived(settingsSource.source);
+  const readOnly = $derived(settingsSource.readOnly);
+  // Repo-bound steers name the source's repos, so the picker offers those.
+  const scopeRepos = $derived(source ? source.repos : repos.entries);
+
+  // The store list the draft was seeded from or last folded in; null until seeded. A newer
+  // list (another client's save, the source's live update) is folded into the draft, so a
+  // close never saves a stale copy over it.
+  let baseList: readonly Steer[] | null = null;
+  $effect(() => {
+    const list = steers.list;
+    untrack(() => {
+      const before = baseList;
+      if (before === null || list === before) return;
+      baseList = list;
+      if (sig(list) === sig(before)) return;
+      draft = followSteers(draft, before, list);
+      if (openId && !draft.some((s) => s.id === openId)) openId = null;
+    });
+  });
 
   onMount(async () => {
     if (!steers.loaded) await steers.load();
+    // with a source, read its current list rather than whatever the last event left
+    else if (settingsSource.source) await steers.refresh();
     if (!repos.loaded) await repos.load();
     // seed the working list from the store plus any in-progress draft recovered from a
     // previous close (see onDestroy); then clear the recovery buffer.
     const recovered = steers.draftBuffer.map((s) => s.id);
     draft = [...steers.list.map(cloneSteer), ...steers.draftBuffer.map(cloneSteer)];
+    baseList = steers.list;
     steers.draftBuffer = [];
     getCommands("")
       .then((r) => (allCommands = r.commands))
@@ -136,7 +127,7 @@
   // if it fails again, so a failed close-flush is recoverable rather than silently lost.
   function saveOnClose(payload: Steer[]) {
     steers.save(payload).catch((e) => {
-      const reason = e instanceof Error ? e.message : m.steerseditor_save_failed();
+      const reason = e instanceof Error ? settingsSourceErrorText(e) : m.steerseditor_save_failed();
       toasts.info(m.steerseditor_close_save_failed({ reason }), {
         alert: true,
         sticky: true,
@@ -158,7 +149,7 @@
     // gated on validity — an invalid persisted row would 400 the all-or-nothing PUT, so it
     // stays unsaved (visible in the editor) rather than being force-sent here.
     const payload = buildPayload().map(cleanSteer);
-    if (!payload.some((s) => !rowValid(s)) && sig(payload) !== sig(steers.list)) {
+    if (!readOnly && !payload.some((s) => !rowValid(s)) && sig(payload) !== sig(steers.list)) {
       saveOnClose(payload);
     }
     // (2) recover content-bearing invalid new rows (empty ones carry nothing → dropped).
@@ -204,6 +195,8 @@
   }
 
   async function flush() {
+    // the source is out of reach: the server would refuse the write anyway
+    if (readOnly) return;
     const payload = buildPayload();
     // a persisted row edited into an invalid state would 400 the whole PUT → block, and
     // let the scopeless banner / the incomplete field itself point at what to fix.
@@ -214,7 +207,7 @@
       await steers.save(payload.map(cleanSteer));
       savedAt = nowHHMM();
     } catch (e) {
-      error = e instanceof Error ? e.message : m.steerseditor_save_failed();
+      error = e instanceof Error ? settingsSourceErrorText(e) : m.steerseditor_save_failed();
     } finally {
       saving = false;
     }
@@ -241,7 +234,7 @@
   }
 
   function add() {
-    if (draft.length >= MAX) return;
+    if (readOnly || draft.length >= MAX) return;
     if (openId) collapse(openId);
     const s: Steer = {
       id: crypto.randomUUID(),
@@ -399,6 +392,13 @@
 
 <div class="editor" bind:this={rootEl}>
   <p class="hint"><HighlightText text={m.steerseditor_hint()} {query} /></p>
+  {#if source}
+    <p class="source-note" class:offline={readOnly} role="status">
+      {readOnly
+        ? m.steerseditor_source_offline({ name: source.name })
+        : m.steerseditor_source_live({ name: source.name })}
+    </p>
+  {/if}
 
   <div class="panel">
     <div class="phead">
@@ -415,7 +415,7 @@
 
     <div
       class="rows"
-      use:dragHandleZone={{ items: draft, flipDurationMs }}
+      use:dragHandleZone={{ items: draft, flipDurationMs, dragDisabled: readOnly }}
       onconsider={onConsider}
       onfinalize={onFinalize}
     >
@@ -429,6 +429,7 @@
           <div class="rhead">
             <span
               class="grip"
+              class:off={readOnly}
               use:dragHandle
               aria-label={m.steerseditor_reorder_aria()}
               title={m.steerseditor_reorder_aria()}>⠿</span
@@ -461,7 +462,9 @@
           </div>
 
           {#if openId === s.id}
-            <div class="rbody">
+            <!-- disabled while the settings source is out of reach: every field, the emoji,
+                 the scope and remove go inert; the row title above still expands/collapses -->
+            <fieldset class="rbody" disabled={readOnly}>
               <div class="ne-row">
                 <label class="fld ntext-fld">
                   <span class="flabel">{m.steerseditor_field_name()}</span>
@@ -500,7 +503,7 @@
 
               <SteerRepoTokenField
                 value={s.repos}
-                repos={repos.entries}
+                repos={scopeRepos}
                 onchange={(next) => onScopeChange(s, next)}
               />
 
@@ -576,7 +579,7 @@
                   {/if}
                 </span>
               </div>
-            </div>
+            </fieldset>
           {/if}
         </div>
       {/each}
@@ -589,7 +592,7 @@
     {#if error}<div class="err">{error}</div>{/if}
 
     <div class="pfoot">
-      <button type="button" class="add" onclick={add} disabled={draft.length >= MAX}
+      <button type="button" class="add" onclick={add} disabled={readOnly || draft.length >= MAX}
         >{m.steerseditor_add()}</button
       >
       <span class="foot-hint">{m.steerseditor_add_hint()}</span>
@@ -610,6 +613,21 @@
     color: var(--color-faint);
     font-size: var(--fs-meta);
     margin: 0;
+  }
+  /* where the steers come from while a settings source is set (#3967) */
+  .source-note {
+    margin: 0;
+    padding: 8px 12px;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+    border-left: 3px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-ink);
+    font-size: var(--fs-meta);
+  }
+  .source-note.offline {
+    border-left-color: var(--status-warn);
+    color: var(--status-warn);
   }
   /* the paneled list (mockup: header · rows · footer) */
   .panel {
@@ -679,6 +697,10 @@
   }
   .grip:active {
     cursor: grabbing;
+  }
+  .grip.off {
+    cursor: default;
+    opacity: 0.4;
   }
   .etile {
     flex: 0 0 auto;
@@ -768,6 +790,13 @@
     flex-direction: column;
     gap: 12px;
     padding: 4px 12px 14px;
+    /* a fieldset (so a read-only source disables every control at once), minus its chrome */
+    margin: 0;
+    border: 0;
+    min-width: 0;
+  }
+  .rbody:disabled {
+    opacity: 0.6;
   }
   .fld {
     display: flex;

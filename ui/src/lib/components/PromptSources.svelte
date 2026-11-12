@@ -34,6 +34,7 @@
   import { steers } from "#lib/steers.svelte.js";
   import { repos } from "#lib/repos.svelte.js";
   import { steerAppliesToRepo } from "#lib/steer-scope.js";
+  import { steerRepoNamesFor } from "#lib/settings-source.svelte.js";
   import IssueLabelChips from "./IssueLabelChips.svelte";
   import IssueLoadAttempts from "./IssueLoadAttempts.svelte";
 
@@ -91,7 +92,7 @@
   // steers bound to this repo (or universal ones). Offered as inject actions in the
   // per-row context menu.
   const issueActions = $derived(
-    steers.list.filter((s) => s.onIssues && steerAppliesToRepo(s, repos.nameFor(repoPath))),
+    steers.list.filter((s) => s.onIssues && steerAppliesToRepo(s, steerRepoNamesFor(repoPath))),
   );
 
   // Right-click / long-press context menu + details preview state. Only one of each is

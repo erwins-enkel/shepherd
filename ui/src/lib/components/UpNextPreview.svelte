@@ -3,8 +3,8 @@
   import { m } from "#lib/paraglide/messages.js";
   import type { Steer } from "#lib/types.js";
   import { steers } from "#lib/steers.svelte.js";
-  import { repos } from "#lib/repos.svelte.js";
   import { steerAppliesToRepo } from "#lib/steer-scope.js";
+  import { steerRepoNamesFor } from "#lib/settings-source.svelte.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import type { TooltipExplanation } from "#lib/tooltips/content.js";
   import { upNext } from "#lib/up-next.svelte.js";
@@ -50,7 +50,9 @@
   // backlog issue. Not on an epic parent: a manual task there collides with the Epic Runner.
   const issueSteers = $derived(
     item && launchContext?.onquick && !(item.kind === "epic" && !item.epicParent)
-      ? steers.list.filter((s) => s.onIssues && steerAppliesToRepo(s, repos.nameFor(item.repoPath)))
+      ? steers.list.filter(
+          (s) => s.onIssues && steerAppliesToRepo(s, steerRepoNamesFor(item.repoPath)),
+        )
       : [],
   );
 

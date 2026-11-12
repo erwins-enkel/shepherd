@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { checkRemoteInstance, removeRemoteInstance, renameRemoteInstance } from "#lib/api.js";
+  import {
+    ApiError,
+    checkRemoteInstance,
+    removeRemoteInstance,
+    renameRemoteInstance,
+  } from "#lib/api.js";
   import type { RemoteInstance } from "#lib/types.js";
   import {
     machineHint,
@@ -10,17 +15,22 @@
   import { formatAgo } from "#lib/format.js";
   import MachineCapabilities from "./MachineCapabilities.svelte";
   import MachineHeavySlot from "./MachineHeavySlot.svelte";
+  import InfoTip from "#lib/components/InfoTip.svelte";
+  import { settingsSourceExplanation } from "#lib/tooltips/explanations.js";
   import { m } from "#lib/paraglide/messages.js";
 
   // One connected machine (#2759): who it is, whether this Shepherd can reach it right now, and —
   // when it can't — what to do about it. Identity and projects survive a failed check as "last
   // seen" values, so a flapping network does not blank the row. Its chips (#3056) say what it means
   // here: its sessions in the herd, whether it takes tasks, and whether it mirrors this one back.
+  // It can be this Shepherd's settings source (#3967): its steers and repo emojis used live here.
   let {
     machine,
     now,
     sessionCount,
     mirrorsBack,
+    isSource = false,
+    onsource,
     onchange,
     onremove,
   }: {
@@ -31,6 +41,10 @@
     sessionCount: number;
     /** It mirrors this Shepherd too, confirmed by this Shepherd's own check of its ID. */
     mirrorsBack: boolean;
+    /** This Shepherd uses its steers and repo emojis (#3967). */
+    isSource?: boolean;
+    /** Make it the settings source (its id) or stop (`null`); rejects on failure. */
+    onsource?: (instanceId: string | null) => Promise<void>;
     onchange: (instance: RemoteInstance) => void;
     onremove: (instanceId: string) => void;
   } = $props();
@@ -61,18 +75,32 @@
   });
 
   /** Run one row action; any failure shows `failure` and leaves the row as it was. */
-  async function act(failure: string, fn: () => Promise<void>) {
+  async function act(failure: string | ((e: unknown) => string), fn: () => Promise<void>) {
     if (busy) return;
     busy = true;
     error = "";
     try {
       await fn();
-    } catch {
-      error = failure;
+    } catch (e) {
+      error = typeof failure === "string" ? failure : failure(e);
     } finally {
       busy = false;
     }
   }
+
+  /** An access token can't pick the source: only the signed-in operator (403). */
+  const sourceFailure = (e: unknown) =>
+    e instanceof ApiError && e.status === 403
+      ? m.settings_machines_source_operator_only()
+      : m.settings_machines_source_failed();
+
+  /** Not the source and not connected: nothing to read its steers from yet. */
+  const sourceOffline = $derived(!isSource && machine.status !== "connected");
+
+  const toggleSource = () =>
+    act(sourceFailure, async () => {
+      await onsource?.(isSource ? null : machine.instanceId);
+    });
 
   async function check() {
     checking = true;
@@ -134,6 +162,11 @@
       <li class="mch-chip" class:mch-off={!mirrorsBack} data-mirrors-back={mirrorsBack}>
         {mirrorsBack ? m.settings_machines_mirrors_back() : m.settings_machines_mirrors_back_not()}
       </li>
+      {#if isSource}
+        <li class="mch-chip mch-source" data-settings-source>
+          {m.settings_machines_source_chip()}
+        </li>
+      {/if}
     </ul>
     {#if machine.info}<MachineCapabilities report={machine.capabilities} />{/if}
     {#if machine.info}<MachineHeavySlot slot={machine.heavySlot} {now} />{/if}
@@ -195,6 +228,25 @@
       <button type="button" class="set-gbtn" disabled={busy || editing} onclick={startEdit}
         >{m.settings_machines_rename()}</button
       >
+      {#if onsource}
+        <span class="mch-source-act">
+          <!-- Use only while connected: picking needs its current steers; Stop always works. -->
+          <button
+            type="button"
+            class="set-gbtn"
+            disabled={busy || sourceOffline}
+            title={sourceOffline ? m.settings_machines_source_use_offline() : undefined}
+            onclick={toggleSource}
+            >{isSource
+              ? m.settings_machines_source_stop()
+              : m.settings_machines_source_use()}</button
+          >
+          <InfoTip
+            text={settingsSourceExplanation()}
+            label={m.settings_machines_source_info({ name: machine.name })}
+          />
+        </span>
+      {/if}
       <button
         type="button"
         class="set-gbtn"

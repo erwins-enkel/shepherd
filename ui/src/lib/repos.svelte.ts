@@ -39,6 +39,14 @@ class ReposStore {
     return this.pathIndex.get(repoPath) ?? null;
   }
 
+  /** Forge slug (`owner/repo`) of the repo at a path in either form; null when the path is unknown
+   *  or its remote isn't. */
+  slugFor(repoPath: string): string | null {
+    const name = this.nameFor(repoPath);
+    if (name == null) return null;
+    return this.entries.find((e) => e.name === name && e.remoteSlug)?.remoteSlug ?? null;
+  }
+
   /** Whether the repo at a path (either form) is a fork — drives the default issue filter's
    *  fork rule (#3019). Unknown repo ⇒ false. */
   isFork(repoPath: string): boolean {

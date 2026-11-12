@@ -57,7 +57,8 @@
   import { matchIssueTrigger } from "#lib/issue-trigger.js";
   import { keyboardOccluded } from "#lib/keyboard-scroll.js";
   import { steers } from "#lib/steers.svelte.js";
-  import { steerAppliesToRepo } from "#lib/steer-scope.js";
+  import { steerAppliesToRepo, steerRepoNames } from "#lib/steer-scope.js";
+  import { settingsSource } from "#lib/settings-source.svelte.js";
   import { matchRepoForLinks } from "#lib/github-link.js";
   import { isFableModel } from "#lib/provider-models.js";
   import RepoSelect from "./RepoSelect.svelte";
@@ -571,8 +572,21 @@
   const selectedRepo = $derived(repos.find((r) => r.path === repoPath));
   const selectedRepoName = $derived(selectedRepo?.name ?? "");
   // Issue steers offered in the compose action row (same set as PromptSources' row menu).
+  // With a settings source (#3967) its steers name ITS repos: resolve the pick by slug there.
+  const selectedSteerNames = $derived(
+    selectedRepo
+      ? steerRepoNames(
+          {
+            path: selectedRepo.path,
+            localName: selectedRepo.name,
+            slug: selectedRepo.remoteSlug ?? null,
+          },
+          settingsSource.source?.repos ?? null,
+        )
+      : null,
+  );
   const composeSteers = $derived(
-    steers.list.filter((s) => s.onIssues && steerAppliesToRepo(s, selectedRepo?.name ?? null)),
+    steers.list.filter((s) => s.onIssues && steerAppliesToRepo(s, selectedSteerNames)),
   );
 
   // ── Run on (#2763) and the automatic machine choice (#2772) ──────────────

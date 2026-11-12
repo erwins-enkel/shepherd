@@ -10,6 +10,7 @@
   } from "#lib/api.js";
   import type { IncomingMirror, InstanceIdentity, RemoteInstance, Session } from "#lib/types.js";
   import { platformLabel } from "#lib/machines.js";
+  import { settingsSource } from "#lib/settings-source.svelte.js";
   import MachineRow from "./MachineRow.svelte";
   import MachineIncomingRow from "./MachineIncomingRow.svelte";
   import MachineConnectForm from "./MachineConnectForm.svelte";
@@ -107,6 +108,8 @@
 
   function drop(instanceId: string) {
     machines = machines.filter((x) => x.instanceId !== instanceId);
+    // Removing the settings source clears it (#3967); the event says so too, this is sooner.
+    if (settingsSource.source?.instanceId === instanceId) void settingsSource.load();
   }
 
   async function closeConnect() {
@@ -193,6 +196,7 @@
     void loadSelf();
     void loadMachines();
     void loadOrder();
+    if (!settingsSource.loaded) void settingsSource.load();
     const timer = setInterval(() => {
       void loadSelf();
       void loadMachines();
@@ -287,6 +291,8 @@
           {now}
           sessionCount={sessionCounts.get(machine.instanceId) ?? 0}
           mirrorsBack={mirroredBy.has(machine.instanceId)}
+          isSource={settingsSource.source?.instanceId === machine.instanceId}
+          onsource={(id) => settingsSource.set(id)}
           onchange={upsert}
           onremove={drop}
         />

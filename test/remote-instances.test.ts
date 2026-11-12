@@ -184,6 +184,26 @@ describe("probeRemote", () => {
         ["/Users/k/repos/shepherd-fork", "erwins-enkel/shepherd"],
         ["/Volumes/work/shepherd-fork", "erwins-enkel/shepherd"],
       ]),
+      repos: [
+        {
+          name: "shepherd",
+          path: "/Users/k/repos/shepherd",
+          realPath: "/Users/k/repos/shepherd",
+          remoteSlug: "erwins-enkel/shepherd",
+        },
+        {
+          name: "scratch",
+          path: "/Users/k/repos/scratch",
+          realPath: "/Users/k/repos/scratch",
+          remoteSlug: null,
+        },
+        {
+          name: "shepherd-fork",
+          path: "/Users/k/repos/shepherd-fork",
+          realPath: "/Volumes/work/shepherd-fork",
+          remoteSlug: "erwins-enkel/shepherd",
+        },
+      ],
       capabilities: null,
       load: null,
       loadReadAt: expect.any(Number),
@@ -527,6 +547,45 @@ describe("RemoteInstanceService", () => {
       ["/Volumes/work/shepherd-fork", "erwins-enkel/shepherd"],
     ]);
     expect(instance).not.toHaveProperty("repoSlugs");
+  });
+
+  test("the repo index lists every usable checkout, kept as last seen; empty before a probe", async () => {
+    const { svc, remote } = setup();
+    expect(svc.repoIndex(REMOTE_ID)).toEqual([]);
+    await svc.connect(connectReq);
+    expect(svc.repoIndex(REMOTE_ID).map((r) => r.name)).toEqual([
+      "shepherd",
+      "scratch",
+      "shepherd-fork",
+    ]);
+    remote.status = { "/api/me": 401 };
+    await svc.check(REMOTE_ID);
+    expect(svc.repoIndex(REMOTE_ID)).toHaveLength(3);
+    svc.remove(REMOTE_ID);
+    expect(svc.repoIndex(REMOTE_ID)).toEqual([]);
+  });
+
+  test("the repo index drops entries without a name or path, over-long strings and the excess", async () => {
+    const long = "x".repeat(1_025);
+    const many = Array.from({ length: 1_005 }, (_, i) => ({ name: `r${i}`, path: `/r/${i}` }));
+    const { svc } = setup(
+      fakeShepherd({
+        repos: {
+          repos: [
+            { name: "", path: "/a" },
+            { name: "b" },
+            { name: long, path: "/c" },
+            { name: "d", path: "/d", realPath: long, remoteSlug: long },
+            "junk",
+            ...many,
+          ],
+        },
+      }),
+    );
+    await svc.connect(connectReq);
+    const index = svc.repoIndex(REMOTE_ID);
+    expect(index).toHaveLength(1_000);
+    expect(index[0]).toEqual({ name: "d", path: "/d", realPath: "/d", remoteSlug: null });
   });
 
   test("a project cloned there is listed at once; only while the machine is connected", async () => {

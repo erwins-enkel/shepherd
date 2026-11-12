@@ -44,6 +44,8 @@ import type {
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
+import { steers } from "./steers.svelte";
+import { settingsSource } from "./settings-source.svelte";
 import { repoBootstrap } from "./repo-bootstrap.svelte";
 import { schedules } from "./schedules.svelte";
 import { reviews, planGates, spawnNotices } from "./reviews.svelte";
@@ -1224,7 +1226,24 @@ export class HerdStore {
     return false;
   }
 
+  /** Steers, repo emojis and the machine they come from (#3967). */
+  private applySettingsSourceEvent(ev: WsEvent): boolean {
+    switch (ev.event) {
+      case "project-icons:update":
+        projectIcons.apply(ev.data);
+        return true;
+      case "steers:update":
+        steers.apply(ev.data);
+        return true;
+      case "settings-source:update":
+        settingsSource.apply(ev.data);
+        return true;
+    }
+    return false;
+  }
+
   private applyGlobalEvent(ev: WsEvent) {
+    if (this.applySettingsSourceEvent(ev)) return;
     if (this.applyHerdrUpdateEvent(ev)) return;
     if (this.applyCodexUpdateEvent(ev)) return;
     if (this.applyDocAgentEvent(ev)) return;
@@ -1232,9 +1251,6 @@ export class HerdStore {
     if (this.applyStatusEvent(ev)) return;
     if (this.applyUpNextEvent(ev)) return;
     switch (ev.event) {
-      case "project-icons:update":
-        projectIcons.apply(ev.data);
-        break;
       case "repo-bootstrap:update":
         repoBootstrap.refresh(ev.data.repoPath);
         break;

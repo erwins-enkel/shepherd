@@ -28,6 +28,7 @@ import {
   type FetchLike,
   type ProbeFailure,
   type ProbeOutcome,
+  type RemoteRepo,
   type RemoteTarget,
   getRemoteJson,
   isRecord,
@@ -69,6 +70,7 @@ const TOKEN_RE = /^\S{1,1024}$/;
 const TOKEN_HINT_MIN_LENGTH = 20;
 
 const NO_REPO_SLUGS: ReadonlyMap<string, string> = new Map();
+const NO_REPOS: readonly RemoteRepo[] = [];
 
 /** A row as it sits in SQLite. `label` null = show the name the machine reports. */
 export interface RemoteInstanceRow {
@@ -147,6 +149,7 @@ interface ProbeState {
   info: MachineInfo | null;
   projects: string[] | null;
   repoSlugs: ReadonlyMap<string, string> | null;
+  repos: readonly RemoteRepo[] | null;
   capabilities: CapabilitySnapshot | null;
   update: MachineSelfUpdate | null;
   heavySlot: { snapshot: HeavySlotSnapshot; readAt: number } | null;
@@ -224,12 +227,13 @@ export function parseLabelPatch(body: unknown): { label: string | null } | { err
 /** What a failed probe keeps from the last successful one ("last seen"). */
 function lastSeen(
   prev: ProbeState | undefined,
-): Pick<ProbeState, "lastSeenAt" | "info" | "projects" | "repoSlugs" | "capabilities"> {
+): Pick<ProbeState, "lastSeenAt" | "info" | "projects" | "repoSlugs" | "repos" | "capabilities"> {
   return {
     lastSeenAt: prev?.lastSeenAt ?? null,
     info: prev?.info ?? null,
     projects: prev?.projects ?? null,
     repoSlugs: prev?.repoSlugs ?? null,
+    repos: prev?.repos ?? null,
     capabilities: prev?.capabilities ?? null,
   };
 }
@@ -278,6 +282,13 @@ export class RemoteInstanceService {
    *  the machine's sessions with it, so a repo filter here can match them by project. */
   repoSlugs(instanceId: string): ReadonlyMap<string, string> {
     return this.states.get(instanceId)?.repoSlugs ?? NO_REPO_SLUGS;
+  }
+
+  /** Every checkout the machine listed in its last successful probe (slug or not); empty until one
+   *  answered. A settings source (#3967) translates repo emojis and matches repo-bound steers by it,
+   *  so it is kept as last seen like `repoSlugs`. */
+  repoIndex(instanceId: string): readonly RemoteRepo[] {
+    return this.states.get(instanceId)?.repos ?? NO_REPOS;
   }
 
   /** Called with the machine's ID after every probe result, rename and removal — the session
@@ -586,6 +597,7 @@ export class RemoteInstanceService {
             info: machineInfo(outcome.info),
             projects: outcome.projects,
             repoSlugs: outcome.repoSlugs,
+            repos: outcome.repos,
             capabilities: outcome.capabilities,
             update: knownUpdate,
             heavySlot: knownSlot,

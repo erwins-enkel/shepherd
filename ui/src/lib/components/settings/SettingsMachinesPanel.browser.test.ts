@@ -9,8 +9,10 @@ import type {
   InstanceIdentity,
   RemoteInstance,
   Session,
+  SettingsSource,
 } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
+import { settingsSource } from "#lib/settings-source.svelte.js";
 
 const SELF: InstanceIdentity = {
   instanceId: "aaaaaaaa-0000-4000-8000-000000000001",
@@ -72,7 +74,11 @@ function stubApi(opts: {
   incoming?: IncomingMirror[];
   connect?: (body: Record<string, unknown>) => { payload: unknown; status: number };
   order?: string[];
+  /** The settings source (#3967) GET answers; a PUT answers `sourcePut` or adopts the pick. */
+  source?: SettingsSource | null;
+  sourcePut?: { payload: unknown; status: number };
 }) {
+  let source = opts.source ?? null;
   const calls: { url: string; method: string; body: string }[] = [];
   let machines = [...(opts.machines ?? [])];
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -97,6 +103,16 @@ function stubApi(opts: {
     }
     if (url === "/api/remote-instances")
       return jsonRes({ instances: machines, incoming: opts.incoming ?? [] });
+    if (url === "/api/settings-source") {
+      if (method !== "PUT") return jsonRes({ source });
+      if (opts.sourcePut) return jsonRes(opts.sourcePut.payload, opts.sourcePut.status);
+      const id = JSON.parse(body).instanceId as string | null;
+      const picked = machines.find((x) => x.instanceId === id);
+      source = picked
+        ? { instanceId: picked.instanceId, name: picked.name, reachable: true, repos: [] }
+        : null;
+      return jsonRes({ source });
+    }
     if (url === "/api/settings" && opts.order) {
       if (method === "PUT") return jsonRes(JSON.parse(body));
       return jsonRes({ machinePlatformOrder: opts.order });
@@ -112,6 +128,8 @@ function stubApi(opts: {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  settingsSource.source = null;
+  settingsSource.loaded = false;
 });
 
 /** The list header's toggle that unfolds the connect form. */
@@ -570,6 +588,76 @@ describe("SettingsMachinesPanel", () => {
       expect(row(OFF).querySelector('[data-mirrors-back="false"]')?.textContent?.trim()).toBe(
         m.settings_machines_mirrors_back_not(),
       );
+    });
+  });
+
+  describe("settings source (#3967)", () => {
+    const useButton = () =>
+      page.getByRole("button", { name: m.settings_machines_source_use(), exact: true });
+    const stopButton = () =>
+      page.getByRole("button", { name: m.settings_machines_source_stop(), exact: true });
+
+    it("makes a connected machine the source, shows the chip and stops again", async () => {
+      const core = machine({ name: "Core" });
+      const calls = stubApi({ machines: [core] });
+      render(SettingsMachinesPanel);
+      await useButton().click();
+      await expect.element(page.getByText(m.settings_machines_source_chip())).toBeVisible();
+      const puts = () =>
+        calls.filter((c) => c.url === "/api/settings-source" && c.method === "PUT");
+      expect(JSON.parse(puts()[0]!.body)).toEqual({ instanceId: core.instanceId });
+      expect(settingsSource.source?.instanceId).toBe(core.instanceId);
+
+      await stopButton().click();
+      await expect
+        .element(page.getByText(m.settings_machines_source_chip()))
+        .not.toBeInTheDocument();
+      expect(JSON.parse(puts()[1]!.body)).toEqual({ instanceId: null });
+      await expect.element(useButton()).toBeVisible();
+    });
+
+    it("shows the machine that already is the source, with its explanation", async () => {
+      const core = machine({ name: "Core" });
+      stubApi({
+        machines: [core],
+        source: { instanceId: core.instanceId, name: "Core", reachable: true, repos: [] },
+      });
+      render(SettingsMachinesPanel);
+      await expect.element(page.getByText(m.settings_machines_source_chip())).toBeVisible();
+      await expect.element(stopButton()).toBeEnabled();
+      await expect
+        .element(
+          page.getByRole("button", { name: m.settings_machines_source_info({ name: "Core" }) }),
+        )
+        .toBeVisible();
+    });
+
+    it("offers Use only while the machine is connected, but Stop always", async () => {
+      const off = machine({ name: "Away", status: "unreachable", reason: "timeout" });
+      stubApi({ machines: [off] });
+      render(SettingsMachinesPanel);
+      await expect.element(useButton()).toBeDisabled();
+
+      settingsSource.source = {
+        instanceId: off.instanceId,
+        name: "Away",
+        reachable: false,
+        repos: [],
+      };
+      await expect.element(stopButton()).toBeEnabled();
+    });
+
+    it("says an access token can't pick the source", async () => {
+      stubApi({
+        machines: [machine({ name: "Core" })],
+        sourcePut: { payload: { error: "operator_session_required" }, status: 403 },
+      });
+      render(SettingsMachinesPanel);
+      await useButton().click();
+      await expect
+        .element(page.getByRole("alert"))
+        .toHaveTextContent(m.settings_machines_source_operator_only());
+      expect(settingsSource.source).toBeNull();
     });
   });
 });

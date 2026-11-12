@@ -192,6 +192,17 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+/* This Shepherd's settings source (#3967): its steers and repo emojis are used here. */
+.mch-chip.mch-source {
+  border-color: var(--color-amber);
+  color: var(--color-amber);
+}
+/* The Use/Stop button and its ⓘ stay together when the actions wrap. */
+.mch-source-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 
 @media (max-width: 768px) {
   .mch-fld .pui-input {

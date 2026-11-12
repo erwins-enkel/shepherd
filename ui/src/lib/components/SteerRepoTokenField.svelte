@@ -22,7 +22,10 @@
     onchange,
   }: {
     value: string[] | undefined;
-    repos: RepoEntry[];
+    /** The candidates: this Shepherd's repos, or a settings source's (#3967), which carry no
+     *  usage stats and so offer no recent suggestions. */
+    repos: readonly (Pick<RepoEntry, "name"> &
+      Partial<Pick<RepoEntry, "lastUsedAt" | "recentAgentCount" | "hidden">>)[];
     onchange: (next: string[] | undefined) => void;
   } = $props();
 

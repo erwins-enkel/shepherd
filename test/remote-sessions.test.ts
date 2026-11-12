@@ -87,6 +87,7 @@ function setup(
   const requests: { url: string; init: RequestInit }[] = [];
   const checks: string[] = [];
   const pauses: string[] = [];
+  const machineEvents: [string, string, unknown][] = [];
   const fetch: FetchLike = async (url, init) => {
     requests.push({ url, init });
     const body = await (url.endsWith("/api/git") ? state.git() : state.snapshot());
@@ -126,6 +127,7 @@ function setup(
     }) satisfies OpenTerminalSocket,
     now: () => now,
     recheckDelaysMs: [1, 1],
+    onMachineEvent: (id, event, data) => machineEvents.push([id, event, data]),
   });
   const events: [string, unknown][] = [];
   mirror.subscribe((event, data) => events.push([event, data]));
@@ -138,6 +140,7 @@ function setup(
     requests,
     checks,
     pauses,
+    machineEvents,
     events,
     tick: (ms: number) => (now += ms),
     /** sync, open the socket and wait for the snapshot. */
@@ -166,6 +169,20 @@ describe("session mirror", () => {
     send(socket, "host:battery-pause", {});
     expect(t.pauses).toEqual([B]);
     expect(t.events).toEqual([["remote:sessions", { instanceId: B, sessions: t.mirror.list() }]]);
+  });
+
+  test("the machine's settings frames reach onMachineEvent, never the dashboards (#3967)", async () => {
+    const t = setup();
+    const socket = await t.live();
+    const before = [...t.events];
+    send(socket, "project-icons:update", { "/Users/k/shepherd": "🐑" });
+    send(socket, "steers:update", [{ id: "x", label: "go", text: "go" }]);
+    send(socket, "repos:update", {});
+    expect(t.machineEvents).toEqual([
+      [B, "project-icons:update", { "/Users/k/shepherd": "🐑" }],
+      [B, "steers:update", [{ id: "x", label: "go", text: "go" }]],
+    ]);
+    expect(t.events).toEqual(before);
   });
 
   test("nothing is opened until a machine is synced", () => {

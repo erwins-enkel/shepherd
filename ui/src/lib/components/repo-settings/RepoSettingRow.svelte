@@ -198,6 +198,22 @@
     display: flex;
     justify-content: flex-end;
   }
+  /* Narrow repo settings (a phone): a select or input goes under the name and description, full
+     width, instead of squeezing the description into half the row. A switch stays beside it. */
+  @container repo-settings (max-width: 640px) {
+    .rs-row:has(> .rs-control) {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 6px;
+    }
+    .rs-control {
+      max-width: 100%;
+      justify-content: flex-start;
+    }
+    .rs-control > :global(select) {
+      width: 100%;
+    }
+  }
   /* switch: track + knob, amber when on (active mode, not a completion —
      Four-Light Rule), pulsing while actively reviewing */
   .sw {

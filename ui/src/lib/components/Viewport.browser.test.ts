@@ -3255,6 +3255,20 @@ describe("Viewport — phone keeps the Chat tall", () => {
       .toBeInTheDocument();
   });
 
+  it("folds the session details away on entering the Auto tab, and the fold reopens them", async () => {
+    localStorage.setItem("shepherd-vp-phone-details-open", "1");
+    const { container } = await renderPhone("phone-auto-fold");
+    await expect.poll(() => container.querySelector(".vp-phone-details .ssb")).not.toBeNull();
+
+    container.querySelector<HTMLElement>(".tab-btn.auto-tab")!.click();
+
+    await expect.poll(() => container.querySelector(".automation .root")).not.toBeNull();
+    await expect.poll(() => container.querySelector(".vp-phone-details .ssb")).toBeNull();
+    await page.getByRole("button", { name: m.viewport_details_show_aria() }).click();
+    await expect.poll(() => container.querySelector(".vp-phone-details .ssb")).not.toBeNull();
+    expect(container.querySelector(".automation .root")).not.toBeNull();
+  });
+
   it("folds the steer row in the Chat behind the composer toggle", async () => {
     const { container } = await renderPhone("phone-steers");
     await page.getByRole("tab", { name: m.viewport_chat_tab() }).click();

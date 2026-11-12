@@ -15,7 +15,7 @@
   import { m } from "#lib/paraglide/messages.js";
 
   // The repo settings window's sections (#3443): a rail with each section's short status on
-  // wide container, wrapping chips in a narrow one. A tablist: arrow keys / Home / End move between sections.
+  // wide container, one sideways-scrolling row of chips in a narrow one. A tablist: arrow keys / Home / End move between sections.
   let {
     items,
     active = $bindable(),
@@ -28,6 +28,21 @@
   } = $props();
 
   let tabs = $state<HTMLButtonElement[]>([]);
+  let nav = $state<HTMLDivElement>();
+
+  // Narrow, the chips are one row that scrolls sideways: keep the active one fully in view. Set
+  // scrollLeft directly — scrollIntoView would also scroll the settings vertically.
+  $effect(() => {
+    const i = items.findIndex((item) => item.id === active);
+    const tab = tabs[i];
+    if (!nav || !tab || nav.scrollWidth <= nav.clientWidth) return;
+    const pad = 12;
+    const left = tab.offsetLeft; // .nav is the offsetParent: content coordinates
+    const right = left + tab.offsetWidth;
+    if (left - pad < nav.scrollLeft) nav.scrollLeft = left - pad;
+    else if (right + pad > nav.scrollLeft + nav.clientWidth)
+      nav.scrollLeft = right + pad - nav.clientWidth;
+  });
 
   function onKey(e: KeyboardEvent, i: number) {
     const last = items.length - 1;
@@ -43,7 +58,7 @@
   }
 </script>
 
-<div class="nav" role="tablist" aria-label={m.reposettings_nav_label()}>
+<div bind:this={nav} class="nav" role="tablist" aria-label={m.reposettings_nav_label()}>
   {#each items as item, i (item.id)}
     <button
       bind:this={tabs[i]}
@@ -71,6 +86,7 @@
 
 <style>
   .nav {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 1px;
@@ -131,18 +147,26 @@
     clip-path: inset(50%);
     white-space: nowrap;
   }
-  /* Narrow container (a phone, or a narrow pane; the body is the query container): wrapping
-     chips — every section stays reachable without sideways scrolling. */
-  @container (max-width: 640px) {
+  /* Narrow container (a phone, or a narrow pane): one row of chips that scrolls sideways and
+     sticks above the section — the next chip peeking at the edge says there is more. */
+  @container repo-settings (max-width: 640px) {
     .nav {
       flex-direction: row;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
       gap: 6px;
       padding: 8px 12px;
       border-bottom: 1px solid var(--color-line);
+      overflow-x: auto;
+      overscroll-behavior-x: contain;
+      scrollbar-width: none;
+    }
+    .nav::-webkit-scrollbar {
+      display: none;
     }
     .tab {
+      flex: 0 0 auto;
       width: auto;
+      white-space: nowrap;
       min-height: 44px;
       justify-content: center;
       padding: 4px 12px;

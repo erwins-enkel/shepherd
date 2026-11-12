@@ -638,8 +638,17 @@ describe("RepoSettingsWindow — hints and their marks", () => {
   });
 });
 
+/** Narrow, the sticky chip strip covers the top of the scroller; a revealed target must clear
+ *  it. Wide, the rail sits beside the section, so only the viewport's top counts. */
+function stripBottom() {
+  const strip = document.querySelector<HTMLElement>("[data-repo-settings] [role=tablist]")!;
+  return getComputedStyle(strip.parentElement!).position === "sticky"
+    ? strip.getBoundingClientRect().bottom - 1
+    : 0;
+}
+
 describe("RepoSettingsWindow — phone", () => {
-  it("goes full screen with section chips and never scrolls sideways", async () => {
+  it("goes full screen with a sideways chip strip, and nothing else scrolls sideways", async () => {
     await page.viewport(375, 800);
     mockApi({ sharedBrowserEnabled: true, browserAllowedHosts: ["a-long-host.example.com"] });
     await open({ section: "agent" });
@@ -648,15 +657,19 @@ describe("RepoSettingsWindow — phone", () => {
     for (const id of ["autonomy", "agent", "start", "merge", "display"] as const) {
       await tab(sectionLabel(id)).click();
       await tick();
+      // the chip strip is the one sideways scroller, and keeps the active chip fully in view
+      const strip = card.querySelector<HTMLElement>('[role="tablist"]')!;
+      const chip = strip.querySelector('[aria-selected="true"]')!.getBoundingClientRect();
+      const box = strip.getBoundingClientRect();
+      expect(chip.left).toBeGreaterThanOrEqual(box.left - 1);
+      expect(chip.right).toBeLessThanOrEqual(box.right + 1);
       for (const el of [card, ...card.querySelectorAll<HTMLElement>("*")]) {
+        if (el === strip) continue;
         if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflowX !== "hidden")
           expect.soft(el.scrollWidth, el.className).toBeLessThanOrEqual(el.clientWidth + 1);
       }
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(375);
     }
-    // every chip on screen, none clipped off the right edge
-    for (const t of card.querySelectorAll<HTMLElement>('[role="tab"]'))
-      expect(t.getBoundingClientRect().right).toBeLessThanOrEqual(375);
   });
 });
 
@@ -777,7 +790,7 @@ describe("RepoSettingsWindow — search edge cases", () => {
       await result.click();
       await expect.element(sw(m.reposettings_hide_name())).toHaveFocus();
       const target = sw(m.reposettings_hide_name()).query()!.getBoundingClientRect();
-      expect(target.top).toBeGreaterThanOrEqual(0);
+      expect(target.top).toBeGreaterThanOrEqual(stripBottom());
       expect(target.bottom).toBeLessThanOrEqual(844);
       const root = document.querySelector<HTMLElement>("[data-repo-settings]")!;
       expect(root.scrollWidth).toBeLessThanOrEqual(root.clientWidth);
@@ -850,7 +863,7 @@ it("keeps the selected autonomy radio visible on a narrow screen after search", 
   const selected = page.getByRole("radio", { name: m.reposettings_autonomy_full(), exact: true });
   await expect.element(selected).toHaveFocus();
   const rect = selected.query()!.getBoundingClientRect();
-  expect(rect.top).toBeGreaterThanOrEqual(0);
+  expect(rect.top).toBeGreaterThanOrEqual(stripBottom());
   expect(rect.bottom).toBeLessThanOrEqual(844);
 });
 

@@ -410,6 +410,11 @@
   const PHONE_DETAILS_KEY = "shepherd-vp-phone-details-open";
   let phoneDetailsOpen = $state(readFlag(PHONE_DETAILS_KEY));
   $effect(() => writeFlag(PHONE_DETAILS_KEY, phoneDetailsOpen));
+  // The Auto tab is a long settings list: entering it on a phone folds the details away so the
+  // settings get the height. Only on entering — the fold button still reopens them there.
+  $effect(() => {
+    if (mobile && tab === "automation") untrack(() => (phoneDetailsOpen = false));
+  });
   // phone Chat only: the steer chips stay folded behind the composer's steer toggle until opened.
   let phoneSteersOpen = $state(readPhoneSteers());
   $effect(() => writePhoneSteers(phoneSteersOpen));

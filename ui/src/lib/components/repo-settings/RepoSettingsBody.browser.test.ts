@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
-import { tick } from "svelte";
+import { createRawSnippet, tick } from "svelte";
 import "../../../app.css";
 import RepoSettingsBody from "./RepoSettingsBody.svelte";
 import { REPO_SETTINGS_SECTIONS, type RepoSettingsSection } from "./sections";
@@ -885,5 +885,74 @@ describe("RepoSettingsBody — search", () => {
     await expect
       .element(page.getByRole("switch", { name: m.automation_epic_stacks_name() }))
       .toBeVisible();
+  });
+});
+
+describe("RepoSettingsBody — phone tab", () => {
+  const lead = createRawSnippet(() => ({
+    render: () => '<div class="lead-probe" style="height: 80px">lead</div>',
+  }));
+
+  async function mountPhone(section: RepoSettingsSection) {
+    await page.viewport(390, 844);
+    const { container } = await render(RepoSettingsBody, {
+      repoPath: "/tmp/repo",
+      variant: "tab",
+      section,
+      lead,
+    });
+    container.style.cssText = "width: 390px; height: 600px; display: flex; flex-direction: column";
+    await expect.poll(() => tab(section)?.getAttribute("aria-selected")).toBe("true");
+    const scroller = container.querySelector<HTMLElement>(".scroll")!;
+    await expect.poll(() => scroller.scrollHeight > scroller.clientHeight).toBe(true);
+    return { container, scroller };
+  }
+  const frame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
+  const top = (el: Element) => el.getBoundingClientRect().top;
+  const bottom = (el: Element) => el.getBoundingClientRect().bottom;
+
+  afterEach(() => page.viewport(1280, 900));
+
+  it("scrolls lead, head and section as one, under a sticky one-row chip strip", async () => {
+    const { container, scroller } = await mountPhone("agent");
+    // the only vertical scroller is the body's own
+    const scrollers = [...container.querySelectorAll<HTMLElement>("*")].filter(
+      (el) =>
+        /auto|scroll/.test(getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight,
+    );
+    expect(scrollers).toEqual([scroller]);
+    // the tab drops the subtitle; the autopilot hint says the repo default sits below
+    expect(container.querySelector(".sub")!.getClientRects()).toHaveLength(0);
+    // one row of chips
+    const tablist = container.querySelector<HTMLElement>('[role="tablist"]')!;
+    const chipTops = new Set([...tablist.querySelectorAll('[role="tab"]')].map(top));
+    expect(chipTops.size).toBe(1);
+    // a select row stacks its control under the description
+    const row = container.querySelector('[data-field="agentProvider"]')!;
+    expect(top(row.querySelector(".rs-control")!)).toBeGreaterThanOrEqual(
+      bottom(row.querySelector(".rs-desc")!),
+    );
+
+    scroller.scrollTop = scroller.scrollHeight;
+    await frame();
+    expect(bottom(container.querySelector(".lead-probe")!)).toBeLessThanOrEqual(top(scroller));
+    expect(bottom(container.querySelector(".head")!)).toBeLessThanOrEqual(top(scroller));
+    expect(Math.abs(top(tablist) - top(scroller))).toBeLessThanOrEqual(1);
+  });
+
+  it("a section switched while scrolled starts right under the strip", async () => {
+    const { container, scroller } = await mountPhone("agent");
+    scroller.scrollTop = scroller.scrollHeight;
+    await frame();
+    await visit("autonomy");
+    await frame();
+    const body = container.querySelector<HTMLElement>(".body")!;
+    expect(scroller.scrollHeight - scroller.clientHeight).toBeGreaterThanOrEqual(body.offsetTop);
+    expect(scroller.scrollTop).toBe(body.offsetTop);
+    const strip = container.querySelector('[role="tablist"]')!;
+    const firstRow = container.querySelector(".pane .rs-row, .pane .col > :not(:empty)")!;
+    expect(Math.abs(top(strip) - top(scroller))).toBeLessThanOrEqual(1);
+    expect(top(firstRow)).toBeGreaterThanOrEqual(bottom(strip) - 1);
+    expect(top(container.querySelector(".pane")!) - bottom(strip)).toBeLessThanOrEqual(1);
   });
 });

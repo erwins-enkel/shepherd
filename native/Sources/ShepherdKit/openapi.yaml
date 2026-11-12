@@ -10293,6 +10293,16 @@ components:
           type:
             - string
             - "null"
+        inheritedRunDefaults:
+          type: object
+          additionalProperties: true
+          properties:
+            agentProvider:
+              type: string
+            model:
+              type: string
+            effort:
+              type: string
         repoConfigCommit:
           type:
             - string
@@ -11903,9 +11913,7 @@ components:
         rules:
           $ref: "#/components/schemas/RepoRulesPatch"
         leitrechner:
-          type:
-            - string
-            - "null"
+          description: Required JSON scalar; use the stream's typed value factory.
     RepoConfigNotification:
       type: object
       additionalProperties: true
@@ -18979,6 +18987,104 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RepoConfig"
+        "400":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      description: Only machine fields and automationConfirmed metadata are accepted. Applies the target's validation and side effects; no shared-rule commit or local fallback.
+  /api/repo-config/roles:
+    get:
+      operationId: getRepoConfigRoles
+      parameters:
+        - name: remoteSlug
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: instanceId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: host
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoRolesResult"
+        "400":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      operationId: putRepoConfigRoles
+      parameters:
+        - name: remoteSlug
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: instanceId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: host
+          in: query
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoRolesPatch"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoRolesResult"
         "400":
           description: Success.
           content:

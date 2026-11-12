@@ -3856,6 +3856,16 @@ function repoConfigMachineView(deps: AppDeps, dir: string) {
   const provider = spawnProvider(rc);
   return {
     ...withNoPrCi(deps, dir, rc),
+    inheritedRunDefaults: {
+      agentProvider: provider,
+      model: resolveProviderDefaultModelSetting(
+        "inherit",
+        provider,
+        config.defaultModel,
+        config.defaultCodexModel,
+      ),
+      effort: resolveProviderDefaultEffortSetting("inherit", provider, config),
+    },
     resolvedRunDefaults: {
       agentProvider: provider,
       model: resolveProviderDefaultModelSetting(
@@ -3930,14 +3940,14 @@ async function refreshLocalRepoConfig(deps: AppDeps, slug: string): Promise<void
   }
 }
 
-type RepoConfigLeaf = "machine" | "project";
+type RepoConfigLeaf = "machine" | "project" | "roles";
 
 /** Slug-addressed settings terminate locally when host=local; peers never fan out. */
 async function handleRepoConfigProject(ctx: Ctx): Promise<Response | null> {
   const { req, parts, url, token, agentIngress } = ctx;
   if (parts[0] !== "api" || parts[1] !== "repo-config" || parts.length !== 3) return null;
   const leaf = parts[2];
-  if (!["project", "machine", "refresh"].includes(leaf!)) return null;
+  if (!["project", "machine", "refresh", "roles"].includes(leaf!)) return null;
   if (agentIngress || (token && token.repoPaths !== null))
     return json({ error: "insufficient_scope" }, 403);
   const slug = url.searchParams.get("remoteSlug");
@@ -4002,6 +4012,17 @@ async function parseTargetedRepoPatch(
     .catch(() => null);
   if (!isRecord(value)) return json({ error: "body must be an object" }, 400);
   if (leaf === "project") return projectRepoPatchError(value) ?? value;
+  if (leaf === "roles") {
+    if (
+      !Object.keys(value).length ||
+      Object.entries(value).some(
+        ([key, v]) =>
+          !["reviewer", "merger"].includes(key) || (v !== null && typeof v !== "string"),
+      )
+    )
+      return json({ error: "invalid roles patch" }, 400);
+    return value;
+  }
   const keys = deps.store.getLocalRepoConfig("");
   if (
     !Object.keys(value).length ||
@@ -4019,7 +4040,7 @@ async function targetedRepoConfigRequest(
   leaf: RepoConfigLeaf,
 ): Promise<Response | null> {
   const { req, url, deps } = ctx;
-  if (req.method !== "PUT" && (leaf !== "machine" || req.method !== "GET")) return null;
+  if (req.method !== "PUT" && (leaf === "project" || req.method !== "GET")) return null;
   const instanceId = url.searchParams.get("instanceId");
   if (!instanceId || !UUID_RE.test(instanceId))
     return json({ error: "instanceId is required" }, 400);
@@ -4055,12 +4076,51 @@ async function forwardTargetedRepoConfig(
     slug,
     body ? JSON.stringify(body) : undefined,
   );
-  if (leaf !== "project" || !response.ok) return response;
+  if (leaf === "machine" || !response.ok) return response;
   const written = (await response.json()) as Record<string, unknown>;
+  if (req.method === "GET") return json(written);
   return json({
     ...written,
-    notifications: written.pendingRepoConfig ? [] : await coordinator.notify(slug, instanceId),
+    notifications:
+      written.pendingRepoConfig || written.pending
+        ? []
+        : await coordinator.notify(slug, instanceId),
   });
+}
+
+async function localTargetedRepoRoles(
+  ctx: Ctx,
+  slug: string,
+  dir: string,
+  body?: Record<string, unknown>,
+): Promise<Response | null> {
+  const { req, url, deps } = ctx;
+  const localUrl = new URL(req.url);
+  localUrl.pathname = "/api/repo-roles";
+  localUrl.search = new URLSearchParams({ repo: dir }).toString();
+  const response = await handleRepoRoles({
+    ...ctx,
+    url: localUrl,
+    parts: ["api", "repo-roles"],
+    req: new Request(localUrl, {
+      method: req.method,
+      headers: req.headers,
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    }),
+  });
+  if (response?.status === 502) {
+    const result = (await response.json()) as { pushError?: string };
+    return json(
+      { error: result.pushError ?? "roles push failed", code: "repo_roles_write_failed" },
+      502,
+    );
+  }
+  if (response?.ok && req.method === "PUT" && url.searchParams.get("host") !== "local") {
+    const result = (await response.json()) as Record<string, unknown>;
+    if (!result.pending) await repoConfigCoordinator(deps).notify(slug);
+    return json(result);
+  }
+  return response;
 }
 
 async function localTargetedRepoConfig(
@@ -4078,6 +4138,7 @@ async function localTargetedRepoConfig(
     (deps.store.getLocalRepoConfig(dir).repoMode === "lightweight" || !repoConfigGitContext(dir))
   )
     return json({ error: "shared rules require a forge repository" }, 400);
+  if (leaf === "roles") return localTargetedRepoRoles(ctx, slug, dir, body);
   const localUrl = new URL(req.url);
   localUrl.pathname = "/api/repo-config";
   localUrl.search = new URLSearchParams({ repo: dir, host: "local" }).toString();

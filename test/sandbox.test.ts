@@ -22,6 +22,7 @@ import {
   resolveClaudeMembrane,
   membraneForArgv,
   MEMBRANE_MISE_CONFIG,
+  MEMBRANE_TOOL_BIN,
   type MembraneInputs,
   type CodexMembraneInputs,
   type ClaudeMembraneInputs,
@@ -360,6 +361,21 @@ describe("buildMembraneFlags", () => {
     expect(f.some((v) => v.startsWith("/home/me/.config/mise"))).toBe(false);
     for (const absent of [undefined, null, ""])
       expect(buildMembraneFlags(fakeMembrane({ miseConfigFile: absent }), detDeps)).toEqual(
+        buildMembraneFlags(fakeMembrane(), detDeps),
+      );
+  });
+
+  test("real gh: RO bind into the tool bin after --tmpfs /tmp, first on PATH; none when absent (#3975)", () => {
+    const gh = "/home/me/.local/share/mise/installs/gh/2.103.3/bin/gh";
+    const f = buildMembraneFlags(fakeMembrane({ ghBin: gh }), detDeps);
+    expect(hasTriple(f, "--ro-bind-try", gh, `${MEMBRANE_TOOL_BIN}/gh`)).toBe(true);
+    const tmpTmpfs = f.findIndex((v, k) => v === "/tmp" && f[k - 1] === "--tmpfs");
+    expect(f.indexOf(gh)).toBeGreaterThan(tmpTmpfs);
+    const path = f[f.findIndex((v, k) => v === "PATH" && f[k - 1] === "--setenv") + 1];
+    expect(path?.split(":")[0]).toBe(MEMBRANE_TOOL_BIN);
+    expect(path?.split(":")[1]).toBe("/home/me/.local/bin");
+    for (const absent of [undefined, null, ""])
+      expect(buildMembraneFlags(fakeMembrane({ ghBin: absent }), detDeps)).toEqual(
         buildMembraneFlags(fakeMembrane(), detDeps),
       );
   });

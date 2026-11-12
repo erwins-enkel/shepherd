@@ -15,12 +15,12 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { closeSync, mkdirSync, openSync, readdirSync, rmSync } from "node:fs";
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { chmod, mkdir, open, readFile, realpath, rename, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import { claudeConfigPath, dashify } from "./claude-trust";
 import { shepherdRuntimeDir } from "./runtime-dir";
-import { EPHEMERAL_CLAUDE_DIRS } from "./sandbox";
+import { EPHEMERAL_CLAUDE_DIRS, scanPath } from "./sandbox";
 
 function membraneStateRoot(): string {
   return shepherdRuntimeDir("membrane");
@@ -204,6 +204,65 @@ export async function prepareMembraneGhHosts(
   if (user) lines.push(`    user: ${user}`);
   lines.push(`    oauth_token: ${token}`);
   return writeStateFile(i.sessionId, `${i.key}.gh-hosts.yml`, `${lines.join("\n")}\n`);
+}
+
+export interface MembraneGhBinDeps {
+  /** Every executable `gh` on Shepherd's PATH, in order; default scans `process.env.PATH`. */
+  whichAll?: () => string[];
+  /** default fs realpath. */
+  realpath?: (p: string) => Promise<string>;
+  /** Does the file start with `#!`? default reads its first two bytes. */
+  isScript?: (p: string) => Promise<boolean>;
+  /** `mise which gh` (async, 5s cap); null when mise is absent or gh unmanaged. */
+  miseWhich?: () => Promise<string | null>;
+}
+
+async function startsWithShebang(p: string): Promise<boolean> {
+  const fh = await open(p, "r");
+  try {
+    const { buffer, bytesRead } = await fh.read(Buffer.alloc(2), 0, 2, 0);
+    return bytesRead === 2 && buffer.toString("latin1") === "#!";
+  } finally {
+    await fh.close();
+  }
+}
+
+async function defaultMiseWhich(): Promise<string | null> {
+  const { stdout } = await execFileAsync("mise", ["which", "gh"], { timeout: 5000 });
+  return stdout.trim() || null;
+}
+
+/** Realpath of `p` when it is a real binary — not a mise link (shim / command-wrapper) and not a
+ *  `#!` launcher script; else null. */
+async function realGhBinary(p: string, deps: MembraneGhBinDeps): Promise<string | null> {
+  try {
+    const real = await (deps.realpath ?? realpath)(p);
+    if (basename(real) === "mise") return null;
+    return (await (deps.isScript ?? startsWithShebang)(real)) ? null : real;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The host's real `gh` binary for the membrane (#3975), or null. A `~/.local/bin/gh` launcher that
+ * runs `mise use -g gh` (Omarchy) dies on EROFS inside the read-only membrane, and `~/.local/bin`
+ * is first on its PATH — so the membrane binds this binary ahead of it. First real binary on
+ * Shepherd's PATH; else `mise which gh` (Shepherd's PATH may hold only the launcher).
+ */
+export async function resolveMembraneGhBin(deps: MembraneGhBinDeps = {}): Promise<string | null> {
+  const candidates = (deps.whichAll ?? (() => scanPath("gh", process.env.PATH)))();
+  for (const p of candidates) {
+    const real = await realGhBinary(p, deps);
+    if (real) return real;
+  }
+  let viaMise: string | null;
+  try {
+    viaMise = await (deps.miseWhich ?? defaultMiseWhich)();
+  } catch {
+    return null;
+  }
+  return viaMise ? realGhBinary(viaMise, deps) : null;
 }
 
 /** `raw` with `projects[cwd].hasTrustDialogAccepted = true`; unparseable input is kept verbatim. */

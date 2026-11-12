@@ -325,6 +325,10 @@ export interface MembraneInputs {
   /** This spawn's 0600 gh `hosts.yml` carrying a keyring-stored token (membrane-state.ts),
    *  bound RO over `~/.config/gh/hosts.yml`. Task sessions only. Absent → no flags. */
   ghHostsFile?: string | null;
+  /** Realpath of the host's real `gh` binary (membrane-state.ts `resolveMembraneGhBin`), bound RO
+   *  at `<MEMBRANE_TOOL_BIN>/gh` and first on PATH — ahead of a `~/.local/bin/gh` launcher that
+   *  runs `mise use -g` and dies on EROFS (#3975). Task sessions only. Absent → no flags. */
+  ghBin?: string | null;
 }
 
 // ── codex CLI membrane support ────────────────────────────────────────────────
@@ -420,7 +424,7 @@ export interface ClaudeMembraneInputs {
 }
 
 /** Every executable `cmd` in `path` (colon-separated), in order. */
-function scanPath(cmd: string, path: string | undefined): string[] {
+export function scanPath(cmd: string, path: string | undefined): string[] {
   const hits: string[] = [];
   for (const dir of (path ?? "").split(":")) {
     if (!dir.startsWith("/")) continue; // relative entries would make a relative bind
@@ -575,6 +579,18 @@ function managerScratch(home: string): Record<string, string[]> {
  */
 export const MEMBRANE_MISE_CONFIG = "/tmp/.shepherd-mise/config.toml";
 
+/** Membrane-only dir holding the resolved real tool binaries (just `gh`), first on PATH. Under
+ *  `/tmp` for the same mountpoint reason as {@link MEMBRANE_MISE_CONFIG}. */
+export const MEMBRANE_TOOL_BIN = "/tmp/.shepherd-bin";
+
+/** RO bind of the resolved real `gh` into {@link MEMBRANE_TOOL_BIN}; empty when absent. Must follow
+ *  `--tmpfs /tmp`. */
+function toolBinFlags(ghBin: string | null | undefined): string[] {
+  return typeof ghBin === "string" && ghBin.length > 0
+    ? ["--ro-bind-try", ghBin, `${MEMBRANE_TOOL_BIN}/gh`]
+    : [];
+}
+
 /** RO bind of the derived mise config; empty when absent. Must follow `--tmpfs /tmp`. */
 function miseConfigFlags(file: string | null | undefined): string[] {
   return typeof file === "string" && file.length > 0
@@ -660,15 +676,17 @@ function codexCliFlags(codex: CodexMembraneInputs | undefined): string[] {
 }
 
 /** The sandbox PATH. The bun dir (#3351) follows node's; a codex/claude spawn appends the
- *  launcher's bin dir so the agent resolves by name. Each is skipped when it already is an entry. */
+ *  launcher's bin dir so the agent resolves by name. Each is skipped when it already is an entry.
+ *  A resolved real `gh` puts {@link MEMBRANE_TOOL_BIN} first (#3975). */
 function sandboxPath(
   home: string,
   nodeBinDir: string,
   bunBinDir: string | null,
-  launchers: { codex?: CodexMembraneInputs; claude?: ClaudeMembraneInputs },
+  launchers: { codex?: CodexMembraneInputs; claude?: ClaudeMembraneInputs; ghBin?: string | null },
 ): string {
   const { codex, claude } = launchers;
-  const entries = [`${home}/.local/bin`, nodeBinDir];
+  const entries = toolBinFlags(launchers.ghBin).length > 0 ? [MEMBRANE_TOOL_BIN] : [];
+  entries.push(`${home}/.local/bin`, nodeBinDir);
   if (bunBinDir && !entries.includes(bunBinDir)) entries.push(bunBinDir);
   entries.push("/usr/bin", "/bin");
   if (codex && !entries.includes(codex.binDir)) entries.push(codex.binDir);
@@ -965,6 +983,7 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   // ── node toolchain (binary's libs must resolve) ──────────────────────────
   f.push(...nodeToolchainFlags(inputs, exists));
   f.push(...miseConfigFlags(inputs.miseConfigFile));
+  f.push(...toolBinFlags(inputs.ghBin));
 
   // ── codex CLI (codex spawns only — claude flags stay byte-identical) ─────
   // MUST sit after the `--tmpfs home` above so the RW CODEX_HOME bind punches

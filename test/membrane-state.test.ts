@@ -16,6 +16,7 @@ import {
   ghStoredTokenEnv,
   prepareMembraneGhHosts,
   prepareMembraneMiseConfig,
+  resolveMembraneGhBin,
   removeMembraneState,
   sweepMembraneState,
 } from "../src/membrane-state";
@@ -208,6 +209,54 @@ run = "make"
     expect(await prepareMembraneMiseConfig(miseInputs())).toBeNull();
     writeHostConfig(`[env]\nX = "1"\n`);
     expect(await prepareMembraneMiseConfig(miseInputs())).toBeNull();
+  });
+});
+
+describe("resolveMembraneGhBin (#3975)", () => {
+  const launcher = "/home/me/.local/bin/gh";
+  const real = "/home/me/.local/share/mise/installs/gh/2.103.3/bin/gh";
+  const deps = (over: Parameters<typeof resolveMembraneGhBin>[0] = {}) => ({
+    realpath: async (p: string) =>
+      p === "/home/me/.local/share/mise/shims/gh" ? "/usr/bin/mise" : p,
+    isScript: async (p: string) => p === launcher,
+    miseWhich: async () => real,
+    ...over,
+  });
+
+  test("skips a launcher script and a mise shim; picks the first real binary on PATH", async () => {
+    const whichAll = () => [launcher, "/home/me/.local/share/mise/shims/gh", "/usr/bin/gh"];
+    expect(await resolveMembraneGhBin(deps({ whichAll }))).toBe("/usr/bin/gh");
+  });
+
+  test("returns the realpath of the chosen binary", async () => {
+    const r = await resolveMembraneGhBin(
+      deps({ whichAll: () => ["/opt/bin/gh"], realpath: async () => real }),
+    );
+    expect(r).toBe(real);
+  });
+
+  test("only a launcher on PATH → falls back to mise which", async () => {
+    expect(await resolveMembraneGhBin(deps({ whichAll: () => [launcher] }))).toBe(real);
+  });
+
+  test("null when mise which finds nothing, throws, or returns a script", async () => {
+    const whichAll = () => [launcher];
+    expect(await resolveMembraneGhBin(deps({ whichAll, miseWhich: async () => null }))).toBeNull();
+    const boom = async () => {
+      throw new Error("ENOENT mise");
+    };
+    expect(await resolveMembraneGhBin(deps({ whichAll, miseWhich: boom }))).toBeNull();
+    expect(
+      await resolveMembraneGhBin(deps({ whichAll, miseWhich: async () => launcher })),
+    ).toBeNull();
+  });
+
+  test("default script probe reads the real file's shebang", async () => {
+    const script = join(root, "gh-launcher");
+    const bin = join(root, "gh-bin");
+    writeFileSync(script, "#!/bin/bash\nmise use -g gh\n", { mode: 0o755 });
+    writeFileSync(bin, "\x7fELF", { mode: 0o755 });
+    expect(await resolveMembraneGhBin({ whichAll: () => [script, bin] })).toBe(bin);
   });
 });
 

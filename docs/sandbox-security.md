@@ -96,6 +96,11 @@ and a mise-launched `claude` would otherwise strip every mise install dir (bun,
 node, gh) from PATH. It holds only the host's string-valued `[tools]` plus the
 membrane's node/bun pinned to their install versions — never `[env]`,
 `[settings]`, `[hooks]` or `[tasks]`; the host `~/.config/mise` is never bound.
+Task sessions also get the host's real `gh` binary (`resolveMembraneGhBin`: the
+first non-script, non-mise-link `gh` on Shepherd's PATH, else `mise which gh`)
+bound RO at `/tmp/.shepherd-bin/gh`, with that dir first on PATH. A
+`~/.local/bin/gh` launcher that runs `mise use -g` (Omarchy) would otherwise
+win and die on EROFS, which a session reads as "not logged in".
 
 `--clearenv` strips **all** inherited env
 (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, `SHEPHERD_TOKEN`,

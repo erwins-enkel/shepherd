@@ -3,7 +3,7 @@ import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { config } from "../src/config";
 import { DrainService } from "../src/drain";
-import { MEMBRANE_MISE_CONFIG, type SandboxBackend } from "../src/sandbox";
+import { MEMBRANE_MISE_CONFIG, MEMBRANE_TOOL_BIN, type SandboxBackend } from "../src/sandbox";
 import type { EgressBackend } from "../src/egress";
 import { CLAUDEAI_CONNECTOR_EGRESS_HOST, egressTmpDir } from "../src/egress";
 import {
@@ -75,6 +75,7 @@ function makeService(opts: {
   prepareMembraneGhHosts?: ConstructorParameters<
     typeof SessionService
   >[0]["prepareMembraneGhHosts"];
+  resolveMembraneGhBin?: () => Promise<string | null>;
   previewLogFile?: (sessionId: string) => string;
 }) {
   return new SessionService({
@@ -87,6 +88,7 @@ function makeService(opts: {
     prepareMembraneState: opts.prepareMembraneState,
     prepareMembraneMiseConfig: opts.prepareMembraneMiseConfig,
     prepareMembraneGhHosts: opts.prepareMembraneGhHosts,
+    resolveMembraneGhBin: opts.resolveMembraneGhBin,
     previewLogFile: opts.previewLogFile ?? ((id) => `/run/membrane/${id}/preview-start.log`),
     // Default the egress seam to null so an autonomous test never falls through to the real
     // (slow, host-dependent) self-test. Tests that want egress ON inject "slirp4netns".
@@ -232,9 +234,12 @@ test("create + standard + bwrap → binds the derived mise config + gh hosts fil
     detectBackend: () => "bwrap",
     prepareMembraneMiseConfig: async (i) => ((pinned = i.pinnedBins), "/run/membrane/s.mise.toml"),
     prepareMembraneGhHosts: async () => "/run/membrane/s.gh-hosts.yml",
+    resolveMembraneGhBin: async () => "/opt/gh/bin/gh",
   });
   await service.create(baseInput());
   const a = record.argv!;
+  expect(a[a.indexOf("/opt/gh/bin/gh") + 1]).toBe(`${MEMBRANE_TOOL_BIN}/gh`);
+  expect(a[a.indexOf("PATH") + 1]?.startsWith(`${MEMBRANE_TOOL_BIN}:`)).toBe(true);
   expect(a[a.indexOf("/run/membrane/s.mise.toml") + 1]).toBe(MEMBRANE_MISE_CONFIG);
   expect(a[a.indexOf("/run/membrane/s.gh-hosts.yml") + 1]).toMatch(/\/\.config\/gh\/hosts\.yml$/);
   expect(Array.isArray(pinned) && pinned.length).toBe(2);
@@ -250,10 +255,14 @@ test("create + standard + bwrap → binds the derived mise config + gh hosts fil
     prepareMembraneGhHosts: async () => {
       throw new Error("EACCES");
     },
+    resolveMembraneGhBin: async () => {
+      throw new Error("EACCES");
+    },
   });
   await failing.create(baseInput());
   expect(record2.argv).toContain("bwrap");
   expect(record2.argv).not.toContain(MEMBRANE_MISE_CONFIG);
+  expect(record2.argv).not.toContain(`${MEMBRANE_TOOL_BIN}/gh`);
 });
 
 test("create + standard + bwrap: a failing state prep degrades to the RO host bind", async () => {

@@ -234,6 +234,7 @@ import {
   prepareMembraneClaudeState,
   prepareMembraneGhHosts,
   prepareMembraneMiseConfig,
+  resolveMembraneGhBin,
 } from "./membrane-state";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture, HOST_SIGNAL_REPO } from "./signals";
@@ -1103,6 +1104,7 @@ const service = new SessionService({
   prepareMembraneState: prepareMembraneClaudeState,
   prepareMembraneMiseConfig,
   prepareMembraneGhHosts,
+  resolveMembraneGhBin: () => resolveMembraneGhBin(),
   readCodexAuthMode,
   worktree,
   herdr,

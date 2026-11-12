@@ -522,6 +522,9 @@ export interface ServiceDeps {
   /** Write a task membrane's gh `hosts.yml` carrying a keyring-stored token; returns its path.
    *  Absent ⇒ none. Wired to `prepareMembraneGhHosts` in index.ts. */
   prepareMembraneGhHosts?: (i: MembraneGhInputs) => Promise<string | null>;
+  /** The host's real `gh` binary for a task membrane (#3975). Absent ⇒ none. Wired to
+   *  `resolveMembraneGhBin` in index.ts. */
+  resolveMembraneGhBin?: () => Promise<string | null>;
   /** Writable host log file for a sandboxed preview launch (seam); default `previewLogFile`. */
   previewLogFile?: (sessionId: string) => string;
   /** slirp host-loopback capability probe seam (tests inject `() => true` / `() => false`); defaults
@@ -3959,12 +3962,12 @@ export class SessionService {
     }
   }
 
-  /** This task spawn's derived mise config + gh hosts file. Best-effort like the `.claude.json`
-   *  copy: a failure leaves that field null (no bind) rather than failing the spawn. */
+  /** This task spawn's derived mise config + gh hosts file + real gh binary. Best-effort like the
+   *  `.claude.json` copy: a failure leaves that field null (no bind) rather than failing the spawn. */
   private async prepareSessionForgeAndTools(
     sessionId: string,
     nodeBinReal: string,
-  ): Promise<{ miseConfigFile: string | null; ghHostsFile: string | null }> {
+  ): Promise<{ miseConfigFile: string | null; ghHostsFile: string | null; ghBin: string | null }> {
     const base = { home: homedir(), sessionId, key: "session" };
     const attempt = async (label: string, fn: (() => Promise<string | null>) | null) => {
       if (!fn) return null;
@@ -3983,6 +3986,7 @@ export class SessionService {
         mise ? () => mise({ ...base, pinnedBins: [nodeBinReal, config.bunBin] }) : null,
       ),
       ghHostsFile: await attempt("gh hosts", gh ? () => gh(base) : null),
+      ghBin: await attempt("gh binary", this.deps.resolveMembraneGhBin ?? null),
     };
   }
 

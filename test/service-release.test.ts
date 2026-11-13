@@ -54,6 +54,9 @@ function harness(opts: {
   const goals: { id: string; condition: string | null; state: string | null }[] = [];
   let failSend = opts.failFirstSend ?? false;
   const store = {
+    getProviderHandoff: () => null,
+    providerHandoffHeld: () => false,
+    providerHandoffAutomationHeld: () => false,
     setGoal: (id: string, condition: string | null, state: string | null) =>
       goals.push({ id, condition, state }),
     get: () => opts.session,

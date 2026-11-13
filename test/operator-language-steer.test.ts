@@ -35,6 +35,9 @@ function harness(provider: AgentProvider) {
     agentProvider: provider,
   };
   const store = {
+    getProviderHandoff: () => null,
+    providerHandoffHeld: () => false,
+    providerHandoffAutomationHeld: () => false,
     get: () => session,
     addSignal: () => {},
   };

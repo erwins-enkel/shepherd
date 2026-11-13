@@ -51,7 +51,18 @@ function fixture() {
         { headers: { [ASSISTANT_INGRESS_HEADER]: signer.sign(keyId) } },
       ),
     );
-  return { s, get };
+  const putQueue = () =>
+    app.fetch(
+      new Request(`http://localhost/api/sessions/${s.id}/queue`, {
+        method: "PUT",
+        headers: {
+          [ASSISTANT_INGRESS_HEADER]: signer.sign(s.id),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ steps: [] }),
+      }),
+    );
+  return { s, get, putQueue };
 }
 
 test("handoff readback requires the owning session key and never accepts arbitrary paths", async () => {
@@ -64,4 +75,11 @@ test("handoff readback requires the owning session key and never accepts arbitra
   expect((await get("11111111-2222-3333-4444-555555555555")).status).not.toBe(200);
   expect((await get(s.id, "h", "", "other")).status).not.toBe(200);
   expect((await get(s.id, "h/extra")).status).toBe(404);
+});
+
+test("handoff mutation guard still holds with only a persisted session adapter", async () => {
+  const { putQueue } = fixture();
+  const response = await putQueue();
+  expect(response.status).toBe(409);
+  expect((await response.json()).code).toBe("handoff_in_progress");
 });

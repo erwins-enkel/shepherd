@@ -15297,6 +15297,10 @@ const ROUTE_HANDLERS = [
   handleCommands,
 ] as const;
 
+function sessionHandoffHeld(deps: AppDeps, id: string): boolean {
+  return !!(deps.service?.isProviderHandoffHeld?.(id) || deps.store?.providerHandoffHeld?.(id));
+}
+
 async function handoffMutationRefusal(ctx: Ctx): Promise<Response | null> {
   const { parts, req, deps } = ctx;
   if (
@@ -15305,13 +15309,10 @@ async function handoffMutationRefusal(ctx: Ctx): Promise<Response | null> {
     parts[2] &&
     !["GET", "HEAD"].includes(req.method) &&
     !["replace", "hooks"].includes(parts[3] ?? "") &&
-    (deps.service.isProviderHandoffHeld?.(parts[2]) || deps.store.providerHandoffHeld?.(parts[2]))
+    sessionHandoffHeld(deps, parts[2])
   ) {
-    await deps.service.observeProviderHandoff?.(parts[2]);
-    if (
-      deps.service.isProviderHandoffHeld?.(parts[2]) ||
-      deps.store.providerHandoffHeld?.(parts[2])
-    )
+    await deps.service?.observeProviderHandoff?.(parts[2]);
+    if (sessionHandoffHeld(deps, parts[2]))
       return json({ error: "provider handoff is held", code: "handoff_in_progress" }, 409);
   }
   return null;

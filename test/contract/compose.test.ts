@@ -1,3 +1,4 @@
+import { collectProviderHandoff } from "../../src/provider-handoff";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { isAbsolute } from "node:path";
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
@@ -806,6 +807,44 @@ describe("compose session actions", () => {
     const { id } = (await res.json()) as { id: string };
     return s.deps.store.get(id)!;
   }
+
+  test("provider handoff readback validates bounded evidence, cursors, authentication and ownership", async () => {
+    const session = await seed();
+    const packet = collectProviderHandoff({
+      session,
+      id: "contract-handoff",
+      targetProvider: "codex",
+      now: 1,
+      messages: {
+        messages: [],
+        awaitingInput: false,
+        pendingQuestion: null,
+        unavailable: "no-transcript",
+      },
+      queue: s.deps.store.getBuildQueue(session.id),
+    });
+    s.deps.store.putProviderHandoff({
+      id: packet.id,
+      sessionId: session.id,
+      requestId: "contract-readback",
+      choice: "codex",
+      phase: "observed",
+      targetRun: null,
+      packet,
+      updatedAt: 1,
+    });
+    const route = "/api/sessions/{id}/provider-handoffs/{handoffId}";
+    const path = `/api/sessions/${session.id}/provider-handoffs/${packet.id}`;
+    const page = (await check("GET", route, path, 200)) as {
+      text: string;
+      nextCursor: string | null;
+    };
+    expect(page.text).toContain("contract-handoff");
+    expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThanOrEqual(16 * 1024);
+    await check("GET", route, `${path}?cursor=-1`, 400);
+    await check("GET", route, path, 401, undefined, false);
+    await check("GET", route, `/api/sessions/${session.id}/provider-handoffs/missing`, 404);
+  });
 
   test("steers round-trip all scopes; invalid payload and authentication", async () => {
     await check("GET", "/api/steers", "/api/steers", 200); // Complete the one-time legacy migration first.

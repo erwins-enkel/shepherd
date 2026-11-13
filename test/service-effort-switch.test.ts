@@ -59,6 +59,9 @@ function harness(opts: {
   const phases: string[] = [];
   let screen = "";
   const store = {
+    getProviderHandoff: () => null,
+    providerHandoffHeld: () => false,
+    providerHandoffAutomationHeld: () => false,
     get: () => session,
     list: () => [session],
     getPlanGate: () => gate,

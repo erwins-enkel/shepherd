@@ -755,7 +755,9 @@ available, repos on **Default** run `trusted` (Settings → Diagnose notes it on
 explicitly set to `standard`/`autonomous` degrades to unconfined **with an operator-visible
 banner**, and its `auto=true` spawns are refused. Codex task sessions always
 run unconfined, so an `auto=true` Codex spawn is refused unless the repo's profile is
-`trusted`; the drain holds those issues instead of claiming them. The full residual
+`trusted`; the drain holds those issues instead of claiming them. A relaunch keeps the profile the
+original was submitted with; the card menu's **Relaunch as trusted** starts the replacement
+unconfined instead (a `full`-scope action). The full residual
 posture — the accepted in-membrane token-readability gap and the prompt-injection
 posture — is documented on the [Security](/reference/security/) page.
 

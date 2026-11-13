@@ -6391,6 +6391,8 @@ export class SessionService {
     overrides?: RelaunchOverrides,
     authPolicy: "error" | "clamp" = "error",
   ): Promise<Session> {
+    if (this.isClosing(originalId))
+      throw new Error(`cannot relaunch ${originalId}: being archived`);
     return this.withLifecycle(originalId, () =>
       this.relaunchInner(originalId, issueRef, overrides, authPolicy),
     );
@@ -9670,7 +9672,10 @@ export class SessionService {
         ? "already"
         : this.archiveInFlight.has(id)
           ? "settling"
-          : this.resumeInFlight.has(id) || this.restoring.has(id) || this.steersInFlight.has(id)
+          : this.resumeInFlight.has(id) ||
+              this.restoring.has(id) ||
+              this.steersInFlight.has(id) ||
+              this.lifecycleInFlight.has(id)
             ? "busy"
             : refusal(fresh);
     if (refused) return Promise.resolve({ refused });

@@ -11733,6 +11733,9 @@ test("handoff lifecycle: replace refuses a relaunch already in flight", async ()
   const relaunch = service.relaunch(s.id);
   await Bun.sleep(0);
   try {
+    expect(await service.archiveIfSettled(s.id, "merged", () => null)).toEqual({
+      refused: "busy",
+    });
     await expect(
       service.replaceAgent(s.id, { agentProvider: "codex", model: null }),
     ).rejects.toThrow("handoff_in_progress");

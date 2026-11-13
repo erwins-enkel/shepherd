@@ -595,6 +595,7 @@ import { parseEpicBody } from "./epic-parse";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
 import { invalidateIssuePeek, peekIssue } from "./issue-peek";
 import { createIssueWithLabels, issueForgeGap } from "./issue-create";
+import { redactSecretText } from "./redact";
 import { SNAPSHOT_TTL_MS, type OpenPrSnapshotService } from "./open-pr-snapshot";
 import { landingPrCache } from "./landing-pr-cache";
 import type { CiStartupFailureService } from "./ci-startup-failure";
@@ -884,6 +885,9 @@ export interface AppDeps {
   githubBackoff?: () => GithubBackoff;
   /** Resolve the git forge for a repo dir; null when none is configured. */
   resolveForge?: (repoDir: string) => GitForge | null;
+  /** Forge for Shepherd's own repo (SHEPHERD_REPO_SLUG), filed into without a registered clone
+   *  (#4003); absent → POST /api/feedback/issues 503s. */
+  resolveShepherdForge?: () => GitForge | null;
   /** Self-update tracker; absent in environments where it isn't wired. */
   updates?: Pick<UpdateService, "current" | "apply"> &
     Partial<Pick<UpdateService, "applyState" | "dirtyStatus">>;
@@ -12427,6 +12431,40 @@ async function handleIssueCreate({ req, parts, deps, token }: Ctx): Promise<Resp
   }
 }
 
+// POST /api/feedback/issues — file a bug or feature request into Shepherd's own repo (#4003),
+// through the operator's forge auth and without a registered clone. The target is fixed; the
+// content is secret-redacted (the repo is public) and stamped with the server version. A
+// repo-restricted token never gets here: repositoryRequestError has no policy for this route.
+async function handleShepherdIssueCreate({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "feedback") return null;
+  if (parts[2] !== "issues" || parts[3]) return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as { title?: unknown; body?: unknown } | null;
+  if (!body) return json({ error: "invalid json" }, 400);
+  const { title, body: issueBody } = body;
+  const inputErr = issueCreateInputError(title, issueBody);
+  if (inputErr || typeof title !== "string" || typeof issueBody !== "string") {
+    return json({ error: inputErr }, 400);
+  }
+  const forge = deps.resolveShepherdForge?.() ?? null;
+  if (!forge || issueForgeGap(forge, "createIssue"))
+    return json({ error: "shepherd issue filing unavailable" }, 503);
+  try {
+    const issue = await createIssueWithLabels(
+      forge,
+      {
+        title: redactSecretText(title.trim()),
+        body: `${redactSecretText(issueBody)}\n\n---\n- Shepherd: v${SHEPHERD_VERSION}`,
+      },
+      (msg) => console.warn(`[issues] ${msg}`),
+    );
+    return json({ ...issue, slug: forge.slug }, 201);
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "issue create failed" }, 502);
+  }
+}
+
 /** A session on any known checkout of this forge repo still owns the claim. */
 function issueHasSession(deps: AppDeps, dir: string, forge: GitForge, number: number): boolean {
   return deps.store.list({ activeOnly: true }).some((s) => {
@@ -15272,6 +15310,7 @@ const ROUTE_HANDLERS = [
   handleIssues,
   handleIssuePeek,
   handleIssueCreate,
+  handleShepherdIssueCreate,
   handleIssueDrain,
   handlePrsList,
   handleActionsList,

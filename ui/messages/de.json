@@ -8177,6 +8177,8 @@
   "feat_assistant_schedule_edit_body": "Bitte den Operator-Assistenten, einen Repo-Zeitplan zu ändern: Tage, Uhrzeiten, Prompt, An/Aus oder Startoptionen wie Modell und Autopilot. Er kann einen Zeitplan auch löschen oder sofort ausführen. Deine Automatik-Berechtigung unter Einstellungen → Assistent entscheidet, ob er vorher fragt. Die Sandbox eines Laufs kann er nur verschärfen; lockern bleibt dir unter Repo-Automatik → Zeitpläne vorbehalten.",
   "feat_assistant_issue_create_title": "Issues vom Assistenten anlegen lassen",
   "feat_assistant_issue_create_body": "Beschreibe einen Fehler oder eine Aufgabe und bitte den Operator-Assistenten, ein Issue in einem bestimmten Repo anzulegen. „Automatik bearbeiten“ unter Einstellungen → Assistent legt fest, ob er vorher fragt. Der Assistent liefert den Issue-Link; das Anlegen reiht keine Arbeit ein und startet keine Sitzung.",
+  "feat_assistant_shepherd_issue_title": "Shepherd-Issues über den Assistenten melden",
+  "feat_assistant_shepherd_issue_body": "Bitte den Operator-Assistenten, einen Shepherd-Fehler oder Funktionswunsch zu melden. Er landet über dein gh-Login direkt im GitHub-Repo von Shepherd, ein lokaler Shepherd-Klon ist nicht nötig. Das Repo ist öffentlich, deshalb lässt der Assistent Geheimnisse und private Pfade weg. „Automatik bearbeiten“ unter Einstellungen → Assistent legt fest, ob er vorher fragt; er liefert den Issue-Link.",
   "viewport_details_show_aria": "Session-Details einblenden: PR-Aktionen, Statuszeile und Zusammenfassung",
   "viewport_details_hide_aria": "Session-Details ausblenden für mehr Platz im Chat",
   "viewport_steers_show_aria": "Steers einblenden",

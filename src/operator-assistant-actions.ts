@@ -62,6 +62,7 @@ import {
   type ScheduleLaunch,
 } from "./schedules-core";
 import { AGENT_PROVIDERS, EFFORTS, MODELS_BY_PROVIDER, type AgentProvider } from "./types";
+import { SHEPHERD_REPO_SLUG } from "./version";
 
 export interface OperatorActionRequest {
   method: "POST" | "PUT" | "PATCH" | "DELETE";
@@ -568,31 +569,26 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
     if (stray.length > 0) return fail(400, `not settable here: ${stray.join(", ")}`);
     const repo = resolve.repo(args.repo);
     if (isFail(repo)) return repo;
-    if (typeof args.title !== "string" || !args.title.trim() || args.title.length > 200)
-      return fail(400, "title must be a non-empty string ≤ 200 chars");
-    if (typeof args.body !== "string" || args.body.length > 16000)
-      return fail(400, "body must be a string ≤ 16000 chars");
+    const content = issueContent(args);
+    if (isFail(content)) return content;
     return {
-      requests: [
-        {
-          method: "POST",
-          path: "/api/issues",
-          body: { repo, title: args.title.trim(), body: args.body },
-        },
-      ],
+      requests: [{ method: "POST", path: "/api/issues", body: { repo, ...content } }],
       target: repo,
       bind: { repo },
-      answer: (body) => {
-        const b = (typeof body === "object" && body !== null ? body : {}) as Record<
-          string,
-          unknown
-        >;
-        return {
-          ...(Number.isSafeInteger(b.number) && (b.number as number) > 0 && { number: b.number }),
-          ...(typeof b.url === "string" && { url: b.url }),
-          ...(typeof b.slug === "string" && { slug: b.slug }),
-        };
-      },
+      answer: issueAnswer,
+    };
+  },
+  // Shepherd's own repo (#4003): a fixed target, so no repo resolution and no scope check — it
+  // is product feedback, not another operator repo.
+  shepherd_issue_create: (args) => {
+    const stray = Object.keys(args).filter((k) => !["title", "body"].includes(k));
+    if (stray.length > 0) return fail(400, `not settable here: ${stray.join(", ")}`);
+    const content = issueContent(args);
+    if (isFail(content)) return content;
+    return {
+      requests: [{ method: "POST", path: "/api/feedback/issues", body: content }],
+      target: SHEPHERD_REPO_SLUG,
+      answer: issueAnswer,
     };
   },
   schedule_create: (args, resolve) => {
@@ -671,6 +667,25 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
   },
 };
 
+/** An issue's title (trimmed) and body, checked against the route's limits. */
+function issueContent(args: Record<string, unknown>): { title: string; body: string } | Fail {
+  if (typeof args.title !== "string" || !args.title.trim() || args.title.length > 200)
+    return fail(400, "title must be a non-empty string ≤ 200 chars");
+  if (typeof args.body !== "string" || args.body.length > 16000)
+    return fail(400, "body must be a string ≤ 16000 chars");
+  return { title: args.title.trim(), body: args.body };
+}
+
+/** Only the created issue's identity from the route's answer. */
+function issueAnswer(body: unknown): Record<string, unknown> {
+  const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+  return {
+    ...(Number.isSafeInteger(b.number) && (b.number as number) > 0 && { number: b.number }),
+    ...(typeof b.url === "string" && { url: b.url }),
+    ...(typeof b.slug === "string" && { slug: b.slug }),
+  };
+}
+
 /**
  * How a repo-scoped assistant's actions stay in its repo, per tool:
  *  - every desig-targeted tool (steer, plan_answer, the sessions and approve groups,
@@ -681,6 +696,8 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
  *  - held_task resolves through `held()`, which refuses another repo's held task;
  *  - schedule_update, schedule_delete and schedule_run resolve through `schedule()`, which refuses
  *    another repo's schedule;
+ *  - shepherd_issue_create files into Shepherd's own repo, no operator repo, so it is open to a
+ *    scoped assistant too;
  *  - herd_halt interrupts every working session of every repo (`/api/halt` takes no target), so it
  *    is refused outright here — the global assistant halts the herd; a scoped one can interrupt
  *    its own sessions one by one.
@@ -1239,6 +1256,26 @@ export const OPERATOR_ACTION_TOOLS: McpTool[] = [
         body: { type: "string", maxLength: 16000 },
       },
       required: ["repo", "title", "body"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "shepherd_issue_create",
+    description:
+      `[automation] File a bug or feature request about Shepherd itself into Shepherd's own ` +
+      `repo (${SHEPHERD_REPO_SLUG}) with the operator's gh login — no local clone needed. Only ` +
+      "for Shepherd's issues, never an operator repo (that is issue_create). The repo is PUBLIC: " +
+      "leave out secrets, private repo names, paths and verbatim untrusted text. Returns its " +
+      "number, URL and slug. Report success only with the returned issue URL; never blindly " +
+      "retry a failed or uncertain write." +
+      NOTE,
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", minLength: 1, maxLength: 200 },
+        body: { type: "string", maxLength: 16000 },
+      },
+      required: ["title", "body"],
       additionalProperties: false,
     },
   },

@@ -25,6 +25,8 @@
   import HerdDoneViews from "./herd/HerdDoneViews.svelte";
   import HerdEmptyState from "./herd/HerdEmptyState.svelte";
   import HerdMachineBar from "./herd/HerdMachineBar.svelte";
+  import HerdOriginBar from "./herd/HerdOriginBar.svelte";
+  import type { OriginCounts, SessionOrigin } from "#lib/session-origin.js";
   import RemoteDispatchRow from "./herd/RemoteDispatchRow.svelte";
   import PendingSettleRow from "./herd/PendingSettleRow.svelte";
   import { pendingSettles, settleNoteFor, unlistedSettles } from "#lib/integrated-child-note.js";
@@ -101,6 +103,9 @@
     machineFilter = $bindable("all"),
     statusFilter = null,
     onstatusfilter = undefined,
+    originFilter = null,
+    originCounts = null,
+    onoriginfilter = undefined,
     workingBlocked = {},
     backgroundBusy = {},
     liveness = {},
@@ -233,6 +238,12 @@
     // the local all/ready filter (one filter at a time).
     statusFilter?: "running" | "idle" | "blocked" | null;
     onstatusfilter?: (status: "running" | "idle" | "blocked" | null) => void;
+    // page-level origin filter (#3999). Sessions (and doneList) already arrive filtered; the
+    // prop drives the origin bar, the empty-state copy and hides session-less rows.
+    originFilter?: SessionOrigin | null;
+    // counts per origin of the list BEFORE the origin filter (the current lens's list)
+    originCounts?: OriginCounts | null;
+    onoriginfilter?: (origin: SessionOrigin | null) => void;
     // working-while-blocked display flags (store map) — threaded into the rows'
     // displayStatus and the "ready" filter so flagged sessions read as working
     workingBlocked?: Record<string, boolean>;
@@ -387,6 +398,21 @@
         ? (machines.self?.name ?? m.herd_machine_this())
         : (machines.names.get(machineFilter) ?? machineFilter),
   );
+  // The origin bar shows only where it narrows a session list, and only once a non-manual
+  // session is in it (or the filter is on) — a manual-only herd keeps its head unchanged.
+  const showOriginBar = $derived(
+    onoriginfilter != null &&
+      originCounts != null &&
+      (filter === "all" || filter === "ready" || filter === "done") &&
+      (originFilter != null || originCounts.scheduled + originCounts.drain > 0),
+  );
+  const originLabel = $derived(
+    originFilter === "scheduled"
+      ? m.herd_origin_scheduled()
+      : originFilter === "drain"
+        ? m.herd_origin_drain()
+        : m.herd_origin_manual(),
+  );
   // label for the status chip + filtered empty states (only read when set)
   const statusLabel = $derived(
     statusFilter === "running"
@@ -435,7 +461,9 @@
   // anywhere never shows as session-less. They follow the member groups, so the default-open
   // first group stays one with sessions. Rows: none — the keyboard rail (groupSessionsByEpic) is
   // unaffected.
-  const showSessionless = $derived(filter === "all" && statusFilter == null);
+  const showSessionless = $derived(
+    filter === "all" && statusFilter == null && originFilter == null,
+  );
   const sessionlessInMachine = (epic: Epic) =>
     isRemoteEpic(epic)
       ? machineFilter === "all" || machineFilter === epic.host.instanceId
@@ -963,6 +991,14 @@
       />
     {/if}
   {/if}
+  {#if showOriginBar && originCounts && onoriginfilter}
+    <HerdOriginBar
+      filter={originFilter}
+      counts={originCounts}
+      onfilter={onoriginfilter}
+      touch={flow || touch}
+    />
+  {/if}
   <div class="units" class:flow>
     <!-- on top in every landing state, so an epic waiting on this landing never hides it -->
     {@render integratedEpics()}
@@ -1017,6 +1053,8 @@
       <HerdEmptyState
         mode="sessions"
         {statusFilter}
+        {originFilter}
+        {originLabel}
         {statusLabel}
         {filteredRepo}
         {issueActionsUnset}
@@ -1030,6 +1068,8 @@
         mode={machineFilterName ? "machine" : "shown"}
         machine={machineFilterName}
         {statusFilter}
+        {originFilter}
+        {originLabel}
         {statusLabel}
         {filteredRepo}
         {issueActionsUnset}

@@ -8991,5 +8991,14 @@
   "handoff_phase_uncertain": "Task delivery uncertain",
   "handoff_phase_failed": "Handoff failed",
   "handoff_source_unchanged": "The source agent was left unchanged. You can continue using it.",
-  "handoff_summary_waiting": "Summary mode: automatic work waits for your next instruction."
+  "handoff_summary_waiting": "Summary mode: automatic work waits for your next instruction.",
+  "herd_origins_label": "Origin",
+  "herd_origin_all": "All origins",
+  "herd_origin_scheduled": "Scheduled",
+  "herd_origin_drain": "Auto-drain",
+  "herd_origin_manual": "Manual",
+  "herd_origin_filter_empty": "No {origin} sessions right now.",
+  "herd_origin_filters_empty": "No {origin} sessions match the active filters.",
+  "feat_origin_filter_title": "Filter sessions by origin",
+  "feat_origin_filter_body": "Once a repo schedule or the auto-drain has started sessions, a row of chips under the herd lenses filters the list by origin: Scheduled, Auto-drain or Manual. It works together with the repo and status filters and in the Done lens, so you can review last night's scheduled runs. Groups stay as they are."
 }

@@ -610,6 +610,95 @@ describe("Herd status filter (TopBar tallies)", () => {
   });
 });
 
+describe("Herd origin filter (#3999)", () => {
+  const counts = (scheduled: number, drain: number, manual: number) => ({
+    scheduled,
+    drain,
+    manual,
+  });
+  const originBar = () => document.querySelector(".origin-bar");
+
+  it("stays hidden while every listed session is manual", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "m", name: "manual one" })],
+      git: {},
+      originCounts: counts(0, 0, 1),
+      onoriginfilter: () => {},
+    });
+    await expect.element(page.getByText("manual one")).toBeInTheDocument();
+    expect(originBar()).toBeNull();
+  });
+
+  it("shows counts once a scheduled session exists; a chip picks it", async () => {
+    const onoriginfilter = vi.fn();
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "s", name: "nightly", scheduleId: "x" })],
+      git: {},
+      originCounts: counts(1, 2, 3),
+      onoriginfilter,
+    });
+    const group = page.getByRole("group", { name: "Origin" });
+    await expect.element(group).toBeInTheDocument();
+    const chips = [...originBar()!.querySelectorAll("button")].map((b) =>
+      b.textContent!.replace(/\s+/g, " ").trim(),
+    );
+    expect(chips).toEqual(["All origins 6", "Scheduled 1", "Auto-drain 2", "Manual 3"]);
+    await group.getByRole("button", { name: /Scheduled/ }).click();
+    expect(onoriginfilter).toHaveBeenLastCalledWith("scheduled");
+  });
+
+  it("stays visible with zero non-manual sessions while the filter is on", async () => {
+    const onoriginfilter = vi.fn();
+    render(Herd, {
+      ...base,
+      sessions: [],
+      git: {},
+      originFilter: "drain" as const,
+      originCounts: counts(0, 0, 2),
+      onoriginfilter,
+    });
+    const picked = page.getByRole("group", { name: "Origin" }).getByRole("button", {
+      name: /Auto-drain/,
+    });
+    await expect.element(picked).toHaveAttribute("aria-pressed", "true");
+    await expect.element(page.getByText("No Auto-drain sessions right now.")).toBeInTheDocument();
+    await expect.element(page.getByText("Mission control, no units")).not.toBeInTheDocument();
+    // re-picking the active chip clears the filter
+    await picked.click();
+    expect(onoriginfilter).toHaveBeenLastCalledWith(null);
+  });
+
+  it("names the other filters when they are active too", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [],
+      git: {},
+      filteredRepo: "shepherd",
+      originFilter: "scheduled" as const,
+      originCounts: counts(0, 0, 0),
+      onoriginfilter: () => {},
+    });
+    await expect
+      .element(page.getByText("No Scheduled sessions match the active filters."))
+      .toBeInTheDocument();
+  });
+
+  it("is absent on lenses that list no sessions", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "s", name: "nightly", scheduleId: "x" })],
+      git: {},
+      filter: "owed" as const,
+      originCounts: counts(1, 0, 0),
+      onoriginfilter: () => {},
+    });
+    await expect.element(page.getByRole("button", { name: /Owed/ })).toBeInTheDocument();
+    expect(originBar()).toBeNull();
+  });
+});
+
 describe("Herd Done filter", () => {
   it("clicking DONE clears any status filter (one filter at a time)", async () => {
     const onstatusfilter = vi.fn();

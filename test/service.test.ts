@@ -11813,6 +11813,7 @@ test("handoff lifecycle: real PTY funnel receives work only after commit, then o
         return live[0];
       },
       listAsync: async () => live,
+      paneForegroundProcs: async () => ["claude"],
       stop: async (id: string) => {
         live = live.filter((a) => a.terminalId !== id);
       },
@@ -11831,6 +11832,74 @@ test("handoff lifecycle: real PTY funnel receives work only after commit, then o
     store.listSessionSignals(s.id, 10).some((signal) => signal.payload.includes("Handoff-ID:")),
   ).toBe(true);
 });
+
+for (const foreground of ["shell", "empty", "uninspectable", "unresolved"] as const) {
+  test(`handoff lifecycle: bootstrap ${foreground} never receives task as shell input`, async () => {
+    const store = new SessionStore(":memory:");
+    const started: string[][] = [];
+    const sent: string[] = [];
+    let live: {
+      terminalId: string;
+      name: string;
+      cwd: string;
+      paneId: string;
+      agentStatus: string;
+    }[] = [];
+    const { service } = relaunchHarness(store, "unknown", {
+      providerHandoffDeliver: undefined,
+      herdr: {
+        start: async (name: string, cwd: string, argv: string[]) => {
+          started.push(argv);
+          live = [
+            { terminalId: `target_${started.length}`, name, cwd, paneId: "p", agentStatus: "idle" },
+          ];
+          return live[0];
+        },
+        listAsync: async () => {
+          const current = store.list({ activeOnly: true })[0];
+          if (
+            foreground !== "unresolved" &&
+            current?.agentProvider === "codex" &&
+            current.codexLaunchId
+          )
+            store.setProviderSessionId(current.id, "bootstrap-pinned");
+          return live;
+        },
+        stop: async (id: string) => {
+          live = live.filter((a) => a.terminalId !== id);
+        },
+        paneForegroundProcs: async () => {
+          if (foreground === "uninspectable") throw new Error("inspection failed");
+          return foreground === "empty" ? [] : ["zsh"];
+        },
+        send: async (id: string) => {
+          sent.push(id);
+        },
+      } as never,
+    });
+    const s = originalSession(store, {
+      prompt: "echo shell-syntax; $(external-context)",
+      planGateEnabled: true,
+      planPhase: "planning",
+    });
+    if (foreground === "shell") {
+      await service.replaceAgent(s.id, { agentProvider: "codex", model: null });
+      expect(started).toHaveLength(2);
+      expect(started[1]!.slice(0, 3)).toEqual(["codex", "resume", "bootstrap-pinned"]);
+      expect(sent.length).toBeGreaterThan(0);
+      expect(sent.every((id) => id === "target_2")).toBe(true);
+      expect(store.get(s.id)?.planPhase).toBe("planning");
+      expect(store.getPlanGate(s.id)?.approvedAt ?? null).toBeNull();
+    } else {
+      await expect(
+        service.replaceAgent(s.id, { agentProvider: "codex", model: null }),
+      ).rejects.toThrow("handoff_delivery_uncertain");
+      expect(started).toHaveLength(1);
+      expect(sent).toEqual([]);
+      expect(store.getProviderHandoff(s.id)?.phase).toBe("uncertain");
+    }
+  });
+}
 
 test("handoff lifecycle: stopped source must disappear before any target is started", async () => {
   const store = new SessionStore(":memory:");

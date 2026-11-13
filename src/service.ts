@@ -6673,11 +6673,17 @@ export class SessionService {
     // Persist uncertainty BEFORE the first potentially successful write. Never blindly replay it.
     record.phase = "uncertain";
     this.saveProviderHandoff(record);
+    let forceResume = false;
     const delivered = this.deps.providerHandoffDeliver
       ? await this.deps.providerHandoffDeliver(s, text)
       : await resumeThenSteer(s.id, text, {
-          paneAlive: async () => !!(await this.liveAgentFor(s.id)),
-          resume: () => this.resume(s.id, { providerHandoff: access }),
+          paneAlive: async () => {
+            const target = await this.operatorReplyTarget(s.id, true);
+            if (!target) throw new ProviderHandoffError("handoff_delivery_uncertain");
+            forceResume = target.forceResume;
+            return !!target.agent && !forceResume;
+          },
+          resume: () => this.resume(s.id, { force: forceResume, providerHandoff: access }),
           steer: async () => {
             if (!this.providerHandoffAccess(s.id, access)) return false;
             return this.reply(s.id, text, { automatic: true, providerHandoff: access });

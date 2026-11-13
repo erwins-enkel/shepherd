@@ -106,6 +106,7 @@
     originFilter = null,
     originCounts = null,
     onoriginfilter = undefined,
+    originBarRevealed = false,
     workingBlocked = {},
     backgroundBusy = {},
     liveness = {},
@@ -244,6 +245,9 @@
     // counts per origin of the rows the current lens + machine pick list, before the origin filter
     originCounts?: OriginCounts | null;
     onoriginfilter?: (origin: SessionOrigin | null) => void;
+    // phone flow only: the origin bar hides until the page's pull-down reveals it (an active
+    // origin filter keeps it shown regardless)
+    originBarRevealed?: boolean;
     // working-while-blocked display flags (store map) — threaded into the rows'
     // displayStatus and the "ready" filter so flagged sessions read as working
     workingBlocked?: Record<string, boolean>;
@@ -399,12 +403,14 @@
         : (machines.names.get(machineFilter) ?? machineFilter),
   );
   // The origin bar shows only where it narrows a session list, and only once a non-manual
-  // session is in it (or the filter is on) — a manual-only herd keeps its head unchanged.
+  // session is in it (or the filter is on) — a manual-only herd keeps its head unchanged. On a
+  // phone it also waits for a pull-down, unless the filter is on.
   const showOriginBar = $derived(
     onoriginfilter != null &&
       originCounts != null &&
       (filter === "all" || filter === "ready" || filter === "done") &&
-      (originFilter != null || originCounts.scheduled + originCounts.drain > 0),
+      (originFilter != null || originCounts.scheduled + originCounts.drain > 0) &&
+      (!flow || originFilter != null || originBarRevealed),
   );
   const originLabel = $derived(
     originFilter === "scheduled"

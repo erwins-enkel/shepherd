@@ -9002,5 +9002,5 @@
   "herd_origin_filter_empty": "No {origin} sessions right now.",
   "herd_origin_filters_empty": "No {origin} sessions match the active filters.",
   "feat_origin_filter_title": "Filter sessions by origin",
-  "feat_origin_filter_body": "Once a repo schedule or the auto-drain has started sessions, a row of chips under the herd lenses filters the list by origin: Scheduled, Auto-drain or Manual. It works together with the repo and status filters and in the Done lens, so you can review last night's scheduled runs. Groups stay as they are."
+  "feat_origin_filter_body": "Once a repo schedule or the auto-drain has started sessions, a row of chips under the herd lenses filters the list by origin: Scheduled, Auto-drain or Manual. It works together with the repo and status filters and in the Done lens, so you can review last night's scheduled runs. Groups stay as they are. On a phone, pull the list down to show the chips."
 }

@@ -1673,12 +1673,27 @@
   // html also gets overscroll containment while the list shows. The DOM probe catches sheets
   // this route has no flag for (the gear sheet's .scrim).
   let pull = $state<{ stage: PullStage; distance: number }>({ stage: "idle", distance: 0 });
+  // Phone herd list: the origin bar shows only after a pull-down; scrolling down hides it again.
+  let originBarRevealed = $state(false);
+  // Drop the revealed origin bar without moving what is on screen: whatever follows it is kept
+  // in place (measured, so it holds with or without the browser's own scroll anchoring).
+  async function hideOriginBar() {
+    const anchor = document.querySelector(".origin-bar")?.nextElementSibling;
+    const before = anchor?.getBoundingClientRect().top;
+    originBarRevealed = false;
+    await tick();
+    if (anchor && before != null) window.scrollBy(0, anchor.getBoundingClientRect().top - before);
+  }
   const pullOptions: PullToCommandOptions = {
     enabled: () =>
       mobileActionBarPresent &&
       !anyOverlayOpen() &&
       !document.querySelector(".scrim, [aria-modal='true']"),
-    onstage: (stage, distance) => (pull = { stage, distance }),
+    onstage: (stage, distance) => {
+      pull = { stage, distance };
+      // any pull reveals the herd's origin bar (hidden on a phone to save space)
+      if (distance > 0) originBarRevealed = true;
+    },
     onsearch: () => (showCommandBar = true),
     onreload: () => location.reload(),
   };
@@ -1704,6 +1719,7 @@
     const active = mobile.current && mobileScreen === "list";
     if (!active) {
       chromeHidden = false;
+      originBarRevealed = false;
       return;
     }
 
@@ -1726,6 +1742,8 @@
           const delta = y - lastY;
           if (delta > THRESHOLD) {
             chromeHidden = true;
+            if (originBarRevealed && originFilter == null)
+              void hideOriginBar().then(() => (lastY = window.scrollY));
           } else if (delta < -THRESHOLD) {
             chromeHidden = false;
           }
@@ -4093,7 +4111,11 @@
             onstatusfilter={(s) => (statusFilter = s)}
             {originFilter}
             originCounts={herdOriginCounts}
-            onoriginfilter={(o) => (originFilter = o)}
+            onoriginfilter={(o) => {
+              originFilter = o;
+              // clearing the filter must not pull the chips out from under the finger
+              originBarRevealed = true;
+            }}
             {selectedId}
             {jumpFlashId}
             {nowMs}
@@ -4128,6 +4150,7 @@
             {issueActionsUnset}
             onsettings={openWorkspaceSettings}
             flow={true}
+            {originBarRevealed}
             remoteDispatches={herdRemoteDispatches}
             bind:filter={herdFilter}
             bind:machineFilter

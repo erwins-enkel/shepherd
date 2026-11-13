@@ -241,7 +241,7 @@
     // page-level origin filter (#3999). Sessions (and doneList) already arrive filtered; the
     // prop drives the origin bar, the empty-state copy and hides session-less rows.
     originFilter?: SessionOrigin | null;
-    // counts per origin of the list BEFORE the origin filter (the current lens's list)
+    // counts per origin of the rows the current lens + machine pick list, before the origin filter
     originCounts?: OriginCounts | null;
     onoriginfilter?: (origin: SessionOrigin | null) => void;
     // working-while-blocked display flags (store map) — threaded into the rows'

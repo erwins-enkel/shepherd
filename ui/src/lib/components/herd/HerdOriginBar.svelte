@@ -4,7 +4,8 @@
 
   // The herd's origin filter (#3999): who started a session — a repo schedule, the auto-drain
   // queue, or the operator. It only narrows the list; the lifecycle groups stay as they are.
-  // Counts are taken before the origin filter, so every chip says what picking it would show.
+  // The parent counts the rows the current lens and machine pick list, before the origin filter,
+  // so every chip says what picking it would show.
   let {
     filter,
     counts,

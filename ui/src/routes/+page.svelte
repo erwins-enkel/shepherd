@@ -156,7 +156,12 @@
   import { normalizeEpicCollapse } from "#lib/components/herd-epic-collapse.js";
   import { isReworkRunning as isReworkRunningSession } from "#lib/components/rework-running.js";
   import { buildCommands } from "#lib/command-registry.js";
-  import { GROUP_KEY_BY_STAGE, type HerdFilter } from "#lib/components/herd-partition.js";
+  import {
+    GROUP_KEY_BY_STAGE,
+    shownMirrored,
+    shownSessions,
+    type HerdFilter,
+  } from "#lib/components/herd-partition.js";
   import {
     collectReadyPrs,
     isMerging,
@@ -2192,14 +2197,24 @@
   let doneSelectedId = $state<string | null>(null);
   const scopedDoneSessions = $derived(doneSessionsForRepoFilter(doneSessions.sessions, repoFilter));
   const shownDoneSessions = $derived(byOrigin(scopedDoneSessions, originFilter));
-  // what the origin bar counts: the current lens's list before the origin filter
-  const herdOriginCounts = $derived(
-    originCounts(
-      herdFilter === "done"
-        ? scopedDoneSessions
-        : [...herdScopedSessions, ...herdScopedRemoteSessions],
-    ),
-  );
+  // What the origin bar counts: the rows the current lens + machine pick list, before the origin
+  // filter — the same lens Herd applies (an active status filter short-circuits all/ready).
+  const herdOriginCounts = $derived.by(() => {
+    if (herdFilter === "done") return originCounts(scopedDoneSessions);
+    const lens = statusFilter != null ? "all" : herdFilter;
+    const inReview = (id: string) => reviews.isReviewing(id) || planGates.isReviewing(id);
+    const local = shownSessions(
+      herdScopedSessions,
+      lens,
+      inReview,
+      store.workingBlocked,
+      store.git,
+      nowMs,
+      store.backgroundBusy,
+    );
+    const remote = shownMirrored(herdScopedRemoteSessions, lens, inReview, nowMs);
+    return originCounts([...byMachine(local, machineFilter), ...byMachine(remote, machineFilter)]);
+  });
   // The currently-selected done session (resolved against the filtered lazy done list).
   const doneSelected = $derived(resolveDoneSelected(shownDoneSessions, doneSelectedId));
   // What the assistant is told about this window with each message (#3161). sessionTab is the

@@ -1,4 +1,4 @@
-import webpush from "web-push";
+import * as webpush from "web-push";
 import { createHash } from "node:crypto";
 import { config } from "./config";
 import type { SessionStore, PushSubInput, StoredPushSub } from "./store";

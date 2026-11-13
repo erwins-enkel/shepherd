@@ -314,3 +314,40 @@ it("keeps native copying when an older endpoint lacks navigation support", async
   f.mouse("mouseup", 0, 3);
   expect(f.copy).toHaveBeenCalledExactlyOnceWith("line");
 });
+
+it.each([false, true])(
+  "recovers the last suppressed repaint on blur (repeated: %s)",
+  async (repeated) => {
+    const f = await fixture();
+    f.mouse("mousedown", 6, 7);
+    f.mouse("mousemove", 2, 0);
+    await vi.waitFor(() => expect(f.term.hasSelection()).toBe(true));
+    expect(f.commands.filter((r) => r.op === "snapshot")).toHaveLength(1);
+    f.change();
+    expect(f.nav.handleOutput("\x1b[Hchanged output", false)).toBe(true);
+    window.dispatchEvent(new Event("blur"));
+    if (repeated) queueMicrotask(() => window.dispatchEvent(new Event("blur")));
+    window.dispatchEvent(new Event("focus"));
+    await vi.waitFor(() =>
+      expect(f.term.buffer.active.getLine(0)?.translateToString(true)).toBe("changed output"),
+    );
+    expect(f.commands.filter((r) => r.op === "snapshot")).toHaveLength(repeated ? 3 : 2);
+    expect(f.copy).not.toHaveBeenCalled();
+    expect(f.errors).toEqual([]);
+  },
+);
+
+it.each(["dispose", "reset"] as const)(
+  "does not recover an inactive terminal after %s",
+  async (action) => {
+    const f = await fixture();
+    f.mouse("mousedown", 6, 7);
+    f.mouse("mousemove", 2, 0);
+    await vi.waitFor(() => expect(f.term.hasSelection()).toBe(true));
+    const count = f.commands.length;
+    f.nav[action]();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(f.commands).toHaveLength(count);
+    expect(f.copy).not.toHaveBeenCalled();
+  },
+);

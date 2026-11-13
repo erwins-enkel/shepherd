@@ -109,13 +109,15 @@ export function wireCleanTerminalNavigation(
   const cancel = () => {
     generation++;
     stopEdge();
-    resync ||= !!drag?.moved;
+    resync ||= !!drag?.moved || inFlight?.command.op === "snapshot";
     drag = undefined;
     delta = 0;
     jump = undefined;
     copied = "";
     nativeArmed = false;
     term.clearSelection();
+    // Defer recovery until the caller has finished cancelling, resetting or disposing.
+    queueMicrotask(pump);
   };
   const needsSnapshot = () =>
     (dirty && (Math.abs(delta) >= 1 || jump)) || (drag?.moved && !drag.anchor) || resync;

@@ -18,6 +18,7 @@
     filter,
     counts,
     onfilter,
+    touch = false,
   }: {
     /** The HERD total tally the panel anchors to. */
     trigger: HTMLElement | undefined;
@@ -29,6 +30,8 @@
     filter: SessionOrigin | null;
     counts: OriginCounts;
     onfilter: (origin: SessionOrigin | null) => void;
+    /** Coarse pointer (touch-wide): 44px chip targets. */
+    touch?: boolean;
   } = $props();
 
   const LEAVE_GRACE_MS = 200;
@@ -100,10 +103,16 @@
         pop.querySelector<HTMLElement>("[aria-pressed='true']") ?? pop.querySelector("button")
       )?.focus();
     }
+    // Esc is consumed (and focus returned) only when the panel owns the keyboard: pinned, or
+    // focus on the trigger / in the panel. A hover-only open just closes, so an Escape typed in
+    // the terminal or a field still reaches it.
     const onKeydown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      e.stopPropagation();
+      const active = document.activeElement;
+      const owns = pinned || anchor.contains(active) || pop.contains(active);
       close();
+      if (!owns) return;
+      e.stopPropagation();
       anchor.focus();
     };
     const onPointerdown = (e: PointerEvent) => {
@@ -146,7 +155,7 @@
     onpointerenter={enter}
     onpointerleave={leave}
   >
-    <HerdOriginBar {filter} {counts} {onfilter} inPopover />
+    <HerdOriginBar {filter} {counts} {onfilter} {touch} inPopover />
   </div>
 {/if}
 

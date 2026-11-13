@@ -20,6 +20,7 @@
     originCounts = null,
     originOffered = false,
     onoriginfilter,
+    touch = false,
   }: {
     mobile: boolean;
     /** Collapse to the dot+digit form under measured overflow (desktop AND touch-desktop /
@@ -38,6 +39,8 @@
     originCounts?: OriginCounts | null;
     originOffered?: boolean;
     onoriginfilter?: (origin: SessionOrigin | null) => void;
+    /** Coarse pointer (touch-wide): the origin popover keeps 44px chips. */
+    touch?: boolean;
   } = $props();
 
   let totalEl = $state<HTMLButtonElement>();
@@ -177,6 +180,7 @@
     filter={originFilter}
     counts={originCounts}
     onfilter={onoriginfilter}
+    {touch}
   />
 {/if}
 

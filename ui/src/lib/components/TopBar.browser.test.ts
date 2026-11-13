@@ -1111,6 +1111,38 @@ describe("TopBar — origin filter popover on the HERD total (#3999)", () => {
     expect(document.activeElement).toBe(total());
   });
 
+  it("a hover-only open lets an Escape typed elsewhere through, without stealing focus", async () => {
+    render(TopBar, { ...originBase, onoriginfilter: () => {} });
+    const field = document.createElement("input");
+    document.body.append(field);
+    try {
+      field.focus();
+      await expect.poll(() => document.querySelector(".tallies .tally")).not.toBeNull();
+      await userEvent.hover(total());
+      await expect.element(pop()).toBeVisible();
+      const seen = vi.fn();
+      window.addEventListener("keydown", seen);
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      window.removeEventListener("keydown", seen);
+      expect(seen).toHaveBeenCalled();
+      await expect.element(pop()).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(field);
+    } finally {
+      field.remove();
+    }
+  });
+
+  it("touch-wide keeps 44px origin chips", async () => {
+    render(TopBar, { ...originBase, ...FLAGS["touch-desktop"], onoriginfilter: () => {} });
+    await expect.poll(() => document.querySelector(".tallies button")).not.toBeNull();
+    document.querySelector<HTMLButtonElement>(".tallies button")!.click();
+    await expect.element(pop()).toBeVisible();
+    const chip = pop()
+      .getByRole("button", { name: /Manual/ })
+      .element();
+    expect(chip.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  });
+
   it("with a status filter on, the click still clears it and opens nothing", async () => {
     const onstatusfilter = vi.fn();
     render(TopBar, {

@@ -1022,6 +1022,7 @@
       {originCounts}
       {originOffered}
       {onoriginfilter}
+      {touch}
     />
     <div class="rightside">
       <!-- A phone has no room for it: the Menu sheet carries the check slot instead. -->

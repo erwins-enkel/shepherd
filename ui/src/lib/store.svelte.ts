@@ -123,10 +123,15 @@ export class HerdStore {
   get offline(): boolean {
     return this.#browserOffline || this.#socketStale;
   }
+  /** Reconnecting has failed for UNREACHABLE_AFTER_MS; reset by every fresh operator-driven attempt. */
+  #unreachable = $state(false);
+  /** Offline and reconnecting has not succeeded for UNREACHABLE_AFTER_MS: only now does the UI say
+   *  it can't reach the server. Before that it is merely reconnecting. */
+  get unreachable(): boolean {
+    return this.offline && this.#unreachable;
+  }
   /** When the data on screen was last live (ms); null while online. */
   offlineSince = $state<number | null>(null);
-  /** Counts every socket close — a failed reconnect attempt bumps it too. */
-  socketCloses = $state(0);
   /** Reconnect the /events socket now on a fresh socket. Set while connect() runs. */
   reconnectNow: () => void = () => {};
   /** True when THIS tab is focused+visible (the "attended" tier of the attention
@@ -1382,9 +1387,33 @@ export class HerdStore {
     // Last moment the stream was live, and the timer that turns a down socket into `offline`.
     let liveUntil = Date.now();
     let graceTimer: ReturnType<typeof setTimeout> | null = null;
+    // Turns a reconnecting outage into `unreachable` once it has lasted UNREACHABLE_AFTER_MS.
+    let unreachableTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearUnreachable = () => {
+      if (unreachableTimer) clearTimeout(unreachableTimer);
+      unreachableTimer = null;
+      this.#unreachable = false;
+    };
+    const armUnreachable = () => {
+      if (stopped || unreachableTimer || this.#unreachable || !this.offline) return;
+      unreachableTimer = setTimeout(() => {
+        unreachableTimer = null;
+        this.#unreachable = true;
+      }, UNREACHABLE_AFTER_MS);
+    };
+    // A fresh operator-driven attempt (wake, Retry): back to reconnecting with a full window.
+    const restartReconnecting = () => {
+      clearUnreachable();
+      armUnreachable();
+    };
     const syncSince = (at: number) => {
-      if (!this.offline) this.offlineSince = null;
-      else if (this.offlineSince === null) this.offlineSince = at;
+      if (!this.offline) {
+        this.offlineSince = null;
+        clearUnreachable();
+        return;
+      }
+      if (this.offlineSince === null) this.offlineSince = at;
+      armUnreachable();
     };
     const armGrace = () => {
       if (stopped || graceTimer || this.#socketStale) return;
@@ -1468,7 +1497,6 @@ export class HerdStore {
         this.terminalOwners = null;
         if (this.connected) liveUntil = Date.now();
         this.connected = false;
-        this.socketCloses += 1;
         armGrace();
         if (openedAt !== null && Date.now() - openedAt >= STABLE_SOCKET_MS) failures = 0;
         openedAt = null;
@@ -1495,6 +1523,7 @@ export class HerdStore {
       // The operator is back: retry fast. The backoff grown by a pre-freeze outage would otherwise
       // push the next try up to 30 s out when this first attempt beats the network back up.
       failures = 0;
+      restartReconnecting();
       open(); // CONNECTING/CLOSING/CLOSED/none — resume the stream now
     };
     const onVisible = () => {
@@ -1534,9 +1563,13 @@ export class HerdStore {
     }
     syncAttended(); // correct initial value before the first open()
     // Always a fresh socket, even over an OPEN one the browser says is offline: the attempt then
-    // either opens (online again) or closes (socketCloses → the notice re-offers), never nothing.
+    // either opens (online again) or fails and the outage turns unreachable again, never nothing.
+    // The operator asked: retry fast, as on a wake.
     this.reconnectNow = () => {
-      if (!stopped) open();
+      if (stopped) return;
+      failures = 0;
+      restartReconnecting();
+      open();
     };
     armGrace();
     open();
@@ -1545,6 +1578,7 @@ export class HerdStore {
       stopped = true;
       this.reconnectNow = () => {};
       clearGrace();
+      clearUnreachable();
       clearConnectTimer();
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
@@ -1573,6 +1607,9 @@ const STABLE_SOCKET_MS = 10_000;
 /** How long the socket may be down before the UI says it is offline: a deploy restart or a tab
  *  wake reconnects within ~1–2 s and must not flash the notice. */
 const OFFLINE_GRACE_MS = 3_000;
+/** How long the UI says "reconnecting" before it calls the server unreachable: a phone waking over
+ *  a slow network usually reconnects within the first two attempts (4 s + 8 s connect timeouts). */
+const UNREACHABLE_AFTER_MS = 15_000;
 /** A handshake still pending after this long is abandoned and retried through the backoff. Doubles
  *  with each failure (4 s → 30 s cap) so a slow-but-working link (in-flight Wi-Fi, DERP relay) still
  *  connects eventually, while the first attempt after a wake gives up fast. */

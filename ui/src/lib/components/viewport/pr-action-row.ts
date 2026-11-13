@@ -15,6 +15,7 @@ export type PrRowKind =
   | "ci_running"
   | "no_checks"
   | "protected"
+  | "reviewing"
   | "ready"
   | "merged";
 
@@ -28,12 +29,12 @@ export function prActionRowVisible(git: GitState | null | undefined): git is Git
 /** Which state the merge row is in. `merging` (a merge in flight, or the PR sits in its base's
  *  merge queue) wins; then the readiness blocks the whole UI shares (`prReadinessBlock`) — draft,
  *  conflict, behind — before CI, since a rebase or conflict fix reruns CI anyway; then CI; and
- *  branch protection last, so a still-running required check reads as "CI running", not as a
- *  vague protection block.
+ *  branch protection next, so a still-running required check reads as "CI running", not as a
+ *  vague protection block. A running critic blocks readiness after these Git/CI states.
  *
  *  Stricter than the merge gate elsewhere: ANY failing or pending check locks Merge here, even
  *  a non-required one GitHub reports as `unstable` (operator decision on #3540). */
-export function prRowStatus(git: GitState, merging: boolean): PrRowKind {
+export function prRowStatus(git: GitState, merging: boolean, reviewing: boolean): PrRowKind {
   if (git.state === "merged") return "merged";
   if (merging) return "merging";
   const block = prReadinessBlock(git);
@@ -42,6 +43,7 @@ export function prRowStatus(git: GitState, merging: boolean): PrRowKind {
   if (git.checks === "pending") return "ci_running";
   if (awaitsChecks(git)) return "no_checks";
   if (block === "blocked") return "protected";
+  if (reviewing) return "reviewing";
   return "ready";
 }
 
@@ -55,6 +57,8 @@ function awaitsChecks(git: GitState): boolean {
 /** Why Merge is locked in this state, or null when it is free. */
 export function mergeBlockedText(kind: PrRowKind): string | null {
   switch (kind) {
+    case "reviewing":
+      return m.gitrail_merge_blocked_reviewing();
     case "merging":
       return m.gitrail_merge_blocked_busy();
     case "draft":
@@ -80,6 +84,8 @@ export function mergeBlockedText(kind: PrRowKind): string | null {
 /** The row's status label. `base` names the branch a `behind` PR trails. */
 export function prRowLabel(kind: PrRowKind, base: string): string {
   switch (kind) {
+    case "reviewing":
+      return m.prrow_state_reviewing();
     case "merging":
       return m.prrow_merging();
     case "draft":

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render as rawRender } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../../app.css";
 import type { GitState, Recap, ReviewVerdict, Session } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
@@ -492,6 +492,113 @@ describe("PrActionRow — merge outcome", () => {
     await vi.waitFor(() => expect(dialog(h)).not.toBeNull());
     await screen.rerender({ session: session({ id: "sess-B" }), git: readyGit, status: "idle" });
     await vi.waitFor(() => expect(dialog(h)).toBeNull());
+  });
+});
+
+describe("PrActionRow — running critic blocks merge", () => {
+  for (const mobile of [false, true]) {
+    it(`locks mouse and keyboard merge, then restores readiness (mobile=${mobile})`, async () => {
+      const h = host(mobile ? 390 : 900);
+      await render(PrActionRow, {
+        target: h,
+        props: { session: session(), git: readyGit, status: "idle", mobile },
+      });
+      reviews.setReviewing("sess-A", true);
+      await vi.waitFor(() => expect(row(h)!.classList.contains("reviewing")).toBe(true));
+      expect(row(h)!.classList.contains("ready")).toBe(false);
+      expect(row(h)!.querySelector(".pr-label")!.textContent).toBe(m.prrow_state_reviewing());
+      expect(mergeBtn(h).getAttribute("aria-disabled")).toBe("true");
+      reviews.held.set("sess-A", true);
+      mergeBtn(h).click();
+      mergeBtn(h).focus();
+      await userEvent.keyboard("{Enter}");
+      await userEvent.keyboard(" ");
+      expect(dialog(h)).toBeNull();
+      expect(mergePrFn).not.toHaveBeenCalled();
+      reviews.setReviewing("sess-A", false);
+      await vi.waitFor(() => expect(row(h)!.classList.contains("ready")).toBe(true));
+      expect(mergeBtn(h).getAttribute("aria-disabled")).toBeNull();
+    });
+  }
+
+  for (const [git, expected] of [
+    [{ ...readyGit, checks: "pending" }, "ci_running"],
+    [{ ...readyGit, mergeStateStatus: "blocked" }, "protected"],
+  ] as const) {
+    it(`ending review preserves the ${expected} merge block`, async () => {
+      const h = host();
+      reviews.setReviewing("sess-A", true);
+      await render(PrActionRow, {
+        target: h,
+        props: { session: session(), git, status: "idle" },
+      });
+      reviews.setReviewing("sess-A", false);
+      await vi.waitFor(() => expect(row(h)!.classList.contains(expected)).toBe(true));
+      expect(mergeBtn(h).getAttribute("aria-disabled")).toBe("true");
+      mergeBtn(h).click();
+      expect(dialog(h)).toBeNull();
+      expect(mergePrFn).not.toHaveBeenCalled();
+    });
+  }
+
+  it("closes an unanswered confirmation when re-review starts despite a prior verdict", async () => {
+    reviews.apply({
+      id: "sess-A",
+      review: {
+        sessionId: "sess-A",
+        headSha: "17699a1",
+        decision: "commented",
+        summary: "ok",
+        body: "fine",
+        findings: [],
+        addressRound: 0,
+        addressCap: 2,
+        finalRoundPending: false,
+        finalRoundTimeoutMs: 900000,
+        updatedAt: Date.now(),
+      },
+    });
+    const h = host();
+    await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: readyGit, status: "idle" },
+    });
+    mergeBtn(h).click();
+    await vi.waitFor(() => expect(dialog(h)).not.toBeNull());
+    reviews.setReviewing("sess-A", true);
+    await vi.waitFor(() => expect(dialog(h)).toBeNull());
+    expect(row(h)!.classList.contains("reviewing")).toBe(true);
+    expect(mergePrFn).not.toHaveBeenCalled();
+  });
+
+  it("keeps an already submitted merge in flight when review starts", async () => {
+    let finish!: () => void;
+    mergePrFn.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const h = host();
+    await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: readyGit, status: "idle" },
+    });
+    mergeBtn(h).click();
+    const confirm = await vi.waitFor(() => {
+      const b = h.querySelector<HTMLButtonElement>("[role='dialog'] button.run");
+      expect(b).not.toBeNull();
+      expect(b!.disabled).toBe(false);
+      return b!;
+    });
+    confirm.click();
+    await vi.waitFor(() => expect(mergePrFn).toHaveBeenCalledTimes(1));
+    reviews.setReviewing("sess-A", true);
+    await vi.waitFor(() => expect(row(h)!.classList.contains("merging")).toBe(true));
+    expect(dialog(h)).not.toBeNull();
+    finish();
+    await vi.waitFor(() => expect(dialog(h)).toBeNull());
+    expect(row(h)!.classList.contains("reviewing")).toBe(true);
   });
 });
 

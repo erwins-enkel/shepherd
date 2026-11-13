@@ -12419,12 +12419,16 @@ async function handleIssueCreate({ req, parts, deps, token }: Ctx): Promise<Resp
   const forge = deps.resolveForge?.(dir) ?? null;
   if (!forge || issueForgeGap(forge, "createIssue"))
     return json({ error: "issues unavailable for repo" }, 400);
+  return createdIssueResponse(forge, { title: title.trim(), body: issueBody });
+}
+
+/** Create the issue and answer 201 `{number, url, slug}`, or 502 with the forge's message. */
+async function createdIssueResponse(
+  forge: GitForge,
+  o: { title: string; body: string },
+): Promise<Response> {
   try {
-    const issue = await createIssueWithLabels(
-      forge,
-      { title: title.trim(), body: issueBody },
-      (msg) => console.warn(`[issues] ${msg}`),
-    );
+    const issue = await createIssueWithLabels(forge, o, (msg) => console.warn(`[issues] ${msg}`));
     return json({ ...issue, slug: forge.slug }, 201);
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "issue create failed" }, 502);
@@ -12450,19 +12454,10 @@ async function handleShepherdIssueCreate({ req, parts, deps }: Ctx): Promise<Res
   const forge = deps.resolveShepherdForge?.() ?? null;
   if (!forge || issueForgeGap(forge, "createIssue"))
     return json({ error: "shepherd issue filing unavailable" }, 503);
-  try {
-    const issue = await createIssueWithLabels(
-      forge,
-      {
-        title: redactSecretText(title.trim()),
-        body: `${redactSecretText(issueBody)}\n\n---\n- Shepherd: v${SHEPHERD_VERSION}`,
-      },
-      (msg) => console.warn(`[issues] ${msg}`),
-    );
-    return json({ ...issue, slug: forge.slug }, 201);
-  } catch (e) {
-    return json({ error: e instanceof Error ? e.message : "issue create failed" }, 502);
-  }
+  return createdIssueResponse(forge, {
+    title: redactSecretText(title.trim()),
+    body: `${redactSecretText(issueBody)}\n\n---\n- Shepherd: v${SHEPHERD_VERSION}`,
+  });
 }
 
 /** A session on any known checkout of this forge repo still owns the claim. */

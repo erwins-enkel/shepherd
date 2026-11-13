@@ -135,6 +135,7 @@
     nextDoneSelectedId,
     resolveDoneSelected,
   } from "#lib/done-filter.js";
+  import { byOrigin, originCounts, type SessionOrigin } from "#lib/session-origin.js";
   import { postMergeSteps as postMergeStepsStore } from "#lib/post-merge-steps.svelte.js";
   import TopBar from "#lib/components/TopBar.svelte";
   import { basename } from "#lib/basename.js";
@@ -155,7 +156,12 @@
   import { normalizeEpicCollapse } from "#lib/components/herd-epic-collapse.js";
   import { isReworkRunning as isReworkRunningSession } from "#lib/components/rework-running.js";
   import { buildCommands } from "#lib/command-registry.js";
-  import { GROUP_KEY_BY_STAGE, type HerdFilter } from "#lib/components/herd-partition.js";
+  import {
+    GROUP_KEY_BY_STAGE,
+    shownMirrored,
+    shownSessions,
+    type HerdFilter,
+  } from "#lib/components/herd-partition.js";
   import {
     collectReadyPrs,
     isMerging,
@@ -598,7 +604,11 @@
   let statusFilter = $state<"running" | "idle" | "blocked" | null>(null);
   // The idle/blocked tallies skip shelved sessions (TopBar), so their filters do too.
   const tallied = (s: Session) => statusFilter === "running" || !s.shelved;
-  const herdSessions = $derived.by(() => {
+  // Origin filter (#3999): scheduled / auto-drain / manual; null = every origin. It narrows the
+  // list only — the lifecycle groups stay as they are. Also narrows the Done lens below.
+  let originFilter = $state<SessionOrigin | null>(null);
+  // repo + status scope, before the origin filter: the origin bar counts this set
+  const herdScopedSessions = $derived.by(() => {
     const byRepo = repoFilter.size
       ? store.sessions.filter((s) => repoFilter.has(s.repoPath))
       : store.sessions;
@@ -614,15 +624,17 @@
   });
   // Mirrored sessions (#2762) follow the status filter; a repo filter names local checkouts, so
   // it keeps those of the same project by slug.
-  const herdRemoteSessions = $derived.by(() => {
+  const herdScopedRemoteSessions = $derived.by(() => {
     const byRepo = inRepoFilter(store.remoteSessions, repoFilter, repos.entries);
     return statusFilter
       ? byRepo.filter((s) => tallied(s) && displayStatus(s, {}, {}) === statusFilter)
       : byRepo;
   });
+  const herdSessions = $derived(byOrigin(herdScopedSessions, originFilter));
+  const herdRemoteSessions = $derived(byOrigin(herdScopedRemoteSessions, originFilter));
   // Tasks whose start on a machine is unknown (#2774) are no sessions: they show only unfiltered.
   const herdRemoteDispatches = $derived(
-    repoFilter.size || statusFilter ? [] : store.remoteDispatches,
+    repoFilter.size || statusFilter || originFilter ? [] : store.remoteDispatches,
   );
   // Display name of the active filter for the herd's empty-state copy: null when unfiltered,
   // the basename for a single repo, "N repos" for a multi-selection.
@@ -2183,7 +2195,26 @@
   // (the live list), which has EVICTED archived sessions — so reusing it for a done
   // (archived) id would break. doneSelectedId tracks the picked done row instead.
   let doneSelectedId = $state<string | null>(null);
-  const shownDoneSessions = $derived(doneSessionsForRepoFilter(doneSessions.sessions, repoFilter));
+  const scopedDoneSessions = $derived(doneSessionsForRepoFilter(doneSessions.sessions, repoFilter));
+  const shownDoneSessions = $derived(byOrigin(scopedDoneSessions, originFilter));
+  // What the origin bar counts: the rows the current lens + machine pick list, before the origin
+  // filter — the same lens Herd applies (an active status filter short-circuits all/ready).
+  const herdOriginCounts = $derived.by(() => {
+    if (herdFilter === "done") return originCounts(scopedDoneSessions);
+    const lens = statusFilter != null ? "all" : herdFilter;
+    const inReview = (id: string) => reviews.isReviewing(id) || planGates.isReviewing(id);
+    const local = shownSessions(
+      herdScopedSessions,
+      lens,
+      inReview,
+      store.workingBlocked,
+      store.git,
+      nowMs,
+      store.backgroundBusy,
+    );
+    const remote = shownMirrored(herdScopedRemoteSessions, lens, inReview, nowMs);
+    return originCounts([...byMachine(local, machineFilter), ...byMachine(remote, machineFilter)]);
+  });
   // The currently-selected done session (resolved against the filtered lazy done list).
   const doneSelected = $derived(resolveDoneSelected(shownDoneSessions, doneSelectedId));
   // What the assistant is told about this window with each message (#3161). sessionTab is the
@@ -2561,6 +2592,7 @@
         herdFilter = "all";
         machineFilter = "all";
         statusFilter = null;
+        originFilter = null;
       },
       followRepo: (id) => {
         const repoPath = store.sessions.find((s) => s.id === id)?.repoPath;
@@ -4059,6 +4091,9 @@
             onrepofilter={applyRepoFilter}
             {statusFilter}
             onstatusfilter={(s) => (statusFilter = s)}
+            {originFilter}
+            originCounts={herdOriginCounts}
+            onoriginfilter={(o) => (originFilter = o)}
             {selectedId}
             {jumpFlashId}
             {nowMs}
@@ -4294,6 +4329,9 @@
               onrepofilter={applyRepoFilter}
               {statusFilter}
               onstatusfilter={(s) => (statusFilter = s)}
+              {originFilter}
+              originCounts={herdOriginCounts}
+              onoriginfilter={(o) => (originFilter = o)}
               {selectedId}
               {jumpFlashId}
               {nowMs}

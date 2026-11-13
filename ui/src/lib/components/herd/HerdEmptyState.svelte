@@ -1,12 +1,15 @@
 <script lang="ts">
   import EmptyHerd from "../EmptyHerd.svelte";
   import { m } from "#lib/paraglide/messages.js";
+  import type { SessionOrigin } from "#lib/session-origin.js";
 
   let {
     mode,
     machine = null,
     statusFilter,
     statusLabel,
+    originFilter = null,
+    originLabel = "",
     filteredRepo,
     issueActionsUnset,
     onnew,
@@ -18,6 +21,9 @@
     machine?: string | null;
     statusFilter: "running" | "idle" | "blocked" | null;
     statusLabel: string;
+    // the herd's origin filter (#3999) and its display label; outranks the status/repo copy
+    originFilter?: SessionOrigin | null;
+    originLabel?: string;
     filteredRepo: string | null;
     issueActionsUnset: boolean;
     onnew: () => void;
@@ -25,7 +31,13 @@
   } = $props();
 </script>
 
-{#if mode === "sessions"}
+{#if mode !== "machine" && originFilter != null}
+  <div class="empty micro static">
+    {mode === "shown" || statusFilter != null || filteredRepo
+      ? m.herd_origin_filters_empty({ origin: originLabel })
+      : m.herd_origin_filter_empty({ origin: originLabel })}
+  </div>
+{:else if mode === "sessions"}
   {#if statusFilter != null && filteredRepo}
     <div class="empty micro static">
       {m.herd_status_repo_filter_empty({ status: statusLabel, repo: filteredRepo })}

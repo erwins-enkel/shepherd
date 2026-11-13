@@ -8991,5 +8991,14 @@
   "handoff_phase_uncertain": "Auftragszustellung unklar",
   "handoff_phase_failed": "Übergabe fehlgeschlagen",
   "handoff_source_unchanged": "Der Quellagent blieb unverändert und kann weiter genutzt werden.",
-  "handoff_summary_waiting": "Zusammenfassungsmodus: Automatische Arbeit wartet auf deine nächste Anweisung."
+  "handoff_summary_waiting": "Zusammenfassungsmodus: Automatische Arbeit wartet auf deine nächste Anweisung.",
+  "herd_origins_label": "Herkunft",
+  "herd_origin_all": "Alle Herkünfte",
+  "herd_origin_scheduled": "Geplant",
+  "herd_origin_drain": "Auto-Drain",
+  "herd_origin_manual": "Manuell",
+  "herd_origin_filter_empty": "Gerade keine Sessions der Herkunft {origin}.",
+  "herd_origin_filters_empty": "Keine Sessions der Herkunft {origin} passen zu den aktiven Filtern.",
+  "feat_origin_filter_title": "Sessions nach Herkunft filtern",
+  "feat_origin_filter_body": "Sobald ein Repo-Zeitplan oder der Auto-Drain Sessions gestartet hat, filtert eine Chip-Reihe unter den Herden-Ansichten die Liste nach Herkunft: Geplant, Auto-Drain oder Manuell. Sie wirkt zusammen mit Repo- und Statusfilter und auch in der Ansicht „Fertig“ – so prüfst du etwa die geplanten Läufe der letzten Nacht. Die Gruppen bleiben unverändert."
 }

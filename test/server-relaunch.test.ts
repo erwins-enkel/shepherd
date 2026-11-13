@@ -516,6 +516,18 @@ for (const autopilotEnabled of [null, true, false]) {
   });
 }
 
+test("sandboxProfile override reaches service.relaunch; junk → 400, nothing spawned", async () => {
+  const h = harness({ original: { issueNumber: null, repoPath: REPO } });
+  const res = await h.app.fetch(relaunchReq("orig", { sandboxProfile: "trusted" }));
+  expect(res.status).toBe(201);
+  expect(h.calls.relaunch[0]?.overrides).toEqual({ sandboxProfile: "trusted" });
+
+  const bad = harness({ original: { issueNumber: null, repoPath: REPO } });
+  const r = await bad.app.fetch(relaunchReq("orig", { sandboxProfile: "nope" }));
+  expect(r.status).toBe(400);
+  expect(bad.calls.relaunch).toHaveLength(0);
+});
+
 test("images override is threaded through to service.relaunch as the authoritative set", async () => {
   // Image semantics live in the service (overrides → verbatim, no auto-carry); at the route
   // boundary we assert the supplied images ride through unchanged as that authoritative set.

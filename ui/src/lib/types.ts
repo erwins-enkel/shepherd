@@ -3893,6 +3893,8 @@ export interface RelaunchOverrides {
   planGateEnabled?: boolean | null;
   /** Per-task Autopilot override; null → inherit the destination repo default. */
   autopilotEnabled?: boolean | null;
+  /** Sandbox profile; absent → the original's submitted choice, null → the repo's profile. */
+  sandboxProfile?: SandboxProfile | null;
   images?: string[];
   attachmentNames?: string[];
   launchUiState?: LaunchUiState;

@@ -3709,6 +3709,11 @@ components:
         autopilotEnabled:
           type: boolean
           nullable: true
+        sandboxProfile:
+          description: Sandbox profile for the replacement. Absent = the original's submitted choice; null = the target repo's profile.
+          allOf:
+            - $ref: "#/components/schemas/SandboxProfile"
+          nullable: true
         plain:
           type: boolean
         research:

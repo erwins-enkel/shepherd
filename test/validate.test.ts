@@ -99,6 +99,14 @@ test("executionEffort (#3434): a tier passes, default/absent → null, junk is r
   expect(relaunch.ok && relaunch.value.executionEffort).toBe("low");
 });
 
+test("validateRelaunchOverrides: sandboxProfile accepts a profile or null, refuses junk", () => {
+  const trusted = validateRelaunchOverrides({ sandboxProfile: "trusted" }, root);
+  expect(trusted.ok && trusted.value.sandboxProfile).toBe("trusted");
+  const inherit = validateRelaunchOverrides({ sandboxProfile: null }, root);
+  expect(inherit.ok && inherit.value.sandboxProfile).toBeNull();
+  expect(validateRelaunchOverrides({ sandboxProfile: "bogus" }, root).ok).toBe(false);
+});
+
 test("remote mode refuses the clean terminal, and still checks the rest", () => {
   const base = { repoPath: validRepo, baseBranch: "main", prompt: "go" };
   expect(validateCreate({ ...base, images: [] }, root, { remote: true }).ok).toBe(true);

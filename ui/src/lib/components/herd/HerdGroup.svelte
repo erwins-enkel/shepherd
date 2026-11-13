@@ -8,6 +8,7 @@
     Epic,
     HeavySlotSnapshot,
     RemoteInstance,
+    RelaunchOverrides,
   } from "#lib/types.js";
   import { machineHeavySlot } from "#lib/remote-sessions.js";
   import type { IntegratedNoteInput } from "#lib/integrated-child-note.js";
@@ -34,7 +35,7 @@
     ondecommission?: (id: string) => void;
     onrename?: (id: string) => void;
     onamend?: (id: string) => void;
-    onrelaunch?: (id: string) => void;
+    onrelaunch?: (id: string, overrides?: RelaunchOverrides) => void;
     onrelaunchElsewhere?: (id: string) => void;
     oncleanTerminal?: (repoPath: string) => void;
     // "Ask the assistant" from a row's CardMenu (#1446): receives the row's desig

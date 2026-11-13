@@ -1,4 +1,4 @@
-import type { LaunchUiState, RelaunchOverrides } from "#lib/types.js";
+import type { LaunchUiState, RelaunchOverrides, SandboxProfile } from "#lib/types.js";
 
 /** Build the exact payload submitted by the relaunch form. */
 export function relaunchOverrides(input: {
@@ -13,6 +13,7 @@ export function relaunchOverrides(input: {
   launchUiState?: LaunchUiState;
   planGateEnabled: boolean | null;
   autopilotEnabled: boolean | null;
+  sandboxProfile?: SandboxProfile;
 }): RelaunchOverrides {
   return {
     repoPath: input.repoPath,
@@ -23,6 +24,9 @@ export function relaunchOverrides(input: {
     executionEffort: input.executionEffort,
     planGateEnabled: input.planGateEnabled,
     autopilotEnabled: input.autopilotEnabled,
+    // Always explicit: the composer was seeded with the original's choice, so its "Default"
+    // (undefined) means inherit the repo profile — an absent key would re-carry the original's.
+    sandboxProfile: input.sandboxProfile ?? null,
     images: input.images,
     attachmentNames: input.attachmentNames,
     launchUiState: input.launchUiState,

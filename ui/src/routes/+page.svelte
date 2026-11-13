@@ -96,6 +96,7 @@
     PluginUpdatesStatus,
     PullRequest,
     SandboxProfile,
+    RelaunchOverrides,
     UpNextPr,
     Session,
     Settings as Settings_,
@@ -2922,6 +2923,7 @@
       };
       planGateEnabled: boolean | null;
       autopilotEnabled: boolean | null;
+      sandboxProfile?: SandboxProfile;
     },
   ) {
     let result: { session: Session; archived: boolean };
@@ -3155,6 +3157,8 @@
     // and submits it, preserving the original's effort exactly (server keeps it via pickOverride).
     composeEffort = s.effort ?? "default";
     composeExecutionEffort = s.executionEffort ?? "default";
+    // Seed the original's submitted sandbox choice (null = it inherited the repo profile).
+    composeSandbox = s.launchMetadata?.submittedChoices.sandboxProfile ?? null;
     composeIssue = null;
     relaunchIssueNumber = s.issueNumber;
     relaunchOriginalId = id;
@@ -3364,14 +3368,14 @@
   // the handler only awaits the API and toasts. The two-step arm lives in CardMenu, so
   // by the time this fires the operator has already confirmed (no undo window — relaunch
   // is irreversible and an undo would have to also kill the fresh replacement).
-  async function onrelaunch(id: string) {
+  async function onrelaunch(id: string, overrides?: RelaunchOverrides) {
     const fail = (text: string) =>
       // Assertive + deduped per id under a relaunch-fail namespace: the failure lingers
       // 12s (longer than the transient 4s success info), and repeated failures to one
       // card collapse into a single toast rather than stacking.
       toasts.info(text, { alert: true, key: `relaunch-fail:${id}` });
     try {
-      const { session, archived } = await relaunchSession(id);
+      const { session, archived } = await relaunchSession(id, overrides);
       if (archived) toasts.info(m.relaunch_done({ desig: session.desig }));
       else fail(m.relaunch_archive_failed());
     } catch (e) {

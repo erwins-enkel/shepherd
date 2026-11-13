@@ -19,4 +19,16 @@ describe("Relaunch Task payload", () => {
       });
     });
   }
+
+  it("forwards a picked sandboxProfile", () => {
+    expect(
+      relaunchOverrides({ ...base, autopilotEnabled: null, sandboxProfile: "trusted" }),
+    ).toMatchObject({ sandboxProfile: "trusted" });
+  });
+
+  it("sends an explicit null sandboxProfile for Default (inherit, never re-carry)", () => {
+    expect(relaunchOverrides({ ...base, autopilotEnabled: null })).toMatchObject({
+      sandboxProfile: null,
+    });
+  });
 });

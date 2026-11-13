@@ -544,6 +544,9 @@ export interface RelaunchOverrides {
   planGateEnabled?: boolean | null;
   /** Per-task Autopilot override; null → inherit the destination repo default. */
   autopilotEnabled?: boolean | null;
+  /** Sandbox profile override; absent → carry the original's submitted choice, null → inherit the
+   *  destination repo's profile. "Relaunch as trusted" sends `"trusted"`. */
+  sandboxProfile?: SandboxProfile | null;
   images?: string[];
   attachmentNames?: string[];
   launchUiState?: LaunchUiState;

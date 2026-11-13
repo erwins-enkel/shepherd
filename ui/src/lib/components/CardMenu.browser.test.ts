@@ -110,6 +110,24 @@ describe("CardMenu repo group (#3443)", () => {
   });
 });
 
+describe("CardMenu relaunch-as-trusted action", () => {
+  it("renders only when onrelaunchTrusted is provided; first click arms, second fires once", async () => {
+    const name = { name: m.cardmenu_relaunch_trusted(), exact: true };
+    const { rerender } = await render(CardMenu, { props: base() });
+    expect(page.getByRole("menuitem", name).query()).toBeNull();
+
+    const onrelaunchTrusted = vi.fn();
+    await rerender(base({ onrelaunchTrusted }));
+    await page.getByRole("menuitem", name).click();
+    expect(onrelaunchTrusted).not.toHaveBeenCalled();
+    const confirm = page.getByRole("menuitem", { name: m.cardmenu_relaunch_trusted_confirm() });
+    await expect.element(confirm).toHaveClass(/\barmed\b/);
+
+    await confirm.click();
+    expect(onrelaunchTrusted).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("CardMenu relaunch action", () => {
   it("renders the Relaunch item only when onrelaunch is provided", async () => {
     const { rerender } = await render(CardMenu, { props: base() });

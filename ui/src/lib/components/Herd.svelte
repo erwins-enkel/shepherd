@@ -1003,6 +1003,7 @@
       counts={originCounts}
       onfilter={onoriginfilter}
       touch={flow || touch}
+      reveal={flow}
     />
   {/if}
   <div class="units" class:flow>

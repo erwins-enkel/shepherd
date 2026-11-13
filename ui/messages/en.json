@@ -8927,5 +8927,7 @@
   "tooltip_egress_muted_undo": "Undo",
   "tooltip_egress_muted_undo_body": "Remove the entry here. Blocks from then on are reported again.",
   "terminal_navigation_unavailable": "Terminal history navigation is unavailable. Check that herdr supports pane scrolling and selection.",
-  "terminal_selection_changed": "Terminal output changed during selection. Select the text again to copy it."
+  "terminal_selection_changed": "Terminal output changed during selection. Select the text again to copy it.",
+  "prrow_state_reviewing": "Review in progress",
+  "gitrail_merge_blocked_reviewing": "The critic review is still in progress. Wait for its result."
 }

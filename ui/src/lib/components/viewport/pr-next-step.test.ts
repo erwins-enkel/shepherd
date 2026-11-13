@@ -90,6 +90,11 @@ describe("agentLive", () => {
 });
 
 describe("prNextStep", () => {
+  it("keeps the merge slot for a reviewing row so its blocked reason controls the button", () => {
+    expect(
+      prNextStep({ kind: "reviewing", autopilot: false, criticReviewing: true, live: true }),
+    ).toEqual({ action: "merge", mode: "button", reason: null });
+  });
   const base = { autopilot: false, criticReviewing: false, live: true };
   it("red CI offers the fix; autopilot, a reviewing critic or a dead agent hold it", () => {
     expect(prNextStep({ ...base, kind: "ci_failed" })).toMatchObject({

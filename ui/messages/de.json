@@ -8927,5 +8927,7 @@
   "tooltip_egress_muted_undo": "Rückgängig",
   "tooltip_egress_muted_undo_body": "Entferne den Eintrag hier. Blockaden werden ab dann wieder gemeldet.",
   "terminal_navigation_unavailable": "Der Terminal-Verlauf ist nicht verfügbar. Prüfe, ob herdr das Scrollen und Markieren in Panes unterstützt.",
-  "terminal_selection_changed": "Die Terminal-Ausgabe hat sich während der Auswahl geändert. Markiere den Text erneut, um ihn zu kopieren."
+  "terminal_selection_changed": "Die Terminal-Ausgabe hat sich während der Auswahl geändert. Markiere den Text erneut, um ihn zu kopieren.",
+  "prrow_state_reviewing": "Überprüfung läuft",
+  "gitrail_merge_blocked_reviewing": "Die Kritikerprüfung läuft noch. Warte auf ihr Ergebnis."
 }

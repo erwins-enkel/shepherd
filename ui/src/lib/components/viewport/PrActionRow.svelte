@@ -88,7 +88,14 @@
 
   const local = $derived(git?.kind === "local");
   const base = $derived(git?.baseRefName || session.baseBranch);
-  const kind = $derived(git ? prRowStatus(git, merge.busy || git.inMergeQueue === true) : "ready");
+  const kind = $derived(
+    git ? prRowStatus(git, merge.busy || git.inMergeQueue === true, reviewing) : "ready",
+  );
+  // A review can start after the operator opened confirmation. Drop only an unanswered
+  // dialog; close() preserves a merge request that has already been submitted.
+  $effect(() => {
+    if (reviewing) merge.flow.close();
+  });
   const blockedText = $derived(mergeBlockedText(kind));
   const facts = $derived(git ? prRowFacts({ git, chip, criticOn, base }) : []);
   // #2735: an epic child merges into its epic branch; the tooltip says where it lands.
@@ -512,6 +519,7 @@
     background: color-mix(in srgb, var(--color-green) 7%, var(--color-head));
     border-top-color: color-mix(in srgb, var(--color-green) 35%, var(--color-line));
   }
+  .pr-row.reviewing,
   .pr-row.ci_running,
   .pr-row.merging {
     --tone: var(--color-amber);
@@ -562,6 +570,7 @@
     line-height: 1;
   }
   /* work in progress: functional status motion, exempt from the reduced-motion blanket */
+  .pr-row.reviewing .pr-glyph,
   .pr-row.ci_running .pr-glyph,
   .pr-row.merging .pr-glyph {
     animation: dot-pulse 1.1s ease-in-out infinite !important;

@@ -40,79 +40,111 @@ describe("prActionRowVisible", () => {
 });
 
 describe("prRowStatus", () => {
+  it("a running critic prevents readiness even with green CI", () => {
+    expect(prRowStatus(git(), false, true)).toBe("reviewing");
+  });
+
+  it("reviewing keeps existing blockers and terminal states in priority order", () => {
+    for (const [over, expected] of [
+      [{ state: "merged" }, "merged"],
+      [{ isDraft: true }, "draft"],
+      [{ mergeStateStatus: "dirty", mergeable: false }, "conflict"],
+      [{ mergeStateStatus: "behind" }, "behind"],
+      [{ checks: "failure" }, "ci_failed"],
+      [{ checks: "pending" }, "ci_running"],
+      [{ checks: "none" }, "no_checks"],
+      [{ mergeStateStatus: "blocked" }, "protected"],
+    ] as const) {
+      expect(prRowStatus(git(over), false, true)).toBe(expected);
+    }
+    expect(prRowStatus(git(), true, true)).toBe("merging");
+  });
   it("a merged PR is its own state, even mid-merge", () => {
-    expect(prRowStatus(git({ state: "merged" }), false)).toBe("merged");
-    expect(prRowStatus(git({ state: "merged" }), true)).toBe("merged");
+    expect(prRowStatus(git({ state: "merged" }), false, false)).toBe("merged");
+    expect(prRowStatus(git({ state: "merged" }), true, false)).toBe("merged");
   });
   it("a clean green PR is ready", () => {
-    expect(prRowStatus(git(), false)).toBe("ready");
+    expect(prRowStatus(git(), false, false)).toBe("ready");
   });
 
   it("a merge in flight wins over every block", () => {
-    expect(prRowStatus(git({ checks: "failure", isDraft: true }), true)).toBe("merging");
+    expect(prRowStatus(git({ checks: "failure", isDraft: true }), true, false)).toBe("merging");
   });
 
   it("readiness blocks come from the shared prReadinessBlock, in its order", () => {
-    expect(prRowStatus(git({ isDraft: true, mergeStateStatus: "behind" }), false)).toBe("draft");
-    expect(prRowStatus(git({ mergeStateStatus: "dirty", mergeable: false }), false)).toBe(
+    expect(prRowStatus(git({ isDraft: true, mergeStateStatus: "behind" }), false, false)).toBe(
+      "draft",
+    );
+    expect(prRowStatus(git({ mergeStateStatus: "dirty", mergeable: false }), false, false)).toBe(
       "conflict",
     );
-    expect(prRowStatus(git({ mergeStateStatus: "behind" }), false)).toBe("behind");
+    expect(prRowStatus(git({ mergeStateStatus: "behind" }), false, false)).toBe("behind");
   });
 
   it("conflict and staleness outrank CI — fixing them reruns CI anyway", () => {
-    expect(prRowStatus(git({ mergeStateStatus: "behind", checks: "pending" }), false)).toBe(
+    expect(prRowStatus(git({ mergeStateStatus: "behind", checks: "pending" }), false, false)).toBe(
       "behind",
     );
-    expect(prRowStatus(git({ mergeStateStatus: "dirty", checks: "failure" }), false)).toBe(
+    expect(prRowStatus(git({ mergeStateStatus: "dirty", checks: "failure" }), false, false)).toBe(
       "conflict",
     );
   });
 
   it("strict CI lock: a failing non-required check (unstable) still locks Merge", () => {
-    expect(prRowStatus(git({ mergeStateStatus: "unstable", checks: "failure" }), false)).toBe(
-      "ci_failed",
-    );
+    expect(
+      prRowStatus(git({ mergeStateStatus: "unstable", checks: "failure" }), false, false),
+    ).toBe("ci_failed");
   });
 
   it("strict CI lock: running checks lock Merge, also on hosts without a merge state", () => {
-    expect(prRowStatus(git({ mergeStateStatus: "unstable", checks: "pending" }), false)).toBe(
-      "ci_running",
-    );
     expect(
-      prRowStatus(git({ kind: "gitea", mergeStateStatus: undefined, checks: "pending" }), false),
+      prRowStatus(git({ mergeStateStatus: "unstable", checks: "pending" }), false, false),
+    ).toBe("ci_running");
+    expect(
+      prRowStatus(
+        git({ kind: "gitea", mergeStateStatus: undefined, checks: "pending" }),
+        false,
+        false,
+      ),
     ).toBe("ci_running");
   });
 
   it("a required check still running reads as CI running, not as protection", () => {
-    expect(prRowStatus(git({ mergeStateStatus: "blocked", checks: "pending" }), false)).toBe(
+    expect(prRowStatus(git({ mergeStateStatus: "blocked", checks: "pending" }), false, false)).toBe(
       "ci_running",
     );
-    expect(prRowStatus(git({ mergeStateStatus: "blocked", checks: "success" }), false)).toBe(
+    expect(prRowStatus(git({ mergeStateStatus: "blocked", checks: "success" }), false, false)).toBe(
       "protected",
     );
   });
 
   it("no CI at all (local forge, Gitea without CI) does not lock Merge", () => {
     expect(
-      prRowStatus(git({ kind: "local", checks: "none", mergeStateStatus: undefined }), false),
+      prRowStatus(
+        git({ kind: "local", checks: "none", mergeStateStatus: undefined }),
+        false,
+        false,
+      ),
     ).toBe("ready");
   });
 
   it("#3831: a GitHub PR without checks in a repo with PR CI is not ready — it has no checks", () => {
-    expect(prRowStatus(git({ checks: "none" }), false)).toBe("no_checks");
-    expect(prRowStatus(git({ checks: "none", noCi: false }), false)).toBe("no_checks");
+    expect(prRowStatus(git({ checks: "none" }), false, false)).toBe("no_checks");
+    expect(prRowStatus(git({ checks: "none", noCi: false }), false, false)).toBe("no_checks");
     // A GitHub repo with no PR CI at all: none is terminal, Merge stays free.
-    expect(prRowStatus(git({ checks: "none", noCi: true }), false)).toBe("ready");
-    expect(prRowStatus(git({ kind: "gitea", checks: "none" }), false)).toBe("ready");
+    expect(prRowStatus(git({ checks: "none", noCi: true }), false, false)).toBe("ready");
+    expect(prRowStatus(git({ kind: "gitea", checks: "none" }), false, false)).toBe("ready");
     // The readiness blocks and a merge in flight still win.
-    expect(prRowStatus(git({ checks: "none", mergeStateStatus: "behind" }), false)).toBe("behind");
-    expect(prRowStatus(git({ checks: "none" }), true)).toBe("merging");
+    expect(prRowStatus(git({ checks: "none", mergeStateStatus: "behind" }), false, false)).toBe(
+      "behind",
+    );
+    expect(prRowStatus(git({ checks: "none" }), true, false)).toBe("merging");
   });
 });
 
 describe("mergeBlockedText / prRowLabel", () => {
   const kinds: PrRowKind[] = [
+    "reviewing",
     "merging",
     "draft",
     "conflict",

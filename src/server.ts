@@ -91,6 +91,9 @@ import type { EventHub } from "./events";
 import type { EgressWatcher } from "./egress-watch";
 import { PtyBridge } from "./pty-bridge";
 import { SocketPtyBridge } from "./socket-pty-bridge";
+import { CleanTerminalControl } from "./clean-terminal-control";
+import { HerdrSocketClient } from "./herdr-socket-client";
+import { CLEAN_TERMINAL_PREFIX } from "../shared/clean-terminal";
 import {
   config,
   DONE_LENS_WINDOW_MS,
@@ -15428,6 +15431,8 @@ type WsData = (
       bridge?: PtyBridge | SocketPtyBridge;
       pendingInput?: string[];
       awaitingFirstFrame?: boolean;
+      cleanControl?: CleanTerminalControl;
+      pendingCleanControl?: string;
     }
   | {
       /** The terminal of a session mirrored from a connected machine (#2764), bridged there. The
@@ -15917,6 +15922,14 @@ export function serve(deps: AppDeps, port: number) {
     const data = ws.data as Extract<WsData, { kind: "pty" }>;
     // node-pty attach (and its socket→node-pty fallback) target the pane_id on 0.7.5; the
     // socket bridge already targets paneTarget. See nodePtyAttachTarget.
+    if (cur.terminal && attach.paneTarget) {
+      data.cleanControl = new CleanTerminalControl(
+        attach.paneTarget,
+        new HerdrSocketClient(),
+        () => ws.readyState === WebSocket.OPEN && ptyOwners.get(tid) === ws && socketAuthorized(ws),
+        (frame) => ws.send(frame),
+      );
+    }
     const ptyTarget = nodePtyAttachTarget(attach, tid);
     const flushPending = (b: PtyBridge | SocketPtyBridge) => {
       if (!socketAuthorized(ws)) {
@@ -15925,6 +15938,10 @@ export function serve(deps: AppDeps, port: number) {
       }
       for (const f of data.pendingInput ?? []) b.write(f);
       data.pendingInput = [];
+      if (data.pendingCleanControl) {
+        data.cleanControl?.handle(data.pendingCleanControl);
+        data.pendingCleanControl = undefined;
+      }
     };
     if (kind === "node-pty") {
       const b = new PtyBridge(ptyTarget, sock);
@@ -16075,6 +16092,13 @@ export function serve(deps: AppDeps, port: number) {
       return;
     }
     const frame = typeof msg === "string" ? msg : msg.toString();
+    // Shell navigation is a private control channel, never input (even for agent sockets,
+    // malformed messages, or a control sent while attach is still awaiting its first frame).
+    if (frame.startsWith(CLEAN_TERMINAL_PREFIX)) {
+      if (ws.data.awaitingFirstFrame) ws.data.pendingCleanControl = frame.slice(0, 2049);
+      else ws.data.cleanControl?.handle(frame);
+      return;
+    }
     if (takeViewFrame(ws as ServerWebSocket<WsData & { kind: "pty" }>, frame)) return;
     if (!acceptAssistantKeystroke(ws.data.id, frame)) return;
     markPtyEvent("in");
@@ -16111,6 +16135,7 @@ export function serve(deps: AppDeps, port: number) {
       }
       operatorKeystrokes.delete(ws.data.id); // don't let the seam map grow unbounded
       pruneSocketTerminalFailures(socketTerminalFailures, Date.now());
+      ws.data.cleanControl?.close();
       ws.data.bridge?.close();
     }
   }

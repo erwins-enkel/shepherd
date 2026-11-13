@@ -67,7 +67,7 @@ export function connectPty(
   id: string,
   cols: number,
   rows: number,
-  onData: (bytes: string) => void,
+  onData: (bytes: string, textFrame?: boolean) => void,
   // fired on every reconnect (not the first connect) — caller refits + resizes
   // so a fresh attach repaints at the current size
   onReconnect: () => void = () => {},
@@ -150,7 +150,10 @@ export function connectPty(
           console.warn(`[profile] echo-rtt ${rtt}ms`);
         }
       }
-      onData(typeof e.data === "string" ? e.data : utf8Decoder.decode(e.data));
+      onData(
+        typeof e.data === "string" ? e.data : utf8Decoder.decode(e.data),
+        typeof e.data === "string",
+      );
     };
     ws.onopen = () => {
       openedAt = Date.now();

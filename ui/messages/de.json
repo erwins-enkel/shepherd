@@ -8925,5 +8925,7 @@
   "tooltip_egress_muted_enter": "Einträge",
   "tooltip_egress_muted_enter_body": "host trifft genau diesen Host; *.host nur seine Subdomains. Kein Port.",
   "tooltip_egress_muted_undo": "Rückgängig",
-  "tooltip_egress_muted_undo_body": "Entferne den Eintrag hier. Blockaden werden ab dann wieder gemeldet."
+  "tooltip_egress_muted_undo_body": "Entferne den Eintrag hier. Blockaden werden ab dann wieder gemeldet.",
+  "terminal_navigation_unavailable": "Der Terminal-Verlauf ist nicht verfügbar. Prüfe, ob herdr das Scrollen und Markieren in Panes unterstützt.",
+  "terminal_selection_changed": "Die Terminal-Ausgabe hat sich während der Auswahl geändert. Markiere den Text erneut, um ihn zu kopieren."
 }

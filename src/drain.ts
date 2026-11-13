@@ -53,6 +53,7 @@ import {
   type EpicChild,
   type EpicChildElsewhere,
   type EpicChildRemoteSettle,
+  type RemoteSettlePending,
   type RemoteSettleReason,
   type EpicQueueEntry,
   type EpicRun,
@@ -355,6 +356,9 @@ export interface DrainStatus {
   runSummary?: RunSummary;
   claimDiagnostics?: ClaimDiagnostic[];
   claimDiagnosticsFailed?: boolean;
+  /** #3016: integrated children of this repo whose session on the machine that ran them is still
+   *  to settle there, and why — also once the epic's record is gone. Optional on the wire. */
+  remoteSettle?: RemoteSettlePending[];
 }
 
 /** True while the repo's epic run is running with the usage ceiling lifted. A paused or idle row
@@ -618,7 +622,7 @@ export interface DrainMachinePort {
    *  ({@link integratedDispatchesOf}). Absent: none known. */
   integratedDispatches?(
     repoPath: string,
-    integrationOf: (issue: number) => { prNumber: number | null } | null,
+    integrationOf: (issue: number) => { parentIssueNumber: number; prNumber: number | null } | null,
   ): IntegratedDispatch[];
   /** #3016: the machine's link is open, so a request can reach it. */
   machineOnline?(instanceId: string): boolean;
@@ -644,6 +648,8 @@ const REMOTE_SETTLE_PER_TICK = 5;
 
 /** #3016: one integrated child's settle on the machine that ran it, as the drain tracks it. */
 interface RemoteSettleTrack {
+  issue: number;
+  parentIssueNumber: number;
   host: SessionHost;
   sessionId: string;
   /** Why it is still open; null before the first look. */
@@ -787,6 +793,11 @@ export class DrainService {
   // ran it. In-memory: a restart re-derives it from the dispatch rows and integration records and
   // asks each such machine once more (it answers idempotently).
   private remoteSettle = new Map<string, Map<string, RemoteSettleTrack>>();
+  // #3016: session → the `archivedAt` whose claim onArchived already decided, so a second
+  // announcement of the same archive is a no-op. A restore and a new archive get a new stamp.
+  private claimDecidedAt = new Map<string, number>();
+  // #3016: repos whose last emitted status listed an open remote settle (see owesSettlePicture).
+  private settleShown = new Set<string>();
   /** #790: `${repoPath}#${issueNumber}` → last spawn failure; throttles re-spawn of an issue whose
    *  create() keeps throwing. Cleared on a successful spawn. In-memory.
    *
@@ -2493,6 +2504,7 @@ export class DrainService {
       usageCeilingPct: state.usageCeilingPct,
       usageCeilingIgnored: !!state.usageCeilingIgnored,
       runSummary: state.runSummary,
+      remoteSettle: this.remoteSettlePending(repoPath),
     };
   }
 
@@ -6206,6 +6218,8 @@ export class DrainService {
     for (const d of dispatches) {
       const key = `${d.issue}#${d.sessionId}`;
       const t = prev?.get(key) ?? {
+        issue: d.issue,
+        parentIssueNumber: d.parentIssueNumber,
         host: d.host,
         sessionId: d.sessionId,
         reason: null,
@@ -6234,6 +6248,12 @@ export class DrainService {
     }
     if (next.size > 0) this.remoteSettle.set(repoPath, next);
     else this.remoteSettle.delete(repoPath);
+  }
+
+  /** #3016: a repo the tick does not pump still owes a status while a remote settle is open or the
+   *  clients last saw one — so the herd learns of it, and of its end, with the epic long done. */
+  private owesSettlePicture(repoPath: string): boolean {
+    return this.remoteSettlePending(repoPath).length > 0 || this.settleShown.has(repoPath);
   }
 
   /** #3016: record what the machine answered to one settle request. */
@@ -6268,16 +6288,26 @@ export class DrainService {
   /** #3016: the integrated children of `repoPath` still to settle elsewhere, by issue
    *  (`EpicChild.remoteSettle`). */
   private remoteSettleOf(repoPath: string): ReadonlyMap<number, EpicChildRemoteSettle> {
-    const out = new Map<number, EpicChildRemoteSettle>();
-    for (const [key, t] of this.remoteSettle.get(repoPath) ?? []) {
-      if (t.done) continue;
-      out.set(Number(key.slice(0, key.indexOf("#"))), {
+    return new Map(
+      this.remoteSettlePending(repoPath).map(({ issueNumber, host, sessionId, reason }) => [
+        issueNumber,
+        { host, sessionId, reason },
+      ]),
+    );
+  }
+
+  /** #3016: the same, with child and epic, for the repo's drain status (`DrainStatus.remoteSettle`)
+   *  — it outlives the epic's record. */
+  private remoteSettlePending(repoPath: string): RemoteSettlePending[] {
+    return [...(this.remoteSettle.get(repoPath)?.values() ?? [])]
+      .filter((t) => !t.done)
+      .map((t) => ({
+        issueNumber: t.issue,
+        parentIssueNumber: t.parentIssueNumber,
         host: t.host,
         sessionId: t.sessionId,
         reason: t.reason ?? "requested",
-      });
-    }
-    return out;
+      }));
   }
 
   /** One child's probe pass for {@link reconcileEpicIntegrations}: try each DISTINCT branch
@@ -6368,9 +6398,15 @@ export class DrainService {
    *  single advance step: a freed slot lets the next candidate spawn. Skips
    *  drain-disabled repos so a manual archive there doesn't pump/emit. */
   async onArchived(id: string): Promise<void> {
-    const retainClaim = this.retainClaimOnArchive.delete(id); // true → retire, or merged-but-close-failed
     const s = this.deps.store.get(id); // archived rows still return → repoPath available
     if (!s) return;
+    // #3016: one archive, one claim decision. A caller that joined a running archive
+    // (`SessionService.archive` coalesces them) announces it too; that second announcement must
+    // not undo the first's — e.g. release the claim a settle retained.
+    const archivedAt = s.archivedAt ?? null;
+    if (archivedAt != null && this.claimDecidedAt.get(id) === archivedAt) return;
+    if (archivedAt != null) this.claimDecidedAt.set(id, archivedAt);
+    const retainClaim = this.retainClaimOnArchive.delete(id); // true → retire, or merged-but-close-failed
     // Drop the host claim label for ANY archived session holding a claim — whether
     // the drain stamped it (auto spawn) or a human stamped it by linking an issue at
     // task creation (via the create route). Release fires UNLESS retainClaim is set:
@@ -6444,6 +6480,8 @@ export class DrainService {
 
   /** Every drain:status goes out here, so {@link shownRuns} tracks what the clients last saw. */
   private emitStatus(status: DrainStatus): void {
+    if (status.remoteSettle?.length) this.settleShown.add(status.repoPath);
+    else this.settleShown.delete(status.repoPath);
     const summary = status.runSummary;
     const live = !!summary && (summary.leadingEpic != null || summary.windingDown.length > 0);
     const child =
@@ -6550,7 +6588,8 @@ export class DrainService {
       else {
         // Switched off while it waited to start: it no longer holds a place in the queue.
         this.deps.startGate?.forgetStart(drainStartKey(repoPath));
-        if (this.owesRunPicture(repoPath, er, epicChildRepos))
+        // #3016: an open remote settle keeps its repo's status current, and its end is published.
+        if (this.owesRunPicture(repoPath, er, epicChildRepos) || this.owesSettlePicture(repoPath))
           await this.refreshRunPicture(repoPath);
       }
     }

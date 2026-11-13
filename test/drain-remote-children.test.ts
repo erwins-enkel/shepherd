@@ -1193,6 +1193,58 @@ describe("an integration epic lands a child it sent to another machine (#3957)",
       expect(settleOf(h)).toBeUndefined();
     });
 
+    test("an open settle stays in the repo's drain status once the epic is done, and leaves it settled", async () => {
+      // Every child integrated: the run is idle, clients drop the epic's record — the open settle
+      // must still reach them, through the repo's drain status.
+      let online = false;
+      const { h, tick } = integrated({ online: () => online, mirror: () => undefined });
+      h.store.setEpicRun({
+        repoPath: REPO,
+        parentIssueNumber: PARENT,
+        mode: "auto",
+        status: "idle",
+        landing: "integration",
+      });
+      h.store.setRepoConfig(REPO, { ...h.store.getRepoConfig(REPO), autoDrainEnabled: false });
+      await tick();
+      await tick();
+      expect(lastStatus(h).remoteSettle).toEqual([
+        {
+          issueNumber: CHILD,
+          parentIssueNumber: PARENT,
+          host: macHost,
+          sessionId: SESSION,
+          reason: "offline",
+        },
+      ]);
+      online = true;
+      await tick(); // asked; the Mac settles it
+      await tick();
+      expect(lastStatus(h).remoteSettle).toEqual([]);
+    });
+
+    test("a second announcement of the same archive keeps a retained claim", async () => {
+      const { h } = integrated();
+      const local = h.store.create({
+        name: "child",
+        prompt: "p",
+        repoPath: REPO,
+        baseBranch: PINNED,
+        branch: "shepherd/child",
+        worktreePath: "/wt/child",
+        isolated: true,
+        herdrSession: "default",
+        herdrAgentId: "t-child",
+        auto: true,
+        issueNumber: NEXT,
+      } as any);
+      h.store.archive(local.id, "merged");
+      h.drain.retainClaim(local.id); // the settle's archive keeps the claim…
+      await h.drain.onArchived(local.id);
+      await h.drain.onArchived(local.id); // …and a caller that joined it announces again
+      expect(h.removed).toEqual([]);
+    });
+
     test("nothing is asked while the child is not integrated here", async () => {
       const { h, port } = remote({ pr: () => [] });
       const calls = withSettle(port, { mirror: () => mirrored("done") });

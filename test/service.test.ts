@@ -11546,6 +11546,73 @@ describe("archive lease (#3016)", () => {
     expect(store.get(s.id)?.status).not.toBe("archived");
   });
 
+  /** A live session whose steers wait in herdr's agent listing until `listed()`. */
+  function steerHarness() {
+    const store = new SessionStore(":memory:");
+    const s = archivableSession(store);
+    store.update(s.id, { status: "idle" });
+    let listed!: () => void;
+    const listing = new Promise<void>((r) => (listed = r));
+    const sent: string[] = [];
+    let stops = 0;
+    const service = new SessionService({
+      store,
+      namer: async () => "x",
+      worktree: { remove: () => {} } as any,
+      herdr: {
+        listAsync: async () => {
+          await listing;
+          return [{ terminalId: "term_z" }];
+        },
+        send: async (_id: string, text: string) => {
+          sent.push(text);
+        },
+        stop: async () => {
+          stops++;
+        },
+      } as any,
+    });
+    return { store, s, service, listed: () => listed(), sent, stops: () => stops };
+  }
+
+  test("a reply already on its way holds a settle off, and it lands", async () => {
+    const { store, s, service, listed, sent, stops } = steerHarness();
+    const replying = service.reply(s.id, "one more thing");
+    // The reply is past its own closing check, waiting on the agent listing: a settle now refuses.
+    expect(await service.archiveIfSettled(s.id, "merged", () => null)).toEqual({
+      refused: "busy",
+    });
+    listed();
+    expect(await replying).toBe(true);
+    expect(sent).toHaveLength(2); // the paste and its Enter reached the agent
+    expect(stops()).toBe(0);
+    expect(store.get(s.id)?.status).not.toBe("archived");
+  });
+
+  test("a steer that reaches its turn after the archive lease is taken is dropped", async () => {
+    const { s, service, listed, sent } = steerHarness();
+    const replying = service.reply(s.id, "one more thing");
+    const archiving = service.archive(s.id); // the operator archives while the reply waits
+    listed();
+    expect(await replying).toBe(false);
+    await archiving;
+    expect(sent).toEqual([]); // nothing reached the agent being torn down
+  });
+
+  test("an operator reply and a resume-then-reply count as steers too", async () => {
+    const { s, service, listed } = steerHarness();
+    const operator = service.operatorReply(s.id, "hi");
+    expect(await service.archiveIfSettled(s.id, "merged", () => null)).toEqual({
+      refused: "busy",
+    });
+    listed();
+    await operator;
+    // Settled again once no steer is out.
+    expect(await service.archiveIfSettled(s.id, "merged", () => null)).toEqual({
+      archived: true,
+    });
+  });
+
   test("while the lease is held, resume, reply, relaunch, revive and shelving all refuse", async () => {
     const { store, s, service, began, release, counts } = leaseHarness();
     const archiving = service.archive(s.id, undefined, "merged", true);

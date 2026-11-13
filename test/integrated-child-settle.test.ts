@@ -3,6 +3,7 @@ import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { EventHub } from "../src/events";
 import { makeApp } from "../src/server";
+import { DrainService } from "../src/drain";
 import { IntegratedChildSettler, restRefusal } from "../src/integrated-child-settle";
 import type { PrReviewMeta } from "../src/forge/types";
 
@@ -81,9 +82,42 @@ function harness(opts: HarnessOpts = {}) {
     closeIssue: async () => {
       closed.push(true);
     },
+    removeIssueLabel: async (n: number) => {
+      released.push(n);
+    },
   } as any;
   const closed: boolean[] = [];
   const retained: string[] = [];
+  /** Issues whose claim label the drain released. */
+  const released: number[] = [];
+  // The real drain handler every `session:archived` reaches in production (index.ts): it keeps or
+  // releases the issue's claim.
+  const drain = new DrainService({
+    store,
+    service,
+    resolveForge: () => forge,
+    prCache: { snapshot: () => ({}) },
+    usage: {
+      limits: () => ({
+        session5h: null,
+        week: null,
+        perModelWeek: [],
+        credits: null,
+        stale: false,
+        calibratedAt: null,
+        subscriptionOnly: false,
+      }),
+    },
+    repos: () => [],
+    emitStatus: () => {},
+    emitArchived: () => {},
+    dropPrCache: () => {},
+    rebaseCap: 5,
+  } as any);
+  const drained: Promise<void>[] = [];
+  events.subscribe((event, data: any) => {
+    if (event === "session:archived") drained.push(drain.onArchived(data.id));
+  });
   const materialized: number[] = [];
   const settler = new IntegratedChildSettler({
     store,
@@ -91,7 +125,10 @@ function harness(opts: HarnessOpts = {}) {
     prOf: (id) => prCache.get(id),
     resolveForge: () => forge,
     materializeManualSteps: (_s, pr) => materialized.push(pr),
-    retainClaim: (id) => retained.push(id),
+    retainClaim: (id) => {
+      retained.push(id);
+      drain.retainClaim(id);
+    },
     dropPrCache: (id) => prCache.drop(id),
     emitArchived: (id) => events.emit("session:archived", { id }),
   });
@@ -154,6 +191,11 @@ function harness(opts: HarnessOpts = {}) {
       return () => open();
     },
     entered: () => began,
+    released,
+    /** Wait for every claim decision the drain is making. */
+    drained: async () => {
+      await Promise.all(drained);
+    },
   };
 }
 
@@ -358,5 +400,59 @@ describe("restRefusal", () => {
     expect(restRefusal({ ...base, status: "blocked" })).toBe("busy");
     expect(restRefusal({ ...base, shelved: true })).toBe("held");
     expect(restRefusal({ ...base, usagePause: { phase: "paused" } })).toBe("held");
+  });
+});
+
+describe("the claim of a settled child survives every announcement (#3016)", () => {
+  test("settled alone: the drain keeps the claim — the issue closes when the epic lands", async () => {
+    const h = harness();
+    const s = h.child();
+    expect((await h.post(s.id, { prNumber: 3955 })).status).toBe(200);
+    await h.drained();
+    expect(h.released).toEqual([]);
+  });
+
+  test("a DELETE or Clear merged joining the settle announces too; the claim is still kept", async () => {
+    for (const other of ["delete", "clear-merged"] as const) {
+      const h = harness({ gated: true });
+      const s = h.child();
+      const settling = h.post(s.id, { prNumber: 3955 });
+      await h.entered();
+      const second =
+        other === "delete"
+          ? h.app.fetch(
+              new Request(`${ORIGIN}/api/sessions/${s.id}`, {
+                method: "DELETE",
+                headers: { Origin: ORIGIN },
+              }),
+            )
+          : h.app.fetch(
+              new Request(`${ORIGIN}/api/sessions/clear-merged`, {
+                method: "POST",
+                headers: { "content-type": "application/json", Origin: ORIGIN },
+                body: JSON.stringify({ ids: [s.id] }),
+              }),
+            );
+      h.release();
+      await settling;
+      await second;
+      await h.drained();
+      expect({ other, announced: h.emitted.length }).toEqual({ other, announced: 2 });
+      expect({ other, released: h.released }).toEqual({ other, released: [] });
+    }
+  });
+
+  test("an operator archive on its own still releases the claim, as before", async () => {
+    const h = harness();
+    const s = h.child();
+    const res = await h.app.fetch(
+      new Request(`${ORIGIN}/api/sessions/${s.id}`, {
+        method: "DELETE",
+        headers: { Origin: ORIGIN },
+      }),
+    );
+    expect(res.status).toBe(200);
+    await h.drained();
+    expect(h.released).toEqual([3013]);
   });
 });

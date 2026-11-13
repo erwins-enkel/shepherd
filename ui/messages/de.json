@@ -8962,5 +8962,6 @@
   "integrated_unsupported_todo": "Aktualisiere Shepherd auf {host} oder archiviere die Session dort von Hand.",
   "integrated_failed_status": "Anfrage fehlgeschlagen",
   "integrated_failed_happens": "Die letzte Anfrage an {host} ist fehlgeschlagen. Shepherd versucht es in einer Minute erneut.",
-  "integrated_failed_todo": "Nichts, solange es nicht dauerhaft scheitert."
+  "integrated_failed_todo": "Nichts, solange es nicht dauerhaft scheitert.",
+  "integrated_pending_row_aria": "Abschluss von #{issue} auf {machine} noch offen"
 }

@@ -269,8 +269,10 @@ that needs another machine is sent there.
   epic lands. Until then the session is listed under **Merged** with a note — "Integrated into epic
   #3016 · closing on macbook: …" — that says what it waits for: the machine is offline, its agent is
   still active, it is shelved there, or its Shepherd is too old to do it (update it, or archive the
-  session there by hand). The epic shows the same note on the child. Your drain asks again after a
-  restart and when the machine reconnects; asking about a session already closed changes nothing.
+  session there by hand). The epic shows the same note on the child, and the herd keeps it after
+  the epic is done — on its own row when the other machine's session is not listed here. Your drain
+  asks again after a restart and when the machine reconnects; asking about a session already closed
+  changes nothing.
 - **You see it in the epic.** The child shows the machine's badge, **Open session** opens its
   session there, and the run area lists it under **Now**.
 - **It holds a slot until its PR opens.** A child sent to another machine counts against the repo's

@@ -1487,6 +1487,9 @@ export interface DrainStatus {
   runSummary?: DrainRunSummary;
   claimDiagnostics?: ClaimDiagnostic[];
   claimDiagnosticsFailed?: boolean;
+  /** #3016: integrated children whose session on the machine that ran them is still to settle
+   *  there — also once the epic's record is gone. Absent from older servers. */
+  remoteSettle?: RemoteSettlePending[];
 }
 
 /** A live drain session in the run summary — a slot holder or a landing repair. */
@@ -1575,6 +1578,11 @@ export interface EpicChildRemoteSettle {
   host: SessionHost;
   sessionId: string;
   reason: RemoteSettleReason;
+}
+/** #3016: the same with its child and epic, as the repo's drain status lists it. */
+export interface RemoteSettlePending extends EpicChildRemoteSettle {
+  issueNumber: number;
+  parentIssueNumber: number;
 }
 /** A child on another machine: where, its mirrored session there (null until the start is
  *  confirmed) and its PR once it opened one. */

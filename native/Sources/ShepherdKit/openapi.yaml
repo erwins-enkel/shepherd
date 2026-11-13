@@ -6141,6 +6141,11 @@ components:
           type: boolean
         runSummary:
           $ref: "#/components/schemas/DrainRunSummary"
+        remoteSettle:
+          description: "#3016: integrated children of this repo whose session on the machine that ran them is still to settle there — also once the epic's record is gone. Always sent by the current server; optional so an older server stays valid."
+          type: array
+          items:
+            $ref: "#/components/schemas/RemoteSettlePending"
     DrainRunSummary:
       type: object
       description: "Read-only picture of how one repo's drain is running: the leading epic, superseded epics still winding down, who holds the agent slots, and what starts next."
@@ -8359,6 +8364,27 @@ components:
         reason:
           $ref: "#/components/schemas/RemoteSettleReason"
           description: "Why the settle is still open. requested: asked, or that machine is archiving it now; offline: its machine is not connected; busy: its agent works or waits there; held: shelved or paused there; not_merged_there: that machine does not see the merge; rejected: it sees no epic child there; unsupported: its Shepherd predates the settle; failed: the request failed (retried)."
+    RemoteSettlePending:
+      type: object
+      additionalProperties: true
+      description: "#3016: an open settle as the repo's drain status lists it (EpicChildRemoteSettle with its child and epic)."
+      required:
+        - issueNumber
+        - parentIssueNumber
+        - host
+        - sessionId
+        - reason
+      properties:
+        issueNumber:
+          type: integer
+        parentIssueNumber:
+          type: integer
+        host:
+          $ref: "#/components/schemas/SessionHost"
+        sessionId:
+          type: string
+        reason:
+          $ref: "#/components/schemas/RemoteSettleReason"
     RemoteSettleReason:
       anyOf:
         - $ref: "#/components/schemas/RemoteSettleReasonKnown"

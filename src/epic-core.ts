@@ -74,6 +74,12 @@ export interface EpicChildRemoteSettle {
   sessionId: string;
   reason: RemoteSettleReason;
 }
+/** #3016: {@link EpicChildRemoteSettle} with its child and epic, as the repo's drain status lists
+ *  it — independent of the epic's record, which clients drop once every child is merged. */
+export interface RemoteSettlePending extends EpicChildRemoteSettle {
+  issueNumber: number;
+  parentIssueNumber: number;
+}
 /** A child the drain sent to another machine: where, its session there once it started (null
  *  while the machine has not confirmed the start) and its PR once it opened one. */
 export interface EpicChildElsewhere {

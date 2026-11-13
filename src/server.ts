@@ -6307,8 +6307,8 @@ function closingRefusal({ req, parts, deps }: Ctx): Response | null {
   const id = parts[2];
   if (!id || !parts[3] || parts[3] === "settle-integrated") return null;
   if (req.method === "GET" || req.method === "HEAD" || req.method === "DELETE") return null;
-  // Optional call: route tests stand in a partial service.
-  if (!deps.service.isClosing?.(id)) return null;
+  // Optional: route tests stand in a partial service, or none.
+  if (!deps.service?.isClosing?.(id)) return null;
   return json({ error: "this session is being archived", code: "session_closing" }, 409);
 }
 

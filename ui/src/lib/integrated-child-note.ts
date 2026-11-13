@@ -2,7 +2,12 @@
 // work. A local one only says so; one on another machine also says how its settle there stands
 // and what, if anything, the operator can do about it.
 import { m } from "#lib/paraglide/messages.js";
-import type { RemoteSettleReason, SessionHost } from "#lib/types.js";
+import type {
+  DrainStatus,
+  RemoteSettlePending,
+  RemoteSettleReason,
+  SessionHost,
+} from "#lib/types.js";
 import type { TooltipExplanation } from "#lib/tooltips/content.js";
 
 /** The integrated work a note describes (see `IntegratedNote` in epic-grouping.ts). */
@@ -137,4 +142,50 @@ export function integratedNoteExplanation(note: IntegratedNoteInput): TooltipExp
       { label: m.integrated_tip_todo(), text: todo(reason, host) },
     ],
   };
+}
+
+/** #3016: an open settle as the herd lists it — keyed by its session there. */
+export interface PendingSettle extends RemoteSettlePending {
+  /** This Shepherd's checkout of the repo whose drain reports it. */
+  repoPath: string;
+}
+
+/** #3016: every open settle the repos' drain statuses report, by session id. They outlive the
+ *  epic's record, which the herd drops once every child is merged. */
+export function pendingSettles(
+  drain: Readonly<Record<string, DrainStatus>>,
+): Map<string, PendingSettle> {
+  const out = new Map<string, PendingSettle>();
+  for (const [repoPath, status] of Object.entries(drain))
+    for (const p of status.remoteSettle ?? []) out.set(p.sessionId, { ...p, repoPath });
+  return out;
+}
+
+/** #3016: the note for session `id`: what epic grouping noted (integrated work of an active epic),
+ *  with the drain's open settle filling in what it knows — or the drain's alone once the epic's
+ *  record is gone. */
+export function settleNoteFor(
+  id: string,
+  grouped: IntegratedNoteInput | undefined,
+  settles: ReadonlyMap<string, PendingSettle>,
+): IntegratedNoteInput | undefined {
+  const open = settles.get(id);
+  if (!open) return grouped;
+  return {
+    parentIssueNumber: grouped?.parentIssueNumber ?? open.parentIssueNumber,
+    host: grouped?.host ?? open.host,
+    settle: grouped?.settle ?? open.reason,
+  };
+}
+
+/** #3016: the open settles no listed row carries — their session is not in this Shepherd's mirror
+ *  (not loaded yet, or gone there) — within the herd's repo filter (empty = all). */
+export function unlistedSettles(
+  settles: ReadonlyMap<string, PendingSettle>,
+  mirroredIds: ReadonlySet<string>,
+  repoFilter: ReadonlySet<string>,
+): PendingSettle[] {
+  return [...settles.values()].filter(
+    (p) => !mirroredIds.has(p.sessionId) && (repoFilter.size === 0 || repoFilter.has(p.repoPath)),
+  );
 }

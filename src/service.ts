@@ -3074,6 +3074,13 @@ export class SessionService {
    * path refuses while it is held ({@link isClosing}).
    */
   private readonly archiveInFlight = new Map<string, Promise<number>>();
+  /**
+   * #3016: steers on their way to a session's agent, by session — counted from the call, before
+   * any await, until the paste lands or is dropped. `archiveIfSettled` refuses while one is out, and
+   * a steer refuses once the session's archive lease is held: new work never reaches an agent that
+   * is being torn down.
+   */
+  private readonly steersInFlight = new Map<string, number>();
   private readonly planReleaseInFlight = new Map<string, Promise<boolean>>();
 
   /**
@@ -7617,16 +7624,17 @@ export class SessionService {
    * as a REJECTED promise rather than a sync throw; the callers that already guarded that race
    * with try/catch now guard it with try/await.)
    */
-  async reply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
-    if (this.isClosing(id)) return false;
-    return this.replyToLive(
-      id,
-      text,
-      await this.liveTerminalIds(),
-      text,
-      opts.automatic,
-      opts.prelude,
-      opts,
+  reply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
+    return this.#steer(id, false, async () =>
+      this.replyToLive(
+        id,
+        text,
+        await this.liveTerminalIds(),
+        text,
+        opts.automatic,
+        opts.prelude,
+        opts,
+      ),
     );
   }
 
@@ -7678,9 +7686,13 @@ export class SessionService {
 
   /** Deliver an internal task steer, reviving an exited planner by exact identity first.
    * A listed shell is not a live agent; never paste implementation instructions into it. */
-  async resumeAndReply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
+  resumeAndReply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
+    return this.#steer(id, false, () => this.resumeAndReplyNow(id, text, opts));
+  }
+
+  private async resumeAndReplyNow(id: string, text: string, opts: SteerOpts): Promise<boolean> {
     const s = this.deps.store.get(id);
-    if (!s || !this.hasConversation(s) || this.isClosing(id)) return false;
+    if (!s || !this.hasConversation(s)) return false;
     if (!this.usagePauseAllows(id, opts)) return false;
     if (opts.automatic && isShelved(s)) return false; // shelved: no autonomous steers
     if (opts.automatic && this.deps.capacity && !(await this.deps.capacity(s))) return false;
@@ -7759,11 +7771,12 @@ export class SessionService {
    * Used by the task-amendment channel (#2225); every other caller omits it and behaves exactly as
    * before.
    */
-  async operatorReply(id: string, text: string, signalPayload: string = text): Promise<boolean> {
-    if (this.isClosing(id)) return false;
-    if (this.deps.store.get(id)?.operatorAssistant)
-      return this.serializeAssistant(() => this.operatorReplyNow(id, text, signalPayload));
-    return this.operatorReplyNow(id, text, signalPayload);
+  operatorReply(id: string, text: string, signalPayload: string = text): Promise<boolean> {
+    return this.#steer(id, false, () =>
+      this.deps.store.get(id)?.operatorAssistant
+        ? this.serializeAssistant(() => this.operatorReplyNow(id, text, signalPayload))
+        : this.operatorReplyNow(id, text, signalPayload),
+    );
   }
 
   private async operatorReplyNow(
@@ -8346,23 +8359,31 @@ export class SessionService {
     // The CR must reach the PTY only after the paste has landed, and no other steer may slip
     // between them — the paste-end marker is what makes this CR unambiguously Enter (#1567).
     // A `prelude` runs in the same critical section, so nothing lands between it and the paste;
-    // false aborts the steer (nothing pasted, no signal recorded).
-    return this.#serializeSteer(s.id, async () => {
-      const current = this.deps.store.get(s.id);
-      if (!current || current.status === "archived" || current.herdrAgentId !== s.herdrAgentId)
-        return false;
-      if (!operator && !this.usagePauseAllows(s.id, opts)) return false;
-      if (opts.automatic && isShelved(current)) return false;
-      if (prelude) {
-        if (!(await prelude(s))) return false;
-      }
-      if (!operator && !this.usagePauseAllows(s.id, opts)) return false;
-      signal();
-      await this.deps.herdr.send(s.herdrAgentId, `${PASTE_START}${safe}${PASTE_END}`);
-      await this.deps.herdr.send(s.herdrAgentId, "\r");
-      this.finishUsagePauseSteer(s.id, opts, operator);
-      return true;
-    });
+    // false aborts the steer (nothing pasted, no signal recorded). #3016: counted as a steer from
+    // here on (every steer funnels through), and dropped once the session's archive lease is held.
+    return this.#steer(s.id, false, () =>
+      this.#serializeSteer(s.id, async () => {
+        const current = this.deps.store.get(s.id);
+        if (
+          !current ||
+          current.status === "archived" ||
+          this.isClosing(s.id) ||
+          current.herdrAgentId !== s.herdrAgentId
+        )
+          return false;
+        if (!operator && !this.usagePauseAllows(s.id, opts)) return false;
+        if (opts.automatic && isShelved(current)) return false;
+        if (prelude) {
+          if (!(await prelude(s))) return false;
+        }
+        if (!operator && !this.usagePauseAllows(s.id, opts)) return false;
+        signal();
+        await this.deps.herdr.send(s.herdrAgentId, `${PASTE_START}${safe}${PASTE_END}`);
+        await this.deps.herdr.send(s.herdrAgentId, "\r");
+        this.finishUsagePauseSteer(s.id, opts, operator);
+        return true;
+      }),
+    );
   }
 
   private finishUsagePauseSteer(id: string, opts: SteerOpts, operator: boolean): void {
@@ -9130,9 +9151,28 @@ export class SessionService {
     return this.archiveInFlight.has(id);
   }
 
+  /** #3016: run steer `fn` for session `id` counted in {@link steersInFlight} — unless its archive
+   *  lease is held, then `refused`. The check and the count happen in the caller's tick. */
+  #steer<T>(id: string, refused: T, fn: () => Promise<T>): Promise<T> {
+    if (this.isClosing(id)) return Promise.resolve(refused);
+    this.steersInFlight.set(id, (this.steersInFlight.get(id) ?? 0) + 1);
+    let run: Promise<T>;
+    try {
+      run = fn();
+    } catch (err) {
+      run = Promise.reject(err);
+    }
+    return run.finally(() => {
+      const left = (this.steersInFlight.get(id) ?? 1) - 1;
+      if (left > 0) this.steersInFlight.set(id, left);
+      else this.steersInFlight.delete(id);
+    });
+  }
+
   /**
-   * Archive `id` (automatic) only if nothing speaks against it right now: no archive or resume of
-   * it is running, it is not being restored, and `refusal` finds nothing on the row as it is NOW.
+   * Archive `id` (automatic) only if nothing speaks against it right now: no archive, resume or
+   * steer of it is running, it is not being restored, and `refusal` finds nothing on the row as it
+   * is NOW.
    * The checks and the start of the archive — its lease and the agent stop — run in one tick, so no
    * resume or shelving can slip in between; once the lease is held, those refuse (#3016). A refusal
    * changes nothing. `already`: archived before; `gone`: no such session. `onStart` runs in that
@@ -9151,7 +9191,7 @@ export class SessionService {
         ? "already"
         : this.archiveInFlight.has(id)
           ? "settling"
-          : this.resumeInFlight.has(id) || this.restoring.has(id)
+          : this.resumeInFlight.has(id) || this.restoring.has(id) || this.steersInFlight.has(id)
             ? "busy"
             : refusal(fresh);
     if (refused) return Promise.resolve({ refused });

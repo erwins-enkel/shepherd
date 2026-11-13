@@ -184,6 +184,8 @@ export type { RemoteSettleReason };
  *  its issue, started there with a session, and the PR its integration record names. */
 export interface IntegratedDispatch {
   issue: number;
+  /** The epic it was integrated into. */
+  parentIssueNumber: number;
   host: SessionHost;
   sessionId: string;
   prNumber: number | null;
@@ -196,7 +198,7 @@ export interface IntegratedDispatch {
 export function integratedDispatchesOf(
   rows: readonly RemoteDispatchRow[],
   hostOf: (instanceId: string) => SessionHost | null,
-  integrationOf: (issue: number) => { prNumber: number | null } | null,
+  integrationOf: (issue: number) => { parentIssueNumber: number; prNumber: number | null } | null,
 ): IntegratedDispatch[] {
   const out: IntegratedDispatch[] = [];
   for (const [issue, row] of newestPerIssue(rows)) {
@@ -204,7 +206,13 @@ export function integratedDispatchesOf(
     if (!host || row.state !== "started" || !row.sessionId) continue;
     const integration = integrationOf(issue);
     if (integration)
-      out.push({ issue, host, sessionId: row.sessionId, prNumber: integration.prNumber });
+      out.push({
+        issue,
+        parentIssueNumber: integration.parentIssueNumber,
+        host,
+        sessionId: row.sessionId,
+        prNumber: integration.prNumber,
+      });
   }
   return out;
 }

@@ -25,6 +25,8 @@
   import HerdEmptyState from "./herd/HerdEmptyState.svelte";
   import HerdMachineBar from "./herd/HerdMachineBar.svelte";
   import RemoteDispatchRow from "./herd/RemoteDispatchRow.svelte";
+  import PendingSettleRow from "./herd/PendingSettleRow.svelte";
+  import { pendingSettles, settleNoteFor, unlistedSettles } from "#lib/integrated-child-note.js";
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
   import SucceededEpicsBand from "./SucceededEpicsBand.svelte";
   import { isSucceededEpic } from "#lib/succeeded-epics.js";
@@ -437,6 +439,19 @@
     isRemoteEpic(epic)
       ? machineFilter === "all" || machineFilter === epic.host.instanceId
       : machineFilter === "all" || machineFilter === "local";
+  // #3016: open settles of integrated children on other machines, from the repos' drain statuses —
+  // they outlive the epic's record. A listed row carries its note; one whose session this
+  // Shepherd's mirror does not show gets its own quiet row under the lifecycle groups (plain
+  // "all" view only, like the session-less epic groups).
+  const settles = $derived(pendingSettles(drain));
+  const settlesUnlisted = $derived(
+    showSessionless
+      ? byMachine(
+          unlistedSettles(settles, new Set(remoteSessions.map((s) => s.id)), repoFilter),
+          machineFilter,
+        )
+      : [],
+  );
   const completedEpicKeys = $derived(
     new Set(completedEpics.map((e) => `${e.repoPath}#${e.parentIssueNumber}`)),
   );
@@ -596,7 +611,7 @@
     onshowowed,
     showModel: modelMix,
     showCli: cliMix,
-    integratedFor: (id) => grouped.integrated.get(id),
+    integratedFor: (id) => settleNoteFor(id, grouped.integrated.get(id), settles),
   });
 
   // Lifecycle groups in display order — each entry maps to a <HerdGroup> render.
@@ -1034,6 +1049,9 @@
             flow ? toggleMobilePartitionGroup(grp.key) : onstagecollapsetoggle?.(grp.key)}
           touchTarget={flow || touch}
         />
+      {/each}
+      {#each settlesUnlisted as settle (settle.sessionId)}
+        <PendingSettleRow {settle} />
       {/each}
     {/if}
   </div>

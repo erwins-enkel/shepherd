@@ -187,7 +187,7 @@ describe("remoteRetireView (#3957)", () => {
 // #3016: the integrated drain spawns the leader asks their machines to settle.
 describe("integratedDispatchesOf", () => {
   const integrated = (issues: Record<number, number | null>) => (issue: number) =>
-    issue in issues ? { prNumber: issues[issue]! } : null;
+    issue in issues ? { parentIssueNumber: 3016, prNumber: issues[issue]! } : null;
 
   test("the newest started dispatch of an integrated issue, with the integrated PR", () => {
     const out = integratedDispatchesOf(
@@ -195,13 +195,15 @@ describe("integratedDispatchesOf", () => {
       hostOf,
       integrated({ 1: 3955 }),
     );
-    expect(out).toEqual([{ issue: 1, host: mac, sessionId: "s-new", prNumber: 3955 }]);
+    expect(out).toEqual([
+      { issue: 1, parentIssueNumber: 3016, host: mac, sessionId: "s-new", prNumber: 3955 },
+    ]);
   });
 
   test("the mirror plays no part: a session it does not show is still listed", () => {
     // integratedDispatchesOf never reads the mirror at all — the machine answers for itself.
     expect(integratedDispatchesOf([row(2)], hostOf, integrated({ 2: null }))).toEqual([
-      { issue: 2, host: mac, sessionId: "s-2", prNumber: null },
+      { issue: 2, parentIssueNumber: 3016, host: mac, sessionId: "s-2", prNumber: null },
     ]);
   });
 

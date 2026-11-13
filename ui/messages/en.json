@@ -8962,5 +8962,6 @@
   "integrated_unsupported_todo": "Update Shepherd on {host}, or archive the session there by hand.",
   "integrated_failed_status": "request failed",
   "integrated_failed_happens": "The last request to {host} failed. Shepherd tries again in a minute.",
-  "integrated_failed_todo": "Nothing, unless it keeps failing."
+  "integrated_failed_todo": "Nothing, unless it keeps failing.",
+  "integrated_pending_row_aria": "Settle of #{issue} still open on {machine}"
 }

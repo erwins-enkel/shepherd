@@ -74,6 +74,13 @@ before any hold or spawn. A create forwarded to another machine
 below `full` may only omit the override or ask for `autonomous` there. Held tasks
 released by the server itself carry an input already checked when they were held.
 
+A relaunch carries the profile the original was **submitted** with
+(`launchMetadata.submittedChoices.sandboxProfile`; none recorded → the repo's
+profile), not `sandboxApplied`, so the repo default is re-resolved. The
+`sandboxProfile` relaunch override replaces it: the card menu's **Relaunch as
+trusted** sends `"trusted"` and the replacement runs unconfined. Relaunch is a
+`full`-scope route, so no token below `full` reaches it.
+
 ## R3 — in-membrane token readability (accepted)
 
 The membrane keeps two token surfaces readable to any in-membrane tool call

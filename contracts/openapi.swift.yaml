@@ -4219,6 +4219,9 @@ components:
           type:
             - boolean
             - "null"
+        sandboxProfile:
+          description: Sandbox profile for the replacement. Absent = the original's submitted choice; null = the target repo's profile.
+          $ref: "#/components/schemas/SandboxProfile"
         plain:
           type: boolean
         research:

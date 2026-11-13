@@ -8385,6 +8385,34 @@ test("relaunch copies prompt + all per-task settings onto the refetched new sess
   expect(calls.started).toHaveLength(1);
 });
 
+/** Launch metadata recording `sandboxProfile` as the operator's submitted choice. */
+function submittedSandbox(sandboxProfile: string | null) {
+  return {
+    sourceKind: "user",
+    prompt: "do the thing",
+    attachments: [],
+    submittedChoices: { sandboxProfile },
+  } as any;
+}
+
+for (const [label, submitted, overrides, expected] of [
+  ["quick relaunch carries the submitted profile", "trusted", undefined, "trusted"],
+  ["an override replaces it", "standard", { sandboxProfile: "trusted" }, "trusted"],
+  ["a null override inherits the repo profile", "trusted", { sandboxProfile: null }, null],
+  ["a legacy original without launch metadata inherits", undefined, undefined, null],
+] as const) {
+  test(`relaunch sandboxProfile: ${label}`, async () => {
+    const store = new SessionStore(":memory:");
+    const { service } = relaunchHarness(store);
+    const orig = originalSession(
+      store,
+      submitted === undefined ? {} : { launchMetadata: submittedSandbox(submitted) },
+    );
+    const fresh = await service.relaunch(orig.id, undefined, overrides as any);
+    expect(fresh.launchMetadata?.submittedChoices.sandboxProfile ?? null).toBe(expected);
+  });
+}
+
 test("relaunch passes a supplied issueRef through to create", async () => {
   const store = new SessionStore(":memory:");
   const { service, calls } = relaunchHarness(store);

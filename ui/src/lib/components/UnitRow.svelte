@@ -23,6 +23,7 @@
     LivenessState,
     Epic,
     HeavySlotSnapshot,
+    RelaunchOverrides,
   } from "#lib/types.js";
   import { STATUS_COLOR, canResume, canRelaunch, isStrandedLiveness } from "#lib/format.js";
   import { displayStatus } from "#lib/display-status.js";
@@ -161,7 +162,7 @@
     onamend?: (id: string) => void;
     // when provided, the right-click / long-press CardMenu gains a two-step armed
     // Relaunch action (spawns a fresh replacement + decommissions this session)
-    onrelaunch?: (id: string) => void;
+    onrelaunch?: (id: string, overrides?: RelaunchOverrides) => void;
     // when provided, the CardMenu gains a one-click "Relaunch elsewhere" item that
     // opens the new-task composer pre-filled from this session (cross-repo relaunch)
     onrelaunchElsewhere?: (id: string) => void;
@@ -900,6 +901,13 @@
   // parent wired a handler — never on a concluded/merged record, where it would spawn a
   // duplicate and tear down the finished row.
   const relaunchable = $derived(!!onrelaunch && canRelaunch(session, git, nowMs));
+  // Relaunch as trusted: only for a session that actually ran confined (legacy null rows and
+  // Codex, which is always unconfined, have nothing to drop).
+  const relaunchTrustedAble = $derived(
+    relaunchable &&
+      session.agentProvider !== "codex" &&
+      (session.sandboxApplied === "standard" || session.sandboxApplied === "autonomous"),
+  );
   // Relaunch-elsewhere reuses the same eligibility as Relaunch, just routed to the
   // cross-repo composer instead of the in-place two-step arm.
   const relaunchElsewhereAble = $derived(!!onrelaunchElsewhere && canRelaunch(session, git, nowMs));
@@ -1001,6 +1009,7 @@
           onrename: onrename ? renameFromMenu : undefined,
           onamend: onamend ? amendFromMenu : undefined,
           onrelaunch: relaunchable ? relaunchFromMenu : undefined,
+          onrelaunchTrusted: relaunchTrustedAble ? relaunchTrustedFromMenu : undefined,
           onrelaunchElsewhere: relaunchElsewhereAble ? relaunchElsewhereFromMenu : undefined,
           onvariant: variantable ? variantFromMenu : undefined,
           onreplace: replaceable ? replaceFromMenu : undefined,
@@ -1134,6 +1143,10 @@
   function relaunchFromMenu() {
     menu = null;
     onrelaunch?.(session.id);
+  }
+  function relaunchTrustedFromMenu() {
+    menu = null;
+    onrelaunch?.(session.id, { sandboxProfile: "trusted" });
   }
   function cleanTerminalFromMenu() {
     menu = null;

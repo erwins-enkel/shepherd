@@ -3061,6 +3061,11 @@ components:
           items: { type: string }
         planGateEnabled: { type: [boolean, "null"] }
         autopilotEnabled: { type: [boolean, "null"] }
+        sandboxProfile:
+          description: "Sandbox profile for the replacement. Absent = the original's submitted choice; null = the target repo's profile."
+          oneOf:
+            - $ref: "#/components/schemas/SandboxProfile"
+            - type: "null"
         plain: { type: boolean }
         research:
           type: boolean

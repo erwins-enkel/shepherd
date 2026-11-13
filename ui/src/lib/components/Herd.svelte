@@ -12,6 +12,7 @@
     LivenessState,
     RemoteDispatch,
     HeavySlotSnapshot,
+    RelaunchOverrides,
   } from "#lib/types.js";
   import type { Snippet } from "svelte";
   import type { HerdStore } from "#lib/store.svelte.js";
@@ -188,7 +189,7 @@
     // when provided, each row's CardMenu gains an "Amend task…" action (#2225)
     onamend?: (id: string) => void;
     // when provided, each row's CardMenu gains a two-step armed Relaunch action
-    onrelaunch?: (id: string) => void;
+    onrelaunch?: (id: string, overrides?: RelaunchOverrides) => void;
     // when provided, each row's CardMenu gains a one-click "Relaunch elsewhere" item
     onrelaunchElsewhere?: (id: string) => void;
     // when provided, each row's CardMenu gains a "Clean terminal in main repo" item

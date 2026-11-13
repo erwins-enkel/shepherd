@@ -22,6 +22,7 @@
     onrename,
     onamend,
     onrelaunch,
+    onrelaunchTrusted,
     onrelaunchElsewhere,
     onvariant,
     onreplace,
@@ -67,6 +68,9 @@
     // when provided, a two-step armed Relaunch item appears between Resume and
     // Decommission (the parent closes over the session id, like onresume/ondecommission)
     onrelaunch?: () => void;
+    // when provided, a two-step armed "Relaunch as trusted" item appears below Relaunch: the same
+    // discard-and-respawn, but unconfined (offered only on sandboxed sessions)
+    onrelaunchTrusted?: () => void;
     // when provided, a one-click "Relaunch elsewhere" item appears below Relaunch —
     // no two-step arm (the composer dialog + explicit submit is the confirmation)
     onrelaunchElsewhere?: () => void;
@@ -117,6 +121,21 @@
     relaunchTimer = setTimeout(() => (relaunchArmed = false), RELAUNCH_ARM_MS);
   }
   $effect(() => () => clearTimeout(relaunchTimer));
+
+  // Same arm → confirm window for Relaunch as trusted (discards the worktree AND drops the sandbox).
+  let relaunchTrustedArmed = $state(false);
+  let relaunchTrustedTimer: ReturnType<typeof setTimeout> | undefined;
+  function onRelaunchTrustedClick() {
+    clearTimeout(relaunchTrustedTimer);
+    if (relaunchTrustedArmed) {
+      relaunchTrustedArmed = false;
+      onrelaunchTrusted?.();
+      return;
+    }
+    relaunchTrustedArmed = true;
+    relaunchTrustedTimer = setTimeout(() => (relaunchTrustedArmed = false), RELAUNCH_ARM_MS);
+  }
+  $effect(() => () => clearTimeout(relaunchTrustedTimer));
 
   // Same arm → confirm window for Bring back.
   let bringBackArmed = $state(false);
@@ -301,6 +320,21 @@
       <span class="cm-icon" aria-hidden="true">{relaunchArmed ? "⚠" : "♻"}</span>{relaunchArmed
         ? m.cardmenu_relaunch_confirm()
         : m.cardmenu_relaunch()}
+    </button>
+  {/if}
+  {#if onrelaunchTrusted}
+    <button
+      class="cm-item"
+      class:armed={relaunchTrustedArmed}
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      onclick={onRelaunchTrustedClick}
+    >
+      <span class="cm-icon" aria-hidden="true">{relaunchTrustedArmed ? "⚠" : "◌"}</span
+      >{relaunchTrustedArmed
+        ? m.cardmenu_relaunch_trusted_confirm()
+        : m.cardmenu_relaunch_trusted()}
     </button>
   {/if}
   {#if onrelaunchElsewhere}

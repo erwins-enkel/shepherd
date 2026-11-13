@@ -2789,6 +2789,17 @@ function carriedExecutionEffort(
   return pickOverride(overrides?.executionEffort, original.executionEffort);
 }
 
+/** The sandbox profile a relaunch spawns under: the override when present, else the operator's
+ *  SUBMITTED choice (not `sandboxApplied` — create() re-resolves the repo default and the
+ *  open-egress downgrade). Legacy rows without launch metadata inherit (null). */
+function carriedSandboxProfile(
+  original: Session,
+  overrides: RelaunchOverrides | undefined,
+): SandboxProfile | null {
+  const submitted = original.launchMetadata?.submittedChoices.sandboxProfile ?? null;
+  return pickOverride(overrides?.sandboxProfile, submitted);
+}
+
 /** Epic-child identity (#2067) carried across a relaunch — but ONLY when the relaunch keeps both
  *  the repo and the base branch. The fact is stamped at spawn from the drain's epic decision, which
  *  a relaunch never re-runs, so a relaunch that re-points either one is no longer that child and
@@ -6530,6 +6541,7 @@ export class SessionService {
       // Apply the effective Autopilot value at spawn time (NOT redundant with the store write
       // below): create()'s build-queue pre-approval reads it and is never re-evaluated after.
       autopilotEnabled: pickOverride(overrides?.autopilotEnabled, original.autopilotEnabled),
+      sandboxProfile: carriedSandboxProfile(original, overrides),
       research: pickOverride(overrides?.research, original.research),
       // Carry the epic-authoring flag so a relaunch keeps its no-GitHub-write gate directive
       // (buildSpawnArgv re-derives the directive from the spawn input — #1507).

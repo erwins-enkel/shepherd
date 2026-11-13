@@ -450,6 +450,7 @@
           repoFilter,
           completedEpicKeys,
           remoteShown,
+          new Set(grouped.integrated.keys()),
         )
           .filter((g) => sessionlessInMachine(g.epic))
           .map((g) => ({
@@ -595,6 +596,7 @@
     onshowowed,
     showModel: modelMix,
     showCli: cliMix,
+    integratedFor: (id) => grouped.integrated.get(id),
   });
 
   // Lifecycle groups in display order — each entry maps to a <HerdGroup> render.

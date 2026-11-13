@@ -1553,6 +1553,28 @@ export interface EpicChild {
   requirements?: string[];
   /** The drain sent it to another machine; absent otherwise. */
   elsewhere?: EpicChildElsewhere;
+  /** #3016: the PR merged into the epic branch for it; null when recorded without one. Absent while
+   *  it is not integrated (an issue merely closed is not). Absent from older servers. */
+  integratedPrNumber?: number | null;
+  /** #3016: integrated, but its session on the machine that ran it is not settled there yet.
+   *  Absent otherwise, and from older servers. */
+  remoteSettle?: EpicChildRemoteSettle;
+}
+/** #3016: why an integrated child's settle on another machine is still open (src/epic-core.ts). */
+export type RemoteSettleReason =
+  | "requested"
+  | "offline"
+  | "busy"
+  | "held"
+  | "not_merged_there"
+  | "rejected"
+  | "unsupported"
+  | "failed";
+/** #3016: an integrated child's session on another machine, still to settle there. */
+export interface EpicChildRemoteSettle {
+  host: SessionHost;
+  sessionId: string;
+  reason: RemoteSettleReason;
 }
 /** A child on another machine: where, its mirrored session there (null until the start is
  *  confirmed) and its PR once it opened one. */

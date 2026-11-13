@@ -10,6 +10,7 @@
     RemoteInstance,
   } from "#lib/types.js";
   import { machineHeavySlot } from "#lib/remote-sessions.js";
+  import type { IntegratedNoteInput } from "#lib/integrated-child-note.js";
   import UnitRow from "../UnitRow.svelte";
   import InfoTip from "../InfoTip.svelte";
 
@@ -62,6 +63,8 @@
     // print each row's CLI chip — false when every session on display runs the same CLI. Same
     // whole-visible-list decision as showModel (see providersMixed).
     showCli: boolean;
+    // #3016: the note for a session its epic integrated (left its epic group for Merged)
+    integratedFor?: (id: string) => IntegratedNoteInput | undefined;
   };
 
   type ActionDef = {
@@ -174,6 +177,7 @@
           showModel={ctx.showModel}
           showCli={ctx.showCli}
           heavySlot={machineHeavySlot(session.host.instanceId, ctx.machines)}
+          integrated={ctx.integratedFor?.(session.id)}
         />
       {:else}
         <UnitRow
@@ -210,6 +214,7 @@
           showModel={ctx.showModel}
           showCli={ctx.showCli}
           heavySlot={ctx.heavySlot}
+          integrated={ctx.integratedFor?.(session.id)}
         />
       {/if}
     {/each}

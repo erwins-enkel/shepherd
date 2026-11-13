@@ -1,4 +1,12 @@
-import type { Session, GitState, Epic, RemoteEpic } from "#lib/types.js";
+import type {
+  Session,
+  GitState,
+  Epic,
+  EpicChild,
+  RemoteEpic,
+  RemoteSettleReason,
+  SessionHost,
+} from "#lib/types.js";
 import { partitionSessions, flattenByStage, mirroredGit } from "./herd-partition";
 
 /** An epic a connected machine's drain leads carries its `host`; this Shepherd's own do not. */
@@ -97,6 +105,40 @@ function localEpicOf(s: Session, index: ReadonlyMap<string, string>): string | u
     : index.get(`${s.repoPath}#${s.issueNumber}`);
 }
 
+/** #3016: a session whose own PR is the one its epic integrated for its child — merged work, not
+ *  active epic work. It leaves the epic's group for the lifecycle groups (Merged), where the herd
+ *  names the epic and, for one on another machine, why its settle there is still open. An issue
+ *  merely closed, a PR merged elsewhere, or an integration without a known PR never qualifies. */
+export function isIntegratedMember(
+  child: EpicChild | undefined,
+  git: GitState | undefined,
+): boolean {
+  const pr = child?.integratedPrNumber;
+  return pr != null && git?.state === "merged" && git.number === pr;
+}
+
+/** #3016: what the herd shows on a session {@link isIntegratedMember} moved out of its epic group:
+ *  its epic and — for one on another machine whose settle there is still open — that machine and
+ *  why (`null` when nothing is open, and for a local session). */
+export interface IntegratedNote {
+  parentIssueNumber: number;
+  host: SessionHost | null;
+  settle: RemoteSettleReason | null;
+}
+
+/** The child of `epic` a session is the work of: the one its `elsewhere` names for a mirrored
+ *  session the drain sent, else the one its issue number is. */
+function childOf(epic: Epic | undefined, s: Session): EpicChild | undefined {
+  if (!epic) return undefined;
+  const sent = s.host
+    ? epic.children.find(
+        (c) =>
+          c.elsewhere?.sessionId === s.id && c.elsewhere.host.instanceId === s.host!.instanceId,
+      )
+    : undefined;
+  return sent ?? epic.children.find((c) => c.number === s.issueNumber);
+}
+
 /** Adds each session `epicOf` places to its epic's bucket in `members`; returns the others in
  *  input order. */
 function collectMembers(
@@ -152,18 +194,35 @@ export function groupSessionsByEpic(
   groups: Array<{ key: string; epic: Epic; sessions: Session[] }>;
   rest: Session[];
   mirroredRest: Session[];
+  /** #3016: sessions left out of their epic as integrated work, by id ({@link isIntegratedMember}). */
+  integrated: Map<string, IntegratedNote>;
 } {
   const members = new Map<string, Session[]>(); // epicKey → member sessions (input order)
+  const groupGit = mirrored.length > 0 ? { ...git, ...mirroredGit(mirrored) } : git;
+  const integrated = new Map<string, IntegratedNote>();
+  /** `epicKey`, unless the session is integrated work of that epic (then noted, not placed). */
+  const unlessIntegrated = (s: Session, epicKey: string | undefined): string | undefined => {
+    if (epicKey === undefined) return undefined;
+    const epic = epics[epicKey];
+    const child = childOf(epic, s);
+    if (!epic || !isIntegratedMember(child, groupGit[s.id])) return epicKey;
+    const settle = child?.remoteSettle?.sessionId === s.id ? child.remoteSettle : undefined;
+    integrated.set(s.id, {
+      parentIssueNumber: epic.parentIssueNumber,
+      host: s.host ?? null,
+      settle: settle?.reason ?? null,
+    });
+    return undefined;
+  };
   const local = childIndex(epics, activeEpicKeys);
-  const rest = collectMembers(sessions, (s) => localEpicOf(s, local), members);
+  const rest = collectMembers(sessions, (s) => unlessIntegrated(s, localEpicOf(s, local)), members);
   const sent = sentIndex(epics, activeEpicKeys);
   const remote = remoteChildIndex(epics, activeEpicKeys);
   const mirroredRest = collectMembers(
     mirrored,
-    (s) => sentEpicOf(s, sent) ?? remoteEpicOf(s, remote),
+    (s) => unlessIntegrated(s, sentEpicOf(s, sent) ?? remoteEpicOf(s, remote)),
     members,
   );
-  const groupGit = mirrored.length > 0 ? { ...git, ...mirroredGit(mirrored) } : git;
 
   const groups = [...members.entries()]
     .map(([key, memberSessions]) => ({
@@ -176,7 +235,7 @@ export function groupSessionsByEpic(
     }))
     .sort(byRepoThenParent);
 
-  return { groups, rest, mirroredRest };
+  return { groups, rest, mirroredRest, integrated };
 }
 
 const basename = (p: string) => p.slice(p.lastIndexOf("/") + 1);
@@ -201,7 +260,8 @@ function byRepoThenParent(a: { epic: Epic }, b: { epic: Epic }): number {
  *  local session never counts); the sent-child check (`elsewhere`, any machine) applies to it as
  *  well. Pass every local session the view lists — shelved and experiment members included — and
  *  the mirrored ones it lists, so an epic whose child renders elsewhere in the list never also shows as session-less. Sorted like
- *  `groupSessionsByEpic`. */
+ *  `groupSessionsByEpic`. `integrated` (#3016): the ids `groupSessionsByEpic` moved out as
+ *  integrated work — they list no child, so an epic left with only those shows as session-less. */
 export function sessionlessEpicGroups(
   sessions: readonly Session[],
   epics: Record<string, Epic>,
@@ -209,15 +269,19 @@ export function sessionlessEpicGroups(
   repoFilter: ReadonlySet<string>,
   completedKeys: ReadonlySet<string>,
   mirrored: readonly Session[] = [],
+  integrated: ReadonlySet<string> = new Set(),
 ): Array<{ key: string; epic: Epic; sessions: Session[] }> {
+  // #3016: integrated work left its epic's group (groupSessionsByEpic) — it lists no child here.
+  const live = sessions.filter((s) => !integrated.has(s.id));
+  const liveThere = mirrored.filter((s) => !integrated.has(s.id));
   const withSession = new Set(
-    sessions.flatMap((s) => (s.issueNumber == null ? [] : [`${s.repoPath}#${s.issueNumber}`])),
+    live.flatMap((s) => (s.issueNumber == null ? [] : [`${s.repoPath}#${s.issueNumber}`])),
   );
   const listedThere = new Set(
-    mirrored.flatMap((s) => (s.host ? [sentKey(s.host.instanceId, s.id)] : [])),
+    liveThere.flatMap((s) => (s.host ? [sentKey(s.host.instanceId, s.id)] : [])),
   );
   const remoteListed = new Set(
-    mirrored.flatMap((s) =>
+    liveThere.flatMap((s) =>
       s.host && s.issueNumber != null
         ? [`${s.host.instanceId}:${s.repoPath}#${s.issueNumber}`]
         : [],

@@ -179,6 +179,12 @@
     line-height: 1;
     cursor: pointer;
   }
+  /* Coarse-pointer touch floor, like the other top-bar controls (.ctally, Assist). */
+  @media (pointer: coarse) {
+    .origin-chip {
+      min-height: 44px;
+    }
+  }
   .origin-chip:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);

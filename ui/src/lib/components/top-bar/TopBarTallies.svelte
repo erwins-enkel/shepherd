@@ -1,6 +1,8 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import type { OriginCounts, SessionOrigin } from "#lib/session-origin.js";
+  import TopBarOriginFilter from "./TopBarOriginFilter.svelte";
 
   export type TallyStatus = "running" | "idle" | "blocked";
 
@@ -14,6 +16,10 @@
     statusFilter,
     onstatusfilter,
     clickStatus,
+    originFilter = null,
+    originCounts = null,
+    originOffered = false,
+    onoriginfilter,
   }: {
     mobile: boolean;
     /** Collapse to the dot+digit form under measured overflow (desktop AND touch-desktop /
@@ -27,7 +33,28 @@
     statusFilter: TallyStatus | null;
     onstatusfilter?: (status: TallyStatus | null) => void;
     clickStatus: (s: TallyStatus) => void;
+    /** Herd origin filter (#3999): the HERD total opens its popover. */
+    originFilter?: SessionOrigin | null;
+    originCounts?: OriginCounts | null;
+    originOffered?: boolean;
+    onoriginfilter?: (origin: SessionOrigin | null) => void;
   } = $props();
+
+  let totalEl = $state<HTMLButtonElement>();
+  let originOpen = $state(false);
+  let originPinned = $state(false);
+  const originOn = $derived(originOffered && originCounts != null && onoriginfilter != null);
+  // The total clears an active status filter (as before); without one it toggles the origin
+  // popover — the keyboard / touch way in, since hover is the mouse's.
+  function clickTotal() {
+    if (statusFilter != null) {
+      onstatusfilter?.(null);
+      return;
+    }
+    if (!originOn) return;
+    originPinned = !originOpen || !originPinned;
+    originOpen = originPinned;
+  }
 </script>
 
 {#if mobile || compact}
@@ -36,12 +63,15 @@
          bare digit, and an action-only label would hide the tally from screen
          readers — the desktop buttons get this for free from their text content) -->
     <button
+      bind:this={totalEl}
       type="button"
       class="ctally"
-      disabled={statusFilter == null}
-      title={m.topbar_tally_clear_title()}
+      disabled={statusFilter == null && !originOn}
+      title={statusFilter != null || !originOn ? m.topbar_tally_clear_title() : undefined}
       aria-label={m.topbar_tally_total_aria({ count: total })}
-      onclick={() => onstatusfilter?.(null)}
+      aria-haspopup={originOn ? "dialog" : undefined}
+      aria-expanded={originOn ? originOpen : undefined}
+      onclick={clickTotal}
     >
       <span class="n">{total}</span>
     </button>
@@ -88,14 +118,17 @@
   </div>
 {:else}
   <div class="tallies" use:coachTarget={"tally-filter"}>
-    <!-- the total is a CLEAR action — without an active filter it's a no-op, so
-         it renders disabled (no hover/click affordance) until a status is set -->
+    <!-- the total CLEARS an active status filter; without one it opens the origin popover
+         (when offered), else it's a no-op and renders disabled (no hover/click affordance) -->
     <button
+      bind:this={totalEl}
       type="button"
       class="tally"
-      disabled={statusFilter == null}
-      title={m.topbar_tally_clear_title()}
-      onclick={() => onstatusfilter?.(null)}
+      disabled={statusFilter == null && !originOn}
+      title={statusFilter != null || !originOn ? m.topbar_tally_clear_title() : undefined}
+      aria-haspopup={originOn ? "dialog" : undefined}
+      aria-expanded={originOn ? originOpen : undefined}
+      onclick={clickTotal}
     >
       <span class="micro">{m.topbar_herd_label()}</span><span class="n">{total}</span>
     </button>
@@ -134,6 +167,17 @@
       >
     </button>
   </div>
+{/if}
+{#if originCounts && onoriginfilter}
+  <TopBarOriginFilter
+    trigger={totalEl}
+    bind:open={originOpen}
+    bind:pinned={originPinned}
+    offered={originOn}
+    filter={originFilter}
+    counts={originCounts}
+    onfilter={onoriginfilter}
+  />
 {/if}
 
 <style>

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Session } from "./types";
-import { byOrigin, originCounts, sessionOrigin } from "./session-origin";
+import { byOrigin, originCounts, originFilterOffered, sessionOrigin } from "./session-origin";
 
 const s = (id: string, auto: boolean, scheduleId: string | null = null) =>
   ({ id, auto, scheduleId }) as Session;
@@ -38,4 +38,18 @@ describe("byOrigin", () => {
 test("originCounts tallies each origin", () => {
   expect(originCounts(list)).toEqual({ scheduled: 2, drain: 1, manual: 2 });
   expect(originCounts([])).toEqual({ scheduled: 0, drain: 0, manual: 0 });
+});
+
+describe("originFilterOffered", () => {
+  const c = (scheduled: number, drain: number, manual: number) => ({ scheduled, drain, manual });
+  test("needs a non-manual session or an active filter", () => {
+    expect(originFilterOffered("all", null, c(0, 0, 3))).toBe(false);
+    expect(originFilterOffered("all", null, c(1, 0, 0))).toBe(true);
+    expect(originFilterOffered("ready", null, c(0, 2, 0))).toBe(true);
+    expect(originFilterOffered("done", "manual", c(0, 0, 0))).toBe(true);
+  });
+  test("never on panel-only lenses", () => {
+    expect(originFilterOffered("next", "drain", c(1, 1, 1))).toBe(false);
+    expect(originFilterOffered("owed", null, c(1, 1, 1))).toBe(false);
+  });
 });

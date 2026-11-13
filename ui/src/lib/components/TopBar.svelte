@@ -16,6 +16,7 @@
     AutoMergeStatus,
   } from "#lib/types.js";
   import { displayStatus } from "#lib/display-status.js";
+  import type { OriginCounts, SessionOrigin } from "#lib/session-origin.js";
   import { updateBadge } from "#lib/machine-updates.js";
   import {
     compactUsageViews as compactUsageViewList,
@@ -94,6 +95,10 @@
     onwhatsnew,
     statusFilter = null,
     onstatusfilter,
+    originFilter = null,
+    originCounts = null,
+    originOffered = false,
+    onoriginfilter,
     workingBlocked = {},
     backgroundBusy = {},
     diagnostics = null,
@@ -157,6 +162,11 @@
     // page-level session-status filter the tallies toggle; null = no filter
     statusFilter?: TallyStatus | null;
     onstatusfilter?: (status: TallyStatus | null) => void;
+    // herd origin filter (#3999): desktop/touch-wide only — the HERD total opens its popover
+    originFilter?: SessionOrigin | null;
+    originCounts?: OriginCounts | null;
+    originOffered?: boolean;
+    onoriginfilter?: (origin: SessionOrigin | null) => void;
     // working-while-blocked display flags (store map); tallies + gear pip read the
     // DISPLAY status through it — the halt e-stop keeps the raw status (see below)
     workingBlocked?: Record<string, boolean>;
@@ -1008,6 +1018,10 @@
       {statusFilter}
       {onstatusfilter}
       {clickStatus}
+      {originFilter}
+      {originCounts}
+      {originOffered}
+      {onoriginfilter}
     />
     <div class="rightside">
       <!-- A phone has no room for it: the Menu sheet carries the check slot instead. -->

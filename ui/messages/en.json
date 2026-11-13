@@ -422,6 +422,7 @@
   "topbar_idle_label": "Idle",
   "topbar_blocked_label": "Blocked",
   "topbar_tally_filter_title": "Show only {status} sessions",
+  "topbar_origin_clear_aria": "Clear origin filter: {origin}",
   "topbar_tally_clear_title": "Show all sessions",
   "topbar_tally_total_aria": "Herd {count}; show all sessions",
   "topbar_tally_status_aria": "{status} {count}; show only these sessions",
@@ -9002,5 +9003,5 @@
   "herd_origin_filter_empty": "No {origin} sessions right now.",
   "herd_origin_filters_empty": "No {origin} sessions match the active filters.",
   "feat_origin_filter_title": "Filter sessions by origin",
-  "feat_origin_filter_body": "Once a repo schedule or the auto-drain has started sessions, a row of chips under the herd lenses filters the list by origin: Scheduled, Auto-drain or Manual. It works together with the repo and status filters and in the Done lens, so you can review last night's scheduled runs. Groups stay as they are. On a phone, pull the list down to show the chips."
+  "feat_origin_filter_body": "Once a repo schedule or the auto-drain has started sessions, hover the HERD count in the top bar (or click it) to filter the list by origin: Scheduled, Auto-drain or Manual. While a filter is on, a chip beside the counts names it and clears it with one click. It works together with the repo and status filters and in the Done lens, so you can review last night's scheduled runs. Groups stay as they are. On a phone, pull the list down to show the chips."
 }

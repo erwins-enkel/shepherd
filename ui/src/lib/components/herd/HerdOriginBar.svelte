@@ -14,6 +14,7 @@
     onfilter,
     touch = false,
     reveal = false,
+    inPopover = false,
   }: {
     filter: SessionOrigin | null;
     counts: OriginCounts;
@@ -22,6 +23,8 @@
     touch?: boolean;
     /** Phone pull-down reveal: slide in instead of popping in. */
     reveal?: boolean;
+    /** Inside the top bar's origin popover: no divider under the row. */
+    inPopover?: boolean;
   } = $props();
 
   const reduceMotion =
@@ -47,6 +50,7 @@
 <div
   class="origin-bar"
   class:touch-target={touch}
+  class:in-popover={inPopover}
   role="group"
   aria-label={m.herd_origins_label()}
   in:slide={{ duration: revealMs, easing: cubicOut }}
@@ -74,6 +78,9 @@
     gap: 4px;
     padding: 6px 8px;
     border-bottom: 1px solid var(--color-line);
+  }
+  .origin-bar.in-popover {
+    border-bottom: none;
   }
   .chip {
     display: inline-flex;

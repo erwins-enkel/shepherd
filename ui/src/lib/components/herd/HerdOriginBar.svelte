@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { OriginCounts, SessionOrigin } from "#lib/session-origin.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { slide } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
 
   // The herd's origin filter (#3999): who started a session — a repo schedule, the auto-drain
   // queue, or the operator. It only narrows the list; the lifecycle groups stay as they are.
@@ -11,13 +13,21 @@
     counts,
     onfilter,
     touch = false,
+    reveal = false,
   }: {
     filter: SessionOrigin | null;
     counts: OriginCounts;
     onfilter: (origin: SessionOrigin | null) => void;
     /** Coarse pointer: 44px targets. */
     touch?: boolean;
+    /** Phone pull-down reveal: slide in instead of popping in. */
+    reveal?: boolean;
   } = $props();
+
+  const reduceMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const revealMs = $derived(reveal && !reduceMotion ? 180 : 0);
 
   const chips = $derived<{ id: SessionOrigin | null; label: string; count: number }[]>([
     {
@@ -34,7 +44,13 @@
   const pick = (id: SessionOrigin | null) => onfilter(id === filter ? null : id);
 </script>
 
-<div class="origin-bar" class:touch-target={touch} role="group" aria-label={m.herd_origins_label()}>
+<div
+  class="origin-bar"
+  class:touch-target={touch}
+  role="group"
+  aria-label={m.herd_origins_label()}
+  in:slide={{ duration: revealMs, easing: cubicOut }}
+>
   {#each chips as chip (chip.id ?? "all")}
     <button
       type="button"

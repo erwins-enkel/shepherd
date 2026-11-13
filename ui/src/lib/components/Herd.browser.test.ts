@@ -719,6 +719,14 @@ describe("Herd origin filter (#3999)", () => {
       await expect.element(page.getByRole("group", { name: "Origin" })).toBeInTheDocument();
     });
 
+    it("slides the bar in when a pull reveals it", async () => {
+      const { rerender } = await render(Herd, flowProps);
+      await expect.element(page.getByText("drained")).toBeInTheDocument();
+      await rerender({ originBarRevealed: true });
+      await expect.element(page.getByRole("group", { name: "Origin" })).toBeInTheDocument();
+      expect(originBar()!.getAnimations().length).toBeGreaterThan(0);
+    });
+
     it("keeps the bar while an origin filter is on", async () => {
       render(Herd, { ...flowProps, originFilter: "drain" as const });
       await expect.element(page.getByRole("group", { name: "Origin" })).toBeInTheDocument();

@@ -13063,7 +13063,10 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoSettingsFormTests.swift\",\"CoreSeamTests.RepoSettingsFormTests\",\"egressHostCheckMirrorsTheWeb()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/SettingsRepoTests.swift\",\"CoreSeamTests.SettingsRepoTests\",\"repoSettingsChoicesSaveAndShowTheReloadedConfig() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/GeneratedContractTests.swift\",\"GeneratedContractTests\",\"usagePauseDecodes() throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/GeneratedContractTests.swift\",\"GeneratedContractTests\",\"budgetStopDecodes() throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/GeneratedContractTests.swift\",\"GeneratedContractTests\",\"budgetStopDecodes() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoSettingsFormTests.swift\",\"CoreSeamTests.RepoSettingsFormTests\",\"autonomyPresetsWriteExactlySixFieldsAndRoundTrip() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoSettingsFormTests.swift\",\"CoreSeamTests.RepoSettingsFormTests\",\"autonomyReadsEffectiveValuesAndCustomMixes() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoSettingsFormTests.swift\",\"CoreSeamTests.RepoSettingsFormTests\",\"autonomyResponsibilitiesFollowTheConfigIncludingPlanGate() throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",
@@ -13095,6 +13098,12 @@
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testRenderChatFixture() throws\"]",
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testImagesWaitForUploadAndFailedRepliesKeepTheMachinePaths() async\"]",
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testImageOnlyReplyAndLateReplyRetainAttachments() async\"]",
-    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testRemoteQuestionsArePolledAndLateMachineResponsesAreDiscarded() async\"]"
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSChatTests.swift\",\"IOSChatTests\",\"testRemoteQuestionsArePolledAndLateMachineResponsesAreDiscarded() async\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSRepoSettingsTests.swift\",\"IOSRepoSettingsTests\",\"testPresetWritesOnceToOwningRepoAndAdoptsServerResponse() async throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSRepoSettingsTests.swift\",\"IOSRepoSettingsTests\",\"testFailureRetainsSelectionAndReadOnlyRejectsWrites() async throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSRepoSettingsTests.swift\",\"IOSRepoSettingsTests\",\"testLocalOnlyRepoRejectsForgePresets() async throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSRepoSettingsTests.swift\",\"IOSRepoSettingsTests\",\"testDeactivationRejectsLateReadAndFutureWrites() async throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSRepoSettingsTests.swift\",\"IOSRepoSettingsTests\",\"testDuplicateTapsAndLateSaveAfterDisconnectAreIgnored() async throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSRepoSettingsTests.swift\",\"IOSRepoSettingsTests\",\"testLoadCanRetryAndHintsFollowEffectiveConfig() async throws\"]"
   ]
 }

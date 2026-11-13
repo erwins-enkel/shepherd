@@ -573,31 +573,36 @@ struct SessionListView: View {
                     .accessibilityLabel(Text(verbatim: selected ? L.t("repo_filter_active_aria", chip.name) : L.t("repo_filter_apply_aria", chip.name)))
                     .accessibilityAddTraits(selected ? .isSelected : [])
                     .accessibilityIdentifier("repo-chip-\(chip.name)")
-                    .contextMenu {
-                        ForEach(hub?.connected ?? [app], id: \.activeProfile?.id) { owner in
-                            ForEach((owner.store?.repos ?? []).filter { chip.paths.contains($0.path) }, id: \.path) { repo in
-                                Button {
-                                    repoSettings = IOSRepoSettingsControl(owner: owner, path: repo.path)
-                                } label: {
-                                    Text(verbatim: "\(L.t("reposettings_title")) · \(owner.activeProfile?.name ?? "")")
-                                }
-                            }
-                        }
-                    } preview: {
-                        VStack(alignment: .leading) {
-                            ForEach(hub?.connected ?? [app], id: \.activeProfile?.id) { owner in
-                                ForEach((owner.store?.repos ?? []).filter { chip.paths.contains($0.path) }, id: \.path) { repo in
-                                    IOSRepoSettingsPreview(owner: owner, path: repo.path)
-                                }
-                            }
-                        }
-                    }
+                    .contextMenu { repoSettingsMenu(chip.paths) } preview: { repoSettingsPreview(chip.paths) }
                 }
             }.padding(.horizontal, 6)
         }
         .scrollIndicators(.never)
         .overlay(alignment: .bottom) { Rectangle().fill(SessionListStyle.line).frame(height: 1) }
         .accessibilityLabel(L.t("repo_switcher_label"))
+    }
+
+    private func repoSettingsMenu(_ paths: Set<String>) -> some View {
+        ForEach(hub?.connected ?? [app], id: \.activeProfile?.id) { owner in
+            ForEach((owner.store?.repos ?? []).filter { paths.contains($0.path) }, id: \.path) { repo in
+                repoSettingsButton(owner: owner, path: repo.path)
+            }
+        }
+    }
+
+    private func repoSettingsButton(owner: AppModel, path: String) -> some View {
+        let title = L.t("reposettings_title") + " · " + (owner.activeProfile?.name ?? "")
+        return Button(title) { repoSettings = IOSRepoSettingsControl(owner: owner, path: path) }
+    }
+
+    private func repoSettingsPreview(_ paths: Set<String>) -> some View {
+        VStack(alignment: .leading) {
+            ForEach(hub?.connected ?? [app], id: \.activeProfile?.id) { owner in
+                ForEach((owner.store?.repos ?? []).filter { paths.contains($0.path) }, id: \.path) { repo in
+                    IOSRepoSettingsPreview(owner: owner, path: repo.path)
+                }
+            }
+        }
     }
 
     private func groupHeader(_ stage: HerdStage, title: String, rows: [IOSMergedSessionPresentation.Row]) -> some View {

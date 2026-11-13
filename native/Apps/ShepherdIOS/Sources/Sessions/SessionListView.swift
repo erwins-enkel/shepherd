@@ -13,6 +13,8 @@ struct SessionListView: View {
     @State private var epicSheet: IOSEpicSelection?
     @State private var refreshError: String?
     @State private var showingRepos = false
+    @State private var showingRepoSettings = false
+    @State private var repoSettings: IOSRepoSettingsControl?
     @State private var showingCommandBar = false
     @State private var commandAction: IOSCommandBarPresentation.Action?
     @State private var commandPull = IOSCommandBarPull()
@@ -94,6 +96,8 @@ struct SessionListView: View {
             Button(L.t("commandbar_title")) { openCommandBar() }
                 .keyboardShortcut("k", modifiers: .command).frame(width: 0, height: 0).clipped().accessibilityHidden(true)
         }
+        .sheet(isPresented: $showingRepoSettings) { IOSRepoSettingsDirectory(owners: hub?.connected ?? [app]) }
+        .sheet(item: $repoSettings) { IOSRepoSettingsSheet(control: $0) }
         .sheet(isPresented: $showingRepos) { IOSServerReposSheet(model: model) }
         .sheet(isPresented: $showingEpicsHelp) { IOSCompletedEpicsHelpSheet() }
         // Live landing signals (green CI, ready, stranded) ride only the GET and no frame fires when
@@ -153,7 +157,7 @@ struct SessionListView: View {
     }
 
     private var commandSheetOpen: Bool {
-        showingCommandBar || showingRepos || showingEpicsHelp || epicSheet != nil || explainingStage != nil
+        showingCommandBar || showingRepos || showingRepoSettings || repoSettings != nil || showingEpicsHelp || epicSheet != nil || explainingStage != nil
             || pendingLand != nil || !clearingMerged.isEmpty || app.sheet != nil
             || hub?.routedSheet != nil || hub?.managingServers == true
     }
@@ -506,6 +510,8 @@ struct SessionListView: View {
                 .accessibilityIdentifier("herd-lens-\(lens.rawValue)")
             }
             Divider()
+            Button(L.t("reposettings_title")) { showingRepoSettings = true }
+                .accessibilityIdentifier("show-repo-settings")
             if IOSPushRegistration.shared.isEnabled {
                 Section(L.t("native_ios_push_title")) {
                     // The same server the sign-out below acts on.
@@ -567,6 +573,25 @@ struct SessionListView: View {
                     .accessibilityLabel(Text(verbatim: selected ? L.t("repo_filter_active_aria", chip.name) : L.t("repo_filter_apply_aria", chip.name)))
                     .accessibilityAddTraits(selected ? .isSelected : [])
                     .accessibilityIdentifier("repo-chip-\(chip.name)")
+                    .contextMenu {
+                        ForEach(hub?.connected ?? [app], id: \.activeProfile?.id) { owner in
+                            ForEach((owner.store?.repos ?? []).filter { chip.paths.contains($0.path) }, id: \.path) { repo in
+                                Button {
+                                    repoSettings = IOSRepoSettingsControl(owner: owner, path: repo.path)
+                                } label: {
+                                    Text(verbatim: "\(L.t("reposettings_title")) · \(owner.activeProfile?.name ?? "")")
+                                }
+                            }
+                        }
+                    } preview: {
+                        VStack(alignment: .leading) {
+                            ForEach(hub?.connected ?? [app], id: \.activeProfile?.id) { owner in
+                                ForEach((owner.store?.repos ?? []).filter { chip.paths.contains($0.path) }, id: \.path) { repo in
+                                    IOSRepoSettingsPreview(owner: owner, path: repo.path)
+                                }
+                            }
+                        }
+                    }
                 }
             }.padding(.horizontal, 6)
         }

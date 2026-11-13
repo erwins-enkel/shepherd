@@ -41,6 +41,60 @@ struct RepoSettingsFormTests {
         #expect(RepoSettingsForm.effectiveMergeMode(try config(["autoMergeEnabled": true, "repoMode": "lightweight"])) == .auto)
     }
 
+    @Test func autonomyPresetsWriteExactlySixFieldsAndRoundTrip() throws {
+        let expectedKeys: Set<String> = ["criticEnabled", "autoAddressEnabled", "autopilotEnabled",
+                                          "autoDrainEnabled", "autoMergeEnabled", "draftMode"]
+        for level in RepoSettingsForm.AutonomyLevel.allCases {
+            let patch = try encoded(RepoSettingsForm.autonomyPatch(level))
+            #expect(Set(patch.keys) == expectedKeys)
+            #expect(patch["criticEnabled"] as? Bool == (level != .onCall))
+            #expect(patch["autoAddressEnabled"] as? Bool == (level != .onCall))
+            #expect(patch["autopilotEnabled"] as? Bool == (level != .onCall))
+            #expect(patch["autoDrainEnabled"] as? Bool == (level == .backlog || level == .full))
+            #expect(patch["autoMergeEnabled"] as? Bool == (level == .full))
+            #expect(patch["draftMode"] as? Bool == false)
+            var values = patch
+            values["planGateEnabled"] = true
+            values["sandboxProfile"] = "standard"
+            let result = try config(values)
+            #expect(RepoSettingsForm.autonomyLevel(result) == level)
+            #expect(result.planGateEnabled && result.sandboxProfile == "standard")
+        }
+    }
+
+    @Test func autonomyReadsEffectiveValuesAndCustomMixes() throws {
+        #expect(RepoSettingsForm.autonomyLevel(try config(["autoAddressEnabled": true])) == .onCall)
+        var review = try encoded(RepoSettingsForm.autonomyPatch(.review))
+        review["draftMode"] = true
+        #expect(RepoSettingsForm.autonomyLevel(try config(review)) == nil)
+        review["repoMode"] = "lightweight"
+        #expect(RepoSettingsForm.autonomyLevel(try config(review)) == .review)
+        var backlog = try encoded(RepoSettingsForm.autonomyPatch(.backlog))
+        backlog["repoMode"] = "lightweight"
+        #expect(RepoSettingsForm.autonomyLevel(try config(backlog)) == .review)
+        backlog["autoMergeEnabled"] = true
+        #expect(RepoSettingsForm.autonomyLevel(try config(backlog)) == nil)
+        #expect(RepoSettingsForm.AutonomyLevel.allCases.filter(\.needsForge) == [.backlog, .full])
+    }
+
+    @Test func autonomyResponsibilitiesFollowTheConfigIncludingPlanGate() throws {
+        for level in RepoSettingsForm.AutonomyLevel.allCases {
+            let value = try config(encoded(RepoSettingsForm.autonomyPatch(level)))
+            #expect(!RepoSettingsForm.shepherdHandles(.plan, config: value))
+            #expect(RepoSettingsForm.shepherdHandles(.pickup, config: value) == level.needsForge)
+            #expect(RepoSettingsForm.shepherdHandles(.stops, config: value) == (level != .onCall))
+            #expect(RepoSettingsForm.shepherdHandles(.review, config: value) == (level != .onCall))
+            #expect(RepoSettingsForm.shepherdHandles(.fix, config: value) == (level != .onCall))
+            #expect(RepoSettingsForm.shepherdHandles(.merge, config: value) == (level == .full))
+        }
+        let value = try config(["planGateEnabled": true, "autoAddressEnabled": true,
+                                "autoDrainEnabled": true, "repoMode": "lightweight", "draftMode": true])
+        #expect(RepoSettingsForm.shepherdHandles(.plan, config: value))
+        #expect(!RepoSettingsForm.shepherdHandles(.fix, config: value))
+        #expect(!RepoSettingsForm.shepherdHandles(.pickup, config: value))
+        #expect(!RepoSettingsForm.shepherdHandles(.merge, config: value))
+    }
+
     @Test func modelAndEffortFollowTheEffectiveCli() throws {
         let inherits = try config()
         #expect(RepoSettingsForm.effectiveProvider(inherits, global: .codex) == .codex)

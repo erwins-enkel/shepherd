@@ -104,8 +104,13 @@ final class IOSServerHubTests: XCTestCase {
         await settle { hub.connected.allSatisfy(hub.isLive) }
         XCTAssertEqual(hub.focusedID, a.id)
         IOSMultiServerFixtureTransport.setUnavailable(true, for: a.baseURL)
-        hub.refreshServers()
-        await settle { hub.unavailableIDs.contains(a.id) }
+        // .live is published before bootstrap's coalesced refresh has unwound. A refresh
+        // at that boundary can still join the successful initial read; drive the outage
+        // until a fresh read observes it before asserting the implicit focus fallback.
+        await settle {
+            hub.refreshServers()
+            return hub.unavailableIDs.contains(a.id)
+        }
         XCTAssertEqual(hub.focusedID, b.id)
         XCTAssertEqual(IOSComposeTarget(hub: hub).profileID, b.id)
     }

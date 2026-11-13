@@ -25,6 +25,7 @@
   import { relativeAge } from "#lib/format.js";
   import SettingRow from "./SettingRow.svelte";
   import SettingToggle from "./SettingToggle.svelte";
+  import SettingsEgressBlock from "./SettingsEgressBlock.svelte";
   import "./settings-controls.css";
   import { toasts } from "#lib/toasts.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
@@ -463,6 +464,8 @@
     />
   {/snippet}
 </SettingRow>
+
+<SettingsEgressBlock {payload} {query} />
 
 <!-- No onrowclick (#2331): consent is the one setting whose flip leaves no trace — telemetry
      is fire-and-forget, so an accidental opt-out from a click on the title or the

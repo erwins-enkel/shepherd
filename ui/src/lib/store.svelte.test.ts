@@ -6,6 +6,7 @@ import { schedules } from "./schedules.svelte";
 import { dropKey } from "./safe-keys";
 import { toasts } from "./toasts.svelte";
 import { repoSettingsWindow } from "./repo-settings-window.svelte";
+import { repoConfig } from "./reviews.svelte";
 import { m } from "#lib/paraglide/messages.js";
 import { motionSettle } from "./motion-settle";
 import { isDecommissioning, markDecommissioning } from "./decommissioning.svelte";
@@ -505,6 +506,18 @@ test("session:egress-drop offers Review, which opens the repo's blocked hosts (#
   s.apply({ event: "session:egress-drop", data: { id: "gone", host: "x.example" } });
   expect(toasts.items.at(-1)?.actionLabel).toBeUndefined();
   repoSettingsWindow.target = null;
+});
+
+test("settings:egress refreshes the standard hosts every loaded repo shows", () => {
+  repoConfig.egressStandard = { "/a": { defaultOn: false, hosts: [] } };
+  const s = new HerdStore();
+  s.apply({
+    event: "settings:egress",
+    data: { egressStandardHosts: ["x.dev"], egressStandardDefault: true, egressMutedHosts: [] },
+  });
+  expect(repoConfig.egressStandardFor("/a")).toEqual({ defaultOn: true, hosts: ["x.dev"] });
+  expect(repoConfig.egressStandardFor("/b")).toBeNull();
+  repoConfig.egressStandard = {};
 });
 
 test("session:renamed adopts a new branch silently when the display name is unchanged", () => {

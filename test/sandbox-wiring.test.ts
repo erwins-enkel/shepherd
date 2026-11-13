@@ -869,6 +869,7 @@ function defaultRepoConfig() {
     defaultExecutionEffort: "inherit",
     previewOpenMode: "ask" as const,
     egressExtraHosts: [] as string[],
+    egressIncludeStandard: "inherit" as const,
     repoMode: "forge" as const,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
@@ -1273,6 +1274,30 @@ describe("reapplyEgressAllowlist (live allowlist edits)", () => {
       expect(readFileSync(join(dir, "egress.reload.nft"), "utf8")).toStartWith(
         "delete table inet egress",
       );
+    } finally {
+      loop.kill();
+      rmSync(egressTmpDir(s.id), { recursive: true, force: true });
+    }
+  });
+
+  test("standard hosts join the allowlist per the repo toggle and the global default", async () => {
+    const { store, service, s, dir } = await setup();
+    const loop = fakeReloadLoop(dir, "ok");
+    try {
+      await waitForReader(join(dir, "reload.fifo"));
+      expect(spawnInputs(dir).allowlist).not.toContain("cdn.playwright.dev");
+      store.setSetting("egressStandardHosts", JSON.stringify(["cdn.playwright.dev"]));
+      await service.reapplyEgressAllowlist("/repo"); // inherit + default off → unchanged
+      expect(spawnInputs(dir).allowlist).not.toContain("cdn.playwright.dev");
+      store.setSetting("egressStandardDefault", "1");
+      await service.reapplyEgressAllowlist("/repo");
+      expect(spawnInputs(dir).allowlist).toContain("cdn.playwright.dev");
+      store.setRepoConfig("/repo", {
+        ...store.getRepoConfig("/repo"),
+        egressIncludeStandard: "off",
+      });
+      await service.reapplyEgressAllowlist("/repo");
+      expect(spawnInputs(dir).allowlist).not.toContain("cdn.playwright.dev");
     } finally {
       loop.kill();
       rmSync(egressTmpDir(s.id), { recursive: true, force: true });

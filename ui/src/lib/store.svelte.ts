@@ -49,7 +49,7 @@ import { steers } from "./steers.svelte";
 import { settingsSource } from "./settings-source.svelte";
 import { repoBootstrap } from "./repo-bootstrap.svelte";
 import { schedules } from "./schedules.svelte";
-import { reviews, planGates, spawnNotices } from "./reviews.svelte";
+import { reviews, planGates, spawnNotices, repoConfig } from "./reviews.svelte";
 import { recaps } from "./recaps.svelte";
 import { amendments } from "./amendments.svelte";
 import { upNext } from "./up-next.svelte";
@@ -1241,6 +1241,9 @@ export class HerdStore {
         return true;
       case "settings:issue-filter":
         issueFilterSettings.apply(ev.data.issueFilter);
+        return true;
+      case "settings:egress":
+        repoConfig.applyEgressStandard(ev.data.egressStandardDefault, ev.data.egressStandardHosts);
         return true;
     }
     return false;

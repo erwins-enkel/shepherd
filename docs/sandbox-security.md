@@ -41,6 +41,12 @@ a host the new list now covers is steered to retry. A timed-out, failed or
 unanswered reload marks the session's config uncertain and is retried on the
 next reload with a full flush; a reapply never overwrites the config of a
 session that respawned meanwhile.
+Global **standard allowed hosts** (`egressStandardHosts` setting, `src/egress-settings.ts`) join a
+repo's allowlist when its `egressIncludeStandard` resolves on (`inherit` follows
+`egressStandardDefault`, off by default); a wildcard there widens every repo that includes it. A change
+to the list, the default or a repo's pick live-applies the same way. **Muted hosts**
+(`egressMutedHosts`, seeded with telemetry hosts) stay blocked: muting only drops the reporting
+(signal, toast, agent note, Blocked hosts row), never opens anything.
 Without the backend every unattended autonomous spawn is refused. The DIAGNOSE
 row `sandbox_egress` (#3459) reports it, naming the missing tools and the
 affected autonomous repos. Each DIAGNOSE check re-runs the self-test async

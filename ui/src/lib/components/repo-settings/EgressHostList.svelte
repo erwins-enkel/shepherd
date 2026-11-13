@@ -14,12 +14,15 @@
     repoPath,
     items,
     onallowed,
+    onmute,
   }: {
     repoPath: string;
     /** One line of context under each host. */
     items: { host: string; meta: string }[];
     /** After the host was written to the repo's extra hosts. */
     onallowed: (host: string) => void;
+    /** Offers "Mute everywhere" per host (the blocked list); resolves once the mute settled. */
+    onmute?: (host: string) => Promise<void>;
   } = $props();
 
   /** The host whose inline confirm is open; one at a time. */
@@ -46,6 +49,16 @@
       toasts.info(m.egress_blocked_allowed({ host }));
     } else {
       toasts.info(m.egress_blocked_allow_failed({ host }), { alert: true });
+    }
+  }
+
+  async function mute(host: string) {
+    if (!onmute) return;
+    busy = host;
+    try {
+      await onmute(host);
+    } finally {
+      busy = null;
     }
   }
 
@@ -103,13 +116,24 @@
           </div>
         </div>
       {:else}
-        <button
-          class="bs-btn"
-          type="button"
-          aria-label={m.egress_blocked_allow_host({ host: item.host })}
-          disabled={busy !== null || !configLoaded}
-          onclick={() => onAllow(item.host)}>{m.egress_blocked_allow()}</button
-        >
+        <div class="blk-actions">
+          <button
+            class="bs-btn"
+            type="button"
+            aria-label={m.egress_blocked_allow_host({ host: item.host })}
+            disabled={busy !== null || !configLoaded}
+            onclick={() => onAllow(item.host)}>{m.egress_blocked_allow()}</button
+          >
+          {#if onmute}
+            <button
+              class="bs-btn"
+              type="button"
+              aria-label={m.egress_blocked_mute_host({ host: item.host })}
+              disabled={busy !== null}
+              onclick={() => mute(item.host)}>{m.egress_blocked_mute()}</button
+            >
+          {/if}
+        </div>
       {/if}
     </li>
   {/each}

@@ -8,13 +8,20 @@
     browserAllowedHostsExplanation,
     claudeAiConnectorsExplanation,
     egressExtraHostsExplanation,
+    egressIncludeStandardExplanation,
     egressRiskExplanation,
     egressRiskLabel,
     sharedBrowserExplanation,
   } from "#lib/tooltips/explanations.js";
   import { classifyEgressHost } from "#lib/egress-trust.js";
   import { checkBrowserHost, checkEgressHost } from "#lib/list-entries.js";
-  import type { DrainStatus, RepoSandboxSetting, SandboxProfile, Settings } from "#lib/types.js";
+  import type {
+    DrainStatus,
+    EgressIncludeStandard,
+    RepoSandboxSetting,
+    SandboxProfile,
+    Settings,
+  } from "#lib/types.js";
   import RepoSettingRow from "./RepoSettingRow.svelte";
   import AgentModelFields from "./AgentModelFields.svelte";
   import ListField, { type ListItemWarning } from "./ListField.svelte";
@@ -79,6 +86,18 @@
   // so either list shows while there are blocks to review.
   let blockedCount = $state(0);
   const showEgress = $derived(autonomous || blockedCount > 0);
+
+  // "Inherit" names what it resolves to; each choice that includes the set names its size.
+  const standard = $derived(repoConfig.egressStandardFor(repoPath));
+  const standardLabel = (on: boolean) =>
+    on
+      ? m.automation_egress_standard_on_count({ count: standard?.hosts.length ?? 0 })
+      : m.automation_egress_standard_off();
+  const standardInheritLabel = $derived(
+    standard
+      ? m.automation_egress_standard_inherit({ value: standardLabel(standard.defaultOn) })
+      : m.automation_sandbox_inherit_unresolved(),
+  );
 
   const BROWSER_HOST_ERRORS = {
     empty: () => m.automation_browser_hosts_err_empty(),
@@ -167,6 +186,30 @@
   {/snippet}
 </RepoSettingRow>
 {#if showEgress}
+  <RepoSettingRow
+    field="egressIncludeStandard"
+    name={m.automation_egress_standard_label()}
+    explanation={egressIncludeStandardExplanation()}
+    desc={standard?.hosts.length ? standard.hosts.join(", ") : m.automation_egress_standard_none()}
+    indent
+  >
+    {#snippet control()}
+      <select
+        class="afield-num afield-select"
+        aria-label={m.automation_egress_standard_label()}
+        value={repoConfig.egressIncludeStandardFor(repoPath)}
+        onchange={(e) =>
+          repoConfig.setEgressIncludeStandard(
+            repoPath,
+            (e.currentTarget as HTMLSelectElement).value as EgressIncludeStandard,
+          )}
+      >
+        <option value="inherit">{standardInheritLabel}</option>
+        <option value="on">{standardLabel(true)}</option>
+        <option value="off">{standardLabel(false)}</option>
+      </select>
+    {/snippet}
+  </RepoSettingRow>
   <ListField
     field="egressExtraHosts"
     name={m.automation_egress_hosts_label()}

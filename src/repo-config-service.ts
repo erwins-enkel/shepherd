@@ -1,6 +1,7 @@
 import type { SessionStore, RepoConfig } from "./store";
 import type { SandboxProfile } from "./sandbox";
 import { defaultSandboxProfile } from "./sandbox-default";
+import { readEgressGlobals } from "./egress-settings";
 
 /** The read-shape the repo-config route returns: the stored config plus the two
  *  automation-metadata flags that live OUTSIDE RepoConfig (a deliberate split —
@@ -10,6 +11,9 @@ export type RepoConfigView = RepoConfig & {
   automationConfirmed: boolean;
   automationRowExists: boolean;
   sandboxDefaultProfile: SandboxProfile;
+  /** What `egressIncludeStandard: "inherit"` resolves to, and the global standard hosts. */
+  egressStandardDefault: boolean;
+  egressStandardHosts: string[];
 };
 
 /** A partial repo-config edit. Every field is a RepoConfig field (the route's
@@ -27,6 +31,7 @@ type RepoConfigStore = Pick<
   | "markAutomationConfirmed"
   | "isAutomationConfirmed"
   | "automationRowExists"
+  | "getSetting"
 >;
 
 /**
@@ -51,7 +56,13 @@ export class RepoConfigService {
       automationConfirmed: this.store.isAutomationConfirmed(dir),
       automationRowExists: this.store.automationRowExists(dir),
       sandboxDefaultProfile: this.defaultProfile(),
+      ...this.egressStandard(),
     };
+  }
+
+  private egressStandard(): Pick<RepoConfigView, "egressStandardDefault" | "egressStandardHosts"> {
+    const g = readEgressGlobals(this.store);
+    return { egressStandardDefault: g.standardDefault, egressStandardHosts: g.standardHosts };
   }
 
   /**

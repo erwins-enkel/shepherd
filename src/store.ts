@@ -85,6 +85,7 @@ import {
 import { normalizeRepoDefaultModelSetting } from "./default-model";
 import { normalizeRepoAgentProviderSetting, type RepoAgentProviderSetting } from "./agent-provider";
 import { normalizeRepoDefaultEffortSetting } from "./default-effort";
+import { isEgressIncludeStandard, type EgressIncludeStandard } from "./egress-settings";
 import { decodeStoredRepoPaths, type AccessTokenRow } from "./access-tokens";
 import type { RemoteInstanceRow } from "./remote-instances/service";
 import type { HeavyJob, HeavyJobState } from "./heavy-slot-core";
@@ -691,6 +692,9 @@ export interface RepoConfig {
   defaultExecutionEffort: string;
   /** Per-repo extra allowlisted hosts appended to the autonomous egress allowlist. */
   egressExtraHosts: string[];
+  /** Whether the global standard allowed hosts join this repo's egress allowlist: "inherit"
+   *  (default) follows the global `egressStandardDefault`. */
+  egressIncludeStandard: EgressIncludeStandard;
   /** Repo mode: 'forge' (GitHub-backed, default) or 'lightweight' (local-only, no GitHub). */
   repoMode: "forge" | "lightweight";
   /** On a session PR merge, open a GitHub tracking issue listing the manual operator steps
@@ -1176,6 +1180,7 @@ type RepoCfgRow = {
   defaultEffort: string;
   defaultExecutionEffort: string;
   egressExtraHosts: string | null;
+  egressIncludeStandard: string | null;
   repoMode: string;
   manualStepsIssueEnabled: number;
   preWarmEpicLandingCi: number;
@@ -1406,6 +1411,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       defaultEffort: "inherit",
       defaultExecutionEffort: "inherit",
       egressExtraHosts: [],
+      egressIncludeStandard: "inherit",
       repoMode: "forge",
       manualStepsIssueEnabled: false,
       preWarmEpicLandingCi: false,
@@ -1446,6 +1452,9 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     defaultExecutionEffort:
       normalizeRepoDefaultEffortSetting(r.defaultExecutionEffort) ?? "inherit",
     egressExtraHosts: parseStringListJson(r.egressExtraHosts),
+    egressIncludeStandard: isEgressIncludeStandard(r.egressIncludeStandard)
+      ? r.egressIncludeStandard
+      : "inherit",
     repoMode: r.repoMode === "lightweight" ? "lightweight" : "forge",
     manualStepsIssueEnabled: !!r.manualStepsIssueEnabled,
     preWarmEpicLandingCi: !!r.preWarmEpicLandingCi,
@@ -1488,6 +1497,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     cfg.defaultEffort,
     cfg.defaultExecutionEffort ?? "inherit",
     JSON.stringify(cfg.egressExtraHosts ?? []),
+    cfg.egressIncludeStandard ?? "inherit",
     cfg.repoMode,
     Number(Boolean(cfg.manualStepsIssueEnabled)),
     Number(Boolean(cfg.preWarmEpicLandingCi)),
@@ -2805,7 +2815,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .query(
         `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-                maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, repoMode,
+                maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, repoMode,
                 manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode,
                 pluginAllowlist, skillAllowlist
          FROM repo_config WHERE repoPath = ?`,
@@ -2819,9 +2829,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       `INSERT INTO repo_config
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
-          maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, repoMode,
+          maxAuto, autoLabel, priorityLabels, usageCeilingPct, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, repoMode,
           manualStepsIssueEnabled, preWarmEpicLandingCi, mergeWithoutCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, claudeAiConnectorsEnabled, hidden, pinned, previewStartScript, previewStartCommand, previewOpenMode, pluginAllowlist, skillAllowlist, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -2843,6 +2853,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          defaultEffort = excluded.defaultEffort,
          defaultExecutionEffort = excluded.defaultExecutionEffort,
          egressExtraHosts = excluded.egressExtraHosts,
+         egressIncludeStandard = excluded.egressIncludeStandard,
          repoMode = excluded.repoMode,
          manualStepsIssueEnabled = excluded.manualStepsIssueEnabled,
          preWarmEpicLandingCi = excluded.preWarmEpicLandingCi,
@@ -7600,6 +7611,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("defaultExecutionEffort", `defaultExecutionEffort TEXT NOT NULL DEFAULT 'inherit'`);
     // per-repo egress extra-hosts: JSON-encoded string array (nullable, default []).
     add("egressExtraHosts", `egressExtraHosts TEXT`);
+    // standard allowed hosts: 'inherit' (null) | 'on' | 'off'; inherit follows egressStandardDefault.
+    add("egressIncludeStandard", `egressIncludeStandard TEXT`);
     // per-repo mode: 'forge' (GitHub-backed, default) or 'lightweight' (local-only).
     add("repoMode", `repoMode TEXT NOT NULL DEFAULT 'forge'`);
     // #1061: open a GitHub tracking issue for manual operator steps on merge. Default OFF —

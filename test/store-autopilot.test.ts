@@ -145,6 +145,7 @@ test("repo config autopilotEnabled defaults off and round-trips", () => {
     defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
+    egressIncludeStandard: "inherit" as const,
     repoMode: "forge",
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
   import { getLocale } from "#lib/i18n.js";
-  import { getRepoEgressBlocks } from "#lib/api.js";
+  import { getRepoEgressBlocks, getSettings, putEgressMutedHosts } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
   import { repoConfig } from "#lib/reviews.svelte.js";
   import { clock } from "#lib/now.svelte.js";
   import { relativeTimeAgo } from "#lib/format.js";
@@ -42,6 +43,19 @@
     }
   }
 
+  /** Mute everywhere: the host stays blocked but leaves every repo's list and stops reporting.
+   *  Reads the stored list first, so the append never drops a mute set elsewhere. */
+  async function mute(host: string) {
+    try {
+      const current = (await getSettings()).egressMutedHosts ?? [];
+      await putEgressMutedHosts([...current.filter((h) => h !== host), host]);
+      hosts = hosts.filter((b) => b.host !== host);
+      toasts.info(m.egress_blocked_muted({ host }));
+    } catch {
+      toasts.info(m.egress_blocked_mute_failed({ host }), { alert: true });
+    }
+  }
+
   const items = $derived(
     hosts.map((b) => ({
       host: b.host,
@@ -69,6 +83,7 @@
         {repoPath}
         {items}
         onallowed={(host) => (hosts = hosts.filter((b) => b.host !== host))}
+        onmute={mute}
       />
     {/snippet}
   </RepoSettingRow>

@@ -133,6 +133,8 @@ import {
   parseEpicLanding,
   type EpicRunPatch,
   validateEgressExtraHosts,
+  validateEgressMutedHosts,
+  validateEgressStandardHosts,
   validateBrowserAllowedHosts,
   validateNameAllowlist,
 } from "./validate";
@@ -351,6 +353,17 @@ import {
   hostMatchesAllowlist,
   normalizeHost,
 } from "./egress";
+import {
+  EGRESS_INCLUDE_STANDARD_VALUES,
+  EGRESS_MUTED_HOSTS_SETTING,
+  EGRESS_STANDARD_DEFAULT_SETTING,
+  EGRESS_STANDARD_HOSTS_SETTING,
+  isEgressIncludeStandard,
+  isEgressMuted,
+  readEgressGlobals,
+  standardHostsFor,
+  type EgressIncludeStandard,
+} from "./egress-settings";
 import { suggestLockfileHosts } from "./egress-lockfiles";
 import { scratchpadHasFiles } from "./tmp-sweep";
 import {
@@ -3494,6 +3507,7 @@ type RepoCfgBody = {
   defaultEffort?: unknown;
   defaultExecutionEffort?: unknown;
   egressExtraHosts?: unknown;
+  egressIncludeStandard?: unknown;
   browserAllowedHosts?: unknown;
   pluginAllowlist?: unknown;
   skillAllowlist?: unknown;
@@ -3528,6 +3542,7 @@ type RepoCfgScalars = {
   defaultEffort?: string;
   defaultExecutionEffort?: string;
   egressExtraHosts?: string[];
+  egressIncludeStandard?: EgressIncludeStandard;
   browserAllowedHosts?: string[];
   pluginAllowlist?: string[] | null;
   skillAllowlist?: string[] | null;
@@ -3542,6 +3557,13 @@ type RepoCfgScalars = {
 function parseRepoEgressExtraHosts(v: unknown): unknown {
   const r = validateEgressExtraHosts(v);
   return r.ok ? r.value : { error: r.error };
+}
+
+function parseRepoEgressIncludeStandard(v: unknown): unknown {
+  if (isEgressIncludeStandard(v)) return v;
+  return {
+    error: `egressIncludeStandard must be one of: ${EGRESS_INCLUDE_STANDARD_VALUES.join(", ")}`,
+  };
 }
 
 function parseRepoBrowserAllowedHosts(v: unknown): unknown {
@@ -3580,6 +3602,7 @@ const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => u
   ["defaultEffort", parseRepoDefaultEffort],
   ["defaultExecutionEffort", parseRepoDefaultExecutionEffort],
   ["egressExtraHosts", parseRepoEgressExtraHosts],
+  ["egressIncludeStandard", parseRepoEgressIncludeStandard],
   ["browserAllowedHosts", parseRepoBrowserAllowedHosts],
   ["pluginAllowlist", parseRepoPluginAllowlist],
   ["skillAllowlist", parseRepoSkillAllowlist],
@@ -3630,6 +3653,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       defaultEffort?: string;
       defaultExecutionEffort?: string;
       egressExtraHosts?: string[];
+      egressIncludeStandard?: EgressIncludeStandard;
       browserAllowedHosts?: string[];
       pluginAllowlist?: string[] | null;
       skillAllowlist?: string[] | null;
@@ -3671,6 +3695,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     defaultEffort,
     defaultExecutionEffort,
     egressExtraHosts,
+    egressIncludeStandard,
     browserAllowedHosts,
     pluginAllowlist,
     skillAllowlist,
@@ -3687,7 +3712,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, sharedBrowserEnabled, claudeAiConnectorsEnabled, hidden, pinned, signoffAuthority, sandboxProfile, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort, egressExtraHosts, egressIncludeStandard, browserAllowedHosts, pluginAllowlist, skillAllowlist, maxAuto, autoLabel, priorityLabels, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
       },
       400,
     );
@@ -3718,6 +3743,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     defaultEffort,
     defaultExecutionEffort,
     egressExtraHosts,
+    egressIncludeStandard,
     browserAllowedHosts,
     pluginAllowlist,
     skillAllowlist,
@@ -3765,6 +3791,7 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
     }
   }
   const before = deps.store.getRepoConfig(dir);
+  const beforeAllowlist = repoEgressAllowlist(deps.store, dir);
   // #3441: a CLI change drops a repo model/effort the new effective CLI cannot run to "inherit".
   const clamped = {
     ...cfgPatch,
@@ -3775,14 +3802,14 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
   // Turning the Shared Browser off revokes it now: stop the repo's Chromium, which closes every
   // attached agent socket. Later attaches are refused by the broker's opt-in check.
   if (before.sharedBrowserEnabled && !r.config.sharedBrowserEnabled) deps.sharedBrowser?.stop(dir);
-  kickEgressReapply(deps, dir, before.egressExtraHosts, r.config.egressExtraHosts);
+  kickEgressReapply(deps, dir, beforeAllowlist, repoEgressAllowlist(deps.store, dir));
   const view = withNoPrCi(deps, dir, r.config);
   if (before.claudeAiConnectorsEnabled === r.config.claudeAiConnectorsEnabled) return json(view);
   return json({ ...view, connectorRestart: kickConnectorRestart(deps, dir) });
 }
 
-/** A changed Extra allowed hosts list reaches the repo's running Autonomous sessions live
- *  (fire-and-forget). Order alone is no change. */
+/** A changed repo egress allowlist (Extra allowed hosts, standard hosts toggle) reaches the repo's
+ *  running Autonomous sessions live (fire-and-forget). Order alone is no change. */
 function kickEgressReapply(
   deps: Ctx["deps"],
   dir: string,
@@ -4318,13 +4345,15 @@ async function handleRepoCollaborators({ req, parts, url, deps }: Ctx): Promise<
 }
 
 // A repo's effective egress allowlist, composed like the spawn path in service.ts: forge +
-// Anthropic hosts, global and repo extras, the connector proxy (#3922, #3927).
+// Anthropic hosts, global and repo extras, the standard hosts it includes, the connector proxy
+// (#3922, #3927).
 function repoEgressAllowlist(store: SessionStore, dir: string): string[] {
   const repo = store.getRepoConfig(dir);
   return buildEgressAllowlist({
     forges: config.forges,
     extraHosts: [
       ...config.sandboxEgressExtraHosts,
+      ...standardHostsFor(repo.egressIncludeStandard, readEgressGlobals(store)),
       ...repo.egressExtraHosts,
       ...connectorEgressHosts(repo.claudeAiConnectorsEnabled, {}),
     ],
@@ -4332,7 +4361,7 @@ function repoEgressAllowlist(store: SessionStore, dir: string): string[] {
 }
 
 // GET /api/repo-egress-blocks?repo=<path> (#3922) — the hosts the Autonomous egress firewall
-// blocked for this repo, minus those its effective allowlist now covers.
+// blocked for this repo, minus those its effective allowlist now covers and the muted hosts.
 // Names no allowlist entry can hold (an underscore SRV/TXT name, a single label) are left out:
 // the watcher records any queried name, but Allow would be refused by validateHostList.
 async function handleRepoEgressBlocks({ req, parts, url, deps }: Ctx): Promise<Response | null> {
@@ -4341,9 +4370,15 @@ async function handleRepoEgressBlocks({ req, parts, url, deps }: Ctx): Promise<R
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   const allowlist = repoEgressAllowlist(deps.store, dir);
+  const { mutedHosts } = readEgressGlobals(deps.store);
   const hosts = deps.store
     .listEgressBlocks(dir)
-    .filter((b) => normalizeHost(b.host) !== null && !hostMatchesAllowlist(b.host, allowlist));
+    .filter(
+      (b) =>
+        normalizeHost(b.host) !== null &&
+        !hostMatchesAllowlist(b.host, allowlist) &&
+        !isEgressMuted(b.host, mutedHosts),
+    );
   return json({ hosts });
 }
 
@@ -10908,6 +10943,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       houseStack: storedHouseStack(deps.store.getSetting(HOUSE_STACK_SETTING)),
       // the operator's default issue filter (#3017); defaults when unset.
       issueFilter: storedIssueFilter(deps.store.getSetting(ISSUE_FILTER_SETTING)),
+      // Standard allowed hosts + muted hosts for the Autonomous egress firewall.
+      ...egressSettingsPayload(deps),
       reducedPushMode: config.reducedPushMode,
       // What the Operator Assistant may do (Settings → Assistant).
       assistantRuntime: config.assistantRuntime,
@@ -11106,7 +11143,56 @@ const SETTING_PATCHES: [
   ["machinePlatformOrder", putMachinePlatformOrder],
   ["houseStack", putHouseStack],
   ["issueFilter", putIssueFilter],
+  ["egressStandardHosts", putEgressStandardHosts],
+  ["egressStandardDefault", putEgressStandardDefault],
+  ["egressMutedHosts", putEgressMutedHosts],
 ];
+
+function egressSettingsPayload(deps: Ctx["deps"]) {
+  const g = readEgressGlobals(deps.store);
+  return {
+    egressStandardHosts: g.standardHosts,
+    egressStandardDefault: g.standardDefault,
+    egressMutedHosts: g.mutedHosts,
+  };
+}
+
+/** Every client hears the new egress settings; a standard-hosts change also reaches the running
+ *  Autonomous sessions of every repo with active sessions (each reapply no-ops when unchanged). */
+function egressSettingsSaved(deps: Ctx["deps"], reapply: boolean): Response {
+  const payload = egressSettingsPayload(deps);
+  deps.events.emit("settings:egress", payload);
+  if (reapply) {
+    const repos = new Set(deps.store.list({ activeOnly: true }).map((s) => s.repoPath));
+    for (const dir of repos) {
+      void Promise.resolve()
+        .then(() => deps.service.reapplyEgressAllowlist(dir))
+        .catch((err: unknown) => console.warn("[egress] reapply failed:", err));
+    }
+  }
+  return json(payload);
+}
+
+function putEgressStandardHosts(value: unknown, deps: Ctx["deps"]): Response {
+  const r = validateEgressStandardHosts(value);
+  if (!r.ok) return json({ error: r.error }, 400);
+  deps.store.setSetting(EGRESS_STANDARD_HOSTS_SETTING, JSON.stringify([...new Set(r.value)]));
+  return egressSettingsSaved(deps, true);
+}
+
+function putEgressStandardDefault(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "boolean")
+    return json({ error: "egressStandardDefault must be a boolean" }, 400);
+  deps.store.setSetting(EGRESS_STANDARD_DEFAULT_SETTING, value ? "1" : "0");
+  return egressSettingsSaved(deps, true);
+}
+
+function putEgressMutedHosts(value: unknown, deps: Ctx["deps"]): Response {
+  const r = validateEgressMutedHosts(value);
+  if (!r.ok) return json({ error: r.error }, 400);
+  deps.store.setSetting(EGRESS_MUTED_HOSTS_SETTING, JSON.stringify([...new Set(r.value)]));
+  return egressSettingsSaved(deps, false);
+}
 
 /** The default issue filter (#3017): a partial merged onto the stored value. Every client hears
  *  the new value, and Up Next re-applies it to its cached input — no forge refetch. */

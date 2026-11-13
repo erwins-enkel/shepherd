@@ -88,6 +88,7 @@ function makeHarness(parentTitleRef: { title: string }, subIssues: SubIssueRef[]
     defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
+    egressIncludeStandard: "inherit" as const,
     repoMode: "forge",
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,

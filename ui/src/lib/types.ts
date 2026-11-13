@@ -455,6 +455,12 @@ export interface Settings {
   houseStack?: HouseStack;
   /** The operator's default issue filter (#3017). Absent from older servers. */
   issueFilter?: IssueFilterSettings;
+  /** Standard allowed hosts repos include via `egressIncludeStandard`. Absent from older servers. */
+  egressStandardHosts?: string[];
+  /** What a repo's `egressIncludeStandard: "inherit"` resolves to. */
+  egressStandardDefault?: boolean;
+  /** Hosts the egress firewall still blocks but never reports. */
+  egressMutedHosts?: string[];
   /** Raw configured default-model setting (auto|default|<alias>); the New Task
    *  picker resolves `auto` via the client promo. */
   defaultModel: string;
@@ -1318,6 +1324,8 @@ export interface EgressSuggestion {
   sources: string[];
 }
 
+export type EgressIncludeStandard = "inherit" | "on" | "off";
+
 export interface RepoConfig {
   criticEnabled: boolean;
   /** Standalone repo-level PR critic: review EVERY open CI-green PR, not just session PRs (default off). */
@@ -1351,6 +1359,9 @@ export interface RepoConfig {
   /** Extra hosts on this repo's autonomous egress allowlist (repo settings › Sandbox, #3446);
    *  absent from older servers. */
   egressExtraHosts?: string[];
+  /** Whether the global standard allowed hosts join this repo's egress allowlist: "inherit"
+   *  follows the global default. Absent from older servers. */
+  egressIncludeStandard?: EgressIncludeStandard;
   maxAuto: number;
   autoLabel: string;
   /** Additional priority labels; absent from older servers means none. */
@@ -3706,6 +3717,14 @@ export type WsEvent =
   | { event: "upnext:changed"; data: { version: string; computedAt: number } }
   | { event: "upnext:snapshot"; data: { snapshot: UpNextSnapshot } }
   | { event: "settings:issue-filter"; data: { issueFilter: IssueFilterSettings } }
+  | {
+      event: "settings:egress";
+      data: {
+        egressStandardHosts: string[];
+        egressStandardDefault: boolean;
+        egressMutedHosts: string[];
+      };
+    }
   | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
   | {
       event: "session:reviewing";

@@ -353,8 +353,6 @@ export function handoffPage(
 
 /** Read-only fingerprint; never stages, commits, checks out or reads credential contents. */
 export async function readHandoffGit(worktree: string): Promise<HandoffGit | null> {
-  const { createReadStream } = await import("node:fs");
-  const { lstat } = await import("node:fs/promises");
   const { join } = await import("node:path");
   const git = async (...args: string[]) => {
     const proc = Bun.spawn(["git", "--no-optional-locks", "-c", "core.fsmonitor=false", ...args], {
@@ -384,19 +382,11 @@ export async function readHandoffGit(worktree: string): Promise<HandoffGit | nul
       hash.update(name).update("\0");
       try {
         const path = join(worktree, name);
-        const st = await lstat(path);
-        hash.update(String(st.mode));
-        if (
+        const metadataOnly =
           /(^|\/)(?:\.env(?:\.|$)|\.ssh(?:\/|$)|credentials(?:\.|$)|id_(?:rsa|ed25519)(?:\.|$))|\.(?:pem|key)$/.test(
             name,
-          )
-        )
-          hash.update(`${st.size}:${st.mtimeMs}`);
-        else if (st.isFile()) for await (const chunk of createReadStream(path)) hash.update(chunk);
-        else if (st.isSymbolicLink()) {
-          const { readlink } = await import("node:fs/promises");
-          hash.update(await readlink(path));
-        }
+          );
+        await hashHandoffFile(hash, path, metadataOnly);
       } catch {
         hash.update("missing");
       }
@@ -410,6 +400,41 @@ export async function readHandoffGit(worktree: string): Promise<HandoffGit | nul
     };
   } catch {
     return null;
+  }
+}
+
+/** Inspect the opened inode; a checked path may be replaced before it is opened. */
+async function hashHandoffFile(
+  hash: ReturnType<typeof createHash>,
+  path: string,
+  metadataOnly: boolean,
+): Promise<void> {
+  const { open, lstat, readlink } = await import("node:fs/promises");
+  const { constants } = await import("node:fs");
+  if (metadataOnly) {
+    const stat = await lstat(path);
+    hash.update(String(stat.mode)).update(`${stat.size}:${stat.mtimeMs}`);
+    return;
+  }
+  // Never follow the last path component; nonblocking prevents a raced FIFO from hanging collection.
+  const file = await open(
+    path,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  ).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ELOOP") throw error;
+    return null;
+  });
+  if (!file) {
+    hash.update("symlink").update(await readlink(path));
+    return;
+  }
+  try {
+    const stat = await file.stat();
+    hash.update(String(stat.mode));
+    if (stat.isFile())
+      for await (const chunk of file.createReadStream({ autoClose: false })) hash.update(chunk);
+  } finally {
+    await file.close();
   }
 }
 

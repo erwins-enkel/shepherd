@@ -867,10 +867,9 @@ test("offline: a dropped socket reads offline 3s after close, since the close, u
   made[0].accept();
   vi.advanceTimersByTime(20_000);
   made[0].close(); // at t=20s
-  const closes = s.socketCloses;
   vi.advanceTimersByTime(1_000);
   made[1].close(); // backoff reopen fails too
-  expect(s.socketCloses).toBe(closes + 1);
+  expect(s.offline).toBe(false); // still inside the grace
   vi.advanceTimersByTime(2_000);
   expect(s.offline).toBe(true);
   expect(s.offlineSince).toBe(20_000);
@@ -916,12 +915,106 @@ test("reconnectNow replaces even an open socket (browser offline, socket not yet
   const { made, dispose } = connectFake(s);
   made[0].accept();
   dom.fire("w:", "offline");
-  const closes = s.socketCloses;
   s.reconnectNow();
   expect(made.length).toBe(2);
-  made[1].close(); // the attempt fails: visible to the notice as a close
-  expect(s.socketCloses).toBe(closes + 1);
+  made[1].close(); // the attempt fails
   expect(s.offline).toBe(true);
+  dispose();
+});
+
+// ---- reconnecting → unreachable ----
+
+test("unreachable: 15s of reconnecting after the grace, cleared by onopen", () => {
+  vi.useFakeTimers();
+  stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  made[0].accept();
+  made[0].close();
+  vi.advanceTimersByTime(3_000);
+  expect(s.offline).toBe(true);
+  expect(s.unreachable).toBe(false); // reconnecting
+  vi.advanceTimersByTime(14_999);
+  expect(s.unreachable).toBe(false);
+  vi.advanceTimersByTime(1);
+  expect(s.unreachable).toBe(true);
+  made.at(-1)!.close(); // whatever attempt is in flight fails; backoff opens the next
+  vi.advanceTimersByTime(30_000);
+  made.at(-1)!.accept();
+  expect(s.offline).toBe(false);
+  expect(s.unreachable).toBe(false);
+  dispose();
+});
+
+test("unreachable: the browser offline event starts the 15s window at once", () => {
+  vi.useFakeTimers();
+  const dom = stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  made[0].accept();
+  dom.fire("w:", "offline");
+  expect(s.offline).toBe(true);
+  vi.advanceTimersByTime(14_999);
+  expect(s.unreachable).toBe(false);
+  vi.advanceTimersByTime(1);
+  expect(s.unreachable).toBe(true);
+  dispose();
+});
+
+test("unreachable: a wake on a dead socket goes back to reconnecting with a full window", () => {
+  vi.useFakeTimers();
+  const dom = stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  made[0].accept();
+  made[0].close();
+  vi.advanceTimersByTime(18_000);
+  expect(s.unreachable).toBe(true);
+  dom.fire("w:", "focus");
+  expect(s.offline).toBe(true);
+  expect(s.unreachable).toBe(false);
+  vi.advanceTimersByTime(14_999);
+  expect(s.unreachable).toBe(false);
+  vi.advanceTimersByTime(1);
+  expect(s.unreachable).toBe(true);
+  dispose();
+});
+
+test("unreachable: reconnectNow goes back to reconnecting and retries on the fast timeout", () => {
+  vi.useFakeTimers();
+  stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  made[0].accept();
+  made[0].close();
+  vi.advanceTimersByTime(60_000); // long outage: backoff and connect timeout grew
+  expect(s.unreachable).toBe(true);
+  s.reconnectNow();
+  expect(s.unreachable).toBe(false);
+  const attempt = made.at(-1)!;
+  vi.advanceTimersByTime(connectTimeout(0) - 1);
+  expect(attempt.readyState).toBe(0);
+  vi.advanceTimersByTime(1);
+  expect(attempt.readyState).toBe(3); // given up after 4s, not the grown timeout
+  dispose();
+});
+
+test("unreachable: after recovery the next outage starts reconnecting again", () => {
+  vi.useFakeTimers();
+  stubDom({ visibilityState: "visible" });
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  made[0].accept();
+  made[0].close();
+  vi.advanceTimersByTime(18_000);
+  expect(s.unreachable).toBe(true);
+  s.reconnectNow();
+  made.at(-1)!.accept();
+  vi.advanceTimersByTime(20_000);
+  made.at(-1)!.close();
+  vi.advanceTimersByTime(3_000);
+  expect(s.offline).toBe(true);
+  expect(s.unreachable).toBe(false);
   dispose();
 });
 

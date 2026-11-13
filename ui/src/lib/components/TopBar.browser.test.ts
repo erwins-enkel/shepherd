@@ -3373,6 +3373,19 @@ describe("TopBar — telemetry menu behavior", () => {
     expect(ident!.querySelector(".ident-dot.on")).toBeNull();
   });
 
+  it("desktop: conn chip reads RECONNECTING while offline, OFFLINE once unreachable", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const props = { ...base, connected: false, ...FLAGS.desktop, ...sessionsProp(0) };
+    const { rerender } = await render(TopBar, { ...props, offline: true });
+    const conn = document.querySelector<HTMLElement>(".conn")!;
+    expect(conn.querySelector(".conn-label")!.textContent).toBe(m.topbar_conn_reconnecting());
+    expect(conn.getAttribute("aria-label")).toBe(m.conn_reconnecting_title());
+    await rerender({ ...props, offline: true, unreachable: true });
+    expect(conn.querySelector(".conn-label")!.textContent).toBe(m.topbar_conn_offline());
+    expect(conn.getAttribute("aria-label")).toBe(m.topbar_conn_tip_unreachable());
+  });
+
   it("desktop keyboard: open focuses the first ENABLED row, arrows cycle, Esc refocuses the gear", async () => {
     await page.viewport(1280, 900);
     document.body.style.width = "1280px";

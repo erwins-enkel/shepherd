@@ -69,6 +69,7 @@
     nowMs,
     connected = false,
     offline = false,
+    unreachable = false,
     mobile = false,
     touch = false,
     limits = null,
@@ -117,8 +118,10 @@
     sessions: Session[];
     nowMs: number;
     connected?: boolean;
-    /** Down past the reconnect grace (store.offline): the dot becomes a labelled OFFLINE chip. */
+    /** Down past the reconnect grace (store.offline): the dot becomes a labelled RECONNECTING chip. */
     offline?: boolean;
+    /** Reconnecting has failed for a while (store.unreachable): the chip reads OFFLINE. */
+    unreachable?: boolean;
     mobile?: boolean;
     touch?: boolean;
     limits?: UsageLimits | null;
@@ -409,7 +412,11 @@
   );
   const live = $derived(connected && !offline);
   const connText = $derived(
-    live ? m.topbar_conn_tip_connected() : m.topbar_conn_tip_disconnected(),
+    live
+      ? m.topbar_conn_tip_connected()
+      : unreachable
+        ? m.topbar_conn_tip_unreachable()
+        : m.conn_reconnecting_title(),
   );
 
   // Three-step ladder (usage-gauges.ts): muted at rest, amber 75–90 (warming),
@@ -1047,7 +1054,9 @@
       />
       <div class="conn tip" class:offline data-tip={connText} aria-label={connText}>
         <span class="dot" class:on={live}>{live ? "●" : "○"}</span>
-        {#if offline}<span class="conn-label">{m.topbar_conn_offline()}</span>{/if}
+        {#if offline}<span class="conn-label"
+            >{unreachable ? m.topbar_conn_offline() : m.topbar_conn_reconnecting()}</span
+          >{/if}
       </div>
       {#if !foldBadges}<TopBarBadges
           {compactBadges}
@@ -1299,7 +1308,7 @@
   }
   /* Offline past the reconnect grace: the dot grows into a static amber chip (in-progress
      "reconnecting" — red stays the blocked agent's). A readout, not a button: no fill, no pulse;
-     the hollow ○ plus the OFFLINE label carry it without hue. */
+     the hollow ○ plus the RECONNECTING / OFFLINE label carry it without hue. */
   .conn.offline {
     box-sizing: border-box;
     gap: 6px;

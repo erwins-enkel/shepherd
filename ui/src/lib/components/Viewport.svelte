@@ -3266,8 +3266,8 @@
         {#if !connected}
           <span
             class="vp-offline"
-            title={m.topbar_conn_tip_disconnected()}
-            aria-label={m.topbar_conn_tip_disconnected()}>●</span
+            title={m.conn_reconnecting_title()}
+            aria-label={m.conn_reconnecting_title()}>●</span
           >
         {/if}
         {#if hotGauge}

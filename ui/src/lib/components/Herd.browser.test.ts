@@ -697,6 +697,33 @@ describe("Herd origin filter (#3999)", () => {
     await expect.element(page.getByRole("button", { name: /Owed/ })).toBeInTheDocument();
     expect(originBar()).toBeNull();
   });
+
+  describe("phone flow", () => {
+    const flowProps = {
+      ...base,
+      sessions: [session({ id: "d", name: "drained" })],
+      git: {},
+      flow: true,
+      originCounts: counts(0, 1, 0),
+      onoriginfilter: () => {},
+    };
+
+    it("hides the bar until a pull reveals it", async () => {
+      render(Herd, flowProps);
+      await expect.element(page.getByText("drained")).toBeInTheDocument();
+      expect(originBar()).toBeNull();
+    });
+
+    it("shows the bar once revealed", async () => {
+      render(Herd, { ...flowProps, originBarRevealed: true });
+      await expect.element(page.getByRole("group", { name: "Origin" })).toBeInTheDocument();
+    });
+
+    it("keeps the bar while an origin filter is on", async () => {
+      render(Herd, { ...flowProps, originFilter: "drain" as const });
+      await expect.element(page.getByRole("group", { name: "Origin" })).toBeInTheDocument();
+    });
+  });
 });
 
 describe("Herd Done filter", () => {

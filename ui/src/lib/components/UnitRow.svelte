@@ -74,6 +74,8 @@
   import { coldResumeExplanation, epicRunStoppedExplanation } from "#lib/tooltips/explanations.js";
   import type { TooltipContent } from "#lib/tooltips/content.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import IntegratedChildNote from "./herd/IntegratedChildNote.svelte";
+  import type { IntegratedNoteInput } from "#lib/integrated-child-note.js";
   import { onDestroy, untrack } from "svelte";
   import UnitRowRight from "./unit-row/UnitRowRight.svelte";
   import PulseLine from "./PulseLine.svelte";
@@ -129,6 +131,7 @@
     showModel = true,
     showCli = true,
     heavySlot = null,
+    integrated = undefined,
   }: {
     session: Session;
     selected: boolean;
@@ -205,6 +208,9 @@
     showCli?: boolean;
     /** The host-wide heavy-check slot (#3181): the card's now-line shows this session's part in it. */
     heavySlot?: HeavySlotSnapshot | null;
+    /** #3016: its epic integrated this session's PR — the row says so, and for one on another
+     *  machine how its settle there stands. */
+    integrated?: IntegratedNoteInput;
   } = $props();
 
   // Every status-driven DISPLAY branch below reads this, not session.status: a
@@ -1386,6 +1392,9 @@
         <span class="chip-cold-resume" use:statusTip={{ text: coldResumeTip, wide: true }}
           ><span aria-hidden="true">⚠</span> {coldResumeChip}</span
         >
+      {/if}
+      {#if integrated}
+        <IntegratedChildNote note={integrated} />
       {/if}
       {#if session.manualSteps.length > 0}
         {#if onshowowed}

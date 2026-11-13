@@ -729,3 +729,125 @@ test("remote epic: a child it sent to a third machine groups it once, never also
   ]);
   expect(sessionlessEpicGroups([], merged.epics, merged.keys, none, none, [onMac])).toEqual([]);
 });
+
+// ── #3016: integrated work leaves its epic group ─────────────────────────────────────────────
+// Epic #3016's view: MacBook TASK-145/146 (PRs #3955/#3973, merged into the epic branch by the
+// leading drain) sat among the epic's running sessions with a MERGED badge. A session whose own PR
+// is the one its epic integrated is merged work — it goes to the lifecycle groups (Merged), with a
+// note. Anything short of that proof keeps it where it was.
+
+function mergedGit(number: number, state: GitState["state"] = "merged"): GitState {
+  return { ...git(state), number };
+}
+
+/** Epic #100 whose child 101 ran on the Mac as `sessionId`, integrated with PR `integratedPr`. */
+function integratedEpic(
+  sessionId: string,
+  integratedPr: number | null | undefined,
+  over: Partial<EpicChild> = {},
+): Epic {
+  const e = epicSentTo(101, sessionId);
+  e.children[0] = {
+    ...e.children[0],
+    state: "merged",
+    ...(integratedPr !== undefined && { integratedPrNumber: integratedPr }),
+    ...over,
+  };
+  return e;
+}
+
+const group = (sessions: Session[], epics: Record<string, Epic>, mirrored: Session[] = []) =>
+  groupSessionsByEpicRaw(
+    sessions,
+    epics,
+    new Set(Object.keys(epics)),
+    {},
+    () => false,
+    () => false,
+    now,
+    mirrored,
+  );
+
+test("integrated: a mirrored child whose PR the epic integrated leaves the group, noted", () => {
+  const epics = {
+    [key("/r", 100)]: integratedEpic("remote-1", 3955, {
+      remoteSettle: { host: MAC, sessionId: "remote-1", reason: "busy" },
+    }),
+  };
+  const mac = { ...mirroredSession("remote-1", 101), git: mergedGit(3955) };
+  const out = group([session("local-102", "/r", 102)], epics, [mac]);
+  expect(out.groups[0].sessions.map((s) => s.id)).toEqual(["local-102"]);
+  expect(out.mirroredRest.map((s) => s.id)).toEqual(["remote-1"]);
+  expect(out.integrated.get("remote-1")).toEqual({
+    parentIssueNumber: 100,
+    host: MAC,
+    settle: "busy",
+  });
+});
+
+test("integrated: the same rule for a local session", () => {
+  const e = epic("/r", 100, [101, 102]);
+  e.children[0] = { ...e.children[0], state: "merged", integratedPrNumber: 77 };
+  const epics = { [key("/r", 100)]: e };
+  const done = session("local-101", "/r", 101, "done");
+  const out = groupSessionsByEpicRaw(
+    [done, session("local-102", "/r", 102)],
+    epics,
+    new Set([key("/r", 100)]),
+    { "local-101": mergedGit(77) },
+    () => false,
+    () => false,
+    now,
+  );
+  expect(out.rest.map((s) => s.id)).toEqual(["local-101"]);
+  expect(out.integrated.get("local-101")).toEqual({
+    parentIssueNumber: 100,
+    host: null,
+    settle: null,
+  });
+});
+
+test("integrated: a child merged only by its closed issue, its PR merged into main, stays", () => {
+  // deriveChildState says `merged` for a closed issue too; without an integration record for
+  // this PR the session is no proof of integrated epic work.
+  const epics = {
+    [key("/r", 100)]: integratedEpic("remote-1", undefined, { issueClosed: true }),
+  };
+  const intoMain = {
+    ...mirroredSession("remote-1", 101),
+    git: { ...mergedGit(4000), baseRefName: "main" },
+  };
+  const out = group([], epics, [intoMain]);
+  expect(out.groups[0].sessions.map((s) => s.id)).toEqual(["remote-1"]);
+  expect(out.integrated.size).toBe(0);
+});
+
+test("integrated: another PR than the integrated one, an open PR or no known PR stays", () => {
+  for (const [integratedPr, sessionGit] of [
+    [3955, mergedGit(4000)], // its PR is not the one integrated
+    [3955, mergedGit(3955, "open")], // the integrated PR, but this session's is not merged
+    [null, mergedGit(3955)], // integrated without a recorded PR: nothing to match
+  ] as const) {
+    const epics = { [key("/r", 100)]: integratedEpic("remote-1", integratedPr) };
+    const mac = { ...mirroredSession("remote-1", 101), git: sessionGit };
+    const out = group([], epics, [mac]);
+    expect(out.groups[0]?.sessions.map((s) => s.id)).toEqual(["remote-1"]);
+    expect(out.integrated.size).toBe(0);
+  }
+});
+
+test("integrated: the epic is session-less again once only integrated work is listed", () => {
+  const epics = { [key("/r", 100)]: integratedEpic("remote-1", 3955) };
+  epics[key("/r", 100)].children[1] = { ...epics[key("/r", 100)].children[1], state: "ready" };
+  const mac = { ...mirroredSession("remote-1", 101), git: mergedGit(3955) };
+  const active = new Set([key("/r", 100)]);
+  const out = group([], epics, [mac]);
+  expect(out.groups).toEqual([]);
+  // same rule as the grouping: the moved session no longer lists the epic's child
+  expect(
+    sessionlessEpicGroups([], epics, active, none, none, [mac], new Set(out.integrated.keys())).map(
+      (g) => g.key,
+    ),
+  ).toEqual([key("/r", 100)]);
+  expect(sessionlessEpicGroups([], epics, active, none, none, [mac])).toEqual([]);
+});

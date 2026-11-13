@@ -3067,6 +3067,20 @@ export class SessionService {
    * resumes are never serialized against each other.
    */
   private readonly resumeInFlight = new Map<string, Promise<Session | null>>();
+  /**
+   * Per-session archive lease: the teardown running for a session. `archive()` takes it before its
+   * first `await`, so a second archive of the same session — any route: a settle, Clear merged, the
+   * operator, the drain — joins the running one instead of tearing down twice, and every resume
+   * path refuses while it is held ({@link isClosing}).
+   */
+  private readonly archiveInFlight = new Map<string, Promise<number>>();
+  /**
+   * #3016: steers on their way to a session's agent, by session — counted from the call, before
+   * any await, until the paste lands or is dropped. `archiveIfSettled` refuses while one is out, and
+   * a steer refuses once the session's archive lease is held: new work never reaches an agent that
+   * is being torn down.
+   */
+  private readonly steersInFlight = new Map<string, number>();
   private readonly planReleaseInFlight = new Map<string, Promise<boolean>>();
 
   /**
@@ -6338,8 +6352,8 @@ export class SessionService {
     authPolicy: "error" | "clamp" = "error",
   ): Promise<Session> {
     const s = this.deps.store.get(originalId);
-    if (!s || s.status === "archived")
-      throw new Error(`cannot relaunch ${originalId}: missing or archived`);
+    if (!s || s.status === "archived" || this.isClosing(originalId))
+      throw new Error(`cannot relaunch ${originalId}: missing, archived or being archived`);
     this.assertNotTerminal(s, "relaunch");
     this.assertNotOperatorAssistant(s, "relaunch");
 
@@ -7179,6 +7193,7 @@ export class SessionService {
   ): Promise<Session | null> {
     // A session moving to another machine stays stopped: only the move itself brings it back.
     if (opts.automatic && (this.handoffHeld(id) || !this.usagePauseAllows(id, opts))) return null;
+    if (this.isClosing(id)) return null; // being archived: restore() brings it back afterwards
     const existing = this.resumeInFlight.get(id);
     if (existing) return existing; // coalesce: a resume for this id is already running
     const p = this.resumeInner(id, opts).finally(() => this.resumeInFlight.delete(id));
@@ -7323,7 +7338,7 @@ export class SessionService {
    */
   async reviveStranded(id: string): Promise<"revived" | "failed" | "gaveup"> {
     const before = this.deps.store.get(id);
-    if (!before || isUsagePaused(before)) return "failed";
+    if (!before || isUsagePaused(before) || this.isClosing(id)) return "failed";
     const anchor = before.spawnTerminalId; // stable until a heal advances it
     const rec = this.reviveAttempts.get(id);
     if (rec && rec.anchor === anchor && rec.attempts >= SessionService.REDRIVE_CAP) return "gaveup";
@@ -7609,15 +7624,17 @@ export class SessionService {
    * as a REJECTED promise rather than a sync throw; the callers that already guarded that race
    * with try/catch now guard it with try/await.)
    */
-  async reply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
-    return this.replyToLive(
-      id,
-      text,
-      await this.liveTerminalIds(),
-      text,
-      opts.automatic,
-      opts.prelude,
-      opts,
+  reply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
+    return this.#steer(id, false, async () =>
+      this.replyToLive(
+        id,
+        text,
+        await this.liveTerminalIds(),
+        text,
+        opts.automatic,
+        opts.prelude,
+        opts,
+      ),
     );
   }
 
@@ -7669,7 +7686,11 @@ export class SessionService {
 
   /** Deliver an internal task steer, reviving an exited planner by exact identity first.
    * A listed shell is not a live agent; never paste implementation instructions into it. */
-  async resumeAndReply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
+  resumeAndReply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
+    return this.#steer(id, false, () => this.resumeAndReplyNow(id, text, opts));
+  }
+
+  private async resumeAndReplyNow(id: string, text: string, opts: SteerOpts): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s || !this.hasConversation(s)) return false;
     if (!this.usagePauseAllows(id, opts)) return false;
@@ -7750,10 +7771,12 @@ export class SessionService {
    * Used by the task-amendment channel (#2225); every other caller omits it and behaves exactly as
    * before.
    */
-  async operatorReply(id: string, text: string, signalPayload: string = text): Promise<boolean> {
-    if (this.deps.store.get(id)?.operatorAssistant)
-      return this.serializeAssistant(() => this.operatorReplyNow(id, text, signalPayload));
-    return this.operatorReplyNow(id, text, signalPayload);
+  operatorReply(id: string, text: string, signalPayload: string = text): Promise<boolean> {
+    return this.#steer(id, false, () =>
+      this.deps.store.get(id)?.operatorAssistant
+        ? this.serializeAssistant(() => this.operatorReplyNow(id, text, signalPayload))
+        : this.operatorReplyNow(id, text, signalPayload),
+    );
   }
 
   private async operatorReplyNow(
@@ -8336,23 +8359,31 @@ export class SessionService {
     // The CR must reach the PTY only after the paste has landed, and no other steer may slip
     // between them — the paste-end marker is what makes this CR unambiguously Enter (#1567).
     // A `prelude` runs in the same critical section, so nothing lands between it and the paste;
-    // false aborts the steer (nothing pasted, no signal recorded).
-    return this.#serializeSteer(s.id, async () => {
-      const current = this.deps.store.get(s.id);
-      if (!current || current.status === "archived" || current.herdrAgentId !== s.herdrAgentId)
-        return false;
-      if (!operator && !this.usagePauseAllows(s.id, opts)) return false;
-      if (opts.automatic && isShelved(current)) return false;
-      if (prelude) {
-        if (!(await prelude(s))) return false;
-      }
-      if (!operator && !this.usagePauseAllows(s.id, opts)) return false;
-      signal();
-      await this.deps.herdr.send(s.herdrAgentId, `${PASTE_START}${safe}${PASTE_END}`);
-      await this.deps.herdr.send(s.herdrAgentId, "\r");
-      this.finishUsagePauseSteer(s.id, opts, operator);
-      return true;
-    });
+    // false aborts the steer (nothing pasted, no signal recorded). #3016: counted as a steer from
+    // here on (every steer funnels through), and dropped once the session's archive lease is held.
+    return this.#steer(s.id, false, () =>
+      this.#serializeSteer(s.id, async () => {
+        const current = this.deps.store.get(s.id);
+        if (
+          !current ||
+          current.status === "archived" ||
+          this.isClosing(s.id) ||
+          current.herdrAgentId !== s.herdrAgentId
+        )
+          return false;
+        if (!operator && !this.usagePauseAllows(s.id, opts)) return false;
+        if (opts.automatic && isShelved(current)) return false;
+        if (prelude) {
+          if (!(await prelude(s))) return false;
+        }
+        if (!operator && !this.usagePauseAllows(s.id, opts)) return false;
+        signal();
+        await this.deps.herdr.send(s.herdrAgentId, `${PASTE_START}${safe}${PASTE_END}`);
+        await this.deps.herdr.send(s.herdrAgentId, "\r");
+        this.finishUsagePauseSteer(s.id, opts, operator);
+        return true;
+      }),
+    );
   }
 
   private finishUsagePauseSteer(id: string, opts: SteerOpts, operator: boolean): void {
@@ -8413,10 +8444,10 @@ export class SessionService {
   }
 
   /** Shelve / unshelve (operator-only). Visibility + automation quiet; the agent is untouched.
-   *  Returns false for an unknown or archived session. */
+   *  Returns false for an unknown or archived session, or one being archived. */
   setShelved(id: string, shelved: boolean): boolean {
     const s = this.deps.store.get(id);
-    if (!s || s.status === "archived") return false;
+    if (!s || s.status === "archived" || this.isClosing(id)) return false;
     this.deps.store.setShelved(id, shelved);
     this.deps.events?.emit("session:shelved", { id, shelved });
     return true;
@@ -9100,11 +9131,85 @@ export class SessionService {
    * two diverge whenever `reap`'s pid-recycle guard refuses a pid recycled since the re-detect, or a
    * counter-command throws.
    */
-  async archive(
+  archive(
     id: string,
     reapKeys?: string[],
     reason: SessionArchiveReason = "operator",
     automatic = false,
+  ): Promise<number> {
+    const running = this.archiveInFlight.get(id);
+    if (running) return running; // one teardown per session, whoever asks second
+    const p = this.archiveNow(id, reapKeys, reason, automatic).finally(() =>
+      this.archiveInFlight.delete(id),
+    );
+    this.archiveInFlight.set(id, p);
+    return p;
+  }
+
+  /** An archive of this session is running: resume, reply, relaunch and shelving refuse. */
+  isClosing(id: string): boolean {
+    return this.archiveInFlight.has(id);
+  }
+
+  /** #3016: run steer `fn` for session `id` counted in {@link steersInFlight} — unless its archive
+   *  lease is held, then `refused`. The check and the count happen in the caller's tick. */
+  #steer<T>(id: string, refused: T, fn: () => Promise<T>): Promise<T> {
+    if (this.isClosing(id)) return Promise.resolve(refused);
+    this.steersInFlight.set(id, (this.steersInFlight.get(id) ?? 0) + 1);
+    let run: Promise<T>;
+    try {
+      run = fn();
+    } catch (err) {
+      run = Promise.reject(err);
+    }
+    return run.finally(() => {
+      const left = (this.steersInFlight.get(id) ?? 1) - 1;
+      if (left > 0) this.steersInFlight.set(id, left);
+      else this.steersInFlight.delete(id);
+    });
+  }
+
+  /**
+   * Archive `id` (automatic) only if nothing speaks against it right now: no archive, resume or
+   * steer of it is running, it is not being restored, and `refusal` finds nothing on the row as it
+   * is NOW.
+   * The checks and the start of the archive — its lease and the agent stop — run in one tick, so no
+   * resume or shelving can slip in between; once the lease is held, those refuse (#3016). A refusal
+   * changes nothing. `already`: archived before; `gone`: no such session. `onStart` runs in that
+   * same tick, only when the archive starts — before anything can announce it.
+   */
+  archiveIfSettled(
+    id: string,
+    reason: SessionArchiveReason,
+    refusal: (fresh: Session) => string | null,
+    onStart?: () => void,
+  ): Promise<{ archived: true } | { refused: string }> {
+    const fresh = this.deps.store.get(id);
+    const refused = !fresh
+      ? "gone"
+      : fresh.status === "archived"
+        ? "already"
+        : this.archiveInFlight.has(id)
+          ? "settling"
+          : this.resumeInFlight.has(id) || this.restoring.has(id) || this.steersInFlight.has(id)
+            ? "busy"
+            : refusal(fresh);
+    if (refused) return Promise.resolve({ refused });
+    onStart?.();
+    return this.archive(id, undefined, reason, true).then(
+      () => ({ archived: true }) as const,
+      (err: unknown) => {
+        if (err instanceof UsagePauseArchiveCanceled) return { refused: "held" };
+        throw err;
+      },
+    );
+  }
+
+  private async archiveNow(
+    id: string,
+    reapKeys: string[] | undefined,
+    reason: SessionArchiveReason,
+    automatic: boolean,
   ): Promise<number> {
     const s = this.deps.store.get(id);
     if (!s) return 0;

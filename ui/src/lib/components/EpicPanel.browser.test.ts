@@ -379,3 +379,31 @@ describe("EpicPanel ready children under a sandbox halt (#3454)", () => {
     });
   }
 });
+
+// #3016: an integrated child whose session on another machine is not settled there yet — the panel
+// says so even when no herd row shows that session (its mirror not loaded, or lost).
+describe("EpicPanel integrated child settling elsewhere", () => {
+  it("names the machine and why the settle is still open", async () => {
+    const mac = { instanceId: "mac-1", name: "macbook", platform: "macos" };
+    const e: Epic = {
+      ...epic(),
+      children: [
+        child({
+          number: 3013,
+          state: "merged",
+          integratedPrNumber: 3955,
+          remoteSettle: { host: mac, sessionId: "mac-145", reason: "offline" },
+        }),
+        child({ number: 3015, state: "in-review", integratedPrNumber: undefined }),
+      ],
+    };
+    render(EpicPanel, { repoPath: "/repo", parent: 327, epic: e });
+    const label = m.integrated_chip_remote({
+      parent: "327",
+      host: "macbook",
+      status: m.integrated_offline_status(),
+    });
+    await expect.element(page.getByText(label)).toBeInTheDocument();
+    expect(document.querySelectorAll("[data-testid='integrated-note']")).toHaveLength(1);
+  });
+});

@@ -290,6 +290,7 @@ import { NetnsDevForwarder } from "./netns-dev-forward";
 import { detectEgressHostLoopback, refreshEgressBackend } from "./egress";
 import { RecapService, type LandedWorkEvidence } from "./recap";
 import { PostMergeStepsService } from "./post-merge-steps";
+import { IntegratedChildSettler } from "./integrated-child-settle";
 import { materializeLandingManualSteps, materializeLandingOnClear } from "./epic-landing-steps";
 import { buildLandingPrTitle } from "./epic-landing";
 import type { CompletedEpic } from "./completed-epic";
@@ -4592,6 +4593,17 @@ const appDeps: AppDeps = {
   ciStartupFailure,
   ciRestart: { holds: ciRestartHolds, refreshPr: (id) => prPoller.pollSession(id) },
   materializeManualSteps,
+  // #3016: the leading machine of an epic settles a child that ran here through this.
+  integratedChildSettler: new IntegratedChildSettler({
+    store,
+    service,
+    prOf: (id) => prPoller.get(id),
+    resolveForge,
+    materializeManualSteps,
+    retainClaim: (id) => drain.retainClaim(id),
+    dropPrCache: (id) => prPoller.drop(id),
+    emitArchived: (id) => events.emit("session:archived", { id }),
+  }),
   ownsPr,
   activity: { snapshot: () => poller.activitySnapshot() },
   blocks: { snapshot: () => poller.blockSnapshot() },

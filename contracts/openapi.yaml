@@ -4473,6 +4473,10 @@ components:
           type: boolean
         runSummary:
           $ref: "#/components/schemas/DrainRunSummary"
+        remoteSettle:
+          description: "#3016: integrated children of this repo whose session on the machine that ran them is still to settle there — also once the epic's record is gone. Always sent by the current server; optional so an older server stays valid."
+          type: array
+          items: { $ref: "#/components/schemas/RemoteSettlePending" }
     DrainRunSummary:
       type: object
       description: "Read-only picture of how one repo's drain is running: the leading epic, superseded epics still winding down, who holds the agent slots, and what starts next."
@@ -5986,6 +5990,13 @@ components:
           description: "What the child needs from the machine it runs on, read from its labels and its epic's (`requires-macos` → xcode). Absent when it needs nothing in particular."
         elsewhere:
           $ref: "#/components/schemas/EpicChildElsewhere"
+        integratedPrNumber:
+          {
+            type: [integer, "null"],
+            description: "#3016: the PR its integration record names — the one merged into the epic branch; null when recorded without one. Absent while the child is not integrated (an issue merely closed is not).",
+          }
+        remoteSettle:
+          $ref: "#/components/schemas/EpicChildRemoteSettle"
     EpicChildElsewhere:
       type: object
       additionalProperties: true
@@ -5999,6 +6010,47 @@ components:
             description: "Its mirrored session there; null while the machine has not confirmed the start.",
           }
         prNumber: { type: [integer, "null"], description: "Its PR once it opened one." }
+    EpicChildRemoteSettle:
+      type: object
+      additionalProperties: true
+      description: "#3016: the child is integrated, but its session on the machine that ran it is not settled there yet (absent otherwise). The leading machine asks that machine to settle it (POST /api/sessions/{id}/settle-integrated there)."
+      required: [host, sessionId, reason]
+      properties:
+        host: { $ref: "#/components/schemas/SessionHost" }
+        sessionId: { type: string, description: "Its session on that machine." }
+        reason:
+          $ref: "#/components/schemas/RemoteSettleReason"
+          description: "Why the settle is still open. requested: asked, or that machine is archiving it now; offline: its machine is not connected; busy: its agent works or waits there; held: shelved or paused there; not_merged_there: that machine does not see the merge; rejected: it sees no epic child there; unsupported: its Shepherd predates the settle; failed: the request failed (retried)."
+    RemoteSettlePending:
+      type: object
+      additionalProperties: true
+      description: "#3016: an open settle as the repo's drain status lists it (EpicChildRemoteSettle with its child and epic)."
+      required: [issueNumber, parentIssueNumber, host, sessionId, reason]
+      properties:
+        issueNumber: { type: integer }
+        parentIssueNumber: { type: integer }
+        host: { $ref: "#/components/schemas/SessionHost" }
+        sessionId: { type: string }
+        reason: { $ref: "#/components/schemas/RemoteSettleReason" }
+    RemoteSettleReason:
+      type: string
+      x-shepherd-open-enum: true
+      enum: [requested, offline, busy, held, not_merged_there, rejected, unsupported, failed]
+    SettleIntegratedRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        prNumber:
+          type: integer
+          minimum: 1
+          description: The PR the leading machine integrated; absent → the session's own PR is checked.
+    SettleIntegratedResult:
+      type: object
+      additionalProperties: true
+      required: [settled]
+      properties:
+        settled: { type: boolean, const: true }
+        already: { type: boolean, description: "true when the session was archived before." }
     EpicRun:
       type: object
       additionalProperties: true
@@ -10631,6 +10683,42 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":
           description: Unknown id.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/sessions/{id}/settle-integrated:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: settleIntegratedSession
+      description: "#3016: the leading machine of an epic asks the machine that ran one of its children to settle that session once it merged the child's PR into the epic branch. This machine checks it itself — its own session and PR, a fresh forge read (merged into an epic branch), the session at rest — and archives it (reason merged) keeping the issue's claim; the issue stays open until the epic lands. Idempotent."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SettleIntegratedRequest" }
+      responses:
+        "200":
+          description: Settled now, or archived before (`already`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SettleIntegratedResult" }
+        "400":
+          description: Body is not {prNumber?} with a positive integer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No such session (code session_not_found).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: "Not settled now; `code` says why: settling (an archive runs), not_merged, not_epic_child, held (shelved or paused), busy (its agent works or waits)."
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

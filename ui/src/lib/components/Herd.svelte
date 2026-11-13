@@ -25,6 +25,8 @@
   import HerdEmptyState from "./herd/HerdEmptyState.svelte";
   import HerdMachineBar from "./herd/HerdMachineBar.svelte";
   import RemoteDispatchRow from "./herd/RemoteDispatchRow.svelte";
+  import PendingSettleRow from "./herd/PendingSettleRow.svelte";
+  import { pendingSettles, settleNoteFor, unlistedSettles } from "#lib/integrated-child-note.js";
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
   import SucceededEpicsBand from "./SucceededEpicsBand.svelte";
   import { isSucceededEpic } from "#lib/succeeded-epics.js";
@@ -437,6 +439,19 @@
     isRemoteEpic(epic)
       ? machineFilter === "all" || machineFilter === epic.host.instanceId
       : machineFilter === "all" || machineFilter === "local";
+  // #3016: open settles of integrated children on other machines, from the repos' drain statuses —
+  // they outlive the epic's record. A listed row carries its note; one whose session this
+  // Shepherd's mirror does not show gets its own quiet row under the lifecycle groups (plain
+  // "all" view only, like the session-less epic groups).
+  const settles = $derived(pendingSettles(drain));
+  const settlesUnlisted = $derived(
+    showSessionless
+      ? byMachine(
+          unlistedSettles(settles, new Set(remoteSessions.map((s) => s.id)), repoFilter),
+          machineFilter,
+        )
+      : [],
+  );
   const completedEpicKeys = $derived(
     new Set(completedEpics.map((e) => `${e.repoPath}#${e.parentIssueNumber}`)),
   );
@@ -450,6 +465,7 @@
           repoFilter,
           completedEpicKeys,
           remoteShown,
+          new Set(grouped.integrated.keys()),
         )
           .filter((g) => sessionlessInMachine(g.epic))
           .map((g) => ({
@@ -595,6 +611,7 @@
     onshowowed,
     showModel: modelMix,
     showCli: cliMix,
+    integratedFor: (id) => settleNoteFor(id, grouped.integrated.get(id), settles),
   });
 
   // Lifecycle groups in display order — each entry maps to a <HerdGroup> render.
@@ -871,6 +888,14 @@
   />
 {/snippet}
 
+{#snippet pendingSettleList()}
+  <!-- #3016: open settles whose session no listed row carries — also when nothing else is listed,
+       so they render in the empty states too, like the session-less epic groups. -->
+  {#each settlesUnlisted as settle (settle.sessionId)}
+    <PendingSettleRow {settle} />
+  {/each}
+{/snippet}
+
 {#snippet succeededEpics()}
   <!-- #3838: stays until the operator confirms each success -->
   {#if epicBandsShown}
@@ -987,6 +1012,7 @@
          done/parked sessions read as intentional. A session-less active epic (#3814) still
          shows above it. -->
       {@render epicGroupList()}
+      {@render pendingSettleList()}
       <HerdEmptyState
         mode="sessions"
         {statusFilter}
@@ -998,6 +1024,7 @@
       />
     {:else if shown.length + remoteShown.length + dispatchesShown.length === 0}
       {@render epicGroupList()}
+      {@render pendingSettleList()}
       <HerdEmptyState
         mode={machineFilterName ? "machine" : "shown"}
         machine={machineFilterName}
@@ -1033,6 +1060,7 @@
           touchTarget={flow || touch}
         />
       {/each}
+      {@render pendingSettleList()}
     {/if}
   </div>
   {@render footer?.()}

@@ -758,6 +758,15 @@ test("a mirrored session without PR state lands where its status and flags put i
   expect(p.awaitingMerge).toHaveLength(0);
 });
 
+test("#3016: an integrated mirrored child left by its epic group lands in Merged, even while done", () => {
+  // epic grouping hands it back in mirroredRest; its machine's merged PR state decides its stage
+  const remote = mirrored("mac-145", { status: "done", git: git("merged", "success") });
+  const joined = joinMirrored([], {}, [remote]);
+  const p = partitionSessions(joined.sessions, joined.git);
+  expect(p.merged.map((s) => s.id)).toEqual(["mac-145"]);
+  expect(p.active).toHaveLength(0);
+});
+
 test("mirrored sessions interleave by start time and keep the local order", () => {
   const local = [
     { ...session("l1"), createdAt: 10 },

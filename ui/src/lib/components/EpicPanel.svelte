@@ -9,6 +9,7 @@
   import EpicHandsOffIntro from "./EpicHandsOffIntro.svelte";
   import EpicDiagnosisModal from "./EpicDiagnosisModal.svelte";
   import MachineBadge from "./MachineBadge.svelte";
+  import IntegratedChildNote from "./herd/IntegratedChildNote.svelte";
   import { childJumpSession } from "./epic-child";
   import SessionJumpChip from "./issues-panel/SessionJumpChip.svelte";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
@@ -102,6 +103,16 @@
         <span class="title">{c.title}</span>
         <span class="chip chip-{chip.tone}">{stateLabel(c.state)}</span>
         {#if c.elsewhere}<MachineBadge host={c.elsewhere.host} />{/if}
+        {#if c.remoteSettle}
+          <!-- #3016: integrated, but its session on that machine is not settled there yet -->
+          <IntegratedChildNote
+            note={{
+              parentIssueNumber: epic.parentIssueNumber,
+              host: c.remoteSettle.host,
+              settle: c.remoteSettle.reason,
+            }}
+          />
+        {/if}
         {#if jump && onopensession}
           {@const id = jump.id}
           <SessionJumpChip session={jump} onopen={() => onopensession(id)} />

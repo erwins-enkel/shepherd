@@ -4,6 +4,7 @@ import {
   type Epic,
   type EpicChild,
   type EpicChildElsewhere,
+  type EpicChildRemoteSettle,
   type EpicRun,
 } from "./epic-core";
 import { requirementsFromLabels } from "./drain-placement";
@@ -317,6 +318,28 @@ export function withRetiredPrs(
     return c.state === "in-review" && c.sessionId == null && pr != null
       ? { ...c, retiredPrNumber: pr }
       : c;
+  });
+  return { ...epic, children };
+}
+
+/** #3016: attach {@link EpicChild.integratedPrNumber} from the epic's integration records and
+ *  {@link EpicChild.remoteSettle} for an integrated child whose session on another machine is still
+ *  to settle. Pure; children without either are untouched. */
+export function withIntegrationFacts(
+  epic: Epic,
+  integrated: readonly { childNumber: number; prNumber: number | null }[],
+  remoteSettle: ReadonlyMap<number, EpicChildRemoteSettle>,
+): Epic {
+  if (integrated.length === 0) return epic;
+  const prs = new Map(integrated.map((d) => [d.childNumber, d.prNumber]));
+  const children = epic.children.map((c) => {
+    if (!prs.has(c.number)) return c;
+    const settle = remoteSettle.get(c.number);
+    return {
+      ...c,
+      integratedPrNumber: prs.get(c.number)!,
+      ...(settle && { remoteSettle: settle }),
+    };
   });
   return { ...epic, children };
 }

@@ -261,6 +261,18 @@ that needs another machine is sent there.
   PR itself, whether or not the repo reviews every PR. When your critic requests changes, the epic
   holds and names the session there ("macbook · TASK-145"): steer that agent. A child you started on
   the other machine by hand is never merged for you; merge it from its session's merge row.
+- **Once merged, it is closed on its machine.** There the child is an ordinary session, which that
+  machine's drain never archives on its own. So once your drain has merged it into the integration
+  branch, it asks that machine to close the session. The machine checks for itself that the PR is
+  merged into an epic branch and that the agent is at rest (not working, not waiting for you, not
+  shelved), then archives the session as merged. The issue keeps its claim and stays open until the
+  epic lands. Until then the session is listed under **Merged** with a note — "Integrated into epic
+  #3016 · closing on macbook: …" — that says what it waits for: the machine is offline, its agent is
+  still active, it is shelved there, or its Shepherd is too old to do it (update it, or archive the
+  session there by hand). The epic shows the same note on the child, and the herd keeps it after
+  the epic is done — on its own row when the other machine's session is not listed here. Your drain
+  asks again after a restart and when the machine reconnects; asking about a session already closed
+  changes nothing.
 - **You see it in the epic.** The child shows the machine's badge, **Open session** opens its
   session there, and the run area lists it under **Now**.
 - **It holds a slot until its PR opens.** A child sent to another machine counts against the repo's

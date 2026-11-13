@@ -10,6 +10,7 @@ import { attachAttempts, type GhFetchAttempt } from "../src/forge/gh-attempt";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import { clearIssuePeekCacheForTests } from "../src/issue-peek";
 import { config } from "../src/config";
+import { SHEPHERD_REPO_SLUG, SHEPHERD_VERSION } from "../src/version";
 
 let tmpRoot: string;
 let repoDir: string;
@@ -437,6 +438,93 @@ test("POST /api/issues without JSON content type → 415", async () => {
   const app = makeApp(makeDeps((p) => (p === repoDir ? forge : null)));
   const res = await app.fetch(
     new Request("http://localhost/api/issues", { method: "POST", body: "{}" }),
+  );
+  expect(res.status).toBe(415);
+});
+
+// ── POST /api/feedback/issues (handleShepherdIssueCreate, #4003) ─────────────
+// Files into Shepherd's own repo through a server-owned forge — no registered clone needed.
+
+function postFeedback(app: ReturnType<typeof makeApp>, body: unknown): Promise<Response> {
+  return app.fetch(
+    new Request("http://localhost/api/feedback/issues", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+function feedbackApp(forge: GitForge | null): ReturnType<typeof makeApp> {
+  return makeApp({ ...makeDeps(() => null), resolveShepherdForge: () => forge });
+}
+
+test("POST /api/feedback/issues files redacted content plus the version line", async () => {
+  const calls: { title: string; body: string }[] = [];
+  const forge = fakeForge({
+    kind: "github",
+    slug: SHEPHERD_REPO_SLUG,
+    createIssue: async (o) => {
+      calls.push(o);
+      return { number: 9, url: `https://github.com/${SHEPHERD_REPO_SLUG}/issues/9` };
+    },
+  });
+  const res = await postFeedback(feedbackApp(forge), {
+    title: "  HUD freezes  ",
+    body: "Steps. GITHUB_TOKEN=ghp_abcdefghijklmnop",
+  });
+  expect(res.status).toBe(201);
+  expect(await res.json()).toEqual({
+    number: 9,
+    url: `https://github.com/${SHEPHERD_REPO_SLUG}/issues/9`,
+    slug: SHEPHERD_REPO_SLUG,
+  });
+  expect(calls).toEqual([
+    {
+      title: "HUD freezes",
+      body: `Steps. GITHUB_TOKEN=<redacted>\n\n---\n- Shepherd: v${SHEPHERD_VERSION}`,
+    },
+  ]);
+});
+
+test("POST /api/feedback/issues validates title and body", async () => {
+  const forge = fakeForge({ createIssue: async () => ({ number: 1, url: "u" }) });
+  const app = feedbackApp(forge);
+  for (const body of [
+    { title: " ", body: "" },
+    { body: "" },
+    { title: "t".repeat(201), body: "" },
+    { title: "t" },
+    { title: "t", body: "b".repeat(16001) },
+  ]) {
+    expect((await postFeedback(app, body)).status).toBe(400);
+  }
+});
+
+test("POST /api/feedback/issues without a forge or createIssue → 503", async () => {
+  for (const forge of [null, fakeForge()]) {
+    const res = await postFeedback(feedbackApp(forge), { title: "x", body: "" });
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toBe("shepherd issue filing unavailable");
+  }
+  const res = await postFeedback(makeApp(makeDeps(() => null)), { title: "x", body: "" });
+  expect(res.status).toBe(503);
+});
+
+test("POST /api/feedback/issues createIssue throws → 502 with message", async () => {
+  const forge = fakeForge({
+    createIssue: async () => {
+      throw new Error("gh: not logged in");
+    },
+  });
+  const res = await postFeedback(feedbackApp(forge), { title: "x", body: "" });
+  expect(res.status).toBe(502);
+  expect((await res.json()).error).toBe("gh: not logged in");
+});
+
+test("POST /api/feedback/issues without JSON content type → 415", async () => {
+  const res = await feedbackApp(fakeForge()).fetch(
+    new Request("http://localhost/api/feedback/issues", { method: "POST", body: "{}" }),
   );
   expect(res.status).toBe(415);
 });

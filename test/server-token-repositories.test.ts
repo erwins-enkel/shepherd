@@ -602,3 +602,22 @@ test("sandbox floor: a submit token can tighten but never loosen the repo's prof
   expect((await request(submit, "/api/held/held-edit/spawn", "POST")).status).toBe(201);
   expect((await request(full, "/api/held/held-trusted/spawn", "POST")).status).toBe(201);
 });
+
+test("repo boundary: a repo-restricted token cannot file into Shepherd's own repo (#4003)", async () => {
+  const created: unknown[] = [];
+  deps.resolveShepherdForge = () =>
+    ({
+      slug: "erwins-enkel/shepherd",
+      createIssue: async (o: unknown) => {
+        created.push(o);
+        return { number: 1, url: "u" };
+      },
+    }) as never;
+  const file = (token: string) =>
+    request(token, "/api/feedback/issues", "POST", { title: "t", body: "b" });
+  const res = await file(mint("full").token);
+  expect(res.status).toBe(403);
+  expect(await res.json()).toEqual({ error: "insufficient_scope" });
+  expect(created).toEqual([]);
+  expect((await file(mint("full", null).token)).status).toBe(201);
+});

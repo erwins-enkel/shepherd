@@ -1364,3 +1364,84 @@ test("issue_create returns route errors without retrying or claiming creation", 
   });
   expect(h.requests).toHaveLength(1);
 });
+
+// ── shepherd_issue_create (#4003): Shepherd's own repo, no registered clone ─────────────────────
+
+const FEEDBACK_ARGS = { title: "  HUD blocked  ", body: "Steps to reproduce" };
+const FILED = {
+  number: 77,
+  url: "https://github.com/erwins-enkel/shepherd/issues/77",
+  slug: "erwins-enkel/shepherd",
+};
+
+test("shepherd_issue_create files into Shepherd's repo without any registered repo", async () => {
+  const { run, requests, deps } = setup({
+    permissions: { automation: "allow" },
+    answer: () => ({ status: 201, body: { ...FILED, private: "never echo" } }),
+  });
+  deps.operatorDiag.repos = () => [];
+  expect(await run("shepherd_issue_create", FEEDBACK_ARGS)).toEqual({
+    ok: true,
+    data: { ok: true, action: "shepherd_issue_create", target: "erwins-enkel/shepherd", ...FILED },
+  });
+  expect(requests).toEqual([
+    {
+      method: "POST",
+      path: "/api/feedback/issues",
+      body: { title: "HUD blocked", body: FEEDBACK_ARGS.body },
+    },
+  ]);
+});
+
+test("shepherd_issue_create validates before asking or dispatching", async () => {
+  const { service } = approvals();
+  const { run, requests } = setup({ actionRequests: service });
+  for (const patch of [
+    { title: " " },
+    { title: 1 },
+    { title: "a".repeat(201) },
+    { body: undefined },
+    { body: "a".repeat(16001) },
+    { repo: "alpha" },
+    { labels: ["bug"] },
+  ]) {
+    expect((await run("shepherd_issue_create", { ...FEEDBACK_ARGS, ...patch })).ok).toBe(false);
+  }
+  expect(service.snapshot()).toEqual({});
+  expect(requests).toEqual([]);
+});
+
+test("shepherd_issue_create is open to a repo-scoped assistant", async () => {
+  const { runScoped, requests } = setup({ permissions: { automation: "allow" } });
+  expect((await runScoped("/r/beta", "shepherd_issue_create", FEEDBACK_ARGS)).ok).toBe(true);
+  expect(requests).toHaveLength(1);
+});
+
+test("shepherd_issue_create off, denial and handoff never dispatch; ask binds content", async () => {
+  const off = setup({ permissions: { automation: "off" } });
+  expect(await off.run("shepherd_issue_create", FEEDBACK_ARGS)).toMatchObject({
+    ok: false,
+    status: 403,
+  });
+  expect(off.requests).toEqual([]);
+  const { service } = approvals();
+  const h = setup({ actionRequests: service });
+  await h.run("shepherd_issue_create", FEEDBACK_ARGS);
+  const open = service.snapshot()[ASSISTANT_ID]!;
+  expect(open).toMatchObject({ target: "erwins-enkel/shepherd", args: FEEDBACK_ARGS });
+  service.resolve(ASSISTANT_ID, open.id, "denied");
+  expect(await h.run("shepherd_issue_create", FEEDBACK_ARGS)).toMatchObject({
+    ok: false,
+    status: 403,
+  });
+  await h.run("shepherd_issue_create", FEEDBACK_ARGS);
+  service.resolve(ASSISTANT_ID, service.snapshot()[ASSISTANT_ID]!.id, "approved");
+  await h.run("shepherd_issue_create", { ...FEEDBACK_ARGS, body: "changed" });
+  expect(h.requests).toEqual([]);
+  h.store.setSetting(`assistantHandoff:${ASSISTANT_ID}`, "pending");
+  expect(await h.run("shepherd_issue_create", FEEDBACK_ARGS)).toMatchObject({
+    ok: false,
+    status: 409,
+  });
+  expect(h.requests).toEqual([]);
+});

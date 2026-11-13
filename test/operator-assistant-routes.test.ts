@@ -15,6 +15,7 @@ import { ActionRequestService } from "../src/action-request";
 import { EventHub } from "../src/events";
 import { AssistantViewRegistry, UNKNOWN_VIEW } from "../src/operator-assistant-view";
 import { config } from "../src/config";
+import { SHEPHERD_VERSION } from "../src/version";
 import { hashPassword } from "../src/operator-auth";
 import {
   OperatorAssistantNotFoundError,
@@ -1240,3 +1241,54 @@ for (const agentProvider of ["claude", "codex"] as const) {
     expect(store.list().filter((s) => !s.operatorAssistant)).toEqual([]);
   });
 }
+
+test("shepherd_issue_create files into Shepherd's repo with no registered repo, after approval", async () => {
+  const saved = config.assistantPermissions;
+  restore = () => {
+    config.assistantPermissions = saved;
+  };
+  config.assistantPermissions = { ...saved, shell: "off", automation: "ask" };
+  const { deps, store } = setup();
+  deps.resolveForge = () => {
+    throw new Error("no operator repo is involved");
+  };
+  const created: { title: string; body: string }[] = [];
+  deps.resolveShepherdForge = () =>
+    ({
+      kind: "github",
+      slug: "erwins-enkel/shepherd",
+      createIssue: async (issue: { title: string; body: string }) => {
+        created.push(issue);
+        return { number: 5, url: "https://github.com/erwins-enkel/shepherd/issues/5" };
+      },
+    }) as never;
+  deps.actionRequests = new ActionRequestService({ events: new EventHub() });
+  deps.actionWaitMs = 1;
+  // A repo-scoped assistant: Shepherd's repo is product feedback, outside any repo scope.
+  const assistant = assistantRow(store, "/r/alpha");
+  const app = makeApp(deps);
+  const args = { title: " Crash ", body: "Steps" };
+  const create = () => callTool(app, assistant.id, "shepherd_issue_create", args);
+  expect((await create()).data.status).toBe("awaiting_approval");
+  expect(created).toEqual([]);
+  const open = deps.actionRequests!.snapshot()[assistant.id]!;
+  const res = await app.fetch(
+    post(`/api/sessions/${assistant.id}/action-request`, {
+      requestId: open.id,
+      outcome: "approved",
+    }),
+  );
+  expect(res.status).toBe(200);
+  expect(await create()).toMatchObject({
+    data: {
+      ok: true,
+      action: "shepherd_issue_create",
+      target: "erwins-enkel/shepherd",
+      number: 5,
+      url: "https://github.com/erwins-enkel/shepherd/issues/5",
+    },
+  });
+  expect(created).toEqual([
+    { title: "Crash", body: `Steps\n\n---\n- Shepherd: v${SHEPHERD_VERSION}` },
+  ]);
+});

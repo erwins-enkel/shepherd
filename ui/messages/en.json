@@ -8177,6 +8177,8 @@
   "feat_assistant_schedule_edit_body": "Ask the Operator Assistant to change a repo schedule: its days, times, prompt, on/off state or launch options such as model and autopilot. It can also delete a schedule or run it now. Your Automation permission in Settings → Assistant decides whether it asks first. It can only tighten a run's sandbox; loosening it stays with you under Repo automation → Schedules.",
   "feat_assistant_issue_create_title": "Ask the Assistant to create an issue",
   "feat_assistant_issue_create_body": "Describe a bug or task and ask the Operator Assistant to file an issue in a specific repo. Automation in Settings → Assistant controls whether it asks first. The Assistant returns the issue link; creating an issue does not queue work or start a session.",
+  "feat_assistant_shepherd_issue_title": "Report Shepherd issues through the Assistant",
+  "feat_assistant_shepherd_issue_body": "Ask the Operator Assistant to file a Shepherd bug or feature request. It goes straight into Shepherd's own GitHub repo through your gh login, so you don't need a local Shepherd clone. That repo is public, so the Assistant leaves out secrets and private paths. Automation in Settings → Assistant controls whether it asks first, and it returns the issue link.",
   "viewport_details_show_aria": "Show session details: PR actions, status line and summary",
   "viewport_details_hide_aria": "Hide session details for more Chat space",
   "viewport_steers_show_aria": "Show steers",

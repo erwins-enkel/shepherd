@@ -319,7 +319,8 @@ import { graphRateLimit, restRateLimit, restWriteRateLimit } from "./forge/rate-
 import { fetchGithubRateLimit } from "./forge/github-rate-limit";
 import { fetchGithubActionsBilling } from "./forge/github-actions-billing";
 import { labelGhCalls, UNATTRIBUTED, withGhCaller } from "./forge/gh-caller";
-import { sharedGhRunner } from "./forge/github";
+import { GithubForge, sharedGhRunner } from "./forge/github";
+import { SHEPHERD_REPO_SLUG } from "./version";
 import { fetchRepoFingerprints } from "./forge/github-fingerprint";
 import { graphqlSpend } from "./forge/github-spend";
 import { setIssuesFreshness } from "./forge/repo-freshness";
@@ -4534,6 +4535,9 @@ deferredStarts.push(() => {
   );
 });
 
+// Shepherd's own repo, for the assistant's shepherd_issue_create (#4003): filed through the
+// operator's gh auth, no registered clone needed.
+const shepherdForge = new GithubForge(SHEPHERD_REPO_SLUG, {}, ghRunnerAsync);
 const appDeps: AppDeps = {
   store,
   schedules: scheduleService,
@@ -4594,6 +4598,7 @@ const appDeps: AppDeps = {
   herdr,
   herdrSocketActive,
   resolveForge,
+  resolveShepherdForge: () => shepherdForge,
   prCache: prPoller,
   ciStartupFailure,
   ciRestart: { holds: ciRestartHolds, refreshPr: (id) => prPoller.pollSession(id) },

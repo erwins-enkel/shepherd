@@ -946,7 +946,7 @@ far it goes, one row each:
 | Start sessions | Start a new session in a repo, as New Task: its own worktree from the repo's default branch (or one it names), your default model and effort, and the repo's plan gate, autopilot and usage hold | Off · Ask first · Allowed |
 | Control sessions | Interrupt, resume, relaunch or archive a session | Off · Ask first · Allowed |
 | Approvals & merge | Start an approved plan, approve a build queue, mark a PR ready, merge a PR | Off · Ask first · Allowed |
-| Automation | Repo automation (Auto-Drain, max auto sessions, auto-merge, critic, usage ceiling), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd, creating, editing, deleting or running a repo schedule | Off · Ask first · Allowed |
+| Automation | Repo automation (Auto-Drain, max auto sessions, auto-merge, critic, usage ceiling), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd, creating, editing, deleting or running a repo schedule, filing issues in a repo or in Shepherd's own repo | Off · Ask first · Allowed |
 
 - **The default** lets read-only commands run (grep, cat, git log, ps, systemctl status …)
   and starting a session, and has every other action ask first. It answers with the new

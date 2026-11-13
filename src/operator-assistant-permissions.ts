@@ -46,6 +46,7 @@ export const ASSISTANT_ACTION_GROUPS = {
     "schedule_delete",
     "schedule_run",
     "issue_create",
+    "shepherd_issue_create",
   ],
 } as const;
 

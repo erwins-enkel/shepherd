@@ -1158,6 +1158,7 @@ for (const agentProvider of ["claude", "codex"] as const) {
       log: () => {},
     };
     expect(agentTools(deps, sessionId).map((t) => t.name)).toContain("issue_create");
+    expect(agentTools(deps, sessionId).map((t) => t.name)).toContain("shepherd_issue_create");
     const args = { repo: "/repo", title: "Bug", body: "Details" };
     expect(toolPayload(await call(deps, sessionId, "issue_create", args)).isError).toBe(true);
     expect(dispatched).toBe(0);

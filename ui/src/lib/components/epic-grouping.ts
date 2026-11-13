@@ -109,10 +109,7 @@ function localEpicOf(s: Session, index: ReadonlyMap<string, string>): string | u
  *  active epic work. It leaves the epic's group for the lifecycle groups (Merged), where the herd
  *  names the epic and, for one on another machine, why its settle there is still open. An issue
  *  merely closed, a PR merged elsewhere, or an integration without a known PR never qualifies. */
-export function isIntegratedMember(
-  child: EpicChild | undefined,
-  git: GitState | undefined,
-): boolean {
+function isIntegratedMember(child: EpicChild | undefined, git: GitState | undefined): boolean {
   const pr = child?.integratedPrNumber;
   return pr != null && git?.state === "merged" && git.number === pr;
 }

@@ -75,31 +75,52 @@ export class IntegratedChildSettler {
     const s = this.deps.store.get(id);
     if (!s) return { kind: "not_found" };
     if (s.status === "archived") return { kind: "already" };
-    if (s.issueNumber == null || s.misroutedTarget) return refused("not_epic_child");
-    const git = this.deps.prOf(id);
-    const own = git?.number ?? null;
-    if (own == null || (prNumber !== undefined && prNumber !== own)) return refused("not_merged");
-    const forge = this.deps.resolveForge(s.repoPath);
-    const meta = await forge?.prReviewMeta?.(own).catch(() => null);
-    if (meta?.state !== "merged") return refused("not_merged");
-    if (!isEpicIntegrationBranch(meta.baseRefName)) return refused("not_epic_child");
+    const pr = await this.mergedEpicPr(s, prNumber);
+    if (typeof pr === "string") return refused(pr);
     const r = await this.deps.service.archiveIfSettled(id, "merged", restRefusal, () =>
       this.deps.retainClaim(id),
     );
-    if ("refused" in r) {
-      if (r.refused === "already") return { kind: "already" };
-      if (r.refused === "gone") return { kind: "not_found" };
-      return refused(REFUSALS.has(r.refused) ? (r.refused as SettleRefusalCode) : "busy");
-    }
-    try {
-      this.deps.materializeManualSteps?.(s, own, git?.title ?? "");
-    } catch (err) {
-      console.warn(`[settle] manual steps of ${id} not materialized:`, err);
-    }
-    this.deps.dropPrCache(id);
-    this.deps.emitArchived(id);
+    if ("refused" in r) return archiveRefusal(r.refused);
+    this.announce(s, pr);
     return { kind: "settled" };
   }
+
+  /** The session's own PR when it is merged into an epic branch — read fresh from the forge, as the
+   *  poller's cache may be behind — or why not. `prNumber`, when given, must be that PR. */
+  private async mergedEpicPr(
+    s: Session,
+    prNumber: number | undefined,
+  ): Promise<{ number: number; title: string } | SettleRefusalCode> {
+    if (s.issueNumber == null || s.misroutedTarget) return "not_epic_child";
+    const git = this.deps.prOf(s.id);
+    const own = git?.number ?? null;
+    if (own == null || (prNumber !== undefined && prNumber !== own)) return "not_merged";
+    const meta = await this.deps
+      .resolveForge(s.repoPath)
+      ?.prReviewMeta?.(own)
+      .catch(() => null);
+    if (meta?.state !== "merged") return "not_merged";
+    if (!isEpicIntegrationBranch(meta.baseRefName)) return "not_epic_child";
+    return { number: own, title: git?.title ?? "" };
+  }
+
+  /** The archive happened: freeze its manual steps into the Owed lens, then tell everyone. */
+  private announce(s: Session, pr: { number: number; title: string }): void {
+    try {
+      this.deps.materializeManualSteps?.(s, pr.number, pr.title);
+    } catch (err) {
+      console.warn(`[settle] manual steps of ${s.id} not materialized:`, err);
+    }
+    this.deps.dropPrCache(s.id);
+    this.deps.emitArchived(s.id);
+  }
+}
+
+/** What an `archiveIfSettled` refusal answers. */
+function archiveRefusal(code: string): SettleOutcome {
+  if (code === "already") return { kind: "already" };
+  if (code === "gone") return { kind: "not_found" };
+  return refused(REFUSALS.has(code) ? (code as SettleRefusalCode) : "busy");
 }
 
 function refused(code: SettleRefusalCode): SettleOutcome {

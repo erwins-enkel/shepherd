@@ -284,6 +284,7 @@ import { normalizeAgentProvider, resolveSpawnAgentProvider } from "./agent-provi
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { normalizeOperatorLanguage } from "./operator-language";
 import { normalizeStoredAssistantPermissions } from "./operator-assistant-permissions";
+import { isEgressMuted, readEgressGlobals } from "./egress-settings";
 import { EgressWatcher } from "./egress-watch";
 import { NetnsDevForwarder } from "./netns-dev-forward";
 import { detectEgressHostLoopback, refreshEgressBackend } from "./egress";
@@ -831,6 +832,8 @@ const egressWatcher: EgressWatcher = new EgressWatcher({
   // Steer-channel blocked-host notes (#3921). `service` is declared below; this only runs on a
   // drop, long after init.
   steer: (id, text) => service.reply(id, text, { automatic: true }),
+  // Muted hosts stay blocked but are never reported; read live so a mute applies at once.
+  isMuted: (host) => isEgressMuted(host, readEgressGlobals(store).mutedHosts),
 });
 
 const autoMergedRecapEvidence = new Map<string, { prNumber: number; headSha: string | null }>();

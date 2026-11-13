@@ -505,6 +505,47 @@ export function egressExtraHostsExplanation(): TooltipExplanation {
   };
 }
 
+/** Settings › Session › Standard allowed hosts: what the list is, who gets it, when it applies. */
+export function egressStandardHostsExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_egress_standard_title(),
+    summary: m.tooltip_egress_standard_summary(),
+    sections: [
+      { label: m.tooltip_egress_standard_who(), text: m.tooltip_egress_standard_who_body() },
+      { label: m.tooltip_egress_hosts_enter(), text: m.tooltip_egress_hosts_enter_body() },
+      {
+        label: m.tooltip_egress_standard_applies(),
+        text: m.tooltip_egress_standard_applies_body(),
+      },
+    ],
+  };
+}
+
+/** Repo settings › Agent › Include standard hosts: Inherit/On/Off and what changes. */
+export function egressIncludeStandardExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_egress_include_title(),
+    summary: m.tooltip_egress_include_summary(),
+    sections: [
+      { label: m.tooltip_egress_include_choices(), text: m.tooltip_egress_include_choices_body() },
+      { label: m.tooltip_egress_include_edit(), text: m.tooltip_egress_include_edit_body() },
+    ],
+  };
+}
+
+/** Settings › Session › Muted hosts: still blocked, what goes quiet, how to undo. */
+export function egressMutedHostsExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_egress_muted_title(),
+    summary: m.tooltip_egress_muted_summary(),
+    sections: [
+      { label: m.tooltip_egress_muted_quiet(), text: m.tooltip_egress_muted_quiet_body() },
+      { label: m.tooltip_egress_muted_enter(), text: m.tooltip_egress_muted_enter_body() },
+      { label: m.tooltip_egress_muted_undo(), text: m.tooltip_egress_muted_undo_body() },
+    ],
+  };
+}
+
 /** Repo settings › Agent › Blocked hosts (#3922): what the list holds, how Allow asks, when it
  *  applies and how to learn a repo's hosts without opening the network. */
 export function egressBlockedHostsExplanation(): TooltipExplanation {

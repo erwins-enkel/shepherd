@@ -54,6 +54,15 @@ export function checkEgressHost(
   return { ok: true, value };
 }
 
+/** A muted egress host (`[*.]host`, no port): mirrors src/egress-settings.ts → normalizeMutedEntry. */
+export function checkMutedHost(
+  raw: string,
+  existing: readonly string[],
+): ListEntryCheck<"empty" | "invalid" | "duplicate"> {
+  if (raw.includes(":")) return { ok: false, reason: "invalid" };
+  return checkEgressHost(raw, existing);
+}
+
 /** A wildcard egress entry (`*.host…`): it opens every subdomain, so Settings warns about it. */
 export function isWildcardEgressEntry(entry: string): boolean {
   return entry.startsWith("*.");

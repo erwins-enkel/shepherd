@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
-import { getRepoConfig, getRepoEgressBlocks, putRepoConfig } from "#lib/api.js";
+import {
+  getRepoConfig,
+  getRepoEgressBlocks,
+  getSettings,
+  putEgressMutedHosts,
+  putRepoConfig,
+} from "#lib/api.js";
 import { m } from "#lib/paraglide/messages.js";
 import type { EgressBlock } from "#lib/types.js";
 
@@ -13,6 +19,8 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     getRepoConfig: vi.fn(),
     getRepoEgressBlocks: vi.fn(),
     putRepoConfig: vi.fn(),
+    getSettings: vi.fn(),
+    putEgressMutedHosts: vi.fn(),
   };
 });
 
@@ -137,5 +145,21 @@ describe("EgressBlockedHosts", () => {
     // the optimistic write reloads (and fails), then the write itself fails and reverts
     await expect.element(page.getByText(m.egress_blocked_load_failed())).toBeVisible();
     await expect.element(allowBtn("api.example.com")).toBeVisible();
+  });
+
+  it("Mute everywhere appends to the stored muted list and drops the row", async () => {
+    vi.mocked(getSettings).mockResolvedValue({ egressMutedHosts: ["ph.varlock.dev"] } as never);
+    const mute = vi.mocked(putEgressMutedHosts);
+    mute.mockReset();
+    mute.mockResolvedValue({} as never);
+    mockBlocks.mockResolvedValue({ hosts: [block("telemetry.example.com")] });
+    render(EgressBlockedHosts, { repoPath: repo });
+
+    await page
+      .getByRole("button", { name: m.egress_blocked_mute_host({ host: "telemetry.example.com" }) })
+      .click();
+    expect(mute).toHaveBeenCalledWith(["ph.varlock.dev", "telemetry.example.com"]);
+    expect(mockPut).not.toHaveBeenCalled();
+    await expect.element(page.getByText("telemetry.example.com")).not.toBeInTheDocument();
   });
 });

@@ -37,6 +37,7 @@
     hint = "",
     warn,
     addAnywayLabel,
+    bare = false,
     onchange,
   }: {
     /** The repo-config key the list writes. */
@@ -59,6 +60,8 @@
     warn?: (item: string) => ListItemWarning | null;
     /** The add button while a warned entry waits for that second submit. */
     addAnywayLabel?: string;
+    /** Just the editor, without its repo-settings row (a host that brings its own row). */
+    bare?: boolean;
     onchange: (next: string[]) => void;
   } = $props();
 
@@ -92,80 +95,88 @@
   }
 </script>
 
-<RepoSettingRow {field} {name} {explanation} indent>
-  {#snippet below()}
-    <div class="list-field">
-      {#if fixed.length || items.length}
-        <ul class="items">
-          {#each fixed as item (item)}
-            <li class="item fixed"><span class="item-name">{item}</span></li>
-          {/each}
-          <!-- Keyed by position: the server doesn't dedupe host lists, so a list set through the API
+{#if bare}
+  {@render editor()}
+{:else}
+  <RepoSettingRow {field} {name} {explanation} indent>
+    {#snippet below()}
+      {@render editor()}
+    {/snippet}
+  </RepoSettingRow>
+{/if}
+
+{#snippet editor()}
+  <div class="list-field">
+    {#if fixed.length || items.length}
+      <ul class="items">
+        {#each fixed as item (item)}
+          <li class="item fixed"><span class="item-name">{item}</span></li>
+        {/each}
+        <!-- Keyed by position: the server doesn't dedupe host lists, so a list set through the API
                can hold a repeat. Removing one removes every copy. -->
-          {#each items as item, i (i)}
-            {@const w = warn?.(item)}
-            <li class={["item", { warned: !!w }]}>
-              {#if w}
-                <button
-                  class="item-warn"
-                  type="button"
-                  aria-label={w.label}
-                  use:statusTip={{ text: w.explanation }}>⚠</button
-                >
-              {/if}
-              <span class="item-name">{item}</span>
+        {#each items as item, i (i)}
+          {@const w = warn?.(item)}
+          <li class={["item", { warned: !!w }]}>
+            {#if w}
               <button
-                class="item-remove"
+                class="item-warn"
                 type="button"
-                aria-label={removeLabel(item)}
-                onclick={() => remove(item)}>×</button
+                aria-label={w.label}
+                use:statusTip={{ text: w.explanation }}>⚠</button
               >
-            </li>
-          {/each}
-        </ul>
-      {:else if empty}
-        <div class="items-note">{empty}</div>
-      {/if}
-      <form
-        class="drain-field"
+            {/if}
+            <span class="item-name">{item}</span>
+            <button
+              class="item-remove"
+              type="button"
+              aria-label={removeLabel(item)}
+              onclick={() => remove(item)}>×</button
+            >
+          </li>
+        {/each}
+      </ul>
+    {:else if empty}
+      <div class="items-note">{empty}</div>
+    {/if}
+    <form
+      class="drain-field"
+      aria-label={name}
+      onsubmit={(e) => {
+        e.preventDefault();
+        add();
+      }}
+    >
+      <input
+        class="afield-num txt"
+        type="text"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        {placeholder}
         aria-label={name}
-        onsubmit={(e) => {
-          e.preventDefault();
-          add();
+        aria-invalid={error !== null}
+        aria-describedby={error ? errorId : undefined}
+        bind:value={draft}
+        oninput={() => {
+          error = null;
+          pending = null;
         }}
+      />
+      <button class="bs-btn" type="submit"
+        >{pending ? (addAnywayLabel ?? addLabel) : addLabel}</button
       >
-        <input
-          class="afield-num txt"
-          type="text"
-          autocomplete="off"
-          autocapitalize="off"
-          spellcheck="false"
-          {placeholder}
-          aria-label={name}
-          aria-invalid={error !== null}
-          aria-describedby={error ? errorId : undefined}
-          bind:value={draft}
-          oninput={() => {
-            error = null;
-            pending = null;
-          }}
-        />
-        <button class="bs-btn" type="submit"
-          >{pending ? (addAnywayLabel ?? addLabel) : addLabel}</button
-        >
-      </form>
-      {#if error}
-        <div class="items-error" id={errorId} role="alert">{error}</div>
-      {/if}
-      {#if pending}
-        <div class="items-warn" role="status">{pending.text}</div>
-      {/if}
-      {#if hint}
-        <div class="items-note">{hint}</div>
-      {/if}
-    </div>
-  {/snippet}
-</RepoSettingRow>
+    </form>
+    {#if error}
+      <div class="items-error" id={errorId} role="alert">{error}</div>
+    {/if}
+    {#if pending}
+      <div class="items-warn" role="status">{pending.text}</div>
+    {/if}
+    {#if hint}
+      <div class="items-note">{hint}</div>
+    {/if}
+  </div>
+{/snippet}
 
 <style>
   .list-field {

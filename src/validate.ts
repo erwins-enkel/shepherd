@@ -41,6 +41,7 @@ import { type Placement, parsePlacementRecord } from "./remote-instances/placeme
 import type { TaskText } from "./requirements-classify-core";
 import type { EpicLanding } from "./epic-core";
 import { normalizeEgressEntry, normalizeHost } from "./egress";
+import { normalizeMutedEntry } from "./egress-settings";
 
 /** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/<repo>/…`). */
 export function expandHome(p: string): string {
@@ -1232,6 +1233,26 @@ export function validateEgressExtraHosts(value: unknown): Field<string[]> {
     value,
     normalizeEgressEntry,
     `entry: [*.]host[:port] (host ${HOSTNAME_RULE}; port 1-65535)`,
+  );
+}
+
+/** egressStandardHosts — the global standard allowed hosts repos opt into (same grammar). */
+export function validateEgressStandardHosts(value: unknown): Field<string[]> {
+  return validateHostList(
+    "egressStandardHosts",
+    value,
+    normalizeEgressEntry,
+    `entry: [*.]host[:port] (host ${HOSTNAME_RULE}; port 1-65535)`,
+  );
+}
+
+/** egressMutedHosts — global hosts the firewall still blocks but never reports; no port. */
+export function validateEgressMutedHosts(value: unknown): Field<string[]> {
+  return validateHostList(
+    "egressMutedHosts",
+    value,
+    normalizeMutedEntry,
+    `entry: [*.]host, no port (host ${HOSTNAME_RULE})`,
   );
 }
 

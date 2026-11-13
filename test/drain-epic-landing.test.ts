@@ -181,6 +181,7 @@ function makeHarness(opts: {
     defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
+    egressIncludeStandard: "inherit" as const,
     repoMode: "forge",
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: opts.preWarm ?? false,

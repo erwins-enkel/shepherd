@@ -745,7 +745,7 @@ before this default changed keep `trusted`:
 | ------------ | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `trusted`    | None                                  | Unconfined. Fallback default on hosts without a working bwrap backend; escape hatch when the membrane causes problems (e.g. an SSH remote that must push).                                                                                                                                |
 | `standard`   | bwrap membrane                        | Default where bwrap works. Agent confined to its worktree + git object store + read-only `~/.claude`; blocks `~/.ssh`, `~/.aws`, sibling repos, other `$HOME` dotfiles; clears inherited env secrets. Does **not** restrict network egress. Interactive sessions only — auto-drain holds. |
-| `autonomous` | bwrap membrane **+ egress allowlist** | Same membrane as `standard`, **plus** network-egress confinement (outbound restricted to an allowlist: Anthropic + the forge host + operator extras). The confined choice for `auto=true` drain/autopilot sessions.                                                                       |
+| `autonomous` | bwrap membrane **+ egress allowlist** | Same membrane as `standard`, **plus** network-egress confinement (outbound restricted to an allowlist: Anthropic + the forge host + operator extras + the standard allowed hosts when the repo includes them). The confined choice for `auto=true` drain/autopilot sessions.                                                                       |
 
 Egress confinement is tied to the **profile**, not to `auto=true`. `auto=true` spawns
 need `autonomous` or `trusted`: in a repo resolving to `standard` the drain holds and the
@@ -777,6 +777,21 @@ session that was blocked on a newly allowed host is told to retry. How much Allo
 
 To find what a repo's build needs, run a task under `autonomous` and review its blocks there; the
 firewall stays closed the whole time.
+
+**Standard allowed hosts.** Settings › Session › **Standard allowed hosts** holds one list of
+entries (same grammar as Extra allowed hosts) that repos can include instead of adding the same
+hosts in every repo. Each repo picks under Agent environment › **Include standard hosts**: _Inherit_
+(the default) follows Settings › Session › **Include standard hosts by default** (off until you turn
+it on), _On_ or _Off_ pins it. Editing the list, the default or a repo's pick reaches running
+Autonomous sessions live, like an Extra allowed hosts change. The list ships empty.
+
+**Muted hosts.** Settings › Session › **Muted hosts** lists hosts the firewall keeps blocking but
+never reports: no toast, no note telling the agent to ask for the host, no `egress_drop` signal, and
+no row in any repo's Blocked hosts (earlier blocks included). Entries are `host` or `*.host`, no
+port. **Mute everywhere** on a Blocked hosts row adds it. Until you edit the list it holds known
+telemetry hosts: Datadog intake (`*.datadoghq.com`, `*.datadoghq.eu`, the `browser-intake-*`
+domains), `ph.varlock.dev` and `telemetry.vercel.com`. A muted host that is also allowed is simply
+allowed.
 
 **Suggested hosts.** For a repo whose profile is `autonomous`, Agent environment › **Suggested
 hosts** lists the registry hosts its git-tracked lockfiles install from, before any run is blocked:

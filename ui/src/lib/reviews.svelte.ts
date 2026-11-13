@@ -5,6 +5,7 @@ import type {
   RepoConfig,
   SandboxProfile,
   RepoSandboxSetting,
+  EgressIncludeStandard,
   RepoAgentProviderSetting,
   SpawnNotice,
   SpawnNoticeKind,
@@ -407,6 +408,7 @@ const OVERLAY_MAPS = {
   sharedBrowserEnabled: "sharedBrowser",
   browserAllowedHosts: "browserAllowedHosts",
   egressExtraHosts: "egressExtraHosts",
+  egressIncludeStandard: "egressIncludeStandard",
   claudeAiConnectorsEnabled: "claudeAiConnectors",
   pluginAllowlist: "pluginAllowlist",
   skillAllowlist: "skillAllowlist",
@@ -449,6 +451,8 @@ class RepoConfigStore {
   sharedBrowser = $state<Record<string, boolean>>({}); // per-repo Shared Browser (default off; agents can read its logins)
   browserAllowedHosts = $state<Record<string, string[]>>({}); // autonomous Browser Attach origin allowlist
   egressExtraHosts = $state<Record<string, string[]>>({}); // extra hosts on the Autonomous egress allowlist (#3446)
+  egressIncludeStandard = $state<Record<string, EgressIncludeStandard>>({}); // standard hosts on/off (default "inherit")
+  egressStandard = $state<Record<string, { defaultOn: boolean; hosts: string[] }>>({}); // global standard hosts + default (server-derived)
   claudeAiConnectors = $state<Record<string, boolean>>({}); // claude.ai account connectors for this repo's Claude sessions (default off)
   pluginAllowlist = $state<Record<string, string[] | null>>({}); // plugins this repo's spawns keep (null = all, #3780)
   skillAllowlist = $state<Record<string, string[] | null>>({}); // personal skills this repo's spawns keep (null = all, #3780)
@@ -504,6 +508,15 @@ class RepoConfigStore {
       [repoPath]: c.browserAllowedHosts ?? [],
     };
     this.egressExtraHosts = { ...this.egressExtraHosts, [repoPath]: c.egressExtraHosts ?? [] };
+    this.egressIncludeStandard = {
+      ...this.egressIncludeStandard,
+      [repoPath]: c.egressIncludeStandard ?? "inherit",
+    };
+    if (c.egressStandardDefault !== undefined)
+      this.egressStandard = {
+        ...this.egressStandard,
+        [repoPath]: { defaultOn: c.egressStandardDefault, hosts: c.egressStandardHosts ?? [] },
+      };
     this.claudeAiConnectors = {
       ...this.claudeAiConnectors,
       [repoPath]: c.claudeAiConnectorsEnabled,
@@ -792,6 +805,10 @@ class RepoConfigStore {
     return (await this.write(repoPath, { egressExtraHosts: hosts })) !== null;
   }
 
+  async setEgressIncludeStandard(repoPath: string, value: EgressIncludeStandard) {
+    await this.write(repoPath, { egressIncludeStandard: value });
+  }
+
   /** Set (or clear with `null`) the repo's plugin allowlist (#3780); optimistic, reverted on failure. */
   async setPluginAllowlist(repoPath: string, list: string[] | null) {
     await this.write(repoPath, { pluginAllowlist: list });
@@ -896,6 +913,22 @@ class RepoConfigStore {
   }
   egressExtraHostsFor(repoPath: string): string[] {
     return this.egressExtraHosts[repoPath] ?? [];
+  }
+
+  egressIncludeStandardFor(repoPath: string): EgressIncludeStandard {
+    return this.egressIncludeStandard[repoPath] ?? "inherit";
+  }
+
+  /** A global standard-hosts change (`settings:egress`) reaches every loaded repo's view. */
+  applyEgressStandard(defaultOn: boolean, hosts: string[]) {
+    this.egressStandard = Object.fromEntries(
+      Object.keys(this.egressStandard).map((repo) => [repo, { defaultOn, hosts }]),
+    );
+  }
+
+  /** The global standard hosts and what "inherit" resolves to; null until the server said. */
+  egressStandardFor(repoPath: string): { defaultOn: boolean; hosts: string[] } | null {
+    return this.egressStandard[repoPath] ?? null;
   }
   pluginAllowlistFor(repoPath: string): string[] | null {
     return this.pluginAllowlist[repoPath] ?? null;

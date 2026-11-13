@@ -9,10 +9,10 @@ import { decisionModelRows, matchCount, sectionSearchRows } from "./settings-sea
 // looking perfectly fine on screen — and undercounts the desktop rail badge. That is what these
 // assert.
 
-const PANEL = readFileSync(
-  new URL("./components/settings/SettingsSessionPanel.svelte", import.meta.url),
-  "utf8",
-);
+// The section renders its rows across the panel and its egress block.
+const PANEL = ["SettingsSessionPanel.svelte", "SettingsEgressBlock.svelte"]
+  .map((f) => readFileSync(new URL(`./components/settings/${f}`, import.meta.url), "utf8"))
+  .join("\n");
 
 const sessionRows = (): string[][] => sectionSearchRows({}).session;
 

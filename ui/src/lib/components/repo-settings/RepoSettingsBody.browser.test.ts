@@ -418,6 +418,8 @@ describe("RepoSettingsBody — extra allowed hosts (#3446)", () => {
     repoConfig.sandboxProfile = {};
     repoConfig.sandboxDefault = {};
     repoConfig.egressExtraHosts = {};
+    repoConfig.egressStandard = {};
+    repoConfig.egressIncludeStandard = {};
   });
 
   // Fake only the repo-config PUT: echo the patch back as the stored config, still Autonomous.
@@ -461,6 +463,25 @@ describe("RepoSettingsBody — extra allowed hosts (#3446)", () => {
     expect(hostInput().query()).toBeNull(); // the inherited default is still unknown
     repoConfig.sandboxDefault = { [REPO]: "autonomous" };
     await expect.element(hostInput()).toBeVisible();
+  });
+
+  it("Include standard hosts names what Inherit resolves to and writes the pick", async () => {
+    const puts = stubFetch();
+    repoConfig.sandboxProfile = { [REPO]: "autonomous" };
+    repoConfig.egressStandard = {
+      [REPO]: { defaultOn: true, hosts: ["registry.npmjs.org", "cdn.playwright.dev"] },
+    };
+    await mount("agent");
+    const select = page.getByRole("combobox", { name: m.automation_egress_standard_label() });
+    const inherit = m.automation_egress_standard_inherit({
+      value: m.automation_egress_standard_on_count({ count: 2 }),
+    });
+    await expect.element(select).toBeVisible();
+    expect((select.element() as HTMLSelectElement).selectedOptions[0]?.textContent).toBe(inherit);
+    const el = select.element() as HTMLSelectElement;
+    el.value = "off";
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.waitFor(() => expect(puts).toEqual([{ egressIncludeStandard: "off" }]));
   });
 
   it("adds a normalized host and persists the full list", async () => {

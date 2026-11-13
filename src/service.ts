@@ -237,6 +237,7 @@ import {
   sweepEgressTmp,
   type EgressBackend,
 } from "./egress";
+import { readEgressGlobals, standardHostsFor } from "./egress-settings";
 import { egressAllowedNote, type EgressNoteChannel, type EgressWatcher } from "./egress-watch";
 import type { NetnsDevForwarder } from "./netns-dev-forward";
 import { foldSpawnPatch } from "./spawn-membrane";
@@ -4090,14 +4091,16 @@ export class SessionService {
     };
   }
 
-  /** The egress allowlist a session of `repoPath` gets right now: forges, env extras, the repo's
-   *  Extra allowed hosts and the spawn's connector hosts. */
+  /** The egress allowlist a session of `repoPath` gets right now: forges, env extras, the standard
+   *  hosts the repo includes, its Extra allowed hosts and the spawn's connector hosts. */
   private egressAllowlistFor(repoPath: string, connectorHosts: string[]): string[] {
+    const repo = this.deps.store.getRepoConfig(repoPath);
     return buildEgressAllowlist({
       forges: config.forges,
       extraHosts: [
         ...config.sandboxEgressExtraHosts,
-        ...this.deps.store.getRepoConfig(repoPath).egressExtraHosts,
+        ...standardHostsFor(repo.egressIncludeStandard, readEgressGlobals(this.deps.store)),
+        ...repo.egressExtraHosts,
         ...connectorHosts,
       ],
     });

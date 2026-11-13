@@ -210,3 +210,67 @@ test("PUT /api/repo-config live-applies a changed egressExtraHosts, once, to tha
   await Bun.sleep(0);
   expect(reapplied).toEqual([repoDir]);
 });
+
+test("GET /api/repo-egress-blocks hides muted hosts (seeded defaults and stored list)", async () => {
+  drop("http-intake.logs.us5.datadoghq.com", "s1");
+  drop("ph.varlock.dev", "s1");
+  drop("x.example.com", "s1");
+  let body = (await (await get(repoDir)).json()) as { hosts: EgressBlock[] };
+  expect(body.hosts.map((h) => h.host)).toEqual(["x.example.com"]);
+  store.setSetting("egressMutedHosts", JSON.stringify(["x.example.com"]));
+  body = (await (await get(repoDir)).json()) as { hosts: EgressBlock[] };
+  expect(body.hosts.map((h) => h.host).sort()).toEqual([
+    "http-intake.logs.us5.datadoghq.com",
+    "ph.varlock.dev",
+  ]);
+});
+
+test("GET /api/repo-egress-blocks hides hosts the included standard set covers", async () => {
+  drop("cdn.playwright.dev", "s1");
+  store.setSetting("egressStandardHosts", JSON.stringify(["cdn.playwright.dev"]));
+  const hosts = async () =>
+    ((await (await get(repoDir)).json()) as { hosts: EgressBlock[] }).hosts.map((h) => h.host);
+  expect(await hosts()).toEqual(["cdn.playwright.dev"]);
+  store.setSetting("egressStandardDefault", "1");
+  expect(await hosts()).toEqual([]);
+  store.setRepoConfig(repoDir, { ...store.getRepoConfig(repoDir), egressIncludeStandard: "off" });
+  expect(await hosts()).toEqual(["cdn.playwright.dev"]);
+  store.setRepoConfig(repoDir, { ...store.getRepoConfig(repoDir), egressIncludeStandard: "on" });
+  store.setSetting("egressStandardDefault", "0");
+  expect(await hosts()).toEqual([]);
+});
+
+test("PUT /api/repo-config live-applies a changed egressIncludeStandard; rejects bad values", async () => {
+  store.setSetting("egressStandardHosts", JSON.stringify(["cdn.playwright.dev"]));
+  const reapplied: string[] = [];
+  const a = makeApp({
+    store,
+    service: { reapplyEgressAllowlist: async (repo: string) => void reapplied.push(repo) } as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+    resolveForge: () => null,
+  });
+  const put = (body: unknown) =>
+    a.fetch(
+      new Request(`http://localhost:7330/api/repo-config?repo=${encodeURIComponent(repoDir)}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", Origin: "http://localhost:7330" },
+        body: JSON.stringify(body),
+      }),
+    );
+  expect((await put({ egressIncludeStandard: "maybe" })).status).toBe(400);
+  const r = await put({ egressIncludeStandard: "on" });
+  expect(r.status).toBe(200);
+  expect(await r.json()).toMatchObject({
+    egressIncludeStandard: "on",
+    egressStandardDefault: false,
+    egressStandardHosts: ["cdn.playwright.dev"],
+  });
+  await Bun.sleep(0);
+  expect(reapplied).toEqual([repoDir]);
+  // inherit with the default off resolves to the same (empty) standard set as off → no reapply.
+  expect((await put({ egressIncludeStandard: "inherit" })).status).toBe(200);
+  expect((await put({ egressIncludeStandard: "off" })).status).toBe(200);
+  await Bun.sleep(0);
+  expect(reapplied).toEqual([repoDir, repoDir]);
+});

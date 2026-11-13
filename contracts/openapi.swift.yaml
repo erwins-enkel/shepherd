@@ -496,6 +496,19 @@ components:
           type: boolean
         issueFilter:
           $ref: "#/components/schemas/IssueFilterSettings"
+        egressStandardHosts:
+          description: Standard allowed hosts ([*.]host[:port]) repos include via egressIncludeStandard; widen the Autonomous egress allowlist. Saving reloads running sessions.
+          type: array
+          items:
+            type: string
+        egressStandardDefault:
+          description: What a repo's egressIncludeStandard inherit resolves to. Default false.
+          type: boolean
+        egressMutedHosts:
+          description: Hosts ([*.]host, no port) the egress firewall still blocks but never reports (no signal, toast, agent note or Blocked hosts row). Absent → seeded telemetry defaults.
+          type: array
+          items:
+            type: string
         upNextReadiness:
           type: boolean
         tuiFullscreen:
@@ -9443,6 +9456,19 @@ components:
           type: boolean
         issueFilter:
           $ref: "#/components/schemas/IssueFilterSettingsPatch"
+        egressStandardHosts:
+          description: Standard allowed hosts ([*.]host[:port]) repos include via egressIncludeStandard; widen the Autonomous egress allowlist. Saving reloads running sessions.
+          type: array
+          items:
+            type: string
+        egressStandardDefault:
+          description: What a repo's egressIncludeStandard inherit resolves to. Default false.
+          type: boolean
+        egressMutedHosts:
+          description: Hosts ([*.]host, no port) the egress firewall still blocks but never reports (no signal, toast, agent note or Blocked hosts row). Absent → seeded telemetry defaults.
+          type: array
+          items:
+            type: string
         upNextReadiness:
           type: boolean
         tuiFullscreen:
@@ -9555,6 +9581,19 @@ components:
           type: boolean
         issueFilter:
           $ref: "#/components/schemas/IssueFilterSettings"
+        egressStandardHosts:
+          description: Standard allowed hosts ([*.]host[:port]) repos include via egressIncludeStandard; widen the Autonomous egress allowlist. Saving reloads running sessions.
+          type: array
+          items:
+            type: string
+        egressStandardDefault:
+          description: What a repo's egressIncludeStandard inherit resolves to. Default false.
+          type: boolean
+        egressMutedHosts:
+          description: Hosts ([*.]host, no port) the egress firewall still blocks but never reports (no signal, toast, agent note or Blocked hosts row). Absent → seeded telemetry defaults.
+          type: array
+          items:
+            type: string
         upNextReadiness:
           type: boolean
         tuiFullscreen:
@@ -10282,6 +10321,13 @@ components:
           type: array
           items:
             type: string
+        egressIncludeStandard:
+          description: inherit (default) follows the global egressStandardDefault; on/off pins whether the global egressStandardHosts join this repo's egress allowlist.
+          type: string
+          enum:
+            - inherit
+            - on
+            - off
         browserAllowedHosts:
           type: array
           items:
@@ -10320,6 +10366,14 @@ components:
         sandboxDefaultProfile:
           description: "Read-only: the global default profile an inherit sandboxProfile resolves to — SHEPHERD_SANDBOX_DEFAULT_PROFILE, else standard where the bwrap backend works, else trusted."
           $ref: "#/components/schemas/SandboxProfile"
+        egressStandardDefault:
+          description: "Read-only: what an inherit egressIncludeStandard resolves to."
+          type: boolean
+        egressStandardHosts:
+          description: Read-only. The global standard allowed hosts.
+          type: array
+          items:
+            type: string
     AgentExtensionEntry:
       type: object
       required:
@@ -10464,6 +10518,13 @@ components:
           type: array
           items:
             type: string
+        egressIncludeStandard:
+          description: inherit (default) follows the global egressStandardDefault; on/off pins whether the global egressStandardHosts join this repo's egress allowlist.
+          type: string
+          enum:
+            - inherit
+            - on
+            - off
         browserAllowedHosts:
           type: array
           items:

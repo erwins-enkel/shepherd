@@ -97,6 +97,9 @@ export interface EgressWatcherDeps {
   emit?: (event: string, data: unknown) => void;
   /** Steer-channel delivery of the blocked-host note (#3921); absent ⇒ steer notes are dropped. */
   steer?: (sessionId: string, text: string) => Promise<unknown>;
+  /** Whether a blocked host is muted (still blocked, never reported); absent ⇒ nothing muted.
+   *  Asked once per new host per session, so a mute added mid-session applies to the next one. */
+  isMuted?: (host: string) => boolean;
   /** Polling interval in ms; default EGRESS_WATCH_INTERVAL_MS. */
   intervalMs?: number;
   /** setInterval seam; default global setInterval. */
@@ -132,6 +135,8 @@ interface SessionState {
   partial: string;
   /** Hosts already reported for this session (deduplication). */
   reported: Set<string>;
+  /** Muted hosts seen this session: skipped silently, outside the cap. */
+  muted: Set<string>;
   /** Drop the watcher after the cap is reached. */
   capped: boolean;
 }
@@ -162,6 +167,7 @@ export class EgressWatcher {
   > & {
     emit?: (event: string, data: unknown) => void;
     steer?: (sessionId: string, text: string) => Promise<unknown>;
+    isMuted?: (host: string) => boolean;
   };
 
   private readonly sessions = new Map<string, SessionState>();
@@ -172,6 +178,7 @@ export class EgressWatcher {
       addSignal: deps.addSignal,
       emit: deps.emit,
       steer: deps.steer,
+      isMuted: deps.isMuted,
       intervalMs: deps.intervalMs ?? EGRESS_WATCH_INTERVAL_MS,
       setInterval: deps.setInterval ?? ((...args) => setInterval(...args)),
       clearInterval: deps.clearInterval ?? ((...args) => clearInterval(...args)),
@@ -204,6 +211,7 @@ export class EgressWatcher {
       cursor: 0,
       partial: "",
       reported: new Set(),
+      muted: new Set(),
       capped: false,
     });
   }
@@ -289,7 +297,11 @@ export class EgressWatcher {
     state: SessionState,
     opts: { repoPath: string; allowlist: string[] },
   ): boolean {
-    if (state.reported.has(host)) return false;
+    if (state.reported.has(host) || state.muted.has(host)) return false;
+    if (this.#muted(host)) {
+      state.muted.add(host);
+      return false;
+    }
     state.reported.add(host);
 
     try {
@@ -306,6 +318,15 @@ export class EgressWatcher {
     this.#noteAgent(sessionId, state, host);
 
     return state.reported.size >= EGRESS_DROP_CAP;
+  }
+
+  /** Whether the operator muted `host`; a failing lookup mutes nothing. */
+  #muted(host: string): boolean {
+    try {
+      return this.deps.isMuted?.(host) ?? false;
+    } catch {
+      return false;
+    }
   }
 
   /** Hand the blocked-host note to the agent: queued for the next tool hook, or steered. */

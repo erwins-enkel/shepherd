@@ -954,6 +954,21 @@ export const putSessionHousekeeping = (
 export const putAutoRevive = (enabled: boolean): Promise<{ autoReviveEnabled: boolean }> =>
   patchSettings({ autoReviveEnabled: enabled });
 
+/** The global egress settings: standard allowed hosts, their repo default, muted hosts. */
+export type EgressSettings = Pick<
+  Settings,
+  "egressStandardHosts" | "egressStandardDefault" | "egressMutedHosts"
+>;
+
+export const putEgressStandardHosts = (hosts: string[]): Promise<Required<EgressSettings>> =>
+  patchSettings({ egressStandardHosts: hosts });
+
+export const putEgressStandardDefault = (on: boolean): Promise<Required<EgressSettings>> =>
+  patchSettings({ egressStandardDefault: on });
+
+export const putEgressMutedHosts = (hosts: string[]): Promise<Required<EgressSettings>> =>
+  patchSettings({ egressMutedHosts: hosts });
+
 // ── access tokens (#2082) ───────────────────────────────────────────────────
 // Named machine bearer tokens. All three routes need the session cookie, which the browser
 // attaches automatically — a bearer is deliberately refused (403) on this surface.
@@ -3240,6 +3255,9 @@ export type RepoConfigResponse = RepoConfig & {
   automationRowExists?: boolean;
   /** The global default profile a `sandboxProfile: "inherit"` resolves to (#2100). */
   sandboxDefaultProfile?: SandboxProfile;
+  /** What `egressIncludeStandard: "inherit"` resolves to, and the global standard hosts. */
+  egressStandardDefault?: boolean;
+  egressStandardHosts?: string[];
   /** Derived, read-only (#3221): GitHub repo where no workflow runs on pull requests. */
   noPrCi?: boolean;
   /** Only on a PUT that flipped `claudeAiConnectorsEnabled`: live Claude sessions restarting with
@@ -3293,6 +3311,7 @@ export type RepoConfigPatch = Partial<
     | "defaultEffort"
     | "defaultExecutionEffort"
     | "egressExtraHosts"
+    | "egressIncludeStandard"
     | "maxAuto"
     | "autoLabel"
     | "priorityLabels"

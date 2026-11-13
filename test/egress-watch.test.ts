@@ -27,7 +27,10 @@ interface FakeEmit {
   data: unknown;
 }
 
-function makeWatcher(content: string | (() => string), opts?: { intervalMs?: number }) {
+function makeWatcher(
+  content: string | (() => string),
+  opts?: { intervalMs?: number; isMuted?: (host: string) => boolean },
+) {
   const signals: FakeSignal[] = [];
   const emits: FakeEmit[] = [];
 
@@ -42,6 +45,7 @@ function makeWatcher(content: string | (() => string), opts?: { intervalMs?: num
     },
     addSignal: (s) => signals.push(s),
     emit: (event, data) => emits.push({ event, data }),
+    isMuted: opts?.isMuted,
     intervalMs: opts?.intervalMs ?? 2000,
     setInterval: (fn: () => void) => {
       const id = nextId++;
@@ -491,4 +495,47 @@ test("setAllowlist on an unknown session is a no-op", () => {
 test("allowed note names the sanitized hosts", () => {
   const note = egressAllowedNote(["registry.npmjs.org", "Evil`$(x)`.com"]);
   expect(note).toContain("registry.npmjs.org, evilx.com now allowed");
+});
+
+test("muted host: no signal, no emit, no note, outside the cap", async () => {
+  const muted = new Set(["ph.varlock.dev"]);
+  const hosts = Array.from({ length: EGRESS_DROP_CAP }, (_, i) => `h${i}.example.com`);
+  const log = [
+    dnsLine("ph.varlock.dev"),
+    ...hosts.map((h) => dnsLine(h)),
+    dnsLine("ph.varlock.dev"),
+  ].join("");
+  const { watcher, signals, emits } = makeWatcher(log, { isMuted: (h) => muted.has(h) });
+  const opts = { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist: ALLOWLIST };
+  watcher.start(SESSION, opts);
+  await watcher.tick(SESSION, opts);
+  expect(signals.map((s) => s.payload)).toEqual(hosts);
+  expect(emits).toHaveLength(EGRESS_DROP_CAP);
+  expect(watcher.takeNotes(SESSION)).not.toContain("ph.varlock.dev");
+  expect(watcher.blockedHosts(SESSION)).not.toContain("ph.varlock.dev");
+});
+
+test("mute added mid-session applies to the next new host", async () => {
+  let log = dnsLine("a.example.com");
+  const muted = new Set<string>();
+  const { watcher, signals } = makeWatcher(() => log, { isMuted: (h) => muted.has(h) });
+  const opts = { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist: ALLOWLIST };
+  watcher.start(SESSION, opts);
+  await watcher.tick(SESSION, opts);
+  muted.add("b.example.com");
+  log += dnsLine("b.example.com");
+  await watcher.tick(SESSION, opts);
+  expect(signals.map((s) => s.payload)).toEqual(["a.example.com"]);
+});
+
+test("a throwing isMuted mutes nothing", async () => {
+  const { watcher, signals } = makeWatcher(dnsLine("a.example.com"), {
+    isMuted: () => {
+      throw new Error("db");
+    },
+  });
+  const opts = { repoPath: REPO, dnsLogPath: "/tmp/dns.log", allowlist: ALLOWLIST };
+  watcher.start(SESSION, opts);
+  await watcher.tick(SESSION, opts);
+  expect(signals).toHaveLength(1);
 });

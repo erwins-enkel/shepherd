@@ -90,6 +90,7 @@ function makeHarness(branchesRef: BranchesRef, clock: { t: number }, frozen?: ()
     defaultExecutionEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
+    egressIncludeStandard: "inherit" as const,
     repoMode: "forge",
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,

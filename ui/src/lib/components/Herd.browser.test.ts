@@ -1892,3 +1892,70 @@ describe("Herd footer", () => {
     expect(el.previousElementSibling?.classList.contains("units")).toBe(true);
   });
 });
+
+// #3016: an integrated child whose session on another machine is still to settle there — offline,
+// with every child of its epic integrated (the herd dropped the epic) and no mirror row for it.
+describe("Herd open settles of integrated children elsewhere (#3016)", () => {
+  const mac = { instanceId: "mac-1", name: "macbook", platform: "macos" };
+  const drain: Record<string, DrainStatus> = {
+    "/repo/a": {
+      repoPath: "/repo/a",
+      enabled: false,
+      paused: false,
+      reason: null,
+      detail: null,
+      queued: 0,
+      inFlight: 0,
+      max: 2,
+      epicParent: null,
+      remoteSettle: [
+        {
+          issueNumber: 3013,
+          parentIssueNumber: 3016,
+          host: mac,
+          sessionId: "mac-145",
+          reason: "offline",
+        },
+      ],
+    },
+  };
+  const label = () =>
+    m.integrated_chip_remote({
+      parent: "3016",
+      host: "macbook",
+      status: m.integrated_offline_status(),
+    });
+  const rowLabel = () => m.integrated_pending_row_aria({ machine: "macbook", issue: "3013" });
+
+  it("shows the open settle with no epic and no listed session at all", async () => {
+    render(Herd, { ...base, sessions: [], git: {}, drain });
+    await expect.element(page.getByRole("group", { name: rowLabel() })).toBeInTheDocument();
+    await expect.element(page.getByText(label())).toBeInTheDocument();
+  });
+
+  it("shows it beside listed sessions, under the lifecycle groups", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "n1", name: "unrelated task" })],
+      git: {},
+      drain,
+    });
+    await expect.element(page.getByText("unrelated task")).toBeInTheDocument();
+    await expect.element(page.getByRole("group", { name: rowLabel() })).toBeInTheDocument();
+  });
+
+  it("leaves it to the session's own row once the mirror lists that session", async () => {
+    const listed = session({
+      id: "mac-145",
+      name: "settle me",
+      host: mac,
+      connection: { state: "connected", since: 0 },
+      issueNumber: 3013,
+      git: { ...openPr, state: "merged", number: 3955 },
+    });
+    render(Herd, { ...base, sessions: [], remoteSessions: [listed], git: {}, drain });
+    await expect.element(page.getByText("settle me")).toBeInTheDocument();
+    expect(document.querySelector(".settle-row")).toBeNull();
+    await expect.element(page.getByText(label())).toBeInTheDocument(); // the row's own note
+  });
+});

@@ -888,6 +888,14 @@
   />
 {/snippet}
 
+{#snippet pendingSettleList()}
+  <!-- #3016: open settles whose session no listed row carries — also when nothing else is listed,
+       so they render in the empty states too, like the session-less epic groups. -->
+  {#each settlesUnlisted as settle (settle.sessionId)}
+    <PendingSettleRow {settle} />
+  {/each}
+{/snippet}
+
 {#snippet succeededEpics()}
   <!-- #3838: stays until the operator confirms each success -->
   {#if epicBandsShown}
@@ -1004,6 +1012,7 @@
          done/parked sessions read as intentional. A session-less active epic (#3814) still
          shows above it. -->
       {@render epicGroupList()}
+      {@render pendingSettleList()}
       <HerdEmptyState
         mode="sessions"
         {statusFilter}
@@ -1015,6 +1024,7 @@
       />
     {:else if shown.length + remoteShown.length + dispatchesShown.length === 0}
       {@render epicGroupList()}
+      {@render pendingSettleList()}
       <HerdEmptyState
         mode={machineFilterName ? "machine" : "shown"}
         machine={machineFilterName}
@@ -1050,9 +1060,7 @@
           touchTarget={flow || touch}
         />
       {/each}
-      {#each settlesUnlisted as settle (settle.sessionId)}
-        <PendingSettleRow {settle} />
-      {/each}
+      {@render pendingSettleList()}
     {/if}
   </div>
   {@render footer?.()}

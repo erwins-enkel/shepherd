@@ -189,6 +189,7 @@ export function validateReplaceAgentChoice(body: unknown):
   | {
       ok: true;
       value: {
+        requestId?: string;
         agentProvider?: AgentProvider;
         model: string | null;
         handoffMode: HandoffMode;
@@ -196,23 +197,22 @@ export function validateReplaceAgentChoice(body: unknown):
       };
     }
   | { ok: false; error: string } {
+  const base = validateModelChoice(body);
+  if (!base.ok) return base;
   const obj = body == null ? {} : (body as Record<string, unknown>);
-  if (typeof obj !== "object" || Array.isArray(obj)) return err("body must be a non-null object");
-  const provider = validateAgentProvider(obj.agentProvider);
-  if (!provider.ok) return provider;
-  const model = validateModel(obj.model, provider.value);
-  if (!model.ok) return model;
+  if (
+    obj.requestId !== undefined &&
+    (typeof obj.requestId !== "string" || !/^[A-Za-z0-9._-]{1,128}$/.test(obj.requestId))
+  )
+    return err("invalid requestId");
   const handoffMode = validateHandoffMode(obj.handoffMode);
   if (!handoffMode.ok) return handoffMode;
-  const effort = validateEffort(obj.effort);
-  if (!effort.ok) return effort;
   return {
     ok: true,
     value: {
-      agentProvider: provider.value,
-      model: model.value,
+      ...base.value,
       handoffMode: handoffMode.value,
-      effort: effort.value,
+      ...(obj.requestId !== undefined ? { requestId: obj.requestId as string } : {}),
     },
   };
 }

@@ -100,6 +100,10 @@
   async function runReplace(id: string, choice: Choice) {
     const session = await replaceSessionAgent(id, choice);
     onselect(session.id);
+    if (session.providerHandoff && session.providerHandoff.phase !== "observed")
+      toasts.info(m.handoff_waiting(), { alert: true });
+    else if (session.providerHandoff?.gaps.length)
+      toasts.info(m.handoff_partial(), { alert: true });
   }
 
   const MOVE_FAILURE: Record<string, () => string> = {
@@ -154,8 +158,13 @@
       if (p.mode === "compare") onselect((await startComparison(p.experimentId, choice)).id);
       else if (p.mode === "variant") onselect((await startVariant(p.id, choice)).id);
       else await runReplace(p.id, choice);
-    } catch {
-      toasts.info(m.experiment_action_failed(), { alert: true });
+    } catch (error) {
+      toasts.info(
+        error instanceof ApiError && error.code?.startsWith("handoff_")
+          ? m.handoff_failed()
+          : m.experiment_action_failed(),
+        { alert: true },
+      );
     }
   }
 </script>

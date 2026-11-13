@@ -403,3 +403,28 @@ describe("SessionStatusBar cold-resume marker", () => {
     expect(coldEl()).toBeNull();
   });
 });
+
+it("discloses uncertain provider delivery and specific context gaps", async () => {
+  render(SessionStatusBar, {
+    session: session({
+      id: "h",
+      providerHandoff: {
+        id: "handoff",
+        phase: "uncertain",
+        sourceProvider: "claude",
+        targetProvider: "codex",
+        gaps: ["transcript:file-missing"],
+        omitted: 0,
+      },
+    }),
+    usage: null,
+  });
+  await page
+    .getByText(`${m.handoff_title()}: ${m.handoff_phase_uncertain()}`, { exact: false })
+    .click();
+  await expect
+    .element(page.getByText(m.handoff_route({ source: "claude", target: "codex" })))
+    .toBeInTheDocument();
+  await expect.element(page.getByText(m.handoff_transcript_gap())).toBeInTheDocument();
+  await expect.element(page.getByText(m.handoff_waiting())).toBeInTheDocument();
+});

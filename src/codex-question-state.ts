@@ -182,6 +182,18 @@ export class CodexQuestionState {
     r.answers.set(index, [reply.answer]);
   }
 
+  /** Recorded answers for context transfer; never grants authority or reopens a dialog. */
+  answered(): { id: string; index: number; question: string; answer: string[] }[] {
+    return [...this.requests.values()].flatMap((r) =>
+      [...r.answers].map(([index, answer]) => ({
+        id: r.id,
+        index,
+        question: r.questions[index]!.question,
+        answer,
+      })),
+    );
+  }
+
   candidates(): CodexAsk[] {
     return [...this.requests.values()]
       .filter((r) => !r.closed)

@@ -1,3 +1,4 @@
+import type { HandoffRecord } from "./provider-handoff";
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
@@ -1920,6 +1921,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       edits TEXT NOT NULL DEFAULT '[]',
       createdAt INTEGER NOT NULL,
       PRIMARY KEY (sessionId, revision))`);
+    this.initProviderHandoffs();
     // Operator task amendments (#2225). APPEND-ONLY BY DESIGN: no method anywhere updates `text`,
     // so an authorization record can never be rewritten after the fact. `retractedAt` is the soft
     // delete — a retracted row stops reaching every prompt but stays in the operator's record.
@@ -5919,6 +5921,86 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return out;
   }
 
+  private initProviderHandoffs(): void {
+    this.db.run(`CREATE TABLE IF NOT EXISTS provider_handoffs (
+      id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, requestId TEXT NOT NULL,
+      phase TEXT NOT NULL, record TEXT NOT NULL, updatedAt INTEGER NOT NULL,
+      UNIQUE(sessionId, requestId))`);
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS idx_provider_handoffs_session ON provider_handoffs(sessionId)`,
+    );
+  }
+
+  getProviderHandoff(sessionId: string, id?: string): HandoffRecord | null {
+    const row = id
+      ? this.db
+          .query("SELECT record FROM provider_handoffs WHERE sessionId = ? AND id = ?")
+          .get(sessionId, id)
+      : this.db
+          .query(
+            "SELECT record FROM provider_handoffs WHERE sessionId = ? ORDER BY rowid DESC LIMIT 1",
+          )
+          .get(sessionId);
+    return row ? (JSON.parse((row as { record: string }).record) as HandoffRecord) : null;
+  }
+
+  findProviderHandoffRequest(sessionId: string, requestId: string): HandoffRecord | null {
+    const row = this.db
+      .query("SELECT record FROM provider_handoffs WHERE sessionId = ? AND requestId = ?")
+      .get(sessionId, requestId) as { record: string } | null;
+    return row ? (JSON.parse(row.record) as HandoffRecord) : null;
+  }
+
+  putProviderHandoff(record: HandoffRecord): void {
+    this.db.run(
+      `INSERT INTO provider_handoffs (id, sessionId, requestId, phase, record, updatedAt)
+      VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET phase=excluded.phase, record=excluded.record, updatedAt=excluded.updatedAt`,
+      [
+        record.id,
+        record.sessionId,
+        record.requestId,
+        record.phase,
+        JSON.stringify(record),
+        record.updatedAt,
+      ],
+    );
+  }
+
+  commitProviderHandoff(record: HandoffRecord, persistIdentity: () => void): void {
+    this.db.transaction(() => {
+      this.putProviderHandoff(record);
+      persistIdentity();
+    })();
+  }
+
+  pendingProviderHandoffs(): HandoffRecord[] {
+    return (
+      this.db
+        .query(
+          `SELECT record FROM provider_handoffs WHERE phase NOT IN ('observed','failed')
+      AND rowid IN (SELECT MAX(rowid) FROM provider_handoffs GROUP BY sessionId)`,
+        )
+        .all() as { record: string }[]
+    ).map((row) => JSON.parse(row.record) as HandoffRecord);
+  }
+
+  providerHandoffAutomationHeld(sessionId: string): boolean {
+    return (
+      this.providerHandoffHeld(sessionId) ||
+      (this.getProviderHandoff(sessionId)?.phase === "observed" &&
+        this.getProviderHandoff(sessionId)?.waitingForOperator === true)
+    );
+  }
+
+  providerHandoffHeld(sessionId: string): boolean {
+    const current = this.getProviderHandoff(sessionId);
+    return (
+      !!current &&
+      current.phase !== "observed" &&
+      !(current.phase === "failed" && current.sourceStopped === false)
+    );
+  }
+
   // ── session recaps ────────────────────────────────────────────────────────────
   private hydrateRecap(r: RecapRow): Recap {
     // Persisted blocks were already validated + server-grounded at finalize (the real DiffFile is
@@ -7329,6 +7411,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       // (#2151 R1): outliving this prune is its whole purpose, so a merged task keeps counting
       // toward the delivery metrics after its sessions row is gone. Don't "tidy" either into
       // this cascade.
+      this.db.run(
+        `DELETE FROM provider_handoffs WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
+        params,
+      );
       this.db.run(`DELETE FROM sessions WHERE ${victims}`, params);
       return n;
     })();

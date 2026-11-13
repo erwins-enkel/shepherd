@@ -640,3 +640,79 @@ describe("sessionMessages tail growth", () => {
 
   test("cleanup", () => rmSync(dir, { recursive: true, force: true }));
 });
+
+test("handoff-only native question answers survive while normal Chat remains unchanged", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "native-handoff-"));
+  const path = join(dir, "transcript.jsonl");
+  try {
+    writeFileSync(
+      path,
+      jsonl(
+        assistantToolUse(
+          "AskUserQuestion",
+          { questions: [{ question: "Keep company fixed?", options: [{ label: "Yes" }] }] },
+          "ask-1",
+        ),
+        {
+          type: "user",
+          timestamp: TS,
+          toolUseResult: { answers: { "Keep company fixed?": "Yes" } },
+          message: {
+            content: [{ type: "tool_result", tool_use_id: "ask-1", content: "answered" }],
+          },
+        },
+      ),
+    );
+    const q = { limit: 100, includeUser: true, handoff: true };
+    const claude = await sessionMessages({ status: "done", agentProvider: "claude" }, path, q);
+    expect(
+      claude.messages.some((m) => m.text.includes("Keep company fixed?") && m.text.includes("Yes")),
+    ).toBe(true);
+    expect(
+      (
+        await sessionMessages({ status: "done", agentProvider: "claude" }, path, {
+          ...q,
+          handoff: false,
+        })
+      ).messages,
+    ).toHaveLength(0);
+    writeFileSync(
+      path,
+      jsonl(
+        {
+          type: "response_item",
+          timestamp: TS,
+          payload: {
+            type: "function_call",
+            name: "request_user_input",
+            call_id: "ask-2",
+            arguments: JSON.stringify({
+              questions: [
+                {
+                  id: "company",
+                  question: "Keep company fixed?",
+                  options: [{ label: "Yes", description: "fixed" }],
+                },
+              ],
+            }),
+          },
+        },
+        {
+          type: "response_item",
+          timestamp: TS,
+          payload: {
+            type: "function_call_output",
+            call_id: "ask-2",
+            output: JSON.stringify({ answers: { company: { answers: ["Yes"] } } }),
+          },
+        },
+      ),
+    );
+    const codex = await sessionMessages({ status: "done", agentProvider: "codex" }, path, q);
+    expect(
+      codex.messages.some((m) => m.text.includes("Keep company fixed?") && m.text.includes("Yes")),
+    ).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -371,8 +371,8 @@
 "epicflow_stage_parallel" = "%1$@ · parallel möglich";
 "epicflow_title" = "Ablauf";
 "experiment_continue_handoff_label" = "Übergabe";
-"experiment_continue_mode_resume" = "Ursprünglichen Auftrag fortsetzen";
-"experiment_continue_mode_summarize" = "Erst zusammenfassen";
+"experiment_continue_mode_resume" = "Arbeit fortsetzen";
+"experiment_continue_mode_summarize" = "Zusammenfassen und warten";
 "experiment_continue_scope" = "Behält diese Shepherd-Session, Branch und Worktree. Nur der laufende Agentprozess wechselt.";
 "experiment_replace_confirm" = "Weiterführen";
 "experiment_replace_title" = "Weiterführen mit";

@@ -19,12 +19,15 @@ afterEach(() => {
 // `session_id` against the session's `claudeSessionId` (two distinct UUIDs).
 const CLAUDE_SID = "claude-sid-xyz";
 
-function harness(onSignal?: (id: string) => void) {
+function harness(
+  onSignal?: (id: string) => void,
+  observeProviderHandoff?: (id: string) => Promise<void>,
+) {
   const store = new SessionStore(":memory:");
   const hooks = new HookIngest(onSignal ? (id) => onSignal(id) : undefined);
   const deps: AppDeps = {
     store,
-    service: {} as any,
+    service: { observeProviderHandoff } as any,
     events: new EventHub(),
     usageLimits: { limits: () => ({}) } as any,
     hooks,
@@ -407,4 +410,14 @@ test("matched SubagentStart attaches the meta sidecar's description to the roste
     SUBAGENT_META_RETRY_MS.delays = origDelays;
     rmSync(projects, { recursive: true, force: true });
   }
+});
+
+test("late source hook cannot match after identity changes during handoff observation", async () => {
+  const h = harness(undefined, async (id) => {
+    h.store.update(id, { claudeSessionId: "new-native-id" });
+  });
+  expect((await post(h.app, h.session.id, validEvent)).status).toBe(202);
+  const snapshot = await h.app.fetch(new Request(`http://x/api/sessions/${h.session.id}/hooks`));
+  const events = await snapshot.json();
+  expect(events[0].match).toBe(false);
 });

@@ -1,3 +1,4 @@
+import { replaceRequestId, settleReplaceRequest } from "./provider-handoff";
 import type { AssistantRuntimeSettings, AssistantSwitchState } from "./types";
 import type {
   EgressBlock,
@@ -1844,6 +1845,7 @@ export type HandoffMode = "resume" | "summarize";
 
 /** Provider/model choice for variant, comparison, or in-place continuation actions. */
 export interface VariantChoice {
+  requestId?: string;
   agentProvider?: AgentProvider;
   model: string | null;
   effort?: string | null;
@@ -1852,12 +1854,19 @@ export interface VariantChoice {
 
 /** Continue the session with another agent CLI/model, keeping the same Shepherd session + worktree. */
 export async function replaceSessionAgent(id: string, choice: VariantChoice): Promise<Session> {
-  const { session } = await postJson<{ session: Session }>(
-    `/api/sessions/${id}/replace`,
-    choice,
-    "replace",
-  );
-  return session;
+  const requestId = replaceRequestId(id, choice);
+  try {
+    const { session } = await postJson<{ session: Session }>(
+      `/api/sessions/${id}/replace`,
+      { ...choice, requestId },
+      "replace",
+    );
+    settleReplaceRequest(id, requestId);
+    return session;
+  } catch (error) {
+    if (error instanceof ApiError) settleReplaceRequest(id, requestId);
+    throw error;
+  }
 }
 
 /** What moving a session to another machine came to: the moved session (it runs there), or the

@@ -577,6 +577,33 @@ components:
           oneOf:
             - $ref: "#/components/schemas/UsagePause"
             - type: "null"
+    ProviderHandoffStatus:
+      type: object
+      additionalProperties: false
+      required: [id, phase, sourceProvider, targetProvider, gaps, omitted]
+      properties:
+        sourceStopped: { type: boolean }
+        waitingForOperator: { type: boolean }
+        id: { type: string }
+        phase:
+          type: string
+          enum: [preparing, stopped, bootstrap, pending, sent, observed, uncertain, failed]
+          x-shepherd-open-enum: true
+        sourceProvider: { $ref: "#/components/schemas/AgentProvider" }
+        targetProvider: { $ref: "#/components/schemas/AgentProvider" }
+        gaps: { type: array, items: { type: string } }
+        omitted: { type: integer, minimum: 0 }
+    ProviderHandoffPage:
+      type: object
+      additionalProperties: false
+      required: [text, nextCursor]
+      properties:
+        text:
+          {
+            type: string,
+            description: "A bounded slice of redacted evidence JSON. Concatenate pages before parsing.",
+          }
+        nextCursor: { type: [string, "null"] }
     Session:
       type: object
       additionalProperties: true
@@ -615,6 +642,7 @@ components:
         - haltedAt
         - manualSteps
       properties:
+        providerHandoff: { $ref: "#/components/schemas/ProviderHandoffStatus" }
         usagePause:
           oneOf:
             - $ref: "#/components/schemas/UsagePause"
@@ -6614,6 +6642,12 @@ components:
       type: object
       additionalProperties: false
       properties:
+        requestId:
+          {
+            type: string,
+            pattern: "^[A-Za-z0-9._-]{1,128}$",
+            description: "Reuse for transport retries of the same choice; a deliberate new action uses a new ID.",
+          }
         agentProvider: { $ref: "#/components/schemas/AgentProvider" }
         model: { type: [string, "null"] }
         effort: { type: [string, "null"] }
@@ -13195,12 +13229,45 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "409":
-          description: Already archived, or code in_progress while another request is running.
+          description: Already archived, in_progress, handoff_in_progress, handoff_request_conflict, or a held handoff failure. Uncertain delivery is not automatically replayed.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "502":
           description: Agent launch failed; replace may return code issue_unresolved.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/sessions/{id}/provider-handoffs/{handoffId}:
+    get:
+      operationId: getProviderHandoffPage
+      description: Read only redacted evidence owned by this session. Full token scope or its own agent ingress key required. No transcript file paths accepted.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: handoffId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: cursor
+          in: query
+          schema: { type: string, pattern: "^(0|[1-9][0-9]*)$" }
+      responses:
+        "200":
+          description: At most 16 KiB JSON; nextCursor is null at the end.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProviderHandoffPage" }
+        "400":
+          description: Invalid cursor.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Session or handoff unavailable to this caller.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -13235,7 +13302,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "409":
-          description: Already archived, or code in_progress while another request is running.
+          description: Already archived, in_progress, handoff_in_progress, handoff_request_conflict, or a held handoff failure. Uncertain delivery is not automatically replayed.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

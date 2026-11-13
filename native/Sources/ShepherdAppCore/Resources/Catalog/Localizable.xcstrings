@@ -6405,13 +6405,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ursprünglichen Auftrag fortsetzen"
+            "value": "Arbeit fortsetzen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Continue original task"
+            "value": "Continue work"
           }
         }
       }
@@ -6422,13 +6422,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Erst zusammenfassen"
+            "value": "Zusammenfassen und warten"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Summarize first"
+            "value": "Summarize and wait"
           }
         }
       }

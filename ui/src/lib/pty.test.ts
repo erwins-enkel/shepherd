@@ -433,3 +433,15 @@ it("reports PWA metadata again when taking over", () => {
   expect(last().url).toContain("clientKind=pwa&clientPlatform=ios");
   conn.close();
 });
+
+it("preserves the WebSocket frame kind so shell bytes cannot impersonate control replies", () => {
+  const { conn, onData, last } = make();
+  const text = '\x00clean-terminal:{"id":1}';
+  last().onmessage?.({ data: text });
+  last().onmessage?.({ data: new TextEncoder().encode(text).buffer });
+  expect(onData.mock.calls).toEqual([
+    [text, true],
+    [text, false],
+  ]);
+  conn.close();
+});

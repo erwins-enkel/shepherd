@@ -29,6 +29,7 @@
   import { hotterGauge, gaugeColor } from "./usage-gauges";
   import { connectPty, type PtyConn, type PtyEndReason } from "#lib/pty.js";
   import { createWriteBatcher, type WriteBatcher } from "#lib/term-write-batcher.js";
+  import { wireCleanTerminalNavigation } from "#lib/clean-terminal-navigation.js";
   import { theme } from "#lib/theme.svelte.js";
   import { terminalFontSize, FONT_MIN, FONT_MAX } from "#lib/terminal-font-size.svelte.js";
   import { sessionStartTab, resolveStartTab } from "#lib/session-start-tab.svelte.js";
@@ -700,6 +701,7 @@
   // plain (non-reactive) — only `scrolledUp` drives the UI. Reset on re-attach,
   // buffer switch, and a jump-to-bottom.
   let scrollDepth = 0;
+  let cleanNavigation: ReturnType<typeof wireCleanTerminalNavigation> | undefined;
   // Agent-owned top jumps move a remote TUI whose real position xterm cannot
   // observe. Until the user explicitly jumps back down (or the terminal resets),
   // do not let local wheel/touch bookkeeping claim we verified the bottom.
@@ -1831,6 +1833,7 @@
   }
 
   function scrollToBottom() {
+    if (cleanNavigation) return cleanNavigation.bottom();
     const term = termRef;
     if (!term) return;
     if (agentOwnsScroll(term)) {
@@ -1846,6 +1849,7 @@
   }
 
   function scrollToTop() {
+    if (cleanNavigation) return cleanNavigation.top();
     const term = termRef;
     if (!term) return;
     if (agentOwnsScroll(term)) {
@@ -1974,6 +1978,8 @@
     resumeEpoch; // a resume bumps this → rebuild the terminal + re-attach to the new agent
     if (!el) return;
     const mount = el;
+    const cleanSession = untrack(() => !!session.terminal);
+    let shellNavigation: ReturnType<typeof wireCleanTerminalNavigation> | undefined;
     parked = false; // fresh attach for this unit
     ptyLive = false;
     scrolledUp = false; // fresh terminal starts pinned to the bottom
@@ -2017,21 +2023,23 @@
       id,
       term.cols,
       term.rows,
-      (d) => {
+      (d, textFrame) => {
         hasFreshOutput = true;
         lastOutputAt = Date.now();
         if (!ptyLive) ptyLive = true;
-        batcher.push(d);
+        if (!shellNavigation?.handleOutput(d, textFrame)) batcher.push(d);
       },
       // reconnected (e.g. after a mobile app-switch dropped the socket): refit in
       // case the layout changed while away, then resize to repaint the attach
       () => {
+        shellNavigation?.reset();
         hasFreshOutput = false;
         codexQuestions = null;
         refit();
       },
       // another device took over this terminal — park and offer to take it back
       () => {
+        shellNavigation?.cancel();
         parked = true;
         ptyLive = false;
       },
@@ -2039,6 +2047,7 @@
       // recovery prompt. "gone" → agent exited (status badge already flipped to
       // "done" via session:status); "unreachable" → attaches keep failing (likely herdr), just re-attach.
       (reason) => {
+        shellNavigation?.cancel();
         endReason = reason;
         ptyLive = false;
         // through the batcher, so the note lands after output still pending while unattended
@@ -2331,7 +2340,22 @@
     el.addEventListener("click", onTap);
 
     // Copy-on-select and a trimmed native copy — the same as a connected machine's terminal.
-    const offCopy = wireTerminalCopy(term, el);
+    shellNavigation = cleanSession
+      ? wireCleanTerminalNavigation(term, el, {
+          send: (frame) => c.send(frame),
+          onScroll: (up) => {
+            scrolledUp = up;
+          },
+          onError: (error) =>
+            toasts.info(
+              error === "stale"
+                ? m.terminal_selection_changed()
+                : m.terminal_navigation_unavailable(),
+            ),
+        })
+      : undefined;
+    cleanNavigation = shellNavigation;
+    const offCopy = cleanSession ? () => {} : wireTerminalCopy(term, el);
 
     // Cmd/Ctrl+V of an image: xterm only pastes text, so a copied screenshot is
     // silently dropped. Intercept in the capture phase (before xterm's textarea
@@ -2381,6 +2405,10 @@
     // depth directly (dy<0 = scrolling up → grow it); then refresh the
     // jump-to-bottom affordance and forward the wheel to xterm's screen.
     const dispatchScroll = (dy: number) => {
+      if (shellNavigation) {
+        shellNavigation.scrollDelta(dy);
+        return;
+      }
       if (agentOwnsScroll(term)) {
         trackAgentScrollDelta(dy);
       }
@@ -2501,6 +2529,7 @@
     // regimes (gesture accumulator vs. xterm viewport offset) and why content
     // arrival matters are documented in `isScrolledAwayFromBottom`.
     const recomputeScrolled = () => {
+      if (cleanSession) return;
       const b = term.buffer.active;
       if (scrollDepth === 0) contentBelowScroll = false; // verified bottom → re-arm
       scrolledUp = isScrolledAwayFromBottom({
@@ -2564,7 +2593,7 @@
     // only real wheels here. deltaY<0 = scrolling up (reveal older) → grow depth;
     // >0 = toward latest.
     const onWheelTrack = (e: WheelEvent) => {
-      if (!e.isTrusted || !agentOwnsScroll(term)) return;
+      if (cleanSession || !e.isTrusted || !agentOwnsScroll(term)) return;
       trackAgentScrollDelta(e.deltaY);
       recomputeScrolled();
     };
@@ -2580,6 +2609,8 @@
       document.removeEventListener("visibilitychange", onHidden);
       el?.removeEventListener("click", onTap);
       offCopy();
+      shellNavigation?.dispose();
+      cleanNavigation = undefined;
       el?.removeEventListener("paste", onPaste, true);
       el?.removeEventListener("touchstart", onTouchStart);
       el?.removeEventListener("touchmove", onTouchMove);

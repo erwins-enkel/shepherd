@@ -1,3 +1,16 @@
+import { redactSecretText } from "./redact";
+import {
+  collectProviderHandoff,
+  providerHandoffStatus,
+  renderProviderHandoff,
+  readHandoffGit,
+  readHandoffPlan,
+  handoffRun,
+  HANDOFF_MARKER,
+  ProviderHandoffError,
+  type HandoffRecord,
+  type HandoffGit,
+} from "./provider-handoff";
 import { buildAssistantHandoff, type AssistantSwitchState } from "./operator-assistant-handoff";
 import { sessionMessages, type SessionMessages } from "./agent-messages";
 import { jsonlPathFor } from "./usage";
@@ -393,6 +406,9 @@ export interface ServiceDeps {
   houseStackResolver?: Pick<HouseStackResolver, "resolve">;
   /** Filesystem seam for persisted conversation availability; defaults to the real transcript file check. */
   transcriptExists?: (path: string) => boolean;
+  providerHandoffMessages?: (s: Session) => Promise<SessionMessages>;
+  providerHandoffGit?: (path: string) => Promise<HandoffGit | null>;
+  providerHandoffDeliver?: (s: Session, text: string) => Promise<boolean>;
   capacity?: (session: Session) => Promise<boolean>;
   store: SessionStore;
   worktree: Pick<
@@ -2233,7 +2249,17 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
 /** Runs inside a steer's critical section right before its paste (#3434); false aborts the steer. */
 type SteerPrelude = (s: Session) => Promise<boolean>;
 
+type ReplaceAgentOptions = {
+  agentProvider?: AgentProvider;
+  model: string | null;
+  handoffMode?: HandoffMode;
+  requestId?: string;
+  effort?: string | null;
+  issueRef?: IssueRef;
+};
+
 interface SteerOpts {
+  providerHandoff?: { id: string; run: string };
   usagePause?: { since: number; purpose: "stop" | "resume" };
   automatic?: boolean;
   prelude?: SteerPrelude;
@@ -2486,6 +2512,7 @@ function situationalBlocks(
 /** Options accepted by {@link composeSystemPromptBlocks} / {@link composeSystemPrompt}. Named so the
  *  blocks form and the joined form can never drift in signature. */
 export interface ComposeSystemPromptOptions {
+  providerHandoffBootstrap?: boolean;
   research?: boolean;
   /** Pre-baked epic-authoring directive text (endpoint + session id), or null/absent when off.
    *  When set it is the primary directive and suppresses the same blocks as `research`. */
@@ -2616,6 +2643,15 @@ export function composeSystemPromptBlocks(
   const blocks: PromptBlock[] = [posture, untrustedBoundary];
   if (claudeFamily) blocks.push(steerProvenanceBlock());
   blocks.push(research);
+  if (opts.providerHandoffBootstrap) {
+    blocks.push(
+      taggedBlock(
+        "provider-handoff-bootstrap",
+        "Provider handoff bootstrap. Do not change files or run tools. Wait for a Shepherd structured provider handoff with Handoff-ID. Only after that message arrives, follow its task and mode-specific directives. This waiting restriction then ends; existing authorization gates still apply.",
+      ),
+    );
+    return blocks;
+  }
   // #2860: only where `self_status` exists — Codex has no MCP wiring, a plain session no read tools.
   if (claudeFamily && !opts.plain) {
     blocks.push(taggedBlock("github-rate-limit-notice", GITHUB_RATE_LIMIT_NOTICE));
@@ -4323,6 +4359,7 @@ export class SessionService {
       agentProvider: args.agentProvider,
       // #2002: warn about the background rename only where one can actually land — the same
       // conditions scheduleRefine checks before starting the namer, plus a branch to rename.
+      handoffDelivery: false,
       branchRename:
         args.isolated &&
         config.llmNaming &&
@@ -4355,6 +4392,7 @@ export class SessionService {
       | "scheduleId"
     > & { mergeTrainPrs?: number[] | null },
     ctx: {
+      handoffDelivery?: boolean;
       sessionId: string;
       baseUrl: string;
       planGateOn: boolean;
@@ -4406,6 +4444,8 @@ export class SessionService {
             agentProvider: ctx.agentProvider,
           });
     return composeSystemPromptBlocks(autopilotActive, {
+      providerHandoffBootstrap:
+        !ctx.handoffDelivery && this.deps.store.providerHandoffHeld(sessionId),
       research: input.research,
       epicAuthoring,
       bootstrap,
@@ -6351,6 +6391,20 @@ export class SessionService {
     overrides?: RelaunchOverrides,
     authPolicy: "error" | "clamp" = "error",
   ): Promise<Session> {
+    if (this.isClosing(originalId))
+      throw new Error(`cannot relaunch ${originalId}: being archived`);
+    return this.withLifecycle(originalId, () =>
+      this.relaunchInner(originalId, issueRef, overrides, authPolicy),
+    );
+  }
+
+  private async relaunchInner(
+    originalId: string,
+    issueRef?: IssueRef,
+    overrides?: RelaunchOverrides,
+    authPolicy: "error" | "clamp" = "error",
+  ): Promise<Session> {
+    this.assertNoProviderHandoff(originalId);
     const s = this.deps.store.get(originalId);
     if (!s || s.status === "archived" || this.isClosing(originalId))
       throw new Error(`cannot relaunch ${originalId}: missing, archived or being archived`);
@@ -6503,6 +6557,224 @@ export class SessionService {
     };
   }
 
+  private readonly lifecycleInFlight = new Set<string>();
+  private assertLifecycleIdle(id: string): void {
+    if (
+      this.lifecycleInFlight.has(id) ||
+      this.resumeInFlight.has(id) ||
+      this.planReleaseInFlight.has(id)
+    )
+      throw new ProviderHandoffError("handoff_in_progress");
+  }
+
+  private async withLifecycle<T>(id: string, work: () => Promise<T>): Promise<T> {
+    this.assertNoProviderHandoff(id);
+    this.assertLifecycleIdle(id);
+    this.lifecycleInFlight.add(id);
+    try {
+      return await work();
+    } finally {
+      this.lifecycleInFlight.delete(id);
+    }
+  }
+
+  isProviderHandoffHeld(id: string): boolean {
+    return this.replaceInFlight.has(id) || this.deps.store.providerHandoffHeld(id);
+  }
+
+  assertNoProviderHandoff(id: string): void {
+    if (this.isProviderHandoffHeld(id)) throw new ProviderHandoffError("handoff_in_progress");
+  }
+
+  private providerHandoffAccess(id: string, access?: SteerOpts["providerHandoff"]): boolean {
+    const record = this.deps.store.getProviderHandoff(id);
+    const s = this.deps.store.get(id);
+    return (
+      !!access &&
+      !!record &&
+      !!s &&
+      access.id === record.id &&
+      access.run === record.targetRun &&
+      handoffRun(s) === access.run
+    );
+  }
+
+  private async handoffMessages(s: Session): Promise<SessionMessages> {
+    if (this.deps.providerHandoffMessages) return this.deps.providerHandoffMessages(s);
+    this.captureCodexSessionId(s);
+    const current = this.deps.store.get(s.id) ?? s;
+    const path =
+      current.agentProvider === "codex"
+        ? current.providerSessionId
+          ? findCodexRolloutById(current.providerSessionId)
+          : null
+        : current.claudeSessionId
+          ? jsonlPathFor(current.worktreePath, current.claudeSessionId, current.spawnAccountDir)
+          : null;
+    return sessionMessages(current, path, {
+      includeUser: true,
+      includeTools: true,
+      limit: 10000,
+      handoff: true,
+    });
+  }
+
+  private async collectHandoff(s: Session, id: string, provider: AgentProvider) {
+    const gitRead = this.deps.providerHandoffGit ?? readHandoffGit;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const before = await gitRead(s.worktreePath);
+      const messages = await this.handoffMessages(s);
+      const livePlan = await readHandoffPlan(s.worktreePath);
+      const after = await gitRead(s.worktreePath);
+      const finalPlan = await readHandoffPlan(s.worktreePath);
+      if (before?.fingerprint !== after?.fingerprint || livePlan !== finalPlan) continue;
+      const previous = this.deps.store.getProviderHandoff(s.id);
+      return collectProviderHandoff({
+        session: s,
+        id,
+        targetProvider: provider,
+        now: Date.now(),
+        messages,
+        queue: this.deps.store.getBuildQueue(s.id),
+        amendments: this.deps.store.listActiveTaskAmendments(s.id),
+        gate: this.deps.store.getPlanGate(s.id),
+        revisions: this.deps.store.listPlanRevisions(s.id),
+        signals: this.deps.store.listSessionSignals(s.id, 1000).reverse(),
+        git: after,
+        processes: this.leftovers(s.id).map((p) => ({ name: p.name, pid: p.pid ?? null })),
+        livePlan,
+        pr: s.branch ? this.deps.store.getLocalPr(s.repoPath, s.branch)?.number : null,
+        previous: previous?.packet,
+      });
+    }
+    throw new ProviderHandoffError("handoff_worktree_changed");
+  }
+
+  private async stopProviderHandoffSource(s: Session): Promise<void> {
+    const deadline = Date.now() + 10000;
+    let live = (await this.deps.herdr.listAsync()).find((a) => a.terminalId === s.herdrAgentId);
+    while (live?.agentStatus === "working" && Date.now() < deadline) {
+      await Bun.sleep(250);
+      live = (await this.deps.herdr.listAsync()).find((a) => a.terminalId === s.herdrAgentId);
+    }
+    await this.deps.herdr.stop(s.herdrAgentId);
+    if ((await this.deps.herdr.listAsync()).some((a) => a.terminalId === s.herdrAgentId))
+      throw new ProviderHandoffError("handoff_source_still_alive");
+    if (live?.tabId && (await this.deps.herdr.tabsAsync()).some((t) => t.tabId === live.tabId))
+      throw new ProviderHandoffError("handoff_source_tab_still_alive");
+  }
+
+  private async deliverProviderHandoff(
+    s: Session,
+    record: HandoffRecord,
+    text: string,
+  ): Promise<void> {
+    const access = { id: record.id, run: record.targetRun! };
+    if (!this.providerHandoffAccess(s.id, access))
+      throw new ProviderHandoffError("handoff_target_changed");
+    // Persist uncertainty BEFORE the first potentially successful write. Never blindly replay it.
+    record.phase = "uncertain";
+    this.saveProviderHandoff(record);
+    let forceResume = false;
+    const delivered = this.deps.providerHandoffDeliver
+      ? await this.deps.providerHandoffDeliver(s, text)
+      : await resumeThenSteer(s.id, text, {
+          paneAlive: async () => {
+            const target = await this.operatorReplyTarget(s.id, true);
+            if (!target) throw new ProviderHandoffError("handoff_delivery_uncertain");
+            forceResume = target.forceResume;
+            return !!target.agent && !forceResume;
+          },
+          resume: () => this.resume(s.id, { force: forceResume, providerHandoff: access }),
+          steer: async () => {
+            if (!this.providerHandoffAccess(s.id, access)) return false;
+            return this.reply(s.id, text, { automatic: true, providerHandoff: access });
+          },
+        });
+    if (!delivered) throw new ProviderHandoffError("handoff_delivery_uncertain");
+    record.phase = "sent";
+    record.updatedAt = Date.now();
+    this.saveProviderHandoff(record);
+    await this.observeProviderHandoff(s.id);
+  }
+
+  private saveProviderHandoff(record: HandoffRecord): void {
+    this.deps.store.putProviderHandoff(record);
+    const s = this.deps.store.get(record.sessionId);
+    if (s)
+      this.deps.events?.emit("session:status", {
+        ...s,
+        providerHandoff: providerHandoffStatus(record),
+      });
+  }
+
+  private releaseHandoffSummary(id: string): void {
+    const record = this.deps.store.getProviderHandoff(id);
+    if (record?.phase === "observed" && record.waitingForOperator) {
+      record.waitingForOperator = false;
+      this.saveProviderHandoff(record);
+    }
+  }
+
+  private processingHandoffs = false;
+  async processProviderHandoffs(): Promise<void> {
+    if (this.processingHandoffs) return;
+    this.processingHandoffs = true;
+    try {
+      for (const record of this.deps.store.pendingProviderHandoffs()) {
+        if (this.replaceInFlight.has(record.sessionId)) continue;
+        await this.recoverProviderHandoff(record);
+      }
+    } finally {
+      this.processingHandoffs = false;
+    }
+  }
+
+  private async recoverProviderHandoff(record: HandoffRecord): Promise<void> {
+    if (["sent", "uncertain"].includes(record.phase)) {
+      await this.observeProviderHandoff(record.sessionId);
+      return;
+    }
+    const current = this.deps.store.get(record.sessionId);
+    if (!current || current.status === "archived") return;
+    // No working task was delivered in these phases. Stop a committed bootstrap;
+    // an uncommitted spawn with uncertain identity remains held, never guessed by name.
+    if (["bootstrap", "pending"].includes(record.phase)) {
+      if (record.targetRun !== handoffRun(current)) {
+        record.phase = "uncertain";
+      } else {
+        await this.stopProviderHandoffSource(current);
+        record.phase = "failed";
+      }
+    } else record.phase = "failed";
+    record.updatedAt = Date.now();
+    if (record.sourceStopped) this.deps.store.update(record.sessionId, { status: "blocked" });
+    this.saveProviderHandoff(record);
+  }
+
+  async observeProviderHandoff(id: string): Promise<void> {
+    const record = this.deps.store.getProviderHandoff(id);
+    if (!record || !["sent", "uncertain"].includes(record.phase)) return;
+    const s = this.deps.store.get(id);
+    if (!s || handoffRun(s) !== record.targetRun) return;
+    const history = await this.handoffMessages(s);
+    const latest = this.deps.store.getProviderHandoff(id);
+    const current = this.deps.store.get(id);
+    if (latest?.id !== record.id || !current || handoffRun(current) !== record.targetRun) return;
+    if (
+      !history.messages.some(
+        (m) =>
+          m.role === "user" &&
+          m.text.includes(`Handoff-ID: ${record.id}`) &&
+          m.text.includes(HANDOFF_MARKER),
+      )
+    )
+      return;
+    record.phase = "observed";
+    record.updatedAt = Date.now();
+    this.saveProviderHandoff(record);
+  }
+
   /**
    * Continue an existing Shepherd session with a fresh agent process without creating a new
    * worktree or session row. Used by "Continue with…" when the operator wants the same task and
@@ -6514,30 +6786,54 @@ export class SessionService {
       agentProvider?: AgentProvider;
       model: string | null;
       handoffMode?: HandoffMode;
+      requestId?: string;
       effort?: string | null;
       issueRef?: IssueRef;
     },
   ): Promise<Session> {
-    const s = this.deps.store.get(id);
-    if (!s || s.status === "archived")
-      throw new Error(`cannot replace agent for ${id}: missing or archived`);
-    this.assertNotTerminal(s, "replace");
-    this.assertNotOperatorAssistant(s, "replace");
+    const priorRequest = opts.requestId
+      ? this.deps.store.findProviderHandoffRequest(id, opts.requestId)
+      : null;
+    const choice = JSON.stringify({
+      provider: opts.agentProvider,
+      model: opts.model,
+      effort: opts.effort ?? null,
+      mode: opts.handoffMode ?? "resume",
+    });
+    if (priorRequest) {
+      if (priorRequest.choice !== choice)
+        throw new ProviderHandoffError("handoff_request_conflict");
+      return this.deps.store.get(id)!;
+    }
+    const previous = this.deps.store.getProviderHandoff(id);
+    if (
+      this.replaceInFlight.has(id) ||
+      this.lifecycleInFlight.has(id) ||
+      this.resumeInFlight.has(id) ||
+      this.planReleaseInFlight.has(id) ||
+      this.handoffHeld(id) ||
+      (previous && !["observed", "failed"].includes(previous.phase))
+    )
+      throw new ProviderHandoffError("handoff_in_progress");
+    this.replaceInFlight.add(id);
+    try {
+      return await this.replaceAgentInner(id, opts, choice);
+    } finally {
+      this.replaceInFlight.delete(id);
+    }
+  }
 
+  private readonly replaceInFlight = new Set<string>();
+
+  private providerReplacementInput(
+    s: Session,
+    opts: ReplaceAgentOptions,
+    task: string,
+  ): StandardCreateInput {
     const agentProvider = opts.agentProvider ?? s.agentProvider ?? "claude";
     const sourceProvider = s.agentProvider ?? "claude";
     const model = modelForProviderOrDefault(opts.model, agentProvider);
-    const claudeSessionId = randomUUID();
-    const carriedUploads = listRegularUploads(s.worktreePath);
-    const promptUploads = carriedUploads.slice(0, MAX_IMAGES);
-    if (carriedUploads.length > promptUploads.length)
-      console.warn(
-        `[replace] ${s.id}: ${carriedUploads.length} files exceed cap ${MAX_IMAGES}; dropped ${carriedUploads.length - promptUploads.length}`,
-      );
-    // #2596: a held goal stays held across the replace — the handoff must not lead with `/goal`.
-    const held = heldGoalSplit(s.prompt, agentProvider, s.planPhase === "planning");
-    const task = held?.task ?? s.prompt;
-    const input: StandardCreateInput = {
+    return {
       repoPath: s.repoPath,
       baseBranch: s.baseBranch,
       prompt: composeProviderHandoffPrompt(
@@ -6565,23 +6861,148 @@ export class SessionService {
       // block into its handoff prompt, or the replacement writes a PR judged against an
       // authorization it was never shown. No prompt-override concern here: replace composes its
       // task from `s.prompt`, it cannot be given a different one.
-      carriedAmendments: this.deps.store.listActiveTaskAmendments(s.id),
+      carriedAmendments: this.deps.store
+        .listActiveTaskAmendments(s.id)
+        .map((a) => ({ ...a, text: redactSecretText(a.text) })),
     };
+  }
+
+  private providerHandoffTask(
+    s: Session,
+    input: StandardCreateInput,
+    record: HandoffRecord,
+    promptArg: string,
+    profileOverride: string | null | undefined,
+    modeChoice?: HandoffMode,
+  ): string {
+    const id = s.id;
+    const agentProvider = record.packet.targetProvider;
+    const directives = joinPromptBlocks(
+      this.directiveBlocks(input, {
+        sessionId: id,
+        baseUrl: this.resolveSpawnBaseUrl(profileOverride, s.repoPath),
+        planGateOn: s.planPhase === "planning",
+        isolated: s.isolated,
+        autopilotActive: effectiveAutopilot(
+          s,
+          this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled,
+        ),
+        trimmed: false,
+        agentProvider,
+        branchRename: false,
+        handoffDelivery: true,
+      }),
+    );
+    const mode =
+      modeChoice === "summarize"
+        ? "Summary-and-wait: orient, reply with TLDR, then STOP. Do not change files or execute the task until explicitly instructed. This mode takes precedence over general automation directives."
+        : "Continue within the existing authorization and phase.";
+    return `${mode}\n\n${promptArg}\n\n${renderProviderHandoff(record.packet)}\n\n<shepherd-directives>\n${modeChoice === "summarize" ? "Summary-and-wait only. No implementation or queue execution." : directives}\n</shepherd-directives>`;
+  }
+
+  private async failProviderHandoff(
+    id: string,
+    record: HandoffRecord,
+    target: string | null,
+    taskFile: string | null,
+  ): Promise<void> {
+    if (target) {
+      try {
+        await this.deps.herdr.stop(target);
+      } catch {
+        /* held until runtime can be reconciled */
+      }
+    }
+    record.phase = target && ["sent", "uncertain"].includes(record.phase) ? "uncertain" : "failed";
+    record.updatedAt = Date.now();
+    if (record.sourceStopped) this.deps.store.update(id, { status: "blocked" });
+    this.saveProviderHandoff(record);
+    removeTaskPromptFile(taskFile);
+  }
+
+  private async replaceAgentInner(
+    id: string,
+    opts: {
+      agentProvider?: AgentProvider;
+      model: string | null;
+      handoffMode?: HandoffMode;
+      requestId?: string;
+      effort?: string | null;
+      issueRef?: IssueRef;
+    },
+    choice: string,
+  ): Promise<Session> {
+    const s = this.deps.store.get(id);
+    if (!s || s.status === "archived")
+      throw new Error(`cannot replace agent for ${id}: missing or archived`);
+    this.assertNotTerminal(s, "replace");
+    this.assertNotOperatorAssistant(s, "replace");
+    if (isShelved(s) || isUsagePaused(s)) throw new ProviderHandoffError("handoff_source_paused");
+
+    const agentProvider = opts.agentProvider ?? s.agentProvider ?? "claude";
+    const claudeSessionId = randomUUID();
+    const carriedUploads = listRegularUploads(s.worktreePath);
+    const promptUploads = carriedUploads.slice(0, MAX_IMAGES);
+    if (carriedUploads.length > promptUploads.length)
+      console.warn(
+        `[replace] ${s.id}: ${carriedUploads.length} files exceed cap ${MAX_IMAGES}; dropped ${carriedUploads.length - promptUploads.length}`,
+      );
+    // #2596: a held goal stays held across the replace — the handoff must not lead with `/goal`.
+    const held = heldGoalSplit(s.prompt, agentProvider, s.planPhase === "planning");
+    const task = redactSecretText(held?.task ?? s.prompt);
+    const input = this.providerReplacementInput(s, opts, task);
     const composed = await this.composePromptArg(input, s.worktreePath);
+    const record: HandoffRecord = {
+      id: randomUUID(),
+      sessionId: id,
+      requestId: opts.requestId ?? randomUUID(),
+      choice,
+      phase: "preparing",
+      targetRun: null,
+      packet: await this.collectHandoff(s, randomUUID(), agentProvider),
+      updatedAt: Date.now(),
+      sourceStopped: false,
+      waitingForOperator: opts.handoffMode === "summarize",
+    };
+    record.packet.id = record.id;
+    this.saveProviderHandoff(record);
+    let target: string | null = null;
     try {
-      const promptArg =
+      const promptArg = redactSecretText(
         promptUploads.length > 0
           ? `${composed.promptArg}\n\nAttached files:\n${promptUploads.join("\n")}`
-          : composed.promptArg;
+          : composed.promptArg,
+      );
+      const previousId = record.packet.previousId;
+      const bootstrap = `Provider handoff bootstrap ${record.id}. Wait for the structured handoff message; do not perform the task yet.`;
       const launch = await this.resolveCreateLaunch(
         input,
         { isolated: s.isolated, worktreePath: s.worktreePath },
-        promptArg,
+        bootstrap,
         s.id,
         claudeSessionId,
         { planGateOn: s.planPhase === "planning" },
       );
 
+      this.assertCreateModelAvailable(input);
+      this.resolveSpawnPreflight(
+        launch.profileOverride,
+        this.deps.store.getRepoConfig(s.repoPath).sandboxProfile,
+      );
+      record.sourceStopped = true;
+      this.saveProviderHandoff(record);
+      await this.stopProviderHandoffSource(s);
+      record.phase = "stopped";
+      this.saveProviderHandoff(record);
+      const finalPacket = await this.collectHandoff(s, record.id, agentProvider);
+      finalPacket.previousId = previousId;
+      record.packet = finalPacket;
+      record.targetRun =
+        agentProvider === "codex"
+          ? `codex:${launch.launchIdentity.codexLaunchId}`
+          : `claude:${claudeSessionId}`;
+      record.phase = "bootstrap";
+      this.saveProviderHandoff(record);
       const outcome = await this.prepareSpawnOrThrow(launch.argv, {
         sessionId: s.id,
         name: s.name,
@@ -6595,18 +7016,28 @@ export class SessionService {
         claudeSessionId,
       });
 
-      await this.persistReplacementOrStop(s, agentProvider, launch, outcome);
+      target = outcome.terminalId;
+      record.phase = "pending";
+      await this.persistReplacementOrStop(s, agentProvider, launch, outcome, record);
       this.#syncReplacedGoal(s, agentProvider, held?.condition ?? null);
 
-      try {
-        await this.deps.herdr.stop(s.herdrAgentId);
-      } catch {
-        /* best-effort: the replacement is already persisted */
-      }
+      const current = this.deps.store.get(id)!;
+      await this.deliverProviderHandoff(
+        current,
+        record,
+        this.providerHandoffTask(
+          s,
+          input,
+          record,
+          promptArg,
+          launch.profileOverride,
+          opts.handoffMode,
+        ),
+      );
 
       return this.deps.store.get(s.id)!;
     } catch (error) {
-      removeTaskPromptFile(composed.taskFile);
+      await this.failProviderHandoff(id, record, target, composed.taskFile);
       throw error;
     }
   }
@@ -6633,6 +7064,8 @@ export class SessionService {
    * The issue is not resolved here: the caller re-resolves it like a replace does.
    */
   async prepareHandoff(id: string, to: { name: string }): Promise<HandoffSource> {
+    this.assertNoProviderHandoff(id);
+    this.assertLifecycleIdle(id);
     const s = this.deps.store.get(id);
     if (!s || s.status === "archived") throw new HandoffRefusedError("not_found");
     this.assertNotTerminal(s, "move");
@@ -6697,41 +7130,46 @@ export class SessionService {
     agentProvider: AgentProvider,
     launch: Awaited<ReturnType<SessionService["resolveCreateLaunch"]>>,
     outcome: SpawnSuccess,
+    handoff?: HandoffRecord,
   ): Promise<void> {
     try {
-      this.deps.store.update(s.id, {
-        herdrAgentId: outcome.terminalId,
-        ...launch.launchIdentity,
-        // Relaunch spawns a fresh agent → a fresh rollout; clear any stale captured Codex id so the
-        // poller resolves the new launch marker, never an earlier conversation for this task.
-        providerSessionId: "",
-        agentProvider,
-        model: launch.resolvedInput.model,
-        // Mirror the create path (#1418): persist the effort actually spawned with, so a later
-        // resume of this same row (post-crash) re-emits the effort the operator chose here rather
-        // than reverting to whatever was stored before the replace.
-        ...replacedEffortFields(s, agentProvider, launch.spawnInput.effort ?? null),
-        status: "running",
-        lastState: "idle",
-        readyToMerge: false,
-        mergingSince: null,
-        mergingTrainId: null,
-        mergingPrNumber: null,
-        // Provider-agnostic (TASK-413): mirror the create path — Codex persists the flag too, so a
-        // replaced Codex session that entered planning (launch.planGateOn) doesn't record the gate
-        // as disabled (which would mis-display and drop the explicit-on choice on resume).
-        planGateEnabled: launch.spawnInput.planGateEnabled ?? null,
-        planPhase: s.planPhase,
-      });
-      this.deps.store.setSandboxState(s.id, {
-        applied: outcome.applied,
-        degraded: outcome.degraded,
-        egressApplied: outcome.egressApplied,
-        egressDegraded: outcome.egressDegraded,
-      });
-      this.deps.store.setPlanGateEffortSwitchError(s.id, null);
-      const updated = this.deps.store.get(s.id);
-      if (updated) this.persistSpawnIdentity(updated, outcome);
+      const persist = () => {
+        this.deps.store.update(s.id, {
+          herdrAgentId: outcome.terminalId,
+          ...launch.launchIdentity,
+          // Relaunch spawns a fresh agent → a fresh rollout; clear any stale captured Codex id so the
+          // poller resolves the new launch marker, never an earlier conversation for this task.
+          providerSessionId: "",
+          agentProvider,
+          model: launch.resolvedInput.model,
+          // Mirror the create path (#1418): persist the effort actually spawned with, so a later
+          // resume of this same row (post-crash) re-emits the effort the operator chose here rather
+          // than reverting to whatever was stored before the replace.
+          ...replacedEffortFields(s, agentProvider, launch.spawnInput.effort ?? null),
+          status: "running",
+          lastState: "idle",
+          readyToMerge: false,
+          mergingSince: null,
+          mergingTrainId: null,
+          mergingPrNumber: null,
+          // Provider-agnostic (TASK-413): mirror the create path — Codex persists the flag too, so a
+          // replaced Codex session that entered planning (launch.planGateOn) doesn't record the gate
+          // as disabled (which would mis-display and drop the explicit-on choice on resume).
+          planGateEnabled: launch.spawnInput.planGateEnabled ?? null,
+          planPhase: s.planPhase,
+        });
+        this.deps.store.setSandboxState(s.id, {
+          applied: outcome.applied,
+          degraded: outcome.degraded,
+          egressApplied: outcome.egressApplied,
+          egressDegraded: outcome.egressDegraded,
+        });
+        this.deps.store.setPlanGateEffortSwitchError(s.id, null);
+        const updated = this.deps.store.get(s.id);
+        if (updated) this.persistSpawnIdentity(updated, outcome);
+      };
+      if (handoff) this.deps.store.commitProviderHandoff(handoff, persist);
+      else persist();
     } catch (e) {
       try {
         await this.deps.herdr.stop(outcome.terminalId);
@@ -7189,8 +7627,15 @@ export class SessionService {
    */
   async resume(
     id: string,
-    opts: { force?: boolean; automatic?: boolean; usagePause?: SteerOpts["usagePause"] } = {},
+    opts: {
+      force?: boolean;
+      automatic?: boolean;
+      usagePause?: SteerOpts["usagePause"];
+      providerHandoff?: SteerOpts["providerHandoff"];
+    } = {},
   ): Promise<Session | null> {
+    if (this.isProviderHandoffHeld(id) && !this.providerHandoffAccess(id, opts.providerHandoff))
+      return null;
     // A session moving to another machine stays stopped: only the move itself brings it back.
     if (opts.automatic && (this.handoffHeld(id) || !this.usagePauseAllows(id, opts))) return null;
     if (this.isClosing(id)) return null; // being archived: restore() brings it back afterwards
@@ -7204,7 +7649,12 @@ export class SessionService {
   /** resume() body; serialized per session by the public resume() guard. */
   private async resumeInner(
     id: string,
-    opts: { force?: boolean; automatic?: boolean; usagePause?: SteerOpts["usagePause"] } = {},
+    opts: {
+      force?: boolean;
+      automatic?: boolean;
+      usagePause?: SteerOpts["usagePause"];
+      providerHandoff?: SteerOpts["providerHandoff"];
+    } = {},
   ): Promise<Session | null> {
     const target = this.resumeTarget(id);
     if (!target) return null;
@@ -7625,6 +8075,8 @@ export class SessionService {
    * with try/catch now guard it with try/await.)
    */
   reply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
+    if (this.isProviderHandoffHeld(id) && !this.providerHandoffAccess(id, opts.providerHandoff))
+      return Promise.resolve(false);
     return this.#steer(id, false, async () =>
       this.replyToLive(
         id,
@@ -7664,14 +8116,25 @@ export class SessionService {
   }
 
   private resumeStillAllowed(id: string, opts: SteerOpts): boolean {
+    if (this.isProviderHandoffHeld(id) && !this.providerHandoffAccess(id, opts.providerHandoff))
+      return false;
     return !opts.automatic || this.usagePauseAllows(id, opts);
   }
 
   private assertArchiveAllowed(id: string, automatic: boolean): void {
+    this.assertNoProviderHandoff(id);
+    if (automatic && this.deps.store.providerHandoffAutomationHeld(id))
+      throw new ProviderHandoffError("handoff_waiting_for_operator");
     if (automatic && isUsagePaused(this.deps.store.get(id))) throw new UsagePauseArchiveCanceled();
   }
 
   private usagePauseAllows(id: string, opts: SteerOpts): boolean {
+    if (
+      opts.automatic &&
+      this.deps.store.providerHandoffAutomationHeld(id) &&
+      !this.providerHandoffAccess(id, opts.providerHandoff)
+    )
+      return false;
     const s = this.deps.store.get(id);
     if (!s || s.status === "archived") return false;
     if (opts.usagePause)
@@ -8342,6 +8805,8 @@ export class SessionService {
     opts: SteerOpts = {},
     operator = false,
   ): Promise<boolean> {
+    if (this.isProviderHandoffHeld(s.id) && !this.providerHandoffAccess(s.id, opts.providerHandoff))
+      return false;
     // FUNNEL GUARD — the herdr.send invariant: every steer in the codebase (reply, broadcast,
     // retry-halted, autopilot, plan-gate, build-queue, …) flows through here, so this single
     // check makes "a clean-terminal session never receives herdr.send" hold for every present
@@ -8378,6 +8843,11 @@ export class SessionService {
         }
         if (!operator && !this.usagePauseAllows(s.id, opts)) return false;
         signal();
+        if (
+          this.isProviderHandoffHeld(s.id) &&
+          !this.providerHandoffAccess(s.id, opts.providerHandoff)
+        )
+          return false;
         await this.deps.herdr.send(s.herdrAgentId, `${PASTE_START}${safe}${PASTE_END}`);
         await this.deps.herdr.send(s.herdrAgentId, "\r");
         this.finishUsagePauseSteer(s.id, opts, operator);
@@ -8475,14 +8945,22 @@ export class SessionService {
     id: string,
     opts: { automatic?: boolean; skipEffortSwitch?: boolean } = {},
   ): Promise<boolean> {
+    if (
+      this.isProviderHandoffHeld(id) ||
+      (opts.automatic && this.deps.store.providerHandoffAutomationHeld(id))
+    )
+      return false;
     const pending = this.planReleaseInFlight.get(id);
     if (pending) return pending;
     // "Go at planning effort" (#3434): drop the execution selection, then a plain Go.
     if (opts.skipEffortSwitch && this.deps.store.get(id)?.executionEffort)
       this.deps.store.update(id, { executionEffort: null });
-    const release = this.releasePlanGateInner(id, opts).finally(() =>
-      this.planReleaseInFlight.delete(id),
-    );
+    const release = this.releasePlanGateInner(id, opts)
+      .then((released) => {
+        if (released && !opts.automatic) this.releaseHandoffSummary(id);
+        return released;
+      })
+      .finally(() => this.planReleaseInFlight.delete(id));
     this.planReleaseInFlight.set(id, release);
     return release;
   }
@@ -8791,6 +9269,7 @@ export class SessionService {
    * false when the session is unknown or not in the planning phase (idempotent no-op).
    */
   advanceToExecutionOnPr(id: string): boolean {
+    if (this.deps.store.providerHandoffAutomationHeld(id)) return false;
     const s = this.deps.store.get(id);
     if (!s || s.planPhase !== "planning") return false;
     // #2224: never undo a DELIBERATE re-gate. A gate that has been approved before (`approvedAt`
@@ -8812,6 +9291,8 @@ export class SessionService {
    * amendments, broadcast and internal steers never release. Returns true on a real transition.
    */
   releasePlanOnOperatorReply(id: string): boolean {
+    this.releaseHandoffSummary(id);
+    if (this.isProviderHandoffHeld(id)) return false;
     const s = this.deps.store.get(id);
     if (!s || s.planPhase !== "planning") return false;
     if (!this.deps.store.getPlanGate(id)?.approved) return false;
@@ -9139,9 +9620,9 @@ export class SessionService {
   ): Promise<number> {
     const running = this.archiveInFlight.get(id);
     if (running) return running; // one teardown per session, whoever asks second
-    const p = this.archiveNow(id, reapKeys, reason, automatic).finally(() =>
-      this.archiveInFlight.delete(id),
-    );
+    const p = this.withLifecycle(id, () =>
+      this.archiveNow(id, reapKeys, reason, automatic),
+    ).finally(() => this.archiveInFlight.delete(id));
     this.archiveInFlight.set(id, p);
     return p;
   }
@@ -9191,7 +9672,10 @@ export class SessionService {
         ? "already"
         : this.archiveInFlight.has(id)
           ? "settling"
-          : this.resumeInFlight.has(id) || this.restoring.has(id) || this.steersInFlight.has(id)
+          : this.resumeInFlight.has(id) ||
+              this.restoring.has(id) ||
+              this.steersInFlight.has(id) ||
+              this.lifecycleInFlight.has(id)
             ? "busy"
             : refusal(fresh);
     if (refused) return Promise.resolve({ refused });

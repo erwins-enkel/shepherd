@@ -1656,6 +1656,11 @@ events.subscribe((event, data) => {
       .catch((err) => console.warn("[assistant] switch failed", err));
   }
 });
+setInterval(() => {
+  void service
+    .processProviderHandoffs()
+    .catch((err) => console.warn("[handoff] reconciliation failed", err));
+}, 2000);
 const poller = new StatusPoller(
   store,
   herdr,

@@ -1,3 +1,5 @@
+import { CodexQuestionState } from "./codex-question-state";
+import { normalizeAskAnswers } from "./ask-user-question";
 /**
  * An agent's last text messages, and whether its turn ended on a question (issue #2585).
  *
@@ -21,6 +23,8 @@ import type { PendingAsk } from "./ask-user-question";
 import type { AgentProvider, SessionStatus } from "./types";
 
 export interface AgentMessage {
+  /** Native question identity when this row is evidence of a recorded answer. */
+  sourceId?: string;
   role: "assistant" | "user";
   text: string;
   /** ms epoch of the record; 0 when it carries no parseable timestamp. */
@@ -38,6 +42,8 @@ export interface AgentMessage {
 export type MessagesUnavailable = "no-transcript" | "file-missing";
 
 export interface SessionMessages {
+  /** Bounds of the parsed source window; absent on legacy adapters. */
+  coverage?: { complete: boolean; sourceBytes: number; readBytes: number; omittedMessages: number };
   /** Oldest first. */
   messages: AgentMessage[];
   awaitingInput: boolean;
@@ -313,6 +319,8 @@ export interface MessagesQuery {
   includeUser: boolean;
   /** Also return the window's tool calls (`tools`). */
   includeTools?: boolean;
+  /** One bounded full window for provider handoff collection. */
+  handoff?: boolean;
 }
 
 /** The newest tool calls `includeTools` returns. */
@@ -374,8 +382,14 @@ async function readMessagesWindow(
   provider: AgentProvider | null | undefined,
   path: string,
   q: MessagesQuery,
-): Promise<{ objs: unknown[]; parsed: ParsedMessages; whole: boolean } | null> {
-  for (let bytes = TAIL_BYTES; ; bytes *= 2) {
+): Promise<{
+  objs: unknown[];
+  parsed: ParsedMessages;
+  whole: boolean;
+  sourceBytes: number;
+  readBytes: number;
+} | null> {
+  for (let bytes = q.handoff ? MESSAGES_TAIL_MAX_BYTES : TAIL_BYTES; ; bytes *= 2) {
     let text: string;
     let size: number;
     try {
@@ -390,8 +404,86 @@ async function readMessagesWindow(
       : parseClaudeMessageObjects(objs);
     const full = keptMessages(parsed, q).length >= q.limit;
     const whole = size <= bytes;
-    if (full || whole || bytes >= MESSAGES_TAIL_MAX_BYTES) return { objs, parsed, whole };
+    if (full || whole || bytes >= MESSAGES_TAIL_MAX_BYTES)
+      return { objs, parsed, whole, sourceBytes: size, readBytes: Math.min(size, bytes) };
   }
+}
+
+/** Native dialogs are hidden from normal Chat, but their recorded answers matter to a handoff. */
+function handoffNativeContext(
+  objs: unknown[],
+  provider?: AgentProvider | null,
+): { answers: AgentMessage[]; question: string | null } {
+  if (!isCodex(provider)) return { answers: claudeHandoffAnswers(objs), question: null };
+  const state = new CodexQuestionState();
+  for (const o of objs) state.ingest(o);
+  return {
+    answers: state.answered().map((a) => ({
+      role: "user",
+      ts: 0,
+      sourceId: `native:${a.id}:${a.index}`,
+      text: `Recorded native question and answer (conversation evidence, not an execution approval):\n${a.question}\nAnswer: ${a.answer.join(", ")}`,
+    })),
+    question:
+      state
+        .candidates()
+        .flatMap((a) => a.questions.map((q) => q.question))
+        .join("\n") || null,
+  };
+}
+
+function claudeHandoffAskIds(objs: unknown[]): Set<string> {
+  const asks = new Set<string>();
+  for (const o of objs) {
+    const r = o as ClaudeRecord;
+    if (r.type !== "assistant" || !Array.isArray(r.message?.content)) continue;
+    for (const b of r.message.content as ClaudeBlock[]) {
+      if (b.type === "tool_use" && b.name === "AskUserQuestion" && typeof b.id === "string")
+        asks.add(b.id);
+    }
+  }
+  return asks;
+}
+
+function claudeHandoffAnswer(o: unknown, asks: Set<string>): AgentMessage | null {
+  const r = o as {
+    type?: string;
+    timestamp?: string;
+    toolUseResult?: { answers?: unknown };
+    message?: { content?: ClaudeBlock[] };
+  };
+  if (r.type !== "user" || !r.toolUseResult) return null;
+  const answers = normalizeAskAnswers(r.toolUseResult.answers);
+  if (!answers || !Object.keys(answers).length) return null;
+  const blocks = r.message?.content;
+  const toolId = Array.isArray(blocks)
+    ? blocks.find((b) => b.type === "tool_result")?.tool_use_id
+    : null;
+  if (typeof toolId !== "string" || !asks.has(toolId)) return null;
+  return {
+    role: "user",
+    ts: tsOf(r),
+    sourceId: `native:${toolId}`,
+    text: `Recorded native question and answer (conversation evidence, not an execution approval):\n${JSON.stringify(answers)}`,
+  };
+}
+
+function claudeHandoffAnswers(objs: unknown[]): AgentMessage[] {
+  const asks = claudeHandoffAskIds(objs);
+  return objs.map((o) => claudeHandoffAnswer(o, asks)).filter((m): m is AgentMessage => m !== null);
+}
+
+function messagesCoverage(
+  tail: { sourceBytes: number; readBytes: number; whole: boolean },
+  kept: number,
+  limit: number,
+): NonNullable<SessionMessages["coverage"]> {
+  return {
+    complete: tail.whole && kept <= limit,
+    sourceBytes: tail.sourceBytes,
+    readBytes: tail.readBytes,
+    omittedMessages: Math.max(0, kept - limit),
+  };
 }
 
 /**
@@ -412,18 +504,24 @@ export async function sessionMessages(
   const structured = pendingAsks
     .flatMap((ask) => ask.questions.map((q) => q.question))
     .join("\n\n");
-  const question = structured || (AT_REST.has(s.status) ? parsed.question : null);
+  const native = q.handoff
+    ? handoffNativeContext(objs, s.agentProvider)
+    : { answers: [], question: null };
+  const question =
+    structured || native.question || (q.handoff || AT_REST.has(s.status) ? parsed.question : null);
   const kept = keptMessages(parsed, q);
   const messages = q.limit > 0 ? kept.slice(-q.limit).map(withSteer) : [];
   // The session's initial prompt: the transcript's first message, the operator's, still in view.
   const first = messages[0];
   if (whole && kept.length <= q.limit && first?.role === "user" && !first.steer)
     messages[0] = { ...first, initial: true };
+  messages.push(...native.answers);
   const result: SessionMessages = {
     messages,
     awaitingInput: question !== null,
     pendingQuestion: question,
     unavailable: null,
+    coverage: messagesCoverage(tail, kept.length, q.limit),
   };
   if (q.includeTools) {
     const oldest = messages.length < kept.length ? (messages[0]?.ts ?? Infinity) : null;

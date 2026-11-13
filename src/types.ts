@@ -52,6 +52,18 @@ export interface UsagePause {
 }
 
 export interface Session {
+  /** Derived on API reads, never a source of authorization. */
+  providerHandoff?: {
+    id: string;
+    phase: import("./provider-handoff").HandoffPhase;
+    sourceProvider: AgentProvider;
+    targetProvider: AgentProvider;
+    gaps: string[];
+    omitted: number;
+    sourceStopped?: boolean;
+    waitingForOperator?: boolean;
+  };
+
   id: string;
   desig: string; // "TASK-07"
   name: string;

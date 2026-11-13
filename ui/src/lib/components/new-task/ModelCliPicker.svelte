@@ -277,6 +277,7 @@
   {#if handoff}
     <fieldset class="mcp-field mcp-handoff">
       <legend class="micro">{m.experiment_continue_handoff_label()}</legend>
+      {#if !moveTo}<p>{m.handoff_transfer({ target: agentProvider })}</p>{/if}
       <label class="mode">
         <input type="radio" bind:group={handoffMode} value="resume" />
         <span>

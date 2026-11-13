@@ -34,6 +34,9 @@ function harness(opts: {
   const sent: { target: string; text: string }[] = [];
   const term = opts.session?.herdrAgentId ?? "t1";
   const store = {
+    getProviderHandoff: () => null,
+    providerHandoffHeld: () => false,
+    providerHandoffAutomationHeld: () => false,
     get: () => opts.session,
     getPlanGate: () => opts.gate ?? null,
     setPlanPhase: (id: string, phase: string) => setPhaseCalls.push({ id, phase }),

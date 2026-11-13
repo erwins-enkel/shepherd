@@ -8262,13 +8262,15 @@ test("resume re-reads the repo's claude.ai connector opt-in", async () => {
 function relaunchHarness(
   store: SessionStore,
   authMode: "chatgpt" | "apikey" | "unknown" = "unknown",
+  extra: Partial<ConstructorParameters<typeof SessionService>[0]> = {},
 ) {
   const calls: {
     started: { name: string; cwd: string; argv: string[] }[];
     stopped: string[];
     removed: string[];
     order: string[];
-  } = { started: [], stopped: [], removed: [], order: [] };
+    delivered: string[];
+  } = { started: [], stopped: [], removed: [], order: [], delivered: [] };
   let n = 0;
   let failStart = false;
   const breakStart = () => {
@@ -8283,6 +8285,22 @@ function relaunchHarness(
   };
   const emitted: { event: string; data: any }[] = [];
   const service = new SessionService({
+    providerHandoffGit: async () => null,
+    providerHandoffMessages: async (session) => ({
+      messages:
+        session.herdrAgentId === "term_orig"
+          ? []
+          : calls.delivered.map((text) => ({ role: "user" as const, text, ts: 1 })),
+      awaitingInput: false,
+      pendingQuestion: null,
+      unavailable: null,
+    }),
+    providerHandoffDeliver: async (session, text) => {
+      expect(store.get(session.id)?.herdrAgentId).toBe(session.herdrAgentId);
+      calls.delivered.push(text);
+      calls.order.push("deliver");
+      return true;
+    },
     transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     events: { emit: (event, data) => emitted.push({ event, data: data as any }) },
@@ -8316,6 +8334,7 @@ function relaunchHarness(
       })),
     readCodexAuthMode: () => authMode,
     readCodexHelp: () => "      --no-daemon\n",
+    ...extra,
   });
   return { service, calls, emitted, breakOverride, breakStart };
 }
@@ -8589,7 +8608,7 @@ test("replaceAgent swaps provider in the same session and worktree", async () =>
   expect(replaced.mergingTrainId).toBeNull();
   expect(replaced.mergingPrNumber).toBeNull();
   expect(calls.stopped).toEqual(["term_orig"]);
-  expect(calls.order).toEqual(["start", "stop:term_orig"]);
+  expect(calls.order).toEqual(["stop:term_orig", "start", "deliver"]);
   expect(calls.started).toHaveLength(1);
   expect(calls.started[0]).toMatchObject({ name: orig.name, cwd: "/wt/orig" });
   expect(calls.started[0]!.argv.slice(0, 6)).toEqual([
@@ -8620,8 +8639,8 @@ describe("replaceAgent: held /goal (#2596)", () => {
     const { service, calls, emitted } = relaunchHarness(store);
     const id = heldOrig(store);
     await service.replaceAgent(id, { agentProvider: "claude", model: "opus" });
-    const prompt = calls.started[0]!.argv.at(-1)!;
-    expect(prompt.startsWith("make it responsive\n\nProvider handoff context:")).toBe(true);
+    const prompt = calls.delivered[0]!;
+    expect(prompt).toContain("make it responsive\n\nProvider handoff context:");
     expect(store.get(id)).toMatchObject({
       goalCondition: "make it responsive",
       goalState: "held",
@@ -8804,7 +8823,7 @@ test("replaceAgent preserves an executing plan phase instead of resurrecting Cod
 
   expect(replaced.planGateEnabled).toBe(true);
   expect(replaced.planPhase).toBe("executing");
-  const promptArg = calls.started[0]!.argv.at(-1)!;
+  const promptArg = calls.delivered[0]!;
   expect(promptArg).not.toContain("<plan-gate-directive>");
   expect(promptArg).toContain("<autopilot-directive>");
 });
@@ -8825,12 +8844,12 @@ test("replaceAgent keeps Codex in plan-gate only when the existing session is st
   });
 
   expect(replaced.planPhase).toBe("planning");
-  const promptArg = calls.started[0]!.argv.at(-1)!;
+  const promptArg = calls.delivered[0]!;
   expect(promptArg).toContain("<plan-gate-directive>");
   expect(promptArg).not.toContain("<autopilot-directive>");
 });
 
-test("replaceAgent keeps the old agent registered if replacement spawn fails", async () => {
+test("replaceAgent preserves old identity but holds stopped source if replacement spawn fails", async () => {
   const store = new SessionStore(":memory:");
   const { service, calls, breakStart } = relaunchHarness(store);
   const orig = originalSession(store, { claudeSessionId: "claude-old", agentProvider: "claude" });
@@ -8844,7 +8863,7 @@ test("replaceAgent keeps the old agent registered if replacement spawn fails", a
   expect(persisted.herdrAgentId).toBe("term_orig");
   expect(persisted.agentProvider).toBe("claude");
   expect(persisted.claudeSessionId).toBe("claude-old");
-  expect(calls.stopped).toEqual([]);
+  expect(calls.stopped).toEqual(["term_orig"]);
 });
 
 test("replaceAgent can start with a summary-first handoff prompt", async () => {
@@ -8861,7 +8880,7 @@ test("replaceAgent can start with a summary-first handoff prompt", async () => {
     handoffMode: "summarize",
   });
 
-  const promptArg = calls.started[0]!.argv.at(-1)!;
+  const promptArg = calls.delivered[0]!;
   expect(promptArg).toContain("Continue this Shepherd session in the current worktree");
   expect(promptArg).toContain("Then reply with a concise TLDR");
   expect(promptArg).toContain("After the TLDR, stop and wait");
@@ -8877,7 +8896,7 @@ test("replaceAgent defaults to continuing the original task prompt", async () =>
 
   await service.replaceAgent(orig.id, { agentProvider: "codex", model: null });
 
-  const promptArg = calls.started[0]!.argv.at(-1)!;
+  const promptArg = calls.delivered[0]!;
   expect(promptArg).toContain("Keep implementing the dashboard.");
   expect(promptArg).not.toContain("Then reply with a concise TLDR");
 });
@@ -8905,7 +8924,7 @@ test("replaceAgent appends rehydrated issue context and provider handoff metadat
   expect(replaced.id).toBe(orig.id);
   expect(replaced.worktreePath).toBe(orig.worktreePath);
   expect(replaced.issueNumber).toBe(225);
-  const promptArg = calls.started[0]!.argv.at(-1)!;
+  const promptArg = calls.delivered[0]!;
   expect(promptArg).toContain("Provider handoff context:");
   expect(promptArg).toContain("Source provider: claude");
   expect(promptArg).toContain("Target provider: codex");
@@ -8922,7 +8941,7 @@ test("replaceAgent records Codex to Claude as a provider handoff", async () => {
 
   await service.replaceAgent(orig.id, { agentProvider: "claude", model: "opus" });
 
-  const promptArg = calls.started[0]!.argv.at(-1)!;
+  const promptArg = calls.delivered[0]!;
   expect(promptArg).toContain("Source provider: codex");
   expect(promptArg).toContain("Target provider: claude");
 });
@@ -8945,12 +8964,12 @@ test("replaceAgent re-attaches existing uploads without copying them back into t
     await service.replaceAgent(orig.id, { agentProvider: "codex", model: null });
     await service.replaceAgent(orig.id, { agentProvider: "claude", model: null });
 
-    const promptArg = calls.started[0]!.argv.at(-1)!;
+    const promptArg = calls.delivered[0]!;
     expect(promptArg).toContain("Attached files:");
     expect(promptArg).toContain(join(uploads, "diagram.png"));
     expect(promptArg).toContain(join(uploads, "notes.md"));
-    expect(calls.started[1]!.argv.at(-1)!).toContain(join(uploads, "diagram.png"));
-    expect(calls.started[1]!.argv.at(-1)!).toContain(join(uploads, "notes.md"));
+    expect(calls.delivered[1]!).toContain(join(uploads, "diagram.png"));
+    expect(calls.delivered[1]!).toContain(join(uploads, "notes.md"));
     expect(readdirSync(uploads).sort()).toEqual(["diagram.png", "notes.md"]);
     expect(existsSync(join(root, ".shepherd-uploads-staging"))).toBe(false);
   } finally {
@@ -9823,6 +9842,8 @@ function baseUrlService(opts: {
   slotShimDir?: string;
 }) {
   return new SessionService({
+    providerHandoffGit: async () => null,
+    providerHandoffDeliver: async () => true,
     transcriptExists: () => true, // Fixture conversation is persisted.
     store: opts.store,
     namer: async () => "s",
@@ -11045,7 +11066,7 @@ test("provider REPLACE folds the session's own amendments into the fresh agent's
 
   await service.replaceAgent(orig.id, { model: "opus" });
 
-  expect(spawnPrompt(calls)).toContain("the operator widened this");
+  expect(calls.delivered[0]).toContain("the operator widened this");
   // Same row, so the amendments were never copied — they are simply still there.
   expect(store.listActiveTaskAmendments(orig.id)).toHaveLength(1);
 });
@@ -11631,4 +11652,293 @@ describe("archive lease (#3016)", () => {
     expect(store.get(s.id)?.status).toBe("archived");
     expect(service.isClosing(s.id)).toBe(false);
   });
+});
+
+test("handoff lifecycle: uncertain delivery cannot be retried as a new writing target", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store, "unknown", {
+    providerHandoffDeliver: async () => {
+      throw new Error("connection lost after paste");
+    },
+  });
+  const s = originalSession(store);
+  await expect(
+    service.replaceAgent(s.id, { agentProvider: "codex", model: null, requestId: "a" }),
+  ).rejects.toThrow();
+  expect(store.getProviderHandoff(s.id)?.phase).toBe("uncertain");
+  await expect(
+    service.replaceAgent(s.id, { agentProvider: "claude", model: null, requestId: "b" }),
+  ).rejects.toThrow("handoff_in_progress");
+  expect(calls.started).toHaveLength(1);
+});
+
+test("handoff lifecycle: request retry is idempotent, changed request conflicts", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const s = originalSession(store);
+  const choice = { agentProvider: "codex" as const, model: null, requestId: "a" };
+  await service.replaceAgent(s.id, choice);
+  await service.replaceAgent(s.id, choice);
+  expect(calls.started).toHaveLength(1);
+  await expect(service.replaceAgent(s.id, { ...choice, model: "gpt-5.5" })).rejects.toThrow(
+    "handoff_request_conflict",
+  );
+  expect(store.getProviderHandoff(s.id)?.packet.previousId).not.toBe(
+    store.getProviderHandoff(s.id)?.id,
+  );
+});
+
+test("handoff lifecycle: bootstrap carries no task or executing directives, pending observation gates steers", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store, "unknown", {
+    providerHandoffMessages: async () => ({
+      messages: [],
+      awaitingInput: false,
+      pendingQuestion: null,
+      unavailable: null,
+    }),
+  });
+  const s = originalSession(store, {
+    prompt: "SECRET_TASK",
+    agentProvider: "claude",
+    planGateEnabled: true,
+    planPhase: "planning",
+  });
+  await service.replaceAgent(s.id, { agentProvider: "codex", model: null });
+  const bootstrap = calls.started[0]!.argv.join("\n");
+  expect(bootstrap).not.toContain("SECRET_TASK");
+  expect(bootstrap).not.toContain("<autopilot-directive>");
+  expect(bootstrap).not.toContain("<build-queue>");
+  expect(bootstrap).toContain("provider-handoff-bootstrap");
+  expect(store.getProviderHandoff(s.id)?.phase).toBe("sent");
+  expect(await service.reply(s.id, "go")).toBe(false);
+  expect(await service.resume(s.id)).toBeNull();
+  expect(service.releasePlanOnOperatorReply(s.id)).toBe(false);
+  expect(service.advanceToExecutionOnPr(s.id)).toBe(false);
+});
+
+test("handoff lifecycle: replace refuses a relaunch already in flight", async () => {
+  const store = new SessionStore(":memory:");
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { service, calls } = relaunchHarness(store, "unknown", {
+    namer: async () => {
+      await wait;
+      return "fresh";
+    },
+  });
+  const s = originalSession(store);
+  const relaunch = service.relaunch(s.id);
+  await Bun.sleep(0);
+  try {
+    expect(await service.archiveIfSettled(s.id, "merged", () => null)).toEqual({
+      refused: "busy",
+    });
+    await expect(
+      service.replaceAgent(s.id, { agentProvider: "codex", model: null }),
+    ).rejects.toThrow("handoff_in_progress");
+  } finally {
+    release();
+    await relaunch;
+  }
+  expect(calls.stopped).not.toContain("term_orig");
+});
+
+test("handoff lifecycle: model preflight failure leaves the live source unheld", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store, "chatgpt");
+  const s = originalSession(store);
+  await expect(
+    service.replaceAgent(s.id, { agentProvider: "claude", model: "claude-mythos-5-2" }),
+  ).rejects.toThrow();
+  expect(calls.stopped).toEqual([]);
+  expect(store.providerHandoffHeld(s.id)).toBe(false);
+  expect(store.get(s.id)?.status).toBe(s.status);
+});
+
+test("handoff lifecycle: a shelved source is refused before teardown", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const s = originalSession(store);
+  store.setShelved(s.id, true);
+  await expect(service.replaceAgent(s.id, { agentProvider: "codex", model: null })).rejects.toThrow(
+    "handoff_source_paused",
+  );
+  expect(calls.stopped).toEqual([]);
+  expect(store.providerHandoffHeld(s.id)).toBe(false);
+});
+
+test("handoff lifecycle: actual delivered task and amendments redact credentials", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const s = originalSession(store, { prompt: "Use TOKEN=secret123 to inspect the state" });
+  store.addTaskAmendment(s.id, "PASSWORD=hunter22", 1);
+  await service.replaceAgent(s.id, { agentProvider: "codex", model: null });
+  expect(calls.delivered.join("\n")).not.toContain("secret123");
+  expect(calls.delivered.join("\n")).not.toContain("hunter22");
+  expect(store.get(s.id)?.prompt).toContain("secret123");
+});
+
+test("handoff lifecycle: summarize observation holds automation until operator input", async () => {
+  const store = new SessionStore(":memory:");
+  const { service } = relaunchHarness(store);
+  const s = originalSession(store, { planPhase: "executing" });
+  await service.replaceAgent(s.id, {
+    agentProvider: "codex",
+    model: null,
+    handoffMode: "summarize",
+  });
+  expect(store.getProviderHandoff(s.id)?.phase).toBe("observed");
+  expect(store.providerHandoffAutomationHeld(s.id)).toBe(true);
+  expect(await service.resume(s.id, { automatic: true })).toBeNull();
+  service.releasePlanOnOperatorReply(s.id);
+  expect(store.providerHandoffAutomationHeld(s.id)).toBe(false);
+});
+
+test("handoff lifecycle: real PTY funnel receives work only after commit, then observes it", async () => {
+  const store = new SessionStore(":memory:");
+  const transcript: string[] = [];
+  let live: { terminalId: string; name: string; cwd: string; agentStatus: string }[] = [];
+  const { service } = relaunchHarness(store, "unknown", {
+    providerHandoffDeliver: undefined,
+    providerHandoffMessages: async () => ({
+      messages: transcript.map((text) => ({ role: "user", text, ts: 1 })),
+      awaitingInput: false,
+      pendingQuestion: null,
+      unavailable: null,
+    }),
+    herdr: {
+      start: async (name: string, cwd: string, argv: string[]) => {
+        expect(argv.join("\n")).not.toContain("unique-work-task");
+        live = [{ terminalId: "term_new", name, cwd, agentStatus: "idle" }];
+        return live[0];
+      },
+      listAsync: async () => live,
+      paneForegroundProcs: async () => ["claude"],
+      stop: async (id: string) => {
+        live = live.filter((a) => a.terminalId !== id);
+      },
+      send: async (id: string, text: string) => {
+        expect(store.list({ activeOnly: true })[0]?.herdrAgentId).toBe("term_new");
+        expect(id).toBe("term_new");
+        transcript.push(text);
+      },
+    } as never,
+  });
+  const s = originalSession(store, { prompt: "unique-work-task" });
+  await service.replaceAgent(s.id, { agentProvider: "claude", model: null });
+  expect(transcript.join("\n")).toContain("unique-work-task");
+  expect(store.getProviderHandoff(s.id)?.phase).toBe("observed");
+  expect(
+    store.listSessionSignals(s.id, 10).some((signal) => signal.payload.includes("Handoff-ID:")),
+  ).toBe(true);
+});
+
+for (const foreground of ["shell", "empty", "uninspectable", "unresolved"] as const) {
+  test(`handoff lifecycle: bootstrap ${foreground} never receives task as shell input`, async () => {
+    const store = new SessionStore(":memory:");
+    const started: string[][] = [];
+    const sent: string[] = [];
+    let live: {
+      terminalId: string;
+      name: string;
+      cwd: string;
+      paneId: string;
+      agentStatus: string;
+    }[] = [];
+    const { service } = relaunchHarness(store, "unknown", {
+      providerHandoffDeliver: undefined,
+      herdr: {
+        start: async (name: string, cwd: string, argv: string[]) => {
+          started.push(argv);
+          live = [
+            { terminalId: `target_${started.length}`, name, cwd, paneId: "p", agentStatus: "idle" },
+          ];
+          return live[0];
+        },
+        listAsync: async () => {
+          const current = store.list({ activeOnly: true })[0];
+          if (
+            foreground !== "unresolved" &&
+            current?.agentProvider === "codex" &&
+            current.codexLaunchId
+          )
+            store.setProviderSessionId(current.id, "bootstrap-pinned");
+          return live;
+        },
+        stop: async (id: string) => {
+          live = live.filter((a) => a.terminalId !== id);
+        },
+        paneForegroundProcs: async () => {
+          if (foreground === "uninspectable") throw new Error("inspection failed");
+          return foreground === "empty" ? [] : ["zsh"];
+        },
+        send: async (id: string) => {
+          sent.push(id);
+        },
+      } as never,
+    });
+    const s = originalSession(store, {
+      prompt: "echo shell-syntax; $(external-context)",
+      planGateEnabled: true,
+      planPhase: "planning",
+    });
+    if (foreground === "shell") {
+      await service.replaceAgent(s.id, { agentProvider: "codex", model: null });
+      expect(started).toHaveLength(2);
+      expect(started[1]!.slice(0, 3)).toEqual(["codex", "resume", "bootstrap-pinned"]);
+      expect(sent.length).toBeGreaterThan(0);
+      expect(sent.every((id) => id === "target_2")).toBe(true);
+      expect(store.get(s.id)?.planPhase).toBe("planning");
+      expect(store.getPlanGate(s.id)?.approvedAt ?? null).toBeNull();
+    } else {
+      await expect(
+        service.replaceAgent(s.id, { agentProvider: "codex", model: null }),
+      ).rejects.toThrow("handoff_delivery_uncertain");
+      expect(started).toHaveLength(1);
+      expect(sent).toEqual([]);
+      expect(store.getProviderHandoff(s.id)?.phase).toBe("uncertain");
+    }
+  });
+}
+
+test("handoff lifecycle: stopped source must disappear before any target is started", async () => {
+  const store = new SessionStore(":memory:");
+  let starts = 0;
+  const { service } = relaunchHarness(store, "unknown", {
+    herdr: {
+      listAsync: async () => [{ terminalId: "term_orig", agentStatus: "idle" }],
+      stop: async () => {},
+      start: async () => {
+        starts++;
+        throw new Error("must not start");
+      },
+    } as never,
+  });
+  const s = originalSession(store);
+  await expect(service.replaceAgent(s.id, { agentProvider: "codex", model: null })).rejects.toThrow(
+    "handoff_source_still_alive",
+  );
+  expect(starts).toBe(0);
+  expect(store.providerHandoffHeld(s.id)).toBe(true);
+});
+
+test("handoff lifecycle: backend restart recovers a pre-delivery generation without new work", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls, breakStart } = relaunchHarness(store);
+  const s = originalSession(store);
+  breakStart();
+  await expect(
+    service.replaceAgent(s.id, { agentProvider: "codex", model: null }),
+  ).rejects.toThrow();
+  const record = store.getProviderHandoff(s.id)!;
+  store.putProviderHandoff({ ...record, phase: "stopped" });
+  const restarted = relaunchHarness(store);
+  await restarted.service.processProviderHandoffs();
+  expect(store.getProviderHandoff(s.id)?.phase).toBe("failed");
+  expect(restarted.calls.started).toHaveLength(0);
+  expect(calls.started).toHaveLength(0);
+  expect(store.getProviderHandoff(s.id)?.packet.goal).toBe(s.prompt);
 });

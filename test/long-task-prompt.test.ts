@@ -22,7 +22,12 @@ function harness(provider: AgentProvider, failSpawn = false) {
     create: () => ({ worktreePath: dir, branch: "shepherd/long-task", isolated: false }),
     remove: () => {},
   };
+  const delivered: string[] = [];
   const service = new SessionService({
+    providerHandoffDeliver: async (_session, text) => {
+      delivered.push(text);
+      return true;
+    },
     store,
     namer: async () => "long-task",
     worktree: worktree as any,
@@ -41,6 +46,7 @@ function harness(provider: AgentProvider, failSpawn = false) {
           workspaceId: "w",
         };
       },
+      stop: async () => {},
       list: () => [],
       listAsync: async () => [],
     } as any,
@@ -54,7 +60,7 @@ function harness(provider: AgentProvider, failSpawn = false) {
       model: null,
       images: [],
     });
-  return { dir, store, service, worktree, launches, create };
+  return { dir, store, service, worktree, launches, delivered, create };
 }
 
 for (const provider of ["claude", "codex"] as const) {
@@ -117,6 +123,14 @@ test("provider replacement preserves the long task and keeps the original file r
   expect(h.launches[1]!.text).toHaveLength(2);
   expect(h.launches[1]!.text.every((text) => text.includes(prompt))).toBe(true);
   expect(h.launches[1]!.argv.join(" ")).not.toContain(prompt);
+  expect(h.launches[1]!.argv.at(-1)).toContain("Provider handoff bootstrap");
+  expect(h.delivered[0]).toContain(
+    join(
+      h.dir,
+      h.launches[1]!.files.find((file) => file !== h.launches[0]!.files[0])!,
+    ),
+  );
+  expect(h.launches[0]!.text[0]).toBe(prompt);
 });
 
 test("reviewer can read a long single line losslessly using only bounded Read lines", async () => {

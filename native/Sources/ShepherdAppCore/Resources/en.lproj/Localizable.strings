@@ -371,8 +371,8 @@
 "epicflow_stage_parallel" = "%1$@ · parallel possible";
 "epicflow_title" = "Flow";
 "experiment_continue_handoff_label" = "Handoff";
-"experiment_continue_mode_resume" = "Continue original task";
-"experiment_continue_mode_summarize" = "Summarize first";
+"experiment_continue_mode_resume" = "Continue work";
+"experiment_continue_mode_summarize" = "Summarize and wait";
 "experiment_continue_scope" = "Keeps this Shepherd session, branch and worktree. Only the live agent process changes.";
 "experiment_replace_confirm" = "Continue";
 "experiment_replace_title" = "Continue with";

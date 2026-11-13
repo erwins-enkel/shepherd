@@ -2023,6 +2023,24 @@ export interface UsagePause {
 }
 
 export interface Session {
+  providerHandoff?: {
+    id: string;
+    phase:
+      | "preparing"
+      | "stopped"
+      | "bootstrap"
+      | "pending"
+      | "sent"
+      | "observed"
+      | "uncertain"
+      | "failed";
+    sourceProvider: AgentProvider;
+    targetProvider: AgentProvider;
+    gaps: string[];
+    omitted: number;
+    sourceStopped?: boolean;
+    waitingForOperator?: boolean;
+  };
   id: string;
   desig: string;
   name: string;

@@ -41,6 +41,29 @@ dev worktree answers `not_systemd` — on purpose, so a dev UI can never bounce 
 instance; restart that one by hand. A second click within a minute answers
 `already_restarting`.
 
+**Continue with…** changes the CLI/model of one task while keeping its session, branch,
+worktree and uncommitted changes. It starts a new provider conversation and shares a bounded,
+redacted working context: decisions with their sources, plan and approval status, queue progress,
+open questions and the next evidenced action. It needs no new summary from a failed provider.
+The session's context disclosure names the source/target and any missing or truncated evidence.
+An unanswered question stays open; an agent's claim does not become operator approval. Tests
+without a recorded historical result and worktree fingerprint have unknown validity.
+
+**Summarize and wait** reads that same context, replies with a short summary and waits. It does
+not authorize implementation. A deliberate **Restart/relaunch** remains a separate new-session
+action. Moving to another computer uses the existing machine-transfer workflow instead.
+
+During a CLI handoff Shepherd stops the source before delivering a working task to the target.
+Automatic work waits until the target transcript shows the handoff message. If delivery is
+uncertain, Shepherd keeps the handoff paused instead of sending the task twice. Check the
+session's handoff status and terminal before intervening. A failed attempt before task delivery
+can be retried as a new Continue action; a transport retry keeps the same request identity.
+Earlier evidence remains available through the authenticated, session-scoped handoff readback.
+The fixed limits are 16 MiB of transcript input, 256 KiB per saved handoff and 48 KiB of prompt
+context; omitted evidence is explicitly marked. Pattern redaction is best effort, so choose the
+target provider with the same care as when sharing the task itself. No automatic commit, push,
+stash or reset occurs during an in-place CLI change.
+
 ### If the HUD freezes
 
 HTTP, the web terminal and all background work share **one event loop**. If code ever spins

@@ -1,3 +1,4 @@
+import { handoffPage, providerHandoffStatus, ProviderHandoffError } from "./provider-handoff";
 import {
   assistantRuntimeBlocks,
   resolveAssistantRuntime,
@@ -4848,6 +4849,7 @@ export async function claimLinkedIssue(forge: GitForge | null, issueNumber: numb
  *  Operator Assistant's verb fence, which mirrors them. `existingId` rides the singleton conflict
  *  so the UI can focus the already-open terminal. */
 function terminalErrorResponse(e: unknown): Response | null {
+  if (e instanceof ProviderHandoffError) return json({ error: e.message, code: e.code }, 409);
   if (e instanceof TerminalExistsError)
     return json({ error: "terminal_exists", existingId: e.existingId }, 409);
   if (e instanceof TerminalUnsupportedError) return json({ error: "terminal_unsupported" }, 409);
@@ -5858,10 +5860,22 @@ async function sessionDiffAnnotationsRead(id: string, deps: AppDeps): Promise<Re
   }
 }
 
+function withProviderHandoff(s: Session, deps: AppDeps): Session {
+  const record = deps.store.getProviderHandoff?.(s.id);
+  return record
+    ? {
+        ...s,
+        providerHandoff: providerHandoffStatus(record),
+      }
+    : s;
+}
+
 async function sessionRead(key: string, deps: AppDeps): Promise<Response> {
   // By id or designation, archived included: `TASK-1490` is what an operator or the CLI holds (#2590).
-  const s = sessionByTaskKey(key, deps);
+  let s = sessionByTaskKey(key, deps);
   if (!s) return json({ error: "not found" }, 404);
+  await deps.service.observeProviderHandoff?.(s.id);
+  s = withProviderHandoff(s, deps);
   const phase = await sessionPhases(deps).phaseOf(s);
   if (s.status === "archived") return json({ ...s, phase });
   return json({
@@ -5949,6 +5963,7 @@ async function sessionListRead({ req, url, deps, token }: Ctx): Promise<Response
     await withScratchpadFlags(
       deps.store
         .list({ activeOnly: true })
+        .map((s) => withProviderHandoff(s, deps))
         // The Operator Assistant is not herd work: its own route serves it (#1446).
         .filter(
           (session) => !isOperatorAssistant(session) && tokenRepoAllowed(token, session.repoPath),
@@ -5957,6 +5972,20 @@ async function sessionListRead({ req, url, deps, token }: Ctx): Promise<Response
   );
   const remote = mirroredSessions(url, deps, token);
   return conditionalSnapshot(req, remote.length > 0 ? [...local, ...remote] : local);
+}
+
+async function handleProviderHandoffRead({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET") return null;
+  if (parts[2] && parts[3] === "provider-handoffs" && parts[4] && !parts[5]) {
+    const record = deps.store.getProviderHandoff?.(parts[2], parts[4]);
+    if (!record) return json({ error: "not found" }, 404);
+    try {
+      return json(handoffPage(record.packet, url.searchParams.get("cursor")));
+    } catch {
+      return json({ error: "invalid cursor" }, 400);
+    }
+  }
+  return null;
 }
 
 async function handleSessionReads(ctx: Ctx): Promise<Response | null> {
@@ -7774,10 +7803,15 @@ async function handleSessionReplace({ req, parts, deps }: Ctx): Promise<Response
         issueRef ? { ...choice.value, issueRef } : choice.value,
       );
     } catch (e) {
+      if (e instanceof ProviderHandoffError)
+        return json(
+          { error: e.message, code: e.code, handoff: deps.store.getProviderHandoff?.(id)?.phase },
+          409,
+        );
       return spawnFailureJson(e, "replace failed");
     }
     deps.events.emit("session:status", session);
-    return json({ session }, 200);
+    return json({ session: withProviderHandoff(session, deps) }, 200);
   } finally {
     inFlightReplace.delete(id);
   }
@@ -8497,6 +8531,17 @@ async function approveBuildQueue(deps: AppDeps, id: string): Promise<Response> {
 // bounded transcript-tail read (≤512 KiB, JSON-parsed for `goal_status`) capped at 2 s and
 // failing open to the plain 202. No synchronous file, PTY or herdr read on the Bun loop
 // (memory: single-loop-no-sync-exec).
+async function handoffHookMatches(
+  session: Session,
+  nativeId: string,
+  deps: AppDeps,
+): Promise<boolean> {
+  if (nativeId !== session.claudeSessionId) return false;
+  await deps.service.observeProviderHandoff?.(session.id);
+  const current = deps.store.get(session.id);
+  return current?.claudeSessionId === nativeId && !deps.store.providerHandoffHeld?.(session.id);
+}
+
 async function handleSessionHooks({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "hooks")) return null;
   const id = parts[2];
@@ -8515,7 +8560,7 @@ async function handleSessionHooks({ req, parts, deps }: Ctx): Promise<Response |
   // Cross-check the untrusted body's session_id against the resolved session's
   // claudeSessionId. On mismatch we still record (for the spike's visibility) but flag
   // `match: false` so HookIngest treats it as observe-only and never forwards to signals.
-  const match = raw.sessionId === session.claudeSessionId;
+  const match = await handoffHookMatches(session, raw.sessionId, deps);
   deps.hooks?.record(id, { ...raw, receivedAt: Date.now(), match });
   if (match) void describeSubagent(deps, session, raw);
   // #3165: a PreToolUse reply body is parsed as a hook DECISION; answer with nothing so the
@@ -9223,6 +9268,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionSettleIntegrated,
     handleSessionCreate,
     handleSessionSteerLog,
+    handleProviderHandoffRead,
     handleSessionReads,
     handleSessionScratchpad,
     handleSessionScratchpadUpload,
@@ -15081,6 +15127,7 @@ function handleEpicsCompletedRepairCi(ctx: Ctx): Promise<Response | null> {
 }
 
 const ROUTE_HANDLERS = [
+  handoffMutationRefusal,
   handleLogin,
   handleLogout,
   handleMe,
@@ -15250,6 +15297,27 @@ const ROUTE_HANDLERS = [
   handleCommands,
 ] as const;
 
+function sessionHandoffHeld(deps: AppDeps, id: string): boolean {
+  return !!(deps.service?.isProviderHandoffHeld?.(id) || deps.store?.providerHandoffHeld?.(id));
+}
+
+async function handoffMutationRefusal(ctx: Ctx): Promise<Response | null> {
+  const { parts, req, deps } = ctx;
+  if (
+    parts[0] === "api" &&
+    parts[1] === "sessions" &&
+    parts[2] &&
+    !["GET", "HEAD"].includes(req.method) &&
+    !["replace", "hooks"].includes(parts[3] ?? "") &&
+    sessionHandoffHeld(deps, parts[2])
+  ) {
+    await deps.service?.observeProviderHandoff?.(parts[2]);
+    if (sessionHandoffHeld(deps, parts[2]))
+      return json({ error: "provider handoff is held", code: "handoff_in_progress" }, 409);
+  }
+  return null;
+}
+
 /**
  * Returns an object with a `fetch(Request)` method — unit-testable without a port.
  *
@@ -15380,6 +15448,7 @@ export function isAgentIngressRoute(method: string, parts: string[]): boolean {
   if (!sub) return method === "GET" && SESSION_ID_RE.test(parts[2]);
   // Exact `…/<sub>` routes (nothing after the sub-segment).
   if (!parts[4]) return (AGENT_LEAF_ROUTES.get(sub) ?? []).includes(method);
+  if (method === "GET" && sub === "provider-handoffs" && !!parts[4] && !parts[5]) return true;
   // The one deeper route: POST /api/sessions/<id>/queue/steps/<stepId>.
   return method === "POST" && sub === "queue" && parts[4] === "steps" && !!parts[5] && !parts[6];
 }

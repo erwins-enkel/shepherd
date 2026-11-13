@@ -10,6 +10,7 @@
   import { placementReason } from "#lib/placement.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import { placementExplanation } from "#lib/tooltips/explanations.js";
+  import ProviderHandoffStatus from "./ProviderHandoffStatus.svelte";
   import GlossaryText from "./GlossaryText.svelte";
 
   // `activity` is the LIVE runtime-identity carrier: the poller persists what it observes, but that
@@ -146,6 +147,8 @@
   <span class="ssb-sep" aria-hidden="true">·</span>
   <span class="ssb-elapsed" title={elapsedTitle}>{elapsedText}</span>
 </div>
+
+{#if session.providerHandoff}<ProviderHandoffStatus handoff={session.providerHandoff} />{/if}
 
 <style>
   /* Same chrome recipe as .vp-foot: head wash, hairline top border, meta type. */

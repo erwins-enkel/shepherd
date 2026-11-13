@@ -3067,6 +3067,13 @@ export class SessionService {
    * resumes are never serialized against each other.
    */
   private readonly resumeInFlight = new Map<string, Promise<Session | null>>();
+  /**
+   * Per-session archive lease: the teardown running for a session. `archive()` takes it before its
+   * first `await`, so a second archive of the same session — any route: a settle, Clear merged, the
+   * operator, the drain — joins the running one instead of tearing down twice, and every resume
+   * path refuses while it is held ({@link isClosing}).
+   */
+  private readonly archiveInFlight = new Map<string, Promise<number>>();
   private readonly planReleaseInFlight = new Map<string, Promise<boolean>>();
 
   /**
@@ -6338,8 +6345,8 @@ export class SessionService {
     authPolicy: "error" | "clamp" = "error",
   ): Promise<Session> {
     const s = this.deps.store.get(originalId);
-    if (!s || s.status === "archived")
-      throw new Error(`cannot relaunch ${originalId}: missing or archived`);
+    if (!s || s.status === "archived" || this.isClosing(originalId))
+      throw new Error(`cannot relaunch ${originalId}: missing, archived or being archived`);
     this.assertNotTerminal(s, "relaunch");
     this.assertNotOperatorAssistant(s, "relaunch");
 
@@ -7179,6 +7186,7 @@ export class SessionService {
   ): Promise<Session | null> {
     // A session moving to another machine stays stopped: only the move itself brings it back.
     if (opts.automatic && (this.handoffHeld(id) || !this.usagePauseAllows(id, opts))) return null;
+    if (this.isClosing(id)) return null; // being archived: restore() brings it back afterwards
     const existing = this.resumeInFlight.get(id);
     if (existing) return existing; // coalesce: a resume for this id is already running
     const p = this.resumeInner(id, opts).finally(() => this.resumeInFlight.delete(id));
@@ -7323,7 +7331,7 @@ export class SessionService {
    */
   async reviveStranded(id: string): Promise<"revived" | "failed" | "gaveup"> {
     const before = this.deps.store.get(id);
-    if (!before || isUsagePaused(before)) return "failed";
+    if (!before || isUsagePaused(before) || this.isClosing(id)) return "failed";
     const anchor = before.spawnTerminalId; // stable until a heal advances it
     const rec = this.reviveAttempts.get(id);
     if (rec && rec.anchor === anchor && rec.attempts >= SessionService.REDRIVE_CAP) return "gaveup";
@@ -7610,6 +7618,7 @@ export class SessionService {
    * with try/catch now guard it with try/await.)
    */
   async reply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
+    if (this.isClosing(id)) return false;
     return this.replyToLive(
       id,
       text,
@@ -7671,7 +7680,7 @@ export class SessionService {
    * A listed shell is not a live agent; never paste implementation instructions into it. */
   async resumeAndReply(id: string, text: string, opts: SteerOpts = {}): Promise<boolean> {
     const s = this.deps.store.get(id);
-    if (!s || !this.hasConversation(s)) return false;
+    if (!s || !this.hasConversation(s) || this.isClosing(id)) return false;
     if (!this.usagePauseAllows(id, opts)) return false;
     if (opts.automatic && isShelved(s)) return false; // shelved: no autonomous steers
     if (opts.automatic && this.deps.capacity && !(await this.deps.capacity(s))) return false;
@@ -7751,6 +7760,7 @@ export class SessionService {
    * before.
    */
   async operatorReply(id: string, text: string, signalPayload: string = text): Promise<boolean> {
+    if (this.isClosing(id)) return false;
     if (this.deps.store.get(id)?.operatorAssistant)
       return this.serializeAssistant(() => this.operatorReplyNow(id, text, signalPayload));
     return this.operatorReplyNow(id, text, signalPayload);
@@ -8413,10 +8423,10 @@ export class SessionService {
   }
 
   /** Shelve / unshelve (operator-only). Visibility + automation quiet; the agent is untouched.
-   *  Returns false for an unknown or archived session. */
+   *  Returns false for an unknown or archived session, or one being archived. */
   setShelved(id: string, shelved: boolean): boolean {
     const s = this.deps.store.get(id);
-    if (!s || s.status === "archived") return false;
+    if (!s || s.status === "archived" || this.isClosing(id)) return false;
     this.deps.store.setShelved(id, shelved);
     this.deps.events?.emit("session:shelved", { id, shelved });
     return true;
@@ -9100,11 +9110,66 @@ export class SessionService {
    * two diverge whenever `reap`'s pid-recycle guard refuses a pid recycled since the re-detect, or a
    * counter-command throws.
    */
-  async archive(
+  archive(
     id: string,
     reapKeys?: string[],
     reason: SessionArchiveReason = "operator",
     automatic = false,
+  ): Promise<number> {
+    const running = this.archiveInFlight.get(id);
+    if (running) return running; // one teardown per session, whoever asks second
+    const p = this.archiveNow(id, reapKeys, reason, automatic).finally(() =>
+      this.archiveInFlight.delete(id),
+    );
+    this.archiveInFlight.set(id, p);
+    return p;
+  }
+
+  /** An archive of this session is running: resume, reply, relaunch and shelving refuse. */
+  isClosing(id: string): boolean {
+    return this.archiveInFlight.has(id);
+  }
+
+  /**
+   * Archive `id` (automatic) only if nothing speaks against it right now: no archive or resume of
+   * it is running, it is not being restored, and `refusal` finds nothing on the row as it is NOW.
+   * The checks and the start of the archive — its lease and the agent stop — run in one tick, so no
+   * resume or shelving can slip in between; once the lease is held, those refuse (#3016). A refusal
+   * changes nothing. `already`: archived before; `gone`: no such session. `onStart` runs in that
+   * same tick, only when the archive starts — before anything can announce it.
+   */
+  archiveIfSettled(
+    id: string,
+    reason: SessionArchiveReason,
+    refusal: (fresh: Session) => string | null,
+    onStart?: () => void,
+  ): Promise<{ archived: true } | { refused: string }> {
+    const fresh = this.deps.store.get(id);
+    const refused = !fresh
+      ? "gone"
+      : fresh.status === "archived"
+        ? "already"
+        : this.archiveInFlight.has(id)
+          ? "settling"
+          : this.resumeInFlight.has(id) || this.restoring.has(id)
+            ? "busy"
+            : refusal(fresh);
+    if (refused) return Promise.resolve({ refused });
+    onStart?.();
+    return this.archive(id, undefined, reason, true).then(
+      () => ({ archived: true }) as const,
+      (err: unknown) => {
+        if (err instanceof UsagePauseArchiveCanceled) return { refused: "held" };
+        throw err;
+      },
+    );
+  }
+
+  private async archiveNow(
+    id: string,
+    reapKeys: string[] | undefined,
+    reason: SessionArchiveReason,
+    automatic: boolean,
   ): Promise<number> {
     const s = this.deps.store.get(id);
     if (!s) return 0;

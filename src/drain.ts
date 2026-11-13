@@ -32,7 +32,7 @@ import {
   type RunSummary,
 } from "./drain-core";
 import { bootstrapMissing } from "./bootstrap";
-import { assembleEpic, withRetiredPrs } from "./epic-model";
+import { assembleEpic, withIntegrationFacts, withRetiredPrs } from "./epic-model";
 import { withEpicTiming } from "./epic-timing";
 import { forecastEpic } from "./epic-forecast";
 import { repoLeadTimes } from "./delivery-metrics";
@@ -52,6 +52,8 @@ import {
   type Epic,
   type EpicChild,
   type EpicChildElsewhere,
+  type EpicChildRemoteSettle,
+  type RemoteSettleReason,
   type EpicQueueEntry,
   type EpicRun,
   type EpicStackContext,
@@ -122,11 +124,19 @@ import {
   routeOf,
   type ChildRoute,
 } from "./drain-placement";
-import { landableRemotePr, remoteChildGate, type RemoteWork } from "./drain-remote";
+import {
+  landableRemotePr,
+  remoteChildGate,
+  remoteSettleGate,
+  settleRefusalReason,
+  type IntegratedDispatch,
+  type RemoteSettleOutcome,
+  type RemoteWork,
+} from "./drain-remote";
 import type { Capability } from "./remote-instances/capabilities";
 import type { Placement, PlacementDecision } from "./remote-instances/placement";
 import type { RemoteOutcome } from "./remote-instances/dispatch";
-import type { SessionHost } from "./remote-instances/sessions";
+import type { MirroredSession, SessionHost } from "./remote-instances/sessions";
 
 /** #645 (c): re-scan the host for stray `epic/*` branches at most this often per epic. The
  *  scan is an advisory divergence warning, not gating — a 5-minute staleness is harmless and
@@ -438,6 +448,7 @@ export interface DrainDeps {
     | "shiftEpicQueue"
     | "getOrInitEpicIntegrationBranch"
     | "getEpicIntegrationBranch"
+    | "getEpicIntegration"
     | "getEpicBaseFreshness"
     | "setEpicBaseFreshness"
     | "listEpicIntegrated"
@@ -603,10 +614,46 @@ export interface DrainMachinePort {
   /** #3957: the issues whose newest drain spawn from `repoPath` started on another machine, and
    *  that machine — mirrored or not ({@link dispatchedElsewhereOf}). Absent: none known. */
   dispatchedElsewhere?(repoPath: string): ReadonlyMap<number, SessionHost>;
+  /** #3016: the integrated drain spawns from `repoPath` still to settle on their machines
+   *  ({@link integratedDispatchesOf}). Absent: none known. */
+  integratedDispatches?(
+    repoPath: string,
+    integrationOf: (issue: number) => { prNumber: number | null } | null,
+  ): IntegratedDispatch[];
+  /** #3016: the machine's link is open, so a request can reach it. */
+  machineOnline?(instanceId: string): boolean;
+  /** #3016: a session as the mirror shows it; undefined when it does not. */
+  mirroredSession?(sessionId: string): MirroredSession | undefined;
+  /** #3016: ask the machine to settle an integrated child it ran (its `settle-integrated`). */
+  settle?(
+    instanceId: string,
+    sessionId: string,
+    prNumber: number | null,
+  ): Promise<RemoteSettleOutcome>;
 }
 
 /** A remote dispatch outcome after which the spawn may be running there: keep its claim. */
 const REMOTE_SPAWNED: ReadonlySet<RemoteOutcome["kind"]> = new Set(["started", "held", "unknown"]);
+
+/** #3016: a settle request that did not settle is asked again after this… */
+const REMOTE_SETTLE_RETRY_MS = 60_000;
+/** …or after this when that machine cannot do it (an older Shepherd) or sees no epic child. */
+const REMOTE_SETTLE_SLOW_RETRY_MS = 15 * 60_000;
+/** #3016: settle requests one tick sends per repo — a restart re-asks every integrated child once. */
+const REMOTE_SETTLE_PER_TICK = 5;
+
+/** #3016: one integrated child's settle on the machine that ran it, as the drain tracks it. */
+interface RemoteSettleTrack {
+  host: SessionHost;
+  sessionId: string;
+  /** Why it is still open; null before the first look. */
+  reason: RemoteSettleReason | null;
+  /** No request before this. */
+  nextAt: number;
+  inFlight: boolean;
+  /** Settled there, or nothing left to settle: never asked again in this process. */
+  done: boolean;
+}
 
 const NO_REMOTE_WORK: ReadonlyMap<number, RemoteWork> = new Map();
 const NO_REMOTE_HOSTS: ReadonlyMap<number, SessionHost> = new Map();
@@ -736,6 +783,10 @@ export class DrainService {
   // whose PR the mirror does not name (null: none), and when. Only the read is throttled, like the
   // reconcile sweep (a child still running there has no PR yet); its answer stands until the next.
   private remoteRefs = new Map<string, { at: number; pr: number | null }>();
+  // #3016: repo → `${issue}#${sessionId}` → the settle of an integrated child on the machine that
+  // ran it. In-memory: a restart re-derives it from the dispatch rows and integration records and
+  // asks each such machine once more (it answers idempotently).
+  private remoteSettle = new Map<string, Map<string, RemoteSettleTrack>>();
   /** #790: `${repoPath}#${issueNumber}` → last spawn failure; throttles re-spawn of an issue whose
    *  create() keeps throwing. Cleared on a successful spawn. In-memory.
    *
@@ -1077,7 +1128,12 @@ export class DrainService {
     const retired = new Set(
       all.filter((s) => s.status === "archived" && s.archiveReason === "drain").map((s) => s.id),
     );
-    const timed = withEpicTiming(withRetiredPrs(epic, retired, facts), {
+    const facted = withIntegrationFacts(
+      withRetiredPrs(epic, retired, facts),
+      integrated,
+      this.remoteSettleOf(repoPath),
+    );
+    const timed = withEpicTiming(facted, {
       clock,
       sessions: all
         .filter((s) => s.repoPath === repoPath)
@@ -1190,6 +1246,8 @@ export class DrainService {
             c.prNumber,
             c.elsewhere?.host.instanceId ?? null,
             c.elsewhere?.sessionId ?? null,
+            c.integratedPrNumber ?? null,
+            c.remoteSettle?.reason ?? null,
           ] as const,
       ),
       warn: epic.warnings.length,
@@ -5941,9 +5999,10 @@ export class DrainService {
    * child PR, would go stale behind it (epic #3016). Same gate as a local child (`readyToRetire`):
    * the PR's facts come from the forge (the open-PR snapshot, by number — never the mirror's copy),
    * the verdict from this host's critic, asked for through {@link remoteChildReviewPrs}. Merged
-   * squash, bound to the head that passed, like `retireEpicChild`; the claim stays, the child issue
-   * stays open until the epic lands, and that machine settles its own session once its poller sees
-   * the merge. A child started there by hand is never merged here, as a manual session here is not.
+   * squash, bound to the head that passed, like `retireEpicChild`; the claim stays and the child issue
+   * stays open until the epic lands. That machine does not settle its session on its own — it is an
+   * ordinary session there — so {@link settleRemoteEpicChildrenForRepo} asks it to (#3016). A child
+   * started there by hand is never merged here, as a manual session here is not.
    * At most one merge per tick: the next child's mergeability is re-read against the moved branch.
    * Never throws: tick() calls its passes unguarded.
    */
@@ -6111,6 +6170,114 @@ export class DrainService {
    *  critic reviews them although the repo does not review every PR. */
   remoteChildReviewPrs(repoPath: string): ReadonlySet<number> {
     return this.remoteReviewPrs.get(repoPath) ?? NO_PRS;
+  }
+
+  /**
+   * #3016: settle the integrated children this drain sent elsewhere on the machines that ran them.
+   * There each is an ordinary session (the create route makes no auto one), so that machine's drain
+   * never reaps it once its PR merged; this host merged it and recorded the integration, so it asks
+   * that machine (`settle-integrated`, src/integrated-child-settle.ts), which checks everything
+   * itself and archives it like a retired epic child: claim kept, issue open until the epic lands.
+   *
+   * Driven by the dispatch rows and this host's integration records, never by the mirror alone: a
+   * mirror not loaded yet, behind, or without the session does not hide the work — the machine is
+   * asked and answers for itself. The mirror only spares a request it would refuse (working,
+   * waiting, shelved). One request per session at a time, {@link REMOTE_SETTLE_PER_TICK} per repo
+   * and tick, retried after {@link REMOTE_SETTLE_RETRY_MS}; what stays open is shown on the child
+   * (`EpicChild.remoteSettle`). Ungated by the drain toggle and the epic run, like the landing
+   * passes. Requests run detached; never throws.
+   */
+  private settleRemoteEpicChildrenForRepo(repoPath: string): void {
+    const machines = this.deps.machines;
+    if (!machines?.integratedDispatches || !machines.settle) return;
+    let dispatches: IntegratedDispatch[];
+    try {
+      dispatches = machines.integratedDispatches(repoPath, (issue) =>
+        this.deps.store.getEpicIntegration(repoPath, issue),
+      );
+    } catch (err) {
+      console.warn(`[drain] integrated remote children of ${repoPath} unreadable:`, err);
+      return;
+    }
+    const prev = this.remoteSettle.get(repoPath);
+    const next = new Map<string, RemoteSettleTrack>();
+    const now = this.now();
+    let sent = 0;
+    for (const d of dispatches) {
+      const key = `${d.issue}#${d.sessionId}`;
+      const t = prev?.get(key) ?? {
+        host: d.host,
+        sessionId: d.sessionId,
+        reason: null,
+        nextAt: 0,
+        inFlight: false,
+        done: false,
+      };
+      next.set(key, t);
+      if (t.done || t.inFlight || now < t.nextAt) continue;
+      const gate = remoteSettleGate({
+        online: machines.machineOnline?.(d.host.instanceId) ?? false,
+        mirrored: machines.mirroredSession?.(d.sessionId),
+      });
+      if (gate.kind === "pending") {
+        t.reason = gate.reason;
+        continue;
+      }
+      if (sent >= REMOTE_SETTLE_PER_TICK) continue;
+      sent++;
+      t.inFlight = true;
+      t.reason = "requested";
+      void machines
+        .settle(d.host.instanceId, d.sessionId, d.prNumber)
+        .catch((): RemoteSettleOutcome => ({ kind: "failed" }))
+        .then((outcome) => this.settled(t, d, outcome));
+    }
+    if (next.size > 0) this.remoteSettle.set(repoPath, next);
+    else this.remoteSettle.delete(repoPath);
+  }
+
+  /** #3016: record what the machine answered to one settle request. */
+  private settled(t: RemoteSettleTrack, d: IntegratedDispatch, outcome: RemoteSettleOutcome): void {
+    t.inFlight = false;
+    const now = this.now();
+    switch (outcome.kind) {
+      case "settled":
+      case "gone":
+        t.done = true;
+        t.reason = null;
+        return;
+      case "refused":
+        t.reason = settleRefusalReason(outcome.code);
+        t.nextAt =
+          now + (t.reason === "rejected" ? REMOTE_SETTLE_SLOW_RETRY_MS : REMOTE_SETTLE_RETRY_MS);
+        break;
+      case "unsupported":
+        t.reason = "unsupported";
+        t.nextAt = now + REMOTE_SETTLE_SLOW_RETRY_MS;
+        break;
+      case "failed":
+        t.reason = "failed";
+        t.nextAt = now + REMOTE_SETTLE_RETRY_MS;
+        break;
+    }
+    console.warn(
+      `[drain] settle of epic child #${d.issue} on ${d.host.name} still open: ${t.reason}`,
+    );
+  }
+
+  /** #3016: the integrated children of `repoPath` still to settle elsewhere, by issue
+   *  (`EpicChild.remoteSettle`). */
+  private remoteSettleOf(repoPath: string): ReadonlyMap<number, EpicChildRemoteSettle> {
+    const out = new Map<number, EpicChildRemoteSettle>();
+    for (const [key, t] of this.remoteSettle.get(repoPath) ?? []) {
+      if (t.done) continue;
+      out.set(Number(key.slice(0, key.indexOf("#"))), {
+        host: t.host,
+        sessionId: t.sessionId,
+        reason: t.reason ?? "requested",
+      });
+    }
+    return out;
   }
 
   /** One child's probe pass for {@link reconcileEpicIntegrations}: try each DISTINCT branch
@@ -6337,6 +6504,9 @@ export class DrainService {
       // merged there by hand is already recorded), before the cadence rebase, which then finds the
       // epic quiescent and refreshes a stale base in this same tick. Self-guarding, never throws.
       await this.retireRemoteEpicChildrenForRepo(repoPath);
+      // #3016: ask the machines that ran integrated children to settle their sessions. Not awaited:
+      // a slow machine must not hold up this tick; its answer lands in the next status.
+      this.settleRemoteEpicChildrenForRepo(repoPath);
       // #1664: pre-warm the epic landing PR as an early draft (opt-in). Placed AFTER reconcile so a
       // child integrated earlier this tick is already in listEpicIntegratedDetails. Flag-gated +
       // running-only + GitHub-only; its draft read is the landing passes' shared one (#2873), so a

@@ -47,6 +47,32 @@ export interface EpicChild {
   /** The drain sent this child to another machine and it is still on its way or running there.
    *  Absent otherwise. */
   elsewhere?: EpicChildElsewhere;
+  /** #3016: the PR its integration record names — the one merged into the epic branch; null when
+   *  recorded without one. Absent while the child is not integrated (an issue merely closed is not). */
+  integratedPrNumber?: number | null;
+  /** #3016: integrated, but its session on the machine that ran it is not settled yet. Absent
+   *  otherwise. */
+  remoteSettle?: EpicChildRemoteSettle;
+}
+/** #3016: why the settle of an integrated child on another machine is still open. `requested`:
+ *  asked, or that machine is archiving it now; `offline`: its machine is not connected; `busy`: its
+ *  agent works or waits there; `held`: shelved or paused there; `not_merged_there`: that machine
+ *  does not see the merge; `rejected`: it sees no epic child there; `unsupported`: its Shepherd
+ *  predates the settle; `failed`: the request failed. */
+export type RemoteSettleReason =
+  | "requested"
+  | "offline"
+  | "busy"
+  | "held"
+  | "not_merged_there"
+  | "rejected"
+  | "unsupported"
+  | "failed";
+/** #3016: an integrated child's session on another machine that is still to settle there. */
+export interface EpicChildRemoteSettle {
+  host: SessionHost;
+  sessionId: string;
+  reason: RemoteSettleReason;
 }
 /** A child the drain sent to another machine: where, its session there once it started (null
  *  while the machine has not confirmed the start) and its PR once it opened one. */

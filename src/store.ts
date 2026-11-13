@@ -3647,6 +3647,27 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
+  /** #3016: this child's integration record — its epic, the PR merged into the epic branch and that
+   *  branch — or null while it is not integrated. The newest record wins (a child belongs to one
+   *  epic per repo). */
+  getEpicIntegration(
+    repoPath: string,
+    childNumber: number,
+  ): { parentIssueNumber: number; prNumber: number | null; mergedBase: string | null } | null {
+    return (
+      (this.db
+        .query(
+          `SELECT parentIssueNumber, prNumber, mergedBase FROM epic_integrated
+           WHERE repoPath = ? AND childNumber = ? ORDER BY createdAt DESC LIMIT 1`,
+        )
+        .get(repoPath, childNumber) as {
+        parentIssueNumber: number;
+        prNumber: number | null;
+        mergedBase: string | null;
+      } | null) ?? null
+    );
+  }
+
   /** The parent epic # when this child is integrated and its epic can still land (no completion
    *  row, or a non-dismissed one with landingState pending/open/error), else null. Such a child keeps its claim on purpose
    *  until the landing PR closes it (#1037), so it is not an orphan and must not be released

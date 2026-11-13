@@ -11401,3 +11401,167 @@ test("an automatic archive rechecks a pause after its asynchronous teardown prel
   expect(removed).toBe(false);
   expect(store.get(s.id)?.status).not.toBe("archived");
 });
+
+// ── #3016: the archive lease — one teardown per session, no resume while it runs ─────────────
+
+describe("archive lease (#3016)", () => {
+  /** A service whose archive blocks in its recap hook until `release()`; counts the teardown. */
+  function leaseHarness() {
+    const store = new SessionStore(":memory:");
+    const s = archivableSession(store);
+    store.update(s.id, { status: "done" });
+    let entered!: () => void;
+    let release!: () => void;
+    const began = new Promise<void>((r) => (entered = r));
+    const gate = new Promise<void>((r) => (release = r));
+    const counts = { stop: 0, remove: 0, start: 0 };
+    const service = new SessionService({
+      store,
+      namer: async () => "x",
+      worktree: {
+        create: () => ({}),
+        ensureBaseRef: async () => {},
+        branchExists: () => false,
+        remove: () => counts.remove++,
+      } as any,
+      herdr: {
+        start: async () => {
+          counts.start++;
+          return {};
+        },
+        listAsync: async () => [],
+        stop: async () => {
+          counts.stop++;
+        },
+      } as any,
+      beforeArchive: async () => {
+        entered();
+        await gate;
+      },
+    });
+    return { store, s, service, began, release, counts };
+  }
+
+  test("a second archive of the same session joins the running one: one teardown", async () => {
+    const { store, s, service, began, release, counts } = leaseHarness();
+    const first = service.archive(s.id, undefined, "merged", true);
+    const second = service.archive(s.id);
+    expect(service.isClosing(s.id)).toBe(true);
+    await began;
+    release();
+    expect(await first).toBe(await second);
+    expect(counts).toEqual({ stop: 1, remove: 1, start: 0 });
+    expect(store.get(s.id)?.status).toBe("archived");
+    expect(service.isClosing(s.id)).toBe(false);
+  });
+
+  test("archiveIfSettled refuses while another archive runs, and tears nothing down twice", async () => {
+    const { s, service, began, release, counts } = leaseHarness();
+    const running = service.archive(s.id);
+    await began;
+    let started = false;
+    const out = await service.archiveIfSettled(
+      s.id,
+      "merged",
+      () => null,
+      () => (started = true),
+    );
+    expect(out).toEqual({ refused: "settling" });
+    expect(started).toBe(false);
+    release();
+    await running;
+    expect(counts.stop).toBe(1);
+    expect(counts.remove).toBe(1);
+  });
+
+  test("archiveIfSettled refuses while a resume or restore of the session runs", async () => {
+    const { store, s, service, counts } = leaseHarness();
+    // A resume in flight (resume() owns this guard map; a real resume needs a live agent here).
+    (service as any).resumeInFlight.set(s.id, new Promise(() => {}));
+    expect(await service.archiveIfSettled(s.id, "merged", () => null)).toEqual({
+      refused: "busy",
+    });
+    (service as any).resumeInFlight.delete(s.id);
+    (service as any).restoring.add(s.id);
+    expect(await service.archiveIfSettled(s.id, "merged", () => null)).toEqual({
+      refused: "busy",
+    });
+    expect(counts.stop).toBe(0);
+    expect(store.get(s.id)?.status).toBe("done");
+  });
+
+  test("archiveIfSettled reads the row as it is now and changes nothing on a refusal", async () => {
+    const { store, s, service, counts } = leaseHarness();
+    store.update(s.id, { status: "running" });
+    const seen: string[] = [];
+    const out = await service.archiveIfSettled(s.id, "merged", (fresh) => {
+      seen.push(fresh.status);
+      return fresh.status === "running" ? "busy" : null;
+    });
+    expect(out).toEqual({ refused: "busy" });
+    expect(seen).toEqual(["running"]);
+    expect(counts).toEqual({ stop: 0, remove: 0, start: 0 });
+    expect(service.isClosing(s.id)).toBe(false);
+    expect(await service.archiveIfSettled("nope", "merged", () => null)).toEqual({
+      refused: "gone",
+    });
+  });
+
+  test("archiveIfSettled starts the archive in the same tick as its checks", async () => {
+    const { store, s, service, began, release } = leaseHarness();
+    let started = false;
+    const p = service.archiveIfSettled(
+      s.id,
+      "merged",
+      () => null,
+      () => (started = true),
+    );
+    // No await yet: the lease is held and the start hook ran before anything else can run.
+    expect(started).toBe(true);
+    expect(service.isClosing(s.id)).toBe(true);
+    await began;
+    release();
+    expect(await p).toEqual({ archived: true });
+    expect(store.get(s.id)?.status).toBe("archived");
+    expect(store.get(s.id)?.archiveReason).toBe("merged");
+    expect(await service.archiveIfSettled(s.id, "merged", () => null)).toEqual({
+      refused: "already",
+    });
+  });
+
+  test("a usage pause that begins during the archive answers held", async () => {
+    const { store, s, service, began, release } = leaseHarness();
+    const p = service.archiveIfSettled(s.id, "merged", () => null);
+    await began;
+    store.setUsagePause(s.id, {
+      phase: "requested",
+      since: 1,
+      resumeAt: 2,
+      stopPct: 80,
+      windows: ["week"],
+      stopSteerSent: false,
+    });
+    release();
+    expect(await p).toEqual({ refused: "held" });
+    expect(store.get(s.id)?.status).not.toBe("archived");
+  });
+
+  test("while the lease is held, resume, reply, relaunch, revive and shelving all refuse", async () => {
+    const { store, s, service, began, release, counts } = leaseHarness();
+    const archiving = service.archive(s.id, undefined, "merged", true);
+    await began;
+    expect(await service.resume(s.id, { force: true })).toBeNull();
+    expect(await service.resumeAndReply(s.id, "go on")).toBe(false);
+    expect(await service.reply(s.id, "go on")).toBe(false);
+    expect(await service.operatorReply(s.id, "go on")).toBe(false);
+    expect(await service.reviveStranded(s.id)).toBe("failed");
+    await expect(service.relaunch(s.id)).rejects.toThrow("being archived");
+    expect(service.setShelved(s.id, true)).toBe(false);
+    expect(store.get(s.id)?.shelved).toBeFalsy();
+    release();
+    await archiving;
+    expect(counts.start).toBe(0); // nothing was resumed into the closing session
+    expect(store.get(s.id)?.status).toBe("archived");
+    expect(service.isClosing(s.id)).toBe(false);
+  });
+});

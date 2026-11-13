@@ -1,7 +1,14 @@
 import { test, expect, describe, spyOn } from "bun:test";
 import { DrainService, type DrainMachinePort, type DrainStatus } from "../src/drain";
 import { ACTIVE_LABEL } from "../src/drain-core";
-import type { RemoteWork } from "../src/drain-remote";
+import {
+  drainDispatchKey,
+  integratedDispatchesOf,
+  type RemoteSettleOutcome,
+  type RemoteWork,
+} from "../src/drain-remote";
+import type { RemoteDispatchRow } from "../src/remote-instances/dispatch";
+import type { MirroredSession } from "../src/remote-instances/sessions";
 import type { Epic } from "../src/epic-core";
 import { SessionStore } from "../src/store";
 import type {
@@ -994,5 +1001,236 @@ describe("an integration epic lands a child it sent to another machine (#3957)",
     h.store.archive(earlier.id);
     await h.drain.tick();
     expect(h.store.isEpicIntegratedChild(REPO, CHILD)).toBe(true);
+  });
+
+  describe("#3016: the machine that ran it settles it once it is integrated", () => {
+    // Epic #3016 again: the drain merged PR #3955 (MacBook TASK-145) into the epic branch, but the
+    // session stayed on the MacBook — an ordinary session there, which its drain never reaps — and
+    // kept showing as epic work here. The leading drain now asks the MacBook to settle it.
+    const SESSION = "mac-3731";
+    const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+    /** Just past the drain's one-minute settle retry. */
+    const REMOTE_RETRY = 61_000;
+
+    const dispatchRow = (): RemoteDispatchRow => ({
+      id: "d-3731",
+      clientKey: drainDispatchKey(CHILD, "k"),
+      instanceId: MAC,
+      payloadHash: "h",
+      wireBody: "{}",
+      state: "started",
+      sessionId: SESSION,
+      heldId: null,
+      reason: null,
+      code: null,
+      httpStatus: null,
+      createdAt: 1,
+      updatedAt: 1,
+      uploads: null,
+      project: "o/r",
+    });
+
+    /** The Mac's session as this host's mirror shows it. */
+    const mirrored = (status: string, prState = "merged"): MirroredSession =>
+      ({
+        id: SESSION,
+        desig: "TASK-145",
+        status,
+        host: macHost,
+        connection: { state: "connected", since: 0 },
+        git: { state: prState, number: PR, baseRefName: PINNED },
+      }) as unknown as MirroredSession;
+
+    /** The settle half of the machine port, over the real dispatch-row selection. */
+    function withSettle(
+      port: FakePort,
+      o: {
+        online?: () => boolean;
+        mirror?: () => MirroredSession | undefined;
+        answer?: (n: number) => RemoteSettleOutcome | Promise<RemoteSettleOutcome>;
+      } = {},
+    ) {
+      const calls: { sessionId: string; prNumber: number | null }[] = [];
+      port.integratedDispatches = (_repo, integrationOf) =>
+        integratedDispatchesOf(
+          [dispatchRow()],
+          (id) => (id === MAC ? macHost : null),
+          integrationOf,
+        );
+      port.machineOnline = () => o.online?.() ?? true;
+      port.mirroredSession = () => o.mirror?.();
+      port.settle = async (_instance, sessionId, prNumber) => {
+        calls.push({ sessionId, prNumber });
+        return (await o.answer?.(calls.length)) ?? { kind: "settled" };
+      };
+      return calls;
+    }
+
+    /** An epic whose child #3731 this host already integrated, with a clock the test moves. */
+    function integrated(o: Parameters<typeof withSettle>[1] = {}) {
+      let clock = 1_000_000;
+      const { h, port } = remote({ pr: () => [], extra: { now: () => clock } });
+      h.store.recordEpicIntegrated(REPO, PARENT, CHILD, { number: PR, url: "u" }, PINNED);
+      const calls = withSettle(port, o);
+      const tick = async (advance = 0) => {
+        clock += advance;
+        await h.drain.tick();
+        await flush();
+      };
+      return { h, port, calls, tick };
+    }
+
+    const settleOf = (h: Harness) =>
+      h.epics.at(-1)?.children.find((c) => c.number === CHILD)?.remoteSettle;
+
+    test("the leader merges the Mac's child and asks the Mac in that tick, its mirror still behind", async () => {
+      const { h, port, merges } = remote({});
+      const calls = withSettle(port, { mirror: () => mirrored("done", "open") });
+      await h.drain.tick();
+      await flush();
+      expect(merges.map((m) => m.pr)).toEqual([PR]);
+      expect(calls).toEqual([{ sessionId: SESSION, prNumber: PR }]);
+      await h.drain.tick();
+      await flush();
+      expect(calls).toHaveLength(1); // settled there: never asked again
+      expect(settleOf(h)).toBeUndefined();
+      expect(h.epics.at(-1)?.children.find((c) => c.number === CHILD)?.integratedPrNumber).toBe(PR);
+      expect(h.removed).toEqual([]); // the claim stays: the issue closes when the epic lands
+    });
+
+    test("one request at a time: repeated ticks and a repeated integration record add none", async () => {
+      let answer!: (o: RemoteSettleOutcome) => void;
+      const { h, calls, tick } = integrated({
+        answer: () => new Promise<RemoteSettleOutcome>((r) => (answer = r)),
+      });
+      await tick();
+      await tick(REMOTE_RETRY);
+      h.store.recordEpicIntegrated(REPO, PARENT, CHILD, { number: PR, url: "u" }, PINNED);
+      await tick(REMOTE_RETRY);
+      expect(calls).toHaveLength(1);
+      expect(settleOf(h)?.reason).toBe("requested");
+      answer({ kind: "gone" }); // archived there meanwhile: nothing left to do
+      await tick(REMOTE_RETRY);
+      await tick(REMOTE_RETRY);
+      expect(calls).toHaveLength(1);
+      expect(settleOf(h)).toBeUndefined();
+    });
+
+    test("an offline Mac stays open as offline and is asked once it reconnects", async () => {
+      let online = false;
+      const { h, calls, tick } = integrated({ online: () => online });
+      await tick();
+      await tick();
+      expect(calls).toEqual([]);
+      expect(settleOf(h)).toEqual({ host: macHost, sessionId: SESSION, reason: "offline" });
+      online = true;
+      await tick();
+      expect(calls).toHaveLength(1);
+    });
+
+    test("a working or waiting agent there is left alone until it rests", async () => {
+      let status = "running";
+      const { h, calls, tick } = integrated({ mirror: () => mirrored(status) });
+      await tick();
+      await tick();
+      expect(calls).toEqual([]);
+      expect(settleOf(h)?.reason).toBe("busy");
+      status = "blocked";
+      await tick();
+      expect(calls).toEqual([]);
+      status = "idle";
+      await tick();
+      expect(calls).toHaveLength(1);
+    });
+
+    test("the Mac refusing busy is retried after a minute, not before", async () => {
+      const { h, calls, tick } = integrated({
+        answer: (n) => (n === 1 ? { kind: "refused", code: "busy" } : { kind: "settled" }),
+      });
+      await tick();
+      await tick(30_000);
+      expect(calls).toHaveLength(1);
+      expect(settleOf(h)?.reason).toBe("busy");
+      await tick(REMOTE_RETRY);
+      expect(calls).toHaveLength(2);
+    });
+
+    test("an older Shepherd there, or no epic child there: open, asked again only after 15 minutes", async () => {
+      for (const [outcome, reason] of [
+        [{ kind: "unsupported" }, "unsupported"],
+        [{ kind: "refused", code: "not_epic_child" }, "rejected"],
+      ] as const) {
+        const { h, calls, tick } = integrated({ answer: () => outcome });
+        await tick();
+        await tick(REMOTE_RETRY);
+        expect({ reason, calls: calls.length }).toEqual({ reason, calls: 1 });
+        expect(settleOf(h)?.reason).toBe(reason);
+        await tick(15 * 60_000);
+        expect(calls).toHaveLength(2);
+      }
+    });
+
+    test("a mirror stuck on an open PR does not hold it back; the Mac's own answer shows", async () => {
+      const { h, calls, tick } = integrated({
+        mirror: () => mirrored("done", "open"),
+        answer: () => ({ kind: "refused", code: "not_merged" }),
+      });
+      await tick();
+      await tick();
+      expect(calls).toHaveLength(1);
+      expect(settleOf(h)?.reason).toBe("not_merged_there");
+    });
+
+    test("after a restart with no mirror of the session yet, the Mac is asked once more", async () => {
+      // A fresh drain on the same facts: nothing in memory, the mirror not showing the session.
+      const { h, calls, tick } = integrated({
+        mirror: () => undefined,
+        answer: () => ({ kind: "gone" }),
+      });
+      await tick();
+      await tick(REMOTE_RETRY);
+      expect(calls).toEqual([{ sessionId: SESSION, prNumber: PR }]);
+      expect(settleOf(h)).toBeUndefined();
+    });
+
+    test("nothing is asked while the child is not integrated here", async () => {
+      const { h, port } = remote({ pr: () => [] });
+      const calls = withSettle(port, { mirror: () => mirrored("done") });
+      await h.drain.tick();
+      await flush();
+      await h.drain.tick();
+      expect(calls).toEqual([]);
+      expect(settleOf(h)).toBeUndefined();
+    });
+
+    test("a local child awaiting its manual acceptance is untouched (TASK-3086's shape)", async () => {
+      const { h, calls, tick } = integrated();
+      const local = h.store.create({
+        name: "acceptance",
+        prompt: "p",
+        repoPath: REPO,
+        baseBranch: PINNED,
+        branch: "shepherd/zwei-rechner-abnahme",
+        worktreePath: "/wt/acceptance",
+        isolated: true,
+        herdrSession: "default",
+        herdrAgentId: "t-local",
+        auto: true,
+        issueNumber: NEXT,
+        epicParent: PARENT,
+      } as any);
+      h.store.update(local.id, { status: "done" });
+      h.store.setSessionManualSteps(local.id, [
+        { id: "ms1", text: "Run the six two-machine scenarios", postMerge: false },
+        { id: "ms2", text: "Link the native checks of the tested revision", postMerge: false },
+      ]);
+      await tick();
+      await tick(REMOTE_RETRY);
+      const row = h.store.get(local.id)!;
+      expect(row.status).toBe("done");
+      expect(row.manualStepsAckedAt ?? null).toBeNull();
+      expect(row.manualSteps).toHaveLength(2);
+      expect(calls.map((c) => c.sessionId)).toEqual([SESSION]); // only the Mac's child is asked
+    });
   });
 });

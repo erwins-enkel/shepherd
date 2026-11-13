@@ -3,9 +3,13 @@ import {
   START_GRACE_MS,
   dispatchedElsewhereOf,
   drainDispatchKey,
+  integratedDispatchesOf,
   issueOfDrainKey,
   remoteRetireView,
+  remoteSettleGate,
   remoteWorkOf,
+  settleOutcomeOf,
+  settleRefusalReason,
 } from "../src/drain-remote";
 import type { PrStatus } from "../src/forge/types";
 import type { RemoteDispatchRow } from "../src/remote-instances/dispatch";
@@ -177,5 +181,100 @@ describe("remoteRetireView (#3957)", () => {
   test("a human approval on the PR counts as one", () => {
     const approved = { ...pr, latestReview: { state: "approved", author: "k", submittedAt: 1 } };
     expect(remoteRetireView(approved as PrStatus, null).humanApproved).toBe(true);
+  });
+});
+
+// #3016: the integrated drain spawns the leader asks their machines to settle.
+describe("integratedDispatchesOf", () => {
+  const integrated = (issues: Record<number, number | null>) => (issue: number) =>
+    issue in issues ? { prNumber: issues[issue]! } : null;
+
+  test("the newest started dispatch of an integrated issue, with the integrated PR", () => {
+    const out = integratedDispatchesOf(
+      [row(1, { id: "new", sessionId: "s-new" }), row(1, { id: "old", sessionId: "s-old" })],
+      hostOf,
+      integrated({ 1: 3955 }),
+    );
+    expect(out).toEqual([{ issue: 1, host: mac, sessionId: "s-new", prNumber: 3955 }]);
+  });
+
+  test("the mirror plays no part: a session it does not show is still listed", () => {
+    // integratedDispatchesOf never reads the mirror at all — the machine answers for itself.
+    expect(integratedDispatchesOf([row(2)], hostOf, integrated({ 2: null }))).toEqual([
+      { issue: 2, host: mac, sessionId: "s-2", prNumber: null },
+    ]);
+  });
+
+  test("skips what is not integrated, not started, sessionless, or on a removed machine", () => {
+    const out = integratedDispatchesOf(
+      [
+        row(1),
+        row(2, { state: "held", sessionId: null }),
+        row(3, { sessionId: null }),
+        row(4, { instanceId: "gone" }),
+      ],
+      hostOf,
+      integrated({ 2: 1, 3: 1, 4: 1 }),
+    );
+    expect(out).toEqual([]);
+  });
+
+  test("a task an operator sent there (no drain key) is never listed", () => {
+    const manual = row(5, { clientKey: "3c0ffee0-0000-4000-8000-000000000000" });
+    expect(integratedDispatchesOf([manual], hostOf, integrated({ 5: 1 }))).toEqual([]);
+  });
+});
+
+describe("remoteSettleGate", () => {
+  test("an offline machine waits; an online one is asked unless the mirror shows it busy or held", () => {
+    expect(remoteSettleGate({ online: false, mirrored: undefined })).toEqual({
+      kind: "pending",
+      reason: "offline",
+    });
+    expect(remoteSettleGate({ online: true, mirrored: undefined })).toEqual({ kind: "request" });
+    for (const status of ["idle", "done"])
+      expect(remoteSettleGate({ online: true, mirrored: mirrored("s", { status }) })).toEqual({
+        kind: "request",
+      });
+    for (const status of ["running", "blocked"])
+      expect(remoteSettleGate({ online: true, mirrored: mirrored("s", { status }) })).toEqual({
+        kind: "pending",
+        reason: "busy",
+      });
+    expect(
+      remoteSettleGate({
+        online: true,
+        mirrored: mirrored("s", { status: "done", shelved: true }),
+      }),
+    ).toEqual({ kind: "pending", reason: "held" });
+  });
+
+  test("a stale mirror (PR still open there) does not hold the request back", () => {
+    const stale = mirrored("s", { status: "done", git: { state: "open", number: 3955 } });
+    expect(remoteSettleGate({ online: true, mirrored: stale })).toEqual({ kind: "request" });
+  });
+});
+
+describe("settle answers", () => {
+  test("map to outcomes", () => {
+    expect(settleOutcomeOf(200, { settled: true })).toEqual({ kind: "settled" });
+    expect(settleOutcomeOf(200, { settled: true, already: true })).toEqual({ kind: "gone" });
+    expect(settleOutcomeOf(404, { code: "session_not_found" })).toEqual({ kind: "gone" });
+    expect(settleOutcomeOf(404, { error: "not found" })).toEqual({ kind: "unsupported" });
+    expect(settleOutcomeOf(404, null)).toEqual({ kind: "unsupported" });
+    expect(settleOutcomeOf(409, { code: "busy" })).toEqual({ kind: "refused", code: "busy" });
+    expect(settleOutcomeOf(409, {})).toEqual({ kind: "failed" });
+    expect(settleOutcomeOf(500, null)).toEqual({ kind: "failed" });
+    expect(settleOutcomeOf(401, {})).toEqual({ kind: "failed" });
+  });
+
+  test("refusal codes become the child's open reason", () => {
+    expect(settleRefusalReason("busy")).toBe("busy");
+    expect(settleRefusalReason("settling")).toBe("requested");
+    expect(settleRefusalReason("session_closing")).toBe("requested");
+    expect(settleRefusalReason("held")).toBe("held");
+    expect(settleRefusalReason("not_merged")).toBe("not_merged_there");
+    expect(settleRefusalReason("not_epic_child")).toBe("rejected");
+    expect(settleRefusalReason("something new")).toBe("failed");
   });
 });

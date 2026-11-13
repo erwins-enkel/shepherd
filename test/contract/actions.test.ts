@@ -191,6 +191,64 @@ describe("ready to merge", () => {
   });
 });
 
+describe("settle-integrated (#3016)", () => {
+  test("settles a merged epic child at rest; refuses, rejects and 404s otherwise", async () => {
+    const epicChild = (status: "done" | "running") => {
+      const row = s.deps.store.create({
+        name: `child-${status}`,
+        prompt: "p",
+        repoPath: s.validRepo,
+        baseBranch: "epic/9-contract",
+        branch: `shepherd/child-${status}`,
+        worktreePath: "/wt",
+        isolated: true,
+        herdrSession: "default",
+        herdrAgentId: `term_child_${status}`,
+        issueNumber: 8,
+      });
+      s.deps.store.update(row.id, { status });
+      s.stubs.prCache.rows[row.id] = { kind: "github", state: "merged", number: 77 };
+      return row.id;
+    };
+    const saved = s.stubs.resolveForge.forge;
+    s.stubs.resolveForge.forge = {
+      kind: "github",
+      prReviewMeta: async () => ({
+        body: "",
+        baseRefName: "epic/9-contract",
+        isCrossRepository: false,
+        state: "merged",
+      }),
+    };
+    try {
+      const path = "/api/sessions/{id}/settle-integrated";
+      const id = epicChild("done");
+      const ok = await post(`/api/sessions/${id}/settle-integrated`, { prNumber: 77 });
+      expect(ok.status).toBe(200);
+      expect(await validateResponse("POST", path, ok)).toEqual({ settled: true });
+      expect(s.deps.store.get(id)?.status).toBe("archived");
+
+      const busy = await post(`/api/sessions/${epicChild("running")}/settle-integrated`, {});
+      expect(busy.status).toBe(409);
+      expect(((await validateResponse("POST", path, busy)) as { code: string }).code).toBe("busy");
+
+      const bad = await post(`/api/sessions/${id}/settle-integrated`, { prNumber: "77" });
+      expect(bad.status).toBe(400);
+      await validateResponse("POST", path, bad);
+
+      const gone = await post("/api/sessions/nope/settle-integrated", {});
+      expect(gone.status).toBe(404);
+      await validateResponse("POST", path, gone);
+
+      const anon = await post(`/api/sessions/${id}/settle-integrated`, {}, false);
+      expect(anon.status).toBe(401);
+      await validateResponse("POST", path, anon);
+    } finally {
+      s.stubs.resolveForge.forge = saved;
+    }
+  });
+});
+
 describe("relaunch", () => {
   test("spawns a replacement and archives the original", async () => {
     const id = await createSession("relaunch me");

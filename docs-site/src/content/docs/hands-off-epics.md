@@ -104,7 +104,8 @@ in-flight work running and resumes on its own — and only a few are **terminal*
   once an hour, whenever no child is running or in review. If it has been behind for 4 hours
   without such a gap, the epic stops starting new children ("Basis veraltet"), lets the running
   ones finish, rebases, and continues. A child that runs on another machine counts as running until
-  its PR merges into the epic branch, which the drain does once it is green and reviewed (see
+  its PR merges into the epic branch, which the drain does once it is green and reviewed; it then
+  asks that machine to close the child's session there (see
   [Epic children on another machine](/machines/#epic-children-on-another-machine)). **Continue
   anyway** in the run control lifts the pause until `main` moves again.
 - **Previous epic still landing.** An epic that hasn't started any child yet waits while another

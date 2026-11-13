@@ -494,6 +494,7 @@ import type { GithubRateLimitPayload } from "./forge/github-rate-limit";
 import type { GithubActionsBillingPayload } from "./forge/github-actions-billing";
 import { BaseCheckoutBusyError, MergeConflictError } from "./forge/local";
 import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teardown";
+import type { IntegratedChildSettler } from "./integrated-child-settle";
 import { deadBaseSession } from "./dead-base";
 import { predecessorLanded, resolvePredecessor } from "./task-deps";
 import {
@@ -964,6 +965,9 @@ export interface AppDeps {
   /** #3133: freeze a merged session's manual steps into the Owed lens. The local-merge route
    *  settles in-tree with no session:git merged event, so it calls this directly. */
   materializeManualSteps?: (s: Session, prNumber: number, prTitle: string) => void;
+  /** #3016: settles an epic child this machine ran once the epic's leading machine merged it
+   *  (`POST /api/sessions/:id/settle-integrated`). Absent in tests that don't exercise it. */
+  integratedChildSettler?: Pick<IntegratedChildSettler, "settle">;
   /** Whether a name-matched terminal PR's head commit belongs to the session's
    *  branch — same guard the poller injects, so the on-demand git endpoint can't
    *  flip GitRail to a false MERGED on a reused-name collision. Absent → unguarded
@@ -6295,6 +6299,53 @@ async function archiveAndAnnounce(
   deps.events.emit("session:archived", { id });
 }
 
+/** #3016: 409 for a state-changing action on a session whose archive is running
+ *  (`SessionService.isClosing`) — a reply, resume, relaunch or shelve would act on a session being
+ *  torn down. Reads pass; archiving it again (DELETE) joins the running archive; a settle request
+ *  answers for itself. */
+function closingRefusal({ req, parts, deps }: Ctx): Response | null {
+  const id = parts[2];
+  if (!id || !parts[3] || parts[3] === "settle-integrated") return null;
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "DELETE") return null;
+  // Optional call: route tests stand in a partial service.
+  if (!deps.service.isClosing?.(id)) return null;
+  return json({ error: "this session is being archived", code: "session_closing" }, 409);
+}
+
+// POST /api/sessions/:id/settle-integrated {prNumber?} — #3016: the leading machine of an epic asks
+// this one to settle a child it ran here, whose PR the leader merged into the epic branch. This
+// machine checks everything itself (src/integrated-child-settle.ts). 200 {settled: true} (with
+// `already: true` when it was archived before),
+// 404 {code: "session_not_found"}, 409 {code} with what speaks against it now.
+async function handleSessionSettleIntegrated({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "settle-integrated" && !parts[4]))
+    return null;
+  const settler = deps.integratedChildSettler;
+  if (!settler) return json({ error: "not found" }, 404);
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as { prNumber?: unknown } | null;
+  const pr = body?.prNumber;
+  if (
+    body === null ||
+    typeof body !== "object" ||
+    Array.isArray(body) ||
+    (pr !== undefined && !(typeof pr === "number" && Number.isInteger(pr) && pr > 0))
+  )
+    return json({ error: "body must be {prNumber?: positive integer}" }, 400);
+  const out = await settler.settle(parts[2], pr as number | undefined);
+  switch (out.kind) {
+    case "settled":
+      return json({ settled: true });
+    case "already":
+      return json({ settled: true, already: true });
+    case "not_found":
+      return json({ error: "not found", code: "session_not_found" }, 404);
+    case "refused":
+      return json({ error: `not settled: ${out.code}`, code: out.code }, 409);
+  }
+}
+
 // POST /api/sessions/:id/reply — steer a running session.
 async function handleSessionReply({
   req,
@@ -9165,8 +9216,11 @@ async function handleSessionActionRequest({
 async function handleSessions(ctx: Ctx): Promise<Response | null> {
   const { parts } = ctx;
   if (parts[0] !== "api" || parts[1] !== "sessions") return null;
+  const closing = closingRefusal(ctx);
+  if (closing) return closing;
   for (const sub of [
     handleSessionsClearMerged,
+    handleSessionSettleIntegrated,
     handleSessionCreate,
     handleSessionSteerLog,
     handleSessionReads,

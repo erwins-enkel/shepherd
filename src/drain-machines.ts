@@ -12,10 +12,13 @@ import {
   REMOTE_WORK_WINDOW_MS,
   dispatchedElsewhereOf,
   drainDispatchKey,
+  integratedDispatchesOf,
   remoteWorkOf,
+  settleOutcomeOf,
 } from "./drain-remote";
 import { payloadHash } from "./dispatch";
 import type { GitForge } from "./forge/types";
+import { type FetchLike, requestRemote } from "./remote-instances/client";
 import { type DecideDeps, decide } from "./remote-instances/decide";
 import type { RemoteDispatcher } from "./remote-instances/dispatch";
 import { instanceIdentity } from "./remote-instances/identity";
@@ -31,11 +34,16 @@ export interface DrainMachineDeps {
   >;
   decide: DecideDeps;
   instances: Pick<RemoteInstanceService, "list">;
-  sessions: Pick<RemoteSessionMirror, "list">;
+  sessions: Pick<RemoteSessionMirror, "list" | "machines">;
   dispatcher: Pick<RemoteDispatcher, "submit">;
   resolveForge: (repoPath: string) => GitForge | null;
   now?: () => number;
+  /** Tests stand in the machine's HTTP. */
+  fetch?: FetchLike;
 }
+
+/** #3016: how long a settle request may take: the machine reads the PR from its forge first. */
+const SETTLE_TIMEOUT_MS = 30_000;
 
 /** A repo's identity across machines, or undefined when it has no forge to match it by. */
 function projectOf(forge: GitForge | null): string | undefined {
@@ -60,6 +68,9 @@ export function drainMachinePort(deps: DrainMachineDeps): DrainMachinePort {
       ]),
     );
   };
+  /** The machine's address while its link is open; null otherwise. */
+  const targetOf = (instanceId: string) =>
+    deps.sessions.machines().find((m) => m.host.instanceId === instanceId)?.target ?? null;
   return {
     active: () => placementActive(deps.instances.list()),
     selfId: () => instanceIdentity(deps.store).instanceId,
@@ -96,6 +107,34 @@ export function drainMachinePort(deps: DrainMachineDeps): DrainMachinePort {
         deps.store.listDrainRemoteDispatches(slug, now() - REMOTE_WORK_WINDOW_MS),
         (id) => hosts.get(id) ?? null,
       );
+    },
+    integratedDispatches(repoPath, integrationOf) {
+      const slug = project(repoPath);
+      if (!slug) return [];
+      const hosts = hostsById();
+      return integratedDispatchesOf(
+        deps.store.listDrainRemoteDispatches(slug, now() - REMOTE_WORK_WINDOW_MS),
+        (id) => hosts.get(id) ?? null,
+        integrationOf,
+      );
+    },
+    machineOnline: (instanceId) => !!targetOf(instanceId),
+    mirroredSession: (sessionId) => deps.sessions.list().find((s) => s.id === sessionId),
+    async settle(instanceId, sessionId, prNumber) {
+      const target = targetOf(instanceId);
+      if (!target) return { kind: "failed" };
+      const res = await requestRemote(
+        target,
+        `/api/sessions/${encodeURIComponent(sessionId)}/settle-integrated`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(prNumber != null ? { prNumber } : {}),
+        },
+        { fetch: deps.fetch, timeoutMs: SETTLE_TIMEOUT_MS },
+      );
+      if (!res.ok) return { kind: "failed" };
+      return settleOutcomeOf(res.response.status, await res.response.json().catch(() => null));
     },
   };
 }

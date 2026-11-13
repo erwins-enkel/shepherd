@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "../../src/store";
 import { SessionService } from "../../src/service";
+import { IntegratedChildSettler } from "../../src/integrated-child-settle";
 import { EventHub } from "../../src/events";
 import type { AppDeps } from "../../src/server";
 import { config } from "../../src/config";
@@ -234,6 +235,19 @@ export function makeContractDeps(): ContractDeps {
       answer: async () => askAnswers.outcome ?? { ok: false, status: 409, error: "ask_not_open" },
     },
   };
+  // #3016: the real settler over the stubs above, so POST settle-integrated answers every status
+  // it declares; a test swaps `resolveForge.forge` for the PR read.
+  deps.integratedChildSettler = new IntegratedChildSettler({
+    store,
+    service,
+    prOf: (id) => prCache.rows[id] as never,
+    resolveForge: () => resolveForge.forge as never,
+    retainClaim: () => {},
+    dropPrCache: (id) => {
+      delete prCache.rows[id];
+    },
+    emitArchived: (id) => events.emit("session:archived", { id }),
+  });
   return {
     deps,
     tmpRoot,

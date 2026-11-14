@@ -528,3 +528,30 @@ it does not establish a live 3G timing or wire-byte result.
 The Linux implementation workspace cannot run Swift, Xcode, a simulator or a
 TestFlight distribution. Live byte/timing measurements and release validation must
 be recorded from the macOS/device run; no acceptance numbers are inferred here.
+
+## Repo autonomy (#3897)
+
+Open **Settings → Repo settings**, then choose the server and repo. A repo chip's
+context menu and a local session row's context menu open the same form directly.
+The repo list and context-menu previews show the effective autonomy level, coding CLI and
+merge mode. Config reads happen when these surfaces open, never during bootstrap.
+
+The form starts with **On call**, **With review**, **Backlog** and **Full auto**.
+Selecting a level writes Critic, Auto-Address, Autopilot, Auto-Drain, draft mode and
+auto-merge in one `PUT /api/repo-config`. The plan gate, sandbox and other defaults
+are preserved. The responsibility list follows the returned config, including
+custom mixes and the plan gate. Local-only repos cannot select Backlog or Full
+auto. Sandbox Standard and missing PR CI show their holds; selecting a preset does
+not grant sandbox permissions or consent to merging without CI.
+
+The same form offers coding CLI and merge mode. The wider repo settings sections
+remain tracked in #3903. Each form captures its owning server activation: changing
+the focused server cannot redirect a write, and disconnecting rejects late
+responses. Failed saves retain the last confirmed config. Isolated read-only
+launches display the settings with mutations disabled.
+
+Targeted checks: `RepoSettingsFormTests` in the Swift package and
+`ShepherdIOSTests/IOSRepoSettingsTests` in the serialized simulator runner. Device
+acceptance: open both entry points on iPhone/iPad, verify EN/DE and large Dynamic
+Type, select each preset on a GitHub repo, check custom/draft and local-only
+states, and disconnect or change servers while a form is open.

@@ -1130,6 +1130,40 @@
         }
       }
     },
+    "automation_no_pr_ci_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Repo läuft kein Workflow auf Pull Requests, also prüft nichts einen PR vor dem Merge. Auto-Merge hält seine PRs an, bis du CI einrichtest oder „Ohne CI mergen“ einschaltest."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No workflow runs on pull requests in this repo, so nothing checks a PR before it merges. Auto-merge holds its PRs until you set up CI or turn on Merge without CI."
+          }
+        }
+      }
+    },
+    "automation_no_pr_ci_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine PR-CI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No PR CI"
+          }
+        }
+      }
+    },
     "automation_preview_open_mode_label": {
       "extractionState": "manual",
       "localizations": {
@@ -37481,6 +37515,346 @@
         }
       }
     },
+    "reposettings_autonomy_backlog": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backlog"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backlog"
+          }
+        }
+      }
+    },
+    "reposettings_autonomy_backlog_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie Mit Review, dazu greift Shepherd gelabelte Issues selbst auf (Backlog-Abarbeitung). Du mergst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As With review, and Shepherd picks up labeled issues by itself (Auto-Drain). You merge."
+          }
+        }
+      }
+    },
+    "reposettings_autonomy_custom": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene Mischung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom mix"
+          }
+        }
+      }
+    },
+    "reposettings_autonomy_custom_note": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene Mischung: Diese Einstellungen passen zu keiner Stufe. Eine Stufe setzt alle fünf."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom mix: these settings match no level. Picking one sets all five."
+          }
+        }
+      }
+    },
+    "reposettings_autonomy_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie viel Shepherd in diesem Repo allein macht. Eine Stufe setzt fünf Einstellungen auf einmal."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How much Shepherd does in this repo on its own. A level sets five settings in one go."
+          }
+        }
+      }
+    },
+    "reposettings_autonomy_full": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voll-Auto"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full auto"
+          }
+        }
+      }
+    },
+    "reposettings_autonomy_full_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie Backlog, dazu landet der Merge-Zug fertige PRs (Voll-Auto-Merge): Epics laufen ohne dich durch."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As Backlog, and the merge train lands finished PRs (Full-auto merge): epics run end to end without you."
+          }
+        }
+      }
+    },
+    "reposettings_autonomy_oncall": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Zuruf"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On call"
+          }
+        }
+      }
+    },
+    "reposettings_autonomy_oncall_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd führt die Aufgaben aus, die du startest, und überlässt dir jeden weiteren Schritt: kein Review, nichts startet von selbst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd runs the tasks you start and leaves every other step to you: no review, nothing starts on its own."
+          }
+        }
+      }
+    },
+    "reposettings_autonomy_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Review"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With review"
+          }
+        }
+      }
+    },
+    "reposettings_autonomy_review_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Kritiker prüft jeden Push, die Auto-Korrektur behebt seine Befunde und Autopilot bringt Aufgaben über Routine-Stopps. Du wählst die Issues und mergst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Critic reviews every push, Auto-Address fixes its findings and Autopilot carries tasks past routine stops. You pick the issues and merge."
+          }
+        }
+      }
+    },
+    "reposettings_autonomy_sandbox_halt": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Sandbox „Standard“ hält die Abarbeitung beim ersten unbeaufsichtigten Start an. Die Stufe lässt die Sandbox, wie sie ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With Sandbox Standard the work halts at the first unattended start. This level leaves the sandbox as it is."
+          }
+        }
+      }
+    },
+    "reposettings_chain_fix": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befunde beheben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix findings"
+          }
+        }
+      }
+    },
+    "reposettings_chain_merge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mergen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge"
+          }
+        }
+      }
+    },
+    "reposettings_chain_name": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wer macht welchen Schritt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Who does which step"
+          }
+        }
+      }
+    },
+    "reposettings_chain_pickup": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issue aufgreifen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick up issue"
+          }
+        }
+      }
+    },
+    "reposettings_chain_plan": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan prüfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check plan"
+          }
+        }
+      }
+    },
+    "reposettings_chain_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
+          }
+        }
+      }
+    },
+    "reposettings_chain_shepherd": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd"
+          }
+        }
+      }
+    },
+    "reposettings_chain_stops": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei Stopps weiter"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go on at stops"
+          }
+        }
+      }
+    },
     "reposettings_merge_mode_draft": {
       "extractionState": "manual",
       "localizations": {
@@ -37566,6 +37940,23 @@
         }
       }
     },
+    "reposettings_section_autonomy": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autonomie"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autonomy"
+          }
+        }
+      }
+    },
     "reposettings_section_display": {
       "extractionState": "manual",
       "localizations": {
@@ -37647,6 +38038,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Start & flow"
+          }
+        }
+      }
+    },
+    "reposettings_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo-Einstellungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo settings"
           }
         }
       }

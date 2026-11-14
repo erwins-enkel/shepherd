@@ -13,6 +13,8 @@ struct SessionListView: View {
     @State private var epicSheet: IOSEpicSelection?
     @State private var refreshError: String?
     @State private var showingRepos = false
+    @State private var showingRepoSettings = false
+    @State private var repoSettings: IOSRepoSettingsControl?
     @State private var showingCommandBar = false
     @State private var commandAction: IOSCommandBarPresentation.Action?
     @State private var commandPull = IOSCommandBarPull()
@@ -94,6 +96,8 @@ struct SessionListView: View {
             Button(L.t("commandbar_title")) { openCommandBar() }
                 .keyboardShortcut("k", modifiers: .command).frame(width: 0, height: 0).clipped().accessibilityHidden(true)
         }
+        .sheet(isPresented: $showingRepoSettings) { IOSRepoSettingsDirectory(owners: hub?.connected ?? [app]) }
+        .sheet(item: $repoSettings) { IOSRepoSettingsSheet(control: $0) }
         .sheet(isPresented: $showingRepos) { IOSServerReposSheet(model: model) }
         .sheet(isPresented: $showingEpicsHelp) { IOSCompletedEpicsHelpSheet() }
         // Live landing signals (green CI, ready, stranded) ride only the GET and no frame fires when
@@ -153,7 +157,7 @@ struct SessionListView: View {
     }
 
     private var commandSheetOpen: Bool {
-        showingCommandBar || showingRepos || showingEpicsHelp || epicSheet != nil || explainingStage != nil
+        showingCommandBar || showingRepos || showingRepoSettings || repoSettings != nil || showingEpicsHelp || epicSheet != nil || explainingStage != nil
             || pendingLand != nil || !clearingMerged.isEmpty || app.sheet != nil
             || hub?.routedSheet != nil || hub?.managingServers == true
     }
@@ -506,6 +510,8 @@ struct SessionListView: View {
                 .accessibilityIdentifier("herd-lens-\(lens.rawValue)")
             }
             Divider()
+            Button(L.t("reposettings_title")) { showingRepoSettings = true }
+                .accessibilityIdentifier("show-repo-settings")
             if IOSPushRegistration.shared.isEnabled {
                 Section(L.t("native_ios_push_title")) {
                     // The same server the sign-out below acts on.
@@ -567,12 +573,36 @@ struct SessionListView: View {
                     .accessibilityLabel(Text(verbatim: selected ? L.t("repo_filter_active_aria", chip.name) : L.t("repo_filter_apply_aria", chip.name)))
                     .accessibilityAddTraits(selected ? .isSelected : [])
                     .accessibilityIdentifier("repo-chip-\(chip.name)")
+                    .contextMenu { repoSettingsMenu(chip.paths) } preview: { repoSettingsPreview(chip.paths) }
                 }
             }.padding(.horizontal, 6)
         }
         .scrollIndicators(.never)
         .overlay(alignment: .bottom) { Rectangle().fill(SessionListStyle.line).frame(height: 1) }
         .accessibilityLabel(L.t("repo_switcher_label"))
+    }
+
+    private func repoSettingsMenu(_ paths: Set<String>) -> some View {
+        ForEach(hub?.connected ?? [app], id: \.activeProfile?.id) { owner in
+            ForEach((owner.store?.repos ?? []).filter { paths.contains($0.path) }, id: \.path) { repo in
+                repoSettingsButton(owner: owner, path: repo.path)
+            }
+        }
+    }
+
+    private func repoSettingsButton(owner: AppModel, path: String) -> some View {
+        let title = L.t("reposettings_title") + " · " + (owner.activeProfile?.name ?? "")
+        return Button(title) { repoSettings = IOSRepoSettingsControl(owner: owner, path: path) }
+    }
+
+    private func repoSettingsPreview(_ paths: Set<String>) -> some View {
+        VStack(alignment: .leading) {
+            ForEach(hub?.connected ?? [app], id: \.activeProfile?.id) { owner in
+                ForEach((owner.store?.repos ?? []).filter { paths.contains($0.path) }, id: \.path) { repo in
+                    IOSRepoSettingsPreview(owner: owner, path: repo.path)
+                }
+            }
+        }
     }
 
     private func groupHeader(_ stage: HerdStage, title: String, rows: [IOSMergedSessionPresentation.Row]) -> some View {

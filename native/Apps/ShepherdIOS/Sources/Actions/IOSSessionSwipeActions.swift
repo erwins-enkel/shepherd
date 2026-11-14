@@ -6,6 +6,7 @@ import ShepherdKit
 /// system exposes the swipe buttons through VoiceOver's Actions rotor as well.
 struct IOSSessionSwipeActions: ViewModifier {
     let session: Session
+    @State private var repoSettings: IOSRepoSettingsControl?
     @Environment(AppModel.self) private var app
     func body(content: Content) -> some View {
         if let controller = app.extension(IOSSessionActions.self) {
@@ -28,7 +29,12 @@ struct IOSSessionSwipeActions: ViewModifier {
                     }
                 }
             }
+            .sheet(item: $repoSettings) { IOSRepoSettingsSheet(control: $0) }
             .contextMenu {
+                Button(L.t("reposettings_title")) {
+                    repoSettings = IOSRepoSettingsControl(owner: app, path: session.repoPath)
+                }
+                Divider()
                 if state.allowsWrites {
                     ForEach(state.swipeActions) { action in
                         Button { Task { await state.execute(action) } } label: {
@@ -36,6 +42,8 @@ struct IOSSessionSwipeActions: ViewModifier {
                         }.disabled(state.busy)
                     }
                 }
+            } preview: {
+                IOSRepoSettingsPreview(owner: app, path: session.repoPath)
             }
         } else { content }
     }

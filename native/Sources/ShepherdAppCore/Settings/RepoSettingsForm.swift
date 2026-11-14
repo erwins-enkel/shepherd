@@ -2,8 +2,8 @@ import Foundation
 import ShepherdKit
 
 /// The repo settings' choices (#3450), mirroring the web window (ui `repo-settings/`,
-/// `merge-mode.ts`, `repo-cli.ts`, `list-entries.ts`). Pure: the Mac view reads a `RepoConfig`
-/// through these and writes every change as one `RepoConfigPatch`.
+/// `merge-mode.ts`, `repo-cli.ts`, `list-entries.ts`). Pure: native views read a `RepoConfig`
+/// through these and write every change as one `RepoConfigPatch`.
 public enum RepoSettingsForm {
     /// How a repo's finished PRs land: one choice over `draftMode` + `autoMergeEnabled`, so the two
     /// are never both on.
@@ -27,6 +27,74 @@ public enum RepoSettingsForm {
     }
 
     public static func isLightweight(_ config: RepoConfig) -> Bool { config.repoMode == "lightweight" }
+
+    // MARK: Autonomy (ui autonomy.ts)
+
+    public enum AutonomyLevel: String, CaseIterable, Sendable {
+        case onCall, review, backlog, full
+
+        public var needsForge: Bool { self == .backlog || self == .full }
+        public var name: String {
+            switch self {
+            case .onCall: L.t("reposettings_autonomy_oncall")
+            case .review: L.t("reposettings_autonomy_review")
+            case .backlog: L.t("reposettings_autonomy_backlog")
+            case .full: L.t("reposettings_autonomy_full")
+            }
+        }
+        public var explanation: String {
+            switch self {
+            case .onCall: L.t("reposettings_autonomy_oncall_desc")
+            case .review: L.t("reposettings_autonomy_review_desc")
+            case .backlog: L.t("reposettings_autonomy_backlog_desc")
+            case .full: L.t("reposettings_autonomy_full_desc")
+            }
+        }
+    }
+
+    /// Exactly six fields in one write; never change the plan gate, sandbox or other defaults.
+    public static func autonomyPatch(_ level: AutonomyLevel) -> RepoConfigPatch {
+        .init(criticEnabled: level != .onCall, autoAddressEnabled: level != .onCall,
+              autopilotEnabled: level != .onCall, autoDrainEnabled: level.needsForge,
+              autoMergeEnabled: level == .full, draftMode: false)
+    }
+
+    /// nil denotes a custom mix. Compare effective values, including local-only restrictions.
+    public static func autonomyLevel(_ config: RepoConfig) -> AutonomyLevel? {
+        AutonomyLevel.allCases.first { level in
+            let patch = autonomyPatch(level)
+            return config.criticEnabled == patch.criticEnabled
+                && (config.autoAddressEnabled && config.criticEnabled) == patch.autoAddressEnabled
+                && config.autopilotEnabled == patch.autopilotEnabled
+                && (config.autoDrainEnabled && !isLightweight(config)) == patch.autoDrainEnabled
+                && effectiveMergeMode(config) == (level == .full ? .auto : .manual)
+        }
+    }
+
+    public enum AutonomyStep: String, CaseIterable, Sendable {
+        case pickup, plan, stops, review, fix, merge
+        public var name: String {
+            switch self {
+            case .pickup: L.t("reposettings_chain_pickup")
+            case .plan: L.t("reposettings_chain_plan")
+            case .stops: L.t("reposettings_chain_stops")
+            case .review: L.t("reposettings_chain_review")
+            case .fix: L.t("reposettings_chain_fix")
+            case .merge: L.t("reposettings_chain_merge")
+            }
+        }
+    }
+
+    public static func shepherdHandles(_ step: AutonomyStep, config: RepoConfig) -> Bool {
+        switch step {
+        case .pickup: config.autoDrainEnabled && !isLightweight(config)
+        case .plan: config.planGateEnabled
+        case .stops: config.autopilotEnabled
+        case .review: config.criticEnabled
+        case .fix: config.autoAddressEnabled && config.criticEnabled
+        case .merge: effectiveMergeMode(config) == .auto
+        }
+    }
 
     // MARK: Coding CLI, model, effort
 

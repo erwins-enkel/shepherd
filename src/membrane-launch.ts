@@ -20,6 +20,9 @@
  * every host touch is an injectable dep so tests never spawn bwrap.
  */
 import { execFile } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { DIAGNOSTICS_PROBE_TIMEOUT_MS } from "./config";
 import {
@@ -186,28 +189,32 @@ async function runProbe(
 ): Promise<MembraneLaunch> {
   const runCapture = deps.runCapture ?? defaultRunCapture;
   const inner = [agent, "--version"];
-  // A tmp dir stands in for the worktree/repo, as in detectBackend's self-test: `--version` never
-  // reads the cwd, and the point is to exercise the LAUNCHER (manager shims, bin binds, $HOME
-  // tmpfs), which is worktree-independent. membraneForArgv attaches the codex binds off argv[0].
-  const probeDir = "/tmp";
-  const membrane: MembraneInputs = {
-    worktreePath: probeDir,
-    gitCommonDir: probeDir,
-    isolated: false,
-    repoPath: probeDir,
-    claudeDir: env.claudeDir,
-    home: env.home,
-    nodeBinReal: env.nodeBinReal,
-  };
-  const flags = buildMembraneFlags(membraneForArgv(inner, membrane));
-
+  // A fresh private tmp dir stands in for the worktree/repo: `--version` never reads the cwd, and
+  // the point is to exercise the LAUNCHER (manager shims, bin binds, $HOME tmpfs), which is
+  // worktree-independent. membraneForArgv attaches the codex/claude binds off argv[0]. Never `/tmp`
+  // itself: binding it would replace the membrane's /tmp tmpfs, and with it the tool bin holding
+  // the claude/codex launcher links (#4021).
+  let probeDir: string | null = null;
   let run: CapturedRun;
   try {
+    probeDir = await mkdtemp(join(tmpdir(), "shepherd-membrane-probe-"));
+    const membrane: MembraneInputs = {
+      worktreePath: probeDir,
+      gitCommonDir: probeDir,
+      isolated: false,
+      repoPath: probeDir,
+      claudeDir: env.claudeDir,
+      home: env.home,
+      nodeBinReal: env.nodeBinReal,
+    };
+    const flags = buildMembraneFlags(membraneForArgv(inner, membrane));
     run = await runCapture("bwrap", [...flags, "--", ...inner]);
   } catch (err) {
     if (err instanceof MembraneProbeUnwiredError) throw err; // exempt from fail-open — see the class
     console.warn(`[sandbox] membrane-launch probe for ${agent} could not run:`, err);
     return { state: "uninspectable" };
+  } finally {
+    if (probeDir) await rm(probeDir, { recursive: true, force: true }).catch(() => {});
   }
   if (run.status === 0) return { state: "ok" };
 

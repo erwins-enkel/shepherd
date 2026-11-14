@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   probeMembraneLaunch,
@@ -75,6 +75,17 @@ describe("probeMembraneLaunch", () => {
     expect(sep).toBeGreaterThan(0); // real membrane flags precede the separator
     expect(args.slice(sep + 1)).toEqual(["claude", "--version"]);
     expect(args).toContain("--clearenv"); // the derived membrane, not a bare spawn
+  });
+
+  test("binds a private probe dir, never /tmp itself, and removes it afterwards (#4021)", async () => {
+    const c = capture(OK);
+    await probeMembraneLaunch("claude", "bwrap", ENV, c);
+    const { args } = c.calls[0]!;
+    const binds = args.filter((_, i) => args[i - 1] === "--bind");
+    expect(binds).not.toContain("/tmp");
+    const probeDir = binds.find((b) => b.includes("shepherd-membrane-probe-"));
+    expect(probeDir).toBeDefined();
+    expect(existsSync(probeDir!)).toBe(false);
   });
 
   test("a codex argv gets the codex binds (membraneForArgv keys off argv[0])", async () => {

@@ -346,7 +346,8 @@ export interface MembraneInputs {
  */
 export interface CodexMembraneInputs {
   /** dirname of the `codex` launcher as found on Shepherd's PATH (often a symlink
-   *  dir, e.g. `~/.bun/bin`) — bound RO and appended to the sandbox PATH. */
+   *  dir, e.g. `~/.bun/bin`) — bound RO and appended to the sandbox PATH; the launcher
+   *  itself is linked into MEMBRANE_TOOL_BIN (#4021). */
   binDir: string;
   /** RO bind covering the launcher's REAL file and its runtime siblings: the nearest
    *  `node_modules` ancestor of the realpath'd launcher (the platform package holding
@@ -420,7 +421,8 @@ export function resolveCodexMembrane(
  * resolves only from there every wrapped role died with `bwrap: execvp claude: ENOENT`.
  */
 export interface ClaudeMembraneInputs {
-  /** dirname of the chosen launcher on Shepherd's PATH — bound RO and appended to the sandbox PATH. */
+  /** dirname of the chosen launcher on Shepherd's PATH — bound RO and appended to the sandbox PATH;
+   *  the launcher itself is linked into MEMBRANE_TOOL_BIN (#4021). */
   binDir: string;
   /** RO bind covering the launcher's real file and its runtime: nearest `node_modules` ancestor
    *  of the realpath (npm install), else the realpath's dir. `binDir` for a mise link. */
@@ -598,8 +600,8 @@ function scratchpadBindFlags(bind: { host: string; dest: string } | null | undef
  */
 export const MEMBRANE_MISE_CONFIG = "/tmp/.shepherd-mise/config.toml";
 
-/** Membrane-only dir holding the resolved real tool binaries (just `gh`), first on PATH. Under
- *  `/tmp` for the same mountpoint reason as {@link MEMBRANE_MISE_CONFIG}. */
+/** Membrane-only dir holding the resolved tools (`gh` bind, `claude`/`codex` launcher links), first
+ *  on PATH. Under `/tmp` for the same mountpoint reason as {@link MEMBRANE_MISE_CONFIG}. */
 export const MEMBRANE_TOOL_BIN = "/tmp/.shepherd-bin";
 
 /** RO bind of the resolved real `gh` into {@link MEMBRANE_TOOL_BIN}; empty when absent. Must follow
@@ -608,6 +610,48 @@ function toolBinFlags(ghBin: string | null | undefined): string[] {
   return typeof ghBin === "string" && ghBin.length > 0
     ? ["--ro-bind-try", ghBin, `${MEMBRANE_TOOL_BIN}/gh`]
     : [];
+}
+
+/** Symlinks of the resolved `codex`/`claude` launchers into {@link MEMBRANE_TOOL_BIN}, so they win
+ *  over a `~/.local/bin` launcher that runs `mise use -g` and dies on EROFS (#4021). A symlink, not
+ *  a bind: realpath still reaches the real launcher (npm script requires, mise argv[0]); the target
+ *  dir is bound RO at the same path. Empty when neither is present. Must follow `--tmpfs /tmp`. */
+function launcherLinkFlags(launchers: {
+  codex?: CodexMembraneInputs;
+  claude?: ClaudeMembraneInputs;
+}): string[] {
+  const f: string[] = [];
+  if (launchers.codex)
+    f.push("--symlink", `${launchers.codex.binDir}/codex`, `${MEMBRANE_TOOL_BIN}/codex`);
+  if (launchers.claude)
+    f.push("--symlink", `${launchers.claude.binDir}/claude`, `${MEMBRANE_TOOL_BIN}/claude`);
+  return f;
+}
+
+/** True when a host bind replaces the membrane's `/tmp` tmpfs at or above {@link MEMBRANE_TOOL_BIN}
+ *  (e.g. a `repoPath` of `/tmp`): the tool bin would then be the host's world-writable `/tmp`, where
+ *  any local user could plant a `claude` that runs first on PATH. Such a membrane gets no tool bin. */
+function toolBinHostBacked(inputs: MembraneInputs): boolean {
+  const covers = (p: string | null | undefined) =>
+    typeof p === "string" &&
+    (p === "/" || p === MEMBRANE_TOOL_BIN || MEMBRANE_TOOL_BIN.startsWith(`${p}/`));
+  return [
+    inputs.repoPath,
+    inputs.worktreePath,
+    inputs.gitCommonDir,
+    inputs.scratchpadBind?.dest,
+    inputs.browserConfigFile,
+    inputs.apiKeyHelperPath,
+    ...(inputs.agentSupportPaths ?? []),
+    ...(inputs.ingressFiles ?? []),
+  ].some(covers);
+}
+
+/** The {@link MEMBRANE_TOOL_BIN} flags (`gh` bind + launcher links); empty when the tool bin would be
+ *  host-backed ({@link toolBinHostBacked}). Non-empty ⇔ the tool bin goes first on PATH. */
+function toolBinMountFlags(inputs: MembraneInputs): string[] {
+  if (toolBinHostBacked(inputs)) return [];
+  return [...toolBinFlags(inputs.ghBin), ...launcherLinkFlags(inputs)];
 }
 
 /** RO bind of the derived mise config; empty when absent. Must follow `--tmpfs /tmp`. */
@@ -696,15 +740,17 @@ function codexCliFlags(codex: CodexMembraneInputs | undefined): string[] {
 
 /** The sandbox PATH. The bun dir (#3351) follows node's; a codex/claude spawn appends the
  *  launcher's bin dir so the agent resolves by name. Each is skipped when it already is an entry.
- *  A resolved real `gh` puts {@link MEMBRANE_TOOL_BIN} first (#3975). */
+ *  `toolBin` (a mounted `gh` #3975 or codex/claude launcher link #4021) puts
+ *  {@link MEMBRANE_TOOL_BIN} first. */
 function sandboxPath(
   home: string,
   nodeBinDir: string,
   bunBinDir: string | null,
-  launchers: { codex?: CodexMembraneInputs; claude?: ClaudeMembraneInputs; ghBin?: string | null },
+  launchers: { codex?: CodexMembraneInputs; claude?: ClaudeMembraneInputs },
+  toolBin: boolean,
 ): string {
   const { codex, claude } = launchers;
-  const entries = toolBinFlags(launchers.ghBin).length > 0 ? [MEMBRANE_TOOL_BIN] : [];
+  const entries = toolBin ? [MEMBRANE_TOOL_BIN] : [];
   entries.push(`${home}/.local/bin`, nodeBinDir);
   if (bunBinDir && !entries.includes(bunBinDir)) entries.push(bunBinDir);
   entries.push("/usr/bin", "/bin");
@@ -1031,7 +1077,8 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   // ── node toolchain (binary's libs must resolve) ──────────────────────────
   f.push(...nodeToolchainFlags(inputs, exists));
   f.push(...miseConfigFlags(inputs.miseConfigFile));
-  f.push(...toolBinFlags(inputs.ghBin));
+  const toolBin = toolBinMountFlags(inputs);
+  f.push(...toolBin);
   f.push(...scratchpadBindFlags(inputs.scratchpadBind));
 
   // ── codex CLI (codex spawns only — claude flags stay byte-identical) ─────
@@ -1070,7 +1117,7 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   f.push("--clearenv");
   f.push("--setenv", "HOME", home);
   const bunBinDir = inputs.bunBinReal ? dirname(inputs.bunBinReal) : null;
-  f.push("--setenv", "PATH", sandboxPath(home, nodeBinDir, bunBinDir, inputs));
+  f.push("--setenv", "PATH", sandboxPath(home, nodeBinDir, bunBinDir, inputs, toolBin.length > 0));
   f.push("--setenv", "TERM", term);
   // --clearenv strips CLAUDE_CONFIG_DIR; re-set it when the bound config dir is NOT the
   // default ~/.claude, else claude would fall back to an empty ~/.claude tmpfs (the custom

@@ -3409,11 +3409,8 @@
         <GitRail
           bind:empty={railEmpty}
           sessionId={session.id}
-          name={session.name}
-          prompt={session.prompt}
           planPhase={session.planPhase}
           {drain}
-          autopilotOn={autopilotEffective}
           issueNumber={session.issueNumber}
           baseBranch={session.baseBranch}
           epicParent={session.epicParent ?? null}

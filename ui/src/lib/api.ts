@@ -2378,13 +2378,6 @@ async function gitJson<T = PrStatus>(res: Response): Promise<T> {
   return res.json();
 }
 
-export async function openPr(
-  id: string,
-  body?: { title?: string; body?: string },
-): Promise<PrStatus> {
-  return gitJson(await fetch(`/api/sessions/${id}/git/pr`, JSON_POST(body ?? {})));
-}
-
 /** Land a session's PR. `confirm` echoes back what the merge confirmation dialog showed the
  *  operator; the server re-derives it and refuses (409) when it no longer holds — see
  *  {@link MergeRefusedError}. */

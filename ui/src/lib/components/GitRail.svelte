@@ -376,12 +376,7 @@
 {/if}
 
 <style>
-  /* own positioning context so popovers anchor here in the
-     desktop (non-mobile) mount, not to some far ancestor. On mobile the wrapper
-     is narrower than the strip, so it goes position:static and the popovers
-     anchor to the wider .vp-git-strip instead — see .git-rail-wrap.mobile. */
   .git-rail-wrap {
-    position: relative;
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -423,13 +418,9 @@
   }
   /* touch layouts: bigger tap targets + a single horizontally-scrollable row.
      Whole badges never wrap to a second line (that read as a vertical stack on
-     phones); the rail (.rail.mobile below) scrolls instead. The wrapper can be
-     narrower than the viewport, so go position:static here and let the popovers
-     anchor to the full-width .vp-git-strip (itself position:relative).
-     Anchored to this narrow wrapper, a right:8px popover would shoot off the
-     left screen edge. */
+     phones); the rail (.rail.mobile below) scrolls instead, so the wrapper
+     takes the strip's free width. */
   .git-rail-wrap.mobile {
-    position: static;
     flex: 1 1 auto;
     min-width: 0;
     justify-content: flex-end;

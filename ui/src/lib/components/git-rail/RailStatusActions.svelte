@@ -11,7 +11,6 @@
     git,
     issueNumber,
     local,
-    autopilotOn,
     busy,
     armed,
     sessionId,
@@ -22,7 +21,6 @@
     planReviewing,
     planReviewLabel,
     planReviewBlockedReason,
-    startPr,
     togglePrDraft,
     doRedeploy,
     toggleReview,
@@ -34,7 +32,6 @@
     git: GitState;
     issueNumber: number | null;
     local: boolean;
-    autopilotOn: boolean;
     busy: boolean;
     armed: "redeploy" | "review-plan" | null;
     sessionId: string;
@@ -45,7 +42,6 @@
     planReviewing: boolean;
     planReviewLabel: string;
     planReviewBlockedReason: string | null;
-    startPr: () => void;
     togglePrDraft: (draft: boolean) => Promise<boolean>;
     doRedeploy: (skipArm?: boolean) => Promise<void>;
     toggleReview: (e?: Event) => void;
@@ -173,15 +169,12 @@
   // tappable controls (<a>/<button>) — each maps 1:1 to a control. Merge, Ready and the critic
   // trigger live in the merge row above the steer bar (#3540), not here:
   const issueChip = $derived(!rowOwnsPr && !!git.issueUrl && issueNumber != null);
-  const openPrBtn = $derived(git.state === "none" && !autopilotOn);
   const prMenuBtn = $derived(!rowOwnsPr && git.state === "open" && !local && !!git.url);
   const redeployBtn = $derived(git.state === "merged" && git.deployConfigured);
   const verdictBtn = $derived(
     !rowOwnsPr && (chip.kind === "verdict" || (chip.kind === "reviewing" && chip.hasFindings)),
   );
-  const hasActions = $derived(
-    issueChip || openPrBtn || prMenuBtn || redeployBtn || verdictBtn || canReviewPlan,
-  );
+  const hasActions = $derived(issueChip || prMenuBtn || redeployBtn || verdictBtn || canReviewPlan);
   $effect(() => {
     hasContent = hasPassive || hasActions;
   });
@@ -255,17 +248,6 @@
       ><span class="dot" aria-hidden="true"></span>{m.gitrail_open_issue()}</a
     >
     <!-- eslint-enable svelte/no-navigation-without-resolve -->
-  {/if}
-  {#if openPrBtn}
-    <!-- Hidden whenever autopilot is effectively on — the agent opens the PR itself,
-         so the manual button is redundant. This stays hidden even while autopilot is
-         PAUSED (autopilotPaused): a paused autopilot is still on and will resume and
-         open the PR; the human escape hatch is the AP toggle in the same strip.
-         autopilotPaused is surfaced separately via AutopilotBadge — not a signal to
-         re-show this button. -->
-    <button class="gbtn" type="button" disabled={busy} onclick={startPr}
-      >{local ? m.gitrail_open_for_merge() : m.gitrail_open_pr()}</button
-    >
   {/if}
   {#if prMenuBtn}
     <button

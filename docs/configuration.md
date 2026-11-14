@@ -68,7 +68,7 @@ A few runtime toggles live in the SQLite `settings` table (`~/.shepherd/shepherd
 
 ### Git host integration
 
-The Viewport header shows a contextual git rail — **Open PR → Merge → Redeploy** —
+The Viewport header shows a contextual git rail — **Merge → Redeploy** —
 that works against GitHub, Gitea, and Forgejo. Actions use your **git-host**
 credentials, never your Claude subscription, so they don't touch the ToS model.
 

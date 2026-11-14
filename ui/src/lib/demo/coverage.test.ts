@@ -355,7 +355,6 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     // #3165: the demo's blocks never carry an AskUserQuestion `ask`, so the dialog never opens;
     // `answerAsk` would read the tail's `{ok:true}` as "unverified" rather than throw.
     "/api/sessions/:p/answer-ask",
-    "/api/sessions/:p/git/pr",
     "/api/sessions/:p/git/draft",
     "/api/sessions/:p/git/ready",
     "/api/sessions/:p/git/redeploy",

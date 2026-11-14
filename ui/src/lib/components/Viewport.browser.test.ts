@@ -206,16 +206,16 @@ function fakeTouch(type: string, x: number, y: number): Event {
   return e;
 }
 
-// A PR-less forge state: the strip shows its Open PR action (autopilot off), so the rail has
-// content and the desktop git-toggle renders. Without a mock the real call 404s → empty rail.
-const noPrGit: GitState = {
+// A closed-PR forge state: the strip shows its closed chip (no merge row, decom kept), so the rail
+// has content and the desktop git-toggle renders. Without a mock the real call 404s → empty rail.
+const closedGit: GitState = {
   kind: "github",
-  state: "none",
+  state: "closed",
   checks: "none",
   deployConfigured: false,
 };
 function railWithContent() {
-  gitStateFn.mockResolvedValue(noPrGit);
+  gitStateFn.mockResolvedValue(closedGit);
   onTestFinished(() => {
     gitStateFn.mockReset();
   });
@@ -1940,8 +1940,8 @@ describe("Viewport Automation tab + empty strip", () => {
     expect(container.querySelector(".vp-git-strip .decom")).toBeNull();
   });
 
-  it("phone: the strip shows once the rail has content (Open PR)", async () => {
-    gitStateFn.mockResolvedValue(noPrGit);
+  it("phone: the strip shows once the rail has content (closed)", async () => {
+    gitStateFn.mockResolvedValue(closedGit);
     localStorage.setItem("shepherd-vp-phone-details-open", "1");
     await page.viewport(390, 844);
     onTestFinished(() => page.viewport(1280, 900));

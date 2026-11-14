@@ -2,7 +2,6 @@
   import {
     gitState,
     setPrDraftState,
-    openPr,
     redeploy,
     reviewPlan,
     isPlanReviewError,
@@ -21,12 +20,9 @@
 
   let {
     sessionId,
-    name = "",
-    prompt = "",
     mobile = false,
     planPhase = null,
     drain = null,
-    autopilotOn = false,
     issueNumber = null,
     baseBranch = "",
     epicParent = null,
@@ -34,15 +30,10 @@
     empty = $bindable(true),
   }: {
     sessionId: string;
-    name?: string;
-    prompt?: string;
     mobile?: boolean;
     planPhase?: Session["planPhase"];
     /** Live drain status for this session's repo (the epic-stopped rail mark). */
     drain?: DrainStatus | null;
-    /** Effective autopilot state. When on, the agent opens the PR itself, so the manual
-        Open-PR button is redundant noise and is hidden. */
-    autopilotOn?: boolean;
     /** Backlog issue this session was spawned for; drives the leftmost open-issue link.
         null = no linked issue. */
     issueNumber?: number | null;
@@ -67,11 +58,6 @@
   // "no forge / no PR"). Drives the error+Retry fallback so the rail never renders
   // silently empty, and keeps the poll retrying until the forge recovers.
   let loadFailed = $state(false);
-
-  // Open-PR popover
-  let showPr = $state(false);
-  let prTitle = $state("");
-  let prBody = $state("");
 
   // Critic-findings dialog (PrFindingsDialog).
   let showReview = $state(false);
@@ -125,20 +111,12 @@
     return () => clearTimeout(t);
   });
 
-  // Close the Open-PR compose popover if autopilot flips on while it's open (toggle, or a
-  // WS session:autopilot event): the trigger button is gated on !autopilotOn, but the
-  // popover renders on its own showPr flag — without this it could dangle and still submit.
-  $effect(() => {
-    if (autopilotOn) showPr = false;
-  });
-
   $effect(() => {
     const id = sessionId;
     git = null;
     err = null;
     retry = null;
     armed = null;
-    showPr = false;
     showReview = false;
     awaitingPlanReview = false;
     loadFailed = false;
@@ -152,22 +130,12 @@
     }, 15000);
   });
 
-  function startPr() {
-    prTitle = name;
-    prBody = prompt;
-    showPr = true;
-    showReview = false; // one popover at a time
-    err = null;
-    retry = null;
-  }
-
   function toggleReview(e?: Event) {
     showReview = !showReview;
     if (showReview) {
       // use:dialog restores focus to what held it at open; a tap doesn't focus the chip on every
       // browser, so focus it explicitly.
       (e?.currentTarget as HTMLElement | null)?.focus();
-      showPr = false; // one popover at a time
     }
   }
 
@@ -175,24 +143,6 @@
   function reason(e: unknown, fallback: string): string {
     const msg = e instanceof Error ? e.message.trim() : "";
     return msg || fallback;
-  }
-
-  async function submitPr() {
-    busy = true;
-    err = null;
-    retry = null;
-    try {
-      git = {
-        kind: git?.kind ?? "github",
-        ...(await openPr(sessionId, { title: prTitle, body: prBody })),
-      };
-      showPr = false;
-    } catch (e) {
-      err = m.gitrail_open_pr_failed({ reason: reason(e, m.gitrail_open_pr()) });
-      retry = submitPr;
-    } finally {
-      busy = false;
-    }
   }
 
   async function doRedeploy(skipArm = false) {
@@ -277,8 +227,7 @@
   // RailStatusActions reports whether any status or action item renders.
   let railHasContent = $state(false);
   $effect(() => {
-    empty =
-      !loadFailed && !(git && (railHasContent || !!err || showPr || (showReview && !!verdict)));
+    empty = !loadFailed && !(git && (railHasContent || !!err || (showReview && !!verdict)));
   });
 
   async function doReviewPlan() {
@@ -369,7 +318,6 @@
         {git}
         {issueNumber}
         {local}
-        {autopilotOn}
         {busy}
         {armed}
         {sessionId}
@@ -380,7 +328,6 @@
         {planReviewing}
         {planReviewLabel}
         {planReviewBlockedReason}
-        {startPr}
         togglePrDraft={doTogglePrDraft}
         {doRedeploy}
         {toggleReview}
@@ -400,36 +347,6 @@
       {/if}
     </span>
 
-    {#if showPr}
-      <div class="pr-pop">
-        <input
-          class="pr-title"
-          bind:value={prTitle}
-          placeholder={m.gitrail_pr_title_placeholder()}
-          aria-label={m.gitrail_pr_title_aria()}
-        />
-        <textarea
-          class="pr-body"
-          data-1p-ignore
-          bind:value={prBody}
-          placeholder={m.gitrail_pr_description_placeholder()}
-          aria-label={m.gitrail_pr_body_aria()}
-          rows="4"></textarea>
-        <div class="pr-actions">
-          <button class="gbtn" type="button" onclick={() => (showPr = false)}
-            >{m.gitrail_cancel()}</button
-          >
-          <button
-            class="gbtn primary"
-            type="button"
-            disabled={busy || !prTitle.trim()}
-            onclick={submitPr}
-          >
-            {m.gitrail_create_pr()}
-          </button>
-        </div>
-      </div>
-    {/if}
     {#if showReview && verdict}
       <PrFindingsDialog
         {sessionId}
@@ -459,12 +376,7 @@
 {/if}
 
 <style>
-  /* own positioning context so .pr-pop anchors here in the
-     desktop (non-mobile) mount, not to some far ancestor. On mobile the wrapper
-     is narrower than the strip, so it goes position:static and the popovers
-     anchor to the wider .vp-git-strip instead — see .git-rail-wrap.mobile. */
   .git-rail-wrap {
-    position: relative;
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -499,26 +411,16 @@
     cursor: not-allowed;
   }
   /* Rail buttons (err/Retry) take the 6px chip radius for chip-row cohesion
-     (DESIGN.md #1541). Scoped to .rail so the PR-compose dialog buttons keep
-     the standalone 2px. */
+     (DESIGN.md #1541). Scoped to .rail. */
   .rail .gbtn {
     border-radius: var(--radius-chip);
     padding: 3px 9px;
   }
-  .gbtn.primary {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
-
   /* touch layouts: bigger tap targets + a single horizontally-scrollable row.
      Whole badges never wrap to a second line (that read as a vertical stack on
-     phones); the rail (.rail.mobile below) scrolls instead. The wrapper can be
-     narrower than the viewport, so go position:static here and let the popovers
-     (.pr-pop) anchor to the full-width .vp-git-strip (itself position:relative).
-     Anchored to this narrow wrapper, a right:8px popover would shoot off the
-     left screen edge. */
+     phones); the rail (.rail.mobile below) scrolls instead, so the wrapper
+     takes the strip's free width. */
   .git-rail-wrap.mobile {
-    position: static;
     flex: 1 1 auto;
     min-width: 0;
     justify-content: flex-end;
@@ -632,40 +534,5 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--color-red);
-  }
-
-  .pr-pop {
-    position: absolute;
-    top: 100%;
-    right: 8px;
-    z-index: 20;
-    margin-top: 4px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 8px;
-    width: 320px;
-    max-width: 90vw;
-    background: var(--color-inset);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-  }
-
-  .pr-title,
-  .pr-body {
-    background: var(--color-panel);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    color: var(--color-ink);
-    font-size: var(--fs-base);
-    padding: 4px 6px;
-    resize: vertical;
-  }
-
-  .pr-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 6px;
   }
 </style>

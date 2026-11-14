@@ -3409,11 +3409,8 @@
         <GitRail
           bind:empty={railEmpty}
           sessionId={session.id}
-          name={session.name}
-          prompt={session.prompt}
           planPhase={session.planPhase}
           {drain}
-          autopilotOn={autopilotEffective}
           issueNumber={session.issueNumber}
           baseBranch={session.baseBranch}
           epicParent={session.epicParent ?? null}
@@ -3973,8 +3970,7 @@
     font-size: var(--fs-meta);
     flex-shrink: 0;
     white-space: nowrap;
-    /* not overflow:hidden — the Open-PR popover drops below the header and must
-       escape it; long content is still clipped by .viewport's overflow */
+    /* long content is clipped by .viewport's overflow, not here */
     overflow: visible;
   }
 

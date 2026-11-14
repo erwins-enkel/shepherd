@@ -61,7 +61,6 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     setPrDraftState: setPrDraftStateFn,
     getRepoRoles: getRepoRolesFn,
     getRepoCollaborators: getRepoCollaboratorsFn,
-    openPr: vi.fn(),
     redeploy: vi.fn(),
     replySession: vi.fn(),
     reviewPlan: reviewPlanFn,
@@ -77,9 +76,6 @@ vi.mock("#lib/toasts.svelte.js", () => ({
 
 // Import the component AFTER the mock is registered.
 const { default: GitRail } = await import("./GitRail.svelte");
-// Test-only wrapper that flips ONLY autopilotOn (sessionId stable) — see the
-// "Open PR hidden under autopilot" describe for why rerender() can't do this.
-const { default: GitRailAutopilotHarness } = await import("./GitRailAutopilotHarness.svelte");
 // The plan-gate and critic stores, imported from the same module the component reads so
 // toggling them reactively updates the rail.
 const { planGates, reviews } = await import("#lib/reviews.svelte.js");
@@ -226,8 +222,6 @@ function assertControlsWithin(cell: HTMLElement) {
 // Shared props for most cases.
 const baseProps = {
   sessionId: "sess-1",
-  name: "feature-x",
-  prompt: "do the thing",
 };
 
 describe("GitRail — shortened issue & PR labels", () => {
@@ -503,25 +497,6 @@ describe("GitRail — controls stay within the cell", () => {
     }
   });
 
-  // ── none state ────────────────────────────────────────────────────────────
-  it("desktop 600px — state:none → Open PR button", async () => {
-    const noneState: GitState = {
-      kind: "github",
-      state: "none",
-      checks: "none",
-      deployConfigured: false,
-    };
-    gitStateFn.mockResolvedValue(noneState);
-    await page.viewport(600, 900);
-    const h = host(600);
-    const screen = await render(GitRail, {
-      target: h,
-      props: { ...baseProps, mobile: false },
-    });
-    await expect.element(screen.getByRole("button", { name: /Open PR/i })).toBeVisible();
-    assertControlsWithin(h);
-  });
-
   // ── merged + redeploy ─────────────────────────────────────────────────────
   it("desktop 600px — state:merged, deployConfigured:true → Redeploy button", async () => {
     const mergedState: GitState = {
@@ -700,7 +675,7 @@ describe("GitRail — status │ actions seam (no orphan dividers)", () => {
     expect(rail.firstElementChild, "first child is the leading passive readout").toBe(ci);
   });
 
-  it("state:none + autopilot on: the empty rail hides (no orphan hairline)", async () => {
+  it("state:none: the empty rail hides (no orphan hairline)", async () => {
     const noneState: GitState = {
       kind: "github",
       state: "none",
@@ -710,38 +685,12 @@ describe("GitRail — status │ actions seam (no orphan dividers)", () => {
     gitStateFn.mockResolvedValue(noneState);
     await page.viewport(400, 900);
     const h = host(360);
-    // autopilotOn hides Open PR → BOTH zones empty
-    await render(GitRail, { target: h, props: { ...baseProps, mobile: true, autopilotOn: true } });
+    // no PR → BOTH zones empty
+    await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
     const rail = await railOf(h);
     expect(rail.querySelector(".rail-status-sep"), "no dangling status seam").toBeNull();
     expect(rail.childElementCount, "no status chips in the rail").toBe(0);
     expect(getComputedStyle(rail).display, "empty rail hidden").toBe("none");
-  });
-
-  it("state:none + autopilot off: no seam, first child is the Open PR action (empty-passive right-pin)", async () => {
-    const noneState: GitState = {
-      kind: "github",
-      state: "none",
-      checks: "none",
-      deployConfigured: false,
-    };
-    gitStateFn.mockResolvedValue(noneState);
-    await page.viewport(400, 900);
-    const h = host(360);
-    await render(GitRail, {
-      target: h,
-      props: { ...baseProps, mobile: true, autopilotOn: false },
-    });
-    const rail = await railOf(h);
-    await vi.waitFor(() =>
-      expect(rail.querySelector("button.gbtn"), "Open PR present").not.toBeNull(),
-    );
-    expect(rail.querySelector(".rail-status-sep"), "no seam without passive").toBeNull();
-    // right-pin with empty passive zone: first child is the first tap target (Open PR)
-    expect(
-      rail.firstElementChild?.matches("button.gbtn"),
-      "first child is the Open PR button",
-    ).toBe(true);
   });
 
   it("state:closed: passive label but empty actions → no seam (trailing-orphan guard)", async () => {
@@ -1326,76 +1275,6 @@ describe("GitRail — manual plan-review trigger", () => {
   });
 });
 
-// The strip always mounts GitRail with mobile=true (Viewport.svelte), so the autopilot
-// gating is asserted on that shipped path. Pre-fix, the Open PR button always rendered
-// under state:none and the compose popover ignored autopilot — both cases below fail
-// against pre-fix code.
-describe("GitRail — Open PR hidden under autopilot", () => {
-  const noneState: GitState = {
-    kind: "github",
-    state: "none",
-    checks: "none",
-    deployConfigured: false,
-  };
-
-  // find the Open PR trigger by its label text (↟ Open PR), or null when absent
-  function openPrBtn(h: HTMLElement): HTMLButtonElement | null {
-    return (
-      [...h.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
-        /Open PR/i.test(b.textContent ?? ""),
-      ) ?? null
-    );
-  }
-
-  it("shows Open PR when autopilot is off (state:none)", async () => {
-    gitStateFn.mockResolvedValue(noneState);
-    await page.viewport(400, 900);
-    const h = host(360);
-    await render(GitRail, { target: h, props: { ...baseProps, mobile: true, autopilotOn: false } });
-    await vi.waitFor(() =>
-      expect(openPrBtn(h), "Open PR button present when AP off").not.toBeNull(),
-    );
-  });
-
-  it("hides Open PR when autopilot is on (state:none)", async () => {
-    gitStateFn.mockResolvedValue(noneState);
-    await page.viewport(400, 900);
-    const h = host(360);
-    // the rail mounts once gitState resolves; then the Open-PR slot must stay empty
-    await render(GitRail, { target: h, props: { ...baseProps, mobile: true, autopilotOn: true } });
-    await vi.waitFor(() => expect(h.querySelector(".rail"), "rail mounted").not.toBeNull());
-    expect(openPrBtn(h), "Open PR button hidden when AP on").toBeNull();
-  });
-
-  // Uses the harness (NOT rerender): the live app flips autopilot via a session:autopilot
-  // WS event with the SAME sessionId, so only the autopilotOn prop changes. rerender()
-  // would swap the whole prop bag and incidentally re-run GitRail's sessionId-keyed
-  // session-reset effect, closing the popover regardless of the fix (vacuous). The harness
-  // flips ONLY autopilotOn, so this fails against pre-fix code (popover would dangle).
-  it("closes the compose popover when autopilot flips on (sessionId stable)", async () => {
-    gitStateFn.mockResolvedValue(noneState);
-    await page.viewport(400, 900);
-    const h = host(360);
-    const { component } = await render(GitRailAutopilotHarness, {
-      target: h,
-      props: { ...baseProps, mobile: true },
-    });
-    // open the popover (autopilot starts off)
-    const btn = await vi.waitFor(() => {
-      const b = openPrBtn(h);
-      expect(b, "Open PR button present").not.toBeNull();
-      return b!;
-    });
-    btn.click();
-    await vi.waitFor(() => expect(h.querySelector(".pr-pop"), "popover open").not.toBeNull());
-    // autopilot flips on (WS event) → popover must close, no submit path left
-    component.setAutopilot(true);
-    await vi.waitFor(() =>
-      expect(h.querySelector(".pr-pop"), "popover closed after AP flips on").toBeNull(),
-    );
-  });
-});
-
 // A no-verdict `error` verdict carries NO prose: `summary` is "" (blanked in favour of the
 // server-authored code) and buildVerdictCore leaves `body` "" too. Both of this popover's text
 // blocks are `{#if}`-gated on those fields, so rendering the raw verdict would open a dialog with
@@ -1549,24 +1428,24 @@ describe("GitRail — empty binding", () => {
     return { h, read: () => empty };
   }
 
-  it("is true while nothing renders (no PR, autopilot hides Open PR)", async () => {
-    gitStateFn.mockResolvedValue(noneState);
-    const { h, read } = await renderEmpty({ autopilotOn: true });
-    await vi.waitFor(() => expect(h.querySelector(".rail")).not.toBeNull());
-    expect(read() ?? true).toBe(true);
-  });
+  it.each(["github", "local"] as const)(
+    "is true while nothing renders (no PR, %s) — no Open PR / Open for merge action",
+    async (kind) => {
+      gitStateFn.mockResolvedValue({ ...noneState, kind });
+      const { h, read } = await renderEmpty({});
+      await vi.waitFor(() => expect(h.querySelector(".rail")).not.toBeNull());
+      expect(read() ?? true).toBe(true);
+      expect(h.querySelectorAll("button"), "no action buttons for a PR-less session").toHaveLength(
+        0,
+      );
+    },
+  );
 
   it("is true while the forge says nothing (no forge / no PR → null)", async () => {
     gitStateFn.mockResolvedValue(null as unknown as GitState);
     const { read } = await renderEmpty({});
     await new Promise((r) => setTimeout(r, 50));
     expect(read() ?? true).toBe(true);
-  });
-
-  it("is false once the rail shows an action (Open PR)", async () => {
-    gitStateFn.mockResolvedValue(noneState);
-    const { read } = await renderEmpty({ autopilotOn: false });
-    await vi.waitFor(() => expect(read()).toBe(false));
   });
 
   it("is false for an open PR's readouts", async () => {

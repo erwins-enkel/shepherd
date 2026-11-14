@@ -102,6 +102,7 @@
   import EpicDraftPanel from "#lib/components/EpicDraftPanel.svelte";
   import EpicDraftModal from "#lib/components/EpicDraftModal.svelte";
   import AskQuestionDialog from "#lib/components/AskQuestionDialog.svelte";
+  import HostFileDialog from "#lib/components/HostFileDialog.svelte";
   import { openDialogs } from "#lib/open-dialogs.svelte.js";
   import { epicDrafts } from "#lib/epic-draft.svelte.js";
   import SessionRecap from "#lib/components/SessionRecap.svelte";
@@ -1151,10 +1152,18 @@
   // the Files tab"), and open a hit as a reveal in the Files tab.
   const locateCached = memoLocate(locateSessionFile);
   const resolveLocalPath = (path: string) => locateCached(session.id, path);
-  let filesFocus = $state<(FileTarget & { seq: number; sessionId: string }) | undefined>();
+  let filesFocus = $state<
+    (FileTarget & { source: "scratchpad" | "worktree"; seq: number; sessionId: string }) | undefined
+  >();
   let filesFocusSeq = 0;
+  // A reported host file outside both roots (#4017) opens read-only over the chat instead.
+  let hostFile = $state<{ sessionId: string; path: string } | undefined>();
   function openFileInFiles(target: FileTarget) {
-    filesFocus = { ...target, seq: ++filesFocusSeq, sessionId: session.id };
+    if (target.source === "host") {
+      hostFile = { sessionId: session.id, path: target.path };
+      return;
+    }
+    filesFocus = { ...target, source: target.source, seq: ++filesFocusSeq, sessionId: session.id };
     tab = "files";
   }
   // Consume-once: FilesTab remounts on every visit, so a focus kept past this visit would
@@ -3846,6 +3855,13 @@
      carries a transform while a swipe is in flight (style:transform above), and a transformed
      ancestor becomes the containing block for position:fixed — a dialog nested inside would be
      dragged along with the pane instead of staying pinned to the viewport. -->
+{#if hostFile && hostFile.sessionId === session.id}
+  <HostFileDialog
+    sessionId={hostFile.sessionId}
+    path={hostFile.path}
+    onclose={() => (hostFile = undefined)}
+  />
+{/if}
 {#if askOpenFor === session.id && askEntries.length > 0}
   <AskQuestionDialog
     entries={askEntries}

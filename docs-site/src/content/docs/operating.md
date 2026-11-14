@@ -802,6 +802,12 @@ Device → Session opens on**; the choice is saved per device.
   shows as _sent_ at once and, once logged, carries its chip (_You · 🧪 Retest_).
 - **Shepherd's own steers** (a CI fix, a rebase, the critic's findings, a plan go-ahead) fold into
   one row, _Shepherd · Critic findings_; open it to read the full text.
+- **Open a linked file** the agent points at in its reply. A file in the session's worktree or
+  scratchpad opens in the **Files** tab. A text file it saved elsewhere on the host (a tool report
+  under `~/.local/state`, say) opens in a read-only view, if the agent named it in its own reply
+  or wrote it with its file tools. Only files under your home or temp folder qualify, up to 1 MiB.
+  Credential and env files, keys, Shepherd's own state, files only their owner may read, and
+  binary files never open; those links, and any other host path, offer **Copy** only.
 - **Everything else** stays in the terminal: pickers a slash command opens, trust and upsell dialogs,
   rewind and compaction output. When the agent waits on one of those, the Chat says so and
   **Open terminal** switches to it.

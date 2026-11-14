@@ -96,7 +96,7 @@ export function hostPathsIn(root: Element): string[] {
 }
 
 /** Upgrade each `.md-hostpath` whose path resolved into a Files-tab target to an "open in Files"
- *  button. Returns whether anything changed. */
+ *  button (a `host` target: "open read-only view", #4017). Returns whether anything changed. */
 export function upgradeHostPaths(
   root: Element,
   resolved: ReadonlyMap<string, FileTarget | null>,
@@ -113,7 +113,7 @@ export function upgradeHostPaths(
     btn.setAttribute("data-source", t.source);
     btn.setAttribute("data-rel", t.path);
     btn.setAttribute("data-type", t.type);
-    btn.title = m.markdown_open_in_files();
+    btn.title = t.source === "host" ? m.markdown_open_host_file() : m.markdown_open_in_files();
     btn.append(...span.childNodes);
     span.replaceWith(btn);
     changed = true;
@@ -123,8 +123,9 @@ export function upgradeHostPaths(
 
 /** Read a FileTarget back off an upgraded button. */
 export function fileTargetOf(btn: Element): FileTarget {
+  const source = btn.getAttribute("data-source");
   return {
-    source: btn.getAttribute("data-source") === "worktree" ? "worktree" : "scratchpad",
+    source: source === "worktree" || source === "host" ? source : "scratchpad",
     path: btn.getAttribute("data-rel") ?? "",
     type: btn.getAttribute("data-type") === "dir" ? "dir" : "file",
   };

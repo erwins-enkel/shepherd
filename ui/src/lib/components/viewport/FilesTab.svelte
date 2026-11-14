@@ -20,7 +20,7 @@
     sessionId: string;
     filesAvailable: boolean;
     withDiff?: boolean;
-    focus?: FileTarget & { seq: number };
+    focus?: FileTarget & { source: "scratchpad" | "worktree"; seq: number };
   } = $props();
 
   // A focus present at mount picks the first source, so no other listing loads first.

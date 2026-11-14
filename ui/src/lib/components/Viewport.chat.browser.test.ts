@@ -24,10 +24,11 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     replySession: vi.fn(),
     locateSessionFile: vi.fn(),
     getWorktreeListing: vi.fn(),
+    getHostFile: vi.fn(),
   };
 });
 const { default: Viewport } = await import("./Viewport.svelte");
-const { getSessionMessages, replySession, locateSessionFile, getWorktreeListing } =
+const { getSessionMessages, replySession, locateSessionFile, getWorktreeListing, getHostFile } =
   await import("#lib/api.js");
 const mockMessages = vi.mocked(getSessionMessages);
 const mockReply = vi.mocked(replySession);
@@ -192,6 +193,28 @@ describe("Viewport Chat tab", () => {
     await new Promise((r) => setTimeout(r, 100));
     expect(document.querySelector(".row.revealed")).toBeNull();
     expect(vi.mocked(getWorktreeListing).mock.calls.filter((c) => c[1] === "docs")).toHaveLength(1);
+  });
+
+  it("opens a chat link to a reported host file read-only, not in Files (#4017)", async () => {
+    const report = "/home/u/.local/state/t/r.log";
+    mockMessages.mockResolvedValue({
+      ...transcript,
+      messages: [{ role: "assistant", text: `Report: [r](${report})`, ts: 4000 }],
+    });
+    vi.mocked(locateSessionFile).mockResolvedValue({ source: "host", path: report, type: "file" });
+    vi.mocked(getHostFile).mockResolvedValue({ path: report, size: 6, text: "line 1" });
+    await mount();
+    await open(m.viewport_chat_tab());
+    await vi.waitFor(() => expect(document.querySelector("button[data-open-file]")).not.toBeNull());
+    const btn = document.querySelector("button[data-open-file]") as HTMLElement;
+    expect(btn.title).toBe(m.markdown_open_host_file());
+    btn.click();
+    await expect.element(page.getByRole("dialog", { name: m.hostfile_title() })).toBeVisible();
+    await expect.element(page.getByText("line 1")).toBeVisible();
+    expect(getHostFile).toHaveBeenCalledWith("s1", report);
+    await expect.element(tab(m.viewport_chat_tab())).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("button", { name: m.common_close() }).click();
+    expect(page.getByRole("dialog", { name: m.hostfile_title() }).query()).toBeNull();
   });
 
   it("shows the sub-agent fan-out above the chat; no Activity tab", async () => {

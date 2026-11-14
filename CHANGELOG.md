@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.1](https://github.com/erwins-enkel/shepherd/compare/v2.8.0...v2.8.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **sandbox:** link resolved claude/codex into membrane tool bin ([#4022](https://github.com/erwins-enkel/shepherd/issues/4022)) ([5158ee8](https://github.com/erwins-enkel/shepherd/commit/5158ee856a0c8b2521b557638a91175300b4606b))
+
 ## [2.8.0](https://github.com/erwins-enkel/shepherd/compare/v2.7.0...v2.8.0) (2026-11-14)
 
 

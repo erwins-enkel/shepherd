@@ -642,11 +642,12 @@ credential lookup run from `/`).
   the branch's.
 - **Membrane.** After the read-write git-store bind, `buildMembraneFlags`
   re-binds the store's `config`, `commondir`, `config.worktree`, `hooks/`,
-  `shepherd/`, `modules/`, `worktrees/`, `info/` (attributes, excludes),
+  `shepherd/`, `modules/`, `info/` (attributes, excludes),
   `remotes/` and `branches/` (legacy remote definitions) read-only
-  (`gitStoreReadOnlyFlags`). Inside `worktrees/`, only the session's own admin
-  dir (found by its trusted backlink) is read-write again, minus its
-  `commondir` and `config.worktree`. Git reads a worktree's
+  (`gitStoreReadOnlyFlags`). `worktrees/` becomes a writable, ephemeral
+  tmpfs (`worktreesFlags`). Every admin dir the host has at spawn is bound
+  read-only on top of it. The session's own (found by its trusted backlink)
+  is read-write, minus its `commondir` and `config.worktree`. Git reads a worktree's
   `config.worktree` whenever the repo has `extensions.worktreeConfig` set,
   so it stays read-only whether or not that extension is on. Git follows a
   `commondir` file in any git dir, so before the spawn the server writes the
@@ -660,7 +661,11 @@ credential lookup run from `/`).
   `config` read-only, git's own config writes inside the membrane fail.
   Examples are `git config`, `git config --worktree`, `git sparse-checkout`
   and recording the upstream on `push -u`. Branch,
-  commit and push still work. A membrane agent can't add or prune worktrees.
+  commit and push still work. A membrane agent can add and remove temporary
+  worktrees (for example `fallow audit`'s base snapshot), but they live only
+  on the tmpfs and never reach the host. It can't change or prune the host's
+  worktrees. The host list is taken at spawn, so worktrees created later by
+  other sessions aren't visible inside.
   A reviewer's store is read-only whole, so it gets
   no carve-outs. A non-isolated session gets the same carve-outs on
   `<repo>/.git` when that is a real store directory. `.git` is first bound

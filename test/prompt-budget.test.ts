@@ -132,11 +132,13 @@ test("#1999 reproduces the epic's measured spawn-payload baseline (chars)", () =
   // framework majors pass as "well-established" (#3108).
   // Every shape then gained 324 chars / 326 bytes for the CI-wait notice (#2852: agents polled CI
   // Shepherd already tracks), and 134 chars / 134 bytes more when it said deploy runs stay watchable.
+  // Every shape then gained 329 chars / 329 bytes for the operator-files notice (#3997: agents
+  // linked reports saved outside the worktree/scratchpad, which the operator cannot open).
   const baseline: [string, number, string][] = [
-    ["attended Claude", 4024, "4070"],
-    ["+ autopilot", 5110, "5160"],
-    ["plan-gate interactive", 9327, "9417"],
-    ["research", 4833, "4883"],
+    ["attended Claude", 4353, "4399"],
+    ["+ autopilot", 5439, "5489"],
+    ["plan-gate interactive", 9656, "9746"],
+    ["research", 5162, "5212"],
   ];
   const payloads = [
     composeSystemPrompt(false),
@@ -183,7 +185,7 @@ test("#1999 kitchen sink: build queue + preview + draft + trim", () => {
   // steer-provenance notice; +552 for the GitHub rate-limit notice (#2860); +209 for the
   // research-first notice's framework-major clause (#3108); -64 for the retired house-rules block
   // (#3139); +324 for the CI-wait notice (#2852), +134 when it said deploy runs stay watchable.
-  expect(measured.totalChars).toBe(5625);
+  expect(measured.totalChars).toBe(5954);
   expect(measured.totalChars).toBe(
     composeSystemPrompt(false, {
       buildQueue,
@@ -205,6 +207,7 @@ test("#1999 the unconditional floor is every spawn's standing notices", () => {
     "research-first-notice",
     "github-rate-limit-notice",
     "ci-wait-notice",
+    "operator-files-notice",
     "research-directive",
   ]);
 });

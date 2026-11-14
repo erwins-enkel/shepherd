@@ -12,12 +12,22 @@
   import { m } from "#lib/paraglide/messages.js";
   import { relativeAge } from "#lib/format.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
 
   // Read/upload browser of the session's scratchpad subtree (#1164, #1258). Click a directory to
   // descend, click a file to download it. Upload via button or drag-and-drop into the current dir.
   // The source is picked by FilesTab's switch, which remounts this panel per source.
-  let { sessionId, source }: { sessionId: string; source: "scratchpad" | "worktree" } = $props();
+  // `reveal` (#3997): a chat host-path link asked to show this entry — open its folder and
+  // highlight it. A new `seq` re-reveals even the same path.
+  let {
+    sessionId,
+    source,
+    reveal,
+  }: {
+    sessionId: string;
+    source: "scratchpad" | "worktree";
+    reveal?: { path: string; type: "file" | "dir"; seq: number };
+  } = $props();
 
   const readOnly = $derived(source === "worktree");
 
@@ -117,7 +127,11 @@
 
   let fileInput = $state<HTMLInputElement>();
 
+  let revealed = $state<string | null>(null);
+  let scrollEl = $state<HTMLElement>();
+
   async function browse(path: string) {
+    revealed = null;
     loading = true;
     error = false;
     try {
@@ -131,6 +145,17 @@
     } finally {
       loading = false;
     }
+  }
+
+  async function revealEntry(r: { path: string; type: "file" | "dir" }) {
+    const cut = r.path.lastIndexOf("/");
+    await browse(r.type === "dir" ? r.path : cut < 0 ? "" : r.path.slice(0, cut));
+    if (r.type === "dir" || !listing?.entries.some((e) => e.path === r.path)) return;
+    revealed = r.path;
+    await tick();
+    const row = scrollEl?.querySelector<HTMLElement>(`[data-path="${CSS.escape(r.path)}"]`);
+    row?.scrollIntoView({ block: "nearest" });
+    row?.focus();
   }
 
   const downloadUrl = (p: string) =>
@@ -148,10 +173,18 @@
       uploads = [];
       dropNotice = null;
       resetSort();
-      void browse("");
+      if (!reveal) void browse(""); // a reveal browses its own folder (effect below)
     });
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
     id;
+  });
+
+  let revealSeq = -1;
+  $effect(() => {
+    const r = reveal;
+    if (!r || r.seq === revealSeq) return;
+    revealSeq = r.seq;
+    untrack(() => void revealEntry(r));
   });
 
   const rootCrumbLabel = $derived(readOnly ? m.files_worktree_root_crumb() : m.files_root_crumb());
@@ -291,7 +324,7 @@
     </div>
   {/if}
   <!-- Scroll wrapper; .files itself stays non-scrolling so the overlay anchors to the viewport -->
-  <div class="files-scroll">
+  <div class="files-scroll" bind:this={scrollEl}>
     <div class="toolbar">
       <nav class="crumbs" aria-label={breadcrumbAria}>
         {#each crumbs as c, i (c.path)}
@@ -418,7 +451,7 @@
               <span class="trail" aria-hidden="true"></span>
             </div>
           {:else if e.type === "dir"}
-            <button type="button" class="row" onclick={() => browse(e.path)}>
+            <button type="button" class="row" data-path={e.path} onclick={() => browse(e.path)}>
               <span class="ico" aria-hidden="true">▸</span>
               <span class="nm">{displayName(e)}</span>
               {@render createdCell(e)}
@@ -428,6 +461,8 @@
             <!-- eslint-disable svelte/no-navigation-without-resolve -- server API download endpoint, not an app route -->
             <a
               class="row file"
+              class:revealed={revealed === e.path}
+              data-path={e.path}
               href={downloadUrl(e.path)}
               download={e.name}
               aria-label={m.files_download_aria({ name: e.name })}
@@ -651,6 +686,11 @@
   }
   .row:hover {
     background: var(--color-panel);
+  }
+  .row.revealed {
+    background: var(--wash-assistant-chip);
+    outline: 1px solid var(--color-amber);
+    outline-offset: -1px;
   }
   .ico {
     color: var(--color-muted);

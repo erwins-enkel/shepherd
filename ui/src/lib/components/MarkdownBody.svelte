@@ -1,6 +1,13 @@
 <script lang="ts">
   import { renderMarkdown } from "#lib/sanitize-html.js";
   import { linkifySessionDesignations } from "#lib/markdownSessionLinks.js";
+  import {
+    decorateHostPaths,
+    fileTargetOf,
+    hostPathsIn,
+    upgradeHostPaths,
+  } from "#lib/markdown-local-paths.js";
+  import type { FileTarget } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { theme } from "#lib/theme.svelte.js";
@@ -14,6 +21,8 @@
     onSessionLink,
     copyCode = false,
     breaks = false,
+    resolveLocalPath,
+    onOpenFile,
   }: {
     source: string;
     sessionDesigs?: ReadonlyMap<string, string>;
@@ -22,6 +31,11 @@
     copyCode?: boolean;
     /** Render a single newline as a line break (the operator's own prompt). */
     breaks?: boolean;
+    /** Map a host-path link (#3997) to a Files-tab target; null keeps it copy-only. Only used
+     *  together with `onOpenFile`. */
+    resolveLocalPath?: (path: string) => Promise<FileTarget | null>;
+    /** Open a resolved host-path link in the Files tab. */
+    onOpenFile?: (target: FileTarget) => void;
   } = $props();
 
   const COPY_ICON =
@@ -63,8 +77,7 @@
     }
   }
 
-  async function copyBlock(btn: HTMLButtonElement) {
-    const text = btn.closest(".md-code")?.querySelector("pre")?.textContent ?? "";
+  async function copyText(btn: HTMLButtonElement, text: string, done: string, idle: string) {
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -72,13 +85,29 @@
       return;
     }
     btn.dataset.copied = "";
-    btn.setAttribute("aria-label", m.markdown_code_copied());
-    status = m.markdown_code_copied();
+    btn.setAttribute("aria-label", done);
+    status = done;
     setTimeout(() => {
       delete btn.dataset.copied;
-      btn.setAttribute("aria-label", m.markdown_copy_code());
+      btn.setAttribute("aria-label", idle);
       status = "";
     }, 1500);
+  }
+
+  function copyBlock(btn: HTMLButtonElement) {
+    const text = btn.closest(".md-code")?.querySelector("pre")?.textContent ?? "";
+    return copyText(btn, text, m.markdown_code_copied(), m.markdown_copy_code());
+  }
+
+  // Resolves every host path in `root` and upgrades the in-root ones to "open in Files" (#3997).
+  async function resolveHostPaths(
+    root: HTMLElement,
+    resolve: (path: string) => Promise<FileTarget | null>,
+  ): Promise<boolean> {
+    const paths = hostPathsIn(root);
+    if (paths.length === 0) return false;
+    const hits = await Promise.all(paths.map((p) => resolve(p).catch(() => null)));
+    return upgradeHostPaths(root, new Map(paths.map((p, i) => [p, hits[i] ?? null])));
   }
 
   // Colors each tagged fence (marked's `language-<x>` class) in place. Runs after the sanitizer:
@@ -115,6 +144,7 @@
     const withCopy = copyCode;
     const mode = theme.resolved;
     const lineBreaks = breaks;
+    const resolve = onOpenFile ? resolveLocalPath : undefined;
     failed = false;
     if (!body.trim()) return;
     let alive = true;
@@ -127,6 +157,7 @@
         root.innerHTML = html;
         if (linkSessions && live.size > 0) linkifySessionDesignations(root, live);
         if (withCopy) addCopyButtons(root);
+        decorateHostPaths(root);
         // Plain first, colors once Shiki is ready. Unchanged plain HTML keeps what is shown
         // (possibly already colored) until the color pass, which then writes the same string.
         const plain = root.innerHTML;
@@ -134,12 +165,15 @@
           shownPlain = plain;
           rendered = plain;
         }
-        return highlightFences(root, mode).then(
-          (changed) => {
-            if (alive && changed) rendered = root.innerHTML;
-          },
-          (e: unknown) => console.warn("Code highlight failed", e),
-        );
+        // Colors and host-path resolution both mutate the same `root`; write once after both, and
+        // only when the result differs from what is shown — so an unchanged re-run writes nothing.
+        return highlightFences(root, mode)
+          .catch((e: unknown) => console.warn("Code highlight failed", e))
+          .then(() => (alive && resolve ? resolveHostPaths(root, resolve) : false))
+          .then(() => {
+            const html = root.innerHTML;
+            if (alive && html !== rendered) rendered = html;
+          });
       })
       .catch((e) => {
         console.warn("Markdown render failed", e);
@@ -157,6 +191,17 @@
     const copyBtn = e.target instanceof Element ? e.target.closest("button[data-copy-code]") : null;
     if (copyBtn instanceof HTMLButtonElement) {
       void copyBlock(copyBtn);
+      return;
+    }
+    const pathBtn = e.target instanceof Element ? e.target.closest("button[data-copy-path]") : null;
+    if (pathBtn instanceof HTMLButtonElement) {
+      const path = pathBtn.dataset.copyPath ?? "";
+      void copyText(pathBtn, path, m.markdown_host_path_copied(), m.markdown_copy_host_path());
+      return;
+    }
+    const fileBtn = e.target instanceof Element ? e.target.closest("button[data-open-file]") : null;
+    if (fileBtn) {
+      onOpenFile?.(fileTargetOf(fileBtn));
       return;
     }
     const a = e.target instanceof Element ? e.target.closest("a[href]") : null;
@@ -181,7 +226,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via renderMarkdown (#lib/sanitize-html) above -->
   <div class="md-body" {onclick}>{@html rendered}</div>
-  {#if copyCode}
+  {#if copyCode || rendered.includes("data-copy-path")}
     <span class="sr-only" role="status">{status}</span>
   {/if}
 {/if}
@@ -268,6 +313,47 @@
   .md-body :global(a) {
     color: var(--color-amber);
     text-decoration: underline;
+  }
+  /* Host-path links (#3997): an in-root one opens the Files tab, any other is copy-only. */
+  .md-body :global(.md-filelink) {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--color-amber);
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .md-body :global(.md-filelink:focus-visible) {
+    outline: 1px solid var(--color-amber);
+    outline-offset: 2px;
+  }
+  .md-body :global(.md-hostpath) {
+    text-decoration: underline dashed var(--color-muted);
+    text-underline-offset: 2px;
+  }
+  .md-body :global(.md-copy-path) {
+    display: inline-flex;
+    width: 20px;
+    height: 20px;
+    margin-left: 2px;
+    vertical-align: middle;
+    background: transparent;
+    border-color: transparent;
+  }
+  .md-body :global(.md-copy-path:hover) {
+    border-color: var(--color-line-bright);
+  }
+  .md-body :global(.md-copy-path svg) {
+    width: 12px;
+    height: 12px;
+  }
+  .md-body :global(.md-copy-path .md-check-icon),
+  .md-body :global(.md-copy-path[data-copied] .md-copy-icon) {
+    display: none;
+  }
+  .md-body :global(.md-copy-path[data-copied] .md-check-icon) {
+    display: block;
   }
   .md-body :global(a[data-session-id]) {
     cursor: pointer;

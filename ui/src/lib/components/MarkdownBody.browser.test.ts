@@ -293,3 +293,76 @@ describe("MarkdownBody code highlighting", () => {
     await expect.poll(() => write.mock.calls[0]?.[0]).toBe("const a = '<b>';\n");
   });
 });
+
+describe("MarkdownBody host-path links (#3997)", () => {
+  const source = "Saved [the report](/home/u/.local/state/x/report.md) and [plan](/wt/plan.md).";
+
+  it("renders host paths as non-navigating text with a copy button", async () => {
+    const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const open = vi.spyOn(window, "open");
+    const { container } = await render(MarkdownBody, { source });
+    await expect.poll(() => container.querySelectorAll(".md-hostpath")).toHaveLength(2);
+    expect(container.querySelector(".md-body a")).toBeNull();
+    await userEvent.click(container.querySelector<HTMLElement>(".md-hostpath")!);
+    expect(open).not.toHaveBeenCalled();
+    await userEvent.click(page.getByRole("button", { name: m.markdown_copy_host_path() }).first());
+    expect(write).toHaveBeenCalledWith("/home/u/.local/state/x/report.md");
+    await expect.element(page.getByRole("status")).toHaveTextContent(m.markdown_host_path_copied());
+  });
+
+  it("upgrades resolved paths to open the Files tab; unresolved stay copy-only", async () => {
+    const resolveLocalPath = vi.fn(async (p: string) =>
+      p === "/wt/plan.md"
+        ? { source: "worktree" as const, path: "plan.md", type: "file" as const }
+        : null,
+    );
+    const onOpenFile = vi.fn();
+    const { container } = await render(MarkdownBody, { source, resolveLocalPath, onOpenFile });
+    await expect.poll(() => container.querySelectorAll("button[data-open-file]")).toHaveLength(1);
+    expect(container.querySelectorAll(".md-hostpath")).toHaveLength(1);
+    expect(container.querySelectorAll("button[data-copy-path]")).toHaveLength(2);
+    const open = container.querySelector<HTMLElement>("button[data-open-file]")!;
+    expect(open.textContent).toBe("plan");
+    expect(open.title).toBe(m.markdown_open_in_files());
+    await userEvent.click(open);
+    expect(onOpenFile).toHaveBeenCalledWith({ source: "worktree", path: "plan.md", type: "file" });
+  });
+
+  it("keeps the body when an equal herd index arrives with a fence and a resolved link", async () => {
+    const resolveLocalPath = vi.fn(async () => ({
+      source: "worktree" as const,
+      path: "plan.md",
+      type: "file" as const,
+    }));
+    const props = {
+      source: "See [plan](/wt/plan.md), TASK-31.\n\n```ts\nconst a = 1;\n```",
+      sessionDesigs: new Map([["TASK-31", "s31"]]),
+      onSessionLink: vi.fn(),
+      resolveLocalPath,
+      onOpenFile: vi.fn(),
+    };
+    const { container, rerender } = await render(MarkdownBody, props);
+    await expect
+      .poll(() => container.querySelectorAll("pre code span[style*='color']").length, {
+        timeout: 5000,
+      })
+      .toBeGreaterThan(0);
+    await expect.poll(() => container.querySelector("button[data-open-file]")).not.toBeNull();
+    const btn = container.querySelector("button[data-open-file]");
+    const seen: (Element | null)[] = [];
+    const obs = new MutationObserver(() => seen.push(container.querySelector(".md-hostpath")));
+    obs.observe(container, { childList: true, subtree: true });
+    await rerender({ sessionDesigs: new Map([["TASK-31", "s31"]]) });
+    await new Promise((r) => setTimeout(r, 300));
+    obs.disconnect();
+    expect(seen).toEqual([]);
+    expect(container.querySelector("button[data-open-file]")).toBe(btn);
+  });
+
+  it("does not resolve without an open callback", async () => {
+    const resolveLocalPath = vi.fn(async () => null);
+    const { container } = await render(MarkdownBody, { source, resolveLocalPath });
+    await expect.poll(() => container.querySelectorAll(".md-hostpath")).toHaveLength(2);
+    expect(resolveLocalPath).not.toHaveBeenCalled();
+  });
+});

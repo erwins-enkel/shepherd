@@ -15,6 +15,7 @@
     SessionUsage,
     SubagentEntry,
     UsageLimits,
+    FileTarget,
   } from "#lib/types.js";
   import {
     STATUS_COLOR,
@@ -52,6 +53,7 @@
     getVoiceStatus,
     scratchpadDownloadUrl,
     replySession,
+    locateSessionFile,
   } from "#lib/api.js";
   import { imageFilesFromItems } from "#lib/clipboard.js";
   import { bufferText, trimTrailingWhitespace } from "#lib/terminalSelection.js";
@@ -130,6 +132,7 @@
   import type { AssistantViewReport, ViewTab } from "#lib/operator-assistant-view.js";
   import AttachmentChip from "./new-task/AttachmentChip.svelte";
   import { ATTACHMENTS_DIR, computeHasFiles } from "#lib/session-files.js";
+  import { memoLocate } from "#lib/markdown-local-paths.js";
   import { m } from "#lib/paraglide/messages.js";
   import { modelLabel } from "#lib/model-label.js";
   import { effortLabel } from "#lib/effort-guidance.js";
@@ -1143,6 +1146,22 @@
   // visible for non-Claude sessions too (they have no scratchpad). See computeHasFiles for the
   // exact rule. Without them Files still shows its Diff subtab, so the tab itself never vanishes.
   const hasFiles = $derived(computeHasFiles(session));
+
+  // Chat host-path links (#3997): resolve each one once per session (failures count as "not in
+  // the Files tab"), and open a hit as a reveal in the Files tab.
+  const locateCached = memoLocate(locateSessionFile);
+  const resolveLocalPath = (path: string) => locateCached(session.id, path);
+  let filesFocus = $state<(FileTarget & { seq: number; sessionId: string }) | undefined>();
+  let filesFocusSeq = 0;
+  function openFileInFiles(target: FileTarget) {
+    filesFocus = { ...target, seq: ++filesFocusSeq, sessionId: session.id };
+    tab = "files";
+  }
+  // Consume-once: FilesTab remounts on every visit, so a focus kept past this visit would
+  // re-reveal the old row each time the operator opens Files.
+  $effect(() => {
+    if (tab !== "files") untrack(() => (filesFocus = undefined));
+  });
 
   // once a PR exists (open or merged) the session has delivered its work — surface
   // the decommission button as a bright "ready to clean up the worktree" nudge so the
@@ -3621,6 +3640,8 @@
             oninterrupt={sendInterrupt}
             onterminal={() => (tab = "term")}
             composerLead={mobile ? steerToggle : undefined}
+            resolveLocalPath={hasFiles ? resolveLocalPath : undefined}
+            onopenfile={openFileInFiles}
           />
         {/key}
       </div>
@@ -3641,7 +3662,11 @@
     {/if}
     {#if tab === "files"}
       <div class="panel-wrap">
-        <FilesTab sessionId={session.id} filesAvailable={hasFiles} />
+        <FilesTab
+          sessionId={session.id}
+          filesAvailable={hasFiles}
+          focus={filesFocus?.sessionId === session.id ? filesFocus : undefined}
+        />
       </div>
     {/if}
     {#if tab === "browser" && hasBrowser}

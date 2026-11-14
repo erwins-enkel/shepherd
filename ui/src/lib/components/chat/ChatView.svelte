@@ -10,6 +10,7 @@
     SessionMessages,
     SessionStatus,
     SlashCommand,
+    FileTarget,
   } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { answerAsk, getCommands, getSessionMessages, uploadFile } from "#lib/api.js";
@@ -73,6 +74,8 @@
     oninterrupt,
     onterminal,
     composerLead,
+    resolveLocalPath,
+    onopenfile,
   }: {
     sessionId: string;
     status: SessionStatus;
@@ -114,6 +117,10 @@
     onterminal: () => void;
     /** A control at the composer field's leading edge (the phone's steer toggle). */
     composerLead?: Snippet;
+    /** Map a host-path link in a message to the Files tab (#3997); see MarkdownBody. */
+    resolveLocalPath?: (path: string) => Promise<FileTarget | null>;
+    /** Open a resolved host-path link in the Files tab. */
+    onopenfile?: (target: FileTarget) => void;
   } = $props();
 
   /** The newest messages kept in view; older ones stay in the Terminal's scrollback. */
@@ -684,6 +691,8 @@
                 sessionDesigs={herdDesigs}
                 onSessionLink={onnavigate}
                 copyCode
+                {resolveLocalPath}
+                onOpenFile={onopenfile}
               />
               {#if showReplies && e.key === latest?.key}
                 <QuickReplies {questions} {answers} onreply={quickReply} onsendall={sendAnswers} />
@@ -705,6 +714,8 @@
                     sessionDesigs={herdDesigs}
                     onSessionLink={onnavigate}
                     copyCode
+                    {resolveLocalPath}
+                    onOpenFile={onopenfile}
                   />
                 {:else}
                   <p>{e.text}</p>

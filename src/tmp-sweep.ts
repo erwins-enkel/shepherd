@@ -283,14 +283,19 @@ export async function sandboxScratchpadBind(
     console.warn(`[sandbox] scratchpad bind skipped for ${host}:`, err);
     return null;
   }
-  const dest = join(
+  return { host, dest: sandboxScratchpadDest(worktreePath, claudeSessionId) };
+}
+
+/** Where a bwrap-wrapped claude session sees its scratchpad (the bind `dest` of
+ *  {@link sandboxScratchpadBind}) — the path such an agent reports for files it wrote there. */
+export function sandboxScratchpadDest(worktreePath: string, claudeSessionId: string): string {
+  return join(
     MEMBRANE_TMP,
     `claude-${uid()}`,
     dashify(worktreePath),
     claudeSessionId,
     "scratchpad",
   );
-  return { host, dest };
 }
 
 /**

@@ -784,14 +784,16 @@ function claudeJsonFlags(target: string, copy: string | null | undefined): strin
  * host). `config`, `commondir` and `config.worktree` (the latter two made on the host by
  * {@link hostGitStore}) are required. With config RO, git's own config writes (`push -u`
  * upstream, `git config`) fail with EBUSY; branch/commit/push still succeed.
+ * `worktrees/` is the exception: see {@link worktreesFlags}.
  */
 function gitStoreReadOnlyFlags(
   gitDir: string,
-  exists: (p: string) => boolean,
+  probe: StoreProbe,
   adminDir: string | null,
 ): string[] {
+  const { exists } = probe;
   const p = (sub: string) => `${gitDir}/${sub}`;
-  const dirs = ["hooks", "shepherd", "modules", "worktrees", "info", "remotes", "branches"];
+  const dirs = ["hooks", "shepherd", "modules", "info", "remotes", "branches"];
   const dirFlags = dirs.flatMap((sub) =>
     exists(p(sub)) ? ["--ro-bind", p(sub), p(sub)] : ["--tmpfs", p(sub), "--remount-ro", p(sub)],
   );
@@ -800,6 +802,31 @@ function gitStoreReadOnlyFlags(
     ...["--ro-bind", p("commondir"), p("commondir")],
     ...worktreeConfigFlags(gitDir),
     ...dirFlags,
+    ...worktreesFlags(p("worktrees"), probe.readdir, adminDir),
+  ];
+}
+
+/** Host probes the git-store carve-outs need. */
+interface StoreProbe {
+  exists: (p: string) => boolean;
+  readdir: (p: string) => string[];
+}
+
+/** `worktrees/` as a WRITABLE ephemeral tmpfs, so in-membrane git can add/remove temp worktrees
+ *  (e.g. fallow audit's base snapshot) that the host never sees. Every admin dir the host has at
+ *  spawn is re-bound RO on top — `-try`: one removed between listing and exec just stays absent
+ *  on the tmpfs, nothing host-writable — and the session's own RW. The list is frozen at spawn. */
+function worktreesFlags(
+  dir: string,
+  readdir: (p: string) => string[],
+  adminDir: string | null,
+): string[] {
+  const others = readdir(dir)
+    .map((name) => `${dir}/${name}`)
+    .filter((path) => path !== adminDir);
+  return [
+    ...["--tmpfs", dir],
+    ...others.flatMap((path) => ["--ro-bind-try", path, path]),
     ...ownAdminDirFlags(adminDir),
   ];
 }
@@ -810,7 +837,7 @@ function worktreeConfigFlags(dir: string): string[] {
   return ["--ro-bind", target, target];
 }
 
-/** Under the RO `worktrees/`, only the session's own admin dir (HEAD, index, logs) is RW again —
+/** Under `worktrees/`, only the session's own admin dir (HEAD, index, logs) is RW again —
  *  minus its `commondir`, which host git in that worktree would follow, and its
  *  `config.worktree`. */
 function ownAdminDirFlags(adminDir: string | null): string[] {
@@ -827,9 +854,10 @@ function ownAdminDirFlags(adminDir: string | null): string[] {
 function writableStoreFlags(
   store: string,
   inputs: MembraneInputs,
-  exists: (p: string) => boolean,
+  probe: StoreProbe,
   gitStore: GitStoreDeps,
 ): string[] {
+  const { exists } = probe;
   if (exists(store)) {
     gitStore.pinCommondir(store);
     gitStore.ensureWorktreeConfig(store);
@@ -839,7 +867,7 @@ function writableStoreFlags(
       ? gitStore.adminDir(inputs.repoPath, inputs.worktreePath)
       : null;
   if (adminDir !== null) gitStore.ensureWorktreeConfig(adminDir);
-  return ["--bind", store, store, ...gitStoreReadOnlyFlags(store, exists, adminDir)];
+  return ["--bind", store, store, ...gitStoreReadOnlyFlags(store, probe, adminDir)];
 }
 
 /** `~/.gitconfig` (commit identity) + `~/.config/gh` (the gh token) RO — task sessions only. A
@@ -866,15 +894,16 @@ function forgeIdentityFlags(
  *  store) — the same store self-bind + carve-outs. */
 function worktreeFlags(
   inputs: MembraneInputs,
-  exists: (p: string) => boolean,
+  probe: StoreProbe,
   gitStore: GitStoreDeps,
 ): string[] {
+  const { exists } = probe;
   if (!inputs.isolated) {
     const gitDir = `${inputs.repoPath}/.git`;
     return [
       ...["--bind", inputs.repoPath, inputs.repoPath],
       // Self-bind pins `.git` as a mount point (no rename/replace from inside), as in isolated.
-      ...(exists(`${gitDir}/config`) ? writableStoreFlags(gitDir, inputs, exists, gitStore) : []),
+      ...(exists(`${gitDir}/config`) ? writableStoreFlags(gitDir, inputs, probe, gitStore) : []),
     ];
   }
   const store = inputs.gitCommonDir;
@@ -882,7 +911,7 @@ function worktreeFlags(
     ...["--bind", inputs.worktreePath, inputs.worktreePath],
     ...(inputs.reviewer
       ? ["--ro-bind", store, store]
-      : writableStoreFlags(store, inputs, exists, gitStore)),
+      : writableStoreFlags(store, inputs, probe, gitStore)),
   ];
 }
 
@@ -1031,7 +1060,7 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   f.push(...(inputs.ingressFiles ?? []).flatMap((p) => ["--ro-bind", p, p]));
 
   // ── worktree / git store ─────────────────────────────────────────────────
-  f.push(...worktreeFlags(inputs, exists, deps.gitStore ?? hostGitStore));
+  f.push(...worktreeFlags(inputs, { exists, readdir }, deps.gitStore ?? hostGitStore));
 
   // ── env + process hardening ──────────────────────────────────────────────
   // Clear ALL inherited env first, then re-set only what a compliant session needs.

@@ -65,7 +65,7 @@ describe.skipIf(!membraneWorks)("membrane git store (real bwrap)", () => {
     git(repo, "config", "extensions.worktreeConfig", "true");
   });
 
-  test("store config, commondir, hooks/, shepherd/, modules/, worktrees/ are not writable", () => {
+  test("store config, commondir, hooks/, shepherd/, modules/, host worktrees are not writable", () => {
     for (const p of ["hooks", "shepherd", "modules", "config.worktree", "commondir"]) {
       expect(existsSync(join(common, p))).toBe(false);
     }
@@ -80,7 +80,7 @@ describe.skipIf(!membraneWorks)("membrane git store (real bwrap)", () => {
       `printf '%s' '${wt}' > '${common}/commondir'`,
       `printf '%s' '${wt}' > '${common}/worktrees/other/commondir'`,
       `printf '%s' '${wt}' > '${common}/worktrees/wt/commondir'`,
-      `mkdir '${common}/worktrees/planted'`,
+      `rm -rf '${common}/worktrees/other'`,
     ];
     // Positive control: the membrane runs and the worktree itself is writable.
     expect(run(`touch '${wt}/ok'`).status).toBe(0);
@@ -95,6 +95,25 @@ describe.skipIf(!membraneWorks)("membrane git store (real bwrap)", () => {
     expect(readFileSync(join(common, "commondir"), "utf8")).toBe(".\n");
     expect(readFileSync(join(common, "worktrees", "other", "commondir"), "utf8")).toBe("../..\n");
     expect(spawnSync("git", ["status"], { cwd: repo }).status).toBe(0);
+  });
+
+  test("worktrees/ is an ephemeral tmpfs: temp worktrees work inside, never reach the host", () => {
+    const listing = () => spawnSync("ls", ["-A", join(common, "worktrees")], { encoding: "utf8" });
+    const before = listing().stdout;
+    // What fallow audit's base-snapshot pass does, plus a planted admin dir.
+    const r = run(
+      [
+        "git worktree add -q --detach /tmp/base HEAD",
+        "git -C /tmp/base status --short",
+        "git worktree remove /tmp/base",
+        `mkdir '${common}/worktrees/planted'`,
+        `printf '%s' '${wt}' > '${common}/worktrees/planted/commondir'`,
+      ].join(" && "),
+    );
+    expect(r.stderr).toBe("");
+    expect(r.status).toBe(0);
+    expect(listing().stdout).toBe(before);
+    expect(existsSync(join(common, "worktrees", "planted"))).toBe(false);
   });
 
   test("with extensions.worktreeConfig: own config.worktree, info/, remotes/, branches/ are not writable", () => {

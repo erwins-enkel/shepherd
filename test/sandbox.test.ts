@@ -517,7 +517,7 @@ describe("buildMembraneFlags", () => {
     const at = (f: string[], ...seq: string[]) =>
       f.findIndex((_, i) => seq.every((x, j) => f[i + j] === x));
     const G = "/repos/proj/.git";
-    const DIRS = ["hooks", "shepherd", "modules", "worktrees", "info", "remotes", "branches"];
+    const DIRS = ["hooks", "shepherd", "modules", "info", "remotes", "branches"];
     // Only the store's `config` exists (a real git dir); every carve-out target is absent.
     const storeOnly = { exists: (p: string) => p === `${G}/config` };
     const ADMIN = `${G}/worktrees/wt-1`;
@@ -545,6 +545,10 @@ describe("buildMembraneFlags", () => {
         const p = `${G}/${sub}`;
         expect(at(f, "--tmpfs", p, "--remount-ro", p)).toBeGreaterThan(rw);
       }
+      // worktrees/ is a WRITABLE ephemeral tmpfs: temp worktrees never reach the host.
+      const wts = at(f, "--tmpfs", `${G}/worktrees`);
+      expect(wts).toBeGreaterThan(rw);
+      expect(f[wts + 2]).not.toBe("--remount-ro");
     });
 
     test("isolated: present paths are plain --ro-bind", () => {
@@ -554,16 +558,25 @@ describe("buildMembraneFlags", () => {
       }
     });
 
-    test("isolated: commondir pinned on the host; only the own admin dir RW under RO worktrees/", () => {
+    test("isolated: commondir pinned on the host; own admin dir RW, other host ones RO over a tmpfs worktrees/", () => {
       pinned.length = 0;
       ensured.length = 0;
-      const f = buildMembraneFlags(fakeMembrane({ isolated: true }), allPresent);
+      const OTHER = `${G}/worktrees/wt-2`;
+      const f = buildMembraneFlags(fakeMembrane({ isolated: true }), {
+        ...allPresent,
+        readdir: (p: string) => (p === `${G}/worktrees` ? ["wt-1", "wt-2"] : []),
+      });
       expect(pinned).toEqual([G]);
       // config.worktree made on the host for both the store and the own admin dir.
       expect(ensured).toEqual([G, ADMIN]);
-      const roWts = at(f, "--ro-bind", `${G}/worktrees`, `${G}/worktrees`);
+      expect(at(f, "--ro-bind", `${G}/worktrees`, `${G}/worktrees`)).toBe(-1);
+      const tmp = at(f, "--tmpfs", `${G}/worktrees`);
+      expect(tmp).toBeGreaterThan(at(f, "--bind", G, G));
+      // -try: a worktree removed between listing and exec just leaves an absent dir on the tmpfs.
+      expect(at(f, "--ro-bind-try", OTHER, OTHER)).toBeGreaterThan(tmp);
+      expect(at(f, "--ro-bind-try", ADMIN, ADMIN)).toBe(-1);
       const own = at(f, "--bind", ADMIN, ADMIN);
-      expect(own).toBeGreaterThan(roWts);
+      expect(own).toBeGreaterThan(tmp);
       expect(at(f, "--ro-bind", `${ADMIN}/commondir`, `${ADMIN}/commondir`)).toBeGreaterThan(own);
       expect(
         at(f, "--ro-bind", `${ADMIN}/config.worktree`, `${ADMIN}/config.worktree`),
@@ -602,7 +615,10 @@ describe("buildMembraneFlags", () => {
         for (const isolated of [true, false]) {
           const f = buildMembraneFlags(fakeMembrane({ isolated }), deps);
           f.forEach((x, i) => {
-            if (x.endsWith("-try")) expect(f[i + 1]!.startsWith(`${G}/`)).toBe(false);
+            // Exempt: host admin dirs re-bound over the ephemeral worktrees/ tmpfs.
+            if (x.endsWith("-try") && !f[i + 1]!.startsWith(`${G}/worktrees/`)) {
+              expect(f[i + 1]!.startsWith(`${G}/`)).toBe(false);
+            }
           });
         }
       }
@@ -1631,8 +1647,8 @@ describe("buildMembraneFlags reviewer membrane (audit N10)", () => {
     expect(hasTriple(base, "--bind", "/repos/proj/.git", "/repos/proj/.git")).toBe(true);
     // Exactly the two 3-token gh/gitconfig binds and the git-store carve-outs are gone (the store
     // is RO whole): config + commondir + config.worktree (3 each), hooks/shepherd/modules/
-    // worktrees/info/remotes/branches RO tmpfs (4 each).
-    expect(f.length).toBe(base.length - 6 - 37);
+    // info/remotes/branches RO tmpfs (4 each), writable worktrees/ tmpfs (2).
+    expect(f.length).toBe(base.length - 6 - 35);
   });
 
   test("reviewer: false is byte-identical to absent", () => {

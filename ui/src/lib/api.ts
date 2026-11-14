@@ -39,6 +39,7 @@ import type {
   HouseStackResolution,
   DirListing,
   ScratchListing,
+  FileTarget,
   UpdateStatus,
   UpdateCallRecord,
   DeployState,
@@ -1442,6 +1443,15 @@ export async function getScratchpadListing(id: string, path?: string): Promise<S
  *  target — the operator's HttpOnly auth cookie rides the GET automatically. */
 export function scratchpadDownloadUrl(id: string, path: string): string {
   return `/api/sessions/${id}/scratchpad/download?path=${encodeURIComponent(path)}`;
+}
+
+/** Where a host path an agent linked lives in the session's Files tab (#3997); null when it is
+ *  outside the scratchpad and worktree. */
+export async function locateSessionFile(id: string, path: string): Promise<FileTarget | null> {
+  const r = await fetch(`/api/sessions/${id}/files/locate?path=${encodeURIComponent(path)}`);
+  if (r.status === 404) return null;
+  if (!r.ok) throw await failed(r, "file locate");
+  return r.json();
 }
 
 /** List one directory of a session's read-only worktree subtree. `path` is relative to the

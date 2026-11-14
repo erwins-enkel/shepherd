@@ -380,6 +380,7 @@ import {
 import { buildTaskExport, resolveTranscript } from "./task-export";
 import { readSubagentDescription } from "./subagent-meta";
 import { listWorktree, resolveWorktreeFile } from "./worktree-files";
+import { locateSessionFile } from "./file-locate";
 import { loadSteers, saveSteers } from "./steers";
 import { AMENDMENT_MAX_CHARS, amendmentSteerText } from "./task-amendments";
 import { loadIcons, setIcon } from "./project-icons";
@@ -6152,6 +6153,24 @@ async function worktreeStatusRead(s: Session, deps: AppDeps): Promise<Response> 
   }
 }
 
+// ── host-path locate: GET /api/sessions/:id/files/locate?path= (#3997) ──
+// Maps an absolute host path (or `~/…`) an agent linked in chat to the session's scratchpad or
+// worktree, so the chat can open it in the Files tab. Returns a location, never bytes; a path
+// outside both roots is 404 without touching the filesystem (src/file-locate.ts). Web-UI-only:
+// deliberately not in contracts/openapi.yaml. Live sessions only.
+async function handleSessionFileLocate({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET" || parts[3] !== "files" || parts[4] !== "locate" || parts[5])
+    return null;
+  const s = deps.store.get(parts[2] ?? "");
+  if (!s || s.status === "archived") return json({ error: "not found" }, 404);
+  const hit = await locateSessionFile(
+    s.worktreePath,
+    s.claudeSessionId,
+    url.searchParams.get("path") ?? "",
+  );
+  return hit ? json(hit) : json({ error: "not found" }, 404);
+}
+
 async function handleSessionWorktree({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "GET" || parts[3] !== "worktree") return null;
   const s = deps.store.get(parts[2] ?? "");
@@ -9277,6 +9296,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionScratchpad,
     handleSessionScratchpadUpload,
     handleSessionWorktree,
+    handleSessionFileLocate,
     handleSessionDelete,
     handleSessionReply,
     handleSessionAmendmentCreate,

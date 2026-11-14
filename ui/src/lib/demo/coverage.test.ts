@@ -368,8 +368,9 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
   ],
 
   // Session reads behind a tab or affordance no seeded session opens: no session carries
-  // an amendment, an epic draft, a diff annotation or a downloadable file, and the demo
-  // connects no machines, so no session opens a remote preview (#2767).
+  // an amendment, an epic draft, a diff annotation, a downloadable file or a chat link to a
+  // host path (#3997), and the demo connects no machines, so no session opens a remote
+  // preview (#2767).
   "session reads with no seeded subject": [
     "/api/sessions/:p/amendments",
     "/api/sessions/:p/amendments/:p",
@@ -379,6 +380,7 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/sessions/:p/scratchpad/download",
     "/api/sessions/:p/scratchpad/upload",
     "/api/sessions/:p/worktree/download",
+    "/api/sessions/:p/files/locate",
     "/api/sessions/:p/preview",
   ],
 

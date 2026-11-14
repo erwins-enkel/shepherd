@@ -153,3 +153,32 @@ describe("sanitizeSvg (#2104)", () => {
     expect(host.innerHTML).not.toContain("e.example");
   });
 });
+
+describe("renderMarkdown host-path links (#3997)", () => {
+  it.each([
+    ["[r](/home/u/x.md)", "/home/u/x.md"],
+    ["[r](file:///home/u/x.md)", "/home/u/x.md"],
+    ["[r](~/x.md)", "~/x.md"],
+  ])("%s renders as a non-navigating host path", async (md, path) => {
+    const host = dom(await renderMarkdown(md));
+    expect(host.querySelector("a")).toBeNull();
+    const span = host.querySelector<HTMLElement>("span.md-hostpath")!;
+    expect(span.dataset.localPath).toBe(path);
+    expect(span.textContent).toBe("r");
+    expect(span.title).toContain(path);
+  });
+
+  it("leaves real links alone", async () => {
+    const host = dom(await renderMarkdown("[a](https://e.example/x) [b](#s) [c](//h.example/x)"));
+    expect(host.querySelectorAll("a")).toHaveLength(3);
+    expect(host.querySelector(".md-hostpath")).toBeNull();
+  });
+
+  it("strips a forged data-local-path", async () => {
+    const host = dom(
+      await renderMarkdown('<a href="https://e.example" data-local-path="/etc/passwd">x</a>'),
+    );
+    expect(host.querySelector("[data-local-path]")).toBeNull();
+    expect(host.querySelector("a")?.getAttribute("href")).toBe("https://e.example");
+  });
+});

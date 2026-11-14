@@ -1,4 +1,5 @@
 import { firstSafeHttpUrl } from "./url";
+import { defuseLocalPathLinks, localPathOf } from "./markdown-local-paths";
 
 // A type query, not an import: marked/dompurify must stay dynamic (eslint no-restricted-imports).
 type Purifier = (typeof import("dompurify"))["default"];
@@ -25,8 +26,9 @@ const MARKDOWN_CONFIG = {
     ...["svg", "math", "audio", "video", "source", "track", "picture"],
   ],
   // srcset/background/poster: more fetch-capable attributes. `data-session-id` marks only the
-  // session links MarkdownBody generates, never the source.
-  FORBID_ATTR: ["style", "srcset", "background", "poster", "data-session-id"],
+  // session links MarkdownBody generates, `data-local-path` only host-path links this module
+  // marks (#3997) — never the source.
+  FORBID_ATTR: ["style", "srcset", "background", "poster", "data-session-id", "data-local-path"],
   // DOMPurify's own pattern minus tel:/sms:/cid:/xmpp:/callto: — http(s), mailto and relative.
   ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
 };
@@ -38,9 +40,24 @@ function loadMarkdown(): Promise<Markdown> {
   markdown ??= Promise.all([import("marked"), import("dompurify")]).then(
     ([{ marked }, { default: DOMPurify }]) => {
       const purify = DOMPurify(window);
+      // Host filesystem paths (#3997), read off the RAW href: DOMPurify strips `file:` before the
+      // after-hook could see it.
+      const localPaths = new WeakMap<Element, string>();
+      purify.addHook("beforeSanitizeAttributes", (node) => {
+        if (node.tagName !== "A") return;
+        const path = localPathOf(node.getAttribute("href") ?? "");
+        if (path !== null) localPaths.set(node, path);
+      });
       // Links in agent/forge text point off-app; following one in place would navigate the HUD away.
       purify.addHook("afterSanitizeAttributes", (node) => {
         if (node.tagName !== "A") return;
+        const local = localPaths.get(node);
+        if (local !== undefined) {
+          // A host path is no URL: drop the dead href; defuseLocalPathLinks swaps the element.
+          for (const a of ["href", "target", "rel"]) node.removeAttribute(a);
+          node.setAttribute("data-local-path", local);
+          return;
+        }
         const href = node.getAttribute("href");
         if (href === null || href.startsWith("#")) return;
         node.setAttribute("target", "_blank");
@@ -105,6 +122,7 @@ export async function renderMarkdown(md: string, { breaks = false } = {}): Promi
     RETURN_DOM_FRAGMENT: true,
   });
   defuseExternalImages(fragment);
+  defuseLocalPathLinks(fragment);
   const host = document.createElement("div");
   host.append(fragment);
   return host.innerHTML;

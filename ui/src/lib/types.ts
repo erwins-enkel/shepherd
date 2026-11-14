@@ -627,6 +627,14 @@ export interface ScratchEntry {
   attachments?: boolean;
 }
 
+/** Where a host path lives in a session's Files tab — `GET /api/sessions/:id/files/locate` (#3997). */
+export interface FileTarget {
+  source: "scratchpad" | "worktree";
+  /** Relative to the source root, forward slashes. */
+  path: string;
+  type: "file" | "dir";
+}
+
 /** A directory listing within a session's scratchpad subtree (#1164). Paths are relative to the
  *  scratchpad root ("" = root); `parent` is null at the root. */
 export interface ScratchListing {

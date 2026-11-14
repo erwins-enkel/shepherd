@@ -601,3 +601,50 @@ describe("FilesPanel — Diff source", () => {
     expect(document.querySelector(".files-scroll")).toBeNull();
   });
 });
+
+describe("FilesTab focus — reveal a chat host-path link (#3997)", () => {
+  it("opens the target's source and folder and highlights the file", async () => {
+    mockWorktreeListing.mockImplementation(async (_id: string, path?: string) =>
+      path === "docs"
+        ? {
+            path: "docs",
+            parent: "",
+            entries: [
+              { name: "a.md", type: "file", path: "docs/a.md" },
+              { name: "b.md", type: "file", path: "docs/b.md" },
+            ],
+          }
+        : EMPTY_LISTING,
+    );
+    render(FilesTab, {
+      sessionId: "sess-r",
+      filesAvailable: true,
+      focus: { source: "worktree", path: "docs/b.md", type: "file", seq: 1 },
+    });
+    await expect.poll(() => document.querySelector(".row.revealed")?.textContent).toContain("b.md");
+    expect(mockWorktreeListing).toHaveBeenCalledWith("sess-r", "docs");
+    expect(mockWorktreeListing).not.toHaveBeenCalledWith("sess-r", undefined);
+    expect(mockListing).not.toHaveBeenCalled();
+    expect(document.querySelectorAll(".row.revealed")).toHaveLength(1);
+    expect(document.activeElement?.getAttribute("data-path")).toBe("docs/b.md");
+  });
+
+  it("opens a directory target as the listed folder", async () => {
+    mockListing.mockImplementation(async (_id: string, path?: string) =>
+      path === "reports"
+        ? {
+            path: "reports",
+            parent: "",
+            entries: [{ name: "r.md", type: "file", path: "reports/r.md" }],
+          }
+        : EMPTY_LISTING,
+    );
+    render(FilesTab, {
+      sessionId: "sess-d",
+      filesAvailable: true,
+      focus: { source: "scratchpad", path: "reports", type: "dir", seq: 1 },
+    });
+    await expect.poll(() => document.querySelector('[data-path="reports/r.md"]')).toBeTruthy();
+    expect(document.querySelector(".row.revealed")).toBeNull();
+  });
+});

@@ -1326,6 +1326,17 @@ const RESEARCH_FIRST_NOTICE =
   "the current stable major from the package registry or official docs — never from memory.";
 
 /**
+ * Rides every Claude-family, non-plain spawn (#3997). Agents saved operator-facing reports under
+ * e.g. `~/.local/state/…` and linked them in chat; the operator's HUD can open only the session's
+ * worktree and scratchpad (Files tab), so such a link led nowhere. Claude-family only: the
+ * scratchpad is a Claude Code concept. Agent-facing prompt text, so fixed English.
+ */
+const OPERATOR_FILES_NOTICE =
+  "When you save a file meant for the operator (a report, summary or export), write it inside " +
+  "this worktree or your scratchpad directory and link it by its absolute path. The operator can " +
+  "open those from Shepherd's Files tab; a file anywhere else on the host is out of their reach.";
+
+/**
  * Rides every spawn whose MCP config carries `self_status` — Claude-family, non-plain (issue #2860).
  * Claude Code's own rate-limit reminder tells agents to run `gh api rate_limit` and sleep until its
  * reset, but on this account that endpoint misreports both the budget and the window, so agents
@@ -2658,6 +2669,7 @@ export function composeSystemPromptBlocks(
     blocks.push(
       taggedBlock("ci-wait-notice", opts.mergeTrain ? MERGE_TRAIN_CI_NOTICE : CI_WAIT_NOTICE),
     );
+    blocks.push(taggedBlock("operator-files-notice", OPERATOR_FILES_NOTICE));
   }
   blocks.push(...situationalBlocks(agentProvider, guard, opts.branchRename === true));
   // One-session-one-PR invariant (issue #839): rides every code spawn, suppressed for a research

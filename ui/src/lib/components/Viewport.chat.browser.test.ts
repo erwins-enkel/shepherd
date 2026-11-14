@@ -18,10 +18,17 @@ vi.mock("#lib/pty.js", () => ({
 }));
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
-  return { ...actual, getSessionMessages: vi.fn(), replySession: vi.fn() };
+  return {
+    ...actual,
+    getSessionMessages: vi.fn(),
+    replySession: vi.fn(),
+    locateSessionFile: vi.fn(),
+    getWorktreeListing: vi.fn(),
+  };
 });
 const { default: Viewport } = await import("./Viewport.svelte");
-const { getSessionMessages, replySession } = await import("#lib/api.js");
+const { getSessionMessages, replySession, locateSessionFile, getWorktreeListing } =
+  await import("#lib/api.js");
 const mockMessages = vi.mocked(getSessionMessages);
 const mockReply = vi.mocked(replySession);
 
@@ -147,6 +154,44 @@ describe("Viewport Chat tab", () => {
     await expect.element(link).toBeVisible();
     await link.click();
     expect(onnavigate).toHaveBeenCalledWith("other-session");
+  });
+
+  it("opens a chat link to a worktree file in the Files tab (#3997)", async () => {
+    mockMessages.mockResolvedValue({
+      ...transcript,
+      messages: [
+        { role: "assistant", text: "See [the plan](/wt/docs/plan.md) and [x](/etc/x).", ts: 4000 },
+      ],
+    });
+    vi.mocked(locateSessionFile).mockImplementation(async (_id, path) =>
+      path === "/wt/docs/plan.md"
+        ? { source: "worktree", path: "docs/plan.md", type: "file" }
+        : null,
+    );
+    vi.mocked(getWorktreeListing).mockResolvedValue({
+      path: "docs",
+      parent: "",
+      entries: [{ name: "plan.md", type: "file", path: "docs/plan.md" }],
+    });
+    await mount();
+    await open(m.viewport_chat_tab());
+    await vi.waitFor(() => expect(document.querySelector("button[data-open-file]")).not.toBeNull());
+    expect(document.querySelector(".md-hostpath")?.textContent).toBe("x");
+    (document.querySelector("button[data-open-file]") as HTMLElement).click();
+    await expect.element(tab(m.viewport_files_tab())).toHaveAttribute("aria-selected", "true");
+    await vi.waitFor(() =>
+      expect(document.querySelector(".row.revealed")?.getAttribute("data-path")).toBe(
+        "docs/plan.md",
+      ),
+    );
+    expect(getWorktreeListing).toHaveBeenCalledWith("s1", "docs");
+    // Consumed once: the next visit opens Files at its default root, no stale reveal.
+    await open(m.viewport_chat_tab());
+    await open(m.viewport_files_tab());
+    await vi.waitFor(() => expect(document.querySelector(".files-scroll")).not.toBeNull());
+    await new Promise((r) => setTimeout(r, 100));
+    expect(document.querySelector(".row.revealed")).toBeNull();
+    expect(vi.mocked(getWorktreeListing).mock.calls.filter((c) => c[1] === "docs")).toHaveLength(1);
   });
 
   it("shows the sub-agent fan-out above the chat; no Activity tab", async () => {

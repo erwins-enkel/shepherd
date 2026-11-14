@@ -5717,6 +5717,25 @@ test("composeSystemPrompt rides <github-rate-limit-notice> after research-first 
   }
 });
 
+test("<operator-files-notice> rides Claude non-plain spawns only (#3997)", () => {
+  for (const [autopilot, opts] of [
+    [false, {}],
+    [true, {}],
+    [true, { planGate: "interactive" as const }],
+    [false, { research: true }],
+  ] as const) {
+    const notice = composeSystemPromptBlocks(autopilot, opts).find(
+      (b) => b.name === "operator-files-notice",
+    );
+    expect(notice?.text).toContain("scratchpad");
+    expect(notice?.text).toContain("Files tab");
+  }
+  for (const opts of [{ agentProvider: "codex" as const }, { plain: true }]) {
+    const names = composeSystemPromptBlocks(false, opts).map((b) => b.name);
+    expect(names).not.toContain("operator-files-notice");
+  }
+});
+
 test("<scheduled-run-notice> rides only scheduled, non-plain Claude spawns (#3469)", () => {
   const names = (opts: Parameters<typeof composeSystemPromptBlocks>[1]) =>
     composeSystemPromptBlocks(false, opts).map((b) => b.name);

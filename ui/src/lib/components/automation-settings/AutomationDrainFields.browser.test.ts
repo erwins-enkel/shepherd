@@ -125,6 +125,19 @@ describe("AutomationDrainFields — priority labels (#3446)", () => {
       .toBeVisible();
   });
 
+  // The chip's class once read `fixed` — Tailwind's `position: fixed` — and floated over the input.
+  it("keeps the fixed chip in flow above the input", async () => {
+    render(AutomationDrainFields, { repoPath: REPO, active: true });
+    const chip = page.getByText("shepherd:priority", { exact: true });
+    await expect.element(chip).toBeVisible();
+    const li = chip.element().closest("li")!;
+    expect(getComputedStyle(li).position).not.toBe("fixed");
+    const input = labelInput().element();
+    expect(li.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+      input.getBoundingClientRect().top,
+    );
+  });
+
   it("adds a trimmed label and persists the full list", async () => {
     const puts = stubFetch();
     repoConfig.priorityLabels = { [REPO]: ["urgent"] };

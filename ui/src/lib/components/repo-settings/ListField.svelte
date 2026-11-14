@@ -110,7 +110,7 @@
     {#if fixed.length || items.length}
       <ul class="items">
         {#each fixed as item (item)}
-          <li class="item fixed"><span class="item-name">{item}</span></li>
+          <li class="item pinned"><span class="item-name">{item}</span></li>
         {/each}
         <!-- Keyed by position: the server doesn't dedupe host lists, so a list set through the API
                can hold a repeat. Removing one removes every copy. -->
@@ -207,7 +207,7 @@
     color: var(--color-ink);
   }
   /* An always-on entry: no ×, so pad it evenly and quiet it. */
-  .item.fixed {
+  .item.pinned {
     padding: 1px 6px;
     color: var(--color-muted);
   }

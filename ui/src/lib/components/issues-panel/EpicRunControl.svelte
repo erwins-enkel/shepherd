@@ -509,7 +509,7 @@
   {/if}
 
   {#if activeFix}
-    <p class="fixed" role="status" data-epic-autofix-done>
+    <p class="fix-applied" role="status" data-epic-autofix-done>
       <span class="fixed-mark" aria-hidden="true">✓</span>
       <span>{confirmText(activeFix.changes, repoName)}</span>
       <button class="link" type="button" disabled={fixBusy} onclick={undoFix}
@@ -690,7 +690,7 @@
   }
 
   /* The fix is applied: what it set, and the way back. */
-  .fixed {
+  .fix-applied {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;

@@ -1065,6 +1065,114 @@ const holdSettings = {
   usageHoldAutoRelease: true,
 } as Settings;
 
+describe("TopBar — origin filter popover on the HERD total (#3999)", () => {
+  const originBase = {
+    nowMs: 1_700_000_000_000,
+    connected: true,
+    ...sessionsProp(2),
+    ...FLAGS.desktop,
+    originCounts: { scheduled: 1, drain: 2, manual: 3 },
+    originOffered: true,
+  };
+  const total = () => document.querySelector<HTMLButtonElement>(".tallies .tally")!;
+  const pop = () => page.getByRole("dialog", { name: m.herd_origins_label() });
+
+  beforeEach(async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+  });
+
+  it("hovering the total opens the origin chips; a chip picks", async () => {
+    const onoriginfilter = vi.fn();
+    render(TopBar, { ...originBase, onoriginfilter });
+    await expect.poll(() => document.querySelector(".tallies .tally")).not.toBeNull();
+    await userEvent.hover(total());
+    await expect.element(pop()).toBeVisible();
+    const chips = pop()
+      .getByRole("button")
+      .elements()
+      .map((b) => b.textContent!.replace(/\s+/g, " ").trim());
+    expect(chips).toEqual(["All origins 6", "Scheduled 1", "Auto-drain 2", "Manual 3"]);
+    await pop()
+      .getByRole("button", { name: /Auto-drain/ })
+      .click();
+    expect(onoriginfilter).toHaveBeenLastCalledWith("drain");
+  });
+
+  it("click toggles it (keyboard / touch way in); Escape closes and refocuses", async () => {
+    render(TopBar, { ...originBase, onoriginfilter: () => {} });
+    await expect.poll(() => document.querySelector(".tallies .tally")).not.toBeNull();
+    expect(total().disabled).toBe(false);
+    total().click();
+    await expect.element(pop()).toBeVisible();
+    expect(total().getAttribute("aria-expanded")).toBe("true");
+    await userEvent.keyboard("{Escape}");
+    await expect.element(pop()).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(total());
+  });
+
+  it("a hover-only open lets an Escape typed elsewhere through, without stealing focus", async () => {
+    render(TopBar, { ...originBase, onoriginfilter: () => {} });
+    const field = document.createElement("input");
+    document.body.append(field);
+    try {
+      field.focus();
+      await expect.poll(() => document.querySelector(".tallies .tally")).not.toBeNull();
+      await userEvent.hover(total());
+      await expect.element(pop()).toBeVisible();
+      const seen = vi.fn();
+      window.addEventListener("keydown", seen);
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      window.removeEventListener("keydown", seen);
+      expect(seen).toHaveBeenCalled();
+      await expect.element(pop()).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(field);
+    } finally {
+      field.remove();
+    }
+  });
+
+  it("touch-wide keeps 44px origin chips", async () => {
+    render(TopBar, { ...originBase, ...FLAGS["touch-desktop"], onoriginfilter: () => {} });
+    await expect.poll(() => document.querySelector(".tallies button")).not.toBeNull();
+    document.querySelector<HTMLButtonElement>(".tallies button")!.click();
+    await expect.element(pop()).toBeVisible();
+    const chip = pop()
+      .getByRole("button", { name: /Manual/ })
+      .element();
+    expect(chip.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  });
+
+  it("with a status filter on, the click still clears it and opens nothing", async () => {
+    const onstatusfilter = vi.fn();
+    render(TopBar, {
+      ...originBase,
+      statusFilter: "running" as const,
+      onstatusfilter,
+      onoriginfilter: () => {},
+    });
+    await page.getByTitle(m.topbar_tally_clear_title()).click();
+    expect(onstatusfilter).toHaveBeenCalledWith(null);
+    await expect.element(pop()).not.toBeInTheDocument();
+  });
+
+  it("not offered: the total stays inert", async () => {
+    render(TopBar, { ...originBase, originOffered: false, onoriginfilter: () => {} });
+    await expect.poll(() => document.querySelector(".tallies .tally")).not.toBeNull();
+    expect(total().disabled).toBe(true);
+  });
+
+  it("an active filter shows a clearable chip beside the tallies", async () => {
+    const onoriginfilter = vi.fn();
+    render(TopBar, { ...originBase, originFilter: "scheduled" as const, onoriginfilter });
+    const chip = page.getByRole("button", {
+      name: m.topbar_origin_clear_aria({ origin: m.herd_origin_scheduled() }),
+    });
+    await chip.click();
+    expect(onoriginfilter).toHaveBeenCalledWith(null);
+  });
+});
+
 describe("Usage panel — held tasks and what the limit holds back", () => {
   afterEach(() => {
     vi.mocked(listHeld).mockResolvedValue([]);

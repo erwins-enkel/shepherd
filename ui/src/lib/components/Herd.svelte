@@ -26,7 +26,11 @@
   import HerdEmptyState from "./herd/HerdEmptyState.svelte";
   import HerdMachineBar from "./herd/HerdMachineBar.svelte";
   import HerdOriginBar from "./herd/HerdOriginBar.svelte";
-  import type { OriginCounts, SessionOrigin } from "#lib/session-origin.js";
+  import {
+    originFilterOffered,
+    type OriginCounts,
+    type SessionOrigin,
+  } from "#lib/session-origin.js";
   import RemoteDispatchRow from "./herd/RemoteDispatchRow.svelte";
   import PendingSettleRow from "./herd/PendingSettleRow.svelte";
   import { pendingSettles, settleNoteFor, unlistedSettles } from "#lib/integrated-child-note.js";
@@ -402,15 +406,15 @@
         ? (machines.self?.name ?? m.herd_machine_this())
         : (machines.names.get(machineFilter) ?? machineFilter),
   );
-  // The origin bar shows only where it narrows a session list, and only once a non-manual
-  // session is in it (or the filter is on) — a manual-only herd keeps its head unchanged. On a
-  // phone it also waits for a pull-down, unless the filter is on.
+  // Phone only: desktop / touch-wide keep the origin filter in the top bar's HERD popover. The
+  // bar shows where it narrows a session list (originFilterOffered) and waits for a pull-down,
+  // unless the filter is on.
   const showOriginBar = $derived(
-    onoriginfilter != null &&
+    flow &&
+      onoriginfilter != null &&
       originCounts != null &&
-      (filter === "all" || filter === "ready" || filter === "done") &&
-      (originFilter != null || originCounts.scheduled + originCounts.drain > 0) &&
-      (!flow || originFilter != null || originBarRevealed),
+      originFilterOffered(filter, originFilter, originCounts) &&
+      (originFilter != null || originBarRevealed),
   );
   const originLabel = $derived(
     originFilter === "scheduled"
@@ -1002,8 +1006,8 @@
       filter={originFilter}
       counts={originCounts}
       onfilter={onoriginfilter}
-      touch={flow || touch}
-      reveal={flow}
+      touch
+      reveal
     />
   {/if}
   <div class="units" class:flow>

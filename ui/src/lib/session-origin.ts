@@ -23,3 +23,15 @@ export function originCounts(list: readonly OriginFields[]): OriginCounts {
   for (const s of list) counts[sessionOrigin(s)]++;
   return counts;
 }
+
+/** Whether the origin filter is worth offering (#3999): only on a lens that lists sessions, and
+ *  only once a non-manual session is in it (or the filter is on) — a manual-only herd keeps its
+ *  chrome unchanged. */
+export function originFilterOffered(
+  lens: string,
+  filter: SessionOrigin | null,
+  counts: OriginCounts,
+): boolean {
+  if (lens !== "all" && lens !== "ready" && lens !== "done") return false;
+  return filter != null || counts.scheduled + counts.drain > 0;
+}

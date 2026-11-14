@@ -621,6 +621,8 @@ describe("Herd origin filter (#3999)", () => {
   it("stays hidden while every listed session is manual", async () => {
     render(Herd, {
       ...base,
+      flow: true,
+      originBarRevealed: true,
       sessions: [session({ id: "m", name: "manual one" })],
       git: {},
       originCounts: counts(0, 0, 1),
@@ -630,10 +632,25 @@ describe("Herd origin filter (#3999)", () => {
     expect(originBar()).toBeNull();
   });
 
+  it("desktop keeps no chip row — the top bar's HERD popover carries the filter", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "s", name: "nightly", scheduleId: "x" })],
+      git: {},
+      originFilter: "scheduled" as const,
+      originCounts: counts(1, 2, 3),
+      onoriginfilter: () => {},
+    });
+    await expect.element(page.getByText("nightly")).toBeInTheDocument();
+    expect(originBar()).toBeNull();
+  });
+
   it("shows counts once a scheduled session exists; a chip picks it", async () => {
     const onoriginfilter = vi.fn();
     render(Herd, {
       ...base,
+      flow: true,
+      originBarRevealed: true,
       sessions: [session({ id: "s", name: "nightly", scheduleId: "x" })],
       git: {},
       originCounts: counts(1, 2, 3),
@@ -653,6 +670,7 @@ describe("Herd origin filter (#3999)", () => {
     const onoriginfilter = vi.fn();
     render(Herd, {
       ...base,
+      flow: true,
       sessions: [],
       git: {},
       originFilter: "drain" as const,
@@ -686,15 +704,16 @@ describe("Herd origin filter (#3999)", () => {
   });
 
   it("is absent on lenses that list no sessions", async () => {
-    render(Herd, {
+    await render(Herd, {
       ...base,
+      flow: true,
+      originBarRevealed: true,
       sessions: [session({ id: "s", name: "nightly", scheduleId: "x" })],
       git: {},
       filter: "owed" as const,
       originCounts: counts(1, 0, 0),
       onoriginfilter: () => {},
     });
-    await expect.element(page.getByRole("button", { name: /Owed/ })).toBeInTheDocument();
     expect(originBar()).toBeNull();
   });
 

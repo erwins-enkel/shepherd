@@ -135,7 +135,12 @@
     nextDoneSelectedId,
     resolveDoneSelected,
   } from "#lib/done-filter.js";
-  import { byOrigin, originCounts, type SessionOrigin } from "#lib/session-origin.js";
+  import {
+    byOrigin,
+    originCounts,
+    originFilterOffered,
+    type SessionOrigin,
+  } from "#lib/session-origin.js";
   import { postMergeSteps as postMergeStepsStore } from "#lib/post-merge-steps.svelte.js";
   import TopBar from "#lib/components/TopBar.svelte";
   import { basename } from "#lib/basename.js";
@@ -4026,6 +4031,10 @@
         onwhatsnew={() => (showWhatsNew = true)}
         {statusFilter}
         onstatusfilter={(s) => (statusFilter = s)}
+        {originFilter}
+        originCounts={herdOriginCounts}
+        originOffered={originFilterOffered(herdFilter, originFilter, herdOriginCounts)}
+        onoriginfilter={(o) => (originFilter = o)}
         workingBlocked={store.workingBlocked}
         backgroundBusy={store.backgroundBusy}
         diagnostics={store.diagnostics}

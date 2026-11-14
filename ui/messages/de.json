@@ -422,6 +422,7 @@
   "topbar_idle_label": "Inaktiv",
   "topbar_blocked_label": "Blockiert",
   "topbar_tally_filter_title": "Nur Sessions mit Status {status} anzeigen",
+  "topbar_origin_clear_aria": "Herkunftsfilter aufheben: {origin}",
   "topbar_tally_clear_title": "Alle Sessions anzeigen",
   "topbar_tally_total_aria": "Herd {count}; alle Sessions anzeigen",
   "topbar_tally_status_aria": "{status} {count}; nur diese Sessions anzeigen",
@@ -9002,5 +9003,5 @@
   "herd_origin_filter_empty": "Gerade keine Sessions der Herkunft {origin}.",
   "herd_origin_filters_empty": "Keine Sessions der Herkunft {origin} passen zu den aktiven Filtern.",
   "feat_origin_filter_title": "Sessions nach Herkunft filtern",
-  "feat_origin_filter_body": "Sobald ein Repo-Zeitplan oder der Auto-Drain Sessions gestartet hat, filtert eine Chip-Reihe unter den Herden-Ansichten die Liste nach Herkunft: Geplant, Auto-Drain oder Manuell. Sie wirkt zusammen mit Repo- und Statusfilter und auch in der Ansicht „Fertig“ – so prüfst du etwa die geplanten Läufe der letzten Nacht. Die Gruppen bleiben unverändert. Auf dem Handy ziehst du die Liste nach unten, um die Chips einzublenden."
+  "feat_origin_filter_body": "Sobald ein Repo-Zeitplan oder der Auto-Drain Sessions gestartet hat, fährst du in der oberen Leiste über die HERD-Zahl (oder klickst sie an), um die Liste nach Herkunft zu filtern: Geplant, Auto-Drain oder Manuell. Solange ein Filter aktiv ist, nennt ihn ein Chip neben den Zahlen und hebt ihn mit einem Klick auf. Er wirkt zusammen mit Repo- und Statusfilter und auch in der Ansicht „Fertig“ – so prüfst du etwa die geplanten Läufe der letzten Nacht. Die Gruppen bleiben unverändert. Auf dem Handy ziehst du die Liste nach unten, um die Chips einzublenden."
 }

@@ -198,7 +198,7 @@ export function parseClaudeMessages(text: string): ParsedMessages {
   return parseClaudeMessageObjects(eachJsonlObject(text));
 }
 
-function parseClaudeMessageObjects(objs: Iterable<unknown>): ParsedMessages {
+export function parseClaudeMessageObjects(objs: Iterable<unknown>): ParsedMessages {
   const scan: ClaudeScan = {
     messages: [],
     lastAssistantId: undefined,
@@ -293,7 +293,7 @@ export function parseCodexMessages(text: string): ParsedMessages {
   return parseCodexMessageObjects(eachJsonlObject(text));
 }
 
-function parseCodexMessageObjects(objs: Iterable<unknown>): ParsedMessages {
+export function parseCodexMessageObjects(objs: Iterable<unknown>): ParsedMessages {
   const messages: AgentMessage[] = [];
   let lastTurnEvent: unknown = null;
   for (const o of objs) {

@@ -3,6 +3,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -14,6 +15,7 @@ import {
   MAX_HOST_FILE_BYTES,
   announced,
   deniedHostPath,
+  hostAllowList,
   hostEnv,
   parseAllowList,
   readHostFile,
@@ -219,11 +221,24 @@ test("allow-list re-parses when the transcript grows", async () => {
   expect(await resolve(p)).not.toBeNull();
 });
 
+test("concurrent lookups share one transcript read + parse", async () => {
+  setTranscript([assistant("one /x/a.md"), writeCall("/x/w.md")]);
+  const all = await Promise.all(
+    Array.from({ length: 5 }, () => hostAllowList(transcript, "claude")),
+  );
+  for (const a of all) expect(a).toBe(all[0]!);
+  expect(all[0]!.writes).toEqual(new Set(["/x/w.md"]));
+  expect(await hostAllowList(transcript, "claude")).toBe(all[0]!);
+  appendFileSync(transcript, assistant("two") + "\n");
+  expect(await hostAllowList(transcript, "claude")).not.toBe(all[0]!);
+});
+
 test("read refuses a file swapped after resolve", async () => {
   const p = put("n/s.md", "one");
   setTranscript([assistant(p)]);
   const hit = await resolve(p);
-  rmSync(p);
+  // Keep the old file alive under another name so the new one can't reuse its inode.
+  renameSync(p, `${p}.old`);
   put("n/s.md", "two");
   expect(await readHostFile(hit!)).toBeNull();
 });

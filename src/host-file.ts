@@ -2,7 +2,7 @@ import { constants, promises as fsp } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, normalize } from "node:path";
 import { readTranscriptTailAsync } from "./activity";
-import { parseClaudeMessages, parseCodexMessages } from "./agent-messages";
+import { parseClaudeMessageObjects, parseCodexMessageObjects } from "./agent-messages";
 import { config } from "./config";
 import { eachJsonlObject } from "./jsonl";
 import { isUnder } from "./process-reaper";
@@ -136,9 +136,9 @@ function writeTarget(b: ToolUse): string | null {
   return typeof p === "string" && isAbsolute(p) ? normalize(p) : null;
 }
 
-function claudeWrites(text: string): Set<string> {
+function claudeWrites(objs: readonly unknown[]): Set<string> {
   const out = new Set<string>();
-  for (const o of eachJsonlObject(text)) {
+  for (const o of objs) {
     const rec = o as { type?: unknown; isSidechain?: unknown; message?: { content?: unknown } };
     if (rec?.type !== "assistant" || rec.isSidechain === true) continue;
     const content = rec.message?.content;
@@ -151,34 +151,57 @@ function claudeWrites(text: string): Set<string> {
   return out;
 }
 
+/** One JSON parse of the transcript feeds both the message scan and the Write-target scan. */
 export function parseAllowList(text: string, provider: AgentProvider): HostAllowList {
-  const parsed = provider === "codex" ? parseCodexMessages(text) : parseClaudeMessages(text);
+  const objs = [...eachJsonlObject(text)];
+  const parsed =
+    provider === "codex" ? parseCodexMessageObjects(objs) : parseClaudeMessageObjects(objs);
   return {
     texts: parsed.messages.filter((m) => m.role === "assistant").map((m) => m.text),
-    writes: provider === "codex" ? new Set() : claudeWrites(text),
+    writes: provider === "codex" ? new Set() : claudeWrites(objs),
   };
 }
 
-const allowCache = new Map<string, { size: number; mtimeMs: number; allow: HostAllowList }>();
+interface AllowEntry {
+  size: number;
+  mtimeMs: number;
+  allow: Promise<HostAllowList | null>;
+}
+const allowCache = new Map<string, AllowEntry>();
 
-/** The transcript's allow-list, parsed once per (size, mtime) so N chat links cost one parse. */
-async function hostAllowList(
+async function loadAllowList(path: string, provider: AgentProvider): Promise<HostAllowList | null> {
+  const text = await readTranscriptTailAsync(path, TRANSCRIPT_TAIL_BYTES).catch(() => null);
+  return text === null ? null : parseAllowList(text, provider);
+}
+
+/** The transcript's allow-list. The in-flight load is cached per (path, size, mtime) BEFORE it
+ *  awaits, so the N concurrent locates of one chat render share one read and one parse. */
+export function hostAllowList(
   transcriptPath: string,
   provider: AgentProvider,
 ): Promise<HostAllowList | null> {
-  const st = await fsp.stat(transcriptPath).catch(() => null);
-  if (!st?.isFile()) return null;
-  const hit = allowCache.get(transcriptPath);
-  if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.allow;
-  const text = await readTranscriptTailAsync(transcriptPath, TRANSCRIPT_TAIL_BYTES).catch(
+  return fsp.stat(transcriptPath).then(
+    (st) => {
+      if (!st.isFile()) return null;
+      const hit = allowCache.get(transcriptPath);
+      if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.allow;
+      const entry: AllowEntry = {
+        size: st.size,
+        mtimeMs: st.mtimeMs,
+        allow: loadAllowList(transcriptPath, provider),
+      };
+      allowCache.delete(transcriptPath);
+      allowCache.set(transcriptPath, entry);
+      if (allowCache.size > CACHE_MAX) allowCache.delete(allowCache.keys().next().value!);
+      // A failed read isn't cached: the next lookup retries.
+      void entry.allow.then((a) => {
+        if (a === null && allowCache.get(transcriptPath) === entry)
+          allowCache.delete(transcriptPath);
+      });
+      return entry.allow;
+    },
     () => null,
   );
-  if (text === null) return null;
-  const allow = parseAllowList(text, provider);
-  allowCache.delete(transcriptPath);
-  allowCache.set(transcriptPath, { size: st.size, mtimeMs: st.mtimeMs, allow });
-  if (allowCache.size > CACHE_MAX) allowCache.delete(allowCache.keys().next().value!);
-  return allow;
 }
 
 /** A char that would extend a path on the left: the match is then part of a longer path. */

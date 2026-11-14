@@ -2,12 +2,14 @@ import { promises as fsp } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, normalize, relative, sep } from "node:path";
 import { resolveInRoot } from "./fs-browse";
+import { resolveHostFile, type HostLookup } from "./host-file";
 import { existingScratchpadDir, sandboxScratchpadDest } from "./tmp-sweep";
 
 /** Where a host path lives in a session's Files tab (#3997). Mirrors the UI's `FileTarget`. */
 export interface FileTarget {
-  source: "scratchpad" | "worktree";
-  /** Relative to the source root, forward slashes ("" = the root itself). */
+  source: "scratchpad" | "worktree" | "host";
+  /** Relative to the source root, forward slashes ("" = the root itself); for `host`, the
+   *  absolute host path of a file the session reported (#4017, src/host-file.ts). */
   path: string;
   type: "file" | "dir";
 }
@@ -60,12 +62,15 @@ async function targetIn(
  * two roots the operator can already browse: a path is first matched LEXICALLY against each root
  * (plus its realpath and, for the scratchpad, the path a sandboxed agent sees), so a path outside
  * both never touches the filesystem. Inside a root, `resolveInRoot` enforces realpath containment
- * (symlink escapes → null) and the worktree hides `.git`. Null when nothing matches.
+ * (symlink escapes → null) and the worktree hides `.git`. With `host`, a path outside both roots
+ * may still resolve to a read-only `host` target when the session itself reported it and it
+ * passes every guard in src/host-file.ts (#4017). Null when nothing matches.
  */
 export async function locateSessionFile(
   worktreePath: string,
   claudeSessionId: string,
   rawPath: string,
+  host?: HostLookup,
 ): Promise<FileTarget | null> {
   if (!rawPath || rawPath.includes("\0")) return null;
   const expanded = rawPath.startsWith("~/")
@@ -88,5 +93,7 @@ export async function locateSessionFile(
     const rel = relUnder(p, [worktreePath, await realOrSelf(worktreePath)]);
     if (rel !== null) return targetIn("worktree", worktreePath, rel);
   }
-  return null;
+  if (!host) return null;
+  const hit = await resolveHostFile(rawPath, host);
+  return hit ? { source: "host", path: hit.path, type: "file" } : null;
 }

@@ -627,16 +627,24 @@ export interface ScratchEntry {
   attachments?: boolean;
 }
 
-/** Where a host path lives in a session's Files tab — `GET /api/sessions/:id/files/locate` (#3997). */
+/** Where a host path lives in a session's Files tab — `GET /api/sessions/:id/files/locate` (#3997).
+ *  `host`: outside both roots, a file the session reported, opened read-only (#4017). */
 export interface FileTarget {
-  source: "scratchpad" | "worktree";
-  /** Relative to the source root, forward slashes. */
+  source: "scratchpad" | "worktree" | "host";
+  /** Relative to the source root, forward slashes; for `host`, the absolute host path. */
   path: string;
   type: "file" | "dir";
 }
 
 /** A directory listing within a session's scratchpad subtree (#1164). Paths are relative to the
  *  scratchpad root ("" = root); `parent` is null at the root. */
+/** A reported host file's text — `GET /api/sessions/:id/files/host` (#4017). */
+export interface HostFileText {
+  path: string;
+  size: number;
+  text: string;
+}
+
 export interface ScratchListing {
   path: string;
   parent: string | null;

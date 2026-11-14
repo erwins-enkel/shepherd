@@ -381,6 +381,7 @@ import { buildTaskExport, resolveTranscript } from "./task-export";
 import { readSubagentDescription } from "./subagent-meta";
 import { listWorktree, resolveWorktreeFile } from "./worktree-files";
 import { locateSessionFile } from "./file-locate";
+import { readHostFile, resolveHostFile, type HostLookup } from "./host-file";
 import { loadSteers, saveSteers } from "./steers";
 import { AMENDMENT_MAX_CHARS, amendmentSteerText } from "./task-amendments";
 import { loadIcons, setIcon } from "./project-icons";
@@ -6155,19 +6156,34 @@ async function worktreeStatusRead(s: Session, deps: AppDeps): Promise<Response> 
 
 // ── host-path locate: GET /api/sessions/:id/files/locate?path= (#3997) ──
 // Maps an absolute host path (or `~/…`) an agent linked in chat to the session's scratchpad or
-// worktree, so the chat can open it in the Files tab. Returns a location, never bytes; a path
-// outside both roots is 404 without touching the filesystem (src/file-locate.ts). Web-UI-only:
-// deliberately not in contracts/openapi.yaml. Live sessions only.
+// worktree, so the chat can open it in the Files tab. Returns a location, never bytes. A path
+// outside both roots is a read-only `host` target only when the session itself reported it and
+// it passes src/host-file.ts's guards (#4017); otherwise 404. Web-UI-only: deliberately not in
+// contracts/openapi.yaml. Live sessions only.
+//
+// ── reported host file: GET /api/sessions/:id/files/host?path= (#4017) ──
+// The text of such a `host` target, `{ path, size, text }`. Every refusal is the same 404.
+// Not in any token-scope allowlist, so `full` only (src/token-scopes.ts).
+function hostLookup(s: Session, deps: AppDeps): HostLookup {
+  return { transcriptPath: transcriptPathFor(s, deps), provider: s.agentProvider ?? "claude" };
+}
+
+async function sessionHostFileRead(s: Session, deps: AppDeps, path: string): Promise<Response> {
+  const hit = await resolveHostFile(path, hostLookup(s, deps));
+  const text = hit ? await readHostFile(hit) : null;
+  if (!hit || text === null) return json({ error: "not found" }, 404);
+  return json({ path: hit.path, size: hit.size, text });
+}
+
 async function handleSessionFileLocate({ req, parts, url, deps }: Ctx): Promise<Response | null> {
-  if (req.method !== "GET" || parts[3] !== "files" || parts[4] !== "locate" || parts[5])
-    return null;
+  const op = parts[4];
+  if (req.method !== "GET" || parts[3] !== "files" || parts[5]) return null;
+  if (op !== "locate" && op !== "host") return null;
   const s = deps.store.get(parts[2] ?? "");
   if (!s || s.status === "archived") return json({ error: "not found" }, 404);
-  const hit = await locateSessionFile(
-    s.worktreePath,
-    s.claudeSessionId,
-    url.searchParams.get("path") ?? "",
-  );
+  const path = url.searchParams.get("path") ?? "";
+  if (op === "host") return sessionHostFileRead(s, deps, path);
+  const hit = await locateSessionFile(s.worktreePath, s.claudeSessionId, path, hostLookup(s, deps));
   return hit ? json(hit) : json({ error: "not found" }, 404);
 }
 

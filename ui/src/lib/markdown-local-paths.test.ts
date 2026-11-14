@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { localPathOf, memoLocate } from "./markdown-local-paths";
+import { fileTargetOf, localPathOf, memoLocate } from "./markdown-local-paths";
 
 describe("localPathOf (#3997)", () => {
   it.each([
@@ -42,5 +42,20 @@ describe("memoLocate", () => {
     expect(await cached("bad", "/w/a.md")).toBeNull();
     expect(await cached("bad", "/w/a.md")).toBeNull();
     expect(locate).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("fileTargetOf (#4017)", () => {
+  const btn = (attrs: Record<string, string>) =>
+    ({ getAttribute: (k: string) => attrs[k] ?? null }) as unknown as Element;
+
+  it("reads host, worktree and scratchpad targets; unknown falls back to scratchpad", () => {
+    expect(
+      fileTargetOf(btn({ "data-source": "host", "data-rel": "/h/r.md", "data-type": "file" })),
+    ).toEqual({ source: "host", path: "/h/r.md", type: "file" });
+    expect(
+      fileTargetOf(btn({ "data-source": "worktree", "data-rel": "a", "data-type": "dir" })),
+    ).toEqual({ source: "worktree", path: "a", type: "dir" });
+    expect(fileTargetOf(btn({ "data-source": "x" })).source).toBe("scratchpad");
   });
 });

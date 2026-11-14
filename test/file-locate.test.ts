@@ -134,3 +134,60 @@ test("GET files/locate of an archived session is 404", async () => {
   store.archive(s.id);
   expect((await get(app, s.id, join(repoDir, "README.md"))).status).toBe(404);
 });
+
+// ── reported host files (#4017) ────────────────────────────────────────────────
+
+const hostGet = (app: ReturnType<typeof makeApp>, id: string, p: string) =>
+  app.fetch(new Request(`http://x/api/sessions/${id}/files/host?path=${encodeURIComponent(p)}`));
+
+/** A session whose transcript (under a spawn account in tmpRoot) announces `announce`. */
+function hostHarness(announce: string) {
+  const h = harness();
+  const account = join(tmpRoot, "account");
+  h.store.setSpawnIdentity(h.s.id, null, account);
+  const dir = join(account, "projects", repoDir.replace(/[^a-zA-Z0-9]/g, "-"));
+  mkdirSync(dir, { recursive: true });
+  const line = { type: "assistant", message: { content: [{ type: "text", text: announce }] } };
+  writeFileSync(join(dir, `${SID}.jsonl`), JSON.stringify(line) + "\n");
+  return h;
+}
+
+const prevAgentTmp = process.env.SHEPHERD_AGENT_TMPDIR;
+function hostEnvForTest() {
+  process.env.HOME = tmpRoot;
+  process.env.SHEPHERD_AGENT_TMPDIR = ""; // the run's temp root may sit under the real one
+}
+afterEach(() => {
+  if (prevAgentTmp === undefined) delete process.env.SHEPHERD_AGENT_TMPDIR;
+  else process.env.SHEPHERD_AGENT_TMPDIR = prevAgentTmp;
+});
+
+test("GET files/locate maps an announced host file to a host target", async () => {
+  hostEnvForTest();
+  const report = join(tmpRoot, "state", "report.md");
+  mkdirSync(join(tmpRoot, "state"));
+  writeFileSync(report, "# R\n");
+  const quiet = join(tmpRoot, "state", "quiet.md");
+  writeFileSync(quiet, "q");
+  const { app, s } = hostHarness(`Report: [r](${report})`);
+  const ok = await get(app, s.id, report);
+  expect(ok.status).toBe(200);
+  expect(await ok.json()).toEqual({ source: "host", path: report, type: "file" });
+  expect((await get(app, s.id, quiet)).status).toBe(404);
+  expect((await get(app, s.id, join(tmpRoot, "secret.env"))).status).toBe(404);
+});
+
+test("GET files/host returns the text; 404 for refused, unknown and archived", async () => {
+  hostEnvForTest();
+  const report = join(tmpRoot, "report.md");
+  writeFileSync(report, "# R\n");
+  const { app, store, s } = hostHarness(`see ${report} and ${join(tmpRoot, "secret.env")}`);
+  const ok = await hostGet(app, s.id, report);
+  expect(ok.status).toBe(200);
+  expect(await ok.json()).toEqual({ path: report, size: 4, text: "# R\n" });
+  expect((await hostGet(app, s.id, join(tmpRoot, "secret.env"))).status).toBe(404);
+  expect((await hostGet(app, s.id, "/etc/passwd")).status).toBe(404);
+  expect((await hostGet(app, "nope", report)).status).toBe(404);
+  store.archive(s.id);
+  expect((await hostGet(app, s.id, report)).status).toBe(404);
+});

@@ -40,6 +40,7 @@ import type {
   DirListing,
   ScratchListing,
   FileTarget,
+  HostFileText,
   UpdateStatus,
   UpdateCallRecord,
   DeployState,
@@ -1451,6 +1452,15 @@ export async function locateSessionFile(id: string, path: string): Promise<FileT
   const r = await fetch(`/api/sessions/${id}/files/locate?path=${encodeURIComponent(path)}`);
   if (r.status === 404) return null;
   if (!r.ok) throw await failed(r, "file locate");
+  return r.json();
+}
+
+/** The text of a host file the session reported outside its roots (#4017); null when the server
+ *  refuses it (gone, changed, too large, not text, or not permitted). */
+export async function getHostFile(id: string, path: string): Promise<HostFileText | null> {
+  const r = await fetch(`/api/sessions/${id}/files/host?path=${encodeURIComponent(path)}`);
+  if (r.status === 404) return null;
+  if (!r.ok) throw await failed(r, "host file");
   return r.json();
 }
 

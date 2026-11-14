@@ -691,6 +691,16 @@ underneath are:
   resolve outside the worktree are surfaced as non-navigable `linkOutside`
   entries rather than dropped. There is no worktree upload route; both `404` on
   a missing/archived session.
+- `GET /api/sessions/:id/files/locate?path=` and `GET /api/sessions/:id/files/host?path=` —
+  web-UI-only (not in the OpenAPI contract), live sessions only, `full` token scope. `locate`
+  maps an absolute (or `~/`) host path an agent linked in chat to `{ source, path, type }`:
+  `scratchpad`/`worktree` (root-relative), or `host` (the absolute path) for a file outside both
+  roots that the session reported. `host` returns that file's `{ path, size, text }`. A host file
+  qualifies only when the session's own assistant text names it (or a Claude Write/Edit targeted
+  it), it lies under `$HOME` or the tmp dir both lexically and after realpath, matches no
+  credential/env/key/Shepherd-state denylist entry, is a regular file of at most 1 MiB that
+  group/other may read, and is UTF-8 text without NUL bytes (`src/host-file.ts`). Every refusal
+  is `404 {"error":"not found"}`.
 - `GET /api/sessions/:id/worktree/status` — live git state of the session's
   worktree against its base (resolved the same way as `/diff`): `base`,
   `baseRef`, `fetchFailed`, `head`, `headSha`, `mergeBase`, `baseSha`,

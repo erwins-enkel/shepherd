@@ -113,7 +113,11 @@ Task sessions also get the host's real `gh` binary (`resolveMembraneGhBin`: the
 first non-script, non-mise-link `gh` on Shepherd's PATH, else `mise which gh`)
 bound RO at `/tmp/.shepherd-bin/gh`, with that dir first on PATH. A
 `~/.local/bin/gh` launcher that runs `mise use -g` (Omarchy) would otherwise
-win and die on EROFS, which a session reads as "not logged in".
+win and die on EROFS, which a session reads as "not logged in". The resolved
+`claude` and `codex` launchers are symlinked into the same dir (#4021) for
+every spawn that runs them, so an Omarchy `~/.local/bin/claude` or
+`~/.local/bin/codex` cannot shadow them and fail the launch probe. A symlink,
+not a bind, keeps the realpath that npm and mise launchers rely on.
 
 `--clearenv` strips **all** inherited env
 (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, `SHEPHERD_TOKEN`,

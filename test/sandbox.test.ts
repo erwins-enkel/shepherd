@@ -1503,7 +1503,7 @@ describe("buildMembraneFlags codex flags", () => {
         f,
         "--setenv",
         "PATH",
-        "/home/me/.local/bin:/home/linuxbrew/.linuxbrew/Cellar/node/22.0.0/bin:/usr/bin:/bin:/home/me/.bun/bin",
+        `${MEMBRANE_TOOL_BIN}:/home/me/.local/bin:/home/linuxbrew/.linuxbrew/Cellar/node/22.0.0/bin:/usr/bin:/bin:/home/me/.bun/bin`,
       ),
     ).toBe(true);
   });
@@ -1517,7 +1517,12 @@ describe("buildMembraneFlags codex flags", () => {
       detDeps,
     );
     expect(
-      hasTriple(f, "--setenv", "PATH", "/home/me/.local/bin:/home/me/.bun/bin:/usr/bin:/bin"),
+      hasTriple(
+        f,
+        "--setenv",
+        "PATH",
+        `${MEMBRANE_TOOL_BIN}:/home/me/.local/bin:/home/me/.bun/bin:/usr/bin:/bin`,
+      ),
     ).toBe(true);
   });
 
@@ -1816,14 +1821,14 @@ describe("buildMembraneFlags claude launcher", () => {
     );
   });
 
-  test("dir outside manager roots: bound RO after the $HOME tmpfs, appended after /bin once", () => {
+  test("dir outside manager roots: bound RO after the $HOME tmpfs, appended after /bin once, tool bin first", () => {
     const f = buildMembraneFlags(fakeMembrane({ claude: outside }), detDeps);
     expect(hasTriple(f, "--ro-bind-try", outside.binDir, outside.binDir)).toBe(true);
     expect(hasTriple(f, "--ro-bind-try", outside.pkgRoot, outside.pkgRoot)).toBe(true);
     const homeTmpfs = f.findIndex((x, j) => x === "--tmpfs" && f[j + 1] === "/home/me");
     expect(f.indexOf(outside.binDir)).toBeGreaterThan(homeTmpfs);
     expect(pathOf(f)).toBe(
-      "/home/me/.local/bin:/home/linuxbrew/.linuxbrew/Cellar/node/22.0.0/bin:/usr/bin:/bin:/opt/claude/bin",
+      `${MEMBRANE_TOOL_BIN}:/home/me/.local/bin:/home/linuxbrew/.linuxbrew/Cellar/node/22.0.0/bin:/usr/bin:/bin:/opt/claude/bin`,
     );
   });
 
@@ -1856,5 +1861,53 @@ describe("buildMembraneFlags claude launcher", () => {
         .filter((e) => e === dir).length,
     ).toBe(1);
     expect(roBindTargets(f).filter((t) => t === dir).length).toBe(1);
+  });
+});
+
+// #4021: an Omarchy `~/.local/bin/{claude,codex}` launcher runs `mise use -g` and dies on EROFS.
+// The resolved launcher is symlinked into the tool bin (first on PATH) so only that name wins.
+describe("buildMembraneFlags launcher links (#4021)", () => {
+  const pathOf = (f: string[]) => f[f.indexOf("PATH") + 1] ?? "";
+  const claude: ClaudeMembraneInputs = {
+    binDir: "/home/me/.local/share/mise/installs/claude/latest",
+    pkgRoot: "/home/me/.local/share/mise/installs/claude/latest",
+  };
+  const tmpTmpfs = (f: string[]) => f.findIndex((v, k) => v === "/tmp" && f[k - 1] === "--tmpfs");
+  const toolBinLinks = (f: string[]) =>
+    f.filter((v, k) => f[k - 2] === "--symlink" && v.startsWith(`${MEMBRANE_TOOL_BIN}/`));
+
+  test("claude: symlinked into the tool bin after --tmpfs /tmp, tool bin ahead of ~/.local/bin", () => {
+    const f = buildMembraneFlags(fakeMembrane({ claude }), detDeps);
+    const link = `${MEMBRANE_TOOL_BIN}/claude`;
+    expect(hasTriple(f, "--symlink", `${claude.binDir}/claude`, link)).toBe(true);
+    expect(f.indexOf(link)).toBeGreaterThan(tmpTmpfs(f));
+    expect(pathOf(f).split(":").slice(0, 2)).toEqual([MEMBRANE_TOOL_BIN, "/home/me/.local/bin"]);
+  });
+
+  test("codex: symlinked into the tool bin, tool bin ahead of ~/.local/bin", () => {
+    const f = buildMembraneFlags(fakeMembrane({ codex: fakeCodex }), detDeps);
+    const link = `${MEMBRANE_TOOL_BIN}/codex`;
+    expect(hasTriple(f, "--symlink", `${fakeCodex.binDir}/codex`, link)).toBe(true);
+    expect(f.indexOf(link)).toBeGreaterThan(tmpTmpfs(f));
+    expect(pathOf(f).split(":").slice(0, 2)).toEqual([MEMBRANE_TOOL_BIN, "/home/me/.local/bin"]);
+  });
+
+  test("gh + claude + codex: one tool-bin PATH entry", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane({ claude, codex: fakeCodex, ghBin: "/opt/gh/bin/gh" }),
+      detDeps,
+    );
+    expect(
+      pathOf(f)
+        .split(":")
+        .filter((e) => e === MEMBRANE_TOOL_BIN).length,
+    ).toBe(1);
+    expect(toolBinLinks(f)).toEqual([`${MEMBRANE_TOOL_BIN}/codex`, `${MEMBRANE_TOOL_BIN}/claude`]);
+  });
+
+  test("no launcher inputs → no symlink, tool bin not on PATH", () => {
+    const f = buildMembraneFlags(fakeMembrane(), detDeps);
+    expect(toolBinLinks(f)).toEqual([]);
+    expect(pathOf(f)).not.toContain(MEMBRANE_TOOL_BIN);
   });
 });

@@ -1905,6 +1905,26 @@ describe("buildMembraneFlags launcher links (#4021)", () => {
     expect(toolBinLinks(f)).toEqual([`${MEMBRANE_TOOL_BIN}/codex`, `${MEMBRANE_TOOL_BIN}/claude`]);
   });
 
+  test("host-backed /tmp (probe-shaped repoPath=/tmp): no tool bin at all, not on PATH", () => {
+    for (const dir of ["/tmp", "/"]) {
+      const f = buildMembraneFlags(
+        fakeMembrane({
+          worktreePath: dir,
+          gitCommonDir: dir,
+          isolated: false,
+          repoPath: dir,
+          claude,
+          codex: fakeCodex,
+          ghBin: "/opt/gh/bin/gh",
+        }),
+        detDeps,
+      );
+      expect(toolBinLinks(f)).toEqual([]);
+      expect(f).not.toContain(`${MEMBRANE_TOOL_BIN}/gh`);
+      expect(pathOf(f)).not.toContain(MEMBRANE_TOOL_BIN);
+    }
+  });
+
   test("no launcher inputs → no symlink, tool bin not on PATH", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
     expect(toolBinLinks(f)).toEqual([]);

@@ -158,10 +158,12 @@ import { codexNoDaemonArgs } from "./codex-cli-capabilities";
 import { effortForSpawn } from "./default-effort";
 import {
   countMatches,
+  describePane,
   effortSwitchSteps,
   inForceEffort,
   effortForProvider,
   phaseEffort,
+  type EffortSwitchStep,
 } from "./effort-switch";
 import {
   isApiKeyMode,
@@ -9202,35 +9204,83 @@ export class SessionService {
   }
 
   /** Bounds for the in-lock effort switch (#3434). Mutable so tests can shrink them. */
-  static effortSwitchTiming = { readMs: 1500, stepMs: 3000, pollMs: 250 };
+  static effortSwitchTiming = { readMs: 1500, stepMs: 3000, pollMs: 250, retryMs: 500 };
 
   /**
    * Switch a running agent to `tier` for this session only (#3434). MUST run inside the session's
-   * steer lock (a prelude). Sends nothing unless the pane is a live, IDLE agent TUI (`busy`).
-   * Each step's marker must newly appear in the visible pane within the step deadline; otherwise a
-   * lone ESC closes whatever opened (`unconfirmed`). On success `activeEffort` becomes `tier`.
+   * steer lock (a prelude). An `unconfirmed` attempt is retried once after `retryMs` (the sequence
+   * clamps from `low`, so re-running it is safe) — unless the pane died mid-send or a picker is
+   * still open: a re-pasted `/effort` + CR into an open picker would confirm the tier PERSISTENTLY.
+   * Once attempt 1 sent keys, a `busy` attempt 2 reports `unconfirmed` (keys were sent).
    */
   async #switchEffortInLock(s: Session, tier: string): Promise<"ok" | "busy" | "unconfirmed"> {
     const steps = effortSwitchSteps(s.agentProvider ?? "claude", tier);
-    if (!steps) return "unconfirmed";
+    if (!steps) return "unconfirmed"; // unreachable tier: a retry cannot help
+    // Claude's flow opens a picker (a `keys` step follows); Codex's one paste opens nothing.
+    const picker = steps.some((step) => step.kind === "keys") ? steps[0]!.confirm : null;
+    const pickerBase = picker && (await this.#readVisible(s.herdrAgentId));
+    const first = await this.#switchEffortAttempt(s, tier, steps, 1);
+    if (first === "died") return "unconfirmed";
+    if (first !== "unconfirmed") return first;
+    await new Promise((r) => setTimeout(r, SessionService.effortSwitchTiming.retryMs));
+    if (picker && !(await this.#pickerClosed(s.herdrAgentId, picker, pickerBase))) {
+      console.warn(
+        `[effort] ${s.id}: switch to ${tier} not retried (pane unreadable or picker open)`,
+      );
+      return "unconfirmed";
+    }
+    const second = await this.#switchEffortAttempt(s, tier, steps, 2);
+    return second === "ok" ? "ok" : "unconfirmed";
+  }
+
+  /** No picker is open: its marker shows no more often than before attempt 1 (`base`, the pane
+   *  read then). A picker that opened late gets a best-effort ESC. Unreadable → not closed. */
+  async #pickerClosed(target: string, marker: RegExp, base: string | null): Promise<boolean> {
+    const screen = base === null ? null : await this.#readVisible(target);
+    if (screen === null || base === null) return false;
+    if (countMatches(screen, marker) <= countMatches(base, marker)) return true;
+    await this.deps.herdr.send(target, "\x1b").catch(() => {});
+    return false;
+  }
+
+  /**
+   * One switch attempt. Sends nothing unless the pane is a live, IDLE agent TUI (`busy`). Each
+   * step's marker must newly appear in the visible pane within the step deadline; otherwise a lone
+   * ESC closes whatever opened (`unconfirmed`). A throwing send gets a best-effort ESC (`died`).
+   * On success `activeEffort` becomes `tier`.
+   */
+  async #switchEffortAttempt(
+    s: Session,
+    tier: string,
+    steps: EffortSwitchStep[],
+    attempt: number,
+  ): Promise<"ok" | "busy" | "unconfirmed" | "died"> {
     const { readMs } = SessionService.effortSwitchTiming;
     if (!(await withTimeout(this.#isIdleAgentTui(s.id), readMs, false))) return "busy";
     const target = s.herdrAgentId;
+    const where = (i: number) =>
+      `${s.id}: switch to ${tier} unconfirmed at step ${i + 1}/${steps.length} (attempt ${attempt}/2)`;
     try {
-      for (const step of steps) {
+      for (const [i, step] of steps.entries()) {
         const before = await this.#readVisible(target);
-        if (before === null) return "unconfirmed"; // nothing sent yet — nothing to close
+        if (before === null) {
+          console.warn(`[effort] ${where(i)}: pane read failed before sending`);
+          if (i > 0) await this.deps.herdr.send(target, "\x1b"); // close what step 1 opened
+          return "unconfirmed";
+        }
         if (step.kind === "paste") {
           await this.deps.herdr.send(target, `${PASTE_START}${step.text}${PASTE_END}`);
           await this.deps.herdr.send(target, "\r");
         } else await this.deps.herdr.send(target, step.text);
         if (!(await this.#awaitMarker(target, step.confirm, countMatches(before, step.confirm)))) {
+          console.warn(`[effort] ${where(i)}: ${describePane(await this.#readVisible(target))}`);
           await this.deps.herdr.send(target, "\x1b");
           return "unconfirmed";
         }
       }
     } catch {
-      return "unconfirmed"; // pane died mid-sequence
+      await this.deps.herdr.send(target, "\x1b").catch(() => {});
+      return "died"; // a send threw mid-sequence: never re-paste into whatever is open
     }
     this.deps.store.update(s.id, { activeEffort: tier });
     return "ok";

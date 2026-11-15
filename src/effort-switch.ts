@@ -11,7 +11,8 @@
  *
  * Pure: the service owns delivery, the lock and the pane reads. A step counts as confirmed only
  * when its marker's count in the visible pane RISES over the pre-send baseline, so a line left in
- * scrollback by an earlier switch can never confirm a new one.
+ * scrollback by an earlier switch can never confirm a new one. Markers match any whitespace between
+ * words: below ~62 cols the CLI wraps the picker footer mid-phrase (`s for this session` ⏎ `only`).
  */
 
 import type { AgentProvider, Session } from "./types";
@@ -34,6 +35,15 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** A global regex for `words` in order, separated by any whitespace (incl. a pane line wrap).
+ *  A word may be a raw `RegExp` fragment (its `source` is used unescaped). */
+function phrase(...words: (string | RegExp)[]): RegExp {
+  return new RegExp(
+    words.map((w) => (typeof w === "string" ? escapeRe(w) : w.source)).join("\\s+"),
+    "g",
+  );
+}
+
 /**
  * The steps that switch a running `provider` agent to `tier` for this session only, or null when
  * the provider cannot reach that tier this way (unknown tier, Claude `ultra`).
@@ -48,18 +58,18 @@ export function effortSwitchSteps(
       {
         kind: "paste",
         text: `/model --reasoning=${tier}`,
-        confirm: new RegExp(`Model changed to \\S+ ${escapeRe(tier)} for this session only`, "g"),
+        confirm: phrase("Model", "changed", "to", /\S+/, tier, "for", "this", "session", "only"),
       },
     ];
   }
   const idx = (CLAUDE_PICKER as readonly string[]).indexOf(tier);
   if (idx === -1) return null;
   return [
-    { kind: "paste", text: "/effort", confirm: /s for this session only/g },
+    { kind: "paste", text: "/effort", confirm: phrase("s", "for", "this", "session", "only") },
     {
       kind: "keys",
       text: LEFT.repeat(CLAUDE_PICKER.length) + RIGHT.repeat(idx) + "s",
-      confirm: new RegExp(`Set effort level to ${escapeRe(tier)} \\(this session only\\)`, "g"),
+      confirm: phrase("Set", "effort", "level", "to", tier, "(this", "session", "only)"),
     },
   ];
 }
@@ -87,4 +97,13 @@ export function inForceEffort(s: Pick<Session, "effort" | "activeEffort">): stri
  *  for a planning effort, the provider default. */
 export function effortForProvider(provider: AgentProvider, value: unknown): string | null {
   return typeof value === "string" && effortsForProvider(provider).includes(value) ? value : null;
+}
+
+/** Log context for an unconfirmed switch: the widest visible line (≈ pane width, the wrap cause)
+ *  and the pane's last ~300 characters with whitespace collapsed. */
+export function describePane(screen: string | null): string {
+  if (screen === null) return "<no read>";
+  const widest = Math.max(0, ...screen.split("\n").map((l) => l.trimEnd().length));
+  const tail = screen.replace(/\s+/g, " ").trim().slice(-300);
+  return `widest line ${widest} cols, tail: …${tail}`;
 }

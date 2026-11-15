@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import { SessionService } from "../src/service";
 
 // #3434: mid-session effort switch at the Go / re-gate seams, against a fake herdr pane that
@@ -10,7 +10,7 @@ const PICKER = ["low", "medium", "high", "xhigh", "max"];
 
 const saved = { ...SessionService.effortSwitchTiming };
 beforeAll(() => {
-  SessionService.effortSwitchTiming = { readMs: 40, stepMs: 80, pollMs: 5 };
+  SessionService.effortSwitchTiming = { readMs: 40, stepMs: 80, pollMs: 5, retryMs: 5 };
 });
 afterAll(() => {
   SessionService.effortSwitchTiming = saved;
@@ -51,13 +51,26 @@ function harness(opts: {
   procs?: string[];
   /** readAsync never settles. */
   readHangs?: boolean;
+  /** The picker only renders from this `/effort` paste on (1-based; 2 = first attempt misses). */
+  confirmFrom?: number;
+  /** Render the picker footer wrapped the way a ~60-col pane does. */
+  wrapFooter?: boolean;
+  /** The picker renders late: nothing on `/effort`, the footer once the ESC lands. */
+  lateOpen?: boolean;
+  /** The picker-walk keys write throws (pane died mid-sequence). */
+  keysThrow?: boolean;
+  /** The agent turns `working` once anything was sent. */
+  workingAfterSend?: boolean;
+  /** Pane text already visible before the switch. */
+  initialScreen?: string;
 }) {
   const session = opts.session;
   let gate = opts.gate;
   const sent: string[] = [];
   const emitted: { event: string; data: any }[] = [];
   const phases: string[] = [];
-  let screen = "";
+  let screen = opts.initialScreen ?? "";
+  let pickerOpens = 0;
   const store = {
     getProviderHandoff: () => null,
     providerHandoffHeld: () => false,
@@ -79,8 +92,10 @@ function harness(opts: {
     setBuildQueueApproved: () => {},
   };
   const render = (text: string) => {
-    if (opts.confirms === false) return;
-    if (text === `${PASTE_START}/effort${PASTE_END}`) screen += "\ns for this session only";
+    if (opts.lateOpen && text === "\x1b") screen += "\ns for this session only";
+    if (opts.confirms === false || opts.lateOpen) return;
+    if (text === `${PASTE_START}/effort${PASTE_END}` && ++pickerOpens >= (opts.confirmFrom ?? 1))
+      screen += opts.wrapFooter ? "\ns for this session\n  only" : "\ns for this session only";
     const codexPrefix = `${PASTE_START}/model --reasoning=`;
     if (text.startsWith(codexPrefix) && text.endsWith(PASTE_END)) {
       const tier = text.slice(codexPrefix.length, -PASTE_END.length);
@@ -99,12 +114,18 @@ function harness(opts: {
     herdr: {
       start: async () => ({}) as any,
       listAsync: async () => [
-        { terminalId: "t1", paneId: "p1", agentStatus: opts.agentStatus ?? "idle" },
+        {
+          terminalId: "t1",
+          paneId: "p1",
+          agentStatus:
+            opts.workingAfterSend && sent.length ? "working" : (opts.agentStatus ?? "idle"),
+        },
       ],
       stop: async () => {},
       paneForegroundProcs: async () => opts.procs ?? ["claude"],
       send: async (_target: string, text: string) => {
         sent.push(text);
+        if (opts.keysThrow && text.startsWith("\x1b[D")) throw new Error("pane gone");
         render(text);
       },
       readAsync: async () => (opts.readHangs ? new Promise<string>(() => {}) : screen),
@@ -159,6 +180,102 @@ test("an unconfirmed switch withholds Go: ESC, no Go paste, phase stays planning
   expect(h.session.activeEffort).toBe("xhigh");
   expect(h.gate()?.effortSwitchError).toBe("unconfirmed");
   expect(h.emitted.some((e) => e.event === "session:plangate" && e.data.gate)).toBe(true);
+  // retried exactly once: two picker opens, each closed by its own ESC
+  expect(h.sent.filter((t) => t === `${PASTE_START}/effort${PASTE_END}`)).toHaveLength(2);
+  expect(h.sent.filter((t) => t === "\x1b")).toHaveLength(2);
+});
+
+test("a missed first attempt is retried: ESC, re-open, switch, then Go", async () => {
+  const h = harness({ session: sess(), gate: { approved: true }, confirmFrom: 2 });
+  expect(await h.svc.releasePlanGate("s1")).toBe(true);
+  expect(h.sent).toEqual([
+    `${PASTE_START}/effort${PASTE_END}`,
+    "\r",
+    "\x1b",
+    `${PASTE_START}/effort${PASTE_END}`,
+    "\r",
+    "\x1b[D".repeat(5) + "\x1b[C" + "s",
+    expect.stringContaining("Plan approved."),
+    "\r",
+  ]);
+  expect(h.session.activeEffort).toBe("medium");
+  expect(h.gate()?.effortSwitchError ?? null).toBeNull();
+});
+
+test("a send that throws mid-sequence gets an ESC and no retry", async () => {
+  const h = harness({ session: sess(), gate: { approved: true }, keysThrow: true });
+  expect(await h.svc.releasePlanGate("s1")).toBe(false);
+  expect(h.sent.filter((t) => t === `${PASTE_START}/effort${PASTE_END}`)).toHaveLength(1);
+  expect(h.sent.at(-1)).toBe("\x1b");
+  expect(h.gate()?.effortSwitchError).toBe("unconfirmed");
+});
+
+test("a picker that opens late is closed, never re-pasted into", async () => {
+  const h = harness({ session: sess(), gate: { approved: true }, lateOpen: true });
+  expect(await h.svc.releasePlanGate("s1")).toBe(false);
+  expect(h.sent).toEqual([`${PASTE_START}/effort${PASTE_END}`, "\r", "\x1b", "\x1b"]);
+  expect(h.gate()?.effortSwitchError).toBe("unconfirmed");
+});
+
+for (const [name, over, initialScreen, paste] of [
+  [
+    "a Codex success line from an earlier switch",
+    { agentProvider: "codex" },
+    "Model changed to gpt-x medium for this session only",
+    `${PASTE_START}/model --reasoning=medium${PASTE_END}`,
+  ],
+  [
+    "agent prose matching the Claude picker marker",
+    {},
+    "Done — applies for this session only.",
+    `${PASTE_START}/effort${PASTE_END}`,
+  ],
+] as const) {
+  test(`${name} on screen does not block the retry`, async () => {
+    const h = harness({
+      session: sess(over),
+      gate: { approved: true },
+      confirms: false,
+      initialScreen,
+    });
+    expect(await h.svc.releasePlanGate("s1")).toBe(false);
+    expect(h.sent.filter((t) => t === paste)).toHaveLength(2);
+    expect(h.sent.filter((t) => t === "\x1b")).toHaveLength(2); // one per attempt, no stray
+  });
+}
+
+test("a busy second attempt after keys were sent reports unconfirmed, not busy", async () => {
+  const h = harness({
+    session: sess(),
+    gate: { approved: true },
+    confirms: false,
+    workingAfterSend: true,
+  });
+  expect(await h.svc.releasePlanGate("s1")).toBe(false);
+  expect(h.sent.filter((t) => t === `${PASTE_START}/effort${PASTE_END}`)).toHaveLength(1);
+  expect(h.gate()?.effortSwitchError).toBe("unconfirmed");
+});
+
+test("a wrapped picker footer (narrow pane) confirms on the first attempt", async () => {
+  const h = harness({ session: sess(), gate: { approved: true }, wrapFooter: true });
+  expect(await h.svc.releasePlanGate("s1")).toBe(true);
+  expect(h.sent).not.toContain("\x1b");
+  expect(h.session.activeEffort).toBe("medium");
+});
+
+test("an unconfirmed attempt logs step, attempt and pane context", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const h = harness({ session: sess(), gate: { approved: true }, confirms: false });
+    await h.svc.releasePlanGate("s1");
+    const lines = warn.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith("[effort]"));
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("s1: switch to medium unconfirmed at step 1/2 (attempt 1/2)");
+    expect(lines[1]).toContain("(attempt 2/2)");
+    expect(lines[0]).toContain("widest line");
+  } finally {
+    warn.mockRestore();
+  }
 });
 
 test("a working agent gets nothing: busy, no keys, no Go", async () => {

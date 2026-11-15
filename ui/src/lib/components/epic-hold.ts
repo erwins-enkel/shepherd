@@ -20,7 +20,8 @@ export type HoldAction =
   | { kind: "base_resolve" }
   | { kind: "base_continue"; override: "base" | "predecessor" }
   | { kind: "open_session"; sessionId: string }
-  | { kind: "approve" };
+  | { kind: "approve" }
+  | { kind: "release_claim"; number: number };
 
 export interface DrainHoldView {
   code: string;
@@ -99,6 +100,18 @@ const HOLDS: Record<string, HoldBuilder> = {
     text: m.epic_rowhold_approval_text({ num }),
     actions: [{ kind: "approve" }],
   }),
+  // #4025: the epic's next child carries the drain's claim label, but no session or PR holds it —
+  // a claim orphaned by a crash or a hand-set label. Detail is the child's issue number.
+  epic_claim_orphaned: (num) => {
+    const number = Number(num);
+    return {
+      scope: "epic",
+      tone: "halt",
+      what: m.epic_rowhold_claim_what(),
+      text: m.epic_rowhold_claim_text({ num }),
+      actions: Number.isInteger(number) && number > 0 ? [{ kind: "release_claim", number }] : [],
+    };
+  },
 };
 
 /** The drain's hold as a halt line, or null for a reason without one. The caller attaches it to
@@ -117,6 +130,7 @@ const ACTION_LABELS: Record<HoldAction["kind"], () => string> = {
   base_continue: () => m.epic_base_continue(),
   open_session: () => m.epic_run_open_session(),
   approve: () => m.epic_rowhold_approve(),
+  release_claim: () => m.epic_rowhold_claim_release(),
 };
 
 export function holdActionLabel(action: HoldAction): string {

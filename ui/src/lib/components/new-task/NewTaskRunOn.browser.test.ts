@@ -78,6 +78,7 @@ function cfg(): RepoConfig & { automationConfirmed: boolean; automationRowExists
     repoMode: "forge",
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicClaimAutoRelease: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,

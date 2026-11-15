@@ -873,6 +873,7 @@ function defaultRepoConfig() {
     repoMode: "forge" as const,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicClaimAutoRelease: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,

@@ -100,6 +100,7 @@
         schedules: schedules.listFor(repoPath)?.length ?? null,
         epicStacks: repoConfig.epicStacksOn(repoPath),
         preWarmEpicLandingCi: repoConfig.preWarmEpicLandingCiOn(repoPath),
+        epicClaimAutoRelease: repoConfig.epicClaimAutoReleaseOn(repoPath),
         pinned: repoConfig.isPinned(repoPath, false),
         hidden: repoConfig.isHidden(repoPath, false),
         previewOpenMode: repoConfig.previewOpenModeFor(repoPath),

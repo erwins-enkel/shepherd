@@ -16,6 +16,7 @@ const api = vi.hoisted(() => ({
   overrideEpicBaseHold: vi.fn(async () => {}),
   reworkEpicBase: vi.fn<() => Promise<void>>(async () => {}),
   approveEpicNext: vi.fn(async () => ({})),
+  resolveDrainClaim: vi.fn<() => Promise<void>>(async () => {}),
   overrideRepoBootstrap: vi.fn(
     async (): Promise<RepoBootstrapView> => ({}) as unknown as RepoBootstrapView,
   ),
@@ -210,6 +211,44 @@ describe("EpicHeaderRow drain hold (#3457)", () => {
     expect(line()!.dataset.tone).toBe("wait");
     await action(m.epic_rowhold_approve()).click();
     await vi.waitFor(() => expect(api.approveEpicNext).toHaveBeenCalledWith(r, B));
+  });
+
+  it("orphaned claim: Release claim asks once, Confirm releases the child's claim (#4025)", async () => {
+    const { r, onselect } = await mountRow({ reason: "epic_claim_orphaned", detail: "239" });
+    await expect.element(page.getByText(m.epic_rowhold_claim_what())).toBeVisible();
+    expect(line()!.dataset.tone).toBe("halt");
+    await action(m.epic_rowhold_claim_release()).click();
+    expect(api.resolveDrainClaim).not.toHaveBeenCalled();
+    await expect.element(page.getByText(m.epic_rowhold_claim_confirm({ num: 239 }))).toBeVisible();
+    expect(action(m.epic_rowhold_claim_release()).query()).toBeNull();
+    await action(m.epic_rowhold_claim_yes()).click();
+    await vi.waitFor(() => expect(api.resolveDrainClaim).toHaveBeenCalledWith(r, 239, "release"));
+    await expect.element(action(m.epic_rowhold_claim_release())).toBeVisible();
+    expect(onselect).not.toHaveBeenCalled();
+  });
+
+  it("orphaned claim: Cancel backs out without releasing", async () => {
+    const { onselect } = await mountRow({ reason: "epic_claim_orphaned", detail: "239" });
+    await action(m.epic_rowhold_claim_release()).click();
+    await action(m.common_cancel()).click();
+    await expect.element(action(m.epic_rowhold_claim_release())).toBeVisible();
+    expect(api.resolveDrainClaim).not.toHaveBeenCalled();
+    expect(onselect).not.toHaveBeenCalled();
+  });
+
+  it("orphaned claim: a 409 says the issue changed, anything else that it failed", async () => {
+    api.resolveDrainClaim.mockRejectedValueOnce(new ApiError(409, "conflict", "changed"));
+    await mountRow({ reason: "epic_claim_orphaned", detail: "239" });
+    await action(m.epic_rowhold_claim_release()).click();
+    await action(m.epic_rowhold_claim_yes()).click();
+    await vi.waitFor(() =>
+      expect(toasts.items.map((t) => t.text)).toContain(m.drain_claims_changed()),
+    );
+    api.resolveDrainClaim.mockRejectedValueOnce(new Error("offline"));
+    await action(m.epic_rowhold_claim_yes()).click();
+    await vi.waitFor(() =>
+      expect(toasts.items.map((t) => t.text)).toContain(m.drain_claims_failed()),
+    );
   });
 
   it("keys on an action stay with it — Enter doesn't select the row", async () => {

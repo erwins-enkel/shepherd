@@ -1391,6 +1391,9 @@ export interface RepoConfig {
   /** Opens the epic's landing PR early as a draft during drain so each child merge re-runs
    *  landing CI against main (#1664). Default off — opt-in. */
   preWarmEpicLandingCi: boolean;
+  /** After 30 minutes with no session or PR, the drain releases the claim label on the running
+   *  epic's next child (#4025). Default off — a person may hold the label by hand. */
+  epicClaimAutoRelease: boolean;
   /** Let the merge train and epic auto-land merge in a GitHub repo where no workflow runs on PRs (#3104).
    *  Default off — without CI those autonomous merges hold. */
   mergeWithoutCi: boolean;

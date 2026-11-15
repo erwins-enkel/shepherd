@@ -149,6 +149,7 @@ test("repo config autopilotEnabled defaults off and round-trips", () => {
     repoMode: "forge",
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicClaimAutoRelease: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,

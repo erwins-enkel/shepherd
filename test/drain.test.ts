@@ -1,5 +1,10 @@
 import { test, expect, describe, spyOn, afterEach } from "bun:test";
-import { DrainService, type DrainStatus } from "../src/drain";
+import {
+  DrainService,
+  EPIC_CLAIM_AUTO_RELEASE_MS,
+  PENDING_CLAIMS_KEY,
+  type DrainStatus,
+} from "../src/drain";
 import { ACTIVE_LABEL, ARCHIVED_MAPPING_GRACE_MS } from "../src/drain-core";
 import { SessionStore } from "../src/store";
 import type {
@@ -211,6 +216,7 @@ function makeHarness(
     repoMode: "forge",
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicClaimAutoRelease: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
@@ -1385,6 +1391,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     repoMode: "forge",
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicClaimAutoRelease: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
@@ -1419,6 +1426,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     repoMode: "forge",
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicClaimAutoRelease: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
@@ -2721,6 +2729,7 @@ test("#790: spawn-failure cooldown: failed issue is skipped until window expires
     repoMode: "forge",
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicClaimAutoRelease: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
@@ -3382,5 +3391,242 @@ describe("#3453: DrainService.autoBlockers", () => {
       });
       expect(r.preselect).toBe("trusted");
     });
+  });
+});
+
+// ── #4025: orphaned claims blocking an epic, auto-release, pending-claim journal ──
+
+describe("epic claim orphans (#4025)", () => {
+  const PARENT = 244;
+  const CHILD = 239;
+  const OTHER = 500;
+
+  // tick()'s pump + auto-release, without its landing passes (which shell out to git).
+  async function step(h: Harness) {
+    await h.drain.pump(REPO);
+    await h.drain["autoReleaseEpicClaims"](REPO);
+  }
+
+  function orphanEpic(opts: { now?: () => number; autoRelease?: boolean; liveChild?: boolean }) {
+    const childIssue = issue(CHILD, { labels: [ACTIVE_LABEL] });
+    const parentIssue = issue(PARENT, { labels: [] });
+    const orphans = opts.liveChild
+      ? [childIssue, issue(OTHER, { labels: [ACTIVE_LABEL] })]
+      : [childIssue];
+    const h = makeHarness({
+      autoDrainEnabled: false,
+      now: opts.now,
+      listIssuesImpl: async () => [],
+      claimListing: async () => orphans,
+      claimReferences: [],
+      getIssueImpl: async (n) =>
+        n === PARENT ? parentIssue : (orphans.find((i) => i.number === n) ?? null),
+      listSubIssuesImpl: async (n) =>
+        n === PARENT
+          ? [
+              {
+                number: CHILD,
+                title: "c",
+                url: "u",
+                body: "",
+                closed: false,
+                labels: [ACTIVE_LABEL],
+              },
+            ]
+          : [],
+      listBlockedByImpl: async () => [],
+    });
+    if (opts.autoRelease)
+      h.store.setRepoConfig(REPO, { ...h.store.getRepoConfig(REPO), epicClaimAutoRelease: true });
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+    if (opts.liveChild)
+      h.store.create({
+        name: "live",
+        isolated: true,
+        herdrSession: "default",
+        herdrAgentId: "t",
+        baseBranch: "main",
+        repoPath: REPO,
+        prompt: "p",
+        branch: "live",
+        worktreePath: "/live",
+        issueNumber: CHILD,
+        auto: true,
+      });
+    return h;
+  }
+
+  test("a running epic whose next child is held only by an orphaned claim reads as paused", async () => {
+    const h = orphanEpic({});
+    const [status] = await h.drain.snapshot();
+    expect(status).toMatchObject({
+      epicParent: PARENT,
+      paused: true,
+      reason: "epic_claim_orphaned",
+      detail: String(CHILD),
+    });
+  });
+
+  test("an orphan on an unrelated issue leaves the epic idle", async () => {
+    const h = orphanEpic({ liveChild: true });
+    const [status] = await h.drain.snapshot();
+    expect(status!.claimDiagnostics!.map((c) => c.number)).toEqual([OTHER]);
+    expect(status!.reason).not.toBe("epic_claim_orphaned");
+    expect(status!.paused).toBe(false);
+  });
+
+  test("label mode keeps orphaned_claims informational (not paused)", async () => {
+    const h = makeHarness({
+      issues: [issue(133, { labels: [ACTIVE_LABEL, "shepherd:auto"] })],
+      claimReferences: [],
+    });
+    const [status] = await h.drain.snapshot();
+    expect(status).toMatchObject({ reason: "orphaned_claims", paused: false });
+  });
+
+  test("auto-release frees the claim only with the flag on, after the 30-minute grace", async () => {
+    for (const autoRelease of [true, false]) {
+      let clock = 1_000_000;
+      const h = orphanEpic({ now: () => clock, autoRelease });
+      const warn = spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        await step(h);
+        clock += EPIC_CLAIM_AUTO_RELEASE_MS - 1;
+        await step(h);
+        expect(h.forgeRec.removed).toEqual([]);
+        clock += 1;
+        await step(h);
+        expect(h.forgeRec.removed).toEqual(
+          autoRelease ? [{ number: CHILD, label: ACTIVE_LABEL }] : [],
+        );
+        if (autoRelease)
+          expect(warn.mock.calls.map((c) => String(c[0]))).toContain(
+            `[claim] release ${REPO}#${CHILD} via=auto-release desig=-`,
+          );
+      } finally {
+        warn.mockRestore();
+      }
+    }
+  });
+
+  test("the grace restarts when the child stops being blocked", async () => {
+    let clock = 1_000_000;
+    const h = orphanEpic({ now: () => clock, autoRelease: true });
+    await step(h);
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "paused",
+    });
+    clock += EPIC_CLAIM_AUTO_RELEASE_MS;
+    await step(h);
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+    await step(h);
+    expect(h.forgeRec.removed).toEqual([]);
+  });
+});
+
+describe("pending-claim journal (#4025)", () => {
+  const journal = (h: Harness) => h.store.getSetting(PENDING_CLAIMS_KEY);
+
+  test("a claim a killed process stamped without a session is released next tick", async () => {
+    const h = makeHarness({ autoDrainEnabled: false });
+    h.store.setSetting(PENDING_CLAIMS_KEY, JSON.stringify([{ repoPath: REPO, number: 42, at: 1 }]));
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await h.drain.tick();
+      expect(h.forgeRec.removed).toEqual([{ number: 42, label: ACTIVE_LABEL }]);
+      expect(warn.mock.calls.map((c) => String(c[0]))).toContain(
+        `[claim] release ${REPO}#42 via=interrupted-spawn desig=-`,
+      );
+    } finally {
+      warn.mockRestore();
+    }
+    expect(journal(h)).toBeNull();
+  });
+
+  test("a journaled claim a live session holds is kept", async () => {
+    const h = makeHarness({ autoDrainEnabled: false });
+    h.store.create({
+      name: "live",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "t",
+      baseBranch: "main",
+      repoPath: REPO,
+      prompt: "p",
+      branch: "live",
+      worktreePath: "/live",
+      issueNumber: 42,
+    });
+    h.store.setSetting(PENDING_CLAIMS_KEY, JSON.stringify([{ repoPath: REPO, number: 42, at: 1 }]));
+    await h.drain.tick();
+    expect(h.forgeRec.removed).toEqual([]);
+    expect(journal(h)).toBeNull();
+  });
+
+  test("a failed release stays journaled for the next tick", async () => {
+    const h = makeHarness({ autoDrainEnabled: false });
+    h.drain["deps"].resolveForge(REPO)!.removeIssueLabel = async () => {
+      throw new Error("boom");
+    };
+    const entry = [{ repoPath: REPO, number: 42, at: 1 }];
+    h.store.setSetting(PENDING_CLAIMS_KEY, JSON.stringify(entry));
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await h.drain.tick();
+    } finally {
+      warn.mockRestore();
+    }
+    expect(JSON.parse(journal(h)!)).toEqual(entry);
+  });
+
+  test("a spawn journals its claim from the stamp until the session exists, untouched by a tick", async () => {
+    let atStamp: string | null = null;
+    let duringCreate: string | null = null;
+    const h: Harness = makeHarness({
+      issues: [issue(1)],
+      addIssueLabelImpl: async () => {
+        atStamp = journal(h);
+      },
+      createImpl: async () => {
+        await h.drain.tick(); // reconcile must leave the in-flight claim alone
+        duringCreate = journal(h);
+      },
+    });
+    await h.drain.pump(REPO);
+    expect(JSON.parse(atStamp!)).toMatchObject([{ repoPath: REPO, number: 1 }]);
+    expect(duringCreate).toBe(atStamp);
+    expect(h.forgeRec.removed).toEqual([]);
+    expect(h.creates).toHaveLength(1);
+    expect(journal(h)).toBeNull();
+  });
+
+  test("a failed spawn releases the claim and clears its journal entry", async () => {
+    const h = makeHarness({
+      issues: [issue(1)],
+      createImpl: async () => {
+        throw new Error("create failed");
+      },
+    });
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await h.drain.pump(REPO);
+    } finally {
+      warn.mockRestore();
+    }
+    expect(h.forgeRec.removed).toEqual([{ number: 1, label: ACTIVE_LABEL }]);
+    expect(journal(h)).toBeNull();
   });
 });

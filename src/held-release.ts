@@ -119,8 +119,9 @@ export async function releaseHeldTasks(
       const issueRef = task.input.issueRef;
       if (issueRef) {
         const { repoPath } = task.input;
+        const log = { repoPath, via: "held", desig: s.desig };
         setTimeout(
-          () => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, issueRef.number),
+          () => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, issueRef.number, log),
           0,
         );
       }

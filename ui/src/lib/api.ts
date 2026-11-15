@@ -3341,6 +3341,7 @@ export type RepoConfigPatch = Partial<
     | "repoMode"
     | "manualStepsIssueEnabled"
     | "preWarmEpicLandingCi"
+    | "epicClaimAutoRelease"
     | "mergeWithoutCi"
     | "epicStacksEnabled"
     | "sharedBrowserEnabled"

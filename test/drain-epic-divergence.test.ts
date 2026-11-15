@@ -94,6 +94,7 @@ function makeHarness(branchesRef: BranchesRef, clock: { t: number }, frozen?: ()
     repoMode: "forge",
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicClaimAutoRelease: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,

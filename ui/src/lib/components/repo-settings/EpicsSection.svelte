@@ -4,7 +4,8 @@
   import RepoSettingRow from "./RepoSettingRow.svelte";
 
   // Epics (#3443): how an epic's children land — stacked on their predecessor's branch, and an
-  // early draft landing PR that keeps the landing CI warm. Both need GitHub.
+  // early draft landing PR that keeps the landing CI warm, and (#4025) releasing a child's
+  // orphaned claim on its own. All need GitHub.
   let { repoPath }: { repoPath: string } = $props();
 
   const lightweight = $derived(repoConfig.repoModeFor(repoPath) === "lightweight");
@@ -27,4 +28,13 @@
   locked={lightweight ? m.automation_lightweight_unavailable() : undefined}
   checked={repoConfig.preWarmEpicLandingCiOn(repoPath) && !lightweight}
   ontoggle={() => repoConfig.togglePreWarmEpicLandingCi(repoPath)}
+/>
+<RepoSettingRow
+  field="epicClaimAutoRelease"
+  glyph="⟲"
+  name={m.automation_epic_claim_release_name()}
+  desc={m.automation_epic_claim_release_desc()}
+  locked={lightweight ? m.automation_lightweight_unavailable() : undefined}
+  checked={repoConfig.epicClaimAutoReleaseOn(repoPath) && !lightweight}
+  ontoggle={() => repoConfig.toggleEpicClaimAutoRelease(repoPath)}
 />

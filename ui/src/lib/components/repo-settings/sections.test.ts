@@ -28,6 +28,7 @@ const snap = (over: Partial<SectionSnapshot> = {}): SectionSnapshot => ({
   schedules: 0,
   epicStacks: false,
   preWarmEpicLandingCi: true,
+  epicClaimAutoRelease: false,
   pinned: false,
   hidden: false,
   previewOpenMode: "ask",
@@ -94,7 +95,10 @@ describe("repo settings sections", () => {
     expect(sectionSummary("review", snap({ flags: { ...flags, critic: false } }))).toBe(
       m.reposettings_summary_on({ on: 0, total: 4 }),
     );
-    expect(sectionSummary("epics", snap())).toBe(m.reposettings_summary_on({ on: 1, total: 2 }));
+    expect(sectionSummary("epics", snap())).toBe(m.reposettings_summary_on({ on: 1, total: 3 }));
+    expect(sectionSummary("epics", snap({ epicClaimAutoRelease: true }))).toBe(
+      m.reposettings_summary_on({ on: 2, total: 3 }),
+    );
   });
 
   it("says how PRs merge", () => {

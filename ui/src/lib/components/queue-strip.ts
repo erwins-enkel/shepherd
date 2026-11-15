@@ -326,6 +326,9 @@ export function pausedText(d: DrainStatus): string {
     // nothing spawns or completes until it loads — name it instead of a generic pause.
     case "epic_unreadable":
       return m.drain_paused_epic_unreadable();
+    // #4025: the epic's next child is claimed, but no session or PR holds the claim.
+    case "epic_claim_orphaned":
+      return m.drain_paused_epic_claim_orphaned({ num: desig });
     // #3105: the repo is still in project bootstrap — detail lists what is missing ("P2,P3,…").
     case "bootstrap_incomplete":
       return m.drain_paused_bootstrap({ missing: bootstrapMissingText(desig) });

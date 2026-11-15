@@ -403,6 +403,7 @@ const OVERLAY_MAPS = {
   buildQueueEnabled: "buildQueue",
   manualStepsIssueEnabled: "manualStepsIssue",
   preWarmEpicLandingCi: "preWarmEpicLandingCi",
+  epicClaimAutoRelease: "epicClaimAutoRelease",
   mergeWithoutCi: "mergeWithoutCi",
   epicStacksEnabled: "epicStacks",
   sharedBrowserEnabled: "sharedBrowser",
@@ -445,6 +446,7 @@ class RepoConfigStore {
   buildQueue = $state<Record<string, boolean>>({}); // agent-authored build queue (default off)
   manualStepsIssue = $state<Record<string, boolean>>({}); // GitHub tracking issue on merge (default off, #1061)
   preWarmEpicLandingCi = $state<Record<string, boolean>>({}); // pre-warm epic landing CI via early draft PR (default off, #1664)
+  epicClaimAutoRelease = $state<Record<string, boolean>>({}); // drain releases an orphaned epic-child claim after 30 min (default off, #4025)
   mergeWithoutCi = $state<Record<string, boolean>>({}); // autonomous merges in a no-CI repo (default off, #3104)
   noPrCi = $state<Record<string, boolean>>({}); // derived: no workflow runs on PRs (read-only, #3221)
   epicStacks = $state<Record<string, boolean>>({}); // stack epic children on their predecessor's PR branch (default off, #2069)
@@ -498,6 +500,10 @@ class RepoConfigStore {
     this.preWarmEpicLandingCi = {
       ...this.preWarmEpicLandingCi,
       [repoPath]: c.preWarmEpicLandingCi,
+    };
+    this.epicClaimAutoRelease = {
+      ...this.epicClaimAutoRelease,
+      [repoPath]: c.epicClaimAutoRelease,
     };
     this.mergeWithoutCi = { ...this.mergeWithoutCi, [repoPath]: c.mergeWithoutCi };
     this.noPrCi = { ...this.noPrCi, [repoPath]: c.noPrCi ?? false };
@@ -774,6 +780,10 @@ class RepoConfigStore {
     await this.write(repoPath, { preWarmEpicLandingCi: !this.preWarmEpicLandingCiOn(repoPath) });
   }
 
+  async toggleEpicClaimAutoRelease(repoPath: string) {
+    await this.write(repoPath, { epicClaimAutoRelease: !this.epicClaimAutoReleaseOn(repoPath) });
+  }
+
   async toggleMergeWithoutCi(repoPath: string) {
     await this.write(repoPath, { mergeWithoutCi: !this.mergeWithoutCiOn(repoPath) });
   }
@@ -877,6 +887,10 @@ class RepoConfigStore {
 
   preWarmEpicLandingCiOn(repoPath: string): boolean {
     return this.preWarmEpicLandingCi[repoPath] ?? false;
+  }
+
+  epicClaimAutoReleaseOn(repoPath: string): boolean {
+    return this.epicClaimAutoRelease[repoPath] ?? false;
   }
 
   mergeWithoutCiOn(repoPath: string): boolean {

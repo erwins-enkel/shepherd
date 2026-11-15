@@ -221,6 +221,12 @@ export function repoSettingsSearchEntries(): RepoSettingsSearchEntry[] {
       description: m.automation_prewarm_epic_ci_desc(),
     },
     {
+      section: "epics",
+      field: "epicClaimAutoRelease",
+      name: m.automation_epic_claim_release_name(),
+      description: m.automation_epic_claim_release_desc(),
+    },
+    {
       section: "display",
       field: "previewOpenMode",
       name: m.automation_preview_open_mode_label(),

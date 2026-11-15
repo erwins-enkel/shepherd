@@ -39,6 +39,7 @@ pub fn repo_config_json() -> Value {
         "draftMode",
         "manualStepsIssueEnabled",
         "preWarmEpicLandingCi",
+        "epicClaimAutoRelease",
         "mergeWithoutCi",
         "epicStacksEnabled",
         "sharedBrowserEnabled",

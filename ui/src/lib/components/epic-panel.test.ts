@@ -116,6 +116,12 @@ describe("epicHoldLine", () => {
     );
   });
 
+  it("epic_claim_orphaned names the claimed child (#4025)", () => {
+    expect(
+      epicHoldLine(drain({ reason: "epic_claim_orphaned", detail: "239" }), true, [...READY]),
+    ).toBe(m.epic_hold_epic_claim_orphaned({ num: "239" }));
+  });
+
   it("epic_unreadable explains the stall", () => {
     expect(epicHoldLine(drain({ reason: "epic_unreadable" }), true, [...READY])).toBe(
       m.epic_hold_epic_unreadable(),
@@ -336,6 +342,13 @@ describe("epicRunState", () => {
     const s = epicRunState(epicB(), B, capDrain({ reason: "blocked", detail: "TASK-07" }));
     expect(s).toMatchObject({ kind: "halted", tone: "halt" });
     expect(s.note).toContain("TASK-07");
+  });
+
+  it("an orphaned claim on the next child halts the run with its hold line (#4025)", () => {
+    const d = capDrain({ reason: "epic_claim_orphaned", detail: "239", paused: true });
+    const s = epicRunState(epicB(), B, d);
+    expect(s).toMatchObject({ kind: "halted", tone: "halt" });
+    expect(s.note).toBe(m.epic_hold_epic_claim_orphaned({ num: "239" }));
   });
 
   it("memory pressure halts the run with the drain's paused line", () => {

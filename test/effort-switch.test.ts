@@ -49,6 +49,21 @@ describe("effortSwitchSteps", () => {
     expect(countMatches(line.replace("medium", "xhigh"), steps[0]!.confirm)).toBe(0);
   });
 
+  test("markers match across a narrow pane's line wrap (CC 2.1.325 picker)", () => {
+    const [open, apply] = effortSwitchSteps("claude", "high")!;
+    // footer as rendered at 60 and 50 cols
+    const at60 = "  ←/→ to adjust · Enter to confirm · s for this session\n  only · Esc to cancel";
+    const at50 = "  ←/→ to adjust · Enter to confirm · s for this\n  session only · Esc to cancel";
+    expect(countMatches(at60, open!.confirm)).toBe(1);
+    expect(countMatches(at50, open!.confirm)).toBe(1);
+    const wrapped = "  ⎿  Set effort level to high (this\n     session only): Comprehensive";
+    expect(countMatches(wrapped, apply!.confirm)).toBe(1);
+    expect(countMatches(wrapped.replace("to high", "to\n     xhigh"), apply!.confirm)).toBe(0);
+    const codex = effortSwitchSteps("codex", "high")![0]!.confirm;
+    expect(countMatches("• Model changed to gpt-x high for this\n  session only", codex)).toBe(1);
+    expect(countMatches("• Model changed to gpt-x xhigh for this\n  session only", codex)).toBe(0);
+  });
+
   test("countMatches counts every occurrence (baseline vs. after)", () => {
     const re = effortSwitchSteps("codex", "low")![0]!.confirm;
     const line = "Model changed to m low for this session only";

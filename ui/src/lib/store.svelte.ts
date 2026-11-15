@@ -838,8 +838,17 @@ export class HerdStore {
       }
       case "session:egress-drop": {
         // Review opens the repo's blocked-hosts list (#3922), where the host can be allowed.
-        const repoPath = this.byId(ev.data.id)?.repoPath;
-        toasts.info(m.toast_egress_drop({ host: ev.data.host }), {
+        const session = this.byId(ev.data.id);
+        const repoPath = session?.repoPath;
+        const host = ev.data.host;
+        const text = session
+          ? m.toast_egress_drop_session({
+              repo: basename(session.repoPath),
+              name: session.name,
+              host,
+            })
+          : m.toast_egress_drop({ host });
+        toasts.info(text, {
           key: "egress-drop-" + ev.data.id,
           alert: true,
           action: repoPath

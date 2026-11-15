@@ -490,10 +490,10 @@ test("session:egress-drop offers Review, which opens the repo's blocked hosts (#
   toasts.items = [];
   repoSettingsWindow.target = null;
   const s = new HerdStore();
-  s.setAll([session("s1")]); // repoPath "/r"
+  s.setAll([session("s1")]); // name "n", repoPath "/r"
   s.apply({ event: "session:egress-drop", data: { id: "s1", host: "evil.example" } });
   const t = toasts.items.at(-1)!;
-  expect(t.text).toBe(m.toast_egress_drop({ host: "evil.example" }));
+  expect(t.text).toBe(m.toast_egress_drop_session({ repo: "r", name: "n", host: "evil.example" }));
   expect(t.actionLabel).toBe(m.toast_egress_drop_review());
   toasts.act(t.id);
   expect(repoSettingsWindow.target).toMatchObject({
@@ -504,6 +504,7 @@ test("session:egress-drop offers Review, which opens the repo's blocked hosts (#
 
   // an unknown session has no repo to open: the toast stays plain
   s.apply({ event: "session:egress-drop", data: { id: "gone", host: "x.example" } });
+  expect(toasts.items.at(-1)?.text).toBe(m.toast_egress_drop({ host: "x.example" }));
   expect(toasts.items.at(-1)?.actionLabel).toBeUndefined();
   repoSettingsWindow.target = null;
 });

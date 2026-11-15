@@ -12,7 +12,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
 });
 vi.mock("#lib/visibility.js", () => ({ pollWhileVisible: () => () => {} }));
 
-const { default: ChatView } = await import("./ChatView.svelte");
+const { default: ChatView, forgetChatDrafts } = await import("./ChatView.svelte");
 const { getCommands, getSessionMessages } = await import("#lib/api.js");
 const mockMessages = vi.mocked(getSessionMessages);
 const mockCommands = vi.mocked(getCommands);
@@ -48,6 +48,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  forgetChatDrafts();
   document.body.innerHTML = "";
 });
 
@@ -655,5 +656,63 @@ describe("HUD asynchronous delivery", () => {
     await input.fill("keep this question");
     await page.getByRole("button", { name: m.assistant_chat_send(), exact: true }).click();
     await expect.element(input).toHaveValue("keep this question");
+  });
+});
+
+describe("ChatView drafts", () => {
+  const input = () => page.getByRole("textbox");
+
+  it("an unsent draft comes back when its session's Chat remounts", async () => {
+    const first = await render(ChatView, props({ sessionId: "draft-a", status: "idle" }));
+    await input().fill("half a thought");
+    await first.unmount();
+    render(ChatView, props({ sessionId: "draft-a", status: "idle" }));
+    await expect.element(input()).toHaveValue("half a thought");
+  });
+
+  it("another session never inherits the draft", async () => {
+    const first = await render(ChatView, props({ sessionId: "draft-b", status: "idle" }));
+    await input().fill("for b only");
+    await first.unmount();
+    render(ChatView, props({ sessionId: "draft-c", status: "idle" }));
+    await expect.element(input()).toHaveValue("");
+  });
+
+  it("a send that fails later gives its words back, even after a session switch", async () => {
+    let fail: (ok: boolean) => void = () => {};
+    const onsend = vi.fn(() => new Promise<boolean>((resolve) => (fail = resolve)));
+    const first = await render(ChatView, props({ sessionId: "draft-e", status: "idle", onsend }));
+    await input().fill("do not lose me");
+    await page.getByRole("button", { name: m.assistant_chat_send(), exact: true }).click();
+    await expect.element(input()).toHaveValue("");
+    await first.unmount();
+    fail(false);
+    await Promise.resolve();
+    render(ChatView, props({ sessionId: "draft-e", status: "idle" }));
+    await expect.element(input()).toHaveValue("do not lose me");
+  });
+
+  it("a send that fails after the operator came back fills the remounted Chat and says so", async () => {
+    let fail: (ok: boolean) => void = () => {};
+    const onsend = vi.fn(() => new Promise<boolean>((resolve) => (fail = resolve)));
+    const first = await render(ChatView, props({ sessionId: "draft-f", status: "idle", onsend }));
+    await input().fill("still here?");
+    await page.getByRole("button", { name: m.assistant_chat_send(), exact: true }).click();
+    await first.unmount();
+    render(ChatView, props({ sessionId: "draft-f", status: "idle" }));
+    await expect.element(input()).toHaveValue("");
+    fail(false);
+    await expect.element(input()).toHaveValue("still here?");
+    await expect.element(page.getByText(m.session_chat_send_failed())).toBeVisible();
+  });
+
+  it("a sent message leaves no draft behind", async () => {
+    const first = await render(ChatView, props({ sessionId: "draft-d", status: "idle" }));
+    await input().fill("ship it");
+    await page.getByRole("button", { name: m.assistant_chat_send(), exact: true }).click();
+    await expect.element(input()).toHaveValue("");
+    await first.unmount();
+    render(ChatView, props({ sessionId: "draft-d", status: "idle" }));
+    await expect.element(input()).toHaveValue("");
   });
 });

@@ -1,3 +1,19 @@
+<script lang="ts" module>
+  import { SvelteMap, SvelteSet } from "svelte/reactivity";
+
+  // Each session's unsent composer text, for the page's lifetime: switching session remounts the
+  // Chat, and the operator's half-written message must be there when they come back.
+  const drafts = new SvelteMap<string, string>();
+  // Sessions whose send failed after its Chat may have unmounted: the next one on screen says so.
+  const failedSends = new SvelteSet<string>();
+
+  /** Drop every kept draft (a test's fresh start). */
+  export function forgetChatDrafts() {
+    drafts.clear();
+    failedSends.clear();
+  }
+</script>
+
 <script lang="ts">
   import { onMount, untrack, type Snippet } from "svelte";
   import { desigIndex } from "#lib/desigLinks.js";
@@ -130,9 +146,23 @@
 
   let data = $state<SessionMessages | null>(null);
   let pending = $state<PendingSend[]>([]);
-  let draft = $state("");
+  let draft = $state(untrack(() => drafts.get(sessionId) ?? ""));
   let sending = $state(false);
   let sendFailed = $state(false);
+  $effect(() => {
+    if (draft) drafts.set(sessionId, draft);
+    else drafts.delete(sessionId);
+  });
+  // A failed send's words come back through the map, so whichever Chat shows the session (this
+  // one, or a remount after a switch) gets them and the failure notice.
+  $effect(() => {
+    const kept = drafts.get(sessionId);
+    if (kept && !untrack(() => draft)) draft = kept;
+    if (failedSends.has(sessionId)) {
+      failedSends.delete(sessionId);
+      sendFailed = true;
+    }
+  });
   let thread: HTMLDivElement | undefined = $state();
   let input: HTMLTextAreaElement | undefined = $state();
 
@@ -530,7 +560,19 @@
         sending = false;
       }
       if (!track(text, delivered, match)) return;
-    } else if (!send(text, match)) return;
+    } else {
+      const sent = onsend(text);
+      if (!track(text, sent, match)) return;
+      // A send that fails later gives its words back, even once the operator switched away.
+      if (sent instanceof Promise) {
+        const id = sessionId;
+        const restore = () => {
+          if (!drafts.get(id)) drafts.set(id, typed);
+          failedSends.add(id);
+        };
+        sent.then((ok) => ok || restore(), restore);
+      }
+    }
     if (draft === originalDraft) draft = "";
     attachments = attachments.filter((a) => !sentAttachments.includes(a.id));
     queueMicrotask(autosize);

@@ -785,11 +785,12 @@ Either way the other is one tap away. To always open on one of them, pick it und
 Device → Session opens on**; the choice is saved per device.
 
 - **Write** in the field at the bottom: Enter sends, Shift+Enter breaks the line, Esc or **Stop**
-  interrupts a turn (on touch, the Send button sends). Your message is typed into the session's
-  terminal, or goes through the reply route when no terminal is connected. A Codex session's
-  message always takes the reply route: Codex exits after each turn, and the route resumes it
-  first. A session on a connected machine always takes that machine's reply route. A sent message
-  shows as _sent_ until the transcript logs it.
+  interrupts a turn (on touch, the Send button sends). Your message goes through the reply route,
+  which delivers it on the server, so switching to another session right after sending can't drop
+  it. A Codex session's pane is resumed first, since Codex exits after each turn. A session on a
+  connected machine takes that machine's reply route. A sent message shows as _sent_ until the
+  transcript logs it. Text you typed but didn't send stays in that session's Chat until you come
+  back, as long as the page stays open.
 - **Pick a command** by typing `/` at the start of a message; a Codex session uses `$` or `@`,
   anywhere in the message. The menu lists the repo's commands for that agent, and Claude's also
   has `/compact`. Enter or Tab fills the highlighted one in so you can add arguments, and Esc

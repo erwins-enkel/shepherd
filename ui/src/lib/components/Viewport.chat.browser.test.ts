@@ -28,6 +28,7 @@ vi.mock("#lib/api.js", async (importOriginal) => {
   };
 });
 const { default: Viewport } = await import("./Viewport.svelte");
+const { forgetChatDrafts } = await import("./chat/ChatView.svelte");
 const { getSessionMessages, replySession, locateSessionFile, getWorktreeListing, getHostFile } =
   await import("#lib/api.js");
 const mockMessages = vi.mocked(getSessionMessages);
@@ -125,6 +126,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  forgetChatDrafts();
   document.body.innerHTML = "";
   sessionStartTab.set("auto");
 });
@@ -260,20 +262,18 @@ describe("Viewport Chat tab", () => {
     await expect.element(page.getByText("$ bun run build")).toBeVisible();
   });
 
-  it("sends over the live terminal socket", async () => {
+  it("sends by the reply route even with a live terminal, so a quick switch can't drop it", async () => {
     await mount();
     clients[0].receive("$ ");
     await open(m.viewport_chat_tab());
     await composer().fill("run the tests");
     await page.getByRole("button", { name: m.assistant_chat_send(), exact: true }).click();
-    await vi.waitFor(() =>
-      expect(ptySend.mock.calls.some(([d]) => String(d).includes("run the tests"))).toBe(true),
-    );
-    expect(mockReply).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(mockReply).toHaveBeenCalledWith("s1", "run the tests"));
+    expect(ptySend.mock.calls.some(([d]) => String(d).includes("run the tests"))).toBe(false);
     await expect.element(page.getByText(m.assistant_chat_sent(), { exact: true })).toBeVisible();
   });
 
-  it("falls back to the reply route without a live terminal", async () => {
+  it("sends by the reply route without a live terminal", async () => {
     await mount();
     await open(m.viewport_chat_tab());
     await composer().fill("go on");
@@ -299,6 +299,7 @@ describe("Viewport Chat tab", () => {
     await page.getByRole("button", { name: m.assistant_chat_send(), exact: true }).click();
     await expect.element(page.getByText(m.session_chat_send_failed())).toBeVisible();
     expect(page.getByText(m.assistant_chat_sent(), { exact: true }).query()).toBeNull();
+    await expect.element(composer()).toHaveValue("go on");
   });
 
   it("answers a blocked menu with the option's digit", async () => {

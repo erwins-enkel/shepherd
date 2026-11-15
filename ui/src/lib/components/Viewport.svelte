@@ -650,14 +650,6 @@
   export function focusTerminal() {
     if (tab === "term") termRef?.focus();
   }
-  /** The assistant's conversation view: submit `text` at the agent's prompt on this terminal's
-   *  socket (the same bracketed paste + CR as the compose bar), so the operator's view report
-   *  rides with it. False when no live terminal is attached to carry it. */
-  export function sendLine(text: string): boolean {
-    if (!ptyLive || !conn) return false;
-    sendComposed(text);
-    return true;
-  }
   /** Type raw keys at the agent (a blocked prompt's answer from the Chat), no bracketed paste. */
   export function sendKeys(seq: string): boolean {
     if (!ptyLive || !conn) return false;
@@ -673,11 +665,11 @@
       () => false,
     );
   }
-  /** The Chat's composer: the terminal socket while it is live, else the reply route. Codex always
-   *  takes the reply route: Codex exits after each turn, leaving a shell that must not get the
-   *  message, and the route resumes the pane first. */
-  function chatSend(text: string): boolean | Promise<boolean> {
-    if (effectiveAgentProvider !== "codex" && sendLine(text)) return true;
+  /** The Chat's composer: always the reply route, which delivers server-side. The terminal socket
+   *  closes as soon as the operator switches session, and a message typed into it just before
+   *  could die with it. The route also resumes an exited Codex pane before delivering. */
+  function chatSend(text: string): Promise<boolean> {
+    bumpOperatorInput();
     return replySession(session.id, text).then(
       () => true,
       () => false,

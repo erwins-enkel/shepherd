@@ -32,6 +32,7 @@ vi.mock("#lib/visibility.js", () => ({
 }));
 
 const { default: AssistantChat } = await import("./AssistantChat.svelte");
+const { forgetChatDrafts } = await import("./chat/ChatView.svelte");
 const { getSessionMessages, answerAsk, resolveActionRequest, uploadFile } =
   await import("#lib/api.js");
 const mockUpload = vi.mocked(uploadFile);
@@ -82,6 +83,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  forgetChatDrafts();
   setLocale(originalLocale, { reload: false });
   document.body.innerHTML = "";
 });

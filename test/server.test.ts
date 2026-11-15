@@ -2462,6 +2462,24 @@ test("PUT /api/repo-config rejects non-boolean preWarmEpicLandingCi", async () =
   expect(res.status).toBe(400);
 });
 
+// ── epicClaimAutoRelease repo-config (#4025) ────────────────────────────────
+
+test("PUT /api/repo-config accepts epicClaimAutoRelease (default off) and persists it", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  expect(deps.store.getRepoConfig(validRepo).epicClaimAutoRelease).toBe(false);
+  const res = await putRepoConfig(app, validRepo, { epicClaimAutoRelease: true });
+  expect(res.status).toBe(200);
+  expect(deps.store.getRepoConfig(validRepo).epicClaimAutoRelease).toBe(true);
+});
+
+test("PUT /api/repo-config rejects non-boolean epicClaimAutoRelease", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { epicClaimAutoRelease: "yes" });
+  expect(res.status).toBe(400);
+});
+
 // ── mergeWithoutCi repo-config (#3104) ──────────────────────────────────────
 
 test("PUT /api/repo-config accepts mergeWithoutCi true → 200 and persists it", async () => {
@@ -2877,17 +2895,26 @@ test("claimLinkedIssue stamps the active label on the linked issue", async () =>
       calls.push({ number, label });
     },
   } as unknown as GitForge;
-  await claimLinkedIssue(forge, 42);
-  expect(calls).toEqual([{ number: 42, label: ACTIVE_LABEL }]);
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    await claimLinkedIssue(forge, 42, { repoPath: "/r", via: "create", desig: "TASK-07" });
+    expect(calls).toEqual([{ number: 42, label: ACTIVE_LABEL }]);
+    // #4025: every claim stamp is traceable to its path and session.
+    expect(warn).toHaveBeenCalledWith("[claim] claim /r#42 via=create desig=TASK-07");
+  } finally {
+    warn.mockRestore();
+  }
 });
 
+const CLAIM_LOG = { repoPath: "/r", via: "create" };
+
 test("claimLinkedIssue is a no-op without a forge", async () => {
-  await expect(claimLinkedIssue(null, 42)).resolves.toBeUndefined();
+  await expect(claimLinkedIssue(null, 42, CLAIM_LOG)).resolves.toBeUndefined();
 });
 
 test("claimLinkedIssue tolerates a forge lacking addIssueLabel", async () => {
   const forge = {} as unknown as GitForge;
-  await expect(claimLinkedIssue(forge, 42)).resolves.toBeUndefined();
+  await expect(claimLinkedIssue(forge, 42, CLAIM_LOG)).resolves.toBeUndefined();
 });
 
 test("claimLinkedIssue swallows an addIssueLabel rejection", async () => {
@@ -2896,7 +2923,7 @@ test("claimLinkedIssue swallows an addIssueLabel rejection", async () => {
       throw new Error("label api boom");
     },
   } as unknown as GitForge;
-  await expect(claimLinkedIssue(forge, 42)).resolves.toBeUndefined();
+  await expect(claimLinkedIssue(forge, 42, CLAIM_LOG)).resolves.toBeUndefined();
 });
 
 // ── GET /api/preview — serve status merge ─────────────────────────────────────

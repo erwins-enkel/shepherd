@@ -9007,5 +9007,16 @@
   "herd_origin_filter_empty": "No {origin} sessions right now.",
   "herd_origin_filters_empty": "No {origin} sessions match the active filters.",
   "feat_origin_filter_title": "Filter sessions by origin",
-  "feat_origin_filter_body": "Once a repo schedule or the auto-drain has started sessions, hover the HERD count in the top bar (or click it) to filter the list by origin: Scheduled, Auto-drain or Manual. While a filter is on, a chip beside the counts names it and clears it with one click. It works together with the repo and status filters and in the Done lens, so you can review last night's scheduled runs. Groups stay as they are. On a phone, pull the list down to show the chips."
+  "feat_origin_filter_body": "Once a repo schedule or the auto-drain has started sessions, hover the HERD count in the top bar (or click it) to filter the list by origin: Scheduled, Auto-drain or Manual. While a filter is on, a chip beside the counts names it and clears it with one click. It works together with the repo and status filters and in the Done lens, so you can review last night's scheduled runs. Groups stay as they are. On a phone, pull the list down to show the chips.",
+  "epic_rowhold_claim_what": "Orphaned claim",
+  "epic_rowhold_claim_text": "#{num} is claimed, but no session or PR holds it.",
+  "epic_rowhold_claim_release": "Release claim",
+  "epic_rowhold_claim_confirm": "Release #{num}?",
+  "epic_rowhold_claim_yes": "Confirm",
+  "epic_hold_epic_claim_orphaned": "Paused: #{num} carries the drain's claim label, but no session or PR holds it. Release the claim so the drain can start it, unless someone holds it by hand.",
+  "drain_paused_epic_claim_orphaned": "Paused: #{num} is claimed, but no session or PR holds it",
+  "automation_epic_claim_release_name": "Release orphaned epic claims",
+  "automation_epic_claim_release_desc": "After 30 minutes with no session or PR, the drain releases the claim on the running epic's next child so the run continues. Off by default because a person may hold the label by hand.",
+  "feat_epic_claim_release_title": "Release an orphaned claim from the epic",
+  "feat_epic_claim_release_body": "When the running epic's next child carries the drain's claim but no session or PR holds it, the epic now reads as paused and names that child. Release the claim from the epic's halt line after one confirmation. Optionally, Repo settings → Epics releases such claims on its own after 30 minutes."
 }

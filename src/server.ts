@@ -532,6 +532,7 @@ import type { StatusPoller } from "./poller";
 import type { SessionActivity } from "./activity-signal";
 import type { DrainStatus, QueuedItem } from "./drain";
 import { ACTIVE_LABEL, PRIORITY_LABEL } from "./drain-core";
+import { logClaim } from "./drain-claims";
 import {
   applyIssueDrainLabels,
   issueDrainState,
@@ -3281,7 +3282,7 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
       const heldItem = await holdUpNextIfDue(deps, input);
       if (heldItem) {
         held.push(heldItem);
-        claims.push(claimLinkedIssue(forge, it.issueRef.number));
+        claims.push(claimLinkedIssue(forge, it.issueRef.number, { repoPath: it.dir, via: "held" }));
         startedRefs.push({ repoPath: it.dir, issueNumber: it.issueRef.number });
         return;
       }
@@ -3291,7 +3292,13 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
       // Stamp the drain claim so the board reflects it's being worked (mirrors New Task).
       // Keep the handle so the post-start recompute can wait for the label write to land
       // before re-reading issues — an immediate refresh re-surfaces the just-started item.
-      claims.push(claimLinkedIssue(forge, it.issueRef.number));
+      claims.push(
+        claimLinkedIssue(forge, it.issueRef.number, {
+          repoPath: it.dir,
+          via: "bulk-start",
+          desig: s.desig,
+        }),
+      );
       startedRefs.push({ repoPath: it.dir, issueNumber: it.issueRef.number });
     } catch (e) {
       errors.push({
@@ -3487,6 +3494,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "draftMode",
   "manualStepsIssueEnabled",
   "preWarmEpicLandingCi",
+  "epicClaimAutoRelease",
   "mergeWithoutCi",
   "epicStacksEnabled",
   "sharedBrowserEnabled",
@@ -3508,6 +3516,7 @@ type RepoCfgBody = {
   draftMode?: unknown;
   manualStepsIssueEnabled?: unknown;
   preWarmEpicLandingCi?: unknown;
+  epicClaimAutoRelease?: unknown;
   mergeWithoutCi?: unknown;
   epicStacksEnabled?: unknown;
   sharedBrowserEnabled?: unknown;
@@ -3654,6 +3663,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       draftMode?: boolean;
       manualStepsIssueEnabled?: boolean;
       preWarmEpicLandingCi?: boolean;
+      epicClaimAutoRelease?: boolean;
       mergeWithoutCi?: boolean;
       epicStacksEnabled?: boolean;
       sharedBrowserEnabled?: boolean;
@@ -3744,6 +3754,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     draftMode: body.draftMode as boolean | undefined,
     manualStepsIssueEnabled: body.manualStepsIssueEnabled as boolean | undefined,
     preWarmEpicLandingCi: body.preWarmEpicLandingCi as boolean | undefined,
+    epicClaimAutoRelease: body.epicClaimAutoRelease as boolean | undefined,
     mergeWithoutCi: body.mergeWithoutCi as boolean | undefined,
     epicStacksEnabled: body.epicStacksEnabled as boolean | undefined,
     sharedBrowserEnabled: body.sharedBrowserEnabled as boolean | undefined,
@@ -4840,9 +4851,15 @@ async function handlePush(ctx: Ctx): Promise<Response | null> {
 /** Best-effort: stamp the drain claim label on a manually-linked issue so the board shows it's
  *  being worked and the drain won't double-spawn it. Fire-and-forget — failures must never affect
  *  the create response. Mirrors doSpawn's best-effort claim for the auto path. */
-export async function claimLinkedIssue(forge: GitForge | null, issueNumber: number): Promise<void> {
+export async function claimLinkedIssue(
+  forge: GitForge | null,
+  issueNumber: number,
+  log: { repoPath: string; via: string; desig?: string | null },
+): Promise<void> {
   try {
-    await forge?.addIssueLabel?.(issueNumber, ACTIVE_LABEL);
+    if (!forge?.addIssueLabel) return;
+    await forge.addIssueLabel(issueNumber, ACTIVE_LABEL);
+    logClaim("claim", log.repoPath, issueNumber, log); // #4025
   } catch (err) {
     console.warn(`[create] claim label for issue #${issueNumber} failed:`, err);
   }
@@ -5761,8 +5778,9 @@ async function createValidatedSession(
   if (value.issueRef) {
     const repoPath = value.issueRepoPath ?? value.repoPath; // #3245: the issue's tracker
     const { issueRef } = value;
+    const log = { repoPath, via: "create", desig: s.desig };
     setTimeout(
-      () => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, issueRef.number),
+      () => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, issueRef.number, log),
       0,
     );
   }
@@ -7728,7 +7746,8 @@ async function finalizeRelaunch(
   if (issueRef) {
     const repoPath = sessionIssue(original)?.repoPath ?? original.repoPath;
     const number = issueRef.number;
-    setTimeout(() => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, number), 0);
+    const log = { repoPath, via: "relaunch", desig: fresh.desig };
+    setTimeout(() => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, number, log), 0);
   }
 
   // Tear down the original — archiveMany auto-detects + reaps leftover subprocesses and
@@ -8162,8 +8181,9 @@ function localMoveTarget(deps: AppDeps, host: SessionHost): MoveTargetPort {
       deps.events.emit("session:new", session);
       if (value.issueRef) {
         const number = value.issueRef.number;
+        const log = { repoPath: value.repoPath, via: "move", desig: session.desig };
         setTimeout(
-          () => void claimLinkedIssue(deps.resolveForge?.(value.repoPath) ?? null, number),
+          () => void claimLinkedIssue(deps.resolveForge?.(value.repoPath) ?? null, number, log),
           0,
         );
       }
@@ -12040,8 +12060,9 @@ async function heldSpawn(
   // synchronously, so setTimeout(0) lets json(s, 201) flush first.
   if (h.input.issueRef) {
     const { repoPath, issueRef } = h.input;
+    const log = { repoPath, via: "held", desig: s.desig };
     setTimeout(
-      () => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, issueRef.number),
+      () => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, issueRef.number, log),
       0,
     );
   }
@@ -12568,6 +12589,12 @@ async function issueDrainReleaseError(
   return null;
 }
 
+/** #4025: the issue-drain route's claim release, logged like every other claim path. */
+function logIssueDrainRelease(dir: string, before: Issue, after: Issue): void {
+  if (before.labels.includes(ACTIVE_LABEL) && !after.labels.includes(ACTIVE_LABEL))
+    logClaim("release", dir, before.number, { via: "issue-drain" });
+}
+
 // POST /api/issues/:number/drain — the narrow, operator-only issue automation mutation.
 async function handleIssueDrain(ctx: Ctx): Promise<Response | null> {
   const { req, parts, deps } = ctx;
@@ -12602,6 +12629,7 @@ async function handleIssueDrain(ctx: Ctx): Promise<Response | null> {
     // A partial write is an error, but invalidation also runs for that partial change.
     try {
       updated = await applyIssueDrainLabels(forge, issue, autoLabel, operation);
+      logIssueDrainRelease(dir, issue, updated);
     } finally {
       invalidateIssuePeek(dir, number);
       void deps.refreshBacklog?.(dir).catch(() => {});

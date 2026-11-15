@@ -1,4 +1,4 @@
-import { classifyClaim, type ClaimDiagnostic } from "./drain-claims";
+import { classifyClaim, epicClaimBlockers, logClaim, type ClaimDiagnostic } from "./drain-claims";
 import type { CapacityCheck } from "./codex-capacity";
 import type { RepoConfig, SessionStore } from "./store";
 import type { EpicStructure, GitForge, GitState, Issue, PrStatus } from "./forge/types";
@@ -153,6 +153,20 @@ const EMPTY_SESSION_SET: ReadonlySet<string> = new Set<string>();
  *  spawn→abort→re-claim with GitHub label-API churn. A transient failure self-heals after the
  *  window; a persistent one stops churning. */
 const SPAWN_FAIL_COOLDOWN_MS = 5 * 60_000;
+/** #4025: how long an orphaned claim must block a running epic before `epicClaimAutoRelease`
+ *  frees it. Fixed; the clock is in-memory, so a restart restarts the grace. */
+export const EPIC_CLAIM_AUTO_RELEASE_MS = 30 * 60_000;
+/** #4025: claims stamped by a spawn that has not finished yet (`[{repoPath, number, at}]`). A
+ *  process killed between the stamp and the persisted session leaves its entry for the next
+ *  tick to settle. */
+export const PENDING_CLAIMS_KEY = "drain:pending-claims";
+interface PendingClaim {
+  repoPath: string;
+  number: number;
+  at: number;
+}
+const samePendingClaim = (a: PendingClaim, repoPath: string, number: number) =>
+  a.repoPath === repoPath && a.number === number;
 
 /** #1757: can this forge create the epic integration branch? A forge that resolves but lacks
  *  `ensureBranch` (Gitea/local) genuinely cannot — that drives the operator-facing
@@ -387,6 +401,18 @@ function offEpicMerges(
     out.set(x.issueNumber!, x.baseBranch);
   }
   return [...out].map(([childNumber, spawnBase]) => ({ childNumber, spawnBase }));
+}
+
+/** #4025: {@link epicClaimBlockers} for a RUNNING epic only — a paused one already reads as paused,
+ *  and label mode (no children) has none. */
+function runningEpicClaimBlockers(
+  run: EpicRun | null,
+  children: EpicChild[],
+  stack: EpicStackContext | undefined,
+  claims: ClaimDiagnostic[],
+  mapped: ReadonlySet<number>,
+): number[] {
+  return run?.status === "running" ? epicClaimBlockers(children, stack, claims, mapped) : [];
 }
 
 /** #3245: live auto sessions working an issue of `repoPath` — its own sessions AND those routed to
@@ -1331,6 +1357,12 @@ export class DrainService {
   >();
   private claimListingFailed = new Set<string>();
   private resolvingClaims = new Set<string>();
+  /** #4025: `releaseKey`s of claims this process is stamping right now (journal entries in use). */
+  private inflightClaims = new Set<string>();
+  /** #4025: per repo, the running epic's orphan-blocked children from the last pump step. */
+  private lastEpicClaimBlockers = new Map<string, number[]>();
+  /** #4025: per repo, child → when it was first seen blocking (auto-release grace clock). */
+  private orphanSince = new Map<string, Map<number, number>>();
 
   private releaseKey(repoPath: string, number: number): string {
     return `drain:released:${JSON.stringify([repoPath, number])}`;
@@ -1447,6 +1479,7 @@ export class DrainService {
     repoPath: string,
     number: number,
     action: "release" | "close",
+    via = "operator",
   ): Promise<
     { ok: true } | { ok: false; error: "changed" | "unverified" | "unsupported" | "failed" }
   > {
@@ -1482,6 +1515,7 @@ export class DrainService {
         await forge.closeIssue!(number);
       } else {
         await this.releaseArchivedClaim(repoPath, number, key, forge);
+        logClaim("release", repoPath, number, { via });
       }
       this.claimReads.delete(repoPath);
       this.issuesCache.delete(repoPath);
@@ -1527,11 +1561,126 @@ export class DrainService {
     }
   }
 
+  /** #4025: free claims that have blocked the running epic for {@link EPIC_CLAIM_AUTO_RELEASE_MS}
+   *  when the repo opted in (`epicClaimAutoRelease`). The grace clock runs either way, so opting
+   *  in later counts from first sight. {@link resolveClaim} re-checks session, PR and hold first. */
+  private async autoReleaseEpicClaims(repoPath: string): Promise<void> {
+    const running = this.deps.store.getEpicRun(repoPath)?.status === "running";
+    const blockers = running ? (this.lastEpicClaimBlockers.get(repoPath) ?? []) : [];
+    const seen = this.orphanSince.get(repoPath);
+    const since = new Map(blockers.map((n) => [n, seen?.get(n) ?? this.now()] as const));
+    if (since.size === 0) {
+      this.orphanSince.delete(repoPath);
+      return;
+    }
+    this.orphanSince.set(repoPath, since);
+    if (!this.deps.store.getRepoConfig(repoPath).epicClaimAutoRelease) return;
+    for (const [n, at] of since) {
+      if (this.now() - at < EPIC_CLAIM_AUTO_RELEASE_MS) continue;
+      const result = await this.resolveClaim(repoPath, n, "release", "auto-release");
+      if (result.ok) {
+        since.delete(n);
+        continue;
+      }
+      // Refused (changed / unverifiable): wait out another grace rather than retry every tick.
+      since.set(n, this.now());
+      console.warn(`[claim] auto-release refused ${repoPath}#${n}: ${result.error}`);
+    }
+  }
+
+  /** {@link autoReleaseEpicClaims}'s input: the blockers of the latest pump step. */
+  private noteEpicClaimBlockers(repoPath: string, state: { epicClaimBlockers?: number[] }): void {
+    this.lastEpicClaimBlockers.set(repoPath, state.epicClaimBlockers ?? []);
+  }
+
+  private pendingClaims(): PendingClaim[] {
+    try {
+      const v: unknown = JSON.parse(this.deps.store.getSetting(PENDING_CLAIMS_KEY) ?? "[]");
+      return Array.isArray(v) ? (v as PendingClaim[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private writePendingClaims(entries: PendingClaim[]): void {
+    if (entries.length) this.deps.store.setSetting(PENDING_CLAIMS_KEY, JSON.stringify(entries));
+    else this.deps.store.deleteSetting(PENDING_CLAIMS_KEY);
+  }
+
+  /** #4025: journal the claim `fn` stamps for as long as `fn` runs — from before the stamp until a
+   *  session is persisted, the remote dispatch answered, or the claim released. */
+  private async withPendingClaim(
+    repoPath: string,
+    number: number,
+    fn: () => Promise<void>,
+  ): Promise<void> {
+    const key = this.releaseKey(repoPath, number);
+    this.inflightClaims.add(key);
+    const others = this.pendingClaims().filter((e) => !samePendingClaim(e, repoPath, number));
+    this.writePendingClaims([...others, { repoPath, number, at: this.now() }]);
+    try {
+      await fn();
+    } finally {
+      this.inflightClaims.delete(key);
+      this.writePendingClaims(
+        this.pendingClaims().filter((e) => !samePendingClaim(e, repoPath, number)),
+      );
+    }
+  }
+
+  /** #4025: settle journal entries no spawn in this process owns — a previous process died
+   *  between stamping the claim and persisting its session. A claim some session or remote
+   *  dispatch now holds is kept; any other is released. A failed release stays for next tick. */
+  private async reconcilePendingClaims(): Promise<void> {
+    const entries = this.pendingClaims().filter(
+      (e) => !this.inflightClaims.has(this.releaseKey(e.repoPath, e.number)),
+    );
+    const settled: PendingClaim[] = [];
+    for (const e of entries) if (await this.settlePendingClaim(e)) settled.push(e);
+    if (settled.length === 0) return;
+    // Re-read: a spawn may have journaled (or re-journaled) an issue during the awaits above.
+    this.writePendingClaims(
+      this.pendingClaims().filter(
+        (e) =>
+          this.inflightClaims.has(this.releaseKey(e.repoPath, e.number)) ||
+          !settled.some((x) => samePendingClaim(x, e.repoPath, e.number)),
+      ),
+    );
+  }
+
+  /** True when the entry is settled (drop it), false to retry next tick. */
+  private async settlePendingClaim(e: PendingClaim): Promise<boolean> {
+    if (this.claimHeld(e.repoPath, e.number)) return true;
+    const forge = this.deps.resolveForge(e.repoPath);
+    if (!forge?.removeIssueLabel) return true; // nothing can release it here; don't keep it forever
+    try {
+      await forge.removeIssueLabel(e.number, ACTIVE_LABEL);
+    } catch (err) {
+      console.warn(
+        `[claim] release interrupted-spawn claim ${e.repoPath}#${e.number} failed:`,
+        err,
+      );
+      return false;
+    }
+    logClaim("release", e.repoPath, e.number, { via: "interrupted-spawn" });
+    return true;
+  }
+
+  /** A live session (own or routed) or a remote dispatch works this issue of `repoPath`. */
+  private claimHeld(repoPath: string, number: number): boolean {
+    if (this.remoteWork(repoPath).has(number)) return true;
+    return this.deps.store.list().some((s) => {
+      const issue = s.status === "archived" ? null : sessionIssue(s);
+      return issue?.repoPath === repoPath && issue.number === number;
+    });
+  }
+
   private async buildState(repoPath: string): Promise<{
     state: DrainRepoState & {
       epicParent: number | null;
       runSummary: RunSummary;
       claimDiagnostics?: ClaimDiagnostic[];
+      epicClaimBlockers?: number[];
     };
     epic: Epic | null;
   }> {
@@ -1587,6 +1736,7 @@ export class DrainService {
     let summaryCandidates: Issue[] = [];
     let leadingEpic: number | null = null;
     let epicChildren: EpicChild[] = [];
+    let epicStackCtx: EpicStackContext | undefined;
     if (epicActive) {
       leadingEpic = epicRun!.parentIssueNumber;
       // Epic is running/paused: source candidates from its dependency-gated children
@@ -1608,6 +1758,7 @@ export class DrainService {
         stackHeldSessions = branchState.stackHeld;
         epicIncrementalParent = branchState.incrementalParent;
         epicChildren = builtEpic.children;
+        epicStackCtx = branchState.ctx;
         summaryCandidates = selectEpicCandidates(epicChildren, branchState.ctx);
         if (epicRun!.status === "running") candidates = summaryCandidates;
         epicAttended = epicRun!.mode === "attended";
@@ -1642,6 +1793,14 @@ export class DrainService {
     const stall = this.epicStall(repoPath, epicActive, epicRun, builtEpic, epicParent);
 
     const claimDiagnostics = await this.claimDiagnostics(repoPath);
+    // #4025: mappedIssueNumbers carries the remote dispatches by now (spawnState adds them).
+    const epicBlockers = runningEpicClaimBlockers(
+      epicRun,
+      epicChildren,
+      epicStackCtx,
+      claimDiagnostics,
+      mappedIssueNumbers,
+    );
     return {
       state: {
         enabled,
@@ -1661,6 +1820,7 @@ export class DrainService {
         autoSessions,
         mappedIssueNumbers,
         claimDiagnostics,
+        epicClaimBlockers: epicBlockers,
         candidates,
         spawnAgentProvider,
         epicAttended,
@@ -2447,6 +2607,7 @@ export class DrainService {
       epicParent: number | null;
       runSummary: RunSummary;
       claimDiagnostics?: ClaimDiagnostic[];
+      epicClaimBlockers?: number[];
     },
     decision: DrainDecision,
   ): DrainStatus {
@@ -2482,21 +2643,20 @@ export class DrainService {
         "memory_pressure",
       ].includes(hold.code);
     const queued = state.candidates.filter((c) => !state.mappedIssueNumbers.has(c.number)).length;
+    // #4025: a running epic whose next child is held only by an orphaned claim is stuck, not idle.
+    const epicBlocker =
+      hold?.code === "empty" && state.epicParent != null ? state.epicClaimBlockers?.[0] : undefined;
     return {
       repoPath,
       enabled: state.enabled,
-      paused,
+      paused: paused || epicBlocker !== undefined,
       reason:
-        hold?.code === "empty" && state.epicParent == null && this.claimListingFailed.has(repoPath)
-          ? "claim_check_failed"
-          : hold?.code === "empty" &&
-              state.epicParent == null &&
-              state.claimDiagnostics?.some((c) => c.evidence === "complete")
-            ? "orphaned_claims"
-            : (hold?.code ?? null),
+        epicBlocker !== undefined
+          ? "epic_claim_orphaned"
+          : this.labelModeReason(repoPath, state, hold?.code ?? null),
       claimDiagnostics: state.claimDiagnostics ?? [],
       claimDiagnosticsFailed: this.claimListingFailed.has(repoPath),
-      detail: hold?.detail ?? null,
+      detail: epicBlocker !== undefined ? String(epicBlocker) : (hold?.detail ?? null),
       queued,
       inFlight: slotHolders(state.autoSessions).length,
       max: state.maxAuto,
@@ -2506,6 +2666,19 @@ export class DrainService {
       runSummary: state.runSummary,
       remoteSettle: this.remoteSettlePending(repoPath),
     };
+  }
+
+  /** {@link toStatus}'s label-mode reading of an idle hold: claim diagnostics explain `empty`. */
+  private labelModeReason(
+    repoPath: string,
+    state: { epicParent: number | null; claimDiagnostics?: ClaimDiagnostic[] },
+    code: string | null,
+  ): string | null {
+    if (code !== "empty" || state.epicParent != null) return code;
+    if (this.claimListingFailed.has(repoPath)) return "claim_check_failed";
+    return state.claimDiagnostics?.some((c) => c.evidence === "complete")
+      ? "orphaned_claims"
+      : code;
   }
 
   // ── the loop ────────────────────────────────────────────────────────────────
@@ -4831,6 +5004,7 @@ export class DrainService {
     let decision: DrainDecision;
     try {
       const { state, epic } = await this.buildState(repoPath);
+      this.noteEpicClaimBlockers(repoPath, state);
       // Auto-complete: a running epic whose every child is merged transitions to idle.
       // This clears the banner, re-enables label-drain, and ensures the panel updates.
       let epicAutoCompleted = false;
@@ -5669,7 +5843,7 @@ export class DrainService {
   ): Promise<void> {
     const forge = this.deps.resolveForge(repoPath);
     if (!forge) return;
-    const { number, url, title, body } = decision.issue;
+    const { number, body } = decision.issue;
     const failKey = `${repoPath}#${number}`;
     const lastFail = this.spawnFailures.get(failKey);
     if (lastFail !== undefined) {
@@ -5719,13 +5893,33 @@ export class DrainService {
       console.warn(`[drain] pre-spawn re-check for issue #${number} failed:`, err);
       // fall through to spawn — best-effort, never stall the drain.
     }
+    await this.withPendingClaim(repoPath, number, () =>
+      this.claimAndSpawn(repoPath, spawnRepo, forge, decision, provider, rc),
+    );
+  }
+
+  /** {@link doSpawn} from the claim on: stamp, then spawn here or on another machine, releasing
+   *  the claim when the spawn fails. Runs inside the pending-claim journal (#4025). */
+  private async claimAndSpawn(
+    repoPath: string,
+    spawnRepo: string,
+    forge: GitForge,
+    decision: Extract<DrainDecision, { kind: "spawn" }>,
+    provider: AgentProvider,
+    rc: RepoConfig,
+  ): Promise<void> {
+    const { number, url, title, body } = decision.issue;
+    const failKey = `${repoPath}#${number}`;
     // Claim the issue on the host BEFORE spawning. The active label is the only
     // cross-instance signal, so stamp it first to shrink the window in which a
     // second shepherd grabs the same issue. Best-effort: a claim failure (label
     // API hiccup) must not stall the drain — we still spawn and lean on local
     // dedup. (Re-)claiming is idempotent.
     try {
-      await forge.addIssueLabel?.(number, ACTIVE_LABEL);
+      if (forge.addIssueLabel) {
+        await forge.addIssueLabel(number, ACTIVE_LABEL);
+        logClaim("claim", repoPath, number, { via: decision.remote ? "drain-remote" : "drain" });
+      }
     } catch (err) {
       console.warn(`[drain] claim label for issue #${number} failed:`, err);
     }
@@ -5772,6 +5966,11 @@ export class DrainService {
         issueRepoPath: repoPath, // #3245: the issue's tracker; differs from repoPath only when routed
       });
       this.spawnFailures.delete(failKey); // #790: clear any prior failure cooldown on success
+      logClaim("claim", repoPath, number, {
+        via: "drain",
+        desig: session.desig,
+        reason: "spawned",
+      });
       // The new auto session appears in the next buildState → counts toward the
       // cap AND mappedIssueNumbers, so the loop won't re-spawn this issue and
       // naturally stops at cap.
@@ -5781,6 +5980,7 @@ export class DrainService {
       // Release the claim so the unspawned issue returns to the pool (best-effort).
       try {
         await forge.removeIssueLabel?.(number, ACTIVE_LABEL);
+        logClaim("release", repoPath, number, { via: "drain", reason: "spawn-failed" });
       } catch (rerr) {
         console.warn(`[drain] release label for issue #${number} failed:`, rerr);
       }
@@ -5834,6 +6034,10 @@ export class DrainService {
     if (outcome && REMOTE_SPAWNED.has(outcome.kind)) {
       this.spawnFailures.delete(failKey);
       console.warn(`[drain] issue #${number} sent to ${placement.target.name} (${outcome.kind})`);
+      logClaim("retain", repoPath, number, {
+        via: "drain-remote",
+        reason: `${placement.target.name}:${outcome.kind}`,
+      });
       return;
     }
     const reason = failure ?? new Error(`remote spawn ${outcome?.kind ?? "failed"}`);
@@ -5844,6 +6048,7 @@ export class DrainService {
     );
     try {
       await forge.removeIssueLabel?.(number, ACTIVE_LABEL);
+      logClaim("release", repoPath, number, { via: "drain-remote", reason: "dispatch-failed" });
     } catch (rerr) {
       console.warn(`[drain] release label for issue #${number} failed:`, rerr);
     }
@@ -6432,11 +6637,14 @@ export class DrainService {
     // "was-stamped" flag to suppress.
     // #3245: a routed session's claim sits on its home issue, in the home repo's tracker.
     const issue = sessionIssue(s);
+    if (retainClaim && issue)
+      logClaim("retain", issue.repoPath, issue.number, { via: "archive", desig: s.desig });
     if (!retainClaim && issue) {
       try {
         await this.deps
           .resolveForge(issue.repoPath)
           ?.removeIssueLabel?.(issue.number, ACTIVE_LABEL);
+        logClaim("release", issue.repoPath, issue.number, { via: "archive", desig: s.desig });
       } catch (err) {
         console.warn(`[drain] release label #${issue.number} for ${id} failed:`, err);
       }
@@ -6528,6 +6736,8 @@ export class DrainService {
   /** Periodic sweep (~30s): catches newly-labeled issues + resumed usage windows. */
   async tick(): Promise<void> {
     this.landingPrs.beginTick();
+    // #4025: first, so a claim a killed process stamped is free before this tick's pumps.
+    await this.reconcilePendingClaims();
     const epicChildRepos = this.reposWithEpicChildInFlight();
     for (const repoPath of this.deps.repos()) {
       // #1401: backfill missed epic-integration rows BEFORE the pump so a stalled epic
@@ -6592,6 +6802,8 @@ export class DrainService {
         if (this.owesRunPicture(repoPath, er, epicChildRepos) || this.owesSettlePicture(repoPath))
           await this.refreshRunPicture(repoPath);
       }
+      // #4025: after the pump, which recorded this repo's orphan-blocked epic children.
+      await this.autoReleaseEpicClaims(repoPath);
     }
   }
 

@@ -69,6 +69,7 @@ const DETAIL_HOLD_LINES: Record<string, (detail: string) => string> = {
   machine_unfit: (machine) => m.epic_hold_machine_unfit({ machine }),
   no_suitable_machine: (needs) => m.epic_hold_no_suitable_machine({ needs: holdNeedsLabel(needs) }),
   machine_stacked: (machine) => m.epic_hold_machine_stacked({ machine }),
+  epic_claim_orphaned: (num) => m.epic_hold_epic_claim_orphaned({ num }),
 };
 
 /**
@@ -219,6 +220,7 @@ const HALT_REASONS = new Set([
   "epic_base_conflict",
   "epic_predecessor_unlanded",
   "epic_unreadable",
+  "epic_claim_orphaned",
   "bootstrap_incomplete",
   "sandbox_interactive",
   "sandbox_provider_unconfined",

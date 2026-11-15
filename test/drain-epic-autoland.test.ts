@@ -143,6 +143,7 @@ function makeHarness(opts: {
     repoMode: "forge",
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicClaimAutoRelease: false,
     mergeWithoutCi: opts.mergeWithoutCi ?? false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,

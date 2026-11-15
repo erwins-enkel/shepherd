@@ -114,6 +114,12 @@ describe("pausedText", () => {
     ).toBe(m.drain_paused_target_repo_drain_off({ repo: "org/b" }));
   });
 
+  it("maps epic_claim_orphaned to the claimed child, not the generic pause (#4025)", () => {
+    expect(pausedText(drain({ paused: true, reason: "epic_claim_orphaned", detail: "239" }))).toBe(
+      m.drain_paused_epic_claim_orphaned({ num: "239" }),
+    );
+  });
+
   it("maps epic_unreadable to its own copy, not the generic pause", () => {
     expect(pausedText(drain({ paused: true, reason: "epic_unreadable" }))).toBe(
       m.drain_paused_epic_unreadable(),

@@ -52,6 +52,7 @@ export interface SectionSnapshot {
   schedules: number | null;
   epicStacks: boolean;
   preWarmEpicLandingCi: boolean;
+  epicClaimAutoRelease: boolean;
   pinned: boolean;
   hidden: boolean;
   previewOpenMode: RepoConfig["previewOpenMode"];
@@ -158,7 +159,11 @@ export function sectionSummary(id: RepoSettingsSection, s: SectionSnapshot): str
     case "merge":
       return mergeSummary(s);
     case "epics":
-      return onOf([s.epicStacks && forge, s.preWarmEpicLandingCi && forge]);
+      return onOf([
+        s.epicStacks && forge,
+        s.preWarmEpicLandingCi && forge,
+        s.epicClaimAutoRelease && forge,
+      ]);
     case "display":
       return displaySummary(s);
   }

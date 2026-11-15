@@ -67,6 +67,7 @@ describe("drainHold (#3457)", () => {
       [{ kind: "base_continue", override: "predecessor" }],
     ],
     ["awaiting_approval", "17", "epic", "wait", [{ kind: "approve" }]],
+    ["epic_claim_orphaned", "239", "epic", "halt", [{ kind: "release_claim", number: 239 }]],
   ];
 
   for (const [reason, detail, scope, tone, actions] of cases) {
@@ -89,6 +90,18 @@ describe("drainHold (#3457)", () => {
     expect(drainHold(drain({ reason: "awaiting_approval", detail: "17" }))!.text).toBe(
       m.epic_rowhold_approval_text({ num: "17" }),
     );
+  });
+
+  it("epic_claim_orphaned names the claimed child and releases only a real issue number (#4025)", () => {
+    const v = drainHold(drain({ reason: "epic_claim_orphaned", detail: "239" }))!;
+    expect(v.what).toBe(m.epic_rowhold_claim_what());
+    expect(v.text).toBe(m.epic_rowhold_claim_text({ num: "239" }));
+    expect(holdActionLabel(v.actions[0])).toBe(m.epic_rowhold_claim_release());
+    for (const detail of [null, "", "x", "0", "1.5"])
+      expect(
+        drainHold(drain({ reason: "epic_claim_orphaned", detail }))!.actions,
+        detail ?? "null",
+      ).toEqual([]);
   });
 
   for (const reason of ["blocked", "changes_requested", "error"]) {

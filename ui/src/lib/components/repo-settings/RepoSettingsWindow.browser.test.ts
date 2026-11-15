@@ -38,6 +38,7 @@ const BASE: RepoConfig = {
   repoMode: "forge",
   manualStepsIssueEnabled: false,
   preWarmEpicLandingCi: false,
+  epicClaimAutoRelease: false,
   mergeWithoutCi: false,
   epicStacksEnabled: false,
   sharedBrowserEnabled: false,
@@ -292,6 +293,13 @@ describe("RepoSettingsWindow — every section saves through /api/repo-config", 
     await open({ section: "epics" });
     await sw(m.automation_epic_stacks_name()).click();
     await vi.waitFor(() => expect(api.puts).toContainEqual({ epicStacksEnabled: true }));
+  });
+
+  it("epics: release orphaned claims (#4025)", async () => {
+    const api = mockApi();
+    await open({ section: "epics" });
+    await sw(m.automation_epic_claim_release_name()).click();
+    await vi.waitFor(() => expect(api.puts).toContainEqual({ epicClaimAutoRelease: true }));
   });
 
   it("display: pin to the Backlog's top", async () => {

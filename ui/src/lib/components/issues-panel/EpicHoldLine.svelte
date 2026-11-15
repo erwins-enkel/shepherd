@@ -1,7 +1,14 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
   import { automationFocus } from "#lib/automation-focus.js";
-  import { approveEpicNext, overrideEpicBaseHold, reworkEpicBase, updateEpic } from "#lib/api.js";
+  import {
+    ApiError,
+    approveEpicNext,
+    overrideEpicBaseHold,
+    resolveDrainClaim,
+    reworkEpicBase,
+    updateEpic,
+  } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { repoBootstrap } from "#lib/repo-bootstrap.svelte.js";
   import { scopeLabel } from "../epic-auto-fix";
@@ -37,6 +44,12 @@
   // A way out shows only where it can run: a callback from the host, or an epic to act on.
   const actions = $derived(view?.actions.filter(available) ?? []);
   let busy = $state(false);
+  // #4025: Release claim asks once more before it removes a label a person may hold by hand. Only
+  // confirms while the line still offers that release — a later hold never inherits the prompt.
+  let confirming = $state<number | null>(null);
+  const confirmingRelease = $derived(
+    actions.some((a) => a.kind === "release_claim" && a.number === confirming),
+  );
 
   function available(action: HoldAction): boolean {
     if (action.kind === "bootstrap_view") return !!onopenautomation;
@@ -70,12 +83,35 @@
     }
   }
 
+  async function releaseClaim() {
+    const number = confirming;
+    if (number == null || busy) return;
+    busy = true;
+    try {
+      await resolveDrainClaim(repoPath, number, "release");
+      confirming = null;
+    } catch (err) {
+      failed(
+        err instanceof ApiError && err.status === 409
+          ? m.drain_claims_changed()
+          : m.drain_claims_failed(),
+        "drain-claim-fail",
+      );
+    } finally {
+      busy = false;
+    }
+  }
+
   async function run(action: HoldAction) {
     if (action.kind === "bootstrap_view") {
       automationFocus.openAt("start"); // the bootstrap card sits in Start & flow
       return onopenautomation?.();
     }
     if (action.kind === "open_session") return onopensession?.(action.sessionId);
+    if (action.kind === "release_claim") {
+      confirming = action.number;
+      return;
+    }
     if (busy) return;
     busy = true;
     try {
@@ -112,18 +148,47 @@
         {#each actions as action (action.kind)}
           <!-- Inside the list row's option: neither its click nor its keys may select the row or
              move the list. -->
-          <button
-            class={["hc-gbtn", action.kind === "approve" && "hc-primary"]}
-            type="button"
-            disabled={busy}
-            aria-busy={busy}
-            data-epic-hold-action={action.kind}
-            onclick={(e) => {
-              e.stopPropagation();
-              void run(action);
-            }}
-            onkeydown={(e) => e.stopPropagation()}>{holdActionLabel(action)}</button
-          >
+          {#if action.kind === "release_claim" && confirmingRelease}
+            <span class="confirm" data-epic-hold-confirm>
+              <span class="ask">{m.epic_rowhold_claim_confirm({ num: action.number })}</span>
+              <button
+                class="hc-gbtn hc-primary"
+                type="button"
+                disabled={busy}
+                aria-busy={busy}
+                data-epic-hold-action="release_claim_confirm"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  void releaseClaim();
+                }}
+                onkeydown={(e) => e.stopPropagation()}>{m.epic_rowhold_claim_yes()}</button
+              >
+              <button
+                class="hc-gbtn"
+                type="button"
+                disabled={busy}
+                data-epic-hold-action="release_claim_cancel"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  confirming = null;
+                }}
+                onkeydown={(e) => e.stopPropagation()}>{m.common_cancel()}</button
+              >
+            </span>
+          {:else}
+            <button
+              class={["hc-gbtn", action.kind === "approve" && "hc-primary"]}
+              type="button"
+              disabled={busy}
+              aria-busy={busy}
+              data-epic-hold-action={action.kind}
+              onclick={(e) => {
+                e.stopPropagation();
+                void run(action);
+              }}
+              onkeydown={(e) => e.stopPropagation()}>{holdActionLabel(action)}</button
+            >
+          {/if}
         {/each}
       </span>
     {/if}
@@ -175,10 +240,16 @@
   .what {
     color: var(--color-ink-bright);
   }
-  .acts {
+  .acts,
+  .confirm {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 6px;
+  }
+  .ask {
+    color: var(--color-ink-bright);
+    font-size: var(--fs-meta);
   }
   /* On the wash amber alone misses 4.5:1 in the light theme: pulled toward the text colour (as
      EpicRowHalt's Fix). */

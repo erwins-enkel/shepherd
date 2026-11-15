@@ -10366,6 +10366,7 @@ components:
         - draftMode
         - manualStepsIssueEnabled
         - preWarmEpicLandingCi
+        - epicClaimAutoRelease
         - mergeWithoutCi
         - epicStacksEnabled
         - sharedBrowserEnabled
@@ -10408,6 +10409,9 @@ components:
           type: boolean
         preWarmEpicLandingCi:
           type: boolean
+        epicClaimAutoRelease:
+          type: boolean
+          description: "Release an orphaned `shepherd:active` claim once it has blocked the running epic's next child for 30 minutes (no session, no open PR). Off by default: a person may hold the label by hand."
         mergeWithoutCi:
           type: boolean
           description: "Let the merge train and epic auto-land merge into the default branch in a GitHub repo where no workflow runs on pull requests. Off by default: without CI those autonomous merges hold with the `no_ci` wait code."
@@ -10620,6 +10624,9 @@ components:
           type: boolean
         preWarmEpicLandingCi:
           type: boolean
+        epicClaimAutoRelease:
+          type: boolean
+          description: "Release an orphaned `shepherd:active` claim once it has blocked the running epic's next child for 30 minutes (no session, no open PR). Off by default: a person may hold the label by hand."
         mergeWithoutCi:
           type: boolean
           description: "Let the merge train and epic auto-land merge into the default branch in a GitHub repo where no workflow runs on pull requests. Off by default: without CI those autonomous merges hold with the `no_ci` wait code."

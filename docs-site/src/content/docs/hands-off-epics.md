@@ -144,16 +144,23 @@ in-flight work running and resumes on its own — and only a few are **terminal*
   `requires-macos`, or the epic names a machine) and that machine is out of reach, lacks Xcode or
   can't take tasks. The run shows **Halted** with the machine; nothing starts here in its place.
   Reconnect the machine, or pick another one under **Machine** in the run settings.
+- **An orphaned claim on the next child** — the child carries the drain's `shepherd:active` label,
+  but no session or PR holds it (typically a crash between claiming the issue and starting its
+  session). The run shows **Paused** with the child's number. **Release claim** on the epic's halt
+  line, confirmed once, removes the label and the drain starts the child on its next pass. To let
+  the drain do this on its own, turn on **Release orphaned epic claims** in Repo settings → Epics:
+  after 30 minutes with no session or PR, it releases the claim. It is off by default, because a
+  person may hold the label by hand.
 - **A stack that lost a middle layer**, if you run with
   [stacked epic children](/reference/stacked-epic-children/) on — the layers above it can't land
   until you abandon or merge them.
 
 You don't have to open the epic to act on a hold. While the drain holds the leading epic for an
 unfinished project bootstrap, the usage ceiling, its integration branch, a stuck agent or an
-attended approval, the epic's row in the backlog list shows the hold with its scope (**REPO**,
+attended approval or an orphaned claim, the epic's row in the backlog list shows the hold with its scope (**REPO**,
 **RUN** or **EPIC**) and the action that already exists for it: **View bootstrap** and **Override
 hold**, **Lift for this run**, **Get the conflict resolved** and **Continue anyway**, **Open
-session**, or **Approve** (amber — it waits for you rather than stopping). The repo overview shows
+session**, **Release claim**, or **Approve** (amber — it waits for you rather than stopping). The repo overview shows
 the same: a bootstrap hold once at the top, since it holds every epic, and the others at the leading
 epic's card.
 

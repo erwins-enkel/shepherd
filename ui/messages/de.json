@@ -9007,5 +9007,16 @@
   "herd_origin_filter_empty": "Gerade keine Sessions der Herkunft {origin}.",
   "herd_origin_filters_empty": "Keine Sessions der Herkunft {origin} passen zu den aktiven Filtern.",
   "feat_origin_filter_title": "Sessions nach Herkunft filtern",
-  "feat_origin_filter_body": "Sobald ein Repo-Zeitplan oder der Auto-Drain Sessions gestartet hat, fährst du in der oberen Leiste über die HERD-Zahl (oder klickst sie an), um die Liste nach Herkunft zu filtern: Geplant, Auto-Drain oder Manuell. Solange ein Filter aktiv ist, nennt ihn ein Chip neben den Zahlen und hebt ihn mit einem Klick auf. Er wirkt zusammen mit Repo- und Statusfilter und auch in der Ansicht „Fertig“ – so prüfst du etwa die geplanten Läufe der letzten Nacht. Die Gruppen bleiben unverändert. Auf dem Handy ziehst du die Liste nach unten, um die Chips einzublenden."
+  "feat_origin_filter_body": "Sobald ein Repo-Zeitplan oder der Auto-Drain Sessions gestartet hat, fährst du in der oberen Leiste über die HERD-Zahl (oder klickst sie an), um die Liste nach Herkunft zu filtern: Geplant, Auto-Drain oder Manuell. Solange ein Filter aktiv ist, nennt ihn ein Chip neben den Zahlen und hebt ihn mit einem Klick auf. Er wirkt zusammen mit Repo- und Statusfilter und auch in der Ansicht „Fertig“ – so prüfst du etwa die geplanten Läufe der letzten Nacht. Die Gruppen bleiben unverändert. Auf dem Handy ziehst du die Liste nach unten, um die Chips einzublenden.",
+  "epic_rowhold_claim_what": "Verwaister Claim",
+  "epic_rowhold_claim_text": "#{num} ist reserviert, aber keine Session und kein PR hält den Claim.",
+  "epic_rowhold_claim_release": "Claim freigeben",
+  "epic_rowhold_claim_confirm": "#{num} freigeben?",
+  "epic_rowhold_claim_yes": "Bestätigen",
+  "epic_hold_epic_claim_orphaned": "Pausiert: #{num} trägt das Claim-Label des Drains, aber keine Session und kein PR hält es. Gib den Claim frei, damit der Drain es starten kann – außer jemand hält es bewusst von Hand.",
+  "drain_paused_epic_claim_orphaned": "Pausiert: #{num} ist reserviert, aber keine Session und kein PR hält den Claim",
+  "automation_epic_claim_release_name": "Verwaiste Epic-Claims freigeben",
+  "automation_epic_claim_release_desc": "Nach 30 Minuten ohne Session oder PR gibt der Drain den Claim am nächsten Child des laufenden Epics frei, damit der Lauf weitergeht. Standardmäßig aus, weil jemand das Label bewusst von Hand halten kann.",
+  "feat_epic_claim_release_title": "Verwaisten Claim direkt am Epic freigeben",
+  "feat_epic_claim_release_body": "Trägt das nächste Child des laufenden Epics den Claim des Drains, ohne dass eine Session oder ein PR ihn hält, zeigt das Epic jetzt „pausiert“ und nennt dieses Child. Gib den Claim nach einer Bestätigung direkt in der Halt-Zeile des Epics frei. Optional gibt Repo-Einstellungen → Epics solche Claims nach 30 Minuten selbst frei."
 }

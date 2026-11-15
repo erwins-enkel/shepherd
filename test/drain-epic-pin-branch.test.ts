@@ -92,6 +92,7 @@ function makeHarness(parentTitleRef: { title: string }, subIssues: SubIssueRef[]
     repoMode: "forge",
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicClaimAutoRelease: false,
     mergeWithoutCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,

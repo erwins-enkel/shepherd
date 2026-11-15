@@ -1301,6 +1301,7 @@
   "session_sandbox_egress_degraded_label": "Network open",
   "session_sandbox_egress_degraded_title": "Autonomous filesystem sandbox active, but the network-egress backend is unavailable, so outbound is unrestricted — tokens are exfiltratable. Don't over-trust this run.",
   "toast_egress_drop": "Blocked egress to {host}",
+  "toast_egress_drop_session": "{repo} · {name}: blocked egress to {host}",
   "toast_uploads_dropped": "{count} attached file(s) expired and could not be restored. The session started without them",
   "toast_injection_detected": "Heads up: issue content for a session tripped {count} prompt-injection check(s). It is fenced as untrusted data — review before trusting the result.",
   "toast_untrusted_author": "Auto-drain skipped issue {repo}#{issue}: its author is not a trusted repo member, so Shepherd will not start it unattended. Start it manually if you trust it.",

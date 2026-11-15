@@ -220,7 +220,9 @@ your Claude Code or Codex settings. Claude Code gets its `/effort` picker; Codex
 the Go:
 
 - **Agent busy:** Shepherd sends nothing and holds the Go back.
-- **No confirmation:** Shepherd presses Esc to close what it opened and holds the Go back.
+- **No confirmation:** Shepherd presses Esc to close what it opened and tries the switch once
+  more, unless a picker is still open. If that fails too, it holds the Go back. Each miss logs
+  an `[effort]` line.
 - In both cases the plan panel offers **Retry Go** and **Go at planning effort**; the second
   drops the execution effort and starts as before. An auto-released session waits for you here.
 - **The plan is re-gated:** Shepherd switches back to the planning effort, but only on an

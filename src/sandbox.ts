@@ -23,6 +23,7 @@ import {
   lstatSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   writeFileSync,
 } from "node:fs";
@@ -112,6 +113,9 @@ export interface PathProbeDeps {
   exists?: (p: string) => boolean;
   /** Directory listing; default a safe readdirSync wrapper returning [] on error. */
   readdir?: (p: string) => string[];
+  /** Symlink probe: the link's own text + its host realpath; null for a non-link or a dangling
+   *  link. Default {@link defaultLstatLink}. */
+  lstatLink?: (p: string) => SymlinkInfo | null;
   /** Host-side git-store prep for the membrane's carve-outs; default {@link hostGitStore}. */
   gitStore?: GitStoreDeps;
 }
@@ -158,6 +162,22 @@ const hostGitStore: GitStoreDeps = {
   adminDir: (repoPath, worktreePath) =>
     resolveWorktreePinSync(repoPath, worktreePath)?.gitDir ?? null,
 };
+
+export interface SymlinkInfo {
+  /** The link's own text (readlink), relative or absolute. */
+  linkText: string;
+  /** Host realpath of the whole link chain. */
+  real: string;
+}
+
+function defaultLstatLink(p: string): SymlinkInfo | null {
+  try {
+    if (!lstatSync(p).isSymbolicLink()) return null;
+    return { linkText: readlinkSync(p), real: realpathSync(p) };
+  } catch {
+    return null; // missing, unreadable or dangling
+  }
+}
 
 /** readdirSync that returns [] on any error (missing dir, perms). */
 function safeReaddir(p: string): string[] {
@@ -720,6 +740,99 @@ function agentSupportFlags(paths: string[] | undefined): string[] {
   return f;
 }
 
+const BIND_FLAGS = new Set(["--ro-bind", "--ro-bind-try", "--bind", "--bind-try"]);
+
+/** Dests of every bind already in `flags` — mounts a later bind must not nest under. */
+function boundDests(flags: string[]): string[] {
+  const out: string[] = [];
+  flags.forEach((x, i) => {
+    const dest = flags[i + 2];
+    if (BIND_FLAGS.has(x) && dest !== undefined) out.push(dest);
+  });
+  return out;
+}
+
+const atOrUnder = (p: string, root: string) =>
+  p === root || p.startsWith(root === "/" ? "/" : `${root}/`);
+
+/** Whether a symlinked skill's in-sandbox target may get its own RO bind: not at/under an earlier
+ *  mount (already visible, or bwrap would need a mount point inside a RO mount — fatal — or on the
+ *  host through a RW one) nor above one (it would shadow it), not a tmpfs/kernel surface, not an ancestor of the paths the membrane
+ *  is built around (binding `$HOME` or `/` would expose everything). */
+function skillLinkDestAllowed(dest: string, inputs: MembraneInputs, mounted: string[]): boolean {
+  if (mounted.some((m) => atOrUnder(dest, m) || atOrUnder(m, dest))) return false;
+  if (["/tmp", "/proc", "/dev"].some((r) => atOrUnder(dest, r))) return false;
+  const anchors = [
+    inputs.home,
+    inputs.claudeDir,
+    inputs.worktreePath,
+    inputs.repoPath,
+    inputs.gitCommonDir,
+  ];
+  return !anchors.some((a) => atOrUnder(a, dest)) && !atOrUnder(dest, inputs.claudeDir);
+}
+
+/**
+ * RO binds for symlinked entries of the skill/command `roots` (operator skills are commonly links
+ * into `~/.agents/skills` or another checkout, which `--tmpfs $HOME` hides → the skill dangles).
+ * Each target is bound at the path the link resolves to INSIDE the sandbox (lexically, from the
+ * root's in-sandbox path), sourced from the host realpath so a multi-hop chain still lands.
+ * Deduped + sorted so the flags stay deterministic.
+ */
+interface SkillProbe {
+  readdir: (p: string) => string[];
+  exists: (p: string) => boolean;
+  lstatLink: (p: string) => SymlinkInfo | null;
+}
+
+/** Only content shaped like a skill (dir with `SKILL.md`) or command (`.md` file; under a
+ *  `commands/` root also a namespace dir holding `.md` files) is bound — a link pointing at e.g.
+ *  `~/.ssh` exposes nothing. */
+function looksLikeSkillOrCommand(real: string, commandsRoot: boolean, probe: SkillProbe): boolean {
+  if (real.endsWith(".md") || probe.exists(join(real, "SKILL.md"))) return true;
+  return commandsRoot && probe.readdir(real).some((e) => e.endsWith(".md"));
+}
+
+function skillLinkFlags(
+  roots: string[],
+  inputs: MembraneInputs,
+  mounted: string[],
+  probe: SkillProbe,
+): string[] {
+  const binds = new Map<string, string>(); // dest → src
+  for (const root of roots) {
+    for (const entry of probe.readdir(root)) {
+      const link = probe.lstatLink(join(root, entry));
+      if (!link || !looksLikeSkillOrCommand(link.real, root.endsWith("/commands"), probe)) continue;
+      const dest = resolve(root, link.linkText);
+      if (skillLinkDestAllowed(dest, inputs, mounted) && !binds.has(dest))
+        binds.set(dest, link.real);
+    }
+  }
+  return [...binds]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .flatMap(([dest, src]) => ["--ro-bind-try", src, dest]);
+}
+
+/** Skill roots for this spawn + the codex user-skill root bind (codex spawns only: Codex reads
+ *  personal skills from `~/.agents/skills`, which `--tmpfs $HOME` hides). The root bind is
+ *  emitted first so links INTO it count as already mounted. */
+function userSkillFlags(
+  inputs: MembraneInputs,
+  emitted: string[],
+  probe: Omit<SkillProbe, "lstatLink"> & { lstatLink?: SkillProbe["lstatLink"] },
+): string[] {
+  const p: SkillProbe = { ...probe, lstatLink: probe.lstatLink ?? defaultLstatLink };
+  const roots = [`${inputs.claudeDir}/skills`, `${inputs.claudeDir}/commands`];
+  const f: string[] = [];
+  if (inputs.codex) {
+    const agentSkills = `${inputs.home}/.agents/skills`;
+    f.push("--ro-bind-try", agentSkills, agentSkills);
+    roots.push(agentSkills);
+  }
+  return [...f, ...skillLinkFlags(roots, inputs, boundDests([...emitted, ...f]), p)];
+}
+
 /**
  * Codex CLI flags — empty for a non-codex spawn, keeping claude flags byte-identical.
  * Launcher chain RO: binDir (the PATH lookup target, often a symlink dir) plus the
@@ -1105,6 +1218,11 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
 
   // ── agent-ingress spawn files (issue #3337) ──────────────────────────────
   f.push(...(inputs.ingressFiles ?? []).flatMap((p) => ["--ro-bind", p, p]));
+
+  // ── symlinked user skills/commands (+ codex ~/.agents/skills) ────────────
+  // After the home tmpfs and every config/toolchain bind (their dests are the "already mounted"
+  // set), before the worktree binds (their paths are ancestor-guarded).
+  f.push(...userSkillFlags(inputs, f, { readdir, exists, lstatLink: deps.lstatLink }));
 
   // ── worktree / git store ─────────────────────────────────────────────────
   f.push(...worktreeFlags(inputs, { exists, readdir }, deps.gitStore ?? hostGitStore));

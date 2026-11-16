@@ -2014,6 +2014,18 @@ describe("buildMembraneFlags symlinked skills/commands", () => {
     expect(hasTriple(f, "--ro-bind-try", "/srv/cmds/ship.md", "/srv/cmds/ship.md")).toBe(true);
   });
 
+  test("commands/ namespace dir of .md files is bound; same dir under skills/ is not", () => {
+    const ns = { linkText: "/srv/ns", real: "/srv/ns" };
+    const d = (root: string) => ({
+      ...deps({ [root]: ["ns"], "/srv/ns": ["foo.md"] }, { [`${root}/ns`]: ns }),
+      exists: () => false,
+    });
+    const cmds = buildMembraneFlags(fakeMembrane(), d(`${cd}/commands`));
+    expect(hasTriple(cmds, "--ro-bind-try", "/srv/ns", "/srv/ns")).toBe(true);
+    const sk = buildMembraneFlags(fakeMembrane(), d(skills));
+    expect(sk).not.toContain("/srv/ns");
+  });
+
   test("no flag: dest under an earlier-mounted root, real dir, dangling, unsafe dest", () => {
     const base = buildMembraneFlags(fakeMembrane(), detDeps);
     const entries: Record<string, Link | null> = {

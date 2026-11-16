@@ -244,6 +244,8 @@ profile, the operator's own `claude`) execute or read as instructions writable
   its realpath bound **RO** at the link's in-sandbox target, per entry
   (`skillLinkFlags`). Skipped when the target is at/under an earlier mount, under
   `/tmp`/`/proc`/`/dev`, or an ancestor of `$HOME`/the config dir/the worktree.
+  Only skill/command-shaped targets are bound: a dir with `SKILL.md`, a `.md`
+  file, or (under `commands/`) a namespace dir holding `.md` files.
   Codex spawns also get `~/.agents/skills` (Codex's personal-skill root) **RO**.
 - **`projects/`** — RO; only the spawn's own transcript dir
   (`projects/<dashified cwd>`) is RW, with its `memory/` RO.

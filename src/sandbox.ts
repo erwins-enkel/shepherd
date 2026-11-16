@@ -785,10 +785,12 @@ interface SkillProbe {
   lstatLink: (p: string) => SymlinkInfo | null;
 }
 
-/** Only content shaped like a skill (dir with `SKILL.md`) or command (`.md` file) is bound — a
- *  link pointing at e.g. `~/.ssh` exposes nothing. */
-function looksLikeSkillOrCommand(real: string, exists: (p: string) => boolean): boolean {
-  return real.endsWith(".md") || exists(join(real, "SKILL.md"));
+/** Only content shaped like a skill (dir with `SKILL.md`) or command (`.md` file; under a
+ *  `commands/` root also a namespace dir holding `.md` files) is bound — a link pointing at e.g.
+ *  `~/.ssh` exposes nothing. */
+function looksLikeSkillOrCommand(real: string, commandsRoot: boolean, probe: SkillProbe): boolean {
+  if (real.endsWith(".md") || probe.exists(join(real, "SKILL.md"))) return true;
+  return commandsRoot && probe.readdir(real).some((e) => e.endsWith(".md"));
 }
 
 function skillLinkFlags(
@@ -801,7 +803,7 @@ function skillLinkFlags(
   for (const root of roots) {
     for (const entry of probe.readdir(root)) {
       const link = probe.lstatLink(join(root, entry));
-      if (!link || !looksLikeSkillOrCommand(link.real, probe.exists)) continue;
+      if (!link || !looksLikeSkillOrCommand(link.real, root.endsWith("/commands"), probe)) continue;
       const dest = resolve(root, link.linkText);
       if (skillLinkDestAllowed(dest, inputs, mounted) && !binds.has(dest))
         binds.set(dest, link.real);

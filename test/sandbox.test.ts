@@ -1931,3 +1931,166 @@ describe("buildMembraneFlags launcher links (#4021)", () => {
     expect(pathOf(f)).not.toContain(MEMBRANE_TOOL_BIN);
   });
 });
+
+describe("buildMembraneFlags symlinked skills/commands", () => {
+  const cd = "/home/me/.claude";
+  const skills = `${cd}/skills`;
+  type Link = { linkText: string; real: string };
+  // Fake host: readdir per dir, lstatLink per entry path.
+  function deps(dirs: Record<string, string[]>, links: Record<string, Link>) {
+    return {
+      ...detDeps,
+      // every target is skill-shaped unless it sits under /secret
+      exists: (p: string) => p.endsWith("/SKILL.md") && !p.startsWith("/secret"),
+      readdir: (p: string) => dirs[p] ?? [],
+      lstatLink: (p: string) => links[p] ?? null,
+    };
+  }
+  const roBinds = (f: string[]) =>
+    f.flatMap((x, i) => (x === "--ro-bind-try" ? [`${f[i + 1]} -> ${f[i + 2]}`] : []));
+  const AGENTS_REAL = "/home/me/.agents/skills/impeccable";
+
+  test("relative link out of ~/.claude → RO bind of realpath at the in-sandbox target", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane(),
+      deps(
+        { [skills]: ["impeccable"] },
+        {
+          [`${skills}/impeccable`]: {
+            linkText: "../../.agents/skills/impeccable",
+            real: AGENTS_REAL,
+          },
+        },
+      ),
+    );
+    expect(hasTriple(f, "--ro-bind-try", AGENTS_REAL, AGENTS_REAL)).toBe(true);
+    // after the $HOME tmpfs, before the worktree bind
+    const at = f.findIndex((v, i) => v === "--ro-bind-try" && f[i + 1] === AGENTS_REAL);
+    const tmpfsHome = f.findIndex((v, i) => v === "--tmpfs" && f[i + 1] === "/home/me");
+    const wt = f.findIndex((v, i) => v === "--bind" && f[i + 1] === fakeMembrane().worktreePath);
+    expect(at).toBeGreaterThan(tmpfsHome);
+    expect(at).toBeLessThan(wt);
+  });
+
+  test("absolute link outside home → bound at the same path", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane(),
+      deps(
+        { [skills]: ["x"] },
+        { [`${skills}/x`]: { linkText: "/srv/skills/x", real: "/srv/skills/x" } },
+      ),
+    );
+    expect(hasTriple(f, "--ro-bind-try", "/srv/skills/x", "/srv/skills/x")).toBe(true);
+  });
+
+  test("chain: src is the final realpath, dest the first hop", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane(),
+      deps(
+        { [skills]: ["o"] },
+        {
+          [`${skills}/o`]: {
+            linkText: "/home/me/.agents/skills/o",
+            real: "/usr/share/omarchy/skills/o",
+          },
+        },
+      ),
+    );
+    expect(
+      hasTriple(f, "--ro-bind-try", "/usr/share/omarchy/skills/o", "/home/me/.agents/skills/o"),
+    ).toBe(true);
+  });
+
+  test("commands/ links are handled too", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane(),
+      deps(
+        { [`${cd}/commands`]: ["ship.md"] },
+        {
+          [`${cd}/commands/ship.md`]: { linkText: "/srv/cmds/ship.md", real: "/srv/cmds/ship.md" },
+        },
+      ),
+    );
+    expect(hasTriple(f, "--ro-bind-try", "/srv/cmds/ship.md", "/srv/cmds/ship.md")).toBe(true);
+  });
+
+  test("no flag: dest under an earlier-mounted root, real dir, dangling, unsafe dest", () => {
+    const base = buildMembraneFlags(fakeMembrane(), detDeps);
+    const entries: Record<string, Link | null> = {
+      usr: { linkText: "/usr/share/omarchy/skills/u", real: "/usr/share/omarchy/skills/u" },
+      inClaude: { linkText: "../other/s", real: "/srv/elsewhere/s" },
+      localBin: { linkText: "/home/me/.local/bin/s", real: "/srv/s" },
+      aboveLocalBin: { linkText: "/home/me/.local", real: "/srv/local" },
+      gitStore: { linkText: "/repos", real: "/repos" },
+      notASkill: { linkText: "/home/me/.ssh", real: "/secret/.ssh" },
+      real: null,
+      home: { linkText: "../..", real: "/home/me" },
+      root: { linkText: "/", real: "/" },
+      tmp: { linkText: "/tmp/s", real: "/tmp/s" },
+      proc: { linkText: "/proc/self", real: "/proc/1" },
+      worktree: {
+        linkText: "/repos/proj/.shepherd-worktrees/wt-1",
+        real: "/repos/proj/.shepherd-worktrees/wt-1",
+      },
+    };
+    const links = Object.fromEntries(
+      Object.entries(entries).flatMap(([k, v]) => (v ? [[`${skills}/${k}`, v]] : [])),
+    );
+    const f = buildMembraneFlags(fakeMembrane(), deps({ [skills]: Object.keys(entries) }, links));
+    expect(roBinds(f)).toEqual(roBinds(base));
+  });
+
+  test("codex: dest under codexHome skipped", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane({ codex: fakeCodex }),
+      deps(
+        { [skills]: ["c"] },
+        { [`${skills}/c`]: { linkText: "/home/me/.codex/skills/c", real: "/srv/c" } },
+      ),
+    );
+    expect(f).not.toContain("/srv/c");
+  });
+
+  test("codex: ~/.agents/skills bound RO; its own outward links bound; claude links into it skipped", () => {
+    const agents = "/home/me/.agents/skills";
+    const f = buildMembraneFlags(
+      fakeMembrane({ codex: fakeCodex }),
+      deps(
+        { [skills]: ["impeccable"], [agents]: ["ext"] },
+        {
+          [`${skills}/impeccable`]: {
+            linkText: "../../.agents/skills/impeccable",
+            real: AGENTS_REAL,
+          },
+          [`${agents}/ext`]: { linkText: "/srv/ext", real: "/srv/ext" },
+        },
+      ),
+    );
+    expect(hasTriple(f, "--ro-bind-try", agents, agents)).toBe(true);
+    expect(hasTriple(f, "--ro-bind-try", "/srv/ext", "/srv/ext")).toBe(true);
+    expect(hasTriple(f, "--ro-bind-try", AGENTS_REAL, AGENTS_REAL)).toBe(false);
+    const tmpfsHome = f.findIndex((v, i) => v === "--tmpfs" && f[i + 1] === "/home/me");
+    expect(f.indexOf(agents)).toBeGreaterThan(tmpfsHome);
+  });
+
+  test("non-codex spawn: no ~/.agents/skills root bind", () => {
+    const f = buildMembraneFlags(fakeMembrane(), detDeps);
+    expect(f).not.toContain("/home/me/.agents/skills");
+  });
+
+  test("dedup + deterministic order", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane(),
+      deps(
+        { [skills]: ["b", "a"], [`${cd}/commands`]: ["a"] },
+        {
+          [`${skills}/b`]: { linkText: "/srv/b", real: "/srv/b" },
+          [`${skills}/a`]: { linkText: "/srv/a", real: "/srv/a" },
+          [`${cd}/commands/a`]: { linkText: "/srv/a", real: "/srv/a" },
+        },
+      ),
+    );
+    const got = roBinds(f).filter((s) => s.startsWith("/srv/"));
+    expect(got).toEqual(["/srv/a -> /srv/a", "/srv/b -> /srv/b"]);
+  });
+});

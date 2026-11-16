@@ -239,6 +239,12 @@ profile, the operator's own `claude`) execute or read as instructions writable
   kind (under the parent session, or a shared `aux/` dir for parentless roles),
   overwritten on each spawn; removed at the session's archive and swept at boot.
 - **`shell-snapshots/`, `todos/`, `statsig/`** — per-membrane tmpfs.
+- **Symlinked skills/commands** — a `skills/` or `commands/` entry that links out
+  of the config dir (e.g. into `~/.agents/skills`, hidden by `--tmpfs $HOME`) gets
+  its realpath bound **RO** at the link's in-sandbox target, per entry
+  (`skillLinkFlags`). Skipped when the target is at/under an earlier mount, under
+  `/tmp`/`/proc`/`/dev`, or an ancestor of `$HOME`/the config dir/the worktree.
+  Codex spawns also get `~/.agents/skills` (Codex's personal-skill root) **RO**.
 - **`projects/`** — RO; only the spawn's own transcript dir
   (`projects/<dashified cwd>`) is RW, with its `memory/` RO.
 - **Preview** — `<git-common-dir>/shepherd/preview-start.sh` is authored by a

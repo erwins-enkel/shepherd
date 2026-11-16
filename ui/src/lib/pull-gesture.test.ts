@@ -35,9 +35,10 @@ describe("resist", () => {
     }
   });
   it("lets a comfortable pull reach both stages", () => {
-    expect(pullStage(resist(140))).toBe("search");
-    expect(pullStage(resist(400))).toBe("reload");
+    expect(pullStage(resist(200))).toBe("search");
+    expect(pullStage(resist(480))).toBe("reload");
   });
+  it("ignores a short flick", () => expect(pullStage(resist(140))).toBe("idle"));
 });
 
 describe("shouldArm", () => {

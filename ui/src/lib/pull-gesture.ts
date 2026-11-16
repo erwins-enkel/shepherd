@@ -4,14 +4,14 @@
 export type PullStage = "idle" | "search" | "reload";
 
 /** Resisted distance (px) at which releasing opens the command bar. */
-export const PULL_SEARCH = 64;
+export const PULL_SEARCH = 96;
 /** Resisted distance (px) at which releasing reloads the page. */
-export const PULL_RELOAD = 144;
+export const PULL_RELOAD = 200;
 /** Raw finger travel (px) before a pull counts as one, so taps and jitter never arm it. */
 export const PULL_SLOP = 8;
 
 // Rubber-band damping: ~2:3 for a short pull, flattening toward MAX for a long one.
-const MAX = 260;
+const MAX = 390;
 
 export function resist(dy: number): number {
   if (dy <= 0) return 0;

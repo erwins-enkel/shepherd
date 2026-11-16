@@ -46,14 +46,14 @@ function pull(ys: number[], target: Element = node, x = 100): TouchEvent[] {
 
 describe("pullToCommand", () => {
   it("opens search on a short pull", () => {
-    pull([60, 120, 160]);
+    pull([60, 120, 220]);
     expect(opts.onsearch).toHaveBeenCalledOnce();
     expect(opts.onreload).not.toHaveBeenCalled();
     expect(opts.onstage).toHaveBeenLastCalledWith("idle", 0);
   });
 
   it("reloads on a long pull", () => {
-    pull([100, 250, 420]);
+    pull([100, 250, 480]);
     expect(opts.onreload).toHaveBeenCalledOnce();
     expect(opts.onsearch).not.toHaveBeenCalled();
   });
@@ -65,7 +65,7 @@ describe("pullToCommand", () => {
   });
 
   it("drops back to search when pulled past reload then back", () => {
-    pull([250, 420, 160]);
+    pull([250, 480, 220]);
     expect(opts.onsearch).toHaveBeenCalledOnce();
     expect(opts.onreload).not.toHaveBeenCalled();
   });
@@ -112,7 +112,7 @@ describe("pullToCommand", () => {
 
   it("caps a long pull at search when there is no reload", () => {
     action.update({ enabled: () => true, onstage: opts.onstage, onsearch: opts.onsearch });
-    pull([100, 250, 420]);
+    pull([100, 250, 480]);
     expect(opts.onsearch).toHaveBeenCalledOnce();
     expect(opts.onstage).not.toHaveBeenCalledWith("reload", expect.anything());
   });
@@ -121,7 +121,7 @@ describe("pullToCommand", () => {
     document.body.style.height = "5000px";
     window.scrollTo(0, 300);
     action.update({ ...opts, scrollTop: () => 0 });
-    pull([120, 160]);
+    pull([120, 220]);
     expect(opts.onsearch).toHaveBeenCalledOnce();
   });
 

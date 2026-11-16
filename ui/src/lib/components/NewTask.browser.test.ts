@@ -3827,8 +3827,8 @@ describe("NewTask mobile sheets + shortcuts", () => {
     const pullFrom = (target: Element) => {
       fire(target, "touchstart", 20);
       fire(target, "touchmove", 120);
-      fire(target, "touchmove", 160);
-      fire(target, "touchend", 160);
+      fire(target, "touchmove", 220);
+      fire(target, "touchend", 220);
     };
 
     pullFrom(document.querySelector("#nt-prompt")!);
@@ -3836,11 +3836,11 @@ describe("NewTask mobile sheets + shortcuts", () => {
 
     const head = document.querySelector(".chead-title")!;
     fire(head, "touchstart", 20);
-    fire(head, "touchmove", 160);
+    fire(head, "touchmove", 220);
     await expect
       .poll(() => document.querySelector(".pull")?.textContent)
       .toContain(m.newtask_release_repo());
-    fire(head, "touchend", 160);
+    fire(head, "touchend", 220);
     // Synchronous, like the chip: the focus must land inside the touchend's call stack.
     expect(document.querySelector(".ctx-sheet .rs-panel")).toBeTruthy();
     expect(document.activeElement).toBe(document.querySelector(".ctx-sheet .rs-filter"));
@@ -3866,8 +3866,8 @@ describe("NewTask mobile sheets + shortcuts", () => {
       return e;
     };
     fire("touchstart", 20);
-    expect(fire("touchmove", 160).defaultPrevented).toBe(false);
-    fire("touchend", 160);
+    expect(fire("touchmove", 220).defaultPrevented).toBe(false);
+    fire("touchend", 220);
     expect(document.querySelector(".ctx-sheet")).toBeNull();
   });
 

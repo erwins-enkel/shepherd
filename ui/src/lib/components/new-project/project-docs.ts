@@ -174,6 +174,52 @@ export function removeDocChip(docs: AttachedDocs, chip: DocChip): AttachedDocs {
   return { ...docs, [chip.area]: docs[chip.area].filter((d) => chipKey(d) !== chip.key) };
 }
 
+/** A file that could not be read when attached: `gone` (deleted/moved), `changed` (modified on disk
+ *  or no permission), `other` (any other browser read failure; `message` says which). */
+export interface UnreadableDoc {
+  name: string;
+  reason: "gone" | "changed" | "other";
+  message: string;
+}
+
+function readFailure(d: AttachedDoc, e: unknown): UnreadableDoc {
+  const name = d.folder === null ? d.path : `${d.folder}/${d.path}`;
+  const errName = e instanceof DOMException ? e.name : "";
+  const reason =
+    errName === "NotFoundError" ? "gone" : errName === "NotReadableError" ? "changed" : "other";
+  return { name, reason, message: e instanceof Error ? e.message : String(e) };
+}
+
+/**
+ * Freeze freshly attached files into memory copies. A browser `File` is a live reference to the
+ * file on disk: once the file changes (an editor save, a sync client), Chrome refuses to upload it
+ * (`ERR_UPLOAD_FILE_CHANGED`). The copy is what the create sends, whatever happens to the original.
+ * A file that can't be read is left out and reported. A batch over the caps is returned as is,
+ * unread — the dialog blocks its submit anyway, and reading it would hold it all in memory.
+ */
+export async function snapshotDocs(
+  add: AttachedDocs,
+): Promise<{ docs: AttachedDocs; unreadable: UnreadableDoc[] }> {
+  if (docsOverCap(add)) return { docs: add, unreadable: [] };
+  const unreadable: UnreadableDoc[] = [];
+  const freeze = async (area: AttachedDoc[]): Promise<AttachedDoc[]> => {
+    const out: AttachedDoc[] = [];
+    for (const d of area) {
+      try {
+        const { name, type, lastModified } = d.file;
+        const file = new File([await d.file.arrayBuffer()], name, { type, lastModified });
+        out.push({ ...d, file });
+      } catch (e) {
+        unreadable.push(readFailure(d, e));
+      }
+    }
+    return out;
+  };
+  const prd = await freeze(add.prd);
+  const design = await freeze(add.design);
+  return { docs: { prd, design }, unreadable };
+}
+
 /** True when the docs exceed the server's caps: > 500 files or > 50 MB total, across both areas. */
 export function docsOverCap(docs: AttachedDocs): boolean {
   const all = [...docs.prd, ...docs.design];

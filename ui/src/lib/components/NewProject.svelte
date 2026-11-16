@@ -1,5 +1,12 @@
 <script lang="ts">
-  import { createProject, getCommands, getGithubOwners } from "#lib/api.js";
+  import {
+    ApiError,
+    ProjectFailedError,
+    createProject,
+    getCommands,
+    getGithubOwners,
+    isPreviewBlocked,
+  } from "#lib/api.js";
   import type { RepoEntry } from "#lib/types.js";
   import { dialog } from "#lib/a11yDialog.js";
   import { m } from "#lib/paraglide/messages.js";
@@ -11,8 +18,10 @@
     emptyDocs,
     filesFromDrop,
     mergeDocs,
+    snapshotDocs,
     sortDropped,
     type AttachedDocs,
+    type UnreadableDoc,
   } from "./new-project/project-docs";
 
   // Slug rule mirrors src/validate.ts PROJECT_SLUG_RE exactly.
@@ -74,8 +83,14 @@
   // Sent with the create whatever the kickoff: it lands in docs/prd + docs/design.
   let docs = $state<AttachedDocs>(emptyDocs());
   let dragging = $state(false);
+  // Attachments still being read and frozen: the create waits for them (see attach()).
+  let attaching = $state(0);
   let submitting = $state(false);
   let error = $state<string | null>(null);
+  // The raw cause behind `error` (server detail, HTTP text), shown under "Technical details".
+  let errorDetail = $state<string | null>(null);
+  // Whether `error` came from attaching files: the next attach retires it, a create error stays.
+  let attachError = $state(false);
   let retry = $state<(() => void) | null>(null);
 
   const nameInvalid = $derived.by(() => {
@@ -95,7 +110,12 @@
   const docsTooBig = $derived(docsOverCap(docs));
 
   const canSubmit = $derived(
-    name.trim().length > 0 && !nameInvalid && !ideaTooLong && !docsTooBig && !submitting,
+    name.trim().length > 0 &&
+      !nameInvalid &&
+      !ideaTooLong &&
+      !docsTooBig &&
+      !submitting &&
+      attaching === 0,
   );
 
   const kickoffLabel = $derived.by(() => {
@@ -163,6 +183,61 @@
     }
   }
 
+  /** What a failed create shows: a message naming the cause, plus the raw detail if there is one. */
+  function failure(err: unknown): { text: string; detail: string | null } {
+    // fetch itself rejected: the request never got an answer (connection dropped, upload refused).
+    if (err instanceof TypeError)
+      return { text: m.newproject_failed_network(), detail: err.message || null };
+    if (isPreviewBlocked(err)) return { text: (err as Error).message, detail: null };
+    const prefix = "newproject_failed_";
+    if (err instanceof ProjectFailedError && err.message.startsWith(prefix))
+      return { text: msg(err.message.slice(prefix.length)), detail: err.detail ?? null };
+    if (err instanceof ApiError)
+      return {
+        text: m.newproject_failed_status({ status: err.status }),
+        detail: err.serverAuthored ? err.message : null,
+      };
+    return {
+      text: m.newproject_failed_generic(),
+      detail: err instanceof Error ? err.message : null,
+    };
+  }
+
+  function unreadableText(u: UnreadableDoc): string {
+    if (u.reason === "gone") return `${u.name} (${m.newproject_attach_reason_gone()})`;
+    if (u.reason === "changed") return `${u.name} (${m.newproject_attach_reason_changed()})`;
+    return `${u.name} (${u.message})`;
+  }
+
+  function setAttachError(text: string) {
+    error = text;
+    errorDetail = null;
+    attachError = true;
+    retry = null;
+  }
+
+  /** Attach a picked or dropped batch, frozen into memory copies so a later change to the file on
+   *  disk can't break the upload. Both submits stay disabled until the batch is in `docs`. */
+  async function attach(batch: Promise<AttachedDocs>) {
+    if (attachError) {
+      error = null;
+      attachError = false;
+    }
+    attaching++;
+    try {
+      const { docs: frozen, unreadable } = await snapshotDocs(await batch);
+      docs = mergeDocs(docs, frozen);
+      if (unreadable.length > 0)
+        setAttachError(
+          m.newproject_attach_unreadable({ files: unreadable.map(unreadableText).join(", ") }),
+        );
+    } catch {
+      setAttachError(m.newproject_drop_failed());
+    } finally {
+      attaching--;
+    }
+  }
+
   function resolveKickoff(): KickoffChoice {
     if (kickoffValue === "__prd__")
       return docs.prd.length > 0 ? { kind: "prd", prdSupplied: true } : { kind: "prd" };
@@ -190,16 +265,8 @@
     dragging = false;
     // A create is in flight: a retry must resend the file set that failed.
     if (submitting) return;
-    // A new attempt retires the previous drop's failure; any other error stays.
-    if (error === m.newproject_drop_failed()) error = null;
     // Captured before the first await: the drop's items are gone once the handler returns.
-    const pending = filesFromDrop(e.dataTransfer);
-    try {
-      docs = mergeDocs(docs, sortDropped(await pending));
-    } catch {
-      error = m.newproject_drop_failed();
-      retry = null;
-    }
+    await attach(filesFromDrop(e.dataTransfer).then(sortDropped));
   }
 
   async function submit(e: Event, customize = false) {
@@ -209,9 +276,12 @@
     if (!canSubmit) return;
     submitting = true;
     error = null;
+    errorDetail = null;
+    attachError = false;
     retry = null;
+    let entry: RepoEntry & { warning?: string };
     try {
-      const entry = await createProject(
+      entry = await createProject(
         {
           name: trimmedName,
           idea: trimmedIdea,
@@ -221,14 +291,15 @@
         },
         docs,
       );
-      ondone(entry, resolveKickoff(), trimmedIdea, customize);
     } catch (err) {
-      const code = err instanceof Error ? err.message.replace(/^newproject_failed_/, "") : "";
-      error = msg(code);
+      ({ text: error, detail: errorDetail } = failure(err));
       retry = () => submit(e, customize);
+      return;
     } finally {
       submitting = false;
     }
+    // Outside the try: the project exists now, so a failure past this point is not "not created".
+    ondone(entry, resolveKickoff(), trimmedIdea, customize);
   }
 </script>
 
@@ -298,6 +369,7 @@
         data-1p-ignore></textarea>
       <NewProjectDocsPicker
         bind:docs
+        onattach={(add) => attach(Promise.resolve(add))}
         count={m.newproject_idea_count({ count: ideaLength, max: IDEA_MAX })}
         countOver={ideaTooLong}
       />
@@ -367,6 +439,12 @@
           <button type="button" class="retry" onclick={() => retry?.()}>{m.common_retry()}</button>
         {/if}
       </div>
+      {#if errorDetail}
+        <details class="advanced err-details">
+          <summary class="micro">{m.newproject_failed_details()}</summary>
+          <pre>{errorDetail}</pre>
+        </details>
+      {/if}
     {/if}
 
     <button class="run" type="submit" disabled={!canSubmit}>
@@ -546,6 +624,14 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+  .err-details pre {
+    margin: 4px 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
   .retry {
     flex-shrink: 0;

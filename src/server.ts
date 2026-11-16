@@ -10906,7 +10906,10 @@ async function createProjectFromRequest(
   const parsed = validateNewProject(read.body, config.repoRoot);
   if (!parsed.ok) return json({ error: parsed.error }, PROJECT_ERROR_STATUS[parsed.error] ?? 400);
   const r = await createProject(parsed.value, config.repoRoot, ghRunner, undefined, read.docs);
-  if (!r.ok) return json({ error: r.error }, PROJECT_ERROR_STATUS[r.error] ?? 422);
+  if (!r.ok) {
+    const body = r.detail ? { error: r.error, detail: r.detail } : { error: r.error };
+    return json(body, PROJECT_ERROR_STATUS[r.error] ?? 422);
+  }
   // #3105: a new project starts in project-bootstrap mode (P1), so no drain runs on it before its
   // scaffold exists. Keyed by the same resolved dir the drain and repo-config use. The local repo
   // exists even when the remote step only warned.

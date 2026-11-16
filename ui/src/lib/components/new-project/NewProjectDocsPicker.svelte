@@ -3,7 +3,6 @@
   import {
     docChips,
     emptyDocs,
-    mergeDocs,
     pickedDocs,
     removeDocChip,
     type AttachedDocs,
@@ -15,9 +14,16 @@
   // the first commit; both are optional, the bootstrap agent asks for whatever is missing.
   let {
     docs = $bindable(),
+    onattach,
     count,
     countOver,
-  }: { docs: AttachedDocs; count: string; countOver: boolean } = $props();
+  }: {
+    docs: AttachedDocs;
+    /** A picked batch to attach; the dialog reads and freezes it before it joins `docs`. */
+    onattach: (add: AttachedDocs) => void;
+    count: string;
+    countOver: boolean;
+  } = $props();
 
   let prdInput = $state<HTMLInputElement>();
   let designInput = $state<HTMLInputElement>();
@@ -27,7 +33,7 @@
   // PRD picks only ever come from the plain (non-directory) picker, so they stay loose files —
   // one chip each with its own target.
   function pick(area: DocArea, input: HTMLInputElement) {
-    docs = mergeDocs(docs, { ...emptyDocs(), [area]: pickedDocs(input.files) });
+    onattach({ ...emptyDocs(), [area]: pickedDocs(input.files) });
     input.value = "";
   }
 </script>

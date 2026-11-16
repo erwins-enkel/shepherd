@@ -830,13 +830,28 @@ export async function syncFork(repoPath: string): Promise<{ branch?: string }> {
   return (await r.json().catch(() => ({}))) as { branch?: string };
 }
 
+/** A refused project create. `message` is the server's `newproject_failed_*` code (or the
+ *  `newproject failed: <status>` fallback when the response carried none); `detail` is the
+ *  server's redacted, single-line cause for the dialog's technical details, when it sent one. */
+export class ProjectFailedError extends ApiError {
+  constructor(
+    status: number,
+    message: string,
+    readonly detail: string | undefined,
+    serverAuthoredMessage: boolean,
+  ) {
+    super(status, message, undefined, serverAuthoredMessage);
+  }
+}
+
 /** Create a new local git project (optionally with a GitHub remote).
  *  On success returns a `RepoEntry` plus an optional `warning` when the local repo
  *  was created but the GitHub step failed (partial success — the modal treats this as
  *  success with a non-blocking hint, not a blocking error).
- *  On any hard failure throws with `err.message` set to the server's `error` field
- *  (a `newproject_failed_*` code) so the modal can strip the `newproject_failed_`
- *  prefix and map to its `msg(code)` switch — exactly the same contract as `cloneRepo`. */
+ *  On a refused create throws a {@link ProjectFailedError} whose `message` is the server's
+ *  `error` field (a `newproject_failed_*` code) so the modal can strip the `newproject_failed_`
+ *  prefix and map to its `msg(code)` switch — the same contract as `cloneRepo`. A request that
+ *  never got an answer rejects with fetch's own `TypeError`. */
 export async function createProject(
   input: {
     name: string;
@@ -847,18 +862,25 @@ export async function createProject(
   },
   docs?: ProjectDocFiles,
 ): Promise<RepoEntry & { warning?: string }> {
+  const r = await fetch("/api/projects", projectRequest(input, docs));
+  if (r.ok) return r.json() as Promise<RepoEntry & { warning?: string }>;
+  const body = (await r.json().catch(() => null)) as { error?: string; detail?: string } | null;
+  const base = apiError(r.status, body, `newproject failed: ${r.status}`);
+  if (isPreviewBlocked(base)) throw base;
+  throw new ProjectFailedError(r.status, base.message, body?.detail, serverAuthored(base));
+}
+
+/** JSON without imported files; otherwise (#3112) the PRD + design import rides as multipart,
+ *  each file's name its path under docs/<area>/ (the server re-validates every one). */
+function projectRequest(input: unknown, docs?: ProjectDocFiles): RequestInit {
   if (!docs || (docs.prd.length === 0 && docs.design.length === 0))
-    return postJson<RepoEntry & { warning?: string }>("/api/projects", input, "newproject");
-  // #3112: the PRD + design import rides as multipart; each file's name is its path under
-  // docs/<area>/ (the server re-validates every one).
+    return { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(input) };
   const fd = new FormData();
   fd.append("project", JSON.stringify(input));
   for (const area of ["prd", "design"] as const)
     for (const d of docs[area]) fd.append(area, d.file, d.path);
   // no content-type header: the browser sets the multipart boundary
-  const r = await fetch("/api/projects", { method: "POST", body: fd });
-  if (!r.ok) throw await failed(r, "newproject");
-  return r.json() as Promise<RepoEntry & { warning?: string }>;
+  return { method: "POST", body: fd };
 }
 
 /** Files to import into a new project (#3112), each with its path relative to `docs/<area>/`. */

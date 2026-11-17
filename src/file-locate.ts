@@ -1,6 +1,6 @@
 import { promises as fsp } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, normalize, relative, sep } from "node:path";
+import { isAbsolute, normalize, relative, resolve, sep } from "node:path";
 import { resolveInRoot } from "./fs-browse";
 import { resolveHostFile, type HostLookup } from "./host-file";
 import { existingScratchpadDir, sandboxScratchpadDest } from "./tmp-sweep";
@@ -56,10 +56,21 @@ async function targetIn(
   };
 }
 
+/** `rawPath` as a normalized absolute path: `~/` expands against HOME, and a relative link
+ *  (`.shepherd-plan.md`, #4037) names a file in the agent's cwd — the worktree. */
+function absolutePath(rawPath: string, worktreePath: string): string | null {
+  if (!rawPath || rawPath.includes("\0")) return null;
+  const expanded = rawPath.startsWith("~/")
+    ? (process.env.HOME || homedir()) + rawPath.slice(1)
+    : rawPath;
+  if (isAbsolute(expanded)) return normalize(expanded);
+  return worktreePath ? resolve(worktreePath, expanded) : null;
+}
+
 /**
- * Map a host path an agent linked (absolute, or `~/…`) to the session's scratchpad or worktree,
- * so the chat can open it in the Files tab (#3997). Answers only containment questions about the
- * two roots the operator can already browse: a path is first matched LEXICALLY against each root
+ * Map a host path an agent linked (absolute, `~/…`, or relative to the worktree, #4037) to the
+ * session's scratchpad or worktree, so the chat can open it in the Files tab (#3997). Answers
+ * only containment questions about the two roots the operator can already browse: a path is first matched LEXICALLY against each root
  * (plus its realpath and, for the scratchpad, the path a sandboxed agent sees), so a path outside
  * both never touches the filesystem. Inside a root, `resolveInRoot` enforces realpath containment
  * (symlink escapes → null) and the worktree hides `.git`. With `host`, a path outside both roots
@@ -72,12 +83,8 @@ export async function locateSessionFile(
   rawPath: string,
   host?: HostLookup,
 ): Promise<FileTarget | null> {
-  if (!rawPath || rawPath.includes("\0")) return null;
-  const expanded = rawPath.startsWith("~/")
-    ? (process.env.HOME || homedir()) + rawPath.slice(1)
-    : rawPath;
-  if (!isAbsolute(expanded)) return null;
-  const p = normalize(expanded);
+  const p = absolutePath(rawPath, worktreePath);
+  if (p === null) return null;
 
   if (claudeSessionId) {
     const root = await existingScratchpadDir(worktreePath, claudeSessionId);
@@ -94,6 +101,10 @@ export async function locateSessionFile(
     if (rel !== null) return targetIn("worktree", worktreePath, rel);
   }
   if (!host) return null;
-  const hit = await resolveHostFile(rawPath, host);
+  // A relative link has only its resolved form; absolute/`~` input keeps its own spelling.
+  const hit = await resolveHostFile(
+    isAbsolute(rawPath) || rawPath.startsWith("~/") ? rawPath : p,
+    host,
+  );
   return hit ? { source: "host", path: hit.path, type: "file" } : null;
 }

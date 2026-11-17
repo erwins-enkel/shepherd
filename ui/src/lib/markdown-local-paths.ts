@@ -19,7 +19,9 @@ function decode(s: string): string {
 /** Drop a `?query` / `#fragment` (line anchors like `#L10`), then percent-decode. */
 const bare = (s: string): string => decode(s.replace(/[?#].*$/s, ""));
 
-/** The host filesystem path an href names, or null when it is a real URL / fragment / relative. */
+/** The host filesystem path an href names, or null when it is a real URL / fragment / query.
+ *  A relative href (`.shepherd-plan.md`, #4037) is a path relative to the session worktree —
+ *  the server resolves it; as a URL it would only hit the app origin and 404. */
 export function localPathOf(href: string): string | null {
   const h = href.trim();
   if (/^file:/i.test(h)) {
@@ -33,7 +35,8 @@ export function localPathOf(href: string): string | null {
   }
   if (h.startsWith("~/")) return bare(h);
   if (h.startsWith("/") && !h.startsWith("//")) return bare(h) || null;
-  return null;
+  if (/^[#?/\\]/.test(h) || /^[a-z][a-z0-9+.-]*:/i.test(h)) return null;
+  return bare(h) || null;
 }
 
 /** Swap every sanitizer-marked `a[data-local-path]` for a non-navigating span with a host hint.

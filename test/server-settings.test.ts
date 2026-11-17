@@ -813,7 +813,7 @@ test("PUT /api/settings rejects an unknown defaultModel value", async () => {
   expect(config.defaultModel).toBe("auto"); // unchanged on failure
 });
 
-test.each(["gpt-5.4", "gpt-6.1-sol", "gpt-6.1-terra"])(
+test.each(["gpt-5.4", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6.2-sol", "gpt-6.2-astra"])(
   "PUT /api/settings persists Codex default %s",
   async (model) => {
     const { app, store } = harness();

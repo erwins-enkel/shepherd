@@ -2,12 +2,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import { modelOptionLabel } from "#lib/model-guidance.js";
   import ModelGuidance from "#lib/components/ModelGuidance.svelte";
-  import {
-    AGENT_PROVIDERS,
-    CODEX_MODELS,
-    type AgentProvider,
-    type UsageLimits,
-  } from "#lib/types.js";
+  import { AGENT_PROVIDERS, type AgentProvider, type UsageLimits } from "#lib/types.js";
   import { pickerModels, modelAvailableForProvider } from "#lib/provider-models.js";
   import {
     providerEfforts,
@@ -103,10 +98,10 @@
   const codexGauges = $derived(codexGaugeList(codexUsage));
 
   // Keep the model valid for the selected provider (seed or a provider switch may invalidate it):
-  // Claude falls back to "default" (provider default), Codex to its top curated alias.
+  // Claude falls back to "default" (provider default), Codex to its existing fallback, independently of catalog order.
   $effect(() => {
     if (!modelAvailableForProvider(agentProvider, model, fableAvailable))
-      model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
+      model = agentProvider === "codex" ? "gpt-6.1-sol" : "default";
   });
 
   // A provider/model change resets only an effort tier the new choice does not offer.

@@ -63,7 +63,7 @@ public enum ComposeRunConfig {
     /// Pins a newer pin replaced (5.1 → 5.2): still valid values, so a saved one keeps running, but
     /// the pickers only list one as the current value. Mirrors ui RETIRED_PICKER_MODELS.
     static let retiredPickerModels: Set<String> = ["claude-mythos-5-1", "claude-fable-5-1"]
-    static let codexModels = ["gpt-6.1-sol", "gpt-6.1-terra", "gpt-5.6-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4",
+    static let codexModels = ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-5.6-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4",
                               "gpt-5.3-codex", "gpt-5.1-codex", "gpt-5-codex", "gpt-5.1", "gpt-5", "o3"]
     static let efforts = ["low", "medium", "high", "xhigh", "max", "ultra"]
 
@@ -73,7 +73,7 @@ public enum ComposeRunConfig {
 
     public static func providerEfforts(_ provider: AgentProvider, model: String) -> [String] {
         if provider == .claude || model == "gpt-6-luna" || model == "gpt-5.6-luna" { return Array(efforts.prefix(5)) }
-        if ["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-astra", "gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-terra"].contains(model) { return efforts }
+        if ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-astra", "gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-terra"].contains(model) { return efforts }
         if codexModels.contains(model) { return Array(efforts.prefix(4)) }
         return efforts
     }

@@ -9024,5 +9024,9 @@
   "automation_epic_claim_release_name": "Verwaiste Epic-Claims freigeben",
   "automation_epic_claim_release_desc": "Nach 30 Minuten ohne Session oder PR gibt der Drain den Claim am nächsten Child des laufenden Epics frei, damit der Lauf weitergeht. Standardmäßig aus, weil jemand das Label bewusst von Hand halten kann.",
   "feat_epic_claim_release_title": "Verwaisten Claim direkt am Epic freigeben",
-  "feat_epic_claim_release_body": "Trägt das nächste Child des laufenden Epics den Claim des Drains, ohne dass eine Session oder ein PR ihn hält, zeigt das Epic jetzt „pausiert“ und nennt dieses Child. Gib den Claim nach einer Bestätigung direkt in der Halt-Zeile des Epics frei. Optional gibt Repo-Einstellungen → Epics solche Claims nach 30 Minuten selbst frei."
+  "feat_epic_claim_release_body": "Trägt das nächste Child des laufenden Epics den Claim des Drains, ohne dass eine Session oder ein PR ihn hält, zeigt das Epic jetzt „pausiert“ und nennt dieses Child. Gib den Claim nach einer Bestätigung direkt in der Halt-Zeile des Epics frei. Optional gibt Repo-Einstellungen → Epics solche Claims nach 30 Minuten selbst frei.",
+  "model_guidance_codex_62_sol": "GPT-6.2 für alltägliches Coding und Agenten-Workflows, zu niedrigeren Kosten als Astra. Unterstützt Reasoning-Aufwand bis Ultra.",
+  "model_guidance_codex_62_astra": "GPT-6.2 für anspruchsvolles Coding und professionelle Aufgaben, zu Premium-Kosten. Unterstützt Reasoning-Aufwand bis Ultra.",
+  "feat_codex_62_models_title": "GPT-6.2 Sol und Astra in Codex",
+  "feat_codex_62_models_body": "Wähle GPT-6.2 Sol oder Astra für Aufgaben, Standards und Agentenrollen, mit Reasoning-Aufwand bis Ultra. Deine bestehenden Standards und gespeicherten Modellwahlen bleiben erhalten. Die Verfügbarkeit hängt von deiner Codex-Installation und deinem Konto ab."
 }

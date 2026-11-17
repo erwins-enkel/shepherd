@@ -1754,3 +1754,23 @@ test("launchUiState accepts an optional plainChecked flag", () => {
   expect(r.ok).toBe(true);
   if (r.ok && r.value.terminal !== true) expect(r.value.launchUiState?.plainChecked).toBe(true);
 });
+
+test.each(["gpt-6.2-sol", "gpt-6.2-astra"])("validateCreate preserves %s with ultra", (model) => {
+  const result = validateCreate(
+    {
+      repoPath: "~",
+      baseBranch: "main",
+      prompt: "go",
+      agentProvider: "codex",
+      model,
+      effort: "ultra",
+    },
+    homedir(),
+  );
+  expect(result.ok).toBe(true);
+  if (result.ok) expect(result.value.terminal).not.toBe(true);
+  if (result.ok && result.value.terminal !== true) {
+    expect(result.value.model).toBe(model);
+    expect(result.value.effort).toBe("ultra");
+  }
+});

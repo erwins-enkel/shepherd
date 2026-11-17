@@ -66,6 +66,15 @@ describe("normalizeDefaultModelSetting", () => {
 });
 
 describe("normalizeDefaultCodexModelSetting", () => {
+  test.each(["gpt-6.2-sol", "gpt-6.2-astra"])("accepts %s for defaults and roles", (model) => {
+    expect(CODEX_MODELS.slice(0, 2)).toEqual(["gpt-6.2-sol", "gpt-6.2-astra"]);
+    expect(normalizeDefaultCodexModelSetting(model)).toBe(model);
+    expect(normalizeRepoDefaultModelSetting(model)).toBe(model);
+    expect(
+      resolveRoleEnvironment("codex", model, "codex", "gpt-5.6-sol", true, "ultra"),
+    ).toMatchObject({ provider: "codex", model, effort: "ultra" });
+  });
+
   test("accepts 'default' and each curated Codex model", () => {
     expect(normalizeDefaultCodexModelSetting("default")).toBe("default");
     for (const model of CODEX_MODELS) {
@@ -86,6 +95,8 @@ describe("resolvePersistedDefaultCodexModel", () => {
     [null, "gpt-5.6-sol"],
     ["gpt-5.5", "gpt-5.5"],
     ["gpt-6-sol", "gpt-6-sol"],
+    ["gpt-6.1-sol", "gpt-6.1-sol"],
+    ["gpt-6-astra", "gpt-6-astra"],
     ["gpt-6-luna", "gpt-6-luna"],
     ["default", "default"],
     ["invalid-model", "default"],

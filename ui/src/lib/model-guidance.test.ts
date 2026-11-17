@@ -4,6 +4,22 @@ import { configuredModelLabel, modelLabel, runtimeModelLabel } from "./model-lab
 import { isFableModel, modelAvailableForProvider } from "./provider-models";
 
 describe("modelGuidance", () => {
+  it.each([
+    ["gpt-6.2-sol", "high", "strong", "$$$", "GPT-6.2 Sol"],
+    ["gpt-6.2-astra", "premium", "max", "$$$$", "GPT-6.2 Astra"],
+  ])(
+    "offers %s with its own guidance and cost markers",
+    (model, costTier, tag, costMark, label) => {
+      expect(modelAvailableForProvider("codex", model, false)).toBe(true);
+      expect(modelAvailableForProvider("claude", model, true)).toBe(false);
+      const guidance = modelGuidance("codex", model);
+      expect(guidance).toMatchObject({ costTier, tag, costMark });
+      expect(guidance.detail).not.toBe(modelGuidance("codex", "unknown").detail);
+      expect(guidance.detail).not.toBe(modelGuidance("codex", "gpt-6.1-sol").detail);
+      expect(modelOptionLabel("codex", model)).toBe(`${model} · ${tag} · ${costMark}`);
+      expect(runtimeModelLabel(model)).toBe(label);
+    },
+  );
   it("offers GPT-6.1 Sol with its own guidance and lower cost tier than Astra", () => {
     expect(modelAvailableForProvider("codex", "gpt-6.1-sol", false)).toBe(true);
     const guidance = modelGuidance("codex", "gpt-6.1-sol");

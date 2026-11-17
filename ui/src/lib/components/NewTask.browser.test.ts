@@ -2092,8 +2092,10 @@ describe("NewTask Codex model picker", () => {
     await expect.poll(() => modelSelect().value).toBe("gpt-5.4");
     const options = Array.from(modelSelect().options).map((o) => o.value);
     expect(options).toContain("gpt-5.5");
-    expect(options.slice(0, 9)).toEqual([
+    expect(options.slice(0, 11)).toEqual([
       "default",
+      "gpt-6.2-sol",
+      "gpt-6.2-astra",
       "gpt-6.1-sol",
       "gpt-6.1-terra",
       "gpt-5.6-sol",

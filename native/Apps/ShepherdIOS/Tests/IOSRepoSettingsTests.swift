@@ -134,7 +134,8 @@ final class IOSRepoSettingsTests: XCTestCase {
         IOSMultiServerFixtureTransport.set([], for: profile.baseURL)
         await hub.connect(profile)
         let owner = try XCTUnwrap(hub.models[profile.id])
-        try await owner.store?.bootstrap()
+        // Activation starts the store; these tests inject their reads and writes, so no second bootstrap is needed.
+        _ = try XCTUnwrap(owner.store)
         // All writes are injected; production isolated launches retain their audit.
         owner.liveRequestAudit = nil
         return (hub, owner, profile)

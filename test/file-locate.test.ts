@@ -74,14 +74,23 @@ test("expands ~/ against HOME", async () => {
   });
 });
 
-test("refuses .git, escapes, out-pointing symlinks, outside and relative paths", async () => {
+test("resolves a relative path against the worktree (#4037)", async () => {
+  const want = { source: "worktree", path: "README.md", type: "file" } as const;
+  for (const p of ["README.md", "./README.md", "docs/../README.md"])
+    expect(await locate(p)).toEqual(want);
+  expect(await locate("docs")).toEqual({ source: "worktree", path: "docs", type: "dir" });
+  for (const p of ["../secret.env", ".git", "leak.env", "missing.md"])
+    expect(await locate(p)).toBeNull();
+  expect(await locateSessionFile("", SID, "README.md")).toBeNull();
+});
+
+test("refuses .git, escapes, out-pointing symlinks and outside paths", async () => {
   for (const p of [
     join(repoDir, ".git"),
     join(repoDir, "docs", "..", "..", "secret.env"),
     join(repoDir, "leak.env"),
     join(tmpRoot, "secret.env"),
     "/etc/passwd",
-    "README.md",
     join(repoDir, "missing.md"),
     "",
     `${repoDir}/README.md\0`,

@@ -11,6 +11,12 @@ describe("localPathOf (#3997)", () => {
     ["file:///home/u/x.md", "/home/u/x.md"],
     ["file://localhost/home/u/x%20y.md", "/home/u/x y.md"],
     ["~/notes/x.md", "~/notes/x.md"],
+    [".shepherd-plan.md", ".shepherd-plan.md"],
+    ["relative/x.md", "relative/x.md"],
+    ["./a.md", "./a.md"],
+    ["../a.md", "../a.md"],
+    ["src/a.ts#L10", "src/a.ts"],
+    ["my%20f.md", "my f.md"],
   ])("%s → %s", (href, path) => {
     expect(localPathOf(href)).toBe(path);
   });
@@ -20,7 +26,11 @@ describe("localPathOf (#3997)", () => {
     "mailto:a@b.c",
     "#steps",
     "//host/x",
-    "relative/x.md",
+    "HTTPS://example.com/x",
+    "javascript:alert(1)",
+    "tel:123",
+    "?x=1",
+    "\\\\host\\x",
     "file://otherhost/x",
     "",
   ])("%s is not a host path", (href) => {

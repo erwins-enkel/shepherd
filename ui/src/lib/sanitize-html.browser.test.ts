@@ -159,6 +159,8 @@ describe("renderMarkdown host-path links (#3997)", () => {
     ["[r](/home/u/x.md)", "/home/u/x.md"],
     ["[r](file:///home/u/x.md)", "/home/u/x.md"],
     ["[r](~/x.md)", "~/x.md"],
+    ["[r](.shepherd-plan.md)", ".shepherd-plan.md"],
+    ["[r](src/a.ts#L10)", "src/a.ts"],
   ])("%s renders as a non-navigating host path", async (md, path) => {
     const host = dom(await renderMarkdown(md));
     expect(host.querySelector("a")).toBeNull();

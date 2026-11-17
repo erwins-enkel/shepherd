@@ -374,6 +374,105 @@ describe("NewProject start", () => {
   });
 });
 
+/** Answer the create with `respond`; every other call gets an empty command list. */
+function mockCreate(respond: () => Promise<Response>) {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    if (String(input).startsWith("/api/projects")) return respond();
+    return new Response(JSON.stringify({ commands: [] }), { status: 200 });
+  });
+}
+
+describe("NewProject attachment freezing", () => {
+  it("reads an attached file right away and sends that content", async () => {
+    const posts = mockApi();
+    render(NewProject, { ondone: vi.fn() });
+    await fillName();
+    const orig = prdMd();
+    const read = vi.spyOn(orig, "arrayBuffer");
+    pickPrd([orig]);
+    await expect.element(chipList().getByText("prd.md", { exact: true })).toBeVisible();
+    expect(read).toHaveBeenCalledTimes(1);
+    const fd = await submitForm(posts);
+    expect(await (fd.get("prd") as File).text()).toBe("# PRD");
+  });
+
+  it("names a file that can no longer be read and leaves it out", async () => {
+    mockApi();
+    render(NewProject, { ondone: vi.fn() });
+    await fillName();
+    const gone = new File(["x"], "gone.md");
+    gone.arrayBuffer = () => Promise.reject(new DOMException("not found", "NotFoundError"));
+    pickPrd([gone]);
+    await expect
+      .element(
+        page.getByText(
+          m.newproject_attach_unreadable({
+            files: `gone.md (${m.newproject_attach_reason_gone()})`,
+          }),
+        ),
+      )
+      .toBeVisible();
+    await expect.element(chipList()).not.toBeInTheDocument();
+  });
+
+  it("holds both creates until the attached files are read, then sends them", async () => {
+    const posts = mockApi();
+    render(NewProject, { ondone: vi.fn() });
+    await fillName();
+    const orig = prdMd();
+    const real = orig.arrayBuffer.bind(orig);
+    let release: () => void = () => {};
+    orig.arrayBuffer = () => new Promise((res) => (release = () => res(real())));
+    pickPrd([orig]);
+    await expect.element(submitButton()).toBeDisabled();
+    await expect
+      .element(page.getByRole("button", { name: m.newproject_submit_customize() }))
+      .toBeDisabled();
+    dialogEl().requestSubmit();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(posts.length).toBe(0);
+    release();
+    await expect.element(chipList().getByText("prd.md", { exact: true })).toBeVisible();
+    const fd = await submitForm(posts);
+    expect(names(fd, "prd")).toEqual(["prd.md"]);
+    expect(await (fd.get("prd") as File).text()).toBe("# PRD");
+  });
+});
+
+describe("NewProject failure causes", () => {
+  it("says the server did not answer when the request itself fails", async () => {
+    mockCreate(() => Promise.reject(new TypeError("Failed to fetch")));
+    render(NewProject, { ondone: vi.fn() });
+    await fillName();
+    await submitButton().click();
+    await expect.element(page.getByText(m.newproject_failed_network())).toBeVisible();
+    await expect.element(page.getByText(m.newproject_failed_generic())).not.toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: m.common_retry() })).toBeVisible();
+  });
+
+  it("shows the server's detail under technical details", async () => {
+    const detail = "ENOTDIR: not a directory, mkdir '/r/demo/docs/design/a'";
+    mockCreate(async () =>
+      Response.json({ error: "newproject_failed_generic", detail }, { status: 422 }),
+    );
+    render(NewProject, { ondone: vi.fn() });
+    await fillName();
+    await submitButton().click();
+    await expect.element(page.getByText(m.newproject_failed_generic())).toBeVisible();
+    await page.getByText(m.newproject_failed_details()).click();
+    await expect.element(page.getByText(detail)).toBeVisible();
+  });
+
+  it("names the HTTP status when the answer carries no known code", async () => {
+    mockCreate(async () => new Response("Bad Gateway", { status: 502 }));
+    render(NewProject, { ondone: vi.fn() });
+    await fillName();
+    await submitButton().click();
+    await expect.element(page.getByText(m.newproject_failed_status({ status: 502 }))).toBeVisible();
+    await expect.element(page.getByText(m.newproject_failed_details())).not.toBeInTheDocument();
+  });
+});
+
 describe("NewProject idea length", () => {
   it("blocks an idea over the server's 8000-char limit before sending", async () => {
     const posts = mockApi();

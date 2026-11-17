@@ -22,6 +22,7 @@ import {
   classifyCloneError,
   createProject,
   classifyProjectError,
+  classifyLocalBootstrapError,
   listGithubOwners,
   listGithubRepos,
   forkRepo,
@@ -522,6 +523,32 @@ test("createProject: imported docs are part of the initial commit", async () => 
   }
 });
 
+/** A local filesystem failure is reported as generic + its cause — never as a GitHub failure. */
+test("createProject: a local fs failure → generic with detail, dir removed", async () => {
+  const { repoRoot, cleanup } = makeTempRoot();
+  try {
+    const enc = new TextEncoder();
+    // "a" is written as a file, so "a/b" needs a directory where a file already sits.
+    const result = await createProject(
+      { name: "fs-fail", idea: "", createRemote: false, visibility: "private" },
+      repoRoot,
+      undefined,
+      () => true,
+      [
+        { area: "design", relPath: "a", data: enc.encode("x") },
+        { area: "design", relPath: "a/b", data: enc.encode("y") },
+      ],
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBe("newproject_failed_generic");
+    expect(result.detail).toMatch(/ENOTDIR|EEXIST/);
+    expect(existsSync(join(repoRoot, "fs-fail"))).toBe(false);
+  } finally {
+    cleanup();
+  }
+});
+
 /** Happy local-only path with empty idea: uses fallback placeholder text. */
 test("createProject: empty idea uses fallback placeholder in bootstrap files", async () => {
   const { repoRoot, cleanup } = makeTempRoot();
@@ -903,6 +930,25 @@ test("classifyProjectError: non-empty other stderr → newproject_failed_remote"
 
 test("classifyProjectError: empty/no stderr → newproject_failed_generic (fallback)", () => {
   expect(classifyProjectError({})).toBe("newproject_failed_generic");
+});
+
+test("classifyLocalBootstrapError: a fs error → generic, not remote", () => {
+  const e = Object.assign(new Error("ENOTDIR: not a directory, mkdir '/x/a'"), {
+    code: "ENOTDIR",
+  });
+  expect(classifyLocalBootstrapError(e)).toBe("newproject_failed_generic");
+});
+
+test("classifyLocalBootstrapError: git missing (ENOENT) → generic, not gh_missing", () => {
+  expect(classifyLocalBootstrapError({ code: "ENOENT", message: "spawnSync git ENOENT" })).toBe(
+    "newproject_failed_generic",
+  );
+});
+
+test("classifyLocalBootstrapError: a git fatal → git", () => {
+  expect(classifyLocalBootstrapError({ stderr: "fatal: unable to write new index file" })).toBe(
+    "newproject_failed_git",
+  );
 });
 
 /** Regression: "remote: Repository not found" must NOT classify as gh_missing. */

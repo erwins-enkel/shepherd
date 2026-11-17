@@ -543,6 +543,32 @@ test("POST /api/projects multipart without a project field → 400", async () =>
   expect(res.status).toBe(400);
 });
 
+test("POST /api/projects multipart: a local fs failure → 422 generic with its detail", async () => {
+  const { config } = await import("../src/config");
+  const name = "srv-proj-fsfail-" + Date.now();
+  const targetDir = join(config.repoRoot, name);
+  try {
+    const app = makeTestApp();
+    const fd = new FormData();
+    fd.append("project", JSON.stringify({ name, idea: "", createRemote: false }));
+    // "a" lands as a file, so "a/b" needs a directory where that file sits.
+    fd.append("design", new File(["x"], "a"), "a");
+    fd.append("design", new File(["y"], "b"), "a/b");
+    const res = await app.fetch(new Request("http://x/api/projects", { method: "POST", body: fd }));
+    const body = await res.json();
+    if (body.error === "newproject_failed_identity") {
+      console.log("[skip] git identity not configured in test env");
+      return;
+    }
+    expect(res.status).toBe(422);
+    expect(body.error).toBe("newproject_failed_generic");
+    expect(body.detail).toMatch(/ENOTDIR|EEXIST/);
+    expect(existsSync(targetDir)).toBe(false);
+  } finally {
+    if (existsSync(targetDir)) rmSync(targetDir, { recursive: true, force: true });
+  }
+});
+
 test("POST /api/projects multipart: the project JSON is validated like the JSON body", async () => {
   const app = makeTestApp();
   const fd = new FormData();

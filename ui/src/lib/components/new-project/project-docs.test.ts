@@ -9,6 +9,7 @@ import {
   mergeDocs,
   pickedDocs,
   removeDocChip,
+  snapshotDocs,
   sortDropped,
   walkDropEntry,
   type AttachedDoc,
@@ -292,5 +293,66 @@ describe("docsOverCap", () => {
     expect(docsOverCap(at)).toBe(false);
     const over = { prd: at.prd, design: [doc("b.png", null, sized("b.png", 30 * MiB + 1))] };
     expect(docsOverCap(over)).toBe(true);
+  });
+});
+
+/** A File whose read rejects as a browser does once the file on disk changed or vanished. */
+const unreadable = (
+  name: string,
+  errName: string,
+  message = `${errName} reading ${name}`,
+): File => {
+  const file = f(name);
+  file.arrayBuffer = vi.fn(() => Promise.reject(new DOMException(message, errName)));
+  return file;
+};
+
+describe("snapshotDocs", () => {
+  it("freezes each file into a memory copy with the same name, type and content", async () => {
+    const orig = new File(["# PRD"], "prd.md", { type: "text/markdown", lastModified: 42 });
+    const { docs, unreadable: bad } = await snapshotDocs({
+      prd: [doc("prd.md", null, orig)],
+      design: [doc("a.png", "export")],
+    });
+    expect(bad).toEqual([]);
+    const frozen = docs.prd[0]!;
+    expect(frozen.file).not.toBe(orig);
+    expect(frozen.file.name).toBe("prd.md");
+    expect(frozen.file.type).toBe("text/markdown");
+    expect(frozen.file.lastModified).toBe(42);
+    expect(await frozen.file.text()).toBe("# PRD");
+    expect(frozen.path).toBe("prd.md");
+    expect(docs.design[0]).toMatchObject({ path: "a.png", folder: "export" });
+  });
+
+  it("drops an unreadable file and names the reason", async () => {
+    const { docs, unreadable: bad } = await snapshotDocs({
+      prd: [doc("gone.md", null, unreadable("gone.md", "NotFoundError")), doc("ok.md")],
+      design: [doc("x.png", "export", unreadable("x.png", "NotReadableError"))],
+    });
+    expect(docs.prd.map((d) => d.path)).toEqual(["ok.md"]);
+    expect(docs.design).toEqual([]);
+    expect(bad).toEqual([
+      { name: "gone.md", reason: "gone", message: "NotFoundError reading gone.md" },
+      { name: "export/x.png", reason: "changed", message: "NotReadableError reading x.png" },
+    ]);
+  });
+
+  it("keeps the browser's own message for any other read failure", async () => {
+    const { unreadable: bad } = await snapshotDocs({
+      prd: [doc("p.md", null, unreadable("p.md", "SecurityError", "blocked by policy"))],
+      design: [],
+    });
+    expect(bad).toEqual([{ name: "p.md", reason: "other", message: "blocked by policy" }]);
+  });
+
+  it("leaves a batch over the caps as is, without reading it", async () => {
+    const big = sized("huge.bin", 51 * 1024 * 1024);
+    const read = vi.spyOn(big, "arrayBuffer");
+    const add = { prd: [], design: [doc("huge.bin", "export", big)] };
+    const { docs, unreadable: bad } = await snapshotDocs(add);
+    expect(docs).toBe(add);
+    expect(bad).toEqual([]);
+    expect(read).not.toHaveBeenCalled();
   });
 });

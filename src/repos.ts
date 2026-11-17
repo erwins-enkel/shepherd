@@ -638,6 +638,25 @@ export function classifyProjectError(e: unknown): string {
 }
 
 /**
+ * Classify a failure of the LOCAL bootstrap (mkdir, git init/add/commit, file writes). Only git's
+ * own failures keep their code; everything else (a filesystem error, git missing, a git timeout)
+ * is `newproject_failed_generic` — the remote/gh codes of {@link classifyProjectError} would blame
+ * GitHub for a step that never touched it. The caller sends the raw cause as `detail`.
+ */
+export function classifyLocalBootstrapError(e: unknown): string {
+  return classifyProjectError(e) === "newproject_failed_git"
+    ? "newproject_failed_git"
+    : "newproject_failed_generic";
+}
+
+/** The redacted single-line cause of a local bootstrap failure: git's stderr, else the message. */
+function localFailureDetail(e: unknown): string {
+  const err = e as ExecLikeError;
+  const stderr = String(err.stderr ?? "").trim();
+  return sanitizeDetail(stderr || String(err.message ?? ""));
+}
+
+/**
  * Bootstrap a new git project at `<repoRoot>/<input.name>`.
  *
  * Returns `{ ok: true, entry }` on full success,
@@ -663,7 +682,9 @@ export async function createProject(
   ghRunner?: GhRunner,
   _identityCheck?: () => boolean,
   docs: readonly ProjectDoc[] = [],
-): Promise<{ ok: true; entry: RepoEntry; warning?: string } | { ok: false; error: string }> {
+): Promise<
+  { ok: true; entry: RepoEntry; warning?: string } | { ok: false; error: string; detail?: string }
+> {
   const runner = ghRunner ?? defaultGhRunner;
   const identityOk = _identityCheck ?? gitIdentityPresent;
 
@@ -706,7 +727,7 @@ function bootstrapLocalRepo(
   input: { name: string; idea: string },
   target: string,
   docs: readonly ProjectDoc[],
-): { ok: true } | { ok: false; error: string } {
+): { ok: true } | { ok: false; error: string; detail?: string } {
   try {
     mkdirSync(target, { recursive: false });
     execGitSync(["init", "-b", "main"], { cwd: target, stdio: "pipe", timeout: 30_000 });
@@ -726,7 +747,10 @@ function bootstrapLocalRepo(
     } catch {
       /* best-effort cleanup */
     }
-    return { ok: false, error: classifyProjectError(e) };
+    const error = classifyLocalBootstrapError(e);
+    const detail = localFailureDetail(e);
+    console.warn(`[newproject] local bootstrap failed (${error}): ${detail}`);
+    return { ok: false, error, ...(detail ? { detail } : {}) };
   }
   return { ok: true };
 }

@@ -392,6 +392,16 @@ export class StatusPoller {
   /** #1891: sessions with an in-flight `reportAgentState` push — serialize per session so two pushes
    *  can't reorder on herdr; the push's `finally` re-evaluates to catch a state change mid-flight. */
   private pushInFlight = new Set<string>();
+  /** Last visible buffer a turn check (`liveTurnOnScreen`) read per session — the frozen-screen
+   *  baseline: a live spinner ticks between reads, a stale spinner-shaped line does not. */
+  private lastTurnVisible = new Map<string, string>();
+  /** Dispatch time of the last terminal read that showed NO live turn — the confirmation an `idle`
+   *  push needs (see `idleConfirmed`). */
+  private idleConfirmedAt = new Map<string, number>();
+  /** Dispatch time of the last idle-confirm read, throttling it to one per `reclassifyMs`. */
+  private lastIdleConfirmAt = new Map<string, number>();
+  /** Sessions with an idle-confirm read in flight. */
+  private idleConfirmInFlight = new Set<string>();
   /** Transcript mtime at the last resting-auth probe per session — gates `maybeAuthAtRest`'s
    *  bounded read to ticks where the transcript actually changed (see AUTH_SIG). */
   private lastAuthMtime = new Map<string, number | null>();
@@ -1635,6 +1645,10 @@ export class StatusPoller {
       ...this.lastPushedState.keys(),
       ...this.lastActiveTurnAt.keys(),
       ...this.pushInFlight,
+      ...this.lastTurnVisible.keys(),
+      ...this.idleConfirmedAt.keys(),
+      ...this.lastIdleConfirmAt.keys(),
+      ...this.idleConfirmInFlight,
       ...this.liveness.keys(),
       ...this.previewStopState.keys(),
       ...this.workingWhileBlocked,
@@ -1675,6 +1689,10 @@ export class StatusPoller {
         this.lastPushedState.delete(id);
         this.lastActiveTurnAt.delete(id);
         this.pushInFlight.delete(id);
+        this.lastTurnVisible.delete(id);
+        this.idleConfirmedAt.delete(id);
+        this.lastIdleConfirmAt.delete(id);
+        this.idleConfirmInFlight.delete(id);
         this.liveness.delete(id);
         this.previewStopState.delete(id);
         this.idleStopSilentLogged.delete(id);
@@ -2173,7 +2191,8 @@ export class StatusPoller {
    *  which runs on the `maybeProbe` path that drives the frozen-`working` route, so this does not
    *  depend on hooks being on. A session we have NEVER observed a turn for reads working (not idle):
    *  it was just registered `working`, and a spawning agent works before it rests — so this avoids a
-   *  spurious `working→idle→working` flap at startup, before the first probe/activity lands. */
+   *  spurious `working→idle→working` flap at startup, before the first probe/activity lands.
+   *  A lapse alone does not push `idle`: `maybePushAgentState` first has the terminal confirm it. */
   private isActiveTurnFresh(id: string, now: number): boolean {
     if (this.hookActivityFresh(id, now)) return true;
     const at = this.lastActiveTurnAt.get(id);
@@ -2191,25 +2210,27 @@ export class StatusPoller {
    * Gated to sandboxed only. A TRUSTED 0.7.5 agent is NOT registered — herdr auto-detects and owns
    * its status (≤0.7.4 parity), so a push here would claim authority and freeze herdr's detection.
    *
-   * KNOWN LIMITATION (herdr 0.7.5): herdr accepts a working/blocked report but REFUSES to let a
-   * client de-escalate an authority-held agent back to `idle` (verified: correct label + matching
-   * agent-session-id + max seq all fail to move it). So a sandboxed agent's `idle` is not reportable —
-   * it reads `working` until it blocks or exits. Closing this needs an herdr-side change (accept a
-   * client de-escalation, or let a client hand a wrapped pane to herdr's own detection).
+   * herdr ≥0.8 accepts the `idle` down-edge and reports it as `done` (docs/herdr-compat/*.md L7,
+   * through 0.9.5), i.e. "the turn finished" for every turn-end consumer. A lapsed activity window alone is no proof
+   * of that — a turn can think or run one tool for minutes with no hook and no transcript record — so
+   * `idle` is pushed only after a terminal read dispatched after the last activity showed no live turn
+   * (`confirmIdle`). Escalations (working/blocked) are pushed immediately.
    */
   private maybePushAgentState(id: string): void {
     if (!herdrUsesExternalRegistrationSpawn()) return;
     const agent = this.lastMatched.get(id);
     if (!agent || !agent.paneId) return;
     const s = this.store.get(id);
-    // Only sandboxed sessions are Shepherd-owned. Trusted 0.7.5 agents are unregistered and
-    // herdr-detected — pushing would claim authority and freeze them (see isSandboxedSession).
-    if (!s || !isSandboxedSession(s)) return;
+    if (!s || !this.ownsAgentState(s)) return;
     const state = deriveHerdrState({
       blocked: this.lastBlockReason.has(id),
       working: this.isActiveTurnFresh(id, this.now()),
     });
     if (this.lastPushedState.get(id) === state) return;
+    if (state === "idle" && !this.idleConfirmed(id)) {
+      void this.confirmIdle(id, agent.terminalId); // re-evaluates once the read settles
+      return;
+    }
     if (this.pushInFlight.has(id)) return; // a push is serializing; its resolution re-evaluates
     this.pushInFlight.add(id);
     this.lastPushedState.set(id, state);
@@ -2233,6 +2254,57 @@ export class StatusPoller {
         console.warn(`[poller] report-agent state push failed for ${id}:`, err);
       },
     );
+  }
+
+  /** Shepherd owns (and pushes) this session's herdr state: an externally-registered spawn of a
+   *  genuinely sandboxed session. Trusted 0.7.5 agents are unregistered and herdr-detected — pushing
+   *  would claim authority and freeze them (see isSandboxedSession). */
+  private ownsAgentState(s: Session): boolean {
+    return herdrUsesExternalRegistrationSpawn() && isSandboxedSession(s);
+  }
+
+  /** True when a terminal read dispatched AFTER the last activity showed no live turn. Strict, so
+   *  activity stamped at the read's dispatch instant still wins. */
+  private idleConfirmed(id: string): boolean {
+    const at = this.idleConfirmedAt.get(id);
+    return at !== undefined && at > (this.lastActiveTurnAt.get(id) ?? -Infinity);
+  }
+
+  /**
+   * Read the pane before an `idle` push: a live turn on screen stamps the active-turn signal (the
+   * session stays `working` for another freshness window, then is re-checked); a screen without one
+   * confirms idle. One read per `reclassifyMs` per session, never two at once. A failed read stamps
+   * nothing and does not re-invoke — the session stays as pushed and the next tick retries.
+   */
+  private async confirmIdle(id: string, term: string): Promise<void> {
+    const t = this.now();
+    if (this.idleConfirmInFlight.has(id)) return;
+    if (t - (this.lastIdleConfirmAt.get(id) ?? 0) < this.reclassifyMs) return;
+    this.idleConfirmInFlight.add(id);
+    this.lastIdleConfirmAt.set(id, t);
+    let visible: string;
+    try {
+      visible = await this.herdr.readAsync(term, "visible");
+    } catch {
+      return; // unreadable this cadence
+    } finally {
+      this.idleConfirmInFlight.delete(id);
+    }
+    if (this.liveTurnOnScreen(id, visible)) this.lastActiveTurnAt.set(id, t);
+    else this.idleConfirmedAt.set(id, t);
+    this.maybePushAgentState(id);
+  }
+
+  /**
+   * True when `visible` shows a LIVE Claude Code turn: an active spinner (`hasActiveSpinner`) on a
+   * buffer that moved since this session's previous turn-check read — a live spinner ticks its
+   * counter, a stale spinner-shaped line does not. The first read counts as live (one-read grace).
+   * Records `visible` as the next baseline either way.
+   */
+  private liveTurnOnScreen(id: string, visible: string): boolean {
+    const prev = this.lastTurnVisible.get(id);
+    this.lastTurnVisible.set(id, visible);
+    return hasActiveSpinner(visible) && visible !== prev;
   }
 
   /** Clear a live stall flag (no-op if none); leaves the terminal baseline intact. */
@@ -2514,7 +2586,7 @@ export class StatusPoller {
     // Transcript source (MCP-at-rest) takes precedence; the PTY source (`/login`) is consulted
     // only when the transcript has no URL. Each helper owns its own cost gate.
     const txn = this.restingTxnAuth(s);
-    const src = txn.url ? txn : this.restingPtyAuth(id, s.herdrAgentId);
+    const src = txn.url ? txn : this.restingPtyAuth(id, s.herdrAgentId, this.ownsAgentState(s));
     if (!src.url) return false; // neither source pending → caller (maybeQuota) clears the block
 
     // Emit on first stand OR when the URL changed (AUTH_SIG is value-blind, so track the shown
@@ -2549,8 +2621,14 @@ export class StatusPoller {
    * poll-loop convention; a sync read under the resting-session fan-out would freeze the live web
    * terminal) and fire-and-forget: `probePtyAuth` resolves into the observed/confirmed caches, and
    * this returns the currently CONFIRMED reconstruction (two equal reads) for the tick to consume.
+   * For a session whose herdr state Shepherd owns, the same read also detects a new turn starting at
+   * rest (`ownsState`, see `probePtyAuth`).
    */
-  private restingPtyAuth(id: string, term: string): { url: string | null; tail: string[] } {
+  private restingPtyAuth(
+    id: string,
+    term: string,
+    ownsState: boolean,
+  ): { url: string | null; tail: string[] } {
     // Cheap pre-guard: a `/login` modal requires a LIVE claude process, so skip the read (and drop
     // any stale confirmation) for a husk session whose claude has exited — bounds the added
     // per-cadence herdr reads to resting sessions that could actually be at a prompt. `undefined`
@@ -2563,7 +2641,7 @@ export class StatusPoller {
     const t = this.now();
     if (t - (this.lastAuthPtyAt.get(id) ?? 0) >= this.reclassifyMs) {
       this.lastAuthPtyAt.set(id, t);
-      void this.probePtyAuth(id, term);
+      void this.probePtyAuth(id, term, ownsState);
     }
     return this.restAuthPtyConfirmed.get(id) ?? { url: null, tail: [] };
   }
@@ -2573,11 +2651,21 @@ export class StatusPoller {
    * word-wrapped `/login` authorize URL, and run it through the shared stability gate. Fire-and-
    * forget (mirrors `maybeProbe`'s interim `readAsync().then()`); `confirmLoginUrl` resolves it
    * into the observed/confirmed caches the tick consumes.
+   *
+   * `ownsState`: the resting session's herdr state is Shepherd's to push, and nothing else re-reads
+   * it at rest (`maybeProbe` runs only while `running`). A live turn on this read — a chat message
+   * the agent is thinking over, before any tool hook — stamps the active-turn signal and pushes
+   * `working`.
    */
-  private async probePtyAuth(id: string, term: string): Promise<void> {
+  private async probePtyAuth(id: string, term: string, ownsState: boolean): Promise<void> {
+    const t = this.now();
     try {
       const v = await this.herdr.readAsync(term, "visible");
       this.confirmLoginUrl(id, { url: detectLoginAuthUrl(v), tail: tailLines(v) });
+      if (ownsState && this.liveTurnOnScreen(id, v)) {
+        this.lastActiveTurnAt.set(id, t);
+        this.maybePushAgentState(id);
+      }
     } catch {
       // best-effort; retry next cadence
     }

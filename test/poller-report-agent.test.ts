@@ -38,6 +38,13 @@ function harness(opts?: {
   herdrListName?: string;
   /** Is the registered agent still in herdr's list? (default: always) */
   present?: () => boolean;
+  /** herdr's reported `agentStatus` (default: pinned `working`, the frozen 0.7.5 case). */
+  agentStatus?: () => string;
+  /** Model herdr ≥0.8 honouring the push: the status follows the last pushed state, and a pushed
+   *  `idle` reads back as `done` (docs/herdr-compat/0.9.5.md L7). Overrides `agentStatus`. */
+  herdrFollowsPush?: boolean;
+  /** A visible-buffer read that fails (pane unreadable). */
+  readFails?: boolean;
 }) {
   const store = new SessionStore(":memory:");
   const s = store.create({
@@ -48,7 +55,15 @@ function harness(opts?: {
   const pushes: { paneId: string; agentName: string; state: string }[] = [];
   let clock = 1_700_000_000_000;
   const visible = opts?.visible ?? (() => "Computing… (1s)");
-  // herdr agent is PINNED to `working` for the whole run — the frozen sandboxed case.
+  let reads = 0;
+  const agentStatus = (): string => {
+    if (opts?.herdrFollowsPush) {
+      const last = pushes.at(-1)?.state ?? "working";
+      return last === "idle" ? "done" : last;
+    }
+    return opts?.agentStatus?.() ?? "working";
+  };
+  // herdr agent is PINNED to `working` for the whole run by default — the frozen sandboxed case.
   const herdr = {
     list: (): HerdrAgent[] =>
       opts?.present && !opts.present()
@@ -56,7 +71,7 @@ function harness(opts?: {
         : [
             {
               agent: "claude",
-              agentStatus: "working",
+              agentStatus: agentStatus(),
               cwd: "/wt",
               paneId: "p",
               tabId: "t",
@@ -66,7 +81,12 @@ function harness(opts?: {
             } as HerdrAgent,
           ],
     listAsync: () => Promise.resolve(herdr.list()),
-    readAsync: () => Promise.resolve(visible()),
+    readAsync: () => {
+      reads++;
+      return opts?.readFails
+        ? Promise.reject(new Error("pane unreadable"))
+        : Promise.resolve(visible());
+    },
     reportAgentState: (paneId: string, agentName: string, state: string) => {
       pushes.push({ paneId, agentName, state });
       return Promise.resolve();
@@ -85,6 +105,12 @@ function harness(opts?: {
     // Realistic stall windows so a quiet-but-static terminal reads idle, not a spurious stall block.
     { stallMs: 8 * 60_000, pendingStallMs: 20 * 60_000 },
     7000, // probeCheckMs
+    undefined, // onReady
+    undefined, // onActivity
+    undefined, // preview (disabled)
+    // The agent's process is alive (a sandboxed claude is visible to the host /proc scan), so the
+    // resting pane read runs — the default real scan would find no claude under "/wt".
+    { scan: (worktrees) => new Map(worktrees.map((w) => [w, true])) },
   );
   return {
     poller,
@@ -93,8 +119,27 @@ function harness(opts?: {
     id: s.id,
     advance: (ms: number) => (clock += ms),
     now: () => clock,
+    reads: () => reads,
+    /** Tick once per simulated second for `ms`, settling each tick's async reads and pushes. */
+    runFor: async (ms: number) => {
+      for (let t = 0; t < ms; t += 1000) {
+        clock += 1000;
+        await poller.tick();
+        await flush();
+      }
+    },
   };
 }
+
+/** A live Claude Code turn: a glyph-anchored spinner whose elapsed counter ticks on every read
+ *  (what `hasActiveSpinner` matches and the frozen-screen guard expects to move). */
+function liveSpinner(): () => string {
+  let s = 60;
+  return () => `✻ Thinking… (${Math.floor(s / 60)}m ${s++ % 60}s · ↓ 3.1k tokens)\n\n❯ \n`;
+}
+
+/** The at-rest prompt: no spinner line. */
+const restingScreen = () => "● Done.\n\n❯ \n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n";
 
 afterEach(() => {
   setDetectedHerdrVersion(null);
@@ -223,4 +268,96 @@ test("herdr 0.9.2 (#4687): a sandboxed agent dropped after its exit is reaped to
   await h.poller.tick();
   await flush();
   expect(h.pushes).toHaveLength(1);
+});
+
+// The idle down-edge of a Shepherd-owned (sandboxed) session must be confirmed by the terminal: a
+// turn can think or run one tool for minutes with no hook and no transcript record, and herdr ≥0.8
+// turns a pushed `idle` into `done` — the chat then shows the session as finished mid-turn.
+
+test("mid-turn: a quiet stretch with a live spinner on screen is never pushed idle", async () => {
+  setDetectedHerdrVersion("0.7.5");
+  const h = harness({ visible: liveSpinner(), herdrFollowsPush: true });
+  await h.poller.tick(); // registration baseline: working
+  await flush();
+  h.poller.ingestActivity(h.id, { toolName: "ToolSearch", status: "ok", ts: h.now() });
+
+  await h.runFor(60_000); // four freshness windows of pure thinking, no hook
+  expect(h.pushes.map((p) => p.state)).toEqual(["working"]);
+  expect(h.store.get(h.id)?.status).toBe("running");
+});
+
+test("quiet stretch with no spinner on screen is pushed idle once the read confirms it", async () => {
+  setDetectedHerdrVersion("0.7.5");
+  const h = harness({ visible: restingScreen });
+  await h.poller.tick();
+  await flush();
+  h.poller.ingestActivity(h.id, { toolName: "Edit", status: "ok", ts: h.now() });
+
+  await h.runFor(15_000);
+  expect(h.pushes.map((p) => p.state)).toEqual(["working", "idle"]);
+});
+
+test("a frozen spinner-shaped screen keeps working for one read, then is confirmed idle", async () => {
+  setDetectedHerdrVersion("0.7.5");
+  const frozen = "✻ Thinking… (1m 2s · ↓ 3.1k tokens)\n\n❯ \n";
+  const h = harness({ visible: () => frozen, herdrFollowsPush: true });
+  await h.poller.tick();
+  await flush();
+  h.poller.ingestActivity(h.id, { toolName: "Bash", status: "ok", ts: h.now() });
+
+  await h.runFor(14_000); // freshness lapses: first sighting of the spinner → still working
+  expect(h.pushes.map((p) => p.state)).toEqual(["working"]);
+
+  await h.runFor(15_000); // the next confirm read sees the identical buffer → not a live turn
+  expect(h.pushes.map((p) => p.state)).toEqual(["working", "idle"]);
+
+  // At rest the same frozen screen is never mistaken for a new turn.
+  await h.runFor(30_000);
+  expect(h.pushes.map((p) => p.state)).toEqual(["working", "idle"]);
+  expect(h.store.get(h.id)?.status).toBe("done");
+});
+
+test("an unreadable pane is never pushed idle, and the confirm read is throttled", async () => {
+  setDetectedHerdrVersion("0.7.5");
+  const h = harness({ readFails: true });
+  await h.poller.tick();
+  await flush();
+  h.poller.ingestActivity(h.id, { toolName: "Bash", status: "ok", ts: h.now() });
+
+  await h.runFor(14_000); // up to the freshness lapse
+  const before = h.reads();
+  await h.runFor(30_000); // 30 ticks past the lapse, every confirm read failing
+  expect(h.pushes.map((p) => p.state)).toEqual(["working"]);
+  // One confirm read per reclassifyMs (3 s) plus the running probe's interim read per 7 s — far
+  // below one read per tick.
+  expect(h.reads() - before).toBeLessThanOrEqual(16);
+});
+
+test("at rest: a new turn's live spinner is pushed working without waiting for a tool hook", async () => {
+  setDetectedHerdrVersion("0.7.5");
+  let screen: () => string = restingScreen;
+  const h = harness({ visible: () => screen(), herdrFollowsPush: true });
+  await h.poller.tick();
+  await flush();
+  h.poller.ingestActivity(h.id, { toolName: "Edit", status: "ok", ts: h.now() });
+  await h.runFor(16_000);
+  expect(h.pushes.at(-1)?.state).toBe("idle");
+  expect(h.store.get(h.id)?.status).toBe("done");
+
+  // The operator's chat message starts a turn that only thinks — no hook arrives.
+  screen = liveSpinner();
+  await h.runFor(5_000);
+  expect(h.pushes.at(-1)?.state).toBe("working");
+  expect(h.store.get(h.id)?.status).toBe("running");
+});
+
+test("a trusted session at rest is never pushed, even with a live spinner on screen", async () => {
+  setDetectedHerdrVersion("0.7.5");
+  const h = harness({
+    sandboxApplied: "trusted",
+    visible: liveSpinner(),
+    agentStatus: () => "done",
+  });
+  await h.runFor(10_000);
+  expect(h.pushes).toEqual([]);
 });

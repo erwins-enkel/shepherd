@@ -117,11 +117,12 @@ test("redaction preserves structured queue strings and does not corrupt JSON", (
 });
 
 test("read-only git fingerprint includes staged, dirty and untracked Unicode files", async () => {
-  const { mkdtemp, writeFile, rm, readFile } = await import("node:fs/promises");
+  const { mkdtemp, writeFile, rm, readFile, symlink } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const { readHandoffGit } = await import("../src/provider-handoff");
   const dir = await mkdtemp(join(tmpdir(), "handoff-git-"));
+  const outside = await mkdtemp(join(tmpdir(), "handoff-external-"));
   const git = async (...args: string[]) => {
     const p = Bun.spawn(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" });
     const out = await new Response(p.stdout).text();
@@ -139,10 +140,15 @@ test("read-only git fingerprint includes staged, dirty and untracked Unicode fil
     await git("add", "tracked");
     await writeFile(join(dir, "tracked"), "dirty");
     await writeFile(join(dir, "ü.txt"), "untracked");
+    const target = join(outside, "target");
+    await writeFile(target, "external content");
+    await symlink(target, join(dir, "external-link"));
     const before = await git("status", "--porcelain=v1");
     const index = await git("ls-files", "--stage");
     const first = await readHandoffGit(dir);
     expect(first).not.toBeNull();
+    await writeFile(target, "changed external content");
+    expect((await readHandoffGit(dir))?.fingerprint).toBe(first?.fingerprint);
     await writeFile(join(dir, "ü.txt"), "changed");
     expect((await readHandoffGit(dir))?.fingerprint).not.toBe(first?.fingerprint);
     expect(await git("status", "--porcelain=v1")).toBe(before);
@@ -150,6 +156,7 @@ test("read-only git fingerprint includes staged, dirty and untracked Unicode fil
     expect(await readFile(join(dir, "tracked"), "utf8")).toBe("dirty");
   } finally {
     await rm(dir, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
   }
 });
 

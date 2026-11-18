@@ -56,6 +56,28 @@ test("both files absent → null (nothing to read yet)", () => {
   expect(readRoleResultText(dir, RESULT, CODEX_LAST_MESSAGE_FILE)).toBeNull();
 });
 
+// codex ≥0.169 `exec -o` creates the last-message file EMPTY at launch and fills it only at exit.
+// Reading that empty file as "the agent finished" let the critic's stable-unparseable fail-fast kill
+// every Codex critic ~20–30 s into its run. An empty (whitespace-only) file carries no answer yet.
+test("empty pre-created last-message file → null (codex ≥0.169 creates it at launch)", () => {
+  const dir = freshDir();
+  const name = codexLastMessageFile("spawn-1");
+  writeFileSync(join(dir, name), "");
+  expect(readRoleResultText(dir, RESULT, name)).toBeNull();
+  writeFileSync(join(dir, name), " \n\t");
+  expect(readRoleResultText(dir, RESULT, name)).toBeNull();
+});
+
+test("empty RESULT file is still returned verbatim — only the -o file gets the blank rule", () => {
+  const dir = freshDir();
+  const name = codexLastMessageFile("spawn-2");
+  // An agent-written empty result file keeps failing closed through the caller's parser (TASK-561,
+  // #2045); the blank rule covers only the file codex itself pre-creates.
+  writeFileSync(join(dir, RESULT), "");
+  writeFileSync(join(dir, name), '{"from":"chat-answer"}');
+  expect(readRoleResultText(dir, RESULT, name)).toBe("");
+});
+
 test("last-message may carry prose — helper returns it raw; the caller's parser fails it closed", () => {
   const dir = freshDir();
   writeFileSync(join(dir, CODEX_LAST_MESSAGE_FILE), "Sorry, I could not complete the recap.");

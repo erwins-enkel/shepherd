@@ -8,6 +8,8 @@ import { CodexRolloutResolver } from "../src/codex-activity";
 import { PluginSpawnAborted } from "../src/plugins/types";
 import type { VerdictRead } from "../src/json-tolerant";
 import type { RawVerdict } from "../src/critic-core";
+import { defaultReadVerdict as defaultCriticReadVerdict } from "../src/critic-core";
+import { codexLastMessageFile } from "../src/codex-last-message";
 
 /** Wrap a legacy `() => RawVerdict | null` reader into the 3-way VerdictRead the service now expects.
  *  A returned object → strict parse (finalize now); null → absent (wait until timeout). Preserves the
@@ -1700,6 +1702,52 @@ test("#2042: unparseable verdict that stops changing finalizes early, well insid
     expect(t - 1000).toBeLessThan(1_800_000); // finalized far short of the hard deadline
   } finally {
     console.warn = origWarn;
+  }
+});
+
+// codex ≥0.169 `exec -o` creates the per-spawn last-message file EMPTY at launch and fills it only
+// at exit. Read through the REAL defaultReadVerdict, that empty file used to surface as a stable
+// `unparseable` verdict, and the #2042 fail-fast killed every Codex critic ~20–30 s into its run
+// (TASK-3173 et al.). The empty file must read as "nothing written yet" until the verdict lands.
+test("codex pre-created empty -o file: the critic keeps running and finalizes the real verdict", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "review-empty-o-"));
+  let t = 1000;
+  const origWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const {
+      deps: d,
+      reviews,
+      recordedSpawns,
+    } = makeDeps(
+      { now: () => t, timeoutMs: 600_000 },
+      {
+        criticProcs: ["node"], // alive, still working
+        readVerdictFn: ((_wt: string, sid?: string) =>
+          defaultCriticReadVerdict(dir, sid)) as unknown as () => VerdictRead<RawVerdict>,
+      },
+    );
+    const svc = new ReviewService(d as any);
+    await svc.consider(session(), OPEN_GREEN);
+    const sid = recordedSpawns[0]!.reviewerSessionId as string;
+    writeFileSync(join(dir, codexLastMessageFile(sid)), ""); // what codex 0.169 does at launch
+    t = 1000 + STARTUP_GRACE_MS + 1000;
+
+    await svc.tick();
+    await svc.tick();
+    await svc.tick();
+    expect(reviews["s1"]).toBeUndefined(); // no premature no-verdict-unparseable
+
+    writeFileSync(
+      join(dir, ".shepherd-review.json"),
+      JSON.stringify({ decision: "comment", summary: "looks fine", body: "ok", findings: [] }),
+    );
+    await svc.tick();
+    expect(reviews["s1"]?.decision).toBe("commented");
+    expect(reviews["s1"]?.summaryCode ?? null).toBeNull();
+  } finally {
+    console.warn = origWarn;
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

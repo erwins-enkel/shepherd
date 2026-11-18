@@ -29,8 +29,11 @@
  * The result file stays the PRIMARY contract; the last-message file is a FALLBACK read only when the
  * result file is absent. In the normal success case BOTH files exist — the agent writes the result
  * file mid-run and the CLI writes the last-message file (usually a "Created …" acknowledgement) at
- * exit — so preferring the result file is essential, and there is no race: `-o` is written at exit,
- * so a present last-message file means the agent has finished.
+ * exit — so preferring the result file is essential. A NON-EMPTY last-message file means the agent
+ * has finished: codex ≥0.169 creates the `-o` file EMPTY at launch and fills it only at exit, so a
+ * present-but-blank last-message file is "nothing written yet", never an answer. Reading that blank
+ * file as a finished-but-broken verdict let the critic's stable-unparseable fail-fast kill every
+ * Codex critic ~20–30 s into its run.
  *
  * The helper returns raw TEXT; each caller keeps its own parse + shape validation. A prose
  * last-message that isn't a valid verdict fails that validation and fails closed exactly as before —
@@ -55,8 +58,8 @@ export function codexLastMessageFile(spawnSessionId: string): string {
 /**
  * Read a role's result text: the role's own `resultFile` first, falling back to the Codex `-o`
  * last-message file — read from the caller-provided `lastMessageFile` — when the result file is
- * absent. Returns null when neither exists (or is unreadable mid-write — treat as not-yet-written and
- * retry next tick). Callers apply their existing parser/validator to the returned text, so behavior is
+ * absent. A blank last-message file is not an answer yet (see the module header). Returns null when
+ * neither is there (or is unreadable mid-write — treat as not-yet-written and retry next tick). Callers apply their existing parser/validator to the returned text, so behavior is
  * unchanged whenever the result file is present.
  *
  * The fallback is read ONLY from the exact `lastMessageFile` the caller names; when it is omitted
@@ -81,7 +84,8 @@ export function readRoleResultText(
   const fallback = join(cwd, lastMessageFile);
   if (existsSync(fallback)) {
     try {
-      return readFileSync(fallback, "utf8");
+      const text = readFileSync(fallback, "utf8");
+      return text.trim() === "" ? null : text; // codex pre-creates it empty — not written yet
     } catch {
       return null;
     }

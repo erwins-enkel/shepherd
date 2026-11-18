@@ -399,6 +399,14 @@ describe("buildMembraneFlags", () => {
       );
   });
 
+  test("XDG git config (~/.config/git/config) bound RO-try for task sessions (#4061)", () => {
+    const xdg = "/home/me/.config/git/config";
+    const f = buildMembraneFlags(fakeMembrane(), detDeps);
+    expect(hasTriple(f, "--ro-bind-try", xdg, xdg)).toBe(true);
+    const r = buildMembraneFlags(fakeMembrane({ reviewer: true }), detDeps);
+    expect(r.includes(xdg)).toBe(false);
+  });
+
   test("gh hosts file: RO bind over hosts.yml after the ~/.config/gh bind; task sessions only", () => {
     const file = "/run/shepherd/membrane/s1/session.gh-hosts.yml";
     const hosts = "/home/me/.config/gh/hosts.yml";
@@ -461,6 +469,7 @@ describe("buildMembraneFlags", () => {
     expect(hardBindTargets.has("/opt")).toBe(false);
     expect(hardBindTargets.has("/run/systemd/resolve")).toBe(false);
     expect(hardBindTargets.has("/home/me/.gitconfig")).toBe(false);
+    expect(hardBindTargets.has("/home/me/.config/git/config")).toBe(false);
   });
 
   test("tmpfs over /tmp and home", () => {
@@ -1642,7 +1651,11 @@ describe("buildMembraneFlags reviewer membrane (audit N10)", () => {
   test("no gh/gitconfig binds, git common dir RO; everything else unchanged", () => {
     const base = buildMembraneFlags(fakeMembrane(), detDeps);
     const f = buildMembraneFlags(fakeMembrane({ reviewer: true }), detDeps);
-    expect(f.some((v) => v.includes(".config/gh") || v.endsWith("/.gitconfig"))).toBe(false);
+    expect(
+      f.some(
+        (v) => v.includes(".config/gh") || v.endsWith("/.gitconfig") || v.includes(".config/git/"),
+      ),
+    ).toBe(false);
     expect(hasTriple(f, "--ro-bind", "/repos/proj/.git", "/repos/proj/.git")).toBe(true);
     expect(hasTriple(f, "--bind", "/repos/proj/.git", "/repos/proj/.git")).toBe(false);
     // Task session keeps both binds + the RW common dir.
@@ -1650,10 +1663,10 @@ describe("buildMembraneFlags reviewer membrane (audit N10)", () => {
       true,
     );
     expect(hasTriple(base, "--bind", "/repos/proj/.git", "/repos/proj/.git")).toBe(true);
-    // Exactly the two 3-token gh/gitconfig binds and the git-store carve-outs are gone (the store
-    // is RO whole): config + commondir + config.worktree (3 each), hooks/shepherd/modules/
+    // Exactly the three 3-token gh/gitconfig/XDG git config binds and the git-store carve-outs
+    // are gone (the store is RO whole): config + commondir + config.worktree (3 each), hooks/shepherd/modules/
     // info/remotes/branches RO tmpfs (4 each), writable worktrees/ tmpfs (2).
-    expect(f.length).toBe(base.length - 6 - 35);
+    expect(f.length).toBe(base.length - 9 - 35);
   });
 
   test("reviewer: false is byte-identical to absent", () => {

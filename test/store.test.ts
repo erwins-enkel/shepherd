@@ -1129,6 +1129,72 @@ test("reviews: dismissed round-trips; legacy rows default falsy", () => {
   expect(store.snapshotReviews().s1!.dismissed).toBe(true);
 });
 
+test("reviews: autoRetryAt round-trips through put/get/snapshot; absent reads as no key", () => {
+  const store = new SessionStore(":memory:");
+  const v = {
+    sessionId: "s1",
+    headSha: "abc",
+    patchId: "",
+    decision: "error" as const,
+    summary: "",
+    body: "",
+    findings: [],
+    addressRound: 0,
+    addressCap: 3,
+    streakReviews: 0,
+    reviewedPatchIds: [],
+    errorRound: 1,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 900_000,
+    seenNoteIds: [],
+    updatedAt: 1,
+  };
+  store.putReview(v);
+  expect(store.getReview("s1")?.autoRetryAt).toBeUndefined();
+  store.putReview({ ...v, autoRetryAt: 120_001, updatedAt: 2 });
+  expect(store.getReview("s1")?.autoRetryAt).toBe(120_001);
+  expect(store.snapshotReviews().s1!.autoRetryAt).toBe(120_001);
+});
+
+test("reviews migration: adding autoRetryAt makes stranded technical-error rows due ONCE", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-review-autoretry-migrate-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // A reviews table from before the autoRetryAt column, with the rows a deploy finds.
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE reviews (
+      sessionId TEXT PRIMARY KEY, headSha TEXT NOT NULL, decision TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
+      errorRound INTEGER NOT NULL DEFAULT 0, addressCap INTEGER NOT NULL DEFAULT 3,
+      spawnAborted INTEGER NOT NULL DEFAULT 0, dismissed INTEGER NOT NULL DEFAULT 0,
+      url TEXT, updatedAt INTEGER NOT NULL)`);
+    const row = (id: string, decision: string, errorRound: number, aborted = 0, dismissed = 0) =>
+      raw.run(
+        `INSERT INTO reviews (sessionId, headSha, decision, errorRound, spawnAborted, dismissed, updatedAt)
+         VALUES (?, 'abc', ?, ?, ?, ?, 1)`,
+        [id, decision, errorRound, aborted, dismissed],
+      );
+    row("stranded", "error", 1); // a Codex critic killed by the empty -o file
+    row("spent", "error", 3); // budget already spent → stays with the operator
+    row("aborted", "error", 1, 1); // pre-spawn abort keeps its own re-attempt path
+    row("dismissed", "error", 1, 0, 1); // the operator took it over
+    row("findings", "changes_requested", 0); // substantive → never retried
+    raw.close();
+
+    const before = Date.now();
+    const store = new SessionStore(dbPath);
+    expect(store.getReview("stranded")?.autoRetryAt).toBeGreaterThanOrEqual(before);
+    for (const id of ["spent", "aborted", "dismissed", "findings"])
+      expect(store.getReview(id)?.autoRetryAt).toBeUndefined();
+
+    // Once only: a re-open must not re-arm a row the service has since settled.
+    store.putReview({ ...store.getReview("stranded")!, autoRetryAt: null });
+    expect(new SessionStore(dbPath).getReview("stranded")?.autoRetryAt).toBeUndefined();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("reviews: findings/addressRound/addressCap/errorRound/seenNoteIds default when absent", () => {
   const store = new SessionStore(":memory:");
   // a verdict row written before the #247 columns existed (missing the new fields)

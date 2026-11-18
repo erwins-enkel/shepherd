@@ -3347,8 +3347,15 @@ test("consecutive critic errors escalate via a stall signal at the cap", async (
     reviews,
     signals,
   } = makeDeps({ readVerdict: () => ({ decision: "junk", summary: "boom", body: "" }) });
-  // two errors already on the no-progress streak; this one hits cap (3)
-  reviews["s1"] = priorReview({ errorRound: 2, addressRound: 1 });
+  // two technical failures already on THIS head (the budget is per head) and the scheduled retry
+  // is due; this third one hits the cap (3)
+  reviews["s1"] = priorReview({
+    headSha: OPEN_GREEN.headSha!,
+    decision: "error",
+    errorRound: 2,
+    addressRound: 1,
+    autoRetryAt: 1000,
+  });
   const svc = new ReviewService(d as any);
   await svc.consider(session(), OPEN_GREEN);
   await svc.tick();
@@ -3356,6 +3363,7 @@ test("consecutive critic errors escalate via a stall signal at the cap", async (
   expect(reviews["s1"]?.errorRound).toBe(3); // separate counter advanced
   expect(reviews["s1"]?.addressRound).toBe(1); // findings streak preserved, NOT reset to clean
   expect(signals.some((s) => s.kind === "stall")).toBe(true); // escalates to the human
+  expect(reviews["s1"]?.autoRetryAt).toBeNull(); // …and the SAME call stops the automatic retries
 });
 
 test("errors past the cap do not re-signal (escalates once, on crossing)", async () => {
@@ -3365,12 +3373,289 @@ test("errors past the cap do not re-signal (escalates once, on crossing)", async
     signals,
   } = makeDeps({ readVerdict: () => ({ decision: "junk", summary: "boom", body: "" }) });
   // already over the cap (escalated on an earlier round) — a further error must stay quiet
-  reviews["s1"] = priorReview({ errorRound: 3 });
+  reviews["s1"] = priorReview({
+    headSha: OPEN_GREEN.headSha!,
+    decision: "error",
+    errorRound: 3,
+    autoRetryAt: 1000,
+  });
   const svc = new ReviewService(d as any);
   await svc.consider(session(), OPEN_GREEN);
   await svc.tick();
   expect(reviews["s1"]?.errorRound).toBe(4); // counter keeps climbing
   expect(signals.some((s) => s.kind === "stall")).toBe(false); // but the loud signal fired once, on crossing
+});
+
+// ── Bounded same-head auto-retry of TECHNICAL critic failures ──────────────────────────────────────
+// A critic that fails technically (timeout / unparseable / exited / wedged / never started) used to
+// leave an `error` verdict that headAlreadySettled() treated as final for that head — and since
+// `session:git` only fires on a change, a quiet PR's drain stayed paused for good (TASK-3173). One
+// rule (scheduleErrorRetry) now schedules a same-head retry at +2 min, then +4 min, and escalates
+// once the per-head budget (the live cap) is spent. Substantive verdicts are never retried.
+describe("technical critic error auto-retry", () => {
+  const MIN = 60_000;
+  const junk = () => ({ decision: "junk", summary: "boom", body: "" }); // → decision "error"
+  const quiet = <T>(fn: () => Promise<T>) => async () => {
+    const orig = console.warn;
+    console.warn = () => {};
+    try {
+      return await fn();
+    } finally {
+      console.warn = orig;
+    }
+  };
+  const sweep = (svc: ReviewService, git: GitState = OPEN_GREEN) =>
+    svc.retryErroredReviews([{ session: session(), git }]);
+
+  test(
+    "schedules +2 min, then +4 min, then escalates once and stops — all on one head",
+    quiet(async () => {
+      let t = 1000;
+      const { deps: d, reviews, signals, created } = makeDeps({ now: () => t, readVerdict: junk });
+      const svc = new ReviewService(d as any);
+      await svc.consider(session(), OPEN_GREEN);
+      await svc.tick();
+      expect(reviews["s1"]?.decision).toBe("error");
+      expect(reviews["s1"]?.errorRound).toBe(1);
+      expect(reviews["s1"]?.autoRetryAt).toBe(t + 2 * MIN);
+
+      // Not due yet: neither the auto path nor the sweep re-runs the head.
+      t += 2 * MIN - 1;
+      expect(await svc.consider(session(), OPEN_GREEN)).toBe("skipped");
+      await sweep(svc);
+      expect(created).toHaveLength(1);
+
+      t += 1; // due
+      await sweep(svc);
+      expect(created).toHaveLength(2);
+      await svc.tick();
+      expect(reviews["s1"]?.errorRound).toBe(2);
+      expect(reviews["s1"]?.autoRetryAt).toBe(t + 4 * MIN);
+      expect(signals.filter((s) => s.kind === "stall")).toHaveLength(0);
+
+      t += 4 * MIN;
+      await sweep(svc);
+      await svc.tick();
+      expect(reviews["s1"]?.errorRound).toBe(3); // = cap
+      expect(reviews["s1"]?.autoRetryAt).toBeNull();
+      expect(signals.filter((s) => s.kind === "stall")).toHaveLength(1);
+
+      t += 60 * MIN; // spent: never again on this head
+      await sweep(svc);
+      expect(await svc.consider(session(), OPEN_GREEN)).toBe("skipped");
+      expect(created).toHaveLength(3);
+    }),
+  );
+
+  test(
+    "changes_requested on an unchanged head is never re-run by the retry path",
+    quiet(async () => {
+      const { deps: d, reviews, created } = makeDeps({ now: () => 10 * MIN });
+      reviews["s1"] = priorReview({ headSha: OPEN_GREEN.headSha!, autoRetryAt: 0 });
+      const svc = new ReviewService(d as any);
+      await sweep(svc);
+      expect(await svc.consider(session(), OPEN_GREEN)).toBe("skipped");
+      expect(created).toHaveLength(0);
+    }),
+  );
+
+  test(
+    "in flight, operator-cancelled, or a moved head → the sweep starts nothing",
+    quiet(async () => {
+      const t = 1000;
+      const { deps: d, reviews, created } = makeDeps(
+        { now: () => t, readVerdict: () => null },
+        { criticProcs: ["node"] },
+      );
+      reviews["s1"] = priorReview({
+        headSha: OPEN_GREEN.headSha!,
+        decision: "error",
+        errorRound: 1,
+        findings: [],
+        autoRetryAt: 1000,
+      });
+      const svc = new ReviewService(d as any);
+      await sweep(svc);
+      expect(created).toHaveLength(1);
+      await sweep(svc); // in flight → no second spawn
+      expect(created).toHaveLength(1);
+
+      await svc.cancel("s1"); // operator cancelled this head
+      await sweep(svc);
+      expect(created).toHaveLength(1);
+
+      // Due on "abc" but the PR moved to "def": the sweep leaves the new head to the normal path.
+      const fresh = new ReviewService(d as any);
+      await fresh.retryErroredReviews([{ session: session(), git: { ...OPEN_GREEN, headSha: "def" } }]);
+      expect(created).toHaveLength(1);
+    }),
+  );
+
+  test(
+    "a due retry that fails to START is charged (backoff + budget) and published, not retried every minute",
+    quiet(async () => {
+      let t = 1000;
+      const changes: ReviewVerdict[] = [];
+      const { deps: d, reviews, signals } = makeDeps({
+        now: () => t,
+        onChange: (_id: string, v: ReviewVerdict) => changes.push(v),
+      });
+      let attempts = 0;
+      (d as any).worktree.createDetached = async () => {
+        attempts++;
+        throw new Error("git worktree add failed");
+      };
+      reviews["s1"] = priorReview({
+        headSha: OPEN_GREEN.headSha!,
+        decision: "error",
+        errorRound: 1,
+        findings: [],
+        autoRetryAt: 1000,
+      });
+      const svc = new ReviewService(d as any);
+      await sweep(svc);
+      expect(attempts).toBe(1);
+      expect(reviews["s1"]?.errorRound).toBe(2);
+      expect(reviews["s1"]?.autoRetryAt).toBe(t + 4 * MIN);
+      expect(changes.at(-1)?.autoRetryAt).toBe(t + 4 * MIN); // the PR row learns the new time
+
+      t += MIN; // next minute's sweep: not due → no new attempt
+      await sweep(svc);
+      expect(attempts).toBe(1);
+
+      t += 3 * MIN; // due again; this start failure spends the budget
+      await sweep(svc);
+      expect(attempts).toBe(2);
+      expect(changes.at(-1)?.errorRound).toBe(3);
+      expect(changes.at(-1)?.autoRetryAt).toBeNull(); // the row shows "spent", not a stale retry
+      expect(signals.filter((s) => s.kind === "stall")).toHaveLength(1);
+    }),
+  );
+
+  test(
+    "capacity or readiness deferrals cost nothing and are re-evaluated later",
+    quiet(async () => {
+      let admit = false;
+      const changes: ReviewVerdict[] = [];
+      const { deps: d, reviews, created } = makeDeps({
+        now: () => 10 * MIN,
+        capacity: async () => admit,
+        onChange: (_id: string, v: ReviewVerdict) => changes.push(v),
+      });
+      const row = priorReview({
+        headSha: OPEN_GREEN.headSha!,
+        decision: "error",
+        errorRound: 1,
+        findings: [],
+        autoRetryAt: 1000,
+      });
+      reviews["s1"] = row;
+      const svc = new ReviewService(d as any);
+      await sweep(svc); // capacity denied
+      await svc.retryErroredReviews([
+        { session: session({ status: "running" }), git: { ...OPEN_GREEN, checks: "pending" } },
+      ]); // not reviewable: CI pending, agent working
+      expect(created).toHaveLength(0);
+      expect(reviews["s1"]).toBe(row); // untouched: no charge
+      expect(changes).toHaveLength(0);
+
+      admit = true;
+      await sweep(svc);
+      expect(created).toHaveLength(1);
+    }),
+  );
+
+  test(
+    "a restart during an automatic retry keeps the head's budget and backoff",
+    quiet(async () => {
+      let t = 1000;
+      const { deps: d, reviews, signals, created, recordedSpawns } = makeDeps({
+        now: () => t,
+        readVerdict: junk,
+      });
+      reviews["s1"] = priorReview({
+        headSha: OPEN_GREEN.headSha!,
+        decision: "error",
+        errorRound: 1,
+        findings: [],
+        autoRetryAt: 1000,
+      });
+      const before = new ReviewService(d as any);
+      await before.retryErroredReviews([{ session: session(), git: OPEN_GREEN }]);
+      expect(created).toHaveLength(1); // retry in flight when the server goes down
+
+      // The next boot finds that run's spawn row open and its worktree still on disk.
+      const store = d.store as any;
+      store.listReviewerSpawns = () => recordedSpawns.map((r) => ({ ...r, completedAt: null }));
+      store.get = () => session();
+      const after = new ReviewService({
+        ...d,
+        worktreeExists: () => true,
+        readUsage: async () => null,
+      } as any);
+      t += 1000;
+      expect(await after.reapOrphans()).toEqual(["s1"]);
+      expect(reviews["s1"]?.decision).toBe("error"); // kept, not dropped
+      expect(reviews["s1"]?.errorRound).toBe(2); // the cut-off attempt counts
+      expect(reviews["s1"]?.autoRetryAt).toBe(t + 4 * MIN);
+
+      // The boot re-kick stays head-deduped until the retry is due; then the sweep runs it.
+      expect(await after.consider(session(), OPEN_GREEN)).toBe("skipped");
+      t += 4 * MIN;
+      await after.retryErroredReviews([{ session: session(), git: OPEN_GREEN }]);
+      expect(created).toHaveLength(2);
+      await after.tick();
+      expect(reviews["s1"]?.errorRound).toBe(3);
+      expect(reviews["s1"]?.autoRetryAt).toBeNull();
+      expect(signals.filter((s) => s.kind === "stall")).toHaveLength(1);
+    }),
+  );
+
+  test(
+    "a new head starts a fresh budget instead of inheriting a spent one",
+    quiet(async () => {
+      const { deps: d, reviews, signals } = makeDeps({ now: () => 1000, readVerdict: junk });
+      reviews["s1"] = priorReview({
+        headSha: "old",
+        decision: "error",
+        errorRound: 3,
+        findings: [],
+        autoRetryAt: null,
+      });
+      const svc = new ReviewService(d as any);
+      await svc.consider(session(), OPEN_GREEN); // head "abc" ≠ "old" → reviewed normally
+      await svc.tick();
+      expect(reviews["s1"]?.errorRound).toBe(1);
+      expect(reviews["s1"]?.autoRetryAt).toBe(1000 + 2 * MIN);
+      expect(signals.filter((s) => s.kind === "stall")).toHaveLength(0);
+    }),
+  );
+
+  test(
+    "a cap lowered after scheduling: the scheduled retry runs, and its failure stops + escalates together",
+    quiet(async () => {
+      let t = 1000;
+      let cap = 3;
+      const { deps: d, reviews, signals } = makeDeps({
+        now: () => t,
+        cap: () => cap,
+        readVerdict: junk,
+      });
+      const svc = new ReviewService(d as any);
+      await svc.consider(session(), OPEN_GREEN);
+      await svc.tick();
+      expect(reviews["s1"]?.autoRetryAt).toBe(t + 2 * MIN); // scheduled under cap 3
+
+      cap = 2;
+      t += 2 * MIN;
+      await svc.retryErroredReviews([{ session: session(), git: OPEN_GREEN }]);
+      await svc.tick();
+      expect(reviews["s1"]?.errorRound).toBe(2);
+      expect(reviews["s1"]?.addressCap).toBe(2);
+      expect(reviews["s1"]?.autoRetryAt).toBeNull();
+      expect(signals.filter((s) => s.kind === "stall")).toHaveLength(1);
+    }),
+  );
 });
 
 test("a critic error below the cap bumps the error streak without escalating", async () => {
@@ -4018,6 +4303,8 @@ function makeOrphanDeps(
 ) {
   const completedSpawns: { id: string; u: any; at: number }[] = [];
   const droppedReviews: string[] = [];
+  const putReviews: ReviewVerdict[] = [];
+  const changes: ReviewVerdict[] = [];
   const closedTabs: string[] = [];
   const removedWorktrees: string[] = [];
   const agents = opts.agents ?? [];
@@ -4033,7 +4320,7 @@ function makeOrphanDeps(
       dropReview: (id: string) => droppedReviews.push(id),
       // other store methods not needed for reapOrphans
       getRepoConfig: () => ({ criticEnabled: false, autoAddressEnabled: false }),
-      putReview: () => {},
+      putReview: (v: ReviewVerdict) => putReviews.push(v),
       bumpReviewHead: () => {},
       snapshotReviews: () => ({}),
       addSignal: () => {},
@@ -4052,17 +4339,17 @@ function makeOrphanDeps(
       gitCommonDir: () => "/fake-git",
     },
     resolveForge: () => null,
-    onChange: () => {},
+    onChange: (_id: string, v: ReviewVerdict) => changes.push(v),
     detectBackend: () => null,
     worktreeExists: opts.worktreeExists ?? (() => false),
     readUsage: opts.readUsage ?? (async () => null),
     now: () => 9999,
   };
 
-  return { deps, completedSpawns, droppedReviews, closedTabs, removedWorktrees };
+  return { deps, completedSpawns, droppedReviews, putReviews, changes, closedTabs, removedWorktrees };
 }
 
-test("reapOrphans: true orphan (worktree present), error verdict — reaps, drops, returns taskId", async () => {
+test("reapOrphans: true orphan (worktree present), error verdict — reaps, charges the interrupted attempt, returns taskId", async () => {
   const row = {
     reviewerSessionId: "rev-1",
     taskSessionId: "s1",
@@ -4084,18 +4371,16 @@ test("reapOrphans: true orphan (worktree present), error verdict — reaps, drop
     fullRecaches: 0,
     sidechainCount: 0,
   };
-  const { deps, completedSpawns, droppedReviews, closedTabs, removedWorktrees } = makeOrphanDeps(
-    [row],
-    {
+  const { deps, completedSpawns, droppedReviews, putReviews, closedTabs, removedWorktrees } =
+    makeOrphanDeps([row], {
       sessions: { s1: s },
-      reviews: { s1: priorReview({ decision: "error" }) },
+      reviews: { s1: priorReview({ decision: "error", errorRound: 1, findings: [] }) },
       agents: [
         { name: "review TASK-01", tabId: "tab-99", terminalId: "rt-99", cwd: "/other-wt" } as any,
       ],
       worktreeExists: (p) => p === "/orphan-wt",
       readUsage: async () => fakeUsage,
-    },
-  );
+    });
   const svc = new ReviewService(deps as any);
   const result = await svc.reapOrphans();
 
@@ -4108,8 +4393,12 @@ test("reapOrphans: true orphan (worktree present), error verdict — reaps, drop
   expect(completedSpawns).toHaveLength(1);
   expect(completedSpawns[0]!.id).toBe("rev-1");
   expect(completedSpawns[0]!.u.total).toBe(36);
-  // error verdict → dropReview called
-  expect(droppedReviews).toEqual(["s1"]);
+  // error verdict → KEPT (not dropped) and the cut-off attempt is charged to its head's budget, so
+  // a restart can never reset the counter/backoff (a crash loop would otherwise retry forever)
+  expect(droppedReviews).toEqual([]);
+  expect(putReviews).toHaveLength(1);
+  expect(putReviews[0]!.errorRound).toBe(2);
+  expect(putReviews[0]!.autoRetryAt).toBe(9999 + 4 * 60_000); // second failure → 4 min backoff
   // taskId in re-kick set
   expect(result).toContain("s1");
 });
@@ -4170,9 +4459,9 @@ test("reapOrphans: readUsage returns null → NULL usage booked (unknown, not 0)
     spawnedAt: 0,
   };
   const s = session({ id: "s1", desig: "TASK-01" });
-  const { deps, completedSpawns, droppedReviews } = makeOrphanDeps([row], {
+  const { deps, completedSpawns, droppedReviews, putReviews } = makeOrphanDeps([row], {
     sessions: { s1: s },
-    reviews: { s1: priorReview({ decision: "error" }) },
+    reviews: { s1: priorReview({ decision: "error", errorRound: 1, findings: [] }) },
     agents: [],
     worktreeExists: () => true, // true orphan: worktree present, finalize never ran
     readUsage: async () => null,
@@ -4183,8 +4472,9 @@ test("reapOrphans: readUsage returns null → NULL usage booked (unknown, not 0)
   expect(completedSpawns).toHaveLength(1);
   // null usage → NULL token columns (unknown, backfillable), NOT a zeroed SessionUsage (#1816)
   expect(completedSpawns[0]!.u).toBeNull();
-  // worktree-present error orphan: dropReview called and taskSessionId in re-kick set
-  expect(droppedReviews).toContain("s1");
+  // worktree-present error orphan: the row is kept and charged, taskSessionId in re-kick set
+  expect(droppedReviews).toEqual([]);
+  expect(putReviews[0]?.errorRound).toBe(2);
   expect(result).toContain("s1");
 });
 

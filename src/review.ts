@@ -172,6 +172,43 @@ const DEFAULT_CAP = 3;
 // without re-pushing). Surfaced per-verdict as `finalRoundTimeoutMs` so the UI reads
 // the live value instead of mirroring this number.
 const DEFAULT_FINAL_ROUND_TIMEOUT_MS = 15 * 60_000;
+// How long the auto path waits before re-running a critic that failed TECHNICALLY (timeout,
+// unparseable, exited, wedged, a start that never happened) on an unchanged head. Doubles per
+// failure on that head: 2 min, then 4 min, … until the error budget (the live cap) is spent.
+const ERROR_RETRY_BASE_MS = 2 * 60_000;
+
+/**
+ * THE retry rule for a technical critic failure — the only place that decides both whether the auto
+ * path re-runs the critic on this head AND whether the operator is escalated to, from ONE live cap,
+ * so the schedule and the stall signal can never disagree. Stamps `addressCap` and `autoRetryAt` on
+ * `v` (whose `errorRound` the caller has already advanced) and returns whether this failure is the
+ * one that spent the budget (crossing guard: a cap lowered between runs still fires once, a failure
+ * past the cap does not re-fire). Substantive verdicts never reach here — only `error` rows are
+ * scheduled, so critic findings are never released by a retry.
+ */
+function scheduleErrorRetry(
+  v: ReviewVerdict,
+  priorErrorRound: number,
+  cap: number,
+  now: number,
+): boolean {
+  v.addressCap = cap;
+  v.autoRetryAt = v.errorRound < cap ? now + ERROR_RETRY_BASE_MS * 2 ** (v.errorRound - 1) : null;
+  return v.errorRound >= cap && priorErrorRound < cap;
+}
+
+/** Is `v` a technical critic failure whose scheduled same-head retry is due? A pre-spawn abort keeps
+ *  its own re-attempt path (never settled at all) and a dismissed row is the operator's — neither is
+ *  ever due here. */
+export function errorRetryDue(v: ReviewVerdict | null, now: number): boolean {
+  return (
+    v?.decision === "error" &&
+    !v.spawnAborted &&
+    !v.dismissed &&
+    v.autoRetryAt != null &&
+    now >= v.autoRetryAt
+  );
+}
 
 /**
  * Classify WHY a run is finishing with no usable verdict. PURE — the single source of truth for
@@ -256,7 +293,8 @@ interface InFlight {
   reviewerEffort: string | null;
   startedAt: number;
   priorRound: number; // auto-address steers already spent on this findings streak
-  priorErrorRound: number; // consecutive critic error/timeout verdicts before this run
+  priorErrorRound: number; // consecutive critic error/timeout verdicts before this run (on priorHeadSha)
+  priorHeadSha: string | null; // head the prior verdict was for — the error budget is per head
   priorStreakReviews: number; // critic reviews finalized on this streak before this run (bounds spawns at 2*cap)
   priorReviewedPatchIds: string[]; // patch-ids reviewed on this streak before this run (churn/revert dedup set)
   priorSeenNoteIds: string[]; // seen-note set carried in (before this run's fetch)
@@ -290,6 +328,7 @@ type PriorStreakState = Pick<
   InFlight,
   | "priorRound"
   | "priorErrorRound"
+  | "priorHeadSha"
   | "priorStreakReviews"
   | "priorReviewedPatchIds"
   | "priorSeenNoteIds"
@@ -298,6 +337,7 @@ function priorStreakState(prior: ReviewVerdict | null): PriorStreakState {
   return {
     priorRound: prior?.addressRound ?? 0,
     priorErrorRound: prior?.errorRound ?? 0,
+    priorHeadSha: prior?.headSha ?? null,
     priorStreakReviews: prior?.streakReviews ?? 0,
     priorReviewedPatchIds: prior?.reviewedPatchIds ?? [],
     priorSeenNoteIds: prior?.seenNoteIds ?? [],
@@ -516,6 +556,9 @@ export class ReviewService extends ReviewerRuns<InFlight> {
   private cancelledHeads = new Map<string, string>();
   // Sessions whose `starting` claim belongs to an operator-forced run (see operatorForced).
   private forcedStarting = new Set<string>();
+  // retryErroredReviews() re-entrancy guard: a slow begin() must not let the next minute's sweep
+  // overlap it.
+  private sweeping = false;
   private now: () => number;
   private timeoutMs: number;
   // Resolve the cap on every read so a live config thunk (UI setting) takes effect on the
@@ -620,11 +663,11 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // ceiling (reaching it needs a findings verdict, which then blocks the next spawn), and
     // it never trips this gate's findings>0 leg. Net: findings-bearing reviews are hard-capped
     // at 2*cap, but a critic flapping on *timeouts* keeps re-spawning on each new head. That
-    // error churn is deliberately governed by the separate errorRound escalation in finalize()
-    // (a stall signal at the cap), NOT this ceiling: a transient timeout must neither be
-    // charged against the findings budget nor permanently halt review. So total critic spawns
-    // can exceed 2*cap while errors interleave — bounded by errorRound + the human it escalates
-    // to, not by this gate.
+    // error churn is deliberately governed by the separate PER-HEAD errorRound budget
+    // (scheduleErrorRetry: at most cap attempts per head, then a stall signal), NOT this ceiling:
+    // a transient timeout must neither be charged against the findings budget nor permanently halt
+    // review. So total critic spawns can exceed 2*cap while errors interleave — bounded per head by
+    // errorRound + the human it escalates to, not by this gate.
     //
     // RE-ENGAGEMENT CLIFF: a PR paused one round short of clean stays paused on the AUTO path.
     // Crossing the ceiling halts only auto re-spawns here — the resume paths are a clean verdict
@@ -1051,6 +1094,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       finalRoundPending: false,
       streakReviews: 0,
       errorRound: 0,
+      autoRetryAt: null, // the operator owns it now — no automatic critic retry
       reviewedPatchIds: [],
       // Operator took over: the rework classification (REWORK RUNNING / banner) stops
       // counting this verdict as active rework even though decision stays changes_requested, and
@@ -1093,6 +1137,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       this.deps.store.putReview({
         ...priorForReset,
         errorRound: 0,
+        autoRetryAt: null, // the forced run's own verdict schedules any retry afresh
         streakReviews: 0,
         reviewedPatchIds: [],
         addressRound: 0,
@@ -1786,7 +1831,9 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // "clean": count it on a separate no-progress streak so a flapping critic still escalates
     // instead of looping forever, and preserve the findings round (those findings are still
     // outstanding, just un-reverified this push).
-    verdict.errorRound = f.priorErrorRound + 1;
+    // The error budget is PER HEAD: a new head starts fresh rather than inheriting a spent budget.
+    const priorErrorRound = f.priorHeadSha === f.headSha ? f.priorErrorRound : 0;
+    verdict.errorRound = priorErrorRound + 1;
     verdict.addressRound = f.priorRound;
     // Error verdicts deliberately do NOT increment streakReviews: error-spawn token cost is
     // bounded by the separate errorRound counter + its own cap escalation, not by the spawn
@@ -1799,18 +1846,87 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // fetched notes — roll the seen set back so they re-inject next round instead of being
     // silently swallowed by an error pass.
     verdict.seenNoteIds = f.priorSeenNoteIds;
-    // Escalate once, when the streak first reaches the cap. `>=` with a crossing guard (not
-    // `=== cap`) so a cap lowered between runs still fires rather than being stepped over, while
-    // errors past the cap don't re-signal every tick.
-    if (verdict.errorRound >= this.cap && f.priorErrorRound < this.cap) {
-      this.deps.store.addSignal({
-        repoPath: f.repoPath,
-        sessionId: f.sessionId,
-        kind: "stall",
-        payload: `critic produced ${verdict.errorRound} consecutive error verdicts for this PR — auto-address can't make progress`,
-      });
-    }
+    // Schedule the same-head retry, or escalate once the budget is spent — one rule, one cap.
+    if (scheduleErrorRetry(verdict, priorErrorRound, this.cap, this.now()))
+      this.signalErrorBudgetSpent(f.repoPath, f.sessionId, verdict.errorRound);
     return true;
+  }
+
+  private signalErrorBudgetSpent(repoPath: string, sessionId: string, errorRound: number): void {
+    this.deps.store.addSignal({
+      repoPath,
+      sessionId,
+      kind: "stall",
+      payload: `critic failed technically ${errorRound} times on this head — automatic retries are spent; re-run the review ("Erneut prüfen") once the cause is fixed`,
+    });
+  }
+
+  /**
+   * Charge a critic attempt that produced NO verdict against the head's error budget: a due retry
+   * that never started (worktree / herdr / api-key failure in begin()), or a run a restart cut off
+   * (reapOneOrphanRow). Without this the old `autoRetryAt` would stay due and the sweep would retry
+   * the start every minute without ever reaching the escalation. Acts only while the stored row is
+   * still exactly `expected` — a verdict that landed meanwhile, an archive (row dropped) or a
+   * pre-spawn-abort row written by the failed start all supersede it. Publishes the updated row so
+   * the open PR row shows the new retry time or the spent budget.
+   */
+  private chargeFailedAttempt(
+    repoPath: string,
+    sessionId: string,
+    expected: ReviewVerdict,
+    why: string,
+  ): void {
+    const row = this.deps.store.getReview(sessionId);
+    if (
+      row?.decision !== "error" ||
+      row.headSha !== expected.headSha ||
+      row.updatedAt !== expected.updatedAt ||
+      row.errorRound !== expected.errorRound ||
+      !!row.spawnAborted !== !!expected.spawnAborted
+    )
+      return;
+    const now = this.now();
+    const next: ReviewVerdict = { ...row, errorRound: row.errorRound + 1, updatedAt: now };
+    const spent = scheduleErrorRetry(next, row.errorRound, this.cap, now);
+    console.warn(
+      `[review] auto-retry for ${sessionId} ${why} — attempt ${next.errorRound}/${this.cap} charged` +
+        (next.autoRetryAt != null
+          ? `, next at ${new Date(next.autoRetryAt).toISOString()}`
+          : ", budget spent"),
+    );
+    this.deps.store.putReview(next);
+    this.deps.onChange(sessionId, next);
+    if (spent) this.signalErrorBudgetSpent(repoPath, sessionId, next.errorRound);
+  }
+
+  /**
+   * Re-run every critic whose technical failure on the CURRENT head is due for its scheduled retry
+   * (driven every minute from index.ts — `session:git` only fires on a change, so nothing else would
+   * re-consider a quiet PR). Goes through the ordinary non-force consider(), so every gate still
+   * applies. Its outcome decides the bookkeeping: `started` → the run's own finalize schedules the
+   * next step; `skipped` → a deferral (CI/rest, hold, capacity, in flight, head moved) that costs
+   * nothing and is re-evaluated next sweep; `error` → the start failed and is charged.
+   */
+  async retryErroredReviews(candidates: { session: Session; git: GitState }[]): Promise<void> {
+    if (this.sweeping) return;
+    this.sweeping = true;
+    try {
+      for (const { session, git } of candidates) {
+        const prior = this.deps.store.getReview(session.id);
+        if (!git.headSha || prior?.headSha !== git.headSha || !errorRetryDue(prior, this.now()))
+          continue;
+        const outcome = await this.consider(session, git);
+        if (outcome === "started")
+          console.warn(
+            `[review] auto-retry started for ${session.id} (${session.desig}) after a technical critic error ` +
+              `(attempt ${prior.errorRound + 1}/${this.cap}, ${prior.summaryCode ?? "error"})`,
+          );
+        else if (outcome === "error")
+          this.chargeFailedAttempt(session.repoPath, session.id, prior, "did not start");
+      }
+    } finally {
+      this.sweeping = false;
+    }
   }
 
   /**
@@ -2046,6 +2162,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       streakReviews: 0,
       reviewedPatchIds: [],
       errorRound: 0, // finalize() overwrites on an error verdict
+      autoRetryAt: null, // finalize() schedules it on an error verdict (scheduleErrorRetry)
       finalRoundPending: false, // finalize() sets this on a real verdict
       finalRoundTimeoutMs: DEFAULT_FINAL_ROUND_TIMEOUT_MS, // live escalation timeout
       seenNoteIds: f.seenNoteIds, // carry the per-round note dedup set forward
@@ -2085,8 +2202,10 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     prior: ReviewVerdict | null,
     headSha: string,
   ): boolean {
-    if (prior?.headSha === headSha && !prior.spawnAborted) return true;
     if (this.cancelledHeads.get(sessionId) === headSha) return true; // operator cancelled this head
+    // A technical failure on this head is settled only until its scheduled retry is due.
+    if (prior?.headSha === headSha && !prior.spawnAborted && !errorRetryDue(prior, this.now()))
+      return true;
     return this.deps.store.getSpawnNotice(sessionId, "review")?.inputKey === headSha;
   }
 
@@ -2400,13 +2519,15 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // Re-engage only when the session is still present — a gone session needs no kick.
     if (!s) return { kind: "orphan", reKickId: null };
 
-    // An error verdict carries no findings — drop it so the next run starts fresh
-    // without a sticky REVIEW ERR badge (and so the re-kick's plain consider() isn't head-deduped).
+    // An error verdict here usually means a scheduled same-head retry was cut off by the restart.
+    // Keep the row and charge the interrupted attempt to its head's budget (rather than dropping it,
+    // which reset the counter and backoff — a crash loop could retry forever): the re-kick's plain
+    // consider() then stays head-deduped until the retry is due again, and the sweep re-runs it.
     // Non-error verdicts are left intact: the re-kick re-reviews them under normal rules (on a moved
     // head, within the spawn ceiling), which preserves their streak accounting — no dropReview reset.
-    if (this.deps.store.getReview(row.taskSessionId)?.decision === "error") {
-      this.deps.store.dropReview(row.taskSessionId);
-    }
+    const prior = this.deps.store.getReview(row.taskSessionId);
+    if (prior?.decision === "error")
+      this.chargeFailedAttempt(s.repoPath, s.id, prior, "interrupted by a restart");
     return { kind: "orphan", reKickId: row.taskSessionId };
   }
 

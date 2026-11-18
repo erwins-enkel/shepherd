@@ -1063,6 +1063,7 @@ type ReviewVerdictRow = {
   dismissed: number | null;
   planDrift: string | null;
   planDriftNote: string | null;
+  autoRetryAt: number | null;
   updatedAt: number;
 };
 
@@ -5335,6 +5336,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       // dismissed above — so a verdict that carries no measurement also carries no key.
       planDrift: coercePlanDrift(r.planDrift) ?? undefined,
       planDriftNote: r.planDriftNote ?? undefined,
+      // Absent rather than null when no automatic retry is scheduled, like spawnAborted/dismissed.
+      autoRetryAt: r.autoRetryAt ?? undefined,
     } as ReviewVerdict;
   }
 
@@ -5342,7 +5345,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const r = this.db
       .query(
         `SELECT sessionId, headSha, patchId, decision, summary, summaryCode, body, findings, findingsMeta, addressRound,
-                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, planDrift, planDriftNote, updatedAt
+                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, planDrift, planDriftNote, autoRetryAt, updatedAt
               FROM reviews WHERE sessionId = ?`,
       )
       .get(sessionId) as ReviewVerdictRow | null;
@@ -5352,11 +5355,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   putReview(v: ReviewVerdict): void {
     // Destructured with defaults rather than two more `??` in the parameter list below: both are
     // optional on the verdict and NULL in the column, and the list is already at its budget.
-    const { planDrift = null, planDriftNote = null } = v;
+    const { planDrift = null, planDriftNote = null, autoRetryAt = null } = v;
     this.db.run(
       `INSERT INTO reviews (sessionId, headSha, patchId, decision, summary, summaryCode, body, findings, findingsMeta, addressRound,
-         addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, planDrift, planDriftNote, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, planDrift, planDriftNote, autoRetryAt, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET headSha=excluded.headSha, patchId=excluded.patchId,
          decision=excluded.decision,
          summary=excluded.summary, summaryCode=excluded.summaryCode,
@@ -5366,7 +5369,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          errorRound=excluded.errorRound, finalRoundPending=excluded.finalRoundPending,
          finalRoundTimeoutMs=excluded.finalRoundTimeoutMs, seenNoteIds=excluded.seenNoteIds,
          url=excluded.url, spawnAborted=excluded.spawnAborted, dismissed=excluded.dismissed,
-         planDrift=excluded.planDrift, planDriftNote=excluded.planDriftNote, updatedAt=excluded.updatedAt`,
+         planDrift=excluded.planDrift, planDriftNote=excluded.planDriftNote,
+         autoRetryAt=excluded.autoRetryAt, updatedAt=excluded.updatedAt`,
       [
         v.sessionId,
         v.headSha,
@@ -5390,6 +5394,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         v.dismissed ? 1 : 0,
         planDrift,
         planDriftNote,
+        autoRetryAt,
         v.updatedAt,
       ],
     );
@@ -5431,7 +5436,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const rows = this.db
       .query(
         `SELECT sessionId, headSha, patchId, decision, summary, summaryCode, body, findings, findingsMeta, addressRound,
-                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, planDrift, planDriftNote, updatedAt FROM reviews`,
+                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, planDrift, planDriftNote, autoRetryAt, updatedAt FROM reviews`,
       )
       .all() as ReviewVerdictRow[];
     const out: Record<string, ReviewVerdict> = {};
@@ -8025,6 +8030,19 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // backfill to NULL = "not measured", which every consumer renders as nothing at all.
     add("planDrift", `planDrift TEXT`);
     add("planDriftNote", `planDriftNote TEXT`);
+    // autoRetryAt: when the auto path re-runs a critic that failed technically on this head (NULL =
+    // no automatic retry). ONE-TIME backfill when the column first appears: an existing retry-eligible
+    // error row (not a pre-spawn abort, not dismissed, budget left) becomes due now, so PRs stranded
+    // by a technical critic failure before this column existed recover on deploy within the normal
+    // budget instead of waiting for an operator click.
+    if (!cols.some((c) => c.name === "autoRetryAt")) {
+      add("autoRetryAt", `autoRetryAt INTEGER`);
+      this.db.run(
+        `UPDATE reviews SET autoRetryAt = ?
+           WHERE decision='error' AND spawnAborted=0 AND dismissed=0 AND errorRound < addressCap`,
+        [Date.now()],
+      );
+    }
     // Migrate legacy `error` rows that baked the English summary in. They predate the four-way
     // split and recorded no cause, so they can only map to the generic timeout sentinel — which is
     // what the overwhelming majority of them were (the deadline is the common terminal state).

@@ -22,6 +22,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -94,6 +95,15 @@ export const PAGES = [
     linkBase: GITHUB_DOCS_BASE,
     title: "Run tasks on another machine",
     description: "Connect another Shepherd as a machine — Linux and macOS setup, the automatic choice and waiting tasks, the trust decision, limits and an end-to-end checklist.",
+  },
+  {
+    srcDir: "docs",
+    src: "repo-config.md",
+    dest: "repo-config.md",
+    linkBase: GITHUB_DOCS_BASE,
+    title: "Shared repository rules",
+    description:
+      "Share repository rules, choose a Leitrechner and keep machine settings local — setup, protected branches and manual ownership changes.",
   },
   {
     srcDir: "docs",

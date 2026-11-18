@@ -3395,15 +3395,17 @@ test("errors past the cap do not re-signal (escalates once, on crossing)", async
 describe("technical critic error auto-retry", () => {
   const MIN = 60_000;
   const junk = () => ({ decision: "junk", summary: "boom", body: "" }); // → decision "error"
-  const quiet = <T>(fn: () => Promise<T>) => async () => {
-    const orig = console.warn;
-    console.warn = () => {};
-    try {
-      return await fn();
-    } finally {
-      console.warn = orig;
-    }
-  };
+  const quiet =
+    <T>(fn: () => Promise<T>) =>
+    async () => {
+      const orig = console.warn;
+      console.warn = () => {};
+      try {
+        return await fn();
+      } finally {
+        console.warn = orig;
+      }
+    };
   const sweep = (svc: ReviewService, git: GitState = OPEN_GREEN) =>
     svc.retryErroredReviews([{ session: session(), git }]);
 
@@ -3463,10 +3465,11 @@ describe("technical critic error auto-retry", () => {
     "in flight, operator-cancelled, or a moved head → the sweep starts nothing",
     quiet(async () => {
       const t = 1000;
-      const { deps: d, reviews, created } = makeDeps(
-        { now: () => t, readVerdict: () => null },
-        { criticProcs: ["node"] },
-      );
+      const {
+        deps: d,
+        reviews,
+        created,
+      } = makeDeps({ now: () => t, readVerdict: () => null }, { criticProcs: ["node"] });
       reviews["s1"] = priorReview({
         headSha: OPEN_GREEN.headSha!,
         decision: "error",
@@ -3486,7 +3489,9 @@ describe("technical critic error auto-retry", () => {
 
       // Due on "abc" but the PR moved to "def": the sweep leaves the new head to the normal path.
       const fresh = new ReviewService(d as any);
-      await fresh.retryErroredReviews([{ session: session(), git: { ...OPEN_GREEN, headSha: "def" } }]);
+      await fresh.retryErroredReviews([
+        { session: session(), git: { ...OPEN_GREEN, headSha: "def" } },
+      ]);
       expect(created).toHaveLength(1);
     }),
   );
@@ -3496,7 +3501,11 @@ describe("technical critic error auto-retry", () => {
     quiet(async () => {
       let t = 1000;
       const changes: ReviewVerdict[] = [];
-      const { deps: d, reviews, signals } = makeDeps({
+      const {
+        deps: d,
+        reviews,
+        signals,
+      } = makeDeps({
         now: () => t,
         onChange: (_id: string, v: ReviewVerdict) => changes.push(v),
       });
@@ -3537,7 +3546,11 @@ describe("technical critic error auto-retry", () => {
     quiet(async () => {
       let admit = false;
       const changes: ReviewVerdict[] = [];
-      const { deps: d, reviews, created } = makeDeps({
+      const {
+        deps: d,
+        reviews,
+        created,
+      } = makeDeps({
         now: () => 10 * MIN,
         capacity: async () => admit,
         onChange: (_id: string, v: ReviewVerdict) => changes.push(v),
@@ -3569,7 +3582,13 @@ describe("technical critic error auto-retry", () => {
     "a restart during an automatic retry keeps the head's budget and backoff",
     quiet(async () => {
       let t = 1000;
-      const { deps: d, reviews, signals, created, recordedSpawns } = makeDeps({
+      const {
+        deps: d,
+        reviews,
+        signals,
+        created,
+        recordedSpawns,
+      } = makeDeps({
         now: () => t,
         readVerdict: junk,
       });
@@ -3636,7 +3655,11 @@ describe("technical critic error auto-retry", () => {
     quiet(async () => {
       let t = 1000;
       let cap = 3;
-      const { deps: d, reviews, signals } = makeDeps({
+      const {
+        deps: d,
+        reviews,
+        signals,
+      } = makeDeps({
         now: () => t,
         cap: () => cap,
         readVerdict: junk,
@@ -4346,7 +4369,15 @@ function makeOrphanDeps(
     now: () => 9999,
   };
 
-  return { deps, completedSpawns, droppedReviews, putReviews, changes, closedTabs, removedWorktrees };
+  return {
+    deps,
+    completedSpawns,
+    droppedReviews,
+    putReviews,
+    changes,
+    closedTabs,
+    removedWorktrees,
+  };
 }
 
 test("reapOrphans: true orphan (worktree present), error verdict — reaps, charges the interrupted attempt, returns taskId", async () => {

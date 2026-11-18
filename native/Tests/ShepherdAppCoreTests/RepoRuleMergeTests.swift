@@ -10,7 +10,7 @@ struct RepoRuleMergeTests {
         rules["maxAuto"] = 9 // Unknown response properties must not become shared rules.
         // Config is decoded with the same complete shape as the server response.
         var config = rules
-        config.merge(["fieldSources": [:], "repoConfigCommit": NSNull(), "mergeWithoutCi": false,
+        config.merge(["fieldSources": [:], "repoConfigCommit": NSNull(), "epicClaimAutoRelease": false, "mergeWithoutCi": false,
             "sharedBrowserEnabled": false, "claudeAiConnectorsEnabled": false, "hidden": false, "pinned": false,
             "maxAuto": 1, "usageCeilingPct": 90, "sandboxProfile": "inherit", "egressExtraHosts": [],
             "browserAllowedHosts": [], "repoMode": "github", "previewOpenMode": "ask"]) { $1 }

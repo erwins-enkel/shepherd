@@ -329,6 +329,11 @@ mod tests {
             r("egressExtraHosts", r#"["a.com"]"#),
             json!({"egressExtraHosts": ["a.com"]})
         );
+        assert_eq!(
+            r("leitrechner", "instance-id"),
+            json!({"leitrechner": "instance-id"})
+        );
+        assert_eq!(r("leitrechner", "null"), json!({"leitrechner": null}));
         // What the typed struct would drop on re-serialization survives: the server clears on it.
         assert_eq!(r("egressExtraHosts", "[]"), json!({"egressExtraHosts": []}));
         assert_eq!(

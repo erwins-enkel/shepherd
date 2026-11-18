@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onDestroy, tick, type Snippet } from "svelte";
+  import { onDestroy, onMount, tick, type Snippet } from "svelte";
+  import { firstSafeHttpUrl } from "#lib/url.js";
   import { m } from "#lib/paraglide/messages.js";
   import { basename } from "#lib/basename.js";
   import { repos } from "#lib/repos.svelte.js";
@@ -13,6 +14,7 @@
     sectionSummary,
     type RepoSettingsSection as SectionId,
   } from "./sections";
+  import { providePendingConfig } from "./pending-config-context.svelte.js";
   import { provideOpenDetail } from "./detail-context.svelte.js";
   import { focusSetting, revealSetting, provideSettingLink } from "./setting-link";
   import { searchRepoSettings, type RepoSettingsSearchEntry } from "./search";
@@ -39,6 +41,7 @@
     variant = "window",
     headEnd,
     lead,
+    sectionView,
   }: {
     repoPath: string;
     /** The section to open at; absent = the first one a hint marks, else Autonomy. */
@@ -60,6 +63,9 @@
     /** Rendered above the head, e.g. a session tab's own controls; on a narrow container it
      *  scrolls away with the head. */
     lead?: Snippet;
+    /** Renders the active section in place of the plain one: the Backlog groups it by where each
+     *  setting lives (#3016). */
+    sectionView?: Snippet<[SectionId]>;
   } = $props();
 
   // coachTargets keys one node per id: only the window registers its settings' coach targets, so
@@ -67,7 +73,24 @@
   const coach = $derived(variant === "window");
 
   provideOpenDetail();
-  $effect(() => void repoConfig.ensure(repoPath));
+  providePendingConfig(() => repoConfig.pendingRules[repoPath] ?? null);
+  onMount(() => {
+    void (repoConfig.isConfigLoaded(repoPath)
+      ? repoConfig.reload(repoPath)
+      : repoConfig.ensure(repoPath));
+  });
+  $effect(() => {
+    if (!repoConfig.pendingRules[repoPath]) return;
+    let running = false;
+    const timer = setInterval(() => {
+      if (running) return;
+      running = true;
+      void repoConfig.reload(repoPath).finally(() => {
+        running = false;
+      });
+    }, 60_000);
+    return () => clearInterval(timer);
+  });
 
   const panelId = $props.id();
   const repoName = $derived(repos.nameFor(repoPath) ?? basename(repoPath));
@@ -256,16 +279,45 @@
               {/each}
             </ul>
           {:else}
+            {#if repoConfig.pendingRules[repoPath]}
+              <p class="pending-rules" role="status">
+                {m.reposettings_pending_summary()}
+                <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge PR URL -->
+                <a
+                  href={firstSafeHttpUrl(repoConfig.pendingRules[repoPath]!.url) ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {m.reposettings_pending_link({
+                    number: repoConfig.pendingRules[repoPath]!.number,
+                  })}
+                </a>
+                <!-- eslint-enable svelte/no-navigation-without-resolve -->
+                {#if Object.hasOwn(repoConfig.pendingRules[repoPath]!.changes, "leitrechner")}
+                  <span
+                    >{m.reposettings_pending_leader({
+                      value:
+                        repoConfig.pendingRules[repoPath]!.changes.leitrechner ??
+                        m.reposettings_pending_none(),
+                    })}</span
+                  >
+                {/if}
+              </p>
+            {/if}
             <RepoSettingsHints {repoPath} {drain} {onsetupci} />
-            <RepoSettingsSection
-              section={active}
-              {repoPath}
-              {sessionId}
-              {planPhase}
-              {drain}
-              {globals}
-              armCoachmarks={coach}
-            />
+            {#if sectionView}
+              {@render sectionView(active)}
+            {:else}
+              <RepoSettingsSection
+                section={active}
+                {repoPath}
+                {sessionId}
+                {planPhase}
+                {drain}
+                {globals}
+                armCoachmarks={coach}
+              />
+            {/if}
           {/if}
         </div>
       </div>
@@ -365,6 +417,19 @@
     .search-result {
       min-height: 44px;
     }
+  }
+  .pending-rules {
+    margin: 8px 12px;
+    font-size: var(--fs-meta);
+    color: var(--color-amber);
+    overflow-wrap: anywhere;
+  }
+  .pending-rules a {
+    color: inherit;
+    text-decoration: underline;
+  }
+  .pending-rules span {
+    display: block;
   }
 
   .root {

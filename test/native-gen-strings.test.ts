@@ -17,6 +17,7 @@ import {
   KEYS_IOS_MERGE_CARD,
   KEYS_COMPOSE,
   KEYS_CORE,
+  KEYS_IOS_REPO_SETTINGS,
   KEYS_PAIRING,
   KEYS_DETAIL,
   KEYS_HERD,
@@ -252,6 +253,7 @@ describe("gen-strings convert", () => {
 
 describe("gen-strings manifest", () => {
   const streamManifests = [
+    KEYS_IOS_REPO_SETTINGS,
     KEYS_PAIRING,
     KEYS_TERMINAL,
     KEYS_MAC_STEERS,

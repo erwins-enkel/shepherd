@@ -5,6 +5,8 @@ import { makeApp, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
+import { RepoConfigService } from "../src/repo-config-service";
+import { withRepoConfigLock } from "../src/repo-config-file";
 
 // #3441: the repo's coding CLI on the repo-config route, and the write-time model/effort clamp.
 
@@ -97,4 +99,60 @@ test("an edit that leaves the CLI alone never clamps", async () => {
   config.defaultAgentProvider = "codex";
   const view = (await (await put({ defaultModel: "opus" })).json()) as Record<string, unknown>;
   expect(view.defaultModel).toBe("opus"); // ignored at spawn time, not rewritten here
+});
+
+test("queued CLI changes clamp the model from the preceding edit, not a stale route snapshot", async () => {
+  store.setRepoConfig(repoDir, {
+    ...store.getLocalRepoConfig(repoDir),
+    agentProvider: "claude",
+    defaultModel: "opus",
+  });
+  let release!: () => void, enqueued!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const ready = new Promise<void>((resolve) => {
+    enqueued = resolve;
+  });
+  const blocked = withRepoConfigLock(repoDir, () => gate);
+  const svc = new RepoConfigService(store);
+  const patch = svc.patch.bind(svc);
+  let count = 0;
+  svc.patch = (dir, update, opts) => {
+    if (++count === 2) enqueued();
+    return patch(dir, update, opts);
+  };
+  const stopped: string[] = [];
+  const api = makeApp({
+    store,
+    repoConfig: svc,
+    sharedBrowser: {
+      stop: (dir: string) => {
+        stopped.push(dir);
+      },
+    } as any,
+    service: {} as any,
+    events: new EventHub(),
+    usageLimits: { limits: () => ({}) } as any,
+  });
+  const send = (body: unknown) =>
+    api.fetch(
+      new Request(url(), {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+  const first = send({ defaultModel: "gpt-5.4", sharedBrowserEnabled: true });
+  const second = send({ agentProvider: "codex", sharedBrowserEnabled: false });
+  await ready;
+  release();
+  await blocked;
+  const responses = await Promise.all([first, second]);
+  expect(responses.map((r) => r.status)).toEqual([200, 200]);
+  expect(store.getRepoConfig(repoDir)).toMatchObject({
+    agentProvider: "codex",
+    defaultModel: "gpt-5.4",
+  });
+  expect(stopped).toEqual([repoDir]);
 });

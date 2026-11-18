@@ -1,6 +1,7 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { useRepoConfig } from "./repo-config-editor.svelte.js";
+  const repoConfig = useRepoConfig();
   import { epicAutoFix } from "#lib/epic-auto-fix.svelte.js";
   import { DOCS_URL } from "#lib/build-info.js";
   import {

@@ -1,5 +1,6 @@
 import SwiftUI
 import ShepherdAppCore
+import ShepherdKit
 
 struct IOSServerHint: View {
     let name: String
@@ -15,6 +16,7 @@ struct IOSServerHint: View {
 
 struct IOSServerReposSheet: View {
     let model: SidebarModel
+    @State private var selectedSettings: IOSRepoSettingsTarget?
     @Environment(IOSServerHub.self) private var hub: IOSServerHub?
     @Environment(\.dismiss) private var dismiss
     var body: some View {
@@ -26,11 +28,30 @@ struct IOSServerReposSheet: View {
                         label(L.t("herd_seg_all"), count: snapshot.chips.reduce(0) { $0 + $1.count }, selected: snapshot.repos.isEmpty)
                     }.accessibilityIdentifier("repo-filter-all")
                     ForEach(snapshot.chips) { chip in
-                        Button { hub.toggleRepo(chip.paths); dismiss() } label: {
-                            label(chip.name, count: chip.count, selected: !snapshot.repos.isEmpty && chip.paths.isSuperset(of: snapshot.repos))
-                        }.accessibilityIdentifier("repo-filter-\(chip.name)")
+                        ForEach(IOSRepoSettingsTarget.targets(chip: chip, hub: hub)) { target in
+                            HStack {
+                                Button { hub.toggleRepo(chip.paths); dismiss() } label: {
+                                    VStack(alignment: .leading) {
+                                        label(chip.name, count: chip.count, selected: !snapshot.repos.isEmpty && chip.paths.isSuperset(of: snapshot.repos))
+                                        IOSRepoSettingsStatus(target: target)
+                                    }
+                                }.buttonStyle(.borderless).accessibilityIdentifier("repo-filter-\(chip.name)")
+                                Button { selectedSettings = target } label: {
+                                    Image(systemName: "slider.horizontal.3").frame(minWidth: 44, minHeight: 44)
+                                }.buttonStyle(.borderless)
+                                    .accessibilityLabel(Text(verbatim: L.t("native_repo_open_settings", target.slug ?? target.name)))
+                                    .accessibilityIdentifier("repo-settings-\(target.id)")
+                            }
+                        }
                     }
                 }.scrollContentBackground(.hidden).background(SessionListStyle.background)
+                    .navigationDestination(item: $selectedSettings) { target in
+                        if let slug = target.slug {
+                            IOSRepoSettingsView(model: .init(client: target.client, slug: slug))
+                        } else {
+                            IOSLocalRepoSettingsView(client: target.client, repo: target.path, name: target.name)
+                        }
+                    }
                     .navigationTitle(L.t("repo_switcher_label"))
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button(L.t("common_close")) { dismiss() } } }
             }.tint(SessionListStyle.amber).preferredColorScheme(.dark).presentationDetents([.medium, .large])
@@ -41,6 +62,6 @@ struct IOSServerReposSheet: View {
             Text(verbatim: name); Spacer(); Text(verbatim: String(count)).monospacedDigit()
             if selected { Image(systemName: "checkmark").accessibilityHidden(true) }
         }.sessionFont().frame(minHeight: 44).foregroundStyle(selected ? SessionListStyle.amber : SessionListStyle.ink)
-            .accessibilityAddTraits(selected ? .isSelected : [])
+            .contentShape(Rectangle()).accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

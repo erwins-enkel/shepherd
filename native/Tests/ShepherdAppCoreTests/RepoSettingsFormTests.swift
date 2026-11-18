@@ -7,7 +7,7 @@ extension CoreSeamTests {
 struct RepoSettingsFormTests {
     private func config(_ overrides: [String: Any] = [:]) throws -> RepoConfig {
         var json: [String: Any] = [
-            "criticEnabled": false, "criticAllPrs": false, "criticSmellLensEnabled": false,
+            "fieldSources": [:], "repoConfigCommit": NSNull(), "criticEnabled": false, "criticAllPrs": false, "criticSmellLensEnabled": false,
             "autoAddressEnabled": false, "autopilotEnabled": false, "planGateEnabled": false,
             "autoDrainEnabled": false, "autoMergeEnabled": false, "buildQueueEnabled": false,
             "draftMode": false, "manualStepsIssueEnabled": false, "preWarmEpicLandingCi": false,

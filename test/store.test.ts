@@ -359,6 +359,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
   const store = new SessionStore(":memory:");
   // absent → critic on, auto-address off (the spendier loop is explicit opt-in)
   expect(store.getRepoConfig("/repo/a")).toEqual({
+    leitrechner: null,
     criticEnabled: true,
     criticAllPrs: false,
     criticSmellLensEnabled: false,
@@ -436,6 +437,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     previewOpenMode: "tab",
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
+    leitrechner: null,
     criticEnabled: false,
     criticAllPrs: false,
     criticSmellLensEnabled: false,
@@ -513,6 +515,7 @@ test("repo_config: defaults to critic on + auto-address off, persists toggles", 
     previewOpenMode: "ask",
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
+    leitrechner: null,
     criticEnabled: true,
     criticAllPrs: false,
     criticSmellLensEnabled: false,

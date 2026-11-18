@@ -1,3 +1,4 @@
+import type { RepoLeitrechnerService, RepoLeitrechnerStatus } from "./repo-leitrechner";
 import { classifyClaim, epicClaimBlockers, logClaim, type ClaimDiagnostic } from "./drain-claims";
 import type { CapacityCheck } from "./codex-capacity";
 import type { RepoConfig, SessionStore } from "./store";
@@ -345,6 +346,7 @@ const DRIVER_MISS_CAP = 3;
 
 /** Live per-repo drain status pushed to the client (and used for bootstrap). */
 export interface DrainStatus {
+  leitrechnerStatus?: RepoLeitrechnerStatus;
   repoPath: string;
   enabled: boolean;
   /** Held on trouble (blocked / changes_requested / error) — an operator banner. */
@@ -451,6 +453,7 @@ export interface QueuedItem {
 }
 
 export interface DrainDeps {
+  leitrechner?: Pick<RepoLeitrechnerService, "refresh" | "status">;
   capacity?: CapacityCheck;
   store: Pick<
     SessionStore,
@@ -1763,7 +1766,7 @@ export class DrainService {
         if (epicRun!.status === "running") candidates = summaryCandidates;
         epicAttended = epicRun!.mode === "attended";
       }
-    } else if (cfg.autoDrainEnabled) {
+    } else if (this.labelDrainEnabled(repoPath, cfg.autoDrainEnabled)) {
       // Label mode: only hit the forge when drain is enabled — don't hammer listIssues for
       // repos that aren't draining.
       candidates = selectCandidates(
@@ -1804,6 +1807,7 @@ export class DrainService {
     return {
       state: {
         enabled,
+        leitrechnerHold: this.leitrechnerHold(repoPath, epicActive),
         criticEnabled: cfg.criticEnabled,
         draftMode: cfg.draftMode,
         signoffAuthority: cfg.signoffAuthority,
@@ -2616,6 +2620,9 @@ export class DrainService {
     const paused =
       hold !== null &&
       [
+        "remote_leitrechner",
+        "leitrechner_unreachable",
+        "config_refresh_failed",
         "blocked",
         "changes_requested",
         "error",
@@ -2648,6 +2655,7 @@ export class DrainService {
       hold?.code === "empty" && state.epicParent != null ? state.epicClaimBlockers?.[0] : undefined;
     return {
       repoPath,
+      leitrechnerStatus: this.deps.leitrechner?.status(repoPath),
       enabled: state.enabled,
       paused: paused || epicBlocker !== undefined,
       reason:
@@ -5086,12 +5094,52 @@ export class DrainService {
     return decision.kind === "spawn" && waiting ? MEMORY_HOLD : decision;
   }
 
+  private labelDrainEnabled(repoPath: string, enabled: boolean): boolean {
+    return enabled && this.deps.leitrechner?.status(repoPath).allowed !== false;
+  }
+
+  private leitrechnerHold(repoPath: string, epicActive: boolean): HoldReason | null {
+    if (epicActive) return null;
+    const status = this.deps.leitrechner?.status(repoPath);
+    return status?.pauseReason
+      ? { code: status.pauseReason, detail: status.name ?? status.instanceId ?? undefined }
+      : null;
+  }
+
+  private async labelStartAllowed(
+    repoPath: string,
+    decision: Extract<DrainDecision, { kind: "spawn" }>,
+  ): Promise<boolean> {
+    if (decision.epicParent != null || decision.incrementalEpicParent != null) return true;
+    return (await this.deps.leitrechner?.refresh(repoPath))?.allowed !== false;
+  }
+
+  /** A claim is ours until submission. A blocked start returns it to the backlog. */
+  private async claimedStartAllowed(
+    repoPath: string,
+    forge: GitForge,
+    decision: Extract<DrainDecision, { kind: "spawn" }>,
+  ): Promise<boolean> {
+    if (await this.labelStartAllowed(repoPath, decision)) return true;
+    try {
+      await forge.removeIssueLabel?.(decision.issue.number, ACTIVE_LABEL);
+      logClaim("release", repoPath, decision.issue.number, {
+        via: decision.remote ? "drain-remote" : "drain",
+        reason: "leitrechner",
+      });
+    } catch (err) {
+      console.warn(`[drain] release label for issue #${decision.issue.number} failed:`, err);
+    }
+    return false;
+  }
+
   /** Drain `repoPath`: build state → computeNext → apply, until the core holds.
    *  Re-entrant-safe via the per-repo `pumping` lock. */
   async pump(repoPath: string): Promise<void> {
     if (this.pumping.has(repoPath)) return; // a drain for this repo is already running
     this.pumping.add(repoPath);
     try {
+      await this.deps.leitrechner?.refresh(repoPath);
       // Per-pump guard: each session is retire-attempted / spawn-attempted at most
       // once per pump invocation to avoid churning on repeated failures.
       const attemptedRetire = new Set<string>();
@@ -5893,6 +5941,7 @@ export class DrainService {
       console.warn(`[drain] pre-spawn re-check for issue #${number} failed:`, err);
       // fall through to spawn — best-effort, never stall the drain.
     }
+    if (!(await this.labelStartAllowed(repoPath, decision))) return;
     await this.withPendingClaim(repoPath, number, () =>
       this.claimAndSpawn(repoPath, spawnRepo, forge, decision, provider, rc),
     );
@@ -5938,6 +5987,7 @@ export class DrainService {
     let session: Session | undefined;
     try {
       const plan = await this.spawnPlan(repoPath, spawnRepo, forge, decision);
+      if (!(await this.claimedStartAllowed(repoPath, forge, decision))) return;
       const epicSettings = decision.epicProviderSettings;
       // Auto-spawns honor an explicit operator default-model — the repo override
       // wins over the global default; when both are unset ("inherit"/"auto") they
@@ -6008,6 +6058,7 @@ export class DrainService {
     let failure: unknown = null;
     try {
       const plan = await this.spawnPlan(repoPath, spawnRepo, forge, decision);
+      if (!(await this.claimedStartAllowed(repoPath, forge, decision))) return;
       const epicSettings = decision.epicProviderSettings;
       outcome = await this.deps.machines!.submit({
         repoPath: spawnRepo,

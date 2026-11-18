@@ -1,5 +1,6 @@
 import type { HandoffRecord } from "./provider-handoff";
 import { Database, type SQLQueryBindings } from "bun:sqlite";
+import { effectiveRepoConfig, readRepoConfigFile, REPO_RULE_DEFAULTS } from "./repo-config-file";
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -646,6 +647,8 @@ const DESIG_PREFIX = "TASK-";
 export const TERMINAL_CLAIM_TTL_MS = 30_000;
 
 export interface RepoConfig {
+  /** Repo-only persistent instance ID for global background jobs; never stored in SQLite. */
+  leitrechner?: string | null;
   criticEnabled: boolean;
   /** Standalone repo-level PR critic: review every open CI-green PR in the repo, not just session PRs (default OFF). */
   criticAllPrs: boolean;
@@ -1386,6 +1389,11 @@ function normalizePreviewOpenMode(raw: string | null | undefined): RepoConfig["p
   return raw === "inline" || raw === "tab" || raw === "ask" ? raw : "ask";
 }
 
+/** Fresh defaults shared by DB fallback and missing fields in a valid repo file. */
+export function repoConfigDefaults(): RepoConfig {
+  return repoConfigFromRow(null);
+}
+
 /**
  * Map a nullable repo_config row to a fully-defaulted RepoConfig.
  * absent → critic on, auto-address off (the spendier loop is explicit opt-in).
@@ -1395,34 +1403,18 @@ function normalizePreviewOpenMode(raw: string | null | undefined): RepoConfig["p
 function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
   if (!r) {
     return {
-      criticEnabled: true,
-      criticAllPrs: false,
-      criticSmellLensEnabled: false,
-      autoAddressEnabled: false,
-      autopilotEnabled: false,
-      planGateEnabled: false,
-      autoDrainEnabled: false,
-      autoMergeEnabled: false,
-      buildQueueEnabled: false,
-      draftMode: false,
-      signoffAuthority: "human",
+      ...REPO_RULE_DEFAULTS,
       maxAuto: 1,
-      autoLabel: "shepherd:auto",
       priorityLabels: [],
       usageCeilingPct: 80,
       sandboxProfile: "inherit",
       agentProvider: "inherit",
-      defaultModel: "inherit",
-      defaultEffort: "inherit",
       defaultExecutionEffort: "inherit",
       egressExtraHosts: [],
       egressIncludeStandard: "inherit",
       repoMode: "forge",
-      manualStepsIssueEnabled: false,
-      preWarmEpicLandingCi: false,
       epicClaimAutoRelease: false,
       mergeWithoutCi: false,
-      epicStacksEnabled: false,
       sharedBrowserEnabled: false,
       browserAllowedHosts: [],
       claudeAiConnectorsEnabled: false,
@@ -1436,6 +1428,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     };
   }
   return {
+    leitrechner: null,
     criticEnabled: !!r.criticEnabled,
     criticAllPrs: !!r.criticAllPrs,
     criticSmellLensEnabled: !!r.criticSmellLensEnabled,
@@ -2820,6 +2813,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   // ── per-repo config (critic on/off) ───────────────────────────────────────
   getRepoConfig(repoPath: string): RepoConfig {
+    const local = this.getLocalRepoConfig(repoPath);
+    return effectiveRepoConfig(
+      local,
+      repoConfigDefaults(),
+      local.repoMode === "lightweight" ? null : readRepoConfigFile(repoPath),
+    );
+  }
+
+  /** Raw local values, also retained as the fallback when no valid repo file exists. */
+  getLocalRepoConfig(repoPath: string): RepoConfig {
     const r = this.db
       .query(
         `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, autopilotEnabled, planGateEnabled,
@@ -2893,26 +2896,19 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return new Set(rows.map((r) => r.repoPath));
   }
 
-  /** Repos whose coding CLI, default model, effort or execution effort is not "inherit" (#3447) —
-   *  one batch read, normalized like getRepoConfig. */
-  reposWithOwnRunDefaults(): RepoRunDefaults[] {
-    const rows = this.db
-      .query(
-        `SELECT repoPath, agentProvider, defaultModel, defaultEffort, defaultExecutionEffort
-         FROM repo_config
-         WHERE agentProvider <> 'inherit' OR defaultModel <> 'inherit'
-            OR defaultEffort <> 'inherit' OR defaultExecutionEffort <> 'inherit'`,
-      )
-      .all() as Record<keyof RepoRunDefaults, string>[];
-    return rows
-      .map((r) => ({
-        repoPath: r.repoPath,
-        agentProvider: normalizeRepoAgentProviderSetting(r.agentProvider) ?? "inherit",
-        defaultModel: normalizeRepoDefaultModelSetting(r.defaultModel) ?? "inherit",
-        defaultEffort: normalizeRepoDefaultEffortSetting(r.defaultEffort) ?? "inherit",
-        defaultExecutionEffort:
-          normalizeRepoDefaultEffortSetting(r.defaultExecutionEffort) ?? "inherit",
-      }))
+  /** Effective run overrides, including discovered repos configured only through Git. */
+  reposWithOwnRunDefaults(candidates: Iterable<string> = []): RepoRunDefaults[] {
+    return this.repoConfigPaths(candidates)
+      .map((repoPath) => {
+        const cfg = this.getRepoConfig(repoPath);
+        return {
+          repoPath,
+          agentProvider: cfg.agentProvider ?? "inherit",
+          defaultModel: cfg.defaultModel,
+          defaultEffort: cfg.defaultEffort,
+          defaultExecutionEffort: cfg.defaultExecutionEffort,
+        };
+      })
       .filter(
         (d) =>
           d.agentProvider !== "inherit" ||
@@ -2920,6 +2916,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           d.defaultEffort !== "inherit" ||
           d.defaultExecutionEffort !== "inherit",
       );
+  }
+
+  private repoConfigPaths(candidates: Iterable<string>): string[] {
+    const rows = this.db.query(`SELECT repoPath FROM repo_config`).all() as { repoPath: string }[];
+    return [...new Set([...candidates, ...rows.map((r) => r.repoPath)])];
   }
 
   /** repoPaths pinned to the top of the Backlog repos panel — one batch read, like
@@ -4993,11 +4994,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   /** repoPaths whose automation keeps them warm (#2837): auto-drain or the all-PR critic. */
-  warmAutomationRepoPaths(): Set<string> {
-    const rows = this.db
-      .query(`SELECT repoPath FROM repo_config WHERE autoDrainEnabled = 1 OR criticAllPrs = 1`)
-      .all() as { repoPath: string }[];
-    return new Set(rows.map((r) => r.repoPath));
+  warmAutomationRepoPaths(candidates: Iterable<string> = []): Set<string> {
+    return new Set(
+      this.repoConfigPaths(candidates).filter((repoPath) => {
+        const cfg = this.getRepoConfig(repoPath);
+        return cfg.autoDrainEnabled || cfg.criticAllPrs;
+      }),
+    );
   }
 
   /**

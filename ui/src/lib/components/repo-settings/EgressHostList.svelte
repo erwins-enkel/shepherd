@@ -1,6 +1,7 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { useRepoConfig } from "./repo-config-editor.svelte.js";
+  const repoConfig = useRepoConfig();
   import { toasts } from "#lib/toasts.svelte.js";
   import { classifyEgressHost, type EgressTrust } from "#lib/egress-trust.js";
   import { egressRiskExplanation, egressRiskLabel } from "#lib/tooltips/explanations.js";

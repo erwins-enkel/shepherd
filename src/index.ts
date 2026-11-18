@@ -1,3 +1,4 @@
+import { RepoLeitrechnerService } from "./repo-leitrechner";
 import { codexAssistantSupported } from "./operator-assistant-codex";
 import {
   assistantRuntimeBlocks,
@@ -79,6 +80,8 @@ import { loadSteers } from "./steers";
 import { loadIcons } from "./project-icons";
 import { attachMirrorPush } from "./remote-instances/push-relay";
 import { RemoteDispatcher, waitingAttachments } from "./remote-instances/dispatch";
+import { safeRepoDir } from "./validate";
+import { refreshRepoConfigsAtStartup } from "./repo-config-file";
 import { instanceIdentity, instancePlatform } from "./remote-instances/identity";
 import { hostLoadReport, readHostLoad } from "./remote-instances/load";
 import { drainMachinePort } from "./drain-machines";
@@ -99,7 +102,14 @@ import {
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import { ensureHelperTmpRootTrusted } from "./transient-helper-lifecycle";
 import { scanClaudeAliveByWorktree } from "./process-reaper";
-import { serve, serveAgentIngress, buildBacklogPayload, launchTask, type AppDeps } from "./server";
+import {
+  serve,
+  serveAgentIngress,
+  buildBacklogPayload,
+  launchTask,
+  reconcileRepoConfig,
+  type AppDeps,
+} from "./server";
 import { ScheduleService, SCHEDULE_TICK_MS } from "./schedules";
 import { SchedulePauseService, isUsagePaused } from "./schedule-pause";
 import { resolveDefaultBranch } from "./pull";
@@ -413,7 +423,8 @@ const repoWarmth: RepoWarmthService = new RepoWarmthService({
   lastActivityByRepo: () => store.lastActivityByRepo(),
   repoOpenedSince: (since) => store.repoOpenedSince(since),
   markRepoOpened: (p, at) => store.markRepoOpened(p, at),
-  automationRepos: () => store.warmAutomationRepoPaths(),
+  automationRepos: () =>
+    store.warmAutomationRepoPaths(listRepos(config.repoRoot).map((r) => r.realPath)),
   activeEpicRepos: () =>
     store
       .listEpicRuns()
@@ -783,9 +794,27 @@ let credentialBanner: string | null = null;
 // exists by the time startBackground() runs. On an already-onboarded boot startBackground() runs at
 // the end of boot; on a first-run boot it's registered via firstRun.onResolve and fires on root-pick.
 const deferredStarts: Array<() => void> = [];
-function startBackground(): void {
+async function startBackground(): Promise<void> {
+  await refreshRepoConfigsAtStartup(
+    listRepos(config.repoRoot)
+      .map((repo) => safeRepoDir(repo.path, config.repoRoot))
+      .filter(
+        (path): path is string =>
+          !!path && store.getLocalRepoConfig(path).repoMode !== "lightweight",
+      ),
+    (dir) =>
+      console.warn(`[repo-config] startup refresh failed for ${dir}; using last fetched rules`),
+  );
   // Each in its own caller scope, so a start's `labelGhCalls` covers only its own timers.
   for (const start of deferredStarts) withGhCaller(UNATTRIBUTED, start);
+  // Proposal discovery must not delay unrelated background subsystems.
+  void refreshRepoConfigsAtStartup(
+    listRepos(config.repoRoot)
+      .map((repo) => safeRepoDir(repo.path, config.repoRoot))
+      .filter((dir): dir is string => !!dir),
+    () => console.warn("[repo-config] proposal discovery failed; using last verified rules"),
+    (dir) => reconcileRepoConfig(appDeps, dir),
+  );
 }
 
 // drop abandoned staged uploads (New-Task or relaunch carry, never submitted) past the TTL — not
@@ -1187,11 +1216,6 @@ const service = new SessionService({
 // date before any of its tool calls reach this server.
 service.syncOperatorAssistantPermissions();
 
-// Deep modules for the repo-config route seam (#1092). A singleton so every
-// route + every background onChange below emit through the SAME instance; the server's
-// total accessors return these when injected via appDeps.
-const repoConfigSvc = new RepoConfigService(store);
-
 // Minted machine bearer tokens (#2082). Constructed here so its hot-path hash map is seeded from
 // SQLite BEFORE the first request reaches checkAuth, and so the auth gate and the management
 // routes share one instance — a revocation through the routes must invalidate the gate's map.
@@ -1200,6 +1224,22 @@ const accessTokenSvc = new AccessTokenService(store);
 // first-run gate like the others. No machine connected ⇒ every round is a no-op without a request.
 const remoteInstances = new RemoteInstanceService({ store });
 deferredStarts.push(() => remoteInstances.start());
+const repoLeitrechner = new RepoLeitrechnerService({
+  config: (repo) => store.getRepoConfig(repo),
+  self: () => instanceIdentity(store),
+  remote: (id) => remoteInstances.get(id),
+  emit: (repoPath, leitrechnerStatus) =>
+    events.emit("repo:leitrechner", { repoPath, leitrechnerStatus }),
+});
+// Deep modules for the repo-config route seam (#1092). A singleton so every
+// route + every background onChange below emit through the SAME instance; the server's
+// total accessors return these when injected via appDeps.
+const repoConfigSvc = new RepoConfigService(store, undefined, repoLeitrechner, (dir) =>
+  resolveForge(dir),
+);
+remoteInstances.onChange(() => {
+  for (const repo of listRepos(config.repoRoot)) repoLeitrechner.publish(repo.path);
+});
 // Their sessions (#2762) follow each machine's probe: a connected probe opens (or re-snapshots) the
 // mirror, anything else marks its sessions disconnected. Held apart from `store`, never on `events`.
 // One of them may be this Shepherd's settings source (#3967): its steers and repo emojis are used
@@ -2236,6 +2276,7 @@ const reviewService = new ReviewService({
 // leaving this twin at the service default would half-apply an operator's raise); concurrency
 // stays at the service default.
 const standaloneCritic = new StandalonePrCriticService({
+  leitrechner: repoLeitrechner,
   capacity: capacityCheck,
   capacityInterrupted,
   store,
@@ -3228,6 +3269,7 @@ function onBootstrapAdvance(repoPath: string, phase: number, sessionId: string):
 // spawn the next labeled backlog issue, bounded by the per-repo rails. Pure decision
 // core (computeNext) with side effects here; driven off the same poller events.
 const drain = new DrainService({
+  leitrechner: repoLeitrechner,
   capacity: capacityCheck,
   startGate: heavySlot,
   bootstrapMustHaves: (repoPath) => greenfield.mustHavesMissing(repoPath),
@@ -4558,6 +4600,7 @@ const appDeps: AppDeps = {
   mythosAvailable: accountMythosAvailable,
   telemetry,
   repoConfig: repoConfigSvc,
+  repoLeitrechner,
   accessTokens: accessTokenSvc,
   remoteInstances,
   settingsSource,
@@ -4849,11 +4892,31 @@ console.log(`shepherd agent-ingress on http://127.0.0.1:${agentIngress.port}`);
 deferredStarts.push(() => {
   telemetry.event("app_launched");
 });
-if (firstRun.pending) firstRun.onResolve(startBackground);
-else startBackground();
+if (firstRun.pending)
+  firstRun.onResolve(() => {
+    void startBackground();
+  });
+else void startBackground();
+
+// Poll only known proposals; discovery runs at startup and on settings reads.
+let repoConfigTickRunning = false;
+const repoConfigTimer = setInterval(() => {
+  if (repoConfigTickRunning || firstRun.pending) return;
+  repoConfigTickRunning = true;
+  void (async () => {
+    for (const dir of repoConfigSvc.pendingDirectories())
+      await reconcileRepoConfig(appDeps, dir, true);
+  })()
+    .catch(() => console.warn("[repo-config] proposal refresh failed; retrying next tick"))
+    .finally(() => {
+      repoConfigTickRunning = false;
+    });
+}, 60_000);
+repoConfigTimer.unref();
 
 // Best-effort teardown of preview listeners and tailscale mappings on process exit / SIGTERM.
 process.on("exit", () => {
+  clearInterval(repoConfigTimer);
   codexAccount.close();
   sharedBrowser.stopAll();
   previewService.stopAll();

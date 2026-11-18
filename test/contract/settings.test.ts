@@ -1,3 +1,4 @@
+import { configForge } from "../helpers/repo-config-forge";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
@@ -16,6 +17,9 @@ import {
 } from "./harness";
 import { operationsForStream, eventsForStream } from "./stream-blocks";
 import { config } from "../../src/config";
+import { configRepo, git as configGit } from "../helpers/repo-config-git";
+import { instanceIdentity } from "../../src/remote-instances/identity";
+import { invalidateRepoConfigFile } from "../../src/repo-config-file";
 import { firstRun } from "../../src/first-run";
 import { diagnostic } from "./settings-fixtures";
 import { generateKeyPairSync } from "node:crypto";
@@ -59,6 +63,199 @@ afterAll(() => {
     restoreAuth();
   }
 });
+test("slug repository settings contract covers local reads, writes, refresh and target failures", async () => {
+  const r = configRepo(s.tmpRoot);
+  const previousRoot = config.repoRoot;
+  const previousResolver = s.deps.resolveForge;
+  const self = instanceIdentity(s.deps.store).instanceId;
+  const other = "11111111-1111-4111-8111-111111111111";
+  const slug = "acme/contract-repo";
+  const project = "/api/repo-config/project";
+  const machine = "/api/repo-config/machine";
+  const refresh = "/api/repo-config/refresh";
+  const query = `?remoteSlug=${slug}&instanceId=${self}`;
+  config.repoRoot = r.dir;
+  s.deps.resolveForge = ((dir: string) =>
+    dir === r.b ? { slug, isFork: false } : null) as typeof s.deps.resolveForge;
+  try {
+    const view = (await request("GET", project, 200, undefined, project + query)) as any;
+    expect(view.referenceInstanceId).toBe(self);
+    const inherited = view.machines.find((machine: any) => machine.instanceId === self).config
+      .inheritedRunDefaults;
+    const effort = inherited.effort === "low" ? "high" : "low";
+    await request("GET", project, 400);
+    await request("GET", project, 404, undefined, project + "?remoteSlug=unknown/repo");
+    const roles = "/api/repo-config/roles";
+    await request("GET", roles, 200, undefined, roles + query);
+    await request("GET", roles, 400);
+    await request("GET", roles, 404, undefined, roles + query.replace(self, other));
+    await request("PUT", roles, 200, { reviewer: null, merger: null }, roles + query);
+    await request("PUT", roles, 400, {}, roles + query);
+    await request(
+      "PUT",
+      roles,
+      404,
+      { reviewer: null, merger: null },
+      roles + query.replace(self, other),
+    );
+    await request("GET", machine, 200, undefined, machine + query);
+    await request("GET", machine, 400);
+    await request("GET", machine, 404, undefined, machine + query.replace(self, other));
+    await request("PUT", machine, 200, { maxAuto: 4 }, machine + query);
+    await request("PUT", machine, 400, { criticAllPrs: true }, machine + query);
+    await request("PUT", machine, 404, { maxAuto: 4 }, machine + query.replace(self, other));
+    const written = (await request(
+      "PUT",
+      project,
+      200,
+      { rules: { criticAllPrs: true, defaultEffort: effort }, leitrechner: self },
+      project + query,
+    )) as any;
+    expect(written.leitrechner).toBe(self);
+    const machineDefaults = (await request("GET", machine, 200, undefined, machine + query)) as any;
+    expect(machineDefaults.resolvedRunDefaults.effort).toBe(effort);
+    expect(machineDefaults.inheritedRunDefaults).toEqual(inherited);
+    for (const [path, at] of [
+      [project, project + query],
+      ["/api/repo-config", `/api/repo-config?repo=${encodeURIComponent(r.b)}`],
+    ]) {
+      for (const leitrechner of [self, null]) {
+        const leaderOnly = (await request("PUT", path!, 200, { leitrechner }, at)) as any;
+        expect(leaderOnly.leitrechner).toBe(leitrechner);
+      }
+    }
+
+    await request("PUT", project, 400, { rules: { sandboxProfile: "trusted" } }, project + query);
+    await request(
+      "PUT",
+      project,
+      404,
+      { rules: { criticAllPrs: true } },
+      project + query.replace(self, other),
+    );
+    await request(
+      "PUT",
+      project,
+      422,
+      { rules: { defaultModel: "claude-mythos-5-2" } },
+      project + query,
+    );
+    await request("POST", refresh, 200, {}, refresh + query);
+    await request("POST", refresh, 400, {});
+    await request("POST", refresh, 404, {}, refresh + "?remoteSlug=unknown/repo");
+    configGit(r.b, "remote", "set-url", "origin", `${r.dir}/missing.git`);
+    await request("POST", refresh, 502, {}, refresh + query);
+    await request("PUT", project, 502, { rules: { criticAllPrs: false } }, project + query);
+    s.deps.store.insertRemoteInstance({
+      instanceId: other,
+      url: "http://127.0.0.1:9",
+      token: "unreachable-test-token",
+      label: null,
+      reportedName: "Offline",
+      createdAt: Date.now(),
+    });
+    await request("GET", machine, 502, undefined, machine + query.replace(self, other));
+    await request("PUT", machine, 502, { maxAuto: 4 }, machine + query.replace(self, other));
+    await request("GET", roles, 502, undefined, roles + query.replace(self, other));
+    await request(
+      "PUT",
+      roles,
+      502,
+      { reviewer: null, merger: null },
+      roles + query.replace(self, other),
+    );
+    for (const [method, path, body] of [
+      ["GET", roles, undefined],
+      ["PUT", roles, { reviewer: null, merger: null }],
+      ["GET", project, undefined],
+      ["PUT", project, { rules: {} }],
+      ["GET", machine, undefined],
+      ["PUT", machine, { maxAuto: 4 }],
+      ["POST", refresh, {}],
+    ] as const) {
+      await request(method, path, 401, body, path + query, {});
+    }
+  } finally {
+    s.deps.store.deleteRemoteInstance(other);
+    s.deps.resolveForge = previousResolver;
+    config.repoRoot = previousRoot;
+    r.close();
+  }
+});
+
+test("repo config reports per-field sources and committed SHA, and sanitizes refused mixed writes", async () => {
+  const r = configRepo(s.tmpRoot);
+  const path = "/api/repo-config",
+    at = `${path}?repo=${encodeURIComponent(r.b)}`;
+  const resolver = s.deps.resolveForge;
+  s.deps.resolveForge = () => configForge().forge;
+  try {
+    const local = (await request("GET", path, 200, undefined, at)) as any;
+    expect(local.repoConfigCommit).toBeNull();
+    expect(Object.values(local.fieldSources)).toEqual(
+      Object.keys(s.deps.store.getRepoConfig(r.b)).map(() => "rechner"),
+    );
+    const commit = r.commit('{"defaultModel":"inherit","autoDrainEnabled":true}');
+    configGit(r.b, "fetch", "origin");
+    invalidateRepoConfigFile(r.b);
+    const shared = (await request("GET", path, 200, undefined, at)) as any;
+    expect(shared.repoConfigCommit).toBe(commit);
+    expect(shared.fieldSources).toMatchObject({
+      defaultModel: "repo",
+      defaultEffort: "repo",
+      criticEnabled: "repo",
+      sandboxProfile: "rechner",
+      maxAuto: "rechner",
+    });
+    expect(shared.defaultModel).toBe("inherit");
+    const changed = (await request(
+      "PUT",
+      path,
+      200,
+      { planGateEnabled: true, maxAuto: 4 },
+      at,
+    )) as any;
+    expect(changed.repoConfigCommit).toBe(configGit(r.origin, "rev-parse", "main"));
+    expect(changed.fieldSources).toEqual(shared.fieldSources);
+    const beforeCli = configGit(r.origin, "rev-parse", "main");
+    await request("PUT", path, 200, { agentProvider: "codex" }, at);
+    expect(configGit(r.origin, "rev-parse", "main")).toBe(beforeCli);
+    writeFileSync(
+      join(r.origin, "hooks/pre-receive"),
+      "#!/bin/sh\necho secret-token >&2\nexit 1\n",
+      { mode: 0o755 },
+    );
+    const refused = (await request(
+      "PUT",
+      path,
+      502,
+      { criticAllPrs: true, maxAuto: 8, automationConfirmed: true },
+      at,
+    )) as any;
+    expect(refused.code).toBe("repo_config_write_failed");
+    expect(JSON.stringify(refused)).not.toContain("secret-token");
+    const after = (await request("GET", path, 200, undefined, at)) as any;
+    expect(after.maxAuto).toBe(4);
+    expect(after.automationConfirmed).toBe(false);
+    expect(after.repoConfigCommit).toBe(changed.repoConfigCommit);
+    writeFileSync(
+      join(r.origin, "hooks/pre-receive"),
+      '#!/bin/sh\nwhile read old new ref; do\n if [ "$ref" = "refs/heads/main" ]; then exit 1; fi\ndone\n',
+      { mode: 0o755 },
+    );
+    const f = configForge();
+    s.deps.resolveForge = () => f.forge;
+    const pending = (await request("PUT", path, 200, { criticAllPrs: true }, at)) as any;
+    expect(pending).toMatchObject({
+      criticAllPrs: false,
+      pendingRepoConfig: { number: 41, url: "https://host/pr/41", changes: { criticAllPrs: true } },
+    });
+  } finally {
+    s.deps.resolveForge = resolver;
+    r.close();
+  }
+});
+
 test("repo config, role no-op, push refusal and collaborator fallback", async () => {
   const query = `?repo=${encodeURIComponent(s.validRepo)}`;
   for (const path of ["/api/repo-config", "/api/repo-roles", "/api/repo-collaborators"]) {
@@ -1098,6 +1295,47 @@ test("the decision-model connection is cookie-admin only and never returns the k
     expect(removed.keySource).toBe("none");
   } finally {
     s.deps.judgeSettings = saved;
+  }
+});
+
+test("leitrechner PUT commits selection and emits the same status as GET without metadata becoming a rule", async () => {
+  const r = configRepo(s.tmpRoot);
+  const at = `/api/repo-config?repo=${encodeURIComponent(r.b)}`;
+  const resolver = s.deps.resolveForge;
+  s.deps.resolveForge = () => configForge().forge;
+  try {
+    const before = configGit(r.origin, "rev-parse", "main");
+    const frames = await collectEvents(s, token, async () => {
+      const view = (await request(
+        "PUT",
+        "/api/repo-config",
+        200,
+        { leitrechner: "ffffffff-ffff-4fff-8fff-ffffffffffff", criticAllPrs: true },
+        at,
+      )) as any;
+      expect(view.leitrechner).toBe("ffffffff-ffff-4fff-8fff-ffffffffffff");
+      expect(view.leitrechnerStatus).toMatchObject({
+        instanceId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        role: "unknown",
+        allowed: true,
+        reachable: null,
+      });
+      expect(view.fieldSources.leitrechner).toBe("repo");
+      expect(view.fieldSources.leitrechnerStatus).toBeUndefined();
+    });
+    expect(configGit(r.origin, "rev-list", "--count", `${before}..main`)).toBe("1");
+    const frame = frames.find((f) => f.event === "repo:leitrechner");
+    expect(frame).toBeDefined();
+    validateEvent("repo:leitrechner", frame!.data);
+    const read = (await request("GET", "/api/repo-config", 200, undefined, at)) as any;
+    expect((frame!.data as any).leitrechnerStatus).toEqual(read.leitrechnerStatus);
+    await request("PUT", "/api/repo-config", 400, { leitrechner: " id " }, at);
+    await request("PUT", "/api/repo-config", 400, { leitrechner: 8 }, at);
+    const clear = (await request("PUT", "/api/repo-config", 200, { leitrechner: null }, at)) as any;
+    expect(clear.leitrechnerStatus).toMatchObject({ role: "unassigned", allowed: true });
+  } finally {
+    s.deps.resolveForge = resolver;
+    r.close();
   }
 });
 

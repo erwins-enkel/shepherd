@@ -200,7 +200,7 @@ function scheduleErrorRetry(
 /** Is `v` a technical critic failure whose scheduled same-head retry is due? A pre-spawn abort keeps
  *  its own re-attempt path (never settled at all) and a dismissed row is the operator's — neither is
  *  ever due here. */
-export function errorRetryDue(v: ReviewVerdict | null, now: number): boolean {
+function errorRetryDue(v: ReviewVerdict | null, now: number): boolean {
   return (
     v?.decision === "error" &&
     !v.spawnAborted &&

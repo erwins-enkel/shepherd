@@ -1298,6 +1298,11 @@ export interface ReviewVerdict {
   findings: string[]; // discrete actionable items; [] = nothing to address
   addressRound: number; // auto-address steers spent on the current findings streak
   addressCap: number; // server's streak cap for this run — the badge reads it instead of mirroring
+  /** Consecutive technical critic failures on this head — the automatic-retry budget is `addressCap`. */
+  errorRound?: number;
+  /** When the server re-runs a technically failed critic on this same head (epoch ms); absent/null =
+   *  no automatic retry. Read off the payload, never derived here (the server owns the backoff). */
+  autoRetryAt?: number | null;
   finalRoundPending: boolean; // cap-th steer just delivered, no re-review yet → dimmed FINAL badge
   finalRoundTimeoutMs: number; // live abandonment timeout (ms); UI escalates FINAL→STALLED after this
   // Operator dismissed / took over this stalled critic rework; the rework classification skips it.

@@ -1,7 +1,8 @@
 import { isConflicting } from "#lib/pr-conflict.js";
 import { prReadinessBlock } from "#lib/pr-ready.js";
 import { m } from "#lib/paraglide/messages.js";
-import type { GitState, MergeStateStatus } from "#lib/types.js";
+import { clock } from "#lib/epic-timing-text.js";
+import type { GitState, MergeStateStatus, ReviewVerdict } from "#lib/types.js";
 import type { CriticChip } from "../critic-badge";
 
 /** The merge row's one state: the label it shows and whether its Merge is free (`ready`).
@@ -16,6 +17,7 @@ export type PrRowKind =
   | "no_checks"
   | "protected"
   | "reviewing"
+  | "review_failed"
   | "ready"
   | "merged";
 
@@ -30,11 +32,18 @@ export function prActionRowVisible(git: GitState | null | undefined): git is Git
  *  merge queue) wins; then the readiness blocks the whole UI shares (`prReadinessBlock`) — draft,
  *  conflict, behind — before CI, since a rebase or conflict fix reruns CI anyway; then CI; and
  *  branch protection next, so a still-running required check reads as "CI running", not as a
- *  vague protection block. A running critic blocks readiness after these Git/CI states.
+ *  vague protection block. A running critic blocks readiness after these Git/CI states, and so
+ *  does a critic that failed technically on this head (`criticFailed`): that head is unreviewed,
+ *  which the drain and the merge train refuse too, so it must never read as "ready to merge".
  *
  *  Stricter than the merge gate elsewhere: ANY failing or pending check locks Merge here, even
  *  a non-required one GitHub reports as `unstable` (operator decision on #3540). */
-export function prRowStatus(git: GitState, merging: boolean, reviewing: boolean): PrRowKind {
+export function prRowStatus(
+  git: GitState,
+  merging: boolean,
+  reviewing: boolean,
+  criticFailed = false,
+): PrRowKind {
   if (git.state === "merged") return "merged";
   if (merging) return "merging";
   const block = prReadinessBlock(git);
@@ -44,6 +53,7 @@ export function prRowStatus(git: GitState, merging: boolean, reviewing: boolean)
   if (awaitsChecks(git)) return "no_checks";
   if (block === "blocked") return "protected";
   if (reviewing) return "reviewing";
+  if (criticFailed) return "review_failed";
   return "ready";
 }
 
@@ -59,6 +69,8 @@ export function mergeBlockedText(kind: PrRowKind): string | null {
   switch (kind) {
     case "reviewing":
       return m.gitrail_merge_blocked_reviewing();
+    case "review_failed":
+      return m.gitrail_merge_blocked_review_failed();
     case "merging":
       return m.gitrail_merge_blocked_busy();
     case "draft":
@@ -86,6 +98,8 @@ export function prRowLabel(kind: PrRowKind, base: string): string {
   switch (kind) {
     case "reviewing":
       return m.prrow_state_reviewing();
+    case "review_failed":
+      return m.prrow_state_review_failed();
     case "merging":
       return m.prrow_merging();
     case "draft":
@@ -142,7 +156,45 @@ function ciFact(git: GitState): PrRowFact {
   return { id: "ci", tone: "pending", text: m.prrow_fact_ci_none() };
 }
 
-function criticFact(chip: CriticChip, criticOn: boolean): PrRowFact | null {
+/** A technically failed critic's automatic same-head retry, as the server scheduled it: `at` is
+ *  the next attempt (null = none scheduled), `attempt`/`cap` the failures so far and the budget. */
+export interface CriticRetry {
+  at: number | null;
+  attempt: number;
+  cap: number;
+}
+
+/** The retry state of a current-head technical critic failure, or null when there is none. */
+export function criticRetry(
+  verdict:
+    | Pick<ReviewVerdict, "decision" | "headSha" | "autoRetryAt" | "errorRound" | "addressCap">
+    | undefined,
+  headSha: string | null | undefined,
+): CriticRetry | null {
+  if (verdict?.decision !== "error" || !headSha || verdict.headSha !== headSha) return null;
+  return {
+    at: verdict.autoRetryAt ?? null,
+    attempt: verdict.errorRound ?? 0,
+    cap: verdict.addressCap,
+  };
+}
+
+function criticErrorText(retry: CriticRetry | null | undefined): string {
+  if (retry?.at != null)
+    return m.prrow_fact_critic_error_retry({
+      time: clock(retry.at),
+      attempt: retry.attempt,
+      cap: retry.cap,
+    });
+  if (retry && retry.attempt >= retry.cap) return m.prrow_fact_critic_error_exhausted();
+  return m.prrow_fact_critic_error();
+}
+
+function criticFact(
+  chip: CriticChip,
+  criticOn: boolean,
+  retry?: CriticRetry | null,
+): PrRowFact | null {
   if (chip.kind === "reviewing")
     return { id: "critic", tone: "pending", text: m.prrow_fact_critic_reviewing() };
   if (chip.kind === "verdict") {
@@ -150,7 +202,7 @@ function criticFact(chip: CriticChip, criticOn: boolean): PrRowFact | null {
       return { id: "critic", tone: "ok", text: m.prrow_fact_critic_reviewed() };
     if (chip.decision === "changes_requested")
       return { id: "critic", tone: "fail", text: m.prrow_fact_critic_changes() };
-    return { id: "critic", tone: "fail", text: m.prrow_fact_critic_error() };
+    return { id: "critic", tone: "fail", text: criticErrorText(retry) };
   }
   // No verdict yet: worth a line only where a critic will actually run.
   return criticOn ? { id: "critic", tone: "pending", text: m.prrow_fact_critic_pending() } : null;
@@ -179,10 +231,15 @@ export function prRowFacts(input: {
   /** The repo runs the critic, so a missing verdict is still to come. */
   criticOn: boolean;
   base: string;
+  /** A current-head technical critic failure's scheduled retry ({@link criticRetry}). */
+  retry?: CriticRetry | null;
 }): PrRowFact[] {
-  const { git, chip, criticOn, base } = input;
+  const { git, chip, criticOn, base, retry } = input;
   if (git.state === "merged") return [];
-  return [ciFact(git), criticFact(chip, criticOn), baseFact(git, base), conflictFact(git)].filter(
-    (f): f is PrRowFact => f !== null,
-  );
+  return [
+    ciFact(git),
+    criticFact(chip, criticOn, retry),
+    baseFact(git, base),
+    conflictFact(git),
+  ].filter((f): f is PrRowFact => f !== null);
 }

@@ -28,6 +28,7 @@
     prRowFacts,
     prRowLabel,
     prRowStatus,
+    criticRetry,
   } from "./pr-action-row";
   import {
     agentLive,
@@ -88,8 +89,12 @@
 
   const local = $derived(git?.kind === "local");
   const base = $derived(git?.baseRefName || session.baseBranch);
+  // A technical critic failure on the current head: unreviewed, so never "ready" (see prRowStatus).
+  const retry = $derived(criticOn ? criticRetry(verdict, git?.headSha) : null);
   const kind = $derived(
-    git ? prRowStatus(git, merge.busy || git.inMergeQueue === true, reviewing) : "ready",
+    git
+      ? prRowStatus(git, merge.busy || git.inMergeQueue === true, reviewing, retry !== null)
+      : "ready",
   );
   // A review can start after the operator opened confirmation. Drop only an unanswered
   // dialog; close() preserves a merge request that has already been submitted.
@@ -97,7 +102,7 @@
     if (reviewing) merge.flow.close();
   });
   const blockedText = $derived(mergeBlockedText(kind));
-  const facts = $derived(git ? prRowFacts({ git, chip, criticOn, base }) : []);
+  const facts = $derived(git ? prRowFacts({ git, chip, criticOn, base, retry }) : []);
   // #2735: an epic child merges into its epic branch; the tooltip says where it lands.
   const epicChild = $derived(railEpicChild(session.epicParent ?? null, session.baseBranch));
   const epicStopped = $derived(railEpicStopped(epicChild, drain));
@@ -535,7 +540,8 @@
   }
   /* subordinate red: text + dot only — no halo, pulse or wash */
   .pr-row.ci_failed,
-  .pr-row.conflict {
+  .pr-row.conflict,
+  .pr-row.review_failed {
     --tone: var(--color-red);
   }
 

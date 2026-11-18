@@ -6440,7 +6440,7 @@
   "settings_assistant_steer_title": "Steering & answers",
   "settings_assistant_steer_hint": "Send a message into a session, answer a plan's open questions.",
   "settings_assistant_sessions_title": "Control sessions",
-  "settings_assistant_sessions_hint": "Interrupt, resume, relaunch or archive a session.",
+  "settings_assistant_sessions_hint": "Interrupt, resume, relaunch or archive a session, or re-run its PR review.",
   "settings_assistant_approve_title": "Approvals & merge",
   "settings_assistant_approve_hint": "Start an approved plan, approve a build queue, mark a PR ready, merge a PR. Never takes over a merge someone else is responsible for.",
   "settings_assistant_automation_title": "Automation",

@@ -6440,7 +6440,7 @@
   "settings_assistant_steer_title": "Steering & Antworten",
   "settings_assistant_steer_hint": "Nachricht in eine Session schicken, offene Plan-Fragen beantworten.",
   "settings_assistant_sessions_title": "Sessions steuern",
-  "settings_assistant_sessions_hint": "Session unterbrechen, fortsetzen, neu starten oder archivieren.",
+  "settings_assistant_sessions_hint": "Session unterbrechen, fortsetzen, neu starten oder archivieren oder ihre PR-Prüfung erneut starten.",
   "settings_assistant_approve_title": "Freigaben & Merge",
   "settings_assistant_approve_hint": "Freigegebenen Plan starten, Build-Queue freigeben, PR auf ready setzen, PR mergen. Übernimmt nie einen Merge, für den jemand anderes zuständig ist.",
   "settings_assistant_automation_title": "Automatik bearbeiten",

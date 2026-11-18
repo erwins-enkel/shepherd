@@ -138,6 +138,7 @@ test("each session tool runs its operator route on the resolved session", async 
     ["session_resume", {}, { method: "POST", body: {} }, "resume"],
     ["session_relaunch", {}, { method: "POST" }, "relaunch"],
     ["session_archive", {}, { method: "DELETE" }, ""],
+    ["pr_review", {}, { method: "POST" }, "review-pr"],
     ["plan_release", {}, { method: "POST" }, "go"],
     ["queue_approve", {}, { method: "POST" }, "queue/approve"],
     ["pr_ready", {}, { method: "POST" }, "git/ready"],
@@ -518,6 +519,16 @@ test("herd_halt and herd_retry: the herd routes, retry by desig", async () => {
   });
 });
 
+// The official review retry (the operator's "Erneut prüfen"): the route's status IS the result —
+// a skipped or failed start must reach the assistant as such, never as a bare success.
+test("pr_review answers the review route's status verbatim", async () => {
+  for (const status of ["started", "skipped", "error"]) {
+    const { worker, run } = setup({ answer: () => ({ status: 202, body: { ok: true, status } }) });
+    const res = await run("pr_review", { desig: worker.desig });
+    expect(res.ok && res.data).toMatchObject({ action: "pr_review", target: worker.desig, status });
+  }
+});
+
 // ── repo-scoped assistant ────────────────────────────────────────────────────
 
 /** The refusal's status and message, or null when the action ran. */
@@ -532,6 +543,7 @@ test("a scoped assistant acts on its own repo's sessions and refuses every other
     ["session_steer", { text: "hi" }],
     ["session_interrupt", {}],
     ["session_archive", {}],
+    ["pr_review", {}],
     ["plan_release", {}],
     ["pr_merge", {}],
     ["session_automation_set", { autopilot: true }],

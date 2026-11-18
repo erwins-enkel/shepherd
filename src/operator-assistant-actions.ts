@@ -358,6 +358,12 @@ function runDefaultsRefusal(
 
 /** A run-now's answer: its outcome, the started session's desig (never its id) and the reason,
  *  redacted and clipped — it can carry a launch error. */
+/** A re-review's answer: whether the critic run started, was skipped or failed to start. */
+function reviewAnswer(body: unknown): Record<string, unknown> {
+  const status = record(body).status;
+  return typeof status === "string" ? { status } : {};
+}
+
 function runAnswer(body: unknown, resolve: Resolve): Record<string, unknown> {
   const b = record(body);
   const desig = typeof b.sessionId === "string" ? resolve.desig(b.sessionId) : null;
@@ -415,6 +421,14 @@ const ACTIONS: Record<AssistantActionTool, Builder> = {
   session_relaunch: onSession("POST", "relaunch"),
   // No `reap`: the archive never kills the session's leftover processes on the agent's say-so.
   session_archive: onSession("DELETE", ""),
+  // The operator's own "Erneut prüfen": a forced critic re-review through the same route
+  // (handleSessionReviewPr → forceReview), never a new right for the session's agent. Only
+  // `started` means a review began — `skipped`/`error` must not read as done, so the route's
+  // status is the answer.
+  pr_review: (args, resolve) => {
+    const built = onSession("POST", "review-pr")(args, resolve);
+    return isFail(built) ? built : { ...built, answer: reviewAnswer };
+  },
 
   // ── approve ──
   plan_release: onSession("POST", "go"),
@@ -1039,6 +1053,13 @@ export const OPERATOR_ACTION_TOOLS: McpTool[] = [
     "Archive a session and start a fresh one with the same task and settings.",
   ),
   desigTool("session_archive", "sessions", "Archive (stop and close) a session."),
+  desigTool(
+    "pr_review",
+    "sessions",
+    "Re-run the critic review of a session's open PR (the operator's Re-review). Use it when " +
+      "herd_status shows review.decision error. Answers status: only started means a review " +
+      "began; skipped or error mean it did not — say so, never report it as done.",
+  ),
   desigTool(
     "plan_release",
     "approve",

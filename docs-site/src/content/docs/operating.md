@@ -951,7 +951,7 @@ far it goes, one row each:
 | Shell commands | Commands it runs on this node to diagnose | Off · Ask for every command · Reads run, the rest asks · Run everything |
 | Steering & answers | Send a message into a session, answer a plan's open questions | Off · Ask first · Allowed |
 | Start sessions | Start a new session in a repo, as New Task: its own worktree from the repo's default branch (or one it names), your default model and effort, and the repo's plan gate, autopilot and usage hold | Off · Ask first · Allowed |
-| Control sessions | Interrupt, resume, relaunch or archive a session | Off · Ask first · Allowed |
+| Control sessions | Interrupt, resume, relaunch or archive a session, or re-run its PR review | Off · Ask first · Allowed |
 | Approvals & merge | Start an approved plan, approve a build queue, mark a PR ready, merge a PR | Off · Ask first · Allowed |
 | Automation | Repo automation (Auto-Drain, max auto sessions, auto-merge, critic, usage ceiling), a session's autopilot and auto-merge, pausing or resuming an epic, held tasks, halting and retrying the herd, creating, editing, deleting or running a repo schedule, filing issues in a repo or in Shepherd's own repo | Off · Ask first · Allowed |
 

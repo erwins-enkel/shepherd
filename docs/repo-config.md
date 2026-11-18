@@ -76,7 +76,8 @@ machine; machines can resolve it differently. The API retains the literal `inher
 
 All other settings stay in the machine's database: concurrency and usage limits, sandbox,
 browser and egress settings, local preview scripts/commands, repo mode and visibility,
-CLI provider/execution effort, priority labels, connector access and plugin/skill allowlists.
+CLI provider/execution effort, priority labels, orphaned epic-claim auto-release, connector
+access and plugin/skill allowlists.
 A commit cannot grant local sandbox, browser, connector or network permissions. Switching
 the local CLI does not rewrite shared model/effort rules; incompatible shared overrides use
 the existing provider-specific fallback when starting sessions.

@@ -536,11 +536,6 @@ export class RepoConfigStore {
       ...this.egressIncludeStandard,
       [repoPath]: c.egressIncludeStandard ?? "inherit",
     };
-    if (c.egressStandardDefault !== undefined)
-      this.egressStandard = {
-        ...this.egressStandard,
-        [repoPath]: { defaultOn: c.egressStandardDefault, hosts: c.egressStandardHosts ?? [] },
-      };
     this.claudeAiConnectors = {
       ...this.claudeAiConnectors,
       [repoPath]: c.claudeAiConnectorsEnabled,
@@ -554,27 +549,37 @@ export class RepoConfigStore {
     this.signoffAuthority = { ...this.signoffAuthority, [repoPath]: c.signoffAuthority };
     this.repoMode = { ...this.repoMode, [repoPath]: c.repoMode };
     this.sandboxProfile = { ...this.sandboxProfile, [repoPath]: c.sandboxProfile };
-    if (c.sandboxDefaultProfile !== undefined)
-      this.sandboxDefault = { ...this.sandboxDefault, [repoPath]: c.sandboxDefaultProfile };
     this.agentProvider = { ...this.agentProvider, [repoPath]: c.agentProvider ?? "inherit" };
     this.defaultModel = { ...this.defaultModel, [repoPath]: c.defaultModel };
     this.defaultEffort = { ...this.defaultEffort, [repoPath]: c.defaultEffort };
-    if (c.defaultExecutionEffort !== undefined)
-      this.defaultExecutionEffort = {
-        ...this.defaultExecutionEffort,
-        [repoPath]: c.defaultExecutionEffort,
-      };
     this.previewOpenMode = { ...this.previewOpenMode, [repoPath]: c.previewOpenMode };
     this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
     this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
     this.priorityLabels = { ...this.priorityLabels, [repoPath]: c.priorityLabels ?? [] };
     this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
+    this.ingestOptional(repoPath, c);
+    this.markSettled(repoPath);
+    if (!this.loaded[repoPath]) this.loaded = { ...this.loaded, [repoPath]: true };
+  }
+
+  /** The response fields a write may omit: absent leaves the stored value as-is. */
+  private ingestOptional(repoPath: string, c: RepoConfigResponse) {
+    if (c.egressStandardDefault !== undefined)
+      this.egressStandard = {
+        ...this.egressStandard,
+        [repoPath]: { defaultOn: c.egressStandardDefault, hosts: c.egressStandardHosts ?? [] },
+      };
+    if (c.sandboxDefaultProfile !== undefined)
+      this.sandboxDefault = { ...this.sandboxDefault, [repoPath]: c.sandboxDefaultProfile };
+    if (c.defaultExecutionEffort !== undefined)
+      this.defaultExecutionEffort = {
+        ...this.defaultExecutionEffort,
+        [repoPath]: c.defaultExecutionEffort,
+      };
     if (c.automationConfirmed !== undefined)
       this.confirmed = { ...this.confirmed, [repoPath]: c.automationConfirmed };
     if (c.automationRowExists !== undefined)
       this.rowExists = { ...this.rowExists, [repoPath]: c.automationRowExists };
-    this.markSettled(repoPath);
-    if (!this.loaded[repoPath]) this.loaded = { ...this.loaded, [repoPath]: true };
   }
 
   /** Idempotently mark a repo's config as settled; no-op (no reactive write) if it

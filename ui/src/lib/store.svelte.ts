@@ -1,4 +1,3 @@
-import { repoConfig } from "./reviews.svelte";
 import type { AssistantRuntimeSettings, AssistantSwitchState } from "./types";
 import { SvelteMap } from "svelte/reactivity";
 import { clearDecommissioning } from "./decommissioning.svelte";

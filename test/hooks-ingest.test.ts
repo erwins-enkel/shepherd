@@ -7,6 +7,7 @@ import {
   type SubagentEntry,
 } from "../src/hooks-ingest";
 import { PLAN_MAX } from "../src/plan-approval";
+import artifactHooks from "./fixtures/hooks/artifact-publish.json";
 
 // ── validateHookEvent (pure, untrusted body) ──────────────────────────────────
 
@@ -543,4 +544,95 @@ test("validateHookEvent: PostToolUse(AskUserQuestion) normalizes the answers", (
   });
   expect(ev?.toolUseId).toBe("toolu_1");
   expect(ev?.askAnswers).toEqual({ "Color?": "Red", "Tops?": "Cheese, Ham" });
+});
+
+// ── #3875: PostToolUse(Artifact), read from real recorded hook bodies ─────────
+
+const FIXTURE_URL = "https://claude.ai/artifact/FixtureArtifact0000001";
+type ArtifactBody = Record<string, unknown> & {
+  tool_input: Record<string, unknown>;
+  tool_response: Record<string, unknown>;
+};
+const artifactBody = (name: "publish" | "republish" | "read" | "delete"): ArtifactBody =>
+  structuredClone(artifactHooks[name]) as ArtifactBody;
+
+test("validateHookEvent: a recorded Artifact publish carries the artifact it wrote", () => {
+  const ev = validateHookEvent(artifactBody("publish"));
+  expect(ev?.status).toBe("ok");
+  expect(ev?.artifact).toEqual({
+    url: FIXTURE_URL,
+    toolUseId: "toolu_fixture_publish",
+    filePath: "/wt/fixture.html",
+    seq: 1,
+  });
+});
+
+test("validateHookEvent: a recorded re-publish to the same url is a publish too", () => {
+  expect(validateHookEvent(artifactBody("republish"))?.artifact).toEqual({
+    url: FIXTURE_URL,
+    toolUseId: "toolu_fixture_republish",
+    filePath: "/wt/fixture.html",
+    seq: 1,
+  });
+});
+
+test("validateHookEvent: recorded read and delete calls carry no artifact", () => {
+  expect(validateHookEvent(artifactBody("read"))?.artifact).toBeUndefined();
+  expect(validateHookEvent(artifactBody("delete"))?.artifact).toBeUndefined();
+});
+
+test("validateHookEvent: a failed Artifact call carries no artifact", () => {
+  const failed = { ...artifactBody("publish"), hook_event_name: "PostToolUseFailure" };
+  expect(validateHookEvent(failed)?.artifact).toBeUndefined();
+  const nonZero = artifactBody("publish");
+  nonZero.tool_response.exit_code = 1;
+  expect(validateHookEvent(nonZero)?.artifact).toBeUndefined();
+});
+
+test("validateHookEvent: other actions and asset uploads carry no artifact", () => {
+  for (const action of ["list", "quickstart", "open", "pin", "unpin", "delete", "read"]) {
+    const body = artifactBody("publish");
+    body.tool_input.action = action;
+    expect(validateHookEvent(body)?.artifact, action).toBeUndefined();
+  }
+  const asset = artifactBody("publish");
+  asset.tool_input.asset = true;
+  expect(validateHookEvent(asset)?.artifact).toBeUndefined();
+});
+
+test("validateHookEvent: a publish without an action, or with an empty one, counts", () => {
+  const none = artifactBody("publish");
+  delete none.tool_input.action;
+  expect(validateHookEvent(none)?.artifact?.url).toBe(FIXTURE_URL);
+  const empty = artifactBody("publish");
+  empty.tool_input.action = "";
+  expect(validateHookEvent(empty)?.artifact?.url).toBe(FIXTURE_URL);
+});
+
+test("validateHookEvent: a created-from-type publish carries the call's title and no seq", () => {
+  const body = artifactBody("publish");
+  body.tool_input = {
+    type_url: "https://claude.ai/artifact/TypeArtifact000000001",
+    title: "  Design\u0007 canvas  ",
+  };
+  delete body.tool_response.seq;
+  expect(validateHookEvent(body)?.artifact).toEqual({
+    url: FIXTURE_URL,
+    toolUseId: "toolu_fixture_publish",
+    inputTitle: "Design canvas",
+  });
+});
+
+test("validateHookEvent: a result url outside the two private forms carries no artifact", () => {
+  for (const url of [
+    "https://claude.ai/public/artifacts/FixtureArtifact0000001",
+    "http://claude.ai/artifact/FixtureArtifact0000001",
+    `${FIXTURE_URL}?share=1`,
+    `${FIXTURE_URL}#x`,
+    "https://evil.example/artifact/FixtureArtifact0000001",
+  ]) {
+    const body = artifactBody("publish");
+    body.tool_response.url = url;
+    expect(validateHookEvent(body)?.artifact, url).toBeUndefined();
+  }
 });

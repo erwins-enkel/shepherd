@@ -1,6 +1,7 @@
 import type { AutoMergeStatus } from "../../src/automerge";
 import type { BlockReason } from "../../src/blocked";
 import type { SubagentEntry } from "../../src/hooks-ingest";
+import type { SessionArtifact } from "../../src/session-artifacts";
 import type {
   EpicDraft,
   ExperimentRole,
@@ -222,6 +223,25 @@ const subagents: SubagentEntry[] = [
   },
 ];
 
+const artifacts: SessionArtifact[] = [
+  {
+    url: "https://claude.ai/artifact/GEQx5QVP82WzdTBfcxx313",
+    title: "Design canvas",
+    versions: 3,
+    firstSeenAt: 1_799_999_000_000,
+    updatedAt: 1_799_999_100_000,
+    toolUseId: "toolu_fixture",
+  },
+  {
+    url: "https://claude.ai/code/artifact/RnxBooW4VPJnZnc24ErjFo",
+    title: "claude.ai/code/artifact/RnxB…jFo",
+    versions: 1,
+    firstSeenAt: 1_799_999_200_000,
+    updatedAt: 1_799_999_200_000,
+    toolUseId: null,
+  },
+];
+
 /** [event, payload] pairs, null branches included. */
 export const cliSessionEvents: [string, unknown][] = [
   ["session:epic-draft", epicDraft],
@@ -253,6 +273,8 @@ export const cliSessionEvents: [string, unknown][] = [
   ],
   ["session:spawn-notices", { id: "sess_fixture", notices: [] }],
   ["session:subagents", { id: "sess_fixture", subagents }],
+  ["session:artifacts", { id: "sess_fixture", artifacts }],
+  ["session:artifacts", { id: "sess_fixture", artifacts: [] }],
   ["session:goal", { id: "sess_fixture", goalCondition: "X", goalState: "held" }],
   ["session:goal", { id: "sess_fixture", goalCondition: null, goalState: null }],
   [

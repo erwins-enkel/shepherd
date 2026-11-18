@@ -279,12 +279,14 @@ struct SessionStoreRemoteTests {
     for (name, body) in [
       ("session:autopilot", #"{"id":"new","enabled":true,"paused":true,"complete":false}"#),
       ("session:plangate", #"{"id":"new","planPhase":"executing"}"#),
-      ("session:manual-steps", #"{"id":"new","manualSteps":[{"id":"step","text":"Do it"}]}"#)
+      ("session:manual-steps", #"{"id":"new","manualSteps":[{"id":"step","text":"Do it"}]}"#),
+      ("session:artifacts", #"{"id":"new","artifacts":[{"url":"https://claude.ai/artifact/GEQx5QVP82WzdTBfcxx313","title":"Canvas","versions":1,"firstSeenAt":1,"updatedAt":1,"toolUseId":null}]}"#)
     ] { store.apply(.mirrored(host: host, event: .unknown(name: name, payload: Data(body.utf8)))) }
     #expect(store.visibleSession(id: "new")?.autopilotEnabled == true)
     #expect(store.visibleSession(id: "new")?.autopilotPaused == true)
     #expect(store.visibleSession(id: "new")?.planPhase?.rawValue == "executing")
     #expect(store.visibleSession(id: "new")?.manualSteps.count == 1)
+    #expect(store.visibleSession(id: "new")?.artifacts?.first?.title == "Canvas")
   }
 
 }

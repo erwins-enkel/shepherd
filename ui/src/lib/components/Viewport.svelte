@@ -108,6 +108,8 @@
   import SessionRecap from "#lib/components/SessionRecap.svelte";
   import PrActionRow from "#lib/components/viewport/PrActionRow.svelte";
   import { prActionRowVisible } from "#lib/components/viewport/pr-action-row.js";
+  import ArtifactRow from "#lib/components/viewport/ArtifactRow.svelte";
+  import { latestArtifact } from "#lib/components/viewport/artifact-row.js";
   import ViewportTermBanners from "./viewport/ViewportTermBanners.svelte";
   import ReviewInFlightBanner from "./viewport/ReviewInFlightBanner.svelte";
   import CiRunningBanner from "./viewport/CiRunningBanner.svelte";
@@ -372,6 +374,12 @@
   // and opens from the row's ⋯ menu instead.
   const prRowShown = $derived(
     !assistant && (tab === "term" || tab === "chat") && prActionRowVisible(git),
+  );
+  // The artifact row (#3875) takes the merge row's place under the same conditions, but only
+  // without a PR: once there is one, the merge row wins.
+  const artifact = $derived(latestArtifact(session.artifacts));
+  const artifactRowShown = $derived(
+    !assistant && (tab === "term" || tab === "chat") && !prActionRowVisible(git) && !!artifact,
   );
   let recapOpen = $state(false);
   // mobile/compact only: folds the secondary header chrome (tabs + git rail +
@@ -3756,6 +3764,8 @@
         if (mobile && recapOpen) phoneDetailsOpen = true;
       }}
     />
+  {:else if artifactRowShown && artifact}
+    <ArtifactRow {artifact} {mobile} {touch} />
   {/if}
 
   {#if (tab === "term" || tab === "chat") && !assistant && steersShown}

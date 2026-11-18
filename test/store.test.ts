@@ -3266,3 +3266,59 @@ test("#2100: a fresh DB pins nothing", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("published artifacts persist with the session row and survive a reopen (#3875)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "store-artifacts-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const s = new SessionStore(dbPath);
+    const session = s.create(base);
+    expect(session.artifacts).toEqual([]);
+    const artifacts = [
+      {
+        url: "https://claude.ai/artifact/AAAAAAAAAAAAAAAAAAAAA1",
+        title: "Canvas",
+        versions: 3,
+        firstSeenAt: 10,
+        updatedAt: 30,
+        toolUseId: "toolu_1",
+      },
+      {
+        url: "https://claude.ai/code/artifact/BBBBBBBBBBBBBBBBBBBBB2",
+        title: "claude.ai/code/artifact/BBBB…BB2",
+        versions: 1,
+        firstSeenAt: 20,
+        updatedAt: 20,
+        toolUseId: null,
+      },
+    ];
+    s.setSessionArtifacts(session.id, artifacts);
+    expect(s.get(session.id)?.artifacts).toEqual(artifacts);
+    expect(Object.keys(s.get(session.id)!).filter((key) => key.endsWith("Json"))).toEqual([]);
+
+    // A fresh connection, as after a server restart, reads the list back from SQLite.
+    const reopened = new SessionStore(dbPath);
+    expect(reopened.get(session.id)?.artifacts).toEqual(artifacts);
+    expect(reopened.list().find((x) => x.id === session.id)?.artifacts).toEqual(artifacts);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a malformed artifacts column reads as no artifacts (#3875)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "store-artifacts-bad-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const s = new SessionStore(dbPath);
+    const session = s.create(base);
+    const raw = new Database(dbPath);
+    raw.run(`UPDATE sessions SET artifactsJson = ? WHERE id = ?`, [
+      '[{"url":"https://claude.ai/artifact/X","title":5},"junk"]',
+      session.id,
+    ]);
+    raw.close();
+    expect(s.get(session.id)?.artifacts).toEqual([]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

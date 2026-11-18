@@ -209,6 +209,12 @@ function applyMirroredFrame(list: Session[], event: string, data: Session): Sess
     case "session:git":
       // Object spread defines properties, so an own `__proto__` key in the payload stays a plain key.
       return known ? list.map((s) => (s.id === data.id ? { ...s, ...data } : s)) : list;
+    case "session:artifacts": {
+      // #3875: only the list is session state; the frame's other keys are routing.
+      const { artifacts } = data as { artifacts?: unknown };
+      if (!known || !Array.isArray(artifacts)) return list;
+      return list.map((s) => (s.id === data.id ? { ...s, artifacts } : s));
+    }
     default:
       return list;
   }

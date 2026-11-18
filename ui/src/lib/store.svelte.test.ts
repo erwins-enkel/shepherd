@@ -49,6 +49,7 @@ import type {
   RemoteEpic,
   Session,
   SessionActivity,
+  SessionArtifact,
   SubagentEntry,
 } from "./types";
 
@@ -1209,6 +1210,30 @@ test("session:archived drops the subagents entry for that session", () => {
   s.apply({ event: "session:subagents", data: { id: "s1", subagents: SUBAGENTS } });
   s.apply({ event: "session:archived", data: { id: "s1" } });
   expect(s.subagents["s1"]).toBeUndefined();
+});
+
+// ── session:artifacts (#3875) ──────────────────────────────────────────────
+
+test("session:artifacts replaces the session's list and leaves other fields alone", () => {
+  const s = new HerdStore();
+  s.setAll([session("s1")]);
+  const artifacts: SessionArtifact[] = [
+    {
+      url: "https://claude.ai/artifact/GEQx5QVP82WzdTBfcxx313",
+      title: "Canvas",
+      versions: 2,
+      firstSeenAt: 1,
+      updatedAt: 2,
+      toolUseId: null,
+    },
+  ];
+  s.apply({ event: "session:artifacts", data: { id: "s1", artifacts } });
+  expect(s.byId("s1")?.artifacts).toEqual(artifacts);
+  expect(s.byId("s1")?.name).toBe(session("s1").name);
+  s.apply({ event: "session:artifacts", data: { id: "s1", artifacts: [] } });
+  expect(s.byId("s1")?.artifacts).toEqual([]);
+  s.apply({ event: "session:artifacts", data: { id: "nope", artifacts } });
+  expect(s.byId("nope")).toBeUndefined();
 });
 
 // ── session:claude-alive ───────────────────────────────────────────────────

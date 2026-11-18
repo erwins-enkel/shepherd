@@ -795,6 +795,10 @@ public final class SessionStore {
           }
           $0.haltedAt = event.haltedAt
         }
+      } else if name == "session:artifacts", let payload,
+                let event = try? JSONDecoder().decode(Components.Schemas.SessionArtifactsEvent.self, from: payload) {
+        // #3875: always the session's full list.
+        patch(id: event.id) { $0.artifacts = event.artifacts }
       } else {
         ShepherdLog.store.debug("ignoring event \(name, privacy: .public)")
       }
@@ -886,6 +890,9 @@ public final class SessionStore {
                   let encoded = try? JSONSerialization.data(withJSONObject: data["manualSteps"] ?? []),
                   let steps = try? JSONDecoder().decode(Session.ManualStepsPayload.self, from: encoded) {
           session.manualSteps = steps
+        } else if name == "session:artifacts",
+                  let event = try? JSONDecoder().decode(Components.Schemas.SessionArtifactsEvent.self, from: payload) {
+          session.artifacts = event.artifacts
         } else if name == "session:automerge" {
           session.autoMergeEnabled = data["enabled"] as? Bool
         }

@@ -2213,6 +2213,9 @@ export interface Session {
   manualSteps: ManualStep[];
   /** Epoch ms the operator acknowledged the manual steps; null until acknowledged (P2). */
   manualStepsAckedAt: number | null;
+  /** Artifacts the agent published with Claude Code's `Artifact` tool (#3875), first-seen order;
+   *  absent from servers before #3875. */
+  artifacts?: SessionArtifact[];
   /** Comparison-experiment group id this session belongs to; null = not part of an experiment. */
   experimentId: string | null;
   /** This session's role within its experiment; null when not in one. */
@@ -2445,6 +2448,17 @@ export interface SubagentEntry {
   endedAt?: number;
   /** The Agent call's short task name; absent until the server reads it, or when unavailable. */
   description?: string;
+}
+
+/** One artifact a session's agent published (#3875, mirrors the server shape). `url` and `title`
+ *  are agent data: render them as text only, and an href only after `isArtifactUrl`. */
+export interface SessionArtifact {
+  url: string;
+  title: string;
+  versions: number;
+  firstSeenAt: number;
+  updatedAt: number;
+  toolUseId: string | null;
 }
 
 export interface LimitWindow {
@@ -3750,6 +3764,7 @@ export type WsEvent =
     }
   | { event: "session:activity"; data: { id: string; activity: SessionActivity } }
   | { event: "session:subagents"; data: { id: string; subagents: SubagentEntry[] } }
+  | { event: "session:artifacts"; data: { id: string; artifacts: SessionArtifact[] } }
   | {
       event: "session:claude-alive";
       // Additive (#1630): `claudeAlive` (raw /proc bit) retained for compat; `liveness` (folded

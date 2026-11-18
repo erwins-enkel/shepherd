@@ -64,6 +64,17 @@ describe("effortSwitchSteps", () => {
     expect(countMatches("• Model changed to gpt-x xhigh for this\n  session only", codex)).toBe(0);
   });
 
+  test("picker marker matches the CC 2.1.327 footer, wrapped too, but not lookalikes", () => {
+    const open = effortSwitchSteps("claude", "high")![0]!.confirm;
+    const footer = "  ←/→ to adjust · s to use this session only · Enter to save · Esc to cancel";
+    expect(countMatches(footer, open)).toBe(1);
+    expect(countMatches("  ←/→ to adjust · s to use this\n  session only · Enter", open)).toBe(1);
+    expect(countMatches("  ←/→ to adjust · s to\n  use this session only", open)).toBe(1);
+    expect(countMatches("Done — applies for this session only.", open)).toBe(0);
+    expect(countMatches("to use this session only", open)).toBe(0);
+    expect(countMatches("s for", open)).toBe(0);
+  });
+
   test("countMatches counts every occurrence (baseline vs. after)", () => {
     const re = effortSwitchSteps("codex", "low")![0]!.confirm;
     const line = "Model changed to m low for this session only";

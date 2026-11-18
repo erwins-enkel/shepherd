@@ -55,6 +55,8 @@ function harness(opts: {
   confirmFrom?: number;
   /** Render the picker footer wrapped the way a ~60-col pane does. */
   wrapFooter?: boolean;
+  /** Render the CC 2.1.327 picker footer (`s to use this session only · Enter to save`). */
+  newFooter?: boolean;
   /** The picker renders late: nothing on `/effort`, the footer once the ESC lands. */
   lateOpen?: boolean;
   /** The picker-walk keys write throws (pane died mid-sequence). */
@@ -95,7 +97,11 @@ function harness(opts: {
     if (opts.lateOpen && text === "\x1b") screen += "\ns for this session only";
     if (opts.confirms === false || opts.lateOpen) return;
     if (text === `${PASTE_START}/effort${PASTE_END}` && ++pickerOpens >= (opts.confirmFrom ?? 1))
-      screen += opts.wrapFooter ? "\ns for this session\n  only" : "\ns for this session only";
+      screen += opts.newFooter
+        ? "\n←/→ to adjust · s to use this session only · Enter to save · Esc to cancel"
+        : opts.wrapFooter
+          ? "\ns for this session\n  only"
+          : "\ns for this session only";
     const codexPrefix = `${PASTE_START}/model --reasoning=`;
     if (text.startsWith(codexPrefix) && text.endsWith(PASTE_END)) {
       const tier = text.slice(codexPrefix.length, -PASTE_END.length);
@@ -258,6 +264,13 @@ test("a busy second attempt after keys were sent reports unconfirmed, not busy",
 
 test("a wrapped picker footer (narrow pane) confirms on the first attempt", async () => {
   const h = harness({ session: sess(), gate: { approved: true }, wrapFooter: true });
+  expect(await h.svc.releasePlanGate("s1")).toBe(true);
+  expect(h.sent).not.toContain("\x1b");
+  expect(h.session.activeEffort).toBe("medium");
+});
+
+test("the CC 2.1.327 picker footer confirms on the first attempt", async () => {
+  const h = harness({ session: sess(), gate: { approved: true }, newFooter: true });
   expect(await h.svc.releasePlanGate("s1")).toBe(true);
   expect(h.sent).not.toContain("\x1b");
   expect(h.session.activeEffort).toBe("medium");

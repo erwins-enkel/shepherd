@@ -5,11 +5,11 @@
   import { clock } from "#lib/now.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import type { SessionArtifact } from "#lib/types.js";
-  import { shortArtifactUrl } from "../../../../../shared/artifact-url";
+  import { isArtifactUrl, shortArtifactUrl } from "../../../../../shared/artifact-url";
 
   // The artifact row (#3875): where the merge row sits, for a session without a PR whose agent
   // published an artifact. The newest one, its facts, Copy link and the one amber action, Open ↗.
-  // Title and url are agent data — text only; the caller passes only a validated url.
+  // Title and url are agent data — text only; the link takes the url only as a claude.ai artifact.
   let {
     artifact,
     mobile = false,
@@ -27,14 +27,17 @@
   let copied = $state(false);
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
   async function copyLink() {
+    const url = artifact.url;
     try {
-      await navigator.clipboard.writeText(artifact.url);
-      copied = true;
-      clearTimeout(copiedTimer);
-      copiedTimer = setTimeout(() => (copied = false), 1500);
+      await navigator.clipboard.writeText(url);
     } catch {
-      // clipboard blocked (insecure context / denied) — fail quietly, like TaskIdButton.
+      return; // clipboard blocked (insecure context / denied) — fail quietly, like TaskIdButton.
     }
+    // A copy that settles after the row moved on to another artifact confirms nothing here.
+    if (url !== artifact.url) return;
+    copied = true;
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => (copied = false), 1500);
   }
 
   // The Viewport is reused across sessions: a "Link copied" must not carry over to another artifact.
@@ -75,8 +78,11 @@
     >
     <span class="art-sep" aria-hidden="true"></span>
     <!-- eslint-disable svelte/no-navigation-without-resolve -- external claude.ai URL, not an app route -->
-    <a class="gbtn primary" href={artifact.url} target="_blank" rel="noopener"
-      >{m.artifactrow_open()}</a
+    <a
+      class="gbtn primary"
+      href={isArtifactUrl(artifact.url) ? artifact.url : undefined}
+      target="_blank"
+      rel="noopener">{m.artifactrow_open()}</a
     >
     <!-- eslint-enable svelte/no-navigation-without-resolve -->
   </div>
@@ -227,6 +233,16 @@
   }
   .artifact-row.mobile .art-sep {
     display: none;
+  }
+  /* the facts wrap at their separators instead of cutting the url off */
+  .artifact-row.mobile .art-facts {
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: 2px;
+    white-space: normal;
+  }
+  .artifact-row.mobile .art-facts > span {
+    white-space: nowrap;
   }
   .artifact-row.mobile .gbtn.primary {
     flex: 1;

@@ -636,3 +636,16 @@ test("validateHookEvent: a result url outside the two private forms carries no a
     expect(validateHookEvent(body)?.artifact, url).toBeUndefined();
   }
 });
+
+test("validateHookEvent: an oversized file_path or malformed tool_use_id is not retained", () => {
+  const long = artifactBody("publish");
+  long.tool_input.file_path = `/wt/${"a".repeat(5000)}.html`;
+  long.tool_use_id = `toolu_${"x".repeat(200)}`;
+  const artifact = validateHookEvent(long)?.artifact;
+  expect(artifact?.url).toBe(FIXTURE_URL);
+  expect(artifact?.filePath).toBeUndefined();
+  expect(artifact?.toolUseId).toBeUndefined();
+  const odd = artifactBody("publish");
+  odd.tool_use_id = "toolu <script>";
+  expect(validateHookEvent(odd)?.artifact?.toolUseId).toBeUndefined();
+});

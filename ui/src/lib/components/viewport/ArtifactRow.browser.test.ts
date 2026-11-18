@@ -90,6 +90,26 @@ describe("ArtifactRow", () => {
       .toBeVisible();
   });
 
+  it("a copy that settles after the artifact changed confirms nothing", async () => {
+    let settle = () => {};
+    const write = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockImplementation(() => new Promise<void>((resolve) => (settle = resolve)));
+    const h = host();
+    const screen = await render(ArtifactRow, { target: h, props: { artifact: artifact() } });
+    await screen.getByRole("button", { name: m.artifactrow_copy() }).click();
+    expect(write).toHaveBeenCalledWith(URL);
+    await screen.rerender({
+      artifact: artifact({
+        url: "https://claude.ai/artifact/OtherArtifact000000001",
+        title: "Other",
+      }),
+    });
+    settle();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(row(h).querySelector("button")?.textContent?.trim()).toBe(m.artifactrow_copy());
+  });
+
   it("a title longer than the row stays on one line", async () => {
     const h = host(600);
     await render(ArtifactRow, {
@@ -99,6 +119,26 @@ describe("ArtifactRow", () => {
     const title = row(h).querySelector<HTMLElement>(".art-title")!;
     expect(title.scrollWidth).toBeGreaterThan(title.clientWidth);
     expect(title.getBoundingClientRect().height).toBeLessThan(40);
+  });
+
+  it("phone: long facts wrap and the shortened url stays whole and visible", async () => {
+    await page.viewport(320, 800);
+    const h = host(320);
+    await render(ArtifactRow, {
+      target: h,
+      props: { artifact: artifact({ versions: 123456 }), mobile: true, touch: true },
+    });
+    const r = row(h);
+    r.style.fontSize = "150%";
+    const facts = r.querySelector<HTMLElement>(".art-facts")!;
+    facts.style.fontSize = "18px";
+    const url = r.querySelector<HTMLElement>(".art-url")!;
+    expect(facts.scrollWidth, "facts never overflow").toBeLessThanOrEqual(facts.clientWidth);
+    expect(url.getBoundingClientRect().right).toBeLessThanOrEqual(
+      r.getBoundingClientRect().right + 1,
+    );
+    expect(url.scrollWidth).toBeLessThanOrEqual(url.clientWidth + 1);
+    expect(url.textContent).toBe("claude.ai/artifact/GEQx…313");
   });
 
   it("360px: stacked, Copy link · Open ↗, every target ≥ 44px, no horizontal overflow", async () => {

@@ -279,3 +279,62 @@ describe("recordArtifactPublish", () => {
     expect(pushed).toEqual([]);
   });
 });
+
+describe("readTitleInWorktree: the HTML document title", () => {
+  let wt: string;
+  beforeAll(() => {
+    wt = mkdtempSync(join(tmpdir(), "artifact-html-"));
+  });
+  afterAll(() => rmSync(wt, { recursive: true, force: true }));
+  const titleOf = async (html: string) => {
+    writeFileSync(join(wt, "page.html"), html);
+    return readTitleInWorktree(wt, join(wt, "page.html"));
+  };
+
+  test("title-shaped text in a comment, script, style, svg or attribute is not the title", async () => {
+    expect(
+      await titleOf(
+        [
+          "<!doctype html><html><head>",
+          "<!-- <title>Commented out</title> -->",
+          '<script>const t = "<title>From script</title>";</script>',
+          "<style>/* <title>From style</title> */</style>",
+          '<meta name="x" content="<title>From attribute</title>">',
+          "<svg><title>Icon</title></svg>",
+          "<TITLE lang='en'>The real &quot;one&quot;</TITLE>",
+        ].join("\n"),
+      ),
+    ).toBe('The real "one"');
+  });
+
+  test("a comment or script that never ends hides any later title", async () => {
+    expect(await titleOf("<!-- <title>x</title>")).toBeNull();
+    expect(await titleOf("<script><title>x</title>")).toBeNull();
+  });
+
+  test("markup split at every chunk boundary is still read right", async () => {
+    TITLE_READ_LIMITS.chunkBytes = 3;
+    expect(
+      await titleOf(
+        "<!-- a --><script>x</script><svg><title>no</title></svg><title>Small chunks</title>",
+      ),
+    ).toBe("Small chunks");
+  });
+
+  test("a plain document without markup around its title still yields it", async () => {
+    expect(await titleOf("<title>Bare</title>")).toBe("Bare");
+    expect(await titleOf("no markup at all")).toBeNull();
+  });
+});
+
+describe("publish order within one millisecond", () => {
+  test("a re-publish in the same millisecond is newer than every other entry", () => {
+    let list = applyArtifactPublish([], { url: URL_A, title: "A", titleIsFallback: false }, 50);
+    list = applyArtifactPublish(list, { url: URL_B, title: "B", titleIsFallback: false }, 50);
+    list = applyArtifactPublish(list, { url: URL_A, title: "A", titleIsFallback: false }, 50);
+    const [a, b] = list;
+    expect(b!.updatedAt).toBeGreaterThan(50 - 1);
+    expect(a!.updatedAt).toBeGreaterThan(b!.updatedAt);
+    expect(a!.firstSeenAt).toBe(50);
+  });
+});

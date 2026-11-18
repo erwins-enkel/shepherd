@@ -15910,7 +15910,7 @@ x-shepherd-events:
     description: The session's sub-agent roster changed. Always the FULL current roster.
     schema: { $ref: "#/components/schemas/SessionSubagentsEvent" }
   session:artifacts:
-    description: The agent published an artifact (new or re-published, #3875). Always the session's FULL list.
+    description: "The agent published an artifact (new or re-published, #3875). Always the session's FULL list."
     schema: { $ref: "#/components/schemas/SessionArtifactsEvent" }
   session:goal:
     description: The session's Claude Code goal was held, armed, or changed in the transcript (#2596).

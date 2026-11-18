@@ -321,6 +321,16 @@ describe("readTitleInWorktree: the HTML document title", () => {
     ).toBe("Small chunks");
   });
 
+  test("only a complete end tag ends a skipped element or the title", async () => {
+    const html =
+      '<script>const s = "</scripture>"; const t = "<title>Fake</title>";</script>' +
+      "<title>Real </titlecase> part</title >";
+    expect(await titleOf(html)).toBe("Real </titlecase> part");
+    TITLE_READ_LIMITS.chunkBytes = 3;
+    expect(await titleOf(html)).toBe("Real </titlecase> part");
+    expect(await titleOf("<title>Cut at </title")).toBeNull();
+  });
+
   test("a plain document without markup around its title still yields it", async () => {
     expect(await titleOf("<title>Bare</title>")).toBe("Bare");
     expect(await titleOf("no markup at all")).toBeNull();

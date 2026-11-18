@@ -121,6 +121,13 @@ const num = (v: unknown): number | undefined => (typeof v === "number" ? v : und
 const bool = (v: unknown): boolean | undefined => (typeof v === "boolean" ? v : undefined);
 const obj = (v: unknown): Record<string, unknown> | null =>
   typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
+/** A `tool_use_id` in Claude Code's shape (`toolu_…`), bounded: the ring buffer retains it and an
+ *  artifact list persists and rebroadcasts it (#3875). Anything else is dropped. */
+const TOOL_USE_ID = /^[\w.:-]{1,128}$/;
+const toolUseIdOf = (v: unknown): string | undefined => {
+  const id = str(v);
+  return id && TOOL_USE_ID.test(id) ? id : undefined;
+};
 
 /**
  * Normalize a PostToolUse / PostToolUseFailure body. Reads the tool name and derives the
@@ -143,7 +150,7 @@ function parseToolUseEvent(
       ? "error"
       : "ok";
   const ev: RawHookEvent = { event: eventName, sessionId, toolName, status, exitCode };
-  const toolUseId = str(b.tool_use_id);
+  const toolUseId = toolUseIdOf(b.tool_use_id);
   if (toolUseId) ev.toolUseId = toolUseId;
   if (toolName === "AskUserQuestion") {
     const askAnswers = normalizeAskAnswers(obj(b.tool_response)?.answers);
@@ -162,7 +169,7 @@ function parseToolUseEvent(
 function parsePreToolUseEvent(b: Record<string, unknown>, sessionId: string): RawHookEvent {
   const toolName = str(b.tool_name);
   const ev: RawHookEvent = { event: "PreToolUse", sessionId, toolName };
-  const toolUseId = str(b.tool_use_id);
+  const toolUseId = toolUseIdOf(b.tool_use_id);
   if (toolUseId) ev.toolUseId = toolUseId;
   if (toolName === "AskUserQuestion") {
     const ask = parseAskInput(b.tool_input);

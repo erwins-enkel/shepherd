@@ -3765,7 +3765,7 @@
       }}
     />
   {:else if artifactRowShown && artifact}
-    <ArtifactRow {artifact} {mobile} {touch} />
+    <ArtifactRow sessionId={session.id} {artifact} {mobile} {touch} />
   {/if}
 
   {#if (tab === "term" || tab === "chat") && !assistant && steersShown}

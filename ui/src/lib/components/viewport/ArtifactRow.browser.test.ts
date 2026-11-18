@@ -19,6 +19,8 @@ async function render(
 }
 
 const URL = "https://claude.ai/artifact/GEQx5QVP82WzdTBfcxx313";
+const OTHER = "https://claude.ai/artifact/OtherArtifact000000001";
+const CODE_URL = "https://claude.ai/code/artifact/GEQx5QVP82WzdTBfcxx313";
 const T0 = Date.now();
 const artifact = (partial: Partial<SessionArtifact> = {}): SessionArtifact => ({
   url: URL,
@@ -48,7 +50,7 @@ afterEach(async () => {
 describe("ArtifactRow", () => {
   it("shows the label, title, version, age and shortened url", async () => {
     const h = host();
-    await render(ArtifactRow, { target: h, props: { artifact: artifact() } });
+    await render(ArtifactRow, { target: h, props: { sessionId: "s1", artifact: artifact() } });
     const r = row(h);
     expect(r.getAttribute("aria-label")).toBe(m.artifactrow_aria());
     expect(r.querySelector(".art-label")?.textContent).toBe(m.artifactrow_label());
@@ -67,7 +69,7 @@ describe("ArtifactRow", () => {
 
   it("Open ↗ is the one amber link to the artifact in a new tab", async () => {
     const h = host();
-    await render(ArtifactRow, { target: h, props: { artifact: artifact() } });
+    await render(ArtifactRow, { target: h, props: { sessionId: "s1", artifact: artifact() } });
     const links = [...row(h).querySelectorAll<HTMLAnchorElement>("a")];
     expect(links).toHaveLength(1);
     const open = links[0]!;
@@ -82,7 +84,10 @@ describe("ArtifactRow", () => {
   it("Copy link writes the url and confirms", async () => {
     const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
     const h = host();
-    const screen = await render(ArtifactRow, { target: h, props: { artifact: artifact() } });
+    const screen = await render(ArtifactRow, {
+      target: h,
+      props: { sessionId: "s1", artifact: artifact() },
+    });
     await screen.getByRole("button", { name: m.artifactrow_copy() }).click();
     expect(write).toHaveBeenCalledWith(URL);
     await expect
@@ -96,15 +101,32 @@ describe("ArtifactRow", () => {
       .spyOn(navigator.clipboard, "writeText")
       .mockImplementation(() => new Promise<void>((resolve) => (settle = resolve)));
     const h = host();
-    const screen = await render(ArtifactRow, { target: h, props: { artifact: artifact() } });
+    const screen = await render(ArtifactRow, {
+      target: h,
+      props: { sessionId: "s1", artifact: artifact() },
+    });
     await screen.getByRole("button", { name: m.artifactrow_copy() }).click();
     expect(write).toHaveBeenCalledWith(URL);
-    await screen.rerender({
-      artifact: artifact({
-        url: "https://claude.ai/artifact/OtherArtifact000000001",
-        title: "Other",
-      }),
+    // A → B → A: back on the same url, the pending copy still belongs to the first showing.
+    await screen.rerender({ sessionId: "s1", artifact: artifact({ url: OTHER, title: "Other" }) });
+    await screen.rerender({ sessionId: "s1", artifact: artifact() });
+    settle();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(row(h).querySelector("button")?.textContent?.trim()).toBe(m.artifactrow_copy());
+  });
+
+  it("a copy that settles after switching to another session with the same url confirms nothing", async () => {
+    let settle = () => {};
+    vi.spyOn(navigator.clipboard, "writeText").mockImplementation(
+      () => new Promise<void>((resolve) => (settle = resolve)),
+    );
+    const h = host();
+    const screen = await render(ArtifactRow, {
+      target: h,
+      props: { sessionId: "s1", artifact: artifact() },
     });
+    await screen.getByRole("button", { name: m.artifactrow_copy() }).click();
+    await screen.rerender({ sessionId: "s2", artifact: artifact() });
     settle();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(row(h).querySelector("button")?.textContent?.trim()).toBe(m.artifactrow_copy());
@@ -114,7 +136,10 @@ describe("ArtifactRow", () => {
     const h = host(600);
     await render(ArtifactRow, {
       target: h,
-      props: { artifact: artifact({ title: "Ein sehr langer Titel ".repeat(20) }) },
+      props: {
+        sessionId: "s1",
+        artifact: artifact({ title: "Ein sehr langer Titel ".repeat(20) }),
+      },
     });
     const title = row(h).querySelector<HTMLElement>(".art-title")!;
     expect(title.scrollWidth).toBeGreaterThan(title.clientWidth);
@@ -126,7 +151,12 @@ describe("ArtifactRow", () => {
     const h = host(320);
     await render(ArtifactRow, {
       target: h,
-      props: { artifact: artifact({ versions: 123456 }), mobile: true, touch: true },
+      props: {
+        sessionId: "s1",
+        artifact: artifact({ url: CODE_URL, versions: 123456 }),
+        mobile: true,
+        touch: true,
+      },
     });
     const r = row(h);
     r.style.fontSize = "150%";
@@ -138,7 +168,7 @@ describe("ArtifactRow", () => {
       r.getBoundingClientRect().right + 1,
     );
     expect(url.scrollWidth).toBeLessThanOrEqual(url.clientWidth + 1);
-    expect(url.textContent).toBe("claude.ai/artifact/GEQx…313");
+    expect(url.textContent).toBe("claude.ai/code/artifact/GEQx…313");
   });
 
   it("360px: stacked, Copy link · Open ↗, every target ≥ 44px, no horizontal overflow", async () => {
@@ -146,7 +176,7 @@ describe("ArtifactRow", () => {
     const h = host(360);
     await render(ArtifactRow, {
       target: h,
-      props: { artifact: artifact(), mobile: true, touch: true },
+      props: { sessionId: "s1", artifact: artifact(), mobile: true, touch: true },
     });
     const r = row(h);
     expect(r.scrollWidth, "no horizontal overflow").toBeLessThanOrEqual(r.clientWidth);

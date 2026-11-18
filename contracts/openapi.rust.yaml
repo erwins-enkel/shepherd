@@ -18523,7 +18523,7 @@ x-shepherd-events:
     schema:
       $ref: "#/components/schemas/SessionSubagentsEvent"
   session:artifacts:
-    description: The agent published an artifact (new or re-published,
+    description: "The agent published an artifact (new or re-published, #3875). Always the session's FULL list."
     schema:
       $ref: "#/components/schemas/SessionArtifactsEvent"
   session:goal:

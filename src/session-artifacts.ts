@@ -42,9 +42,8 @@ const obj = (v: unknown): Record<string, unknown> | null =>
   typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 
 const TITLE_MAX = 200;
-/** Bounds on agent-supplied values a hook event retains and a list rebroadcasts. */
+/** Bound on the agent-supplied path a hook event retains. */
 const FILE_PATH_MAX = 4096;
-const TOOL_USE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
 /** Agent-supplied title text made safe to show: no control/format chars, whitespace collapsed,
  *  capped. Undefined when nothing is left. */
@@ -61,7 +60,7 @@ function cleanTitle(value: unknown): string | undefined {
  * The publish one successful `Artifact` call made, or null when it was no publish: an action
  * other than publish (read, list, delete, open, pin, unpin, quickstart, …), an asset upload, or a
  * result without a valid artifact url at its top level. The caller passes only ok PostToolUse
- * events — a failed call never reaches here.
+ * events — a failed call never reaches here — and a `toolUseId` it already bounded.
  */
 export function parseArtifactPublish(
   toolInput: unknown,
@@ -75,7 +74,7 @@ export function parseArtifactPublish(
   const url = obj(response)?.url;
   if (!isArtifactUrl(url)) return null;
   const publish: ArtifactPublish = { url };
-  if (toolUseId && TOOL_USE_ID.test(toolUseId)) publish.toolUseId = toolUseId;
+  if (toolUseId) publish.toolUseId = toolUseId;
   const inputTitle = cleanTitle(input.title);
   if (inputTitle) publish.inputTitle = inputTitle;
   const filePath = input.file_path;
@@ -177,6 +176,11 @@ const SKIPPED = new Set(["script", "style", "textarea", "template", "noscript", 
 /** Characters after `<` needed to tell a comment or one of the names above from other markup. */
 const TAG_LOOKAHEAD = 10;
 
+/** A complete end tag for `name`: `</name` followed by whitespace, `/` or `>`, so `</scripture>` or
+ *  `</titlecase>` end nothing. It needs the character after the name, so a candidate at the very
+ *  end of a chunk waits for the next one. */
+const endTag = (name: string): RegExp => new RegExp(`</${name}(?=[\\s/>])`, "gi");
+
 /**
  * A streaming scan for the HTML document title: the first `<title>` element outside comments and
  * outside {@link SKIPPED} elements, reading tag attributes quote-aware. Between chunks it keeps at
@@ -210,12 +214,7 @@ class TitleScanner {
       case "comment":
         return this.#until(buf, i, /-->/g, 3);
       case "skip":
-        return this.#until(
-          buf,
-          i,
-          new RegExp(`</${this.#skipName}`, "gi"),
-          this.#skipName.length + 2,
-        );
+        return this.#until(buf, i, endTag(this.#skipName), this.#skipName.length + 2);
       case "title":
         return this.#titleText(buf, i);
     }
@@ -258,12 +257,13 @@ class TitleScanner {
     return -1;
   }
 
-  /** Skip to the end marker; an end tag's own `>` is then skipped as a tag. */
+  /** Skip to the end marker of `length` characters; an end tag's own `>` is then skipped as a tag.
+   *  Unmatched, the tail is kept: a split marker, plus the character an end tag needs after it. */
   #until(buf: string, i: number, marker: RegExp, length: number): number {
     marker.lastIndex = i;
     const found = marker.exec(buf);
     if (!found) {
-      this.#carry = buf.slice(Math.max(i, buf.length - (length - 1)));
+      this.#carry = buf.slice(Math.max(i, buf.length - length));
       return -1;
     }
     if (this.#mode === "comment") {
@@ -277,10 +277,11 @@ class TitleScanner {
   }
 
   #titleText(buf: string, i: number): number {
-    const end = /<\/title/gi;
+    const end = endTag("title");
     end.lastIndex = i;
     const found = end.exec(buf);
-    const stop = found ? found.index : Math.max(i, buf.length - 7);
+    // unmatched, keep a possibly split `</title` and the character that decides whether it ends here
+    const stop = found ? found.index : Math.max(i, buf.length - "</title".length);
     this.#title += buf.slice(i, stop);
     if (this.#title.length > TITLE_READ_LIMITS.maxTitleChars) this.result = null;
     else if (found) this.result = this.#title;

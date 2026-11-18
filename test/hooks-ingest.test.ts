@@ -641,11 +641,21 @@ test("validateHookEvent: an oversized file_path or malformed tool_use_id is not 
   const long = artifactBody("publish");
   long.tool_input.file_path = `/wt/${"a".repeat(5000)}.html`;
   long.tool_use_id = `toolu_${"x".repeat(200)}`;
-  const artifact = validateHookEvent(long)?.artifact;
-  expect(artifact?.url).toBe(FIXTURE_URL);
-  expect(artifact?.filePath).toBeUndefined();
-  expect(artifact?.toolUseId).toBeUndefined();
+  const ev = validateHookEvent(long);
+  expect(ev?.artifact?.url).toBe(FIXTURE_URL);
+  expect(ev?.artifact?.filePath).toBeUndefined();
+  // The id is dropped before either field is set: the ring buffer retains `ev` itself.
+  expect(ev?.toolUseId).toBeUndefined();
+  expect(ev?.artifact?.toolUseId).toBeUndefined();
   const odd = artifactBody("publish");
   odd.tool_use_id = "toolu <script>";
+  expect(validateHookEvent(odd)?.toolUseId).toBeUndefined();
   expect(validateHookEvent(odd)?.artifact?.toolUseId).toBeUndefined();
+  const pre = validateHookEvent({
+    session_id: "s1",
+    hook_event_name: "PreToolUse",
+    tool_name: "AskUserQuestion",
+    tool_use_id: "x".repeat(500),
+  });
+  expect(pre?.toolUseId).toBeUndefined();
 });

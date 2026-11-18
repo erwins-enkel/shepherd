@@ -11,10 +11,13 @@
   // published an artifact. The newest one, its facts, Copy link and the one amber action, Open ↗.
   // Title and url are agent data — text only; the link takes the url only as a claude.ai artifact.
   let {
+    sessionId,
     artifact,
     mobile = false,
     touch = false,
   }: {
+    /** The session the row shows; a copy still pending when it changes confirms nothing. */
+    sessionId: string;
     artifact: SessionArtifact;
     /** Phone: stacked layout (label + title, facts, action row). */
     mobile?: boolean;
@@ -26,24 +29,28 @@
 
   let copied = $state(false);
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+  // Bumped whenever the row shows another session or url: a copy that settles after that (even
+  // back on the same url) belongs to what the row showed before and confirms nothing.
+  let shown = 0;
   async function copyLink() {
-    const url = artifact.url;
+    const copying = shown;
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(artifact.url);
     } catch {
       return; // clipboard blocked (insecure context / denied) — fail quietly, like TaskIdButton.
     }
-    // A copy that settles after the row moved on to another artifact confirms nothing here.
-    if (url !== artifact.url) return;
+    if (copying !== shown) return;
     copied = true;
     clearTimeout(copiedTimer);
     copiedTimer = setTimeout(() => (copied = false), 1500);
   }
 
-  // The Viewport is reused across sessions: a "Link copied" must not carry over to another artifact.
+  // The Viewport is reused across sessions: a "Link copied" must not carry over to another one.
   $effect(() => {
+    void sessionId;
     void artifact.url;
     untrack(() => {
+      shown++;
       clearTimeout(copiedTimer);
       copied = false;
     });
@@ -234,15 +241,18 @@
   .artifact-row.mobile .art-sep {
     display: none;
   }
-  /* the facts wrap at their separators instead of cutting the url off */
+  /* the facts wrap at their separators, and a fact wider than the row breaks inside — never cut */
   .artifact-row.mobile .art-facts {
     display: flex;
     flex-wrap: wrap;
     row-gap: 2px;
+    overflow: visible;
     white-space: normal;
   }
   .artifact-row.mobile .art-facts > span {
-    white-space: nowrap;
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
   .artifact-row.mobile .gbtn.primary {
     flex: 1;

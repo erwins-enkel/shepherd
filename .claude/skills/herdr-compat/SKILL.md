@@ -58,8 +58,7 @@ An analysis-only request produces findings without raising the ceiling.
    to their consumers; fix affected integration paths and add regression coverage.
    Triage each REVIEW in writing with the impact, evidence and decision. If a FAIL
    cannot be resolved and verified, leave the ceiling unchanged and report the
-   blocker. The SOP's zero-FAIL gate takes precedence over its phrase "consciously
-   accept every FAIL": do not relabel a failure merely to obtain a green report.
+   blocker. Do not relabel a failure merely to obtain a green report.
    Record unrelated upstream opportunities separately from compatibility work.
 
 4. **Regenerate against the candidate.** Use the verified candidate binary from
@@ -98,9 +97,9 @@ v<candidate> --repo herdrdev/herdr --json assets`). Without it, every install an
    edit; otherwise include the proposed history entry in the report.
 
 6. **Verify and deliver.** Rerun compatibility checks as needed with the recorded
-   original baseline. Run root `bun run lint` and `bun run test`; run UI
-   `bun run check` and `bun run test` when UI/catalogs change, plus the applicable
-   generated-artifact/docs checks. Use `bun run test`, never bare `bun test`.
+   original baseline. Run root `bun run lint` and the affected tests per `CLAUDE.md`
+   → Verify (UI `bun run check` plus affected UI tests when UI/catalogs change), plus
+   the applicable generated-artifact/docs checks. CI runs the full suites.
    Keep fixes, declarations and the version report together in one reviewable
    change. Creating issues, publishing, merging or deploying is not implied by
    invoking this skill.

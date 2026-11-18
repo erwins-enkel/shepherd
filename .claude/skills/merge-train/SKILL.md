@@ -169,10 +169,9 @@ Report a final summary: what merged, what was held, and any follow-ups.
   off main, zero merge commits relative to `origin/main`.
 - **i18n parity** — `cd ui && bun run check:i18n`: any new user-facing string
   needs matching keys in **both** `ui/messages/en.json` and `de.json`.
-- **Tests/lint** — root: `bun install && bun run lint && bun run test`; UI:
-  `cd ui && bun install && bun run check && bun run test` (vitest, not `bun test`).
-  Run only when a verdict is uncertain and the diff warrants local verification;
-  otherwise trust CI rollup.
+- **Tests/lint** — trust the CI rollup. When a verdict is uncertain, run lint and
+  only the PR's affected tests, selected per `CLAUDE.md` → Verify (`bun install`
+  first in the scratch worktree).
 
 ## Principles
 

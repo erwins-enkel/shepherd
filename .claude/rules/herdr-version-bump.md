@@ -60,13 +60,13 @@ shipped stable).
    `scripts/verify-herdr-terminal.ts`, whether a duplicate `--agent` registration collides
    #2033, and whether a self-reported agent outlives its process herdr #4687). Report:
    `docs/herdr-compat/<version>.md`, exit 1 on FAIL.
-3. **Triage every REVIEW, fix or consciously accept every FAIL.** Behavioural changes get code
+3. **Triage every REVIEW in writing; fix every FAIL** (an unfixable FAIL declines the version, see above). Behavioural changes get code
    (as #2056's last-tab guard did) and a test pinning the new behaviour.
 4. **Regenerate the vendored protocol** against the candidate:
    `HERDR_BIN=~/.cache/shepherd/herdr-compat/<version>/herdr bun run gen:herdr-schema && bun run gen:herdr-types`,
    then `bun run gen:herdr-fixtures` against a live candidate server (`check:herdr-types` gates CI).
-5. **Walk the bump-PR checklist below**, extend the bump-history table, run `bun run lint` and
-   `bun run test`, and ship — ceiling bump, verification report and behavioural fixes in one PR.
+5. **Walk the bump-PR checklist below**, extend the bump-history table, run `bun run lint` and the tests
+   affected by the bump (`CLAUDE.md` → Verify; CI runs the full suite), and ship — ceiling bump, verification report and behavioural fixes in one PR.
 
 ## Bump-PR checklist
 

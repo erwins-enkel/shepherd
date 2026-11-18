@@ -750,3 +750,14 @@ test("codex ignores addDirs (workspace-write restricts writes and network, not r
   expect(argv).not.toContain("--add-dir");
   expect(argv).not.toContain("/repo/one");
 });
+
+test.each(["gpt-6.2-sol", "gpt-6.2-astra"])("codex roles preserve %s with ultra", (model) => {
+  const { argv } = buildTransientAgentArgv("reviewer", {
+    provider: "codex",
+    model,
+    prompt: "review",
+    effort: "ultra",
+  });
+  expect(argv[argv.indexOf("-m") + 1]).toBe(model);
+  expect(argv).toContain("model_reasoning_effort=ultra");
+});

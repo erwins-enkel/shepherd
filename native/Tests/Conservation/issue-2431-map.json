@@ -8252,7 +8252,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ModelGuidanceCoreTests.swift\",\"CoreSeamTests.ModelGuidanceTests\",\"missingCodexSettingMatchesWebFallbackAndCost() throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: Add explicit GPT-6.2 Sol/Astra selection, Ultra request, cost-marker and option-label assertions; retain the existing GPT-5.6 Sol fallback assertions."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ModelGuidanceTests.swift\",\"ModelGuidanceTests\",\"neverOpenedPickersStillSubmitNormalizedValues() throws\"]",

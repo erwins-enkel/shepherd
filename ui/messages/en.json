@@ -9024,5 +9024,9 @@
   "automation_epic_claim_release_name": "Release orphaned epic claims",
   "automation_epic_claim_release_desc": "After 30 minutes with no session or PR, the drain releases the claim on the running epic's next child so the run continues. Off by default because a person may hold the label by hand.",
   "feat_epic_claim_release_title": "Release an orphaned claim from the epic",
-  "feat_epic_claim_release_body": "When the running epic's next child carries the drain's claim but no session or PR holds it, the epic now reads as paused and names that child. Release the claim from the epic's halt line after one confirmation. Optionally, Repo settings → Epics releases such claims on its own after 30 minutes."
+  "feat_epic_claim_release_body": "When the running epic's next child carries the drain's claim but no session or PR holds it, the epic now reads as paused and names that child. Release the claim from the epic's halt line after one confirmation. Optionally, Repo settings → Epics releases such claims on its own after 30 minutes.",
+  "model_guidance_codex_62_sol": "GPT-6.2 for everyday coding and agent workflows, at lower cost than Astra. Supports reasoning effort up to Ultra.",
+  "model_guidance_codex_62_astra": "GPT-6.2 for demanding coding and professional work, at premium cost. Supports reasoning effort up to Ultra.",
+  "feat_codex_62_models_title": "GPT-6.2 Sol and Astra in Codex",
+  "feat_codex_62_models_body": "Choose GPT-6.2 Sol or Astra for tasks, defaults, and agent roles, with reasoning effort up to Ultra. Your existing defaults and saved model choices stay as they are. Availability depends on your Codex installation and account."
 }

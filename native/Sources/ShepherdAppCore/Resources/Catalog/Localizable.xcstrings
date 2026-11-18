@@ -14404,6 +14404,40 @@
         }
       }
     },
+    "model_guidance_codex_62_astra": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPT-6.2 für anspruchsvolles Coding und professionelle Aufgaben, zu Premium-Kosten. Unterstützt Reasoning-Aufwand bis Ultra."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPT-6.2 for demanding coding and professional work, at premium cost. Supports reasoning effort up to Ultra."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_62_sol": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPT-6.2 für alltägliches Coding und Agenten-Workflows, zu niedrigeren Kosten als Astra. Unterstützt Reasoning-Aufwand bis Ultra."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPT-6.2 for everyday coding and agent workflows, at lower cost than Astra. Supports reasoning effort up to Ultra."
+          }
+        }
+      }
+    },
     "model_guidance_codex_6_astra": {
       "extractionState": "manual",
       "localizations": {

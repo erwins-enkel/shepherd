@@ -51,3 +51,13 @@ describe("retired 5.1 pins", () => {
     expect(pickerModels("claude", "claude-fable-5-1")).not.toContain("claude-mythos-5-1");
   });
 });
+
+describe("Codex 6.2 models", () => {
+  it("leads the picker with Sol and Astra and preserves older choices", () => {
+    expect(pickerModels("codex").slice(0, 2)).toEqual(["gpt-6.2-sol", "gpt-6.2-astra"]);
+    for (const model of ["gpt-6.1-sol", "gpt-6-astra", "gpt-5.6-sol"]) {
+      expect(pickerModels("codex", model)).toContain(model);
+      expect(modelAvailableForProvider("codex", model, false)).toBe(true);
+    }
+  });
+});

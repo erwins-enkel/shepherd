@@ -170,6 +170,8 @@ describe("modelForManualProviderChange (today's unconditional reset, preserved)"
 describe("Codex model-aware effort correction", () => {
   it.each([
     ["gpt-6-astra", "ultra", "ultra"],
+    ["gpt-6.2-sol", "ultra", "ultra"],
+    ["gpt-6.2-astra", "ultra", "ultra"],
     ["gpt-5.6-sol", "ultra", "ultra"],
     ["gpt-5.6-terra", "ultra", "ultra"],
     ["gpt-5.6-luna", "ultra", "default"],
@@ -228,4 +230,11 @@ describe("executionEffortSettingFor", () => {
     expect(executionEffortSettingFor("inherit", "high")).toBe("high");
     expect(executionEffortSettingFor("inherit", undefined)).toBe("default");
   });
+});
+
+it("keeps the Codex fallback and explicit older choices", () => {
+  expect(modelSettingFor("codex", "inherit", undefined, undefined)).toBe("gpt-5.6-sol");
+  for (const model of ["gpt-6.1-sol", "gpt-6-astra", "default"]) {
+    expect(modelSettingFor("codex", "inherit", "opus", model)).toBe(model);
+  }
 });

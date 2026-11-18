@@ -150,8 +150,8 @@ The critic, the standalone PR critic, the plan-gate reviewer and the maintain
 diagnosis read untrusted input and hand a verdict or draft back to the server,
 which does all forge writes. They get a narrower membrane
 (`MembraneInputs.reviewer`, chosen by `reviewerMembraneKind` in
-`src/spawn-membrane.ts`): no `~/.gitconfig` and no `~/.config/gh` bind, and the
-git common dir bound **RO**. The doc agent and plugin agents keep the task-session
+`src/spawn-membrane.ts`): no `~/.gitconfig`, no `~/.config/git/config` and no
+`~/.config/gh` bind, and the git common dir bound **RO**. The doc agent and plugin agents keep the task-session
 membrane.
 
 With no sandbox backend, nothing confines a role. The standalone critic then

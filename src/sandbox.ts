@@ -335,9 +335,9 @@ export interface MembraneInputs {
   /** The `claude` launcher found on Shepherd's PATH — set only for a `claude` inner argv whose
    *  launcher is NOT in a default sandbox PATH dir (see membraneForArgv). Absent → byte-identical. */
   claude?: ClaudeMembraneInputs;
-  /** Reviewer-style aux spawn (critic, plan gate, maintain — audit N10): no `~/.gitconfig` or
-   *  `~/.config/gh` bind (the server, not the role, talks to the forge) and the git common dir
-   *  READ-ONLY. Absent → task-session flags, byte-identical. */
+  /** Reviewer-style aux spawn (critic, plan gate, maintain — audit N10): no `~/.gitconfig`,
+   *  `~/.config/git/config` or `~/.config/gh` bind (the server, not the role, talks to the
+   *  forge) and the git common dir READ-ONLY. Absent → task-session flags, byte-identical. */
   reviewer?: boolean;
   /** This session's 0600 ingress spawn files (`--settings`, `--mcp-config`, key — see
    *  assistant-ingress.ts), bound RO at the same path. Not `-try`: the spawn just wrote them. */
@@ -1029,8 +1029,11 @@ function writableStoreFlags(
   return ["--bind", store, store, ...gitStoreReadOnlyFlags(store, probe, adminDir)];
 }
 
-/** `~/.gitconfig` (commit identity) + `~/.config/gh` (the gh token) RO — task sessions only. A
- *  reviewer-style role never pushes or calls the forge (the server does), so it gets neither. */
+/** `~/.gitconfig` + `~/.config/git/config` (commit identity, credential helper — some hosts keep
+ *  git config only at the XDG path; `--clearenv` leaves git inside on that default path) +
+ *  `~/.config/gh` (the gh token) RO — task sessions only. The XDG file alone, never its dir (no
+ *  `~/.config/git/credentials`). A reviewer-style role never pushes or calls the forge (the
+ *  server does), so it gets none. */
 function forgeIdentityFlags(
   home: string,
   reviewer: boolean | undefined,
@@ -1039,6 +1042,7 @@ function forgeIdentityFlags(
   if (reviewer) return [];
   return [
     ...["--ro-bind-try", `${home}/.gitconfig`, `${home}/.gitconfig`],
+    ...["--ro-bind-try", `${home}/.config/git/config`, `${home}/.config/git/config`],
     ...["--ro-bind-try", `${home}/.config/gh`, `${home}/.config/gh`],
     // A keyring-stored token never reaches the bound dir; this per-spawn copy carries it.
     ...(typeof ghHostsFile === "string" && ghHostsFile.length > 0

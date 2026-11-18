@@ -895,7 +895,12 @@ describe("reviewer membrane for reviewer-style kinds (audit N10)", () => {
   for (const kind of ["review", "plan-gate", "maintain"] as const) {
     test(`${kind}: no gh/gitconfig, git common dir RO`, async () => {
       const f = await flagsFor(kind);
-      expect(f.some((v) => v.includes(".config/gh") || v.endsWith("/.gitconfig"))).toBe(false);
+      expect(
+        f.some(
+          (v) =>
+            v.includes(".config/gh") || v.endsWith("/.gitconfig") || v.includes(".config/git/"),
+        ),
+      ).toBe(false);
       expect(hasTriple(f, "--ro-bind", "/wt/task/.git", "/wt/task/.git")).toBe(true);
     });
   }

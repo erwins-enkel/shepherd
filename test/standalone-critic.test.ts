@@ -1077,7 +1077,11 @@ test("N10: fork PR + bwrap → wrapped in the reviewer membrane (no gh token, RO
   await svc.sweep();
   const argv = local.spies.started[0]!.argv;
   expect(argv[0]).toBe("bwrap");
-  expect(argv.some((a) => a.includes(".config/gh") || a.endsWith("/.gitconfig"))).toBe(false);
+  expect(
+    argv.some(
+      (a) => a.includes(".config/gh") || a.endsWith("/.gitconfig") || a.includes(".config/git/"),
+    ),
+  ).toBe(false);
   expect(argv[argv.indexOf("/fake-git-common") - 1]).toBe("--ro-bind");
 });
 

@@ -1155,7 +1155,7 @@ export interface ReviewVerdict {
   addressCap: number; // the streak cap this run used — surfaced so the UI badge math need not mirror it
   streakReviews: number; // critic reviews finalized during the current outstanding-findings streak (0 = clean/reset); bounds review spawns at 2*cap, independent of addressRound
   reviewedPatchIds: string[]; // patch-ids reviewed during the current streak (cleared on a clean verdict, preserved across an error); a re-appeared id within the streak is skipped (churn/revert dedup)
-  errorRound: number; // consecutive critic error/timeout verdicts (separate no-progress counter; 0 on any real verdict)
+  errorRound: number; // consecutive technical critic failures on THIS head (separate no-progress counter and retry budget; 0 on any real verdict, restarts at 1 on a new head)
   finalRoundPending: boolean; // cap-th steer just delivered, no re-review yet → dimmed FINAL badge
   finalRoundTimeoutMs: number; // live abandonment timeout; surfaced so the UI never hardcodes it
   seenNoteIds: string[]; // ids of author notes already fed to the critic, so each is injected only once
@@ -1172,6 +1172,11 @@ export interface ReviewVerdict {
   planDrift?: PlanDrift | null;
   /** The critic's one-line note on the biggest departure, <=140 chars; null when it reported none. */
   planDriftNote?: string | null;
+  /** When the auto path re-runs the critic on this same head after a TECHNICAL failure (epoch ms).
+   *  null/absent = no automatic retry: a real verdict, or the error budget is spent (errorRound >=
+   *  addressCap). Set only by ReviewService's single scheduling rule, so the UI reads it instead of
+   *  mirroring the backoff. */
+  autoRetryAt?: number | null;
   updatedAt: number;
 }
 

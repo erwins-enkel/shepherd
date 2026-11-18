@@ -45,7 +45,7 @@ import { redactSecretText } from "./redact";
 import { resolveProfile } from "./sandbox";
 import { maskToDays, nextSlot } from "./schedules-core";
 import { defaultSandboxProfile } from "./sandbox-default";
-import type { HeldTask, HoldReason, PlanGate, Recap, Session } from "./types";
+import type { HeldTask, HoldReason, PlanGate, Recap, ReviewVerdict, Session } from "./types";
 import { fenceUntrusted, randomFenceToken } from "./untrusted";
 import { SHEPHERD_VERSION } from "./version";
 import type { RepoConfig } from "./store";
@@ -204,6 +204,21 @@ function holdBlock(hold: HoldReason | undefined, fence: Fence) {
   };
 }
 
+/** The PR critic's state for a herd row: its decision on which head and, for a technical failure,
+ *  the automatic same-head retry (`autoRetryAt` null once the budget is spent). Server-authored
+ *  codes only — the critic's own prose stays out. */
+function reviewBlock(v: ReviewVerdict | null) {
+  if (!v) return null;
+  return {
+    decision: v.decision,
+    summaryCode: v.summaryCode ?? null,
+    headSha: v.headSha.slice(0, 7),
+    errorRound: v.errorRound,
+    cap: v.addressCap,
+    autoRetryAt: v.autoRetryAt != null ? new Date(v.autoRetryAt).toISOString() : null,
+  };
+}
+
 function herdRow(deps: DiagDeps, s: Session, holds: Record<string, HoldReason>, fence: Fence) {
   const gate = deps.store.getPlanGate(s.id);
   const now = deps.operatorDiag?.now?.() ?? Date.now();
@@ -222,6 +237,7 @@ function herdRow(deps: DiagDeps, s: Session, holds: Record<string, HoldReason>, 
       openQuestions: openQuestionCount(gate),
     },
     hold: holdBlock(holds[s.id], fence),
+    review: reviewBlock(deps.store.getReview(s.id)),
     minutesSinceUpdate: Math.max(0, Math.floor((now - s.updatedAt) / MINUTE_MS)),
   };
 }
@@ -881,7 +897,10 @@ const HERD_STATUS: McpTool = {
   name: "herd_status",
   description:
     "First stop for a stuck or stalled herd. Every live session: status, auto, plan phase, " +
-    "plan-gate decision/round/open questions, hold reason and minutes since its last update; plus " +
+    "plan-gate decision/round/open questions, hold reason, PR critic state (review: decision, " +
+    "summaryCode, head, errorRound/cap, autoRetryAt — a technical critic error retries itself on " +
+    "the same head until autoRetryAt is null; pr_review re-runs it) and minutes since its last " +
+    "update; plus " +
     "the held-task queue per repo (each task's heldId and first prompt line). With a desig (also " +
     "a finished, archived session): that session's prompt, recap (verdict, headline, body, open " +
     "items, changed files), archivedAt, plan-gate summary and questions (blockId, questionId, " +

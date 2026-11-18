@@ -31,7 +31,13 @@ export const OPERATOR_DIAG_TOOL_NAMES = [
 export const ASSISTANT_ACTION_GROUPS = {
   steer: ["session_steer", "plan_answer"],
   start: ["session_start"],
-  sessions: ["session_interrupt", "session_resume", "session_relaunch", "session_archive"],
+  sessions: [
+    "session_interrupt",
+    "session_resume",
+    "session_relaunch",
+    "session_archive",
+    "pr_review",
+  ],
   approve: ["plan_release", "queue_approve", "pr_ready", "pr_merge"],
   automation: [
     "repo_automation_set",

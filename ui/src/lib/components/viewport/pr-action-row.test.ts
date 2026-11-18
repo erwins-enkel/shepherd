@@ -7,6 +7,7 @@ import {
   prRowFacts,
   prRowLabel,
   prRowStatus,
+  criticRetry,
   type PrRowKind,
 } from "./pr-action-row";
 import type { CriticChip } from "../critic-badge";
@@ -42,6 +43,15 @@ describe("prActionRowVisible", () => {
 describe("prRowStatus", () => {
   it("a running critic prevents readiness even with green CI", () => {
     expect(prRowStatus(git(), false, true)).toBe("reviewing");
+  });
+
+  it("a technically failed critic on this head is never 'ready to merge' (TASK-3173)", () => {
+    expect(prRowStatus(git(), false, false, true)).toBe("review_failed");
+    expect(mergeBlockedText("review_failed")).toBeTruthy(); // Merge / "into epic" locked
+    // A retry in flight reads as reviewing; git/CI blockers keep their priority.
+    expect(prRowStatus(git(), false, true, true)).toBe("reviewing");
+    expect(prRowStatus(git({ checks: "failure" }), false, false, true)).toBe("ci_failed");
+    expect(prRowStatus(git(), true, false, true)).toBe("merging");
   });
 
   it("reviewing keeps existing blockers and terminal states in priority order", () => {
@@ -145,6 +155,7 @@ describe("prRowStatus", () => {
 describe("mergeBlockedText / prRowLabel", () => {
   const kinds: PrRowKind[] = [
     "reviewing",
+    "review_failed",
     "merging",
     "draft",
     "conflict",
@@ -230,6 +241,26 @@ describe("prRowFacts", () => {
     expect(at(NONE, false)).toBeUndefined();
   });
 
+  it("a technical critic failure names the next automatic retry, or that the budget is spent", () => {
+    const error: CriticChip = { kind: "verdict", decision: "error", label: "" };
+    const text = (retry: Parameters<typeof prRowFacts>[0]["retry"]) =>
+      prRowFacts({ git: git(), chip: error, criticOn: true, base: "main", retry }).find(
+        (f) => f.id === "critic",
+      )!.text;
+    const at = new Date(2026, 10, 18, 9, 41).getTime();
+    const scheduled = text({ at, attempt: 1, cap: 3 });
+    expect(scheduled).toBe(
+      m.prrow_fact_critic_error_retry({
+        time: new Date(at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
+        attempt: 1,
+        cap: 3,
+      }),
+    );
+    expect(text({ at: null, attempt: 3, cap: 3 })).toBe(m.prrow_fact_critic_error_exhausted());
+    // No retry info (legacy row / older server): the plain error fact.
+    expect(text(null)).toBe(m.prrow_fact_critic_error());
+  });
+
   it("behind is a failed base fact; an unmeasured merge state leaves base out", () => {
     const behind = prRowFacts({
       git: git({ mergeStateStatus: "behind" }),
@@ -260,5 +291,31 @@ describe("prRowFacts", () => {
 
   it("every tone has a glyph", () => {
     expect(FACT_GLYPH).toEqual({ ok: "✓", pending: "◌", fail: "✗" });
+  });
+});
+
+describe("criticRetry", () => {
+  const v = {
+    decision: "error" as const,
+    headSha: "abc",
+    autoRetryAt: 5000,
+    errorRound: 1,
+    addressCap: 3,
+  };
+
+  it("reads the server's schedule for a current-head technical failure", () => {
+    expect(criticRetry(v, "abc")).toEqual({ at: 5000, attempt: 1, cap: 3 });
+    expect(criticRetry({ ...v, autoRetryAt: undefined }, "abc")).toEqual({
+      at: null,
+      attempt: 1,
+      cap: 3,
+    });
+  });
+
+  it("is null for a real verdict, another head, or no verdict", () => {
+    expect(criticRetry({ ...v, decision: "changes_requested" }, "abc")).toBeNull();
+    expect(criticRetry(v, "def")).toBeNull();
+    expect(criticRetry(v, null)).toBeNull();
+    expect(criticRetry(undefined, "abc")).toBeNull();
   });
 });

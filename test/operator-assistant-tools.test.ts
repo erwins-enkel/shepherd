@@ -244,6 +244,45 @@ test("herd_status with a desig adds the plan-gate summary, last signals and PR/C
   expect(JSON.stringify(out)).not.toContain("secret plan review body");
 });
 
+// The assistant needs the critic's state to know when the official review retry (pr_review)
+// applies: a technical failure, its head and the scheduled automatic retry — codes only, never the
+// critic's prose.
+test("herd_status rows carry the PR critic's decision and its automatic retry", () => {
+  const { store, deps, planning, plain } = herd();
+  store.putReview({
+    sessionId: planning.id,
+    headSha: "40a0d0d7bbd57214fc904873d3c5aae524a86039",
+    patchId: "",
+    decision: "error",
+    summary: "",
+    summaryCode: "no-verdict-unparseable",
+    body: "secret critic body",
+    findings: [],
+    addressRound: 0,
+    addressCap: 3,
+    streakReviews: 0,
+    reviewedPatchIds: [],
+    errorRound: 1,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 900_000,
+    seenNoteIds: [],
+    autoRetryAt: Date.UTC(2026, 10, 18, 9, 41),
+    updatedAt: 1,
+  });
+  const rows = data(applyHerdStatus(deps, {})).sessions;
+  const row = rows.find((r: any) => r.desig === planning.desig);
+  expect(row.review).toEqual({
+    decision: "error",
+    summaryCode: "no-verdict-unparseable",
+    headSha: "40a0d0d",
+    errorRound: 1,
+    cap: 3,
+    autoRetryAt: "2026-11-18T09:41:00.000Z",
+  });
+  expect(rows.find((r: any) => r.desig === plain.desig).review).toBeNull();
+  expect(JSON.stringify(rows)).not.toContain("secret critic body");
+});
+
 test("herd_status: an unknown, terminal or assistant desig is an error", () => {
   const { deps, shell, assistant } = herd();
   for (const desig of ["TASK-9999", "nope", shell.desig, assistant.desig]) {

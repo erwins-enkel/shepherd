@@ -658,6 +658,46 @@ describe("PrActionRow — critic re-review (moved from the git strip)", () => {
     expect(row(h)!.textContent).toContain(m.prrow_fact_critic_reviewed());
   });
 
+  // TASK-3173: a critic that failed TECHNICALLY on this head left the row reading "ready to merge"
+  // with Merge / "into epic" live, while the drain refused to land the unreviewed head.
+  it("a technical critic failure on this head reads Review failed, locks Merge, names the retry", async () => {
+    const at = Date.now() + 2 * 60_000;
+    const verdict: ReviewVerdict = {
+      sessionId: "sess-A",
+      headSha: "17699a1",
+      decision: "error",
+      summary: "",
+      summaryCode: "no-verdict-unparseable",
+      body: "",
+      findings: [],
+      addressRound: 0,
+      addressCap: 3,
+      errorRound: 1,
+      autoRetryAt: at,
+      finalRoundPending: false,
+      finalRoundTimeoutMs: 900000,
+      updatedAt: Date.now(),
+    };
+    reviews.apply({ id: "sess-A", review: verdict });
+    const h = host();
+    await render(PrActionRow, {
+      target: h,
+      props: { session: session(), git: readyGit, status: "idle" },
+    });
+    await vi.waitFor(() => expect(row(h)!.classList.contains("review_failed")).toBe(true));
+    expect(row(h)!.textContent).toContain(m.prrow_state_review_failed());
+    expect(row(h)!.textContent).not.toContain(m.gitrail_ready_to_merge());
+    expect(mergeBtn(h).getAttribute("aria-disabled")).toBe("true");
+    expect(reviewBtn(h)?.textContent?.trim()).toBe(m.gitrail_rereview());
+    expect(row(h)!.textContent).toContain(
+      m.prrow_fact_critic_error_retry({
+        time: new Date(at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
+        attempt: 1,
+        cap: 3,
+      }),
+    );
+  });
+
   it("first click arms, second calls reviewPr once", async () => {
     const h = host();
     await render(PrActionRow, {

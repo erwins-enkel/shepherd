@@ -2517,8 +2517,9 @@ const reKickReapedReview = (id: string) => {
   const git = prPoller.get(id);
   if (git) {
     // Have a fresh cached GitState → re-review directly. NOT forced, and that is deliberate:
-    // for an error orphan reapOrphans already dropped the verdict, so a plain consider() re-reviews
-    // (no head-dedup); for a non-error orphan, normal rules re-review on a moved head and correctly
+    // for an error orphan reapOrphans charged the interrupted attempt to the head's error budget,
+    // so a plain consider() stays head-deduped until that retry is due (the auto-retry sweep then
+    // re-runs it); for a non-error orphan, normal rules re-review on a moved head and correctly
     // skip a redundant same-head re-review, keeping the spawn-ceiling cost guard intact. This also
     // matches the cold-cache branch below, which can only run a non-force consider via the
     // subscription — so both paths have identical semantics (consider itself no-ops if the PR
@@ -2882,6 +2883,19 @@ deferredStarts.push(() => {
       .sweep()
       .catch((err) => console.warn("[connector-restart] sweep failed:", err));
   }, 15_000);
+  // Re-run critics whose TECHNICAL failure on the current head is due for its scheduled retry
+  // (ReviewService.retryErroredReviews). `session:git` only fires on a change, so a quiet PR whose
+  // critic failed would otherwise never be re-considered and its drain would stay paused for good.
+  setInterval(() => {
+    if (maintenance.active) return;
+    const candidates = store.list({ activeOnly: true }).flatMap((session) => {
+      const git = prPoller.get(session.id);
+      return git ? [{ session, git }] : [];
+    });
+    void reviewService
+      .retryErroredReviews(candidates)
+      .catch((err) => console.warn("[review] auto-retry sweep failed:", err));
+  }, 60_000);
 });
 // The standalone critic's enumeration runs on its OWN 60s timer, separate from the 15s
 // finalize tick above: a sweep lists every open PR per repo (a forge round-trip), far

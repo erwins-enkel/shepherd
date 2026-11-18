@@ -2,11 +2,12 @@
  * Mid-session reasoning-effort switch for a plan-gated session (#3434): the PTY sequences that
  * change a RUNNING agent's effort for this session only, and the pane text that confirms it.
  *
- * Spike-verified (Claude Code 2.1.310, codex-cli 0.164.0):
+ * Spike-verified (Claude Code 2.1.310 + 2.1.327, codex-cli 0.164.0):
  *   - Claude: a typed `/effort <tier>` PERSISTS the tier to the operator's user settings
  *     (`modelSettings.<model>.effortLevel`) — never send it. The session-only path is the picker:
  *     `/effort` opens it, `←`×5 clamps to `low`, `→`×idx walks to the tier, `s` applies it "for
- *     this session only". The picker cannot set `auto` session-only.
+ *     this session only". The picker cannot set `auto` session-only. Its footer reads
+ *     `s for this session only` up to ~2.1.325 and `s to use this session only` from 2.1.327.
  *   - Codex: `/model --reasoning=<tier>` keeps the model and is session-only by construction.
  *
  * Pure: the service owns delivery, the lock and the pane reads. A step counts as confirmed only
@@ -65,7 +66,11 @@ export function effortSwitchSteps(
   const idx = (CLAUDE_PICKER as readonly string[]).indexOf(tier);
   if (idx === -1) return null;
   return [
-    { kind: "paste", text: "/effort", confirm: phrase("s", "for", "this", "session", "only") },
+    {
+      kind: "paste",
+      text: "/effort",
+      confirm: phrase(/\bs/, /(?:for|to\s+use)/, "this", "session", "only"),
+    },
     {
       kind: "keys",
       text: LEFT.repeat(CLAUDE_PICKER.length) + RIGHT.repeat(idx) + "s",

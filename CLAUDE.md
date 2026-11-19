@@ -64,7 +64,7 @@ The pre-push hook runs lint, type/build and consistency checks, but no test suit
 CLI gate. Run affected tests explicitly before pushing; CI supplies full coverage. Keep the
 hook enabled and do not treat a successful push as proof that the CI suite passed.
 
-Deps for those three install themselves — the `ensure-deps.sh` SessionStart hook runs
+Deps for root, `ui/` and `extension/` install themselves — the `ensure-deps.sh` SessionStart hook runs
 `bun install` in root, `ui/` and `extension/` when `node_modules` is absent. It does **not**
 cover `docs-site/` or `site/`: run `bun install` there by hand before building or checking
 either.

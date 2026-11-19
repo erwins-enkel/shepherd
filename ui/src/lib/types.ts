@@ -3273,7 +3273,8 @@ export type GuardrailId =
   | "dependency_automation"
   | "agent_instructions"
   | "issue_templates"
-  | "env_schema";
+  | "env_schema"
+  | "swallowed_errors";
 export interface GuardrailCheck {
   id: GuardrailId;
   present: boolean;

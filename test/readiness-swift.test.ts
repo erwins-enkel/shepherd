@@ -60,9 +60,9 @@ test.each([
   expect(analyzeReadiness(dir).ecosystem).toBe(ecosystem);
 });
 
-test("the Swift guardrail set omits type_checker, lint_staged and env_schema", () => {
+test("the Swift guardrail set omits type_checker, lint_staged, env_schema and swallowed_errors", () => {
   const ids = SWIFT_GUARDRAILS.map((g) => g.id);
-  for (const id of ["type_checker", "lint_staged", "env_schema"] as const)
+  for (const id of ["type_checker", "lint_staged", "env_schema", "swallowed_errors"] as const)
     expect(ids).not.toContain(id);
 });
 

@@ -93,6 +93,8 @@
         return m.readiness_g_issue_templates_title();
       case "env_schema":
         return m.readiness_g_env_schema_title();
+      case "swallowed_errors":
+        return m.readiness_g_swallowed_errors_title();
     }
   }
 
@@ -126,6 +128,8 @@
         return m.readiness_g_issue_templates_removes();
       case "env_schema":
         return m.readiness_g_env_schema_removes();
+      case "swallowed_errors":
+        return m.readiness_g_swallowed_errors_removes();
     }
   }
 

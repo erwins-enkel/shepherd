@@ -189,3 +189,14 @@ test("env_schema is JS/TS-only — never scored on a Rust crate, even with an en
   expect(r.ecosystem).toBe("rust");
   expect(ids(r)).not.toContain("env_schema");
 });
+
+test("swallowed_errors is JS/TS-only — never scored on a Rust crate, even with an ESLint config", () => {
+  write("Cargo.toml", '[package]\nname = "x"\nversion = "0.1.0"\n');
+  write(
+    "eslint.config.js",
+    'export default [{ rules: { "no-empty": "error", "no-floating-promises": "error" } }];',
+  );
+  const r = analyzeReadiness(dir);
+  expect(r.ecosystem).toBe("rust");
+  expect(ids(r)).not.toContain("swallowed_errors");
+});

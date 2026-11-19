@@ -125,7 +125,10 @@ test("a fully-equipped repo (Shepherd-shaped) scores 100 with all guardrails pre
     },
   });
   write(".prettierrc", "{}");
-  write("eslint.config.js", "export default [];");
+  write(
+    "eslint.config.js",
+    'export default [{ rules: { "no-empty": "error", "no-floating-promises": "error" } }];',
+  );
   write("tsconfig.json", "{}");
   write("commitlint.config.js", "export default {};");
   write(".husky/pre-commit", "lint-staged");
@@ -500,4 +503,99 @@ test("#3109: bootstrap checklist for rust uses the cargo tooling", () => {
 test("#3109: the generated CLAUDE.md still carries the shared blind-spots section", () => {
   write("package.json", JSON.stringify({ name: "x" }));
   expect(analyzeReadiness(dir).claudeMd).toContain(GUARDRAIL_BLIND_SPOTS);
+});
+
+// ── swallowed_errors: config-text evidence, conditional on an ESLint config (#4081) ──
+
+const SWALLOW = "swallowed_errors" as const;
+const check = (r: ReturnType<typeof analyzeReadiness>) => r.checks.find((c) => c.id === SWALLOW);
+
+test("swallowed_errors is omitted when the repo has no ESLint config", () => {
+  pkg({ name: "lib", devDependencies: { eslint: "^9" } });
+  expect(check(analyzeReadiness(dir))).toBeUndefined();
+});
+
+test("an .eslintrc.yml alone (linter absent) does not make swallowed_errors apply", () => {
+  pkg({ name: "lib" });
+  write(".eslintrc.yml", "extends: eslint:recommended\nrules:\n  promise/catch-or-return: error\n");
+  expect(present("linter", analyzeReadiness(dir))).toBe(false);
+  expect(check(analyzeReadiness(dir))).toBeUndefined();
+
+  pkg({ name: "lib", devDependencies: { eslint: "^9" } });
+  expect(check(analyzeReadiness(dir))?.present).toBe(true);
+});
+
+test("recommended + no-floating-promises in the config text → present, evidence from both groups", () => {
+  pkg({ name: "app", devDependencies: { eslint: "^9" } });
+  write(
+    "eslint.config.js",
+    `import js from "@eslint/js";\nexport default [js.configs.recommended, { rules: { "@typescript-eslint/no-floating-promises": "error" } }];\n`,
+  );
+  expect(check(analyzeReadiness(dir))).toEqual({
+    id: SWALLOW,
+    present: true,
+    weight: 3,
+    evidence: ["mentions eslint recommended (no-empty)", "mentions no-floating-promises"],
+  });
+});
+
+test("only the empty-catch group → applies, absent, prescribed with the snippet and verify note", () => {
+  pkg({ name: "app", devDependencies: { eslint: "^9" } });
+  write("eslint.config.mjs", `export default [{ rules: { "no-empty": "error" } }];\n`);
+  const r = analyzeReadiness(dir);
+  expect(check(r)).toEqual({ id: SWALLOW, present: false, weight: 3, evidence: [] });
+  expect(r.claudeMd).toContain("Swallowed-error lint rules");
+  expect(r.claudeMd).toContain("verify");
+  expect(r.claudeMd).toContain("CallExpression[callee.property.name='catch']");
+  expect(r.claudeMd).toContain("best-effort");
+  expect(INSTALL_STEPS[SWALLOW](PM_VERBS.bun)).toEqual([]);
+});
+
+test("no-empty + a no-restricted-syntax .catch selector → present", () => {
+  pkg({ name: "app", devDependencies: { eslint: "^9" } });
+  write(
+    "eslint.config.js",
+    `export default [{ rules: { "no-empty": "error", "no-restricted-syntax": ["error", { selector: "CallExpression[callee.property.name='catch'] > ArrowFunctionExpression" }] } }];\n`,
+  );
+  expect(check(analyzeReadiness(dir))?.evidence).toEqual([
+    "mentions no-empty",
+    "mentions no-restricted-syntax .catch selector",
+  ]);
+});
+
+test("no-empty-function does not count as the empty-catch rule", () => {
+  pkg({ name: "app", devDependencies: { eslint: "^9" } });
+  write(
+    "eslint.config.js",
+    `export default [{ rules: { "no-empty-function": "error", "no-floating-promises": "error" } }];\n`,
+  );
+  expect(check(analyzeReadiness(dir))?.present).toBe(false);
+});
+
+test("an .eslintrc.json in a package subdirectory is read", () => {
+  write("ui/package.json", JSON.stringify({ name: "ui", devDependencies: { eslint: "^8" } }));
+  write(
+    "ui/.eslintrc.json",
+    JSON.stringify({
+      extends: ["eslint:recommended", "plugin:@typescript-eslint/recommended-type-checked"],
+    }),
+  );
+  expect(check(analyzeReadiness(dir))?.present).toBe(true);
+});
+
+test("a rule mentioned past the 64 KiB read cap is not detected", () => {
+  pkg({ name: "app", devDependencies: { eslint: "^9" } });
+  write(
+    "eslint.config.js",
+    `// "no-empty"\n${"/".repeat(70 * 1024)}\n// no-floating-promises\nexport default [];\n`,
+  );
+  expect(check(analyzeReadiness(dir))?.present).toBe(false);
+});
+
+test("Shepherd's own repo scores swallowed_errors present", () => {
+  expect(check(analyzeReadiness(join(import.meta.dir, "..")))?.present).toBe(true);
+});
+
+test("bootstrap checklist prescribes the swallowed-error lint rules", () => {
+  expect(bootstrapGuardrailChecklist("js-ts", "bun")).toContain("Swallowed-error lint rules");
 });

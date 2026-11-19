@@ -16,6 +16,7 @@
   import { statusTip, type StatusTipParams } from "#lib/tooltips/statusTip.svelte.js";
   import type { DrainStatus, GitState, LivenessState, Session, SessionStatus } from "#lib/types.js";
   import { firstSafeHttpUrl } from "#lib/url.js";
+  import { isArtifactUrl } from "../../../../../shared/artifact-url";
   import { criticChip } from "../critic-badge";
   import { railEpicChild, railEpicStopped } from "../git-rail/epic-rail";
   import MergeConfirmHost from "../MergeConfirmHost.svelte";
@@ -268,8 +269,9 @@
   const menuReview = $derived(mobile && canReview);
   const prHref = $derived(firstSafeHttpUrl(git?.url));
   // The newest artifact (#3876): a quiet link left of PR ↗ / Logs ↗ — never the amber action.
-  // latestArtifact() only yields a validated claude.ai artifact url, so its url is a safe href.
   const artifact = $derived(latestArtifact(session.artifacts));
+  // Agent data: the link takes the url only as a validated claude.ai artifact (safe-href).
+  const artifactHref = $derived(artifact && isArtifactUrl(artifact.url) ? artifact.url : undefined);
   const artifactTip = $derived<StatusTipParams | null>(
     artifact
       ? {
@@ -418,7 +420,7 @@
         <!-- eslint-disable svelte/no-navigation-without-resolve -- external claude.ai URL, not an app route -->
         <a
           class="gbtn art-link"
-          href={artifact.url}
+          href={artifactHref}
           target="_blank"
           rel="noopener"
           aria-label={m.prrow_artifact_aria({ title: artifact.title })}
@@ -800,6 +802,24 @@
     line-height: 1.2;
     text-align: center;
     white-space: normal;
+  }
+  /* desktop with the artifact link (#3876): in a narrow pane (the docked Assistant) the actions
+     move under the PR line instead of pushing the main action out of it, and wrap among
+     themselves when even that line is too narrow */
+  .pr-row.has-artifact:not(.mobile) {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .pr-row.has-artifact:not(.mobile) .pr-info {
+    flex-basis: 200px;
+  }
+  .pr-row.has-artifact:not(.mobile) .pr-actions {
+    flex: 0 1 auto;
+    min-width: 0;
+    margin-left: auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 6px;
   }
   /* phone with the artifact link (#3876): ⋯ · Artifact ↗ · PR ↗ · main stay on one line, the main
      action keeps the rest; a word longer than that hyphenates or breaks inside its button */

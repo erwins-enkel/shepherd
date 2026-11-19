@@ -1368,6 +1368,57 @@ describe("PrActionRow — artifact link (#3876)", () => {
     expect(document.querySelector(".status-tip:popover-open")).not.toBeNull();
   });
 
+  // The docked Assistant can leave the session pane as narrow as 320px on the desktop layout.
+  describe("narrow desktop pane", () => {
+    beforeEach(() => {
+      repoConfig.enabled = { ...repoConfig.enabled, "/repo": true }; // Review ↗ too: the widest set
+    });
+
+    const cases = [
+      { name: "Merge", session: () => session({ artifacts }), git: readyGit },
+      {
+        name: "Decommission & update",
+        session: () => session({ artifacts, isolated: true }),
+        git: merged,
+      },
+      { name: "Fix CI", session: () => session({ artifacts }), git: red },
+    ];
+
+    for (const width of [320, 480, 900]) {
+      for (const c of cases) {
+        it(`${width}px, ${c.name}: every action stays inside the pane, the PR line stays readable`, async () => {
+          const h = host(width);
+          h.style.overflow = "hidden"; // the session pane clips
+          await render(PrActionRow, {
+            target: h,
+            props: { session: c.session(), git: c.git, status: "idle", liveness: "alive" },
+          });
+          const r = row(h)!;
+          const box = r.getBoundingClientRect();
+          expect(r.scrollWidth, "no horizontal overflow").toBeLessThanOrEqual(r.clientWidth);
+          const ts = targets(h);
+          expect(ts[0]!.classList.contains("art-link")).toBe(true);
+          expect(ts.at(-1)!.classList.contains("primary"), "main action last").toBe(true);
+          for (const t of ts) {
+            const b = t.getBoundingClientRect();
+            const what = t.textContent?.trim();
+            expect(b.left, `${what} inside the pane`).toBeGreaterThanOrEqual(box.left - 0.5);
+            expect(b.right, `${what} inside the pane`).toBeLessThanOrEqual(box.right + 0.5);
+            expect(t.scrollWidth, `${what} label inside`).toBeLessThanOrEqual(t.clientWidth);
+          }
+          const info = r.querySelector<HTMLElement>(".pr-info")!.getBoundingClientRect();
+          expect(info.width, "PR line readable").toBeGreaterThanOrEqual(200);
+          if (width === 900) {
+            // wide: one line, as without the link
+            const middle = (b: DOMRect) => b.top + b.height / 2;
+            const main = ts.at(-1)!.getBoundingClientRect();
+            expect(Math.abs(middle(info) - middle(main))).toBeLessThanOrEqual(1);
+          }
+        });
+      }
+    }
+  });
+
   describe("phone", () => {
     beforeEach(() => {
       repoConfig.enabled = { ...repoConfig.enabled, "/repo": true };

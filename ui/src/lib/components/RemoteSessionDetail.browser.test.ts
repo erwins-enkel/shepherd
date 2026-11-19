@@ -876,6 +876,24 @@ describe("RemoteSessionDetail artifact (#3876)", () => {
     expect(prRow()).toBeNull();
   });
 
+  it("skips malformed relayed entries instead of breaking the detail", async () => {
+    const relayed = [
+      null,
+      { url: "https://claude.ai/artifact/NoTimestamp000000000003", title: "No time", versions: 1 },
+      ...artifacts,
+    ] as unknown as SessionArtifact[];
+    const view = await render(RemoteSessionDetail, {
+      session: remote({ artifacts: relayed }),
+      nowMs: Date.now(),
+    });
+    await expect
+      .element(page.getByRole("link", { name: m.artifactrow_open() }))
+      .toHaveAttribute("href", NEWEST);
+    await view.rerender({ session: remote({ artifacts: relayed, git: openPr }) });
+    await vi.waitFor(() => expect(prRow()).not.toBeNull());
+    expect(prRow()!.querySelector("a.art-link")?.getAttribute("href")).toBe(NEWEST);
+  });
+
   it("without an artifact, neither shows one", async () => {
     render(RemoteSessionDetail, { session: remote({ git: openPr }), nowMs: Date.now() });
     await vi.waitFor(() => expect(prRow()).not.toBeNull());

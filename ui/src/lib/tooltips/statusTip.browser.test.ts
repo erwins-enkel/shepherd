@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { flushSync, mount, unmount } from "svelte";
 import "../../app.css";
 import { statusTip } from "./statusTip.svelte";
@@ -297,6 +297,20 @@ describe("statusTip panel and navigates", () => {
     expect(document.querySelector(".status-tip")?.matches(":popover-open")).toBe(true);
     tapLink(node);
     expect(prevented).toEqual([true, false]);
+  });
+
+  it("navigates + previewCancelsDefault: a preview that cannot open never holds the link back", () => {
+    const { node, prevented } = mountLink(true);
+    const showPopover = vi.spyOn(HTMLElement.prototype, "showPopover").mockImplementation(() => {
+      throw new DOMException("not connected", "InvalidStateError");
+    });
+    try {
+      tapLink(node);
+      tapLink(node);
+    } finally {
+      showPopover.mockRestore();
+    }
+    expect(prevented).toEqual([false, false]);
   });
 
   it("navigates alone leaves a link's default untouched", () => {

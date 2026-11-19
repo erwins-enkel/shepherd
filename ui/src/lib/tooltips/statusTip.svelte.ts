@@ -270,9 +270,10 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
       // A keyboard click (detail 0) acts at once; only a real touch tap previews first.
       if (e.detail > 0 && lastPointerType === "touch" && !open) {
         e.stopPropagation();
-        if (previewCancelsDefault) e.preventDefault();
         show();
         pinned = true;
+        // Only a preview that opened holds the link back: otherwise it could never be followed.
+        if (previewCancelsDefault && open) e.preventDefault();
       } else hide();
       return;
     }

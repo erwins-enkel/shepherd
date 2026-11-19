@@ -9,6 +9,7 @@ import { EventHub } from "../src/events";
 import { HookIngest } from "../src/hooks-ingest";
 import { config } from "../src/config";
 import { GoalTracker } from "../src/goal";
+import artifactHooks from "./fixtures/hooks/artifact-publish.json";
 
 const origToken = config.token;
 afterEach(() => {
@@ -420,4 +421,83 @@ test("late source hook cannot match after identity changes during handoff observ
   const snapshot = await h.app.fetch(new Request(`http://x/api/sessions/${h.session.id}/hooks`));
   const events = await snapshot.json();
   expect(events[0].match).toBe(false);
+});
+
+// #3875: a publishing Artifact call (the real recorded hook body) lands on the session row and is
+// pushed as `session:artifacts`; a re-publish keeps one entry; read and mismatched bodies never write.
+test("recorded Artifact publishes are stored on the session and pushed as session:artifacts", async () => {
+  const wt = mkdtempSync(join(tmpdir(), "artifact-wt-"));
+  writeFileSync(join(wt, "fixture.html"), "<html><title>Shepherd hook fixture</title></html>");
+  try {
+    const store = new SessionStore(":memory:");
+    const events = new EventHub();
+    const pushed: { event: string; data: unknown }[] = [];
+    events.subscribe((event, data) => pushed.push({ event, data }));
+    const deps: AppDeps = {
+      store,
+      service: {} as any,
+      events,
+      usageLimits: { limits: () => ({}) } as any,
+      hooks: new HookIngest(),
+    };
+    const session = store.create({
+      name: "t",
+      prompt: "p",
+      repoPath: wt,
+      baseBranch: "main",
+      branch: "shepherd/t",
+      worktreePath: wt,
+      isolated: false,
+      herdrSession: "sess-x",
+      herdrAgentId: "agent-x",
+      claudeSessionId: CLAUDE_SID,
+      model: null,
+    });
+    const app = makeApp(deps);
+    const body = (name: "publish" | "republish" | "read") => {
+      const b = structuredClone(artifactHooks[name]) as Record<string, any>;
+      b.session_id = CLAUDE_SID;
+      if (b.tool_input.file_path) b.tool_input.file_path = join(wt, "fixture.html");
+      return b;
+    };
+    const artifacts = () => store.get(session.id)?.artifacts ?? [];
+    const settle = async (n: number) => {
+      for (
+        let i = 0;
+        i < 100 && pushed.filter((p) => p.event === "session:artifacts").length < n;
+        i++
+      )
+        await Bun.sleep(5);
+    };
+
+    expect((await post(app, session.id, body("publish"))).status).toBe(202);
+    await settle(1);
+    expect(artifacts()).toEqual([
+      {
+        url: "https://claude.ai/artifact/FixtureArtifact0000001",
+        title: "Shepherd hook fixture",
+        versions: 1,
+        firstSeenAt: expect.any(Number),
+        updatedAt: expect.any(Number),
+        toolUseId: "toolu_fixture_publish",
+      },
+    ]);
+    expect(pushed.at(-1)).toEqual({
+      event: "session:artifacts",
+      data: { id: session.id, artifacts: artifacts() },
+    });
+
+    await post(app, session.id, body("republish"));
+    await settle(2);
+    expect(artifacts()).toHaveLength(1);
+    expect(artifacts()[0]).toMatchObject({ versions: 2, toolUseId: "toolu_fixture_republish" });
+
+    await post(app, session.id, body("read"));
+    await post(app, session.id, { ...body("publish"), session_id: "someone-else" });
+    await Bun.sleep(30);
+    expect(pushed.filter((p) => p.event === "session:artifacts")).toHaveLength(2);
+    expect(artifacts()[0]?.versions).toBe(2);
+  } finally {
+    rmSync(wt, { recursive: true, force: true });
+  }
 });

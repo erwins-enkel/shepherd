@@ -1,0 +1,182 @@
+{
+  "_source": "Real Claude Code 2.1.327 http-hook bodies (PostToolUse, tool Artifact), recorded at a local capture endpoint and redacted (ids, paths, versions replaced; the read call's raw page text elided). A publish of a missing file sent no hook at all.",
+  "publish": {
+    "session_id": "00000000-0000-4000-8000-000000000001",
+    "transcript_path": "/home/user/.claude/projects/-wt/00000000-0000-4000-8000-000000000001.jsonl",
+    "cwd": "/wt",
+    "scratchpad_dir": "/tmp/claude-1000/-wt/00000000-0000-4000-8000-000000000001/scratchpad",
+    "prompt_id": "00000000-0000-4000-8000-000000000002",
+    "permission_mode": "auto",
+    "effort": {
+      "level": "xhigh"
+    },
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Artifact",
+    "tool_input": {
+      "action": "publish",
+      "file_path": "/wt/fixture.html",
+      "icon": "code",
+      "__artifactPlanConsentAsk": false,
+      "__artifactPublishTarget": null,
+      "__artifactRoomJoinDisclosed": false,
+      "__artifactPublishSourcePin": {
+        "path": "/wt/fixture.html",
+        "kind": "file",
+        "redirected": false,
+        "sha256": "a18a93c06428e43a1c80446e358d0da741c323da165c8bb8684ec1ffb1951eec",
+        "minted": "00000000-0000-4000-8000-0000000000a2",
+        "type": false
+      },
+      "__artifactConsentAskCanReachUser": false
+    },
+    "tool_response": {
+      "url": "https://claude.ai/artifact/FixtureArtifact0000001",
+      "path": "/wt/fixture.html",
+      "artifact_id": "00000000-0000-4000-8000-0000000000a1",
+      "title": "Shepherd hook fixture",
+      "updated": false,
+      "owned": true,
+      "icon": "code",
+      "audience": "owner",
+      "seq": 1,
+      "version": "1700000000-abcd",
+      "contract": "0.0.0",
+      "liveSubscription": "arming"
+    },
+    "tool_use_id": "toolu_fixture_publish",
+    "duration_ms": 885
+  },
+  "republish": {
+    "session_id": "00000000-0000-4000-8000-000000000001",
+    "transcript_path": "/home/user/.claude/projects/-wt/00000000-0000-4000-8000-000000000001.jsonl",
+    "cwd": "/wt",
+    "scratchpad_dir": "/tmp/claude-1000/-wt/00000000-0000-4000-8000-000000000001/scratchpad",
+    "prompt_id": "00000000-0000-4000-8000-000000000002",
+    "permission_mode": "auto",
+    "effort": {
+      "level": "xhigh"
+    },
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Artifact",
+    "tool_input": {
+      "action": "publish",
+      "file_path": "/wt/fixture.html",
+      "url": "https://claude.ai/artifact/FixtureArtifact0000001",
+      "__artifactPlanConsentAsk": false,
+      "__artifactPublishTarget": "https://claude.ai/artifact/FixtureArtifact0000001",
+      "__artifactRoomJoinDisclosed": false,
+      "__artifactPublishSourcePin": {
+        "path": "/wt/fixture.html",
+        "kind": "file",
+        "redirected": false,
+        "sha256": "a18a93c06428e43a1c80446e358d0da741c323da165c8bb8684ec1ffb1951eec",
+        "minted": "00000000-0000-4000-8000-0000000000a2",
+        "type": false
+      },
+      "__artifactConsentAskCanReachUser": false
+    },
+    "tool_response": {
+      "url": "https://claude.ai/artifact/FixtureArtifact0000001",
+      "path": "/wt/fixture.html",
+      "artifact_id": "00000000-0000-4000-8000-0000000000a1",
+      "title": "Shepherd hook fixture",
+      "updated": true,
+      "owned": true,
+      "audience": "owner",
+      "seq": 1,
+      "unchanged": true,
+      "version": "1700000000-abcd",
+      "contract": "0.0.0",
+      "liveSubscription": "connected"
+    },
+    "tool_use_id": "toolu_fixture_republish",
+    "duration_ms": 438
+  },
+  "read": {
+    "session_id": "00000000-0000-4000-8000-000000000001",
+    "transcript_path": "/home/user/.claude/projects/-wt/00000000-0000-4000-8000-000000000001.jsonl",
+    "cwd": "/wt",
+    "scratchpad_dir": "/tmp/claude-1000/-wt/00000000-0000-4000-8000-000000000001/scratchpad",
+    "prompt_id": "00000000-0000-4000-8000-000000000002",
+    "permission_mode": "auto",
+    "effort": {
+      "level": "xhigh"
+    },
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Artifact",
+    "tool_input": {
+      "action": "read",
+      "url": "https://claude.ai/artifact/FixtureArtifact0000001",
+      "__artifactConsentAskCanReachUser": false,
+      "__artifactPlanConsentAsk": false,
+      "__artifactUserOnlyConsentAsk": false,
+      "__artifactReadTargetPin": {
+        "action": "read",
+        "slug": "00000000-0000-4000-8000-0000000000a1"
+      }
+    },
+    "tool_response": {
+      "read": {
+        "bytes": 744,
+        "code": 200,
+        "codeText": "OK",
+        "result": "<elided: the artifact's raw HTML>",
+        "durationMs": 413,
+        "url": "https://claude.ai/artifact/FixtureArtifact0000001",
+        "title": "Shepherd hook fixture"
+      },
+      "artifactRead": {
+        "slug": "00000000-0000-4000-8000-0000000000a1",
+        "ver": "1700000000-abcd"
+      },
+      "owned": true
+    },
+    "tool_use_id": "toolu_fixture_read",
+    "duration_ms": 413
+  },
+  "delete": {
+    "session_id": "00000000-0000-4000-8000-000000000001",
+    "transcript_path": "/home/user/.claude/projects/-wt/00000000-0000-4000-8000-000000000001.jsonl",
+    "cwd": "/wt",
+    "scratchpad_dir": "/tmp/claude-1000/-wt/00000000-0000-4000-8000-000000000001/scratchpad",
+    "prompt_id": "00000000-0000-4000-8000-000000000002",
+    "permission_mode": "auto",
+    "effort": {
+      "level": "xhigh"
+    },
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Artifact",
+    "tool_input": {
+      "action": "delete",
+      "url": "https://claude.ai/artifact/FixtureArtifact0000001",
+      "__artifactDeletePin": {
+        "slug": "00000000-0000-4000-8000-0000000000a1"
+      },
+      "__artifactDeleteTarget": {
+        "url": "https://claude.ai/artifact/FixtureArtifact0000001",
+        "title": "Shepherd hook fixture",
+        "audience": "private to the user",
+        "shareMode": "owner",
+        "publishedThisSession": true
+      },
+      "__artifactConsentAskCanReachUser": false,
+      "__artifactAsk": {
+        "class": "delete",
+        "remember": "this_call",
+        "slug": "00000000-0000-4000-8000-0000000000a1",
+        "url": "https://claude.ai/artifact/FixtureArtifact0000001",
+        "title": "Shepherd hook fixture",
+        "reachable": true,
+        "askedIn": "0:0"
+      }
+    },
+    "tool_response": {
+      "artifact_delete": {
+        "url": "https://claude.ai/artifact/FixtureArtifact0000001",
+        "deleted": true
+      }
+    },
+    "tool_use_id": "toolu_fixture_delete",
+    "duration_ms": 323
+  }
+}

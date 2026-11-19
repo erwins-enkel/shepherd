@@ -800,6 +800,26 @@ struct SessionStoreTests {
     #expect(store.session(id: "a")?.planPhase?.known == .executing)
   }
 
+  @Test func artifactsPushPatchesSessionWithoutClobberingOtherFields() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server, sessions: [Fixtures.session(id: "a")])
+    let store = try makeStore(server)
+    try await store.bootstrap()
+    func push(_ json: String) {
+      store.apply(.unknown(name: "session:artifacts", payload: Data(json.utf8)))
+    }
+    push(#"{"id":"a","artifacts":[{"url":"https://claude.ai/artifact/GEQx5QVP82WzdTBfcxx313","title":"Canvas","versions":2,"firstSeenAt":1,"updatedAt":2,"toolUseId":null}]}"#)
+    #expect(store.session(id: "a")?.artifacts?.count == 1)
+    #expect(store.session(id: "a")?.artifacts?.first?.title == "Canvas")
+    #expect(store.session(id: "a")?.artifacts?.first?.versions == 2)
+    #expect(store.session(id: "a")?.name == "session")
+    push(#"{"id":"a","artifacts":[]}"#)
+    #expect(store.session(id: "a")?.artifacts?.isEmpty == true)
+    push(#"{"id":"missing","artifacts":[]}"#)
+    #expect(store.sessions.count == 1)
+  }
+
   @Test("session:status patches status without clobbering the scratchpad flag")
   func applyStatusKeepsScratchpadFlag() async throws {
     let server = FakeShepherdServer()

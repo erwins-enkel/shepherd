@@ -9144,5 +9144,14 @@
   "native_repo_jobs_paused": "The Leitrechner is unreachable. Backlog processing and the PR sweep are paused. You decide when to change the Leitrechner; it never changes automatically.",
   "native_repo_leader_returns": "When the previous Leitrechner returns, it reads the repository file before starting new backlog or PR-sweep work.",
   "native_repo_offline_observed": "Unreachable · observed since {time}",
-  "native_repo_merge_title": "Merge rules"
+  "native_repo_merge_title": "Merge rules",
+  "artifactrow_label": "Artifact",
+  "artifactrow_version": "Version {n}",
+  "artifactrow_updated": "updated {when}",
+  "artifactrow_copy": "Copy link",
+  "artifactrow_copied": "Link copied",
+  "artifactrow_open": "Open ↗",
+  "artifactrow_aria": "Artifact of this session",
+  "feat_artifact_row_title": "Artifacts above the steer bar",
+  "feat_artifact_row_body": "When the agent publishes an artifact on claude.ai and the session has no PR yet, the newest one appears above the steer bar. Open it in a new tab or copy its link without scrolling the chat."
 }

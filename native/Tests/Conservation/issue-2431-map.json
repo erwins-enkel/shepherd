@@ -13079,7 +13079,8 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientRepoProjectTests.swift\",\"ShepherdClientRepoProjectTests\",\"protectedRuleWriteKeepsEffectiveRulesUntilMerge() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientRepoProjectTests.swift\",\"ShepherdClientRepoProjectTests\",\"responsibilitiesUseTheSameCoordinatorAndPreserveExplicitNull() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRuleMergeTests.swift\",\"RepoRuleMergeTests\",\"selectionsCreateOneFullRulePatchWithoutMachineValues() throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRuleMergeTests.swift\",\"RepoRuleMergeTests\",\"unavailableOrUnknownChoicesCannotCompleteMerge() throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRuleMergeTests.swift\",\"RepoRuleMergeTests\",\"unavailableOrUnknownChoicesCannotCompleteMerge() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"artifactsPushPatchesSessionWithoutClobberingOtherFields() async throws\"]"
   ],
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",

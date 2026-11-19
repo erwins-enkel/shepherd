@@ -25,11 +25,13 @@
 // #3165: PreToolUse (matcher AskUserQuestion only) carries the dialog's questions as data so a
 // native panel can answer it; PostToolUse carries `tool_use_id` + the answers that landed.
 // #2779: the matcher also covers ExitPlanMode, whose PreToolUse carries the plan text.
+// #3875: PostToolUse(Artifact) also reads `tool_input` + the result, to record what a publish wrote.
 //
 // Anything unrecognized is recorded and flagged loudly rather than silently dropped.
 
 import { normalizeAskAnswers, parseAskInput, type AskQuestion } from "./ask-user-question";
 import { parsePlanInput, type PendingPlan } from "./plan-approval";
+import { parseArtifactPublish, type ArtifactPublish } from "./session-artifacts";
 
 /** A normalized hook event after validation — the spike's observable unit. */
 export type HookEvent = {
@@ -58,6 +60,9 @@ export type HookEvent = {
   plan?: Omit<PendingPlan, "toolUseId">;
   /** PostToolUse(AskUserQuestion): normalized `tool_response.answers` (#3165). */
   askAnswers?: Record<string, string>;
+  /** PostToolUse(Artifact), ok: the artifact a publish wrote (#3875); absent for every other
+   *  Artifact action, an asset upload, or a result without a valid artifact url. */
+  artifact?: ArtifactPublish;
   /** PostToolUse(/Failure): derived from exit_code / the *Failure event. */
   status?: "ok" | "error";
   /** PostToolUse(/Failure): tool exit code when present (logging aid). */
@@ -116,6 +121,13 @@ const num = (v: unknown): number | undefined => (typeof v === "number" ? v : und
 const bool = (v: unknown): boolean | undefined => (typeof v === "boolean" ? v : undefined);
 const obj = (v: unknown): Record<string, unknown> | null =>
   typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
+/** A `tool_use_id` in Claude Code's shape (`toolu_…`), bounded: the ring buffer retains it and an
+ *  artifact list persists and rebroadcasts it (#3875). Anything else is dropped. */
+const TOOL_USE_ID = /^[\w.:-]{1,128}$/;
+const toolUseIdOf = (v: unknown): string | undefined => {
+  const id = str(v);
+  return id && TOOL_USE_ID.test(id) ? id : undefined;
+};
 
 /**
  * Normalize a PostToolUse / PostToolUseFailure body. Reads the tool name and derives the
@@ -138,11 +150,15 @@ function parseToolUseEvent(
       ? "error"
       : "ok";
   const ev: RawHookEvent = { event: eventName, sessionId, toolName, status, exitCode };
-  const toolUseId = str(b.tool_use_id);
+  const toolUseId = toolUseIdOf(b.tool_use_id);
   if (toolUseId) ev.toolUseId = toolUseId;
   if (toolName === "AskUserQuestion") {
     const askAnswers = normalizeAskAnswers(obj(b.tool_response)?.answers);
     if (askAnswers) ev.askAnswers = askAnswers;
+  }
+  if (toolName === "Artifact" && eventName === "PostToolUse" && status === "ok") {
+    const artifact = parseArtifactPublish(b.tool_input, output, toolUseId);
+    if (artifact) ev.artifact = artifact;
   }
   return ev;
 }
@@ -153,7 +169,7 @@ function parseToolUseEvent(
 function parsePreToolUseEvent(b: Record<string, unknown>, sessionId: string): RawHookEvent {
   const toolName = str(b.tool_name);
   const ev: RawHookEvent = { event: "PreToolUse", sessionId, toolName };
-  const toolUseId = str(b.tool_use_id);
+  const toolUseId = toolUseIdOf(b.tool_use_id);
   if (toolUseId) ev.toolUseId = toolUseId;
   if (toolName === "AskUserQuestion") {
     const ask = parseAskInput(b.tool_input);

@@ -12,7 +12,7 @@
   - Don't set up a hybrid oxlint + ESLint now. The speed gain is small next to our warm caches and delta-scoped pre-push, and the hybrid would bring two rule divergences that hit our own config (below).
   - Revisit oxlint when its "language plugins" ship.
 
-Empirical results are marked **[tested]**. They come from a scratch copy of this repo under `~/.cache/shepherd/tmp/oxc-research/lab`, with oxlint 1.94.0, oxfmt 0.79.0, oxlint-tsgolint 7.0.2007, and the repo's own pinned versions of ESLint 10.15.0, eslint-plugin-svelte 3.24.1, Prettier 3.10.1, prettier-plugin-svelte 4.1.1, prettier-plugin-tailwindcss 0.8.1 and Svelte 5.57.3. Everything else is documented fact.
+Empirical results are marked **[tested]**. They come from a scratch copy of this repo under `~/.cache/shepherd/tmp/oxc-research/lab`, with oxlint 1.94.0, oxfmt 0.79.0, oxlint-tsgolint 7.0.2007, and the repo's own pinned versions of ESLint 10.15.0, eslint-plugin-svelte 3.24.1, Prettier 3.10.1, prettier-plugin-svelte 4.1.1, prettier-plugin-tailwindcss 0.8.1 and Svelte 5.57.3. The re-run against the ESLint config added in #4084/#4085 (custom rule, bulk-suppressions baseline, `no-restricted-syntax`) used a second scratch copy, `~/.cache/shepherd/tmp/oxc-research/lab2`, with the same tool versions. Everything else is documented fact.
 
 ## Versions and maturity
 
@@ -45,7 +45,8 @@ Empirical results are marked **[tested]**. They come from a scratch copy of this
 
 ## typescript-eslint parity and type-aware linting
 
-- **[tested] Rule mapping is complete for our config.** `@oxlint/migrate` mapped all of our `js` + `typescript-eslint` + `svelte` recommended rules (123 rules). It skipped 4 core rules: `no-undef` and `no-useless-assignment` are nursery, and `no-dupe-args` and `no-octal` are superseded by strict mode.
+- **[tested] The presets map completely.** `@oxlint/migrate --type-aware` mapped all of our `js` + `typescript-eslint` + `svelte` recommended rules (124 rules in total). It skipped 4 core rules: `no-undef` and `no-useless-assignment` are nursery, and `no-dupe-args` and `no-octal` are superseded by strict mode.
+  - Outside the presets, it skipped `no-restricted-syntax` as "Not yet in oxlint" and mis-mapped our local `shepherd/no-silent-catch` rule. See [Migration tooling](#migration-tooling).
 - **Type-aware rules don't work in `.svelte` scripts.** The duplicates [oxc#19481](https://github.com/oxc-project/oxc/issues/19481) and [tsgolint#807](https://github.com/oxc-project/tsgolint/issues/807) both point to the open [tsgolint#322](https://github.com/oxc-project/tsgolint/issues/322). Language-plugin type-aware integration is [#23211](https://github.com/oxc-project/oxc/issues/23211).
   - `.svelte.ts` files are plain TS and are covered. One open false positive: `$state(false)` gets narrowed to the literal `false` inside `$derived` ([tsgolint#1344](https://github.com/oxc-project/tsgolint/issues/1344)).
 - **TypeScript 7 rules apply.** Legacy options like `baseUrl` are unsupported ([docs](https://oxc.rs/docs/guide/usage/linter/type-aware.html)).
@@ -77,10 +78,12 @@ Empirical results are marked **[tested]**. They come from a scratch copy of this
 ## Migration tooling
 
 - **`oxfmt --migrate prettier`** ([docs](https://oxc.rs/docs/guide/usage/formatter/migrate-from-prettier.html)) migrates `overrides` (a `parser` becomes `associations`), turns `.prettierignore` into `ignorePatterns`, and maps the options of the Svelte, Tailwind, Astro and packagejson plugins. Other plugins are skipped. It doesn't read nested configs or the `prettier` key in `package.json`.
-  - **[tested]** On our `.prettierrc` it mapped every option cleanly: `tailwindStylesheet` became `sortTailwindcss.stylesheet`, it emitted `svelte: {}`, kept the `*.jsonc` override, and carried over 33 ignore patterns.
+  - **[tested]** On our `.prettierrc` it mapped every option cleanly: `tailwindStylesheet` became `sortTailwindcss.stylesheet`, it emitted `svelte: {}`, kept the `*.jsonc` override, and carried over all 34 ignore patterns, `eslint-suppressions.json` included.
 - **`@oxlint/migrate`** ([docs](https://oxc.rs/docs/guide/usage/linter/migrate-from-eslint.html), [repo](https://github.com/oxc-project/oxlint-migrate)) converts a flat config into `.oxlintrc.json` and keeps plugins it can't map as `jsPlugins`. **[tested]** On our root config it:
   - warned `special parser detected: svelte-eslint-parser` and `ignore list inside overrides is not supported`;
   - **silently dropped** the `ignores: ["**/*.test.ts"]` on the `src/**/*.ts` promise-gate block. The 6 colocated tests under `src/` would then be gated.
+  - dropped `no-restricted-syntax` ("Not implemented"). Our `promisify(execFile)` ban (an esquery selector) has no oxlint equivalent. The ESLint core tracking issue lists the rule as unported ([#479](https://github.com/oxc-project/oxc/issues/479)).
+  - turned the inline local plugin `shepherd/no-silent-catch` into `jsPlugins: ["eslint-plugin-shepherd"]`, a package that doesn't exist. It needs a hand-written wrapper module (`{ meta: { name: "shepherd" }, rules: { "no-silent-catch": rule } }`) referenced by path.
 - **`eslint-plugin-oxlint`** switches off the ESLint rules that oxlint already covers ([README](https://github.com/oxc-project/eslint-plugin-oxlint)). For `.vue`, `.svelte` and `.astro` files it keeps `no-unused-vars`, `@typescript-eslint/no-unused-vars` and `consistent-type-imports` on in ESLint, because oxlint can't see templates ([constants.ts](https://github.com/oxc-project/eslint-plugin-oxlint/blob/main/src/constants.ts)).
 - **The official hybrid is `oxlint && eslint`.** ESLint keeps the rules oxlint doesn't support, with `eslint-plugin-oxlint` last in the config ([docs](https://oxc.rs/docs/guide/usage/linter/migrate-from-eslint.html#running-oxlint-and-eslint-together)).
   - For Svelte, that leaves ESLint running `eslint-plugin-svelte` over every `.svelte` file. You keep the slow parser, so you keep most of ESLint's cost.
@@ -97,24 +100,27 @@ Empirical results are marked **[tested]**. They come from a scratch copy of this
 
 ## Compatibility table
 
-| Feature                                    | ESLint + Prettier (our setup)                        | oxlint / oxfmt today                                                             |
-| ------------------------------------------ | ---------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Core JS + typescript-eslint recommended    | yes                                                  | ✅ all mapped **[tested]**, 4 core rules skipped                                 |
-| Type-aware rules in `.ts`                  | `no-floating-promises`, `no-misused-promises` (src/) | ✅ tsgolint/tsrs, stable                                                         |
-| Type-aware rules in `.svelte` script       | not used here                                        | ❌ [tsgolint#322](https://github.com/oxc-project/tsgolint/issues/322)            |
-| Lint `.svelte` `<script>`                  | yes (svelte-eslint-parser)                           | ✅ native parser                                                                 |
-| Lint `.svelte` template                    | yes                                                  | ❌ [#23207](https://github.com/oxc-project/oxc/issues/23207)                     |
-| `no-unused-vars` in `.svelte`              | yes                                                  | ❌ rule skips the file                                                           |
-| eslint-plugin-svelte, script rules         | yes                                                  | ✅ via alpha JS plugin **[tested]**                                              |
-| eslint-plugin-svelte, template rules       | yes                                                  | ❌ no custom parser ([#20373](https://github.com/oxc-project/oxc/issues/20373))  |
-| `no-restricted-imports` (marked/DOMPurify) | static imports only                                  | ⚠️ also flags dynamic `import()` **[tested]**                                    |
-| `eslint-disable` comments                  | yes                                                  | ✅ honored ([docs](https://oxc.rs/docs/guide/usage/linter/ignore-comments.html)) |
-| Format JS/TS                               | Prettier                                             | ⚠️ native, documented divergences (59/2,539 files differ **[tested]**)           |
-| Format `.svelte` markup/style              | prettier-plugin-svelte 4.1.1                         | ✅ same plugin, bundled (524/528 identical **[tested]**)                         |
-| Tailwind class sorting                     | prettier-plugin-tailwindcss                          | ✅ built-in `sortTailwindcss`                                                    |
-| Other Prettier plugins                     | n/a (we use none)                                    | ❌ unsupported                                                                   |
-| Config migration                           | n/a                                                  | ✅ `oxfmt --migrate prettier`; ⚠️ `@oxlint/migrate` drops override `ignores`     |
-| Speed, cold, no cache **[tested]**         | ESLint 61 s; Prettier 25 s (ui+src) / 43 s (repo)    | oxlint 4.8 s (type-aware + svelte JS plugin); oxfmt 4.4 s / 4.3 s                |
+| Feature                                      | ESLint + Prettier (our setup)                        | oxlint / oxfmt today                                                                                                         |
+| -------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Core JS + typescript-eslint recommended      | yes                                                  | ✅ all mapped **[tested]**, 4 core rules skipped                                                                             |
+| Type-aware rules in `.ts`                    | `no-floating-promises`, `no-misused-promises` (src/) | ✅ tsgolint/tsrs, stable                                                                                                     |
+| Type-aware rules in `.svelte` script         | not used here                                        | ❌ [tsgolint#322](https://github.com/oxc-project/tsgolint/issues/322)                                                        |
+| Lint `.svelte` `<script>`                    | yes (svelte-eslint-parser)                           | ✅ native parser                                                                                                             |
+| Lint `.svelte` template                      | yes                                                  | ❌ [#23207](https://github.com/oxc-project/oxc/issues/23207)                                                                 |
+| `no-unused-vars` in `.svelte`                | yes                                                  | ❌ rule skips the file                                                                                                       |
+| eslint-plugin-svelte, script rules           | yes                                                  | ✅ via alpha JS plugin **[tested]**                                                                                          |
+| eslint-plugin-svelte, template rules         | yes                                                  | ❌ no custom parser ([#20373](https://github.com/oxc-project/oxc/issues/20373))                                              |
+| `no-restricted-imports` (marked/DOMPurify)   | static imports only                                  | ⚠️ also flags dynamic `import()` **[tested]**                                                                                |
+| `eslint-disable` comments                    | yes                                                  | ✅ honored ([docs](https://oxc.rs/docs/guide/usage/linter/ignore-comments.html))                                             |
+| Local custom rule `shepherd/no-silent-catch` | inline plugin in `eslint.config.js`                  | ✅ via alpha JS plugin, 411/411 hits match **[tested]**; ⚠️ migrate mis-maps it                                              |
+| `no-restricted-syntax` (esquery selectors)   | bans `promisify(execFile)` in `src/`                 | ❌ not implemented ([#479](https://github.com/oxc-project/oxc/issues/479)) **[tested]**                                      |
+| Bulk-suppressions baseline                   | `eslint-suppressions.json` + `--prune-suppressions`  | ✅ same JSON format, fixed name `oxlint-suppressions.json` **[tested]**                                                      |
+| Format JS/TS                                 | Prettier                                             | ⚠️ native, documented divergences (59/2,539 files differ **[tested]**)                                                       |
+| Format `.svelte` markup/style                | prettier-plugin-svelte 4.1.1                         | ✅ same plugin, bundled (524/528 identical **[tested]**)                                                                     |
+| Tailwind class sorting                       | prettier-plugin-tailwindcss                          | ✅ built-in `sortTailwindcss`                                                                                                |
+| Other Prettier plugins                       | n/a (we use none)                                    | ❌ unsupported                                                                                                               |
+| Config migration                             | n/a                                                  | ✅ `oxfmt --migrate prettier`; ⚠️ `@oxlint/migrate` drops override `ignores` + `no-restricted-syntax`, mis-maps local plugin |
+| Speed, cold, no cache **[tested]**           | ESLint 61 s; Prettier 25 s (ui+src) / 43 s (repo)    | oxlint 4.8 s (type-aware + svelte JS plugin); oxfmt 4.4 s / 4.3 s                                                            |
 
 ## Applied to this repo
 
@@ -122,7 +128,9 @@ Our current setup:
 
 - **Root `eslint.config.js`:**
   - `js` + `typescript-eslint` + `svelte` recommended configs, plus `svelte.configs.prettier`.
-  - A type-aware promise gate on `src/**/*.ts`, with tests excluded.
+  - A type-aware promise gate on `src/**/*.ts`, with tests excluded. The same block runs the local custom rule `shepherd/no-silent-catch`, defined in `scripts/eslint-rules/no-silent-catch.mjs` and registered as an inline plugin (#4084).
+  - An ESLint bulk-suppressions baseline, `eslint-suppressions.json`: 411 `no-silent-catch` hits across `src/`. It may only shrink, and you clean it up with `bunx eslint --prune-suppressions src`. `.prettierignore` excludes it.
+  - A `no-restricted-syntax` esquery selector that bans `promisify(execFile)` in `src/` outside `src/instrument.ts` and `src/safe-git.ts` (#4085).
   - A `no-restricted-imports` rule that forbids static `marked` / `dompurify` imports in `ui/src` but allows `await import(...)`.
   - Svelte globals and the svelte parser settings.
 - **`extension/eslint.config.js`:** the same presets, with no type-aware rules.
@@ -138,10 +146,15 @@ Mapping, from the **[tested]** runs:
 - **Rules oxlint lacks or loses:**
   - Every template-level `svelte/*` rule. The repo has 54 `.svelte` files with `svelte/no-navigation-without-resolve` disables placed on `<a>` tags, and 12 `no-at-html-tags` disables. oxlint wouldn't even read these HTML-comment directives.
   - `no-unused-vars` in `.svelte` files.
+  - `no-restricted-syntax`. **[tested]** A planted `promisify(execFile)` in `src/` gave 0 oxlint diagnostics where ESLint reported 1. The ban would have to move into a custom JS-plugin rule.
 - **New false positives under oxlint:**
   - 8 `no-restricted-imports` hits on the _sanctioned_ dynamic imports in `ui/src/lib/sanitize-html.ts`, `codex-release-notes-renderer.ts` and `WireframeBlock.svelte`. oxlint deliberately extended the rule to `import()` ([PR #24029](https://github.com/oxc-project/oxc/pull/24029), [rule source](https://github.com/oxc-project/oxc/blob/main/crates/oxc_linter/src/rules/eslint/no_restricted_imports.rs)), which breaks the "dynamic import is fine" design our rule relies on.
   - 6 `no-unsafe-optional-chaining` hits through `as` casts in tests ([#27602](https://github.com/oxc-project/oxc/issues/27602), open).
-- **What works:** all script-level rules, the type-aware gate, and the extension config. On the extension, migration plus oxlint gave 0 diagnostics, matching ESLint.
+- **What works:** the preset script-level rules, the type-aware gate, and the extension config. On the extension, migration plus oxlint gave 0 diagnostics, matching ESLint.
+  - **[tested] `shepherd/no-silent-catch` runs unchanged as an (alpha) JS plugin**, once it is wrapped by hand. oxlint found 411 hits in `src/`, with per-file counts identical to `eslint-suppressions.json`.
+  - **[tested] The bulk-suppressions baseline carries over.** oxlint has its own bulk suppressions ([PR #19328](https://github.com/oxc-project/oxc/pull/19328), merged 2026-05-06) and uses the same JSON format. Our ESLint file, copied to `oxlint-suppressions.json`, suppressed all 411 hits. `oxlint --suppress-all` regenerated an identical file, apart from the `no-unsafe-optional-chaining` false positive below.
+    - The file name is fixed. A configurable location is still open ([#28386](https://github.com/oxc-project/oxc/issues/28386)), so a hybrid would keep two baselines.
+    - In 1.94.0, `--suppress-all` and `--prune-suppressions` work but are missing from `--help`. **[tested]** Prune dropped a planted stale entry and cut an inflated count back to the real one. The docs PR is still open ([#26057](https://github.com/oxc-project/oxc/pull/26057)), and so are `--suppress-rule` and `--pass-on-unpruned-suppressions` ([#20990](https://github.com/oxc-project/oxc/issues/20990), [#20991](https://github.com/oxc-project/oxc/issues/20991)). A maintainer said the format "might change in the next few versions" ([#10549](https://github.com/oxc-project/oxc/issues/10549#issuecomment-4413733016)).
 - **Prettier:** fully covered by oxfmt's built-ins. Its plugins are exactly svelte and tailwind.
 - **Cost of switching formatters:**
   - a one-time reformat of about 86 files;
@@ -157,7 +170,7 @@ Mapping, from the **[tested]** runs:
    - Do it as a dedicated chore PR: migration, reformat, and the hook/CI swap.
    - It is beta, so pin the exact version.
 2. **oxlint: wait.**
-   - A full switch would lose the template rules and our `no-restricted-imports` design.
+   - A full switch would lose the template rules, our `no-restricted-imports` design and the `no-restricted-syntax` ban. The custom rule would also have to run on the alpha JS-plugin API.
    - A hybrid (oxlint for `.ts`, ESLint + `eslint-plugin-oxlint` for `.svelte`) means two configs and two divergence workarounds, for a gain our cached, delta-scoped lint already mostly captures.
 
 **Watch for:**

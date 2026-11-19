@@ -10,6 +10,7 @@ import {
   readCodexQuestionScreen,
   type CodexQuestionScreen,
 } from "./codex-question-screen";
+import { sleep } from "./async";
 
 export interface CodexQuestionTerminal {
   read(): Promise<string | null>;
@@ -30,7 +31,6 @@ export interface CodexQuestionAnswerDeps {
 }
 
 const closed = (): AnswerAskOutcome => ({ ok: false, status: 409, error: "ask_not_open" });
-const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Codex owns its dialog; we only type into a freshly identified, still-open question. */
 export class CodexQuestionAnswerService {
@@ -68,7 +68,7 @@ export class CodexQuestionAnswerService {
           read,
           send: async (key: string) => {
             const sent = await terminal.send(key);
-            await pause(this.deps.gapMs ?? 180);
+            await sleep(this.deps.gapMs ?? 180);
             return sent;
           },
         };
@@ -236,7 +236,7 @@ export class CodexQuestionAnswerService {
       const actual = this.deps.tracker.answer(live, ask.toolUseId, ask.indices[position]!);
       if (actual)
         return JSON.stringify(actual) === JSON.stringify(expected) ? "verified" : "mismatch";
-      await pause(this.deps.gapMs ?? 180);
+      await sleep(this.deps.gapMs ?? 180);
     } while (Date.now() < end);
     return "unverified";
   }

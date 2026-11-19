@@ -15,6 +15,7 @@ import { resumeThenSteer } from "./resume-then-steer";
 import { isOperatorAssistant } from "./operator-assistant-core";
 import { isShelved } from "./shelve";
 import { isUsagePaused } from "./schedule-pause";
+import { withTimeout } from "./async";
 
 /**
  * Agent-facing steer templates. NOT UI chrome — never i18n'd (they are typed into the
@@ -590,16 +591,11 @@ export class AutopilotService {
     const poll = this.deps.pollPrNow;
     if (!poll) return s;
     this.pending.add(s.id);
-    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await Promise.race([
-        poll(s.id),
-        new Promise<void>((r) => (timer = setTimeout(r, this.prRecheckTimeoutMs))),
-      ]);
+      await withTimeout(poll(s.id), this.prRecheckTimeoutMs, () => undefined);
     } catch (err) {
       console.warn("[autopilot] pollPrNow:", err);
     } finally {
-      clearTimeout(timer);
       this.pending.delete(s.id);
     }
     const cur = this.eligible(s.id);

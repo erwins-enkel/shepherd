@@ -61,6 +61,7 @@ import { CodexTranscriptLocator, readCodexTranscriptSignals } from "./codex-acti
 import { isOperatorAssistant } from "./operator-assistant-core";
 import { isShelved } from "./shelve";
 import type { NetnsDevForwarder } from "./netns-dev-forward";
+import { backoffDelay } from "./async";
 
 const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
 const AUTH_SIG = "auth"; // fixed signature → a resting MCP-auth block fires once per episode
@@ -875,10 +876,10 @@ export class StatusPoller {
     }
     if (missed) {
       const misses = (bo?.misses ?? 0) + 1;
-      const delay = Math.min(
-        CODEX_CAPTURE_BACKOFF_BASE_MS * 2 ** (misses - 1),
-        CODEX_CAPTURE_BACKOFF_MAX_MS,
-      );
+      const delay = backoffDelay(misses, {
+        baseMs: CODEX_CAPTURE_BACKOFF_BASE_MS,
+        maxMs: CODEX_CAPTURE_BACKOFF_MAX_MS,
+      });
       this.codexCaptureBackoff.set(s.id, { nextAt: t + delay, misses });
     } else {
       this.codexCaptureBackoff.delete(s.id);

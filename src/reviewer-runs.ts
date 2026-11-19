@@ -1,5 +1,6 @@
 import { reapRun } from "./critic-core";
 import type { ReviewerEnv } from "./types";
+import { sleep } from "./async";
 
 /** The slice of an in-flight reviewer run the operator's hold/cancel controls touch. */
 export interface ReviewerRun {
@@ -130,6 +131,6 @@ async function claimForCancel<F extends { finalizing?: boolean }>(
       return f;
     }
     if (i >= opts.attempts) return null;
-    await new Promise((r) => setTimeout(r, opts.intervalMs));
+    await sleep(opts.intervalMs);
   }
 }

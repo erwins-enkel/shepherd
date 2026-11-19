@@ -48,6 +48,7 @@ import { headBatcherFor, headKey } from "./github-head-batch";
 import { currentGhCaller } from "./gh-caller";
 import { readEpicStructureByParts } from "./epic-structure";
 import { Semaphore } from "../semaphore";
+import { backoffDelay, sleep as defaultSleep } from "../async";
 import type { GithubCacheEntry, GithubReadCache, IssueRelations } from "../github-read-cache";
 import { bodyWithIssueLink } from "./issue-link";
 import {
@@ -158,8 +159,6 @@ const MERGE_ASYNC_POLL_ATTEMPTS = 15;
  *  Those routes size their own budget off THIS constant (see `slowRequestTimeoutSec`) rather than
  *  hardcoding a second number that could silently drift out of step with it. */
 export const MERGE_ASYNC_MAX_WAIT_MS = MERGE_ASYNC_POLL_MS * MERGE_ASYNC_POLL_ATTEMPTS;
-
-const defaultSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** The `{ status, details }` body BOTH merge-async endpoints return (PUT and the uuid GET).
  *  Note the uuid lives at `details.uuid`, NOT at the top level. */
@@ -1805,10 +1804,10 @@ export class GithubForge implements GitForge {
    *  failures stay quiet here, since the bucket trackers already log those edges. */
   private noteIssuesFailure(err: unknown): void {
     const strikes = (this.issuesFailure?.strikes ?? 0) + 1;
-    const ms = Math.min(
-      ISSUES_FAILURE_BACKOFF_MS * 2 ** (strikes - 1),
-      ISSUES_FAILURE_BACKOFF_MAX_MS,
-    );
+    const ms = backoffDelay(strikes, {
+      baseMs: ISSUES_FAILURE_BACKOFF_MS,
+      maxMs: ISSUES_FAILURE_BACKOFF_MAX_MS,
+    });
     const until = this.now() + ms;
     this.issuesFailure = { err, until, strikes };
     const attempts = attemptsOf(err) ?? [];
@@ -4218,7 +4217,10 @@ export class GithubForge implements GitForge {
         const prev = this.epicStructures.get(parentNumber);
         const keep = prev?.complete ? prev : { at, structure, contentKey: fpKey, complete };
         const failures = (prev?.failures ?? 0) + 1;
-        const wait = Math.min(EPIC_STRUCTURE_RETRY_MS * 2 ** (failures - 1), EPIC_STRUCTURE_TTL_MS);
+        const wait = backoffDelay(failures, {
+          baseMs: EPIC_STRUCTURE_RETRY_MS,
+          maxMs: EPIC_STRUCTURE_TTL_MS,
+        });
         this.epicStructures.set(parentNumber, { ...keep, retryAt: at + wait, failures });
         return keep.structure;
       })

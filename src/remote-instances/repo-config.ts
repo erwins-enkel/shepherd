@@ -8,6 +8,7 @@ import {
 import type { RepoConfigView } from "../repo-config-service";
 import { repoConfigDefaults } from "../store";
 import { isRecord, requestRemote, type FetchLike, type RemoteTarget } from "./client";
+import { withTimeout } from "../async";
 
 export interface RepoMachine {
   instanceId: string;
@@ -140,24 +141,16 @@ export class RepoConfigCoordinator {
       }
       return JSON.parse(text + decoder.decode()) as unknown;
     };
-    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      value = await Promise.race([
-        readJson(),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => {
-            reject(new Error("timeout"));
-            void reader?.cancel().catch(() => {});
-          }, 5_000);
-        }),
-      ]);
+      value = await withTimeout(readJson(), 5_000, () => {
+        void reader?.cancel().catch(() => {});
+        throw new Error("timeout");
+      });
     } catch {
       return Response.json(
         { error: "invalid machine response", reason: "bad_response" },
         { status: 502 },
       );
-    } finally {
-      clearTimeout(timer);
     }
     if (!isRecord(value))
       return Response.json(

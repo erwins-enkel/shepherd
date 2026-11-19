@@ -5,8 +5,8 @@ import { config } from "./config";
 import { compileCacheDir } from "./tmp-sweep";
 import { isApiKeyMode } from "./spawn-auth";
 import { claudeConfigPath, readRepoRootTrusted, trustRepoRoot } from "./claude-trust";
+import { sleep } from "./async";
 
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const decoder = new TextDecoder();
 
 /**

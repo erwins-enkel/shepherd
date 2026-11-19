@@ -41,6 +41,7 @@ import { toPluginSessionSnapshot } from "./session-view";
 import { validatePluginGearItem, validatePluginUIView } from "./ui-validate";
 import type { Session } from "../types";
 import type { GitState } from "../forge/types";
+import { withTimeout } from "../async";
 
 const DEFAULT_HOOK_TIMEOUT_MS = 5_000;
 
@@ -674,11 +675,9 @@ export class PluginRegistry {
 
   private withTimeout<T>(p: Promise<T>, pluginId: string): Promise<T> {
     const ms = this.deps.hookTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS;
-    let timer: ReturnType<typeof setTimeout>;
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new HookTimeoutError(pluginId, ms)), ms);
+    return withTimeout(p, ms, () => {
+      throw new HookTimeoutError(pluginId, ms);
     });
-    return Promise.race([p, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
   }
 
   /** Dispatch a `/api/plugins/<id>/<subPath>` request to a plugin-registered route.

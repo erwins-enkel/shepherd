@@ -18,6 +18,7 @@ import {
   type TriageState,
   type TriageVerdict,
 } from "./state";
+import { backoffDelay } from "../../../async";
 
 const REASON_MAX = 300;
 /** runReadonly codes that mean "couldn't run now": retry, don't spend the verdict. */
@@ -136,7 +137,7 @@ export function createTriage(deps: TriageDeps): Triage {
 
   function backoff(t: TriageState | undefined): Pick<TriageState, "retries" | "retryAt"> {
     const retries = (t?.retries ?? 0) + 1;
-    const wait = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (retries - 1));
+    const wait = backoffDelay(retries, { baseMs: RETRY_BASE_MS, maxMs: RETRY_MAX_MS });
     return { retries, retryAt: nowMs() + wait };
   }
 

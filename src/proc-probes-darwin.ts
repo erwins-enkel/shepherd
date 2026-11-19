@@ -6,6 +6,7 @@ import { config } from "./config";
 // `timed` so `logRemainingOnLoopBlockers` and the profile flag can see it.
 import { execFileSync } from "./instrument";
 import type { ReaperProbes } from "./process-reaper";
+import { withTimeout } from "./async";
 
 // ── darwin probe backend ─────────────────────────────────────────────────────
 //
@@ -578,14 +579,7 @@ export function makeDarwinProbes(opts: DarwinProbeOptions = {}): DarwinProbes {
         forcedInFlight = null;
       });
     }
-    const chain = forcedInFlight;
-    let timer: ReturnType<typeof setTimeout>;
-    const budget = new Promise<void>((resolve) => {
-      timer = setTimeout(resolve, budgetMs);
-    });
-    return Promise.race([chain, budget]).then(() => {
-      clearTimeout(timer);
-    });
+    return withTimeout(forcedInFlight, budgetMs, () => undefined);
   }
 
   return {

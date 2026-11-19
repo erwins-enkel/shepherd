@@ -18,6 +18,7 @@ import { SHELLS } from "./json-tolerant";
 import type { HerdrState, LivenessState, SessionStatus } from "./types";
 import type { RequestPaneAgentState } from "./generated/herdr-protocol";
 import { execFileAsync } from "./instrument";
+import { sleep as defaultSleep } from "./async";
 
 export interface HerdrAgent {
   agent: string;
@@ -1071,8 +1072,7 @@ export class HerdrDriver implements IHerdrDriver {
   constructor(
     private asyncRunner: AsyncRunner = defaultAsyncRunner,
     /** Injectable delay for the trusted-spawn auto-detect poll; overridden in tests to run instantly. */
-    private sleep: (ms: number) => Promise<void> = (ms) =>
-      new Promise((r) => setTimeout(r, ms).unref?.()),
+    private sleep: (ms: number) => Promise<void> = (ms) => defaultSleep(ms, { unref: true }),
     /** Injectable clock for the auto-detect deadline; tests pair it with a fake `sleep`. */
     private now: () => number = Date.now,
   ) {}

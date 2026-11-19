@@ -21,6 +21,7 @@ import { STRINGS, type Strings } from "./panel";
 import type { Candidate } from "./poller";
 import { collapseMatrix, globMatch, observe, RUN_JOB } from "./rules";
 import { readKey, readSettings, writeKey, type ClassifyOutcome } from "./state";
+import { backoffDelay } from "../../../async";
 
 /** JEV classes; only {@link JEV_PASS} continue to triage. */
 const JEV_CLASSES = {
@@ -246,7 +247,7 @@ export function createClassifier(deps: ClassifyDeps): Classifier {
   /** Next retry of a deferred record: doubles per retry, capped. */
   function backoff(r: ClassifyRecord): Pick<ClassifyRecord, "retries" | "retryAt"> {
     const retries = (r.retries ?? 0) + 1;
-    const wait = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (retries - 1));
+    const wait = backoffDelay(retries, { baseMs: RETRY_BASE_MS, maxMs: RETRY_MAX_MS });
     return { retries, retryAt: deps.now().getTime() + wait };
   }
 

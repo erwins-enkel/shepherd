@@ -2,6 +2,8 @@
 // Every parser is defensive: Sentry data (and anything a public DSN lets a client send) is
 // untrusted, so an unexpected shape yields null / an empty list, never a throw.
 
+import { backoffDelay } from "../../../async";
+
 export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 const TIMEOUT_MS = 20_000;
@@ -225,8 +227,11 @@ export function nextBackoff(status: number, headers: Headers, now: number, prev:
     if (retryAfter !== null && retryAfter > 0)
       return { until: now + retryAfter * 1000, strikes: 0 };
     if (resetMs !== null) return { until: resetMs, strikes: 0 };
-    const minutes = Math.min(MAX_BACKOFF_MIN, 2 ** prev.strikes);
-    return { until: now + minutes * 60_000, strikes: prev.strikes + 1 };
+    const wait = backoffDelay(prev.strikes + 1, {
+      baseMs: 60_000,
+      maxMs: MAX_BACKOFF_MIN * 60_000,
+    });
+    return { until: now + wait, strikes: prev.strikes + 1 };
   }
   if (headerNum(headers, "x-sentry-rate-limit-remaining") === 0 && resetMs !== null) {
     return { until: resetMs, strikes: 0 };

@@ -17,6 +17,8 @@
  *    `parseRetryAfter`) with no side-effects, easily unit-tested.
  */
 
+import { backoffDelay } from "../async";
+
 // ── Public types ──────────────────────────────────────────────────────────────
 
 /** Immutable view of the current rate-limit state. */
@@ -188,10 +190,10 @@ export class BucketRateLimit {
       return;
     }
     if (!this.blocked()) this._strikes++;
-    const cooldownMs = Math.min(
-      this._defaultCooldownMs * 2 ** Math.max(0, this._strikes - 1),
-      this._maxCooldownMs,
-    );
+    const cooldownMs = backoffDelay(this._strikes, {
+      baseMs: this._defaultCooldownMs,
+      maxMs: this._maxCooldownMs,
+    });
     this._engage(this._now() + cooldownMs, cause);
   }
 

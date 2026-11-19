@@ -15,6 +15,7 @@ import { codexHome, listRolloutFiles } from "./codex-usage";
 import { findCodexRolloutById, readSessionMeta } from "./codex-session-id";
 import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
 import type { AgentProvider, Session } from "./types";
+import { backoffDelay } from "./async";
 
 const CMD_MAX = 60;
 const DEFAULT_LIMIT = 30;
@@ -584,7 +585,7 @@ export class CodexRolloutResolver {
       );
     }
     const misses = (bo?.misses ?? 0) + 1;
-    const delay = Math.min(BACKOFF_BASE_MS * 2 ** (misses - 1), BACKOFF_CAP_MS);
+    const delay = backoffDelay(misses, { baseMs: BACKOFF_BASE_MS, maxMs: BACKOFF_CAP_MS });
     this.backoff.set(args.trackingId, { nextAt: this.deps.now() + delay, misses });
     return null;
   }
@@ -747,7 +748,10 @@ export class CodexTranscriptLocator {
     );
     if (!found) {
       const count = (miss?.count ?? 0) + 1;
-      const delay = Math.min(ROLLOUT_MISS_BASE_MS * 2 ** (count - 1), ROLLOUT_MISS_CAP_MS);
+      const delay = backoffDelay(count, {
+        baseMs: ROLLOUT_MISS_BASE_MS,
+        maxMs: ROLLOUT_MISS_CAP_MS,
+      });
       this.misses.set(id, { nextAt: now + delay, count });
       return null;
     }

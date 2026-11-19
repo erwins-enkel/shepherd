@@ -36,6 +36,7 @@ import {
 } from "./herdr-capabilities";
 import { spawnCommandLine } from "./spawn-script";
 import { SpawnCanceled } from "./spawn-progress";
+import { sleep as defaultSleep } from "./async";
 
 /**
  * Socket-backed `IHerdrDriver` (issues #1529, #1553, #1567): routes the async read surface —
@@ -65,8 +66,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
     private client: HerdrSocketClient,
     private cli: HerdrDriver,
     /** Injectable delay for the trusted-spawn auto-detect poll; overridden in tests to run instantly. */
-    private sleep: (ms: number) => Promise<void> = (ms) =>
-      new Promise((r) => setTimeout(r, ms).unref?.()),
+    private sleep: (ms: number) => Promise<void> = (ms) => defaultSleep(ms, { unref: true }),
     /** Injectable clock for the auto-detect deadline; tests pair it with a fake `sleep`. */
     private now: () => number = Date.now,
   ) {}

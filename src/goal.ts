@@ -12,6 +12,7 @@
  */
 import { readTranscriptTailAsync } from "./activity";
 import type { GoalState, Session } from "./types";
+import { withTimeout } from "./async";
 
 /** Claude Code's own cap on a goal condition. */
 export const GOAL_CONDITION_MAX = 4000;
@@ -121,12 +122,7 @@ export class GoalTracker {
 
   async #readTail(path: string): Promise<string | null> {
     const read = (this.deps.readTail ?? readTranscriptTailAsync)(path).catch(() => null);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<null>((resolve) => {
-      timer = setTimeout(() => resolve(null), this.deps.timeoutMs ?? STOP_READ_TIMEOUT_MS);
-      timer.unref?.();
-    });
-    return Promise.race([read, timeout]).finally(() => clearTimeout(timer));
+    return withTimeout(read, this.deps.timeoutMs ?? STOP_READ_TIMEOUT_MS, () => null);
   }
 
   #reconcile(s: Session, active: string | null): void {

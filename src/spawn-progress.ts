@@ -1,3 +1,5 @@
+import { sleep } from "./async";
+
 /**
  * Phase measurement for one agent spawn (`SessionService.create`).
  *
@@ -59,7 +61,7 @@ export interface SpawnPhaseTrackerDeps {
   yieldToLoop?: () => Promise<void>;
 }
 
-const realYield = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+const realYield = (): Promise<void> => sleep(0);
 
 function secs(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;

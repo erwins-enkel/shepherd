@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { CodexAccountSnapshot, CodexResetOutcome, CodexResetRequest } from "./codex-account";
 import type { CodexResetStatus } from "./usage-limits";
+import { backoffDelay } from "./async";
 
 const MINUTE = 60_000;
 const STATE_KEY = "codexResetState";
@@ -319,7 +320,7 @@ export class CodexResetCoordinator {
   }
   private async consume(op: Operation): Promise<void> {
     op.attempts++;
-    op.retryAt = this.now() + Math.min(300_000, 30_000 * 2 ** Math.min(op.attempts - 1, 4));
+    op.retryAt = this.now() + backoffDelay(op.attempts, { baseMs: 30_000, maxMs: 300_000 });
     this.save();
     try {
       const result = await this.deps.client.consumeReset(op.request);

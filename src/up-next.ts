@@ -26,6 +26,7 @@ import {
   type EpicUnitInput,
   type UpNextSnapshot,
 } from "./up-next-core";
+import { sleep } from "./async";
 
 export interface UpNextRepo {
   repoPath: string;
@@ -360,7 +361,7 @@ export class UpNextService {
     let read = await forge.openPullRequest(number);
     for (const delay of this.syncRetryDelays) {
       if (read?.pr.mergeable !== null) break;
-      await new Promise<void>((r) => setTimeout(r, delay).unref?.());
+      await sleep(delay, { unref: true });
       read = await forge.openPullRequest(number);
     }
     patchPr(forge, number, read);
@@ -515,7 +516,7 @@ export class UpNextService {
     if (started.length === 0) return;
     for (let i = 0; i < this.postStartRetryDelays.length; i++) {
       const delay = this.postStartRetryDelays[i]!;
-      if (delay > 0) await new Promise<void>((r) => setTimeout(r, delay).unref?.());
+      if (delay > 0) await sleep(delay, { unref: true });
       try {
         const snap = await this.recompute();
         if (!this.stillPresent(snap, started)) return;

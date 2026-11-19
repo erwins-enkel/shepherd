@@ -762,6 +762,12 @@ components:
         manualSteps:
           type: array
           items: { type: object, additionalProperties: true }
+        artifacts:
+          type: array
+          items: { $ref: "#/components/schemas/SessionArtifact" }
+          description: >-
+            Artifacts the agent published with Claude Code's `Artifact` tool (#3875), in first-seen
+            order; `session:artifacts` carries every change. Absent from servers before #3875.
         experimentId: { type: [string, "null"] }
         experimentRole:
           oneOf:
@@ -2054,6 +2060,38 @@ components:
         subagents:
           type: array
           items: { $ref: "#/components/schemas/SubagentEntry" }
+    SessionArtifact:
+      type: object
+      additionalProperties: true
+      description: >-
+        SessionArtifact (src/session-artifacts.ts, #3875) — one artifact the agent published with
+        Claude Code's `Artifact` tool; one entry per url. `title` and `url` are agent data: render
+        them as text only.
+      required: [url, title, versions, firstSeenAt, updatedAt, toolUseId]
+      properties:
+        url:
+          type: string
+          description: "`https://claude.ai/artifact/<id>` or `https://claude.ai/code/artifact/<id>`, no query or fragment."
+        title:
+          type: string
+          description: The call's title, else the published HTML file's `<title>`, else the shortened url.
+        versions:
+          type: integer
+          description: The result's `seq` on the first publish (else 1); grows by at least one on every re-publish of the url.
+        firstSeenAt: { type: integer }
+        updatedAt: { type: integer }
+        toolUseId:
+          type: [string, "null"]
+          description: The `tool_use_id` of the latest publish.
+    SessionArtifactsEvent:
+      type: object
+      additionalProperties: true
+      required: [id, artifacts]
+      properties:
+        id: { type: string }
+        artifacts:
+          type: array
+          items: { $ref: "#/components/schemas/SessionArtifact" }
     SessionGoalEvent:
       type: object
       additionalProperties: true
@@ -15871,6 +15909,9 @@ x-shepherd-events:
   session:subagents:
     description: The session's sub-agent roster changed. Always the FULL current roster.
     schema: { $ref: "#/components/schemas/SessionSubagentsEvent" }
+  session:artifacts:
+    description: "The agent published an artifact (new or re-published, #3875). Always the session's FULL list."
+    schema: { $ref: "#/components/schemas/SessionArtifactsEvent" }
   session:goal:
     description: The session's Claude Code goal was held, armed, or changed in the transcript (#2596).
     schema: { $ref: "#/components/schemas/SessionGoalEvent" }

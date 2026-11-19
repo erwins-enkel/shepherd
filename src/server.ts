@@ -389,6 +389,7 @@ import {
 } from "./scratchpad";
 import { buildTaskExport, resolveTranscript } from "./task-export";
 import { readSubagentDescription } from "./subagent-meta";
+import { recordArtifactPublish } from "./session-artifacts";
 import { listWorktree, resolveWorktreeFile } from "./worktree-files";
 import { locateSessionFile } from "./file-locate";
 import { readHostFile, resolveHostFile, type HostLookup } from "./host-file";
@@ -9018,8 +9019,12 @@ async function handleSessionHooks({ req, parts, deps }: Ctx): Promise<Response |
   // claudeSessionId. On mismatch we still record (for the spike's visibility) but flag
   // `match: false` so HookIngest treats it as observe-only and never forwards to signals.
   const match = await handoffHookMatches(session, raw.sessionId, deps);
-  deps.hooks?.record(id, { ...raw, receivedAt: Date.now(), match });
-  if (match) void describeSubagent(deps, session, raw);
+  const receivedAt = Date.now();
+  deps.hooks?.record(id, { ...raw, receivedAt, match });
+  if (match) {
+    void describeSubagent(deps, session, raw);
+    recordHookArtifact(deps, session, raw, receivedAt);
+  }
   // #3165: a PreToolUse reply body is parsed as a hook DECISION; answer with nothing so the
   // AskUserQuestion dialog renders exactly as without the hook (spike: 200 + empty body).
   if (raw.event === "PreToolUse") return new Response(null, { status: 200 });
@@ -9028,6 +9033,26 @@ async function handleSessionHooks({ req, parts, deps }: Ctx): Promise<Response |
   if (raw.event === "Stop" && match && (await goalTracker(deps).onStop(session)).pause)
     return json({ continue: false, stopReason: PLAN_GATE_STOP_REASON });
   return (match && (await egressHookReply(deps, id, raw.event))) || json({ ok: true }, 202);
+}
+
+/** #3875: record a matched publishing Artifact call on the session and push it. Fire-and-forget like
+ *  describeSubagent — its title may need an async file read. */
+function recordHookArtifact(
+  deps: AppDeps,
+  session: Session,
+  raw: RawHookEvent,
+  receivedAt: number,
+): void {
+  if (!raw.artifact) return;
+  void recordArtifactPublish(
+    {
+      store: deps.store,
+      emit: (id, artifacts) => deps.events?.emit("session:artifacts", { id, artifacts }),
+    },
+    session,
+    raw.artifact,
+    receivedAt,
+  );
 }
 
 /** Delays (ms) between reads of a sub-agent's meta sidecar: when Claude Code writes it relative to

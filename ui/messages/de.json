@@ -9152,5 +9152,14 @@
   "readiness_g_ts_strict_title": "TypeScript-Strict-Modus",
   "readiness_g_ts_strict_removes": "Ohne ihn kommen implizites any und ungeprüftes null durch den Typprüfer und landen in deinem Review.",
   "feat_readiness_ts_strict_title": "Readiness prüft TypeScript-Strictness",
-  "feat_readiness_ts_strict_body": "Der Readiness-Tab bewertet jetzt, ob die tsconfig eines TypeScript-Repos auf strict: true auflöst, inklusive lokaler extends-Ketten. Eine nicht strikte oder nicht auflösbare Konfiguration erscheint mit Begründung in der Empfehlung."
+  "feat_readiness_ts_strict_body": "Der Readiness-Tab bewertet jetzt, ob die tsconfig eines TypeScript-Repos auf strict: true auflöst, inklusive lokaler extends-Ketten. Eine nicht strikte oder nicht auflösbare Konfiguration erscheint mit Begründung in der Empfehlung.",
+  "artifactrow_label": "Artefakt",
+  "artifactrow_version": "Fassung {n}",
+  "artifactrow_updated": "aktualisiert {when}",
+  "artifactrow_copy": "Link kopieren",
+  "artifactrow_copied": "Link kopiert",
+  "artifactrow_open": "Öffnen ↗",
+  "artifactrow_aria": "Artefakt dieser Sitzung",
+  "feat_artifact_row_title": "Artefakte über der Steer-Leiste",
+  "feat_artifact_row_body": "Veröffentlicht der Agent ein Artefakt auf claude.ai und hat die Sitzung noch keinen PR, erscheint das neueste über der Steer-Leiste. Du öffnest es in einem neuen Tab oder kopierst den Link, ohne im Chat zu scrollen."
 }

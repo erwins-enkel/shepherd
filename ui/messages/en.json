@@ -9152,5 +9152,14 @@
   "readiness_g_ts_strict_title": "TypeScript strict mode",
   "readiness_g_ts_strict_removes": "Without it, implicit any and unchecked null pass the type checker and land in your review.",
   "feat_readiness_ts_strict_title": "Readiness checks TypeScript strictness",
-  "feat_readiness_ts_strict_body": "The Readiness tab now scores whether a TypeScript repo's tsconfig resolves to strict: true, following local extends chains. A non-strict or unresolvable config shows up in the prescription with the reason."
+  "feat_readiness_ts_strict_body": "The Readiness tab now scores whether a TypeScript repo's tsconfig resolves to strict: true, following local extends chains. A non-strict or unresolvable config shows up in the prescription with the reason.",
+  "artifactrow_label": "Artifact",
+  "artifactrow_version": "Version {n}",
+  "artifactrow_updated": "updated {when}",
+  "artifactrow_copy": "Copy link",
+  "artifactrow_copied": "Link copied",
+  "artifactrow_open": "Open ↗",
+  "artifactrow_aria": "Artifact of this session",
+  "feat_artifact_row_title": "Artifacts above the steer bar",
+  "feat_artifact_row_body": "When the agent publishes an artifact on claude.ai and the session has no PR yet, the newest one appears above the steer bar. Open it in a new tab or copy its link without scrolling the chat."
 }

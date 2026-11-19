@@ -939,6 +939,10 @@ export class HerdStore {
       case "session:subagents":
         this.subagents = setKey(this.subagents, ev.data.id, ev.data.subagents);
         return true;
+      case "session:artifacts":
+        // #3875: always the session's full list.
+        this.patchSession(ev.data.id, { artifacts: ev.data.artifacts });
+        return true;
       case "session:background-busy":
         this.setBackgroundBusyFlag(ev.data.id, ev.data.busy);
         return true;

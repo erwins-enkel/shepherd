@@ -81,3 +81,13 @@ test("repository policy: unknown and unresolvable event shapes are not trusted",
   ).toBe(false);
   expect(filterRepositoryEvent("queue:update", { id: "own" }, allowed)).toBe(false);
 });
+
+test("repository policy: a session's artifacts reach only a token that may see the session (#3875)", () => {
+  const allowed = (id: string) => id === "own";
+  expect(filterRepositoryEvent("session:artifacts", { id: "own", artifacts: [] }, allowed)).toBe(
+    true,
+  );
+  expect(filterRepositoryEvent("session:artifacts", { id: "other", artifacts: [] }, allowed)).toBe(
+    false,
+  );
+});

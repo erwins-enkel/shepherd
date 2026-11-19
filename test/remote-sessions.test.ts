@@ -982,3 +982,25 @@ test("an empty remote machine still announces rename, disconnect and reconnect",
   await flush();
   expect(t.events).toHaveLength(3);
 });
+
+test("a relayed session:artifacts frame updates the mirrored session (#3875)", async () => {
+  const t = setup();
+  const socket = await t.live();
+  const artifacts = [
+    {
+      url: "https://claude.ai/artifact/AAAAAAAAAAAAAAAAAAAAA1",
+      title: "Canvas",
+      versions: 2,
+      firstSeenAt: 1,
+      updatedAt: 2,
+      toolUseId: null,
+    },
+  ];
+  t.events.length = 0;
+  send(socket, "session:artifacts", { id: S1, artifacts });
+  expect(t.mirror.session(S1)).toMatchObject({ artifacts });
+  expect(t.events.map(([event]) => event)).toEqual(["session:artifacts"]);
+  // A frame without a list is relayed but never overwrites the held one.
+  send(socket, "session:artifacts", { id: S1, artifacts: "junk" });
+  expect(t.mirror.session(S1)).toMatchObject({ artifacts });
+});

@@ -130,6 +130,31 @@ describe("remote sessions (#2762)", () => {
     ]);
   });
 
+  test("a machine's artifacts frame sets only the list on its session (#3875)", () => {
+    const artifacts = [
+      {
+        url: "https://claude.ai/artifact/GEQx5QVP82WzdTBfcxx313",
+        title: "Canvas",
+        versions: 1,
+        firstSeenAt: 1,
+        updatedAt: 1,
+        toolUseId: null,
+      },
+    ];
+    const list = [s("a", { name: "kept" }), s("b")];
+    const next = reduceRemoteSessions(list, {
+      event: "session:artifacts",
+      data: { id: "a", artifacts, host: HOST, connection: LIVE },
+    });
+    expect(next?.[0]).toEqual({ ...list[0], artifacts });
+    expect(next?.[1]).toBe(list[1]);
+    const junk = reduceRemoteSessions(list, {
+      event: "session:artifacts",
+      data: { id: "a", artifacts: "junk", host: HOST, connection: LIVE },
+    });
+    expect(junk).toBe(list);
+  });
+
   test("a status for an unknown mirrored session is consumed without adding it", () => {
     const next = reduceRemoteSessions([], {
       event: "session:status",

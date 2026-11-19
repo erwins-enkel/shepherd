@@ -66,6 +66,7 @@ import type {
 } from "./types";
 import type { VisualBlock } from "./visual-blocks";
 import type { ManualStep } from "./manual-steps";
+import type { SessionArtifact } from "./session-artifacts";
 import type { PromptBlockMeasure } from "./prompt-budget";
 import type { TaskAmendment } from "./task-amendments";
 import type {
@@ -917,7 +918,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
  * `COLS` also keeps that constant aligned with `create()`'s placeholder list.
  */
 const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits, settledAt,
-  claudeAiConnectors, ingressStamp, shelved, usagePauseJson, scheduleId, goalCondition, goalState,
+  claudeAiConnectors, ingressStamp, shelved, usagePauseJson, artifactsJson, scheduleId, goalCondition, goalState,
   (SELECT name FROM schedules WHERE schedules.id = sessions.scheduleId) AS scheduleName,
   (bootstrapStackJson IS NOT NULL OR bootstrapPhase IS NOT NULL) AS bootstrap`;
 
@@ -1038,6 +1039,7 @@ type SessionRow = {
   ingressStamp: string | null;
   shelved: number;
   usagePauseJson: string | null;
+  artifactsJson: string | null;
   launchMetadataJson: string | null;
   codexLaunchId: string | null;
 };
@@ -1237,6 +1239,28 @@ function parseLaunchMetadataJson(raw: string | null | undefined): SessionLaunchM
 
 function launchMetadataJson(value: SessionLaunchMetadata | null | undefined): string | null {
   return value ? JSON.stringify(value) : null;
+}
+
+/** Tolerantly parse the persisted artifacts JSON back to SessionArtifact[] (never throws). #3875. */
+function parseArtifactsJson(raw: string | null | undefined): SessionArtifact[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (a): a is SessionArtifact =>
+        !!a &&
+        typeof a === "object" &&
+        typeof a.url === "string" &&
+        typeof a.title === "string" &&
+        typeof a.versions === "number" &&
+        typeof a.firstSeenAt === "number" &&
+        typeof a.updatedAt === "number" &&
+        (typeof a.toolUseId === "string" || a.toolUseId === null),
+    );
+  } catch {
+    return [];
+  }
 }
 
 /** Tolerantly parse the persisted manualSteps JSON back to ManualStep[] (never throws). #1059. */
@@ -4393,6 +4417,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       haltedAt: null,
       manualSteps: [],
       manualStepsAckedAt: null,
+      artifacts: [],
       experimentId: null,
       experimentRole: null,
       spawnTerminalId: null, // stamped post-create by persistSpawnIdentity
@@ -6616,6 +6641,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     ]);
   }
 
+  /** Persist a session's published artifacts (#3875) — always the whole list, as
+   *  src/session-artifacts.ts merged it. Dedicated setter, like {@link setSessionManualSteps}. */
+  setSessionArtifacts(id: string, artifacts: SessionArtifact[]): void {
+    this.db.run(`UPDATE sessions SET artifactsJson = ?, updatedAt = ? WHERE id = ?`, [
+      JSON.stringify(artifacts),
+      Date.now(),
+      id,
+    ]);
+  }
+
   /** Acknowledge a session's manual operator steps (#1060): stamp `manualStepsAckedAt`, clearing
    *  the auto-merge gate. Ack = "operator owns these" (acknowledged-will-do, mirrors
    *  {@link ackEpicMigrations}) — NOT an assertion the steps are done. Idempotent: `COALESCE`
@@ -7571,6 +7606,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // Operator shelve flag (written only via setShelved).
     add("shelved", `shelved INTEGER NOT NULL DEFAULT 0`);
     add("usagePauseJson", `usagePauseJson TEXT`);
+    // #3875: the artifacts the agent published (JSON SessionArtifact[]), written only via
+    // setSessionArtifacts. Nullable: NULL reads as none.
+    add("artifactsJson", `artifactsJson TEXT`);
     add("scheduleBudgetJson", `scheduleBudgetJson TEXT`);
     add("scheduleBudgetEnded", `scheduleBudgetEnded INTEGER NOT NULL DEFAULT 0`);
     add("usagePauseOptOut", `usagePauseOptOut INTEGER NOT NULL DEFAULT 0`);
@@ -8524,7 +8562,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   private hydrate(r: SessionRow): Session {
-    const { manualStepsJson, launchMetadataJson, usagePauseJson, ...session } = r;
+    const { manualStepsJson, launchMetadataJson, usagePauseJson, artifactsJson, ...session } = r;
     return {
       ...session,
       isolated: !!r.isolated,
@@ -8591,6 +8629,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       ingressStamp: r.ingressStamp,
       shelved: !!r.shelved,
       usagePause: safeJsonParse<UsagePause | null>(usagePauseJson, null),
+      artifacts: parseArtifactsJson(artifactsJson),
     } as Session;
   }
 

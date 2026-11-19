@@ -645,6 +645,10 @@ export class RemoteSessionMirror {
       case "session:automerge":
         patch = { autoMergeEnabled: data.enabled };
         break;
+      case "session:artifacts":
+        if (!Array.isArray(data.artifacts)) return;
+        patch = { artifacts: data.artifacts };
+        break;
       case "session:autopilot":
         patch = {
           autopilotEnabled: data.enabled,

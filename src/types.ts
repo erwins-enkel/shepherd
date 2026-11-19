@@ -2,6 +2,7 @@ import type { HerdrRuntimeStatus } from "./herdr-runtime";
 import type { SandboxProfile } from "./sandbox";
 import type { VisualBlock } from "./visual-blocks";
 import type { ManualStep } from "./manual-steps";
+import type { SessionArtifact } from "./session-artifacts";
 import type { PromptBlockMeasure } from "./prompt-budget";
 import type { TaskAmendment } from "./task-amendments";
 import type { Capability } from "./remote-instances/capabilities";
@@ -283,6 +284,9 @@ export interface Session {
   manualSteps: ManualStep[];
   /** Epoch ms the operator acknowledged the manual steps; null until acknowledged. Written by P2. */
   manualStepsAckedAt: number | null;
+  /** Artifacts the agent published with Claude Code's `Artifact` tool (#3875), first-seen order.
+   *  Every stored row carries the list (`[]` when none); absent only on a session built elsewhere. */
+  artifacts?: SessionArtifact[];
   /** Comparison-experiment group id this session belongs to; null = not part of an experiment.
    *  All variants of one task + their comparison session share this id. */
   experimentId: string | null;

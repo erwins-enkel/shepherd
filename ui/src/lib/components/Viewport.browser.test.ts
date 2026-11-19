@@ -3235,6 +3235,59 @@ describe("Viewport — merge row above the steer bar", () => {
     await vi.waitFor(() => expect(container.querySelector("button.recap-header")).not.toBeNull());
     expect(container.querySelector("section.pr-row")).toBeNull();
   });
+
+  // #3875: the artifact row takes the merge row's place without a PR, and only then.
+  const artifacts = [
+    {
+      url: "https://claude.ai/artifact/GEQx5QVP82WzdTBfcxx313",
+      title: "Design canvas",
+      versions: 2,
+      firstSeenAt: 1,
+      updatedAt: 2,
+      toolUseId: null,
+    },
+  ];
+
+  it("an artifact without a PR: status strip → artifact row → steer row", async () => {
+    const { container } = await render(Viewport, {
+      session: session({ id: "ar-desk", artifacts }),
+      git: null,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    const row = await vi.waitFor(() => {
+      const r = container.querySelector("section.artifact-row");
+      expect(r, "artifact row mounted").not.toBeNull();
+      return r!;
+    });
+    expect(row.textContent).toContain("Design canvas");
+    expect(follows(container.querySelector(".ssb")!, row), "below the status strip").toBe(true);
+    expect(follows(row, container.querySelector(".steer-row")!), "above the steer row").toBe(true);
+    expect(container.querySelector("section.pr-row")).toBeNull();
+  });
+
+  it("with an open PR the merge row shows and the artifact row does not", async () => {
+    const { container } = await render(Viewport, {
+      session: session({ id: "ar-pr", artifacts }),
+      git: openGit,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(container.querySelector("section.pr-row")).not.toBeNull());
+    expect(container.querySelector("section.artifact-row")).toBeNull();
+  });
+
+  it("no artifact, no PR: no row at all", async () => {
+    const { container } = await render(Viewport, {
+      session: session({ id: "ar-none", artifacts: [] }),
+      git: null,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(container.querySelector(".steer-row")).not.toBeNull());
+    expect(container.querySelector("section.artifact-row")).toBeNull();
+    expect(container.querySelector("section.pr-row")).toBeNull();
+  });
 });
 
 // ── Phone: the Chat keeps the height ─────────────────────────────────────────

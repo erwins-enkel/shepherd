@@ -9,10 +9,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { TOOLS_MAX } from "../src/agent-messages";
 import {
   applyArtifactPublish,
+  applyArtifactsHide,
+  applyArtifactsUnhide,
   readTitleInWorktree,
   recordArtifactPublish,
+  setSessionArtifactsHidden,
   TITLE_READ_LIMITS,
   type SessionArtifact,
 } from "../src/session-artifacts";
@@ -38,6 +42,7 @@ describe("applyArtifactPublish", () => {
         firstSeenAt: 100,
         updatedAt: 100,
         toolUseId: "t1",
+        toolUseIds: ["t1"],
       },
     ]);
     const two = applyArtifactPublish(
@@ -74,6 +79,7 @@ describe("applyArtifactPublish", () => {
         firstSeenAt: 100,
         updatedAt: 200,
         toolUseId: "t2",
+        toolUseIds: ["t2"],
       },
     ]);
     list = applyArtifactPublish(
@@ -83,6 +89,7 @@ describe("applyArtifactPublish", () => {
     );
     expect(list[0]?.versions).toBe(8);
     expect(list[0]?.toolUseId).toBeNull();
+    expect(list[0]?.toolUseIds).toEqual(["t2"]);
   });
 
   test("a fallback title never replaces a title the entry has; a real one does", () => {
@@ -115,6 +122,151 @@ describe("applyArtifactPublish", () => {
     );
     expect(list).toHaveLength(60);
     expect(list[0]).toMatchObject({ versions: 4, firstSeenAt: 0, updatedAt: 99 });
+  });
+});
+
+describe("publish ids (#3877)", () => {
+  const publish = (list: SessionArtifact[], url: string, toolUseId: string, now: number) =>
+    applyArtifactPublish(list, { url, title: "T", titleIsFallback: false, toolUseId }, now);
+
+  test("two versions of one url keep both ids; toolUseId names the latest", () => {
+    const list = publish(publish([], URL_A, "t1", 1), URL_A, "t2", 2);
+    expect(list[0]).toMatchObject({ toolUseId: "t2", toolUseIds: ["t1", "t2"], versions: 2 });
+  });
+
+  test("an entry recorded before #3877 is seeded from its toolUseId", () => {
+    const legacy: SessionArtifact = {
+      url: URL_A,
+      title: "T",
+      versions: 1,
+      firstSeenAt: 1,
+      updatedAt: 1,
+      toolUseId: "t1",
+    };
+    expect(publish([legacy], URL_A, "t2", 2)[0]?.toolUseIds).toEqual(["t1", "t2"]);
+  });
+
+  test("a known id moves to the end; the list keeps the newest TOOLS_MAX", () => {
+    let list: SessionArtifact[] = [];
+    for (let i = 0; i < TOOLS_MAX + 5; i++) list = publish(list, URL_A, `t${i}`, i);
+    const ids = list[0]?.toolUseIds ?? [];
+    expect(ids).toHaveLength(TOOLS_MAX);
+    expect(ids[0]).toBe("t5");
+    expect(ids.at(-1)).toBe(`t${TOOLS_MAX + 4}`);
+    list = publish(list, URL_A, "t10", 999);
+    expect(list[0]?.toolUseIds?.filter((t) => t === "t10")).toHaveLength(1);
+    expect(list[0]?.toolUseIds?.at(-1)).toBe("t10");
+  });
+});
+
+describe("hide for this session (#3877)", () => {
+  const two = (): SessionArtifact[] => {
+    let list = applyArtifactPublish(
+      [],
+      { url: URL_A, title: "A", titleIsFallback: false, toolUseId: "t1" },
+      10,
+    );
+    list = applyArtifactPublish(
+      list,
+      { url: URL_B, title: "B", titleIsFallback: false, toolUseId: "t2" },
+      20,
+    );
+    return list;
+  };
+
+  test("a hide stamps every entry; stamps rise strictly, also within one millisecond", () => {
+    const first = applyArtifactsHide(two(), 100);
+    expect(first.hiddenAt).toBe(100);
+    expect(first.list.map((a) => a.hiddenAt)).toEqual([100, 100]);
+    const second = applyArtifactsHide(first.list, 100);
+    expect(second.hiddenAt).toBe(101);
+    expect(second.list.map((a) => a.hiddenAt)).toEqual([101, 101]);
+  });
+
+  test("a re-publish keeps the stamp; a new url enters without one", () => {
+    const { list } = applyArtifactsHide(two(), 100);
+    const again = applyArtifactPublish(
+      list,
+      { url: URL_A, title: "A", titleIsFallback: false, toolUseId: "t3" },
+      200,
+    );
+    expect(again[0]).toMatchObject({ hiddenAt: 100, toolUseIds: ["t1", "t3"] });
+    const added = applyArtifactPublish(
+      again,
+      {
+        url: "https://claude.ai/artifact/CCCCCCCCCCCCCCCCCCCCC3",
+        title: "C",
+        titleIsFallback: false,
+      },
+      300,
+    );
+    expect(added[2]?.hiddenAt).toBeUndefined();
+  });
+
+  test("an undo of the newest hide clears every stamp and keeps the publish ids", () => {
+    const { list, hiddenAt } = applyArtifactsHide(two(), 100);
+    const cleared = applyArtifactsUnhide(list, hiddenAt);
+    expect(cleared?.some((a) => "hiddenAt" in a)).toBe(false);
+    expect(cleared?.map((a) => a.toolUseIds)).toEqual([["t1"], ["t2"]]);
+  });
+
+  test("hide (A) → new url → hide (B) → undo A is superseded and changes nothing", () => {
+    const a = applyArtifactsHide(two(), 100);
+    const withNew = applyArtifactPublish(
+      a.list,
+      {
+        url: "https://claude.ai/artifact/CCCCCCCCCCCCCCCCCCCCC3",
+        title: "C",
+        titleIsFallback: false,
+      },
+      150,
+    );
+    const b = applyArtifactsHide(withNew, 200);
+    expect(applyArtifactsUnhide(b.list, a.hiddenAt)).toBeNull();
+    expect(applyArtifactsUnhide(b.list, b.hiddenAt)?.every((x) => x.hiddenAt === undefined)).toBe(
+      true,
+    );
+  });
+
+  test("an undo with nothing hidden is superseded", () => {
+    expect(applyArtifactsUnhide(two(), 100)).toBeNull();
+  });
+
+  test("setSessionArtifactsHidden persists and pushes; unknown and stale are told apart", () => {
+    const store = new SessionStore(":memory:");
+    const session = store.create({
+      name: "t",
+      prompt: "p",
+      repoPath: "/tmp",
+      baseBranch: "main",
+      branch: "shepherd/t",
+      worktreePath: "/tmp",
+      isolated: false,
+      herdrSession: "h",
+      herdrAgentId: "a",
+      model: null,
+    });
+    store.setSessionArtifacts(session.id, two());
+    const pushed: SessionArtifact[][] = [];
+    const sink = { store, emit: (_id: string, list: SessionArtifact[]) => pushed.push(list) };
+    const hidden = setSessionArtifactsHidden(sink, session.id, { hidden: true }, 500);
+    expect(hidden).toMatchObject({ hiddenAt: 500 });
+    expect(store.get(session.id)?.artifacts?.map((a) => a.hiddenAt)).toEqual([500, 500]);
+    expect(pushed).toHaveLength(1);
+    expect(setSessionArtifactsHidden(sink, session.id, { hidden: false, hiddenAt: 499 }, 600)).toBe(
+      "superseded",
+    );
+    expect(pushed).toHaveLength(1);
+    expect(setSessionArtifactsHidden(sink, "missing", { hidden: true }, 600)).toBe("not-found");
+    const undone = setSessionArtifactsHidden(
+      sink,
+      session.id,
+      { hidden: false, hiddenAt: 500 },
+      700,
+    );
+    expect(undone).toMatchObject({ hiddenAt: null });
+    expect(store.get(session.id)?.artifacts?.some((a) => a.hiddenAt !== undefined)).toBe(false);
+    expect(pushed).toHaveLength(2);
   });
 });
 

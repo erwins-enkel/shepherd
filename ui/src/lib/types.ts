@@ -2415,6 +2415,8 @@ export interface ActivityEntry {
   tool: string;
   summary: string;
   status: "ok" | "error" | "pending";
+  /** The transcript's `tool_use.id` (Claude sessions, #3877); absent from older servers. */
+  toolUseId?: string;
 }
 
 /** Mirrors server `AgentMessage` (src/agent-messages.ts): one transcript text message. */
@@ -2463,7 +2465,14 @@ export interface SessionArtifact {
   versions: number;
   firstSeenAt: number;
   updatedAt: number;
+  /** The latest publish's call: where "show in Chat" jumps (#3877). */
   toolUseId: string | null;
+  /** Every recorded publish's call, oldest first (#3877): the Chat marks these. Absent from servers
+   *  before #3877 (fall back to `toolUseId`). */
+  toolUseIds?: string[];
+  /** Stamp of the operator hide that covered this entry (#3877); the row shows only while some
+   *  entry has none. */
+  hiddenAt?: number;
 }
 
 export interface LimitWindow {

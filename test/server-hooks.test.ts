@@ -480,6 +480,7 @@ test("recorded Artifact publishes are stored on the session and pushed as sessio
         firstSeenAt: expect.any(Number),
         updatedAt: expect.any(Number),
         toolUseId: "toolu_fixture_publish",
+        toolUseIds: ["toolu_fixture_publish"],
       },
     ]);
     expect(pushed.at(-1)).toEqual({
@@ -490,7 +491,11 @@ test("recorded Artifact publishes are stored on the session and pushed as sessio
     await post(app, session.id, body("republish"));
     await settle(2);
     expect(artifacts()).toHaveLength(1);
-    expect(artifacts()[0]).toMatchObject({ versions: 2, toolUseId: "toolu_fixture_republish" });
+    expect(artifacts()[0]).toMatchObject({
+      versions: 2,
+      toolUseId: "toolu_fixture_republish",
+      toolUseIds: ["toolu_fixture_publish", "toolu_fixture_republish"],
+    });
 
     await post(app, session.id, body("read"));
     await post(app, session.id, { ...body("publish"), session_id: "someone-else" });

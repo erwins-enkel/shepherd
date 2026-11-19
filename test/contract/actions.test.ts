@@ -191,6 +191,63 @@ describe("ready to merge", () => {
   });
 });
 
+describe("artifacts hidden (#3877)", () => {
+  const T = "/api/sessions/{id}/artifacts/hidden";
+  async function put(id: string, body: unknown, opts: { auth?: boolean; type?: string } = {}) {
+    return fetch(`${s.baseUrl}/api/sessions/${id}/artifacts/hidden`, {
+      method: "PUT",
+      headers: {
+        "content-type": opts.type ?? "application/json",
+        ...(opts.auth === false ? {} : bearer(token)),
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  test("hides, undoes, refuses a stale undo, a bad body, an unknown id and a non-JSON body", async () => {
+    const id = await createSession("artifacts hidden");
+    s.deps.store.setSessionArtifacts(id, [
+      {
+        url: "https://claude.ai/artifact/AAAAAAAAAAAAAAAAAAAAA1",
+        title: "Canvas",
+        versions: 2,
+        firstSeenAt: 1,
+        updatedAt: 2,
+        toolUseId: "toolu_2",
+        toolUseIds: ["toolu_1", "toolu_2"],
+      },
+    ]);
+    const hidden = await put(id, { hidden: true });
+    expect(hidden.status).toBe(200);
+    const { hiddenAt } = (await validateResponse("PUT", T, hidden)) as { hiddenAt: number };
+    expect(s.deps.store.get(id)?.artifacts?.[0]?.hiddenAt).toBe(hiddenAt);
+
+    const stale = await put(id, { hidden: false, hiddenAt: hiddenAt - 1 });
+    expect(stale.status).toBe(409);
+    await validateResponse("PUT", T, stale);
+
+    const undone = await put(id, { hidden: false, hiddenAt });
+    expect(undone.status).toBe(200);
+    expect(((await validateResponse("PUT", T, undone)) as { hiddenAt: null }).hiddenAt).toBeNull();
+
+    const bad = await put(id, { hidden: false });
+    expect(bad.status).toBe(400);
+    await validateResponse("PUT", T, bad);
+
+    const gone = await put("nope", { hidden: true });
+    expect(gone.status).toBe(404);
+    await validateResponse("PUT", T, gone);
+
+    const plain = await put(id, { hidden: true }, { type: "text/plain" });
+    expect(plain.status).toBe(415);
+    await validateResponse("PUT", T, plain);
+
+    const anon = await put(id, { hidden: true }, { auth: false });
+    expect(anon.status).toBe(401);
+    await validateResponse("PUT", T, anon);
+  });
+});
+
 describe("settle-integrated (#3016)", () => {
   test("settles a merged epic child at rest; refuses, rejects and 404s otherwise", async () => {
     const epicChild = (status: "done" | "running") => {

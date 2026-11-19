@@ -716,3 +716,125 @@ describe("ChatView drafts", () => {
     await expect.element(input()).toHaveValue("");
   });
 });
+
+describe("ChatView: show an artifact's publish (#3877)", () => {
+  type Messages = Awaited<ReturnType<typeof getSessionMessages>>;
+  const T = Date.parse("2026-11-19T10:00:00Z");
+  const call = (id: string, ts: number, summary: string) => ({
+    ts,
+    tool: id.startsWith("art") ? "Artifact" : "Read",
+    summary,
+    status: "ok" as const,
+    toolUseId: id,
+  });
+  const transcript = (tools: ReturnType<typeof call>[]): Messages => ({
+    messages: [
+      { role: "assistant", text: "Working on it", ts: T },
+      { role: "assistant", text: "Published", ts: T + 60_000 },
+    ],
+    awaitingInput: false,
+    pendingQuestion: null,
+    unavailable: null,
+    tools,
+  });
+  const loaded = transcript([
+    call("art_v1", T + 1000, "artifact v1"),
+    call("read_1", T + 2000, "read a.ts"),
+    call("art_v2", T + 3000, "artifact v2"),
+  ]);
+  const runHead = () => page.getByRole("button", { name: /3 tool calls/i });
+  const callRow = (summary: string) =>
+    [...document.querySelectorAll<HTMLElement>(".tr-calls li")].find((li) =>
+      li.textContent?.includes(summary),
+    );
+
+  it("opens the run, scrolls to the call, focuses and highlights it", async () => {
+    mockMessages.mockResolvedValue(loaded);
+    const view = await render(ChatView, props({ status: "idle", tools: true }));
+    await expect.element(runHead()).toBeVisible();
+    expect(await view.component.revealTool("art_v2")).toBe(true);
+    await expect.poll(() => callRow("artifact v2")?.classList.contains("tr-hit")).toBe(true);
+    expect(document.activeElement).toBe(callRow("artifact v2"));
+    expect(callRow("artifact v1")?.classList.contains("tr-hit")).toBe(false);
+    await expect.element(runHead()).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("a call outside the loaded window answers false after one fresh load", async () => {
+    mockMessages.mockResolvedValue(loaded);
+    const view = await render(ChatView, props({ status: "idle", tools: true }));
+    await expect.element(runHead()).toBeVisible();
+    const calls = mockMessages.mock.calls.length;
+    expect(await view.component.revealTool("art_gone")).toBe(false);
+    expect(mockMessages.mock.calls.length).toBe(calls + 1);
+  });
+
+  it("a call the next load brings is revealed", async () => {
+    mockMessages.mockResolvedValueOnce(transcript([call("read_1", T + 2000, "read a.ts")]));
+    const view = await render(ChatView, props({ status: "idle", tools: true }));
+    await expect.element(page.getByText("read a.ts")).toBeVisible();
+    mockMessages.mockResolvedValue(loaded);
+    expect(await view.component.revealTool("art_v2")).toBe(true);
+  });
+
+  it("a status change mid-reveal discards the reveal's own load, and the new poll's load still counts", async () => {
+    mockMessages.mockResolvedValueOnce(transcript([call("read_1", T + 2000, "read a.ts")]));
+    const view = await render(ChatView, props({ status: "idle", tools: true }));
+    await expect.element(page.getByText("read a.ts")).toBeVisible();
+
+    // The reveal's load hangs; the status change replaces the poll, and its load has the call.
+    let settleStale!: (r: Messages) => void;
+    mockMessages.mockImplementationOnce(() => new Promise<Messages>((r) => (settleStale = r)));
+    mockMessages.mockResolvedValue(loaded);
+    const revealed = view.component.revealTool("art_v1");
+    await view.rerender({ status: "running" });
+    expect(await revealed).toBe(true);
+    await expect.poll(() => callRow("artifact v1")?.classList.contains("tr-hit")).toBe(true);
+
+    // The discarded response, landing late, never replaces the newer transcript.
+    settleStale(transcript([call("read_1", T + 2000, "read a.ts")]));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(callRow("artifact v1")).toBeDefined();
+  });
+
+  it("an older response that lands after a newer one of the same poll is dropped", async () => {
+    mockMessages.mockResolvedValueOnce(transcript([call("read_1", T + 2000, "read a.ts")]));
+    const view = await render(ChatView, props({ status: "idle", tools: true }));
+    await expect.element(page.getByText("read a.ts")).toBeVisible();
+    let settleOld!: (r: Messages) => void;
+    mockMessages.mockImplementationOnce(() => new Promise<Messages>((r) => (settleOld = r)));
+    mockMessages.mockResolvedValueOnce(loaded);
+    const older = view.component.revealTool("art_gone"); // its load hangs
+    expect(await view.component.revealTool("art_v2")).toBe(true); // a later load lands first
+    settleOld(transcript([]));
+    expect(await older).toBe(false);
+    await new Promise((r) => setTimeout(r, 30));
+    await expect.element(runHead()).toBeVisible();
+  });
+
+  it("every recorded publish of a shown artifact carries the chip; none once hidden", async () => {
+    mockMessages.mockResolvedValue(loaded);
+    const view = await render(
+      ChatView,
+      props({ status: "idle", tools: true, artifactToolIds: new Set(["art_v1", "art_v2"]) }),
+    );
+    await expect.element(runHead()).toBeVisible();
+    // collapsed: the run's head says it holds one
+    expect(document.querySelector(".tr-head .tr-chip")?.textContent).toBe(
+      m.artifactrow_chat_chip(),
+    );
+    await runHead().click();
+    const chipped = () =>
+      [...document.querySelectorAll(".tr-calls li")]
+        .filter((li) => li.querySelector(".tr-chip"))
+        .map((li) => li.querySelector(".tr-summary")?.textContent);
+    expect(chipped()).toEqual(["artifact v1", "artifact v2"]);
+    await view.rerender({ artifactToolIds: new Set<string>() });
+    expect(chipped()).toEqual([]);
+  });
+
+  it("without tool calls in view there is nothing to reveal", async () => {
+    mockMessages.mockResolvedValue(loaded);
+    const view = await render(ChatView, props({ status: "idle" }));
+    expect(await view.component.revealTool("art_v2")).toBe(false);
+  });
+});

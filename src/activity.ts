@@ -8,9 +8,14 @@ export interface ActivityEntry {
   tool: string; // raw tool name, e.g. "Edit"
   summary: string; // "edited server.ts"
   status: "ok" | "error" | "pending";
+  /** The transcript's `tool_use.id`, so a client can find one call (#3877: the Chat's jump to an
+   *  artifact's publish). Absent when the record carried none in the bounded hook-id shape. */
+  toolUseId?: string;
 }
 
 const DEFAULT_LIMIT = 30;
+/** A `tool_use_id` in the shape the hook ingest also bounds (`toolu_…`); anything else is dropped. */
+const TOOL_USE_ID = /^[\w.:-]{1,128}$/;
 const CMD_MAX = 60;
 
 function basename(p: unknown): string {
@@ -128,7 +133,14 @@ function collectEntries(records: ParsedRecord[], errored: Map<string, boolean>):
       if (b?.type !== "tool_use" || typeof b.name !== "string") continue;
       const id = typeof b.id === "string" ? b.id : "";
       const status = resolveStatus(errored, id);
-      entries.push({ ts, tool: b.name, summary: summarize(b.name, b.input ?? {}), status });
+      const entry: ActivityEntry = {
+        ts,
+        tool: b.name,
+        summary: summarize(b.name, b.input ?? {}),
+        status,
+      };
+      if (TOOL_USE_ID.test(id)) entry.toolUseId = id;
+      entries.push(entry);
     }
   }
   return entries;

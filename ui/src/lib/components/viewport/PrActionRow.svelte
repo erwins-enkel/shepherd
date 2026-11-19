@@ -23,9 +23,10 @@
   import PrFindingsDialog from "../PrFindingsDialog.svelte";
   import PrReviewRequestPopover from "../PrReviewRequestPopover.svelte";
   import { SessionPrMerge } from "../session-pr-merge.svelte";
+  import ArtifactMenu from "./ArtifactMenu.svelte";
   import PrActionMenu from "./PrActionMenu.svelte";
   import PrRowFacts from "./PrRowFacts.svelte";
-  import { latestArtifact } from "./artifact-row";
+  import { rowArtifacts } from "./artifact-row";
   import {
     mergeActionLabel,
     mergeBlockedText,
@@ -58,6 +59,8 @@
     ondecommission,
     onsent,
     onsummary,
+    onshowartifact,
+    onhideartifacts,
   }: {
     session: Session;
     git: GitState | null | undefined;
@@ -77,6 +80,10 @@
     onsent?: (text: string, sent: Promise<boolean>) => void;
     /** Opens the session recap (the row replaces its one-line headline). */
     onsummary?: () => void;
+    /** Show an artifact's publish in the Chat (#3877); absent leaves the items out. */
+    onshowartifact?: (toolUseId: string | null) => void;
+    /** Hide the artifact link for this session (#3877); absent leaves the items out. */
+    onhideartifacts?: () => void;
   } = $props();
 
   const merge = new SessionPrMerge();
@@ -269,7 +276,24 @@
   const menuReview = $derived(mobile && canReview);
   const prHref = $derived(firstSafeHttpUrl(git?.url));
   // The newest artifact (#3876): a quiet link left of PR ↗ / Logs ↗ — never the amber action.
-  const artifact = $derived(latestArtifact(session.artifacts));
+  // With more than one it becomes "Artifacts N", the menu of all of them (#3877); none while hidden.
+  const artifacts = $derived(rowArtifacts(session.artifacts));
+  const artifact = $derived(artifacts[0] ?? null);
+  const manyArtifacts = $derived(artifacts.length > 1);
+  // One artifact: its Chat jump and the hide live in ⋯.
+  const menuShowArtifact = $derived(
+    artifacts.length === 1 && onshowartifact ? () => onshowartifact(artifacts[0]!.toolUseId) : null,
+  );
+  const menuHideArtifacts = $derived(
+    artifacts.length === 1 && onhideartifacts ? onhideartifacts : null,
+  );
+  let artBtn = $state<HTMLButtonElement>();
+  let artMenuAnchor = $state<DOMRect | null>(null);
+  // Open only while there are several: with one left, its link replaces the trigger.
+  const artMenuOpen = $derived(manyArtifacts ? artMenuAnchor : null);
+  function toggleArtifactMenu() {
+    artMenuAnchor = artMenuAnchor || !artBtn ? null : artBtn.getBoundingClientRect();
+  }
   // Agent data: the link takes the url only as a validated claude.ai artifact (safe-href).
   const artifactHref = $derived(artifact && isArtifactUrl(artifact.url) ? artifact.url : undefined);
   const artifactTip = $derived<StatusTipParams | null>(
@@ -310,7 +334,9 @@
       !!issueHref ||
       hasFindings ||
       showSummary ||
-      menuReview,
+      menuReview ||
+      !!menuShowArtifact ||
+      !!menuHideArtifacts,
   );
   let moreBtn = $state<HTMLButtonElement>();
   let menuAnchor = $state<DOMRect | null>(null);
@@ -366,6 +392,7 @@
       clearTimeout(armTimer);
       armed = false;
       menuAnchor = null;
+      artMenuAnchor = null;
       findingsOpen = false;
       reviewRequest = null;
       clearTimeout(sentTimer);
@@ -416,7 +443,20 @@
     <div class="pr-actions" lang={getLocale()}>
       <!-- the phone leads its action row with ⋯; in the DOM too, so focus follows the eye -->
       {#if mobile}{@render more()}{/if}
-      {#if artifact}
+      {#if manyArtifacts}
+        <button
+          bind:this={artBtn}
+          class="gbtn art-link"
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={!!artMenuAnchor}
+          use:coachTarget={"artifact-menu"}
+          onclick={toggleArtifactMenu}
+          ><span class="art-glyph" aria-hidden="true"></span>{m.artifactrow_pr_many({
+            n: artifacts.length,
+          })}<span aria-hidden="true">▴</span></button
+        >
+      {:else if artifact}
         <!-- eslint-disable svelte/no-navigation-without-resolve -- external claude.ai URL, not an app route -->
         <a
           class="gbtn art-link"
@@ -518,7 +558,20 @@
       onfindings={() => openFindings(moreBtn)}
       onsummary={() => onsummary?.()}
       onreview={() => doReview(true)}
+      onshowartifact={menuShowArtifact}
+      onhideartifacts={menuHideArtifacts}
       onclose={() => (menuAnchor = null)}
+    />
+  {/if}
+  {#if artMenuOpen}
+    <ArtifactMenu
+      anchor={artMenuOpen}
+      opener={artBtn}
+      {artifacts}
+      touch={touch || mobile}
+      onshowinchat={onshowartifact}
+      onhide={onhideartifacts}
+      onclose={() => (artMenuAnchor = null)}
     />
   {/if}
   {#if reviewRequest}

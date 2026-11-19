@@ -15,7 +15,7 @@
 </script>
 
 <script lang="ts">
-  import { onMount, untrack, type Snippet } from "svelte";
+  import { onMount, tick, untrack, type Snippet } from "svelte";
   import { desigIndex } from "#lib/desigLinks.js";
   import type {
     AnswerAskResult,
@@ -92,6 +92,7 @@
     composerLead,
     resolveLocalPath,
     onopenfile,
+    artifactToolIds,
   }: {
     sessionId: string;
     status: SessionStatus;
@@ -137,6 +138,8 @@
     resolveLocalPath?: (path: string) => Promise<FileTarget | null>;
     /** Open a resolved host-path link in the Files tab. */
     onopenfile?: (target: FileTarget) => void;
+    /** Tool calls the artifact row came from (#3877): they carry the "in the bar" chip. */
+    artifactToolIds?: ReadonlySet<string>;
   } = $props();
 
   /** The newest messages kept in view; older ones stay in the Terminal's scrollback. */
@@ -331,8 +334,16 @@
   }
 
   // Poll faster while the agent works; a status change re-runs this and loads at once.
+  // Every load is numbered when it starts (#3877): a response applies only while its effect is
+  // still alive and nothing newer applied, and `appliedSeq` tells a waiting reveal that a load
+  // started after its request has landed — whichever effect ran it.
   let stick = true;
   let loadedFor = "";
+  let loadSeq = 0;
+  let appliedSeq = 0;
+  let loadNow: (() => Promise<void>) | null = null;
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- wake-up callbacks, never rendered
+  const loadWaiters = new Set<() => void>();
   $effect(() => {
     const id = sessionId;
     const ms = working ? POLL_WORKING_MS : POLL_RESTING_MS;
@@ -347,19 +358,58 @@
       if (variant !== "assistant") untrack(() => (attachments = []));
     }
     let alive = true;
-    const load = () =>
-      (withTools ? getSessionMessages(id, LIMIT, { tools: true }) : getSessionMessages(id, LIMIT))
+    const load = () => {
+      const seq = ++loadSeq;
+      return (
+        withTools ? getSessionMessages(id, LIMIT, { tools: true }) : getSessionMessages(id, LIMIT)
+      )
         .then((r) => {
-          if (alive) data = r;
+          if (!alive || seq <= appliedSeq) return;
+          data = r;
+          appliedSeq = seq;
+          for (const wake of [...loadWaiters]) wake();
         })
         .catch(() => {});
+    };
+    loadNow = load;
     load();
     const stop = pollWhileVisible(load, ms);
     return () => {
       alive = false;
+      if (loadNow === load) loadNow = null;
       stop();
     };
   });
+
+  // "Show in Chat" (#3877): the call to reveal, handed to its tool run for one update.
+  const REVEAL_WAIT_MS = 10_000;
+  let reveal = $state<string | null>(null);
+  let destroyed = false;
+  $effect(() => () => {
+    destroyed = true;
+    for (const wake of [...loadWaiters]) wake();
+  });
+
+  const toolLoaded = (id: string) =>
+    rows.some((r) => r.kind === "tools" && r.calls.some((c) => c.toolUseId === id));
+
+  /** Resolves once a load numbered above `after` has applied, the view is gone, or `ms` passed. */
+  function appliedAfter(after: number, ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const check = () => {
+        if (appliedSeq <= after && !destroyed) return;
+        clearTimeout(timer);
+        loadWaiters.delete(check);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        loadWaiters.delete(check);
+        resolve();
+      }, ms);
+      loadWaiters.add(check);
+      check();
+    });
+  }
 
   // Follow the conversation while the operator reads its end; leave them where they scrolled to.
   // Watches the content's size rather than the rows: a reply's Markdown renders after the row
@@ -653,6 +703,29 @@
   export function focus() {
     input?.focus();
   }
+
+  /**
+   * Scroll to the tool call `toolUseId` and highlight it (#3877). A call not in the loaded window
+   * gets one fresh load first: any load started after this request counts, also the one a status
+   * change's new poll starts. False when it is still not loaded, the view shows no tool calls, or
+   * the session changed meanwhile.
+   */
+  export async function revealTool(toolUseId: string): Promise<boolean> {
+    if (!tools) return false;
+    const at = sessionId;
+    if (!toolLoaded(toolUseId)) {
+      const after = loadSeq;
+      void loadNow?.();
+      await appliedAfter(after, REVEAL_WAIT_MS);
+      await tick();
+      if (destroyed || sessionId !== at || !toolLoaded(toolUseId)) return false;
+    }
+    stick = false;
+    reveal = toolUseId;
+    await tick();
+    reveal = null;
+    return true;
+  }
 </script>
 
 <svelte:window onresize={() => slashOpen && placeSlashMenu()} />
@@ -765,7 +838,12 @@
               </div>
             </div>
           {:else if e.kind === "tools"}
-            <ToolRun calls={e.calls} live={working && e === lastRow} />
+            <ToolRun
+              calls={e.calls}
+              live={working && e === lastRow}
+              marked={artifactToolIds}
+              {reveal}
+            />
           {:else}
             <NoteRow entry={e} time={marks[i].time} />
           {/if}

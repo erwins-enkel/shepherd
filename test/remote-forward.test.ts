@@ -120,6 +120,7 @@ describe("allowlist", () => {
     ["PUT", "autopilot"],
     ["PUT", "automerge"],
     ["POST", "ready"],
+    ["PUT", "artifacts/hidden"],
     ["GET", "diff"],
     ["GET", "diff/annotations"],
     ["GET", "messages"],

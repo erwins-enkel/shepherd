@@ -24,6 +24,8 @@
     onfindings,
     onsummary,
     onreview,
+    onshowartifact = null,
+    onhideartifacts = null,
     onclose,
   }: {
     anchor: DOMRect;
@@ -48,6 +50,10 @@
     onfindings: () => void;
     onsummary: () => void;
     onreview: () => void;
+    /** The one artifact's "Show in Chat" (#3877); null hides the item. */
+    onshowartifact?: (() => void) | null;
+    /** "Hide artifact for this session" (#3877); null hides the item. */
+    onhideartifacts?: (() => void) | null;
     onclose: () => void;
   } = $props();
 
@@ -221,6 +227,28 @@
       onclick={() => pick(onreview)}
     >
       {reviewLabel}
+    </button>
+  {/if}
+  {#if onshowartifact}
+    <button
+      class="pm-item"
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      onclick={() => pick(onshowartifact)}
+    >
+      {m.artifactrow_pr_menu_show()}
+    </button>
+  {/if}
+  {#if onhideartifacts}
+    <button
+      class="pm-item"
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      onclick={() => pick(onhideartifacts)}
+    >
+      {m.artifactrow_pr_menu_hide()}
     </button>
   {/if}
 </div>

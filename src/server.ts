@@ -389,7 +389,11 @@ import {
 } from "./scratchpad";
 import { buildTaskExport, resolveTranscript } from "./task-export";
 import { readSubagentDescription } from "./subagent-meta";
-import { recordArtifactPublish } from "./session-artifacts";
+import {
+  recordArtifactPublish,
+  setSessionArtifactsHidden,
+  type ArtifactsHiddenRequest,
+} from "./session-artifacts";
 import { listWorktree, resolveWorktreeFile } from "./worktree-files";
 import { locateSessionFile } from "./file-locate";
 import { readHostFile, resolveHostFile, type HostLookup } from "./host-file";
@@ -7914,6 +7918,49 @@ async function handleSessionShelve({ req, parts, deps }: Ctx): Promise<Response 
   return json({ ok: true });
 }
 
+// PUT /api/sessions/:id/artifacts/hidden — the operator's "hide for this session" for the artifact
+// row, or the undo of one hide (#3877). Lives on the session's artifact list, so `session:artifacts`
+// carries it to every client.
+async function handleSessionArtifactsHidden({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "PUT" && parts.length === 5 && parts[2])) return null;
+  if (parts[3] !== "artifacts" || parts[4] !== "hidden") return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const request = artifactsHiddenRequest(await req.json().catch(() => null));
+  if (!request) {
+    return json(
+      { error: "body must be {hidden: true} or {hidden: false, hiddenAt: integer}" },
+      400,
+    );
+  }
+  const result = setSessionArtifactsHidden(
+    {
+      store: deps.store,
+      emit: (id, artifacts) => deps.events?.emit("session:artifacts", { id, artifacts }),
+    },
+    parts[2],
+    request,
+    Date.now(),
+  );
+  if (result === "not-found") return json({ error: "not found" }, 404);
+  if (result === "superseded") {
+    return json(
+      { error: "a later hide superseded this one; nothing changed", code: "hide_superseded" },
+      409,
+    );
+  }
+  return json({ id: parts[2], ...result });
+}
+
+function artifactsHiddenRequest(body: unknown): ArtifactsHiddenRequest | null {
+  if (typeof body !== "object" || body === null) return null;
+  const { hidden, hiddenAt } = body as { hidden?: unknown; hiddenAt?: unknown };
+  if (hidden === true) return { hidden: true };
+  if (hidden === false && Number.isSafeInteger(hiddenAt))
+    return { hidden: false, hiddenAt: hiddenAt as number };
+  return null;
+}
+
 // POST /api/sessions/:id/dismiss-stall — acknowledge a stall flag.
 function handleSessionDismissStall({ req, parts, deps }: Ctx): Response | null {
   if (!(req.method === "POST" && parts[2] && parts[3] === "dismiss-stall")) return null;
@@ -9779,6 +9826,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionResume,
     handleSessionReady,
     handleSessionShelve,
+    handleSessionArtifactsHidden,
     handleSessionDismissStall,
     handleSessionQuotaResume,
     handleSessionQuotaDismiss,

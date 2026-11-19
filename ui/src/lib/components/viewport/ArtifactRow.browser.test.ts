@@ -7,6 +7,7 @@ import { getLocale } from "#lib/i18n.js";
 import { m } from "#lib/paraglide/messages.js";
 import { clock } from "#lib/now.svelte.js";
 import type { SessionArtifact } from "#lib/types.js";
+import { userEvent } from "vitest/browser";
 import ArtifactRow from "./ArtifactRow.svelte";
 
 const mounted: Array<{ unmount: () => void | Promise<void> }> = [];
@@ -50,7 +51,7 @@ afterEach(async () => {
 describe("ArtifactRow", () => {
   it("shows the label, title, version, age and shortened url", async () => {
     const h = host();
-    await render(ArtifactRow, { target: h, props: { sessionId: "s1", artifact: artifact() } });
+    await render(ArtifactRow, { target: h, props: { sessionId: "s1", artifacts: [artifact()] } });
     const r = row(h);
     expect(r.getAttribute("aria-label")).toBe(m.artifactrow_aria());
     expect(r.querySelector(".art-label")?.textContent).toBe(m.artifactrow_label());
@@ -69,7 +70,7 @@ describe("ArtifactRow", () => {
 
   it("Open ↗ is the one amber link to the artifact in a new tab", async () => {
     const h = host();
-    await render(ArtifactRow, { target: h, props: { sessionId: "s1", artifact: artifact() } });
+    await render(ArtifactRow, { target: h, props: { sessionId: "s1", artifacts: [artifact()] } });
     const links = [...row(h).querySelectorAll<HTMLAnchorElement>("a")];
     expect(links).toHaveLength(1);
     const open = links[0]!;
@@ -86,7 +87,7 @@ describe("ArtifactRow", () => {
     const h = host();
     const screen = await render(ArtifactRow, {
       target: h,
-      props: { sessionId: "s1", artifact: artifact() },
+      props: { sessionId: "s1", artifacts: [artifact()] },
     });
     await screen.getByRole("button", { name: m.artifactrow_copy() }).click();
     expect(write).toHaveBeenCalledWith(URL);
@@ -103,13 +104,16 @@ describe("ArtifactRow", () => {
     const h = host();
     const screen = await render(ArtifactRow, {
       target: h,
-      props: { sessionId: "s1", artifact: artifact() },
+      props: { sessionId: "s1", artifacts: [artifact()] },
     });
     await screen.getByRole("button", { name: m.artifactrow_copy() }).click();
     expect(write).toHaveBeenCalledWith(URL);
     // A → B → A: back on the same url, the pending copy still belongs to the first showing.
-    await screen.rerender({ sessionId: "s1", artifact: artifact({ url: OTHER, title: "Other" }) });
-    await screen.rerender({ sessionId: "s1", artifact: artifact() });
+    await screen.rerender({
+      sessionId: "s1",
+      artifacts: [artifact({ url: OTHER, title: "Other" })],
+    });
+    await screen.rerender({ sessionId: "s1", artifacts: [artifact()] });
     settle();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(row(h).querySelector("button")?.textContent?.trim()).toBe(m.artifactrow_copy());
@@ -123,10 +127,10 @@ describe("ArtifactRow", () => {
     const h = host();
     const screen = await render(ArtifactRow, {
       target: h,
-      props: { sessionId: "s1", artifact: artifact() },
+      props: { sessionId: "s1", artifacts: [artifact()] },
     });
     await screen.getByRole("button", { name: m.artifactrow_copy() }).click();
-    await screen.rerender({ sessionId: "s2", artifact: artifact() });
+    await screen.rerender({ sessionId: "s2", artifacts: [artifact()] });
     settle();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(row(h).querySelector("button")?.textContent?.trim()).toBe(m.artifactrow_copy());
@@ -138,7 +142,7 @@ describe("ArtifactRow", () => {
       target: h,
       props: {
         sessionId: "s1",
-        artifact: artifact({ title: "Ein sehr langer Titel ".repeat(20) }),
+        artifacts: [artifact({ title: "Ein sehr langer Titel ".repeat(20) })],
       },
     });
     const title = row(h).querySelector<HTMLElement>(".art-title")!;
@@ -153,7 +157,7 @@ describe("ArtifactRow", () => {
       target: h,
       props: {
         sessionId: "s1",
-        artifact: artifact({ url: CODE_URL, versions: 123456 }),
+        artifacts: [artifact({ url: CODE_URL, versions: 123456 })],
         mobile: true,
         touch: true,
       },
@@ -176,7 +180,7 @@ describe("ArtifactRow", () => {
     const h = host(360);
     await render(ArtifactRow, {
       target: h,
-      props: { sessionId: "s1", artifact: artifact(), mobile: true, touch: true },
+      props: { sessionId: "s1", artifacts: [artifact()], mobile: true, touch: true },
     });
     const r = row(h);
     expect(r.scrollWidth, "no horizontal overflow").toBeLessThanOrEqual(r.clientWidth);
@@ -198,5 +202,123 @@ describe("ArtifactRow", () => {
         r.getBoundingClientRect().right + 1,
       );
     }
+  });
+
+  it("several artifacts: the newest with “Newest of N”, and “All N” opens the menu of every one", async () => {
+    const h = host();
+    const newest = artifact({ title: "Newest", versions: 3 });
+    const older = artifact({ url: OTHER, title: "Older", updatedAt: T0 - 60 * 60_000 });
+    const onshowinchat = vi.fn();
+    const onhide = vi.fn();
+    const screen = await render(ArtifactRow, {
+      target: h,
+      props: { sessionId: "s1", artifacts: [newest, older], onshowinchat, onhide },
+    });
+    const r = row(h);
+    expect(r.querySelector(".art-title")?.textContent).toBe("Newest");
+    const facts = r.querySelector(".art-facts")!.textContent!;
+    expect(facts.startsWith(m.artifactrow_newest_of({ n: 2 }))).toBe(true);
+    expect(facts).toContain(m.artifactrow_version({ n: 3 }));
+    expect(r.querySelector(".art-url"), "the url gives way to the count").toBeNull();
+    expect(r.querySelectorAll(".primary")).toHaveLength(1);
+
+    const all = screen.getByRole("button", { name: m.artifactrow_all({ n: 2 }) });
+    await expect.element(all).toHaveAttribute("aria-haspopup", "menu");
+    await expect.element(all).toHaveAttribute("aria-expanded", "false");
+    await all.click();
+    await expect.element(all).toHaveAttribute("aria-expanded", "true");
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+    expect(
+      [...menu.querySelectorAll(".am-entry")].map((e) => e.getAttribute("aria-label")),
+    ).toEqual(["Newest", "Older"]);
+    await userEvent.keyboard("{Escape}");
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    await expect.poll(() => document.activeElement).toBe(all.element());
+  });
+
+  it("one artifact: ⋯ holds Show in Chat and Hide for this session", async () => {
+    const h = host();
+    const onshowinchat = vi.fn();
+    const onhide = vi.fn();
+    const screen = await render(ArtifactRow, {
+      target: h,
+      props: { sessionId: "s1", artifacts: [artifact()], onshowinchat, onhide },
+    });
+    expect(row(h).querySelector(".art-facts .art-url")).not.toBeNull();
+    await screen.getByRole("button", { name: m.artifactrow_more_aria() }).click();
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')];
+    expect(items.map((i) => i.textContent?.trim())).toEqual([
+      m.artifactrow_show_in_chat(),
+      m.artifactrow_hide(),
+    ]);
+    items[0]!.click();
+    expect(onshowinchat).toHaveBeenCalledWith("toolu_1");
+    await screen.getByRole("button", { name: m.artifactrow_more_aria() }).click();
+    document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')[1]!.click();
+    expect(onhide).toHaveBeenCalledOnce();
+  });
+
+  it("one artifact without callbacks has no ⋯", async () => {
+    const h = host();
+    await render(ArtifactRow, { target: h, props: { sessionId: "s1", artifacts: [artifact()] } });
+    expect(row(h).querySelector(".more")).toBeNull();
+  });
+
+  it("phone with several artifacts: All N · Copy link · Open ↗, every target ≥ 44px", async () => {
+    await page.viewport(360, 800);
+    const h = host(360);
+    await render(ArtifactRow, {
+      target: h,
+      props: {
+        sessionId: "s1",
+        artifacts: [artifact(), artifact({ url: OTHER, updatedAt: T0 - 9e6 })],
+        mobile: true,
+        touch: true,
+        onshowinchat: () => {},
+        onhide: () => {},
+      },
+    });
+    const r = row(h);
+    expect(r.scrollWidth, "no horizontal overflow").toBeLessThanOrEqual(r.clientWidth);
+    const targets = [...r.querySelectorAll<HTMLElement>("button, a[href]")];
+    expect(targets.map((t) => t.textContent?.trim())).toEqual([
+      `${m.artifactrow_all({ n: 2 })}▴`,
+      m.artifactrow_copy(),
+      m.artifactrow_open(),
+    ]);
+    for (const t of targets) {
+      const rect = t.getBoundingClientRect();
+      expect(rect.height).toBeGreaterThanOrEqual(44);
+      expect(rect.right).toBeLessThanOrEqual(r.getBoundingClientRect().right + 1);
+    }
+  });
+
+  it("a second artifact arriving closes the open ⋯ menu", async () => {
+    const h = host();
+    const screen = await render(ArtifactRow, {
+      target: h,
+      props: { sessionId: "s1", artifacts: [artifact()], onhide: () => {} },
+    });
+    await screen.getByRole("button", { name: m.artifactrow_more_aria() }).click();
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    await screen.rerender({
+      sessionId: "s1",
+      artifacts: [artifact({ url: OTHER }), artifact()],
+      onhide: () => {},
+    });
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it("a session switch closes an open menu", async () => {
+    const h = host();
+    const two = [artifact(), artifact({ url: OTHER })];
+    const screen = await render(ArtifactRow, {
+      target: h,
+      props: { sessionId: "s1", artifacts: two },
+    });
+    await screen.getByRole("button", { name: m.artifactrow_all({ n: 2 }) }).click();
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    await screen.rerender({ sessionId: "s2", artifacts: two });
+    expect(document.querySelector('[role="menu"]')).toBeNull();
   });
 });

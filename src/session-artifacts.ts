@@ -12,6 +12,7 @@ import { constants } from "node:fs";
 import { open, readlink, realpath, type FileHandle } from "node:fs/promises";
 import { isAbsolute, join, normalize, relative, sep } from "node:path";
 import { isArtifactUrl, shortArtifactUrl } from "../shared/artifact-url";
+import { TOOLS_MAX } from "./agent-messages";
 import { within } from "./fs-browse";
 import type { Session } from "./types";
 
@@ -27,6 +28,13 @@ export type SessionArtifact = {
   updatedAt: number;
   /** The `tool_use_id` of the latest publish; null when the hook carried none. */
   toolUseId: string | null;
+  /** The `tool_use_id` of every recorded publish of this url, oldest first, deduped, the newest
+   *  {@link TOOLS_MAX} — as many as the Chat's tool window can hold (#3877). Absent on entries
+   *  recorded before #3877; readers then fall back to `toolUseId`. */
+  toolUseIds?: string[];
+  /** The stamp of the operator hide that covered this entry (#3877); absent when not hidden. The
+   *  row shows only while some entry is not hidden; see {@link applyArtifactsHide}. */
+  hiddenAt?: number;
 };
 
 /** What one publishing `Artifact` call contributes, before the title is resolved. */
@@ -101,19 +109,19 @@ export function applyArtifactPublish(
   const at = list.reduce((t, a) => Math.max(t, a.updatedAt + 1), now);
   const index = list.findIndex((a) => a.url === p.url);
   if (index < 0) {
-    return [
-      ...list,
-      {
-        url: p.url,
-        title: p.title,
-        versions: p.seq ?? 1,
-        firstSeenAt: now,
-        updatedAt: at,
-        toolUseId,
-      },
-    ];
+    const entry: SessionArtifact = {
+      url: p.url,
+      title: p.title,
+      versions: p.seq ?? 1,
+      firstSeenAt: now,
+      updatedAt: at,
+      toolUseId,
+    };
+    if (toolUseId) entry.toolUseIds = [toolUseId];
+    return [...list, entry];
   }
   const prev = list[index]!;
+  // A re-publish keeps `hiddenAt` through the spread: a new version never brings a hidden row back.
   const next: SessionArtifact = {
     ...prev,
     title: p.titleIsFallback ? prev.title : p.title,
@@ -121,7 +129,55 @@ export function applyArtifactPublish(
     updatedAt: at,
     toolUseId,
   };
+  const ids = withPublishId(prev, toolUseId);
+  if (ids) next.toolUseIds = ids;
   return list.map((a, i) => (i === index ? next : a));
+}
+
+/** `prev`'s publish ids with `id` appended (moved to the end when already known), seeded from
+ *  `prev.toolUseId` for an entry recorded before #3877; undefined when there are none. */
+function withPublishId(prev: SessionArtifact, id: string | null): string[] | undefined {
+  const known = prev.toolUseIds ?? (prev.toolUseId ? [prev.toolUseId] : []);
+  const ids = id ? [...known.filter((k) => k !== id), id] : known;
+  return ids.length > 0 ? ids.slice(-TOOLS_MAX) : undefined;
+}
+
+/** The newest hide stamp in `list`, or null when no entry is hidden. */
+function newestHide(list: SessionArtifact[]): number | null {
+  let newest: number | null = null;
+  for (const a of list) {
+    if (typeof a.hiddenAt === "number" && (newest === null || a.hiddenAt > newest))
+      newest = a.hiddenAt;
+  }
+  return newest;
+}
+
+/**
+ * The operator's "hide for this session" (#3877): every current entry takes a fresh stamp — after
+ * `now` and strictly after any earlier hide, so each hide is told apart. A re-publish keeps it; a
+ * new url enters without it, which shows the row again.
+ */
+export function applyArtifactsHide(
+  list: SessionArtifact[],
+  now: number,
+): { list: SessionArtifact[]; hiddenAt: number } {
+  const previous = newestHide(list);
+  const hiddenAt = previous === null ? now : Math.max(now, previous + 1);
+  return { list: list.map((a) => ({ ...a, hiddenAt })), hiddenAt };
+}
+
+/** Undo of the hide stamped `hiddenAt`: clears every entry's stamp, but only while that hide is
+ *  still the newest. Null when a later hide superseded it, or nothing is hidden. */
+export function applyArtifactsUnhide(
+  list: SessionArtifact[],
+  hiddenAt: number,
+): SessionArtifact[] | null {
+  if (newestHide(list) !== hiddenAt) return null;
+  return list.map((a) => {
+    const shown = { ...a };
+    delete shown.hiddenAt;
+    return shown;
+  });
 }
 
 /** Bounds of the `<title>` scan. Exported so tests can shrink them. */
@@ -417,6 +473,39 @@ async function applyPublish(
   );
   sink.store.setSessionArtifacts(session.id, next);
   sink.emit(session.id, next);
+}
+
+/** What the hide route asks: hide now, or undo the hide stamped `hiddenAt`. */
+export type ArtifactsHiddenRequest = { hidden: true } | { hidden: false; hiddenAt: number };
+
+/**
+ * Apply a hide or its undo to a session's stored list, persist it and push it to every client.
+ * Synchronous read-modify-write, so it never interleaves with a publish (which reads the list
+ * only after its title read settled). The stamp the hide wrote (null after an undo), "not-found"
+ * for an unknown session, "superseded" for an undo a later hide overtook (nothing changes).
+ */
+export function setSessionArtifactsHidden(
+  sink: ArtifactSink,
+  id: string,
+  req: ArtifactsHiddenRequest,
+  now: number,
+): { artifacts: SessionArtifact[]; hiddenAt: number | null } | "not-found" | "superseded" {
+  const current = sink.store.get(id);
+  if (!current) return "not-found";
+  const list = current.artifacts ?? [];
+  let next: SessionArtifact[];
+  let hiddenAt: number | null;
+  if (req.hidden) {
+    ({ list: next, hiddenAt } = applyArtifactsHide(list, now));
+  } else {
+    const cleared = applyArtifactsUnhide(list, req.hiddenAt);
+    if (!cleared) return "superseded";
+    next = cleared;
+    hiddenAt = null;
+  }
+  sink.store.setSessionArtifacts(id, next);
+  sink.emit(id, next);
+  return { artifacts: next, hiddenAt };
 }
 
 // sessionId → the tail of its publish chain, so an async title read never reorders two publishes.

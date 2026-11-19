@@ -83,6 +83,7 @@ const FORWARDED: ReadonlySet<string> = new Set([
   "PUT autopilot",
   "PUT automerge",
   "POST ready",
+  "PUT artifacts/hidden", // the artifact row's hide and its undo (#3877)
   "GET diff",
   "GET diff/annotations",
   "GET messages",

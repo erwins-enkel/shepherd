@@ -1012,7 +1012,7 @@ components:
         - instanceId
         - name
         - platform
-      description: "Set only on a session mirrored from a connected machine. Absent on this instance's own sessions. A `session:*` frame about a mirrored session carries the same `host` and `connection`. Its actions and reads under `/api/sessions/{id}` are forwarded to the machine when they are on the forwarded list (reply, interrupt, archive and its leftovers, go, answer-plan-questions, the plan and its edits, answer-ask, rename, amendments, autopilot, automerge, ready, diff and its annotations, messages, activity, usage, worktree and scratchpad listings, downloads and upload, and the preview: its start, stop and where it opens, a URL on the machine's own host); any other route answers 409 `remote_unsupported`, an id more than one machine reports 409 `remote_ambiguous`, and a machine that gives no usable answer 502 `machine_unreachable`, `machine_timeout` or `machine_unauthorized`."
+      description: "Set only on a session mirrored from a connected machine. Absent on this instance's own sessions. A `session:*` frame about a mirrored session carries the same `host` and `connection`. Its actions and reads under `/api/sessions/{id}` are forwarded to the machine when they are on the forwarded list (reply, interrupt, archive and its leftovers, go, answer-plan-questions, the plan and its edits, answer-ask, rename, amendments, autopilot, automerge, ready, artifact hiding, diff and its annotations, messages, activity, usage, worktree and scratchpad listings, downloads and upload, and the preview: its start, stop and where it opens, a URL on the machine's own host); any other route answers 409 `remote_unsupported`, an id more than one machine reports 409 `remote_ambiguous`, and a machine that gives no usable answer 502 `machine_unreachable`, `machine_timeout` or `machine_unauthorized`."
       properties:
         instanceId:
           type: string
@@ -2417,7 +2417,15 @@ components:
         toolUseId:
           type: string
           nullable: true
-          description: The `tool_use_id` of the latest publish.
+          description: The `tool_use_id` of the latest publish; the call a client jumps to ("show in Chat",
+        toolUseIds:
+          type: array
+          items:
+            type: string
+          description: "The `tool_use_id` of every recorded publish of the url, oldest first, deduped, the newest 200 (the Chat's tool window) — the Chat marks each of these calls while the row shows (#3877). Absent on entries recorded before #3877: fall back to `toolUseId`."
+        hiddenAt:
+          type: integer
+          description: 'Epoch-ms stamp of the operator hide ("hide for this session", #3877) that covered this entry; absent when not hidden. The session''s artifact row (and the merge row''s artifact link) shows only while some entry has no `hiddenAt`. A hide stamps every entry with a fresh stamp, strictly above any earlier one; a re-publish keeps it; a new url enters without it, which shows the row again. An undo names the stamp of the hide it reverses and clears every entry''s `hiddenAt` only while that stamp is the newest (PUT /api/sessions/{id}/artifacts/hidden).'
     SessionArtifactsEvent:
       type: object
       additionalProperties: true
@@ -2685,6 +2693,9 @@ components:
           type: string
         status:
           $ref: "#/components/schemas/ActivityStatus"
+        toolUseId:
+          type: string
+          description: The transcript's `tool_use.id` (Claude sessions), so a client can find one call — the artifact row's "show in Chat" (#3877). Absent when the record carried none in the bounded `[A-Za-z0-9_.:-]{1,128}` shape.
     ActivityList:
       type: array
       description: Oldest first, capped server-side (30 by default).
@@ -3765,6 +3776,36 @@ components:
       properties:
         ready:
           type: boolean
+    SetArtifactsHiddenRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - hidden
+      description: "PUT /api/sessions/{id}/artifacts/hidden (#3877). `{hidden: true}` hides the session's artifact row; `{hidden: false, hiddenAt}` undoes the hide stamped `hiddenAt` (required then)."
+      properties:
+        hidden:
+          type: boolean
+        hiddenAt:
+          type: integer
+          description: The stamp the hide's answer returned; only with `hidden` false.
+    ArtifactsHiddenResult:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - artifacts
+        - hiddenAt
+      properties:
+        id:
+          type: string
+        artifacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionArtifact"
+        hiddenAt:
+          type: integer
+          nullable: true
+          description: The stamp this hide wrote (pass it to undo it); null after an undo.
     RelaunchRequest:
       type: object
       additionalProperties: false
@@ -13588,6 +13629,55 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/artifacts/hidden:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: setSessionArtifactsHidden
+      description: '"Hide for this session" for the artifact row (#3877), or the undo of one hide. Stored on the session''s artifact list (`SessionArtifact.hiddenAt`) and pushed to every client as `session:artifacts`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetArtifactsHiddenRequest"
+      responses:
+        "200":
+          description: Applied; the session's full artifact list and the hide's stamp.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactsHiddenResult"
+        "400":
+          description: Body is neither {hidden -> true} nor {hidden -> false, hiddenAt -> integer}.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "`hide_superseded` — an undo whose hide is no longer the newest (a later hide, on any client, or nothing hidden); nothing changed."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "415":
+          description: Content-Type is not application/json.
           content:
             application/json:
               schema:

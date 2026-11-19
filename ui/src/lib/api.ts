@@ -7,6 +7,7 @@ import type {
   SandboxProfile,
   AssistantPermissions,
   Session,
+  SessionArtifact,
   ClearMergedPreview,
   ClearMergedResult,
   CreateInput,
@@ -1997,6 +1998,22 @@ export async function setReadyToMerge(id: string, ready: boolean): Promise<void>
     body: JSON.stringify({ ready }),
   });
   if (!r.ok) throw await failed(r, "ready");
+}
+
+/** Hide the session's artifact row on every client, or undo the hide stamped `hiddenAt` (#3877).
+ *  The list returns via `session:artifacts`; an undo a later hide overtook fails with an
+ *  {@link ApiError} whose code is `hide_superseded`. */
+export async function setArtifactsHidden(
+  id: string,
+  body: { hidden: true } | { hidden: false; hiddenAt: number },
+): Promise<{ id: string; artifacts: SessionArtifact[]; hiddenAt: number | null }> {
+  const r = await fetch(`/api/sessions/${id}/artifacts/hidden`, {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw await failed(r, "artifacts hidden");
+  return r.json();
 }
 
 /** Shelve / unshelve a session. Live state returns via the session:shelved WS event. */

@@ -1256,7 +1256,11 @@ function parseArtifactsJson(raw: string | null | undefined): SessionArtifact[] {
         typeof a.versions === "number" &&
         typeof a.firstSeenAt === "number" &&
         typeof a.updatedAt === "number" &&
-        (typeof a.toolUseId === "string" || a.toolUseId === null),
+        (typeof a.toolUseId === "string" || a.toolUseId === null) &&
+        (a.toolUseIds === undefined ||
+          (Array.isArray(a.toolUseIds) &&
+            a.toolUseIds.every((t: unknown) => typeof t === "string"))) &&
+        (a.hiddenAt === undefined || Number.isFinite(a.hiddenAt)),
     );
   } catch {
     return [];

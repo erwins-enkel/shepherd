@@ -19,7 +19,17 @@
 // packages (`Package.swift`, same depth rule) — is tried only after js-ts and rust missed at both
 // depths, so adding it never changed the profile of a repo that already had one.
 
-import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  type Dirent,
+} from "node:fs";
 import { join } from "node:path";
 import { INTENT_ISSUE_TEMPLATE } from "./intent-shape";
 import { SHEPHERD_IGNORE_GLOB } from "./shepherd-exclude";
@@ -38,7 +48,8 @@ export type GuardrailId =
   | "dependency_automation"
   | "agent_instructions"
   | "issue_templates"
-  | "env_schema";
+  | "env_schema"
+  | "swallowed_errors";
 
 export type PackageManager = "bun" | "pnpm" | "yarn" | "npm";
 
@@ -185,12 +196,90 @@ interface RepoScan extends FileScan {
   pm: PackageManager;
   /** Manifest toolchain pins found (`packageManager`, `engines`). */
   pins: string[];
+  /** `rel`'s text in each root that has it, at most {@link READ_CAP} bytes per file. */
+  readText: (rel: string) => string[];
 }
 
 const dep = (s: RepoScan, name: string) => s.deps.has(name);
 const anyDep = (s: RepoScan, prefix: string) => [...s.deps].some((d) => d.startsWith(prefix));
 /** Committed env templates/schemas that mark a repo as having env config (gates `env_schema`). */
 const ENV_SURFACE_FILES = [".env.example", ".env.sample", ".env.template", ".env.schema"];
+/** ESLint config files whose text `swallowed_errors` reads. */
+const ESLINT_CONFIG_FILES = [
+  "eslint.config.js",
+  "eslint.config.mjs",
+  "eslint.config.cjs",
+  "eslint.config.ts",
+  "eslint.config.mts",
+  "eslint.config.cts",
+  ".eslintrc",
+  ".eslintrc.json",
+  ".eslintrc.js",
+  ".eslintrc.cjs",
+  ".eslintrc.yml",
+  ".eslintrc.yaml",
+];
+/** Per-file byte cap for config text reads — the analyzer runs on the server's single loop. */
+const READ_CAP = 64 * 1024;
+
+const detectLinter = (s: RepoScan): string[] => {
+  const ev: string[] = [];
+  if (s.has("eslint.config.js") || s.has("eslint.config.mjs") || s.has("eslint.config.ts"))
+    ev.push("eslint.config");
+  if (
+    s.has(".eslintrc") ||
+    s.has(".eslintrc.json") ||
+    s.has(".eslintrc.cjs") ||
+    s.has(".eslintrc.js")
+  )
+    ev.push(".eslintrc");
+  if (dep(s, "eslint")) ev.push("eslint");
+  if (s.scripts.lint) ev.push("lint script");
+  return ev;
+};
+
+type TextEvidence = [match: (text: string) => boolean, evidence: string];
+
+/** Rules that flag an empty `catch {}` (`no-empty` is in eslint recommended, empty catch included). */
+const EMPTY_CATCH_EVIDENCE: TextEvidence[] = [
+  [(t) => /["'`]no-empty["'`]/.test(t), "mentions no-empty"],
+  [
+    (t) =>
+      /eslint:recommended/.test(t) ||
+      (t.includes("@eslint/js") && /configs\.recommended\b/.test(t)),
+    "mentions eslint recommended (no-empty)",
+  ],
+];
+
+/** Rules that flag an unhandled or silently handled promise rejection. */
+const PROMISE_CATCH_EVIDENCE: TextEvidence[] = [
+  [(t) => t.includes("no-floating-promises"), "mentions no-floating-promises"],
+  [
+    (t) =>
+      /recommendedTypeChecked|strictTypeChecked|recommended-type-checked|strict-type-checked|recommended-requiring-type-checking/.test(
+        t,
+      ),
+    "mentions a type-checked preset (no-floating-promises)",
+  ],
+  [(t) => t.includes("promise/catch-or-return"), "mentions promise/catch-or-return"],
+  [
+    (t) => t.includes("no-restricted-syntax") && /property\.name\s*=\s*['"]?catch\b/.test(t),
+    "mentions no-restricted-syntax .catch selector",
+  ],
+  [(t) => t.includes("no-silent-catch"), "mentions no-silent-catch"],
+];
+
+/**
+ * Text evidence (never proof of enforcement) that the ESLint config catches silent swallowing:
+ * present only when BOTH the empty-catch and the promise-catch group match.
+ */
+const detectSwallowedErrors = (s: RepoScan): string[] => {
+  const text = ESLINT_CONFIG_FILES.flatMap((f) => s.readText(f)).join("\n");
+  const hits = (group: TextEvidence[]) => group.filter(([m]) => m(text)).map(([, ev]) => ev);
+  const emptyCatch = hits(EMPTY_CATCH_EVIDENCE);
+  const promiseCatch = hits(PROMISE_CATCH_EVIDENCE);
+  return emptyCatch.length && promiseCatch.length ? [...emptyCatch, ...promiseCatch] : [];
+};
 
 /**
  * The dogfooded baseline. Order is leverage-ranked (also reflected by `weight`),
@@ -237,21 +326,7 @@ export const GUARDRAILS: GuardrailDef<RepoScan>[] = [
   {
     id: "linter",
     weight: 8,
-    detect: (s) => {
-      const ev: string[] = [];
-      if (s.has("eslint.config.js") || s.has("eslint.config.mjs") || s.has("eslint.config.ts"))
-        ev.push("eslint.config");
-      if (
-        s.has(".eslintrc") ||
-        s.has(".eslintrc.json") ||
-        s.has(".eslintrc.cjs") ||
-        s.has(".eslintrc.js")
-      )
-        ev.push(".eslintrc");
-      if (dep(s, "eslint")) ev.push("eslint");
-      if (s.scripts.lint) ev.push("lint script");
-      return ev;
-    },
+    detect: detectLinter,
   },
   {
     id: "formatter",
@@ -324,6 +399,13 @@ export const GUARDRAILS: GuardrailDef<RepoScan>[] = [
       if (dep(s, "fallow") || dep(s, "knip") || dep(s, "ts-prune")) ev.push("dead-code tool");
       return ev;
     },
+  },
+  {
+    // Only ESLint repos — the evidence is the config text, and the prescription is an ESLint snippet.
+    id: "swallowed_errors",
+    weight: 3,
+    applies: (s) => detectLinter(s).length > 0 && ESLINT_CONFIG_FILES.some((f) => s.has(f)),
+    detect: detectSwallowedErrors,
   },
   {
     // Only repos with an env surface — a library with no env config is not penalized.
@@ -406,7 +488,7 @@ function buildJsContext(dir: string, pkgRoots: string[]): RepoScan {
   for (const root of pkgRoots)
     collectManifest(join(dir, root, "package.json"), deps, scripts, meta);
 
-  const { has, glob } = rootAwareProbes(dir, pkgRoots);
+  const { roots, has, glob } = rootAwareProbes(dir, pkgRoots);
   const pins: string[] = [];
   if (meta.packageManager) pins.push("packageManager");
   if (meta.engines) pins.push("engines");
@@ -418,7 +500,24 @@ function buildJsContext(dir: string, pkgRoots: string[]): RepoScan {
     glob,
     pm: pickPackageManager(meta.packageManager, has),
     pins,
+    readText: (rel) => roots.flatMap((root) => readCapped(join(dir, root, rel))),
   };
+}
+
+/** The first {@link READ_CAP} bytes of `file` as `[text]`, or `[]` when it isn't a readable
+ *  regular file. Opened non-blocking so a FIFO in the target repo can't stall the server loop. */
+function readCapped(file: string): string[] {
+  let fd: number | undefined;
+  try {
+    fd = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK);
+    if (!fstatSync(fd).isFile()) return [];
+    const buf = Buffer.alloc(READ_CAP);
+    return [buf.toString("utf8", 0, readSync(fd, buf, 0, READ_CAP, 0))];
+  } catch {
+    return []; // missing or unreadable — no evidence
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
 }
 
 const jsProfile: EcosystemProfile<RepoScan> = {
@@ -447,7 +546,10 @@ artifacts. \`.gitignore\` alone is not reliable here.
 // ══ Rust profile ═══════════════════════════════════════════════════════════════
 
 /** The Rust guardrail subset — rustc is the always-present type-checker and Rust has no lint-staged norm. */
-type RustGuardrailId = Exclude<GuardrailId, "type_checker" | "lint_staged" | "env_schema">;
+type RustGuardrailId = Exclude<
+  GuardrailId,
+  "type_checker" | "lint_staged" | "env_schema" | "swallowed_errors"
+>;
 
 /**
  * Rust inspection context. rustfmt/clippy are rustup components (not manifest deps), so
@@ -642,7 +744,10 @@ const rustProfile: EcosystemProfile<RustScan> = {
 // ══ Swift profile ══════════════════════════════════════════════════════════════
 
 /** The Swift guardrail subset — swiftc is the always-present type-checker and Swift has no lint-staged norm. */
-type SwiftGuardrailId = Exclude<GuardrailId, "type_checker" | "lint_staged" | "env_schema">;
+type SwiftGuardrailId = Exclude<
+  GuardrailId,
+  "type_checker" | "lint_staged" | "env_schema" | "swallowed_errors"
+>;
 
 /** Swift inspection context. swift-format ships in the toolchain (not a manifest dep), so tool
  *  usage is proven by the bounded command corpus. `Package.swift` stays out of it: a dependency
@@ -976,7 +1081,9 @@ export function scanEcosystem(dir: string): EcosystemScan {
 export const GUARDRAIL_BLIND_SPOTS = `## What the guardrails can't catch
 
 - **Fail closed.** Render error/unreachable paths as explicit failures; never let a
-  swallowed error, empty result, or zero count masquerade as success.
+  swallowed error, empty result, or zero count masquerade as success. Where a
+  swallowed-error lint rule is adopted (see the adopt-list), it catches empty
+  \`catch {}\` / \`.catch(() => {})\`; every other swallow is still on you.
 - **Single source of truth.** Derive counts, totals, and dimensions from the data
   (array length, column count) — never hardcode a magic number that silently drifts.
 - **Keep names and comments honest.** When you change a function's behavior, update
@@ -1013,7 +1120,14 @@ export function bootstrapGuardrailChecklist(ecosystem: Ecosystem, pm: PackageMan
     const ctx: RustScan = { ...emptyScan, corpus: () => false, devDeps: new Set() };
     return RUST_GUARDRAILS.map((g) => adoptLine(rustProfile, ctx, g.id)).join("\n");
   }
-  const ctx: RepoScan = { ...emptyScan, deps: new Set(), scripts: {}, pm, pins: [] };
+  const ctx: RepoScan = {
+    ...emptyScan,
+    deps: new Set(),
+    scripts: {},
+    pm,
+    pins: [],
+    readText: () => [],
+  };
   return GUARDRAILS.map((g) => adoptLine(jsProfile, ctx, g.id)).join("\n");
 }
 
@@ -1082,6 +1196,7 @@ const TOOLING_LABEL: Record<GuardrailId, string> = {
   dead_code_audit: "A dead-code/complexity audit (fallow/knip)",
   issue_templates: "Intent-shaped issue templates",
   env_schema: "An env schema + drift audit (varlock)",
+  swallowed_errors: "Swallowed-error lint rules (no-empty + a .catch() rule)",
 };
 
 /** Plain-text "back-and-forth this removes" per guardrail (verbatim artifact). */
@@ -1107,6 +1222,8 @@ const CHURN_PLAIN: Record<GuardrailId, string> = {
     "without them an issue reaches the agent as a one-liner and the session burns its first turns asking what you meant.",
   env_schema:
     "without it an agent adds an env var nobody declared or documented, and you find the gap when a deploy breaks.",
+  swallowed_errors:
+    "without them an agent's empty `catch {}` or `.catch(() => {})` turns a failure into silent success, and you find it when something quietly breaks.",
 };
 
 /** Dev-add + exec verbs per package manager (verbatim — feed the generated artifact). */
@@ -1133,6 +1250,18 @@ const ISSUE_TEMPLATE_NOTE = [
     "`.gitlab/issue_templates/Task.md` with the same body and no front matter.",
 ];
 
+/** The copy-paste ESLint snippet for `swallowed_errors` — selectors only, no type info needed. */
+const SWALLOWED_ERRORS_NOTE = [
+  "Detected by text-matching the ESLint config; verify these rules are on (`error`) for your source files.",
+  "Add to your flat config's `rules` (merge with any existing `no-restricted-syntax` entries):",
+  '  "no-empty": ["error", { allowEmptyCatch: false }],',
+  '  "no-restricted-syntax": ["error", {',
+  "    selector: \"CallExpression[callee.property.name='catch'] > :matches(ArrowFunctionExpression, FunctionExpression):matches([body.type='BlockStatement'][body.body.length=0], [body.raw='null'], [body.type='Identifier'][body.name='undefined'], [body.type='UnaryExpression'][body.operator='void'][body.argument.type='Literal'])\",",
+  '    message: "This .catch() swallows the rejection. Log it or propagate it.",',
+  "  }],",
+  "Selectors can't read comments: allowing a deliberate swallow behind a `// best-effort: <why>` marker needs a small local rule.",
+];
+
 const PRESCRIPTION_NOTE: Partial<Record<GuardrailId, (s: RepoScan) => string[]>> = {
   dependency_automation: (s) => {
     if (s.pm === "bun") {
@@ -1153,6 +1282,7 @@ const PRESCRIPTION_NOTE: Partial<Record<GuardrailId, (s: RepoScan) => string[]>>
   env_schema: () => [
     "Run `varlock audit` in the pre-push hook and in CI so an undeclared (or stale) env var fails the push.",
   ],
+  swallowed_errors: () => SWALLOWED_ERRORS_NOTE,
 };
 
 /**
@@ -1173,6 +1303,7 @@ export const INSTALL_STEPS: Record<GuardrailId, (v: { add: string; exec: string 
   commit_lint: (v) => [`${v.add} @commitlint/cli @commitlint/config-conventional`],
   dead_code_audit: (v) => [`${v.add} fallow`],
   env_schema: (v) => [`${v.add} varlock`, `${v.exec} varlock init --agent`],
+  swallowed_errors: () => [],
   agent_instructions: () => [],
   ci: () => [],
   dependency_automation: () => [],

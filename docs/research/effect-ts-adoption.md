@@ -3,9 +3,10 @@
 **Verdict, three answers:**
 
 1. **Shepherd itself: no.** Don't migrate, and don't start a pilot yet. The real problems Effect
-   would solve here are **238 swallowed `.catch(() => {})`**, **`promisify(execFile)` re-declared
-   in 23 files**, **11 home-made backoff formulas**, **one private `withTimeout`** and **zero schema
-   validation**. Each can be fixed with a small shared module or a lint rule, without bringing a
+   would solve here are **238 swallowed promise rejections** (73 `.catch(() => {})` plus 165
+   `=> null`/`=> undefined` sentinels), **`promisify(execFile)` re-declared in 23 files**, **11
+   home-made backoff formulas**, **one private `withTimeout`** and **no runtime validation of HTTP
+   request bodies** (ajv is already a dependency, but only plugin payloads use it at runtime). Each can be fixed with a small shared module or a lint rule, without bringing a
    new runtime into a 190k-LOC codebase that many agents edit concurrently. Effect 4 is **seven
    weeks old** (4.0.0 on 2026-10-01), and its first minor release already contained breaking
    changes.
@@ -89,16 +90,16 @@ finalizers), dependency injection via Layers, and Schema. Measured against Sheph
 (`src/`, 459 files / 190k LOC excluding tests and generated code; counts from
 `grep -rE <pat> src --include='*.ts' --exclude='*.test.ts'`):
 
-| Effect feature        | Shepherd today                                                                                                                                                                                                        | Gap?                    |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| Typed errors          | 1,510 `try`, 458 `.catch(`, **238 `.catch(() => {})`**, ~170 empty catch blocks; 50 `Error` subclasses; 319/376 `ok: true/false` unions with **no shared `Result`** (only a local alias, `src/schedules-core.ts:208`) | **Yes**                 |
-| Timeouts/cancellation | One `withTimeout`, private to `src/service.ts:2253`; 12 `Promise.race`; 9 `AbortController`; `timedAsync` (`src/instrument.ts`) is profiling-only and does not enforce timeouts                                       | **Yes**                 |
-| Retries/schedules     | 11 `2 **` backoff formulas (e.g. `src/codex-activity.ts:587`, `src/poller.ts:878`); fixed arrays (`src/api-error-retry.ts:10`); 19 hand-rolled sleeps                                                                 | **Yes**                 |
-| Child processes       | `promisify(execFile)` re-declared in **23 files** (e.g. `src/herdr.ts:23`, `src/diagnostics.ts:60`)                                                                                                                   | **Yes** (duplication)   |
-| DI / testability      | 120 `*Deps` interfaces, closure injection, hand-wired in `src/index.ts` (51 `new XService(`); 21 `-core.ts` pure modules                                                                                              | **No**: already solved  |
-| Concurrency control   | `mapBounded` (`src/map-bounded.ts:4`), keyed serializer (`src/herdr.ts:788`), `timerTask` (`src/index.ts:3798`), worker-thread loop watchdog                                                                          | Mostly solved           |
-| Validation            | No schema library anywhere; ~597 hand-written `is*/parse*/validate*`; the 16k-line `contracts/openapi.yaml` is not validated at runtime                                                                               | **Yes**                 |
-| Observability         | 724 `console.*`, no OTel                                                                                                                                                                                              | Yes, but not a priority |
+| Effect feature        | Shepherd today                                                                                                                                                                                                                                                                                                                                                           | Gap?                    |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- |
+| Typed errors          | 1,510 `try`, 458 `.catch(`, **238 swallowed rejections** (73 `.catch(() => {})` + 165 `.catch(() => null/undefined)`), ~170 empty catch blocks; 50 `Error` subclasses; 319/376 `ok: true/false` unions with **no shared `Result`** (only a local alias, `src/schedules-core.ts:208`)                                                                                     | **Yes**                 |
+| Timeouts/cancellation | One `withTimeout`, private to `src/service.ts:2253`; 12 `Promise.race`; 9 `AbortController`; `timedAsync` (`src/instrument.ts`) is profiling-only and does not enforce timeouts                                                                                                                                                                                          | **Yes**                 |
+| Retries/schedules     | 11 `2 **` backoff formulas (e.g. `src/codex-activity.ts:587`, `src/poller.ts:878`); fixed arrays (`src/api-error-retry.ts:10`); 19 hand-rolled sleeps                                                                                                                                                                                                                    | **Yes**                 |
+| Child processes       | `promisify(execFile)` re-declared in **23 files** (e.g. `src/herdr.ts:23`, `src/diagnostics.ts:60`)                                                                                                                                                                                                                                                                      | **Yes** (duplication)   |
+| DI / testability      | 120 `*Deps` interfaces, closure injection, hand-wired in `src/index.ts` (51 `new XService(`); 21 `-core.ts` pure modules                                                                                                                                                                                                                                                 | **No**: already solved  |
+| Concurrency control   | `mapBounded` (`src/map-bounded.ts:4`), keyed serializer (`src/herdr.ts:788`), `timerTask` (`src/index.ts:3798`), worker-thread loop watchdog                                                                                                                                                                                                                             | Mostly solved           |
+| Validation            | **ajv ^8** is a production dep (`package.json:78`), used at runtime only for plugin payloads (`src/plugin-agents.ts:23`, `:206-207`); `contracts/openapi.yaml` is validated with Ajv2020 **in tests only** (`test/contract/openapi.test.ts:4`, `test/contract/harness.ts:3`); HTTP request bodies (102 `req.json()`) go through ~597 hand-written `is*/parse*/validate*` | **Yes**                 |
+| Observability         | 724 `console.*`, no OTel                                                                                                                                                                                                                                                                                                                                                 | Yes, but not a priority |
 
 So the gaps are real, and they sit in exactly the areas Effect is good at. The question is whether
 Effect is the right _fix_.
@@ -128,13 +129,13 @@ Effect is the right _fix_.
 
 ### 2.3 What to do instead (each a small, separate issue)
 
-| Gap              | Fix without Effect                                                                                                                                                                                          |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Swallowed errors | Lint rule banning empty catch handlers (`.catch(() => {})`, empty `catch {}`) unless they carry an explicit `// best-effort: <why>` marker; burn down the 238 + ~170 behind the rule                        |
-| Timeouts/retries | One `src/async.ts`: `sleep`, `withTimeout` (promote from `src/service.ts:2253`), `retry({ schedule })`; migrate the 11 backoff formulas and 19 sleeps                                                       |
-| `execFile` dupes | One shared `execFileAsync` export (with default `timeout` + `killSignal`) replacing 23 local `promisify` calls                                                                                              |
-| Result types     | One shared `Result<T, E>` + `ok()/err()` in a tiny module; adopt opportunistically                                                                                                                          |
-| Validation       | Separate spike: a Standard-Schema validator at the HTTP boundary (`req.json()`, 102 sites). Effect Schema is a candidate there, but it pulls in all of `effect`, so compare it against dedicated validators |
+| Gap              | Fix without Effect                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Swallowed errors | Lint rule banning rejection-swallowing handlers: empty `.catch(() => {})`, **`.catch(() => null/undefined)` sentinels**, and empty `catch {}`, unless they carry an explicit `// best-effort: <why>` marker. A plain no-empty rule only catches the 73 empty ones, so it needs a custom/`no-restricted-syntax` selector for the 165 sentinels. Burn down 238 + ~170 behind the rule |
+| Timeouts/retries | One `src/async.ts`: `sleep`, `withTimeout` (promote from `src/service.ts:2253`), `retry({ schedule })`; migrate the 11 backoff formulas and 19 sleeps                                                                                                                                                                                                                               |
+| `execFile` dupes | One shared `execFileAsync` export (with default `timeout` + `killSignal`) replacing 23 local `promisify` calls                                                                                                                                                                                                                                                                      |
+| Result types     | One shared `Result<T, E>` + `ok()/err()` in a tiny module; adopt opportunistically                                                                                                                                                                                                                                                                                                  |
+| Validation       | Separate spike on validating request bodies at the HTTP boundary (`req.json()`, 102 sites). **Baseline = the incumbent**: ajv (already a prod dep) compiling the existing `contracts/openapi.yaml` request schemas, the same way the contract tests already do. Compare it against Effect Schema (pulls in all of `effect`) and other validators                                    |
 
 **Revisit trigger:** reconsider Effect only if (a) these helpers land and the same problems
 persist, **and** (b) Effect 4.x has gone ~6 months without a breaking minor release.
@@ -194,5 +195,5 @@ which the compiler enforces.
 1. File the §2.3 helpers (lint rule, `async.ts`, shared `execFileAsync`, `Result`) as issues? I
    recommend yes, one issue each.
 2. File the two readiness checks from §3.2? I recommend yes; tsconfig strictness first.
-3. Validation spike (Effect Schema vs a dedicated validator at the HTTP boundary): worth an issue
-   now, or park it?
+3. Validation spike at the HTTP boundary (incumbent ajv + existing OpenAPI schemas as baseline,
+   vs Effect Schema and other validators): worth an issue now, or park it?

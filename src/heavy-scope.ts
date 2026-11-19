@@ -20,11 +20,10 @@
 // Enabled only where agent scopes are (src/agent-scope.ts) and `busctl` runs. Everywhere else the
 // latch stays false and the runner path is unchanged.
 
-import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { promisify } from "node:util";
 import { agentScopeEnabled } from "./agent-scope";
 import { DIAGNOSTICS_PROBE_TIMEOUT_MS } from "./config";
+import { execFileAsync } from "./instrument";
 
 export const HEAVY_SCOPE_SLICE = "shepherd_agents-heavy.slice";
 
@@ -44,8 +43,6 @@ export interface HeavyScopeDeps {
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
 }
-
-const execFileAsync = promisify(execFile);
 
 async function defaultRun(bin: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync(bin, args, {

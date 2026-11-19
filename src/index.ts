@@ -255,9 +255,12 @@ import { CodexQuestionTracker } from "./codex-questions";
 import { codexQuestionHint, readCodexQuestionScreen } from "./codex-question-screen";
 import { CodexQuestionAnswerService } from "./codex-question-answer";
 import { maintenance } from "./maintenance";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { startLoopLagSampler, logRemainingOnLoopBlockers, execFileSync } from "./instrument";
+import {
+  startLoopLagSampler,
+  logRemainingOnLoopBlockers,
+  execFileSync,
+  execFileAsync,
+} from "./instrument";
 import { startLoopWatchdog, opStart } from "./loop-watchdog";
 import { firstRun } from "./first-run";
 import { preflightHerdr } from "./preflight";
@@ -357,8 +360,6 @@ if (bunTooOld(Bun.version)) {
     `[shepherd] Bun ${Bun.version} is older than ${MIN_BUN_VERSION}: it can drop connections and crash — run \`bun upgrade\` and restart`,
   );
 }
-
-const execFileAsync = promisify(execFile);
 
 // Scrub any INHERITED session marker before anything can spawn (issue #1144).
 //

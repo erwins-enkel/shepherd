@@ -1,5 +1,3 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { timedAsync } from "../instrument";
 import { execGit } from "../safe-git";
 import type { SessionStore } from "../store";
@@ -15,8 +13,6 @@ import {
   type PullRequest,
   type RepoCounts,
 } from "./types";
-
-const execFileAsync = promisify(execFile);
 
 /** Per-git-call timeout (ms). Every invocation in this module is bounded — the
  *  ref-writing merge path is NOT exempt (house rule: never label a ref-writing
@@ -79,7 +75,7 @@ export function gitVersionAtLeast(v: GitVersion, major: number, minor: number): 
 
 const defaultVersionProbe: GitVersionProbe = async () => {
   const { stdout } = await timedAsync("git --version", () =>
-    execFileAsync("git", ["--version"], { timeout: GIT_READ_TIMEOUT_MS }),
+    execGit(["--version"], { timeout: GIT_READ_TIMEOUT_MS }),
   );
   return stdout;
 };

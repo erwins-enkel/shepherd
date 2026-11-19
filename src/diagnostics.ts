@@ -1,9 +1,8 @@
 import { maintenance } from "./maintenance";
 import { probeHerdrRuntime } from "./herdr-runtime";
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { cpus } from "node:os";
-import { promisify } from "node:util";
 import {
   BUN_MIN_VERSION,
   DIAGNOSTICS_PROBE_TIMEOUT_MS,
@@ -56,8 +55,7 @@ import type { MembraneLaunchFacts } from "./membrane-launch";
 import type { EgressProbeFacts } from "./egress";
 import type { SandboxBackend } from "./sandbox";
 import { AGENT_SLICE, agentScopeEnabled } from "./agent-scope";
-
-const execFileAsync = promisify(execFile);
+import { execFileAsync } from "./instrument";
 
 /** Reused from herdr-update.ts's parsing discipline — a (major.minor.patch)
  *  capture. Kept local so the regex's lastIndex state is never shared. */

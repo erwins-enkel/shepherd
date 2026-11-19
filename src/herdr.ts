@@ -1,6 +1,4 @@
-import { execFile } from "node:child_process";
 import { join, resolve } from "node:path";
-import { promisify } from "node:util";
 import { recordPowerPane } from "./power-panes";
 import { config } from "./config";
 import {
@@ -19,8 +17,7 @@ import { SpawnCanceled } from "./spawn-progress";
 import { SHELLS } from "./json-tolerant";
 import type { HerdrState, LivenessState, SessionStatus } from "./types";
 import type { RequestPaneAgentState } from "./generated/herdr-protocol";
-
-const execFileAsync = promisify(execFile);
+import { execFileAsync } from "./instrument";
 
 export interface HerdrAgent {
   agent: string;

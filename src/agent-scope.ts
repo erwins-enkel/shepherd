@@ -13,9 +13,8 @@
 // server. Everywhere else — macOS, non-systemd Linux, a hand-rolled install — the gate stays false and
 // the spawn argv is byte-identical to before.
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { DIAGNOSTICS_PROBE_TIMEOUT_MS } from "./config";
+import { execFileAsync } from "./instrument";
 
 /** The slice agent scopes run in. Underscore, not dash: `shepherd-agents.slice` would nest under
  *  `shepherd.slice`, which operators may limit for herdr.service + shepherd.service together. */
@@ -50,8 +49,6 @@ export interface AgentScopeDeps {
   /** Run a binary; resolve stdout, reject on non-zero exit / timeout. */
   run?: (bin: string, args: string[]) => Promise<string>;
 }
-
-const execFileAsync = promisify(execFile);
 
 async function defaultRun(bin: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync(bin, args, {

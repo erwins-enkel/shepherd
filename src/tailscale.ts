@@ -1,20 +1,14 @@
-import { execFile } from "node:child_process";
 import { userInfo } from "node:os";
-import { promisify } from "node:util";
-import { execFileSync, timedAsync } from "./instrument";
-
-const execFileAsync = promisify(execFile);
+import { execFileSync, execFileAsync } from "./instrument";
 
 /**
  * Minimal runner type — injectable for unit tests.
- * Mirrors the promisify(execFile) surface we actually use.
+ * Mirrors the execFileAsync surface we actually use.
  */
 export type TailscaleRunner = (args: string[]) => Promise<{ stdout: string }>;
 
 const defaultRun: TailscaleRunner = (args) =>
-  timedAsync("tailscale " + args[0], () =>
-    execFileAsync("tailscale", args, { encoding: "utf8", timeout: 5000 }),
-  );
+  execFileAsync("tailscale", args, { encoding: "utf8", timeout: 5000 });
 
 // ── resolveNodeHost ───────────────────────────────────────────────────────────
 

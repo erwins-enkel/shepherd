@@ -1,9 +1,7 @@
-import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
-import { timedAsync } from "../instrument";
+import { timedAsync, execFileAsync } from "../instrument";
 import { mapBounded } from "../map-bounded";
 import {
   jobsFromRollup,
@@ -728,14 +726,18 @@ function assertRestReserve(): void {
   throw Object.assign(new Error(stderr), { stderr });
 }
 
-const execFileAsync = promisify(execFile);
-
 /** Cap on concurrent `gh` subprocesses across every GitHub forge call (#2656). Sampled live,
  *  an uncapped server ran up to 26 at once; queued calls wait FIFO for a slot. */
 const GH_MAX_CONCURRENCY = 6;
 
+/** Per-`gh` cap: generous for `--paginate`, but a hung call can't hold a concurrency slot forever. */
+const GH_TIMEOUT_MS = 120_000;
+
 const execGh: GhRunner = async (args) => {
-  const { stdout } = await execFileAsync("gh", args, { maxBuffer: 16 * 1024 * 1024 });
+  const { stdout } = await execFileAsync("gh", args, {
+    maxBuffer: 16 * 1024 * 1024,
+    timeout: GH_TIMEOUT_MS,
+  });
   return stdout.toString();
 };
 

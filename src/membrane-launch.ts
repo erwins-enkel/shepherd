@@ -19,11 +19,9 @@
  * Self-contained + dependency-injectable, like sandbox.ts: it imports NO store/service/server, and
  * every host touch is an injectable dep so tests never spawn bwrap.
  */
-import { execFile } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { DIAGNOSTICS_PROBE_TIMEOUT_MS } from "./config";
 import {
   buildMembraneFlags,
@@ -33,8 +31,7 @@ import {
   type MembraneInputs,
   type SandboxBackend,
 } from "./sandbox";
-
-const execFileAsync = promisify(execFile);
+import { execFileAsync } from "./instrument";
 
 /** Agent runtimes Shepherd can spawn as a wrapped role. Matches `membraneForArgv`'s argv[0] test. */
 export type MembraneAgent = "claude" | "codex";

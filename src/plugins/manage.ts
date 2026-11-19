@@ -15,14 +15,11 @@
 
 import { readdir, readFile, lstat, stat, realpath, rm, unlink, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
-import { promisify } from "node:util";
-import { execFile } from "node:child_process";
 import { PLUGIN_API_VERSION, type InstalledPlugin, type PluginManifest } from "./types";
 import { validManifest } from "./loader";
 import { browserRepositoryUrl } from "./repository";
 import { classifyCloneError } from "../repos";
-
-const execFileAsync = promisify(execFile);
+import { execGit } from "../safe-git";
 
 /** Route segments directly under `/api/plugins/` that are NOT plugin ids. A plugin
  *  declaring one of these as its `id` would install fine but have its own
@@ -48,7 +45,7 @@ const defaultClone: CloneFn = async (url, dest) => {
   // `--` terminates options (no flag injection from a crafted URL/dest); the disabled
   // terminal prompt + no-system-config make a private/typo'd URL fail fast instead of
   // hanging on a credential prompt until the timeout (mirrors src/repos.ts).
-  await execFileAsync("git", ["clone", "--depth", "1", "--", url, dest], {
+  await execGit(["clone", "--depth", "1", "--", url, dest], {
     timeout: CLONE_TIMEOUT_MS,
     env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_NOSYSTEM: "1" },
   });

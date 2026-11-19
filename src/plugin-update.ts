@@ -1,15 +1,12 @@
-import { execFile } from "node:child_process";
 import { cp, lstat, mkdtemp, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { config } from "./config";
 import { compareSemver } from "./herdr-update";
 import { PLUGIN_API_VERSION } from "./plugins/types";
 import { timedAsync } from "./instrument";
+import { execGit } from "./safe-git";
 import type { PluginUpdateInfo, PluginUpdatesStatus } from "./types";
-
-const execFileAsync = promisify(execFile);
 
 /** Hard cap per git invocation (fetch/ls-remote hit the network). A slow or
  *  unreachable plugin remote then rejects and lands in that plugin's `error`
@@ -142,12 +139,9 @@ export class PluginUpdateService {
       deps.git ??
       (async (args, cwd) => {
         const { stdout } = await timedAsync(`git ${args[0] ?? ""}`, () =>
-          execFileAsync("git", cwd ? ["-C", cwd, ...args] : args, {
-            encoding: "utf8",
-            timeout: GIT_TIMEOUT_MS,
-          }),
+          execGit(cwd ? ["-C", cwd, ...args] : args, { timeout: GIT_TIMEOUT_MS }),
         );
-        return stdout as string;
+        return stdout;
       });
   }
 

@@ -23,11 +23,9 @@ import { admitRoleCapacity } from "./codex-capacity";
  *    with no anchor at all and re-spawn a diagnosis every single day. Every run writes a row,
  *    including the ones that file nothing and the ones that error, and that row is the anchor.
  */
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { promisify } from "node:util";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
@@ -75,6 +73,7 @@ import {
   type FixPackage,
   type MaintainDraft,
 } from "./maintain-core";
+import { execFileAsync } from "./instrument";
 
 /** Herdr agent-name prefix. Unique per run (`__maintain__<8hex>`) so an orphaned pane from a prior
  *  lifetime can never squat the name a fresh spawn wants — the recurring `agent_name_taken` class. */
@@ -128,8 +127,6 @@ export interface FixRunner {
   typecheck(worktreePath: string, pkg: FixPackage): Promise<void>;
 }
 
-const execFileP = promisify(execFile);
-
 /**
  * Recover a fallow report from a NON-ZERO exit, or null when the output cannot be trusted.
  *
@@ -154,7 +151,7 @@ export function reportFromFailedExit(err: unknown): string | null {
 const defaultFixRunner: FixRunner = {
   async install(worktreePath) {
     for (const dir of FIX_INSTALL_DIRS) {
-      await execFileP("bun", ["install", "--frozen-lockfile"], {
+      await execFileAsync("bun", ["install", "--frozen-lockfile"], {
         cwd: join(worktreePath, dir),
         timeout: FIX_SUBPROCESS_TIMEOUT_MS,
       });
@@ -162,7 +159,7 @@ const defaultFixRunner: FixRunner = {
   },
   async deadCode(worktreePath) {
     try {
-      const { stdout } = await execFileP(
+      const { stdout } = await execFileAsync(
         "bunx",
         [`fallow@${FALLOW_VERSION}`, "dead-code", "--format", "json"],
         {
@@ -179,15 +176,19 @@ const defaultFixRunner: FixRunner = {
     }
   },
   async fix(worktreePath) {
-    await execFileP("bunx", [`fallow@${FALLOW_VERSION}`, "fix", "--yes", "--no-create-config"], {
-      cwd: worktreePath,
-      timeout: FIX_SUBPROCESS_TIMEOUT_MS,
-    });
+    await execFileAsync(
+      "bunx",
+      [`fallow@${FALLOW_VERSION}`, "fix", "--yes", "--no-create-config"],
+      {
+        cwd: worktreePath,
+        timeout: FIX_SUBPROCESS_TIMEOUT_MS,
+      },
+    );
   },
   async typecheck(worktreePath, pkg) {
     // `bun run check` is each sub-package's own svelte-check; `typecheck` is the server's tsc.
     const [dir, script] = pkg === "root" ? [".", "typecheck"] : [pkg, "check"];
-    await execFileP("bun", ["run", script], {
+    await execFileAsync("bun", ["run", script], {
       cwd: join(worktreePath, dir),
       timeout: FIX_SUBPROCESS_TIMEOUT_MS,
     });

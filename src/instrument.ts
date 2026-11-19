@@ -2,7 +2,12 @@
  * Profiling / instrumentation helpers — zero-cost when SHEPHERD_PROFILE_LOOP is unset.
  * Set SHEPHERD_PROFILE_LOOP=1 to enable event-loop-lag sampling and per-call timing.
  */
-import { execFileSync as nodeExecFileSync } from "node:child_process";
+import {
+  execFile as nodeExecFile,
+  execFileSync as nodeExecFileSync,
+  type ExecFileOptions,
+} from "node:child_process";
+import { promisify } from "node:util";
 
 /** Lazy — read inside each function so tests can toggle the env var. */
 const isProfiling = () => process.env.SHEPHERD_PROFILE_LOOP === "1";
@@ -98,6 +103,34 @@ export const execFileSync: typeof nodeExecFileSync = ((
   const label = sub ? `${String(file)} ${sub}` : String(file);
   return timed(label, () => nodeExecFileSync(...(args as Parameters<typeof nodeExecFileSync>)));
 }) as typeof nodeExecFileSync;
+
+// ── shared async execFile ─────────────────────────────────────────────────────
+
+/** Defaults every {@link execFileAsync} call gets unless it passes its own. */
+export const EXEC_DEFAULTS = { timeout: 60_000, killSignal: "SIGTERM" } as const;
+
+/** `opts` over {@link EXEC_DEFAULTS}. An explicit `timeout: 0` means no timeout (Node
+ *  semantics); `undefined` falls back to the default. */
+export function withExecDefaults<T extends ExecFileOptions>(opts?: T): T {
+  return {
+    ...opts,
+    timeout: opts?.timeout ?? EXEC_DEFAULTS.timeout,
+    killSignal: opts?.killSignal ?? EXEC_DEFAULTS.killSignal,
+  } as T;
+}
+
+const nodeExecFileAsync = promisify(nodeExecFile);
+
+/** The ONE promisified `execFile` for server code (git still goes through `./safe-git`):
+ *  applies {@link EXEC_DEFAULTS} and reports through `timedAsync` like `execFileSync`. */
+export const execFileAsync: typeof nodeExecFileAsync = ((
+  file: string,
+  args: readonly string[] = [],
+  opts?: ExecFileOptions,
+) =>
+  timedAsync(`${file} ${args[0] ?? ""}`.trimEnd(), () =>
+    nodeExecFileAsync(file, args, withExecDefaults(opts)),
+  )) as typeof nodeExecFileAsync;
 
 // ── startup blocker map ───────────────────────────────────────────────────────
 

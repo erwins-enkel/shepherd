@@ -19,18 +19,9 @@
 // packages (`Package.swift`, same depth rule) — is tried only after js-ts and rust missed at both
 // depths, so adding it never changed the profile of a repo that already had one.
 
-import {
-  closeSync,
-  constants,
-  existsSync,
-  fstatSync,
-  openSync,
-  readFileSync,
-  readSync,
-  readdirSync,
-  type Dirent,
-} from "node:fs";
-import { join } from "node:path";
+import type { Dirent } from "node:fs";
+import { constants, open, readdir, stat, type FileHandle } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { INTENT_ISSUE_TEMPLATE } from "./intent-shape";
 import { SHEPHERD_IGNORE_GLOB } from "./shepherd-exclude";
 import { tsconfigStrictness, type TsConfigStrictness } from "./readiness-tsconfig";
@@ -117,9 +108,9 @@ interface EcosystemProfile<Ctx extends FileScan> {
   id: Ecosystem;
   /** Package/crate roots relative to `dir`; `[]` when the repo isn't this ecosystem. `deep`
    *  searches ONLY the second level (#3107) — callers try it after every profile missed shallow. */
-  detectRoots: (dir: string, deep: boolean) => string[];
-  /** May be async — the JS profile awaits its tsconfig strictness read. */
-  buildContext: (dir: string, roots: string[]) => Ctx | Promise<Ctx>;
+  detectRoots: (dir: string, deep: boolean) => Promise<string[]>;
+  /** Gathers every file probe up front (async), so the detectors run sync over in-memory data. */
+  buildContext: (dir: string, roots: string[]) => Promise<Ctx>;
   guardrails: GuardrailDef<Ctx>[];
   stackLabel: (ctx: Ctx) => string;
   toolingLabel: (id: GuardrailId) => string;
@@ -451,7 +442,7 @@ export const GUARDRAILS: GuardrailDef<RepoScan>[] = [
  * short-circuits the subproject scan — a workspaces-only root whose tooling
  * lives in subpackages is scored from the root manifest alone.
  */
-function findPackageRoots(dir: string, deep: boolean): string[] {
+function findPackageRoots(dir: string, deep: boolean): Promise<string[]> {
   return findManifestRoots(dir, "package.json", (n) => n !== "node_modules", deep);
 }
 
@@ -476,7 +467,7 @@ export function pickPackageManager(
 
 /** Merges one package.json's deps + scripts (+ first packageManager) into the accumulators. */
 function collectManifest(
-  file: string,
+  text: string,
   deps: Set<string>,
   scripts: Record<string, string>,
   meta: { packageManager?: string; engines?: boolean },
@@ -489,9 +480,9 @@ function collectManifest(
     engines?: Record<string, string>;
   } = {};
   try {
-    pkg = JSON.parse(readFileSync(file, "utf8"));
+    pkg = JSON.parse(text);
   } catch {
-    // Malformed package.json (findPackageRoots guarantees the file exists):
+    // Malformed or unreadable package.json (findPackageRoots guarantees the file exists):
     // still a JS/TS repo, just no resolvable deps/scripts.
   }
   for (const d of Object.keys(pkg.dependencies ?? {})) deps.add(d);
@@ -501,17 +492,38 @@ function collectManifest(
   if (pkg.engines && Object.keys(pkg.engines).length) meta.engines = true;
 }
 
+/** `rel`'s capped text per root that has it, for each ESLint config file — what `readText` serves. */
+async function readEslintConfigs(
+  dir: string,
+  probes: ProbeSurface,
+): Promise<Map<string, string[]>> {
+  const entries = await Promise.all(
+    ESLINT_CONFIG_FILES.map(async (rel): Promise<[string, string[]]> => {
+      const roots = probes.roots.filter((root) => probes.hasIn(root, rel));
+      const texts = await Promise.all(
+        roots.map((root) => readRegular(join(dir, root, rel), READ_CAP)),
+      );
+      return [rel, texts.filter((t): t is string => t !== null)];
+    }),
+  );
+  return new Map(entries);
+}
+
 async function buildJsContext(dir: string, pkgRoots: string[]): Promise<RepoScan> {
   const deps = new Set<string>();
   const scripts: Record<string, string> = {};
   const meta: { packageManager?: string; engines?: boolean } = {};
-  for (const root of pkgRoots)
-    collectManifest(join(dir, root, "package.json"), deps, scripts, meta);
+  const manifests = await Promise.all(
+    pkgRoots.map((root) => readRegular(join(dir, root, "package.json"))),
+  );
+  for (const text of manifests) collectManifest(text ?? "", deps, scripts, meta);
 
-  const { has, glob, roots } = rootAwareProbes(dir, pkgRoots);
-  const tsconfigs = (
-    await Promise.all(roots.map((root) => tsconfigStrictness(dir, join(root, "tsconfig.json"))))
-  ).flat();
+  const probes = await probeSurface(dir, pkgRoots);
+  const { has, glob, roots } = probes;
+  const [tsconfigs, eslintText] = await Promise.all([
+    Promise.all(roots.map((root) => tsconfigStrictness(dir, join(root, "tsconfig.json")))),
+    readEslintConfigs(dir, probes),
+  ]);
   const pins: string[] = [];
   if (meta.packageManager) pins.push("packageManager");
   if (meta.engines) pins.push("engines");
@@ -523,24 +535,33 @@ async function buildJsContext(dir: string, pkgRoots: string[]): Promise<RepoScan
     glob,
     pm: pickPackageManager(meta.packageManager, has),
     pins,
-    readText: (rel) => roots.flatMap((root) => readCapped(join(dir, root, rel))),
-    tsconfigs,
+    readText: (rel) => {
+      const texts = eslintText.get(rel);
+      if (!texts) throw new Error(`readiness: readText(${rel}) was not precomputed`);
+      return texts;
+    },
+    tsconfigs: tsconfigs.flat(),
   };
 }
 
-/** The first {@link READ_CAP} bytes of `file` as `[text]`, or `[]` when it isn't a readable
- *  regular file. Opened non-blocking so a FIFO in the target repo can't stall the server loop. */
-function readCapped(file: string): string[] {
-  let fd: number | undefined;
+/**
+ * `file`'s text — at most `cap` bytes when given, else the whole file — or null when it isn't a
+ * readable regular file. Opened non-blocking and gated on `isFile()`, so a FIFO or device in the
+ * target repo can't hang the read.
+ */
+async function readRegular(file: string, cap?: number): Promise<string | null> {
+  let fh: FileHandle | undefined;
   try {
-    fd = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK);
-    if (!fstatSync(fd).isFile()) return [];
-    const buf = Buffer.alloc(READ_CAP);
-    return [buf.toString("utf8", 0, readSync(fd, buf, 0, READ_CAP, 0))];
+    fh = await open(file, constants.O_RDONLY | constants.O_NONBLOCK);
+    if (!(await fh.stat()).isFile()) return null;
+    if (cap === undefined) return await fh.readFile("utf8");
+    const buf = Buffer.alloc(cap);
+    const { bytesRead } = await fh.read(buf, 0, cap, 0);
+    return buf.toString("utf8", 0, bytesRead);
   } catch {
-    return []; // missing or unreadable — no evidence
+    return null; // missing or unreadable — no evidence
   } finally {
-    if (fd !== undefined) closeSync(fd);
+    await fh?.close();
   }
 }
 
@@ -588,7 +609,7 @@ interface RustScan extends FileScan {
   devDeps: Set<string>;
 }
 
-function findCargoRoots(dir: string, deep: boolean): string[] {
+function findCargoRoots(dir: string, deep: boolean): Promise<string[]> {
   return findManifestRoots(dir, "Cargo.toml", (n) => n !== "target", deep);
 }
 
@@ -600,45 +621,47 @@ function cargoDevDeps(toml: string): string[] {
   return names;
 }
 
-function readFileSafe(file: string): string {
-  try {
-    return readFileSync(file, "utf8");
-  } catch {
-    return "";
-  }
+/** The whole text of `file`, or `""` when it isn't a readable regular file. */
+async function readFileSafe(file: string): Promise<string> {
+  return (await readRegular(file)) ?? "";
 }
 
 /**
- * The files whose contents make up one crate root's command corpus — hook scripts,
- * CI workflows, Makefile/justfile, lefthook configs and Cargo.toml. rustfmt/clippy are
- * rustup components (not manifest deps), so tool usage is proven by scanning these.
+ * The stack-independent command corpus of one root, read in a fixed order: hook scripts, CI
+ * workflows, Makefile/justfile, lefthook. `ls` is that root's precomputed dir listing.
  */
-function rustCorpusPaths(base: string): string[] {
-  return [...commandCorpusPaths(base), join(base, "Cargo.toml")];
-}
-
-/** The stack-independent command corpus: hook scripts, CI workflows, Makefile/justfile, lefthook. */
-function commandCorpusPaths(base: string): string[] {
+function commandCorpus(base: string, ls: (subdir: string) => string[]): Promise<string[]> {
   const paths: string[] = [];
   for (const hookDir of [".githooks", ".husky"])
-    for (const n of safeReaddir(join(base, hookDir))) paths.push(join(base, hookDir, n));
-  for (const n of safeReaddir(join(base, ".github/workflows")))
+    for (const n of ls(hookDir)) paths.push(join(base, hookDir, n));
+  for (const n of ls(".github/workflows"))
     if (n.endsWith(".yml") || n.endsWith(".yaml")) paths.push(join(base, ".github/workflows", n));
   for (const f of ["Makefile", "justfile", "lefthook.yml", "lefthook.yaml"])
     paths.push(join(base, f));
-  return paths;
+  return Promise.all(paths.map(readFileSafe));
 }
 
-function buildRustContext(dir: string, crateRoots: string[]): RustScan {
-  const { has, glob, roots } = rootAwareProbes(dir, crateRoots);
+async function buildRustContext(dir: string, crateRoots: string[]): Promise<RustScan> {
+  const probes = await probeSurface(dir, crateRoots);
+  const { has, glob, roots } = probes;
 
-  // Bounded command corpus + dev-deps, gathered across the crate roots (+ the repo root).
+  // Bounded command corpus + Cargo.toml (which also yields the dev-deps), per crate root
+  // (+ the repo root). rustfmt/clippy are rustup components, so usage is proven by scanning these.
+  const perRoot = await Promise.all(
+    roots.map(async (root) => {
+      const base = join(dir, root);
+      const [cmds, cargo] = await Promise.all([
+        commandCorpus(base, (sub) => probes.ls(root, sub)),
+        readFileSafe(join(base, "Cargo.toml")),
+      ]);
+      return { cmds, cargo };
+    }),
+  );
   const chunks: string[] = [];
   const devDeps = new Set<string>();
-  for (const root of roots) {
-    const base = join(dir, root);
-    for (const path of rustCorpusPaths(base)) chunks.push(readFileSafe(path));
-    for (const d of cargoDevDeps(readFileSafe(join(base, "Cargo.toml")))) devDeps.add(d);
+  for (const { cmds, cargo } of perRoot) {
+    chunks.push(...cmds, cargo);
+    for (const d of cargoDevDeps(cargo)) devDeps.add(d);
   }
   const text = chunks.join("\n");
   const corpus = (re: RegExp) => re.test(text);
@@ -781,16 +804,17 @@ interface SwiftScan extends FileScan {
   corpus: (re: RegExp) => boolean;
 }
 
-function findSwiftRoots(dir: string, deep: boolean): string[] {
+function findSwiftRoots(dir: string, deep: boolean): Promise<string[]> {
   return findManifestRoots(dir, "Package.swift", (n) => n !== "node_modules" && n !== "Pods", deep);
 }
 
-function buildSwiftContext(dir: string, packageRoots: string[]): SwiftScan {
-  const { has, glob, roots } = rootAwareProbes(dir, packageRoots);
-  const text = roots
-    .flatMap((root) => commandCorpusPaths(join(dir, root)))
-    .map(readFileSafe)
-    .join("\n");
+async function buildSwiftContext(dir: string, packageRoots: string[]): Promise<SwiftScan> {
+  const probes = await probeSurface(dir, packageRoots);
+  const { has, glob, roots } = probes;
+  const chunks = await Promise.all(
+    roots.map((root) => commandCorpus(join(dir, root), (sub) => probes.ls(root, sub))),
+  );
+  const text = chunks.flat().join("\n");
   return { dir, has, glob, corpus: (re) => re.test(text) };
 }
 
@@ -911,26 +935,33 @@ const swiftProfile: EcosystemProfile<SwiftScan> = {
 
 // ══ Shared detection / scoring plumbing ════════════════════════════════════════════
 
-/** readdirSync that yields [] for a missing/unreadable dir. */
-function safeReaddir(dir: string): string[] {
-  try {
-    return readdirSync(dir);
-  } catch {
-    return [];
-  }
-}
-
 /** First-level, non-hidden subdirectory names of `dir` that pass `keep`; [] when unreadable. */
-function childDirs(dir: string, keep: (name: string) => boolean): string[] {
+async function childDirs(dir: string, keep: (name: string) => boolean): Promise<string[]> {
   let entries: Dirent[];
   try {
-    entries = readdirSync(dir, { withFileTypes: true });
+    entries = await readdir(dir, { withFileTypes: true });
   } catch {
-    return [];
+    return []; // missing or unreadable — no subprojects
   }
   return entries
     .filter((e) => e.isDirectory() && !e.name.startsWith(".") && keep(e.name))
     .map((e) => e.name);
+}
+
+/** True when `path` resolves to something (symlinks followed, like `existsSync`). */
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false; // missing or unreachable — absent
+  }
+}
+
+/** `rels` that have `manifest` under `dir`, sorted. */
+async function withManifest(dir: string, rels: string[], manifest: string): Promise<string[]> {
+  const hits = await Promise.all(rels.map((rel) => exists(join(dir, rel, manifest))));
+  return rels.filter((_, i) => hits[i]).sort();
 }
 
 /**
@@ -941,41 +972,85 @@ function childDirs(dir: string, keep: (name: string) => boolean): string[] {
  * `editors/code/package.json` stays rust). `keep` excludes ecosystem-specific noise dirs
  * (node_modules, target); hidden dirs are always excluded.
  */
-function findManifestRoots(
+async function findManifestRoots(
   dir: string,
   manifest: string,
   keep: (name: string) => boolean,
   deep: boolean,
-): string[] {
-  const level1 = childDirs(dir, keep);
+): Promise<string[]> {
   if (!deep) {
-    if (existsSync(join(dir, manifest))) return [""];
-    return level1.filter((n) => existsSync(join(dir, n, manifest))).sort();
+    if (await exists(join(dir, manifest))) return [""];
+    return withManifest(dir, await childDirs(dir, keep), manifest);
   }
-  return level1
-    .flatMap((n) => childDirs(join(dir, n), keep).map((c) => `${n}/${c}`))
-    .filter((rel) => existsSync(join(dir, rel, manifest)))
-    .sort();
+  const level1 = await childDirs(dir, keep);
+  const level2 = await Promise.all(
+    level1.map(async (n) => (await childDirs(join(dir, n), keep)).map((c) => `${n}/${c}`)),
+  );
+  return withManifest(dir, level2.flat(), manifest);
+}
+
+/**
+ * The only directories (relative to each root) the file probes look into. `has`/`glob` answer
+ * from these listings, read once per scan; probing any other directory is a programming error
+ * and throws, so a new detector path fails the tests instead of silently scoring absent.
+ */
+const PROBE_DIRS = [
+  ".",
+  ".github",
+  ".github/workflows",
+  ".github/ISSUE_TEMPLATE",
+  ".gitlab/issue_templates",
+  ".husky",
+  ".githooks",
+];
+
+/** The precomputed, root-aware probe surface of one scan. */
+interface ProbeSurface extends FileScan {
+  /** Effective search list: the repo root plus each manifest root. */
+  roots: string[];
+  /** Entry names of `subdir` (one of {@link PROBE_DIRS}) under `root`; [] when missing. */
+  ls: (root: string, subdir: string) => string[];
+  /** True when `rel` exists under `root` (per its parent dir's listing). */
+  hasIn: (root: string, rel: string) => boolean;
+}
+
+/** Entry names of `dir`, or [] when it is missing, unreadable or not a directory. */
+async function listDir(dir: string): Promise<string[]> {
+  try {
+    return await readdir(dir);
+  } catch {
+    return []; // missing or unreadable — no entries
+  }
 }
 
 /**
  * Root-aware file probes: repo-level markers (.husky, .github/workflows, CLAUDE.md) live at
- * the root, so `has`/`glob` span the repo root plus each manifest subdir. `roots` is the
- * effective search list (the root is always included).
+ * the root, so `has`/`glob` span the repo root plus each manifest subdir. Every listing is read
+ * here, async; the returned probes are sync lookups. A dangling symlink counts as present.
  */
-function rootAwareProbes(
-  dir: string,
-  manifestRoots: string[],
-): { roots: string[]; has: FileScan["has"]; glob: FileScan["glob"] } {
+async function probeSurface(dir: string, manifestRoots: string[]): Promise<ProbeSurface> {
   const roots = manifestRoots[0] === "" ? manifestRoots : ["", ...manifestRoots];
-  const has = (rel: string) => roots.some((root) => existsSync(join(dir, root, rel)));
+  const listings = new Map(
+    await Promise.all(
+      roots.map(async (root): Promise<[string, Map<string, string[]>]> => {
+        const lists = await Promise.all(PROBE_DIRS.map((sub) => listDir(join(dir, root, sub))));
+        return [root, new Map(PROBE_DIRS.map((sub, i) => [sub, lists[i] ?? []]))];
+      }),
+    ),
+  );
+  const ls = (root: string, subdir: string) => {
+    const names = listings.get(root)?.get(subdir);
+    if (!names) throw new Error(`readiness: ${subdir} under "${root}" is not a probed directory`);
+    return names;
+  };
+  const hasIn = (root: string, rel: string) => ls(root, dirname(rel)).includes(basename(rel));
+  const has = (rel: string) => roots.some((root) => hasIn(root, rel));
   const glob = (subdir: string, test: (name: string) => boolean) => {
     const names = new Set<string>();
-    for (const root of roots)
-      for (const n of safeReaddir(join(dir, root, subdir)).filter(test)) names.add(n);
+    for (const root of roots) for (const n of ls(root, subdir).filter(test)) names.add(n);
     return [...names];
   };
-  return { roots, has, glob };
+  return { roots, ls, hasIn, has, glob };
 }
 
 /** Runs a guardrail list against a scan context; conditional guardrails that don't apply drop out. */
@@ -994,7 +1069,7 @@ async function runProfile<Ctx extends FileScan>(
   dir: string,
   deep: boolean,
 ): Promise<ReadinessReport | null> {
-  const roots = profile.detectRoots(dir, deep);
+  const roots = await profile.detectRoots(dir, deep);
   if (roots.length === 0) return null;
   const ctx = await profile.buildContext(dir, roots);
   const checks = runGuardrails(profile.guardrails, ctx);
@@ -1082,7 +1157,7 @@ async function scanProfile<Ctx extends FileScan>(
   dir: string,
   deep: boolean,
 ): Promise<EcosystemScan | null> {
-  const roots = profile.detectRoots(dir, deep);
+  const roots = await profile.detectRoots(dir, deep);
   if (roots.length === 0) return null;
   const ctx = await profile.buildContext(dir, roots);
   return {
@@ -1098,7 +1173,7 @@ export async function scanEcosystem(dir: string): Promise<EcosystemScan> {
   return (
     (await firstProfile(dir, scanProfile)) ?? {
       ecosystem: null,
-      checks: runGuardrails(AGNOSTIC_GUARDRAILS, rootAwareProbes(dir, [""])),
+      checks: runGuardrails(AGNOSTIC_GUARDRAILS, await probeSurface(dir, [""])),
       toolchainPins: [],
     }
   );

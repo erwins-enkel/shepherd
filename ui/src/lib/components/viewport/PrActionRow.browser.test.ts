@@ -1368,7 +1368,33 @@ describe("PrActionRow — artifact link (#3876)", () => {
     expect(document.querySelector(".status-tip:popover-open")).not.toBeNull();
   });
 
-  // The docked Assistant can leave the session pane as narrow as 320px on the desktop layout.
+  // The session pane as the shell lays it out: `inset` px of shell padding on each side, then the
+  // Viewport's 1px border, which clips. Returns the pane the row renders into.
+  function pane(width: number, inset = 0): HTMLDivElement {
+    const shell = host(width);
+    shell.style.paddingInline = `${inset}px`;
+    const vp = document.createElement("div");
+    vp.style.border = "1px solid";
+    vp.style.overflow = "hidden";
+    shell.appendChild(vp);
+    return vp;
+  }
+  const middle = (b: DOMRect) => b.top + b.height / 2;
+  // Every action target lies inside the row and its label inside the target.
+  function expectInside(h: HTMLElement) {
+    const box = row(h)!.getBoundingClientRect();
+    for (const t of targets(h)) {
+      const b = t.getBoundingClientRect();
+      const what = t.textContent?.trim();
+      expect(b.left, `${what} inside the pane`).toBeGreaterThanOrEqual(box.left - 0.5);
+      expect(b.right, `${what} inside the pane`).toBeLessThanOrEqual(box.right + 0.5);
+      expect(t.scrollWidth, `${what} label inside, across`).toBeLessThanOrEqual(t.clientWidth);
+      expect(t.scrollHeight, `${what} label inside, down`).toBeLessThanOrEqual(t.clientHeight);
+    }
+  }
+
+  // The docked Assistant leaves the desktop session pane 320px at its drag floor, and less in a
+  // narrow window: about 168px at a 900px viewport, 48px at 780px.
   describe("narrow desktop pane", () => {
     beforeEach(() => {
       repoConfig.enabled = { ...repoConfig.enabled, "/repo": true }; // Review ↗ too: the widest set
@@ -1384,33 +1410,25 @@ describe("PrActionRow — artifact link (#3876)", () => {
       { name: "Fix CI", session: () => session({ artifacts }), git: red },
     ];
 
-    for (const width of [320, 480, 900]) {
+    for (const width of [48, 168, 320, 480, 900]) {
       for (const c of cases) {
-        it(`${width}px, ${c.name}: every action stays inside the pane, the PR line stays readable`, async () => {
-          const h = host(width);
-          h.style.overflow = "hidden"; // the session pane clips
+        it(`${width}px pane, ${c.name}: every action stays inside the pane`, async () => {
+          const h = pane(width);
           await render(PrActionRow, {
             target: h,
             props: { session: c.session(), git: c.git, status: "idle", liveness: "alive" },
           });
-          const r = row(h)!;
-          const box = r.getBoundingClientRect();
-          expect(r.scrollWidth, "no horizontal overflow").toBeLessThanOrEqual(r.clientWidth);
           const ts = targets(h);
           expect(ts[0]!.classList.contains("art-link")).toBe(true);
           expect(ts.at(-1)!.classList.contains("primary"), "main action last").toBe(true);
-          for (const t of ts) {
-            const b = t.getBoundingClientRect();
-            const what = t.textContent?.trim();
-            expect(b.left, `${what} inside the pane`).toBeGreaterThanOrEqual(box.left - 0.5);
-            expect(b.right, `${what} inside the pane`).toBeLessThanOrEqual(box.right + 0.5);
-            expect(t.scrollWidth, `${what} label inside`).toBeLessThanOrEqual(t.clientWidth);
-          }
+          expectInside(h);
+          if (width < 320) return;
+          const r = row(h)!;
+          expect(r.scrollWidth, "no horizontal overflow").toBeLessThanOrEqual(r.clientWidth);
           const info = r.querySelector<HTMLElement>(".pr-info")!.getBoundingClientRect();
           expect(info.width, "PR line readable").toBeGreaterThanOrEqual(200);
           if (width === 900) {
             // wide: one line, as without the link
-            const middle = (b: DOMRect) => b.top + b.height / 2;
             const main = ts.at(-1)!.getBoundingClientRect();
             expect(Math.abs(middle(info) - middle(main))).toBeLessThanOrEqual(1);
           }
@@ -1423,6 +1441,7 @@ describe("PrActionRow — artifact link (#3876)", () => {
     beforeEach(() => {
       repoConfig.enabled = { ...repoConfig.enabled, "/repo": true };
     });
+    afterEach(() => document.documentElement.style.removeProperty("--ui-scale"));
 
     const cases = [
       {
@@ -1445,66 +1464,70 @@ describe("PrActionRow — artifact link (#3876)", () => {
       },
     ];
 
+    // Inside the shell's 10px padding and the Viewport's border; iOS larger text caps at 1.5.
     for (const locale of ["en", "de"] as const) {
       for (const width of [320, 360]) {
-        for (const c of cases) {
-          it(`${locale} ${width}px, ${c.name}: one line, main action takes the rest, 44px targets, nothing overflows`, async () => {
-            setLocale(locale, { reload: false });
-            await page.viewport(width, 800);
-            const h = host(width);
-            await render(PrActionRow, {
-              target: h,
-              props: {
-                session: c.session(),
-                git: c.git,
-                status: "idle",
-                liveness: "alive",
-                mobile: true,
-                touch: true,
-              },
-            });
-            const r = row(h)!;
-            const actions = r.querySelector<HTMLElement>(".pr-actions")!;
-            const ts = targets(h);
-            expect(ts.map((t) => t.textContent?.trim())).toEqual(c.labels());
+        for (const scale of [1, 1.5]) {
+          for (const c of cases) {
+            it(`${locale} ${width}px, text ×${scale}, ${c.name}: one line, main action takes the rest, 44px targets, nothing overflows`, async () => {
+              setLocale(locale, { reload: false });
+              document.documentElement.style.setProperty("--ui-scale", String(scale));
+              await page.viewport(width, 800);
+              const h = pane(width, 10);
+              await render(PrActionRow, {
+                target: h,
+                props: {
+                  session: c.session(),
+                  git: c.git,
+                  status: "idle",
+                  liveness: "alive",
+                  mobile: true,
+                  touch: true,
+                },
+              });
+              const r = row(h)!;
+              const actions = r.querySelector<HTMLElement>(".pr-actions")!;
+              const ts = targets(h);
+              expect(ts.map((t) => t.textContent?.trim())).toEqual(c.labels());
 
-            const hit = Number.parseFloat(
-              getComputedStyle(document.documentElement).getPropertyValue("--mobile-actionbar-hit"),
-            );
-            const rects = ts.map((t) => t.getBoundingClientRect());
-            const middle = (b: DOMRect) => b.top + b.height / 2;
-            ts.forEach((t, i) => {
-              const b = rects[i]!;
-              const what = t.textContent?.trim();
-              expect(b.width, `${what} width`).toBeGreaterThanOrEqual(hit);
-              expect(b.height, `${what} height`).toBeGreaterThanOrEqual(hit);
+              const hit = Number.parseFloat(
+                getComputedStyle(document.documentElement).getPropertyValue(
+                  "--mobile-actionbar-hit",
+                ),
+              );
+              const rects = ts.map((t) => t.getBoundingClientRect());
+              ts.forEach((t, i) => {
+                const b = rects[i]!;
+                const what = t.textContent?.trim();
+                expect(b.width, `${what} width`).toBeGreaterThanOrEqual(hit);
+                expect(b.height, `${what} height`).toBeGreaterThanOrEqual(hit);
+                expect(
+                  Math.abs(middle(b) - middle(rects[0]!)),
+                  `${what} on the line`,
+                ).toBeLessThanOrEqual(1);
+                if (i > 0)
+                  expect(b.left, `${what} after its neighbour`).toBeGreaterThanOrEqual(
+                    rects[i - 1]!.right,
+                  );
+              });
+              expectInside(h);
+              const main = rects.at(-1)!;
+              const gap = Number.parseFloat(getComputedStyle(actions).columnGap);
               expect(
-                Math.abs(middle(b) - middle(rects[0]!)),
-                `${what} on the line`,
+                Math.abs(main.left - rects.at(-2)!.right - gap),
+                "main follows its neighbour",
               ).toBeLessThanOrEqual(1);
-              if (i > 0)
-                expect(b.left, `${what} after its neighbour`).toBeGreaterThanOrEqual(
-                  rects[i - 1]!.right,
-                );
-              expect(t.scrollWidth, `${what} label inside, across`).toBeLessThanOrEqual(
-                t.clientWidth,
-              );
-              expect(t.scrollHeight, `${what} label inside, down`).toBeLessThanOrEqual(
-                t.clientHeight,
-              );
+              expect(
+                Math.abs(main.right - actions.getBoundingClientRect().right),
+                "main takes the rest",
+              ).toBeLessThanOrEqual(1);
+              expect(actions.scrollWidth, "actions fit").toBeLessThanOrEqual(actions.clientWidth);
+              // At ×1.5 on 320px the status line's own label (READY TO MERGE, CI FAILED) is wider
+              // than the row, with or without an artifact; this change leaves that line alone.
+              if (scale === 1)
+                expect(r.scrollWidth, "no horizontal overflow").toBeLessThanOrEqual(r.clientWidth);
             });
-            const main = rects.at(-1)!;
-            const gap = Number.parseFloat(getComputedStyle(actions).columnGap);
-            expect(
-              Math.abs(main.left - rects.at(-2)!.right - gap),
-              "main follows its neighbour",
-            ).toBeLessThanOrEqual(1);
-            expect(
-              Math.abs(main.right - actions.getBoundingClientRect().right),
-              "main takes the rest",
-            ).toBeLessThanOrEqual(1);
-            expect(r.scrollWidth, "no horizontal overflow").toBeLessThanOrEqual(r.clientWidth);
-          });
+          }
         }
       }
     }

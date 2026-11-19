@@ -706,9 +706,11 @@
     font-size: var(--fs-base);
     letter-spacing: 0;
   }
-  /* the artifact link (#3876): ArtifactRow's blue diamond, then the label */
+  /* the artifact link (#3876): ArtifactRow's blue diamond, then the label (under it, when the
+     link is narrowed below both) */
   .gbtn.art-link {
-    gap: 7px;
+    flex-wrap: wrap;
+    gap: 2px 7px;
   }
   .art-glyph {
     flex: none;
@@ -803,10 +805,12 @@
     text-align: center;
     white-space: normal;
   }
-  /* desktop with the artifact link (#3876): in a narrow pane (the docked Assistant) the actions
-     move under the PR line instead of pushing the main action out of it, and wrap among
-     themselves when even that line is too narrow */
+  /* desktop with the artifact link (#3876): in a narrow pane (the docked Assistant, down below
+     its drag floor) the actions move under the PR line and wrap among themselves; a control wider
+     than the pane narrows to it — padding and Merge's floor shrink with the row (cqi) — and wraps
+     its label inside, so none leaves the pane. A wide pane keeps the one line. */
   .pr-row.has-artifact:not(.mobile) {
+    container: pr-row / inline-size;
     flex-wrap: wrap;
     row-gap: 8px;
   }
@@ -821,12 +825,40 @@
     justify-content: flex-end;
     row-gap: 6px;
   }
-  /* phone with the artifact link (#3876): ⋯ · Artifact ↗ · PR ↗ · main stay on one line, the main
-     action keeps the rest; a word longer than that hyphenates or breaks inside its button */
+  .pr-row.has-artifact:not(.mobile) .gbtn,
+  .pr-row.has-artifact:not(.mobile) .pr-passive {
+    max-width: 100%;
+    text-align: center;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .pr-row.has-artifact:not(.mobile) .gbtn:not(.more) {
+    padding-inline: min(12px, 4cqi);
+  }
+  .pr-row.has-artifact:not(.mobile) .gbtn.primary {
+    min-width: min(132px, 100cqi);
+  }
+  .pr-row.has-artifact:not(.mobile) .gbtn.more {
+    min-width: min(32px, 100cqi);
+  }
+  .pr-row.has-artifact.touch:not(.mobile) .gbtn.more {
+    min-width: min(var(--mobile-actionbar-hit), 100cqi);
+  }
+  /* phone with the artifact link (#3876): ⋯ · Artifact ↗ · PR ↗ · main stay on one line and every
+     target keeps 44px; the main action takes the rest, and where the line runs short (a 320px
+     phone, larger text) the links give way too — any label wraps inside its own button */
   .pr-row.mobile.has-artifact .gbtn:not(.primary):not(.more) {
+    min-width: var(--mobile-actionbar-hit);
     padding: 0 10px;
+    line-height: 1.2;
+    text-align: center;
+    white-space: normal;
   }
   .pr-row.mobile.has-artifact .gbtn.primary,
+  .pr-row.mobile.has-artifact .pr-passive {
+    min-width: var(--mobile-actionbar-hit);
+  }
+  .pr-row.mobile.has-artifact .gbtn,
   .pr-row.mobile.has-artifact .pr-passive {
     hyphens: auto;
     overflow-wrap: anywhere;

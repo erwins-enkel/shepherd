@@ -15,6 +15,7 @@
 import { AGENT_PROVIDERS, type AgentProvider, type StandardCreateInput } from "./types";
 import type { SandboxProfile } from "./sandbox";
 import { validateCreate } from "./validate";
+import { type Result, err, ok } from "./result";
 
 /** A missed slot older than this is skipped (`skipped:stale`), never caught up. */
 export const STALE_MS = 12 * 60 * 60 * 1000;
@@ -205,9 +206,6 @@ const KEYS = new Set([
 export const SCHEDULE_LAUNCH_KEYS = Object.keys(DEFAULT_LAUNCH) as (keyof ScheduleLaunch)[];
 const LAUNCH_KEYS = new Set<string>(SCHEDULE_LAUNCH_KEYS);
 
-type Result<T> = { ok: true; value: T } | { ok: false; error: string };
-const fail = (error: string): { ok: false; error: string } => ({ ok: false, error });
-
 function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
@@ -318,97 +316,84 @@ function validateUsageLimitOptions(
 ): Result<Pick<ScheduleUsageLimit, "onMismatch" | "pauseAtStop">> {
   const raw = obj.onMismatch;
   if (raw !== undefined && raw !== "skip" && raw !== "wait" && raw !== "otherProvider")
-    return fail("usageLimit.onMismatch must be skip, wait or otherProvider");
+    return err("usageLimit.onMismatch must be skip, wait or otherProvider");
   if (obj.pauseAtStop !== undefined && typeof obj.pauseAtStop !== "boolean")
-    return fail("usageLimit.pauseAtStop must be a boolean");
-  return {
-    ok: true,
-    value: {
-      ...(raw !== undefined && { onMismatch: raw }),
-      ...(obj.pauseAtStop !== undefined && { pauseAtStop: obj.pauseAtStop as boolean }),
-    },
-  };
+    return err("usageLimit.pauseAtStop must be a boolean");
+  return ok({
+    ...(raw !== undefined && { onMismatch: raw }),
+    ...(obj.pauseAtStop !== undefined && { pauseAtStop: obj.pauseAtStop as boolean }),
+  });
 }
 
 function validateUsageLimit(raw: unknown): Result<ScheduleUsageLimit | null> {
-  if (raw === undefined || raw === null) return { ok: true, value: null };
+  if (raw === undefined || raw === null) return ok(null);
   if (typeof raw !== "object" || Array.isArray(raw))
-    return fail("usageLimit must be an object or null");
+    return err("usageLimit must be an object or null");
   const obj = raw as Record<string, unknown>;
   const keys =
     obj.kind === "from" ? ["kind", "startPct", "startWindow", "stopPct"] : ["kind", "stopPct"];
   if (Object.keys(obj).some((key) => ![...keys, "onMismatch", "pauseAtStop"].includes(key)))
-    return fail("unknown usageLimit key");
+    return err("unknown usageLimit key");
   const action = validateUsageLimitOptions(obj);
   if (!action.ok) return action;
   const pct = (v: unknown, min: number, max: number): v is number =>
     typeof v === "number" && Number.isInteger(v) && v % 5 === 0 && v >= min && v <= max;
-  if (!pct(obj.stopPct, 5, 100)) return fail("usageLimit.stopPct must be 5–100 in steps of 5");
-  if (obj.kind === "upTo")
-    return { ok: true, value: { kind: "upTo", stopPct: obj.stopPct, ...action.value } };
-  if (obj.kind !== "from") return fail("usageLimit.kind must be upTo or from");
+  if (!pct(obj.stopPct, 5, 100)) return err("usageLimit.stopPct must be 5–100 in steps of 5");
+  if (obj.kind === "upTo") return ok({ kind: "upTo", stopPct: obj.stopPct, ...action.value });
+  if (obj.kind !== "from") return err("usageLimit.kind must be upTo or from");
   if (!pct(obj.startPct, 0, 95) || obj.startPct >= obj.stopPct)
-    return fail("usageLimit.startPct must be 0–95 in steps of 5 and less than stopPct");
+    return err("usageLimit.startPct must be 0–95 in steps of 5 and less than stopPct");
   if (obj.startWindow !== "week" && obj.startWindow !== "5h")
-    return fail("usageLimit.startWindow must be week or 5h");
-  return {
-    ok: true,
-    value: {
-      kind: "from",
-      ...action.value,
-      startPct: obj.startPct,
-      startWindow: obj.startWindow,
-      stopPct: obj.stopPct,
-    },
-  };
+    return err("usageLimit.startWindow must be week or 5h");
+  return ok({
+    kind: "from",
+    ...action.value,
+    startPct: obj.startPct,
+    startWindow: obj.startWindow,
+    stopPct: obj.stopPct,
+  });
 }
 
 function validateInterval(raw: unknown): Result<ScheduleInterval | null> {
-  if (raw === undefined || raw === null) return { ok: true, value: null };
+  if (raw === undefined || raw === null) return ok(null);
   if (typeof raw !== "object" || Array.isArray(raw))
-    return fail("interval must be an object or null");
+    return err("interval must be an object or null");
   const obj = raw as Record<string, unknown>;
   if (Object.keys(obj).some((key) => !["everyMinutes", "from", "until"].includes(key)))
-    return fail("unknown interval key");
+    return err("unknown interval key");
   if (![5, 10, 15, 30, 60].includes(obj.everyMinutes as number))
-    return fail("interval.everyMinutes must be 5, 10, 15, 30 or 60");
+    return err("interval.everyMinutes must be 5, 10, 15, 30 or 60");
   if (obj.from === null && obj.until === null)
-    return {
-      ok: true,
-      value: {
-        everyMinutes: obj.everyMinutes as ScheduleInterval["everyMinutes"],
-        from: null,
-        until: null,
-      },
-    };
+    return ok({
+      everyMinutes: obj.everyMinutes as ScheduleInterval["everyMinutes"],
+      from: null,
+      until: null,
+    });
   if (
     typeof obj.from !== "string" ||
     !TIME_RE.test(obj.from) ||
     typeof obj.until !== "string" ||
     !TIME_RE.test(obj.until)
   )
-    return fail('interval.from and interval.until must both be "HH:MM" or both null');
-  if (obj.until <= obj.from) return fail("until must be after from");
-  return {
-    ok: true,
-    value: {
-      everyMinutes: obj.everyMinutes as ScheduleInterval["everyMinutes"],
-      from: obj.from,
-      until: obj.until,
-    },
-  };
+    return err('interval.from and interval.until must both be "HH:MM" or both null');
+  if (obj.until <= obj.from) return err("until must be after from");
+  return ok({
+    everyMinutes: obj.everyMinutes as ScheduleInterval["everyMinutes"],
+    from: obj.from,
+    until: obj.until,
+  });
 }
 
 function validateTimes(raw: unknown, interval = false): Result<string[]> {
   if (interval) {
-    if (!Array.isArray(raw) || raw.length !== 0) return fail("times must be [] with an interval");
-    return { ok: true, value: [] };
+    if (!Array.isArray(raw) || raw.length !== 0) return err("times must be [] with an interval");
+    return ok([]);
   }
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_TIMES)
-    return fail(`times must be 1–${MAX_TIMES} "HH:MM" strings`);
+    return err(`times must be 1–${MAX_TIMES} "HH:MM" strings`);
   if (!raw.every((t) => typeof t === "string" && TIME_RE.test(t)))
-    return fail('times must be "HH:MM" (00:00–23:59)');
-  return { ok: true, value: [...new Set(raw as string[])].sort() };
+    return err('times must be "HH:MM" (00:00–23:59)');
+  return ok([...new Set(raw as string[])].sort());
 }
 
 function validateCadence(
@@ -419,33 +404,33 @@ function validateCadence(
   if (!interval.ok) return interval;
   const times = validateTimes(timesRaw, interval.value !== null);
   if (!times.ok) return times;
-  return { ok: true, value: { times: times.value, interval: interval.value } };
+  return ok({ times: times.value, interval: interval.value });
 }
 
 function nullableBool(v: unknown, name: string): Result<boolean | null> {
-  if (v === null || typeof v === "boolean") return { ok: true, value: v };
-  return fail(`launch.${name} must be a boolean or null`);
+  if (v === null || typeof v === "boolean") return ok(v);
+  return err(`launch.${name} must be a boolean or null`);
 }
 
 function validateLaunch(raw: unknown): Result<ScheduleLaunch> {
-  if (raw === undefined) return { ok: true, value: { ...DEFAULT_LAUNCH } };
+  if (raw === undefined) return ok({ ...DEFAULT_LAUNCH });
   if (raw === null || typeof raw !== "object" || Array.isArray(raw))
-    return fail("launch must be an object");
+    return err("launch must be an object");
   const obj = raw as Record<string, unknown>;
   const stray = Object.keys(obj).find((k) => !LAUNCH_KEYS.has(k));
-  if (stray) return fail(`unknown key: launch.${stray}`);
+  if (stray) return err(`unknown key: launch.${stray}`);
   const merged = { ...DEFAULT_LAUNCH, ...obj } as Record<string, unknown>;
   const autopilot = nullableBool(merged.autopilotEnabled, "autopilotEnabled");
   if (!autopilot.ok) return autopilot;
   const planGate = nullableBool(merged.planGateEnabled, "planGateEnabled");
   if (!planGate.ok) return planGate;
-  if (typeof merged.research !== "boolean") return fail("launch.research must be a boolean");
+  if (typeof merged.research !== "boolean") return err("launch.research must be a boolean");
   if (merged.agentProvider !== null && !AGENT_PROVIDERS.includes(merged.agentProvider as never))
-    return fail("launch.agentProvider must be one of: claude, codex");
+    return err("launch.agentProvider must be one of: claude, codex");
   for (const k of ["model", "effort", "sandboxProfile", "baseBranch"] as const)
     if (merged[k] !== null && typeof merged[k] !== "string")
-      return fail(`launch.${k} must be a string or null`);
-  return { ok: true, value: merged as unknown as ScheduleLaunch };
+      return err(`launch.${k} must be a string or null`);
+  return ok(merged as unknown as ScheduleLaunch);
 }
 
 function validateScheduleOptions(
@@ -463,17 +448,14 @@ function validateScheduleOptions(
       tokenBudget < 100_000 ||
       tokenBudget > 100_000_000)
   )
-    return fail("tokenBudget must be an integer between 100000 and 100000000 or null");
+    return err("tokenBudget must be an integer between 100000 and 100000000 or null");
   if (tokenBudget !== null && launch.value.agentProvider === "codex")
-    return fail("tokenBudget is only supported for Claude Code");
-  return {
-    ok: true,
-    value: {
-      launch: launch.value,
-      usageLimit: usageLimit.value,
-      tokenBudget: tokenBudget as number | null,
-    },
-  };
+    return err("tokenBudget is only supported for Claude Code");
+  return ok({
+    launch: launch.value,
+    usageLimit: usageLimit.value,
+    tokenBudget: tokenBudget as number | null,
+  });
 }
 
 /**
@@ -483,19 +465,19 @@ function validateScheduleOptions(
  */
 export function validateScheduleInput(body: unknown, repoRoot: string): Result<ScheduleInput> {
   if (body === null || typeof body !== "object" || Array.isArray(body))
-    return fail("body must be a non-null object");
+    return err("body must be a non-null object");
   const obj = body as Record<string, unknown>;
   const stray = Object.keys(obj).find((k) => !KEYS.has(k));
-  if (stray) return fail(`unknown key: ${stray}`);
+  if (stray) return err(`unknown key: ${stray}`);
   if (typeof obj.name !== "string" || !obj.name.trim() || obj.name.trim().length > MAX_NAME)
-    return fail(`name must be 1–${MAX_NAME} chars`);
-  if (typeof obj.prompt !== "string") return fail("prompt must be a string");
+    return err(`name must be 1–${MAX_NAME} chars`);
+  if (typeof obj.prompt !== "string") return err("prompt must be a string");
   if (!Number.isInteger(obj.days) || (obj.days as number) < 1 || (obj.days as number) > ALL_DAYS)
-    return fail("days must be a weekday bitmask 1–127 (bit 0 = Monday)");
+    return err("days must be a weekday bitmask 1–127 (bit 0 = Monday)");
   const cadence = validateCadence(obj.times, obj.interval);
   if (!cadence.ok) return cadence;
   if (obj.enabled !== undefined && typeof obj.enabled !== "boolean")
-    return fail("enabled must be a boolean");
+    return err("enabled must be a boolean");
   const options = validateScheduleOptions(obj);
   if (!options.ok) return options;
   const value: ScheduleInput = {
@@ -509,7 +491,7 @@ export function validateScheduleInput(body: unknown, repoRoot: string): Result<S
   };
   const create = scheduleCreateInput(value, value.launch.baseBranch ?? "main", repoRoot);
   if (!create.ok) return create;
-  return { ok: true, value: { ...value, repoPath: create.value.repoPath } };
+  return ok({ ...value, repoPath: create.value.repoPath });
 }
 
 /** The New Task create input a firing launches, through the same validator as POST /api/sessions. */
@@ -533,6 +515,6 @@ export function scheduleCreateInput(
   };
   const r = validateCreate(body, repoRoot);
   if (!r.ok) return r;
-  if (r.value.terminal === true) return fail("not a task");
-  return { ok: true, value: r.value };
+  if (r.value.terminal === true) return err("not a task");
+  return ok(r.value);
 }

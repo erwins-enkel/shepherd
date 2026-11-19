@@ -3263,6 +3263,7 @@ export type GuardrailId =
   | "formatter"
   | "linter"
   | "type_checker"
+  | "ts_strict"
   | "commit_lint"
   | "git_hooks"
   | "pre_push_ci"

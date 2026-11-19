@@ -42,41 +42,41 @@ function pitwallShaped(hook: string) {
   write("tests/smoke.rs", "#[test] fn ok() {}");
 }
 
-test("a repo with neither package.json nor Cargo.toml is not applicable, ecosystem null", () => {
+test("a repo with neither package.json nor Cargo.toml is not applicable, ecosystem null", async () => {
   write("main.py", "print()");
-  const r = analyzeReadiness(dir);
+  const r = await analyzeReadiness(dir);
   expect(r.applicable).toBe(false);
   expect(r.ecosystem).toBe(null);
   expect(r.checks).toEqual([]);
   expect(r.score).toBe(0);
 });
 
-test("a Cargo.toml at the root makes the repo applicable as rust", () => {
+test("a Cargo.toml at the root makes the repo applicable as rust", async () => {
   write("Cargo.toml", '[package]\nname = "x"\n');
-  const r = analyzeReadiness(dir);
+  const r = await analyzeReadiness(dir);
   expect(r.applicable).toBe(true);
   expect(r.ecosystem).toBe("rust");
 });
 
-test("a Cargo.toml one directory down is detected (mixed-stack root)", () => {
+test("a Cargo.toml one directory down is detected (mixed-stack root)", async () => {
   write("README.md", "# repo");
   write("engine/Cargo.toml", '[package]\nname = "engine"\n');
-  const r = analyzeReadiness(dir);
+  const r = await analyzeReadiness(dir);
   expect(r.applicable).toBe(true);
   expect(r.ecosystem).toBe("rust");
 });
 
-test("the Rust guardrail set omits type_checker and lint_staged", () => {
+test("the Rust guardrail set omits type_checker and lint_staged", async () => {
   write("Cargo.toml", '[package]\nname = "x"\n');
-  const r = analyzeReadiness(dir);
+  const r = await analyzeReadiness(dir);
   expect(ids(r)).not.toContain("type_checker");
   expect(ids(r)).not.toContain("lint_staged");
   expect(r.checks.length).toBe(RUST_GUARDRAILS.length);
 });
 
-test("pitwall-shaped crate (pre-push CI mirror) scores its guardrails correctly", () => {
+test("pitwall-shaped crate (pre-push CI mirror) scores its guardrails correctly", async () => {
   pitwallShaped(".githooks/pre-push");
-  const r = analyzeReadiness(dir);
+  const r = await analyzeReadiness(dir);
   expect(r.ecosystem).toBe("rust");
   // rustfmt.toml → formatter; the hook running clippy → linter; cargo test → test_runner
   expect(present("formatter", r)).toBe(true);
@@ -94,56 +94,56 @@ test("pitwall-shaped crate (pre-push CI mirror) scores its guardrails correctly"
   expect(present("commit_lint", r)).toBe(false);
 });
 
-test("a pre-commit-only hook is git_hooks present but pre_push_ci absent (JS-consistent stage split)", () => {
+test("a pre-commit-only hook is git_hooks present but pre_push_ci absent (JS-consistent stage split)", async () => {
   pitwallShaped(".githooks/pre-commit");
-  const r = analyzeReadiness(dir);
+  const r = await analyzeReadiness(dir);
   expect(present("git_hooks", r)).toBe(true);
   expect(present("pre_push_ci", r)).toBe(false);
 });
 
-test("dead_code_audit does NOT match on cargo-deny / deny.toml (license/advisory, not unused-code)", () => {
+test("dead_code_audit does NOT match on cargo-deny / deny.toml (license/advisory, not unused-code)", async () => {
   write("Cargo.toml", '[package]\nname = "x"\n');
   write("deny.toml", "[bans]\n");
   write(
     ".github/workflows/ci.yml",
     "name: CI\njobs:\n  deny:\n    steps:\n      - run: cargo deny check\n",
   );
-  const r = analyzeReadiness(dir);
+  const r = await analyzeReadiness(dir);
   expect(present("dead_code_audit", r)).toBe(false);
 });
 
-test("dead_code_audit matches when cargo machete runs in the corpus", () => {
+test("dead_code_audit matches when cargo machete runs in the corpus", async () => {
   write("Cargo.toml", '[package]\nname = "x"\n');
   write(
     ".github/workflows/ci.yml",
     "name: CI\njobs:\n  m:\n    steps:\n      - run: cargo machete\n",
   );
-  const r = analyzeReadiness(dir);
+  const r = await analyzeReadiness(dir);
   expect(present("dead_code_audit", r)).toBe(true);
 });
 
-test("dead_code_audit matches the nightly udeps invocation the prescription recommends", () => {
+test("dead_code_audit matches the nightly udeps invocation the prescription recommends", async () => {
   write("Cargo.toml", '[package]\nname = "x"\n');
   // udeps is nightly-only, so its real invocation carries a toolchain selector.
   write(
     ".github/workflows/ci.yml",
     "name: CI\njobs:\n  u:\n    steps:\n      - run: cargo +nightly udeps\n",
   );
-  const r = analyzeReadiness(dir);
+  const r = await analyzeReadiness(dir);
   expect(present("dead_code_audit", r)).toBe(true);
 });
 
-test("git_hooks detects a cargo-husky dev-dependency", () => {
+test("git_hooks detects a cargo-husky dev-dependency", async () => {
   write("Cargo.toml", '[package]\nname = "x"\n\n[dev-dependencies]\ncargo-husky = "1"\n');
-  const r = analyzeReadiness(dir);
+  const r = await analyzeReadiness(dir);
   expect(present("git_hooks", r)).toBe(true);
   const ev = r.checks.find((c) => c.id === "git_hooks")?.evidence ?? [];
   expect(ev).toContain("cargo-husky");
 });
 
-test("generated Rust CLAUDE.md is Rust-correct and free of JS tooling text", () => {
+test("generated Rust CLAUDE.md is Rust-correct and free of JS tooling text", async () => {
   write("Cargo.toml", '[package]\nname = "bare"\n');
-  const r = analyzeReadiness(dir);
+  const r = await analyzeReadiness(dir);
   expect(r.claudeMd).toContain("# House rules for AI agents (Rust)");
   // Rust prescriptions for the missing guardrails
   expect(r.claudeMd).toContain("rustup component add clippy");
@@ -163,40 +163,40 @@ test("generated Rust CLAUDE.md is Rust-correct and free of JS tooling text", () 
   expect(r.claudeMd).not.toContain("Surgical changes");
 });
 
-test("a mixed repo with both Cargo.toml and package.json resolves to js-ts (no regression)", () => {
+test("a mixed repo with both Cargo.toml and package.json resolves to js-ts (no regression)", async () => {
   write("Cargo.toml", '[package]\nname = "native"\n');
   write("package.json", JSON.stringify({ name: "app", devDependencies: { typescript: "^6" } }));
   write("tsconfig.json", "{}");
-  const r = analyzeReadiness(dir);
+  const r = await analyzeReadiness(dir);
   expect(r.ecosystem).toBe("js-ts");
   // The JS type_checker guardrail is back (js-ts profile), proving the JS path ran.
   expect(present("type_checker", r)).toBe(true);
 });
 
-test("the target repo is never executed — a bare crate still yields a scorecard", () => {
+test("the target repo is never executed — a bare crate still yields a scorecard", async () => {
   write("Cargo.toml", '[package]\nname = "x"\n');
-  const r = analyzeReadiness(dir);
+  const r = await analyzeReadiness(dir);
   expect(r.applicable).toBe(true);
   expect(r.checks.every((c) => !c.present)).toBe(true);
   expect(r.score).toBe(0);
 });
 
-test("env_schema is JS/TS-only — never scored on a Rust crate, even with an env template", () => {
+test("env_schema is JS/TS-only — never scored on a Rust crate, even with an env template", async () => {
   write("Cargo.toml", '[package]\nname = "x"\nversion = "0.1.0"\n');
   write(".env.example", "X=");
   write(".env.schema", "X=");
-  const r = analyzeReadiness(dir);
+  const r = await analyzeReadiness(dir);
   expect(r.ecosystem).toBe("rust");
   expect(ids(r)).not.toContain("env_schema");
 });
 
-test("swallowed_errors is JS/TS-only — never scored on a Rust crate, even with an ESLint config", () => {
+test("swallowed_errors is JS/TS-only — never scored on a Rust crate, even with an ESLint config", async () => {
   write("Cargo.toml", '[package]\nname = "x"\nversion = "0.1.0"\n');
   write(
     "eslint.config.js",
     'export default [{ rules: { "no-empty": "error", "no-floating-promises": "error" } }];',
   );
-  const r = analyzeReadiness(dir);
+  const r = await analyzeReadiness(dir);
   expect(r.ecosystem).toBe("rust");
   expect(ids(r)).not.toContain("swallowed_errors");
 });

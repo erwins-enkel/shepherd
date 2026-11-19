@@ -13791,7 +13791,7 @@ async function handleReadiness({ req, parts, url }: Ctx): Promise<Response | nul
     return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
-  return json(analyzeReadiness(dir));
+  return json(await analyzeReadiness(dir));
 }
 
 // Readiness → greenfield profile (#3107). GET /api/readiness/greenfield?repo= re-scans now (tab open)

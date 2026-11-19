@@ -41,6 +41,11 @@ export interface StatusTipParams {
    * tap acts.
    */
   navigates?: boolean;
+  /**
+   * With `navigates`: the touch preview tap also cancels the trigger's default action. Set it on
+   * an `<a href>` trigger, whose tap would otherwise open the link behind the preview.
+   */
+  previewCancelsDefault?: boolean;
 }
 
 // Module-scoped counter for unique popover ids. Client-only (actions never run on
@@ -110,6 +115,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   let placement: Placement = "bottom";
   let pinOnClick = true;
   let navigates = false;
+  let previewCancelsDefault = false;
   let lastPointerType = "";
   let open = false;
   let pinned = false;
@@ -266,6 +272,8 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
         e.stopPropagation();
         show();
         pinned = true;
+        // Only a preview that opened holds the link back: otherwise it could never be followed.
+        if (previewCancelsDefault && open) e.preventDefault();
       } else hide();
       return;
     }
@@ -308,6 +316,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     placement = next.placement ?? "bottom";
     pinOnClick = next.pinOnClick ?? true;
     navigates = next.navigates ?? false;
+    previewCancelsDefault = next.previewCancelsDefault ?? false;
     bodyProps.wide = next.panel ?? false;
     if (pop) {
       pop.className = panelClass();

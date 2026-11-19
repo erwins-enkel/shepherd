@@ -3,16 +3,20 @@
   import { replySession, reviewPr, setPrDraftState, setReadyToMerge } from "#lib/api.js";
   import { checksCleared } from "#lib/checks-cleared.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { relativeTimeAgo } from "#lib/format.js";
+  import { getLocale } from "#lib/i18n.js";
+  import { clock } from "#lib/now.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import { pullMainAndToast } from "#lib/pull-offer.js";
   import { recaps } from "#lib/recaps.svelte.js";
   import { isMirrored } from "#lib/remote-sessions.js";
   import { repoConfig, reviews } from "#lib/reviews.svelte.js";
   import { toasts } from "#lib/toasts.svelte.js";
-  import { mergeIntoEpicExplanation } from "#lib/tooltips/explanations.js";
+  import { artifactLinkExplanation, mergeIntoEpicExplanation } from "#lib/tooltips/explanations.js";
   import { statusTip, type StatusTipParams } from "#lib/tooltips/statusTip.svelte.js";
   import type { DrainStatus, GitState, LivenessState, Session, SessionStatus } from "#lib/types.js";
   import { firstSafeHttpUrl } from "#lib/url.js";
+  import { isArtifactUrl } from "../../../../../shared/artifact-url";
   import { criticChip } from "../critic-badge";
   import { railEpicChild, railEpicStopped } from "../git-rail/epic-rail";
   import MergeConfirmHost from "../MergeConfirmHost.svelte";
@@ -21,6 +25,7 @@
   import { SessionPrMerge } from "../session-pr-merge.svelte";
   import PrActionMenu from "./PrActionMenu.svelte";
   import PrRowFacts from "./PrRowFacts.svelte";
+  import { latestArtifact } from "./artifact-row";
   import {
     mergeActionLabel,
     mergeBlockedText,
@@ -263,6 +268,24 @@
   const showSummary = $derived(!!onsummary && recaps.map[session.id]?.state === "ready");
   const menuReview = $derived(mobile && canReview);
   const prHref = $derived(firstSafeHttpUrl(git?.url));
+  // The newest artifact (#3876): a quiet link left of PR ↗ / Logs ↗ — never the amber action.
+  const artifact = $derived(latestArtifact(session.artifacts));
+  // Agent data: the link takes the url only as a validated claude.ai artifact (safe-href).
+  const artifactHref = $derived(artifact && isArtifactUrl(artifact.url) ? artifact.url : undefined);
+  const artifactTip = $derived<StatusTipParams | null>(
+    artifact
+      ? {
+          text: artifactLinkExplanation({
+            title: artifact.title,
+            versions: artifact.versions,
+            updated: relativeTimeAgo(artifact.updatedAt, clock.current, getLocale()),
+          }),
+          stopClickPropagation: false,
+          navigates: true,
+          previewCancelsDefault: true,
+        }
+      : null,
+  );
   // Red CI: the way out is the failing check's log, not the PR page.
   const logsLink = $derived(git && kind === "ci_failed" ? logsHref(git) : null);
   // The PR page stays one menu away while Logs ↗ holds its slot.
@@ -367,7 +390,7 @@
 
 {#if prActionRowVisible(git)}
   <section
-    class={["pr-row", kind, { mobile, touch: touch || mobile }]}
+    class={["pr-row", kind, { mobile, touch: touch || mobile, "has-artifact": !!artifact }]}
     aria-label={m.prrow_aria({ number: git.number ?? 0 })}
     data-swipe-ignore
   >
@@ -389,9 +412,24 @@
         />
       {/if}
     </div>
-    <div class="pr-actions">
+    <!-- the actions' labels are UI text: their locale picks the phone's hyphenation (#3876) -->
+    <div class="pr-actions" lang={getLocale()}>
       <!-- the phone leads its action row with ⋯; in the DOM too, so focus follows the eye -->
       {#if mobile}{@render more()}{/if}
+      {#if artifact}
+        <!-- eslint-disable svelte/no-navigation-without-resolve -- external claude.ai URL, not an app route -->
+        <a
+          class="gbtn art-link"
+          href={artifactHref}
+          target="_blank"
+          rel="noopener"
+          aria-label={m.prrow_artifact_aria({ title: artifact.title })}
+          use:statusTip={artifactTip}
+          use:coachTarget={"artifact-link-pr-row"}
+          ><span class="art-glyph" aria-hidden="true"></span>{m.prrow_artifact_link()}</a
+        >
+        <!-- eslint-enable svelte/no-navigation-without-resolve -->
+      {/if}
       {#if logsLink}
         <!-- eslint-disable svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
         <a
@@ -668,6 +706,19 @@
     font-size: var(--fs-base);
     letter-spacing: 0;
   }
+  /* the artifact link (#3876): ArtifactRow's blue diamond, then the label (under it, when the
+     link is narrowed below both) */
+  .gbtn.art-link {
+    flex-wrap: wrap;
+    gap: 2px 7px;
+  }
+  .art-glyph {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    background: var(--color-blue);
+    transform: rotate(45deg);
+  }
   /* the one amber action in the row: outline + inset glow, never a fill */
   .gbtn.primary {
     min-width: 132px;
@@ -753,5 +804,63 @@
     line-height: 1.2;
     text-align: center;
     white-space: normal;
+  }
+  /* desktop with the artifact link (#3876): in a narrow pane (the docked Assistant, down below
+     its drag floor) the actions move under the PR line and wrap among themselves; a control wider
+     than the pane narrows to it — padding and Merge's floor shrink with the row (cqi) — and wraps
+     its label inside, so none leaves the pane. A wide pane keeps the one line. */
+  .pr-row.has-artifact:not(.mobile) {
+    container: pr-row / inline-size;
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .pr-row.has-artifact:not(.mobile) .pr-info {
+    flex-basis: 200px;
+  }
+  .pr-row.has-artifact:not(.mobile) .pr-actions {
+    flex: 0 1 auto;
+    min-width: 0;
+    margin-left: auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 6px;
+  }
+  .pr-row.has-artifact:not(.mobile) .gbtn,
+  .pr-row.has-artifact:not(.mobile) .pr-passive {
+    max-width: 100%;
+    text-align: center;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .pr-row.has-artifact:not(.mobile) .gbtn:not(.more) {
+    padding-inline: min(12px, 4cqi);
+  }
+  .pr-row.has-artifact:not(.mobile) .gbtn.primary {
+    min-width: min(132px, 100cqi);
+  }
+  .pr-row.has-artifact:not(.mobile) .gbtn.more {
+    min-width: min(32px, 100cqi);
+  }
+  .pr-row.has-artifact.touch:not(.mobile) .gbtn.more {
+    min-width: min(var(--mobile-actionbar-hit), 100cqi);
+  }
+  /* phone with the artifact link (#3876): ⋯ · Artifact ↗ · PR ↗ · main stay on one line and every
+     target keeps 44px; the main action takes the rest, and where the line runs short (a 320px
+     phone, larger text) the links give way too — any label wraps inside its own button */
+  .pr-row.mobile.has-artifact .gbtn:not(.primary):not(.more) {
+    min-width: var(--mobile-actionbar-hit);
+    padding: 0 10px;
+    line-height: 1.2;
+    text-align: center;
+    white-space: normal;
+  }
+  .pr-row.mobile.has-artifact .gbtn.primary,
+  .pr-row.mobile.has-artifact .pr-passive {
+    min-width: var(--mobile-actionbar-hit);
+  }
+  .pr-row.mobile.has-artifact .gbtn,
+  .pr-row.mobile.has-artifact .pr-passive {
+    hyphens: auto;
+    overflow-wrap: anywhere;
   }
 </style>

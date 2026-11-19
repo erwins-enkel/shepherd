@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { flushSync, mount, unmount } from "svelte";
 import "../../app.css";
 import { statusTip } from "./statusTip.svelte";
@@ -263,5 +263,61 @@ describe("statusTip panel and navigates", () => {
     node.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
     expect(acted).toHaveLength(1);
     expect(document.querySelector(".status-tip")).toBeNull();
+  });
+
+  // A link's tap opens it unless its default is cancelled; only the opt-in cancels it (#3876).
+  function mountLink(previewCancelsDefault?: boolean) {
+    const node = document.createElement("a");
+    node.href = "https://claude.ai/artifact/abc";
+    node.textContent = "Artifact ↗";
+    document.body.append(node);
+    const action = statusTip(node, { text: explanation, navigates: true, previewCancelsDefault });
+    // Registered after the action, so it sees what the action decided; it then keeps the test
+    // page from following the link.
+    const prevented: boolean[] = [];
+    node.addEventListener("click", (e) => {
+      prevented.push(e.defaultPrevented);
+      e.preventDefault();
+    });
+    cleanup = () => {
+      action?.destroy?.();
+      node.remove();
+    };
+    return { node, prevented };
+  }
+  // A real tap's click is cancelable; `tap` above dispatches one that is not.
+  const tapLink = (node: HTMLElement) => {
+    node.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch", bubbles: true }));
+    node.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
+  };
+
+  it("navigates + previewCancelsDefault: a link's preview tap does not open it, the next tap does", () => {
+    const { node, prevented } = mountLink(true);
+    tapLink(node);
+    expect(document.querySelector(".status-tip")?.matches(":popover-open")).toBe(true);
+    tapLink(node);
+    expect(prevented).toEqual([true, false]);
+  });
+
+  it("navigates + previewCancelsDefault: a preview that cannot open never holds the link back", () => {
+    const { node, prevented } = mountLink(true);
+    const showPopover = vi.spyOn(HTMLElement.prototype, "showPopover").mockImplementation(() => {
+      throw new DOMException("not connected", "InvalidStateError");
+    });
+    try {
+      tapLink(node);
+      tapLink(node);
+    } finally {
+      showPopover.mockRestore();
+    }
+    expect(prevented).toEqual([false, false]);
+  });
+
+  it("navigates alone leaves a link's default untouched", () => {
+    const { node, prevented } = mountLink();
+    tapLink(node);
+    expect(document.querySelector(".status-tip")?.matches(":popover-open")).toBe(true);
+    tapLink(node);
+    expect(prevented).toEqual([false, false]);
   });
 });

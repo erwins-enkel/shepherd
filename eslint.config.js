@@ -2,6 +2,7 @@ import js from "@eslint/js";
 import ts from "typescript-eslint";
 import svelte from "eslint-plugin-svelte";
 import globals from "globals";
+import noSilentCatch from "./scripts/eslint-rules/no-silent-catch.mjs";
 export default [
   js.configs.recommended,
   ...ts.configs.recommended,
@@ -29,9 +30,15 @@ export default [
     languageOptions: {
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
     },
+    plugins: { shepherd: { rules: { "no-silent-catch": noSilentCatch } } },
     rules: {
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/no-misused-promises": "error",
+      // Fail closed (#4076): no silent `catch {}`, empty `.catch()` or `.catch(() => null)`.
+      // A deliberate swallow needs a `best-effort: <why>` comment. Pre-existing sites are
+      // baselined in eslint-suppressions.json; it only shrinks (an unused entry fails lint —
+      // run `bunx eslint --prune-suppressions src` after fixing one).
+      "shepherd/no-silent-catch": "error",
     },
   },
   // Test code legitimately uses `any` for mocks / `as any` casts on test doubles; keep the

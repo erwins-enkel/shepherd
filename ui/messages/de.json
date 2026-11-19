@@ -9161,5 +9161,13 @@
   "artifactrow_open": "Öffnen ↗",
   "artifactrow_aria": "Artefakt dieser Sitzung",
   "feat_artifact_row_title": "Artefakte über der Steer-Leiste",
-  "feat_artifact_row_body": "Veröffentlicht der Agent ein Artefakt auf claude.ai und hat die Sitzung noch keinen PR, erscheint das neueste über der Steer-Leiste. Du öffnest es in einem neuen Tab oder kopierst den Link, ohne im Chat zu scrollen."
+  "feat_artifact_row_body": "Veröffentlicht der Agent ein Artefakt auf claude.ai und hat die Sitzung noch keinen PR, erscheint das neueste über der Steer-Leiste. Du öffnest es in einem neuen Tab oder kopierst den Link, ohne im Chat zu scrollen.",
+  "prrow_artifact_link": "Artefakt ↗",
+  "prrow_artifact_aria": "Artefakt öffnen: {title}",
+  "prrow_artifact_tip_status_label": "Stand",
+  "prrow_artifact_tip_status": "Fassung {n}, aktualisiert {when}",
+  "prrow_artifact_tip_open_label": "Beim Öffnen",
+  "prrow_artifact_tip_open": "Öffnet claude.ai in einem neuen Tab. Andere sehen es erst, wenn du es dort teilst.",
+  "feat_artifact_link_pr_row_title": "Artefakt-Link in der Merge-Zeile",
+  "feat_artifact_link_pr_row_body": "Hat die Session einen PR, steht das neueste Artefakt des Agenten neben „PR ↗“ in der Merge-Zeile. Beim Darüberfahren siehst du Fassung und Alter; es öffnet sich auf claude.ai in einem neuen Tab."
 }

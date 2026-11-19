@@ -1200,6 +1200,26 @@ export function mergeIntoEpicExplanation(p: {
   };
 }
 
+/** The merge row's artifact link (#3876): which artifact, how current, and that opening it shares
+ *  nothing. `title` is agent data (plain text); `updated` is the already formatted age. */
+export function artifactLinkExplanation(p: {
+  title: string;
+  versions: number;
+  updated: string;
+}): TooltipExplanation {
+  return {
+    title: m.artifactrow_label(),
+    summary: p.title,
+    sections: [
+      {
+        label: m.prrow_artifact_tip_status_label(),
+        text: m.prrow_artifact_tip_status({ n: p.versions, when: p.updated }),
+      },
+      { label: m.prrow_artifact_tip_open_label(), text: m.prrow_artifact_tip_open() },
+    ],
+  };
+}
+
 /** Operator schedules (#3469): what fires, catch-up, overlap. */
 export function schedulesExplanation(): TooltipExplanation {
   return {

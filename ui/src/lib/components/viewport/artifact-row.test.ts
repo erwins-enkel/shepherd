@@ -29,4 +29,20 @@ describe("latestArtifact", () => {
     expect(latestArtifact([a(A, 1), a("javascript:alert(1)", 9)])?.url).toBe(A);
     expect(latestArtifact([a("https://evil.example/artifact/x", 9)])).toBeNull();
   });
+
+  test("a malformed entry (a mirrored machine's relayed list) is skipped, never thrown on", () => {
+    const noTime: Partial<SessionArtifact> = a(B, 9);
+    delete noTime.updatedAt;
+    const list: unknown[] = [
+      null,
+      "x",
+      noTime,
+      { ...a(B, 9), updatedAt: Number.NaN },
+      { ...a(B, 9), versions: "3" },
+      { ...a(B, 9), title: null },
+      a(A, 1),
+    ];
+    expect(latestArtifact(list)?.url).toBe(A);
+    expect(latestArtifact({ length: 1, 0: a(A, 1) })).toBeNull();
+  });
 });

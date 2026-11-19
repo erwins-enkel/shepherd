@@ -29,6 +29,8 @@
   import RemotePreview from "./remote-session/RemotePreview.svelte";
   import PrActionRow from "./viewport/PrActionRow.svelte";
   import { prActionRowVisible } from "./viewport/pr-action-row";
+  import ArtifactRow from "./viewport/ArtifactRow.svelte";
+  import { latestArtifact } from "./viewport/artifact-row";
 
   // The detail of a session mirrored from a connected machine (#2762), mounted in place of the
   // Viewport and laid out like it: one header row (identity, tabs, machine, status, stop and
@@ -165,6 +167,10 @@
       ? mirrored.git
       : null,
   );
+  // The artifact row (#3875/#3876) stands where the merge row would, whenever that is not shown:
+  // no or a closed PR, or the machine unreachable — opening the artifact needs no machine.
+  const artifact = $derived(mirrored ? latestArtifact(mirrored.artifacts) : null);
+  const artifactRowShown = $derived(!!artifact && !prRowGit && (tab === "term" || tab === "chat"));
   /** Hand the keyboard back to the terminal — the page's Enter, as the Viewport's focusTerminal. */
   export function focusTerminal() {
     if (tab === "term") terminal?.focus();
@@ -284,6 +290,8 @@
       ondecommission={() => void actions?.decommission()}
       onsent={(text, sent) => chatView?.echo(text, sent)}
     />
+  {:else if artifactRowShown && artifact}
+    <ArtifactRow sessionId={session.id} {artifact} mobile={compact} touch={compact} />
   {/if}
   {#if steerShown}
     {#if live}

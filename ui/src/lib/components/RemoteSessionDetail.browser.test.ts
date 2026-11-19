@@ -8,7 +8,14 @@ import { m } from "#lib/paraglide/messages.js";
 import { statusLabel } from "#lib/format.js";
 import { sessionStartTab } from "#lib/session-start-tab.svelte.js";
 import { steers } from "#lib/steers.svelte.js";
-import type { BlockReason, GitState, PendingAsk, Session, SessionMessages } from "#lib/types.js";
+import type {
+  BlockReason,
+  GitState,
+  PendingAsk,
+  Session,
+  SessionArtifact,
+  SessionMessages,
+} from "#lib/types.js";
 
 // The terminal's socket is the server's business (bridged to the machine); here it is a spy.
 vi.mock("#lib/pty.js", () => ({
@@ -797,5 +804,100 @@ describe("RemoteSessionDetail merge row (#3957)", () => {
     });
     await expect.element(page.getByRole("tablist")).toBeInTheDocument();
     expect(document.querySelector("section.pr-row")).toBeNull();
+  });
+});
+
+describe("RemoteSessionDetail artifact (#3876)", () => {
+  const NEWEST = "https://claude.ai/artifact/NewestArtifact0000000002";
+  const artifact = (url: string, updatedAt: number, title: string): SessionArtifact => ({
+    url,
+    title,
+    versions: 1,
+    firstSeenAt: updatedAt,
+    updatedAt,
+    toolUseId: null,
+  });
+  const artifacts = [
+    artifact("https://claude.ai/artifact/OlderArtifact00000000001", 1000, "Older"),
+    artifact(NEWEST, 2000, "Newest"),
+  ];
+  const openPr: GitState = {
+    kind: "github",
+    state: "open",
+    number: 42,
+    url: "https://github.com/acme/app/pull/42",
+    title: "Fix the login redirect",
+    mergeable: true,
+    mergeStateStatus: "clean",
+    checks: "success",
+    deployConfigured: false,
+    headSha: "abc1234",
+    baseRefName: "main",
+  };
+  const artifactRow = () => document.querySelector("section.artifact-row");
+  const prRow = () => document.querySelector("section.pr-row");
+
+  it("without a PR, the artifact row stands above the steer bar on the terminal, not on the Diff tab", async () => {
+    render(RemoteSessionDetail, { session: remote({ artifacts }), nowMs: Date.now() });
+    await expect
+      .element(page.getByRole("link", { name: m.artifactrow_open() }))
+      .toHaveAttribute("href", NEWEST);
+    expect(prRow()).toBeNull();
+    await page.getByRole("tab", { name: m.viewport_diff_tab() }).click();
+    await vi.waitFor(() => expect(artifactRow()).toBeNull());
+  });
+
+  it("a closed PR hands over to the artifact row", async () => {
+    render(RemoteSessionDetail, {
+      session: remote({ artifacts, git: { ...openPr, state: "closed" } }),
+      nowMs: Date.now(),
+    });
+    await vi.waitFor(() => expect(artifactRow()).not.toBeNull());
+    expect(prRow()).toBeNull();
+  });
+
+  it("with an open PR, the merge row carries the artifact link instead", async () => {
+    render(RemoteSessionDetail, { session: remote({ artifacts, git: openPr }), nowMs: Date.now() });
+    await vi.waitFor(() => expect(prRow()).not.toBeNull());
+    expect(prRow()!.querySelector("a.art-link")?.getAttribute("href")).toBe(NEWEST);
+    expect(artifactRow()).toBeNull();
+  });
+
+  it("while the machine is unreachable the merge row goes, the artifact stays reachable", async () => {
+    render(RemoteSessionDetail, {
+      session: remote({
+        artifacts,
+        git: openPr,
+        connection: { state: "disconnected", since: Date.now() },
+      }),
+      nowMs: Date.now(),
+    });
+    await vi.waitFor(() => expect(artifactRow()).not.toBeNull());
+    expect(prRow()).toBeNull();
+  });
+
+  it("skips malformed relayed entries instead of breaking the detail", async () => {
+    const relayed = [
+      null,
+      { url: "https://claude.ai/artifact/NoTimestamp000000000003", title: "No time", versions: 1 },
+      ...artifacts,
+    ] as unknown as SessionArtifact[];
+    const view = await render(RemoteSessionDetail, {
+      session: remote({ artifacts: relayed }),
+      nowMs: Date.now(),
+    });
+    await expect
+      .element(page.getByRole("link", { name: m.artifactrow_open() }))
+      .toHaveAttribute("href", NEWEST);
+    await view.rerender({ session: remote({ artifacts: relayed, git: openPr }) });
+    await vi.waitFor(() => expect(prRow()).not.toBeNull());
+    expect(prRow()!.querySelector("a.art-link")?.getAttribute("href")).toBe(NEWEST);
+  });
+
+  it("without an artifact, neither shows one", async () => {
+    render(RemoteSessionDetail, { session: remote({ git: openPr }), nowMs: Date.now() });
+    await vi.waitFor(() => expect(prRow()).not.toBeNull());
+    expect(prRow()!.querySelector("a.art-link")).toBeNull();
+    expect(artifactRow()).toBeNull();
   });
 });

@@ -2,8 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render as rawRender } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../../app.css";
-import type { GitState, Recap, ReviewVerdict, Session } from "#lib/types.js";
+import type { GitState, Recap, ReviewVerdict, Session, SessionArtifact } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
+import { getLocale, setLocale } from "#lib/paraglide/runtime.js";
+import { relativeTimeAgo } from "#lib/format.js";
+import { clock } from "#lib/now.svelte.js";
 import { rebaseSteer } from "./pr-next-step";
 
 // The merge row reads the PR from its `git` prop (the WS store), so only the actions are mocked.
@@ -1192,6 +1195,341 @@ describe("PrActionRow — next step (#3541)", () => {
       await vi.waitFor(() => expect(primary(h).textContent?.trim()).toBe(m.prrow_rebase()));
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+describe("PrActionRow — artifact link (#3876)", () => {
+  const NEWEST = "https://claude.ai/code/artifact/NewestArtifact0000000002";
+  const OLDER = "https://claude.ai/artifact/OlderArtifact00000000001";
+  const T0 = Date.now();
+  const art = (url: string, updatedAt: number, title: string): SessionArtifact => ({
+    url,
+    title,
+    versions: 3,
+    firstSeenAt: updatedAt - 60_000,
+    updatedAt,
+    toolUseId: null,
+  });
+  // The newest valid one wins; a later entry that is no claude.ai artifact never shows.
+  const artifacts = [
+    art(OLDER, T0 - 30 * 60_000, "Older draft"),
+    art(NEWEST, T0 - 4 * 60_000, "Prüfslot — Desktop, Telefon und Einstellungen"),
+    art("javascript:alert(1)", T0, "evil"),
+  ];
+  const red: GitState = {
+    ...readyGit,
+    checks: "failure",
+    mergeStateStatus: "unstable",
+    jobs: [
+      { name: "lint", state: "failure", url: "https://github.com/acme/shepherd/actions/runs/9" },
+    ],
+  };
+  const merged: GitState = { ...readyGit, state: "merged" };
+
+  const link = (h: HTMLElement) => h.querySelector<HTMLAnchorElement>("a.art-link");
+  const targets = (h: HTMLElement) => [
+    ...row(h)!.querySelectorAll<HTMLElement>(".pr-actions button, .pr-actions a[href]"),
+  ];
+  const labels = (h: HTMLElement) => targets(h).map((t) => t.textContent?.trim());
+  // A token's computed colour, read off a probe element.
+  function tokenColor(token: string): string {
+    const probe = document.body.appendChild(document.createElement("span"));
+    probe.style.color = `var(${token})`;
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  }
+
+  afterEach(() => setLocale("en", { reload: false }));
+
+  it("opens the newest artifact in a new tab, left of PR ↗, and is never the amber action", async () => {
+    const h = host();
+    await render(PrActionRow, {
+      target: h,
+      props: { session: session({ artifacts }), git: readyGit, status: "idle" },
+    });
+    const a = link(h)!;
+    expect(a, "artifact link present").not.toBeNull();
+    expect(a.textContent?.trim()).toBe(m.prrow_artifact_link());
+    expect(a.getAttribute("href")).toBe(NEWEST);
+    expect(a.getAttribute("target")).toBe("_blank");
+    expect(a.getAttribute("rel")).toBe("noopener");
+    expect(a.getAttribute("aria-label")).toBe(
+      m.prrow_artifact_aria({ title: "Prüfslot — Desktop, Telefon und Einstellungen" }),
+    );
+    const glyph = a.querySelector<HTMLElement>(".art-glyph")!;
+    expect(glyph.getAttribute("aria-hidden")).toBe("true");
+    expect(getComputedStyle(glyph).backgroundColor).toBe(tokenColor("--color-blue"));
+
+    expect(labels(h)).toEqual([m.prrow_artifact_link(), m.prrow_pr_link(), "⋯", m.gitrail_merge()]);
+    const [artLink, prLink] = targets(h);
+    expect(artLink.getBoundingClientRect().right).toBeLessThanOrEqual(
+      prLink.getBoundingClientRect().left,
+    );
+
+    // Merge stays the one amber action: the link is a plain .gbtn, neutral at rest.
+    expect(row(h)!.querySelectorAll(".primary")).toHaveLength(1);
+    expect(a.classList.contains("primary")).toBe(false);
+    const amber = tokenColor("--color-amber");
+    expect(getComputedStyle(a).borderTopColor).not.toBe(amber);
+    expect(getComputedStyle(a).color).not.toBe(amber);
+  });
+
+  it("merged: before PR ↗; red CI: before Logs ↗", async () => {
+    const h = host();
+    await render(PrActionRow, {
+      target: h,
+      props: { session: session({ artifacts }), git: merged, status: "idle" },
+    });
+    expect(labels(h).slice(0, 2)).toEqual([m.prrow_artifact_link(), m.prrow_pr_link()]);
+
+    const h2 = host();
+    await render(PrActionRow, {
+      target: h2,
+      props: { session: session({ artifacts }), git: red, status: "idle" },
+    });
+    expect(labels(h2).slice(0, 2)).toEqual([m.prrow_artifact_link(), m.prrow_logs_link()]);
+  });
+
+  for (const [name, list] of [
+    ["absent", undefined],
+    ["empty", []],
+    ["no claude.ai artifact", [art("https://evil.example/artifact/x", T0, "x")]],
+  ] as const) {
+    it(`without an artifact (${name}) the row is unchanged`, async () => {
+      const h = host();
+      await render(PrActionRow, {
+        target: h,
+        props: {
+          session: session({ artifacts: list ? [...list] : undefined }),
+          git: readyGit,
+          status: "idle",
+        },
+      });
+      expect(link(h)).toBeNull();
+      expect(row(h)!.classList.contains("has-artifact")).toBe(false);
+      expect(labels(h)).toEqual([m.prrow_pr_link(), "⋯", m.gitrail_merge()]);
+    });
+  }
+
+  it("explains itself on hover and keyboard focus; Escape closes it", async () => {
+    const h = host();
+    await render(PrActionRow, {
+      target: h,
+      props: { session: session({ artifacts }), git: readyGit, status: "idle" },
+    });
+    const a = link(h)!;
+    const tip = () => document.querySelector<HTMLElement>(".status-tip:popover-open");
+
+    a.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    await expect.poll(tip).not.toBeNull();
+    const panel = tip()!;
+    expect(panel.querySelector(".tooltip-title")?.textContent).toBe(m.artifactrow_label());
+    expect(panel.querySelector(".tooltip-summary")?.textContent).toBe(
+      "Prüfslot — Desktop, Telefon und Einstellungen",
+    );
+    const when = relativeTimeAgo(T0 - 4 * 60_000, clock.current, getLocale());
+    const sections = [...panel.querySelectorAll(".tooltip-section")].map((s) => [
+      s.querySelector(".tooltip-label")?.textContent,
+      s.querySelector(".tooltip-label + span")?.textContent,
+    ]);
+    expect(sections).toEqual([
+      [m.prrow_artifact_tip_status_label(), m.prrow_artifact_tip_status({ n: 3, when })],
+      [m.prrow_artifact_tip_open_label(), m.prrow_artifact_tip_open()],
+    ]);
+    a.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
+    await expect.poll(tip).toBeNull();
+
+    await userEvent.tab();
+    expect(document.activeElement).toBe(a);
+    await expect.poll(tip).not.toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(tip).toBeNull();
+  });
+
+  it("touch: the first tap shows the explanation without opening the artifact", async () => {
+    const h = host();
+    await render(PrActionRow, {
+      target: h,
+      props: { session: session({ artifacts }), git: readyGit, status: "idle", touch: true },
+    });
+    const a = link(h)!;
+    // Registered after the row's own listeners: records what they decided, then keeps the test
+    // page from following the link.
+    const prevented: boolean[] = [];
+    a.addEventListener("click", (e) => {
+      prevented.push(e.defaultPrevented);
+      e.preventDefault();
+    });
+    a.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch", bubbles: true }));
+    a.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
+    expect(prevented).toEqual([true]);
+    expect(document.querySelector(".status-tip:popover-open")).not.toBeNull();
+  });
+
+  // The session pane as the shell lays it out: `inset` px of shell padding on each side, then the
+  // Viewport's 1px border, which clips. Returns the pane the row renders into.
+  function pane(width: number, inset = 0): HTMLDivElement {
+    const shell = host(width);
+    shell.style.paddingInline = `${inset}px`;
+    const vp = document.createElement("div");
+    vp.style.border = "1px solid";
+    vp.style.overflow = "hidden";
+    shell.appendChild(vp);
+    return vp;
+  }
+  const middle = (b: DOMRect) => b.top + b.height / 2;
+  // Every action target lies inside the row and its label inside the target.
+  function expectInside(h: HTMLElement) {
+    const box = row(h)!.getBoundingClientRect();
+    for (const t of targets(h)) {
+      const b = t.getBoundingClientRect();
+      const what = t.textContent?.trim();
+      expect(b.left, `${what} inside the pane`).toBeGreaterThanOrEqual(box.left - 0.5);
+      expect(b.right, `${what} inside the pane`).toBeLessThanOrEqual(box.right + 0.5);
+      expect(t.scrollWidth, `${what} label inside, across`).toBeLessThanOrEqual(t.clientWidth);
+      expect(t.scrollHeight, `${what} label inside, down`).toBeLessThanOrEqual(t.clientHeight);
+    }
+  }
+
+  // The docked Assistant leaves the desktop session pane 320px at its drag floor, and less in a
+  // narrow window: about 168px at a 900px viewport, 48px at 780px.
+  describe("narrow desktop pane", () => {
+    beforeEach(() => {
+      repoConfig.enabled = { ...repoConfig.enabled, "/repo": true }; // Review ↗ too: the widest set
+    });
+
+    const cases = [
+      { name: "Merge", session: () => session({ artifacts }), git: readyGit },
+      {
+        name: "Decommission & update",
+        session: () => session({ artifacts, isolated: true }),
+        git: merged,
+      },
+      { name: "Fix CI", session: () => session({ artifacts }), git: red },
+    ];
+
+    for (const width of [48, 168, 320, 480, 900]) {
+      for (const c of cases) {
+        it(`${width}px pane, ${c.name}: every action stays inside the pane`, async () => {
+          const h = pane(width);
+          await render(PrActionRow, {
+            target: h,
+            props: { session: c.session(), git: c.git, status: "idle", liveness: "alive" },
+          });
+          const ts = targets(h);
+          expect(ts[0]!.classList.contains("art-link")).toBe(true);
+          expect(ts.at(-1)!.classList.contains("primary"), "main action last").toBe(true);
+          expectInside(h);
+          if (width < 320) return;
+          const r = row(h)!;
+          expect(r.scrollWidth, "no horizontal overflow").toBeLessThanOrEqual(r.clientWidth);
+          const info = r.querySelector<HTMLElement>(".pr-info")!.getBoundingClientRect();
+          expect(info.width, "PR line readable").toBeGreaterThanOrEqual(200);
+          if (width === 900) {
+            // wide: one line, as without the link
+            const main = ts.at(-1)!.getBoundingClientRect();
+            expect(Math.abs(middle(info) - middle(main))).toBeLessThanOrEqual(1);
+          }
+        });
+      }
+    }
+  });
+
+  describe("phone", () => {
+    beforeEach(() => {
+      repoConfig.enabled = { ...repoConfig.enabled, "/repo": true };
+    });
+    afterEach(() => document.documentElement.style.removeProperty("--ui-scale"));
+
+    const cases = [
+      {
+        name: "Merge",
+        session: () => session({ artifacts }),
+        git: readyGit,
+        labels: () => ["⋯", m.prrow_artifact_link(), m.prrow_pr_link(), m.gitrail_merge()],
+      },
+      {
+        name: "Decommission & update",
+        session: () => session({ artifacts, isolated: true }),
+        git: merged,
+        labels: () => [m.prrow_artifact_link(), m.prrow_pr_link(), m.prrow_decommission_update()],
+      },
+      {
+        name: "Fix CI",
+        session: () => session({ artifacts }),
+        git: red,
+        labels: () => ["⋯", m.prrow_artifact_link(), m.prrow_logs_link(), m.prrow_fix_ci()],
+      },
+    ];
+
+    // Inside the shell's 10px padding and the Viewport's border; iOS larger text caps at 1.5.
+    for (const locale of ["en", "de"] as const) {
+      for (const width of [320, 360]) {
+        for (const scale of [1, 1.5]) {
+          for (const c of cases) {
+            it(`${locale} ${width}px, text ×${scale}, ${c.name}: one line, main action takes the rest, 44px targets, nothing overflows`, async () => {
+              setLocale(locale, { reload: false });
+              document.documentElement.style.setProperty("--ui-scale", String(scale));
+              await page.viewport(width, 800);
+              const h = pane(width, 10);
+              await render(PrActionRow, {
+                target: h,
+                props: {
+                  session: c.session(),
+                  git: c.git,
+                  status: "idle",
+                  liveness: "alive",
+                  mobile: true,
+                  touch: true,
+                },
+              });
+              const r = row(h)!;
+              const actions = r.querySelector<HTMLElement>(".pr-actions")!;
+              const ts = targets(h);
+              expect(ts.map((t) => t.textContent?.trim())).toEqual(c.labels());
+
+              const hit = Number.parseFloat(
+                getComputedStyle(document.documentElement).getPropertyValue(
+                  "--mobile-actionbar-hit",
+                ),
+              );
+              const rects = ts.map((t) => t.getBoundingClientRect());
+              ts.forEach((t, i) => {
+                const b = rects[i]!;
+                const what = t.textContent?.trim();
+                expect(b.width, `${what} width`).toBeGreaterThanOrEqual(hit);
+                expect(b.height, `${what} height`).toBeGreaterThanOrEqual(hit);
+                expect(
+                  Math.abs(middle(b) - middle(rects[0]!)),
+                  `${what} on the line`,
+                ).toBeLessThanOrEqual(1);
+                if (i > 0)
+                  expect(b.left, `${what} after its neighbour`).toBeGreaterThanOrEqual(
+                    rects[i - 1]!.right,
+                  );
+              });
+              expectInside(h);
+              const main = rects.at(-1)!;
+              const gap = Number.parseFloat(getComputedStyle(actions).columnGap);
+              expect(
+                Math.abs(main.left - rects.at(-2)!.right - gap),
+                "main follows its neighbour",
+              ).toBeLessThanOrEqual(1);
+              expect(
+                Math.abs(main.right - actions.getBoundingClientRect().right),
+                "main takes the rest",
+              ).toBeLessThanOrEqual(1);
+              expect(actions.scrollWidth, "actions fit").toBeLessThanOrEqual(actions.clientWidth);
+              // At ×1.5 on 320px the status line's own label (READY TO MERGE, CI FAILED) is wider
+              // than the row, with or without an artifact; this change leaves that line alone.
+              if (scale === 1)
+                expect(r.scrollWidth, "no horizontal overflow").toBeLessThanOrEqual(r.clientWidth);
+            });
+          }
+        }
+      }
     }
   });
 });

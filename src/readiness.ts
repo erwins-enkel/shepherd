@@ -33,11 +33,13 @@ import {
 import { join } from "node:path";
 import { INTENT_ISSUE_TEMPLATE } from "./intent-shape";
 import { SHEPHERD_IGNORE_GLOB } from "./shepherd-exclude";
+import { tsconfigStrictness, type TsConfigStrictness } from "./readiness-tsconfig";
 
 export type GuardrailId =
   | "formatter"
   | "linter"
   | "type_checker"
+  | "ts_strict"
   | "commit_lint"
   | "git_hooks"
   | "pre_push_ci"
@@ -116,7 +118,8 @@ interface EcosystemProfile<Ctx extends FileScan> {
   /** Package/crate roots relative to `dir`; `[]` when the repo isn't this ecosystem. `deep`
    *  searches ONLY the second level (#3107) — callers try it after every profile missed shallow. */
   detectRoots: (dir: string, deep: boolean) => string[];
-  buildContext: (dir: string, roots: string[]) => Ctx;
+  /** May be async — the JS profile awaits its tsconfig strictness read. */
+  buildContext: (dir: string, roots: string[]) => Ctx | Promise<Ctx>;
   guardrails: GuardrailDef<Ctx>[];
   stackLabel: (ctx: Ctx) => string;
   toolingLabel: (id: GuardrailId) => string;
@@ -198,6 +201,9 @@ interface RepoScan extends FileScan {
   pins: string[];
   /** `rel`'s text in each root that has it, at most {@link READ_CAP} bytes per file. */
   readText: (rel: string) => string[];
+  /** Effective strictness of each root's tsconfig.json (repo root + package roots that have one)
+   *  and of the projects it references. */
+  tsconfigs: TsConfigStrictness[];
 }
 
 const dep = (s: RepoScan, name: string) => s.deps.has(name);
@@ -321,6 +327,20 @@ export const GUARDRAILS: GuardrailDef<RepoScan>[] = [
       if (s.scripts.typecheck || /tsc\b/.test(s.scripts["check"] ?? ""))
         ev.push("typecheck script");
       return ev;
+    },
+  },
+  {
+    // #4080: a non-strict tsconfig passes type_checker yet lets implicit any / unchecked null
+    // through. Only TS repos are scored; passes only when EVERY evaluated tsconfig is strict.
+    id: "ts_strict",
+    weight: 6,
+    applies: (s) => s.has("tsconfig.json") || dep(s, "typescript"),
+    detect: (s) => {
+      if (!s.tsconfigs.length || s.tsconfigs.some((c) => c.strict !== "strict")) return [];
+      return s.tsconfigs.flatMap((c) => [
+        `${c.path} strict`,
+        ...(c.noUncheckedIndexedAccess ? [`${c.path} noUncheckedIndexedAccess`] : []),
+      ]);
     },
   },
   {
@@ -481,14 +501,17 @@ function collectManifest(
   if (pkg.engines && Object.keys(pkg.engines).length) meta.engines = true;
 }
 
-function buildJsContext(dir: string, pkgRoots: string[]): RepoScan {
+async function buildJsContext(dir: string, pkgRoots: string[]): Promise<RepoScan> {
   const deps = new Set<string>();
   const scripts: Record<string, string> = {};
   const meta: { packageManager?: string; engines?: boolean } = {};
   for (const root of pkgRoots)
     collectManifest(join(dir, root, "package.json"), deps, scripts, meta);
 
-  const { roots, has, glob } = rootAwareProbes(dir, pkgRoots);
+  const { has, glob, roots } = rootAwareProbes(dir, pkgRoots);
+  const tsconfigs = (
+    await Promise.all(roots.map((root) => tsconfigStrictness(dir, join(root, "tsconfig.json"))))
+  ).flat();
   const pins: string[] = [];
   if (meta.packageManager) pins.push("packageManager");
   if (meta.engines) pins.push("engines");
@@ -501,6 +524,7 @@ function buildJsContext(dir: string, pkgRoots: string[]): RepoScan {
     pm: pickPackageManager(meta.packageManager, has),
     pins,
     readText: (rel) => roots.flatMap((root) => readCapped(join(dir, root, rel))),
+    tsconfigs,
   };
 }
 
@@ -548,7 +572,7 @@ artifacts. \`.gitignore\` alone is not reliable here.
 /** The Rust guardrail subset — rustc is the always-present type-checker and Rust has no lint-staged norm. */
 type RustGuardrailId = Exclude<
   GuardrailId,
-  "type_checker" | "lint_staged" | "env_schema" | "swallowed_errors"
+  "type_checker" | "ts_strict" | "lint_staged" | "env_schema" | "swallowed_errors"
 >;
 
 /**
@@ -746,7 +770,7 @@ const rustProfile: EcosystemProfile<RustScan> = {
 /** The Swift guardrail subset — swiftc is the always-present type-checker and Swift has no lint-staged norm. */
 type SwiftGuardrailId = Exclude<
   GuardrailId,
-  "type_checker" | "lint_staged" | "env_schema" | "swallowed_errors"
+  "type_checker" | "ts_strict" | "lint_staged" | "env_schema" | "swallowed_errors"
 >;
 
 /** Swift inspection context. swift-format ships in the toolchain (not a manifest dep), so tool
@@ -965,14 +989,14 @@ function runGuardrails<Ctx>(guardrails: GuardrailDef<Ctx>[], ctx: Ctx): Guardrai
 }
 
 /** Runs one profile against `dir`, or null when the repo isn't that ecosystem. */
-function runProfile<Ctx extends FileScan>(
+async function runProfile<Ctx extends FileScan>(
   profile: EcosystemProfile<Ctx>,
   dir: string,
   deep: boolean,
-): ReadinessReport | null {
+): Promise<ReadinessReport | null> {
   const roots = profile.detectRoots(dir, deep);
   if (roots.length === 0) return null;
-  const ctx = profile.buildContext(dir, roots);
+  const ctx = await profile.buildContext(dir, roots);
   const checks = runGuardrails(profile.guardrails, ctx);
 
   // Score derived from the checks array — never a hardcoded denominator.
@@ -996,16 +1020,20 @@ function runProfile<Ctx extends FileScan>(
 
 /** Profile precedence: js-ts then rust, shallow then deep; swift (shallow, deep) only after both
  *  missed, so a repo with an older profile keeps it even beside a nearer `Package.swift`. */
-function firstProfile<T>(
+async function firstProfile<T>(
   dir: string,
-  run: <Ctx extends FileScan>(p: EcosystemProfile<Ctx>, dir: string, deep: boolean) => T | null,
-): T | null {
+  run: <Ctx extends FileScan>(
+    p: EcosystemProfile<Ctx>,
+    dir: string,
+    deep: boolean,
+  ) => Promise<T | null>,
+): Promise<T | null> {
   for (const deep of [false, true]) {
-    const hit = run(jsProfile, dir, deep) ?? run(rustProfile, dir, deep);
+    const hit = (await run(jsProfile, dir, deep)) ?? (await run(rustProfile, dir, deep));
     if (hit) return hit;
   }
   for (const deep of [false, true]) {
-    const hit = run(swiftProfile, dir, deep);
+    const hit = await run(swiftProfile, dir, deep);
     if (hit) return hit;
   }
   return null;
@@ -1016,9 +1044,9 @@ function firstProfile<T>(
  * and every currently-applicable repo is unchanged) and produces its scorecard, or a
  * not-applicable report when the repo matches no supported ecosystem.
  */
-export function analyzeReadiness(dir: string): ReadinessReport {
+export async function analyzeReadiness(dir: string): Promise<ReadinessReport> {
   return (
-    firstProfile(dir, runProfile) ?? {
+    (await firstProfile(dir, runProfile)) ?? {
       applicable: false,
       ecosystem: null,
       score: 0,
@@ -1049,14 +1077,14 @@ export interface EcosystemScan {
   toolchainPins: string[];
 }
 
-function scanProfile<Ctx extends FileScan>(
+async function scanProfile<Ctx extends FileScan>(
   profile: EcosystemProfile<Ctx>,
   dir: string,
   deep: boolean,
-): EcosystemScan | null {
+): Promise<EcosystemScan | null> {
   const roots = profile.detectRoots(dir, deep);
   if (roots.length === 0) return null;
-  const ctx = profile.buildContext(dir, roots);
+  const ctx = await profile.buildContext(dir, roots);
   return {
     ecosystem: profile.id,
     checks: runGuardrails(profile.guardrails, ctx),
@@ -1066,9 +1094,9 @@ function scanProfile<Ctx extends FileScan>(
 
 /** The ecosystem scan behind the greenfield profile — same detection as {@link analyzeReadiness},
  *  plus the stack-agnostic checks for a repo without a manifest. Never executes repo code. */
-export function scanEcosystem(dir: string): EcosystemScan {
+export async function scanEcosystem(dir: string): Promise<EcosystemScan> {
   return (
-    firstProfile(dir, scanProfile) ?? {
+    (await firstProfile(dir, scanProfile)) ?? {
       ecosystem: null,
       checks: runGuardrails(AGNOSTIC_GUARDRAILS, rootAwareProbes(dir, [""])),
       toolchainPins: [],
@@ -1127,6 +1155,7 @@ export function bootstrapGuardrailChecklist(ecosystem: Ecosystem, pm: PackageMan
     pm,
     pins: [],
     readText: () => [],
+    tsconfigs: [],
   };
   return GUARDRAILS.map((g) => adoptLine(jsProfile, ctx, g.id)).join("\n");
 }
@@ -1185,6 +1214,7 @@ const TOOLING_LABEL: Record<GuardrailId, string> = {
   pre_push_ci: "A pre-push hook that mirrors CI (husky/lefthook)",
   git_hooks: "A git-hook manager (husky/lefthook/pre-commit)",
   type_checker: "A type-checker (tsc/mypy) in the hook",
+  ts_strict: 'TypeScript strict mode (`"strict": true` in tsconfig.json)',
   linter: "A linter (eslint/ruff)",
   formatter: "A formatter (prettier/ruff fmt) + lint-staged",
   test_runner: "A test runner wired into the hook",
@@ -1206,6 +1236,8 @@ const CHURN_PLAIN: Record<GuardrailId, string> = {
   git_hooks: "without a hook manager, none of the checks below run automatically before a push.",
   type_checker:
     "without it you catch type errors in review that the agent could have caught itself.",
+  ts_strict:
+    "without it implicit any and unchecked null pass the type-checker, and you catch them in review.",
   linter: "without it you flag lint nits by hand instead of letting the gate do it.",
   formatter: "without it you hand-fix style in review; adopt prettier + lint-staged.",
   test_runner:
@@ -1279,6 +1311,17 @@ const PRESCRIPTION_NOTE: Partial<Record<GuardrailId, (s: RepoScan) => string[]>>
     ];
   },
   issue_templates: () => ISSUE_TEMPLATE_NOTE,
+  ts_strict: (s) => {
+    const next = "fix the resulting type errors; `noUncheckedIndexedAccess` is the next step.";
+    if (!s.tsconfigs.length)
+      return [
+        `No tsconfig.json found — create one with \`"strict": true\` in \`compilerOptions\` and ${next}`,
+      ];
+    return [
+      ...s.tsconfigs.filter((c) => c.strict !== "strict").map((c) => `\`${c.path}\`: ${c.reason}.`),
+      `Set \`"strict": true\` in \`compilerOptions\` of each config listed and ${next}`,
+    ];
+  },
   env_schema: () => [
     "Run `varlock audit` in the pre-push hook and in CI so an undeclared (or stale) env var fails the push.",
   ],
@@ -1296,6 +1339,7 @@ export const INSTALL_STEPS: Record<GuardrailId, (v: { add: string; exec: string 
   pre_push_ci: (v) => [`${v.add} husky`, `${v.exec} husky init`],
   git_hooks: (v) => [`${v.add} husky`, `${v.exec} husky init`],
   type_checker: (v) => [`${v.add} typescript`, `${v.exec} tsc --init`],
+  ts_strict: () => [],
   linter: (v) => [`${v.add} eslint @eslint/js`],
   formatter: (v) => [`${v.add} prettier`],
   test_runner: (v) => [`${v.add} vitest`],

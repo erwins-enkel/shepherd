@@ -71,6 +71,8 @@
         return m.readiness_g_git_hooks_title();
       case "type_checker":
         return m.readiness_g_type_checker_title();
+      case "ts_strict":
+        return m.readiness_g_ts_strict_title();
       case "linter":
         return m.readiness_g_linter_title();
       case "formatter":
@@ -106,6 +108,8 @@
         return m.readiness_g_git_hooks_removes();
       case "type_checker":
         return m.readiness_g_type_checker_removes();
+      case "ts_strict":
+        return m.readiness_g_ts_strict_removes();
       case "linter":
         return m.readiness_g_linter_removes();
       case "formatter":

@@ -9148,5 +9148,9 @@
   "native_repo_jobs_paused": "Der Leitrechner ist nicht erreichbar. Backlog-Abarbeitung und PR-Sweep pausieren. Du entscheidest über den Wechsel; er geschieht nie automatisch.",
   "native_repo_leader_returns": "Kommt der bisherige Leitrechner zurück, liest er zuerst die Repo-Datei, bevor er neue Backlog- oder PR-Sweep-Arbeit startet.",
   "native_repo_offline_observed": "Nicht erreichbar · beobachtet seit {time}",
-  "native_repo_merge_title": "Regeln zusammenführen"
+  "native_repo_merge_title": "Regeln zusammenführen",
+  "readiness_g_ts_strict_title": "TypeScript-Strict-Modus",
+  "readiness_g_ts_strict_removes": "Ohne ihn kommen implizites any und ungeprüftes null durch den Typprüfer und landen in deinem Review.",
+  "feat_readiness_ts_strict_title": "Readiness prüft TypeScript-Strictness",
+  "feat_readiness_ts_strict_body": "Der Readiness-Tab bewertet jetzt, ob die tsconfig eines TypeScript-Repos auf strict: true auflöst, inklusive lokaler extends-Ketten. Eine nicht strikte oder nicht auflösbare Konfiguration erscheint mit Begründung in der Empfehlung."
 }

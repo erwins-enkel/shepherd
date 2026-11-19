@@ -23,29 +23,29 @@ function write(rel: string, body = "") {
   writeFileSync(full, body);
 }
 
-function present(id: GuardrailId) {
-  return analyzeReadiness(dir).checks.find((c) => c.id === id)?.present ?? false;
+async function present(id: GuardrailId) {
+  return (await analyzeReadiness(dir)).checks.find((c) => c.id === id)?.present ?? false;
 }
 
-test("a root Package.swift makes the repo applicable as swift", () => {
+test("a root Package.swift makes the repo applicable as swift", async () => {
   write("Package.swift", "// swift-tools-version: 6.2\n");
-  const r = analyzeReadiness(dir);
+  const r = await analyzeReadiness(dir);
   expect(r.applicable).toBe(true);
   expect(r.ecosystem).toBe("swift");
 });
 
-test("a Package.swift one or two levels down is detected", () => {
+test("a Package.swift one or two levels down is detected", async () => {
   write("ios/App/Package.swift");
-  expect(analyzeReadiness(dir).ecosystem).toBe("swift");
+  expect((await analyzeReadiness(dir)).ecosystem).toBe("swift");
   write("ios/Package.swift");
-  expect(analyzeReadiness(dir).ecosystem).toBe("swift");
+  expect((await analyzeReadiness(dir)).ecosystem).toBe("swift");
 });
 
-test("dependency directories are not Swift roots", () => {
+test("dependency directories are not Swift roots", async () => {
   write("Pods/Foo/Package.swift");
   write("node_modules/foo/Package.swift");
   write(".build/checkouts/Package.swift");
-  expect(analyzeReadiness(dir).applicable).toBe(false);
+  expect((await analyzeReadiness(dir)).applicable).toBe(false);
 });
 
 test.each([
@@ -53,12 +53,15 @@ test.each([
   ["root Cargo.toml", "Cargo.toml", "rust"],
   ["deep package.json", "apps/web/package.json", "js-ts"],
   ["deep Cargo.toml", "crates/core/Cargo.toml", "rust"],
-] as const)("%s keeps its profile beside a nearer Package.swift", (_name, manifest, ecosystem) => {
-  write("Package.swift");
-  write("ios/Package.swift");
-  write(manifest, manifest.endsWith("json") ? "{}" : '[package]\nname = "x"\n');
-  expect(analyzeReadiness(dir).ecosystem).toBe(ecosystem);
-});
+] as const)(
+  "%s keeps its profile beside a nearer Package.swift",
+  async (_name, manifest, ecosystem) => {
+    write("Package.swift");
+    write("ios/Package.swift");
+    write(manifest, manifest.endsWith("json") ? "{}" : '[package]\nname = "x"\n');
+    expect((await analyzeReadiness(dir)).ecosystem).toBe(ecosystem);
+  },
+);
 
 test("the Swift guardrail set omits type_checker, lint_staged, env_schema and swallowed_errors", () => {
   const ids = SWIFT_GUARDRAILS.map((g) => g.id);
@@ -66,7 +69,7 @@ test("the Swift guardrail set omits type_checker, lint_staged, env_schema and sw
     expect(ids).not.toContain(id);
 });
 
-test("a murmur-shaped repo scores what its pre-commit hook and config prove", () => {
+test("a murmur-shaped repo scores what its pre-commit hook and config prove", async () => {
   write("Package.swift");
   write(".swift-format", "{}");
   write(
@@ -75,75 +78,75 @@ test("a murmur-shaped repo scores what its pre-commit hook and config prove", ()
   );
   write("Tests/CoreTests/a.swift");
   for (const id of ["linter", "formatter", "test_runner", "git_hooks"] as const)
-    expect(present(id)).toBe(true);
+    expect(await present(id)).toBe(true);
   for (const id of ["pre_push_ci", "ci", "dead_code_audit", "agent_instructions"] as const)
-    expect(present(id)).toBe(false);
+    expect(await present(id)).toBe(false);
 });
 
-test("evidence comes from config files and the command corpus", () => {
+test("evidence comes from config files and the command corpus", async () => {
   write("Package.swift");
-  expect(present("linter")).toBe(false);
-  expect(present("formatter")).toBe(false);
-  expect(present("test_runner")).toBe(false);
+  expect(await present("linter")).toBe(false);
+  expect(await present("formatter")).toBe(false);
+  expect(await present("test_runner")).toBe(false);
   write(".swiftlint.yml");
   write(".swiftformat");
   write("Tests/a.swift");
-  expect(present("linter")).toBe(true);
-  expect(present("formatter")).toBe(true);
-  expect(present("test_runner")).toBe(true);
+  expect(await present("linter")).toBe(true);
+  expect(await present("formatter")).toBe(true);
+  expect(await present("test_runner")).toBe(true);
   write(".github/workflows/ci.yml", "steps:\n  - run: periphery scan --strict\n");
-  expect(present("dead_code_audit")).toBe(true);
-  expect(present("ci")).toBe(true);
+  expect(await present("dead_code_audit")).toBe(true);
+  expect(await present("ci")).toBe(true);
 });
 
-test("a dependency named swift-format in Package.swift does not prove the tool runs", () => {
+test("a dependency named swift-format in Package.swift does not prove the tool runs", async () => {
   write(
     "Package.swift",
     '.package(url: "https://github.com/swiftlang/swift-format", from: "6.0.0")',
   );
-  expect(present("formatter")).toBe(false);
-  expect(present("linter")).toBe(false);
+  expect(await present("formatter")).toBe(false);
+  expect(await present("linter")).toBe(false);
 });
 
-test("xcodebuild test counts as a test runner on one line only", () => {
+test("xcodebuild test counts as a test runner on one line only", async () => {
   write("Package.swift");
   write(".github/workflows/ci.yml", "run: xcodebuild -scheme App\nrun: echo test\n");
-  expect(present("test_runner")).toBe(false);
+  expect(await present("test_runner")).toBe(false);
   write(".github/workflows/ci.yml", "run: xcodebuild -scheme App test\n");
-  expect(present("test_runner")).toBe(true);
+  expect(await present("test_runner")).toBe(true);
 });
 
-test("a crafted one-line hook can't stall the server loop", () => {
+test("a crafted one-line hook can't stall the server loop", async () => {
   write("Package.swift");
   write(".githooks/pre-push", "xcodebuild ".repeat(20_000));
   const start = performance.now();
-  expect(present("test_runner")).toBe(false);
+  expect(await present("test_runner")).toBe(false);
   expect(performance.now() - start).toBeLessThan(1000);
 });
 
-test("a pre-commit-only repo has git_hooks but not pre_push_ci", () => {
+test("a pre-commit-only repo has git_hooks but not pre_push_ci", async () => {
   write("Package.swift");
   write(".githooks/pre-commit", "swift test");
-  expect(present("git_hooks")).toBe(true);
-  expect(present("pre_push_ci")).toBe(false);
+  expect(await present("git_hooks")).toBe(true);
+  expect(await present("pre_push_ci")).toBe(false);
   write(".githooks/pre-push", "swift test");
-  expect(present("pre_push_ci")).toBe(true);
+  expect(await present("pre_push_ci")).toBe(true);
 });
 
-test("only .swift-version is a toolchain pin", () => {
+test("only .swift-version is a toolchain pin", async () => {
   write("Package.swift", "// swift-tools-version: 6.2\n");
-  expect(scanEcosystem(dir).toolchainPins).toEqual([]);
+  expect((await scanEcosystem(dir)).toolchainPins).toEqual([]);
   write(".swift-version", "6.4.2\n");
-  const scan = scanEcosystem(dir);
+  const scan = await scanEcosystem(dir);
   expect(scan.ecosystem).toBe("swift");
   expect(scan.toolchainPins).toEqual([".swift-version"]);
 });
 
 const FOREIGN = /\b(?:npm|bun|bunx|husky|cargo|clippy|rustfmt|prettier|eslint|vitest)\b/;
 
-test("the prescription names only Swift tooling", () => {
+test("the prescription names only Swift tooling", async () => {
   write("Package.swift");
-  const { claudeMd } = analyzeReadiness(dir);
+  const { claudeMd } = await analyzeReadiness(dir);
   expect(claudeMd).toContain("House rules for AI agents (Swift)");
   expect(claudeMd).toContain("swift format lint --strict");
   expect(claudeMd).toContain('package-ecosystem: "swift"');

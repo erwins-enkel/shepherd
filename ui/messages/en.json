@@ -9148,5 +9148,9 @@
   "native_repo_jobs_paused": "The Leitrechner is unreachable. Backlog processing and the PR sweep are paused. You decide when to change the Leitrechner; it never changes automatically.",
   "native_repo_leader_returns": "When the previous Leitrechner returns, it reads the repository file before starting new backlog or PR-sweep work.",
   "native_repo_offline_observed": "Unreachable · observed since {time}",
-  "native_repo_merge_title": "Merge rules"
+  "native_repo_merge_title": "Merge rules",
+  "readiness_g_ts_strict_title": "TypeScript strict mode",
+  "readiness_g_ts_strict_removes": "Without it, implicit any and unchecked null pass the type checker and land in your review.",
+  "feat_readiness_ts_strict_title": "Readiness checks TypeScript strictness",
+  "feat_readiness_ts_strict_body": "The Readiness tab now scores whether a TypeScript repo's tsconfig resolves to strict: true, following local extends chains. A non-strict or unresolvable config shows up in the prescription with the reason."
 }

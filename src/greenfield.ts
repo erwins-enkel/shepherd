@@ -266,7 +266,7 @@ export class GreenfieldService {
       readRuns(forge),
     ]);
     const report = buildGreenfieldReport({
-      scan: scanEcosystem(dir),
+      scan: await scanEcosystem(dir),
       pinnedStackDoc: doc,
       docs: { prd, design, decisions },
       forge: forgeState,

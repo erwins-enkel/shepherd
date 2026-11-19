@@ -1,0 +1,607 @@
+{
+  "src/api-error-retry.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/auth-config-dir.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/auth-mode.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/autopilot-llm.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/autopilot.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/backlog-poller.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/backlog.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/base-drift.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/bootstrap.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/branch-pruner.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/branches.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/browser-broker.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/browser-origin-policy.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/browser-token.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/cdp-pipe.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/codex-activity.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/codex-last-message.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/codex-reset.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/codex-session-id.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 3
+    }
+  },
+  "src/codex-update.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/completed-epic.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/compose-cleanup.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/critic-core.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/diagnostics.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 6
+    }
+  },
+  "src/diff-base.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/dispatch.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/doc-agent.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 3
+    }
+  },
+  "src/drain-machines.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/drain.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 3
+    }
+  },
+  "src/egress-watch.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/egress.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 5
+    }
+  },
+  "src/file-locate.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/forge/gitea.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/forge/github-fingerprint.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/forge/github-head-batch.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/forge/github.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 18
+    }
+  },
+  "src/forge/user-cache.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/fs-browse.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/gitignore-adopt.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/goal.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/greenfield.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/heavy-scope.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/heavy-slot.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/herdr-recovery.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/herdr-runtime.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/herdr-socket-driver.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 4
+    }
+  },
+  "src/herdr.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 8
+    }
+  },
+  "src/host-file.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 4
+    }
+  },
+  "src/house-stack.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/index.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 3
+    }
+  },
+  "src/integrated-child-settle.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/issue-filter.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/jsonl.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/landing-rebase.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/loop-watchdog-worker.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/maintain.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/membrane-launch.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/membrane-state.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/mise-claude.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/netns-dev-forward.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/node-bin.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/open-pr-snapshot.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/operator-assistant-tools.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/peer-uid.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/plan-gate.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/plugin-agents.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 4
+    }
+  },
+  "src/plugin-update.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 7
+    }
+  },
+  "src/plugins/bundled/sentry/api.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/plugins/bundled/sentry/poller.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/plugins/loader.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 4
+    }
+  },
+  "src/plugins/manage.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/plugins/secrets.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/poller.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 5
+    }
+  },
+  "src/preview.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 8
+    }
+  },
+  "src/proc-probes-darwin.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/process-reaper.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/provider-handoff.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/pty-bridge.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/pull.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 3
+    }
+  },
+  "src/push.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/readiness-drift.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 3
+    }
+  },
+  "src/readiness.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/recap.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/remote-instances/capability-probe.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/remote-instances/client.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 5
+    }
+  },
+  "src/remote-instances/dispatch.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 3
+    }
+  },
+  "src/remote-instances/forward.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 5
+    }
+  },
+  "src/remote-instances/move.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/remote-instances/repo-config.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/remote-instances/sessions.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/repo-config-file.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 4
+    }
+  },
+  "src/repo-leitrechner.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/repo-roles.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 6
+    }
+  },
+  "src/repos.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 3
+    }
+  },
+  "src/requirements-llm.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/review.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/runtime-identity.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/safe-git.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/sandbox.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/server-timing.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/server.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 109
+    }
+  },
+  "src/service.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 19
+    }
+  },
+  "src/settings-source.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/shared-browser.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 6
+    }
+  },
+  "src/slot-shims.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/socket-pty-bridge.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 3
+    }
+  },
+  "src/spawn-script.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 3
+    }
+  },
+  "src/standalone-critic.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/star-prompt.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/subagent-meta.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/tailscale.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 4
+    }
+  },
+  "src/telemetry.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/tmp-sweep.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 6
+    }
+  },
+  "src/transient-helper-lifecycle.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 2
+    }
+  },
+  "src/up-next.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 10
+    }
+  },
+  "src/update-call.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/update.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 1
+    }
+  },
+  "src/uploads.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 3
+    }
+  },
+  "src/upstream-status.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 5
+    }
+  },
+  "src/usage-probe.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 4
+    }
+  },
+  "src/worktree.ts": {
+    "shepherd/no-silent-catch": {
+      "count": 16
+    }
+  }
+}

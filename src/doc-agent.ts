@@ -1,9 +1,7 @@
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { devNull } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
-import { promisify } from "node:util";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { EmptyDiffError } from "./forge/types";
 import type { GitForge, GitState } from "./forge/types";
@@ -20,8 +18,7 @@ import { apiKeyFailClosed } from "./spawn-auth";
 import { execGit, resolveWorktreePin, type GitPin } from "./safe-git";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import type { WorktreeMgr } from "./worktree";
-
-const execFileP = promisify(execFile);
+import { execFileAsync } from "./instrument";
 
 /** Async git runner (returns stdout) — keeps the single-process event loop unblocked during the
  *  finalize stage/commit/push and the boot sweep (house rule: no blocking subprocess on the loop). */
@@ -54,7 +51,7 @@ export async function assertPrettierClean(args: {
 }): Promise<void> {
   if (args.files.length === 0) return;
   const binary = join(SERVER_INSTALL_ROOT, "node_modules", ".bin", "prettier");
-  await execFileP(
+  await execFileAsync(
     binary,
     ["--check", "--ignore-path", devNull, "--config", args.configPath, "--", ...args.files],
     { cwd: args.cwd },
@@ -90,7 +87,7 @@ export async function defaultPrettierWrite(args: {
 }): Promise<void> {
   if (args.files.length === 0) return;
   const binary = join(SERVER_INSTALL_ROOT, "node_modules", ".bin", "prettier");
-  await execFileP(
+  await execFileAsync(
     binary,
     ["--write", "--ignore-path", devNull, "--config", args.configPath, "--", ...args.files],
     { cwd: args.cwd },
@@ -145,7 +142,7 @@ export async function defaultGenDocs(args: {
   worktreePath: string;
   pin: GitPin | null;
 }): Promise<void> {
-  await execFileP(
+  await execFileAsync(
     process.execPath,
     ["run", join(SERVER_INSTALL_ROOT, DOCS_MANIFEST_GENERATOR), "--root", args.worktreePath],
     { cwd: SERVER_INSTALL_ROOT, env: genDocsEnv(args.pin) },

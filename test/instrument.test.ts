@@ -1,5 +1,14 @@
 import { test, expect } from "bun:test";
-import { timed, timedAsync, execFileSync, startLoopLagSampler } from "../src/instrument";
+import type { ExecFileOptions } from "node:child_process";
+import {
+  timed,
+  timedAsync,
+  execFileSync,
+  execFileAsync,
+  EXEC_DEFAULTS,
+  withExecDefaults,
+  startLoopLagSampler,
+} from "../src/instrument";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -291,5 +300,54 @@ test(
   "execFileSync re-throws on error (profile on)",
   withProfile(() => {
     expect(() => execFileSync("false", [], { stdio: "pipe" })).toThrow();
+  }),
+);
+
+// ── execFileAsync ─────────────────────────────────────────────────────────────
+
+test("withExecDefaults fills timeout + killSignal", () => {
+  expect(withExecDefaults()).toEqual({ timeout: 60_000, killSignal: "SIGTERM" });
+  const opts: ExecFileOptions = { cwd: "/", timeout: undefined };
+  expect(withExecDefaults(opts)).toEqual({
+    cwd: "/",
+    timeout: EXEC_DEFAULTS.timeout,
+    killSignal: EXEC_DEFAULTS.killSignal,
+  });
+});
+
+test("withExecDefaults keeps caller overrides, incl. timeout 0", () => {
+  expect(withExecDefaults({ timeout: 0 }).timeout).toBe(0);
+  expect(withExecDefaults({ timeout: 5, killSignal: "SIGKILL" })).toEqual({
+    timeout: 5,
+    killSignal: "SIGKILL",
+  });
+});
+
+test("execFileAsync returns utf8 stdout as a string", async () => {
+  const { stdout } = await execFileAsync("echo", ["hi"], { encoding: "utf8" });
+  expect(stdout).toBe("hi\n");
+});
+
+test("execFileAsync kills a child past its timeout", async () => {
+  const err = (await execFileAsync("sleep", ["5"], { timeout: 50 }).catch((e) => e)) as {
+    killed?: boolean;
+    signal?: string;
+  };
+  expect(err.killed).toBe(true);
+  expect(err.signal).toBe("SIGTERM");
+});
+
+test(
+  "execFileAsync logs a [profile] label for slow calls (profile on)",
+  withProfile(async () => {
+    const warnings: string[] = [];
+    const orig = console.warn;
+    console.warn = (msg: string) => warnings.push(msg);
+    try {
+      await execFileAsync("sleep", ["0.3"]);
+    } finally {
+      console.warn = orig;
+    }
+    expect(warnings.some((w) => w.startsWith("[profile] sleep 0.3 "))).toBe(true);
   }),
 );

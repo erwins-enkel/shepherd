@@ -12,12 +12,10 @@
  *
  * Agent-facing English, no i18n — same precedent as the other tool descriptions.
  */
-import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { open, readFile } from "node:fs/promises";
 import { cpus, freemem, loadavg, totalmem, uptime } from "node:os";
 import { basename } from "node:path";
-import { promisify } from "node:util";
 import type { AgentControlDeps, ApplyResult, McpTool } from "./agent-control";
 import { normalizeAgentProvider, resolveSpawnAgentProvider } from "./agent-provider";
 import { readCodexAuthMode } from "./codex-auth";
@@ -49,8 +47,7 @@ import type { HeldTask, HoldReason, PlanGate, Recap, ReviewVerdict, Session } fr
 import { fenceUntrusted, randomFenceToken } from "./untrusted";
 import { SHEPHERD_VERSION } from "./version";
 import type { RepoConfig } from "./store";
-
-const execFileAsync = promisify(execFile);
+import { execFileAsync } from "./instrument";
 
 /** The log files `logs_tail` may read, by source name. */
 const LOG_SOURCES = ["shepherd", "herdr-server", "herdr-update", "codex-update"] as const;

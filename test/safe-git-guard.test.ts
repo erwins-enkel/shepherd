@@ -12,10 +12,6 @@ const SRC = join(import.meta.dir, "..", "src");
 /** file → how many raw git launches it may hold, and why they never touch agent content. */
 const ALLOWLIST: Record<string, { count: number; reason: string }> = {
   "safe-git.ts": { count: 4, reason: "the helper itself" },
-  "forge/local.ts": { count: 1, reason: "`git --version` probe only" },
-  "github-access.ts": { count: 1, reason: "cwd `/`: reads only global credential config" },
-  "plugins/manage.ts": { count: 1, reason: "clones a plugin into a fresh dir" },
-  "plugin-update.ts": { count: 1, reason: "plugin checkouts, not agent worktrees" },
 };
 
 /** Raw git launches; `\s*` spans newlines so multi-line calls are caught. */

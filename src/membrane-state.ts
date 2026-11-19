@@ -12,15 +12,14 @@
  * under the read-only claudeDir/projects binds.
  */
 
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { closeSync, mkdirSync, openSync, readdirSync, rmSync } from "node:fs";
 import { chmod, mkdir, open, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { promisify } from "node:util";
 import { claudeConfigPath, dashify } from "./claude-trust";
 import { shepherdRuntimeDir } from "./runtime-dir";
 import { EPHEMERAL_CLAUDE_DIRS, scanPath } from "./sandbox";
+import { execFileAsync } from "./instrument";
 
 function membraneStateRoot(): string {
   return shepherdRuntimeDir("membrane");
@@ -123,8 +122,6 @@ export async function prepareMembraneMiseConfig(i: MembraneMiseInputs): Promise<
   );
   return writeStateFile(i.sessionId, `${i.key}.mise.toml`, `[tools]\n${lines.join("\n")}\n`);
 }
-
-const execFileAsync = promisify(execFile);
 
 export interface MembraneGhInputs {
   home: string;

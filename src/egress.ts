@@ -24,11 +24,9 @@ import {
   constants as fsConstants,
 } from "node:fs";
 import * as fsp from "node:fs/promises";
-import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { promisify } from "node:util";
-import { execFileSync } from "./instrument";
+import { execFileSync, execFileAsync } from "./instrument";
 import { resolveNodeBin } from "./node-bin";
 import { shepherdRuntimeDir } from "./runtime-dir";
 import {
@@ -282,8 +280,6 @@ export function detectEgressHostLoopback(
 }
 
 // ── async re-probe (DIAGNOSE `sandbox_egress`, #3459) ────────────────────────
-
-const execFileAsync = promisify(execFile);
 
 /** Budget for each async probe step. The self-test brings up a netns, slirp4netns, dnsmasq, an nft
  *  ruleset and a nested bwrap, so it gets far more than the 5s generic diagnostics budget. */

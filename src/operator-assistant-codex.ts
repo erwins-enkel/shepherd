@@ -11,16 +11,14 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { codexHome } from "./codex-usage";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { codexLaunchMarker, rolloutHeaders } from "./codex-session-id";
 import { operatorAssistantPermissions } from "./operator-assistant-core";
 import { config } from "./config";
+import { execFileAsync } from "./instrument";
 
-const exec = promisify(execFile);
 export const assistantCodexHome = (cwd: string, id: string) => join(cwd, ".codex-runtime", id);
 
 export function assistantCodexConfig(opts: {
@@ -154,7 +152,7 @@ export async function runAssistantShell(
   cwd: string,
   argv: string[],
 ): Promise<string> {
-  const result = await exec(
+  const result = await execFileAsync(
     Bun.which(config.codexBin) ?? config.codexBin,
     [
       "sandbox",
@@ -205,7 +203,7 @@ export function codexAssistantSupported(): Promise<boolean> {
         }),
         { mode: 0o600 },
       );
-      const { stdout } = await exec(config.codexBin, ["--help"], {
+      const { stdout } = await execFileAsync(config.codexBin, ["--help"], {
         timeout: 5000,
         maxBuffer: 32 * 1024,
       });

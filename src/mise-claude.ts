@@ -1,10 +1,9 @@
-import { execFile } from "node:child_process";
 import { access, readdir, realpath, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join, sep } from "node:path";
-import { promisify } from "node:util";
 import { DIAGNOSTICS_PROBE_TIMEOUT_MS } from "./config";
+import { execFileAsync } from "./instrument";
 
 /**
  * Is the `claude` Shepherd spawns the one mise manages — and is a native duplicate lying around?
@@ -95,8 +94,6 @@ const NOT_MANAGED: MiseClaudeState = {
   nativeOnPath: false,
   nativeResidue: null,
 };
-
-const execFileAsync = promisify(execFile);
 
 async function defaultRun(bin: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync(bin, args, {

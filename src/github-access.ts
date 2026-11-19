@@ -8,16 +8,14 @@
  * for one repo, and can point git at `gh` (`gh auth setup-git`) when the operator chooses to.
  */
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { sanitizeDetail } from "./forge/gh-attempt";
+import { execFileAsync } from "./instrument";
+import { execGit } from "./safe-git";
 
 /** Runs one `gh`/`git` invocation and resolves with its stdout. Injectable for tests. */
 export type CmdRunner = (args: string[]) => Promise<string>;
 
 export type GithubAccessRunners = { gh?: CmdRunner; git?: CmdRunner };
-
-const execFileAsync = promisify(execFile);
 
 const defaultGh: CmdRunner = async (args) => {
   const { stdout } = await execFileAsync("gh", args, { maxBuffer: 1024 * 1024, timeout: 30_000 });
@@ -27,7 +25,7 @@ const defaultGh: CmdRunner = async (args) => {
 // cwd "/" keeps a repo-local config (e.g. of the checkout the server runs from) out of the
 // answer — `git clone` into a new directory doesn't read it either.
 const defaultGit: CmdRunner = async (args) => {
-  const { stdout } = await execFileAsync("git", args, { cwd: "/", timeout: 5_000 });
+  const { stdout } = await execGit(args, { cwd: "/", timeout: 5_000 });
   return stdout.toString();
 };
 

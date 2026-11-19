@@ -102,6 +102,21 @@ export default [
       ],
     },
   },
+  // One promisified execFile for the server (#4078): `execFileAsync` in src/instrument.ts applies
+  // the default timeout/killSignal and loop profiling. safe-git keeps its own for git.
+  {
+    files: ["src/**/*.ts"],
+    ignores: ["src/instrument.ts", "src/safe-git.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "CallExpression[callee.name='promisify'][arguments.0.name='execFile']",
+          message: "Use execFileAsync from src/instrument.ts (git: src/safe-git.ts).",
+        },
+      ],
+    },
+  },
   // Generated output — never lint
   {
     ignores: ["ui/.svelte-kit/", "ui/build/", "ui/dist/", "ui/src/lib/paraglide/"],

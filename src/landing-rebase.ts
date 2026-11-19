@@ -1,19 +1,15 @@
-import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readFile } from "node:fs/promises";
-import { promisify } from "node:util";
 import type { WorktreeMgr } from "./worktree";
-import { execFileSync } from "./instrument";
+import { execFileSync, execFileAsync } from "./instrument";
 import {
   execGit,
   resolveWorktreePin,
   TRUSTED_UNION_DRIVER,
   trustedUnionDriverConfig,
 } from "./safe-git";
-
-const execFileAsync = promisify(execFile);
 
 const UNION_ATTRS = ["merge=union", "merge=i18n-union"] as const;
 /** Only the custom driver needs `merge.i18n-union.driver` config; built-in `union` doesn't. */

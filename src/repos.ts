@@ -13,14 +13,13 @@ import {
   closeSync,
   constants,
 } from "node:fs";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { execGit, execGitSync } from "./safe-git";
 import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { expandHome, safeRepoDir } from "./validate";
 import { sanitizeDetail } from "./forge/gh-attempt";
 import type { ProjectDoc } from "./project-docs";
+import { execFileAsync } from "./instrument";
 
 /** Shape of Node child_process exec errors (code / signal / killed / stderr). */
 interface ExecLikeError {
@@ -399,20 +398,28 @@ export function classifyCloneError(e: unknown): string {
  */
 export type GhRunner = (args: string[]) => Promise<void>;
 
-const execFileAsync = promisify(execFile);
+/** How long a raced gh runner's child outlives the race before it is killed. */
+const RUNNER_KILL_GRACE_MS = 5_000;
+
+/** Run `gh`, rejecting with `code: "_timeout"` after `timeoutMs`. The child's own cap trails the
+ *  race by {@link RUNNER_KILL_GRACE_MS}, so the race still classifies `_timeout`, then the child
+ *  is reaped. */
+async function raceGh(args: string[], timeoutMs: number, maxBuffer: number, message: string) {
+  const timeoutErr = Object.assign(new Error(message), { code: "_timeout" });
+  await Promise.race([
+    execFileAsync("gh", args, { maxBuffer, timeout: timeoutMs + RUNNER_KILL_GRACE_MS }).then(
+      () => undefined,
+    ),
+    new Promise<never>((_, reject) => setTimeout(() => reject(timeoutErr), timeoutMs)),
+  ]);
+}
 
 /** Default gh runner: promisified execFile wrapped in a 60s timeout.
  *  On timeout, rejects with an error whose `code` is `"_timeout"` so
  *  classifyProjectError maps it to `newproject_failed_timeout`.
  */
-const defaultGhRunner: GhRunner = async (args) => {
-  const TIMEOUT_MS = 60_000;
-  const timeoutErr = Object.assign(new Error("gh runner timed out"), { code: "_timeout" });
-  await Promise.race([
-    execFileAsync("gh", args, { maxBuffer: 2 * 1024 * 1024 }).then(() => undefined),
-    new Promise<never>((_, reject) => setTimeout(() => reject(timeoutErr), TIMEOUT_MS)),
-  ]);
-};
+const defaultGhRunner: GhRunner = (args) =>
+  raceGh(args, 60_000, 2 * 1024 * 1024, "gh runner timed out");
 
 /** Injectable gh runner that returns stdout — used to enumerate the GitHub
  *  owners (the authenticated user + their orgs) the new-project dialog offers. */
@@ -835,14 +842,8 @@ async function pushToGitHub(
  *  (forking + cloning can be slow — matches cloneRepo's 120s budget).
  *  On timeout, rejects with an error whose `code` is `"_timeout"` so
  *  classifyForkError maps it to `forkrepo_failed_timeout`. */
-const defaultForkRunner: GhRunner = async (args) => {
-  const TIMEOUT_MS = 120_000;
-  const timeoutErr = Object.assign(new Error("gh fork timed out"), { code: "_timeout" });
-  await Promise.race([
-    execFileAsync("gh", args, { maxBuffer: 4 * 1024 * 1024 }).then(() => undefined),
-    new Promise<never>((_, reject) => setTimeout(() => reject(timeoutErr), TIMEOUT_MS)),
-  ]);
-};
+const defaultForkRunner: GhRunner = (args) =>
+  raceGh(args, 120_000, 4 * 1024 * 1024, "gh fork timed out");
 
 type ForkErrorPredicate = (e: unknown, stderr: string) => boolean;
 const FORK_ERROR_TABLE: Array<[ForkErrorPredicate, string]> = [

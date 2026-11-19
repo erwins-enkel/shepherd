@@ -9153,5 +9153,13 @@
   "artifactrow_open": "Open ↗",
   "artifactrow_aria": "Artifact of this session",
   "feat_artifact_row_title": "Artifacts above the steer bar",
-  "feat_artifact_row_body": "When the agent publishes an artifact on claude.ai and the session has no PR yet, the newest one appears above the steer bar. Open it in a new tab or copy its link without scrolling the chat."
+  "feat_artifact_row_body": "When the agent publishes an artifact on claude.ai and the session has no PR yet, the newest one appears above the steer bar. Open it in a new tab or copy its link without scrolling the chat.",
+  "prrow_artifact_link": "Artifact ↗",
+  "prrow_artifact_aria": "Open artifact: {title}",
+  "prrow_artifact_tip_status_label": "Status",
+  "prrow_artifact_tip_status": "Version {n}, updated {when}",
+  "prrow_artifact_tip_open_label": "When opened",
+  "prrow_artifact_tip_open": "Opens claude.ai in a new tab. Others see it only once you share it there.",
+  "feat_artifact_link_pr_row_title": "Artifact link in the merge row",
+  "feat_artifact_link_pr_row_body": "Once the session has a PR, the agent's newest artifact sits next to \"PR ↗\" in the merge row. Hover it for its version and age; it opens on claude.ai in a new tab."
 }

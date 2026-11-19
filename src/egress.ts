@@ -38,6 +38,7 @@ import {
   safeRealpath,
 } from "./sandbox";
 import type { ForgeMap } from "./forge/types";
+import { sleep as defaultSleep } from "./async";
 
 // ── backend type ──────────────────────────────────────────────────────────────
 
@@ -1054,7 +1055,7 @@ export async function requestEgressReload(
 ): Promise<EgressReloadOutcome> {
   const signal = deps.signal ?? defaultSignal;
   const readStatus = deps.readStatus ?? defaultReadStatus;
-  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const sleep = deps.sleep ?? defaultSleep;
   const seq = `${process.pid}-${Date.now()}-${++reloadSeq}`;
   try {
     await signal(join(tmpDir, "reload.fifo"), `${seq}\n`);

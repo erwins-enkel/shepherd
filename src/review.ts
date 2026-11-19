@@ -85,6 +85,7 @@ import {
   type FitResult,
 } from "./prompt-fit";
 import { sessionIssue } from "./target-repo";
+import { backoffDelay } from "./async";
 
 // Session-agnostic critic helpers now live in ./critic-core (a forthcoming standalone-PR-critic
 // service reuses them). Re-exported here so existing importers (and tests) keep their paths.
@@ -193,7 +194,8 @@ function scheduleErrorRetry(
   now: number,
 ): boolean {
   v.addressCap = cap;
-  v.autoRetryAt = v.errorRound < cap ? now + ERROR_RETRY_BASE_MS * 2 ** (v.errorRound - 1) : null;
+  v.autoRetryAt =
+    v.errorRound < cap ? now + backoffDelay(v.errorRound, { baseMs: ERROR_RETRY_BASE_MS }) : null;
   return v.errorRound >= cap && priorErrorRound < cap;
 }
 

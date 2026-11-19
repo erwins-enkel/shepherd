@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureRepoRootTrusted } from "./claude-trust";
 import { agentTmpDir, removeHelperScratch } from "./tmp-sweep";
+import { sleep } from "./async";
 
 /**
  * Shared plumbing for the synchronous block-and-clean transient helpers (verify-key /
@@ -14,7 +15,7 @@ import { agentTmpDir, removeHelperScratch } from "./tmp-sweep";
  * only the shared defaults behind them.
  */
 
-export const realSleep = (ms: number): Promise<void> => new Promise<void>((r) => setTimeout(r, ms));
+export const realSleep = (ms: number): Promise<void> => sleep(ms);
 
 /**
  * The root helper cwds are created under: the dedicated disk `agentTmpDir()` (created 0700 here;

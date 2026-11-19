@@ -56,13 +56,11 @@ import type { EgressProbeFacts } from "./egress";
 import type { SandboxBackend } from "./sandbox";
 import { AGENT_SLICE, agentScopeEnabled } from "./agent-scope";
 import { execFileAsync } from "./instrument";
+import { sleep } from "./async";
 
 /** Reused from herdr-update.ts's parsing discipline — a (major.minor.patch)
  *  capture. Kept local so the regex's lastIndex state is never shared. */
 const SEMVER_RE = /(\d+\.\d+\.\d+)/;
-
-/** Resolve after `ms` — used to space out the gh probe's bounded retries. */
-const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** True when a rejected probe was KILLED (timeout → SIGTERM) rather than having exited
  *  with its own status. execFile's timeout path sets `killed:true` + a `signal`; a normal
@@ -1550,7 +1548,7 @@ export class DiagnosticsService {
         // Only a killed/timed-out failure is worth retrying; a non-zero EXIT is gh's
         // deterministic auth verdict, so probing it again would just delay the same answer.
         if (!isTransientProbeFailure(err)) break;
-        if (attempt < this.ghProbeAttempts) await delay(this.ghProbeRetryDelayMs);
+        if (attempt < this.ghProbeAttempts) await sleep(this.ghProbeRetryDelayMs);
       }
     }
     // A killed/signalled reject means gh never finished (transient timeout) — report the

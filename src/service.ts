@@ -266,6 +266,7 @@ import {
 } from "./untrusted";
 import type { GitForge, GitState, IssueComment } from "./forge/types";
 import { waitingAttachments } from "./remote-instances/dispatch";
+import { sleep, withTimeout } from "./async";
 
 /** Post-archive late-credit await window: after a merge-train session archives,
  *  its completion-tracker entry waits this long for a poller-gated late merge to
@@ -2248,16 +2249,6 @@ const PLAN_GO_QUEUE_CLAUDE =
 const PLAN_GO_QUEUE_CODEX =
   `${PLAN_GO_QUEUE_LEAD} via the build-queue API from your instructions; if you have, keep it. ` +
   "Mark each step `active` when you start it and `done` when you finish it via that API, as you go.";
-
-/** `p`, or `fallback` once `ms` passes first. The timer never keeps the process alive. */
-function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<T>((resolve) => {
-    timer = setTimeout(() => resolve(fallback), ms);
-    timer.unref?.();
-  });
-  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
-}
 
 /** Runs inside a steer's critical section right before its paste (#3434); false aborts the steer. */
 type SteerPrelude = (s: Session) => Promise<boolean>;
@@ -8763,7 +8754,7 @@ export class SessionService {
     const target = agent.terminalId;
     return this.#serializeSteer(s.id, async () => {
       for (const [i, w] of writes.entries()) {
-        if (i > 0) await new Promise((r) => setTimeout(r, gapMs));
+        if (i > 0) await sleep(gapMs);
         // Checked AFTER the gap, right before the write: a local answer landing during the sleep
         // must stop the next key from reaching whatever prompt follows the dialog.
         if (!stillValid()) return false;
@@ -9222,7 +9213,7 @@ export class SessionService {
     const first = await this.#switchEffortAttempt(s, tier, steps, 1);
     if (first === "died") return "unconfirmed";
     if (first !== "unconfirmed") return first;
-    await new Promise((r) => setTimeout(r, SessionService.effortSwitchTiming.retryMs));
+    await sleep(SessionService.effortSwitchTiming.retryMs);
     if (picker && !(await this.#pickerClosed(s.herdrAgentId, picker, pickerBase))) {
       console.warn(
         `[effort] ${s.id}: switch to ${tier} not retried (pane unreadable or picker open)`,
@@ -9256,7 +9247,7 @@ export class SessionService {
     attempt: number,
   ): Promise<"ok" | "busy" | "unconfirmed" | "died"> {
     const { readMs } = SessionService.effortSwitchTiming;
-    if (!(await withTimeout(this.#isIdleAgentTui(s.id), readMs, false))) return "busy";
+    if (!(await withTimeout(this.#isIdleAgentTui(s.id), readMs, () => false))) return "busy";
     const target = s.herdrAgentId;
     const where = (i: number) =>
       `${s.id}: switch to ${tier} unconfirmed at step ${i + 1}/${steps.length} (attempt ${attempt}/2)`;
@@ -9303,7 +9294,7 @@ export class SessionService {
     const reader = this.deps.herdr.readAsync;
     if (!reader) return null;
     const read = reader.call(this.deps.herdr, target, "visible").catch(() => null);
-    return withTimeout(read, SessionService.effortSwitchTiming.readMs, null);
+    return withTimeout(read, SessionService.effortSwitchTiming.readMs, () => null);
   }
 
   /** Poll until `re` occurs more often than `baseline`, or the step deadline passes. */
@@ -9314,7 +9305,7 @@ export class SessionService {
       const screen = await this.#readVisible(target);
       if (screen !== null && countMatches(screen, re) > baseline) return true;
       if (Date.now() >= deadline) return false;
-      await new Promise((r) => setTimeout(r, pollMs));
+      await sleep(pollMs);
     }
   }
 
@@ -9801,10 +9792,7 @@ export class SessionService {
     if (this.deps.beforeArchive) {
       const timeoutMs = this.deps.beforeArchiveTimeoutMs ?? 15_000;
       try {
-        await Promise.race([
-          this.deps.beforeArchive(s, reason),
-          new Promise<void>((r) => setTimeout(r, timeoutMs)),
-        ]);
+        await withTimeout(this.deps.beforeArchive(s, reason), timeoutMs, () => undefined);
       } catch {
         /* best-effort: recap must never block teardown */
       }

@@ -24,6 +24,7 @@ import { readFile } from "node:fs/promises";
 import { agentScopeEnabled } from "./agent-scope";
 import { DIAGNOSTICS_PROBE_TIMEOUT_MS } from "./config";
 import { execFileAsync } from "./instrument";
+import { sleep as defaultSleep } from "./async";
 
 export const HEAVY_SCOPE_SLICE = "shepherd_agents-heavy.slice";
 
@@ -56,7 +57,7 @@ function resolve(deps: HeavyScopeDeps) {
   return {
     run: deps.run ?? defaultRun,
     readCgroup: deps.readCgroup ?? ((pid: number) => readFile(`/proc/${pid}/cgroup`, "utf8")),
-    sleep: deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))),
+    sleep: deps.sleep ?? defaultSleep,
     now: deps.now ?? Date.now,
   };
 }

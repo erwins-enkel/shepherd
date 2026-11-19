@@ -707,6 +707,7 @@ import {
   type JudgeSaveInput,
   type JudgeSettings,
 } from "./judge-settings";
+import { withTimeout } from "./async";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -3346,10 +3347,7 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
   if (deps.upNext && startedRefs.length > 0) {
     const up = deps.upNext;
     void (async () => {
-      await Promise.race([
-        Promise.allSettled(claims),
-        new Promise<void>((r) => setTimeout(r, CLAIM_SETTLE_TIMEOUT_MS).unref?.()),
-      ]);
+      await withTimeout(Promise.allSettled(claims), CLAIM_SETTLE_TIMEOUT_MS, () => undefined);
       await up.recomputeUntilCleared(startedRefs);
     })().catch((err) => console.warn("[up-next] post-start:", err));
   }
@@ -9069,12 +9067,11 @@ const EGRESS_FLUSH_WAIT_MS = 500;
 async function egressNotes(deps: AppDeps, id: string): Promise<string | null> {
   const egress = deps.egress;
   if (!egress) return null;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  await Promise.race([
+  await withTimeout(
     egress.flush(id).catch(() => {}),
-    new Promise<void>((r) => (timer = setTimeout(r, EGRESS_FLUSH_WAIT_MS))),
-  ]);
-  clearTimeout(timer);
+    EGRESS_FLUSH_WAIT_MS,
+    () => undefined,
+  );
   return egress.takeNotes(id);
 }
 

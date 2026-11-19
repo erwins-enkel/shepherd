@@ -16,6 +16,7 @@ import { dirname, delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "./config";
 import { probeHerdrRuntime, type HerdrRuntimeStatus } from "./herdr-runtime";
+import { sleep } from "./async";
 
 const WORKER_MARKER = "SHEPHERD_HERDR_RECOVERY_WORKER";
 const WORKER_RESTART = "SHEPHERD_HERDR_RECOVERY_RESTART";
@@ -384,7 +385,7 @@ async function waitForVerified(
     const status = await probeHerdrRuntime({ bin, env, timeoutMs: Math.min(timeoutMs, 1_000) });
     if (verified(status)) return true;
     if (Date.now() >= deadline) break;
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
+    await sleep(pollMs);
   } while (Date.now() < deadline);
   return false;
 }

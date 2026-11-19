@@ -20,6 +20,7 @@ import { expandHome, safeRepoDir } from "./validate";
 import { sanitizeDetail } from "./forge/gh-attempt";
 import type { ProjectDoc } from "./project-docs";
 import { execFileAsync } from "./instrument";
+import { withTimeout } from "./async";
 
 /** Shape of Node child_process exec errors (code / signal / killed / stderr). */
 interface ExecLikeError {
@@ -406,12 +407,15 @@ const RUNNER_KILL_GRACE_MS = 5_000;
  *  is reaped. */
 async function raceGh(args: string[], timeoutMs: number, maxBuffer: number, message: string) {
   const timeoutErr = Object.assign(new Error(message), { code: "_timeout" });
-  await Promise.race([
+  await withTimeout(
     execFileAsync("gh", args, { maxBuffer, timeout: timeoutMs + RUNNER_KILL_GRACE_MS }).then(
       () => undefined,
     ),
-    new Promise<never>((_, reject) => setTimeout(() => reject(timeoutErr), timeoutMs)),
-  ]);
+    timeoutMs,
+    () => {
+      throw timeoutErr;
+    },
+  );
 }
 
 /** Default gh runner: promisified execFile wrapped in a 60s timeout.

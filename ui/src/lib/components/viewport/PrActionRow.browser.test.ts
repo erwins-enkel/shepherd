@@ -1605,6 +1605,28 @@ describe("PrActionRow — several artifacts (#3877)", () => {
     expect(onhideartifacts).toHaveBeenCalledOnce();
   });
 
+  it("hidden elsewhere while the menu is open: it closes, and Undo never reopens it", async () => {
+    const h = host();
+    const many = [art(1), art(2)];
+    const screen = await render(PrActionRow, {
+      target: h,
+      props: { session: session({ artifacts: many }), git: readyGit, status: "idle" },
+    });
+    const trigger = screen.getByRole("button", { name: m.artifactrow_pr_many({ n: 2 }) });
+    await trigger.click();
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    const hidden = many.map((a) => ({ ...a, hiddenAt: 9 }));
+    await screen.rerender({
+      session: session({ artifacts: hidden }),
+      git: readyGit,
+      status: "idle",
+    });
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    await screen.rerender({ session: session({ artifacts: many }), git: readyGit, status: "idle" });
+    await expect.element(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+  });
+
   it("one artifact: the link stays, and ⋯ carries Show in Chat and Hide", async () => {
     const h = host();
     const onshowartifact = vi.fn();

@@ -289,8 +289,12 @@
   );
   let artBtn = $state<HTMLButtonElement>();
   let artMenuAnchor = $state<DOMRect | null>(null);
-  // Open only while there are several: with one left, its link replaces the trigger.
+  // Open only while there are several: with one left (or none, hidden elsewhere) its trigger is
+  // gone, and so is the anchor — a later "Artifacts N" never reopens the menu where it was.
   const artMenuOpen = $derived(manyArtifacts ? artMenuAnchor : null);
+  $effect(() => {
+    if (!manyArtifacts || !prActionRowVisible(git)) artMenuAnchor = null;
+  });
   function toggleArtifactMenu() {
     artMenuAnchor = artMenuAnchor || !artBtn ? null : artBtn.getBoundingClientRect();
   }

@@ -752,7 +752,7 @@ describe("ChatView: show an artifact's publish (#3877)", () => {
     mockMessages.mockResolvedValue(loaded);
     const view = await render(ChatView, props({ status: "idle", tools: true }));
     await expect.element(runHead()).toBeVisible();
-    expect(await view.component.revealTool("art_v2")).toBe(true);
+    expect(await view.component.revealTool("art_v2")).toBe("shown");
     await expect.poll(() => callRow("artifact v2")?.classList.contains("tr-hit")).toBe(true);
     expect(document.activeElement).toBe(callRow("artifact v2"));
     expect(callRow("artifact v1")?.classList.contains("tr-hit")).toBe(false);
@@ -764,7 +764,7 @@ describe("ChatView: show an artifact's publish (#3877)", () => {
     const view = await render(ChatView, props({ status: "idle", tools: true }));
     await expect.element(runHead()).toBeVisible();
     const calls = mockMessages.mock.calls.length;
-    expect(await view.component.revealTool("art_gone")).toBe(false);
+    expect(await view.component.revealTool("art_gone")).toBe("missing");
     expect(mockMessages.mock.calls.length).toBe(calls + 1);
   });
 
@@ -773,7 +773,7 @@ describe("ChatView: show an artifact's publish (#3877)", () => {
     const view = await render(ChatView, props({ status: "idle", tools: true }));
     await expect.element(page.getByText("read a.ts")).toBeVisible();
     mockMessages.mockResolvedValue(loaded);
-    expect(await view.component.revealTool("art_v2")).toBe(true);
+    expect(await view.component.revealTool("art_v2")).toBe("shown");
   });
 
   it("a status change mid-reveal discards the reveal's own load, and the new poll's load still counts", async () => {
@@ -787,7 +787,7 @@ describe("ChatView: show an artifact's publish (#3877)", () => {
     mockMessages.mockResolvedValue(loaded);
     const revealed = view.component.revealTool("art_v1");
     await view.rerender({ status: "running" });
-    expect(await revealed).toBe(true);
+    expect(await revealed).toBe("shown");
     await expect.poll(() => callRow("artifact v1")?.classList.contains("tr-hit")).toBe(true);
 
     // The discarded response, landing late, never replaces the newer transcript.
@@ -804,9 +804,9 @@ describe("ChatView: show an artifact's publish (#3877)", () => {
     mockMessages.mockImplementationOnce(() => new Promise<Messages>((r) => (settleOld = r)));
     mockMessages.mockResolvedValueOnce(loaded);
     const older = view.component.revealTool("art_gone"); // its load hangs
-    expect(await view.component.revealTool("art_v2")).toBe(true); // a later load lands first
+    expect(await view.component.revealTool("art_v2")).toBe("shown"); // a later load lands first
     settleOld(transcript([]));
-    expect(await older).toBe(false);
+    expect(await older).toBe("superseded");
     await new Promise((r) => setTimeout(r, 30));
     await expect.element(runHead()).toBeVisible();
   });
@@ -832,9 +832,29 @@ describe("ChatView: show an artifact's publish (#3877)", () => {
     expect(chipped()).toEqual([]);
   });
 
-  it("without tool calls in view there is nothing to reveal", async () => {
+  it("without tool calls in view, or without an id, there is nothing to reveal", async () => {
     mockMessages.mockResolvedValue(loaded);
     const view = await render(ChatView, props({ status: "idle" }));
-    expect(await view.component.revealTool("art_v2")).toBe(false);
+    expect(await view.component.revealTool("art_v2")).toBe("missing");
+    const withTools = await render(ChatView, props({ status: "idle", tools: true }));
+    expect(await withTools.component.revealTool(null)).toBe("missing");
+  });
+
+  it("a later jump supersedes one still waiting: the earlier never scrolls or takes focus", async () => {
+    mockMessages.mockResolvedValueOnce(transcript([call("read_1", T + 2000, "read a.ts")]));
+    const view = await render(ChatView, props({ status: "idle", tools: true }));
+    await expect.element(page.getByText("read a.ts")).toBeVisible();
+    // The first jump's reload hangs; the second's brings both calls.
+    let settleFirst!: (r: Messages) => void;
+    mockMessages.mockImplementationOnce(() => new Promise<Messages>((r) => (settleFirst = r)));
+    mockMessages.mockResolvedValueOnce(loaded);
+    const first = view.component.revealTool("art_v1");
+    expect(await view.component.revealTool("art_v2")).toBe("shown");
+    await expect.poll(() => document.activeElement).toBe(callRow("artifact v2"));
+    settleFirst(loaded);
+    expect(await first).toBe("superseded");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(document.activeElement).toBe(callRow("artifact v2"));
+    expect(callRow("artifact v1")?.classList.contains("tr-hit")).toBe(false);
   });
 });

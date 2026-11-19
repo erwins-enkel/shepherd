@@ -25,7 +25,8 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     locateSessionFile: vi.fn(),
     getWorktreeListing: vi.fn(),
     getHostFile: vi.fn(),
-    setArtifactsHidden: vi.fn(),
+    hideArtifacts: vi.fn(),
+    undoArtifactsHide: vi.fn(),
   };
 });
 const { default: Viewport } = await import("./Viewport.svelte");
@@ -36,7 +37,8 @@ const {
   locateSessionFile,
   getWorktreeListing,
   getHostFile,
-  setArtifactsHidden,
+  hideArtifacts,
+  undoArtifactsHide,
 } = await import("#lib/api.js");
 const { toasts } = await import("#lib/toasts.svelte.js");
 const mockMessages = vi.mocked(getSessionMessages);
@@ -413,7 +415,8 @@ describe("Viewport: the artifact row and the Chat (#3877)", () => {
   beforeEach(() => {
     sessionStartTab.set("term");
     mockMessages.mockResolvedValue(withPublishes);
-    vi.mocked(setArtifactsHidden).mockReset();
+    vi.mocked(hideArtifacts).mockReset();
+    vi.mocked(undoArtifactsHide).mockReset();
     for (const t of [...toasts.items]) toasts.close(t.id);
   });
 
@@ -461,17 +464,16 @@ describe("Viewport: the artifact row and the Chat (#3877)", () => {
   });
 
   it("Hide for this session asks the server and offers Undo for exactly that hide", async () => {
-    vi.mocked(setArtifactsHidden).mockResolvedValue({ id: "s1", artifacts: [], hiddenAt: 4242 });
+    vi.mocked(hideArtifacts).mockResolvedValue({ id: "s1", artifacts: [], hiddenAt: 4242 });
+    vi.mocked(undoArtifactsHide).mockResolvedValue({ id: "s1", artifacts: [], hiddenAt: null });
     await mount({ session: session({ id: "s1", artifacts: [artifact] }) });
     await page.getByRole("button", { name: m.artifactrow_more_aria() }).click();
     await page.getByRole("menuitem", { name: m.artifactrow_hide() }).click();
-    expect(setArtifactsHidden).toHaveBeenCalledWith("s1", { hidden: true });
+    expect(hideArtifacts).toHaveBeenCalledWith("s1");
     await expect
       .poll(() => toasts.items.map((t) => t.text))
       .toEqual([m.artifactrow_hidden_toast()]);
     toasts.act(toasts.items[0]!.id);
-    await expect
-      .poll(() => vi.mocked(setArtifactsHidden).mock.calls.at(-1))
-      .toEqual(["s1", { hidden: false, hiddenAt: 4242 }]);
+    await expect.poll(() => vi.mocked(undoArtifactsHide).mock.calls.at(-1)).toEqual(["s1", 4242]);
   });
 });

@@ -506,6 +506,10 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
   // its response goes straight into `ondone(entry)` and the caller reads `entry.path`).
   "New Task Shape + Attach": ["/api/shape", "/api/shape/brief", "/api/uploads"],
 
+  // The demo seeds no artifacts (#3875), so neither the artifact row nor the merge row's artifact
+  // link renders and nothing offers "Hide for this session" or its Undo (#3877).
+  "Artifact hide + undo": ["/api/sessions/:p/artifacts/hidden"],
+
   // The demo reports the Operator Assistant unavailable (GET in INVENTORY), so nothing offers a
   // New conversation or ends a repo assistant (the demo offers no repo assistant to start); the
   // ensure POST shares the GET's path and is covered by that classification. Its conversation

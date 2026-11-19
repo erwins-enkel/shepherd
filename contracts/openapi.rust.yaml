@@ -2425,7 +2425,7 @@ components:
           description: "The `tool_use_id` of every recorded publish of the url, oldest first, deduped, the newest 200 (the Chat's tool window) — the Chat marks each of these calls while the row shows (#3877). Absent on entries recorded before #3877: fall back to `toolUseId`."
         hiddenAt:
           type: integer
-          description: 'Epoch-ms stamp of the operator hide ("hide for this session", #3877) that covered this entry; absent when not hidden. The session''s artifact row (and the merge row''s artifact link) shows only while some entry has no `hiddenAt`. A hide stamps every entry with a fresh stamp, strictly above any earlier one; a re-publish keeps it; a new url enters without it, which shows the row again. An undo names the stamp of the hide it reverses and clears every entry''s `hiddenAt` only while that stamp is the newest (PUT /api/sessions/{id}/artifacts/hidden).'
+          description: 'Epoch-ms stamp of the operator hide ("hide for this session", #3877) that covered this entry; absent when not hidden. The session''s artifact row (and the merge row''s artifact link) shows only while some entry has no `hiddenAt`. A hide stamps every entry with a fresh stamp, strictly above any earlier one; a re-publish keeps it; a new url enters without it, which shows the row again. No two hides of a session share a stamp, also across an undo. An undo (DELETE /api/sessions/{id}/artifacts/hidden?hiddenAt=) names the stamp of the hide it reverses and clears every entry''s `hiddenAt` only while that stamp is the newest.'
     SessionArtifactsEvent:
       type: object
       additionalProperties: true
@@ -3776,18 +3776,6 @@ components:
       properties:
         ready:
           type: boolean
-    SetArtifactsHiddenRequest:
-      type: object
-      additionalProperties: false
-      required:
-        - hidden
-      description: "PUT /api/sessions/{id}/artifacts/hidden (#3877). `{hidden: true}` hides the session's artifact row; `{hidden: false, hiddenAt}` undoes the hide stamped `hiddenAt` (required then)."
-      properties:
-        hidden:
-          type: boolean
-        hiddenAt:
-          type: integer
-          description: The stamp the hide's answer returned; only with `hidden` false.
     ArtifactsHiddenResult:
       type: object
       additionalProperties: true
@@ -3805,7 +3793,7 @@ components:
         hiddenAt:
           type: integer
           nullable: true
-          description: The stamp this hide wrote (pass it to undo it); null after an undo.
+          description: The stamp this hide wrote (the undo's `hiddenAt`); null after an undo.
     RelaunchRequest:
       type: object
       additionalProperties: false
@@ -13641,23 +13629,43 @@ paths:
         schema:
           type: string
     put:
-      operationId: setSessionArtifactsHidden
-      description: '"Hide for this session" for the artifact row (#3877), or the undo of one hide. Stored on the session''s artifact list (`SessionArtifact.hiddenAt`) and pushed to every client as `session:artifacts`.'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SetArtifactsHiddenRequest"
+      operationId: hideSessionArtifacts
+      description: '"Hide for this session" for the artifact row (#3877): stamps every artifact with a fresh `hiddenAt`, stored on the session''s artifact list and pushed to every client as `session:artifacts`. No request body.'
       responses:
         "200":
-          description: Applied; the session's full artifact list and the hide's stamp.
+          description: Hidden; the session's full artifact list and the hide's stamp (pass it to undo).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactsHiddenResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: undoSessionArtifactsHide
+      description: "Undo of one hide (#3877): clears every artifact's `hiddenAt`, but only while the hide stamped `hiddenAt` is still the newest; pushed as `session:artifacts`."
+      parameters:
+        - name: hiddenAt
+          in: query
+          required: true
+          description: The stamp the hide returned.
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Undone; the session's full artifact list, `hiddenAt` null.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ArtifactsHiddenResult"
         "400":
-          description: Body is neither {hidden -> true} nor {hidden -> false, hiddenAt -> integer}.
+          description: "`hiddenAt` is missing or not a non-negative integer."
           content:
             application/json:
               schema:
@@ -13671,13 +13679,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: "`hide_superseded` — an undo whose hide is no longer the newest (a later hide, on any client, or nothing hidden); nothing changed."
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "415":
-          description: Content-Type is not application/json.
+          description: "`hide_superseded` — the hide is no longer the newest (a later hide, on any client, or nothing hidden); nothing changed."
           content:
             application/json:
               schema:

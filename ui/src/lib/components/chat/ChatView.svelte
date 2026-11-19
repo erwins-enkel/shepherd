@@ -381,9 +381,11 @@
     };
   });
 
-  // "Show in Chat" (#3877): the call to reveal, handed to its tool run for one update.
+  // "Show in Chat" (#3877): the call to reveal, handed to its tool run for one update. Each request
+  // is numbered, so a later one supersedes one still waiting for its reload.
   const REVEAL_WAIT_MS = 10_000;
   let reveal = $state<string | null>(null);
+  let revealGen = 0;
   let destroyed = false;
   $effect(() => () => {
     destroyed = true;
@@ -707,24 +709,29 @@
   /**
    * Scroll to the tool call `toolUseId` and highlight it (#3877). A call not in the loaded window
    * gets one fresh load first: any load started after this request counts, also the one a status
-   * change's new poll starts. False when it is still not loaded, the view shows no tool calls, or
-   * the session changed meanwhile.
+   * change's new poll starts. "missing" when it is still not loaded, there is no id, the view shows
+   * no tool calls, or the session changed meanwhile; "superseded" when a later request came while
+   * this one waited — it then neither scrolls nor moves focus.
    */
-  export async function revealTool(toolUseId: string): Promise<boolean> {
-    if (!tools) return false;
+  export async function revealTool(
+    toolUseId: string | null,
+  ): Promise<"shown" | "missing" | "superseded"> {
+    const gen = ++revealGen;
+    if (!tools || !toolUseId) return "missing";
     const at = sessionId;
     if (!toolLoaded(toolUseId)) {
       const after = loadSeq;
       void loadNow?.();
       await appliedAfter(after, REVEAL_WAIT_MS);
       await tick();
-      if (destroyed || sessionId !== at || !toolLoaded(toolUseId)) return false;
+      if (gen !== revealGen) return "superseded";
+      if (destroyed || sessionId !== at || !toolLoaded(toolUseId)) return "missing";
     }
     stick = false;
     reveal = toolUseId;
     await tick();
     reveal = null;
-    return true;
+    return "shown";
   }
 </script>
 

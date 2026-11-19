@@ -193,18 +193,13 @@ describe("ready to merge", () => {
 
 describe("artifacts hidden (#3877)", () => {
   const T = "/api/sessions/{id}/artifacts/hidden";
-  async function put(id: string, body: unknown, opts: { auth?: boolean; type?: string } = {}) {
-    return fetch(`${s.baseUrl}/api/sessions/${id}/artifacts/hidden`, {
-      method: "PUT",
-      headers: {
-        "content-type": opts.type ?? "application/json",
-        ...(opts.auth === false ? {} : bearer(token)),
-      },
-      body: JSON.stringify(body),
+  const call = (method: "PUT" | "DELETE", id: string, query = "", auth = true) =>
+    fetch(`${s.baseUrl}/api/sessions/${id}/artifacts/hidden${query}`, {
+      method,
+      headers: auth ? bearer(token) : {},
     });
-  }
 
-  test("hides, undoes, refuses a stale undo, a bad body, an unknown id and a non-JSON body", async () => {
+  test("hides, undoes, refuses a stale undo, a missing stamp and an unknown id", async () => {
     const id = await createSession("artifacts hidden");
     s.deps.store.setSessionArtifacts(id, [
       {
@@ -217,34 +212,33 @@ describe("artifacts hidden (#3877)", () => {
         toolUseIds: ["toolu_1", "toolu_2"],
       },
     ]);
-    const hidden = await put(id, { hidden: true });
+    const hidden = await call("PUT", id);
     expect(hidden.status).toBe(200);
     const { hiddenAt } = (await validateResponse("PUT", T, hidden)) as { hiddenAt: number };
     expect(s.deps.store.get(id)?.artifacts?.[0]?.hiddenAt).toBe(hiddenAt);
 
-    const stale = await put(id, { hidden: false, hiddenAt: hiddenAt - 1 });
+    const stale = await call("DELETE", id, `?hiddenAt=${hiddenAt - 1}`);
     expect(stale.status).toBe(409);
-    await validateResponse("PUT", T, stale);
+    await validateResponse("DELETE", T, stale);
 
-    const undone = await put(id, { hidden: false, hiddenAt });
+    const undone = await call("DELETE", id, `?hiddenAt=${hiddenAt}`);
     expect(undone.status).toBe(200);
-    expect(((await validateResponse("PUT", T, undone)) as { hiddenAt: null }).hiddenAt).toBeNull();
+    const body = (await validateResponse("DELETE", T, undone)) as { hiddenAt: null };
+    expect(body.hiddenAt).toBeNull();
 
-    const bad = await put(id, { hidden: false });
+    const bad = await call("DELETE", id);
     expect(bad.status).toBe(400);
-    await validateResponse("PUT", T, bad);
+    await validateResponse("DELETE", T, bad);
 
-    const gone = await put("nope", { hidden: true });
-    expect(gone.status).toBe(404);
-    await validateResponse("PUT", T, gone);
+    for (const method of ["PUT", "DELETE"] as const) {
+      const gone = await call(method, "nope", "?hiddenAt=1");
+      expect(gone.status).toBe(404);
+      await validateResponse(method, T, gone);
 
-    const plain = await put(id, { hidden: true }, { type: "text/plain" });
-    expect(plain.status).toBe(415);
-    await validateResponse("PUT", T, plain);
-
-    const anon = await put(id, { hidden: true }, { auth: false });
-    expect(anon.status).toBe(401);
-    await validateResponse("PUT", T, anon);
+      const anon = await call(method, id, "?hiddenAt=1", false);
+      expect(anon.status).toBe(401);
+      await validateResponse(method, T, anon);
+    }
   });
 });
 

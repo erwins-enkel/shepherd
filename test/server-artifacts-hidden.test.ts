@@ -43,22 +43,23 @@ function harness() {
   });
   store.setSessionArtifacts(session.id, [A]);
   const app = makeApp(deps);
-  const put = (body: unknown, id = session.id, type = "application/json") =>
+  const hide = (id = session.id) =>
+    app.fetch(new Request(`http://x/api/sessions/${id}/artifacts/hidden`, { method: "PUT" }));
+  const undo = (hiddenAt: unknown, id = session.id) =>
     app.fetch(
-      new Request(`http://x/api/sessions/${id}/artifacts/hidden`, {
-        method: "PUT",
-        headers: { "content-type": type },
-        body: JSON.stringify(body),
-      }),
+      new Request(
+        `http://x/api/sessions/${id}/artifacts/hidden${hiddenAt === undefined ? "" : `?hiddenAt=${String(hiddenAt)}`}`,
+        { method: "DELETE" },
+      ),
     );
   const artifacts = () => store.get(session.id)?.artifacts ?? [];
   const artifactEvents = () => pushed.filter((p) => p.event === "session:artifacts");
-  return { store, session, put, artifacts, artifactEvents };
+  return { store, session, hide, undo, artifacts, artifactEvents };
 }
 
 test("a hide stamps the list, persists it and pushes it; its undo clears it", async () => {
-  const { session, put, artifacts, artifactEvents } = harness();
-  const hidden = await put({ hidden: true });
+  const { session, hide, undo, artifacts, artifactEvents } = harness();
+  const hidden = await hide();
   expect(hidden.status).toBe(200);
   const body = (await hidden.json()) as {
     id: string;
@@ -71,7 +72,7 @@ test("a hide stamps the list, persists it and pushes it; its undo clears it", as
   expect(body.artifacts).toEqual(artifacts());
   expect(artifactEvents().at(-1)?.data).toEqual({ id: session.id, artifacts: artifacts() });
 
-  const undone = await put({ hidden: false, hiddenAt: body.hiddenAt });
+  const undone = await undo(body.hiddenAt);
   expect(undone.status).toBe(200);
   expect(await undone.json()).toEqual({ id: session.id, artifacts: [A], hiddenAt: null });
   expect(artifacts()).toEqual([A]);
@@ -79,8 +80,8 @@ test("a hide stamps the list, persists it and pushes it; its undo clears it", as
 });
 
 test("hide → new url → a later hide elsewhere → the first hide's undo is refused with 409", async () => {
-  const { store, session, put, artifacts, artifactEvents } = harness();
-  const first = (await (await put({ hidden: true })).json()) as { hiddenAt: number };
+  const { store, session, hide, undo, artifacts, artifactEvents } = harness();
+  const first = (await (await hide()).json()) as { hiddenAt: number };
   const fresh: SessionArtifact = {
     url: C_URL,
     title: "C",
@@ -91,12 +92,12 @@ test("hide → new url → a later hide elsewhere → the first hide's undo is r
     toolUseIds: ["toolu_3"],
   };
   store.setSessionArtifacts(session.id, [...artifacts(), fresh]);
-  const second = (await (await put({ hidden: true })).json()) as { hiddenAt: number };
+  const second = (await (await hide()).json()) as { hiddenAt: number };
   expect(second.hiddenAt).toBeGreaterThan(first.hiddenAt);
   const before = artifacts();
   const events = artifactEvents().length;
 
-  const stale = await put({ hidden: false, hiddenAt: first.hiddenAt });
+  const stale = await undo(first.hiddenAt);
   expect(stale.status).toBe(409);
   expect(((await stale.json()) as { code: string }).code).toBe("hide_superseded");
   expect(artifacts()).toEqual(before);
@@ -104,11 +105,21 @@ test("hide → new url → a later hide elsewhere → the first hide's undo is r
   expect(artifactEvents()).toHaveLength(events);
 });
 
-test("a bad body is 400, an unknown session 404, a non-JSON request 415", async () => {
-  const { put, artifacts } = harness();
-  for (const body of [{}, { hidden: "yes" }, { hidden: false }, { hidden: false, hiddenAt: 1.5 }])
-    expect((await put(body)).status).toBe(400);
-  expect((await put({ hidden: true }, "missing")).status).toBe(404);
-  expect((await put({ hidden: true }, undefined, "text/plain")).status).toBe(415);
+test("an undo without a valid stamp is 400, an unknown session 404", async () => {
+  const { hide, undo, artifacts } = harness();
+  for (const stamp of [undefined, "", "abc", "1.5", "-3", "9".repeat(17)])
+    expect((await undo(stamp)).status).toBe(400);
+  expect((await hide("missing")).status).toBe(404);
+  expect((await undo(1, "missing")).status).toBe(404);
   expect(artifacts()).toEqual([A]);
+});
+
+test("an undo after hide → undo → hide is refused: stamps are never reused", async () => {
+  const { hide, undo, artifacts } = harness();
+  const first = (await (await hide()).json()) as { hiddenAt: number };
+  expect((await undo(first.hiddenAt)).status).toBe(200);
+  const second = (await (await hide()).json()) as { hiddenAt: number };
+  expect(second.hiddenAt).toBeGreaterThan(first.hiddenAt);
+  expect((await undo(first.hiddenAt)).status).toBe(409);
+  expect(artifacts().every((a) => a.hiddenAt === second.hiddenAt)).toBe(true);
 });

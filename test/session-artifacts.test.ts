@@ -175,16 +175,16 @@ describe("hide for this session (#3877)", () => {
   };
 
   test("a hide stamps every entry; stamps rise strictly, also within one millisecond", () => {
-    const first = applyArtifactsHide(two(), 100);
+    const first = applyArtifactsHide(two(), 100, null);
     expect(first.hiddenAt).toBe(100);
     expect(first.list.map((a) => a.hiddenAt)).toEqual([100, 100]);
-    const second = applyArtifactsHide(first.list, 100);
+    const second = applyArtifactsHide(first.list, 100, null);
     expect(second.hiddenAt).toBe(101);
     expect(second.list.map((a) => a.hiddenAt)).toEqual([101, 101]);
   });
 
   test("a re-publish keeps the stamp; a new url enters without one", () => {
-    const { list } = applyArtifactsHide(two(), 100);
+    const { list } = applyArtifactsHide(two(), 100, null);
     const again = applyArtifactPublish(
       list,
       { url: URL_A, title: "A", titleIsFallback: false, toolUseId: "t3" },
@@ -204,14 +204,14 @@ describe("hide for this session (#3877)", () => {
   });
 
   test("an undo of the newest hide clears every stamp and keeps the publish ids", () => {
-    const { list, hiddenAt } = applyArtifactsHide(two(), 100);
+    const { list, hiddenAt } = applyArtifactsHide(two(), 100, null);
     const cleared = applyArtifactsUnhide(list, hiddenAt);
     expect(cleared?.some((a) => "hiddenAt" in a)).toBe(false);
     expect(cleared?.map((a) => a.toolUseIds)).toEqual([["t1"], ["t2"]]);
   });
 
   test("hide (A) → new url → hide (B) → undo A is superseded and changes nothing", () => {
-    const a = applyArtifactsHide(two(), 100);
+    const a = applyArtifactsHide(two(), 100, null);
     const withNew = applyArtifactPublish(
       a.list,
       {
@@ -221,11 +221,21 @@ describe("hide for this session (#3877)", () => {
       },
       150,
     );
-    const b = applyArtifactsHide(withNew, 200);
+    const b = applyArtifactsHide(withNew, 200, a.hiddenAt);
     expect(applyArtifactsUnhide(b.list, a.hiddenAt)).toBeNull();
     expect(applyArtifactsUnhide(b.list, b.hiddenAt)?.every((x) => x.hiddenAt === undefined)).toBe(
       true,
     );
+  });
+
+  test("hide → undo → a hide in the same millisecond gets a new stamp; the stale undo is refused", () => {
+    const a = applyArtifactsHide(two(), 100, null);
+    const shown = applyArtifactsUnhide(a.list, a.hiddenAt)!;
+    const b = applyArtifactsHide(shown, 100, a.hiddenAt);
+    expect(b.hiddenAt).toBe(101);
+    expect(applyArtifactsUnhide(b.list, a.hiddenAt)).toBeNull();
+    // the mark wins over an earlier wall clock too
+    expect(applyArtifactsHide(shown, 50, 101).hiddenAt).toBe(102);
   });
 
   test("an undo with nothing hidden is superseded", () => {
@@ -267,6 +277,13 @@ describe("hide for this session (#3877)", () => {
     expect(undone).toMatchObject({ hiddenAt: null });
     expect(store.get(session.id)?.artifacts?.some((a) => a.hiddenAt !== undefined)).toBe(false);
     expect(pushed).toHaveLength(2);
+    // The mark outlives the undo: a hide at an earlier clock still gets a newer stamp.
+    expect(store.artifactsHideMark(session.id)).toBe(500);
+    const again = setSessionArtifactsHidden(sink, session.id, { hidden: true }, 400);
+    expect(again).toMatchObject({ hiddenAt: 501 });
+    expect(setSessionArtifactsHidden(sink, session.id, { hidden: false, hiddenAt: 500 }, 800)).toBe(
+      "superseded",
+    );
   });
 });
 

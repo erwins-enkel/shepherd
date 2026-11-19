@@ -188,8 +188,9 @@
     chosen = { id, tab: "chat" };
     chatFor = id;
     await tick();
-    const found = toolUseId ? await (chatView?.revealTool(toolUseId) ?? false) : false;
-    if (!found && id === session.id)
+    // A later "Show in Chat" supersedes this one while it waits: it then says nothing.
+    const outcome = (await chatView?.revealTool(toolUseId)) ?? "missing";
+    if (outcome === "missing" && id === session.id)
       toasts.info(m.artifactrow_chat_missing(), { key: `artifact-chat:${id}` });
   }
   const onShowArtifact = $derived(canActOnArtifacts ? showArtifactInChat : undefined);

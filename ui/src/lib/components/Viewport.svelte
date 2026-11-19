@@ -401,8 +401,9 @@
     tab = "chat";
     chatOpened = true;
     await tick();
-    const found = toolUseId ? await (chatView?.revealTool(toolUseId) ?? false) : false;
-    if (!found && id === session.id) hint();
+    // A later "Show in Chat" supersedes this one while it waits: it then says nothing.
+    const outcome = (await chatView?.revealTool(toolUseId)) ?? "missing";
+    if (outcome === "missing" && id === session.id) hint();
   }
   let recapOpen = $state(false);
   // mobile/compact only: folds the secondary header chrome (tabs + git rail +

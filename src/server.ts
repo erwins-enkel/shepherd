@@ -7919,19 +7919,19 @@ async function handleSessionShelve({ req, parts, deps }: Ctx): Promise<Response 
 }
 
 // PUT /api/sessions/:id/artifacts/hidden — the operator's "hide for this session" for the artifact
-// row, or the undo of one hide (#3877). Lives on the session's artifact list, so `session:artifacts`
-// carries it to every client.
-async function handleSessionArtifactsHidden({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (!(req.method === "PUT" && parts.length === 5 && parts[2])) return null;
-  if (parts[3] !== "artifacts" || parts[4] !== "hidden") return null;
-  const ctErr = requireJsonContentType(req);
-  if (ctErr) return ctErr;
-  const request = artifactsHiddenRequest(await req.json().catch(() => null));
-  if (!request) {
-    return json(
-      { error: "body must be {hidden: true} or {hidden: false, hiddenAt: integer}" },
-      400,
-    );
+// row; DELETE …?hiddenAt=<stamp> — the undo of that one hide (#3877). Lives on the session's
+// artifact list, so `session:artifacts` carries it to every client.
+function handleSessionArtifactsHidden({ req, parts, url, deps }: Ctx): Response | null {
+  if (!(parts.length === 5 && parts[2] && parts[3] === "artifacts" && parts[4] === "hidden"))
+    return null;
+  if (req.method !== "PUT" && req.method !== "DELETE") return null;
+  let request: ArtifactsHiddenRequest = { hidden: true };
+  if (req.method === "DELETE") {
+    const raw = url.searchParams.get("hiddenAt");
+    const hiddenAt = raw !== null && /^\d{1,16}$/.test(raw) ? Number(raw) : Number.NaN;
+    if (!Number.isSafeInteger(hiddenAt))
+      return json({ error: "hiddenAt must be the stamp the hide returned" }, 400);
+    request = { hidden: false, hiddenAt };
   }
   const result = setSessionArtifactsHidden(
     {
@@ -7950,15 +7950,6 @@ async function handleSessionArtifactsHidden({ req, parts, deps }: Ctx): Promise<
     );
   }
   return json({ id: parts[2], ...result });
-}
-
-function artifactsHiddenRequest(body: unknown): ArtifactsHiddenRequest | null {
-  if (typeof body !== "object" || body === null) return null;
-  const { hidden, hiddenAt } = body as { hidden?: unknown; hiddenAt?: unknown };
-  if (hidden === true) return { hidden: true };
-  if (hidden === false && Number.isSafeInteger(hiddenAt))
-    return { hidden: false, hiddenAt: hiddenAt as number };
-  return null;
 }
 
 // POST /api/sessions/:id/dismiss-stall — acknowledge a stall flag.

@@ -154,15 +154,17 @@ function newestHide(list: SessionArtifact[]): number | null {
 
 /**
  * The operator's "hide for this session" (#3877): every current entry takes a fresh stamp — after
- * `now` and strictly after any earlier hide, so each hide is told apart. A re-publish keeps it; a
- * new url enters without it, which shows the row again.
+ * `now` and strictly after `mark`, the newest stamp ever issued for the session (an undo clears
+ * the entries' stamps, never the mark), so no two hides share one. A re-publish keeps it; a new
+ * url enters without it, which shows the row again.
  */
 export function applyArtifactsHide(
   list: SessionArtifact[],
   now: number,
+  mark: number | null,
 ): { list: SessionArtifact[]; hiddenAt: number } {
-  const previous = newestHide(list);
-  const hiddenAt = previous === null ? now : Math.max(now, previous + 1);
+  const previous = Math.max(mark ?? -Infinity, newestHide(list) ?? -Infinity);
+  const hiddenAt = Math.max(now, previous + 1);
   return { list: list.map((a) => ({ ...a, hiddenAt })), hiddenAt };
 }
 
@@ -478,6 +480,17 @@ async function applyPublish(
 /** What the hide route asks: hide now, or undo the hide stamped `hiddenAt`. */
 export type ArtifactsHiddenRequest = { hidden: true } | { hidden: false; hiddenAt: number };
 
+/** Where a hide or its undo goes: the session row (its list and the session's hide mark) and every
+ *  client. */
+export type ArtifactsHideSink = {
+  store: {
+    get(id: string): Pick<Session, "artifacts"> | null | undefined;
+    artifactsHideMark(id: string): number | null;
+    setSessionArtifacts(id: string, artifacts: SessionArtifact[], hideMark?: number): void;
+  };
+  emit: (id: string, artifacts: SessionArtifact[]) => void;
+};
+
 /**
  * Apply a hide or its undo to a session's stored list, persist it and push it to every client.
  * Synchronous read-modify-write, so it never interleaves with a publish (which reads the list
@@ -485,7 +498,7 @@ export type ArtifactsHiddenRequest = { hidden: true } | { hidden: false; hiddenA
  * for an unknown session, "superseded" for an undo a later hide overtook (nothing changes).
  */
 export function setSessionArtifactsHidden(
-  sink: ArtifactSink,
+  sink: ArtifactsHideSink,
   id: string,
   req: ArtifactsHiddenRequest,
   now: number,
@@ -493,19 +506,17 @@ export function setSessionArtifactsHidden(
   const current = sink.store.get(id);
   if (!current) return "not-found";
   const list = current.artifacts ?? [];
-  let next: SessionArtifact[];
-  let hiddenAt: number | null;
   if (req.hidden) {
-    ({ list: next, hiddenAt } = applyArtifactsHide(list, now));
-  } else {
-    const cleared = applyArtifactsUnhide(list, req.hiddenAt);
-    if (!cleared) return "superseded";
-    next = cleared;
-    hiddenAt = null;
+    const hidden = applyArtifactsHide(list, now, sink.store.artifactsHideMark(id));
+    sink.store.setSessionArtifacts(id, hidden.list, hidden.hiddenAt);
+    sink.emit(id, hidden.list);
+    return { artifacts: hidden.list, hiddenAt: hidden.hiddenAt };
   }
-  sink.store.setSessionArtifacts(id, next);
-  sink.emit(id, next);
-  return { artifacts: next, hiddenAt };
+  const cleared = applyArtifactsUnhide(list, req.hiddenAt);
+  if (!cleared) return "superseded";
+  sink.store.setSessionArtifacts(id, cleared);
+  sink.emit(id, cleared);
+  return { artifacts: cleared, hiddenAt: null };
 }
 
 // sessionId → the tail of its publish chain, so an async title read never reorders two publishes.

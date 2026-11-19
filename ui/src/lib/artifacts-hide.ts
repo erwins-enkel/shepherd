@@ -1,4 +1,4 @@
-import { ApiError, setArtifactsHidden } from "#lib/api.js";
+import { ApiError, hideArtifacts, undoArtifactsHide } from "#lib/api.js";
 import { m } from "#lib/paraglide/messages.js";
 import { toasts } from "#lib/toasts.svelte.js";
 
@@ -15,7 +15,7 @@ export async function hideSessionArtifacts(id: string): Promise<void> {
   const key = `artifacts-hidden:${id}`;
   let hiddenAt: number | null;
   try {
-    ({ hiddenAt } = await setArtifactsHidden(id, { hidden: true }));
+    ({ hiddenAt } = await hideArtifacts(id));
   } catch {
     toasts.info(m.artifactrow_hide_failed(), { alert: true, key });
     return;
@@ -31,7 +31,7 @@ export async function hideSessionArtifacts(id: string): Promise<void> {
 
 async function undoHide(id: string, hiddenAt: number, key: string): Promise<void> {
   try {
-    await setArtifactsHidden(id, { hidden: false, hiddenAt });
+    await undoArtifactsHide(id, hiddenAt);
   } catch (e) {
     if (e instanceof ApiError && e.code === "hide_superseded")
       toasts.info(m.artifactrow_unhide_superseded(), { key });

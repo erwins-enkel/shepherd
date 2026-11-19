@@ -1660,6 +1660,39 @@ describe("PrActionRow — several artifacts (#3877)", () => {
     expect(onhideartifacts).toHaveBeenCalledOnce();
   });
 
+  it("one artifact: ⋯ navigates by arrow keys without the dashboard switching sessions", async () => {
+    const reached: string[] = [];
+    const dashboard = (e: KeyboardEvent) => reached.push(e.key);
+    window.addEventListener("keydown", dashboard);
+    try {
+      const h = host();
+      const screen = await render(PrActionRow, {
+        target: h,
+        props: {
+          session: session({ artifacts: [art(5)] }),
+          git: readyGit,
+          status: "idle",
+          onshowartifact: () => {},
+          onhideartifacts: () => {},
+        },
+      });
+      await screen.getByRole("button", { name: m.prrow_more_aria() }).click();
+      const items = [...document.querySelectorAll<HTMLElement>('[role="menu"] .pm-item')];
+      await expect.poll(() => document.activeElement).toBe(items[0]);
+      reached.length = 0; // the click's own keys, if any, are not the menu's
+      await userEvent.keyboard("{End}");
+      expect(document.activeElement?.textContent?.trim()).toBe(m.artifactrow_pr_menu_hide());
+      await userEvent.keyboard("{ArrowUp}");
+      expect(document.activeElement?.textContent?.trim()).toBe(m.artifactrow_pr_menu_show());
+      await userEvent.keyboard("{ArrowDown}");
+      expect(document.activeElement?.textContent?.trim()).toBe(m.artifactrow_pr_menu_hide());
+      expect(reached).toEqual([]);
+      expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    } finally {
+      window.removeEventListener("keydown", dashboard);
+    }
+  });
+
   it("hidden for this session: no artifact control and no artifact items", async () => {
     const h = host();
     const screen = await render(PrActionRow, {

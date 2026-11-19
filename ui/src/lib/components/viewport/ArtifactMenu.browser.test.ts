@@ -193,6 +193,27 @@ describe("ArtifactMenu: all", () => {
     expect(active()).toBe(items(0)[0]);
   });
 
+  it("its keys never reach the dashboard's window shortcut, which switches sessions on ↑/↓", async () => {
+    // The dashboard (+page.svelte) binds `<svelte:window onkeydown>`: a plain ↑/↓ outside a text
+    // field cycles the selected session — and with it the Viewport, closing this menu.
+    const reached: string[] = [];
+    const dashboard = (e: KeyboardEvent) => reached.push(e.key);
+    window.addEventListener("keydown", dashboard);
+    try {
+      const { menu, onclose } = await open();
+      const items = [
+        ...menu.querySelectorAll<HTMLElement>(".am-entry")[0]!.querySelectorAll(".am-item"),
+      ];
+      for (const key of ["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "End", "Home", "Tab"])
+        await userEvent.keyboard(`{${key}}`);
+      expect(reached).toEqual([]);
+      expect(active(), "Home, then Tab onto Copy").toBe(items[1]);
+      expect(onclose).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("keydown", dashboard);
+    }
+  });
+
   it("Escape closes, and focus returns to the trigger", async () => {
     const onclose = vi.fn();
     const { screen, opener } = await open({ onclose });

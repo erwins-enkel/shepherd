@@ -77,7 +77,7 @@
   }
 
   // ↑/↓ move between rows (onto a row's first item), ←/→ within a row, Home/End to the first or
-  // last row, Tab through every item in order.
+  // last row, Tab through every item in order. A key handled here goes no further.
   function onNav(e: KeyboardEvent) {
     const grid = rows().filter((row) => row.length > 0);
     if (grid.length === 0) return;
@@ -97,7 +97,9 @@
       const i = all.indexOf(active);
       next = all[e.shiftKey ? (i - 1 + all.length) % all.length : (i + 1) % all.length];
     } else return;
+    // Handled here only: the dashboard's window shortcut switches sessions on a plain ↑/↓.
     e.preventDefault();
+    e.stopPropagation();
     next?.focus();
   }
 

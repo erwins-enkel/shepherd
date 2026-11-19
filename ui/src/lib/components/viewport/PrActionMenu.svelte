@@ -92,7 +92,9 @@
     else if (e.key === "End") next = list.length - 1;
     else if (e.key === "Tab") next = e.shiftKey ? back : fwd;
     else return;
+    // Handled here only: the dashboard's window shortcut switches sessions on a plain ↑/↓.
     e.preventDefault();
+    e.stopPropagation();
     list[next]!.focus();
   }
 

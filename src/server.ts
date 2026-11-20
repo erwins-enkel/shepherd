@@ -10793,8 +10793,10 @@ async function updateApply({ req, deps, token }: Ctx): Promise<Response> {
   const requestId = randomUUID();
   const session = await updateCallSession(req, deps);
   const caller = callerOfUpdate(req, token, deps);
-  // No body at all stays what it always was: a plain update.
-  const body: unknown = (await readJsonBody(req)) ?? {};
+  // No body at all stays what it always was: a plain update. A JSON `null` must reach
+  // attemptUpdate (400), so no readJsonBody `?? {}` here.
+  // best-effort: absent/unparseable body = plain update
+  const body: unknown = await req.json().catch(() => ({}));
   const status = deps.updates?.current();
   const { res, outcome, reason } = await guardedUpdate(() => attemptUpdate(body, deps, requestId));
   noteUpdateCall(deps, {

@@ -3348,6 +3348,8 @@ test("published artifacts persist with the session row and survive a reopen (#38
         firstSeenAt: 10,
         updatedAt: 30,
         toolUseId: "toolu_1",
+        toolUseIds: ["toolu_0", "toolu_1"],
+        hiddenAt: 40,
       },
       {
         url: "https://claude.ai/code/artifact/BBBBBBBBBBBBBBBBBBBBB2",
@@ -3384,6 +3386,37 @@ test("a malformed artifacts column reads as no artifacts (#3875)", () => {
     ]);
     raw.close();
     expect(s.get(session.id)?.artifacts).toEqual([]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an artifact with a malformed hiddenAt or toolUseIds is dropped (#3877)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "store-artifacts-hidden-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const s = new SessionStore(dbPath);
+    const session = s.create(base);
+    const entry = {
+      url: "https://claude.ai/artifact/AAAAAAAAAAAAAAAAAAAAA1",
+      title: "Canvas",
+      versions: 1,
+      firstSeenAt: 1,
+      updatedAt: 1,
+      toolUseId: null,
+    };
+    const raw = new Database(dbPath);
+    raw.run(`UPDATE sessions SET artifactsJson = ? WHERE id = ?`, [
+      JSON.stringify([
+        { ...entry, hiddenAt: "yes" },
+        { ...entry, toolUseIds: [1] },
+        { ...entry, toolUseIds: "toolu_1" },
+        { ...entry, hiddenAt: 5 },
+      ]),
+      session.id,
+    ]);
+    raw.close();
+    expect(s.get(session.id)?.artifacts).toEqual([{ ...entry, hiddenAt: 5 }]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

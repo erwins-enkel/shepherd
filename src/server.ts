@@ -389,7 +389,11 @@ import {
 } from "./scratchpad";
 import { buildTaskExport, resolveTranscript } from "./task-export";
 import { readSubagentDescription } from "./subagent-meta";
-import { recordArtifactPublish } from "./session-artifacts";
+import {
+  recordArtifactPublish,
+  setSessionArtifactsHidden,
+  type ArtifactsHiddenRequest,
+} from "./session-artifacts";
 import { listWorktree, resolveWorktreeFile } from "./worktree-files";
 import { locateSessionFile } from "./file-locate";
 import { readHostFile, resolveHostFile, type HostLookup } from "./host-file";
@@ -7917,6 +7921,40 @@ async function handleSessionShelve({ req, parts, deps }: Ctx): Promise<Response 
   return json({ ok: true });
 }
 
+// PUT /api/sessions/:id/artifacts/hidden — the operator's "hide for this session" for the artifact
+// row; DELETE …?hiddenAt=<stamp> — the undo of that one hide (#3877). Lives on the session's
+// artifact list, so `session:artifacts` carries it to every client.
+function handleSessionArtifactsHidden({ req, parts, url, deps }: Ctx): Response | null {
+  if (!(parts.length === 5 && parts[2] && parts[3] === "artifacts" && parts[4] === "hidden"))
+    return null;
+  if (req.method !== "PUT" && req.method !== "DELETE") return null;
+  let request: ArtifactsHiddenRequest = { hidden: true };
+  if (req.method === "DELETE") {
+    const raw = url.searchParams.get("hiddenAt");
+    const hiddenAt = raw !== null && /^\d{1,16}$/.test(raw) ? Number(raw) : Number.NaN;
+    if (!Number.isSafeInteger(hiddenAt))
+      return json({ error: "hiddenAt must be the stamp the hide returned" }, 400);
+    request = { hidden: false, hiddenAt };
+  }
+  const result = setSessionArtifactsHidden(
+    {
+      store: deps.store,
+      emit: (id, artifacts) => deps.events?.emit("session:artifacts", { id, artifacts }),
+    },
+    parts[2],
+    request,
+    Date.now(),
+  );
+  if (result === "not-found") return json({ error: "not found" }, 404);
+  if (result === "superseded") {
+    return json(
+      { error: "a later hide superseded this one; nothing changed", code: "hide_superseded" },
+      409,
+    );
+  }
+  return json({ id: parts[2], ...result });
+}
+
 // POST /api/sessions/:id/dismiss-stall — acknowledge a stall flag.
 function handleSessionDismissStall({ req, parts, deps }: Ctx): Response | null {
   if (!(req.method === "POST" && parts[2] && parts[3] === "dismiss-stall")) return null;
@@ -9785,6 +9823,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionResume,
     handleSessionReady,
     handleSessionShelve,
+    handleSessionArtifactsHidden,
     handleSessionDismissStall,
     handleSessionQuotaResume,
     handleSessionQuotaDismiss,

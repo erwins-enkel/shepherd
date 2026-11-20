@@ -328,6 +328,22 @@
         "reason": "PromptSources combines source tabs, issue filters and provider-aware command rows; provider badges push the existing template just above the Tier-1 cognitive bar. Keep capped until the source panes split into child components (#855)."
       },
       {
+        "files": ["ui/src/lib/components/viewport/PrActionRow.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 40,
+        "maxCognitive": 70,
+        "maxCrap": 20000,
+        "reason": "The merge row's action strip carries the phone/desktop ⋯ placement, PR ↗ vs Logs ↗, the critic trigger, the passive/next-step/Merge main slot and (#3877) the artifact link vs the \"Artifacts N\" menu trigger; nesting inside the row takes cognitive just over the Tier-1 60 bar (63), cyclomatic stays under (35). Its CSS (container-query layout, #3876) scopes to these elements, so the artifact controls stay in this template. Keep capped until the action strip is split into a child component (#855)."
+      },
+      {
+        "files": ["ui/src/lib/components/chat/ChatView.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 50,
+        "maxCognitive": 60,
+        "maxCrap": 20000,
+        "reason": "The shared Chat (assistant + every session) renders messages, tool runs, steers, pending sends, quick replies, structured questions, block cards and the composer with its command menu in one template: 46 cyclomatic, over the Tier-1 40 bar on its own before #3877 (which only grew the script, shifting the template's line). Keep capped until the thread and composer split into child components (#855)."
+      },
+      {
         "files": ["ui/src/lib/components/Settings.svelte"],
         "functions": ["<template>"],
         "maxCyclomatic": 50,

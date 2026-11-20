@@ -7,6 +7,7 @@ import type {
   SandboxProfile,
   AssistantPermissions,
   Session,
+  SessionArtifact,
   ClearMergedPreview,
   ClearMergedResult,
   CreateInput,
@@ -1997,6 +1998,35 @@ export async function setReadyToMerge(id: string, ready: boolean): Promise<void>
     body: JSON.stringify({ ready }),
   });
   if (!r.ok) throw await failed(r, "ready");
+}
+
+/** What a hide or its undo answers (#3877): the session's full list; the hide's stamp, or null. */
+export type ArtifactsHiddenResult = {
+  id: string;
+  artifacts: SessionArtifact[];
+  hiddenAt: number | null;
+};
+
+/** Hide the session's artifact row on every client (#3877). The list returns via
+ *  `session:artifacts`; the answer's `hiddenAt` is what {@link undoArtifactsHide} names. */
+export async function hideArtifacts(id: string): Promise<ArtifactsHiddenResult> {
+  const r = await fetch(`/api/sessions/${id}/artifacts/hidden`, { method: "PUT" });
+  if (!r.ok) throw await failed(r, "artifacts hide");
+  return r.json();
+}
+
+/** Undo the hide stamped `hiddenAt` (#3877). Fails with an {@link ApiError} whose code is
+ *  `hide_superseded` once a later hide overtook it. */
+export async function undoArtifactsHide(
+  id: string,
+  hiddenAt: number,
+): Promise<ArtifactsHiddenResult> {
+  const r = await fetch(
+    `/api/sessions/${id}/artifacts/hidden?hiddenAt=${encodeURIComponent(hiddenAt)}`,
+    { method: "DELETE" },
+  );
+  if (!r.ok) throw await failed(r, "artifacts undo hide");
+  return r.json();
 }
 
 /** Shelve / unshelve a session. Live state returns via the session:shelved WS event. */

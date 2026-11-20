@@ -821,6 +821,8 @@ describe("RemoteSessionDetail artifact (#3876)", () => {
     artifact("https://claude.ai/artifact/OlderArtifact00000000001", 1000, "Older"),
     artifact(NEWEST, 2000, "Newest"),
   ];
+  // One artifact: the merge row's single link (several make it the menu trigger, #3877).
+  const single = [artifact(NEWEST, 2000, "Newest")];
   const openPr: GitState = {
     kind: "github",
     state: "open",
@@ -857,7 +859,10 @@ describe("RemoteSessionDetail artifact (#3876)", () => {
   });
 
   it("with an open PR, the merge row carries the artifact link instead", async () => {
-    render(RemoteSessionDetail, { session: remote({ artifacts, git: openPr }), nowMs: Date.now() });
+    render(RemoteSessionDetail, {
+      session: remote({ artifacts: single, git: openPr }),
+      nowMs: Date.now(),
+    });
     await vi.waitFor(() => expect(prRow()).not.toBeNull());
     expect(prRow()!.querySelector("a.art-link")?.getAttribute("href")).toBe(NEWEST);
     expect(artifactRow()).toBeNull();
@@ -880,7 +885,7 @@ describe("RemoteSessionDetail artifact (#3876)", () => {
     const relayed = [
       null,
       { url: "https://claude.ai/artifact/NoTimestamp000000000003", title: "No time", versions: 1 },
-      ...artifacts,
+      ...single,
     ] as unknown as SessionArtifact[];
     const view = await render(RemoteSessionDetail, {
       session: remote({ artifacts: relayed }),
@@ -899,5 +904,62 @@ describe("RemoteSessionDetail artifact (#3876)", () => {
     await vi.waitFor(() => expect(prRow()).not.toBeNull());
     expect(prRow()!.querySelector("a.art-link")).toBeNull();
     expect(artifactRow()).toBeNull();
+  });
+});
+
+describe("RemoteSessionDetail artifact menu (#3877)", () => {
+  const art = (n: number): SessionArtifact => ({
+    url: `https://claude.ai/artifact/Artifact${String(n).padStart(14, "0")}`,
+    title: `Artifact ${n}`,
+    versions: 2,
+    firstSeenAt: n,
+    updatedAt: n,
+    toolUseId: `toolu_${n}b`,
+    toolUseIds: [`toolu_${n}a`, `toolu_${n}b`],
+  });
+  const disconnected = { state: "disconnected" as const, since: Date.now() };
+
+  it("with the machine unreachable, the row offers neither Show in Chat nor Hide", async () => {
+    const view = await render(RemoteSessionDetail, {
+      session: remote({ artifacts: [art(1)], connection: disconnected }),
+      nowMs: Date.now(),
+    });
+    await vi.waitFor(() => expect(document.querySelector("section.artifact-row")).not.toBeNull());
+    expect(document.querySelector("section.artifact-row .more")).toBeNull();
+
+    await view.rerender({
+      session: remote({ artifacts: [art(1), art(2)], connection: disconnected }),
+    });
+    await page.getByRole("button", { name: m.artifactrow_all({ n: 2 }) }).click();
+    const items = [...document.querySelectorAll('[role="menu"] [role="menuitem"]')];
+    expect(items.map((i) => i.getAttribute("aria-label") ?? i.textContent?.trim())).not.toContain(
+      m.artifactrow_show_in_chat(),
+    );
+    expect(document.querySelector('[role="menu"] .am-foot')).toBeNull();
+  });
+
+  it("connected: the mirrored Chat marks both versions' publishes", async () => {
+    vi.mocked(api.getSessionMessages).mockResolvedValue({
+      ...transcript,
+      tools: [
+        { ts: 1, tool: "Artifact", summary: "artifact v1", status: "ok", toolUseId: "toolu_1a" },
+        { ts: 2, tool: "Artifact", summary: "artifact v2", status: "ok", toolUseId: "toolu_1b" },
+      ],
+    });
+    render(RemoteSessionDetail, { session: remote({ artifacts: [art(1)] }), nowMs: Date.now() });
+    await page.getByRole("button", { name: m.artifactrow_more_aria() }).click();
+    await page.getByRole("menuitem", { name: m.artifactrow_show_in_chat() }).click();
+    await expect
+      .element(page.getByRole("tab", { name: m.viewport_chat_tab() }))
+      .toHaveAttribute("aria-selected", "true");
+    await vi.waitFor(() => {
+      const chipped = [...document.querySelectorAll(".tr-calls li")]
+        .filter((li) => li.querySelector(".tr-chip"))
+        .map((li) => li.querySelector(".tr-summary")?.textContent);
+      expect(chipped).toEqual(["artifact v1", "artifact v2"]);
+    });
+    await vi.waitFor(() =>
+      expect(document.querySelector(".tr-calls li.tr-hit")?.textContent).toContain("artifact v2"),
+    );
   });
 });

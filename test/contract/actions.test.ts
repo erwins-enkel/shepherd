@@ -191,6 +191,57 @@ describe("ready to merge", () => {
   });
 });
 
+describe("artifacts hidden (#3877)", () => {
+  const T = "/api/sessions/{id}/artifacts/hidden";
+  const call = (method: "PUT" | "DELETE", id: string, query = "", auth = true) =>
+    fetch(`${s.baseUrl}/api/sessions/${id}/artifacts/hidden${query}`, {
+      method,
+      headers: auth ? bearer(token) : {},
+    });
+
+  test("hides, undoes, refuses a stale undo, a missing stamp and an unknown id", async () => {
+    const id = await createSession("artifacts hidden");
+    s.deps.store.setSessionArtifacts(id, [
+      {
+        url: "https://claude.ai/artifact/AAAAAAAAAAAAAAAAAAAAA1",
+        title: "Canvas",
+        versions: 2,
+        firstSeenAt: 1,
+        updatedAt: 2,
+        toolUseId: "toolu_2",
+        toolUseIds: ["toolu_1", "toolu_2"],
+      },
+    ]);
+    const hidden = await call("PUT", id);
+    expect(hidden.status).toBe(200);
+    const { hiddenAt } = (await validateResponse("PUT", T, hidden)) as { hiddenAt: number };
+    expect(s.deps.store.get(id)?.artifacts?.[0]?.hiddenAt).toBe(hiddenAt);
+
+    const stale = await call("DELETE", id, `?hiddenAt=${hiddenAt - 1}`);
+    expect(stale.status).toBe(409);
+    await validateResponse("DELETE", T, stale);
+
+    const undone = await call("DELETE", id, `?hiddenAt=${hiddenAt}`);
+    expect(undone.status).toBe(200);
+    const body = (await validateResponse("DELETE", T, undone)) as { hiddenAt: null };
+    expect(body.hiddenAt).toBeNull();
+
+    const bad = await call("DELETE", id);
+    expect(bad.status).toBe(400);
+    await validateResponse("DELETE", T, bad);
+
+    for (const method of ["PUT", "DELETE"] as const) {
+      const gone = await call(method, "nope", "?hiddenAt=1");
+      expect(gone.status).toBe(404);
+      await validateResponse(method, T, gone);
+
+      const anon = await call(method, id, "?hiddenAt=1", false);
+      expect(anon.status).toBe(401);
+      await validateResponse(method, T, anon);
+    }
+  });
+});
+
 describe("settle-integrated (#3016)", () => {
   test("settles a merged epic child at rest; refuses, rejects and 404s otherwise", async () => {
     const epicChild = (status: "done" | "running") => {

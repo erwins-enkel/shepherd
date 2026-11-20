@@ -1,29 +1,59 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { relativeTimeAgo } from "#lib/format.js";
   import { getLocale } from "#lib/i18n.js";
   import { clock } from "#lib/now.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import type { SessionArtifact } from "#lib/types.js";
   import { isArtifactUrl, shortArtifactUrl } from "../../../../../shared/artifact-url";
+  import ArtifactMenu from "./ArtifactMenu.svelte";
 
   // The artifact row (#3875): where the merge row sits, for a session without a PR whose agent
   // published an artifact. The newest one, its facts, Copy link and the one amber action, Open ↗.
+  // With more than one, "All N" opens the menu of every artifact; with one, ⋯ holds "Show in Chat"
+  // and "Hide for this session" (#3877).
   // Title and url are agent data — text only; the link takes the url only as a claude.ai artifact.
   let {
     sessionId,
-    artifact,
+    artifacts,
     mobile = false,
     touch = false,
+    onshowinchat,
+    onhide,
   }: {
     /** The session the row shows; a copy still pending when it changes confirms nothing. */
     sessionId: string;
-    artifact: SessionArtifact;
+    /** What the row shows, newest first (`rowArtifacts`); never empty. */
+    artifacts: SessionArtifact[];
     /** Phone: stacked layout (label + title, facts, action row). */
     mobile?: boolean;
     /** Any touch device: 44px targets. */
     touch?: boolean;
+    /** Show a publish in the Chat; absent leaves the item out of the menu. */
+    onshowinchat?: (toolUseId: string | null) => void;
+    /** Hide the row for this session; absent leaves the item out of the menu. */
+    onhide?: () => void;
   } = $props();
+
+  const artifact = $derived(artifacts[0]!);
+  const count = $derived(artifacts.length);
+  // One artifact: ⋯ only when it would hold something.
+  const menuMode = $derived<"all" | "single" | null>(
+    count > 1 ? "all" : onshowinchat || onhide ? "single" : null,
+  );
+  let menuBtn = $state<HTMLButtonElement>();
+  let menuAnchor = $state<DOMRect | null>(null);
+  function toggleMenu() {
+    menuAnchor = menuAnchor || !menuBtn ? null : menuBtn.getBoundingClientRect();
+  }
+  // The Viewport is reused across sessions: an open menu never carries over to another one. Nor
+  // does the ⋯ menu stay open once a second artifact turns its trigger into "All N".
+  $effect(() => {
+    void sessionId;
+    void menuMode;
+    untrack(() => (menuAnchor = null));
+  });
 
   const updated = $derived(relativeTimeAgo(artifact.updatedAt, clock.current, getLocale()));
 
@@ -58,6 +88,31 @@
   });
 </script>
 
+{#snippet menuTrigger()}
+  {#if menuMode === "all"}
+    <button
+      bind:this={menuBtn}
+      class="gbtn art-menu"
+      type="button"
+      aria-haspopup="menu"
+      aria-expanded={!!menuAnchor}
+      use:coachTarget={"artifact-menu"}
+      onclick={toggleMenu}
+      >{m.artifactrow_all({ n: count })}<span class="art-caret" aria-hidden="true">▴</span></button
+    >
+  {:else if menuMode === "single"}
+    <button
+      bind:this={menuBtn}
+      class="gbtn more"
+      type="button"
+      aria-label={m.artifactrow_more_aria()}
+      aria-haspopup="menu"
+      aria-expanded={!!menuAnchor}
+      onclick={toggleMenu}>⋯</button
+    >
+  {/if}
+{/snippet}
+
 <section
   class={["artifact-row", { mobile, touch: touch || mobile }]}
   aria-label={m.artifactrow_aria()}
@@ -70,19 +125,25 @@
       <span class="art-title" title={artifact.title}>{artifact.title}</span>
     </div>
     <p class="art-facts">
-      <span>{m.artifactrow_version({ n: artifact.versions })}</span><span
+      {#if count > 1}<span>{m.artifactrow_newest_of({ n: count })}</span><span
+          class="art-dot"
+          aria-hidden="true">·</span
+        >{/if}<span>{m.artifactrow_version({ n: artifact.versions })}</span><span
         class="art-dot"
         aria-hidden="true">·</span
-      ><span>{m.artifactrow_updated({ when: updated })}</span><span
-        class="art-dot"
-        aria-hidden="true">·</span
-      ><span class="art-url" title={artifact.url}>{shortArtifactUrl(artifact.url)}</span>
+      ><span>{m.artifactrow_updated({ when: updated })}</span>{#if count === 1}<span
+          class="art-dot"
+          aria-hidden="true">·</span
+        ><span class="art-url" title={artifact.url}>{shortArtifactUrl(artifact.url)}</span>{/if}
     </p>
   </div>
   <div class="art-actions">
+    <!-- the phone leads its action row with the menu trigger, as the merge row does with ⋯ -->
+    {#if mobile}{@render menuTrigger()}{/if}
     <button class="gbtn" type="button" aria-live="polite" onclick={copyLink}
       >{copied ? m.artifactrow_copied() : m.artifactrow_copy()}</button
     >
+    {#if !mobile}{@render menuTrigger()}{/if}
     <span class="art-sep" aria-hidden="true"></span>
     <!-- eslint-disable svelte/no-navigation-without-resolve -- external claude.ai URL, not an app route -->
     <a
@@ -94,6 +155,19 @@
     <!-- eslint-enable svelte/no-navigation-without-resolve -->
   </div>
 </section>
+
+{#if menuAnchor && menuMode}
+  <ArtifactMenu
+    anchor={menuAnchor}
+    opener={menuBtn}
+    {artifacts}
+    mode={menuMode}
+    touch={touch || mobile}
+    {onshowinchat}
+    {onhide}
+    onclose={() => (menuAnchor = null)}
+  />
+{/if}
 
 <style>
   /* The merge row's flat band (PrActionRow): head ground, top hairline. Blue sits on the diamond
@@ -208,6 +282,16 @@
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
+  .gbtn.more {
+    min-width: 32px;
+    padding: 0;
+    font-size: var(--fs-base);
+    letter-spacing: 0;
+  }
+  .art-caret {
+    margin-left: 6px;
+    letter-spacing: 0;
+  }
   /* the one amber action in the row: outline + inset glow, never a fill */
   .gbtn.primary {
     min-width: 132px;
@@ -226,6 +310,9 @@
   /* touch: every target at least 44px */
   .artifact-row.touch .gbtn {
     min-height: var(--mobile-actionbar-hit);
+  }
+  .artifact-row.touch .gbtn.more {
+    min-width: var(--mobile-actionbar-hit);
   }
 
   /* phone: label + title, facts, then the action row — Open ↗ takes the rest */

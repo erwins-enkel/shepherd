@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import type {
     BlockReason,
     PendingAsk,
@@ -30,7 +30,9 @@
   import PrActionRow from "./viewport/PrActionRow.svelte";
   import { prActionRowVisible } from "./viewport/pr-action-row";
   import ArtifactRow from "./viewport/ArtifactRow.svelte";
-  import { latestArtifact } from "./viewport/artifact-row";
+  import { publishToolIds, rowArtifacts } from "./viewport/artifact-row";
+  import { hideSessionArtifacts } from "#lib/artifacts-hide.js";
+  import { toasts } from "#lib/toasts.svelte.js";
 
   // The detail of a session mirrored from a connected machine (#2762), mounted in place of the
   // Viewport and laid out like it: one header row (identity, tabs, machine, status, stop and
@@ -169,8 +171,32 @@
   );
   // The artifact row (#3875/#3876) stands where the merge row would, whenever that is not shown:
   // no or a closed PR, or the machine unreachable — opening the artifact needs no machine.
-  const artifact = $derived(mirrored ? latestArtifact(mirrored.artifacts) : null);
-  const artifactRowShown = $derived(!!artifact && !prRowGit && (tab === "term" || tab === "chat"));
+  const artifacts = $derived(mirrored ? rowArtifacts(mirrored.artifacts) : []);
+  const artifactRowShown = $derived(
+    artifacts.length > 0 && !prRowGit && (tab === "term" || tab === "chat"),
+  );
+  // The Chat's "in the bar" chips (#3877), as in the Viewport.
+  const artifactToolIds = $derived(
+    mirrored ? publishToolIds(mirrored.artifacts) : new Set<string>(),
+  );
+  // "Show in Chat" and "Hide for this session" (#3877) act on the machine: only while it is
+  // connected, as its Chat tab and the forwarded hide need it.
+  const canActOnArtifacts = $derived(live && !isTerminal);
+
+  async function showArtifactInChat(toolUseId: string | null) {
+    const id = session.id;
+    chosen = { id, tab: "chat" };
+    chatFor = id;
+    await tick();
+    // A later "Show in Chat" supersedes this one while it waits: it then says nothing.
+    const outcome = (await chatView?.revealTool(toolUseId)) ?? "missing";
+    if (outcome === "missing" && id === session.id)
+      toasts.info(m.artifactrow_chat_missing(), { key: `artifact-chat:${id}` });
+  }
+  const onShowArtifact = $derived(canActOnArtifacts ? showArtifactInChat : undefined);
+  const onHideArtifacts = $derived(
+    canActOnArtifacts ? () => void hideSessionArtifacts(session.id) : undefined,
+  );
   /** Hand the keyboard back to the terminal — the page's Enter, as the Viewport's focusTerminal. */
   export function focusTerminal() {
     if (tab === "term") terminal?.focus();
@@ -262,6 +288,7 @@
               oninterrupt={() => interruptSession(mirrored.id).catch(() => {})}
               onterminal={() => (chosen = { id: mirrored.id, tab: "term" })}
               composerLead={compact ? steerToggle : undefined}
+              {artifactToolIds}
             />
           {/key}
         </div>
@@ -289,9 +316,18 @@
       touch={compact}
       ondecommission={() => void actions?.decommission()}
       onsent={(text, sent) => chatView?.echo(text, sent)}
+      onshowartifact={onShowArtifact}
+      onhideartifacts={onHideArtifacts}
     />
-  {:else if artifactRowShown && artifact}
-    <ArtifactRow sessionId={session.id} {artifact} mobile={compact} touch={compact} />
+  {:else if artifactRowShown}
+    <ArtifactRow
+      sessionId={session.id}
+      {artifacts}
+      mobile={compact}
+      touch={compact}
+      onshowinchat={onShowArtifact}
+      onhide={onHideArtifacts}
+    />
   {/if}
   {#if steerShown}
     {#if live}

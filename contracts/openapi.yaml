@@ -819,7 +819,7 @@ components:
         sessions. A `session:*` frame about a mirrored session carries the same `host` and
         `connection`. Its actions and reads under `/api/sessions/{id}` are forwarded to the machine
         when they are on the forwarded list (reply, interrupt, archive and its leftovers, go,
-        answer-plan-questions, the plan and its edits, answer-ask, rename, amendments, autopilot, automerge, ready, diff and its
+        answer-plan-questions, the plan and its edits, answer-ask, rename, amendments, autopilot, automerge, ready, artifact hiding, diff and its
         annotations, messages, activity, usage, worktree and scratchpad listings, downloads and
         upload, and the preview: its start, stop and where it opens, a URL on the machine's own
         host); any other route answers 409 `remote_unsupported`, an id more than one machine
@@ -2082,7 +2082,25 @@ components:
         updatedAt: { type: integer }
         toolUseId:
           type: [string, "null"]
-          description: The `tool_use_id` of the latest publish.
+          description: The `tool_use_id` of the latest publish; the call a client jumps to ("show in Chat", #3877).
+        toolUseIds:
+          type: array
+          items: { type: string }
+          description: >-
+            The `tool_use_id` of every recorded publish of the url, oldest first, deduped, the newest
+            200 (the Chat's tool window) — the Chat marks each of these calls while the row shows
+            (#3877). Absent on entries recorded before #3877: fall back to `toolUseId`.
+        hiddenAt:
+          type: integer
+          description: >-
+            Epoch-ms stamp of the operator hide ("hide for this session", #3877) that covered this
+            entry; absent when not hidden. The session's artifact row (and the merge row's artifact
+            link) shows only while some entry has no `hiddenAt`. A hide stamps every entry with a
+            fresh stamp, strictly above any earlier one; a re-publish keeps it; a new url enters
+            without it, which shows the row again. No two hides of a session share a stamp, also
+            across an undo. An undo (DELETE /api/sessions/{id}/artifacts/hidden?hiddenAt=) names the
+            stamp of the hide it reverses and clears every entry's `hiddenAt` only while that stamp
+            is the newest.
     SessionArtifactsEvent:
       type: object
       additionalProperties: true
@@ -2288,6 +2306,12 @@ components:
         summary: { type: string }
         status:
           $ref: "#/components/schemas/ActivityStatus"
+        toolUseId:
+          type: string
+          description: >-
+            The transcript's `tool_use.id` (Claude sessions), so a client can find one call — the
+            artifact row's "show in Chat" (#3877). Absent when the record carried none in the
+            bounded `[A-Za-z0-9_.:-]{1,128}` shape.
     ActivityList:
       type: array
       description: Oldest first, capped server-side (30 by default).
@@ -3074,6 +3098,18 @@ components:
       description: POST /api/sessions/{id}/ready — the manual "parked / ready to merge" flag, orthogonal to SessionStatus.
       properties:
         ready: { type: boolean }
+    ArtifactsHiddenResult:
+      type: object
+      additionalProperties: true
+      required: [id, artifacts, hiddenAt]
+      properties:
+        id: { type: string }
+        artifacts:
+          type: array
+          items: { $ref: "#/components/schemas/SessionArtifact" }
+        hiddenAt:
+          type: [integer, "null"]
+          description: The stamp this hide wrote (the undo's `hiddenAt`); null after an undo.
     RelaunchRequest:
       type: object
       additionalProperties: false
@@ -11301,6 +11337,65 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":
           description: Unknown id.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/sessions/{id}/artifacts/hidden:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: hideSessionArtifacts
+      description: >-
+        "Hide for this session" for the artifact row (#3877): stamps every artifact with a fresh
+        `hiddenAt`, stored on the session's artifact list and pushed to every client as
+        `session:artifacts`. No request body.
+      responses:
+        "200":
+          description: Hidden; the session's full artifact list and the hide's stamp (pass it to undo).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ArtifactsHiddenResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      operationId: undoSessionArtifactsHide
+      description: >-
+        Undo of one hide (#3877): clears every artifact's `hiddenAt`, but only while the hide stamped
+        `hiddenAt` is still the newest; pushed as `session:artifacts`.
+      parameters:
+        - name: hiddenAt
+          in: query
+          required: true
+          description: The stamp the hide returned.
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Undone; the session's full artifact list, `hiddenAt` null.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ArtifactsHiddenResult" }
+        "400":
+          description: "`hiddenAt` is missing or not a non-negative integer."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: >-
+            `hide_superseded` — the hide is no longer the newest (a later hide, on any client, or
+            nothing hidden); nothing changed.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

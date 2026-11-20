@@ -109,7 +109,8 @@
   import PrActionRow from "#lib/components/viewport/PrActionRow.svelte";
   import { prActionRowVisible } from "#lib/components/viewport/pr-action-row.js";
   import ArtifactRow from "#lib/components/viewport/ArtifactRow.svelte";
-  import { latestArtifact } from "#lib/components/viewport/artifact-row.js";
+  import { publishToolIds, rowArtifacts } from "#lib/components/viewport/artifact-row.js";
+  import { hideSessionArtifacts } from "#lib/artifacts-hide.js";
   import ViewportTermBanners from "./viewport/ViewportTermBanners.svelte";
   import ReviewInFlightBanner from "./viewport/ReviewInFlightBanner.svelte";
   import CiRunningBanner from "./viewport/CiRunningBanner.svelte";
@@ -377,10 +378,33 @@
   );
   // The artifact row (#3875) takes the merge row's place under the same conditions, but only
   // without a PR: once there is one, the merge row wins.
-  const artifact = $derived(latestArtifact(session.artifacts));
+  // What the rows show, newest first; none once the operator hid them for this session (#3877).
+  const artifacts = $derived(rowArtifacts(session.artifacts));
   const artifactRowShown = $derived(
-    !assistant && (tab === "term" || tab === "chat") && !prActionRowVisible(git) && !!artifact,
+    !assistant &&
+      (tab === "term" || tab === "chat") &&
+      !prActionRowVisible(git) &&
+      artifacts.length > 0,
   );
+  // The Chat's "in the bar" chips: every recorded publish of the artifacts the rows show (#3877).
+  const artifactToolIds = $derived(publishToolIds(session.artifacts));
+
+  /** The artifact rows' "Show in Chat" (#3877): the Chat tab, scrolled to the publish's tool call
+   *  and highlighted — or a hint when that call is not in the Chat's loaded history. */
+  async function showArtifactInChat(toolUseId: string | null) {
+    const id = session.id;
+    const hint = () => toasts.info(m.artifactrow_chat_missing(), { key: `artifact-chat:${id}` });
+    if (assistant || session.terminal) {
+      hint();
+      return;
+    }
+    tab = "chat";
+    chatOpened = true;
+    await tick();
+    // A later "Show in Chat" supersedes this one while it waits: it then says nothing.
+    const outcome = (await chatView?.revealTool(toolUseId)) ?? "missing";
+    if (outcome === "missing" && id === session.id) hint();
+  }
   let recapOpen = $state(false);
   // mobile/compact only: folds the secondary header chrome (tabs + git rail +
   // build queue) into the first identity line so the terminal reclaims the
@@ -3651,6 +3675,7 @@
             composerLead={mobile ? steerToggle : undefined}
             resolveLocalPath={hasFiles ? resolveLocalPath : undefined}
             onopenfile={openFileInFiles}
+            {artifactToolIds}
           />
         {/key}
       </div>
@@ -3758,14 +3783,23 @@
       {liveness}
       ondecommission={confirmDecommission}
       onsent={(text, sent) => chatView?.echo(text, sent)}
+      onshowartifact={showArtifactInChat}
+      onhideartifacts={() => void hideSessionArtifacts(session.id)}
       onsummary={() => {
         recapOpen = !recapOpen;
         // phone: the recap lives in the session details, so opening it opens them too
         if (mobile && recapOpen) phoneDetailsOpen = true;
       }}
     />
-  {:else if artifactRowShown && artifact}
-    <ArtifactRow sessionId={session.id} {artifact} {mobile} {touch} />
+  {:else if artifactRowShown}
+    <ArtifactRow
+      sessionId={session.id}
+      {artifacts}
+      {mobile}
+      {touch}
+      onshowinchat={showArtifactInChat}
+      onhide={() => void hideSessionArtifacts(session.id)}
+    />
   {/if}
 
   {#if (tab === "term" || tab === "chat") && !assistant && steersShown}

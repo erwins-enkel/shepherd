@@ -16,15 +16,43 @@ function showable(a: unknown): a is SessionArtifact {
   );
 }
 
-/** The artifact the row shows (#3875): the most recently published one with a valid claude.ai url,
- *  or null when the session has none. The server keeps `updatedAt` strictly increasing across a
- *  session's list, so publish order decides even within one millisecond; the later entry winning a
- *  tie only matters for lists from servers before that. Malformed entries are skipped. */
+const shown = (list: unknown): SessionArtifact[] =>
+  (Array.isArray(list) ? list : []).filter(showable);
+
+/** Whether the operator hid the session's artifact row (#3877): it has showable entries and every
+ *  one of them carries the stamp of a hide. A new url arrives without one, which shows the row
+ *  again; a re-publish keeps it. */
+export function artifactsHidden(list: unknown): boolean {
+  const entries = shown(list);
+  return entries.length > 0 && entries.every((a) => typeof a.hiddenAt === "number");
+}
+
+/** What the rows show (#3877): the showable artifacts, newest first — none while hidden. The
+ *  server keeps `updatedAt` strictly increasing across a session's list, so publish order decides
+ *  even within one millisecond; a later entry winning a tie only matters for lists from servers
+ *  before that. Malformed entries are skipped. */
+export function rowArtifacts(list: unknown): SessionArtifact[] {
+  if (artifactsHidden(list)) return [];
+  return shown(list)
+    .map((a, i) => ({ a, i }))
+    .sort((x, y) => y.a.updatedAt - x.a.updatedAt || y.i - x.i)
+    .map(({ a }) => a);
+}
+
+/** The artifact the row shows (#3875): the most recently published one, or null when the session
+ *  has none or the operator hid them (#3877). */
 export function latestArtifact(list: unknown): SessionArtifact | null {
-  let latest: SessionArtifact | null = null;
-  for (const a of Array.isArray(list) ? list : []) {
-    if (!showable(a)) continue;
-    if (!latest || a.updatedAt >= latest.updatedAt) latest = a;
+  return rowArtifacts(list)[0] ?? null;
+}
+
+/** The Chat calls that carry the "in the bar" chip (#3877): every recorded publish of the artifacts
+ *  the row shows — earlier versions of a url included — and none while the row is hidden. An entry
+ *  from a server before #3877 contributes its `toolUseId`. */
+export function publishToolIds(list: unknown): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const a of rowArtifacts(list)) {
+    const known = Array.isArray(a.toolUseIds) ? a.toolUseIds : a.toolUseId ? [a.toolUseId] : [];
+    for (const id of known) if (typeof id === "string") ids.add(id);
   }
-  return latest;
+  return ids;
 }

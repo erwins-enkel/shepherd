@@ -1211,12 +1211,13 @@ describe("PrActionRow — artifact link (#3876)", () => {
     updatedAt,
     toolUseId: null,
   });
-  // The newest valid one wins; a later entry that is no claude.ai artifact never shows.
+  // One valid artifact is the link; a later entry that is no claude.ai artifact never shows.
+  // Several valid ones make it the menu trigger (#3877, below).
   const artifacts = [
-    art(OLDER, T0 - 30 * 60_000, "Older draft"),
     art(NEWEST, T0 - 4 * 60_000, "Prüfslot — Desktop, Telefon und Einstellungen"),
     art("javascript:alert(1)", T0, "evil"),
   ];
+  const several = [art(OLDER, T0 - 30 * 60_000, "Older draft"), ...artifacts];
   const red: GitState = {
     ...readyGit,
     checks: "failure",
@@ -1408,6 +1409,7 @@ describe("PrActionRow — artifact link (#3876)", () => {
         git: merged,
       },
       { name: "Fix CI", session: () => session({ artifacts }), git: red },
+      { name: "Merge, Artifacts 2", session: () => session({ artifacts: several }), git: readyGit },
     ];
 
     for (const width of [48, 168, 320, 480, 900]) {
@@ -1531,5 +1533,184 @@ describe("PrActionRow — artifact link (#3876)", () => {
         }
       }
     }
+  });
+});
+
+describe("PrActionRow — several artifacts (#3877)", () => {
+  const T0 = Date.now();
+  const art = (n: number, partial: Partial<SessionArtifact> = {}): SessionArtifact => ({
+    url: `https://claude.ai/artifact/Artifact${String(n).padStart(14, "0")}`,
+    title: `Artifact ${n}`,
+    versions: n,
+    firstSeenAt: T0 - 9e6,
+    updatedAt: T0 - (10 - n) * 60_000,
+    toolUseId: `toolu_${n}`,
+    ...partial,
+  });
+  const targets = (h: HTMLElement) => [
+    ...row(h)!.querySelectorAll<HTMLElement>(".pr-actions button, .pr-actions a[href]"),
+  ];
+  const labels = (h: HTMLElement) => targets(h).map((t) => t.textContent?.trim());
+  function tokenColor(token: string): string {
+    const probe = document.body.appendChild(document.createElement("span"));
+    probe.style.color = `var(${token})`;
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  }
+
+  it("“Artifacts N” opens the menu of every artifact, newest first; Merge stays the one amber action", async () => {
+    const h = host();
+    const onshowartifact = vi.fn();
+    const onhideartifacts = vi.fn();
+    const screen = await render(PrActionRow, {
+      target: h,
+      props: {
+        session: session({ artifacts: [art(1), art(3), art(2)] }),
+        git: readyGit,
+        status: "idle",
+        onshowartifact,
+        onhideartifacts,
+      },
+    });
+    expect(h.querySelector("a.art-link"), "no single link").toBeNull();
+    expect(labels(h)).toEqual([
+      `${m.artifactrow_pr_many({ n: 3 })}▴`,
+      m.prrow_pr_link(),
+      "⋯",
+      m.gitrail_merge(),
+    ]);
+    const trigger = screen.getByRole("button", { name: m.artifactrow_pr_many({ n: 3 }) });
+    await expect.element(trigger).toHaveAttribute("aria-haspopup", "menu");
+    const btn = trigger.element() as HTMLElement;
+    expect(btn.classList.contains("primary")).toBe(false);
+    expect(getComputedStyle(btn).color).not.toBe(tokenColor("--color-amber"));
+    expect(row(h)!.querySelectorAll(".primary")).toHaveLength(1);
+
+    await trigger.click();
+    await expect.element(trigger).toHaveAttribute("aria-expanded", "true");
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+    expect(
+      [...menu.querySelectorAll(".am-entry")].map((e) => e.getAttribute("aria-label")),
+    ).toEqual(["Artifact 3", "Artifact 2", "Artifact 1"]);
+    const chat = [
+      ...menu.querySelectorAll<HTMLButtonElement>(".am-entry")[0]!.querySelectorAll("button"),
+    ].find((b) => b.getAttribute("aria-label") === m.artifactrow_show_in_chat())!;
+    chat.click();
+    expect(onshowartifact).toHaveBeenCalledWith("toolu_3");
+    await expect.poll(() => document.querySelector('[role="menu"]')).toBeNull();
+
+    await trigger.click();
+    document.querySelector<HTMLElement>(".am-foot")!.click();
+    expect(onhideartifacts).toHaveBeenCalledOnce();
+  });
+
+  it("hidden elsewhere while the menu is open: it closes, and Undo never reopens it", async () => {
+    const h = host();
+    const many = [art(1), art(2)];
+    const screen = await render(PrActionRow, {
+      target: h,
+      props: { session: session({ artifacts: many }), git: readyGit, status: "idle" },
+    });
+    const trigger = screen.getByRole("button", { name: m.artifactrow_pr_many({ n: 2 }) });
+    await trigger.click();
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    const hidden = many.map((a) => ({ ...a, hiddenAt: 9 }));
+    await screen.rerender({
+      session: session({ artifacts: hidden }),
+      git: readyGit,
+      status: "idle",
+    });
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    await screen.rerender({ session: session({ artifacts: many }), git: readyGit, status: "idle" });
+    await expect.element(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it("one artifact: the link stays, and ⋯ carries Show in Chat and Hide", async () => {
+    const h = host();
+    const onshowartifact = vi.fn();
+    const onhideartifacts = vi.fn();
+    const screen = await render(PrActionRow, {
+      target: h,
+      props: {
+        session: session({ artifacts: [art(5)] }),
+        git: readyGit,
+        status: "idle",
+        onshowartifact,
+        onhideartifacts,
+      },
+    });
+    expect(h.querySelector("a.art-link")).not.toBeNull();
+    await screen.getByRole("button", { name: m.prrow_more_aria() }).click();
+    const items = () => [
+      ...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]'),
+    ];
+    const texts = items().map((i) => i.textContent?.trim());
+    expect(texts).toContain(m.artifactrow_pr_menu_show());
+    expect(texts).toContain(m.artifactrow_pr_menu_hide());
+    items()
+      .find((i) => i.textContent?.trim() === m.artifactrow_pr_menu_show())!
+      .click();
+    expect(onshowartifact).toHaveBeenCalledWith("toolu_5");
+    await screen.getByRole("button", { name: m.prrow_more_aria() }).click();
+    items()
+      .find((i) => i.textContent?.trim() === m.artifactrow_pr_menu_hide())!
+      .click();
+    expect(onhideartifacts).toHaveBeenCalledOnce();
+  });
+
+  it("one artifact: ⋯ navigates by arrow keys without the dashboard switching sessions", async () => {
+    const reached: string[] = [];
+    const dashboard = (e: KeyboardEvent) => reached.push(e.key);
+    window.addEventListener("keydown", dashboard);
+    try {
+      const h = host();
+      const screen = await render(PrActionRow, {
+        target: h,
+        props: {
+          session: session({ artifacts: [art(5)] }),
+          git: readyGit,
+          status: "idle",
+          onshowartifact: () => {},
+          onhideartifacts: () => {},
+        },
+      });
+      await screen.getByRole("button", { name: m.prrow_more_aria() }).click();
+      const items = [...document.querySelectorAll<HTMLElement>('[role="menu"] .pm-item')];
+      await expect.poll(() => document.activeElement).toBe(items[0]);
+      reached.length = 0; // the click's own keys, if any, are not the menu's
+      await userEvent.keyboard("{End}");
+      expect(document.activeElement?.textContent?.trim()).toBe(m.artifactrow_pr_menu_hide());
+      await userEvent.keyboard("{ArrowUp}");
+      expect(document.activeElement?.textContent?.trim()).toBe(m.artifactrow_pr_menu_show());
+      await userEvent.keyboard("{ArrowDown}");
+      expect(document.activeElement?.textContent?.trim()).toBe(m.artifactrow_pr_menu_hide());
+      expect(reached).toEqual([]);
+      expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    } finally {
+      window.removeEventListener("keydown", dashboard);
+    }
+  });
+
+  it("hidden for this session: no artifact control and no artifact items", async () => {
+    const h = host();
+    const screen = await render(PrActionRow, {
+      target: h,
+      props: {
+        session: session({ artifacts: [art(1, { hiddenAt: 5 }), art(2, { hiddenAt: 5 })] }),
+        git: readyGit,
+        status: "idle",
+        onshowartifact: () => {},
+        onhideartifacts: () => {},
+      },
+    });
+    expect(row(h)!.querySelector(".art-link")).toBeNull();
+    expect(row(h)!.classList.contains("has-artifact")).toBe(false);
+    await screen.getByRole("button", { name: m.prrow_more_aria() }).click();
+    const texts = [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((i) =>
+      i.textContent?.trim(),
+    );
+    expect(texts).not.toContain(m.artifactrow_pr_menu_show());
   });
 });

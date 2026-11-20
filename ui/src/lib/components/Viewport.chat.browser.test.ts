@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { BlockReason, Session, SessionMessages } from "#lib/types.js";
+import type { BlockReason, Session, SessionArtifact, SessionMessages } from "#lib/types.js";
 import type { connectPty } from "#lib/pty.js";
 import { m } from "#lib/paraglide/messages.js";
 import { steers } from "#lib/steers.svelte.js";
@@ -25,12 +25,22 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     locateSessionFile: vi.fn(),
     getWorktreeListing: vi.fn(),
     getHostFile: vi.fn(),
+    hideArtifacts: vi.fn(),
+    undoArtifactsHide: vi.fn(),
   };
 });
 const { default: Viewport } = await import("./Viewport.svelte");
 const { forgetChatDrafts } = await import("./chat/ChatView.svelte");
-const { getSessionMessages, replySession, locateSessionFile, getWorktreeListing, getHostFile } =
-  await import("#lib/api.js");
+const {
+  getSessionMessages,
+  replySession,
+  locateSessionFile,
+  getWorktreeListing,
+  getHostFile,
+  hideArtifacts,
+  undoArtifactsHide,
+} = await import("#lib/api.js");
+const { toasts } = await import("#lib/toasts.svelte.js");
 const mockMessages = vi.mocked(getSessionMessages);
 const mockReply = vi.mocked(replySession);
 
@@ -367,5 +377,103 @@ describe("Viewport Chat tab", () => {
     } finally {
       steers.list = previous;
     }
+  });
+});
+
+describe("Viewport: the artifact row and the Chat (#3877)", () => {
+  // Two versions of one url: the row shows one artifact; both publishes are in the Chat.
+  const artifact: SessionArtifact = {
+    url: "https://claude.ai/artifact/GEQx5QVP82WzdTBfcxx313",
+    title: "Prüfslot",
+    versions: 2,
+    firstSeenAt: 1,
+    updatedAt: 2,
+    toolUseId: "toolu_v2",
+    toolUseIds: ["toolu_v1", "toolu_v2"],
+  };
+  const withPublishes: SessionMessages = {
+    ...transcript,
+    tools: [
+      { ts: 2000, tool: "Artifact", summary: "artifact v1", status: "ok", toolUseId: "toolu_v1" },
+      { ts: 2500, tool: "Read", summary: "read build.ts", status: "ok", toolUseId: "toolu_r" },
+      { ts: 3000, tool: "Artifact", summary: "artifact v2", status: "ok", toolUseId: "toolu_v2" },
+    ],
+  };
+  const callRow = (summary: string) =>
+    [...document.querySelectorAll<HTMLElement>(".tr-calls li")].find((li) =>
+      li.textContent?.includes(summary),
+    );
+  const chipped = () =>
+    [...document.querySelectorAll(".tr-calls li")]
+      .filter((li) => li.querySelector(".tr-chip"))
+      .map((li) => li.querySelector(".tr-summary")?.textContent);
+  async function showInChat() {
+    await page.getByRole("button", { name: m.artifactrow_more_aria() }).click();
+    await page.getByRole("menuitem", { name: m.artifactrow_show_in_chat() }).click();
+  }
+
+  beforeEach(() => {
+    sessionStartTab.set("term");
+    mockMessages.mockResolvedValue(withPublishes);
+    vi.mocked(hideArtifacts).mockReset();
+    vi.mocked(undoArtifactsHide).mockReset();
+    for (const t of [...toasts.items]) toasts.close(t.id);
+  });
+
+  it("Show in Chat switches to the Chat and highlights the latest publish; both carry the chip", async () => {
+    await mount({ session: session({ id: "s1", artifacts: [artifact] }) });
+    await expect.element(tab(m.viewport_terminal_tab())).toHaveAttribute("aria-selected", "true");
+    await showInChat();
+    await expect.element(tab(m.viewport_chat_tab())).toHaveAttribute("aria-selected", "true");
+    await expect.poll(() => callRow("artifact v2")?.classList.contains("tr-hit")).toBe(true);
+    expect(callRow("artifact v1")?.classList.contains("tr-hit")).toBe(false);
+    expect(chipped()).toEqual(["artifact v1", "artifact v2"]);
+    expect(toasts.items).toHaveLength(0);
+  });
+
+  it("a call outside the loaded Chat shows a hint instead of doing nothing", async () => {
+    mockMessages.mockResolvedValue(transcript);
+    await mount({ session: session({ id: "s1", artifacts: [artifact] }) });
+    await showInChat();
+    await expect.element(tab(m.viewport_chat_tab())).toHaveAttribute("aria-selected", "true");
+    await expect
+      .poll(() => toasts.items.map((t) => t.text))
+      .toEqual([m.artifactrow_chat_missing()]);
+  });
+
+  it("hidden for this session: no artifact row and no chips", async () => {
+    const hidden = { ...artifact, hiddenAt: 99 };
+    await mount({ session: session({ id: "s1", artifacts: [hidden] }) });
+    expect(document.querySelector("section.artifact-row")).toBeNull();
+    await open(m.viewport_chat_tab());
+    await page.getByRole("button", { name: /3 tool calls/i }).click();
+    await expect.element(page.getByText("artifact v2")).toBeVisible();
+    expect(chipped()).toEqual([]);
+  });
+
+  it("two versions, then hidden on another client: both chips and the row go", async () => {
+    const { view, props } = await mount({ session: session({ id: "s1", artifacts: [artifact] }) });
+    await showInChat();
+    await expect.poll(chipped).toEqual(["artifact v1", "artifact v2"]);
+    await view.rerender({
+      ...props,
+      session: session({ id: "s1", artifacts: [{ ...artifact, hiddenAt: 7 }] }),
+    });
+    await expect.poll(chipped).toEqual([]);
+    expect(document.querySelector("section.artifact-row")).toBeNull();
+  });
+
+  it("Hide for this session asks the server and offers Undo for exactly that hide", async () => {
+    vi.mocked(hideArtifacts).mockResolvedValue({ id: "s1", artifacts: [], hiddenAt: 4242 });
+    vi.mocked(undoArtifactsHide).mockResolvedValue({ id: "s1", artifacts: [], hiddenAt: null });
+    await mount({ session: session({ id: "s1", artifacts: [artifact] }) });
+    await page.getByRole("button", { name: m.artifactrow_more_aria() }).click();
+    await page.getByRole("menuitem", { name: m.artifactrow_hide() }).click();
+    expect(hideArtifacts).toHaveBeenCalledWith("s1");
+    await expect
+      .poll(() => toasts.items.map((t) => t.text))
+      .toEqual([m.artifactrow_hidden_toast()]);
+    toasts.act(toasts.items[0]!.id);
+    await expect.poll(() => vi.mocked(undoArtifactsHide).mock.calls.at(-1)).toEqual(["s1", 4242]);
   });
 });

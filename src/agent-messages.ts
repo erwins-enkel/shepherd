@@ -324,7 +324,7 @@ export interface MessagesQuery {
 }
 
 /** The newest tool calls `includeTools` returns. */
-const TOOLS_MAX = 200;
+export const TOOLS_MAX = 200;
 
 const isCodex = (provider?: AgentProvider | null) => (provider ?? "claude") === "codex";
 

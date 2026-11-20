@@ -189,3 +189,18 @@ test("readTranscriptTailAsync matches readTranscriptTail; missing file rejects",
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("an entry carries its tool_use id when it has the bounded hook-id shape (#3877)", () => {
+  const lines = [
+    toolUse("Artifact", { title: "Canvas" }, "toolu_01AbC"),
+    toolUse("Read", { file_path: "/a" }, "x".repeat(129)),
+    toolUse("Read", { file_path: "/b" }, "bad id"),
+    toolUse("Read", { file_path: "/c" }, ""),
+  ].join("\n");
+  expect(parseActivity(lines).map((e) => e.toolUseId)).toEqual([
+    "toolu_01AbC",
+    undefined,
+    undefined,
+    undefined,
+  ]);
+});

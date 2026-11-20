@@ -1256,7 +1256,11 @@ function parseArtifactsJson(raw: string | null | undefined): SessionArtifact[] {
         typeof a.versions === "number" &&
         typeof a.firstSeenAt === "number" &&
         typeof a.updatedAt === "number" &&
-        (typeof a.toolUseId === "string" || a.toolUseId === null),
+        (typeof a.toolUseId === "string" || a.toolUseId === null) &&
+        (a.toolUseIds === undefined ||
+          (Array.isArray(a.toolUseIds) &&
+            a.toolUseIds.every((t: unknown) => typeof t === "string"))) &&
+        (a.hiddenAt === undefined || Number.isFinite(a.hiddenAt)),
     );
   } catch {
     return [];
@@ -6643,12 +6647,21 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   /** Persist a session's published artifacts (#3875) — always the whole list, as
    *  src/session-artifacts.ts merged it. Dedicated setter, like {@link setSessionManualSteps}. */
-  setSessionArtifacts(id: string, artifacts: SessionArtifact[]): void {
-    this.db.run(`UPDATE sessions SET artifactsJson = ?, updatedAt = ? WHERE id = ?`, [
-      JSON.stringify(artifacts),
-      Date.now(),
-      id,
-    ]);
+  setSessionArtifacts(id: string, artifacts: SessionArtifact[], hideMark?: number): void {
+    this.db.run(
+      `UPDATE sessions SET artifactsJson = ?, artifactsHideMark = COALESCE(?, artifactsHideMark),
+        updatedAt = ? WHERE id = ?`,
+      [JSON.stringify(artifacts), hideMark ?? null, Date.now(), id],
+    );
+  }
+
+  /** The newest hide stamp ever issued for a session's artifact row (#3877), null before the
+   *  first. An undo never lowers it, so every hide gets a stamp no earlier one had. */
+  artifactsHideMark(id: string): number | null {
+    const row = this.db.query(`SELECT artifactsHideMark FROM sessions WHERE id = ?`).get(id) as {
+      artifactsHideMark: number | null;
+    } | null;
+    return row?.artifactsHideMark ?? null;
   }
 
   /** Acknowledge a session's manual operator steps (#1060): stamp `manualStepsAckedAt`, clearing
@@ -7609,6 +7622,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // #3875: the artifacts the agent published (JSON SessionArtifact[]), written only via
     // setSessionArtifacts. Nullable: NULL reads as none.
     add("artifactsJson", `artifactsJson TEXT`);
+    // #3877: the newest artifact-row hide stamp issued, written only via setSessionArtifacts.
+    add("artifactsHideMark", `artifactsHideMark INTEGER`);
     add("scheduleBudgetJson", `scheduleBudgetJson TEXT`);
     add("scheduleBudgetEnded", `scheduleBudgetEnded INTEGER NOT NULL DEFAULT 0`);
     add("usagePauseOptOut", `usagePauseOptOut INTEGER NOT NULL DEFAULT 0`);
